@@ -191,7 +191,7 @@ function parseCellValue(col, raw) {
 async function getApiClient() {
   if (_api) return _api;
   const creds = process.env.GOOGLE_CREDENTIALS
-    ? JSON.parse(process.env.GOOGLE_CREDENTIALS)
+    ? JSON.parse(process.env.GOOGLE_CREDENTIALS.trim())
     : require('./credentials.json');
   const auth = new google.auth.GoogleAuth({
     credentials: creds,
