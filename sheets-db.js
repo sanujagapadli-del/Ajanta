@@ -220,6 +220,13 @@ async function getApiClient() {
   const creds = process.env.GOOGLE_CREDENTIALS
     ? parseCredsEnv(process.env.GOOGLE_CREDENTIALS)
     : require('./credentials.json');
+  // Env-var paste often turns real newlines in private_key into literal "\n"
+  // (or worse, "\\n"). Normalize to real newlines so Google can verify the JWT.
+  if (creds && creds.private_key) {
+    creds.private_key = creds.private_key
+      .replace(/\\\\n/g, '\n')
+      .replace(/\\n/g, '\n');
+  }
   const auth = new google.auth.GoogleAuth({
     credentials: creds,
     scopes: ['https://www.googleapis.com/auth/spreadsheets']
