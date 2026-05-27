@@ -2389,6 +2389,6 @@ if (process.env.VERCEL) {
 } else {
   _dbReady.finally(() => app.listen(PORT, () => {
     console.log(`\n  ✦ Task Manager: http://localhost:${PORT}`);
-    console.log(`  Login: admin@admin.com / admin\n`);
+    console.log(`  Login: Vishal@gmail.com / pass123\n`);
   }));
 }

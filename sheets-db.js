@@ -10,7 +10,7 @@
 // • Sheet ID `.env` me `GOOGLE_SHEET_ID` me set karo — pehli baar
 //   blank sheet ho to saare tabs (users, tasks, etc.) auto-create
 //   ho jaate hain headers ke saath + ek default admin user seed ho
-//   jaata hai (admin@admin.com / admin).
+//   jaata hai (Vishal@gmail.com / pass123).
 // ══════════════════════════════════════════════════════════════════
 
 const fs = require('fs');
@@ -316,11 +316,11 @@ async function init() {
       if (userCount === 0) {
         alasql(
           'INSERT INTO users (id,name,email,notification_email,password,role,phone,profile_image,department,week_off,extra_off) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-          [1, 'Admin', 'admin@admin.com', '', 'admin', 'admin', '', '', '', '', '']
+          [1, 'Vishal', 'Vishal@gmail.com', '', 'pass123', 'admin', '', '', '', '', '']
         );
         _nextId.users = 2;
         markDirty('users');
-        console.log('  🌱 Seeded default admin: admin@admin.com / admin');
+        console.log('  🌱 Seeded default admin: Vishal@gmail.com / pass123');
       }
 
       _initialized = true;
