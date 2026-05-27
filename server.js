@@ -4,6 +4,9 @@
 // (Hostinger pe pehli baar SSH terminal kholne ki zaroorat nahi)
 // ══════════════════════════════════════════════════════
 (function autoInstallDependencies() {
+  // Skip on Vercel/serverless — filesystem is read-only and deps are pre-installed during build.
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) return;
+
   const fs = require('fs');
   const path = require('path');
   const { execSync } = require('child_process');
@@ -2378,7 +2381,14 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 // requireAuth here prevents app.html from loading if cookie has any timing/domain issue
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
 
-_dbReady.finally(() => app.listen(PORT, () => {
-  console.log(`\n  ✦ Task Manager: http://localhost:${PORT}`);
-  console.log(`  Login: admin@admin.com / admin\n`);
-}));
+if (process.env.VERCEL) {
+  module.exports = async (req, res) => {
+    await _dbReady;
+    return app(req, res);
+  };
+} else {
+  _dbReady.finally(() => app.listen(PORT, () => {
+    console.log(`\n  ✦ Task Manager: http://localhost:${PORT}`);
+    console.log(`  Login: admin@admin.com / admin\n`);
+  }));
+}
