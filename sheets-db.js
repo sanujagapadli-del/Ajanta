@@ -217,9 +217,16 @@ function parseCredsEnv(raw) {
 
 async function getApiClient() {
   if (_api) return _api;
-  const creds = process.env.GOOGLE_CREDENTIALS
-    ? parseCredsEnv(process.env.GOOGLE_CREDENTIALS)
-    : require('./credentials.json');
+  let creds;
+  if (process.env.GOOGLE_CREDENTIALS_B64) {
+    // Safest: base64 has no escaping/newline ambiguity when pasted in dashboards.
+    const decoded = Buffer.from(process.env.GOOGLE_CREDENTIALS_B64.trim(), 'base64').toString('utf8');
+    creds = JSON.parse(decoded);
+  } else if (process.env.GOOGLE_CREDENTIALS) {
+    creds = parseCredsEnv(process.env.GOOGLE_CREDENTIALS);
+  } else {
+    creds = require('./credentials.json');
+  }
   // Env-var paste often turns real newlines in private_key into literal "\n"
   // (or worse, "\\n"). Normalize to real newlines so Google can verify the JWT.
   if (creds && creds.private_key) {
