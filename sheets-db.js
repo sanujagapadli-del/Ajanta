@@ -188,10 +188,37 @@ function parseCellValue(col, raw) {
 // ══════════════════════════════════════════════════════════════════
 // GOOGLE SHEETS CLIENT
 // ══════════════════════════════════════════════════════════════════
+function parseCredsEnv(raw) {
+  raw = raw.trim();
+  try { return JSON.parse(raw); } catch(_) {}
+  // Fallback: dashboard paste sometimes appends a stray char.
+  // Extract the first balanced {...} block.
+  const start = raw.indexOf('{');
+  if (start === -1) throw new Error('GOOGLE_CREDENTIALS does not contain a JSON object');
+  let depth = 0;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === '"') {
+      i++;
+      while (i < raw.length && raw[i] !== '"') {
+        if (raw[i] === '\\') i++;
+        i++;
+      }
+      continue;
+    }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return JSON.parse(raw.slice(start, i + 1));
+    }
+  }
+  throw new Error('GOOGLE_CREDENTIALS JSON is malformed (unbalanced braces)');
+}
+
 async function getApiClient() {
   if (_api) return _api;
   const creds = process.env.GOOGLE_CREDENTIALS
-    ? JSON.parse(process.env.GOOGLE_CREDENTIALS.trim())
+    ? parseCredsEnv(process.env.GOOGLE_CREDENTIALS)
     : require('./credentials.json');
   const auth = new google.auth.GoogleAuth({
     credentials: creds,
