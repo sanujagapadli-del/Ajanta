@@ -215,18 +215,31 @@ function parseCredsEnv(raw) {
   throw new Error('GOOGLE_CREDENTIALS JSON is malformed (unbalanced braces)');
 }
 
+function loadCreds() {
+  // Try multiple interpretations of the env vars and pick the first that yields
+  // a usable service-account object. Dashboard paste can mangle long values, so
+  // we are deliberately lenient.
+  const candidates = [];
+  const b64 = process.env.GOOGLE_CREDENTIALS_B64;
+  if (b64) {
+    const clean = b64.replace(/[^A-Za-z0-9+/=]/g, ''); // strip whitespace/junk
+    try { candidates.push(Buffer.from(clean, 'base64').toString('utf8')); } catch(_) {}
+    candidates.push(b64); // in case raw JSON was pasted into the _B64 field
+  }
+  if (process.env.GOOGLE_CREDENTIALS) candidates.push(process.env.GOOGLE_CREDENTIALS);
+
+  for (const c of candidates) {
+    try {
+      const creds = parseCredsEnv(c);
+      if (creds && creds.private_key && creds.client_email) return creds;
+    } catch(_) {}
+  }
+  return require('./credentials.json');
+}
+
 async function getApiClient() {
   if (_api) return _api;
-  let creds;
-  if (process.env.GOOGLE_CREDENTIALS_B64) {
-    // Safest: base64 has no escaping/newline ambiguity when pasted in dashboards.
-    const decoded = Buffer.from(process.env.GOOGLE_CREDENTIALS_B64.trim(), 'base64').toString('utf8');
-    creds = JSON.parse(decoded);
-  } else if (process.env.GOOGLE_CREDENTIALS) {
-    creds = parseCredsEnv(process.env.GOOGLE_CREDENTIALS);
-  } else {
-    creds = require('./credentials.json');
-  }
+  let creds = loadCreds();
   // Env-var paste often turns real newlines in private_key into literal "\n"
   // (or worse, "\\n"). Normalize to real newlines so Google can verify the JWT.
   if (creds && creds.private_key) {
