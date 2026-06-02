@@ -392,9 +392,17 @@ let _sheetsWriteClient = null;
 
 async function getSheetsClient(scopes) {
   const { google } = require('googleapis');
-  const creds = process.env.GOOGLE_CREDENTIALS
-    ? JSON.parse(process.env.GOOGLE_CREDENTIALS)
-    : require('./credentials.json');
+  let creds;
+  if (process.env.GOOGLE_CREDENTIALS_B64) {
+    creds = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_B64.replace(/[^A-Za-z0-9+/=]/g, ''), 'base64').toString('utf8'));
+  } else if (process.env.GOOGLE_CREDENTIALS) {
+    creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+  } else {
+    creds = require('./credentials.json');
+  }
+  if (creds && creds.private_key) {
+    creds.private_key = creds.private_key.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
+  }
   const isWrite = scopes.some(s => !s.includes('readonly'));
   if (isWrite) {
     if (_sheetsWriteClient) return _sheetsWriteClient;
