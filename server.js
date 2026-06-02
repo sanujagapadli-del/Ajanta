@@ -634,6 +634,18 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/sync-db', requireAuth, async (req, res) => {
+  if (req.session.role !== 'admin' && req.session.role !== 'pc') {
+    return res.status(403).json({ error: 'Admin only' });
+  }
+  try {
+    await db.resync();
+    res.json({ success: true, message: 'Database resynced from Google Sheets' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,profile_image,department,week_off FROM users WHERE id=?', [req.session.userId]);

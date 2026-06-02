@@ -859,8 +859,16 @@ async function _testInit() {
   _initialized = true;
 }
 
+async function resync() {
+  _initialized = false;
+  _initPromise = null;
+  TABLE_NAMES.forEach(t => { alasql.tables[t].data = []; });
+  await init();
+}
+
 module.exports = {
   init,
+  resync,
   query,
   execute: query,
   getConnection,
