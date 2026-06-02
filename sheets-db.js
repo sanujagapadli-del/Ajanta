@@ -370,11 +370,11 @@ async function init() {
       if (userCount === 0) {
         alasql(
           'INSERT INTO users (id,name,email,notification_email,password,role,phone,profile_image,department,week_off,extra_off) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-          [1, 'Vishal', 'Vishal@gmail.com', '', 'pass123', 'admin', '', '', '', '', '']
+          [1, 'Admin', 'admin@rajkamal.com', '', 'Rajkamal@2024', 'admin', '', '', '', '', '']
         );
         _nextId.users = 2;
         markDirty('users');
-        console.log('  🌱 Seeded default admin: Vishal@gmail.com / pass123');
+        console.log('  🌱 Seeded default admin: admin@rajkamal.com / Rajkamal@2024');
       }
 
       _initialized = true;

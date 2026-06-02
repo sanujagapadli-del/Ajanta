@@ -170,7 +170,7 @@ function delegationEmailHtml({ assigneeName, assignerName, desc, dueDate, priori
         ${remarks ? `<tr><td style="padding:8px;background:#f0f4f8;"><b>Remarks</b></td><td style="padding:8px;">${remarks}</td></tr>` : ''}
       </table>
       <a href="${appUrl}" style="display:inline-block;background:#1976d2;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;">Open Task Manager</a>
-      <p style="color:#777;font-size:12px;margin-top:30px;">Ye automated email hai — KXS Task Manager se.</p>
+      <p style="color:#777;font-size:12px;margin-top:30px;">Ye automated email hai — Rajkamal Task Manager se.</p>
     </div>
   </div>`;
 }
