@@ -302,6 +302,17 @@ tbody tr:last-child td{border-bottom:none;}
 .flat-tasks-table{background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow-x:auto;}
 .bulk-section{margin-top:20px;padding-top:16px;border-top:1px solid #f1f5f9;}
 .file-row{display:flex;align-items:center;gap:8px;margin-top:6px;}
+
+/* ── Modal X close button (top-right) ── */
+.modal-close-x{
+  background:none;border:none;cursor:pointer;
+  width:30px;height:30px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  color:#94a3b8;font-size:18px;font-weight:400;
+  transition:background .15s,color .15s;flex-shrink:0;
+  line-height:1;padding:0;font-family:'Inter',sans-serif;
+}
+.modal-close-x:hover{background:#f1f5f9;color:#ef4444;}
 </style>
 </head>
 <body>
@@ -859,7 +870,10 @@ tbody tr:last-child td{border-bottom:none;}
 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="delegateModal">
   <div class="modal">
-    <h3>+ Delegate Task</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 style="margin:0">+ Delegate Task</h3>
+      <button class="modal-close-x" onclick="closeModal('delegateModal')" title="Close (Esc)">✕</button>
+    </div>
     <div class="alert error" id="delegateErr"></div>
     <div class="form-row">
       <div class="form-group">
@@ -927,7 +941,10 @@ tbody tr:last-child td{border-bottom:none;}
 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="checklistModal">
   <div class="modal">
-    <h3>+ Add Checklist Task</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 style="margin:0">+ Add Checklist Task</h3>
+      <button class="modal-close-x" onclick="closeModal('checklistModal')" title="Close (Esc)">✕</button>
+    </div>
     <div class="alert error" id="checklistErr"></div>
     <div class="alert success" id="checklistSuccess"></div>
 
@@ -3312,6 +3329,13 @@ async function api(url,method='GET',body=null) {
 }
 
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ESC key se koi bhi open modal band ho jaye
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+  }
+});
 
 // Modals sirf Cancel/Close button se band honge — bahar click se nahi
 // document.querySelectorAll('.modal-overlay').forEach(m=>{

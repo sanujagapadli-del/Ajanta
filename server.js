@@ -603,10 +603,20 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const [rows] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
-    const user = rows[0];
+
+    let [rows] = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
+    let user = rows[0];
+
+    // User memory mein nahi mila — Sheet se fresh sync karo aur retry karo
+    if (!user) {
+      try { await db.resync(); } catch(_) {}
+      const [rows2] = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
+      user = rows2[0];
+    }
+
     const check = user ? checkPassword(password, user.password) : { ok: false };
     if (!check.ok) return res.status(401).json({ error: 'Invalid email or password' });
+
     // Legacy bcrypt hash → migrate to plain text (admin can now see in sheet)
     if (check.legacy) {
       try { await db.query('UPDATE users SET password=? WHERE id=?', [password, user.id]); } catch(_) {}
