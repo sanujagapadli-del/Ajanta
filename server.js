@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════
 // 🚀 AUTO-INSTALL BOOTSTRAP
-// Agar koi dependency missing hai to automatic npm install chala dega
-// (Hostinger pe pehli baar SSH terminal kholne ki zaroorat nahi)
+// Automatically runs npm install if any dependency is missing
+// (no SSH terminal needed on first deploy to Hostinger)
 // ══════════════════════════════════════════════════════
 (function autoInstallDependencies() {
   // Skip on Vercel/serverless — filesystem is read-only and deps are pre-installed during build.
@@ -27,7 +27,7 @@
     if (!fs.existsSync(nodeModulesPath)) {
       needsInstall = true;
     } else {
-      // Check 2: Saari dependencies node_modules me hain?
+      // Check 2: Are all dependencies present in node_modules?
       for (const dep of deps) {
         if (!fs.existsSync(path.join(nodeModulesPath, dep))) {
           needsInstall = true;
@@ -43,7 +43,7 @@
 
   if (needsInstall) {
     console.log('  📦 Dependencies missing' + (missingPkg ? ` (${missingPkg})` : '') + ' — installing...');
-    console.log('  ⏳ Ye 1-2 minute le sakta hai, please wait...');
+    console.log('  ⏳ This may take 1-2 minutes, please wait...');
     try {
       execSync('npm install --production --no-audit --no-fund', {
         stdio: 'inherit',
@@ -60,14 +60,14 @@
 
 require('dotenv').config();
 const express = require('express');
-const bcrypt = require('bcryptjs'); // sirf legacy bcrypt hashes ko compare karne ke liye (auto-migrate)
+const bcrypt = require('bcryptjs'); // only for comparing legacy bcrypt hashes (auto-migrate)
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const nodemailer = require('nodemailer');
 
 // Plain text password storage + legacy bcrypt migration.
-// User ne explicitly maanga hai ki sheet me password as-is (plain) dikhe taaki admin
-// dekh sake. Trade-off: sheet ko trusted logon ke saath hi share rakhna.
+// Passwords are stored as plain text so admins can see them in the sheet.
+// Trade-off: only share the sheet with trusted users.
 function checkPassword(plain, stored) {
   if (!stored || plain == null) return false;
   if (plain === stored) return { ok: true, legacy: false };
@@ -161,7 +161,7 @@ function delegationEmailHtml({ assigneeName, assignerName, desc, dueDate, priori
     <div style="background:#fff;border-radius:8px;padding:30px;box-shadow:0 2px 8px rgba(0,0,0,0.05);">
       <h2 style="color:#1976d2;margin-top:0;">📋 New Task Assigned to You</h2>
       <p>Hi <b>${assigneeName || 'there'}</b>,</p>
-      <p><b>${assignerName || 'Someone'}</b> ne aapko ek naya delegation task assign kiya hai:</p>
+      <p><b>${assignerName || 'Someone'}</b> has assigned you a new delegation task:</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0;">
         <tr><td style="padding:8px;background:#f0f4f8;width:140px;"><b>Task</b></td><td style="padding:8px;">${desc}</td></tr>
         <tr><td style="padding:8px;background:#f0f4f8;"><b>Due Date</b></td><td style="padding:8px;">${dueDate}</td></tr>
@@ -170,18 +170,18 @@ function delegationEmailHtml({ assigneeName, assignerName, desc, dueDate, priori
         ${remarks ? `<tr><td style="padding:8px;background:#f0f4f8;"><b>Remarks</b></td><td style="padding:8px;">${remarks}</td></tr>` : ''}
       </table>
       <a href="${appUrl}" style="display:inline-block;background:#1976d2;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;">Open Task Manager</a>
-      <p style="color:#777;font-size:12px;margin-top:30px;">Ye automated email hai — Rajkamal Task Manager se.</p>
+      <p style="color:#777;font-size:12px;margin-top:30px;">This is an automated email from Rajkamal Task Manager.</p>
     </div>
   </div>`;
 }
 
 // ══════════════════════════════════════════════════════
 // v16: DELEGATION REMINDER EMAILS (daily at 12:00 PM)
-// Ek hi mail address ko 3-4 employees use karte hain — isliye user-wise
-// section banakar ek hi mail me sab tasks bhejte hain. Reminder window:
-// due_date <= today+2 AND status='pending'. Task complete ya delete hone
-// par reminders bandh ho jaate hain. Same task ek din me 2 baar reminder
-// nahi bhejti (last_reminder_date column tracking).
+// Multiple employees may share the same email address — so tasks are grouped
+// per user into a single combined email. Reminder window:
+// due_date <= today+2 AND status='pending'. Reminders stop when a task is
+// completed or deleted. A task is reminded at most once per day
+// (tracked via last_reminder_date column).
 // ══════════════════════════════════════════════════════
 
 // Build the combined reminder email HTML for a single notification_email
@@ -191,7 +191,7 @@ function reminderEmailHtml(byUser, todayStr) {
   const userNames = Object.keys(byUser);
   const totalTasks = userNames.reduce((s, n) => s + byUser[n].length, 0);
 
-  // Per-user blocks — user ka naam clearly upar, neeche uski tasks ki table
+  // Per-user blocks — user name at top, tasks table below
   const sections = userNames.map(name => {
     const tasks = byUser[name];
     const rows = tasks.map(t => {
@@ -236,14 +236,14 @@ function reminderEmailHtml(byUser, todayStr) {
     <div style="background:#fff;border-radius:10px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,0.05)">
       <h2 style="color:#dc2626;margin:0 0 4px 0">⏰ Pending Task Reminder</h2>
       <p style="margin:0 0 18px 0;color:#475569;font-size:14px">
-        Aaj <b>${todayStr}</b> — neeche di gayi tasks 2 din ya usse kam me due hain. Please complete on time.
-        ${userNames.length > 1 ? `<br><span style="font-size:12px;color:#64748b">Ye mail <b>${userNames.length} user${userNames.length>1?'s':''}</b> ke liye hai (same email account): ${userNames.join(', ')}</span>` : ''}
+        Today is <b>${todayStr}</b> — the tasks below are due within 2 days. Please complete them on time.
+        ${userNames.length > 1 ? `<br><span style="font-size:12px;color:#64748b">This email covers <b>${userNames.length} user${userNames.length>1?'s':''}</b> (same email account): ${userNames.join(', ')}</span>` : ''}
       </p>
       ${sections}
       <a href="${appUrl}" style="display:inline-block;background:#1976d2;color:#fff;text-decoration:none;padding:11px 22px;border-radius:6px;font-weight:600;margin-top:6px">Open Task Manager</a>
       <p style="color:#94a3b8;font-size:11px;margin-top:18px;border-top:1px solid #eef2f7;padding-top:12px">
-        Total <b>${totalTasks}</b> pending task${totalTasks>1?'s':''}. Reminders task complete hone tak roz 12:00 PM par jaayengi.
-        Stop karne ke liye task ko complete/delete kar do.
+        Total <b>${totalTasks}</b> pending task${totalTasks>1?'s':''}. Reminders are sent daily at 12:00 PM until tasks are completed.
+        To stop reminders, complete or delete the task.
       </p>
     </div>
   </div>`;
@@ -284,7 +284,7 @@ async function runDelegationReminders() {
       return { sent: 0, skipped: 0 };
     }
 
-    // Group by notification_email — ek email pe ek hi mail jaayegi
+    // Group by notification_email — one email per inbox
     const groups = {};
     for (const t of tasks) {
       const email = (t.assigneeEmail || '').trim().toLowerCase();
@@ -327,8 +327,8 @@ async function runDelegationReminders() {
 }
 
 // Scheduler — checks every minute, fires once at the first 12:00 onwards each day.
-// Server restart-safe: agar 12 PM ke baad start hua aur aaj abhi tak run nahi hua,
-// to seedha fire ho jaata hai (taaki Hostinger restart pe miss na ho).
+// Server restart-safe: if started after 12 PM and not yet run today,
+// fires immediately (so a Hostinger restart does not miss the daily send).
 let _lastReminderRunDate = ''; // YYYY-MM-DD of last successful run
 function reminderScheduler() {
   setInterval(async () => {
@@ -336,7 +336,7 @@ function reminderScheduler() {
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
       const hour = now.getHours();
-      // Fire any time at/after 12:00 PM — ek din me ek hi baar
+      // Fire any time at/after 12:00 PM — at most once per day
       if (hour >= 12 && _lastReminderRunDate !== todayStr) {
         _lastReminderRunDate = todayStr;
         console.log(`  🔔 Triggering daily delegation reminders (${now.toLocaleString()})`);
@@ -454,18 +454,18 @@ function idxToCol(idx) {
 // ══════════════════════════════════════════════════════
 // SHARED FMS STATS ENGINE  (single source of truth)
 // ══════════════════════════════════════════════════════
-// Pehle /api/mis/all aur /api/mis/fms dono apne-apne tareeke se Google Sheets
-// padhte the — alag filtering, alag aggregation, silent error swallow. Isi se
-// "kabhi kya dikhata hai" aur "HOD ko alag total" wale bugs aate the.
+// Previously /api/mis/all and /api/mis/fms each read Google Sheets independently
+// — different filtering, different aggregation, silent error swallowing — causing
+// "numbers sometimes differ" and "HOD sees a different total" bugs.
 //
-// Ab dono ek hi function se data lete hain:
-//   • Har sheet ek hi baar padhi jaati hai (request ke andar) + 60s ka cache
-//     => refresh karne par numbers STABLE rehte hain (deterministic).
-//   • Step-level pending/done ek hi jagah count hota hai => per-FMS overview aur
-//     per-user attribution kabhi disagree nahi karte.
-//   • Read fail ho to sheet ka naam `errors[]` me aata hai (silently 0 nahi hota)
-//     => total achanak change nahi hota; UI warning dikha sakta hai.
-//   • HOD ke liye department filter dono jagah EK jaisa lagta hai.
+// Now both use the same function:
+//   • Each sheet is read once per request + 60s cache
+//     => numbers are STABLE on refresh (deterministic).
+//   • Step-level pending/done is counted in one place => per-FMS overview and
+//     per-user attribution never disagree.
+//   • On read failure the sheet name goes into `errors[]` (not silently 0)
+//     => totals don't shift unexpectedly; UI can show a warning.
+//   • HOD department filter is applied identically in both places.
 
 const _fmsSheetCache = new Map(); // key: spreadsheetId|range  -> { rows, ts }
 const FMS_CACHE_TTL_MS = 60 * 1000;
@@ -475,7 +475,7 @@ async function fetchSheetRows(sheet) {
   const tabName = sheet.sheet_name || 'Sheet1';
   const headerRowIdx = (sheet.header_row || 1) - 1;
 
-  // Range plan/actual columns ke hisaab se
+  // Range based on plan/actual columns
   const [steps] = await db.query('SELECT plan_col, actual_col FROM fms_steps WHERE fms_id=?', [sheet.id]);
   const allCols = steps.flatMap(s => [colToIdx(s.plan_col), colToIdx(s.actual_col)]).filter(x => x >= 0);
   if (!allCols.length) return [];
@@ -495,7 +495,7 @@ async function fetchSheetRows(sheet) {
 }
 
 // Returns { perFms: [...], perUser: { uid: {pending,done,total} }, errors: [name] }
-// hodDept '' => admin/pc (sab kuch). hodDept set => sirf un steps jinme us dept ka doer hai.
+// hodDept '' => admin/pc (all steps). hodDept set => only steps where that dept has a doer.
 async function computeFmsStats(hodDept = '', collectPending = false) {
   const result = { perFms: [], perUser: {}, errors: [] };
   if (collectPending) result.perUserPending = {}; // uid -> [ {fmsName, stepName, planValue, planDate, isLate} ]
@@ -515,7 +515,7 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
       step.doers = doers;
     }
 
-    // HOD filter: sirf woh steps jahan us dept ka koi doer hai
+    // HOD filter: only steps where that department has a doer
     const activeSteps = hodDept
       ? steps.filter(s => s.doers.some(d => (d.department || '') === hodDept))
       : steps;
@@ -525,7 +525,7 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
     try {
       rows = await fetchSheetRows(sheet);
     } catch (e) {
-      // Silent 0 NAHI — error report karo taaki total achanak na badle
+      // Do NOT silently return 0 — report the error so totals don't shift unexpectedly
       result.errors.push(fmsName);
       result.perFms.push({ fmsId: sheet.id, fmsName, pending: 0, done: 0, total: 0, steps: [], error: 'Sheet read failed (try again)' });
       continue;
@@ -540,7 +540,7 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
       if (planIdx < 0 || actualIdx < 0) continue;
 
       let stepPending = 0, stepDone = 0;
-      const stepPendingRows = []; // collectPending ke liye — pending row ka detail
+      const stepPendingRows = []; // for collectPending — details of each pending row
       for (const row of rows) {
         const planVal = (row[planIdx] || '').trim();
         const actualVal = (row[actualIdx] || '').trim();
@@ -567,7 +567,7 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
       fmsPending += stepPending;
       fmsDone += stepDone;
 
-      // Per-user attribution: HOD view me sirf dept-doers ko credit (consistency)
+      // Per-user attribution: in HOD view only credit dept-doers (consistency)
       const creditDoers = hodDept ? step.doers.filter(d => (d.department || '') === hodDept) : step.doers;
       for (const d of creditDoers) {
         if (!result.perUser[d.id]) result.perUser[d.id] = { pending: 0, done: 0, total: 0 };
@@ -613,7 +613,7 @@ app.post('/api/login', async (req, res) => {
     let [rows] = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
     let user = rows[0];
 
-    // User memory mein nahi mila — Sheet se fresh sync karo aur retry karo
+    // User not found in memory — resync from Sheet and retry
     if (!user) {
       try { await db.resync(); } catch(_) {}
       const [rows2] = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
@@ -701,23 +701,23 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
       if (filterEmployee && filterEmployee !== 'all') {
         userFilter = 'AND t.assigned_to = ?'; params = [filterEmployee];
       } else {
-        // HOD ka department DB se fetch karo — query param pe depend mat karo
+        // Fetch HOD's department from DB — do not rely on query param
         let resolvedDept = hodDept;
         if (!resolvedDept) {
           const [meRow] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
           resolvedDept = meRow[0]?.department || '';
         }
         if (!resolvedDept) {
-          // Department set nahi hai — sirf apni tasks dikhao
+          // No department set — show only own tasks
           userFilter = 'AND t.assigned_to = ?'; params = [uid];
         } else {
           const [deptUsers] = await db.query('SELECT id FROM users WHERE department=? AND role NOT IN (?,?)', [resolvedDept, 'admin','hod']);
           if (!deptUsers.length) {
-            // Dept mein koi user nahi — apni tasks dikhao
+            // No users in department — show only own tasks
             userFilter = 'AND t.assigned_to = ?'; params = [uid];
           } else {
             const ids = deptUsers.map(u=>u.id);
-            // HOD khud bhi include karo
+            // Also include the HOD themselves
             if (!ids.includes(uid)) ids.push(uid);
             userFilter = `AND t.assigned_to IN (${ids.map(()=>'?').join(',')})`;
             params = ids;
@@ -781,14 +781,14 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
     const params = [];
 
     if (isMine) {
-      // "Delegate by Me" mode — sirf woh tasks jinhe MAINE assign kiya hai.
-      // Role-based scoping skip — koi bhi role apne assign kiye tasks dekh sakta hai.
+      // "Delegate by Me" mode — only tasks assigned BY the current user.
+      // Role-based scoping is skipped — any role can view tasks they assigned.
       where += ' AND t.assigned_by = ?';
       params.push(uid);
     } else if (isAdmin || role === 'pc') {
-      // Admin/PC — sab dikhta hai
+      // Admin/PC — sees everything
     } else if (isHod) {
-      // HOD — apne department ke users ki tasks
+      // HOD — tasks for users in their department
       const [me] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
       const dept = me[0]?.department || '';
       const [deptUsers] = await db.query('SELECT id FROM users WHERE department=?', [dept]);
@@ -799,14 +799,14 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
       where += ` AND t.assigned_to IN (${ids.map(()=>'?').join(',')})`;
       params.push(...ids);
     } else {
-      // Regular user — sirf apni tasks
+      // Regular user — only own tasks
       where += ' AND t.assigned_to = ?';
       params.push(uid);
     }
 
-    // All Tasks — Delegation me upcoming/future tasks bhi dikhao (taaki kal/parso ke task pehle se visible ho aur transfer ho sakein).
-    // Checklist: by default future wale chhupao, BUT if includeFuture=1 query param diya hai (Transfer modal use karta hai)
-    // to upcoming bhi dikhao taaki future checklist tasks bhi transfer ho sake.
+    // All Tasks — show upcoming/future delegation tasks so they're visible and transferable in advance.
+    // Checklist: hide future tasks by default, BUT if includeFuture=1 query param is set (used by Transfer modal)
+    // also show future checklist tasks so they can be transferred.
     const includeFuture = req.query.includeFuture === '1' || req.query.includeFuture === 'true';
     if (!isDeleg && !includeFuture) {
       where += ' AND t.due_date <= CURDATE()';
@@ -819,7 +819,7 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
     const [rawTasks] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,":"'no' AS approval,0 AS waiting_approval,t.remarks,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC`, params);
     const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]||'', assignedByName: uMap[t.assigned_by]||'' }));
 
-    // mine=1 mode me hamesha flat tasks return karte hain (grouped nahi)
+    // mine=1 mode always returns flat tasks (not grouped)
     if (isMine) {
       return res.json({ tasks });
     }
@@ -845,7 +845,7 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     const targetUser = (isAdmin || isHod || isUser) && assignedTo ? parseInt(assignedTo) : req.session.userId;
     if (!desc || !date) return res.status(400).json({ error: 'Description and date required' });
     if ((type||'checklist') === 'delegation') {
-      // Approver: agar approverEmail diya hai to usse dhundo, warna logged-in user
+      // Approver: if approverEmail is provided look up that user, otherwise use logged-in user
       let assignedBy = req.session.userId;
       if (approverEmail) {
         const [aprRows] = await db.query('SELECT id FROM users WHERE email=? LIMIT 1', [approverEmail]);
@@ -900,7 +900,7 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: 'Task not found' });
     const task = rows[0];
     if (!isAdmin && !isPC && task.assigned_to !== uid) return res.status(403).json({ error: 'Not allowed' });
-    // Timestamp: status='completed' pe NOW(); warna NULL (un-complete pe clear).
+    // Timestamp: set to NOW() on completed; otherwise NULL (cleared on un-complete).
     const nowTs = new Date().toISOString().slice(0,19).replace('T',' ');
     const completedAt = status === 'completed' ? nowTs : null;
     if (status === 'completed' && task.waiting_approval) {
@@ -909,8 +909,8 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
       else await db.query(`UPDATE ${table} SET status='completed',waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [nowTs, req.params.id]);
       return res.json({ success: true, needsApproval: false });
     }
-    // Revision request: hamesha approval chahiye (task.approval field sirf completion ke liye)
-    // Completion: sirf tab approval chahiye jab task.approval='yes'
+    // Revision request: always requires approval (task.approval field is only for completion)
+    // Completion: requires approval only when task.approval='yes'
     const needsApproval = type === 'delegation' && !isAdmin && !isPC &&
       (status === 'revised' || task.approval === 'yes');
     if (needsApproval) {
@@ -923,7 +923,7 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
     }
     if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='pending',due_date=?,completed_at=? WHERE id=?`, [status, newDate, completedAt, req.params.id]);
     else {
-      // checklist_tasks mein waiting_approval column nahi hota
+      // checklist_tasks does not have a waiting_approval column
       if (type === 'checklist') await db.query(`UPDATE ${table} SET status=?,completed_at=? WHERE id=?`, [status, completedAt, req.params.id]);
       else await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [status, completedAt, req.params.id]);
     }
@@ -1055,7 +1055,7 @@ app.delete('/api/tasks/delete-by-date', requireAuth, requireAdmin, async (req, r
 });
 
 // Count checklist tasks for a user (all time or by year, optionally filtered by frequency).
-// v16: completed tasks are EXCLUDED — bulk delete sirf pending/revised pe lagti hai.
+// v16: completed tasks are EXCLUDED — bulk delete only applies to pending/revised tasks.
 app.get('/api/tasks/checklist-year-count', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { userId, year, frequency } = req.query;
@@ -1165,7 +1165,7 @@ app.get('/api/mis', requireAuth, async (req, res) => {
     let userFilter = '';
     let deptParams = [start, end];
     if (isUser) {
-      // Regular user: sirf apna data
+      // Regular user: own data only
       userFilter = 'AND u.id=?';
       deptParams = [start, end, uid];
     } else if (isHod) {
@@ -1354,7 +1354,7 @@ app.get('/api/mis/all', requireAuth, requireAdminOrHod, async (req, res) => {
     const isHod = req.session.role === 'hod';
     const uid = req.session.userId;
 
-    // HOD ka department ek hi baar nikaal lo (FMS aur task filter dono me use hoga)
+    // Fetch HOD's department once (used for both FMS and task filters)
     let hodDept = '';
     if (isHod) {
       const [me] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
@@ -1420,7 +1420,7 @@ app.get('/api/mis/all', requireAuth, requireAdminOrHod, async (req, res) => {
       userMap[r.userId].checklistCompleted = parseInt(r.completed)||0;
     }
 
-    // Fetch week plan for each user — DATE_FORMAT taaki frontend ko clean YYYY-MM-DD mile (ISO timestamp nahi)
+    // Fetch week plan for each user — DATE_FORMAT gives clean YYYY-MM-DD (not ISO timestamp)
     let planMap = {};
     try {
       const [plans] = await db.query(
@@ -1431,21 +1431,21 @@ app.get('/api/mis/all', requireAuth, requireAdminOrHod, async (req, res) => {
     } catch(e) { /* week_plans table may not exist yet */ }
 
     // ── FMS contribution per user (shared engine — deterministic + cached) ──
-    // computeFmsStats() se hi /api/mis/fms bhi data leta hai, isliye per-employee
-    // FMS aur FMS Overview ke numbers ab HAMESHA match karte hain. HOD/admin dono
-    // par EK jaisa dept-filter lagta hai. Read fail ho to fmsErrors me naam aata hai.
+    // /api/mis/fms also uses computeFmsStats(), so per-employee FMS numbers and
+    // FMS Overview always match. The same dept-filter applies for both HOD and admin.
+    // On read failure the sheet name goes into fmsErrors.
     let fmsUserMap = {};
     let fmsErrors = [];
     try {
-      // ROLE-INDEPENDENT: hamesha all-doers crediting (hodDept='') taaki ek hi employee ka
-      // FMS total/score admin aur HOD dono ko BILKUL EK JAISA dikhe. Dept ka filter sirf
-      // niche rows (kaun-kaun employee dikhega) par lagta hai — numbers par nahi.
+      // ROLE-INDEPENDENT: always credit all doers (hodDept='') so each employee's
+      // FMS total/score is identical for both admin and HOD views. Dept filter only
+      // affects which employees are listed — not the numbers themselves.
       const fmsStats = await computeFmsStats('');
       fmsUserMap = fmsStats.perUser || {};
       fmsErrors = fmsStats.errors || [];
     } catch (e) { fmsErrors = ['FMS data unavailable']; }
 
-    // Agar koi user sirf FMS me kaam karta hai (del/chl me 0 tasks) to use bhi userMap me daalo.
+    // Also include users who only have FMS work (0 delegation/checklist tasks).
     if (Object.keys(fmsUserMap).length) {
       const fmsUserIds = Object.keys(fmsUserMap).map(x => parseInt(x)).filter(x => !userMap[x]);
       if (fmsUserIds.length) {
@@ -1465,7 +1465,7 @@ app.get('/api/mis/all', requireAuth, requireAdminOrHod, async (req, res) => {
     const rows = Object.values(userMap).map(u => {
       const d = u.delegation, c = u.checklist;
       const fms = fmsUserMap[u.userId] || { total: 0, pending: 0, done: 0 };
-      // FMS total = done + pending (dono Total column me count hone chahiye)
+      // FMS total = done + pending (both should count toward the Total column)
       const fmsRealTotal = fms.done + fms.pending;
       const totalAll = d.total + c.total + fmsRealTotal;
       const pendingAll = d.pending + c.pending + fms.pending;
@@ -1483,8 +1483,8 @@ app.get('/api/mis/all', requireAuth, requireAdminOrHod, async (req, res) => {
         totalAll, pendingAll, overdueAll, revisedAll, completedAll, overallScore, plan };
     }).filter(u => u.totalAll > 0).sort((a,b) => a.name.localeCompare(b.name));
 
-    // Backward compatible: agar koi error nahi to seedha array bhejte hain (jaise pehle).
-    // Error hone par object bhejte hain taaki frontend warning dikha sake.
+    // Backward compatible: if no errors, return plain array (as before).
+    // On error, return an object so the frontend can show a warning.
     if (fmsErrors.length) return res.json({ rows, fmsErrors });
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1498,14 +1498,14 @@ app.get('/api/mis/fms', requireAuth, requireAdminOrHod, async (req, res) => {
     const isHod = req.session.role === 'hod';
     const uid = req.session.userId;
 
-    // HOD ka department (FMS dept-filter ke liye)
+    // HOD's department (for FMS dept-filter)
     let hodDept = '';
     if (isHod) {
       const [meRow] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
       hodDept = meRow[0]?.department || '';
     }
 
-    // Same shared engine jo /api/mis/all use karta hai => numbers HAMESHA match honge
+    // Same shared engine as /api/mis/all => numbers always match
     const fmsStats = await computeFmsStats(hodDept);
     res.json(fmsStats.perFms);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1514,14 +1514,14 @@ app.get('/api/mis/fms', requireAuth, requireAdminOrHod, async (req, res) => {
 // ══════════════════════════════════════════════════════
 // EMPLOYEE RECORDS  (Admin / HOD / PC) — Plan vs Done
 // ──────────────────────────────────────────────────────
-// Ek hi CANONICAL source. Kisi bhi employee ke numbers (total / done / pending /
-// score / committed plan) viewer ke role par DEPEND NAHI karte. Role sirf ye
-// decide karta hai ki KAUN-KAUN employee dikhega:
-//   • admin / pc  → sabhi employees
-//   • hod         → sirf apne department ke employees
-// Isi liye admin aur HOD dono ko ek hi employee ka EXACT same total/score dikhega.
-// Har employee ke saath uska committed plan inline aata hai, aur pending tasks ki
-// poori list (delegation + checklist + FMS) bhi.
+// Single CANONICAL source. An employee's numbers (total / done / pending /
+// score / committed plan) do NOT depend on the viewer's role. Role only
+// controls which employees are visible:
+//   • admin / pc  → all employees
+//   • hod         → only employees in their department
+// Therefore admin and HOD always see the EXACT same total/score for a given employee.
+// Each employee row includes their committed plan inline, plus the full list of
+// pending tasks (delegation + checklist + FMS).
 // ══════════════════════════════════════════════════════
 app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res) => {
   try {
@@ -1530,14 +1530,14 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
     const isHod = req.session.role === 'hod';
     const uid = req.session.userId;
 
-    // HOD ka department (sirf visibility ke liye)
+    // HOD's department (visibility only)
     let hodDept = '';
     if (isHod) {
       const [me] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
       hodDept = me[0]?.department || '';
     }
 
-    // Score formula — bilkul wahi jo MIS me use hota hai (consistency)
+    // Score formula — identical to the one used in MIS (consistency)
     const calcScore = (total, pending, overdue, revised) => {
       total = parseInt(total)||0; pending = parseInt(pending)||0;
       overdue = parseInt(overdue)||0; revised = parseInt(revised)||0;
@@ -1546,7 +1546,7 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
         : null;
     };
 
-    // Dept filter sirf visibility ke liye (numbers par nahi)
+    // Dept filter for visibility only (does not affect numbers)
     let deptFilter = '';
     let deptParams = [start, end];
     if (isHod) { deptFilter = 'AND u.department=?'; deptParams = [start, end, hodDept]; }
@@ -1592,7 +1592,7 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
       e.chl = { total:+r.total||0, pending:+r.pending||0, completed:+r.completed||0, overdue:+r.overdue||0 };
     }
 
-    // ── FMS (ROLE-INDEPENDENT: hamesha all-doers crediting) + pending detail ──
+    // ── FMS (ROLE-INDEPENDENT: always credit all doers) + pending detail ──
     let fmsPerUser = {}, fmsPerUserPending = {}, fmsErrors = [];
     try {
       const fmsStats = await computeFmsStats('', true);
@@ -1601,7 +1601,7 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
       fmsErrors = fmsStats.errors || [];
     } catch (e) { fmsErrors = ['FMS data unavailable']; }
 
-    // Sirf-FMS-walon ko bhi list me daalo (dept visibility ke saath)
+    // Also add FMS-only users to the list (respecting dept visibility)
     const fmsOnlyIds = Object.keys(fmsPerUser).map(x => parseInt(x)).filter(x => !map[x]);
     if (fmsOnlyIds.length) {
       let q = `SELECT id, name, department FROM users WHERE id IN (${fmsOnlyIds.map(()=>'?').join(',')})`;
@@ -1624,8 +1624,8 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
       for (const p of plans) if (!planMap[p.employee_id]) planMap[p.employee_id] = p;
     } catch (e) { /* table may not exist */ }
 
-    // Jis employee ka plan committed hai par koi task/FMS nahi — usse bhi list me laao
-    // (taaki "har employee ke saamne plan" dikhe). HOD ke liye dept visibility respect hoti hai.
+    // Also include employees who have a committed plan but no tasks or FMS work
+    // (so every employee's plan is always visible). HOD dept visibility is respected.
     const planOnlyIds = Object.keys(planMap).map(x => parseInt(x)).filter(x => !map[x]);
     if (planOnlyIds.length) {
       let pq = `SELECT id, name, department FROM users WHERE id IN (${planOnlyIds.map(()=>'?').join(',')})`;
@@ -2049,7 +2049,7 @@ app.get('/api/fms-tasks/:fmsId/steps/:stepId/rows', requireAuth, async (req, res
       if (planVal && !actualVal) {
         const rowData = {};
         let colsToShow = showCols.length ? showCols : headers.map((_,hi) => hi);
-        // Plan column always show karo — mandatory
+        // Always show the plan column — mandatory
         if (planIdx >= 0 && !colsToShow.includes(planIdx)) colsToShow = [planIdx, ...colsToShow];
         colsToShow.forEach(ci => {
           const h = headers[ci] || `COL ${idxToCol(ci)}`;
@@ -2077,7 +2077,7 @@ app.post('/api/fms-tasks/:fmsId/steps/:stepId/done', requireAuth, async (req, re
   try {
     const { rowNumber, actualValue, delayReason, extraInputs } = req.body;
     if (!rowNumber || !actualValue) return res.status(400).json({ error: 'rowNumber and actualValue required' });
-    // Full timestamp (date + time) save karte hain — user ne explicitly maanga hai
+    // Save full timestamp (date + time) — explicitly requested by user
     const dateOnlyValue = actualValue;
 
     const [sheets] = await db.query('SELECT * FROM fms_sheets WHERE id=?', [req.params.fmsId]);
@@ -2094,15 +2094,15 @@ app.post('/api/fms-tasks/:fmsId/steps/:stepId/done', requireAuth, async (req, re
     const spreadsheetId = extractSpreadsheetId(sheet.sheet_id);
     const tabName = sheet.sheet_name || 'Sheet1';
 
-    // ── BATCH WRITE: sab columns ek hi API call mein likhte hain ──
-    // Pehle doer name fetch karo (DB call) taaki sheet call sirf ek ho
+    // ── BATCH WRITE: write all columns in one API call ──
+    // Fetch doer name first (DB call) so the sheet write is a single call
     let doerName = '';
     if (step.doer_name_col) {
       const [userRows] = await db.query('SELECT name FROM users WHERE id=? LIMIT 1', [req.session.userId]);
       doerName = userRows[0]?.name || '';
     }
 
-    // Sabhi ranges build karo
+    // Build all ranges
     const batchData = [];
 
     // 1. Actual date column (mandatory)
@@ -2324,9 +2324,9 @@ app.post('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
     const impPct = (improvementPct !== undefined && improvementPct !== null && improvementPct !== '') ? parseInt(improvementPct) : null;
     const tCount = (targetCount !== undefined && targetCount !== null && targetCount !== '') ? parseInt(targetCount) : 0;
     const finalHodId = hodId || req.session.userId;
-    // Upsert: insert ya update if same employee+startDate exists.
-    // IMPORTANT: created_at sirf insert pe set hota hai (DEFAULT CURRENT_TIMESTAMP); update pe preserve rehta hai.
-    // updated_at auto-update hota hai schema ki vajah se (ON UPDATE CURRENT_TIMESTAMP).
+    // Upsert: insert or update if same employee+startDate exists.
+    // IMPORTANT: created_at is only set on insert (DEFAULT CURRENT_TIMESTAMP); preserved on update.
+    // updated_at is auto-updated by the schema (ON UPDATE CURRENT_TIMESTAMP).
     const [result] = await db.execute(
       `INSERT INTO week_plans (employee_id, hod_id, start_date, target_count, improvement_pct)
        VALUES (?, ?, ?, ?, ?)
@@ -2394,10 +2394,10 @@ app.post('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
 
 // GET week-plan list — supports filters for Reports tab (next update)
 // Query params (all optional):
-//   ?employeeId=123      → specific employee ka history
+//   ?employeeId=123      → history for a specific employee
 //   ?from=YYYY-MM-DD     → start_date >= from
 //   ?to=YYYY-MM-DD       → start_date <= to
-//   ?limit=N             → default 500 (Reports tab ke liye sufficient; pagination future)
+//   ?limit=N             → default 500 (sufficient for Reports tab; pagination future)
 app.get('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
   try {
     const { employeeId, from, to } = req.query;
@@ -2407,8 +2407,8 @@ app.get('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
     if (employeeId) { where.push('wp.employee_id = ?'); params.push(parseInt(employeeId)); }
     if (from) { where.push('wp.start_date >= ?'); params.push(from); }
     if (to)   { where.push('wp.start_date <= ?'); params.push(to); }
-    // HOD ko apne dept ke users hi dikhne chahiye (admin sab dekh sakta hai)
-    // JWT me department nahi hai, isliye fresh DB se fetch karna padta hai
+    // HOD should only see users in their department (admin sees all)
+    // Department is not in the JWT, so it must be fetched fresh from the DB
     if (req.session.role === 'hod') {
       const [me] = await db.query('SELECT department FROM users WHERE id=?', [req.session.userId]);
       where.push('u.department = ?');
@@ -2443,14 +2443,14 @@ app.get('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
   }
 });
 
-// GET history endpoint — Reports tab ke liye dedicated:
+// GET history endpoint — dedicated for Reports tab:
 //   /api/week-plan/history/:employeeId
-// Returns sare weeks (newest first) for a single employee, with HOD name aur timestamps.
+// Returns all weeks (newest first) for a single employee, with HOD name and timestamps.
 app.get('/api/week-plan/history/:employeeId', requireAuth, requireAdminOrHod, async (req, res) => {
   try {
     const empId = parseInt(req.params.employeeId);
     if (!empId) return res.json({ error: 'Invalid employeeId' });
-    // HOD sirf apne dept ke user ka history dekh sake
+    // HOD can only view history for users in their own department
     if (req.session.role === 'hod') {
       const [me]  = await db.query('SELECT department FROM users WHERE id=?', [req.session.userId]);
       const [chk] = await db.execute('SELECT department FROM users WHERE id=?', [empId]);
@@ -2536,7 +2536,7 @@ const REPORT_CONFIG = {
   bills: { tab: 'Bills', keywords: ['pur invdate', 'pur qty', 'pur costvalue'] }
 };
 
-// First 25 rows scan karo — jis row mein saare keywords milein woh header hai
+// Scan first 25 rows — the row containing all keywords is the header
 function findHeaderRowIndex(rows, keywords) {
   for (let i = 0; i < Math.min(rows.length, 25); i++) {
     const text = rows[i].join('|').toLowerCase();
@@ -2545,7 +2545,7 @@ function findHeaderRowIndex(rows, keywords) {
   return -1;
 }
 
-// Quota errors pe exponential backoff retry
+// Exponential backoff retry on quota errors
 async function withRetry(fn, retries = 4) {
   for (let i = 0; i <= retries; i++) {
     try { return await fn(); }
@@ -2559,7 +2559,7 @@ async function withRetry(fn, retries = 4) {
   }
 }
 
-// Tab exist karo ya bana do — returns { sheetId, isNew }
+// Ensure tab exists, creating it if needed — returns { sheetId, isNew }
 async function ensureTab(sheetsApi, spreadsheetId, tabName) {
   const meta = await withRetry(() => sheetsApi.spreadsheets.get({ spreadsheetId }));
   const found = meta.data.sheets.find(s => s.properties.title === tabName);
@@ -3008,8 +3008,8 @@ app.post('/api/stock-csv-import', requireAuth, misUpload.single('file'), async (
     res.json({ success: true, rowsAdded: bodyRows.length, totalRows, isAppend, tab: tabName, uploadDate: dateStr });
   } catch (err) {
     console.error('MIS import error:', err.message);
-    if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Service account ko Editor access do.' });
-    if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Sheet ID .env mein check karo.' });
+    if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Grant the service account Editor access.' });
+    if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Check the Sheet ID in .env.' });
     // Strip non-printable / binary chars from error message before sending to client
     const safeMsg = (err.message || 'Unknown error').replace(/[^\x20-\x7E -￿]/g, '?').slice(0, 300);
     res.status(500).json({ error: safeMsg });
@@ -3083,8 +3083,8 @@ app.post('/api/stock-rows-import', requireAuth, async (req, res) => {
 
   } catch (err) {
     console.error('MIS rows import error:', err.message);
-    if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Service account ko Editor access do.' });
-    if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Sheet ID .env mein check karo.' });
+    if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Grant the service account Editor access.' });
+    if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Check the Sheet ID in .env.' });
     res.status(500).json({ error: (err.message || 'Unknown error').slice(0, 300) });
   }
 });

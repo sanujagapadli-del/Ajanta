@@ -2,15 +2,15 @@
 // sheets-db.js — Google Sheets backed in-memory database adapter
 // ──────────────────────────────────────────────────────────────────
 // • Drop-in replacement for mysql2/promise pool: db.query / db.execute /
-//   db.getConnection() — server.js me kuchh change nahi chahiye.
-// • Internally alasql (in-memory SQL engine) use karta hai — saari
-//   reads MEMORY se = microseconds (MySQL se 50-100x tez).
-// • Writes pehle memory me (instant response), phir background me
-//   ek debounced batchUpdate call Google Sheets pe (1.5 sec ke baad).
-// • Sheet ID `.env` me `GOOGLE_SHEET_ID` me set karo — pehli baar
-//   blank sheet ho to saare tabs (users, tasks, etc.) auto-create
-//   ho jaate hain headers ke saath + ek default admin user seed ho
-//   jaata hai (Vishal@gmail.com / pass123).
+//   db.getConnection() — no changes needed in server.js.
+// • Internally uses alasql (in-memory SQL engine) — all reads from
+//   memory = microseconds (50-100x faster than MySQL).
+// • Writes first to memory (instant response), then in the background
+//   a debounced batchUpdate call to Google Sheets (after 1.5 sec).
+// • Set the Sheet ID in `.env` as `GOOGLE_SHEET_ID` — on first run
+//   with a blank sheet, all tabs (users, tasks, etc.) are auto-created
+//   with headers, and a default admin user is seeded
+//   (Vishal@gmail.com / pass123).
 // ══════════════════════════════════════════════════════════════════
 
 const fs = require('fs');
@@ -25,8 +25,8 @@ const MAX_CELL_CHARS = 45000;       // Sheets cell limit ~50k, leave room
 const BLOB_DIR = path.join(__dirname, 'data', 'blobs');
 
 // ── Schema (10 tables) ─────────────────────────────────────────────
-// `cols` = column order ki authoritative list (sheet headers bhi yahi)
-// `autoFill` = INSERT pe agar column miss hai to ye default fill hoga
+// `cols` = authoritative column order (also used as sheet headers)
+// `autoFill` = if a column is missing on INSERT, this default is filled in
 // keyType: 'AUTO' = AUTOINCREMENT INT id, 'NONE' = no auto key
 
 const SCHEMA = {
@@ -82,9 +82,9 @@ const SCHEMA = {
 
 const TABLE_NAMES = Object.keys(SCHEMA);
 
-// Derived "display" columns — sheet me extra dikhte hain par alasql me store nahi hote.
-// User-facing readability ke liye (e.g. YES/NO instead of 'completed'/'pending').
-// Init-time pe ignore hote hain (load only reads SCHEMA cols).
+// Derived "display" columns — shown as extra columns in the sheet but not stored in alasql.
+// For user-facing readability (e.g. YES/NO instead of 'completed'/'pending').
+// Ignored at init-time (load only reads SCHEMA cols).
 const SHEET_DERIVED = {
   delegation_tasks: {
     is_done: row => (row.status === 'completed') ? 'YES' : 'NO'
@@ -94,8 +94,8 @@ const SHEET_DERIVED = {
   }
 };
 
-// Integer columns — sheet se string aati hain, alasql me daalne se pehle
-// parse karte hain taaki SQL me arithmetic/IN comparisons sahi chalein.
+// Integer columns — values come from the sheet as strings, parsed before
+// inserting into alasql so arithmetic/IN comparisons work correctly in SQL.
 const INT_COLS = new Set([
   'id','assigned_to','assigned_by','user_id','task_id','requested_by','requested_to',
   'employee_id','hod_id','target_count','improvement_pct','fms_id','step_id','step_order',
@@ -285,7 +285,7 @@ async function init() {
         alasql(`CREATE TABLE IF NOT EXISTS ${t} (${colsSql})`);
       }
 
-      // 2. Spreadsheet metadata — kya tabs already exist?
+      // 2. Spreadsheet metadata — check which tabs already exist
       const meta = await api.spreadsheets.get({
         spreadsheetId: _spreadsheetId,
         fields: 'sheets.properties'
@@ -415,8 +415,8 @@ async function init() {
 // SQL PREPROCESSING
 // ══════════════════════════════════════════════════════════════════
 
-// alasql me kuch words reserved hain (TOTAL, COUNT, etc.) jo aliases ke
-// liye fail karte hain. Solution: har `AS xxx` ko backticks me wrap kar do.
+// alasql has some reserved words (TOTAL, COUNT, etc.) that fail as aliases.
+// Solution: wrap every `AS xxx` in backticks.
 function escapeAliases(sql) {
   // Skip portions inside single-quoted strings
   return sql.replace(/'(?:[^'\\]|\\.)*'|\bAS\s+(\w+)\b/gi, (match, alias) => {
@@ -531,9 +531,9 @@ function insertExtrasIntoMultiTupleParams(params, colsPerTuple, extraParams, tup
 // ══════════════════════════════════════════════════════════════════
 // QUERY API
 // ══════════════════════════════════════════════════════════════════
-// Pure-integer string param ko number me coerce karo (Express req.params.id
-// hamesha string aati hai, par alasql strict comparison karta hai — number 1
-// vs string '1' match nahi karta. Yeh fix WHERE/JOIN comparisons ke liye zaroori hai.)
+// Coerce pure-integer string params to numbers (Express req.params.id is
+// always a string, but alasql does strict comparison — number 1 vs string '1'
+// won't match. This fix is required for WHERE/JOIN comparisons to work.)
 const INT_STR_RE = /^(?:0|-?[1-9]\d*)$/;
 function coerceParams(params) {
   if (!Array.isArray(params)) return params;
