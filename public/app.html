@@ -4335,27 +4335,33 @@ async function importStockCSV(reportType) {
     });
     const ct = resp.headers.get('content-type') || '';
     if (resp.status === 413 || (resp.status >= 400 && !ct.includes('application/json'))) {
-      useBrowserFallback = true; // file too large for Vercel, try browser parsing
+      useBrowserFallback = true; // file too large or infra error, try browser parsing
     } else if (ct.includes('application/json')) {
       const data = await resp.json();
-      if (data.error) throw new Error(data.error);
-      const now2 = new Date();
-      const ds2 = String(now2.getDate()).padStart(2,'0') + '-' + MONTHS[now2.getMonth()] + '-' + now2.getFullYear();
-      status.style.cssText = OK_CSS;
-      status.innerHTML = data.isAppend
-        ? '<strong>✅ Data Appended!</strong><br/>' + data.rowsAdded + ' rows added to ' + (tabLabels[reportType]||data.tab) + ' tab.'
-        : '<strong>✅ Import successful!</strong><br/>' + data.rowsAdded + ' rows imported to ' + (tabLabels[reportType]||data.tab) + ' tab.';
-      fileEl.value = '';
-      localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: data.rowsAdded, uploadDate: ds2 }));
-      _lastImportTime = Date.now(); loadImsStats();
-      setTimeout(() => { status.style.display = 'none'; }, 3000);
-      btn.disabled = false; btn.textContent = '⬆  Import to Google Sheet'; return;
+      if (data.error) {
+        // 500 = server parse failure → fall back to browser parsing
+        // 400 = config/auth error → show to user and stop
+        if (resp.status === 500) { useBrowserFallback = true; }
+        else throw new Error(data.error);
+      } else {
+        const now2 = new Date();
+        const ds2 = String(now2.getDate()).padStart(2,'0') + '-' + MONTHS[now2.getMonth()] + '-' + now2.getFullYear();
+        status.style.cssText = OK_CSS;
+        status.innerHTML = data.isAppend
+          ? '<strong>✅ Data Appended!</strong><br/>' + data.rowsAdded + ' rows added to ' + (tabLabels[reportType]||data.tab) + ' tab.'
+          : '<strong>✅ Import successful!</strong><br/>' + data.rowsAdded + ' rows imported to ' + (tabLabels[reportType]||data.tab) + ' tab.';
+        fileEl.value = '';
+        localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: data.rowsAdded, uploadDate: ds2 }));
+        _lastImportTime = Date.now(); loadImsStats();
+        setTimeout(() => { status.style.display = 'none'; }, 3000);
+        btn.disabled = false; btn.textContent = '⬆  Import to Google Sheet'; return;
+      }
     } else {
       useBrowserFallback = true;
     }
   } catch (e) {
     if (e && e.message) {
-      // Real server error (not a size issue)
+      // Config/auth error → show to user
       status.style.cssText = ERR_CSS;
       status.innerHTML = '<strong>❌ Error:</strong> ' + e.message;
       setTimeout(() => { status.style.cssText = ''; status.innerHTML = ''; }, 3000);
