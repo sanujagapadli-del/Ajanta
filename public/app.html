@@ -4092,13 +4092,15 @@ function renderRptSummary(s, stock) {
   renderChartLine('rptChart-sales', 'sales', rows.map(r=>r.date), rows.map(r=>r.amount), rows.map(r=>r.qty));
 }
 
-function renderRptCategories(cats) {
+function renderRptCategories(cats, showAll) {
   const body = document.getElementById('rptCatBody');
   if (!body) return;
   if (!cats.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
   const grand = cats.reduce((s, c) => s + (c.amount || 0), 0) || 1;
   const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16','#f97316','#6366f1','#ec4899'];
-  body.innerHTML = cats.map((c, i) => {
+  window._catCache = cats;
+  const visible = showAll ? cats : cats.slice(0, 10);
+  const rowsHtml = visible.map((c, i) => {
     const pct = ((c.amount / grand) * 100).toFixed(1);
     const bar = `<div style="display:flex;align-items:center;gap:8px">
       <div style="flex:1;height:9px;background:#f1f5f9;border-radius:99px;overflow:hidden;min-width:60px">
@@ -4115,15 +4117,20 @@ function renderRptCategories(cats) {
       <td class="rpt-td">${bar}</td>
     </tr>`;
   }).join('');
-  // Horizontal bar chart
+  const moreBtn = (!showAll && cats.length > 10)
+    ? `<tr><td colspan="6" style="text-align:center;padding:12px"><button onclick="renderRptCategories(window._catCache,true)" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${cats.length} categories</button></td></tr>`
+    : '';
+  body.innerHTML = rowsHtml + moreBtn;
   renderChartHBar('rptChart-cat', 'cat', cats.map(c=>c.category), cats.map(c=>c.amount), lbl => showDrilldown('category', lbl));
 }
 
-function renderRptSalespersons(sps) {
+function renderRptSalespersons(sps, showAll) {
   const body = document.getElementById('rptSpBody');
   if (!body) return;
   if (!sps.length) { body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
-  body.innerHTML = sps.map((s, i) => {
+  window._spCache = sps;
+  const visible = showAll ? sps : sps.slice(0, 10);
+  const rowsHtml = visible.map((s, i) => {
     const txn = s.transactions || 0;
     const avgItems = txn ? (Number(s.qty || 0) / txn).toFixed(1) : '—';
     const avgAmt   = txn ? Math.round(s.amount / txn) : 0;
@@ -4137,7 +4144,10 @@ function renderRptSalespersons(sps) {
       <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:700">${fmtINR(avgAmt)}</td>
     </tr>`;
   }).join('');
-  // Vertical bar chart
+  const moreBtn = (!showAll && sps.length > 10)
+    ? `<tr><td colspan="7" style="text-align:center;padding:12px"><button onclick="renderRptSalespersons(window._spCache,true)" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${sps.length} salespersons</button></td></tr>`
+    : '';
+  body.innerHTML = rowsHtml + moreBtn;
   renderChartVBar('rptChart-sp', 'sp', sps.map(s=>s.name), sps.map(s=>s.amount), lbl => showDrilldown('salesperson', lbl));
 }
 
@@ -4151,14 +4161,13 @@ function _rptPctBar(pct, color) {
   </div>`;
 }
 
-function renderRptSupplierSales(items) {
+function renderRptSupplierSales(items, showAll) {
   const body = document.getElementById('rptSupplierBody');
   if (!body) return;
   if (!items.length) { body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
   const grand = items.reduce((s,c) => s+(c.amount||0), 0) || 1;
   const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16','#f97316','#6366f1','#ec4899'];
 
-  // Speed classification based on qty sold relative to median
   const qtys = items.map(c => Number(c.qty)||0).sort((a,b) => a-b);
   const median = qtys[Math.floor(qtys.length/2)] || 1;
   const speedBadge = qty => {
@@ -4167,7 +4176,11 @@ function renderRptSupplierSales(items) {
     return `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap">🐢 Slow</span>`;
   };
 
-  body.innerHTML = items.map((c, i) => {
+  // Cache for expand button
+  window._supplierSalesCache = { items, speedBadge, grand, COLORS };
+
+  const visible = showAll ? items : items.slice(0, 10);
+  const rowsHtml = visible.map((c, i) => {
     const pct = ((c.amount/grand)*100).toFixed(1);
     return `<tr class="${i%2?'rpt-tr-even':''}">
       <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
@@ -4179,15 +4192,31 @@ function renderRptSupplierSales(items) {
       <td class="rpt-td" style="text-align:center">${speedBadge(Number(c.qty)||0)}</td>
     </tr>`;
   }).join('');
+  const moreBtn = (!showAll && items.length > 10)
+    ? `<tr><td colspan="7" style="text-align:center;padding:12px">
+         <button onclick="expandSupplierSales()" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">
+           ▼ Show All ${items.length} suppliers
+         </button>
+       </td></tr>`
+    : '';
+  body.innerHTML = rowsHtml + moreBtn;
   // Horizontal bar chart (top 15)
   renderChartHBar('rptChart-supplier', 'supplier', items.slice(0,15).map(c=>c.name), items.slice(0,15).map(c=>c.amount), lbl => showDrilldown('supplier', lbl));
 }
 
-function renderRptCityState(items) {
+function expandSupplierSales() {
+  const cache = window._supplierSalesCache;
+  if (!cache) return;
+  renderRptSupplierSales(cache.items, true);
+}
+
+function renderRptCityState(items, showAll) {
   const body = document.getElementById('rptCityStateBody');
   if (!body) return;
   if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
-  body.innerHTML = items.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+  window._cityCache = items;
+  const visible = showAll ? items : items.slice(0, 10);
+  const rowsHtml = visible.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}">
     <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
     <td class="rpt-td" style="font-weight:700;color:#7c3aed">${c.city}</td>
     <td class="rpt-td" style="color:#64748b">${c.state}</td>
@@ -4195,16 +4224,21 @@ function renderRptCityState(items) {
     <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
     <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(c.amount)}</td>
   </tr>`).join('');
-  // Horizontal bar chart (top 20, label = city + state)
+  const moreBtn = (!showAll && items.length > 10)
+    ? `<tr><td colspan="6" style="text-align:center;padding:12px"><button onclick="renderRptCityState(window._cityCache,true)" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${items.length} cities</button></td></tr>`
+    : '';
+  body.innerHTML = rowsHtml + moreBtn;
   renderChartHBar('rptChart-citystate', 'citystate', items.slice(0,20).map(c=>c.city+', '+c.state), items.slice(0,20).map(c=>c.amount), lbl => showDrilldown('city', lbl.split(', ')[0]));
 }
 
-function renderRptSKU(items) {
+function renderRptSKU(items, showAll) {
   const body = document.getElementById('rptSKUBody');
   if (!body) return;
   if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No SKU data found — check that the Out Stock sheet has a "SKU Code" column</td></tr>'; return; }
   const totalAmt = items.reduce((s, r) => s + (r.amount||0), 0);
-  body.innerHTML = items.map((r, i) => {
+  window._skuCache = items;
+  const visible = showAll ? items : items.slice(0, 10);
+  const rowsHtml = visible.map((r, i) => {
     const pct = totalAmt ? ((r.amount / totalAmt) * 100).toFixed(1) : '0.0';
     const barW = totalAmt ? Math.round((r.amount / totalAmt) * 100) : 0;
     return `<tr class="${i%2?'rpt-tr-even':''}">
@@ -4221,6 +4255,10 @@ function renderRptSKU(items) {
       </div></td>
     </tr>`;
   }).join('');
+  const moreBtn = (!showAll && items.length > 10)
+    ? `<tr><td colspan="6" style="text-align:center;padding:12px"><button onclick="renderRptSKU(window._skuCache,true)" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${items.length} SKUs</button></td></tr>`
+    : '';
+  body.innerHTML = rowsHtml + moreBtn;
 }
 
 function renderRptStockSummary(s) {
@@ -4234,16 +4272,29 @@ function renderRptStockSummary(s) {
   }
 }
 
-function _rptStockTable(bodyId, items, keyField) {
+function _rptStockTable(bodyId, items, keyField, showAll) {
   const body = document.getElementById(bodyId);
   if (!body) return;
   if (!items.length) { body.innerHTML = `<tr><td colspan="4" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
-  body.innerHTML = items.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+  if (!window._stockTableCache) window._stockTableCache = {};
+  window._stockTableCache[bodyId] = { items, keyField };
+  const visible = showAll ? items : items.slice(0, 10);
+  const rowsHtml = visible.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}">
     <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
     <td class="rpt-td" style="font-weight:700">${c[keyField]}</td>
     <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
     <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(c.value)}</td>
   </tr>`).join('');
+  const moreBtn = (!showAll && items.length > 10)
+    ? `<tr><td colspan="4" style="text-align:center;padding:12px"><button onclick="expandStockTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${items.length} rows</button></td></tr>`
+    : '';
+  body.innerHTML = rowsHtml + moreBtn;
+}
+
+function expandStockTable(bodyId) {
+  const cache = window._stockTableCache && window._stockTableCache[bodyId];
+  if (!cache) return;
+  _rptStockTable(bodyId, cache.items, cache.keyField, true);
 }
 
 function renderRptSupplierStock(items) { _rptStockTable('rptSupStockBody', items, 'name');     renderChartDoughnut('rptChart-supplierstock','supplierstock', items.slice(0,12), 'name',    'value', lbl => showDrilldown('stock_supplier', lbl)); }
@@ -4276,10 +4327,33 @@ function renderRptTurnover(data) {
     return             `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🐢 Slow</span>`;
   };
 
-  const buildRows = (salesArr, stockArr, nameKey, bodyId) => {
+  const renderTurnoverRows = (rows, bodyId, showAll) => {
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
+    const visible = showAll ? rows : rows.slice(0, 10);
+    const rowsHtml = visible.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+      <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+      <td class="rpt-td" style="font-weight:700">${r.key}</td>
+      <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:800;font-size:13px">${r.str === null ? '—' : r.str === 999 ? '∞' : r.str.toFixed(2)}</td>
+      <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days'}</td>
+      <td class="rpt-td" style="text-align:center">${strBadge(r.str)}</td>
+    </tr>`).join('');
+    const moreBtn = (!showAll && rows.length > 10)
+      ? `<tr><td colspan="7" style="text-align:center;padding:12px">
+           <button onclick="expandTurnoverTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">
+             ▼ Show All ${rows.length} rows
+           </button>
+         </td></tr>`
+      : '';
+    body.innerHTML = rowsHtml + moreBtn;
+  };
+
+  const buildRows = (salesArr, stockArr, nameKey, bodyId, showAll) => {
     const stockMap = {};
     (stockArr || []).forEach(s => { stockMap[s[nameKey]] = Number(s.qty) || 0; });
-    // Merge: all sales items + any stock-only items
     const keys = new Set([...(salesArr||[]).map(s => s[nameKey]), ...Object.keys(stockMap)]);
     const rows = [...keys].map(key => {
       const salesQty = (salesArr||[]).find(s => s[nameKey] === key);
@@ -4289,23 +4363,32 @@ function renderRptTurnover(data) {
       const days  = (str !== null && str > 0 && str !== 999) ? Math.round(rangeDays / str) : (str === 999 ? 0 : null);
       return { key, sold, stock, str, days };
     }).sort((a, b) => (b.str||0) - (a.str||0));
-
-    const body = document.getElementById(bodyId);
-    if (!body) return;
-    if (!rows.length) { body.innerHTML = `<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
-    body.innerHTML = rows.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
-      <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
-      <td class="rpt-td" style="font-weight:700">${r.key}</td>
-      <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
-      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
-      <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:800;font-size:13px">${r.str === null ? '—' : r.str === 999 ? '∞' : r.str.toFixed(2)}</td>
-      <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days'}</td>
-      <td class="rpt-td" style="text-align:center">${strBadge(r.str)}</td>
-    </tr>`).join('');
+    // Cache for expand
+    if (!window._turnoverCache) window._turnoverCache = {};
+    window._turnoverCache[bodyId] = { rows, strBadge };
+    renderTurnoverRows(rows, bodyId, showAll || false);
   };
 
   buildRows(data.supplierSales, data.supplierStock, 'name', 'rptTurnoverPartyBody');
   buildRows(data.topCategories, data.categoryStock, 'category', 'rptTurnoverCatBody');
+}
+
+function expandTurnoverTable(bodyId) {
+  const cache = window._turnoverCache && window._turnoverCache[bodyId];
+  if (!cache) return;
+  // Re-render with showAll=true using the cached strBadge and rows
+  const { rows, strBadge } = cache;
+  const body = document.getElementById(bodyId);
+  if (!body) return;
+  body.innerHTML = rows.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+    <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+    <td class="rpt-td" style="font-weight:700">${r.key}</td>
+    <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:800;font-size:13px">${r.str === null ? '—' : r.str === 999 ? '∞' : r.str.toFixed(2)}</td>
+    <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days'}</td>
+    <td class="rpt-td" style="text-align:center">${strBadge(r.str)}</td>
+  </tr>`).join('');
 }
 // ── /New render functions ────────────────────────────────────
 
