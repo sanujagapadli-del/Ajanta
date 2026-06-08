@@ -2224,7 +2224,24 @@ async function init() {
     const token = localStorage.getItem('authToken');
     const headers = {'Content-Type': 'application/json'};
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    const r = await fetch('/api/me', { credentials: 'include', headers });
+
+    // 12s timeout — if Vercel cold-start hangs, show error instead of blank forever
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    let r;
+    try {
+      r = await fetch('/api/me', { credentials: 'include', headers, signal: controller.signal });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      // Timeout or network error — show recovery UI, do NOT redirect loop
+      document.getElementById('sidebarName').textContent = 'Offline';
+      document.getElementById('sidebarRole').textContent = '🔴 Server unreachable';
+      document.getElementById('dashTbody').innerHTML =
+        '<tr><td colspan="6" style="padding:24px;text-align:center;color:#dc2626">⚠️ Cannot reach server.<br><small>Check your connection, then <a href="/" style="color:#4f46e5">click here to reload</a>.</small></td></tr>';
+      return;
+    }
+    clearTimeout(timeoutId);
+
     if (!r.ok) {
       localStorage.removeItem('authToken');
       window.location.replace('/');
@@ -4592,9 +4609,9 @@ document.addEventListener('keydown', function(e) {
 //   m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); });
 // });
 
-async function logout() {
-  await fetch('/api/logout',{method:'POST', credentials:'include'});
+function logout() {
   localStorage.removeItem('authToken');
+  fetch('/api/logout',{method:'POST', credentials:'include'}).catch(()=>{});
   window.location.replace('/');
 }
 
