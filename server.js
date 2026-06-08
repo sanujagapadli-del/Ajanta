@@ -2531,10 +2531,11 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const { from, to } = req.query;
 
-    // Read both tabs in parallel
+    // Read both tabs — each is optional (missing tab returns empty rows)
+    const safeGet = (range) => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range })).catch(() => ({ data: { values: [] } }));
     const [outResp, inResp] = await Promise.all([
-      withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: "'Out Stock'!A:AH" })),
-      withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: "'In Stock'!A:AH" }))
+      safeGet("'Out Stock'!A:AH"),
+      safeGet("'In Stock'!A:AH")
     ]);
 
     const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
