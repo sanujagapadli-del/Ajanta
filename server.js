@@ -728,11 +728,10 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
       userFilter = 'AND t.assigned_to = ?'; params = [uid];
     }
 
-    // Stats + Table: aaj aur usse pehle ki pending tasks (due_date <= CURDATE())
-    // PC: agar date range diya hai toh woh use karo
+    // PC: date range filter; regular users: no date filter so revised-to-future tasks still show
     const dateClause = isPC && dateFrom && dateTo
       ? `AND t.due_date BETWEEN '${dateFrom}' AND '${dateTo}'`
-      : `AND t.due_date <= CURDATE()`;
+      : '';
 
     const taskType = req.query.taskType || 'both';
     let pending = 0, revised = 0, completed = 0;
