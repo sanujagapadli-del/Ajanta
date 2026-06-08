@@ -1071,6 +1071,7 @@ tbody tr:last-child td{border-bottom:none;}
             <button class="rpt-tab-btn" data-tab="stocksummary"  onclick="switchRptTab('stocksummary')">📦 Stock Summary</button>
             <button class="rpt-tab-btn" data-tab="supplierstock" onclick="switchRptTab('supplierstock')">🏭 Supplier Stock</button>
             <button class="rpt-tab-btn" data-tab="stockcat"      onclick="switchRptTab('stockcat')">🏷 Stock by Category</button>
+            <button class="rpt-tab-btn" data-tab="turnover"      onclick="switchRptTab('turnover')">🔄 Stock Turnover</button>
           </div>
         </div>
         <button id="rptSyncBtn" onclick="loadImsReports()"
@@ -1340,6 +1341,53 @@ tbody tr:last-child td{border-bottom:none;}
                 </table>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- ══ PANEL: Stock Turnover Ratio ══ -->
+        <div id="rptPanel-turnover" class="rpt-panel" style="display:none;padding:24px 26px">
+          <!-- Sub-tabs -->
+          <div style="display:flex;gap:8px;margin-bottom:18px">
+            <button id="turnTabParty" class="rpt-tab-btn active" onclick="switchTurnoverTab('party')">🏭 Party-wise</button>
+            <button id="turnTabCat"   class="rpt-tab-btn"        onclick="switchTurnoverTab('cat')">🏷 Category-wise</button>
+          </div>
+          <!-- Info banner -->
+          <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:10px 14px;font-size:12px;color:#4338ca;margin-bottom:16px;line-height:1.6">
+            <strong>Stock Turnover Ratio</strong> = Sales Qty ÷ Current Stock Qty &nbsp;|&nbsp;
+            <strong>Days to Clear</strong> = Date Range Days ÷ STR &nbsp;|&nbsp;
+            Higher STR = faster moving &nbsp;·&nbsp; Lower STR = slow mover
+          </div>
+          <!-- Party-wise table -->
+          <div id="turnoverPartyWrap">
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
+                <th class="rpt-th-dark" style="text-align:left">Supplier / Party</th>
+                <th class="rpt-th-green" style="text-align:right">Sales Qty</th>
+                <th class="rpt-th-blue" style="text-align:right">Stock Qty</th>
+                <th class="rpt-th-purple" style="text-align:right">STR</th>
+                <th class="rpt-th-amber" style="text-align:right">Days to Clear</th>
+                <th class="rpt-th-dark" style="text-align:center">Status</th>
+              </tr></thead>
+              <tbody id="rptTurnoverPartyBody"><tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
+          </div>
+          <!-- Category-wise table -->
+          <div id="turnoverCatWrap" style="display:none">
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
+                <th class="rpt-th-purple" style="text-align:left">Category</th>
+                <th class="rpt-th-green" style="text-align:right">Sales Qty</th>
+                <th class="rpt-th-blue" style="text-align:right">Stock Qty</th>
+                <th class="rpt-th-purple" style="text-align:right">STR</th>
+                <th class="rpt-th-amber" style="text-align:right">Days to Clear</th>
+                <th class="rpt-th-dark" style="text-align:center">Status</th>
+              </tr></thead>
+              <tbody id="rptTurnoverCatBody"><tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
           </div>
         </div>
 
@@ -4019,6 +4067,7 @@ async function loadImsReports() {
   renderRptStockSummary(data.currentStock || {});
   renderRptSupplierStock(data.supplierStock || []);
   renderRptStockCat(data.categoryStock || []);
+  renderRptTurnover(data);
 }
 
 function renderRptSummary(s, stock) {
@@ -4199,6 +4248,65 @@ function _rptStockTable(bodyId, items, keyField) {
 
 function renderRptSupplierStock(items) { _rptStockTable('rptSupStockBody', items, 'name');     renderChartDoughnut('rptChart-supplierstock','supplierstock', items.slice(0,12), 'name',    'value', lbl => showDrilldown('stock_supplier', lbl)); }
 function renderRptStockCat(items)      { _rptStockTable('rptStockCatBody', items, 'category'); renderChartDoughnut('rptChart-stockcat',     'stockcat',      items.slice(0,12), 'category','value', lbl => showDrilldown('stock_category', lbl)); }
+
+let _activeTurnoverTab = 'party';
+function switchTurnoverTab(tab) {
+  _activeTurnoverTab = tab;
+  document.getElementById('turnoverPartyWrap').style.display = tab === 'party' ? '' : 'none';
+  document.getElementById('turnoverCatWrap').style.display   = tab === 'cat'   ? '' : 'none';
+  document.getElementById('turnTabParty').classList.toggle('active', tab === 'party');
+  document.getElementById('turnTabCat').classList.toggle('active',   tab === 'cat');
+}
+
+function renderRptTurnover(data) {
+  if (!data) return;
+  // Get date range days from report inputs
+  const from = document.getElementById('rptFrom') ? document.getElementById('rptFrom').value : '';
+  const to   = document.getElementById('rptTo')   ? document.getElementById('rptTo').value   : '';
+  let rangeDays = 30;
+  if (from && to) {
+    const ms = new Date(to) - new Date(from);
+    rangeDays = Math.max(1, Math.round(ms / 86400000) + 1);
+  }
+
+  const strBadge = (str) => {
+    if (str === null) return `<span style="font-size:11px;color:#94a3b8">No stock</span>`;
+    if (str >= 2)    return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🚀 Fast</span>`;
+    if (str >= 0.5)  return `<span style="background:#fef9c3;color:#a16207;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">⚡ Medium</span>`;
+    return             `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🐢 Slow</span>`;
+  };
+
+  const buildRows = (salesArr, stockArr, nameKey, bodyId) => {
+    const stockMap = {};
+    (stockArr || []).forEach(s => { stockMap[s[nameKey]] = Number(s.qty) || 0; });
+    // Merge: all sales items + any stock-only items
+    const keys = new Set([...(salesArr||[]).map(s => s[nameKey]), ...Object.keys(stockMap)]);
+    const rows = [...keys].map(key => {
+      const salesQty = (salesArr||[]).find(s => s[nameKey] === key);
+      const sold  = salesQty ? Number(salesQty.qty) || 0 : 0;
+      const stock = stockMap[key] || 0;
+      const str   = stock > 0 ? Math.round((sold / stock) * 100) / 100 : (sold > 0 ? 999 : null);
+      const days  = (str !== null && str > 0 && str !== 999) ? Math.round(rangeDays / str) : (str === 999 ? 0 : null);
+      return { key, sold, stock, str, days };
+    }).sort((a, b) => (b.str||0) - (a.str||0));
+
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
+    body.innerHTML = rows.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+      <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+      <td class="rpt-td" style="font-weight:700">${r.key}</td>
+      <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:800;font-size:13px">${r.str === null ? '—' : r.str === 999 ? '∞' : r.str.toFixed(2)}</td>
+      <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days'}</td>
+      <td class="rpt-td" style="text-align:center">${strBadge(r.str)}</td>
+    </tr>`).join('');
+  };
+
+  buildRows(data.supplierSales, data.supplierStock, 'name', 'rptTurnoverPartyBody');
+  buildRows(data.topCategories, data.categoryStock, 'category', 'rptTurnoverCatBody');
+}
 // ── /New render functions ────────────────────────────────────
 
 // ══════════════════════════════════════════════════════
