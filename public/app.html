@@ -1120,7 +1120,7 @@ tbody tr:last-child td{border-bottom:none;}
 
         <!-- ══ PANEL: Sales Summary ══ -->
         <div id="rptPanel-sales" class="rpt-panel" style="padding:24px 26px">
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px">
             <div class="rpt-stat-card" style="border-top:3px solid #4f46e5">
               <div class="rpt-stat-label">Total Net Sales</div>
               <div id="rptTotalAmt" class="rpt-stat-value" style="color:#4f46e5">—</div>
@@ -1135,6 +1135,11 @@ tbody tr:last-child td{border-bottom:none;}
               <div class="rpt-stat-label">Total Net Qty</div>
               <div id="rptTotalQty" class="rpt-stat-value" style="color:#10b981">—</div>
               <div class="rpt-stat-icon" style="opacity:.08">📦</div>
+            </div>
+            <div class="rpt-stat-card" style="border-top:3px solid #f59e0b">
+              <div class="rpt-stat-label">Left Stock (Qty)</div>
+              <div id="rptLeftStock" class="rpt-stat-value" style="color:#f59e0b">—</div>
+              <div class="rpt-stat-icon" style="opacity:.08">🏭</div>
             </div>
           </div>
           <div class="rpt-chart-wrap">
@@ -3984,7 +3989,7 @@ async function loadImsReports() {
   }
 
   _rptData = data; // cache for CSV export
-  renderRptSummary(data.salesSummary || {});
+  renderRptSummary(data.salesSummary || {}, data.currentStock || {});
   renderRptCategories(data.topCategories || []);
   renderRptSupplierSales(data.supplierSales || []);
   renderRptSalespersons(data.salespersons || []);
@@ -3994,11 +3999,12 @@ async function loadImsReports() {
   renderRptStockCat(data.categoryStock || []);
 }
 
-function renderRptSummary(s) {
+function renderRptSummary(s, stock) {
   const setEl = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
   setEl('rptTotalAmt', fmtINR(s.totalAmount));
   setEl('rptTotalTxn', (s.totalTransactions || 0).toLocaleString('en-IN'));
   setEl('rptTotalQty', s.totalQty != null ? Number(s.totalQty).toLocaleString('en-IN') : '—');
+  setEl('rptLeftStock', stock && stock.totalQty != null ? Number(stock.totalQty).toLocaleString('en-IN') : '—');
   const body = document.getElementById('rptDateBody');
   const countEl = document.getElementById('rptDateCount');
   const rows = s.byDate || [];
