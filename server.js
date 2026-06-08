@@ -258,20 +258,26 @@ async function runDelegationReminders() {
     const cutoff = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000)
       .toISOString().split('T')[0];
 
-    const [tasks] = await db.query(`
+    const [allUsr] = await db.query('SELECT id,name,notification_email FROM users');
+    const uMapR = {};
+    allUsr.forEach(u => { uMapR[u.id] = u; });
+
+    const [rawTasks] = await db.query(`
       SELECT t.id, t.description, t.assigned_to, t.assigned_by, t.priority,
              COALESCE(t.approval,'no') AS approval, t.remarks,
-             DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,
-             u1.name AS assigneeName, u1.notification_email AS assigneeEmail,
-             u2.name AS assignerName
+             DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date
       FROM delegation_tasks t
-      JOIN users u1 ON t.assigned_to = u1.id
-      JOIN users u2 ON t.assigned_by = u2.id
       WHERE t.status = 'pending'
         AND t.due_date <= ?
         AND (t.last_reminder_date IS NULL OR t.last_reminder_date < ?)
-      ORDER BY u1.notification_email, t.due_date ASC
+      ORDER BY t.due_date ASC
     `, [cutoff, todayStr]);
+    const tasks = rawTasks.map(t => ({
+      ...t,
+      assigneeName: uMapR[t.assigned_to]?.name || '',
+      assigneeEmail: uMapR[t.assigned_to]?.notification_email || '',
+      assignerName: uMapR[t.assigned_by]?.name || ''
+    }));
 
     if (!tasks.length) {
       console.log(`  🔔 Reminder pass @ ${todayStr}: 0 pending tasks in window`);
@@ -747,11 +753,11 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 
     let delegationPending = [], checklistPending = [];
     if (taskType === 'delegation' || taskType === 'both') {
-      const [rows] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM delegation_tasks t WHERE t.status='pending' ${dateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, params);
+      const [rows] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${dateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, params);
       delegationPending = rows.map(t => ({ ...t, type: 'delegation', assignedToName: userMap[t.assigned_to] || '', assignedByName: userMap[t.assigned_by] || '' }));
     }
     if (taskType === 'checklist' || taskType === 'both') {
-      const [rows] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,t.remarks,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM checklist_tasks t WHERE t.status='pending' ${dateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, params);
+      const [rows] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,t.remarks,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM checklist_tasks t WHERE t.status IN ('pending','revised') ${dateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, params);
       checklistPending = rows.map(t => ({ ...t, type: 'checklist', approval: 'no', waiting_approval: 0, assignedToName: userMap[t.assigned_to] || '', assignedByName: userMap[t.assigned_by] || '' }));
     }
     res.json({ pending, revised, completed, todayPending: [...delegationPending, ...checklistPending] });
@@ -806,7 +812,12 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
       where += ' AND t.due_date <= CURDATE()';
     }
 
-    const [tasks] = await db.query(`SELECT t.id,'${type||'delegation'}' AS type,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,":"'no' AS approval,0 AS waiting_approval,t.remarks,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on,u1.name AS assignedToName,u2.name AS assignedByName FROM ${table} t JOIN users u1 ON t.assigned_to=u1.id JOIN users u2 ON t.assigned_by=u2.id ${where} ORDER BY t.due_date ASC`, params);
+    const [allUsers] = await db.query('SELECT id,name FROM users');
+    const uMap = {};
+    allUsers.forEach(u => { uMap[u.id] = u.name; });
+
+    const [rawTasks] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,":"'no' AS approval,0 AS waiting_approval,t.remarks,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC`, params);
+    const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]||'', assignedByName: uMap[t.assigned_by]||'' }));
 
     // mine=1 mode me hamesha flat tasks return karte hain (grouped nahi)
     if (isMine) {
@@ -826,7 +837,7 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
 
 app.post('/api/tasks', requireAuth, async (req, res) => {
   try {
-    const { type, desc, assignedTo, approverEmail, date, priority, approval, remarks } = req.body;
+    const { type, desc, assignedTo, approverEmail, date, priority, approval, remarks, link } = req.body;
     const isAdmin = req.session.role === 'admin';
     const isHod   = req.session.role === 'hod';
     const isUser  = req.session.role === 'user';
@@ -840,7 +851,7 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
         const [aprRows] = await db.query('SELECT id FROM users WHERE email=? LIMIT 1', [approverEmail]);
         if (aprRows.length) assignedBy = aprRows[0].id;
       }
-      await db.query(`INSERT INTO delegation_tasks (description,assigned_to,assigned_by,due_date,status,priority,approval,remarks) VALUES (?,?,?,?,?,?,?,?)`, [desc, targetUser, assignedBy, date, 'pending', priority||'low', approval||'no', remarks||'']);
+      await db.query(`INSERT INTO delegation_tasks (description,assigned_to,assigned_by,due_date,status,priority,approval,remarks,link) VALUES (?,?,?,?,?,?,?,?,?)`, [desc, targetUser, assignedBy, date, 'pending', priority||'low', approval||'no', remarks||'', link||'']);
       // 📧 Send delegation email (non-blocking — fire and forget)
       (async () => {
         const target = await getNotifyTarget(targetUser);
@@ -895,7 +906,7 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
     if (status === 'completed' && task.waiting_approval) {
       await db.query(`DELETE FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending'`, [req.params.id, type]);
       if (type === 'checklist') await db.query(`UPDATE ${table} SET status='completed',completed_at=? WHERE id=?`, [nowTs, req.params.id]);
-      else await db.query(`UPDATE ${table} SET status='completed',waiting_approval=0,completed_at=? WHERE id=?`, [nowTs, req.params.id]);
+      else await db.query(`UPDATE ${table} SET status='completed',waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [nowTs, req.params.id]);
       return res.json({ success: true, needsApproval: false });
     }
     const needsApproval = type === 'delegation' && task.approval === 'yes';
@@ -903,15 +914,15 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
       const [existing] = await db.query(`SELECT id FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending'`, [req.params.id, type]);
       if (existing[0]) return res.status(400).json({ error: 'Approval already pending' });
       await db.query(`INSERT INTO task_approvals (task_id,task_type,requested_by,requested_to,action_type,status,note) VALUES (?,?,?,?,?,'pending',?)`, [req.params.id, type, uid, task.assigned_by, status, reason||'']);
-      if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET waiting_approval=1,due_date=? WHERE id=?`, [newDate, req.params.id]);
-      else await db.query(`UPDATE ${table} SET waiting_approval=1 WHERE id=?`, [req.params.id]);
+      if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET waiting_approval=1,revision_status='pending',due_date=? WHERE id=?`, [newDate, req.params.id]);
+      else await db.query(`UPDATE ${table} SET waiting_approval=1,revision_status='pending' WHERE id=?`, [req.params.id]);
       return res.json({ success: true, needsApproval: true });
     }
-    if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,due_date=?,completed_at=? WHERE id=?`, [status, newDate, completedAt, req.params.id]);
+    if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='pending',due_date=?,completed_at=? WHERE id=?`, [status, newDate, completedAt, req.params.id]);
     else {
       // checklist_tasks mein waiting_approval column nahi hota
       if (type === 'checklist') await db.query(`UPDATE ${table} SET status=?,completed_at=? WHERE id=?`, [status, completedAt, req.params.id]);
-      else await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,completed_at=? WHERE id=?`, [status, completedAt, req.params.id]);
+      else await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [status, completedAt, req.params.id]);
     }
     res.json({ success: true, needsApproval: false });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -975,13 +986,69 @@ app.put('/api/tasks/user/:userId/transfer-today', requireAuth, requireAdmin, asy
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/tasks/delete-by-date', requireAuth, requireAdmin, async (req, res) => {
+// ══════════════════════════════════════════════════════
+// HOLIDAYS  (stored in Google Sheets → holidays tab)
+// ══════════════════════════════════════════════════════
+
+// Helper: given a date string and Set of holiday dates, find next non-holiday day
+function nextWorkingDay(dateStr, holidaySet) {
+  let d = new Date(dateStr + 'T00:00:00');
+  for (let i = 0; i < 365; i++) {
+    d.setDate(d.getDate() + 1);
+    const s = d.toISOString().slice(0, 10);
+    if (!holidaySet.has(s)) return s;
+  }
+  return dateStr; // fallback (should never happen)
+}
+
+app.get('/api/holidays', requireAuth, async (req, res) => {
   try {
-    const { date } = req.body;
-    if (!date) return res.status(400).json({ error: 'Date required' });
-    const [result] = await db.query('DELETE FROM checklist_tasks WHERE due_date=?', [date]);
-    res.json({ success: true, deleted: result.affectedRows });
+    const [rows] = await db.query('SELECT id,date,name FROM holidays ORDER BY date ASC');
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/holidays', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { date, name } = req.body;
+    if (!date || !name) return res.status(400).json({ error: 'Date and name required' });
+
+    // Save holiday
+    await db.query('INSERT INTO holidays (date,name) VALUES (?,?)', [date, name]);
+
+    // Build full holiday set for next-working-day calculation
+    const [allH] = await db.query('SELECT date FROM holidays');
+    const holidaySet = new Set(allH.map(h => h.date));
+
+    const target = nextWorkingDay(date, holidaySet);
+
+    // Shift ALL pending/revised tasks (delegation + checklist) on this date
+    const [dr] = await db.query(
+      "UPDATE delegation_tasks SET due_date=? WHERE due_date=? AND status IN ('pending','revised')",
+      [target, date]
+    );
+    const [cr] = await db.query(
+      "UPDATE checklist_tasks SET due_date=? WHERE due_date=? AND status IN ('pending','revised')",
+      [target, date]
+    );
+    const shifted = (dr.affectedRows || 0) + (cr.affectedRows || 0);
+
+    res.json({ success: true, shifted, shiftedTo: target });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/holidays/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid id' });
+    await db.query('DELETE FROM holidays WHERE id=?', [id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// kept for backward compat — now a no-op (tasks shift instead of delete)
+app.delete('/api/tasks/delete-by-date', requireAuth, requireAdmin, async (req, res) => {
+  res.json({ success: true, deleted: 0 });
 });
 
 // Count checklist tasks for a user (all time or by year, optionally filtered by frequency).
@@ -1027,7 +1094,12 @@ app.get('/api/approvals', requireAuth, async (req, res) => {
       ? `WHERE ta.status='pending'`
       : `WHERE ta.requested_to=? AND ta.status='pending'`;
     const params = isAdminOrPC ? [] : [req.session.userId];
-    const [rows] = await db.query(`SELECT ta.*,u1.name AS requestedByName,u2.name AS requestedToName,dt.description,dt.approval AS taskApproval FROM task_approvals ta JOIN users u1 ON ta.requested_by=u1.id JOIN users u2 ON ta.requested_to=u2.id LEFT JOIN delegation_tasks dt ON ta.task_id=dt.id AND ta.task_type='delegation' ${whereClause} ORDER BY ta.created_at DESC`, params);
+    const [allUA] = await db.query('SELECT id,name FROM users');
+    const uMapA = {};
+    allUA.forEach(u => { uMapA[u.id] = u.name; });
+
+    const [rawRows] = await db.query(`SELECT ta.*,dt.description,dt.approval AS taskApproval FROM task_approvals ta LEFT JOIN delegation_tasks dt ON ta.task_id=dt.id AND ta.task_type='delegation' ${whereClause} ORDER BY ta.created_at DESC`, params);
+    const rows = rawRows.map(r => ({ ...r, requestedByName: uMapA[r.requested_by]||'', requestedToName: uMapA[r.requested_to]||'' }));
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1057,8 +1129,20 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
     const table = getTable(appr.task_type);
     if (action === 'approved') {
       const completedAt = appr.action_type === 'completed' ? new Date().toISOString().slice(0,19).replace('T',' ') : null;
-      await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,completed_at=? WHERE id=?`, [appr.action_type, completedAt, appr.task_id]);
-    } else await db.query(`UPDATE ${table} SET waiting_approval=0 WHERE id=?`, [appr.task_id]);
+      if (appr.action_type === 'revised') {
+        // Revision granted — task goes back to pending with new date, mark revision approved
+        await db.query(`UPDATE ${table} SET status='pending',waiting_approval=0,revision_status='approved',completed_at=? WHERE id=?`, [completedAt, appr.task_id]);
+      } else {
+        await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [appr.action_type, completedAt, appr.task_id]);
+      }
+    } else {
+      // Rejected — task goes back to pending, mark revision rejected
+      if (appr.action_type === 'revised') {
+        await db.query(`UPDATE ${table} SET status='pending',waiting_approval=0,revision_status='rejected' WHERE id=?`, [appr.task_id]);
+      } else {
+        await db.query(`UPDATE ${table} SET waiting_approval=0 WHERE id=?`, [appr.task_id]);
+      }
+    }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1237,7 +1321,11 @@ app.get('/api/mis/detail', requireAuth, requireAdminOrHod, async (req, res) => {
     const { userId, type, start, end } = req.query;
     if (!userId || !start || !end) return res.status(400).json({ error: 'Missing params' });
     const table = type === 'delegation' ? 'delegation_tasks' : 'checklist_tasks';
-    const [tasks] = await db.query(`SELECT t.id,t.description,t.status,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,u2.name AS assigned_by_name FROM ${table} t JOIN users u2 ON t.assigned_by=u2.id WHERE t.assigned_to=? AND t.due_date BETWEEN ? AND ? ORDER BY t.due_date ASC`, [userId, start, end]);
+    const [allUC] = await db.query('SELECT id,name FROM users');
+    const uMapC = {};
+    allUC.forEach(u => { uMapC[u.id] = u.name; });
+    const [rawCal] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_by,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM ${table} t WHERE t.assigned_to=? AND t.due_date BETWEEN ? AND ? ORDER BY t.due_date ASC`, [userId, start, end]);
+    const tasks = rawCal.map(t => ({ ...t, assigned_by_name: uMapC[t.assigned_by]||'' }));
     res.json({ tasks });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2124,18 +2212,18 @@ app.get('/api/transfers', requireAuth, requireAdminOrHod, async (req, res) => {
       params = [...ids, ...ids];
     }
 
-    const [rows] = await db.query(`
-      SELECT tt.*,
-        uf.name AS fromUserName, ut.name AS toUserName,
-        ur.name AS requestedByName,
-        u_from.department AS fromDept
-      FROM task_transfers tt
-      JOIN users uf ON tt.from_user = uf.id
-      JOIN users ut ON tt.to_user = ut.id
-      JOIN users ur ON tt.requested_by = ur.id
-      JOIN users u_from ON tt.from_user = u_from.id
-      WHERE tt.status = 'pending' ${deptFilter}
-      ORDER BY tt.created_at DESC`, params);
+    const [allUT] = await db.query('SELECT id,name,department FROM users');
+    const uMapT = {};
+    allUT.forEach(u => { uMapT[u.id] = u; });
+
+    const [rawTr] = await db.query(`SELECT tt.* FROM task_transfers tt WHERE tt.status = 'pending' ${deptFilter} ORDER BY tt.created_at DESC`, params);
+    const rows = rawTr.map(tt => ({
+      ...tt,
+      fromUserName: uMapT[tt.from_user]?.name || '',
+      toUserName: uMapT[tt.to_user]?.name || '',
+      requestedByName: uMapT[tt.requested_by]?.name || '',
+      fromDept: uMapT[tt.from_user]?.department || ''
+    }));
 
     // Attach task description
     for (const r of rows) {
@@ -2193,13 +2281,12 @@ app.put('/api/transfers/:id', requireAuth, requireAdminOrHod, async (req, res) =
 // GET — My sent transfer requests (for users to track)
 app.get('/api/transfers/my', requireAuth, async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT tt.*, uf.name AS fromUserName, ut.name AS toUserName
-      FROM task_transfers tt
-      JOIN users uf ON tt.from_user = uf.id
-      JOIN users ut ON tt.to_user = ut.id
-      WHERE tt.requested_by=?
-      ORDER BY tt.created_at DESC LIMIT 20`, [req.session.userId]);
+    const [allUMy] = await db.query('SELECT id,name FROM users');
+    const uMapMy = {};
+    allUMy.forEach(u => { uMapMy[u.id] = u.name; });
+
+    const [rawMy] = await db.query(`SELECT tt.* FROM task_transfers tt WHERE tt.requested_by=? ORDER BY tt.created_at DESC LIMIT 20`, [req.session.userId]);
+    const rows = rawMy.map(tt => ({ ...tt, fromUserName: uMapMy[tt.from_user]||'', toUserName: uMapMy[tt.to_user]||'' }));
     for (const r of rows) {
       const table = getTable(r.task_type);
       const [t] = await db.query(`SELECT description FROM ${table} WHERE id=?`, [r.task_id]);
@@ -2312,21 +2399,27 @@ app.get('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
       params.push((me[0] && me[0].department) || '');
     }
     const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
-    const [rows] = await db.execute(
-      `SELECT wp.id, wp.employee_id, wp.hod_id, 
+    const [allUW] = await db.query('SELECT id,name,department FROM users');
+    const uMapW = {};
+    allUW.forEach(u => { uMapW[u.id] = u; });
+
+    const [rawWP] = await db.execute(
+      `SELECT wp.id, wp.employee_id, wp.hod_id,
               DATE_FORMAT(wp.start_date,'%Y-%m-%d') AS start_date,
               wp.target_count, wp.improvement_pct,
-              wp.created_at, wp.updated_at,
-              u.name AS employee_name, u.department AS employee_department,
-              h.name AS hod_name
+              wp.created_at, wp.updated_at
        FROM week_plans wp
-       JOIN users u ON u.id = wp.employee_id
-       LEFT JOIN users h ON h.id = wp.hod_id
        ${whereSql}
        ORDER BY wp.start_date DESC, wp.employee_id ASC
        LIMIT ${limit}`,
       params
     );
+    const rows = rawWP.map(wp => ({
+      ...wp,
+      employee_name: uMapW[wp.employee_id]?.name || '',
+      employee_department: uMapW[wp.employee_id]?.department || '',
+      hod_name: uMapW[wp.hod_id]?.name || ''
+    }));
     res.json(rows);
   } catch (e) {
     console.error('  ❌ Week Plan fetch failed:', e.message);
@@ -2350,18 +2443,22 @@ app.get('/api/week-plan/history/:employeeId', requireAuth, requireAdminOrHod, as
         return res.status(403).json({ error: 'Not allowed' });
       }
     }
-    const [rows] = await db.execute(
+    const [allUH] = await db.query('SELECT id,name FROM users');
+    const uMapH = {};
+    allUH.forEach(u => { uMapH[u.id] = u.name; });
+
+    const [rawHist] = await db.execute(
       `SELECT wp.id,
               DATE_FORMAT(wp.start_date,'%Y-%m-%d') AS start_date,
               wp.target_count, wp.improvement_pct,
               wp.created_at, wp.updated_at,
-              h.name AS hod_name
+              wp.hod_id
        FROM week_plans wp
-       LEFT JOIN users h ON h.id = wp.hod_id
        WHERE wp.employee_id = ?
        ORDER BY wp.start_date DESC`,
       [empId]
     );
+    const rows = rawHist.map(wp => ({ ...wp, hod_name: uMapH[wp.hod_id]||'' }));
     const [emp] = await db.execute('SELECT id, name, department FROM users WHERE id=?', [empId]);
     res.json({
       employee: emp[0] || null,

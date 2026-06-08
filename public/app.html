@@ -1399,8 +1399,11 @@ tbody tr:last-child td{border-bottom:none;}
         <select id="dDoer"><option value="">Select Doer</option></select>
       </div>
       <div class="form-group">
-        <label>Approver</label>
-        <select id="dApprover"><option value="">Select Approver</option></select>
+        <label>Approval Required</label>
+        <select id="dApproval">
+          <option value="no">No Approval</option>
+          <option value="yes">Yes — Require Approval</option>
+        </select>
       </div>
     </div>
     <div class="form-row">
@@ -1419,11 +1422,8 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
     </div>
     <div class="form-group">
-      <label>Approval Required</label>
-      <select id="dApproval">
-        <option value="no">No Approval</option>
-        <option value="yes">Yes Approval</option>
-      </select>
+      <label>Link <span style="color:#94a3b8;font-weight:400;font-size:11px">(optional)</span></label>
+      <input type="url" id="dLink" placeholder="https://…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
     </div>
     <div class="form-group">
       <label>Description</label>
@@ -1529,7 +1529,10 @@ tbody tr:last-child td{border-bottom:none;}
 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="holidayModal">
   <div class="modal">
-    <h3>🗓 Holidays</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 style="margin:0">🗓 Holidays</h3>
+      <button onclick="closeModal('holidayModal')" style="background:none;border:none;font-size:22px;color:#94a3b8;cursor:pointer;line-height:1;padding:2px 6px;border-radius:6px" title="Close">&times;</button>
+    </div>
     <div class="form-row">
       <div class="form-group">
         <label>Date</label>
@@ -1543,9 +1546,6 @@ tbody tr:last-child td{border-bottom:none;}
     <button class="btn btn-primary" style="width:100%;margin-bottom:16px" onclick="addHoliday()">Add Holiday</button>
     <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Holiday List</div>
     <div id="holidayList" style="max-height:280px;overflow-y:auto"></div>
-    <div style="margin-top:16px">
-      <button class="btn btn-outline" style="width:100%" onclick="closeModal('holidayModal')">Close</button>
-    </div>
   </div>
 </div>
 
@@ -2210,7 +2210,7 @@ let ME = null;
 let dashType = 'all';
 let tasksType = 'delegation';
 let dashChartInst = null;
-let holidays = JSON.parse(localStorage.getItem('tm_holidays') || '[]');
+let holidays = []; // loaded from server
 let transferMode = false;
 let pendingTransferTaskIds = []; // task IDs that already have pending transfer
 // Dashboard date sort: 0=default(API order), 1=asc(oldest first), 2=desc(newest first)
@@ -2770,40 +2770,56 @@ function renderDashTable(tasks, type) {
   const isPC    = ME.role==='pc';
   document.getElementById('dashDoerHead').textContent = (isAdmin||isPC)?'Doer':'Assigned By';
   const tbody = document.getElementById('dashTbody');
-  // Filter by selected tab: all / delegation / checklist
+  // Filter by selected tab: all / delegation / checklist; include pending + revised
   let allPending = tasks.filter(t => {
     const matchType = (!type || type === 'all') ? true : t.type === type;
-    return matchType && (t.status === 'pending' || !t.status);
+    return matchType && (t.status === 'pending' || t.status === 'revised' || !t.status);
   });
   // Apply date sort
   if (_dashDateSortState === 1) {
-    // Ascending: oldest (earliest) date first — aaj ki pehle aaye
     allPending = [...allPending].sort((a,b) => (a.due_date||a.date||'').localeCompare(b.due_date||b.date||''));
   } else if (_dashDateSortState === 2) {
-    // Descending: newest (latest) date first
     allPending = [...allPending].sort((a,b) => (b.due_date||b.date||'').localeCompare(a.due_date||a.date||''));
   }
   if (!allPending.length) { tbody.innerHTML=`<tr><td colspan="6" class="empty">No pending tasks 🎉</td></tr>`; return; }
   const typeBadge = t => t.type==='checklist'
     ? `<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #bbf7d0">✅ Checklist</span>`
     : `<span style="font-size:10px;background:#eef2ff;color:#4f46e5;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #c7d2fe">📋 Delegation</span>`;
-  tbody.innerHTML = allPending.map(t=>`
-    <tr>
+  tbody.innerHTML = allPending.map(t => {
+    const rs = t.revision_status || '';
+    const isRevised = t.status === 'revised';
+    const linkBtn = t.link ? `<a href="${t.link}" target="_blank" style="font-size:11px;color:#4f46e5;font-weight:600;text-decoration:none;margin-left:4px">🔗</a>` : '';
+    const descCell = `${t.description||t.desc}${linkBtn}`;
+    let actions = '';
+    let rowStyle = '';
+    if (t.waiting_approval == 1 || rs === 'pending') {
+      rowStyle = 'background:#fffbeb';
+      actions = `<span style="font-size:11px;background:#fef3c7;color:#d97706;padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid #fde68a">⏳ Awaiting Decision</span>`;
+    } else if (rs === 'approved') {
+      rowStyle = 'background:#f0fdf4';
+      actions = `<span style="font-size:11px;background:#dcfce7;color:#16a34a;padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid #bbf7d0">✅ Revision Granted</span>`;
+      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>`;
+    } else if (rs === 'rejected') {
+      rowStyle = 'background:#fef2f2';
+      actions = `<span style="font-size:11px;background:#fee2e2;color:#dc2626;padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid #fecaca">❌ Revision Rejected</span>`;
+      if (!isPC) actions += ` <button class="action-btn revise" style="margin-left:4px" onclick="openReviseModal(${t.id},'${t.type}')">Revise Again</button>`;
+    } else if (isRevised) {
+      rowStyle = 'background:#fffdf0';
+      actions = `<span style="font-size:11px;background:#fffbeb;color:#d97706;padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid #fde68a">🔄 Revision Applied</span>`;
+      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>`;
+    } else {
+      if (!isPC || t.type==='checklist') actions += `<button class="action-btn done" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>`;
+      if (!isPC && t.type!=='checklist') actions += ` <button class="action-btn revise" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
+    }
+    return `<tr style="${rowStyle}">
       <td style="white-space:nowrap">${typeBadge(t)}</td>
-      <td>${t.description||t.desc}</td>
+      <td>${descCell}</td>
       <td>${(isAdmin||isPC)?t.assignedToName:t.assignedByName}</td>
       <td>${fmtDate(t.due_date||t.date)}</td>
       <td>${t.type!=='checklist' ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
-      <td>
-        ${t.waiting_approval==1 ? `
-          <span style="font-size:11px;color:#f59e0b;font-weight:600">⏳ Waiting Approval</span>
-          ${(!isPC || t.type==='checklist') ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>` : ''}
-        ` : `
-          ${(!isPC || t.type==='checklist') ? `<button class="action-btn done" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>` : ''}
-          ${(!isPC && t.type!=='checklist') ? `<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>` : ''}
-        `}
-      </td>
-    </tr>`).join('');
+      <td style="white-space:nowrap">${actions}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════════════════
@@ -3202,6 +3218,7 @@ async function openDelegate() {
   document.getElementById('delegateErr').style.display='none';
   document.getElementById('dDesc').value='';
   document.getElementById('dRemarks').value='';
+  document.getElementById('dLink').value='';
   document.getElementById('dPriority').value='low';
   document.getElementById('dApproval').value='no';
   const today = new Date().toISOString().split('T')[0];
@@ -3210,7 +3227,6 @@ async function openDelegate() {
   const users = await api('/api/users');
   const opts = users.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
   document.getElementById('dDoer').innerHTML='<option value="">Select Doer</option>'+opts;
-  document.getElementById('dApprover').innerHTML='<option value="">Select Approver</option>'+opts;
   document.getElementById('delegateModal').classList.add('open');
 }
 
@@ -3223,11 +3239,11 @@ async function saveDelegate() {
   const priority = document.getElementById('dPriority').value;
   const approval = document.getElementById('dApproval').value;
   const remarks = document.getElementById('dRemarks').value.trim();
-  const approver = document.getElementById('dApprover').value;
+  const link = document.getElementById('dLink').value.trim();
   if (!doer) { err.textContent='Please select a doer'; err.style.display='block'; return; }
   if (!date) { err.textContent='Please select a date'; err.style.display='block'; return; }
   if (!desc) { err.textContent='Description is required'; err.style.display='block'; return; }
-  await api('/api/tasks','POST',{type:'delegation',desc,assignedTo:doer,date,priority,approval,approver,remarks});
+  await api('/api/tasks','POST',{type:'delegation',desc,assignedTo:doer,date,priority,approval,remarks,link});
   closeModal('delegateModal');
   showToast('Task delegated successfully!');
   loadDashboard();
@@ -3370,53 +3386,61 @@ async function saveChecklist() {
 // ══════════════════════════════════════════════════════
 // HOLIDAYS
 // ══════════════════════════════════════════════════════
-function openHoliday() {
-  const today = new Date().toISOString().split('T')[0];
+async function openHoliday() {
   document.getElementById('hDate').value='';
-  document.getElementById('hDate').min=today;
   document.getElementById('hName').value='';
-  renderHolidayList();
   document.getElementById('holidayModal').classList.add('open');
+  renderHolidayList(); // show existing immediately
+  // Refresh from server
+  const rows = await api('/api/holidays');
+  if (!rows.error) { holidays = rows; renderHolidayList(); }
 }
 
 async function addHoliday() {
   const date = document.getElementById('hDate').value;
   const name = document.getElementById('hName').value.trim();
-  if (!date||!name) { showToast('Date and name required!'); return; }
+  if (!date || !name) { showToast('Date and name required!'); return; }
 
-  // Save holiday
-  holidays.push({date,name});
-  holidays.sort((a,b)=>a.date.localeCompare(b.date));
-  localStorage.setItem('tm_holidays', JSON.stringify(holidays));
+  const btn = document.querySelector('#holidayModal .btn-primary');
+  btn.disabled = true; btn.textContent = 'Adding…';
+  try {
+    const result = await api('/api/holidays', 'POST', { date, name });
+    if (result.error) { showToast(result.error, 'error'); return; }
 
-  // Auto-delete checklist tasks on this holiday date
-  const result = await api('/api/tasks/delete-by-date','DELETE',{date});
-  const deleted = result.deleted || 0;
+    document.getElementById('hDate').value='';
+    document.getElementById('hName').value='';
 
-  document.getElementById('hDate').value='';
-  document.getElementById('hName').value='';
-  renderHolidayList();
+    // Reload list from server
+    const rows = await api('/api/holidays');
+    if (!rows.error) holidays = rows;
+    renderHolidayList();
 
-  if (deleted > 0) {
-    showToast(`Holiday added! ${deleted} checklist task(s) auto-deleted for ${formatDate(date)}`);
-  } else {
-    showToast(`Holiday added! No checklist tasks were on ${formatDate(date)}`);
+    const shifted = result.shifted || 0;
+    if (shifted > 0) {
+      showToast(`Holiday added! ${shifted} task(s) shifted from ${formatDate(date)} → ${formatDate(result.shiftedTo)}`);
+    } else {
+      showToast(`Holiday added! No tasks were due on ${formatDate(date)}`);
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Add Holiday';
   }
 }
 
-function deleteHoliday(idx) {
-  holidays.splice(idx,1);
-  localStorage.setItem('tm_holidays', JSON.stringify(holidays));
+async function deleteHoliday(id) {
+  const result = await api('/api/holidays/' + id, 'DELETE');
+  if (result.error) { showToast(result.error, 'error'); return; }
+  const rows = await api('/api/holidays');
+  if (!rows.error) holidays = rows;
   renderHolidayList();
 }
 
 function renderHolidayList() {
   const container = document.getElementById('holidayList');
   if (!holidays.length) { container.innerHTML='<div class="empty" style="padding:16px">No holidays added yet</div>'; return; }
-  container.innerHTML = holidays.map((h,i)=>`
+  container.innerHTML = holidays.map(h=>`
     <div class="holiday-item">
       <span><strong>${formatDate(h.date)}</strong> — ${h.name}</span>
-      <button class="action-btn delete" onclick="deleteHoliday(${i})">Remove</button>
+      <button class="action-btn delete" onclick="deleteHoliday(${h.id})">Remove</button>
     </div>`).join('');
 }
 
@@ -4299,8 +4323,28 @@ function rptExportPDF() {
   const range = from && to ? `${from} to ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
   const now   = new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
 
+  // Convert live canvas charts → PNG data URLs before cloning (cloneNode loses canvas pixels)
+  const canvasMap = {};
+  if (panel) {
+    panel.querySelectorAll('canvas').forEach(cv => {
+      if (cv.id) {
+        try { canvasMap[cv.id] = { src: cv.toDataURL('image/png'), w: cv.offsetWidth || cv.width, h: cv.offsetHeight || cv.height }; } catch(e) {}
+      }
+    });
+  }
+
   const clone = panel ? panel.cloneNode(true) : document.createElement('div');
-  // remove progress bars in print (CSS handles color, but keep text)
+  // Replace cloned <canvas> elements with <img> snapshots
+  clone.querySelectorAll('canvas').forEach(cv => {
+    const info = canvasMap[cv.id];
+    if (info && info.src) {
+      const img = document.createElement('img');
+      img.src = info.src;
+      img.style.cssText = `width:100%;max-width:${info.w}px;height:auto;display:block;margin:8px 0`;
+      cv.parentNode.replaceChild(img, cv);
+    }
+  });
+
   const w = window.open('', '_blank', 'width=960,height=700');
   if (!w) { showToast('Popup blocked — allow popups and try again', 'error'); return; }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
@@ -4317,6 +4361,7 @@ function rptExportPDF() {
     .card{border-radius:10px;padding:16px 18px;color:#fff}
     .card-label{font-size:10px;font-weight:700;opacity:.8;letter-spacing:.05em;margin-bottom:6px}
     .card-val{font-size:22px;font-weight:800}
+    img{max-width:100%;height:auto}
     @media print{body{padding:16px}}
   </style></head><body>
   <h1>${title}</h1>

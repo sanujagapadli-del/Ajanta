@@ -35,7 +35,7 @@ const SCHEMA = {
     autoFill: {}
   },
   delegation_tasks: {
-    cols: ['id','description','assigned_to','assigned_by','due_date','status','priority','approval','waiting_approval','remarks','created_at','last_reminder_date','completed_at'],
+    cols: ['id','description','assigned_to','assigned_by','due_date','status','priority','approval','waiting_approval','remarks','link','revision_status','created_at','last_reminder_date','completed_at'],
     autoFill: { created_at: 'NOW' }
   },
   checklist_tasks: {
@@ -72,6 +72,10 @@ const SCHEMA = {
   },
   fms_extra_rows: {
     cols: ['id','step_id','row_label','col_letter','field_type','dropdown_options'],
+    autoFill: {}
+  },
+  holidays: {
+    cols: ['id','date','name'],
     autoFill: {}
   }
 };
