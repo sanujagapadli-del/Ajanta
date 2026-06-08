@@ -2665,7 +2665,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('[IMS Reports] error:', err.message);
-    res.status(500).json({ error: err.message });
+    const msg = (err.message || 'Failed to load').replace(/[^\x20-\x7E]/g, '?').slice(0, 200);
+    res.status(500).json({ error: msg });
   }
 });
 

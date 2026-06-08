@@ -3910,7 +3910,7 @@ async function loadImsReports() {
   _lastRptSync = Date.now();
 
   if (!data || data.error) {
-    if (status) { status.style.color = '#dc2626'; status.textContent = '✗ ' + (data?.error || 'Failed to load'); }
+    if (status) { status.style.color = '#94a3b8'; status.textContent = 'No data yet — import files first, then sync.'; }
     return;
   }
 
@@ -4461,6 +4461,7 @@ async function importStockCSV(reportType) {
   } catch (e) {
     status.style.cssText = ERR_CSS;
     status.innerHTML = '<strong>❌ Error:</strong> ' + (e.message || 'Unknown error. Try again.');
+    setTimeout(() => { status.style.cssText = ''; status.innerHTML = ''; }, 3000);
   }
 
   btn.disabled = false;
