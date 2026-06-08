@@ -1064,6 +1064,7 @@ tbody tr:last-child td{border-bottom:none;}
             <button class="rpt-tab-btn"        data-tab="supplier"  onclick="switchRptTab('supplier')">🏭 Supplier Sales</button>
             <button class="rpt-tab-btn"        data-tab="sp"        onclick="switchRptTab('sp')">👤 Salesperson</button>
             <button class="rpt-tab-btn"        data-tab="citystate" onclick="switchRptTab('citystate')">🗺 City / State</button>
+            <button class="rpt-tab-btn"        data-tab="sku"       onclick="switchRptTab('sku')">🔖 SKU Code</button>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;min-width:44px;text-transform:uppercase;padding:0 2px">STOCK</span>
@@ -1240,6 +1241,22 @@ tbody tr:last-child td{border-bottom:none;}
               <th class="rpt-th-red" style="text-align:right">Net Amount</th>
             </tr></thead>
             <tbody id="rptCityStateBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+            </table>
+          </div></div>
+        </div>
+
+        <!-- ══ PANEL: SKU Code wise Sales ══ -->
+        <div id="rptPanel-sku" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse"><thead><tr>
+              <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
+              <th class="rpt-th-purple" style="text-align:left">SKU Code</th>
+              <th class="rpt-th-blue" style="text-align:right">Transactions</th>
+              <th class="rpt-th-green" style="text-align:right">Net Qty</th>
+              <th class="rpt-th-red" style="text-align:right">Net Amount</th>
+              <th class="rpt-th-amber" style="text-align:left;min-width:140px">Share %</th>
+            </tr></thead>
+            <tbody id="rptSKUBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
             </table>
           </div></div>
         </div>
@@ -3994,6 +4011,7 @@ async function loadImsReports() {
   renderRptSupplierSales(data.supplierSales || []);
   renderRptSalespersons(data.salespersons || []);
   renderRptCityState(data.cityStateSales || []);
+  renderRptSKU(data.skuSales || []);
   renderRptStockSummary(data.currentStock || {});
   renderRptSupplierStock(data.supplierStock || []);
   renderRptStockCat(data.categoryStock || []);
@@ -4112,6 +4130,30 @@ function renderRptCityState(items) {
   </tr>`).join('');
   // Horizontal bar chart (top 20, label = city + state)
   renderChartHBar('rptChart-citystate', 'citystate', items.slice(0,20).map(c=>c.city+', '+c.state), items.slice(0,20).map(c=>c.amount), lbl => showDrilldown('city', lbl.split(', ')[0]));
+}
+
+function renderRptSKU(items) {
+  const body = document.getElementById('rptSKUBody');
+  if (!body) return;
+  if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No SKU data found — check that the Out Stock sheet has a "SKU Code" column</td></tr>'; return; }
+  const totalAmt = items.reduce((s, r) => s + (r.amount||0), 0);
+  body.innerHTML = items.map((r, i) => {
+    const pct = totalAmt ? ((r.amount / totalAmt) * 100).toFixed(1) : '0.0';
+    const barW = totalAmt ? Math.round((r.amount / totalAmt) * 100) : 0;
+    return `<tr class="${i%2?'rpt-tr-even':''}">
+      <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+      <td class="rpt-td" style="font-weight:700;color:#7c3aed;font-family:monospace;font-size:13px">${r.sku}</td>
+      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(r.transactions||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(r.qty||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(r.amount)}</td>
+      <td class="rpt-td"><div style="display:flex;align-items:center;gap:6px">
+        <div style="flex:1;background:#f1f5f9;border-radius:4px;height:8px;overflow:hidden">
+          <div style="width:${barW}%;background:#f59e0b;height:100%;border-radius:4px"></div>
+        </div>
+        <span style="font-size:11px;font-weight:700;color:#92400e;min-width:36px">${pct}%</span>
+      </div></td>
+    </tr>`;
+  }).join('');
 }
 
 function renderRptStockSummary(s) {

@@ -2669,10 +2669,11 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oSupplier  = findC(outHeader, /^supplier[\s._-]?name$/i);
     const oCity      = findC(outHeader, /^supplier[\s._-]?city$/i);
     const oState     = findC(outHeader, /^supplier[\s._-]?state$/i);
+    const oSKU       = findC(outHeader, /sku[\s._-]?code|^sku$|item[\s._-]?code|product[\s._-]?code/i);
 
-    console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState });
+    console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU });
 
-    const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={};
+    const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={};
     let totalAmt=0, totalQty=0;
     const allXns = new Set();
 
@@ -2691,6 +2692,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const city = (row[oCity]||'').trim() || '—';
       const state= (row[oState]||'').trim() || '—';
       const xnNo = (row[oXnNo]||'').trim();
+      const sku  = oSKU >= 0 ? ((row[oSKU]||'').trim() || 'Unknown') : null;
       const csKey= city + '||' + state;
 
       totalAmt += amt; totalQty += qty;
@@ -2705,6 +2707,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       push(byCat, cat);
       push(bySP, sp);
       push(bySupplier, sup);
+      if (sku !== null) push(bySKU, sku);
       if (!byCityState[csKey]) byCityState[csKey] = { city, state, amt:0, qty:0, xns:new Set() };
       byCityState[csKey].amt += amt; byCityState[csKey].qty += qty;
       if (xnNo) byCityState[csKey].xns.add(xnNo);
@@ -2756,12 +2759,14 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), value:Math.round(d.value) })));
     const categoryStock = sortVal(Object.entries(byCatStock).map(([category,d]) => ({ category, qty:r2(d.qty), value:Math.round(d.value) })));
 
+    const skuSales = sortAmt(Object.entries(bySKU).map(([sku,d]) => ({ sku, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) })));
     res.json({
       salesSummary: { totalAmount:Math.round(totalAmt), totalQty:r2(totalQty), totalTransactions:allXns.size, byDate:fmtByDate },
       topCategories: sortAmt(Object.entries(byCat).map(([cat,d]) => ({ category:cat, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))).slice(0,15),
       supplierSales: ser(bySupplier, 'name'),
       salespersons:  ser(bySP, 'name'),
       cityStateSales,
+      skuSales,
       currentStock: { totalItems: Math.max(0, inRows.length-1), totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue) },
       supplierStock,
       categoryStock
