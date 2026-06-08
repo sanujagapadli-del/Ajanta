@@ -2671,7 +2671,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     function r2(n) { return Math.round(n * 100) / 100; }
 
     const fromDate = from ? new Date(from) : null;
-    const toDate   = to   ? (() => { const d = new Date(to); d.setHours(23,59,59,999); return d; })() : null;
+    const toDate   = to   ? (() => { const d = new Date(to); d.setUTCHours(23,59,59,999); return d; })() : null;
 
     // ── OUT STOCK ────────────────────────────────────────────
     const outRows = outResp.data.values || [];
@@ -2904,11 +2904,11 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
     const MONS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
     function parseD(str) {
       const m = String(str||'').trim().match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
-      if (m) return new Date(+m[3], MONS[m[2].toLowerCase()]??0, +m[1]);
+      if (m) return new Date(Date.UTC(+m[3], MONS[m[2].toLowerCase()]??0, +m[1]));
       const d = new Date(str); return isNaN(d) ? null : d;
     }
     const fromDate = from ? new Date(from) : null;
-    const toDate   = to   ? (() => { const d=new Date(to); d.setHours(23,59,59,999); return d; })() : null;
+    const toDate   = to   ? (() => { const d=new Date(to); d.setUTCHours(23,59,59,999); return d; })() : null;
     const getNum = (row, idx) => idx < 0 ? 0 : parseFloat(String(row[idx]||'0').replace(/[^\d.-]/g,''))||0;
 
     if (!isStock) {
