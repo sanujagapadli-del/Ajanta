@@ -909,8 +909,11 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
       else await db.query(`UPDATE ${table} SET status='completed',waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [nowTs, req.params.id]);
       return res.json({ success: true, needsApproval: false });
     }
-    const needsApproval = type === 'delegation' && task.approval === 'yes';
-    if (needsApproval && !isAdmin && !isPC) {
+    // Revision request: hamesha approval chahiye (task.approval field sirf completion ke liye)
+    // Completion: sirf tab approval chahiye jab task.approval='yes'
+    const needsApproval = type === 'delegation' && !isAdmin && !isPC &&
+      (status === 'revised' || task.approval === 'yes');
+    if (needsApproval) {
       const [existing] = await db.query(`SELECT id FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending'`, [req.params.id, type]);
       if (existing[0]) return res.status(400).json({ error: 'Approval already pending' });
       await db.query(`INSERT INTO task_approvals (task_id,task_type,requested_by,requested_to,action_type,status,note) VALUES (?,?,?,?,?,'pending',?)`, [req.params.id, type, uid, task.assigned_by, status, reason||'']);
