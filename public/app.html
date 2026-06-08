@@ -4609,6 +4609,40 @@ function renderChartDoughnut(canvasId, key, items, labelField, valueField, onCli
 }
 // ── /Chart.js helpers ────────────────────────────────────────
 
+function _expandAllRptTables() {
+  if (window._catCache)   renderRptCategories(window._catCache, true);
+  if (window._spCache)    renderRptSalespersons(window._spCache, true);
+  if (window._cityCache)  renderRptCityState(window._cityCache, true);
+  if (window._skuCache)   renderRptSKU(window._skuCache, true);
+  if (window._supplierSalesCache) renderRptSupplierSales(window._supplierSalesCache.items, true);
+  if (window._stockTableCache) {
+    Object.keys(window._stockTableCache).forEach(id => expandStockTable(id));
+  }
+  if (window._turnoverCache) {
+    Object.keys(window._turnoverCache).forEach(id => expandTurnoverTable(id));
+  }
+}
+
+function _collapseAllRptTables() {
+  if (window._catCache)   renderRptCategories(window._catCache, false);
+  if (window._spCache)    renderRptSalespersons(window._spCache, false);
+  if (window._cityCache)  renderRptCityState(window._cityCache, false);
+  if (window._skuCache)   renderRptSKU(window._skuCache, false);
+  if (window._supplierSalesCache) renderRptSupplierSales(window._supplierSalesCache.items, false);
+  if (window._stockTableCache) {
+    Object.keys(window._stockTableCache).forEach(id => {
+      const c = window._stockTableCache[id];
+      _rptStockTable(id, c.items, c.keyField, false);
+    });
+  }
+  if (window._turnoverCache) {
+    Object.keys(window._turnoverCache).forEach(id => {
+      const c = window._turnoverCache[id];
+      renderTurnoverRows(c.rows, id, false);
+    });
+  }
+}
+
 function rptExportPDF() {
   const panel = document.getElementById('rptPanel-' + _activeRptTab);
   const title = RPT_TABS[_activeRptTab] || 'Report';
@@ -4616,6 +4650,9 @@ function rptExportPDF() {
   const to    = document.getElementById('rptTo')?.value   || '';
   const range = from && to ? `${from} to ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
   const now   = new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+
+  // Expand all tables so PDF contains full data
+  _expandAllRptTables();
 
   // Convert live canvas charts → PNG data URLs before cloning (cloneNode loses canvas pixels)
   const canvasMap = {};
@@ -4628,6 +4665,8 @@ function rptExportPDF() {
   }
 
   const clone = panel ? panel.cloneNode(true) : document.createElement('div');
+  // Restore top-10 view immediately after clone
+  _collapseAllRptTables();
   // Replace cloned <canvas> elements with <img> snapshots
   clone.querySelectorAll('canvas').forEach(cv => {
     const info = canvasMap[cv.id];
