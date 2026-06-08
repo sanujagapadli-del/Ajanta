@@ -2776,6 +2776,65 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const categoryStock = sortVal(Object.entries(byCatStock).map(([category,d]) => ({ category, qty:r2(d.qty), value:Math.round(d.value) })));
 
     const skuSales = sortAmt(Object.entries(bySKU).map(([sku,d]) => ({ sku, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) })));
+
+    // ── SP Analytics: current period + Last Year same period ──────────────────
+    const lyFrom = fromDate ? new Date(fromDate.getFullYear()-1, fromDate.getMonth(), fromDate.getDate()) : null;
+    const lyTo   = toDate   ? (() => { const d=new Date(toDate); d.setFullYear(d.getFullYear()-1); return d; })() : null;
+    const bySPcur={}, bySPly={}, byMoncur={}, byMonLY={};
+    let lyTotQty=0, lyTotAmt=0;
+    const lyXns = new Set();
+    const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    outRows.slice(1).forEach(row => {
+      const dateStr = (row[oXnDate]||'').trim();
+      if (!dateStr) return;
+      const d = parseSheetDate(dateStr);
+      if (!d) return;
+      const isCur = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+      const isLY  = (!lyFrom   || d >= lyFrom)   && (!lyTo   || d <= lyTo);
+      if (!isCur && !isLY) return;
+      const qty  = getNum(row, oNetQty);
+      const amt  = getNum(row, oNetAmt);
+      const sp   = (row[oSP]||'').trim() || 'Unknown';
+      const xnNo = (row[oXnNo]||'').trim();
+      const monKey   = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const monLabel = `${MON_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
+      const pushSP  = (map) => { if (!map[sp])     map[sp]     = {amt:0,qty:0,xns:new Set()}; map[sp].amt+=amt;     map[sp].qty+=qty;     if(xnNo) map[sp].xns.add(xnNo); };
+      const pushMon = (map) => { if (!map[monKey]) map[monKey] = {label:monLabel,amt:0,qty:0,xns:new Set()}; map[monKey].amt+=amt; map[monKey].qty+=qty; if(xnNo) map[monKey].xns.add(xnNo); };
+      if (isCur) { pushSP(bySPcur); pushMon(byMoncur); }
+      if (isLY)  { pushSP(bySPly);  pushMon(byMonLY);  lyTotQty+=qty; lyTotAmt+=amt; if(xnNo) lyXns.add(xnNo); }
+    });
+
+    const curBillsTot = allXns.size, lyBillsTot = lyXns.size;
+    const curUPT = curBillsTot ? r2(totalQty/curBillsTot) : 0;
+    const lyUPT  = lyBillsTot  ? r2(lyTotQty/lyBillsTot)  : 0;
+    const curATV = curBillsTot ? Math.round(totalAmt/curBillsTot) : 0;
+    const lyATV  = lyBillsTot  ? Math.round(lyTotAmt/lyBillsTot)  : 0;
+    const pct = (a,b) => b ? r2((a-b)/b*100) : null;
+
+    const allSPKeys = new Set([...Object.keys(bySPcur), ...Object.keys(bySPly)]);
+    const spTable = [...allSPKeys].map(sp => {
+      const c = bySPcur[sp] || {amt:0,qty:0,xns:new Set()};
+      const l = bySPly[sp]  || {amt:0,qty:0,xns:new Set()};
+      const cB=c.xns.size, lB=l.xns.size;
+      const cUPT=cB?r2(c.qty/cB):0, lUPT=lB?r2(l.qty/lB):0;
+      const cATV=cB?Math.round(c.amt/cB):0, lATV=lB?Math.round(l.amt/lB):0;
+      return { name:sp, bills:cB, qty:r2(c.qty), amount:Math.round(c.amt), upt:cUPT, atv:cATV,
+               lyBills:lB, lyQty:r2(l.qty), lyAmount:Math.round(l.amt), lyUpt:lUPT, lyAtv:lATV,
+               uptGrowth:pct(cUPT,lUPT), atvGrowth:pct(cATV,lATV), billsGrowth:pct(cB,lB) };
+    }).sort((a,b) => b.amount-a.amount);
+
+    const curMonsSorted = Object.entries(byMoncur).sort(([a],[b])=>a.localeCompare(b));
+    const lyMonsSorted  = Object.entries(byMonLY).sort(([a],[b])=>a.localeCompare(b));
+    const monLen = Math.max(curMonsSorted.length, lyMonsSorted.length);
+    const monthlyCmp = Array.from({length:monLen}, (_,i) => {
+      const [,c] = curMonsSorted[i]||[null,null];
+      const [,l] = lyMonsSorted[i] ||[null,null];
+      return { month: c?c.label:l?l.label:`M${i+1}`,
+               curAmt:c?Math.round(c.amt):0, curQty:c?r2(c.qty):0, curBills:c?c.xns.size:0,
+               lyAmt: l?Math.round(l.amt):0, lyQty: l?r2(l.qty):0,  lyBills: l?l.xns.size:0 };
+    });
+
     res.json({
       salesSummary: { totalAmount:Math.round(totalAmt), totalQty:r2(totalQty), totalTransactions:allXns.size, byDate:fmtByDate },
       topCategories: sortAmt(Object.entries(byCat).map(([cat,d]) => ({ category:cat, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))).slice(0,15),
@@ -2785,7 +2844,14 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       skuSales,
       currentStock: { totalItems: Math.max(0, inRows.length-1), totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue) },
       supplierStock,
-      categoryStock
+      categoryStock,
+      spAnalytics: {
+        summary: { curUPT, lyUPT, uptGrowth:pct(curUPT,lyUPT), curATV, lyATV, atvGrowth:pct(curATV,lyATV),
+                   curBills:curBillsTot, lyBills:lyBillsTot, billsGrowth:pct(curBillsTot,lyBillsTot),
+                   curQty:r2(totalQty), lyQty:r2(lyTotQty), curAmount:Math.round(totalAmt), lyAmount:Math.round(lyTotAmt) },
+        spTable,
+        monthlyCmp
+      }
     });
   } catch (err) {
     console.error('[IMS Reports] error:', err.message);

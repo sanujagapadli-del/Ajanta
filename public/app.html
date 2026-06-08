@@ -1063,6 +1063,7 @@ tbody tr:last-child td{border-bottom:none;}
             <button class="rpt-tab-btn"        data-tab="cat"       onclick="switchRptTab('cat')">🏷 Top Categories</button>
             <button class="rpt-tab-btn"        data-tab="supplier"  onclick="switchRptTab('supplier')">🏭 Supplier Sales</button>
             <button class="rpt-tab-btn"        data-tab="sp"        onclick="switchRptTab('sp')">👤 Salesperson</button>
+            <button class="rpt-tab-btn"        data-tab="spanalytics" onclick="switchRptTab('spanalytics')">📈 UPT / ATV</button>
             <button class="rpt-tab-btn"        data-tab="citystate" onclick="switchRptTab('citystate')">🗺 City / State</button>
             <button class="rpt-tab-btn"        data-tab="sku"       onclick="switchRptTab('sku')">🔖 SKU Code</button>
           </div>
@@ -1392,6 +1393,67 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
 
       </div><!-- /rpt-glass -->
+
+        <!-- ══ PANEL: SP Analytics (UPT / ATV) ══ -->
+        <div id="rptPanel-spanalytics" class="rpt-panel" style="display:none;padding:24px 26px">
+          <!-- Summary Cards -->
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px">
+            <!-- UPT -->
+            <div style="background:#fff;border-radius:14px;border:1px solid #e8ecf8;padding:18px 20px;box-shadow:0 2px 8px rgba(79,70,229,.07)">
+              <div style="font-size:10px;font-weight:800;color:#94a3b8;letter-spacing:.08em;margin-bottom:10px;text-transform:uppercase">Units Per Transaction (UPT)</div>
+              <div style="display:flex;align-items:flex-end;gap:18px">
+                <div><div style="font-size:11px;color:#64748b;margin-bottom:2px">Current</div><div id="saUPT" style="font-size:28px;font-weight:800;color:#4f46e5">—</div></div>
+                <div><div style="font-size:11px;color:#64748b;margin-bottom:2px">Last Year</div><div id="saLYUPT" style="font-size:20px;font-weight:700;color:#94a3b8">—</div></div>
+                <div style="margin-left:auto;text-align:right"><div style="font-size:11px;color:#64748b;margin-bottom:2px">Growth</div><div id="saUPTG" style="font-size:16px;font-weight:800">—</div></div>
+              </div>
+            </div>
+            <!-- ATV -->
+            <div style="background:#fff;border-radius:14px;border:1px solid #e8ecf8;padding:18px 20px;box-shadow:0 2px 8px rgba(79,70,229,.07)">
+              <div style="font-size:10px;font-weight:800;color:#94a3b8;letter-spacing:.08em;margin-bottom:10px;text-transform:uppercase">Avg Transaction Value (ATV)</div>
+              <div style="display:flex;align-items:flex-end;gap:18px">
+                <div><div style="font-size:11px;color:#64748b;margin-bottom:2px">Current</div><div id="saATV" style="font-size:28px;font-weight:800;color:#10b981">—</div></div>
+                <div><div style="font-size:11px;color:#64748b;margin-bottom:2px">Last Year</div><div id="saLYATV" style="font-size:20px;font-weight:700;color:#94a3b8">—</div></div>
+                <div style="margin-left:auto;text-align:right"><div style="font-size:11px;color:#64748b;margin-bottom:2px">Growth</div><div id="saATVG" style="font-size:16px;font-weight:800">—</div></div>
+              </div>
+            </div>
+            <!-- Bills -->
+            <div style="background:#fff;border-radius:14px;border:1px solid #e8ecf8;padding:18px 20px;box-shadow:0 2px 8px rgba(79,70,229,.07)">
+              <div style="font-size:10px;font-weight:800;color:#94a3b8;letter-spacing:.08em;margin-bottom:10px;text-transform:uppercase">Total Bills (Transactions)</div>
+              <div style="display:flex;align-items:flex-end;gap:18px">
+                <div><div style="font-size:11px;color:#64748b;margin-bottom:2px">Current</div><div id="saBills" style="font-size:28px;font-weight:800;color:#f59e0b">—</div></div>
+                <div><div style="font-size:11px;color:#64748b;margin-bottom:2px">Last Year</div><div id="saLYBills" style="font-size:20px;font-weight:700;color:#94a3b8">—</div></div>
+                <div style="margin-left:auto;text-align:right"><div style="font-size:11px;color:#64748b;margin-bottom:2px">Growth</div><div id="saBillsG" style="font-size:16px;font-weight:800">—</div></div>
+              </div>
+            </div>
+          </div>
+          <!-- Monthly Comparison Chart -->
+          <div class="rpt-chart-wrap" style="margin-bottom:22px">
+            <div class="rpt-chart-label">Monthly Sales Comparison — Current Year vs Last Year</div>
+            <div style="position:relative;height:260px"><canvas id="rptChart-spmonthly"></canvas></div>
+          </div>
+          <!-- SP Table -->
+          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;min-width:900px"><thead><tr>
+              <th class="rpt-th-dark" style="text-align:left;width:32px">#</th>
+              <th class="rpt-th-dark" style="text-align:left">Salesperson</th>
+              <th class="rpt-th-blue" style="text-align:right">Bills</th>
+              <th class="rpt-th-blue" style="text-align:right">LY Bills</th>
+              <th class="rpt-th-green" style="text-align:right">Qty</th>
+              <th class="rpt-th-green" style="text-align:right">LY Qty</th>
+              <th class="rpt-th-purple" style="text-align:right">Amount</th>
+              <th class="rpt-th-purple" style="text-align:right">LY Amount</th>
+              <th class="rpt-th-dark" style="text-align:right">UPT</th>
+              <th class="rpt-th-dark" style="text-align:right">LY UPT</th>
+              <th class="rpt-th-dark" style="text-align:right">UPT △</th>
+              <th class="rpt-th-amber" style="text-align:right">ATV</th>
+              <th class="rpt-th-amber" style="text-align:right">LY ATV</th>
+              <th class="rpt-th-amber" style="text-align:right">ATV △</th>
+            </tr></thead>
+            <tbody id="rptSPAnalyticsBody"><tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+            </table>
+          </div></div>
+        </div>
+
     </div><!-- /rpt-inner -->
     </div>
 
@@ -3970,13 +4032,14 @@ const RPT_TABS = {
   cat:          'Top Categories',
   supplier:     'Supplier-wise Sales',
   sp:           'Salesperson Performance',
+  spanalytics:  'Salesperson UPT / ATV Analytics',
   citystate:    'City / State wise Sales',
   stocksummary: 'Current Stock Summary',
   supplierstock:'Supplier-wise Stock Value',
   stockcat:     'Stock by Category'
 };
 // Tabs that use date filter (sales-based); stock tabs ignore it
-const RPT_SALES_TABS = new Set(['sales','cat','supplier','sp','citystate']);
+const RPT_SALES_TABS = new Set(['sales','cat','supplier','sp','spanalytics','citystate']);
 let _activeRptTab = 'sales';
 
 function switchRptTab(tab) {
@@ -4068,6 +4131,7 @@ async function loadImsReports() {
   renderRptSupplierStock(data.supplierStock || []);
   renderRptStockCat(data.categoryStock || []);
   renderRptTurnover(data);
+  renderRptSPAnalytics(data.spAnalytics || null);
 }
 
 function renderRptSummary(s, stock) {
@@ -4393,6 +4457,93 @@ function expandTurnoverTable(bodyId) {
 // ── /New render functions ────────────────────────────────────
 
 // ══════════════════════════════════════════════════════
+// SP ANALYTICS (UPT / ATV)
+// ══════════════════════════════════════════════════════
+function renderRptSPAnalytics(data) {
+  if (!data) return;
+  const { summary, spTable, monthlyCmp } = data;
+  const s = summary || {};
+  const el = id => document.getElementById(id);
+  const gSign = v => v === null ? '—' : (v >= 0 ? '+' : '') + v + '%';
+  const gColor = v => v === null ? '#94a3b8' : v >= 0 ? '#10b981' : '#ef4444';
+
+  if (el('saUPT'))    el('saUPT').textContent    = s.curUPT ?? '—';
+  if (el('saLYUPT'))  el('saLYUPT').textContent  = s.lyUPT  ?? '—';
+  if (el('saUPTG'))   { el('saUPTG').textContent = gSign(s.uptGrowth); el('saUPTG').style.color = gColor(s.uptGrowth); }
+  if (el('saATV'))    el('saATV').textContent    = fmtINR(s.curATV);
+  if (el('saLYATV'))  el('saLYATV').textContent  = fmtINR(s.lyATV);
+  if (el('saATVG'))   { el('saATVG').textContent = gSign(s.atvGrowth); el('saATVG').style.color = gColor(s.atvGrowth); }
+  if (el('saBills'))  el('saBills').textContent  = (s.curBills||0).toLocaleString('en-IN');
+  if (el('saLYBills'))el('saLYBills').textContent= (s.lyBills||0).toLocaleString('en-IN');
+  if (el('saBillsG')) { el('saBillsG').textContent = gSign(s.billsGrowth); el('saBillsG').style.color = gColor(s.billsGrowth); }
+
+  // Monthly comparison chart
+  if (monthlyCmp && monthlyCmp.length) {
+    const labels  = monthlyCmp.map(m => m.month);
+    const curAmts = monthlyCmp.map(m => m.curAmt);
+    const lyAmts  = monthlyCmp.map(m => m.lyAmt);
+    const cvs = el('rptChart-spmonthly');
+    if (cvs) {
+      if (window._chartInstances && window._chartInstances['spmonthly']) {
+        window._chartInstances['spmonthly'].destroy();
+      }
+      if (!window._chartInstances) window._chartInstances = {};
+      window._chartInstances['spmonthly'] = new Chart(cvs, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Current Year', data: curAmts, backgroundColor: 'rgba(79,70,229,0.8)', borderRadius: 4 },
+            { label: 'Last Year',    data: lyAmts,  backgroundColor: 'rgba(148,163,184,0.5)', borderRadius: 4 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position:'top' }, tooltip: { callbacks: { label: ctx => ' ₹' + Math.round(ctx.raw).toLocaleString('en-IN') } } },
+          scales: { y: { ticks: { callback: v => '₹'+Math.round(v/1000)+'k' }, grid: { color:'#f1f5f9' } }, x: { grid: { display:false } } }
+        }
+      });
+    }
+  }
+
+  // SP table (top-10 default)
+  const body = el('rptSPAnalyticsBody');
+  if (!body) return;
+  if (!spTable || !spTable.length) { body.innerHTML = '<tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
+  window._spAnalyticsCache = spTable;
+  const renderSPRows = (rows, showAll) => {
+    const visible = showAll ? rows : rows.slice(0, 10);
+    const rowsHtml = visible.map((r, i) => {
+      const uptG = r.uptGrowth === null ? '—' : (r.uptGrowth >= 0 ? '+' : '') + r.uptGrowth + '%';
+      const atvG = r.atvGrowth === null ? '—' : (r.atvGrowth >= 0 ? '+' : '') + r.atvGrowth + '%';
+      const gc = v => v === null ? '#94a3b8' : v >= 0 ? '#10b981' : '#ef4444';
+      return `<tr class="${i%2?'rpt-tr-even':''}">
+        <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+        <td class="rpt-td" style="font-weight:700;font-family:monospace">${r.name}</td>
+        <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.bills}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${r.lyBills}</td>
+        <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.qty}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${r.lyQty}</td>
+        <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(r.amount)}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${fmtINR(r.lyAmount)}</td>
+        <td class="rpt-td" style="text-align:right;color:#4f46e5;font-weight:800">${r.upt}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${r.lyUpt}</td>
+        <td class="rpt-td" style="text-align:right;font-weight:700;color:${gc(r.uptGrowth)}">${uptG}</td>
+        <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:700">${fmtINR(r.atv)}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${fmtINR(r.lyAtv)}</td>
+        <td class="rpt-td" style="text-align:right;font-weight:700;color:${gc(r.atvGrowth)}">${atvG}</td>
+      </tr>`;
+    }).join('');
+    const moreBtn = (!showAll && rows.length > 10)
+      ? `<tr><td colspan="14" style="text-align:center;padding:12px"><button onclick="window._renderSPARows(window._spAnalyticsCache,true)" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${rows.length} salespersons</button></td></tr>`
+      : '';
+    body.innerHTML = rowsHtml + moreBtn;
+  };
+  window._renderSPARows = renderSPRows;
+  renderSPRows(spTable, false);
+}
+
+// ══════════════════════════════════════════════════════
 // DRILLDOWN MODAL
 // ══════════════════════════════════════════════════════
 async function showDrilldown(filterType, label) {
@@ -4615,6 +4766,7 @@ function _expandAllRptTables() {
   if (window._cityCache)  renderRptCityState(window._cityCache, true);
   if (window._skuCache)   renderRptSKU(window._skuCache, true);
   if (window._supplierSalesCache) renderRptSupplierSales(window._supplierSalesCache.items, true);
+  if (window._spAnalyticsCache && window._renderSPARows) window._renderSPARows(window._spAnalyticsCache, true);
   if (window._stockTableCache) {
     Object.keys(window._stockTableCache).forEach(id => expandStockTable(id));
   }
@@ -4629,6 +4781,7 @@ function _collapseAllRptTables() {
   if (window._cityCache)  renderRptCityState(window._cityCache, false);
   if (window._skuCache)   renderRptSKU(window._skuCache, false);
   if (window._supplierSalesCache) renderRptSupplierSales(window._supplierSalesCache.items, false);
+  if (window._spAnalyticsCache && window._renderSPARows) window._renderSPARows(window._spAnalyticsCache, false);
   if (window._stockTableCache) {
     Object.keys(window._stockTableCache).forEach(id => {
       const c = window._stockTableCache[id];
