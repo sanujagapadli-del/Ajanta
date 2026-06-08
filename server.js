@@ -2682,7 +2682,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oSupplier  = findC(outHeader, /^supplier[\s._-]?name$/i);
     const oCity      = findC(outHeader, /^supplier[\s._-]?city$/i);
     const oState     = findC(outHeader, /^supplier[\s._-]?state$/i);
-    const oSKU       = findC(outHeader, /sku[\s._-]?code|^sku$|item[\s._-]?code|product[\s._-]?code/i);
+    const oSKU       = findC(outHeader, /sku[\s._-]?code|^sku$|item[\s._-]?code|product[\s._-]?code|article[\s._-]?no|articleno|^itemid$|item[\s._-]?id/i);
 
     console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU });
 
