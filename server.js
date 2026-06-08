@@ -2824,6 +2824,79 @@ app.post('/api/stock-csv-import', requireAuth, misUpload.single('file'), async (
   }
 });
 
+// ──────────────────────────────────────────────────────
+// /api/stock-rows-import  — accepts pre-parsed rows from browser
+// Used when the XLS file exceeds Vercel's 4.5 MB body limit.
+// Client parses XLS in-browser via SheetJS, then sends rows
+// as JSON in chunks of ~1500 rows so each request is small.
+// ──────────────────────────────────────────────────────
+app.post('/api/stock-rows-import', requireAuth, async (req, res) => {
+  try {
+    const { reportType, headerRow, rows, isFirst, isLast,
+            isAppend: clientIsAppend, sheetId: clientSheetId, uploadDate } = req.body;
+
+    if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows array required' });
+    const config = REPORT_CONFIG[reportType];
+    if (!config) return res.status(400).json({ error: 'Invalid report type' });
+
+    const tabName  = config.tab;
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    if (isFirst) {
+      // Initialise tab; determine whether this is append or fresh
+      const { sheetId, isNew } = await ensureTab(sheetsApi, STOCK_SHEET_ID, tabName);
+      let isAppend = !isNew;
+      if (isAppend) {
+        const existCheck = await withRetry(() => sheetsApi.spreadsheets.values.get({
+          spreadsheetId: STOCK_SHEET_ID, range: tabName + '!A1'
+        }));
+        if (!existCheck.data.values || !existCheck.data.values.length) isAppend = false;
+      }
+
+      // If fresh import, prepend header row; if append, skip it
+      const rowsToWrite = isAppend
+        ? rows.map(r => r.map(c => (c === null || c === undefined) ? '' : String(c)))
+        : [
+            headerRow.map(c => String(c || '')),
+            ...rows.map(r => r.map(c => (c === null || c === undefined) ? '' : String(c)))
+          ];
+
+      await withRetry(() => sheetsApi.spreadsheets.values.append({
+        spreadsheetId: STOCK_SHEET_ID, range: tabName + '!A1',
+        valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: rowsToWrite }
+      }));
+
+      if (isLast && !isAppend) {
+        await withRetry(() => colorHeaderRow(sheetsApi, STOCK_SHEET_ID, sheetId, 0));
+      }
+
+      return res.json({ batchOk: true, success: !!isLast, isAppend, sheetId, rowsAdded: rows.length, tab: tabName, uploadDate });
+
+    } else {
+      // Subsequent chunk — just append rows
+      const rowsToWrite = rows.map(r => r.map(c => (c === null || c === undefined) ? '' : String(c)));
+      await withRetry(() => sheetsApi.spreadsheets.values.append({
+        spreadsheetId: STOCK_SHEET_ID, range: tabName + '!A1',
+        valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: rowsToWrite }
+      }));
+
+      if (isLast && !clientIsAppend && clientSheetId != null) {
+        await withRetry(() => colorHeaderRow(sheetsApi, STOCK_SHEET_ID, clientSheetId, 0));
+      }
+
+      return res.json({ batchOk: true, success: !!isLast, isAppend: clientIsAppend, rowsAdded: rows.length, tab: tabName, uploadDate });
+    }
+
+  } catch (err) {
+    console.error('MIS rows import error:', err.message);
+    if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Service account ko Editor access do.' });
+    if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Sheet ID .env mein check karo.' });
+    res.status(500).json({ error: (err.message || 'Unknown error').slice(0, 300) });
+  }
+});
+
 // ══════════════════════════════════════════════════════
 // PAGES
 // ══════════════════════════════════════════════════════

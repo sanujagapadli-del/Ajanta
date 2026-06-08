@@ -4289,53 +4289,152 @@ async function importStockCSV(reportType) {
     fileEl.value = ''; return;
   }
 
+  const ERR_CSS  = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
+  const OK_CSS   = 'display:block;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
+  const tabLabels = { stock: '📦 In Stock', sales: '💰 Out Stock' };
+  const MONTHS    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const GARBAGE_RE = /[■-◿▀-▟� --]/;
+  const CFG = {
+    stock: { tab:'In Stock',  keywords:['supplier name','cost price','ops qty'] },
+    sales: { tab:'Out Stock', keywords:['xn date','xn no','sls qty'] }
+  };
+
   status.style.display = 'none';
   btn.disabled = true;
-  btn.textContent = '⏳  Uploading...';
+  btn.textContent = '⏳  Reading file...';
 
   try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('reportType', reportType);
+    // ── 1. Read file as ArrayBuffer in browser ──────────────────────────
+    const arrayBuf = await file.arrayBuffer();
 
-    const token = localStorage.getItem('authToken') || '';
-    const resp = await fetch('/api/stock-csv-import', {
-      method: 'POST',
-      credentials: 'include',
-      headers: token ? { 'Authorization': 'Bearer ' + token } : {},
-      body: formData
-    });
-
-    let r;
-    const ct = resp.headers.get('content-type') || '';
-    if (ct.includes('application/json')) {
-      r = await resp.json();
-    } else {
-      const raw = await resp.text().catch(() => '');
-      const hint = resp.status === 413 ? 'File too large for server (max ~4 MB). Convert to CSV and try again.'
-                 : resp.status === 401 ? 'Session expired — please refresh and log in again.'
-                 : 'Server returned HTTP ' + resp.status + '. ' + raw.replace(/<[^>]*>/g, '').trim().slice(0, 120);
-      r = { error: hint };
+    // ── 2. Lazy-load SheetJS (same version as server: 0.18.5) ──────────
+    if (!window.XLSX) {
+      btn.textContent = '⏳  Loading parser...';
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Could not load XLSX parser — check internet connection.'));
+        document.head.appendChild(s);
+      });
     }
 
-    if (r.error) {
-      status.style.cssText = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
-      status.innerHTML = '<strong>❌ Error:</strong> ' + r.error;
-    } else {
-      const tabLabels = { stock: '📦 In Stock', sales: '💰 Out Stock' };
-      status.style.cssText = 'display:block;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
-      status.innerHTML = r.isAppend
-        ? '<strong>✅ Data Appended!</strong><br/>' + r.rowsAdded + ' rows ' + (tabLabels[reportType]||r.tab) + ' tab.'
-        : '<strong>✅ Import successful!</strong><br/>' + r.rowsAdded + ' rows ' + (tabLabels[reportType]||r.tab) + ' tab. ';
-      fileEl.value = '';
-      localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: r.totalRows || r.rowsAdded, uploadDate: r.uploadDate || '' }));
-      _lastImportTime = Date.now();
-      loadImsStats();
-      setTimeout(() => { status.style.display = 'none'; }, 3000);
+    // ── 3. Parse XLS/XLSX/CSV in browser ───────────────────────────────
+    btn.textContent = '⏳  Parsing...';
+    let workbook;
+    try {
+      workbook = window.XLSX.read(arrayBuf, { type:'array', cellDates:true });
+    } catch (e1) {
+      try {
+        workbook = window.XLSX.read(arrayBuf, { type:'array', cellDates:false });
+      } catch (e2) {
+        throw new Error('File could not be parsed. Open in Excel → Save As → .xlsx or .csv and try again.');
+      }
     }
+
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const allRows = window.XLSX.utils.sheet_to_json(firstSheet, {
+      header:1, defval:'', blankrows:false, raw:true
+    }).map(row => row.map(cell => {
+      if (cell === null || cell === undefined) return '';
+      if (cell instanceof Date) {
+        return String(cell.getDate()).padStart(2,'0') + '-' + MONTHS[cell.getMonth()] + '-' + cell.getFullYear();
+      }
+      return String(cell);
+    })).filter(row => { const t = row.join('').trim(); return t && !GARBAGE_RE.test(t); });
+
+    if (!allRows.length) throw new Error('File is empty or unreadable.');
+
+    // ── 4. Header detection (mirrors server findHeaderRowIndex) ─────────
+    const cfg = CFG[reportType];
+    if (!cfg) throw new Error('Invalid report type.');
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(allRows.length, 25); i++) {
+      if (cfg.keywords.every(kw => allRows[i].join('|').toLowerCase().includes(kw))) { headerIdx = i; break; }
+    }
+    if (headerIdx === -1) throw new Error('Column headers not found. Check that you selected the correct report type.');
+
+    // ── 5. Extract print date from meta rows ────────────────────────────
+    let printDate = '';
+    for (const row of allRows.slice(0, headerIdx)) {
+      const text = row.join(' ');
+      if (/printed\s+on/i.test(text)) {
+        const m = text.match(/printed\s+on\s+([\d\-\/]+(?:\s+[\d:]+)?)/i);
+        printDate = m ? m[1].trim() : text.replace(/printed\s+on\s*/i,'').split('By')[0].trim();
+        break;
+      }
+    }
+
+    // ── 6. Build header row + filtered body rows ────────────────────────
+    const now = new Date();
+    const dateStr = String(now.getDate()).padStart(2,'0') + '-' + MONTHS[now.getMonth()] + '-' + now.getFullYear();
+    const headerRow = [...allRows[headerIdx], 'Print Date', 'Upload Date'];
+    const bodyRows  = allRows.slice(headerIdx + 1).filter(row => {
+      const rowText  = row.join(' ').trim();
+      if (!rowText) return false;
+      const firstCell = String(row[0]||'').trim().toLowerCase();
+      if (/gross\s*total|grand\s*total|sub\s*total|net\s*total/i.test(firstCell)) return false;
+      if (/gross\s*total|grand\s*total/i.test(rowText)) return false;
+      if (/printed\s+on/i.test(rowText)) return false;
+      return true;
+    }).map(r => [...r, printDate, dateStr]);
+
+    if (!bodyRows.length) throw new Error('No data rows found after filtering.');
+
+    // ── 7. Chunked JSON upload (bypasses Vercel 4.5 MB body limit) ──────
+    const CHUNK = 1500;
+    const token  = localStorage.getItem('authToken') || '';
+    const hdrs   = { 'Content-Type':'application/json', ...(token ? {'Authorization':'Bearer '+token} : {}) };
+    let sheetState = null; // { isAppend, sheetId } from first chunk response
+    let totalAdded = 0;
+
+    for (let i = 0; i < bodyRows.length; i += CHUNK) {
+      const chunk  = bodyRows.slice(i, i + CHUNK);
+      const isFirst = i === 0;
+      const isLast  = (i + CHUNK) >= bodyRows.length;
+      const pct = Math.min(100, Math.round(((i + chunk.length) / bodyRows.length) * 100));
+      btn.textContent = '⏳  Uploading ' + pct + '%...';
+
+      const payload = {
+        reportType, rows: chunk, isFirst, isLast, uploadDate: dateStr,
+        headerRow: isFirst ? headerRow : undefined,
+        isAppend:  sheetState ? sheetState.isAppend  : null,
+        sheetId:   sheetState ? sheetState.sheetId   : null
+      };
+
+      const resp = await fetch('/api/stock-rows-import', {
+        method:'POST', credentials:'include', headers:hdrs,
+        body: JSON.stringify(payload)
+      });
+      const ct = resp.headers.get('content-type') || '';
+      let r;
+      if (ct.includes('application/json')) {
+        r = await resp.json();
+      } else {
+        const raw = await resp.text().catch(() => '');
+        throw new Error('HTTP ' + resp.status + ': ' + raw.replace(/<[^>]*>/g,'').slice(0,120));
+      }
+      if (r.error) throw new Error(r.error);
+
+      totalAdded += chunk.length;
+      if (isFirst) sheetState = { isAppend: r.isAppend, sheetId: r.sheetId };
+    }
+
+    // ── 8. Show success ─────────────────────────────────────────────────
+    const isAppend = sheetState && sheetState.isAppend;
+    status.style.cssText = OK_CSS;
+    status.innerHTML = isAppend
+      ? '<strong>✅ Data Appended!</strong><br/>' + totalAdded + ' rows added to ' + (tabLabels[reportType]||cfg.tab) + ' tab.'
+      : '<strong>✅ Import successful!</strong><br/>' + totalAdded + ' rows imported to ' + (tabLabels[reportType]||cfg.tab) + ' tab.';
+    fileEl.value = '';
+    localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: totalAdded, uploadDate: dateStr }));
+    _lastImportTime = Date.now();
+    loadImsStats();
+    setTimeout(() => { status.style.display = 'none'; }, 3000);
+
   } catch (e) {
-    status.style.cssText = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
-    status.textContent = '❌ Server error. Try again.';
+    status.style.cssText = ERR_CSS;
+    status.innerHTML = '<strong>❌ Error:</strong> ' + (e.message || 'Unknown error. Try again.');
   }
 
   btn.disabled = false;
