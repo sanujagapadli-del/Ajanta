@@ -4349,16 +4349,25 @@ async function importStockCSV(reportType) {
       }
     }
 
+    const xlsConvertMsg = 'This .xls file cannot be read. In Excel: File → Save As → CSV or Excel Workbook (.xlsx), then import that file.';
+    if (!workbook || !workbook.SheetNames || !workbook.SheetNames.length)
+      throw new Error(xlsConvertMsg);
+
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const allRows = window.XLSX.utils.sheet_to_json(firstSheet, {
-      header:1, defval:'', blankrows:false, raw:true
-    }).map(row => row.map(cell => {
-      if (cell === null || cell === undefined) return '';
-      if (cell instanceof Date) {
-        return String(cell.getDate()).padStart(2,'0') + '-' + MONTHS[cell.getMonth()] + '-' + cell.getFullYear();
-      }
-      return String(cell);
-    })).filter(row => { const t = row.join('').trim(); return t && !GARBAGE_RE.test(t); });
+    let allRows;
+    try {
+      allRows = window.XLSX.utils.sheet_to_json(firstSheet, {
+        header:1, defval:'', blankrows:false, raw:true
+      }).map(row => row.map(cell => {
+        if (cell === null || cell === undefined) return '';
+        if (cell instanceof Date) {
+          return String(cell.getDate()).padStart(2,'0') + '-' + MONTHS[cell.getMonth()] + '-' + cell.getFullYear();
+        }
+        return String(cell);
+      })).filter(row => { const t = row.join('').trim(); return t && !GARBAGE_RE.test(t); });
+    } catch (_parseErr) {
+      throw new Error(xlsConvertMsg);
+    }
 
     if (!allRows.length) throw new Error('File is empty or unreadable.');
 
