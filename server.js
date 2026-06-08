@@ -1150,19 +1150,28 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 // MIS
 // ══════════════════════════════════════════════════════
-app.get('/api/mis', requireAuth, requireAdminOrHod, async (req, res) => {
+app.get('/api/mis', requireAuth, async (req, res) => {
   try {
     const { start, end } = req.query;
     if (!start || !end) return res.status(400).json({ error: 'Dates required' });
-    const isHod = req.session.role === 'hod';
-    // HOD ke liye apne department ka filter
-    let deptFilter = '';
+    const role = req.session.role;
+    const uid  = req.session.userId;
+    const isHod  = role === 'hod';
+    const isUser = role === 'user';
+
+    let userFilter = '';
     let deptParams = [start, end];
-    if (isHod) {
-      const [me] = await db.query('SELECT department FROM users WHERE id=?', [req.session.userId]);
+    if (isUser) {
+      // Regular user: sirf apna data
+      userFilter = 'AND u.id=?';
+      deptParams = [start, end, uid];
+    } else if (isHod) {
+      const [me] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
       const dept = me[0]?.department || '';
-      deptFilter = 'AND u.department=?';
+      userFilter = 'AND u.department=?';
       deptParams = [start, end, dept];
+    } else if (role !== 'admin' && role !== 'pc') {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     const calc = rows => rows.map(r => {
@@ -1170,8 +1179,8 @@ app.get('/api/mis', requireAuth, requireAdminOrHod, async (req, res) => {
       let score = total > 0 ? Math.max(-100, Math.round((0-(pending/total)*100-(overdue/total)*50-(revised/total)*25)*10)/10) : 0;
       return { ...r, delayed: overdue, score };
     });
-    const [delRows] = await db.query(`SELECT u.id AS userId,u.name,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,SUM(CASE WHEN t.status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM delegation_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${deptFilter} GROUP BY u.id,u.name ORDER BY u.name`, deptParams);
-    const [chlRows] = await db.query(`SELECT u.id AS userId,u.name,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,0 AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM checklist_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${deptFilter} GROUP BY u.id,u.name ORDER BY u.name`, deptParams);
+    const [delRows] = await db.query(`SELECT u.id AS userId,u.name,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,SUM(CASE WHEN t.status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM delegation_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${userFilter} GROUP BY u.id,u.name ORDER BY u.name`, deptParams);
+    const [chlRows] = await db.query(`SELECT u.id AS userId,u.name,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,0 AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM checklist_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${userFilter} GROUP BY u.id,u.name ORDER BY u.name`, deptParams);
     res.json({ delegation: calc(delRows), checklist: calc(chlRows) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1316,10 +1325,14 @@ app.get('/api/fms-dashboard', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/mis/detail', requireAuth, requireAdminOrHod, async (req, res) => {
+app.get('/api/mis/detail', requireAuth, async (req, res) => {
   try {
     const { userId, type, start, end } = req.query;
     if (!userId || !start || !end) return res.status(400).json({ error: 'Missing params' });
+    // Regular users can only view their own detail
+    if (req.session.role === 'user' && parseInt(userId) !== req.session.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     const table = type === 'delegation' ? 'delegation_tasks' : 'checklist_tasks';
     const [allUC] = await db.query('SELECT id,name FROM users');
     const uMapC = {};

@@ -5038,16 +5038,13 @@ let misData = {};
 let misFMSData = [];
 let misAllData = [];
 
-// Department filter (Admin only)
+// Department filter (Admin only) + All MIS tab visibility
 function initMISDeptFilter() {
-  // Only show for admin
   const wrap = document.getElementById('misDeptFilterWrap');
-  if (!wrap) return;
-  if (ME && ME.role === 'admin') {
-    wrap.style.display = '';
-  } else {
-    wrap.style.display = 'none';
-  }
+  const allTab = document.getElementById('misTabAll');
+  const isUser = ME && ME.role === 'user';
+  if (wrap) wrap.style.display = (ME && ME.role === 'admin') ? '' : 'none';
+  if (allTab) allTab.style.display = isUser ? 'none' : '';
 }
 
 function populateMISDeptDropdown(data) {
