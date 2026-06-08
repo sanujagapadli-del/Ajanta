@@ -5,312 +5,239 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Rajkamal Task Manager</title>
 <link rel="icon" type="image/webp" href="/logo.jpeg"/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;}
 
   body{
     font-family:'Inter',sans-serif;
-    background: linear-gradient(135deg,#e0f7fa 0%,#e8f5e9 50%,#e3f2fd 100%);
+    background:#eef1ff;
     min-height:100vh;
     display:flex;align-items:center;justify-content:center;
+    position:relative;overflow:hidden;
   }
 
-  /* ── Animated background circles ── */
-  body::before, body::after {
-    content:'';
-    position:fixed;
-    border-radius:50%;
-    pointer-events:none;
-    z-index:0;
-  }
-  body::before {
-    width:400px;height:400px;
-    top:-100px;left:-100px;
-    background:radial-gradient(circle, #00BCD422, transparent 70%);
-    animation: bgFloat1 8s ease-in-out infinite;
-  }
-  body::after {
-    width:300px;height:300px;
-    bottom:-80px;right:-80px;
-    background:radial-gradient(circle, #4CAF5022, transparent 70%);
-    animation: bgFloat2 10s ease-in-out infinite;
-  }
-
-  @keyframes bgFloat1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(30px,20px)} }
-  @keyframes bgFloat2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-20px,-30px)} }
+  /* ── Floating gradient blobs ── */
+  .blob{position:fixed;border-radius:50%;filter:blur(90px);pointer-events:none;z-index:0;}
+  .b1{width:700px;height:700px;top:-220px;left:-180px;
+      background:radial-gradient(circle,rgba(99,102,241,.2),rgba(79,70,229,.06),transparent 68%);
+      animation:bf1 14s ease-in-out infinite;}
+  .b2{width:560px;height:560px;bottom:-180px;right:-140px;
+      background:radial-gradient(circle,rgba(124,58,237,.16),rgba(167,139,250,.05),transparent 68%);
+      animation:bf2 18s ease-in-out infinite;}
+  .b3{width:340px;height:340px;top:45%;left:55%;
+      background:radial-gradient(circle,rgba(6,182,212,.12),transparent 68%);
+      animation:bf3 11s ease-in-out infinite;}
+  @keyframes bf1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(45px,35px) scale(1.06)}}
+  @keyframes bf2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-35px,-45px) scale(1.09)}}
+  @keyframes bf3{0%,100%{transform:translate(0,0)}50%{transform:translate(-25px,35px)}}
 
   /* ── Card ── */
   .login-wrap{
     background:#fff;
-    border-radius:20px;
-    padding:44px 40px;
-    width:420px;
-    box-shadow:0 20px 60px rgba(0,188,212,.12), 0 4px 20px rgba(0,0,0,.08);
-    position:relative;
-    z-index:1;
-    animation: cardIn .6s cubic-bezier(.34,1.56,.64,1) both;
+    border-radius:28px;
+    width:460px;max-width:95vw;
+    box-shadow:0 32px 80px rgba(79,70,229,.16),0 0 0 1px rgba(79,70,229,.08);
+    position:relative;z-index:1;overflow:hidden;
+    animation:cardIn .7s cubic-bezier(.34,1.56,.64,1) both;
   }
-  @keyframes cardIn {
-    from { opacity:0; transform:translateY(30px) scale(.96); }
-    to   { opacity:1; transform:translateY(0)    scale(1);   }
+  @keyframes cardIn{
+    from{opacity:0;transform:translateY(44px) scale(.94);}
+    to  {opacity:1;transform:translateY(0)    scale(1);}
   }
 
-  /* ── Logo section ── */
-  .logo-section {
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    margin-bottom:28px;
+  /* Rainbow top accent */
+  .login-wrap::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:4px;
+    background:linear-gradient(90deg,#4f46e5,#7c3aed,#06b6d4,#10b981);
+    border-radius:28px 28px 0 0;
   }
 
-  .logo-img-wrap {
-    position:relative;
-    display:inline-block;
-    padding:10px 16px;
-    background:transparent;
-    border-radius:16px;
-    overflow:hidden;
-    animation: logoIn .8s ease .2s both;
-  }
-  @keyframes logoIn {
-    from { opacity:0; transform:translateY(-20px) scale(.9); }
-    to   { opacity:1; transform:translateY(0)     scale(1);  }
+  /* ── Logo area ── */
+  .login-header{
+    padding:44px 44px 26px;
+    text-align:center;
+    background:linear-gradient(180deg,#f8f9ff 0%,#fff 100%);
+    border-bottom:1px solid #eef2ff;
   }
 
-  .logo-img-wrap img {
-    width:130px;
-    display:block;
-    animation: logoFloat 3.5s ease-in-out 1s infinite;
+  .logo-img-wrap{
+    display:inline-block;position:relative;margin-bottom:14px;
+    animation:logoIn .7s ease .2s both;
   }
-  @keyframes logoFloat {
-    0%,100% { transform:translateY(0px);   }
-    50%      { transform:translateY(-4px); }
+  @keyframes logoIn{from{opacity:0;transform:translateY(-18px)}to{opacity:1;transform:translateY(0)}}
+
+  .logo-img-wrap img{
+    width:120px;display:block;
+    filter:drop-shadow(0 5px 14px rgba(79,70,229,.2));
+    animation:logoFloat 4s ease-in-out 1.2s infinite;
+  }
+  @keyframes logoFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+
+  .logo-img-wrap::after{
+    content:'';position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.85) 50%,transparent 70%);
+    animation:shimmer 2.8s ease .9s 2;
+  }
+  @keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}
+
+  .logo-tagline{
+    font-size:10px;font-weight:800;letter-spacing:3.5px;
+    color:#6366f1;text-transform:uppercase;margin-bottom:10px;
+  }
+  .logo-dots{display:flex;gap:5px;justify-content:center;}
+  .logo-dots span{width:4px;height:4px;border-radius:50%;}
+  .logo-dots span:nth-child(1){background:#4f46e5;animation:dotPop .4s ease 1.2s both;}
+  .logo-dots span:nth-child(2){background:#7c3aed;animation:dotPop .4s ease 1.38s both;}
+  .logo-dots span:nth-child(3){background:#06b6d4;animation:dotPop .4s ease 1.56s both;}
+  @keyframes dotPop{0%{opacity:0;transform:scale(0)}70%{transform:scale(1.6)}100%{opacity:1;transform:scale(1)}}
+
+  /* ── Form body ── */
+  .login-body{padding:30px 44px 40px;}
+
+  h2{font-size:22px;font-weight:800;color:#0f172a;margin-bottom:4px;letter-spacing:-.4px;}
+  p.sub{font-size:14px;color:#64748b;margin-bottom:28px;font-weight:400;}
+
+  .form-group{margin-bottom:18px;}
+  label{
+    font-size:10px;font-weight:800;color:#475569;
+    display:block;margin-bottom:7px;
+    text-transform:uppercase;letter-spacing:.6px;
   }
 
-  /* Shimmer sweep over logo */
-  .logo-img-wrap::after {
-    content:'';
-    position:absolute;
-    top:0;left:-100%;
-    width:60%;height:100%;
-    background:linear-gradient(100deg, transparent 20%, rgba(255,255,255,.7) 50%, transparent 80%);
-    animation: shimmer 2.5s ease .8s 2;
-    pointer-events:none;
+  .input-wrap{position:relative;}
+  .input-wrap .icon{
+    position:absolute;left:14px;top:50%;transform:translateY(-50%);
+    font-size:15px;color:#c4b5fd;pointer-events:none;transition:color .2s;
   }
-  @keyframes shimmer {
-    0%   { left:-100%; }
-    100% { left:160%;  }
-  }
+  .input-wrap:focus-within .icon{color:#6366f1;}
 
-  .logo-tagline {
-    margin-top:10px;
-    font-size:12px;
-    font-weight:600;
-    letter-spacing:3px;
-    color:#00BCD4;
-    text-transform:uppercase;
-    animation: tagIn .5s ease .9s both;
-  }
-  @keyframes tagIn {
-    from { opacity:0; transform:translateY(8px); }
-    to   { opacity:1; transform:translateY(0); }
-  }
-
-  /* Decorative dots */
-  .logo-dots {
-    display:flex;gap:6px;margin-top:8px;
-    animation: fadeIn .4s ease 1.2s both;
-  }
-  .logo-dots span {
-    width:5px;height:5px;border-radius:50%;
-    animation: dotPop .4s ease both;
-  }
-  .logo-dots span:nth-child(1){ background:#4CAF50; animation-delay:1.2s; }
-  .logo-dots span:nth-child(2){ background:#00BCD4; animation-delay:1.35s;}
-  .logo-dots span:nth-child(3){ background:#4CAF50; animation-delay:1.5s; }
-  @keyframes dotPop {
-    0%  { opacity:0; transform:scale(0); }
-    70% { transform:scale(1.4); }
-    100%{ opacity:1; transform:scale(1); }
-  }
-  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
-
-  /* ── Form ── */
-  h2{font-size:21px;font-weight:700;color:#1e293b;margin-bottom:4px;text-align:center;}
-  p.sub{font-size:13px;color:#64748b;margin-bottom:24px;text-align:center;}
-
-  .form-group{margin-bottom:16px;}
-  label{font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px;}
-
-  .input-wrap { position:relative; }
-  .input-wrap .icon {
-    position:absolute;left:12px;top:50%;transform:translateY(-50%);
-    font-size:15px;color:#94a3b8;pointer-events:none;
-  }
   input{
-    width:100%;
-    padding:11px 14px 11px 38px;
-    border:1.5px solid #e2e8f0;
-    border-radius:10px;
-    font-size:14px;
-    font-family:'Inter',sans-serif;
-    outline:none;
-    transition:border .2s, box-shadow .2s;
-    color:#1e293b;
-    background:#fafafa;
+    width:100%;padding:13px 14px 13px 43px;
+    border:1.5px solid #e8ecf8;border-radius:12px;
+    font-size:14px;font-family:'Inter',sans-serif;
+    outline:none;transition:all .2s;
+    color:#0f172a;background:#fafbff;font-weight:500;
   }
   input:focus{
-    border-color:#00BCD4;
-    box-shadow:0 0 0 3px rgba(0,188,212,.12);
+    border-color:#6366f1;
+    box-shadow:0 0 0 4px rgba(99,102,241,.1);
     background:#fff;
   }
+  input::placeholder{color:#c4cbdc;font-weight:400;}
 
   .btn-login{
-    width:100%;
-    padding:13px;
-    background:linear-gradient(135deg,#00ACC1,#00BCD4);
-    color:#fff;
-    border:none;
-    border-radius:10px;
-    font-size:15px;
-    font-weight:600;
-    font-family:'Inter',sans-serif;
-    cursor:pointer;
-    transition:all .2s;
-    margin-top:6px;
-    letter-spacing:.3px;
-    box-shadow:0 4px 16px rgba(0,188,212,.3);
+    width:100%;padding:14px;
+    background:linear-gradient(135deg,#4f46e5,#7c3aed);
+    color:#fff;border:none;border-radius:12px;
+    font-size:15px;font-weight:700;font-family:'Inter',sans-serif;
+    cursor:pointer;transition:all .22s;margin-top:8px;
+    letter-spacing:.2px;
+    box-shadow:0 6px 24px rgba(79,70,229,.38);
+    position:relative;overflow:hidden;
   }
-  .btn-login:hover{
-    transform:translateY(-2px);
-    box-shadow:0 8px 24px rgba(0,188,212,.4);
+  .btn-login::after{
+    content:'';position:absolute;inset:0;
+    background:rgba(255,255,255,0);transition:background .22s;
   }
-  .btn-login:active{ transform:translateY(0); }
+  .btn-login:hover{transform:translateY(-2px);box-shadow:0 10px 34px rgba(79,70,229,.48);}
+  .btn-login:hover::after{background:rgba(255,255,255,.09);}
+  .btn-login:active{transform:translateY(0);}
 
   .error{
-    background:#fef2f2;border:1px solid #fecaca;
-    color:#dc2626;padding:10px 14px;
-    border-radius:8px;font-size:13px;
-    margin-bottom:14px;display:none;
+    background:#fef2f2;border:1.5px solid #fecaca;
+    color:#dc2626;padding:11px 14px;border-radius:10px;
+    font-size:13px;margin-bottom:18px;display:none;font-weight:500;
   }
 
-  /* ── Divider ── */
-  .divider {
-    display:flex;align-items:center;gap:10px;
-    margin:20px 0 16px;
+  .footer-text{
+    text-align:center;font-size:11px;color:#c4cbdc;margin-top:22px;
   }
-  .divider::before,.divider::after {
-    content:'';flex:1;height:1px;background:#e2e8f0;
-  }
-  .divider span { font-size:11px;color:#94a3b8;white-space:nowrap; }
+  .footer-text strong{color:#a5b4fc;font-weight:600;}
 
-  /* ── Footer ── */
-  .footer-text {
-    text-align:center;
-    font-size:11px;
-    color:#94a3b8;
-    margin-top:20px;
+  /* ── Eye toggle ── */
+  .eye-btn{
+    position:absolute;right:11px;top:50%;transform:translateY(-50%);
+    background:none;border:none;cursor:pointer;padding:5px;
+    color:#c4cbdc;display:flex;align-items:center;justify-content:center;
+    border-radius:7px;transition:all .18s;
   }
-  .footer-text strong { color:#00BCD4; }
-
-  /* ── Password Eye Toggle ── */
-  .eye-btn {
-    position:absolute;
-    right:10px;top:50%;
-    transform:translateY(-50%);
-    background:none;border:none;
-    cursor:pointer;
-    padding:4px;
-    color:#94a3b8;
-    display:flex;align-items:center;justify-content:center;
-    border-radius:6px;
-    transition:color .2s, background .2s;
-  }
-  .eye-btn:hover { color:#00BCD4; background:rgba(0,188,212,.08); }
-  .eye-btn svg { display:block; }
+  .eye-btn:hover{color:#6366f1;background:rgba(99,102,241,.09);}
+  .eye-btn svg{display:block;}
 </style>
 </head>
 <body>
 
+<div class="blob b1"></div>
+<div class="blob b2"></div>
+<div class="blob b3"></div>
+
 <div class="login-wrap">
 
   <!-- Logo -->
-  <div class="logo-section">
+  <div class="login-header">
     <div class="logo-img-wrap">
       <img src="logo.jpeg" alt="Rajkamal Logo"
            onerror="this.style.display='none';document.getElementById('fallbackLogo').style.display='flex'"/>
-      <!-- Fallback if image not found -->
-      <div id="fallbackLogo" style="display:none;width:200px;height:70px;align-items:center;justify-content:center;gap:8px">
-        <div style="width:44px;height:44px;background:linear-gradient(135deg,#00ACC1,#4CAF50);border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:20px">K</div>
+      <div id="fallbackLogo" style="display:none;width:160px;height:62px;align-items:center;justify-content:center;gap:10px">
+        <div style="width:48px;height:48px;background:linear-gradient(135deg,#4f46e5,#7c3aed);border-radius:13px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:22px;box-shadow:0 4px 14px rgba(79,70,229,.35)">R</div>
         <div>
-          <div style="font-size:22px;font-weight:800;color:#00BCD4;line-height:1">RAJKAMAL</div>
-          <div style="font-size:11px;color:#4CAF50;font-weight:600">Rajkamal's</div>
+          <div style="font-size:20px;font-weight:800;color:#4f46e5;line-height:1;letter-spacing:-.5px">RAJKAMAL</div>
+          <div style="font-size:10px;color:#7c3aed;font-weight:700;letter-spacing:2px;margin-top:2px">ENTERPRISES</div>
         </div>
       </div>
     </div>
     <div class="logo-tagline">Task Manager</div>
-    <div class="logo-dots">
-      <span></span><span></span><span></span>
-    </div>
+    <div class="logo-dots"><span></span><span></span><span></span></div>
   </div>
 
   <!-- Form -->
-  <h2>Welcome back 👋</h2>
-  <p class="sub">Sign in to your account</p>
+  <div class="login-body">
+    <h2>Welcome back 👋</h2>
+    <p class="sub">Sign in to continue to your workspace</p>
 
-  <div class="error" id="err"></div>
+    <div class="error" id="err"></div>
 
-  <div class="form-group">
-    <label>Email Address</label>
-    <div class="input-wrap">
-      <span class="icon">✉</span>
-      <input type="email" id="email" placeholder="Enter your email"/>
+    <div class="form-group">
+      <label>Email Address</label>
+      <div class="input-wrap">
+        <span class="icon">✉</span>
+        <input type="email" id="email" placeholder="you@example.com"/>
+      </div>
     </div>
-  </div>
 
-  <div class="form-group">
-    <label>Password</label>
-    <div class="input-wrap">
-      <span class="icon">🔒</span>
-      <input type="password" id="password" placeholder="Enter your password"
-             onkeydown="if(event.key==='Enter')login()" style="padding-right:38px"/>
-      <button type="button" class="eye-btn" onclick="togglePassword()" id="eyeBtn" title="Show/hide password">
-        <svg id="eyeIconShow" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        <svg id="eyeIconHide" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-      </button>
+    <div class="form-group">
+      <label>Password</label>
+      <div class="input-wrap">
+        <span class="icon">🔒</span>
+        <input type="password" id="password" placeholder="Enter your password"
+               onkeydown="if(event.key==='Enter')login()" style="padding-right:42px"/>
+        <button type="button" class="eye-btn" onclick="togglePassword()" id="eyeBtn" title="Show/hide password">
+          <svg id="eyeIconShow" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg id="eyeIconHide" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
     </div>
-  </div>
 
-  <button class="btn-login" onclick="login()">Sign In →</button>
+    <button class="btn-login" onclick="login()">Sign In →</button>
 
-  <div class="footer-text">
-    <strong>Rajkamal Task Manager</strong> &nbsp;·&nbsp; Rajkamal's
+    <div class="footer-text">
+      <strong>Rajkamal Task Manager</strong> &nbsp;·&nbsp; Rajkamal's
+    </div>
   </div>
 </div>
 
 <script>
 function togglePassword(){
-  const inp = document.getElementById('password');
-  const show = document.getElementById('eyeIconShow');
-  const hide = document.getElementById('eyeIconHide');
-  if(inp.type === 'password'){
-    inp.type = 'text';
-    show.style.display = 'none';
-    hide.style.display = 'block';
-  } else {
-    inp.type = 'password';
-    show.style.display = 'block';
-    hide.style.display = 'none';
-  }
+  const inp=document.getElementById('password');
+  const show=document.getElementById('eyeIconShow');
+  const hide=document.getElementById('eyeIconHide');
+  if(inp.type==='password'){inp.type='text';show.style.display='none';hide.style.display='block';}
+  else{inp.type='password';show.style.display='block';hide.style.display='none';}
 }
 
-// Agar already logged in hai toh seedha /app pe bhejo
-(async function checkExistingSession() {
-  try {
-    const r = await fetch('/api/me', { credentials: 'include' });
-    if (r.ok) { window.location.replace('/app'); }
-  } catch(e) {}
+(async function checkExistingSession(){
+  try{const r=await fetch('/api/me',{credentials:'include'});if(r.ok){window.location.replace('/app');}}catch(e){}
 })();
 
 async function login(){
@@ -323,8 +250,7 @@ async function login(){
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({email,password})});
     const d=await r.json();
     if(!r.ok){err.textContent=d.error||'Login failed';err.style.display='block';return;}
-    // Token ko localStorage mein bhi save karo as backup (cookie block hone ki condition mein)
-    if(d.token) localStorage.setItem('authToken', d.token);
+    if(d.token)localStorage.setItem('authToken',d.token);
     window.location.replace('/app');
   }catch(e){err.textContent='Server error. Try again.';err.style.display='block';}
 }

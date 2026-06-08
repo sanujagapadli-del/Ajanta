@@ -85,8 +85,8 @@ const JWT_SECRET = process.env.SESSION_SECRET || 'taskmanager_secret_2026';
 
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ══════════════════════════════════════════════════════
@@ -2401,6 +2401,410 @@ app.get('/api/debug', async (req, res) => {
     result.db.error = e.message;
   }
   res.json(result);
+});
+
+// ══════════════════════════════════════════════════════
+// MIS REPORT IMPORT → GOOGLE SHEET
+// ══════════════════════════════════════════════════════
+const STOCK_SHEET_ID = process.env.STOCK_SHEET_ID || '1UrIu9HeNabJ1XUqdyivZadTm6e8NH4ogVPdK_IqWv-s';
+const XLSX = require('xlsx');
+const multer = require('multer');
+const misUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+
+// Report type config: tab name + header row detect keywords (lowercase)
+const REPORT_CONFIG = {
+  stock: { tab: 'In Stock', keywords: ['supplier name', 'cost price', 'ops qty'] },
+  sales: { tab: 'Out Stock', keywords: ['xn date', 'xn no', 'sls qty'] },
+  bills: { tab: 'Bills', keywords: ['pur invdate', 'pur qty', 'pur costvalue'] }
+};
+
+// First 25 rows scan karo — jis row mein saare keywords milein woh header hai
+function findHeaderRowIndex(rows, keywords) {
+  for (let i = 0; i < Math.min(rows.length, 25); i++) {
+    const text = rows[i].join('|').toLowerCase();
+    if (keywords.every(kw => text.includes(kw))) return i;
+  }
+  return -1;
+}
+
+// Quota errors pe exponential backoff retry
+async function withRetry(fn, retries = 4) {
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn(); }
+    catch (err) {
+      const isQuota = err.code === 429 || (err.message && err.message.toLowerCase().includes('quota'));
+      if (!isQuota || i === retries) throw err;
+      const wait = (Math.pow(2, i) * 1000) + Math.floor(Math.random() * 500);
+      console.log('Quota limit — retry', i + 1, 'in', wait + 'ms');
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
+}
+
+// Tab exist karo ya bana do — returns { sheetId, isNew }
+async function ensureTab(sheetsApi, spreadsheetId, tabName) {
+  const meta = await withRetry(() => sheetsApi.spreadsheets.get({ spreadsheetId }));
+  const found = meta.data.sheets.find(s => s.properties.title === tabName);
+  if (found) return { sheetId: found.properties.sheetId, isNew: false };
+  const r = await withRetry(() => sheetsApi.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] }
+  }));
+  return { sheetId: r.data.replies[0].addSheet.properties.sheetId, isNew: true };
+}
+
+// Header row ko dark blue + white bold text
+async function colorHeaderRow(sheetsApi, spreadsheetId, sheetId, rowIndex0) {
+  await sheetsApi.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{
+        repeatCell: {
+          range: { sheetId, startRowIndex: rowIndex0, endRowIndex: rowIndex0 + 1, startColumnIndex: 0, endColumnIndex: 50 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.071, green: 0.216, blue: 0.376 },
+              textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true, fontSize: 10 }
+            }
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)'
+        }
+      }]
+    }
+  });
+}
+
+// IMS Stats — row count + last upload date for each tab
+app.get('/api/ims-stats', requireAuth, async (req, res) => {
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const tabs = [
+      { key: 'stock', tab: 'In Stock' },
+      { key: 'sales', tab: 'Out Stock' }
+    ];
+    const out = {};
+    for (const { key, tab } of tabs) {
+      try {
+        // Single-quote tab names with spaces — required by Sheets API A1 notation
+        const quotedTab = "'" + tab.replace(/'/g, "''") + "'";
+        const colAResp = await withRetry(() => sheetsApi.spreadsheets.values.get({
+          spreadsheetId: STOCK_SHEET_ID,
+          range: quotedTab + '!A:A'
+        }));
+        const colA = colAResp.data.values || [];
+        const totalRows = Math.max(0, colA.length - 1); // minus header row
+        console.log('[IMS Stats]', tab, '→ colA rows:', colA.length, '→ totalRows:', totalRows);
+
+        let lastUpload = null;
+        if (totalRows > 0) {
+          const headerResp = await withRetry(() => sheetsApi.spreadsheets.values.get({
+            spreadsheetId: STOCK_SHEET_ID,
+            range: quotedTab + '!1:1'
+          }));
+          const header = ((headerResp.data.values || [[]])[0] || []).map(h => String(h).trim().toLowerCase());
+          const uploadColIdx = header.indexOf('upload date');
+          if (uploadColIdx >= 0) {
+            const colLetter = idxToCol(uploadColIdx);
+            const cellResp = await withRetry(() => sheetsApi.spreadsheets.values.get({
+              spreadsheetId: STOCK_SHEET_ID,
+              range: quotedTab + '!' + colLetter + (totalRows + 1)
+            }));
+            lastUpload = ((cellResp.data.values || [[]])[0] || [])[0] || null;
+          }
+        }
+        out[key] = { totalRows, lastUpload };
+      } catch(e) {
+        console.error('[IMS Stats] tab error:', tab, e.message);
+        out[key] = { totalRows: null, lastUpload: null }; // null = error, don't overwrite cache
+      }
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('[IMS Stats] fatal:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// IMS Reports — all 8 report types from Out Stock + In Stock tabs
+app.get('/api/ims-reports', requireAuth, async (req, res) => {
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const { from, to } = req.query;
+
+    // Read both tabs in parallel
+    const [outResp, inResp] = await Promise.all([
+      withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: "'Out Stock'!A:AH" })),
+      withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: "'In Stock'!A:AH" }))
+    ]);
+
+    const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+    function parseSheetDate(str) {
+      const m = String(str||'').trim().match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
+      if (m) return new Date(parseInt(m[3]), MONTHS[m[2].toLowerCase()]??0, parseInt(m[1]));
+      const d = new Date(str); return isNaN(d.getTime()) ? null : d;
+    }
+    function getNum(row, idx) {
+      if (idx < 0 || row[idx] == null || row[idx] === '') return 0;
+      return parseFloat(String(row[idx]).replace(/[^\d.-]/g,'')) || 0;
+    }
+    function findC(hdr, regex) { return hdr.findIndex(h => regex.test(h)); }
+    function r2(n) { return Math.round(n * 100) / 100; }
+
+    const fromDate = from ? new Date(from) : null;
+    const toDate   = to   ? (() => { const d = new Date(to); d.setHours(23,59,59,999); return d; })() : null;
+
+    // ── OUT STOCK ────────────────────────────────────────────
+    const outRows = outResp.data.values || [];
+    const outHeader = outRows.length ? outRows[0].map(h => String(h).trim().toLowerCase()) : [];
+
+    const oXnDate    = findC(outHeader, /^xn[\s._-]?date$/i);
+    const oXnNo      = findC(outHeader, /^xn[\s._-]?no$/i);
+    const oCategory  = findC(outHeader, /^category$/i);
+    const oSP        = findC(outHeader, /^salesperson$/i);
+    const oNetQty    = findC(outHeader, /netsls[\s._-]?qty/i);
+    const oNetAmt    = findC(outHeader, /netsls[\s._-]?net|netsls[\s._-]?amount/i);
+    const oSupplier  = findC(outHeader, /^supplier[\s._-]?name$/i);
+    const oCity      = findC(outHeader, /^supplier[\s._-]?city$/i);
+    const oState     = findC(outHeader, /^supplier[\s._-]?state$/i);
+
+    console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState });
+
+    const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={};
+    let totalAmt=0, totalQty=0;
+    const allXns = new Set();
+
+    (outRows.slice(1)).forEach(row => {
+      const dateStr = (row[oXnDate]||'').trim();
+      if (!dateStr) return;
+      if (fromDate || toDate) {
+        const d = parseSheetDate(dateStr);
+        if (!d || (fromDate && d < fromDate) || (toDate && d > toDate)) return;
+      }
+      const amt  = getNum(row, oNetAmt);
+      const qty  = getNum(row, oNetQty);
+      const cat  = (row[oCategory]||'').trim() || 'Unknown';
+      const sp   = (row[oSP]||'').trim() || 'Unknown';
+      const sup  = (row[oSupplier]||'').trim() || 'Unknown';
+      const city = (row[oCity]||'').trim() || '—';
+      const state= (row[oState]||'').trim() || '—';
+      const xnNo = (row[oXnNo]||'').trim();
+      const csKey= city + '||' + state;
+
+      totalAmt += amt; totalQty += qty;
+      if (xnNo) allXns.add(xnNo);
+
+      const push = (map, key) => {
+        if (!map[key]) map[key] = { amt:0, qty:0, xns:new Set() };
+        map[key].amt += amt; map[key].qty += qty;
+        if (xnNo) map[key].xns.add(xnNo);
+      };
+      push(byDate, dateStr);
+      push(byCat, cat);
+      push(bySP, sp);
+      push(bySupplier, sup);
+      if (!byCityState[csKey]) byCityState[csKey] = { city, state, amt:0, qty:0, xns:new Set() };
+      byCityState[csKey].amt += amt; byCityState[csKey].qty += qty;
+      if (xnNo) byCityState[csKey].xns.add(xnNo);
+    });
+
+    const sortAmt = arr => arr.sort((a,b) => b.amount - a.amount);
+    const ser = (map, keyField='name') => sortAmt(Object.entries(map).map(([k,d]) => ({
+      [keyField]: k, transactions: d.xns.size, qty: r2(d.qty), amount: Math.round(d.amt)
+    })));
+
+    const fmtByDate = Object.entries(byDate)
+      .map(([date,d]) => ({ date, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))
+      .sort((a,b) => { const da=parseSheetDate(a.date),db=parseSheetDate(b.date); return (da||0)-(db||0); });
+
+    const cityStateSales = sortAmt(Object.values(byCityState).map(d => ({
+      city: d.city, state: d.state, transactions: d.xns.size, qty: r2(d.qty), amount: Math.round(d.amt)
+    })));
+
+    // ── IN STOCK ─────────────────────────────────────────────
+    const inRows = inResp.data.values || [];
+    const inHeader = inRows.length ? inRows[0].map(h => String(h).trim().toLowerCase()) : [];
+
+    const iSupplier = findC(inHeader, /^supplier[\s._-]?name$/i);
+    const iCostPrice= findC(inHeader, /^cost[\s._-]?price$/i);
+    const iOpsQty   = findC(inHeader, /^ops[\s._-]?qty$/i);
+    const iCategory = findC(inHeader, /^category$/i);
+    const iDept     = findC(inHeader, /^department$/i);
+
+    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCategory, iDept });
+
+    const bySupStock={}, byCatStock={};
+    let totalStockQty=0, totalStockValue=0;
+
+    (inRows.slice(1)).forEach(row => {
+      if (!row.length || !row.join('').trim()) return;
+      const sup  = (row[iSupplier]||'').trim() || 'Unknown';
+      const cat  = (row[iCategory]||'').trim() || 'Unknown';
+      const cost = getNum(row, iCostPrice);
+      const qty  = getNum(row, iOpsQty);
+      const val  = qty * cost;
+      totalStockQty += qty; totalStockValue += val;
+      if (!bySupStock[sup]) bySupStock[sup] = { qty:0, value:0 };
+      bySupStock[sup].qty += qty; bySupStock[sup].value += val;
+      if (!byCatStock[cat]) byCatStock[cat] = { qty:0, value:0 };
+      byCatStock[cat].qty += qty; byCatStock[cat].value += val;
+    });
+
+    const sortVal = arr => arr.sort((a,b) => b.value - a.value);
+    const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), value:Math.round(d.value) })));
+    const categoryStock = sortVal(Object.entries(byCatStock).map(([category,d]) => ({ category, qty:r2(d.qty), value:Math.round(d.value) })));
+
+    res.json({
+      salesSummary: { totalAmount:Math.round(totalAmt), totalQty:r2(totalQty), totalTransactions:allXns.size, byDate:fmtByDate },
+      topCategories: sortAmt(Object.entries(byCat).map(([cat,d]) => ({ category:cat, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))).slice(0,15),
+      supplierSales: ser(bySupplier, 'name'),
+      salespersons:  ser(bySP, 'name'),
+      cityStateSales,
+      currentStock: { totalItems: Math.max(0, inRows.length-1), totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue) },
+      supplierStock,
+      categoryStock
+    });
+  } catch (err) {
+    console.error('[IMS Reports] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/stock-csv-import', requireAuth, misUpload.single('file'), async (req, res) => {
+  try {
+    const reportType = (req.body && req.body.reportType) || '';
+    const buffer = req.file && req.file.buffer;
+    if (!buffer) return res.status(400).json({ error: 'File data missing' });
+
+    const config = REPORT_CONFIG[reportType];
+    if (!config) return res.status(400).json({ error: 'Invalid report type. Please select In Stock or Out Stock.' });
+
+    const tabName = config.tab;
+
+    // File parse + Sheets auth in PARALLEL (CPU + I/O overlap)
+    const GARBAGE_RE = /[\u25A0-\u25FF\u2580-\u259F\uFFFD\u0000-\u0008\u000B\u000C\u000E-\u001F]/;
+
+    const [parsedRows, sheetsApi] = await Promise.all([
+      Promise.resolve().then(() => {
+        const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        // raw:true = no currency/format symbols; cellDates:true keeps dates as JS Date objects
+        const allRows = XLSX.utils.sheet_to_json(firstSheet, {
+          header: 1, defval: '', blankrows: false, raw: true,
+          range: firstSheet['!ref'] || undefined
+        });
+        return allRows.filter(row => {
+          const text = row.join('').trim();
+          return text && !GARBAGE_RE.test(text);
+        });
+      }),
+      getSheetsClient(['https://www.googleapis.com/auth/spreadsheets'])
+    ]);
+
+    if (!parsedRows.length) return res.status(400).json({ error: 'File is empty or could not be parsed' });
+
+    // Ensure tab exists and check if it's new (determines append vs fresh)
+    const { sheetId, isNew } = await ensureTab(sheetsApi, STOCK_SHEET_ID, tabName);
+    // If tab exists but is empty (user deleted all data), treat as fresh — write header
+    let isAppend = !isNew;
+    if (isAppend) {
+      const existCheck = await withRetry(() => sheetsApi.spreadsheets.values.get({
+        spreadsheetId: STOCK_SHEET_ID,
+        range: tabName + '!A1'
+      }));
+      if (!existCheck.data.values || !existCheck.data.values.length) isAppend = false;
+    }
+    const now = new Date();
+    const dateStr = String(now.getDate()).padStart(2,'0') + '-'
+      + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()]
+      + '-' + now.getFullYear();
+
+    console.log('[IMS] reportType:', reportType, '| totalRows:', parsedRows.length, '| first3:', parsedRows.slice(0,3).map(r=>r.slice(0,3).join('|')));
+
+    const headerIdx = findHeaderRowIndex(parsedRows, config.keywords);
+    console.log('[IMS] headerIdx:', headerIdx, '| keywords:', config.keywords);
+    if (headerIdx === -1) {
+      return res.status(400).json({
+        error: 'Column headers not found. Please make sure you selected the correct report type (' + reportType + ').'
+      });
+    }
+
+    // Extract print date from metadata rows (before header)
+    const TOTAL_RE = /^(gross\s*total|grand\s*total|sub\s*total|net\s*total|total)$/i;
+    const metaRows = parsedRows.slice(0, headerIdx);
+    let printDate = '';
+    for (const row of metaRows) {
+      const text = row.join(' ');
+      if (/printed\s+on/i.test(text)) {
+        const m = text.match(/printed\s+on\s+([\d\-\/]+(?:\s+[\d:]+)?)/i);
+        printDate = m ? m[1].trim() : text.replace(/printed\s+on\s*/i, '').split('By')[0].trim();
+        break;
+      }
+    }
+
+    const dataRows = parsedRows
+      .slice(headerIdx)
+      .map(row => row.map(cell => {
+        if (cell === null || cell === undefined) return '';
+        if (cell instanceof Date) {
+          const dd = String(cell.getDate()).padStart(2, '0');
+          const mm = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][cell.getMonth()];
+          return dd + '-' + mm + '-' + cell.getFullYear();
+        }
+        return String(cell);
+      }));
+
+    const headerRow = dataRows[0];
+
+    // Filter out Gross Total, Grand Total, Printed On footer rows
+    const bodyRows = dataRows.slice(1).filter(row => {
+      const rowText = row.join(' ').trim();
+      if (!rowText) return false;
+      const firstCell = String(row[0] || '').trim().toLowerCase();
+      if (/gross\s*total|grand\s*total|sub\s*total|net\s*total/i.test(firstCell)) return false;
+      if (/gross\s*total|grand\s*total/i.test(rowText)) return false;
+      if (/printed\s+on/i.test(rowText)) return false;
+      return true;
+    });
+
+    console.log('[IMS] bodyRows:', bodyRows.length, '| isAppend:', isAppend, '| tab:', tabName);
+
+    const appendRows = [];
+    if (isAppend) {
+      bodyRows.forEach(r => appendRows.push([...r, printDate, dateStr]));
+    } else {
+      appendRows.push([...headerRow, 'Print Date', 'Upload Date']);
+      bodyRows.forEach(r => appendRows.push([...r, printDate, dateStr]));
+    }
+
+    const appendResp = await withRetry(() => sheetsApi.spreadsheets.values.append({
+      spreadsheetId: STOCK_SHEET_ID,
+      range: tabName + '!A1',
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: appendRows }
+    }));
+
+    // Parse total rows from updatedRange e.g. 'In Stock'!A1:P4662 → 4661 data rows
+    let totalRows = bodyRows.length;
+    try {
+      const updatedRange = appendResp.data.updates && appendResp.data.updates.updatedRange;
+      if (updatedRange) {
+        const m = updatedRange.match(/:(?:[A-Z]+)(\d+)$/);
+        if (m) totalRows = parseInt(m[1], 10) - 1; // minus header row
+      }
+    } catch {}
+
+    if (!isAppend) {
+      await withRetry(() => colorHeaderRow(sheetsApi, STOCK_SHEET_ID, sheetId, 0));
+    }
+
+    res.json({ success: true, rowsAdded: bodyRows.length, totalRows, isAppend, tab: tabName, uploadDate: dateStr });
+  } catch (err) {
+    console.error('MIS import error:', err.message);
+    if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Service account ko Editor access do.' });
+    if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Sheet ID .env mein check karo.' });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════

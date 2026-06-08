@@ -4,315 +4,333 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Task Manager</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="icon" type="image/jpeg" href="/logo.jpeg"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:'Inter',sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh;}
+body{font-family:'Inter',sans-serif;background:#f3f4ff;color:#0f172a;min-height:100vh;}
 
-/* ══════════════════════════════════════
-   SIDEBAR - Collapsed by default
-══════════════════════════════════════ */
+/* ═══════════════════════════════
+   SIDEBAR — White premium
+═══════════════════════════════ */
 .sidebar{
-  width:60px;background:#0f172a;position:fixed;top:0;left:0;bottom:0;
+  width:62px;background:#ffffff;position:fixed;top:0;left:0;bottom:0;
   z-index:100;display:flex;flex-direction:column;
   transition:width .25s ease;overflow:hidden;
+  border-right:1px solid #eef2ff;
+  box-shadow:4px 0 28px rgba(79,70,229,.07);
 }
-.sidebar:hover{ width:230px; }
+.sidebar:hover{width:234px;}
 
 .sidebar-logo{
-  padding:16px 12px;border-bottom:1px solid rgba(255,255,255,.08);
-  display:flex;align-items:center;gap:10px;min-height:60px;
+  padding:14px 13px;border-bottom:1px solid #eef2ff;
+  display:flex;align-items:center;gap:11px;min-height:64px;
   white-space:nowrap;overflow:hidden;
 }
 .logo-icon{
-  width:34px;height:34px;background:linear-gradient(135deg,#1a56db,#3b82f6);
-  border-radius:8px;display:grid;place-items:center;color:#fff;
-  font-weight:700;font-size:15px;flex-shrink:0;
+  width:36px;height:36px;background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  border-radius:10px;display:grid;place-items:center;color:#fff;
+  font-weight:800;font-size:15px;flex-shrink:0;
+  box-shadow:0 3px 12px rgba(79,70,229,.32);
 }
-.logo-text{font-size:15px;font-weight:700;color:#fff;opacity:0;transition:opacity .2s .1s;white-space:nowrap;}
+.logo-text{font-size:14px;font-weight:700;color:#0f172a;opacity:0;transition:opacity .2s .1s;white-space:nowrap;}
 .sidebar:hover .logo-text{opacity:1;}
 
-.nav{padding:10px 8px;flex:1;overflow:hidden;}
+.nav{padding:10px 9px;flex:1;overflow:hidden;}
 .nav-item{
-  display:flex;align-items:center;gap:10px;
-  padding:10px 11px;border-radius:8px;cursor:pointer;
-  font-size:13px;font-weight:500;color:#94a3b8;
-  transition:all .2s;margin-bottom:2px;user-select:none;
-  white-space:nowrap;overflow:hidden;
+  display:flex;align-items:center;gap:11px;
+  padding:10px 10px;border-radius:10px;cursor:pointer;
+  font-size:13px;font-weight:500;color:#64748b;
+  transition:all .18s;margin-bottom:2px;user-select:none;
+  white-space:nowrap;overflow:hidden;position:relative;
 }
 .nav-item svg{width:18px;height:18px;flex-shrink:0;}
 .nav-label-text{opacity:0;transition:opacity .2s .1s;}
 .sidebar:hover .nav-label-text{opacity:1;}
-.nav-item:hover{background:rgba(255,255,255,.06);color:#e2e8f0;}
-.nav-item.active{background:rgba(59,130,246,.2);color:#60a5fa;}
-.nav-divider{border-top:1px solid rgba(255,255,255,.06);margin:8px 0;}
+.nav-item:hover{background:#f3f4ff;color:#0f172a;}
+.nav-item.active{background:linear-gradient(135deg,#eef2ff,#f5f3ff);color:#4f46e5;font-weight:600;}
+.nav-item.active::before{content:'';position:absolute;left:0;top:22%;bottom:22%;width:3px;background:linear-gradient(180deg,#4f46e5,#7c3aed);border-radius:0 3px 3px 0;}
+.nav-divider{border-top:1px solid #eef2ff;margin:8px 0;}
 
 .sidebar-user{
-  padding:12px;border-top:1px solid rgba(255,255,255,.08);
-  display:flex;align-items:center;gap:10px;overflow:hidden;white-space:nowrap;
+  padding:13px;border-top:1px solid #eef2ff;
+  display:flex;align-items:center;gap:10px;overflow:hidden;white-space:nowrap;cursor:pointer;
 }
 .su-avatar{
-  width:32px;height:32px;border-radius:50%;
-  background:linear-gradient(135deg,#1a56db,#3b82f6);
-  display:grid;place-items:center;font-size:11px;font-weight:700;
-  color:#fff;flex-shrink:0;
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  display:grid;place-items:center;font-size:11px;font-weight:800;
+  color:#fff;flex-shrink:0;box-shadow:0 2px 9px rgba(79,70,229,.28);
 }
 .su-info{opacity:0;transition:opacity .2s .1s;}
 .sidebar:hover .su-info{opacity:1;}
-.su-name{font-size:12px;font-weight:600;color:#e2e8f0;}
-.su-role{font-size:11px;color:#64748b;}
+.su-name{font-size:12px;font-weight:700;color:#0f172a;}
+.su-role{font-size:11px;color:#94a3b8;margin-top:1px;}
 
-.sidebar-bottom{padding:10px 8px;overflow:hidden;}
+.sidebar-bottom{padding:10px 9px;overflow:hidden;}
 .logout-btn{
-  display:flex;align-items:center;gap:10px;padding:10px 11px;
-  border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;
-  color:#f87171;transition:all .2s;width:100%;white-space:nowrap;
+  display:flex;align-items:center;gap:10px;padding:10px 10px;
+  border-radius:10px;cursor:pointer;font-size:13px;font-weight:500;
+  color:#94a3b8;transition:all .18s;width:100%;white-space:nowrap;
   background:none;border:none;font-family:'Inter',sans-serif;
 }
-.logout-btn:hover{background:rgba(248,113,113,.1);}
+.logout-btn:hover{background:#fef2f2;color:#ef4444;}
 .logout-label{opacity:0;transition:opacity .2s .1s;}
 .sidebar:hover .logout-label{opacity:1;}
 
-/* ══════════════════════════════════════
+/* ═══════════════════════════════
    MAIN
-══════════════════════════════════════ */
-.main{margin-left:60px;min-height:100vh;transition:margin-left .25s ease;}
+═══════════════════════════════ */
+.main{margin-left:62px;min-height:100vh;transition:margin-left .25s ease;}
 .topbar{
-  background:#fff;border-bottom:1px solid #e2e8f0;
-  padding:0 24px;height:60px;display:flex;align-items:center;
+  background:#fff;border-bottom:1px solid #eef2ff;
+  padding:0 26px;height:64px;display:flex;align-items:center;
   justify-content:space-between;position:sticky;top:0;z-index:90;
+  box-shadow:0 1px 18px rgba(79,70,229,.06);
 }
-.topbar-title{font-size:18px;font-weight:700;color:#1e293b;}
+.topbar-title{font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-.3px;}
 .topbar-right{display:flex;align-items:center;gap:8px;}
 
-.btn{padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:all .2s;border:none;display:inline-flex;align-items:center;gap:6px;}
-.btn-primary{background:#1a56db;color:#fff;}.btn-primary:hover{background:#1648c0;}
-.btn-outline{background:#fff;color:#374151;border:1.5px solid #e2e8f0;}.btn-outline:hover{border-color:#3b82f6;color:#3b82f6;}
-.btn-danger{background:#ef4444;color:#fff;}.btn-danger:hover{background:#dc2626;}
-.btn-green{background:#10b981;color:#fff;}.btn-green:hover{background:#059669;}
-.btn-yellow{background:#f59e0b;color:#fff;}.btn-yellow:hover{background:#d97706;}
-.btn-sm{padding:5px 10px;font-size:12px;}
+.btn{padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:all .18s;border:none;display:inline-flex;align-items:center;gap:6px;}
+.btn-primary{background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;box-shadow:0 3px 12px rgba(79,70,229,.32);}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 5px 18px rgba(79,70,229,.42);}
+.btn-outline{background:#fff;color:#475569;border:1.5px solid #e8ecf8;}.btn-outline:hover{border-color:#4f46e5;color:#4f46e5;background:#eef2ff;}
+.btn-danger{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;box-shadow:0 3px 10px rgba(239,68,68,.26);}
+.btn-danger:hover{transform:translateY(-1px);box-shadow:0 5px 16px rgba(239,68,68,.36);}
+.btn-green{background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 3px 10px rgba(16,185,129,.26);}
+.btn-green:hover{transform:translateY(-1px);box-shadow:0 5px 16px rgba(16,185,129,.36);}
+.btn-yellow{background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;box-shadow:0 3px 10px rgba(245,158,11,.26);}
+.btn-yellow:hover{transform:translateY(-1px);}
+.btn-sm{padding:6px 12px;font-size:12px;}
 
-/* ══════════════════════════════════════
+/* ═══════════════════════════════
    PAGES
-══════════════════════════════════════ */
-.page{display:none;padding:22px 24px;}
+═══════════════════════════════ */
+.page{display:none;padding:24px 26px;}
 .page.active{display:block;}
-.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
-.page-header h2{font-size:20px;font-weight:700;}
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
+.page-header h2{font-size:21px;font-weight:800;letter-spacing:-.4px;}
 
-/* ══════════════════════════════════════
+/* ═══════════════════════════════
    DASHBOARD
-══════════════════════════════════════ */
-.dash-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
-.dash-topbar h2{font-size:20px;font-weight:700;}
+═══════════════════════════════ */
+.dash-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
+.dash-topbar h2{font-size:21px;font-weight:800;letter-spacing:-.4px;}
 .dash-topbar-btns{display:flex;gap:8px;}
 
-.overview-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;}
-.ov-card{background:#fff;border-radius:12px;padding:20px 22px;border:1px solid #e2e8f0;}
-.ov-card .label{font-size:13px;color:#64748b;margin-bottom:6px;}
-.ov-card .number{font-size:34px;font-weight:700;}
+.overview-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px;}
+.ov-card{
+  background:#fff;border-radius:16px;padding:22px 24px;
+  border:1px solid #eef2ff;box-shadow:0 2px 14px rgba(79,70,229,.07);
+  transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden;
+}
+.ov-card:hover{transform:translateY(-2px);box-shadow:0 6px 26px rgba(79,70,229,.11);}
+.ov-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;}
+.ov-card.pending::after{background:linear-gradient(90deg,#ef4444,#f87171);}
+.ov-card.revised::after{background:linear-gradient(90deg,#f59e0b,#fbbf24);}
+.ov-card.completed::after{background:linear-gradient(90deg,#10b981,#34d399);}
+.ov-card .label{font-size:11px;color:#94a3b8;margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;}
+.ov-card .number{font-size:36px;font-weight:800;letter-spacing:-.5px;}
 .ov-card.pending .number{color:#ef4444;}
 .ov-card.revised .number{color:#f59e0b;}
 .ov-card.completed .number{color:#10b981;}
 
 .dash-bottom{display:grid;grid-template-columns:1fr 320px;gap:18px;}
-.task-table-card{background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;}
-.card-head{padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;}
-.card-head-title{font-size:14px;font-weight:700;}
-.tab-group{display:flex;gap:4px;background:#f1f5f9;padding:3px;border-radius:8px;}
-.tab{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;color:#64748b;transition:all .2s;}
-.tab.active{background:#fff;color:#1a56db;box-shadow:0 1px 4px rgba(0,0,0,.1);}
+.task-table-card{background:#fff;border-radius:16px;border:1px solid #eef2ff;overflow:hidden;box-shadow:0 2px 14px rgba(79,70,229,.07);}
+.card-head{padding:15px 20px;border-bottom:1px solid #f3f4ff;display:flex;align-items:center;justify-content:space-between;}
+.card-head-title{font-size:14px;font-weight:700;color:#0f172a;}
+.tab-group{display:flex;gap:3px;background:#f3f4ff;padding:3px;border-radius:10px;}
+.tab{padding:5px 13px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:#64748b;transition:all .18s;}
+.tab.active{background:#fff;color:#4f46e5;box-shadow:0 1px 8px rgba(79,70,229,.13);}
 
 table{width:100%;border-collapse:collapse;}
-thead th{font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:#94a3b8;padding:10px 14px;text-align:left;border-bottom:1px solid #e2e8f0;background:#f8fafc;}
-tbody tr:hover{background:#f8fafc;}
-tbody td{padding:11px 14px;font-size:13px;border-bottom:1px solid #f1f5f9;vertical-align:middle;}
+thead th{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#94a3b8;padding:11px 16px;text-align:left;border-bottom:1px solid #eef2ff;background:#fafbff;}
+tbody tr{transition:background .12s;}
+tbody tr:hover{background:#fafbff;}
+tbody td{padding:12px 16px;font-size:13px;border-bottom:1px solid #f3f4ff;vertical-align:middle;}
 tbody tr:last-child td{border-bottom:none;}
 
-.status-badge{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;display:inline-block;}
+.status-badge{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;display:inline-block;letter-spacing:.1px;}
 .status-badge.pending{background:#fef2f2;color:#dc2626;}
 .status-badge.completed{background:#f0fdf4;color:#16a34a;}
 .status-badge.revised{background:#fffbeb;color:#d97706;}
 
-.chart-card{background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:18px;}
-.chart-card h3{font-size:14px;font-weight:700;margin-bottom:14px;}
+.chart-card{background:#fff;border-radius:16px;border:1px solid #eef2ff;padding:20px;box-shadow:0 2px 14px rgba(79,70,229,.07);}
+.chart-card h3{font-size:14px;font-weight:700;margin-bottom:14px;color:#0f172a;}
 .chart-wrap{position:relative;height:200px;}
 
-/* ══════════════════════════════════════
+/* ═══════════════════════════════
    ALL TASKS
-══════════════════════════════════════ */
-.user-task-block{background:#fff;border-radius:12px;border:1px solid #e2e8f0;margin-bottom:10px;overflow:hidden;}
-.utb-header{padding:13px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;transition:background .15s;}
-.utb-header:hover{background:#f8fafc;}
-.utb-name{font-size:14px;font-weight:700;}
-.utb-count{font-size:13px;color:#64748b;}
+═══════════════════════════════ */
+.user-task-block{background:#fff;border-radius:14px;border:1px solid #eef2ff;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 8px rgba(79,70,229,.06);transition:box-shadow .18s;}
+.user-task-block:hover{box-shadow:0 3px 18px rgba(79,70,229,.1);}
+.utb-header{padding:14px 20px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;transition:background .15s;}
+.utb-header:hover{background:#fafbff;}
+.utb-name{font-size:14px;font-weight:700;color:#0f172a;}
+.utb-count{font-size:13px;color:#94a3b8;}
 .utb-actions{display:flex;gap:6px;}
-.utb-body{border-top:1px solid #e2e8f0;display:none;}
+.utb-body{border-top:1px solid #eef2ff;display:none;}
 .utb-body.open{display:block;}
 
-/* ══════════════════════════════════════
+/* ═══════════════════════════════
    USERS
-══════════════════════════════════════ */
-.users-grid{background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;}
+═══════════════════════════════ */
+.users-grid{background:#fff;border-radius:16px;border:1px solid #eef2ff;overflow:hidden;box-shadow:0 2px 14px rgba(79,70,229,.06);}
 
-/* ══════════════════════════════════════
+/* ═══════════════════════════════
    PROFILE
-══════════════════════════════════════ */
-.profile-card{background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:28px;max-width:500px;}
-.profile-avatar-big{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#1a56db,#3b82f6);display:grid;place-items:center;font-size:22px;font-weight:700;color:#fff;margin-bottom:18px;}
-.section-title{font-size:14px;font-weight:700;margin-bottom:14px;padding-top:8px;border-top:1px solid #f1f5f9;margin-top:4px;}
+═══════════════════════════════ */
+.profile-card{background:#fff;border-radius:16px;border:1px solid #eef2ff;padding:30px;max-width:520px;box-shadow:0 2px 18px rgba(79,70,229,.08);}
+.profile-avatar-big{width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:grid;place-items:center;font-size:24px;font-weight:800;color:#fff;margin-bottom:20px;box-shadow:0 6px 20px rgba(79,70,229,.32);}
+.section-title{font-size:11px;font-weight:800;margin-bottom:14px;padding-top:10px;border-top:1px solid #f3f4ff;margin-top:8px;color:#64748b;text-transform:uppercase;letter-spacing:.7px;}
 
-/* ══════════════════════════════════════
+/* ═══════════════════════════════
    MODALS
-══════════════════════════════════════ */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:none;align-items:center;justify-content:center;}
+═══════════════════════════════ */
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.46);backdrop-filter:blur(3px);z-index:1000;display:none;align-items:center;justify-content:center;}
 .modal-overlay.open{display:flex;}
-.modal{background:#fff;border-radius:14px;padding:24px;width:480px;max-width:95vw;max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2);}
-.modal h3{font-size:17px;font-weight:700;margin-bottom:18px;}
-.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:14px;border-top:1px solid #f1f5f9;}
+.modal{background:#fff;border-radius:18px;padding:26px;width:500px;max-width:95vw;max-height:92vh;overflow-y:auto;box-shadow:0 24px 80px rgba(15,23,42,.2),0 0 0 1px rgba(79,70,229,.08);animation:modalIn .2s ease;}
+@keyframes modalIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
+.modal h3{font-size:17px;font-weight:800;margin-bottom:20px;letter-spacing:-.2px;color:#0f172a;}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid #f3f4ff;}
 
-.form-group{margin-bottom:15px;}
-.form-group label{font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px;}
+.form-group{margin-bottom:16px;}
+.form-group label{font-size:10px;font-weight:800;color:#475569;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:.6px;}
 .form-group input,.form-group select,.form-group textarea{
-  width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;
+  width:100%;padding:10px 13px;border:1.5px solid #e8ecf8;border-radius:10px;
   font-size:13px;font-family:'Inter',sans-serif;outline:none;
-  transition:border .2s;color:#1e293b;background:#fff;
+  transition:all .18s;color:#0f172a;background:#fafbff;
 }
-.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#3b82f6;}
-.form-group textarea{resize:vertical;min-height:70px;}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#4f46e5;box-shadow:0 0 0 3px rgba(79,70,229,.1);background:#fff;}
+.form-group textarea{resize:vertical;min-height:72px;}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 
-/* ══════════════════════════════════════
+/* ═══════════════════════════════
    MISC
-══════════════════════════════════════ */
-.alert{padding:9px 12px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none;}
-.alert.success{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;}
-.alert.error{background:#fef2f2;border:1px solid #fecaca;color:#dc2626;}
-.empty{text-align:center;padding:36px;color:#94a3b8;font-size:13px;}
+═══════════════════════════════ */
+.alert{padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:14px;display:none;font-weight:500;}
+.alert.success{background:#f0fdf4;border:1.5px solid #bbf7d0;color:#166534;}
+.alert.error{background:#fef2f2;border:1.5px solid #fecaca;color:#dc2626;}
+.empty{text-align:center;padding:40px;color:#c4cbdc;font-size:13px;}
 
-.action-btn{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:none;font-family:'Inter',sans-serif;transition:all .2s;}
-.action-btn.done{background:#dcfce7;color:#16a34a;}.action-btn.done:hover{background:#bbf7d0;}
+.action-btn{padding:5px 11px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:none;font-family:'Inter',sans-serif;transition:all .15s;}
+.action-btn.done{background:#f0fdf4;color:#16a34a;}.action-btn.done:hover{background:#dcfce7;}
 .action-btn.revise{background:#fffbeb;color:#d97706;}.action-btn.revise:hover{background:#fef3c7;}
-.action-btn.edit{background:#eff6ff;color:#1d4ed8;}.action-btn.edit:hover{background:#dbeafe;}
+.action-btn.edit{background:#eef2ff;color:#4f46e5;}.action-btn.edit:hover{background:#e0e7ff;}
 .action-btn.delete{background:#fef2f2;color:#dc2626;}.action-btn.delete:hover{background:#fecaca;}
 
-.role-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;}
-.role-badge.admin{background:#eff6ff;color:#1d4ed8;}
-.role-badge.pc{background:#fdf4ff;color:#7c3aed;}
+.role-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;}
+.role-badge.admin{background:#eef2ff;color:#4f46e5;}
 .role-badge.pc{background:#fdf4ff;color:#7c3aed;}
 .role-badge.hod{background:#fdf4ff;color:#7e22ce;}
 .role-badge.user{background:#f0fdf4;color:#16a34a;}
 
-.priority-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;text-transform:uppercase;}
+.priority-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.3px;}
 .priority-badge.low{background:#f0fdf4;color:#16a34a;}
-.priority-badge.medium{background:#eff6ff;color:#1d4ed8;}
+.priority-badge.medium{background:#eef2ff;color:#4f46e5;}
 .priority-badge.high{background:#fffbeb;color:#d97706;}
 .priority-badge.urgent{background:#fef2f2;color:#dc2626;}
 
-/* Holiday list */
-.holiday-item{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f1f5f9;font-size:13px;}
+.holiday-item{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f3f4ff;font-size:13px;}
 .holiday-item:last-child{border-bottom:none;}
 
-/* MIS Report */
-.mis-header{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
-.mis-table-wrap{background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;}
-.mis-score-bar{height:6px;border-radius:3px;background:#e2e8f0;margin-top:4px;overflow:hidden;}
+.mis-header{display:flex;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap;}
+.mis-table-wrap{background:#fff;border-radius:16px;border:1px solid #eef2ff;overflow:hidden;box-shadow:0 2px 12px rgba(79,70,229,.06);}
+.mis-score-bar{height:6px;border-radius:3px;background:#eef2ff;margin-top:4px;overflow:hidden;}
 .mis-score-fill{height:100%;border-radius:3px;transition:width .5s ease;}
 .score-positive{color:#16a34a;font-weight:700;}
 .score-negative{color:#dc2626;font-weight:700;}
-.score-zero{color:#64748b;font-weight:700;}
+.score-zero{color:#94a3b8;font-weight:700;}
 
-/* Comments */
-.comment-item{padding:10px 0;border-bottom:1px solid #f1f5f9;}
+.comment-item{padding:11px 0;border-bottom:1px solid #f3f4ff;}
 .comment-item:last-child{border-bottom:none;}
 .comment-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
-.comment-author{font-size:12px;font-weight:600;color:#1e293b;}
+.comment-author{font-size:12px;font-weight:700;color:#0f172a;}
 .comment-time{font-size:11px;color:#94a3b8;}
-.comment-text{font-size:13px;color:#374151;}
+.comment-text{font-size:13px;color:#475569;}
 .comment-empty{text-align:center;padding:20px;color:#94a3b8;font-size:13px;}
 
-/* FMS */
-.fms-name-tab{padding:8px 16px;border-radius:20px;background:#fff;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;cursor:pointer;color:#374151;transition:all .2s;}
-.fms-name-tab.active{background:#1a56db;color:#fff;border-color:#1a56db;}
-.fms-name-tab:hover:not(.active){border-color:#1a56db;color:#1a56db;}
-.fms-step-tab{padding:6px 18px;border-radius:8px;background:#f8fafc;border:1.5px solid #e2e8f0;font-size:12px;font-weight:600;cursor:pointer;color:#374151;transition:all .2s;white-space:nowrap;}
-.fms-step-tab.active{background:#1a56db;color:#fff;border-color:#1a56db;}
-.fms-step-box{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;padding:16px;position:relative;transition:box-shadow .2s;}
-.fms-step-box.drag-over{border-color:#1a56db;box-shadow:0 0 0 3px rgba(26,86,219,.15);}
+/* ═══════════════════════════════
+   FMS
+═══════════════════════════════ */
+.fms-name-tab{padding:8px 18px;border-radius:22px;background:#fff;border:1.5px solid #e8ecf8;font-size:13px;font-weight:600;cursor:pointer;color:#475569;transition:all .18s;box-shadow:0 1px 5px rgba(79,70,229,.06);}
+.fms-name-tab.active{background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border-color:transparent;box-shadow:0 3px 14px rgba(79,70,229,.32);}
+.fms-name-tab:hover:not(.active){border-color:#4f46e5;color:#4f46e5;}
+.fms-step-tab{padding:7px 18px;border-radius:9px;background:#f3f4ff;border:1.5px solid #e8ecf8;font-size:12px;font-weight:600;cursor:pointer;color:#475569;transition:all .18s;white-space:nowrap;}
+.fms-step-tab.active{background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border-color:transparent;box-shadow:0 3px 10px rgba(79,70,229,.26);}
+.fms-step-box{background:#fafbff;border:1.5px solid #e8ecf8;border-radius:14px;padding:18px;position:relative;transition:all .18s;}
+.fms-step-box:hover{box-shadow:0 4px 18px rgba(79,70,229,.1);}
+.fms-step-box.drag-over{border-color:#4f46e5;box-shadow:0 0 0 3px rgba(79,70,229,.16);}
 .fms-step-box.selected{border-color:#ef4444;background:#fff5f5;}
-.fms-step-num{font-size:11px;font-weight:700;color:#1a56db;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
+.fms-step-num{font-size:11px;font-weight:700;color:#4f46e5;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
 .multi-select-wrap{position:relative;}
-.multi-select-dropdown{position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:8px;max-height:180px;overflow-y:auto;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.12);display:none;}
+.multi-select-dropdown{position:absolute;top:calc(100% + 3px);left:0;right:0;background:#fff;border:1.5px solid #e8ecf8;border-radius:12px;max-height:180px;overflow-y:auto;z-index:9999;box-shadow:0 12px 32px rgba(15,23,42,.1);display:none;}
 .multi-select-dropdown.open{display:block;}
-.multi-select-item{padding:8px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;transition:background .15s;}
-.multi-select-item:hover{background:#f0f4ff;}
-.multi-select-item input[type=checkbox]{cursor:pointer;width:14px;height:14px;accent-color:#1a56db;}
-.selected-tags{display:flex;flex-wrap:wrap;gap:4px;min-height:38px;padding:5px 10px;border:1.5px solid #e2e8f0;border-radius:8px;cursor:pointer;background:#fff;align-items:center;transition:border .2s;}
-.selected-tags:hover{border-color:#1a56db;}
-.tag-badge{background:#eff6ff;color:#1d4ed8;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;}
+.multi-select-item{padding:9px 13px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;transition:background .12s;}
+.multi-select-item:hover{background:#f3f4ff;}
+.multi-select-item input[type=checkbox]{cursor:pointer;width:14px;height:14px;accent-color:#4f46e5;}
+.selected-tags{display:flex;flex-wrap:wrap;gap:4px;min-height:40px;padding:5px 11px;border:1.5px solid #e8ecf8;border-radius:10px;cursor:pointer;background:#fafbff;align-items:center;transition:all .18s;}
+.selected-tags:hover{border-color:#4f46e5;}
+.tag-badge{background:#eef2ff;color:#4f46e5;font-size:11px;padding:3px 9px;border-radius:10px;font-weight:700;}
 .extra-row-item{display:flex;align-items:center;gap:8px;margin-top:8px;}
-.drag-handle{cursor:grab;color:#94a3b8;font-size:16px;padding:0 4px;}
+.drag-handle{cursor:grab;color:#c4cbdc;font-size:16px;padding:0 4px;}
 .drag-handle:active{cursor:grabbing;}
 
-/* FMS Tasks Train */
+/* FMS train (intentionally dark — visual impact) */
 .fms-train-track{background:#0f172a;border-radius:16px;padding:24px 0 36px;overflow:hidden;position:relative;margin-bottom:16px;}
 .fms-train-track::before{content:'';position:absolute;bottom:28px;left:0;right:0;height:5px;background:linear-gradient(90deg,#1e293b 0%,#475569 20%,#1e293b 40%,#475569 60%,#1e293b 80%,#475569 100%);border-radius:3px;}
 .fms-train-track::after{content:'';position:absolute;bottom:24px;left:0;right:0;height:12px;background:repeating-linear-gradient(90deg,#334155 0,#334155 30px,transparent 30px,transparent 50px);opacity:.5;}
 .fms-train-scroll{display:flex;align-items:flex-end;gap:6px;padding:0 30px 14px;width:max-content;animation:trainScroll var(--train-dur,18s) linear infinite;}
 .fms-train-scroll:hover{animation-play-state:paused;}
 @keyframes trainScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-.fms-train-engine{flex-shrink:0;background:linear-gradient(135deg,#1e293b,#334155);border:2px solid #3b82f6;border-radius:10px 4px 4px 10px;padding:14px 18px;color:#fff;min-width:80px;text-align:center;font-size:24px;display:flex;flex-direction:column;align-items:center;position:relative;}
+.fms-train-engine{flex-shrink:0;background:linear-gradient(135deg,#1e293b,#334155);border:2px solid #4f46e5;border-radius:10px 4px 4px 10px;padding:14px 18px;color:#fff;min-width:80px;text-align:center;font-size:24px;display:flex;flex-direction:column;align-items:center;position:relative;}
 .fms-train-engine::before,.fms-coach::before{content:'⬤';position:absolute;bottom:-14px;left:12px;color:#64748b;font-size:9px;}
 .fms-train-engine::after,.fms-coach::after{content:'⬤';position:absolute;bottom:-14px;right:12px;color:#64748b;font-size:9px;}
 .fms-coach{flex-shrink:0;border-radius:8px;padding:12px 14px;color:#fff;min-width:160px;max-width:200px;cursor:pointer;position:relative;transition:transform .2s,box-shadow .2s;border:2px solid transparent;display:flex;flex-direction:column;gap:4px;background:#1e3a5f;}
 .fms-coach:hover{transform:translateY(-5px);box-shadow:0 10px 25px rgba(0,0,0,.4);}
 .fms-coach.active{border-color:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.3);transform:translateY(-6px);}
 .fms-coach.not-mine{background:#1e293b;opacity:.55;cursor:not-allowed;pointer-events:none;}
-.fms-coach.mine{background:linear-gradient(135deg,#1a56db,#3b82f6);}
+.fms-coach.mine{background:linear-gradient(135deg,#4f46e5,#7c3aed);}
 .fms-coach-num{font-size:10px;font-weight:700;opacity:.7;text-transform:uppercase;letter-spacing:.5px;}
 .fms-coach-name{font-size:12px;font-weight:700;line-height:1.3;word-break:break-word;}
 .fms-coach-doers{font-size:10px;opacity:.75;margin-top:2px;}
 .fms-coach-connector{width:20px;height:8px;background:#475569;border-radius:2px;flex-shrink:0;align-self:flex-end;margin-bottom:14px;}
-.fms-train-speed{display:flex;align-items:center;gap:12px;padding:10px 20px;background:#f8fafc;border-radius:0 0 12px 12px;font-size:12px;color:#64748b;}
-.fms-train-speed input[type=range]{flex:1;accent-color:#1a56db;}
-.fms-step-rows-table{background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;margin-top:4px;}
+.fms-train-speed{display:flex;align-items:center;gap:12px;padding:10px 20px;background:#f3f4ff;border-radius:0 0 12px 12px;font-size:12px;color:#64748b;}
+.fms-train-speed input[type=range]{flex:1;accent-color:#4f46e5;}
+.fms-step-rows-table{background:#fff;border-radius:14px;border:1px solid #eef2ff;overflow:hidden;margin-top:4px;box-shadow:0 2px 10px rgba(79,70,229,.06);}
 .fms-step-rows-scroll{max-height:65vh;overflow:auto;}
 .fms-step-rows-table table{width:100%;border-collapse:separate;border-spacing:0;}
-.fms-step-rows-table table th{font-size:13px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:#1e293b;padding:14px 14px;background:#f1f5f9;border-bottom:2px solid #cbd5e1;white-space:nowrap;position:sticky;top:0;z-index:3;box-shadow:0 2px 4px -2px rgba(15,23,42,.12);}
-.fms-step-rows-table table td{padding:10px 14px;font-size:13px;border-bottom:1px solid #f1f5f9;vertical-align:middle;}
-.fms-done-btn{background:#10b981;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;font-family:'Inter',sans-serif;}
-.fms-done-btn:hover{background:#059669;transform:translateY(-1px);}
-.fms-status-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#fef9c3;color:#854d0e;}
-.fms-search-bar{display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:8px 12px;margin-bottom:10px;}
-.fms-search-bar input{flex:1;border:none;outline:none;font-size:13px;font-family:'Inter',sans-serif;color:#1e293b;background:transparent;}
-.fms-search-bar .fms-search-clear{background:#f1f5f9;color:#64748b;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;}
-.fms-search-bar .fms-search-clear:hover{background:#e2e8f0;color:#1e293b;}
-.fms-search-bar .fms-search-count{font-size:12px;color:#64748b;font-weight:600;white-space:nowrap;}
+.fms-step-rows-table table th{font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#4f46e5;padding:13px 14px;background:#f3f4ff;border-bottom:2px solid #e0e7ff;white-space:nowrap;position:sticky;top:0;z-index:3;}
+.fms-step-rows-table table td{padding:11px 14px;font-size:13px;border-bottom:1px solid #f3f4ff;vertical-align:middle;}
+.fms-done-btn{background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:9px;padding:7px 15px;font-size:12px;font-weight:700;cursor:pointer;transition:all .18s;font-family:'Inter',sans-serif;box-shadow:0 2px 8px rgba(16,185,129,.26);}
+.fms-done-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(16,185,129,.38);}
+.fms-status-badge{display:inline-block;padding:4px 11px;border-radius:20px;font-size:11px;font-weight:700;background:#fffbeb;color:#b45309;}
+.fms-search-bar{display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid #e8ecf8;border-radius:12px;padding:9px 14px;margin-bottom:12px;box-shadow:0 1px 6px rgba(79,70,229,.06);}
+.fms-search-bar input{flex:1;border:none;outline:none;font-size:13px;font-family:'Inter',sans-serif;color:#0f172a;background:transparent;}
+.fms-search-bar .fms-search-clear{background:#f3f4ff;color:#64748b;border:none;border-radius:8px;padding:4px 11px;font-size:11px;font-weight:700;cursor:pointer;}
+.fms-search-bar .fms-search-clear:hover{background:#e0e7ff;color:#4f46e5;}
+.fms-search-bar .fms-search-count{font-size:12px;color:#94a3b8;font-weight:600;white-space:nowrap;}
 
-/* Header select dropdowns in step config */
-.header-select{width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:#fff;color:#1e293b;}
-.header-select:focus{border-color:#3b82f6;}
-.multi-select-headers{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1.5px solid #e2e8f0;border-radius:8px;min-height:42px;cursor:text;background:#fff;}
-.multi-select-headers .hdr-tag{background:#eff6ff;color:#1d4ed8;font-size:11px;padding:3px 8px;border-radius:8px;font-weight:600;display:flex;align-items:center;gap:4px;cursor:pointer;}
-.multi-select-headers .hdr-tag .rm{color:#93c5fd;font-size:10px;margin-left:2px;}
+.header-select{width:100%;padding:9px 11px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:#fafbff;color:#0f172a;}
+.header-select:focus{border-color:#4f46e5;box-shadow:0 0 0 3px rgba(79,70,229,.1);}
+.multi-select-headers{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1.5px solid #e8ecf8;border-radius:10px;min-height:44px;cursor:text;background:#fafbff;}
+.multi-select-headers .hdr-tag{background:#eef2ff;color:#4f46e5;font-size:11px;padding:3px 9px;border-radius:8px;font-weight:700;display:flex;align-items:center;gap:4px;cursor:pointer;}
+.multi-select-headers .hdr-tag .rm{color:#a5b4fc;font-size:10px;margin-left:2px;}
 
-/* Flat tasks table (used in All Tasks page) */
-.flat-tasks-table{background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow-x:auto;}
-.bulk-section{margin-top:20px;padding-top:16px;border-top:1px solid #f1f5f9;}
+.flat-tasks-table{background:#fff;border-radius:14px;border:1px solid #eef2ff;overflow-x:auto;box-shadow:0 2px 10px rgba(79,70,229,.05);}
+.bulk-section{margin-top:20px;padding-top:16px;border-top:1px solid #f3f4ff;}
 .file-row{display:flex;align-items:center;gap:8px;margin-top:6px;}
 
-/* ── Modal X close button (top-right) ── */
 .modal-close-x{
   background:none;border:none;cursor:pointer;
-  width:30px;height:30px;border-radius:8px;
+  width:32px;height:32px;border-radius:9px;
   display:flex;align-items:center;justify-content:center;
   color:#94a3b8;font-size:18px;font-weight:400;
-  transition:background .15s,color .15s;flex-shrink:0;
-  line-height:1;padding:0;font-family:'Inter',sans-serif;
+  transition:all .15s;flex-shrink:0;line-height:1;padding:0;
+  font-family:'Inter',sans-serif;
 }
-.modal-close-x:hover{background:#f1f5f9;color:#ef4444;}
+.modal-close-x:hover{background:#fef2f2;color:#ef4444;}
 </style>
 </head>
 <body>
@@ -323,9 +341,9 @@ tbody tr:last-child td{border-bottom:none;}
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo">
     <img src="logo.jpeg" alt="Rajkamal"
-      style="width:34px;height:34px;object-fit:contain;border-radius:6px;flex-shrink:0"
+      style="width:36px;height:36px;object-fit:contain;border-radius:10px;flex-shrink:0"
       onerror="this.style.display='none';document.getElementById('sidebarLogoFallback').style.display='grid'"/>
-    <div id="sidebarLogoFallback" style="display:none;width:34px;height:34px;background:linear-gradient(135deg,#00ACC1,#4CAF50);border-radius:8px;place-items:center;color:#fff;font-weight:700;font-size:15px;flex-shrink:0">K</div>
+    <div id="sidebarLogoFallback" style="display:none;width:36px;height:36px;background:linear-gradient(135deg,#4f46e5,#7c3aed);border-radius:10px;place-items:center;color:#fff;font-weight:800;font-size:15px;flex-shrink:0;box-shadow:0 3px 12px rgba(79,70,229,.32)">R</div>
     <div class="logo-text">Rajkamal Tasks</div>
   </div>
   <nav class="nav">
@@ -359,9 +377,13 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
       <span class="nav-label-text">FMS Admin</span>
     </div>
-    <div class="nav-item" id="nav-fms-tasks" onclick="navigate('fms-tasks',this)">
+    <div class="nav-item" id="nav-fms-tasks" style="display:none" onclick="navigate('fms-tasks',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M3 6h18M3 18h18"/></svg>
       <span class="nav-label-text">FMS Tasks</span>
+    </div>
+    <div class="nav-item" id="nav-stock-import" style="display:none" onclick="navigate('stock-import',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+      <span class="nav-label-text">IMS</span>
     </div>
     <div class="nav-divider"></div>
     <div class="nav-item" onclick="navigate('profile',this)">
@@ -397,20 +419,19 @@ tbody tr:last-child td{border-bottom:none;}
   <div id="page-dashboard" class="page active">
     <div class="dash-topbar">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <h2>Dashboard</h2>
         <select id="dashEmployeeFilter" onchange="onPCFilterChange()"
-          style="padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#1e293b;background:#fff;display:none">
+          style="padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff;display:none">
           <option value="all">All Employees</option>
         </select>
         <!-- PC-only date range filter -->
         <div id="pcDateRangeFilter" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;">
           <label style="font-size:12px;color:#64748b;font-weight:600">From:</label>
           <input type="date" id="pcDateFrom" onchange="onPCFilterChange()"
-            style="padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#1e293b;background:#fff">
+            style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff">
           <label style="font-size:12px;color:#64748b;font-weight:600">To:</label>
           <input type="date" id="pcDateTo" onchange="onPCFilterChange()"
-            style="padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#1e293b;background:#fff">
-          <button onclick="clearPCDateFilter()" style="padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;background:#fff;cursor:pointer;color:#64748b">✕ Clear</button>
+            style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff">
+          <button onclick="clearPCDateFilter()" style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;background:#fff;cursor:pointer;color:#64748b">✕ Clear</button>
         </div>
       </div>
       <div class="dash-topbar-btns" id="dashBtns"></div>
@@ -522,7 +543,6 @@ tbody tr:last-child td{border-bottom:none;}
   <div id="page-alltasks" class="page">
     <div class="page-header">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <h2>All Tasks</h2>
         <div class="tab-group" id="tasksTypeTabGroup">
           <div class="tab active" id="tasksTabDel" onclick="tasksTab('delegation',this)">Delegation</div>
           <div class="tab" id="tasksTabChl" onclick="tasksTab('checklist',this)">Checklist</div>
@@ -532,23 +552,23 @@ tbody tr:last-child td{border-bottom:none;}
         <!-- PC-only: user filter + date range (desktop only) -->
         <div id="tasksUserDateFilters" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
           <select id="tasksUserFilter" onchange="filterTasks()"
-            style="padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#1e293b;background:#fff">
+            style="padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff">
             <option value="all">All Employees</option>
           </select>
           <input type="date" id="tasksDateFrom" onchange="filterTasks()"
-            style="padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#1e293b;background:#fff">
+            style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff">
           <span style="font-size:12px;color:#94a3b8">to</span>
           <input type="date" id="tasksDateTo" onchange="filterTasks()"
-            style="padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#1e293b;background:#fff">
-          <button onclick="clearTasksDateFilter()" style="padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;background:#fff;cursor:pointer;color:#64748b">✕ Clear</button>
+            style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff">
+          <button onclick="clearTasksDateFilter()" style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;background:#fff;cursor:pointer;color:#64748b">✕ Clear</button>
         </div>
         <div style="position:relative">
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8">🔍</span>
           <input type="text" id="taskSearch" placeholder="Search by name, date, desc, status..." oninput="filterTasks()"
-            style="padding:8px 12px 8px 32px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:260px"/>
+            style="padding:8px 12px 8px 32px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:260px;background:#fafbff;color:#0f172a"/>
         </div>
         <button class="btn btn-outline" id="delegateByMeBtn" onclick="openDelegateByMeModal()"
-          style="color:#1a56db;border-color:#bfdbfe">📤 Delegate by Me</button>
+          style="color:#4f46e5;border-color:#c7d2fe">📤 Delegate by Me</button>
         <button class="btn btn-outline" id="transferModeBtn" onclick="openNewTransferModal()"
           style="color:#7c3aed;border-color:#c4b5fd">🔀 Transfer</button>
         <button class="btn btn-primary" id="tasksAssignBtn" onclick="openDelegate()" style="display:none">+ Assign Task</button>
@@ -569,12 +589,11 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── USERS ── -->
   <div id="page-users" class="page">
     <div class="page-header">
-      <h2>Users</h2>
       <div style="display:flex;align-items:center;gap:10px">
         <div style="position:relative">
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8">🔍</span>
           <input type="text" id="userSearch" placeholder="Search by name, email, dept, role…" oninput="filterUsers()"
-            style="padding:8px 12px 8px 32px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:260px"/>
+            style="padding:8px 12px 8px 32px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:260px;background:#fafbff;color:#0f172a"/>
         </div>
         <button class="btn btn-primary" onclick="openAddUser()">+ Add User</button>
       </div>
@@ -589,14 +608,13 @@ tbody tr:last-child td{border-bottom:none;}
 
   <!-- ── PROFILE ── -->
   <div id="page-profile" class="page">
-    <div class="page-header"><h2>My Profile</h2></div>
     <div class="profile-card">
 
       <!-- Profile Image Section -->
       <div style="display:flex;align-items:center;gap:20px;margin-bottom:22px;">
         <div style="position:relative;cursor:pointer" onclick="document.getElementById('profileImgInput').click()">
-          <div id="profileAvatar" style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#1a56db,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0;border:3px solid #e2e8f0;">?</div>
-          <div style="position:absolute;bottom:0;right:0;width:24px;height:24px;background:#1a56db;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;">
+          <div id="profileAvatar" style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0;border:3px solid #eef2ff;box-shadow:0 4px 16px rgba(79,70,229,.28);">?</div>
+          <div style="position:absolute;bottom:0;right:0;width:24px;height:24px;background:#4f46e5;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;">
             <span style="color:#fff;font-size:12px">✏️</span>
           </div>
         </div>
@@ -628,7 +646,6 @@ tbody tr:last-child td{border-bottom:none;}
 
   <!-- ── APPROVALS ── -->
   <div id="page-approvals" class="page">
-    <div class="page-header"><h2>Approvals</h2></div>
 
     <!-- Tabs -->
     <div style="display:flex;gap:4px;background:#f1f5f9;padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px">
@@ -654,7 +671,6 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── FMS ADMIN ── -->
   <div id="page-fms" class="page">
     <div class="page-header">
-      <h2>FMS Admin</h2>
       <button class="btn btn-primary" onclick="openAddFMS()">+ Add New FMS</button>
     </div>
 
@@ -670,7 +686,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div id="fmsSheetInfoText" style="font-size:13px;color:#374151;margin-top:2px"></div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-outline btn-sm" onclick="openEditFMS()" style="color:#1a56db">✏️ Edit FMS</button>
+          <button class="btn btn-outline btn-sm" onclick="openEditFMS()" style="color:#4f46e5">✏️ Edit FMS</button>
           <button class="btn btn-outline btn-sm" onclick="syncFMSData()" style="color:#10b981">🔄 Sync Data</button>
           <button class="btn btn-outline btn-sm" onclick="deleteFMSSheet(fmsActiveId)" style="color:#dc2626;border-color:#fecaca">🗑 Delete</button>
         </div>
@@ -691,7 +707,6 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── FMS TASKS ── -->
   <div id="page-fms-tasks" class="page">
     <div class="page-header">
-      <h2>FMS Tasks</h2>
       <div id="fmsTasksRefreshBtn" style="display:none">
         <button class="btn btn-outline btn-sm" onclick="loadFMSTasks()">🔄 Refresh</button>
       </div>
@@ -711,7 +726,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">
         Process Flow — Click a step to view tasks
         <span id="fmsTrainLegend" style="margin-left:12px;font-weight:400;text-transform:none">
-          <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:linear-gradient(135deg,#1a56db,#3b82f6);display:inline-block"></span> Your step</span>
+          <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:inline-block"></span> Your step</span>
           <span style="margin-left:10px;display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:#1e293b;display:inline-block;opacity:.5"></span> Other step</span>
         </span>
       </div>
@@ -758,7 +773,6 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── MIS REPORT ── -->
   <div id="page-mis" class="page">
     <div class="page-header">
-      <h2>MIS Report</h2>
       <button id="setPlanBtn" class="btn btn-primary" onclick="openSetPlanModal()" style="display:none">📅 Set Plan</button>
     </div>
 
@@ -807,11 +821,515 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 
   <!-- ══════════════════════════════════════
+       MIS REPORT IMPORT  (Admin only)
+  ══════════════════════════════════════ -->
+  <div id="page-stock-import" class="page">
+
+    <!-- IMS Tab bar -->
+    <div style="display:flex;gap:8px;margin-bottom:24px">
+      <button id="imsViewBtn-form" onclick="setImsView('form')"
+        style="padding:9px 24px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #4f46e5;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;transition:all .18s;box-shadow:0 3px 10px rgba(79,70,229,.3)">
+        📋 Form
+      </button>
+      <button id="imsViewBtn-reports" onclick="setImsView('reports')"
+        style="padding:9px 24px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .18s">
+        📊 Reports
+      </button>
+    </div>
+
+    <!-- FORM VIEW -->
+    <div id="imsView-form">
+    <!-- Both forms side by side -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px">
+
+      <!-- IN STOCK form -->
+      <div id="imsPanel-stock" style="background:#fff;border-radius:16px;border:1.5px solid #e0e7ff;padding:28px;box-shadow:0 2px 14px rgba(79,70,229,.07)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #eef2ff">
+          <div style="width:42px;height:42px;border-radius:10px;background:#eef2ff;display:grid;place-items:center;font-size:22px;flex-shrink:0">📦</div>
+          <div>
+            <div style="font-size:15px;font-weight:700;color:#0f172a">In Stock</div>
+            <div style="font-size:11px;color:#64748b">MIS Complete Stock Report</div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>CSV / Excel File</label>
+          <input type="file" id="imsFile-stock" accept=".csv,.xlsx,.xls"
+            style="width:100%;padding:9px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;background:#fafbff"/>
+        </div>
+        <div id="imsStatus-stock" style="display:none;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5"></div>
+        <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;border-radius:9px"
+          onclick="importStockCSV('stock')" id="imsBtn-stock">
+          ⬆ Import In Stock
+        </button>
+      </div>
+
+      <!-- OUT STOCK form -->
+      <div id="imsPanel-sales" style="background:#fff;border-radius:16px;border:1.5px solid #fed7aa;padding:28px;box-shadow:0 2px 14px rgba(245,158,11,.07)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #fff7ed">
+          <div style="width:42px;height:42px;border-radius:10px;background:#fff7ed;display:grid;place-items:center;font-size:22px;flex-shrink:0">💰</div>
+          <div>
+            <div style="font-size:15px;font-weight:700;color:#0f172a">Out Stock</div>
+            <div style="font-size:11px;color:#64748b">MIS Customer Wise Sale Report</div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>CSV / Excel File</label>
+          <input type="file" id="imsFile-sales" accept=".csv,.xlsx,.xls"
+            style="width:100%;padding:9px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;background:#fafbff"/>
+        </div>
+        <div id="imsStatus-sales" style="display:none;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5"></div>
+        <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;border-radius:9px;background:linear-gradient(135deg,#ea580c,#f97316);box-shadow:0 4px 14px rgba(234,88,12,.25)"
+          onclick="importStockCSV('sales')" id="imsBtn-sales">
+          ⬆ Import Out Stock
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Stats Cards -->
+    <div id="imsStatsRow" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;max-width:900px;margin-top:20px">
+
+      <!-- In Stock stats -->
+      <div style="background:#fff;border-radius:16px;border:1.5px solid #e0e7ff;padding:20px 22px;box-shadow:0 2px 12px rgba(79,70,229,.07);position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#4f46e5,#818cf8)"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:9px;background:#eef2ff;display:grid;place-items:center;font-size:18px;flex-shrink:0">📦</div>
+          <div style="font-size:13px;font-weight:700;color:#4f46e5">In Stock</div>
+        </div>
+        <div style="font-size:26px;font-weight:800;color:#0f172a;line-height:1" id="imsStatRows-stock">—</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">rows in sheet</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:10px">Last upload: <span id="imsStatDate-stock" style="color:#475569;font-weight:600">—</span></div>
+      </div>
+
+      <!-- Out Stock stats -->
+      <div style="background:#fff;border-radius:16px;border:1.5px solid #fed7aa;padding:20px 22px;box-shadow:0 2px 12px rgba(245,158,11,.08);position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#f59e0b,#fbbf24)"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:9px;background:#fff7ed;display:grid;place-items:center;font-size:18px;flex-shrink:0">💰</div>
+          <div style="font-size:13px;font-weight:700;color:#d97706">Out Stock</div>
+        </div>
+        <div style="font-size:26px;font-weight:800;color:#0f172a;line-height:1" id="imsStatRows-sales">—</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">rows in sheet</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:10px">Last upload: <span id="imsStatDate-sales" style="color:#475569;font-weight:600">—</span></div>
+      </div>
+
+      <!-- Open Sheet -->
+      <div style="background:linear-gradient(135deg,#4f46e5,#6d28d9);border-radius:16px;padding:20px 22px;box-shadow:0 4px 18px rgba(79,70,229,.28);display:flex;flex-direction:column;justify-content:space-between">
+        <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,.9);margin-bottom:8px">Google Sheet</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.6);line-height:1.6;margin-bottom:18px">View or verify your imported data directly in Google Sheets.</div>
+        <a href="https://docs.google.com/spreadsheets/d/1UrIu9HeNabJ1XUqdyivZadTm6e8NH4ogVPdK_IqWv-s/edit" target="_blank"
+          style="display:block;background:#fff;color:#4f46e5;text-align:center;padding:9px 0;border-radius:10px;font-size:12px;font-weight:700;text-decoration:none;margin-bottom:8px">
+          🔗 Open Google Sheet
+        </a>
+        <button id="imsSyncBtn" onclick="syncImsStats()"
+          style="width:100%;background:rgba(255,255,255,.12);color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s">
+          ⟳ Sync with Sheet
+        </button>
+      </div>
+
+    </div>
+    </div><!-- /imsView-form -->
+
+    <!-- REPORTS VIEW — PREMIUM DARK ANALYTICS -->
+    <div id="imsView-reports" style="display:none">
+    <style>
+      /* ═══════════════════════════════════════
+         PREMIUM ANALYTICS — LIGHT THEME
+      ═══════════════════════════════════════ */
+      #imsView-reports { /* inherits page bg */ }
+      #rpt-inner { padding:0; }
+
+      /* ── Tab buttons ── */
+      .rpt-tab-btn {
+        padding:7px 16px;border-radius:22px;font-size:12px;font-weight:600;
+        cursor:pointer;border:1.5px solid #e8ecf8;
+        background:#fff;color:#64748b;
+        transition:all .18s;white-space:nowrap;
+        box-shadow:0 1px 4px rgba(79,70,229,.05);
+      }
+      .rpt-tab-btn:hover:not(.active) {
+        border-color:#4f46e5;color:#4f46e5;background:#fafbff;transform:translateY(-1px);
+      }
+      .rpt-tab-btn.active {
+        background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;
+        border-color:transparent;
+        box-shadow:0 4px 16px rgba(79,70,229,.32);
+        transform:translateY(-1px);
+      }
+
+      /* ── Quick-date chips ── */
+      .rpt-preset-btn {
+        padding:5px 13px;font-size:11px;font-weight:600;color:#64748b;
+        background:#fff;border:1.5px solid #e8ecf8;
+        border-radius:20px;cursor:pointer;transition:all .14s;
+      }
+      .rpt-preset-btn:hover { background:#eef2ff;color:#4f46e5;border-color:#c7d2fe; }
+      .rpt-preset-btn.active {
+        background:#eef2ff;color:#4f46e5;border-color:#a5b4fc;
+        box-shadow:0 0 0 3px rgba(79,70,229,.09);
+      }
+
+      /* ── Main card ── */
+      .rpt-glass {
+        background:#fff;border:1px solid #eef2ff;
+        border-radius:18px;overflow:hidden;
+        box-shadow:0 4px 28px rgba(79,70,229,.08);
+      }
+
+      /* ── Stat cards ── */
+      .rpt-stat-card {
+        border-radius:16px;padding:22px 24px;
+        position:relative;overflow:hidden;
+        transition:transform .18s,box-shadow .18s;
+        background:#fff;border:1px solid #eef2ff;
+        box-shadow:0 2px 14px rgba(79,70,229,.07);
+      }
+      .rpt-stat-card:hover { transform:translateY(-2px);box-shadow:0 6px 26px rgba(79,70,229,.12); }
+      .rpt-stat-card::before {
+        content:'';position:absolute;top:0;left:0;right:0;height:3px;
+      }
+      .rpt-stat-card::after {
+        content:'';position:absolute;bottom:-26px;right:-16px;
+        width:85px;height:85px;border-radius:50%;
+        background:rgba(79,70,229,.04);pointer-events:none;
+      }
+      .rpt-stat-label { font-size:10px;font-weight:800;color:#94a3b8;letter-spacing:.12em;margin-bottom:10px;text-transform:uppercase; }
+      .rpt-stat-value { font-size:28px;font-weight:800;letter-spacing:-.025em;line-height:1;color:#0f172a; }
+      .rpt-stat-icon  { position:absolute;top:16px;right:18px;font-size:22px;opacity:.12; }
+
+      /* ── Chart section ── */
+      .rpt-chart-wrap {
+        background:#fafbff;border:1px solid #eef2ff;
+        border-radius:14px;padding:18px 20px;margin-bottom:16px;
+      }
+      .rpt-chart-label {
+        font-size:10px;font-weight:800;color:#94a3b8;
+        letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px;
+      }
+
+      /* ── Table headers ── */
+      .rpt-th-dark   { background:#fafbff!important;  color:#94a3b8!important; font-weight:700;padding:12px 16px;font-size:10px;letter-spacing:.07em;text-transform:uppercase;border-bottom:1px solid #eef2ff; }
+      .rpt-th-blue   { background:#eff8ff!important;  color:#0ea5e9!important; font-weight:700;padding:12px 16px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #eef2ff; }
+      .rpt-th-red    { background:#fff1f2!important;  color:#f43f5e!important; font-weight:700;padding:12px 16px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #eef2ff; }
+      .rpt-th-green  { background:#f0fdf4!important;  color:#10b981!important; font-weight:700;padding:12px 16px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #eef2ff; }
+      .rpt-th-purple { background:#faf5ff!important;  color:#7c3aed!important; font-weight:700;padding:12px 16px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #eef2ff; }
+      .rpt-th-amber  { background:#fffbeb!important;  color:#d97706!important; font-weight:700;padding:12px 16px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #eef2ff; }
+
+      /* ── Table rows ── */
+      .rpt-td { padding:11px 16px;border-bottom:1px solid #f3f4ff;font-size:13px;color:#0f172a;transition:background .1s; }
+      .rpt-tr-even { background:#fafbff; }
+      tbody tr:hover .rpt-td { background:#f3f4ff!important; }
+
+      /* ── Scrollbar ── */
+      .rpt-scroll::-webkit-scrollbar { width:5px;height:5px; }
+      .rpt-scroll::-webkit-scrollbar-track { background:#f3f4ff; }
+      .rpt-scroll::-webkit-scrollbar-thumb { background:#c7d2fe;border-radius:3px; }
+      .rpt-scroll::-webkit-scrollbar-thumb:hover { background:#a5b4fc; }
+
+      /* ── Date inputs ── */
+      #rptFrom,#rptTo {
+        background:transparent;border:none;outline:none;
+        color:#0f172a;font-size:12px;font-weight:500;cursor:pointer;
+      }
+      #rptFrom::-webkit-calendar-picker-indicator,
+      #rptTo::-webkit-calendar-picker-indicator { cursor:pointer;opacity:.45; }
+
+      /* ── Table wrapper ── */
+      .rpt-table-wrap { border:1px solid #eef2ff;border-radius:13px;overflow:hidden; }
+      .rpt-table-header {
+        display:flex;align-items:center;justify-content:space-between;
+        padding:13px 18px;background:#fafbff;border-bottom:1px solid #eef2ff;
+      }
+      .rpt-table-title { font-size:11px;font-weight:800;color:#64748b;letter-spacing:.07em;text-transform:uppercase; }
+      .rpt-count-badge { font-size:11px;color:#94a3b8;background:#f3f4ff;padding:3px 10px;border-radius:20px;border:1px solid #eef2ff; }
+
+      /* ── Sync / action buttons ── */
+      #rptSyncBtn:hover { transform:translateY(-1px);box-shadow:0 6px 24px rgba(79,70,229,.45)!important; }
+      #rptSyncBtn:active { transform:translateY(0); }
+      #rptSyncBtn { transition:all .18s ease; }
+      .rpt-btn-pdf:hover  { box-shadow:0 4px 18px rgba(239,68,68,.35)!important;transform:translateY(-1px); }
+      .rpt-btn-csv:hover  { background:#eef2ff!important;color:#4f46e5!important;border-color:#c7d2fe!important;transform:translateY(-1px); }
+      .rpt-btn-reset:hover{ background:#f3f4ff!important;color:#475569!important; }
+    </style>
+
+    <div id="rpt-inner">
+
+      <!-- ══ TOP NAV: Tab strips + Sync ══ -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;min-width:44px;text-transform:uppercase;padding:0 2px">SALES</span>
+            <button class="rpt-tab-btn active" data-tab="sales"     onclick="switchRptTab('sales')">📊 Sales Summary</button>
+            <button class="rpt-tab-btn"        data-tab="cat"       onclick="switchRptTab('cat')">🏷 Top Categories</button>
+            <button class="rpt-tab-btn"        data-tab="supplier"  onclick="switchRptTab('supplier')">🏭 Supplier Sales</button>
+            <button class="rpt-tab-btn"        data-tab="sp"        onclick="switchRptTab('sp')">👤 Salesperson</button>
+            <button class="rpt-tab-btn"        data-tab="citystate" onclick="switchRptTab('citystate')">🗺 City / State</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;min-width:44px;text-transform:uppercase;padding:0 2px">STOCK</span>
+            <button class="rpt-tab-btn" data-tab="stocksummary"  onclick="switchRptTab('stocksummary')">📦 Stock Summary</button>
+            <button class="rpt-tab-btn" data-tab="supplierstock" onclick="switchRptTab('supplierstock')">🏭 Supplier Stock</button>
+            <button class="rpt-tab-btn" data-tab="stockcat"      onclick="switchRptTab('stockcat')">🏷 Stock by Category</button>
+          </div>
+        </div>
+        <button id="rptSyncBtn" onclick="loadImsReports()"
+          style="display:flex;align-items:center;gap:8px;padding:11px 22px;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 18px rgba(79,70,229,.32);white-space:nowrap">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Sync Live Data
+        </button>
+      </div>
+
+      <!-- ══ MAIN GLASS CARD ══ -->
+      <div class="rpt-glass">
+
+        <!-- Card header -->
+        <div style="padding:20px 26px;border-bottom:1px solid #eef2ff">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
+            <div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;box-shadow:0 0 8px rgba(34,197,94,.5)"></span>
+                <span id="rptActiveTitle" style="font-size:19px;font-weight:800;color:#0f172a;letter-spacing:-.022em">Sales Summary</span>
+              </div>
+              <div id="rptSubtitle" style="font-size:11px;color:#94a3b8;margin-top:5px;padding-left:18px;letter-spacing:.025em">All Data</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:7px;background:#fafbff;border:1.5px solid #e8ecf8;border-radius:10px;padding:8px 14px">
+                <span style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:.08em">FROM</span>
+                <input type="date" id="rptFrom" onchange="loadImsReports()">
+                <span style="color:#e8ecf8;font-size:16px;line-height:1">·</span>
+                <span style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:.08em">TO</span>
+                <input type="date" id="rptTo" onchange="loadImsReports()">
+              </div>
+              <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">Reset</button>
+              <button class="rpt-btn-pdf" onclick="rptExportPDF()" style="padding:9px 17px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px rgba(239,68,68,.28);display:flex;align-items:center;gap:5px;transition:all .18s">🖨 PDF</button>
+              <button class="rpt-btn-csv" onclick="rptExportCSV()" style="padding:9px 17px;background:#fff;color:#475569;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .18s">⬇ CSV</button>
+            </div>
+          </div>
+          <!-- Quick presets + status -->
+          <div style="margin-top:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.1em;margin-right:2px">QUICK</span>
+            <button class="rpt-preset-btn" onclick="setRptPreset('today')">Today</button>
+            <button class="rpt-preset-btn" onclick="setRptPreset('week')">This Week</button>
+            <button class="rpt-preset-btn" onclick="setRptPreset('month')">This Month</button>
+            <button class="rpt-preset-btn" onclick="setRptPreset('lastmonth')">Last Month</button>
+            <button class="rpt-preset-btn" onclick="setRptPreset('quarter')">This Quarter</button>
+            <button class="rpt-preset-btn" onclick="setRptPreset('year')">This Year</button>
+            <span id="rptStatus" style="font-size:11px;color:#64748b;margin-left:6px"></span>
+          </div>
+        </div>
+
+        <!-- ══ PANEL: Sales Summary ══ -->
+        <div id="rptPanel-sales" class="rpt-panel" style="padding:24px 26px">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px">
+            <div class="rpt-stat-card" style="border-top:3px solid #4f46e5">
+              <div class="rpt-stat-label">Total Net Sales</div>
+              <div id="rptTotalAmt" class="rpt-stat-value" style="color:#4f46e5">—</div>
+              <div class="rpt-stat-icon" style="opacity:.08">₹</div>
+            </div>
+            <div class="rpt-stat-card" style="border-top:3px solid #7c3aed">
+              <div class="rpt-stat-label">Unique Transactions</div>
+              <div id="rptTotalTxn" class="rpt-stat-value" style="color:#7c3aed">—</div>
+              <div class="rpt-stat-icon" style="opacity:.08">#</div>
+            </div>
+            <div class="rpt-stat-card" style="border-top:3px solid #10b981">
+              <div class="rpt-stat-label">Total Net Qty</div>
+              <div id="rptTotalQty" class="rpt-stat-value" style="color:#10b981">—</div>
+              <div class="rpt-stat-icon" style="opacity:.08">📦</div>
+            </div>
+          </div>
+          <div class="rpt-chart-wrap">
+            <div class="rpt-chart-label">Net Amount Trend · by Date</div>
+            <div style="position:relative;height:220px"><canvas id="rptChart-sales"></canvas></div>
+          </div>
+          <div class="rpt-table-wrap">
+            <div class="rpt-table-header">
+              <span class="rpt-table-title">Day-wise Breakdown</span>
+              <span id="rptDateCount" class="rpt-count-badge"></span>
+            </div>
+            <div class="rpt-scroll" style="overflow-x:auto;max-height:320px;overflow-y:auto">
+              <table style="width:100%;border-collapse:collapse"><thead style="position:sticky;top:0;z-index:1"><tr>
+                <th class="rpt-th-dark" style="text-align:left">Date</th>
+                <th class="rpt-th-blue" style="text-align:right">Transactions</th>
+                <th class="rpt-th-green" style="text-align:right">Net Qty</th>
+                <th class="rpt-th-red" style="text-align:right">Net Amount</th>
+              </tr></thead>
+              <tbody id="rptDateBody"><tr><td colspan="4" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ PANEL: Top Categories ══ -->
+        <div id="rptPanel-cat" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div class="rpt-chart-wrap">
+            <div class="rpt-chart-label">Net Amount by Category · Top 15</div>
+            <div id="rptChartWrap-cat" style="position:relative;height:320px"><canvas id="rptChart-cat"></canvas></div>
+          </div>
+          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse"><thead><tr>
+              <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
+              <th class="rpt-th-purple" style="text-align:left">Category</th>
+              <th class="rpt-th-blue" style="text-align:right">Transactions</th>
+              <th class="rpt-th-green" style="text-align:right">Net Qty</th>
+              <th class="rpt-th-red" style="text-align:right">Net Amount</th>
+              <th class="rpt-th-amber" style="text-align:left;min-width:140px">Share %</th>
+            </tr></thead>
+            <tbody id="rptCatBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+            </table>
+          </div></div>
+        </div>
+
+        <!-- ══ PANEL: Salesperson ══ -->
+        <div id="rptPanel-sp" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div class="rpt-chart-wrap">
+            <div class="rpt-chart-label">Net Amount by Salesperson</div>
+            <div style="position:relative;height:260px"><canvas id="rptChart-sp"></canvas></div>
+          </div>
+          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse"><thead><tr>
+              <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
+              <th class="rpt-th-dark" style="text-align:left">Salesperson</th>
+              <th class="rpt-th-blue" style="text-align:right">Transactions</th>
+              <th class="rpt-th-green" style="text-align:right">Net Qty</th>
+              <th class="rpt-th-red" style="text-align:right">Net Amount</th>
+              <th class="rpt-th-amber" style="text-align:right">Avg / Txn</th>
+            </tr></thead>
+            <tbody id="rptSpBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+            </table>
+          </div></div>
+        </div>
+
+        <!-- ══ PANEL: Supplier-wise Sales ══ -->
+        <div id="rptPanel-supplier" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div class="rpt-chart-wrap">
+            <div class="rpt-chart-label">Net Amount by Supplier · Top 15</div>
+            <div id="rptChartWrap-supplier" style="position:relative;height:320px"><canvas id="rptChart-supplier"></canvas></div>
+          </div>
+          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse"><thead><tr>
+              <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
+              <th class="rpt-th-dark" style="text-align:left">Supplier Name</th>
+              <th class="rpt-th-blue" style="text-align:right">Transactions</th>
+              <th class="rpt-th-green" style="text-align:right">Net Qty</th>
+              <th class="rpt-th-red" style="text-align:right">Net Amount</th>
+              <th class="rpt-th-amber" style="text-align:left;min-width:140px">Share %</th>
+            </tr></thead>
+            <tbody id="rptSupplierBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+            </table>
+          </div></div>
+        </div>
+
+        <!-- ══ PANEL: City / State wise Sales ══ -->
+        <div id="rptPanel-citystate" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div class="rpt-chart-wrap">
+            <div class="rpt-chart-label">Net Amount by City · Top 20</div>
+            <div id="rptChartWrap-citystate" style="position:relative;height:360px"><canvas id="rptChart-citystate"></canvas></div>
+          </div>
+          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse"><thead><tr>
+              <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
+              <th class="rpt-th-purple" style="text-align:left">City</th>
+              <th class="rpt-th-dark" style="text-align:left">State</th>
+              <th class="rpt-th-blue" style="text-align:right">Transactions</th>
+              <th class="rpt-th-green" style="text-align:right">Net Qty</th>
+              <th class="rpt-th-red" style="text-align:right">Net Amount</th>
+            </tr></thead>
+            <tbody id="rptCityStateBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+            </table>
+          </div></div>
+        </div>
+
+        <!-- ══ PANEL: Current Stock Summary ══ -->
+        <div id="rptPanel-stocksummary" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px">
+            <div class="rpt-stat-card" style="border-top:3px solid #06b6d4">
+              <div class="rpt-stat-label">Total Items</div>
+              <div id="rptStockItems" class="rpt-stat-value" style="color:#0891b2">—</div>
+              <div style="font-size:10px;color:#c4cbdc;margin-top:6px;font-weight:500">rows in sheet</div>
+              <div class="rpt-stat-icon" style="opacity:.08">📋</div>
+            </div>
+            <div class="rpt-stat-card" style="border-top:3px solid #10b981">
+              <div class="rpt-stat-label">Total OPS Qty</div>
+              <div id="rptStockQty" class="rpt-stat-value" style="color:#10b981">—</div>
+              <div class="rpt-stat-icon" style="opacity:.08">📦</div>
+            </div>
+            <div class="rpt-stat-card" style="border-top:3px solid #f59e0b">
+              <div class="rpt-stat-label">Total Stock Value</div>
+              <div id="rptStockValue" style="font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1;color:#d97706">—</div>
+              <div class="rpt-stat-icon" style="opacity:.08">₹</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+            <div class="rpt-chart-wrap" style="margin-bottom:0">
+              <div class="rpt-chart-label">Stock Value by Category · Top 12</div>
+              <div style="position:relative;height:300px"><canvas id="rptChart-stocksummary"></canvas></div>
+            </div>
+            <div style="background:#fafbff;border:1px solid #eef2ff;border-radius:14px;padding:22px;color:#475569;font-size:13px;line-height:1.8;align-self:start">
+              <div style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.1em;margin-bottom:14px">ABOUT THIS REPORT</div>
+              📦 Data sourced from the <span style="color:#0891b2;font-weight:600">In Stock</span> tab.<br>
+              For deeper insight, switch to <span style="color:#7c3aed;font-weight:600">Supplier-wise Stock</span> or <span style="color:#7c3aed;font-weight:600">Stock by Category</span>.<br><br>
+              <div style="color:#64748b;font-size:11px;padding:10px 14px;background:#fff;border-radius:8px;border:1px solid #eef2ff;font-weight:500">
+                📐 Stock Value = OPS Qty × Cost Price
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ PANEL: Supplier-wise Stock Value ══ -->
+        <div id="rptPanel-supplierstock" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+            <div class="rpt-chart-wrap" style="margin-bottom:0">
+              <div class="rpt-chart-label">Stock Value Distribution</div>
+              <div style="position:relative;height:300px"><canvas id="rptChart-supplierstock"></canvas></div>
+            </div>
+            <div class="rpt-table-wrap">
+              <div class="rpt-scroll" style="overflow-x:auto;max-height:356px;overflow-y:auto">
+                <table style="width:100%;border-collapse:collapse"><thead style="position:sticky;top:0"><tr>
+                  <th class="rpt-th-dark" style="text-align:left;width:34px">#</th>
+                  <th class="rpt-th-dark" style="text-align:left">Supplier</th>
+                  <th class="rpt-th-green" style="text-align:right">Qty</th>
+                  <th class="rpt-th-red" style="text-align:right">Value (₹)</th>
+                </tr></thead>
+                <tbody id="rptSupStockBody"><tr><td colspan="4" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ PANEL: Stock by Category ══ -->
+        <div id="rptPanel-stockcat" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+            <div class="rpt-chart-wrap" style="margin-bottom:0">
+              <div class="rpt-chart-label">Stock Value by Category</div>
+              <div style="position:relative;height:300px"><canvas id="rptChart-stockcat"></canvas></div>
+            </div>
+            <div class="rpt-table-wrap">
+              <div class="rpt-scroll" style="overflow-x:auto;max-height:356px;overflow-y:auto">
+                <table style="width:100%;border-collapse:collapse"><thead style="position:sticky;top:0"><tr>
+                  <th class="rpt-th-dark" style="text-align:left;width:34px">#</th>
+                  <th class="rpt-th-purple" style="text-align:left">Category</th>
+                  <th class="rpt-th-green" style="text-align:right">Qty</th>
+                  <th class="rpt-th-red" style="text-align:right">Value (₹)</th>
+                </tr></thead>
+                <tbody id="rptStockCatBody"><tr><td colspan="4" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /rpt-glass -->
+    </div><!-- /rpt-inner -->
+    </div>
+
+  </div>
+
+    <!-- ══════════════════════════════════════
        EMPLOYEE RECORDS  (Admin / HOD / PC)
   ══════════════════════════════════════ -->
   <div id="page-records" class="page">
     <div class="page-header">
-      <h2>Employee Records</h2>
       <button class="btn btn-outline" onclick="exportRecords()">⬇ Export CSV</button>
     </div>
 
@@ -1109,7 +1627,7 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Header Row <span style="color:#94a3b8;font-weight:400;font-size:11px">(konsi row mein headers hain)</span></label>
+        <label>Header Row <span style="color:#94a3b8;font-weight:400;font-size:11px">(which row contains headers)</span></label>
         <input type="number" id="fmsHeaderRow" value="1" min="1"/>
       </div>
       <div class="form-group">
@@ -1133,11 +1651,11 @@ tbody tr:last-child td{border-bottom:none;}
     <h3 style="margin-bottom:12px">Share Your Sheet</h3>
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px;margin-bottom:20px;">
       <p style="font-size:14px;color:#374151;line-height:1.6">
-        Apni FMS Sheet ko is email par share karo taaki data sync ho sake:
+        Share your FMS Sheet with this email to enable data sync:
       </p>
-      <div id="fmsShareEmail" style="margin-top:10px;font-size:15px;font-weight:700;color:#1a56db;background:#eff6ff;padding:10px;border-radius:8px;letter-spacing:.3px;word-break:break-all;">
+      <div id="fmsShareEmail" style="margin-top:10px;font-size:15px;font-weight:700;color:#4f46e5;background:#eef2ff;padding:10px;border-radius:10px;letter-spacing:.3px;word-break:break-all;">
       </div>
-      <button onclick="copyFMSEmail()" style="margin-top:8px;background:none;border:1px solid #1a56db;color:#1a56db;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer">📋 Copy Email</button>
+      <button onclick="copyFMSEmail()" style="margin-top:8px;background:none;border:1px solid #4f46e5;color:#4f46e5;padding:4px 12px;border-radius:7px;font-size:12px;cursor:pointer">📋 Copy Email</button>
     </div>
     <button id="fmsSkipBtn" class="btn btn-primary" style="width:100%;pointer-events:none;opacity:.6" onclick="proceedToStepsConfig()">
       Skip (<span id="fmsCountdown">7</span>s)
@@ -1183,7 +1701,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-group">
       <label>New Due Date</label>
       <input type="date" id="reviseDate"/>
-      <div style="font-size:12px;color:#64748b;margin-top:4px">Aaj se pehle ki date select nahi kar sakte</div>
+      <div style="font-size:12px;color:#64748b;margin-top:4px">Cannot select a past date</div>
     </div>
     <div class="form-group">
       <label>Reason for Revision</label>
@@ -1311,21 +1829,20 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="form-group"><label>Role</label>
         <select id="uRole">
           <option value="user">User</option>
-          <option value="hod">HOD</option>
-          <option value="pc">PC (View + Approve)</option>
           <option value="admin">Admin</option>
+          <!-- hod/pc disabled — re-enable with role feature flags -->
         </select>
       </div>
       <div class="form-group">
         <label>Week Off <span style="color:#94a3b8;font-weight:400;font-size:11px">(checklist skip hogi)</span></label>
         <div id="weekOffWrap" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;min-height:40px">
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="0" style="accent-color:#1a56db"/> Sun</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="1" style="accent-color:#1a56db"/> Mon</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="2" style="accent-color:#1a56db"/> Tue</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="3" style="accent-color:#1a56db"/> Wed</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="4" style="accent-color:#1a56db"/> Thu</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="5" style="accent-color:#1a56db"/> Fri</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="6" style="accent-color:#1a56db"/> Sat</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="0" style="accent-color:#4f46e5"/> Sun</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="1" style="accent-color:#4f46e5"/> Mon</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="2" style="accent-color:#4f46e5"/> Tue</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="3" style="accent-color:#4f46e5"/> Wed</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="4" style="accent-color:#4f46e5"/> Thu</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="5" style="accent-color:#4f46e5"/> Fri</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" class="woff-cb" value="6" style="accent-color:#4f46e5"/> Sat</label>
         </div>
       </div>
     </div>
@@ -1370,7 +1887,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div style="display:flex;gap:12px;margin-bottom:14px">
       <div style="flex:1">
         <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Plan Value</div>
-        <div id="fmsDonePlanDisplay" style="font-size:15px;font-weight:700;color:#1a56db;background:#eff6ff;padding:10px 14px;border-radius:8px"></div>
+        <div id="fmsDonePlanDisplay" style="font-size:15px;font-weight:700;color:#4f46e5;background:#eef2ff;padding:10px 14px;border-radius:10px"></div>
       </div>
       <div style="flex:1">
         <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Actual (Now)</div>
@@ -1418,7 +1935,7 @@ tbody tr:last-child td{border-bottom:none;}
     <!-- STEP 2: Date -->
     <div id="bdStep2" style="display:none">
       <div class="form-group">
-        <label>Date Select Karo</label>
+        <label>Select Date</label>
         <input type="date" id="bdDate" onchange="onBdDateChange()"
           style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
       </div>
@@ -1432,7 +1949,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="bdTasksList" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;max-height:260px;overflow-y:auto;margin-bottom:14px"></div>
 
       <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:12px;color:#dc2626;margin-bottom:12px">
-        ⚠️ Delete permanent hai — wapas nahi aayega!
+        ⚠️ This action is permanent and cannot be undone!
       </div>
 
       <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -1446,7 +1963,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div id="bdYearSection" style="display:none;margin-top:18px;border-top:1.5px dashed #fecaca;padding-top:16px">
       <div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:10px">🗓 Delete Checklist Tasks (Bulk)</div>
       <div style="font-size:11px;color:#64748b;margin-bottom:10px;line-height:1.5">
-        ℹ️ Pehle frequency category select karo (daily/weekly/monthly), fhir employee. Sirf <b>pending</b> aur <b>revised</b> tasks delete hongi — completed tasks safe rahengi.
+        ℹ️ Select a frequency category (daily/weekly/monthly) then select an employee. Only <b>pending</b> and <b>revised</b> tasks will be deleted — completed tasks are safe.
       </div>
       <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
         <div style="min-width:160px">
@@ -1467,7 +1984,7 @@ tbody tr:last-child td{border-bottom:none;}
           <select id="bdYearUser" onchange="onBdYearUserChange()" style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:#fff" disabled>
             <option value="">-- Select Employee --</option>
           </select>
-          <div id="bdYearUserEmail" style="display:none;margin-top:5px;padding:5px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;color:#1d4ed8;font-weight:600">📧 <span id="bdYearUserEmailText"></span></div>
+          <div id="bdYearUserEmail" style="display:none;margin-top:5px;padding:5px 10px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;font-size:12px;color:#4f46e5;font-weight:600">📧 <span id="bdYearUserEmailText"></span></div>
         </div>
         <button class="btn btn-danger btn-sm" style="white-space:nowrap;margin-bottom:1px" onclick="openDelete12MonthsConfirm()">🗑 Delete Checklist</button>
       </div>
@@ -1498,7 +2015,7 @@ tbody tr:last-child td{border-bottom:none;}
     <!-- STEP 2: Date selection -->
     <div id="transferStep2" style="display:none">
       <div class="form-group">
-        <label>Date Select Karo</label>
+        <label>Select Date</label>
         <input type="date" id="transferDate" onchange="onTransferDateChange()"
           style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
       </div>
@@ -1521,7 +2038,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
 
       <div style="background:#faf5ff;border:1px solid #c4b5fd;border-radius:8px;padding:8px 12px;font-size:12px;color:#7c3aed;margin-bottom:12px">
-        ℹ️ Approve hone ke baad task transfer hoga
+        ℹ️ Task will be transferred after approval
       </div>
 
       <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -1557,7 +2074,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:6px">
         Improvement Target (%)
-        <span style="font-size:11px;color:#94a3b8;font-weight:400">— optional, meeting mein set kiya goal</span>
+        <span style="font-size:11px;color:#94a3b8;font-weight:400">— optional, goal set during the meeting</span>
       </label>
       <div style="position:relative">
         <input type="number" id="planImprovementPct" min="-100" max="100" placeholder="e.g. -30 (matlab -30% tak lana hai)"
@@ -1566,7 +2083,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="planPctPreview" style="margin-top:6px;font-size:12px;color:#64748b;min-height:18px"></div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
-      <button class="btn btn-primary" style="background:linear-gradient(135deg,#7c3aed,#1a56db);border:none" onclick="saveWeekPlan()">Save Plan</button>
+      <button class="btn btn-primary" onclick="saveWeekPlan()">Save Plan</button>
       <button class="btn btn-outline" onclick="closeModal('setPlanModal')">Cancel</button>
     </div>
   </div>
@@ -1649,7 +2166,7 @@ function renderDbmTable() {
   if (!filtered.length) {
     document.getElementById('dbmContent').innerHTML =
       `<div class="empty" style="padding:30px;text-align:center;color:#94a3b8">
-        ${_dbmStatusFilter === 'pending' ? 'Aapne abhi koi pending task delegate nahi kiya hai' : 'Aapne delegate kiye task me se koi completed nahi hai'}
+        ${_dbmStatusFilter === 'pending' ? 'You have no pending delegated tasks' : 'None of your delegated tasks are completed'}
       </div>`;
     return;
   }
@@ -1715,9 +2232,13 @@ async function init() {
     }
     ME = await r.json();
     if (!ME || !ME.id) { window.location.replace('/'); return; }
+    // ── ROLE FEATURE FLAGS ──────────────────────────────
+    // To re-enable hod/pc: remove or comment the next 2 lines
+    if (ME.role === 'hod' || ME.role === 'pc') ME.role = 'user';
+    // ────────────────────────────────────────────────────
     const initials = ME.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
     document.getElementById('sidebarName').textContent = ME.name;
-    const roleLabel = ME.role==='admin' ? '👑 Admin' : ME.role==='hod' ? '🏢 HOD' : ME.role==='pc' ? '🖥️ PC' : '👤 Employee';
+    const roleLabel = ME.role==='admin' ? '👑 Admin' : '👤 Employee';
     document.getElementById('sidebarRole').textContent = roleLabel;
     document.getElementById('pName').value = ME.name;
     document.getElementById('pEmail').value = ME.email;
@@ -1728,27 +2249,29 @@ async function init() {
 
     setAvatarDisplay(ME.profile_image, initials);
 
+    // MIS Report: admin, hod, and regular users all see it
+    document.getElementById('nav-mis').style.display = 'flex';
+
     if (ME.role === 'admin') {
       document.getElementById('nav-users').style.display = 'flex';
-      document.getElementById('nav-mis').style.display = 'flex';
       document.getElementById('nav-fms').style.display = 'flex';
+      document.getElementById('nav-fms-tasks').style.display = 'flex';
+      document.getElementById('nav-stock-import').style.display = 'flex';
+      document.getElementById('nav-records').style.display = 'flex';
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
     }
-    if (ME.role === 'hod') {
-      // HOD ko MIS dikhta hai (apne department ka)
-      document.getElementById('nav-mis').style.display = 'flex';
-      document.getElementById('setPlanBtn').style.display = 'inline-flex';
-    }
-    if (ME.role === 'pc') {
-      // PC: can view all tasks + approve, but cannot edit/delete
-      // Nav items same as employee (dashboard, alltasks, approvals, profile, fms-tasks)
-    }
-    // Records tab — Admin, HOD aur PC teeno ko dikhta hai (shared single source of truth)
-    if (ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc') {
-      document.getElementById('nav-records').style.display = 'flex';
-    }
+    // hod/pc nav blocks — re-enable when ROLE FEATURE FLAGS above are removed
+    // if (ME.role === 'hod') { nav-fms-tasks, nav-records, setPlanBtn }
+    // if (ME.role === 'pc')  { nav-fms-tasks, nav-records }
     setMinDates();
-    loadDashboard();
+    // Refresh pe last visited page restore karo
+    const savedPage = localStorage.getItem('lastPage');
+    const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
+    if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl) {
+      navigate(savedPage, savedNavEl);
+    } else {
+      loadDashboard();
+    }
     loadApprovalBadge();
     loadTransferBadge();
     // Refresh badges every 30 seconds
@@ -1822,7 +2345,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','stock-import':'Inventory Management System'};
 
 function navigate(page, el) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -1838,6 +2361,8 @@ function navigate(page, el) {
   if (page==='fms-tasks') loadFMSTasks();
   if (page==='mis') initMISDeptFilter();
   if (page==='records') loadRecords();
+  if (page==='stock-import') { setImsView(localStorage.getItem('imsActiveView') || 'form'); loadImsStats(); }
+  localStorage.setItem('lastPage', page);
   window.scrollTo(0,0);
 }
 
@@ -2217,7 +2742,7 @@ function toggleDashDateSort() {
   const icon = document.getElementById('dashDateSortIcon');
   if (icon) {
     icon.textContent = _dashDateSortState === 0 ? '⇅' : _dashDateSortState === 1 ? '↑' : '↓';
-    icon.style.color = _dashDateSortState === 0 ? '#94a3b8' : '#1a56db';
+    icon.style.color = _dashDateSortState === 0 ? '#94a3b8' : '#4f46e5';
   }
   if (window._lastDashTasks) renderDashTable(window._lastDashTasks, dashType);
 }
@@ -2244,7 +2769,7 @@ function renderDashTable(tasks, type) {
   if (!allPending.length) { tbody.innerHTML=`<tr><td colspan="6" class="empty">No pending tasks 🎉</td></tr>`; return; }
   const typeBadge = t => t.type==='checklist'
     ? `<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #bbf7d0">✅ Checklist</span>`
-    : `<span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #bfdbfe">📋 Delegation</span>`;
+    : `<span style="font-size:10px;background:#eef2ff;color:#4f46e5;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #c7d2fe">📋 Delegation</span>`;
   tbody.innerHTML = allPending.map(t=>`
     <tr>
       <td style="white-space:nowrap">${typeBadge(t)}</td>
@@ -2396,16 +2921,16 @@ function renderTasksTable() {
     const actionBtns = isAdmin ? `
       <button class="action-btn edit" style="padding:4px 7px" onclick="openEditTask(${t.id},'${tasksType}')" title="Edit">✏️</button>
       <button class="action-btn delete" style="padding:4px 7px;margin-left:3px" onclick="deleteTask(${t.id},'${tasksType}')" title="Delete">🗑</button>
-      <button class="action-btn" style="background:#eff6ff;color:#1d4ed8;padding:4px 7px;margin-left:3px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
+      <button class="action-btn" style="background:#eef2ff;color:#4f46e5;padding:4px 7px;margin-left:3px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
       ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}')">Done</button>` : ''}
       ${!isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${tasksType}')">Revise</button>` : ''}
       ${isWaiting ? `<span style="font-size:11px;color:#f59e0b;font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}
     ` : (ME.role==='pc') ? `
-      <button class="action-btn" style="background:#eff6ff;color:#1d4ed8;padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
+      <button class="action-btn" style="background:#eef2ff;color:#4f46e5;padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
       ${isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}')">Done</button>` : ''}
       ${isWaiting ? `<span style="font-size:11px;color:#f59e0b;font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}
     ` : `
-      <button class="action-btn" style="background:#eff6ff;color:#1d4ed8;padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
+      <button class="action-btn" style="background:#eef2ff;color:#4f46e5;padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
       ${!isCompleted && !isWaiting ? `
         <button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}')">Done</button>
         ${!isChecklist ? `<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${tasksType}')">Revise</button>` : ''}
@@ -3082,7 +3607,7 @@ function _renderExtraOffList() {
           <label style="display:flex;align-items:center;gap:2px;font-size:11px;cursor:pointer;text-transform:none;letter-spacing:0">
             <input type="checkbox" ${item.weeks.includes(w)?'checked':''}
               onchange="if(this.checked)_extraOffData[${i}].weeks.push(${w});else _extraOffData[${i}].weeks=_extraOffData[${i}].weeks.filter(x=>x!==${w});_renderExtraOffList()"
-              style="accent-color:#1a56db;width:12px;height:12px"/>
+              style="accent-color:#4f46e5;width:12px;height:12px"/>
             ${weekNames[w]}
           </label>`).join('')}
       </div>
@@ -3190,6 +3715,621 @@ async function uploadUsersCSV() {
   loadUsers();
 }
 
+
+// ══════════════════════════════════════════════════════
+// STOCK CSV IMPORT
+// ══════════════════════════════════════════════════════
+function setImsTab(type) { /* no-op: both panels always visible */ }
+
+function renderImsStats() {
+  ['stock', 'sales'].forEach(key => {
+    const saved = JSON.parse(localStorage.getItem('imsStats-' + key) || 'null');
+    const rowEl = document.getElementById('imsStatRows-' + key);
+    const dateEl = document.getElementById('imsStatDate-' + key);
+    if (rowEl) rowEl.textContent = saved && saved.totalRows != null ? Number(saved.totalRows).toLocaleString() : '—';
+    if (dateEl) dateEl.textContent = (saved && saved.uploadDate) || '—';
+  });
+}
+
+function loadImsStats() {
+  renderImsStats();         // show cached instantly
+  syncImsStats(true);       // silently refresh from actual sheet
+}
+
+// Auto-refresh when user returns to this tab after editing Google Sheet
+let _lastStatSync = 0;
+let _lastRptSync = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  const imsPage = document.getElementById('page-stock-import');
+  if (!imsPage || imsPage.style.display === 'none') return;
+
+  const formView    = document.getElementById('imsView-form');
+  const reportsView = document.getElementById('imsView-reports');
+  const now = Date.now();
+
+  // Form view — refresh stats cards
+  if (formView && formView.style.display !== 'none') {
+    if (now - _lastStatSync >= 5000) { _lastStatSync = now; syncImsStats(true); }
+  }
+
+  // Reports view — refresh live report data + stats
+  if (reportsView && reportsView.style.display !== 'none') {
+    if (now - _lastRptSync >= 5000) { _lastRptSync = now; loadImsReports(); syncImsStats(true); }
+  }
+});
+
+let _lastImportTime = 0;
+
+async function syncImsStats(silent) {
+  // Don't auto-sync within 10s of an import (race condition — import already set localStorage)
+  if (silent && (Date.now() - _lastImportTime) < 10000) return;
+  const btn = document.getElementById('imsSyncBtn');
+  if (!silent && btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
+  const data = await api('/api/ims-stats');
+  if (!silent && btn) { btn.disabled = false; btn.textContent = '⟳ Sync with Sheet'; }
+  if (!data || data.error) {
+    if (!silent) showToast('Sync failed: ' + (data && data.error ? data.error : 'Server error'), 'error');
+    return;
+  }
+  ['stock', 'sales'].forEach(key => {
+    const d = data[key] || {};
+    if (d.totalRows === null) return; // null = API error — keep existing cache
+    const saved = JSON.parse(localStorage.getItem('imsStats-' + key) || 'null') || {};
+    // If rows are 0 (all deleted), clear the upload date too
+    const uploadDate = d.totalRows === 0 ? '' : (d.lastUpload || saved.uploadDate || '');
+    localStorage.setItem('imsStats-' + key, JSON.stringify({
+      totalRows: d.totalRows,
+      uploadDate
+    }));
+  });
+  _lastStatSync = Date.now();
+  renderImsStats();
+  if (!silent) showToast('Stats synced from Google Sheet', 'success');
+}
+
+function setImsView(view) {
+  const views = ['form', 'reports'];
+  views.forEach(v => {
+    const el = document.getElementById('imsView-' + v);
+    const btn = document.getElementById('imsViewBtn-' + v);
+    if (!el || !btn) return;
+    const active = v === view;
+    el.style.display = active ? '' : 'none';
+    btn.style.background = active ? 'linear-gradient(135deg,#4f46e5,#6d28d9)' : '#fff';
+    btn.style.color = active ? '#fff' : '#64748b';
+    btn.style.borderColor = active ? '#4f46e5' : '#e8ecf8';
+    btn.style.boxShadow = active ? '0 3px 10px rgba(79,70,229,.3)' : 'none';
+  });
+  localStorage.setItem('imsActiveView', view);
+  if (view === 'reports') switchRptTab(_activeRptTab || 'sales');
+}
+
+// ── IMS Reports ─────────────────────────────────────────────
+let _rptData = null; // last fetched report payload
+
+function fmtINR(n) {
+  if (n == null || isNaN(n)) return '—';
+  return '₹' + Math.round(n).toLocaleString('en-IN');
+}
+
+const RPT_TABS = {
+  sales:        'Sales Summary',
+  cat:          'Top Categories',
+  supplier:     'Supplier-wise Sales',
+  sp:           'Salesperson Performance',
+  citystate:    'City / State wise Sales',
+  stocksummary: 'Current Stock Summary',
+  supplierstock:'Supplier-wise Stock Value',
+  stockcat:     'Stock by Category'
+};
+// Tabs that use date filter (sales-based); stock tabs ignore it
+const RPT_SALES_TABS = new Set(['sales','cat','supplier','sp','citystate']);
+let _activeRptTab = 'sales';
+
+function switchRptTab(tab) {
+  _activeRptTab = tab;
+  // Update tab buttons
+  document.querySelectorAll('.rpt-tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  // Show/hide panels
+  document.querySelectorAll('.rpt-panel').forEach(p => p.style.display = 'none');
+  const panel = document.getElementById('rptPanel-' + tab);
+  if (panel) panel.style.display = '';
+  // Update title
+  const titleEl = document.getElementById('rptActiveTitle');
+  if (titleEl) titleEl.textContent = RPT_TABS[tab] || tab;
+  // Load data for that tab
+  loadImsReports();
+}
+
+function resetRptFilter() {
+  const f = document.getElementById('rptFrom');
+  const t = document.getElementById('rptTo');
+  if (f) f.value = '';
+  if (t) t.value = '';
+  document.querySelectorAll('.rpt-preset-btn').forEach(b => b.classList.remove('active'));
+  loadImsReports();
+}
+
+function setRptPreset(preset) {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const fmt = d => d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+  let from, to = fmt(now);
+  if (preset === 'today') { from = fmt(now); }
+  else if (preset === 'week') { const d = new Date(now); d.setDate(now.getDate() - now.getDay() + (now.getDay()===0?-6:1)); from = fmt(d); }
+  else if (preset === 'month') { from = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-01'; }
+  else if (preset === 'lastmonth') { const d = new Date(now.getFullYear(), now.getMonth()-1, 1); const last = new Date(now.getFullYear(), now.getMonth(), 0); from = fmt(d); to = fmt(last); }
+  else if (preset === 'quarter') { const q = Math.floor(now.getMonth()/3); from = now.getFullYear() + '-' + pad(q*3+1) + '-01'; }
+  else if (preset === 'year') { from = now.getFullYear() + '-01-01'; }
+  const f = document.getElementById('rptFrom');
+  const t = document.getElementById('rptTo');
+  if (f) f.value = from || '';
+  if (t) t.value = to || '';
+  document.querySelectorAll('.rpt-preset-btn').forEach(b => b.classList.remove('active'));
+  const labels = {today:'Today',week:'This Week',month:'This Month',lastmonth:'Last Month',quarter:'This Quarter',year:'This Year'};
+  document.querySelectorAll('.rpt-preset-btn').forEach(b => { if (b.textContent.trim() === (labels[preset]||'')) b.classList.add('active'); });
+  loadImsReports();
+}
+
+async function loadImsReports() {
+  const status  = document.getElementById('rptStatus');
+  const syncBtn = document.getElementById('rptSyncBtn');
+  if (status) { status.style.color = '#64748b'; status.textContent = 'Loading…'; }
+  if (syncBtn) { syncBtn.disabled = true; syncBtn.innerHTML = '⟳ Syncing…'; }
+
+  const from = (document.getElementById('rptFrom') || {}).value || '';
+  const to   = (document.getElementById('rptTo')   || {}).value || '';
+  const params = new URLSearchParams();
+  if (from) params.append('from', from);
+  if (to)   params.append('to',   to);
+
+  const data = await api('/api/ims-reports?' + params.toString());
+
+  if (syncBtn) { syncBtn.disabled = false; syncBtn.innerHTML = '⟳ Sync Live Data'; }
+  if (status)  status.textContent = '';
+  _lastRptSync = Date.now();
+
+  if (!data || data.error) {
+    if (status) { status.style.color = '#dc2626'; status.textContent = '✗ ' + (data?.error || 'Failed to load'); }
+    return;
+  }
+
+  // Update subtitle
+  const sub = document.getElementById('rptSubtitle');
+  if (sub) {
+    const isSalesTab = RPT_SALES_TABS.has(_activeRptTab);
+    const dateRange = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
+    sub.textContent = dateRange;
+  }
+
+  _rptData = data; // cache for CSV export
+  renderRptSummary(data.salesSummary || {});
+  renderRptCategories(data.topCategories || []);
+  renderRptSupplierSales(data.supplierSales || []);
+  renderRptSalespersons(data.salespersons || []);
+  renderRptCityState(data.cityStateSales || []);
+  renderRptStockSummary(data.currentStock || {});
+  renderRptSupplierStock(data.supplierStock || []);
+  renderRptStockCat(data.categoryStock || []);
+}
+
+function renderRptSummary(s) {
+  const setEl = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
+  setEl('rptTotalAmt', fmtINR(s.totalAmount));
+  setEl('rptTotalTxn', (s.totalTransactions || 0).toLocaleString('en-IN'));
+  setEl('rptTotalQty', s.totalQty != null ? Number(s.totalQty).toLocaleString('en-IN') : '—');
+  const body = document.getElementById('rptDateBody');
+  const countEl = document.getElementById('rptDateCount');
+  const rows = s.byDate || [];
+  if (countEl) countEl.textContent = rows.length + ' day' + (rows.length !== 1 ? 's' : '');
+  if (!body) return;
+  if (!rows.length) { body.innerHTML = '<tr><td colspan="4" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
+  body.innerHTML = rows.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+    <td class="rpt-td" style="font-weight:600">${r.date}</td>
+    <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(r.transactions||0).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(r.qty||0).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(r.amount)}</td>
+  </tr>`).join('');
+  // Line chart
+  renderChartLine('rptChart-sales', 'sales', rows.map(r=>r.date), rows.map(r=>r.amount), rows.map(r=>r.qty));
+}
+
+function renderRptCategories(cats) {
+  const body = document.getElementById('rptCatBody');
+  if (!body) return;
+  if (!cats.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
+  const grand = cats.reduce((s, c) => s + (c.amount || 0), 0) || 1;
+  const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16','#f97316','#6366f1','#ec4899'];
+  body.innerHTML = cats.map((c, i) => {
+    const pct = ((c.amount / grand) * 100).toFixed(1);
+    const bar = `<div style="display:flex;align-items:center;gap:8px">
+      <div style="flex:1;height:9px;background:#f1f5f9;border-radius:99px;overflow:hidden;min-width:60px">
+        <div style="width:${pct}%;height:9px;background:${COLORS[i%COLORS.length]};border-radius:99px"></div>
+      </div>
+      <span style="font-size:12px;font-weight:700;color:${COLORS[i%COLORS.length]};min-width:40px">${pct}%</span>
+    </div>`;
+    return `<tr class="${i%2?'rpt-tr-even':''}">
+      <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+      <td class="rpt-td" style="font-weight:700">${c.category}</td>
+      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(c.transactions||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(c.amount)}</td>
+      <td class="rpt-td">${bar}</td>
+    </tr>`;
+  }).join('');
+  // Horizontal bar chart
+  renderChartHBar('rptChart-cat', 'cat', cats.map(c=>c.category), cats.map(c=>c.amount));
+}
+
+function renderRptSalespersons(sps) {
+  const body = document.getElementById('rptSpBody');
+  if (!body) return;
+  if (!sps.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
+  body.innerHTML = sps.map((s, i) => {
+    const avg = s.transactions ? Math.round(s.amount / s.transactions) : 0;
+    return `<tr class="${i%2?'rpt-tr-even':''}">
+      <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+      <td class="rpt-td" style="font-weight:700">${s.name}</td>
+      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(s.transactions||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(s.qty||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(s.amount)}</td>
+      <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:700">${fmtINR(avg)}</td>
+    </tr>`;
+  }).join('');
+  // Vertical bar chart
+  renderChartVBar('rptChart-sp', 'sp', sps.map(s=>s.name), sps.map(s=>s.amount));
+}
+
+// ── New render functions ─────────────────────────────────────
+function _rptPctBar(pct, color) {
+  return `<div style="display:flex;align-items:center;gap:8px">
+    <div style="flex:1;height:9px;background:#f1f5f9;border-radius:99px;overflow:hidden;min-width:60px">
+      <div style="width:${pct}%;height:9px;background:${color};border-radius:99px"></div>
+    </div>
+    <span style="font-size:12px;font-weight:700;color:${color};min-width:40px">${pct}%</span>
+  </div>`;
+}
+
+function renderRptSupplierSales(items) {
+  const body = document.getElementById('rptSupplierBody');
+  if (!body) return;
+  if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
+  const grand = items.reduce((s,c) => s+(c.amount||0), 0) || 1;
+  const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16','#f97316','#6366f1','#ec4899'];
+  body.innerHTML = items.map((c, i) => {
+    const pct = ((c.amount/grand)*100).toFixed(1);
+    return `<tr class="${i%2?'rpt-tr-even':''}">
+      <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+      <td class="rpt-td" style="font-weight:700">${c.name}</td>
+      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(c.transactions||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(c.amount)}</td>
+      <td class="rpt-td">${_rptPctBar(pct, COLORS[i%COLORS.length])}</td>
+    </tr>`;
+  }).join('');
+  // Horizontal bar chart (top 15)
+  renderChartHBar('rptChart-supplier', 'supplier', items.slice(0,15).map(c=>c.name), items.slice(0,15).map(c=>c.amount));
+}
+
+function renderRptCityState(items) {
+  const body = document.getElementById('rptCityStateBody');
+  if (!body) return;
+  if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
+  body.innerHTML = items.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+    <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+    <td class="rpt-td" style="font-weight:700;color:#7c3aed">${c.city}</td>
+    <td class="rpt-td" style="color:#64748b">${c.state}</td>
+    <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(c.transactions||0).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(c.amount)}</td>
+  </tr>`).join('');
+  // Horizontal bar chart (top 20, label = city + state)
+  renderChartHBar('rptChart-citystate', 'citystate', items.slice(0,20).map(c=>c.city+', '+c.state), items.slice(0,20).map(c=>c.amount));
+}
+
+function renderRptStockSummary(s) {
+  const setEl = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
+  setEl('rptStockItems', (s.totalItems||0).toLocaleString('en-IN'));
+  setEl('rptStockQty',   (s.totalQty != null ? Number(s.totalQty).toLocaleString('en-IN') : '—'));
+  setEl('rptStockValue', fmtINR(s.totalValue));
+  // Doughnut chart using category stock breakdown
+  if (_rptData && _rptData.categoryStock && _rptData.categoryStock.length) {
+    renderChartDoughnut('rptChart-stocksummary', 'stocksummary', _rptData.categoryStock.slice(0,12), 'category', 'value');
+  }
+}
+
+function _rptStockTable(bodyId, items, keyField) {
+  const body = document.getElementById(bodyId);
+  if (!body) return;
+  if (!items.length) { body.innerHTML = `<tr><td colspan="4" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
+  body.innerHTML = items.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+    <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+    <td class="rpt-td" style="font-weight:700">${c[keyField]}</td>
+    <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(c.value)}</td>
+  </tr>`).join('');
+}
+
+function renderRptSupplierStock(items) { _rptStockTable('rptSupStockBody', items, 'name');     renderChartDoughnut('rptChart-supplierstock','supplierstock', items.slice(0,12), 'name',    'value'); }
+function renderRptStockCat(items)      { _rptStockTable('rptStockCatBody', items, 'category'); renderChartDoughnut('rptChart-stockcat',     'stockcat',      items.slice(0,12), 'category','value'); }
+// ── /New render functions ────────────────────────────────────
+
+// ── Chart.js helpers ─────────────────────────────────────────
+const CHART_C = ['#4f46e5','#06b6d4','#10b981','#f59e0b','#ef4444','#7c3aed','#fb923c','#6366f1','#f472b6','#84cc16','#0ea5e9','#2dd4bf'];
+let _charts = {};
+
+function _loadChartJS(cb) {
+  if (window.Chart) { cb(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js';
+  s.onload = cb;
+  document.head.appendChild(s);
+}
+function _destroyChart(key) { if (_charts[key]) { try { _charts[key].destroy(); } catch(e){} delete _charts[key]; } }
+
+// Shared dark-theme chart defaults
+const _DARK_GRID  = 'rgba(79,70,229,.07)';
+const _DARK_TICK  = { color:'#94a3b8', font:{size:10} };
+const _DARK_LGND  = { color:'#64748b', font:{size:11} };
+
+function renderChartLine(canvasId, key, labels, amounts, qtys) {
+  _loadChartJS(() => {
+    _destroyChart(key);
+    const ctx = document.getElementById(canvasId)?.getContext('2d');
+    if (!ctx || !labels.length) return;
+    _charts[key] = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: [
+        { label:'Net Amount (₹)', data:amounts, borderColor:'#4f46e5', backgroundColor:'rgba(79,70,229,.08)', fill:true, tension:0.4, pointRadius:4, pointHoverRadius:6, pointBackgroundColor:'#4f46e5', yAxisID:'y' },
+        { label:'Net Qty',        data:qtys,    borderColor:'#10b981', backgroundColor:'transparent', fill:false, tension:0.4, pointRadius:3, pointHoverRadius:5, borderDash:[5,3], yAxisID:'y1' }
+      ]},
+      options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{position:'top', labels:{..._DARK_LGND, usePointStyle:true, pointStyleWidth:8}} },
+        scales:{
+          y:  { position:'left',  ticks:{...{callback:v=>'₹'+Math.round(v).toLocaleString('en-IN')},..._DARK_TICK}, grid:{color:_DARK_GRID}, border:{color:_DARK_GRID} },
+          y1: { position:'right', ticks:{..._DARK_TICK}, grid:{drawOnChartArea:false}, border:{color:_DARK_GRID} },
+          x:  { ticks:{..._DARK_TICK, maxRotation:45}, grid:{color:_DARK_GRID}, border:{color:_DARK_GRID} }
+        }
+      }
+    });
+  });
+}
+
+function renderChartHBar(canvasId, key, labels, values) {
+  _loadChartJS(() => {
+    _destroyChart(key);
+    const ctx = document.getElementById(canvasId)?.getContext('2d');
+    if (!ctx || !labels.length) return;
+    _charts[key] = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label:'Net Amount (₹)', data:values, backgroundColor:labels.map((_,i)=>CHART_C[i%CHART_C.length]+'d8'), hoverBackgroundColor:labels.map((_,i)=>CHART_C[i%CHART_C.length]), borderRadius:5, borderSkipped:false }] },
+      options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' ₹'+Math.round(c.parsed.x).toLocaleString('en-IN')}} },
+        scales:{
+          x:{ ticks:{callback:v=>'₹'+Math.round(v).toLocaleString('en-IN'),..._DARK_TICK}, grid:{color:_DARK_GRID}, border:{color:_DARK_GRID} },
+          y:{ ticks:{..._DARK_TICK, font:{size:11}}, grid:{color:'transparent'}, border:{color:_DARK_GRID} }
+        }
+      }
+    });
+  });
+}
+
+function renderChartVBar(canvasId, key, labels, values) {
+  _loadChartJS(() => {
+    _destroyChart(key);
+    const ctx = document.getElementById(canvasId)?.getContext('2d');
+    if (!ctx || !labels.length) return;
+    _charts[key] = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label:'Net Amount (₹)', data:values, backgroundColor:labels.map((_,i)=>CHART_C[i%CHART_C.length]+'d8'), hoverBackgroundColor:labels.map((_,i)=>CHART_C[i%CHART_C.length]), borderRadius:6, borderSkipped:false }] },
+      options: { responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' ₹'+Math.round(c.parsed.y).toLocaleString('en-IN')}} },
+        scales:{
+          y:{ ticks:{callback:v=>'₹'+Math.round(v).toLocaleString('en-IN'),..._DARK_TICK}, grid:{color:_DARK_GRID}, border:{color:_DARK_GRID} },
+          x:{ ticks:{..._DARK_TICK, font:{size:11}}, grid:{color:'transparent'}, border:{color:_DARK_GRID} }
+        }
+      }
+    });
+  });
+}
+
+function renderChartDoughnut(canvasId, key, items, labelField, valueField) {
+  _loadChartJS(() => {
+    _destroyChart(key);
+    const ctx = document.getElementById(canvasId)?.getContext('2d');
+    if (!ctx || !items.length) return;
+    const labels = items.map(i => i[labelField]);
+    const values = items.map(i => i[valueField] || 0);
+    _charts[key] = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data:values, backgroundColor:CHART_C.slice(0,items.length).map(c=>c+'e0'), hoverBackgroundColor:CHART_C.slice(0,items.length), borderWidth:2, borderColor:'rgba(255,255,255,.9)', hoverBorderWidth:3 }] },
+      options: { responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{ position:'right', labels:{..._DARK_LGND, padding:10, boxWidth:12, usePointStyle:true, pointStyleWidth:10} },
+          tooltip:{ callbacks:{ label:c=>' '+c.label+': ₹'+Math.round(c.parsed).toLocaleString('en-IN') } }
+        },
+        cutout:'58%'
+      }
+    });
+  });
+}
+// ── /Chart.js helpers ────────────────────────────────────────
+
+function rptExportPDF() {
+  const panel = document.getElementById('rptPanel-' + _activeRptTab);
+  const title = RPT_TABS[_activeRptTab] || 'Report';
+  const from  = document.getElementById('rptFrom')?.value || '';
+  const to    = document.getElementById('rptTo')?.value   || '';
+  const range = from && to ? `${from} to ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
+  const now   = new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+
+  const clone = panel ? panel.cloneNode(true) : document.createElement('div');
+  // remove progress bars in print (CSS handles color, but keep text)
+  const w = window.open('', '_blank', 'width=960,height=700');
+  if (!w) { showToast('Popup blocked — allow popups and try again', 'error'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;padding:28px;font-size:13px;color:#1e293b}
+    h1{font-size:20px;font-weight:800;margin-bottom:4px}
+    .meta{color:#64748b;font-size:12px;margin-bottom:22px}
+    table{width:100%;border-collapse:collapse;margin-bottom:18px}
+    th{background:#334155!important;color:#fff!important;padding:9px 13px;font-size:12px;font-weight:700;text-align:left}
+    td{padding:9px 13px;border-bottom:1px solid #e2e8f0;font-size:13px}
+    tr:nth-child(even) td{background:#f8fafc}
+    .card-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px}
+    .card{border-radius:10px;padding:16px 18px;color:#fff}
+    .card-label{font-size:10px;font-weight:700;opacity:.8;letter-spacing:.05em;margin-bottom:6px}
+    .card-val{font-size:22px;font-weight:800}
+    @media print{body{padding:16px}}
+  </style></head><body>
+  <h1>${title}</h1>
+  <div class="meta">Date Range: ${range} &nbsp;|&nbsp; Printed on ${now}</div>
+  ${clone.innerHTML}
+  <script>window.onload=()=>{window.print();}<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+function rptExportCSV() {
+  if (!_rptData) { showToast('Pehle data load karo (Sync Live Data)', 'error'); return; }
+
+  const from = document.getElementById('rptFrom')?.value || '';
+  const to   = document.getElementById('rptTo')?.value   || '';
+  const range = from && to ? `${from}_to_${to}` : from ? `from_${from}` : to ? `to_${to}` : 'all';
+
+  let rows = [], filename = '';
+
+  if (_activeRptTab === 'sales') {
+    filename = `Sales_Summary_${range}.csv`;
+    rows = [['Date','Transactions','Net Qty','Net Amount (INR)']];
+    (_rptData.salesSummary?.byDate || []).forEach(r => rows.push([r.date, r.transactions, r.qty, r.amount]));
+    const s = _rptData.salesSummary || {};
+    rows.push(['TOTAL', s.totalTransactions||0, s.totalQty||0, s.totalAmount||0]);
+
+  } else if (_activeRptTab === 'cat') {
+    filename = `Top_Categories_${range}.csv`;
+    rows = [['#','Category','Transactions','Net Qty','Net Amount (INR)','% of Total']];
+    const g1 = (_rptData.topCategories||[]).reduce((s,c)=>s+c.amount,0)||1;
+    (_rptData.topCategories||[]).forEach((c,i) => rows.push([i+1, c.category, c.transactions, c.qty, c.amount, ((c.amount/g1)*100).toFixed(1)+'%']));
+
+  } else if (_activeRptTab === 'supplier') {
+    filename = `Supplier_Sales_${range}.csv`;
+    rows = [['#','Supplier Name','Transactions','Net Qty','Net Amount (INR)','% of Total']];
+    const g2 = (_rptData.supplierSales||[]).reduce((s,c)=>s+c.amount,0)||1;
+    (_rptData.supplierSales||[]).forEach((c,i) => rows.push([i+1, c.name, c.transactions, c.qty, c.amount, ((c.amount/g2)*100).toFixed(1)+'%']));
+
+  } else if (_activeRptTab === 'sp') {
+    filename = `Salesperson_Report_${range}.csv`;
+    rows = [['#','Salesperson','Transactions','Net Qty','Net Amount (INR)','Avg per Txn (INR)']];
+    (_rptData.salespersons||[]).forEach((s,i) => {
+      const avg = s.transactions ? Math.round(s.amount/s.transactions) : 0;
+      rows.push([i+1, s.name, s.transactions, s.qty, s.amount, avg]);
+    });
+
+  } else if (_activeRptTab === 'citystate') {
+    filename = `City_State_Sales_${range}.csv`;
+    rows = [['#','City','State','Transactions','Net Qty','Net Amount (INR)']];
+    (_rptData.cityStateSales||[]).forEach((c,i) => rows.push([i+1, c.city, c.state, c.transactions, c.qty, c.amount]));
+
+  } else if (_activeRptTab === 'stocksummary') {
+    filename = `Stock_Summary.csv`;
+    const cs = _rptData.currentStock || {};
+    rows = [['Metric','Value'], ['Total Items (Rows)', cs.totalItems||0], ['Total OPS Qty', cs.totalQty||0], ['Total Stock Value (INR)', cs.totalValue||0]];
+
+  } else if (_activeRptTab === 'supplierstock') {
+    filename = `Supplier_Stock_Value.csv`;
+    rows = [['#','Supplier Name','OPS Qty','Stock Value (INR)','% of Total Value']];
+    const g3 = (_rptData.supplierStock||[]).reduce((s,c)=>s+c.value,0)||1;
+    (_rptData.supplierStock||[]).forEach((c,i) => rows.push([i+1, c.name, c.qty, c.value, ((c.value/g3)*100).toFixed(1)+'%']));
+
+  } else if (_activeRptTab === 'stockcat') {
+    filename = `Stock_by_Category.csv`;
+    rows = [['#','Category','OPS Qty','Stock Value (INR)','% of Total Value']];
+    const g4 = (_rptData.categoryStock||[]).reduce((s,c)=>s+c.value,0)||1;
+    (_rptData.categoryStock||[]).forEach((c,i) => rows.push([i+1, c.category, c.qty, c.value, ((c.value/g4)*100).toFixed(1)+'%']));
+  }
+
+  if (!rows.length) { showToast('Export karne ke liye koi data nahi', 'error'); return; }
+
+  // Build CSV string — wrap fields with commas/quotes in double quotes
+  const csvStr = rows.map(row =>
+    row.map(v => {
+      const s = String(v ?? '');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',')
+  ).join('\r\n');
+
+  const blob = new Blob(['﻿' + csvStr], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+
+  showToast('CSV downloaded: ' + filename, 'success');
+}
+// ── /IMS Reports ─────────────────────────────────────────────
+
+async function importStockCSV(reportType) {
+  const fileEl = document.getElementById('imsFile-' + reportType);
+  const status = document.getElementById('imsStatus-' + reportType);
+  const btn    = document.getElementById('imsBtn-' + reportType);
+  const file   = fileEl.files[0];
+
+  if (!file) { showToast('Please select a file first (CSV or Excel)', 'error'); return; }
+
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['csv','xlsx','xls'].includes(ext)) {
+    status.style.cssText = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
+    status.innerHTML = '<strong>.' + ext + ' not supported</strong> — only CSV, XLSX or XLS files are supported.';
+    fileEl.value = ''; return;
+  }
+
+  status.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = '⏳  Uploading...';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('reportType', reportType);
+
+    const token = localStorage.getItem('authToken') || '';
+    const resp = await fetch('/api/stock-csv-import', {
+      method: 'POST',
+      credentials: 'include',
+      headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+      body: formData
+    });
+    const r = await resp.json();
+
+    if (r.error) {
+      status.style.cssText = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
+      status.innerHTML = '<strong>❌ Error:</strong> ' + r.error;
+    } else {
+      const tabLabels = { stock: '📦 In Stock', sales: '💰 Out Stock' };
+      status.style.cssText = 'display:block;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
+      status.innerHTML = r.isAppend
+        ? '<strong>✅ Data Appended!</strong><br/>' + r.rowsAdded + ' rows ' + (tabLabels[reportType]||r.tab) + ' tab.'
+        : '<strong>✅ Import successful!</strong><br/>' + r.rowsAdded + ' rows ' + (tabLabels[reportType]||r.tab) + ' tab. ';
+      fileEl.value = '';
+      localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: r.totalRows || r.rowsAdded, uploadDate: r.uploadDate || '' }));
+      _lastImportTime = Date.now();
+      loadImsStats();
+      setTimeout(() => { status.style.display = 'none'; }, 3000);
+    }
+  } catch (e) {
+    status.style.cssText = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
+    status.textContent = '❌ Server error. Try again.';
+  }
+
+  btn.disabled = false;
+  btn.textContent = '⬆  Import to Google Sheet';
+}
 
 // ══════════════════════════════════════════════════════
 async function loadApprovalBadge() {
@@ -3308,7 +4448,7 @@ async function api(url,method='GET',body=null) {
     r = await fetch(url, opts);
   } catch(e) {
     console.error('API fetch failed:', url, e);
-    return { error: 'Network error — server se connect nahi ho saka' };
+    return { error: 'Network error — unable to connect to server' };
   }
   if (r.status===401) {
     localStorage.removeItem('authToken');
@@ -3322,8 +4462,8 @@ async function api(url,method='GET',body=null) {
     return data;
   } catch(e) {
     console.error('API error:', url, r.status, e);
-    if (r.status === 503) return { error: 'Server abhi available nahi hai (503) — thodi der baad try karein' };
-    if (r.status === 502) return { error: 'Server se connection nahi mila (502) — check karein server chal raha hai' };
+    if (r.status === 503) return { error: 'Server unavailable (503) — please try again later' };
+    if (r.status === 502) return { error: 'Connection failed (502) — please check if the server is running' };
     return { error: `HTTP ${r.status}` };
   }
 }
@@ -3546,7 +4686,7 @@ async function generateMIS() {
       populateMISDeptDropdown(misAllData);
       renderAllMIS(misAllData, []);
       if (fmsErrors.length) {
-        showToast(`⚠️ ${fmsErrors.length} FMS sheet abhi load nahi hui — dobara Generate karein`, 'error');
+        showToast(`⚠️ ${fmsErrors.length} FMS sheet(s) failed to load — please Generate again`, 'error');
       }
 
       // ── Step 2: FMS Overview ko background me append karo ──
@@ -3561,7 +4701,7 @@ async function generateMIS() {
         api(`/api/mis/fms?start=${start}&end=${end}`).then(fmsData => {
           const ph = document.getElementById('fmsOverviewLoading');
           if (fmsData && fmsData.error) {
-            if (ph) ph.innerHTML = `⚠️ FMS Overview load nahi ho saka: ${fmsData.error}`;
+            if (ph) ph.innerHTML = `⚠️ FMS Overview could not be loaded: ${fmsData.error}`;
             return;
           }
           misFMSData = Array.isArray(fmsData) ? fmsData : [];
@@ -3569,7 +4709,7 @@ async function generateMIS() {
           renderAllMIS(misAllData, misFMSData);
         }).catch(e => {
           const ph = document.getElementById('fmsOverviewLoading');
-          if (ph) ph.innerHTML = `⚠️ FMS Overview load nahi ho saka: ${e.message || 'unknown error'}`;
+          if (ph) ph.innerHTML = `⚠️ FMS Overview could not be loaded: ${e.message || 'unknown error'}`;
         });
       }
     } catch (e) {
@@ -3621,7 +4761,7 @@ function renderMIS(data) {
 
     return `<tr style="cursor:pointer" onclick="openMISDetail('${r.userId||r.id}','${r.name}')" title="Click to see task details">
       <td>
-        <span style="font-weight:600;color:#1a56db;text-decoration:underline dotted">${r.name}</span>
+        <span style="font-weight:600;color:#4f46e5;text-decoration:underline dotted">${r.name}</span>
       </td>
       <td style="font-weight:700">${r.total}</td>
       <td style="color:#ef4444;font-weight:600">${r.pending}</td>
@@ -3793,7 +4933,7 @@ function renderFMSMIS(data) {
       <tr>
         <td style="padding-left:24px;color:#64748b;font-size:12px">Step ${s.stepOrder}: ${s.stepName}</td>
         <td style="font-size:12px;color:#64748b">${s.doers}</td>
-        <td style="font-weight:600;color:#1a56db">${s.total}</td>
+        <td style="font-weight:600;color:#4f46e5">${s.total}</td>
         <td style="color:#ef4444;font-weight:600">${s.pending}</td>
         <td style="color:#10b981;font-weight:600">${s.done}</td>
         <td>
@@ -3810,7 +4950,7 @@ function renderFMSMIS(data) {
         <div style="background:#f8fafc;padding:12px 16px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
           <div style="font-size:14px;font-weight:700;color:#1e293b">📊 ${fms.fmsName}</div>
           <div style="display:flex;gap:16px;font-size:13px">
-            <span>Total: <strong style="color:#1a56db">${fms.total}</strong></span>
+            <span>Total: <strong style="color:#4f46e5">${fms.total}</strong></span>
             <span>Pending: <strong style="color:#ef4444">${fms.pending}</strong></span>
             <span>Done: <strong style="color:#10b981">${fms.done}</strong></span>
             ${hasError ? `<span style="color:#dc2626;font-size:11px">⚠️ ${fms.error}</span>` : ''}
@@ -3890,7 +5030,7 @@ function renderAllMIS(data, fmsData) {
 
     return `<tr style="cursor:pointer" onclick="openAllMISDetail('${emp.userId}','${emp.name.replace(/'/g,"\\'")}')">
       <td>
-        <div style="font-weight:600;color:#1a56db;text-decoration:underline dotted">${emp.name}</div>
+        <div style="font-weight:600;color:#4f46e5;text-decoration:underline dotted">${emp.name}</div>
         <div style="font-size:11px;color:#94a3b8;margin-top:2px">${emp.department||'—'}</div>
       </td>
       <td style="font-weight:700">${emp.totalAll}</td>
@@ -4001,7 +5141,7 @@ async function openAllMISDetail(userId, userName) {
 
     ${emp.delegation.total > 0 ? `
     <div style="margin-top:16px;border-top:1px solid #f1f5f9;padding-top:12px">
-      <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:8px">📋 Delegation (${emp.delegation.total} tasks) — Score: ${emp.delegation.score > 0 ? '+' : ''}${emp.delegation.score.toFixed(1)}%</div>
+      <div style="font-size:13px;font-weight:700;color:#4f46e5;margin-bottom:8px">📋 Delegation (${emp.delegation.total} tasks) — Score: ${emp.delegation.score > 0 ? '+' : ''}${emp.delegation.score.toFixed(1)}%</div>
       <div style="overflow-x:auto">
         <table style="font-size:12px">
           <thead><tr><th>Task</th><th>Date</th><th>Status</th><th></th></tr></thead>
@@ -4097,7 +5237,7 @@ async function generateRecords() {
 function renderRecords(fmsErrors) {
   const container = document.getElementById('recordsResults');
   if (!recordsData.length) {
-    container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Is week ke liye koi record nahi mila.</div>`;
+    container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">No records found for this week.</div>`;
     return;
   }
   const dept = (ME.role === 'admin') ? (document.getElementById('recDeptFilter').value || '') : '';
@@ -4108,13 +5248,13 @@ function renderRecords(fmsErrors) {
   if (q)    rows = rows.filter(r => r.name.toLowerCase().includes(q));
 
   if (!rows.length) {
-    container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Filter ke hisaab se koi employee nahi mila.</div>`;
+    container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">No employees match the selected filter.</div>`;
     return;
   }
 
   const fmsWarn = (Array.isArray(fmsErrors) && fmsErrors.length)
     ? `<div style="background:#fffbeb;border:1px solid #fde68a;color:#b45309;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px">
-         ⚠️ Kuch FMS sheets abhi read nahi ho payi (${fmsErrors.join(', ')}). FMS counts thode kam ho sakte hain — refresh karke dobara try karein.
+         ⚠️ Some FMS sheets could not be read (${fmsErrors.join(', ')}). FMS counts thode kam ho sakte hain — please refresh and try again.
        </div>` : '';
 
   const tableRows = rows.map(r => {
@@ -4139,7 +5279,7 @@ function renderRecords(fmsErrors) {
     const nameEsc = r.name.replace(/'/g,"\\'");
     return `<tr>
       <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer">
-        <div style="font-weight:600;color:#1a56db;text-decoration:underline dotted">${r.name}</div>
+        <div style="font-weight:600;color:#4f46e5;text-decoration:underline dotted">${r.name}</div>
         <div style="font-size:11px;color:#94a3b8;margin-top:2px">${r.department||'—'}</div>
       </td>
       <td>${committedHtml}</td>
@@ -4226,14 +5366,14 @@ async function openRecordDetail(userId) {
         ${r.revised ? `<span style="color:#f59e0b">🔄 Revised: <strong>${r.revised}</strong></span>` : ''}
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;font-size:11px;color:#64748b">
-        <span style="padding:2px 8px;background:#eff6ff;border:1px solid #dbeafe;border-radius:8px">Delegation: ${b.delegation.done}/${b.delegation.total} done</span>
+        <span style="padding:2px 8px;background:#eef2ff;border:1px solid #e0e7ff;border-radius:8px">Delegation: ${b.delegation.done}/${b.delegation.total} done</span>
         <span style="padding:2px 8px;background:#f0fdf4;border:1px solid #dcfce7;border-radius:8px">Checklist: ${b.checklist.done}/${b.checklist.total} done</span>
         <span style="padding:2px 8px;background:#faf5ff;border:1px solid #f3e8ff;border-radius:8px">FMS: ${b.fms.done}/${b.fms.total} done</span>
       </div>
     </div>
 
     <div style="font-size:13px;font-weight:700;color:#1e293b;margin-top:16px">⏳ Pending Tasks (${r.pending})</div>
-    ${r.pending === 0 ? '<div class="empty" style="font-size:12px;margin-top:8px">🎉 Koi pending task nahi — sab complete!</div>' : ''}
+    ${r.pending === 0 ? '<div class="empty" style="font-size:12px;margin-top:8px">🎉 No pending tasks — all complete!</div>' : ''}
     ${section('📋 Delegation', '#1d4ed8', b.delegation.pending, delRows)}
     ${section('✅ Checklist', '#16a34a', b.checklist.pending, chlRows)}
     ${section('📊 FMS', '#7c3aed', b.fms.pending, fmsRows)}`;
@@ -4527,7 +5667,7 @@ async function syncFMSData() {
   }
 
   const headerBadges = r.headers.map(h=>
-    `<span style="background:#eff6ff;color:#1d4ed8;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600">${h}</span>`
+    `<span style="background:#eef2ff;color:#4f46e5;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600">${h}</span>`
   ).join(' ');
 
   syncEl.style.cssText='display:block;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;margin-top:14px';
@@ -4794,10 +5934,10 @@ function buildStepBoxHTML(idx) {
           <label style="display:flex;align-items:center;gap:4px;font-size:11px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0;background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;white-space:nowrap">
             <input type="checkbox" ${showColsSelected.includes(h.index)?'checked':''}
               onchange="if(this.checked){if(!fmsSteps[${idx}].showCols.includes(${h.index}))fmsSteps[${idx}].showCols.push(${h.index})}else{fmsSteps[${idx}].showCols=fmsSteps[${idx}].showCols.filter(x=>x!==${h.index})}"
-              style="accent-color:#1a56db;width:12px;height:12px"/>
+              style="accent-color:#4f46e5;width:12px;height:12px"/>
             ${h.name}
           </label>`).join('')}
-      </div>` : '<span style="color:#94a3b8;font-size:12px">Headers load hone ke baad dikhega</span>'}
+      </div>` : '<span style="color:#94a3b8;font-size:12px">Will appear after headers are loaded</span>'}
     </div>
 
     <!-- Delay Reason Column -->
@@ -5035,7 +6175,7 @@ function toggleFMSDeleteMode() {
 
 function confirmFMSDelete() {
   const checked = [...document.querySelectorAll('.fms-del-check:checked')].map(c=>parseInt(c.dataset.idx));
-  if (!checked.length) { showToast('Koi step select nahi ki','error'); return; }
+  if (!checked.length) { showToast('No step selected','error'); return; }
   checked.sort((a,b)=>b-a).forEach(idx=>fmsSteps.splice(idx,1));
   fmsDeleteMode=false;
   const btn = document.getElementById('editFmsDeleteModeBtn');
@@ -5058,7 +6198,7 @@ function toggleFMSDupMode() {
 
 function confirmFMSDup() {
   const checked = [...document.querySelectorAll('.fms-dup-check:checked')].map(c=>parseInt(c.dataset.idx));
-  if (!checked.length) { showToast('Koi step select nahi ki','error'); return; }
+  if (!checked.length) { showToast('No step selected','error'); return; }
   // Deep copy selected steps and add at end
   checked.forEach(idx => {
     const orig = fmsSteps[idx];
@@ -5087,7 +6227,7 @@ function toggleFMSDeleteModeAdd() {
 
 function confirmFMSDeleteAdd() {
   const checked = [...document.querySelectorAll('.fms-del-check:checked')].map(c=>parseInt(c.dataset.idx));
-  if (!checked.length) { showToast('Koi step select nahi ki','error'); return; }
+  if (!checked.length) { showToast('No step selected','error'); return; }
   checked.sort((a,b)=>b-a).forEach(idx=>fmsSteps.splice(idx,1));
   fmsDeleteMode=false;
   const btn = document.getElementById('fmsAddDeleteModeBtn');
@@ -5712,7 +6852,7 @@ async function onBdDateChange() {
       <span style="font-size:13px;flex:1">${t.description||'—'}</span>
       ${freqBadge}
       <span style="font-size:11px;background:${t.status==='pending'?'#fef2f2':'#fef9c3'};color:${t.status==='pending'?'#dc2626':'#854d0e'};padding:2px 7px;border-radius:8px;font-weight:600">${t.status}</span>
-      <span style="font-size:11px;background:#eff6ff;color:#1d4ed8;padding:2px 7px;border-radius:8px;font-weight:600">${t.taskType}</span>
+      <span style="font-size:11px;background:#eef2ff;color:#4f46e5;padding:2px 7px;border-radius:8px;font-weight:600">${t.taskType}</span>
     </div>`;
   }).join('');
 }
@@ -5721,7 +6861,7 @@ async function _doBulkDelete(tasks) {
   // v16: extra safety — completed tasks ko bulk delete me never include
   tasks = tasks.filter(t => t.status !== 'completed');
   if (!tasks.length) {
-    document.getElementById('bulkDeleteErr').textContent = 'Koi pending task select nahi hui (completed tasks bulk delete me allow nahi hain)';
+    document.getElementById('bulkDeleteErr').textContent = 'No pending task selected (completed tasks cannot be bulk deleted)';
     document.getElementById('bulkDeleteErr').style.display = 'block';
     return;
   }
@@ -5770,11 +6910,11 @@ function onBdYearUserChange() {
 async function openDelete12MonthsConfirm() {
   const freqSel = document.getElementById('bdYearFreq');
   const freq = freqSel.value;
-  if (!freq) { alert('Pehle frequency category select karo (daily / weekly / monthly etc.)!'); freqSel.focus(); return; }
+  if (!freq) { alert('Please select a frequency category first (daily / weekly / monthly)!'); freqSel.focus(); return; }
 
   const sel = document.getElementById('bdYearUser');
   const userId = sel.value;
-  if (!userId) { alert('Phir employee select karo!'); return; }
+  if (!userId) { alert('Please select an employee!'); return; }
 
   const userName = sel.options[sel.selectedIndex].text;
   const userEmail = sel.options[sel.selectedIndex]?.dataset?.email || '';
@@ -5786,7 +6926,7 @@ async function openDelete12MonthsConfirm() {
 
   const count = data.count || 0;
   if (count === 0) {
-    alert(`${userName} ke liye is category (${freqLabel}) me koi deletable checklist task nahi mili.\n\nNote: Completed tasks bulk delete me kabhi include nahi hote — wo safe hain.`);
+    alert(`${userName} — no deletable tasks found in category (${freqLabel}) ).\n\nNote: Completed tasks are never included in bulk delete — they are safe.`);
     return;
   }
 
@@ -5797,7 +6937,7 @@ async function openDelete12MonthsConfirm() {
     `Category: ${freqLabel}\n\n` +
     `Pending/Revised Tasks to Delete: ${count}\n` +
     `(Completed tasks SAFE — wo delete nahi hongi)\n\n` +
-    `Ye ${count} tasks permanently delete ho jaayengi — wapas nahi aayengi!\n\n` +
+    `Ye ${count} tasks will be permanently deleted and cannot be recovered!\n\n` +
     `Proceed karna hai?`
   );
   if (!confirmed) return;
@@ -5899,7 +7039,7 @@ async function onTransferDateChange() {
           : `<input type="checkbox" class="tr-date-cb" data-idx="${i}" checked
               style="width:15px;height:15px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0"/>`}
         <span style="font-size:13px;flex:1">${t.description||'—'}</span>
-        <span style="font-size:11px;background:#eff6ff;color:#1d4ed8;padding:2px 7px;border-radius:8px;font-weight:600">${t.taskType}</span>
+        <span style="font-size:11px;background:#eef2ff;color:#4f46e5;padding:2px 7px;border-radius:8px;font-weight:600">${t.taskType}</span>
       </div>`;
     }).join('');
   }
@@ -5917,8 +7057,8 @@ async function _doTransfer(tasks) {
   const err = document.getElementById('transferErr');
   err.style.display = 'none';
   const toUserId = document.getElementById('transferToUser').value;
-  if (!toUserId) { err.textContent='Pehle "Transfer To" user select karo'; err.style.display='block'; return; }
-  if (!tasks.length) { err.textContent='Koi task select nahi hui'; err.style.display='block'; return; }
+  if (!toUserId) { err.textContent='Please select a "Transfer To" user first'; err.style.display='block'; return; }
+  if (!tasks.length) { err.textContent='No task selected'; err.style.display='block'; return; }
   const r = await api('/api/transfers','POST',{
     tasks: tasks.map(t => ({ taskId: t.id, taskType: t.taskType })),
     toUserId: parseInt(toUserId)
@@ -5926,7 +7066,7 @@ async function _doTransfer(tasks) {
   if (r.error) { err.textContent = r.error; err.style.display='block'; return; }
   closeModal('transferModal');
   if (r.count > 0) showToast(`✅ ${r.count} transfer request(s) sent for approval!`);
-  else showToast('⚠️ Sab tasks ki request pehle se pending hai!', 'error');
+  else showToast('⚠️ All tasks already have a pending transfer request!', 'error');
   loadTransferBadge();
 }
 
