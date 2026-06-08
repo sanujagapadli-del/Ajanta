@@ -1195,12 +1195,13 @@ tbody tr:last-child td{border-bottom:none;}
             <table style="width:100%;border-collapse:collapse"><thead><tr>
               <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
               <th class="rpt-th-dark" style="text-align:left">Salesperson</th>
-              <th class="rpt-th-blue" style="text-align:right">Transactions</th>
+              <th class="rpt-th-blue" style="text-align:right">Bills</th>
               <th class="rpt-th-green" style="text-align:right">Net Qty</th>
               <th class="rpt-th-red" style="text-align:right">Net Amount</th>
-              <th class="rpt-th-amber" style="text-align:right">Avg / Txn</th>
+              <th class="rpt-th-amber" style="text-align:right">Avg Items / Bill</th>
+              <th class="rpt-th-purple" style="text-align:right">Avg Amt / Bill</th>
             </tr></thead>
-            <tbody id="rptSpBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+            <tbody id="rptSpBody"><tr><td colspan="7" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
             </table>
           </div></div>
         </div>
@@ -4071,16 +4072,19 @@ function renderRptCategories(cats) {
 function renderRptSalespersons(sps) {
   const body = document.getElementById('rptSpBody');
   if (!body) return;
-  if (!sps.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
+  if (!sps.length) { body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
   body.innerHTML = sps.map((s, i) => {
-    const avg = s.transactions ? Math.round(s.amount / s.transactions) : 0;
+    const txn = s.transactions || 0;
+    const avgItems = txn ? (Number(s.qty || 0) / txn).toFixed(1) : '—';
+    const avgAmt   = txn ? Math.round(s.amount / txn) : 0;
     return `<tr class="${i%2?'rpt-tr-even':''}">
       <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
       <td class="rpt-td" style="font-weight:700">${s.name}</td>
-      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(s.transactions||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${txn.toLocaleString('en-IN')}</td>
       <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(s.qty||0).toLocaleString('en-IN')}</td>
       <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(s.amount)}</td>
-      <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:700">${fmtINR(avg)}</td>
+      <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:700">${avgItems}</td>
+      <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:700">${fmtINR(avgAmt)}</td>
     </tr>`;
   }).join('');
   // Vertical bar chart
