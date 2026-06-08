@@ -1220,8 +1220,9 @@ tbody tr:last-child td{border-bottom:none;}
               <th class="rpt-th-green" style="text-align:right">Net Qty</th>
               <th class="rpt-th-red" style="text-align:right">Net Amount</th>
               <th class="rpt-th-amber" style="text-align:left;min-width:140px">Share %</th>
+              <th class="rpt-th-dark" style="text-align:center">Speed</th>
             </tr></thead>
-            <tbody id="rptSupplierBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+            <tbody id="rptSupplierBody"><tr><td colspan="7" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
             </table>
           </div></div>
         </div>
@@ -4104,9 +4105,19 @@ function _rptPctBar(pct, color) {
 function renderRptSupplierSales(items) {
   const body = document.getElementById('rptSupplierBody');
   if (!body) return;
-  if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
+  if (!items.length) { body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
   const grand = items.reduce((s,c) => s+(c.amount||0), 0) || 1;
   const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16','#f97316','#6366f1','#ec4899'];
+
+  // Speed classification based on qty sold relative to median
+  const qtys = items.map(c => Number(c.qty)||0).sort((a,b) => a-b);
+  const median = qtys[Math.floor(qtys.length/2)] || 1;
+  const speedBadge = qty => {
+    if (qty >= median * 1.5) return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap">🚀 Fast</span>`;
+    if (qty >= median * 0.5) return `<span style="background:#fef9c3;color:#a16207;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap">⚡ Medium</span>`;
+    return `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;white-space:nowrap">🐢 Slow</span>`;
+  };
+
   body.innerHTML = items.map((c, i) => {
     const pct = ((c.amount/grand)*100).toFixed(1);
     return `<tr class="${i%2?'rpt-tr-even':''}">
@@ -4116,6 +4127,7 @@ function renderRptSupplierSales(items) {
       <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
       <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(c.amount)}</td>
       <td class="rpt-td">${_rptPctBar(pct, COLORS[i%COLORS.length])}</td>
+      <td class="rpt-td" style="text-align:center">${speedBadge(Number(c.qty)||0)}</td>
     </tr>`;
   }).join('');
   // Horizontal bar chart (top 15)
