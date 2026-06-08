@@ -4369,7 +4369,13 @@ async function importStockCSV(reportType) {
   // ── ATTEMPT 2: Browser-side parse + chunked JSON (for files > 4.5 MB) ──
   try {
     btn.textContent = '⏳  Reading file...';
-    const arrayBuf = await file.arrayBuffer();
+    // readAsBinaryString is more compatible with old OLE2 .xls format than arrayBuffer
+    const binaryStr = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = e => resolve(e.target.result);
+      fr.onerror = () => reject(new Error('Could not read file.'));
+      fr.readAsBinaryString(file);
+    });
 
     if (!window.XLSX) {
       btn.textContent = '⏳  Loading parser...';
@@ -4383,13 +4389,13 @@ async function importStockCSV(reportType) {
     }
 
     btn.textContent = '⏳  Parsing...';
-    const xlsConvertMsg = 'This .xls file is too large and cannot be parsed in browser. Open in Excel → Save As → CSV, then import that file.';
+    const xlsConvertMsg = 'This .xls file cannot be parsed in browser. Open in Excel → File → Save As → CSV, then import that file.';
     let workbook;
     try {
-      workbook = window.XLSX.read(arrayBuf, { type:'array', cellDates:true });
+      workbook = window.XLSX.read(binaryStr, { type:'binary', cellDates:true });
     } catch (e1) {
       try {
-        workbook = window.XLSX.read(arrayBuf, { type:'array', cellDates:false });
+        workbook = window.XLSX.read(binaryStr, { type:'binary', cellDates:false });
       } catch (e2) {
         throw new Error(xlsConvertMsg);
       }
