@@ -1550,6 +1550,42 @@ tbody tr:last-child td{border-bottom:none;}
 </div>
 
 <!-- ══════════════════════════════════════
+     REVISION APPROVE DETAIL MODAL
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="revisionApproveModal">
+  <div class="modal" style="max-width:460px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 style="margin:0">🔄 Revision Request</h3>
+      <button onclick="closeModal('revisionApproveModal')" style="background:none;border:none;font-size:22px;color:#94a3b8;cursor:pointer;line-height:1;padding:2px 6px;border-radius:6px" title="Close">&times;</button>
+    </div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:16px;display:flex;flex-direction:column;gap:10px">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Task</div>
+        <div style="font-size:14px;color:#1e293b;font-weight:500" id="raTask">—</div>
+      </div>
+      <div style="display:flex;gap:16px">
+        <div style="flex:1">
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Revised Date</div>
+          <div style="font-size:14px;color:#4f46e5;font-weight:700" id="raDate">—</div>
+        </div>
+        <div style="flex:1">
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Requested By</div>
+          <div style="font-size:14px;color:#1e293b;font-weight:500" id="raBy">—</div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Reason</div>
+        <div style="font-size:14px;color:#374151;font-style:italic" id="raNote">—</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" style="flex:1" onclick="confirmRevisionApprove()">✅ Approve Revision</button>
+      <button class="btn btn-outline" style="flex:1;color:#ef4444;border-color:#fca5a5" onclick="confirmRevisionReject()">❌ Reject</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
      FMS - EDIT MODAL
 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="fmsEditModal">
@@ -4692,6 +4728,8 @@ async function loadApprovals() {
   }
 
   const approvals = await api('/api/approvals');
+  _approvalsMap = {};
+  (approvals||[]).forEach(a => { _approvalsMap[a.id] = a; });
   const container = document.getElementById('approvalsContent');
   const isAdminOrPC = ME.role === 'admin' || ME.role === 'pc';
 
@@ -4723,10 +4761,44 @@ async function loadApprovals() {
   }
 }
 
+let _pendingApprovalId = null;
+let _approvalsMap = {};
+
 async function handleApproval(id, action) {
+  const meta = _approvalsMap[id] || {};
+  if (action === 'approved' && meta.action_type === 'revised') {
+    _pendingApprovalId = id;
+    document.getElementById('raTask').textContent = meta.description || '—';
+    document.getElementById('raDate').textContent = meta.new_due_date ? new Date(meta.new_due_date + 'T00:00:00').toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'}) : '—';
+    document.getElementById('raNote').textContent = meta.note || '(no reason provided)';
+    document.getElementById('raBy').textContent = meta.requestedByName || '—';
+    document.getElementById('revisionApproveModal').classList.add('open');
+    return;
+  }
   const note = action === 'rejected' ? prompt('Reason for rejection (optional):') : '';
   await api(`/api/approvals/${id}`,'PUT',{action, note: note||''});
   showToast(action === 'approved' ? '✅ Approved!' : '❌ Rejected!');
+  loadApprovals();
+  loadApprovalBadge();
+}
+
+async function confirmRevisionApprove() {
+  if (!_pendingApprovalId) return;
+  closeModal('revisionApproveModal');
+  await api(`/api/approvals/${_pendingApprovalId}`,'PUT',{action:'approved', note:''});
+  _pendingApprovalId = null;
+  showToast('✅ Revision Approved!');
+  loadApprovals();
+  loadApprovalBadge();
+}
+
+async function confirmRevisionReject() {
+  if (!_pendingApprovalId) return;
+  const note = prompt('Reason for rejection (optional):') || '';
+  closeModal('revisionApproveModal');
+  await api(`/api/approvals/${_pendingApprovalId}`,'PUT',{action:'rejected', note});
+  _pendingApprovalId = null;
+  showToast('❌ Revision Rejected!');
   loadApprovals();
   loadApprovalBadge();
 }

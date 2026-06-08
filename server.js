@@ -1097,7 +1097,7 @@ app.get('/api/approvals', requireAuth, async (req, res) => {
     const uMapA = {};
     allUA.forEach(u => { uMapA[u.id] = u.name; });
 
-    const [rawRows] = await db.query(`SELECT ta.*,dt.description,dt.approval AS taskApproval FROM task_approvals ta LEFT JOIN delegation_tasks dt ON ta.task_id=dt.id AND ta.task_type='delegation' ${whereClause} ORDER BY ta.created_at DESC`, params);
+    const [rawRows] = await db.query(`SELECT ta.*,dt.description,dt.approval AS taskApproval,DATE_FORMAT(dt.due_date,'%Y-%m-%d') AS new_due_date FROM task_approvals ta LEFT JOIN delegation_tasks dt ON ta.task_id=dt.id AND ta.task_type='delegation' ${whereClause} ORDER BY ta.created_at DESC`, params);
     const rows = rawRows.map(r => ({ ...r, requestedByName: uMapA[r.requested_by]||'', requestedToName: uMapA[r.requested_to]||'' }));
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
