@@ -295,45 +295,53 @@ async function init() {
         _tabIdByName[s.properties.title] = s.properties.sheetId;
       }
 
-      // 3. Missing tabs auto-create with headers
+      // 3. Missing tabs auto-create with headers (non-fatal — if creation fails, proceed with empty table)
       const missing = TABLE_NAMES.filter(t => !(t in _tabIdByName));
       if (missing.length) {
         console.log(`  📊 Creating ${missing.length} missing tab(s): ${missing.join(', ')}`);
-        const requests = missing.map(t => ({
-          addSheet: { properties: { title: t } }
-        }));
-        const resp = await api.spreadsheets.batchUpdate({
-          spreadsheetId: _spreadsheetId,
-          requestBody: { requests }
-        });
-        for (const reply of resp.data.replies || []) {
-          if (reply.addSheet) {
-            _tabIdByName[reply.addSheet.properties.title] = reply.addSheet.properties.sheetId;
+        try {
+          const requests = missing.map(t => ({
+            addSheet: { properties: { title: t } }
+          }));
+          const resp = await api.spreadsheets.batchUpdate({
+            spreadsheetId: _spreadsheetId,
+            requestBody: { requests }
+          });
+          for (const reply of resp.data.replies || []) {
+            if (reply.addSheet) {
+              _tabIdByName[reply.addSheet.properties.title] = reply.addSheet.properties.sheetId;
+            }
           }
+          // Write headers in newly created tabs (include derived cols)
+          const headerData = missing.map(t => {
+            const derivedCols = Object.keys(SHEET_DERIVED[t] || {});
+            return { range: `${t}!A1`, values: [[...SCHEMA[t].cols, ...derivedCols]] };
+          });
+          await api.spreadsheets.values.batchUpdate({
+            spreadsheetId: _spreadsheetId,
+            requestBody: { valueInputOption: 'RAW', data: headerData }
+          });
+        } catch (createErr) {
+          console.warn(`  ⚠️ Could not create missing tabs (${missing.join(', ')}): ${createErr.message} — continuing with empty tables`);
         }
-        // Write headers in newly created tabs (include derived cols)
-        const headerData = missing.map(t => {
-          const derivedCols = Object.keys(SHEET_DERIVED[t] || {});
-          return { range: `${t}!A1`, values: [[...SCHEMA[t].cols, ...derivedCols]] };
-        });
-        await api.spreadsheets.values.batchUpdate({
-          spreadsheetId: _spreadsheetId,
-          requestBody: { valueInputOption: 'RAW', data: headerData }
-        });
       }
 
-      // 4. Bulk load all tabs in ONE API call
-      const ranges = TABLE_NAMES.map(t => `${t}!A:ZZ`);
-      const batchResp = await api.spreadsheets.values.batchGet({
-        spreadsheetId: _spreadsheetId,
-        ranges
-      });
-      const valueRanges = batchResp.data.valueRanges || [];
+      // 4. Bulk load only tabs that actually exist in the sheet
+      const existingTables = TABLE_NAMES.filter(t => t in _tabIdByName);
+      const ranges = existingTables.map(t => `${t}!A:ZZ`);
+      let valueRanges = [];
+      if (ranges.length) {
+        const batchResp = await api.spreadsheets.values.batchGet({
+          spreadsheetId: _spreadsheetId,
+          ranges
+        });
+        valueRanges = batchResp.data.valueRanges || [];
+      }
 
-      // 5. Populate alasql tables
+      // 5. Populate alasql tables (only for tabs that exist in sheet)
       let totalRows = 0;
-      for (let i = 0; i < TABLE_NAMES.length; i++) {
-        const table = TABLE_NAMES[i];
+      for (let i = 0; i < existingTables.length; i++) {
+        const table = existingTables[i];
         const cols = SCHEMA[table].cols;
         const rows = (valueRanges[i] && valueRanges[i].values) || [];
         if (rows.length <= 1) {
