@@ -2671,6 +2671,73 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
   }
 });
 
+// ── IMS Drilldown — click on chart bar/slice to see raw transactions ──
+app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
+  try {
+    const { type, value, from, to } = req.query;
+    if (!type || !value) return res.status(400).json({ error: 'type and value required' });
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const isStock = type.startsWith('stock_');
+    const tabName = isStock ? "'In Stock'!A:AH" : "'Out Stock'!A:AH";
+
+    let resp;
+    try {
+      resp = await withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: tabName }));
+    } catch(e) { return res.json({ rows: [] }); }
+
+    const allRows = resp.data.values || [];
+    if (!allRows.length) return res.json({ rows: [] });
+
+    const hdr = allRows[0].map(h => String(h).trim().toLowerCase());
+    const findC = rx => hdr.findIndex(h => rx.test(h));
+    const MONS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+    function parseD(str) {
+      const m = String(str||'').trim().match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
+      if (m) return new Date(+m[3], MONS[m[2].toLowerCase()]??0, +m[1]);
+      const d = new Date(str); return isNaN(d) ? null : d;
+    }
+    const fromDate = from ? new Date(from) : null;
+    const toDate   = to   ? (() => { const d=new Date(to); d.setHours(23,59,59,999); return d; })() : null;
+    const getNum = (row, idx) => idx < 0 ? 0 : parseFloat(String(row[idx]||'0').replace(/[^\d.-]/g,''))||0;
+
+    if (!isStock) {
+      const oDate = findC(/^xn[\s._-]?date$/i), oXn = findC(/^xn[\s._-]?no$/i);
+      const oCat  = findC(/^category$/i),        oSP = findC(/^salesperson$/i);
+      const oSup  = findC(/^supplier[\s._-]?name$/i), oCity = findC(/^supplier[\s._-]?city$/i);
+      const oQty  = findC(/netsls[\s._-]?qty/i), oAmt = findC(/netsls[\s._-]?net|netsls[\s._-]?amount/i);
+      const filterCol = { category:oCat, supplier:oSup, salesperson:oSP, city:oCity }[type] ?? -1;
+
+      const rows = allRows.slice(1).filter(row => {
+        if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
+        if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
+        return true;
+      }).slice(0, 500).map(row => ({
+        date: row[oDate]||'', xnNo: row[oXn]||'',
+        supplier: row[oSup]||'', salesperson: row[oSP]||'',
+        qty: getNum(row, oQty), amount: getNum(row, oAmt)
+      }));
+      return res.json({ rows, type, value });
+    } else {
+      const iSup  = findC(/^supplier[\s._-]?name$/i), iCat  = findC(/^category$/i);
+      const iDesc = findC(/description|item[\s._-]?name/i);
+      const iQty  = findC(/ops[\s._-]?qty|opening[\s._-]?qty/i), iCost = findC(/cost[\s._-]?price/i);
+      const filterCol = { stock_supplier:iSup, stock_category:iCat }[type] ?? -1;
+
+      const rows = allRows.slice(1).filter(row =>
+        filterCol < 0 || String(row[filterCol]||'').trim() === value
+      ).slice(0, 500).map(row => ({
+        supplier: row[iSup]||'', category: row[iCat]||'',
+        description: row[iDesc]||'', qty: getNum(row, iQty), cost: getNum(row, iCost)
+      }));
+      return res.json({ rows, type, value });
+    }
+  } catch(err) {
+    console.error('[IMS Drilldown]', err.message);
+    res.status(500).json({ error: err.message.slice(0,200) });
+  }
+});
+
 app.post('/api/stock-csv-import', requireAuth, misUpload.single('file'), async (req, res) => {
   try {
     const reportType = (req.body && req.body.reportType) || '';
