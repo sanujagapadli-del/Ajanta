@@ -4318,13 +4318,59 @@ async function importStockCSV(reportType) {
 
   status.style.display = 'none';
   btn.disabled = true;
-  btn.textContent = '⏳  Reading file...';
+  btn.textContent = '⏳  Uploading...';
 
+  const token = localStorage.getItem('authToken') || '';
+  let useBrowserFallback = false;
+
+  // ── ATTEMPT 1: Direct server upload (server-side SheetJS — same as localhost) ──
   try {
-    // ── 1. Read file as ArrayBuffer in browser ──────────────────────────
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('reportType', reportType);
+    const resp = await fetch('/api/stock-csv-import', {
+      method: 'POST', credentials: 'include',
+      headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+      body: fd
+    });
+    const ct = resp.headers.get('content-type') || '';
+    if (resp.status === 413 || (resp.status >= 400 && !ct.includes('application/json'))) {
+      useBrowserFallback = true; // file too large for Vercel, try browser parsing
+    } else if (ct.includes('application/json')) {
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      const now2 = new Date();
+      const ds2 = String(now2.getDate()).padStart(2,'0') + '-' + MONTHS[now2.getMonth()] + '-' + now2.getFullYear();
+      status.style.cssText = OK_CSS;
+      status.innerHTML = data.isAppend
+        ? '<strong>✅ Data Appended!</strong><br/>' + data.rowsAdded + ' rows added to ' + (tabLabels[reportType]||data.tab) + ' tab.'
+        : '<strong>✅ Import successful!</strong><br/>' + data.rowsAdded + ' rows imported to ' + (tabLabels[reportType]||data.tab) + ' tab.';
+      fileEl.value = '';
+      localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: data.rowsAdded, uploadDate: ds2 }));
+      _lastImportTime = Date.now(); loadImsStats();
+      setTimeout(() => { status.style.display = 'none'; }, 3000);
+      btn.disabled = false; btn.textContent = '⬆  Import to Google Sheet'; return;
+    } else {
+      useBrowserFallback = true;
+    }
+  } catch (e) {
+    if (e && e.message) {
+      // Real server error (not a size issue)
+      status.style.cssText = ERR_CSS;
+      status.innerHTML = '<strong>❌ Error:</strong> ' + e.message;
+      setTimeout(() => { status.style.cssText = ''; status.innerHTML = ''; }, 3000);
+      btn.disabled = false; btn.textContent = '⬆  Import to Google Sheet'; return;
+    }
+    useBrowserFallback = true;
+  }
+
+  if (!useBrowserFallback) { btn.disabled = false; btn.textContent = '⬆  Import to Google Sheet'; return; }
+
+  // ── ATTEMPT 2: Browser-side parse + chunked JSON (for files > 4.5 MB) ──
+  try {
+    btn.textContent = '⏳  Reading file...';
     const arrayBuf = await file.arrayBuffer();
 
-    // ── 2. Lazy-load SheetJS (same version as server: 0.18.5) ──────────
     if (!window.XLSX) {
       btn.textContent = '⏳  Loading parser...';
       await new Promise((resolve, reject) => {
@@ -4336,8 +4382,8 @@ async function importStockCSV(reportType) {
       });
     }
 
-    // ── 3. Parse XLS/XLSX/CSV in browser ───────────────────────────────
     btn.textContent = '⏳  Parsing...';
+    const xlsConvertMsg = 'This .xls file is too large and cannot be parsed in browser. Open in Excel → Save As → CSV, then import that file.';
     let workbook;
     try {
       workbook = window.XLSX.read(arrayBuf, { type:'array', cellDates:true });
@@ -4345,13 +4391,10 @@ async function importStockCSV(reportType) {
       try {
         workbook = window.XLSX.read(arrayBuf, { type:'array', cellDates:false });
       } catch (e2) {
-        throw new Error('File could not be parsed. Open in Excel → Save As → .xlsx or .csv and try again.');
+        throw new Error(xlsConvertMsg);
       }
     }
-
-    const xlsConvertMsg = 'This .xls file cannot be read. In Excel: File → Save As → CSV or Excel Workbook (.xlsx), then import that file.';
-    if (!workbook || !workbook.SheetNames || !workbook.SheetNames.length)
-      throw new Error(xlsConvertMsg);
+    if (!workbook || !workbook.SheetNames || !workbook.SheetNames.length) throw new Error(xlsConvertMsg);
 
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
     let allRows;
@@ -4360,18 +4403,13 @@ async function importStockCSV(reportType) {
         header:1, defval:'', blankrows:false, raw:true
       }).map(row => row.map(cell => {
         if (cell === null || cell === undefined) return '';
-        if (cell instanceof Date) {
-          return String(cell.getDate()).padStart(2,'0') + '-' + MONTHS[cell.getMonth()] + '-' + cell.getFullYear();
-        }
+        if (cell instanceof Date) return String(cell.getDate()).padStart(2,'0') + '-' + MONTHS[cell.getMonth()] + '-' + cell.getFullYear();
         return String(cell);
       })).filter(row => { const t = row.join('').trim(); return t && !GARBAGE_RE.test(t); });
-    } catch (_parseErr) {
-      throw new Error(xlsConvertMsg);
-    }
+    } catch (_parseErr) { throw new Error(xlsConvertMsg); }
 
     if (!allRows.length) throw new Error('File is empty or unreadable.');
 
-    // ── 4. Header detection (mirrors server findHeaderRowIndex) ─────────
     const cfg = CFG[reportType];
     if (!cfg) throw new Error('Invalid report type.');
     let headerIdx = -1;
@@ -4380,7 +4418,6 @@ async function importStockCSV(reportType) {
     }
     if (headerIdx === -1) throw new Error('Column headers not found. Check that you selected the correct report type.');
 
-    // ── 5. Extract print date from meta rows ────────────────────────────
     let printDate = '';
     for (const row of allRows.slice(0, headerIdx)) {
       const text = row.join(' ');
@@ -4391,7 +4428,6 @@ async function importStockCSV(reportType) {
       }
     }
 
-    // ── 6. Build header row + filtered body rows ────────────────────────
     const now = new Date();
     const dateStr = String(now.getDate()).padStart(2,'0') + '-' + MONTHS[now.getMonth()] + '-' + now.getFullYear();
     const headerRow = [...allRows[headerIdx], 'Print Date', 'Upload Date'];
@@ -4407,46 +4443,33 @@ async function importStockCSV(reportType) {
 
     if (!bodyRows.length) throw new Error('No data rows found after filtering.');
 
-    // ── 7. Chunked JSON upload (bypasses Vercel 4.5 MB body limit) ──────
     const CHUNK = 1500;
-    const token  = localStorage.getItem('authToken') || '';
-    const hdrs   = { 'Content-Type':'application/json', ...(token ? {'Authorization':'Bearer '+token} : {}) };
-    let sheetState = null; // { isAppend, sheetId } from first chunk response
+    const hdrs  = { 'Content-Type':'application/json', ...(token ? {'Authorization':'Bearer '+token} : {}) };
+    let sheetState = null;
     let totalAdded = 0;
 
     for (let i = 0; i < bodyRows.length; i += CHUNK) {
-      const chunk  = bodyRows.slice(i, i + CHUNK);
-      const isFirst = i === 0;
-      const isLast  = (i + CHUNK) >= bodyRows.length;
-      const pct = Math.min(100, Math.round(((i + chunk.length) / bodyRows.length) * 100));
-      btn.textContent = '⏳  Uploading ' + pct + '%...';
-
+      const chunk = bodyRows.slice(i, i + CHUNK);
+      const isFirst = i === 0, isLast = (i + CHUNK) >= bodyRows.length;
+      btn.textContent = '⏳  Uploading ' + Math.min(100, Math.round(((i + chunk.length) / bodyRows.length) * 100)) + '%...';
       const payload = {
         reportType, rows: chunk, isFirst, isLast, uploadDate: dateStr,
         headerRow: isFirst ? headerRow : undefined,
-        isAppend:  sheetState ? sheetState.isAppend  : null,
-        sheetId:   sheetState ? sheetState.sheetId   : null
+        isAppend: sheetState ? sheetState.isAppend : null,
+        sheetId:  sheetState ? sheetState.sheetId  : null
       };
-
       const resp = await fetch('/api/stock-rows-import', {
-        method:'POST', credentials:'include', headers:hdrs,
-        body: JSON.stringify(payload)
+        method:'POST', credentials:'include', headers:hdrs, body: JSON.stringify(payload)
       });
       const ct = resp.headers.get('content-type') || '';
       let r;
-      if (ct.includes('application/json')) {
-        r = await resp.json();
-      } else {
-        const raw = await resp.text().catch(() => '');
-        throw new Error('HTTP ' + resp.status + ': ' + raw.replace(/<[^>]*>/g,'').slice(0,120));
-      }
+      if (ct.includes('application/json')) { r = await resp.json(); }
+      else { const raw = await resp.text().catch(()=>''); throw new Error('HTTP ' + resp.status + ': ' + raw.replace(/<[^>]*>/g,'').slice(0,120)); }
       if (r.error) throw new Error(r.error);
-
       totalAdded += chunk.length;
       if (isFirst) sheetState = { isAppend: r.isAppend, sheetId: r.sheetId };
     }
 
-    // ── 8. Show success ─────────────────────────────────────────────────
     const isAppend = sheetState && sheetState.isAppend;
     status.style.cssText = OK_CSS;
     status.innerHTML = isAppend
@@ -4454,8 +4477,7 @@ async function importStockCSV(reportType) {
       : '<strong>✅ Import successful!</strong><br/>' + totalAdded + ' rows imported to ' + (tabLabels[reportType]||cfg.tab) + ' tab.';
     fileEl.value = '';
     localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: totalAdded, uploadDate: dateStr }));
-    _lastImportTime = Date.now();
-    loadImsStats();
+    _lastImportTime = Date.now(); loadImsStats();
     setTimeout(() => { status.style.display = 'none'; }, 3000);
 
   } catch (e) {
