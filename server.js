@@ -2659,7 +2659,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
     function parseSheetDate(str) {
       const m = String(str||'').trim().match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
-      if (m) return new Date(parseInt(m[3]), MONTHS[m[2].toLowerCase()]??0, parseInt(m[1]));
+      // Use UTC to match fromDate/toDate which are also UTC (new Date('YYYY-MM-DD'))
+      if (m) return new Date(Date.UTC(parseInt(m[3]), MONTHS[m[2].toLowerCase()]??0, parseInt(m[1])));
       const d = new Date(str); return isNaN(d.getTime()) ? null : d;
     }
     function getNum(row, idx) {
@@ -2824,16 +2825,36 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
                uptGrowth:pct(cUPT,lUPT), atvGrowth:pct(cATV,lATV), billsGrowth:pct(cB,lB) };
     }).sort((a,b) => b.amount-a.amount);
 
-    const curMonsSorted = Object.entries(byMoncur).sort(([a],[b])=>a.localeCompare(b));
-    const lyMonsSorted  = Object.entries(byMonLY).sort(([a],[b])=>a.localeCompare(b));
-    const monLen = Math.max(curMonsSorted.length, lyMonsSorted.length);
-    const monthlyCmp = Array.from({length:monLen}, (_,i) => {
-      const [,c] = curMonsSorted[i]||[null,null];
-      const [,l] = lyMonsSorted[i] ||[null,null];
-      return { month: c?c.label:l?l.label:`M${i+1}`,
-               curAmt:c?Math.round(c.amt):0, curQty:c?r2(c.qty):0, curBills:c?c.xns.size:0,
-               lyAmt: l?Math.round(l.amt):0, lyQty: l?r2(l.qty):0,  lyBills: l?l.xns.size:0 };
-    });
+    // Monthly comparison: align by calendar month, not position
+    // For each month in the current period range, look up the same calendar month -1 year in LY data
+    let monthlyCmp = [];
+    if (fromDate && toDate) {
+      const start = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+      const end   = new Date(toDate.getFullYear(),   toDate.getMonth(),   1);
+      for (let d = new Date(start); d <= end; d.setMonth(d.getMonth()+1)) {
+        const curKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        const lyKey  = `${d.getFullYear()-1}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        const c = byMoncur[curKey] || null;
+        const l = byMonLY[lyKey]   || null;
+        monthlyCmp.push({
+          month: `${MON_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`,
+          curAmt: c?Math.round(c.amt):0, curQty: c?r2(c.qty):0, curBills: c?c.xns.size:0,
+          lyAmt:  l?Math.round(l.amt):0, lyQty:  l?r2(l.qty):0, lyBills:  l?l.xns.size:0,
+        });
+      }
+    } else {
+      // No date filter — show all available months side by side (no alignment guarantee)
+      const allCurMons = Object.entries(byMoncur).sort(([a],[b])=>a.localeCompare(b));
+      const allLYMons  = Object.entries(byMonLY).sort(([a],[b])=>a.localeCompare(b));
+      const monLen = Math.max(allCurMons.length, allLYMons.length);
+      monthlyCmp = Array.from({length:monLen}, (_,i) => {
+        const [,c] = allCurMons[i]||[null,null];
+        const [,l] = allLYMons[i] ||[null,null];
+        return { month: c?c.label:l?l.label:`M${i+1}`,
+                 curAmt:c?Math.round(c.amt):0, curQty:c?r2(c.qty):0, curBills:c?c.xns.size:0,
+                 lyAmt: l?Math.round(l.amt):0, lyQty: l?r2(l.qty):0, lyBills: l?l.xns.size:0 };
+      });
+    }
 
     res.json({
       salesSummary: { totalAmount:Math.round(totalAmt), totalQty:r2(totalQty), totalTransactions:allXns.size, byDate:fmtByDate },
