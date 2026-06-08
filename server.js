@@ -2685,7 +2685,22 @@ app.post('/api/stock-csv-import', requireAuth, misUpload.single('file'), async (
 
     const [parsedRows, sheetsApi] = await Promise.all([
       Promise.resolve().then(() => {
-        const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+        let workbook;
+        try {
+          workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+        } catch (e1) {
+          // Some old .xls files fail with cellDates — retry without it
+          try {
+            workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false });
+          } catch (e2) {
+            const isOle2 = buffer[0] === 0xD0 && buffer[1] === 0xCF;
+            throw new Error(
+              isOle2
+                ? 'Old .xls format could not be parsed. Please open in Excel → Save As → Excel Workbook (.xlsx) or CSV, then import that file.'
+                : 'File format not supported. Please use .xlsx or .csv format.'
+            );
+          }
+        }
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         // raw:true = no currency/format symbols; cellDates:true keeps dates as JS Date objects
         const allRows = XLSX.utils.sheet_to_json(firstSheet, {
@@ -2803,7 +2818,9 @@ app.post('/api/stock-csv-import', requireAuth, misUpload.single('file'), async (
     console.error('MIS import error:', err.message);
     if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Service account ko Editor access do.' });
     if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Sheet ID .env mein check karo.' });
-    res.status(500).json({ error: err.message });
+    // Strip non-printable / binary chars from error message before sending to client
+    const safeMsg = (err.message || 'Unknown error').replace(/[^\x20-\x7E -￿]/g, '?').slice(0, 300);
+    res.status(500).json({ error: safeMsg });
   }
 });
 
