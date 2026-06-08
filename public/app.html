@@ -4305,7 +4305,18 @@ async function importStockCSV(reportType) {
       headers: token ? { 'Authorization': 'Bearer ' + token } : {},
       body: formData
     });
-    const r = await resp.json();
+
+    let r;
+    const ct = resp.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      r = await resp.json();
+    } else {
+      const raw = await resp.text().catch(() => '');
+      const hint = resp.status === 413 ? 'File too large for server (max ~4 MB). Convert to CSV and try again.'
+                 : resp.status === 401 ? 'Session expired — please refresh and log in again.'
+                 : 'Server returned HTTP ' + resp.status + '. ' + raw.replace(/<[^>]*>/g, '').trim().slice(0, 120);
+      r = { error: hint };
+    }
 
     if (r.error) {
       status.style.cssText = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
