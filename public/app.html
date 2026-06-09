@@ -4419,86 +4419,203 @@ function switchTurnoverTab(tab) {
   document.getElementById('turnTabCat').classList.toggle('active',   tab === 'cat');
 }
 
+function _turnoverStrBadge(str) {
+  if (str === null) return `<span style="font-size:11px;color:#94a3b8">No data</span>`;
+  if (str === 999 || str === Infinity) return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">✅ Cleared</span>`;
+  if (str >= 2)   return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🚀 Fast</span>`;
+  if (str >= 0.5) return `<span style="background:#fef9c3;color:#a16207;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">⚡ Medium</span>`;
+  return `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🐢 Slow</span>`;
+}
+
+function _turnoverRowHtml(r, i, drillType) {
+  const safeKey = r.key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const strDisp = r.str === null ? '—' : r.str === 999 ? '∞' : r.str.toFixed(2);
+  const daysDisp = r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days';
+  return `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click for details"
+    onclick="showTurnoverDetail('${safeKey}','${drillType}',${r.sold},${r.stock},${r.str === null ? 'null' : r.str},${r.days === null ? 'null' : r.days})">
+    <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+    <td class="rpt-td" style="font-weight:700">${r.key}</td>
+    <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:800;font-size:13px">${strDisp}</td>
+    <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${daysDisp}</td>
+    <td class="rpt-td" style="text-align:center">${_turnoverStrBadge(r.str)}</td>
+  </tr>`;
+}
+
 function renderRptTurnover(data) {
   if (!data) return;
-  // Get date range days from report inputs
-  const from = document.getElementById('rptFrom') ? document.getElementById('rptFrom').value : '';
-  const to   = document.getElementById('rptTo')   ? document.getElementById('rptTo').value   : '';
+  const from = document.getElementById('rptFrom')?.value || '';
+  const to   = document.getElementById('rptTo')?.value   || '';
   let rangeDays = 30;
   if (from && to) {
     const ms = new Date(to) - new Date(from);
     rangeDays = Math.max(1, Math.round(ms / 86400000) + 1);
   }
 
-  const strBadge = (str) => {
-    if (str === null) return `<span style="font-size:11px;color:#94a3b8">No stock</span>`;
-    if (str >= 2)    return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🚀 Fast</span>`;
-    if (str >= 0.5)  return `<span style="background:#fef9c3;color:#a16207;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">⚡ Medium</span>`;
-    return             `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🐢 Slow</span>`;
-  };
-
-  const renderTurnoverRows = (rows, bodyId, showAll) => {
+  const renderRows = (rows, bodyId, drillType, showAll) => {
     const body = document.getElementById(bodyId);
     if (!body) return;
     if (!rows.length) { body.innerHTML = `<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
     const visible = showAll ? rows : rows.slice(0, 10);
-    const rowsHtml = visible.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
-      <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
-      <td class="rpt-td" style="font-weight:700">${r.key}</td>
-      <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
-      <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
-      <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:800;font-size:13px">${r.str === null ? '—' : r.str === 999 ? '∞' : r.str.toFixed(2)}</td>
-      <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days'}</td>
-      <td class="rpt-td" style="text-align:center">${strBadge(r.str)}</td>
-    </tr>`).join('');
     const moreBtn = (!showAll && rows.length > 10)
       ? `<tr><td colspan="7" style="text-align:center;padding:12px">
            <button onclick="expandTurnoverTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">
              ▼ Show All ${rows.length} rows
-           </button>
-         </td></tr>`
+           </button></td></tr>`
       : '';
-    body.innerHTML = rowsHtml + moreBtn;
+    body.innerHTML = visible.map((r, i) => _turnoverRowHtml(r, i, drillType)).join('') + moreBtn;
   };
 
-  const buildRows = (salesArr, stockArr, nameKey, bodyId, showAll) => {
+  const buildRows = (salesArr, stockArr, nameKey, bodyId, drillType) => {
     const stockMap = {};
     (stockArr || []).forEach(s => { stockMap[s[nameKey]] = Number(s.qty) || 0; });
     const keys = new Set([...(salesArr||[]).map(s => s[nameKey]), ...Object.keys(stockMap)]);
     const rows = [...keys].map(key => {
-      const salesQty = (salesArr||[]).find(s => s[nameKey] === key);
-      const sold  = salesQty ? Number(salesQty.qty) || 0 : 0;
+      const found = (salesArr||[]).find(s => s[nameKey] === key);
+      const sold  = found ? Number(found.qty) || 0 : 0;
       const stock = stockMap[key] || 0;
       const str   = stock > 0 ? Math.round((sold / stock) * 100) / 100 : (sold > 0 ? 999 : null);
       const days  = (str !== null && str > 0 && str !== 999) ? Math.round(rangeDays / str) : (str === 999 ? 0 : null);
       return { key, sold, stock, str, days };
     }).sort((a, b) => (b.str||0) - (a.str||0));
-    // Cache for expand
     if (!window._turnoverCache) window._turnoverCache = {};
-    window._turnoverCache[bodyId] = { rows, strBadge };
-    renderTurnoverRows(rows, bodyId, showAll || false);
+    window._turnoverCache[bodyId] = { rows, drillType };
+    renderRows(rows, bodyId, drillType, false);
   };
 
-  buildRows(data.supplierSales, data.supplierStock, 'name', 'rptTurnoverPartyBody');
-  buildRows(data.topCategories, data.categoryStock, 'category', 'rptTurnoverCatBody');
+  buildRows(data.supplierSales, data.supplierStock, 'name',     'rptTurnoverPartyBody', 'supplier');
+  buildRows(data.topCategories, data.categoryStock, 'category', 'rptTurnoverCatBody',   'category');
 }
 
 function expandTurnoverTable(bodyId) {
-  const cache = window._turnoverCache && window._turnoverCache[bodyId];
+  const cache = window._turnoverCache?.[bodyId];
   if (!cache) return;
-  // Re-render with showAll=true using the cached strBadge and rows
-  const { rows, strBadge } = cache;
   const body = document.getElementById(bodyId);
   if (!body) return;
-  body.innerHTML = rows.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
-    <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
-    <td class="rpt-td" style="font-weight:700">${r.key}</td>
-    <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
-    <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
-    <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:800;font-size:13px">${r.str === null ? '—' : r.str === 999 ? '∞' : r.str.toFixed(2)}</td>
-    <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days'}</td>
-    <td class="rpt-td" style="text-align:center">${strBadge(r.str)}</td>
-  </tr>`).join('');
+  body.innerHTML = cache.rows.map((r, i) => _turnoverRowHtml(r, i, cache.drillType)).join('');
+}
+
+async function showTurnoverDetail(key, drillType, sold, stock, str, days) {
+  let modal = document.getElementById('imsTurnoverModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'imsTurnoverModal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.52);align-items:center;justify-content:center;padding:16px';
+    modal.innerHTML = `<div style="background:#fff;border-radius:16px;width:min(94vw,820px);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.28);overflow:hidden">
+      <div style="padding:20px 24px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0">
+        <div>
+          <div id="imsToTitle" style="font-size:16px;font-weight:800;color:#1e293b"></div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:3px">Stock Turnover Analysis</div>
+        </div>
+        <button onclick="document.getElementById('imsTurnoverModal').style.display='none'" style="background:#f1f5f9;border:none;font-size:15px;cursor:pointer;color:#64748b;padding:6px 10px;border-radius:8px;margin-left:12px;flex-shrink:0">✕</button>
+      </div>
+      <div id="imsToBody" style="overflow-y:auto;padding:22px 24px;flex:1"></div>
+    </div>`;
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    document.body.appendChild(modal);
+  }
+  document.getElementById('imsToTitle').textContent = key;
+  modal.style.display = 'flex';
+
+  // Build reason
+  const strDisp = str === null ? '—' : str === 999 ? '∞' : Number(str).toFixed(2);
+  const daysDisp = days === null ? '—' : days === 0 ? 'Cleared' : `${days} days`;
+  let accentColor, reasonHtml;
+  if (str === null) {
+    accentColor = '#94a3b8';
+    reasonHtml = `<div style="font-weight:800;color:#1e293b;margin-bottom:5px">No activity in selected period</div>
+      <div style="color:#64748b;font-size:12px;line-height:1.7">This vendor has no sales and no stock data in the selected date range.</div>`;
+  } else if (str === 999 || stock === 0) {
+    accentColor = '#10b981';
+    reasonHtml = `<div style="font-weight:800;color:#15803d;margin-bottom:5px">✅ Stock completely cleared</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">Sold <b>${Number(sold).toLocaleString('en-IN')}</b> units with <b>0 remaining stock</b>. STR = ∞ because Sales ÷ Stock = ${sold} ÷ 0.</div>
+      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Demand exists — consider restocking this vendor to avoid lost sales.</div>`;
+  } else if (str >= 2) {
+    accentColor = '#10b981';
+    reasonHtml = `<div style="font-weight:800;color:#15803d;margin-bottom:5px">🚀 Fast moving stock</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">Sold <b>${Number(sold).toLocaleString('en-IN')}</b> units vs <b>${Number(stock).toLocaleString('en-IN')}</b> in stock. STR = ${strDisp} — selling <b>${strDisp}× faster</b> than current stock. At this rate, stock clears in <b>~${days} days</b>.</div>
+      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 High demand — consider increasing order quantity to avoid stockout.</div>`;
+  } else if (str >= 0.5) {
+    accentColor = '#f59e0b';
+    reasonHtml = `<div style="font-weight:800;color:#a16207;margin-bottom:5px">⚡ Moderate movement</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">Sold <b>${Number(sold).toLocaleString('en-IN')}</b> units vs <b>${Number(stock).toLocaleString('en-IN')}</b> in stock. STR = ${strDisp}. Stock clears in <b>~${days} days</b> at current rate.</div>
+      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Monitor this vendor — targeted promotions could convert it to Fast mover.</div>`;
+  } else {
+    accentColor = '#ef4444';
+    reasonHtml = `<div style="font-weight:800;color:#dc2626;margin-bottom:5px">🐢 Slow moving stock</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">Only sold <b>${Number(sold).toLocaleString('en-IN')}</b> units against <b>${Number(stock).toLocaleString('en-IN')}</b> in stock. STR = ${strDisp} — very low velocity. Stock takes <b>~${days} days</b> to clear.</div>
+      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Action needed — consider discounts, promotions, or reducing future orders from this vendor.</div>`;
+  }
+
+  document.getElementById('imsToBody').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+      <div style="background:#f0fdf4;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">SALES QTY</div>
+        <div style="font-size:24px;font-weight:800;color:#10b981">${Number(sold).toLocaleString('en-IN')}</div>
+      </div>
+      <div style="background:#eff6ff;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">STOCK QTY</div>
+        <div style="font-size:24px;font-weight:800;color:#3b82f6">${Number(stock).toLocaleString('en-IN')}</div>
+      </div>
+      <div style="background:#f5f3ff;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">STR</div>
+        <div style="font-size:24px;font-weight:800;color:#7c3aed">${strDisp}</div>
+        <div style="font-size:9px;color:#94a3b8;margin-top:2px">Sales ÷ Stock</div>
+      </div>
+      <div style="background:#fffbeb;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">DAYS TO CLEAR</div>
+        <div style="font-size:24px;font-weight:800;color:#f59e0b">${daysDisp}</div>
+      </div>
+    </div>
+    <div style="background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:20px;border-left:4px solid ${accentColor}">
+      ${reasonHtml}
+    </div>
+    <div style="font-size:13px;font-weight:700;color:#1e293b;margin-bottom:12px">📋 Transactions in selected period</div>
+    <div id="imsToTxn"><div style="text-align:center;padding:32px;color:#94a3b8;font-size:13px">⏳ Loading…</div></div>`;
+
+  // Load transactions
+  const from = document.getElementById('rptFrom')?.value || '';
+  const to   = document.getElementById('rptTo')?.value   || '';
+  const params = new URLSearchParams({ type: drillType, value: key });
+  if (from) params.append('from', from);
+  if (to)   params.append('to', to);
+  const data = await api('/api/ims-drilldown?' + params.toString());
+  const txnEl = document.getElementById('imsToTxn');
+  if (!txnEl) return;
+  if (!data || data.error || !data.rows?.length) {
+    txnEl.innerHTML = '<div style="text-align:center;padding:24px;color:#94a3b8;font-size:12px">No transactions found for this period.</div>';
+    return;
+  }
+  const rows = data.rows;
+  const totAmt = rows.reduce((s,r) => s+(r.amount||0), 0);
+  const totQty = rows.reduce((s,r) => s+(r.qty||0), 0);
+  txnEl.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <span style="background:#eef2ff;color:#4f46e5;border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700">${rows.length} txns</span>
+      <span style="background:#f0fdf4;color:#15803d;border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700">Qty: ${totQty.toLocaleString('en-IN')}</span>
+      <span style="background:#fffbeb;color:#a16207;border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700">₹${Math.round(totAmt).toLocaleString('en-IN')}</span>
+    </div>
+    <div style="overflow-x:auto;max-height:260px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead style="position:sticky;top:0;background:#f8fafc;z-index:1">
+          <tr>
+            <th style="padding:8px 10px;text-align:left;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:700">Date</th>
+            <th style="padding:8px 10px;text-align:left;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:700">Bill No</th>
+            <th style="padding:8px 10px;text-align:left;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:700">Category</th>
+            <th style="padding:8px 10px;text-align:right;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:700">Qty</th>
+            <th style="padding:8px 10px;text-align:right;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:700">Amount</th>
+          </tr>
+        </thead>
+        <tbody>${rows.map((r,i) => `<tr style="background:${i%2?'#f8fafc':'#fff'}">
+          <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9">${r.date||'—'}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#6366f1;font-weight:600">${r.bill||'—'}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#475569">${r.category||'—'}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;text-align:right;color:#10b981;font-weight:600">${Number(r.qty||0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:700">₹${Math.round(r.amount||0).toLocaleString('en-IN')}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
 }
 // ── /New render functions ────────────────────────────────────
 
