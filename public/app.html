@@ -1197,8 +1197,9 @@ tbody tr:last-child td{border-bottom:none;}
               <th class="rpt-th-green" style="text-align:right">Net Qty</th>
               <th class="rpt-th-red" style="text-align:right">Net Amount</th>
               <th class="rpt-th-amber" style="text-align:left;min-width:140px">Share %</th>
+              <th class="rpt-th-dark" style="text-align:left">Top Items</th>
             </tr></thead>
-            <tbody id="rptCatBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
+            <tbody id="rptCatBody"><tr><td colspan="7" class="rpt-td" style="text-align:center;color:#1f2937">—</td></tr></tbody>
             </table>
           </div></div>
         </div>
@@ -1371,50 +1372,55 @@ tbody tr:last-child td{border-bottom:none;}
             <span style="background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 6px;font-weight:700">🐢 Slow</span> &lt; 40%
           </div>
 
-          <!-- ── Side-by-side: Supplier (left) | Item/Style (right) ── -->
-          <div style="display:flex;gap:20px;align-items:flex-start">
+          <!-- ── Tabs ── -->
+          <div style="display:flex;gap:8px;margin-bottom:18px">
+            <button id="toTab-supplier" onclick="_toTabSwitch('supplier')"
+              style="display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #4f46e5;background:#4f46e5;color:#fff;transition:all .15s">
+              🏭 Supplier Performance
+            </button>
+            <button id="toTab-item" onclick="_toTabSwitch('item')"
+              style="display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #e2e8f0;background:#fff;color:#64748b;transition:all .15s">
+              🎯 Item / Style
+            </button>
+          </div>
 
-            <!-- LEFT: Supplier Performance -->
-            <div style="flex:0 0 40%;min-width:0">
-              <div style="font-size:14px;font-weight:800;color:#1e293b;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:6px">
-                <span style="display:flex;align-items:center;gap:6px">🏭 <span>Supplier Performance</span></span>
-                <input id="turnoverSupSearch" type="text" placeholder="🔍 Search..." oninput="_turnoverSearch('turnoverSupSearch','rptTurnoverSupplierBody')"
-                  style="border:1px solid #c7d2fe;border-radius:7px;padding:5px 10px;font-size:12px;color:#1e293b;outline:none;width:140px;background:#f8f8ff">
-              </div>
-              <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
-                <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>
-                  <th class="rpt-th-dark" style="text-align:left;padding:6px 7px;width:28px">#</th>
-                  <th class="rpt-th-dark" style="text-align:left;padding:6px 7px">Supplier Name</th>
-                  <th class="rpt-th-green" style="text-align:right;padding:6px 7px">Sales Qty</th>
-                  <th class="rpt-th-blue" style="text-align:right;padding:6px 7px">Avail Stock</th>
-                  <th class="rpt-th-dark" style="text-align:center;padding:6px 7px">Status</th>
-                </tr></thead>
-                <tbody id="rptTurnoverSupplierBody"><tr><td colspan="5" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
-                </table>
-              </div></div>
+          <!-- Supplier Table -->
+          <div id="toPane-supplier">
+            <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
+              <input id="turnoverSupSearch" type="text" placeholder="🔍 Search supplier..." oninput="_turnoverSearch('turnoverSupSearch','rptTurnoverSupplierBody')"
+                style="border:1px solid #c7d2fe;border-radius:8px;padding:6px 12px;font-size:13px;color:#1e293b;outline:none;width:220px;background:#f8f8ff">
             </div>
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:left;padding:8px 10px;width:36px">#</th>
+                <th class="rpt-th-dark" style="text-align:left;padding:8px 10px">Supplier Name</th>
+                <th class="rpt-th-green" style="text-align:right;padding:8px 10px">Sales Qty</th>
+                <th class="rpt-th-blue" style="text-align:right;padding:8px 10px">Avail Stock</th>
+                <th class="rpt-th-dark" style="text-align:center;padding:8px 10px">Status</th>
+              </tr></thead>
+              <tbody id="rptTurnoverSupplierBody"><tr><td colspan="5" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
+          </div>
 
-            <!-- RIGHT: Item / Style Performance -->
-            <div style="flex:1;min-width:0">
-              <div style="font-size:14px;font-weight:800;color:#1e293b;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:6px">
-                <span style="display:flex;align-items:center;gap:6px">🎯 <span>Item / Style Performance</span></span>
-                <input id="turnoverItemSearch" type="text" placeholder="🔍 Search style/item..." oninput="_turnoverSearch('turnoverItemSearch','rptTurnoverItemBody')"
-                  style="border:1px solid #c7d2fe;border-radius:7px;padding:5px 10px;font-size:12px;color:#1e293b;outline:none;width:160px;background:#f8f8ff">
-              </div>
-              <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
-                <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>
-                  <th class="rpt-th-dark" style="text-align:left;padding:6px 7px">Category</th>
-                  <th class="rpt-th-dark" style="text-align:left;padding:6px 7px">Supplier Name</th>
-                  <th class="rpt-th-purple" style="text-align:left;padding:6px 7px">Style</th>
-                  <th class="rpt-th-green" style="text-align:right;padding:6px 7px">Sales Qty</th>
-                  <th class="rpt-th-blue" style="text-align:right;padding:6px 7px">Avail Stock</th>
-                  <th class="rpt-th-dark" style="text-align:center;padding:6px 7px">Status</th>
-                </tr></thead>
-                <tbody id="rptTurnoverItemBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
-                </table>
-              </div></div>
+          <!-- Item / Style Table -->
+          <div id="toPane-item" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
+              <input id="turnoverItemSearch" type="text" placeholder="🔍 Search style/item..." oninput="_turnoverSearch('turnoverItemSearch','rptTurnoverItemBody')"
+                style="border:1px solid #c7d2fe;border-radius:8px;padding:6px 12px;font-size:13px;color:#1e293b;outline:none;width:220px;background:#f8f8ff">
             </div>
-
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:left;padding:8px 10px">Category</th>
+                <th class="rpt-th-dark" style="text-align:left;padding:8px 10px">Supplier Name</th>
+                <th class="rpt-th-purple" style="text-align:left;padding:8px 10px">Style</th>
+                <th class="rpt-th-green" style="text-align:right;padding:8px 10px">Sales Qty</th>
+                <th class="rpt-th-blue" style="text-align:right;padding:8px 10px">Avail Stock</th>
+                <th class="rpt-th-dark" style="text-align:center;padding:8px 10px">Status</th>
+              </tr></thead>
+              <tbody id="rptTurnoverItemBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
           </div>
         </div>
 
@@ -4223,10 +4229,17 @@ function renderRptSummary(s, stock) {
 function renderRptCategories(cats, showAll) {
   const body = document.getElementById('rptCatBody');
   if (!body) return;
-  if (!cats.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
+  if (!cats.length) { body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
   const grand = cats.reduce((s, c) => s + (c.amount || 0), 0) || 1;
   const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16','#f97316','#6366f1','#ec4899'];
   window._catCache = cats;
+  // Build top items per category from supplierStyleSales
+  const catItemMap = {};
+  ((_rptData && _rptData.supplierStyleSales) || []).forEach(s => {
+    if (!s.cat || s.cat === 'Unknown' || !s.style || s.style === 'Unknown') return;
+    if (!catItemMap[s.cat]) catItemMap[s.cat] = {};
+    catItemMap[s.cat][s.style] = (catItemMap[s.cat][s.style] || 0) + Number(s.qty || 0);
+  });
   const visible = showAll ? cats : cats.slice(0, 10);
   const rowsHtml = visible.map((c, i) => {
     const pct = ((c.amount / grand) * 100).toFixed(1);
@@ -4236,17 +4249,23 @@ function renderRptCategories(cats, showAll) {
       </div>
       <span style="font-size:12px;font-weight:700;color:${COLORS[i%COLORS.length]};min-width:40px">${pct}%</span>
     </div>`;
-    return `<tr class="${i%2?'rpt-tr-even':''}">
+    const topItems = Object.entries(catItemMap[c.category] || {})
+      .sort((a,b) => b[1]-a[1]).slice(0,3)
+      .map(([style]) => `<span style="background:#eef2ff;color:#4f46e5;font-size:10px;padding:2px 7px;border-radius:99px;white-space:nowrap">${style}</span>`)
+      .join(' ');
+    return `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click to view transactions"
+      data-cat="${c.category.replace(/"/g,'&quot;')}" onclick="showDrilldown('category',this.dataset.cat)">
       <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
       <td class="rpt-td" style="font-weight:700">${c.category}</td>
       <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(c.transactions||0).toLocaleString('en-IN')}</td>
       <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
       <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(c.amount)}</td>
       <td class="rpt-td">${bar}</td>
+      <td class="rpt-td" style="max-width:200px"><div style="display:flex;flex-wrap:wrap;gap:4px">${topItems||'<span style="color:#94a3b8;font-size:11px">—</span>'}</div></td>
     </tr>`;
   }).join('');
   const moreBtn = (!showAll && cats.length > 10)
-    ? `<tr><td colspan="6" style="text-align:center;padding:12px"><button onclick="renderRptCategories(window._catCache,true)" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${cats.length} categories</button></td></tr>`
+    ? `<tr><td colspan="7" style="text-align:center;padding:12px"><button onclick="renderRptCategories(window._catCache,true)" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${cats.length} categories</button></td></tr>`
     : '';
   body.innerHTML = rowsHtml + moreBtn;
   renderChartHBar('rptChart-cat', 'cat', cats.map(c=>c.category), cats.map(c=>c.amount), lbl => showDrilldown('category', lbl));
@@ -4262,7 +4281,8 @@ function renderRptSalespersons(sps, showAll) {
     const txn = s.transactions || 0;
     const avgItems = txn ? (Number(s.qty || 0) / txn).toFixed(1) : '—';
     const avgAmt   = txn ? Math.round(s.amount / txn) : 0;
-    return `<tr class="${i%2?'rpt-tr-even':''}">
+    return `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click to view transactions"
+      data-sp="${s.name.replace(/"/g,'&quot;')}" onclick="showDrilldown('salesperson',this.dataset.sp)">
       <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
       <td class="rpt-td" style="font-weight:700">${s.name}</td>
       <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${txn.toLocaleString('en-IN')}</td>
@@ -4310,7 +4330,8 @@ function renderRptSupplierSales(items, showAll) {
   const visible = showAll ? items : items.slice(0, 10);
   const rowsHtml = visible.map((c, i) => {
     const pct = ((c.amount/grand)*100).toFixed(1);
-    return `<tr class="${i%2?'rpt-tr-even':''}">
+    return `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click to view transactions"
+      data-sup="${c.name.replace(/"/g,'&quot;')}" onclick="showDrilldown('supplier',this.dataset.sup)">
       <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
       <td class="rpt-td" style="font-weight:700">${c.name}</td>
       <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(c.transactions||0).toLocaleString('en-IN')}</td>
@@ -4344,7 +4365,8 @@ function renderRptCityState(items, showAll) {
   if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
   window._cityCache = items;
   const visible = showAll ? items : items.slice(0, 10);
-  const rowsHtml = visible.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+  const rowsHtml = visible.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click to view transactions"
+    data-city="${c.city.replace(/"/g,'&quot;')}" onclick="showDrilldown('city',this.dataset.city)">
     <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
     <td class="rpt-td" style="font-weight:700;color:#7c3aed">${c.city}</td>
     <td class="rpt-td" style="color:#64748b">${c.state}</td>
@@ -4406,8 +4428,11 @@ function _rptStockTable(bodyId, items, keyField, showAll) {
   if (!items.length) { body.innerHTML = `<tr><td colspan="4" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
   if (!window._stockTableCache) window._stockTableCache = {};
   window._stockTableCache[bodyId] = { items, keyField };
+  const drillType = bodyId === 'rptSupStockBody' ? 'stock_supplier' : 'stock_category';
+  const dataAttr  = bodyId === 'rptSupStockBody' ? 'sup' : 'cat';
   const visible = showAll ? items : items.slice(0, 10);
-  const rowsHtml = visible.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+  const rowsHtml = visible.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click to view stock details"
+    data-${dataAttr}="${String(c[keyField]).replace(/"/g,'&quot;')}" onclick="showDrilldown('${drillType}',this.dataset.${dataAttr})">
     <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
     <td class="rpt-td" style="font-weight:700">${c[keyField]}</td>
     <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(c.qty||0).toLocaleString('en-IN')}</td>
@@ -4429,6 +4454,16 @@ function renderRptSupplierStock(items) { _rptStockTable('rptSupStockBody', items
 function renderRptStockCat(items)      { _rptStockTable('rptStockCatBody', items, 'category'); renderChartDoughnut('rptChart-stockcat',     'stockcat',      items.slice(0,12), 'category','value', lbl => showDrilldown('stock_category', lbl)); }
 
 // % Sold = sold / (sold + stock) * 100
+function _toTabSwitch(tab) {
+  const isSupplier = tab === 'supplier';
+  document.getElementById('toPane-supplier').style.display = isSupplier ? '' : 'none';
+  document.getElementById('toPane-item').style.display     = isSupplier ? 'none' : '';
+  const activeStyle   = 'border:2px solid #4f46e5;background:#4f46e5;color:#fff';
+  const inactiveStyle = 'border:2px solid #e2e8f0;background:#fff;color:#64748b';
+  document.getElementById('toTab-supplier').style.cssText += ';' + (isSupplier ? activeStyle : inactiveStyle);
+  document.getElementById('toTab-item').style.cssText     += ';' + (isSupplier ? inactiveStyle : activeStyle);
+}
+
 function _turnoverSearch(inputId, bodyId) {
   const q = (document.getElementById(inputId)?.value || '').trim().toLowerCase();
   const tbody = document.getElementById(bodyId);
