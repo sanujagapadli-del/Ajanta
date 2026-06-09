@@ -3011,16 +3011,17 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const oDate = findC(/^xn[\s._-]?date$/i), oXn = findC(/^xn[\s._-]?no$/i);
       const oCat  = findC(/^category$/i),        oSP = findC(/^salesperson$/i);
       const oSup  = findC(/^supplier[\s._-]?name$/i), oCity = findC(/^supplier[\s._-]?city$/i);
+      const oSty  = findC(/^style$/i);
       const oQty  = findC(/netsls[\s._-]?qty/i), oAmt = findC(/netsls[\s._-]?net|netsls[\s._-]?amount/i);
-      const filterCol = { category:oCat, supplier:oSup, salesperson:oSP, city:oCity }[type] ?? -1;
+      const filterCol = { category:oCat, supplier:oSup, salesperson:oSP, city:oCity, item:oSty, style:oSty }[type] ?? -1;
 
       const rows = allRows.slice(1).filter(row => {
         if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
         if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
         return true;
       }).slice(0, 500).map(row => ({
-        date: row[oDate]||'', xnNo: row[oXn]||'',
-        supplier: row[oSup]||'', salesperson: row[oSP]||'',
+        date: row[oDate]||'', bill: row[oXn]||'',
+        category: row[oCat]||'', supplier: row[oSup]||'', salesperson: row[oSP]||'',
         qty: getNum(row, oQty), amount: getNum(row, oAmt)
       }));
       return res.json({ rows, type, value });
