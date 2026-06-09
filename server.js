@@ -2884,6 +2884,81 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
   }
 });
 
+// ── Generate Unique Codes: Supplier_Style column in InStock + OutStock ──
+app.post('/api/generate-unique-codes', requireAuth, async (req, res) => {
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    const norm = s => String(s || '').trim().toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'UNKNOWN';
+    const makeCode = (sup, style) => `${norm(sup)}_${norm(style)}`;
+
+    const results = [];
+
+    for (const tabName of ['In Stock', 'Out Stock']) {
+      const resp = await withRetry(() => sheetsApi.spreadsheets.values.get({
+        spreadsheetId: STOCK_SHEET_ID, range: `'${tabName}'!A1:AH1`
+      }));
+      const headerRow = (resp.data.values || [[]])[0].map(h => String(h).trim());
+      const headerLow = headerRow.map(h => h.toLowerCase());
+
+      // Find supplier and style columns
+      const supIdx   = headerLow.findIndex(h => /supplier[\s._-]?name/i.test(h) || h === 'supplier');
+      const styleIdx = headerLow.findIndex(h => /^style$/i.test(h));
+
+      if (supIdx < 0 || styleIdx < 0) {
+        results.push({ tab: tabName, error: `Columns not found — Supplier:${supIdx} Style:${styleIdx}` });
+        continue;
+      }
+
+      // Find or decide column for "Unique Code"
+      let codeIdx = headerLow.findIndex(h => h === 'unique code' || h === 'uniquecode');
+      const colLetter = n => {
+        let s = '';
+        for (n++; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+        return s;
+      };
+
+      if (codeIdx < 0) {
+        // Append header in new column
+        codeIdx = headerRow.length;
+        await withRetry(() => sheetsApi.spreadsheets.values.update({
+          spreadsheetId: STOCK_SHEET_ID,
+          range: `'${tabName}'!${colLetter(codeIdx)}1`,
+          valueInputOption: 'RAW',
+          requestBody: { values: [['Unique Code']] }
+        }));
+      }
+
+      // Read all rows (supplier + style columns)
+      const dataResp = await withRetry(() => sheetsApi.spreadsheets.values.get({
+        spreadsheetId: STOCK_SHEET_ID, range: `'${tabName}'!A:AH`
+      }));
+      const allRows = dataResp.data.values || [];
+      if (allRows.length <= 1) { results.push({ tab: tabName, updated: 0 }); continue; }
+
+      const codes = allRows.slice(1).map(row => [makeCode(row[supIdx], row[styleIdx])]);
+      const startRow = 2;
+      const endRow   = startRow + codes.length - 1;
+      const colL     = colLetter(codeIdx);
+
+      await withRetry(() => sheetsApi.spreadsheets.values.update({
+        spreadsheetId: STOCK_SHEET_ID,
+        range: `'${tabName}'!${colL}${startRow}:${colL}${endRow}`,
+        valueInputOption: 'RAW',
+        requestBody: { values: codes }
+      }));
+
+      results.push({ tab: tabName, updated: codes.length, col: colL });
+    }
+
+    res.json({ ok: true, results });
+  } catch (err) {
+    console.error('[GenerateCodes]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── IMS Drilldown — click on chart bar/slice to see raw transactions ──
 app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
   try {
