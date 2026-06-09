@@ -2691,7 +2691,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU });
 
-    const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={}, bySupStyleSales={};
+    const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={}, bySupStyleSales={}, byStyleSales={};
     let totalAmt=0, totalQty=0;
     const allXns = new Set();
 
@@ -2716,6 +2716,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const ssKey= sup + '||' + sty;
       if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, qty: 0 };
       bySupStyleSales[ssKey].qty += qty;
+      if (!byStyleSales[sty]) byStyleSales[sty] = { qty: 0 };
+      byStyleSales[sty].qty += qty;
 
       totalAmt += amt; totalQty += qty;
       if (xnNo) allXns.add(xnNo);
@@ -2761,7 +2763,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCategory, iDept, iStyle });
 
-    const bySupStock={}, byCatStock={}, bySupStyleStock={};
+    const bySupStock={}, byCatStock={}, bySupStyleStock={}, byStyleStock={};
     let totalStockQty=0, totalStockValue=0;
 
     (inRows.slice(1)).forEach(row => {
@@ -2772,6 +2774,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const ssKey= sup + '||' + sty;
       if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, qty: 0 };
       bySupStyleStock[ssKey].qty += getNum(row, iOpsQty);
+      if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0 };
+      byStyleStock[sty].qty += getNum(row, iOpsQty);
       const cost = getNum(row, iCostPrice);
       const qty  = getNum(row, iOpsQty);
       const val  = qty * cost;
@@ -2880,6 +2884,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       categoryStock,
       supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, qty: r2(d.qty) })),
       supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, qty: r2(d.qty) })),
+      styleSales: Object.entries(byStyleSales).map(([style, d]) => ({ style, qty: r2(d.qty) })),
+      styleStock: Object.entries(byStyleStock).map(([style, d]) => ({ style, qty: r2(d.qty) })),
       spAnalytics: {
         hasDateFilter,
         summary: { curUPT, lyUPT, uptGrowth:pct(curUPT,lyUPT), curATV, lyATV, atvGrowth:pct(curATV,lyATV),
