@@ -2687,10 +2687,11 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oCity      = findC(outHeader, /^supplier[\s._-]?city$/i);
     const oState     = findC(outHeader, /^supplier[\s._-]?state$/i);
     const oSKU       = findC(outHeader, /sku[\s._-]?code|^sku$|item[\s._-]?code|product[\s._-]?code|article[\s._-]?no|articleno|^itemid$|item[\s._-]?id/i);
+    const oStyle     = findC(outHeader, /^style$/i);
 
     console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU });
 
-    const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={};
+    const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={}, bySupStyleSales={};
     let totalAmt=0, totalQty=0;
     const allXns = new Set();
 
@@ -2706,11 +2707,15 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const cat  = (row[oCategory]||'').trim() || 'Unknown';
       const sp   = (row[oSP]||'').trim() || 'Unknown';
       const sup  = (row[oSupplier]||'').trim() || 'Unknown';
+      const sty  = oStyle >= 0 ? ((row[oStyle]||'').trim() || 'Unknown') : 'Unknown';
       const city = (row[oCity]||'').trim() || '—';
       const state= (row[oState]||'').trim() || '—';
       const xnNo = (row[oXnNo]||'').trim();
       const sku  = oSKU >= 0 ? ((row[oSKU]||'').trim() || 'Unknown') : null;
       const csKey= city + '||' + state;
+      const ssKey= sup + '||' + sty;
+      if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, qty: 0 };
+      bySupStyleSales[ssKey].qty += qty;
 
       totalAmt += amt; totalQty += qty;
       if (xnNo) allXns.add(xnNo);
@@ -2752,16 +2757,21 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const iOpsQty   = findC(inHeader, /^ops[\s._-]?qty$/i);
     const iCategory = findC(inHeader, /^category$/i);
     const iDept     = findC(inHeader, /^department$/i);
+    const iStyle    = findC(inHeader, /^style$/i);
 
-    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCategory, iDept });
+    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCategory, iDept, iStyle });
 
-    const bySupStock={}, byCatStock={};
+    const bySupStock={}, byCatStock={}, bySupStyleStock={};
     let totalStockQty=0, totalStockValue=0;
 
     (inRows.slice(1)).forEach(row => {
       if (!row.length || !row.join('').trim()) return;
       const sup  = (row[iSupplier]||'').trim() || 'Unknown';
       const cat  = (row[iCategory]||'').trim() || 'Unknown';
+      const sty  = iStyle >= 0 ? ((row[iStyle]||'').trim() || 'Unknown') : 'Unknown';
+      const ssKey= sup + '||' + sty;
+      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, qty: 0 };
+      bySupStyleStock[ssKey].qty += getNum(row, iOpsQty);
       const cost = getNum(row, iCostPrice);
       const qty  = getNum(row, iOpsQty);
       const val  = qty * cost;
@@ -2868,6 +2878,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       currentStock: { totalItems: Math.max(0, inRows.length-1), totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue) },
       supplierStock,
       categoryStock,
+      supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, qty: r2(d.qty) })),
+      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, qty: r2(d.qty) })),
       spAnalytics: {
         hasDateFilter,
         summary: { curUPT, lyUPT, uptGrowth:pct(curUPT,lyUPT), curATV, lyATV, atvGrowth:pct(curATV,lyATV),

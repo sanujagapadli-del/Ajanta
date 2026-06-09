@@ -1094,12 +1094,6 @@ tbody tr:last-child td{border-bottom:none;}
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <button id="rptGenCodeBtn" onclick="generateUniqueCodes()"
-            style="display:flex;align-items:center;gap:7px;padding:11px 18px;background:#fff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s"
-            title="Add Unique Code column (Supplier_Style) to In Stock and Out Stock sheets">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            Generate Codes
-          </button>
           <button id="rptSyncBtn" onclick="loadImsReports()"
             style="display:flex;align-items:center;gap:8px;padding:11px 22px;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 18px rgba(79,70,229,.32);white-space:nowrap">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -1371,14 +1365,16 @@ tbody tr:last-child td{border-bottom:none;}
         <div id="rptPanel-turnover" class="rpt-panel" style="display:none;padding:24px 26px">
           <!-- Sub-tabs -->
           <div style="display:flex;gap:8px;margin-bottom:18px">
-            <button id="turnTabParty" class="rpt-tab-btn active" onclick="switchTurnoverTab('party')">🏭 Party-wise</button>
-            <button id="turnTabCat"   class="rpt-tab-btn"        onclick="switchTurnoverTab('cat')">🏷 Category-wise</button>
+            <button id="turnTabParty"  class="rpt-tab-btn active" onclick="switchTurnoverTab('party')">🏭 Party-wise</button>
+            <button id="turnTabCat"    class="rpt-tab-btn"        onclick="switchTurnoverTab('cat')">🏷 Category-wise</button>
+            <button id="turnTabStyle"  class="rpt-tab-btn"        onclick="switchTurnoverTab('style')">🧵 Supplier + Style</button>
           </div>
           <!-- Info banner -->
           <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:10px 14px;font-size:12px;color:#4338ca;margin-bottom:16px;line-height:1.6">
-            <strong>Stock Turnover Ratio</strong> = Sales Qty ÷ Current Stock Qty &nbsp;|&nbsp;
-            <strong>Days to Clear</strong> = Date Range Days ÷ STR &nbsp;|&nbsp;
-            Higher STR = faster moving &nbsp;·&nbsp; Lower STR = slow mover
+            <strong>% Sold</strong> = Sales Qty ÷ (Sales Qty + Stock Qty) × 100 &nbsp;|&nbsp;
+            <span style="background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 6px;font-weight:700">🚀 Fast</span> ≥ 75% &nbsp;
+            <span style="background:#fef9c3;color:#a16207;border-radius:4px;padding:1px 6px;font-weight:700">⚡ Medium</span> 40–74% &nbsp;
+            <span style="background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 6px;font-weight:700">🐢 Slow</span> &lt; 40%
           </div>
           <!-- Party-wise table -->
           <div id="turnoverPartyWrap">
@@ -1388,7 +1384,7 @@ tbody tr:last-child td{border-bottom:none;}
                 <th class="rpt-th-dark" style="text-align:left">Supplier / Party</th>
                 <th class="rpt-th-green" style="text-align:right">Sales Qty</th>
                 <th class="rpt-th-blue" style="text-align:right">Stock Qty</th>
-                <th class="rpt-th-purple" style="text-align:right">STR</th>
+                <th class="rpt-th-purple" style="text-align:right">% Sold</th>
                 <th class="rpt-th-amber" style="text-align:right">Days to Clear</th>
                 <th class="rpt-th-dark" style="text-align:center">Status</th>
               </tr></thead>
@@ -1404,11 +1400,28 @@ tbody tr:last-child td{border-bottom:none;}
                 <th class="rpt-th-purple" style="text-align:left">Category</th>
                 <th class="rpt-th-green" style="text-align:right">Sales Qty</th>
                 <th class="rpt-th-blue" style="text-align:right">Stock Qty</th>
-                <th class="rpt-th-purple" style="text-align:right">STR</th>
+                <th class="rpt-th-purple" style="text-align:right">% Sold</th>
                 <th class="rpt-th-amber" style="text-align:right">Days to Clear</th>
                 <th class="rpt-th-dark" style="text-align:center">Status</th>
               </tr></thead>
               <tbody id="rptTurnoverCatBody"><tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
+          </div>
+          <!-- Supplier + Style table -->
+          <div id="turnoverStyleWrap" style="display:none">
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:left;width:38px">#</th>
+                <th class="rpt-th-purple" style="text-align:left">Supplier Name</th>
+                <th class="rpt-th-purple" style="text-align:left">Style</th>
+                <th class="rpt-th-green" style="text-align:right">Sales Qty</th>
+                <th class="rpt-th-blue" style="text-align:right">Stock Qty</th>
+                <th class="rpt-th-purple" style="text-align:right">% Sold</th>
+                <th class="rpt-th-amber" style="text-align:right">Days to Clear</th>
+                <th class="rpt-th-dark" style="text-align:center">Status</th>
+              </tr></thead>
+              <tbody id="rptTurnoverStyleBody"><tr><td colspan="8" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
               </table>
             </div></div>
           </div>
@@ -4143,25 +4156,13 @@ function setRptPreset(preset) {
   _setRptDate(from, to);
 }
 
-async function generateUniqueCodes() {
-  const btn = document.getElementById('rptGenCodeBtn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Generating…'; }
-  try {
-    const res = await fetch('/api/generate-unique-codes', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.error || 'Failed');
-    const lines = (data.results || []).map(r =>
-      r.error ? `${r.tab}: ❌ ${r.error}` : `${r.tab}: ✅ ${r.updated} rows → col ${r.col}`
-    ).join('\n');
-    showToast(`Unique codes generated!\n${lines}`, 'success');
-  } catch (e) {
-    showToast('Error: ' + e.message, 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> Generate Codes'; }
-  }
+function generateUniqueCodes() {
+  fetch('/api/generate-unique-codes', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    .catch(() => {});
 }
 
 async function loadImsReports() {
+  generateUniqueCodes();
   const status  = document.getElementById('rptStatus');
   const syncBtn = document.getElementById('rptSyncBtn');
   if (status) { status.style.color = '#64748b'; status.textContent = 'Loading…'; }
@@ -4441,31 +4442,60 @@ function switchTurnoverTab(tab) {
   _activeTurnoverTab = tab;
   document.getElementById('turnoverPartyWrap').style.display = tab === 'party' ? '' : 'none';
   document.getElementById('turnoverCatWrap').style.display   = tab === 'cat'   ? '' : 'none';
+  document.getElementById('turnoverStyleWrap').style.display = tab === 'style' ? '' : 'none';
   document.getElementById('turnTabParty').classList.toggle('active', tab === 'party');
   document.getElementById('turnTabCat').classList.toggle('active',   tab === 'cat');
+  document.getElementById('turnTabStyle').classList.toggle('active', tab === 'style');
 }
 
-function _turnoverStrBadge(str) {
-  if (str === null) return `<span style="font-size:11px;color:#94a3b8">No data</span>`;
-  if (str === 999 || str === Infinity) return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">✅ Cleared</span>`;
-  if (str >= 2)   return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🚀 Fast</span>`;
-  if (str >= 0.5) return `<span style="background:#fef9c3;color:#a16207;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">⚡ Medium</span>`;
+// % Sold = sold / (sold + stock) * 100
+// FAST >= 75%, MEDIUM 40-74%, SLOW < 40%, CLEARED = stock 0 & sold > 0
+function _turnoverPct(sold, stock) {
+  const total = sold + stock;
+  if (total <= 0) return null;
+  return Math.round(sold / total * 100);
+}
+
+function _turnoverBadge(pct, sold, stock) {
+  if (pct === null) return `<span style="font-size:11px;color:#94a3b8">No data</span>`;
+  if (stock === 0 && sold > 0) return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">✅ Cleared</span>`;
+  if (pct >= 75) return `<span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🚀 Fast</span>`;
+  if (pct >= 40) return `<span style="background:#fef9c3;color:#a16207;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">⚡ Medium</span>`;
   return `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px">🐢 Slow</span>`;
 }
 
 function _turnoverRowHtml(r, i, drillType) {
-  const safeKey = r.key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-  const strDisp = r.str === null ? '—' : r.str === 999 ? '∞' : r.str.toFixed(2);
+  const safeKey  = r.key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const pctDisp  = r.pct === null ? '—' : (r.stock === 0 && r.sold > 0 ? '100%' : r.pct + '%');
   const daysDisp = r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days';
+  const pctColor = r.pct === null ? '#94a3b8' : r.pct >= 75 ? '#10b981' : r.pct >= 40 ? '#f59e0b' : '#ef4444';
   return `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click for details"
-    onclick="showTurnoverDetail('${safeKey}','${drillType}',${r.sold},${r.stock},${r.str === null ? 'null' : r.str},${r.days === null ? 'null' : r.days})">
+    onclick="showTurnoverDetail('${safeKey}','${drillType}',${r.sold},${r.stock},${r.pct ?? 'null'},${r.days ?? 'null'})">
     <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
     <td class="rpt-td" style="font-weight:700">${r.key}</td>
     <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
     <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
-    <td class="rpt-td" style="text-align:right;color:#7c3aed;font-weight:800;font-size:13px">${strDisp}</td>
+    <td class="rpt-td" style="text-align:right;font-weight:800;font-size:13px;color:${pctColor}">${pctDisp}</td>
     <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${daysDisp}</td>
-    <td class="rpt-td" style="text-align:center">${_turnoverStrBadge(r.str)}</td>
+    <td class="rpt-td" style="text-align:center">${_turnoverBadge(r.pct, r.sold, r.stock)}</td>
+  </tr>`;
+}
+
+function _turnoverStyleRowHtml(r, i) {
+  const safeKey  = r.key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const pctDisp  = r.pct === null ? '—' : (r.stock === 0 && r.sold > 0 ? '100%' : r.pct + '%');
+  const daysDisp = r.days === null ? '—' : r.days === 0 ? 'Cleared' : r.days + ' days';
+  const pctColor = r.pct === null ? '#94a3b8' : r.pct >= 75 ? '#10b981' : r.pct >= 40 ? '#f59e0b' : '#ef4444';
+  return `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click for details"
+    onclick="showTurnoverDetail('${safeKey}','style',${r.sold},${r.stock},${r.pct ?? 'null'},${r.days ?? 'null'})">
+    <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
+    <td class="rpt-td" style="font-weight:700">${r.supName}</td>
+    <td class="rpt-td" style="font-weight:600;color:#6d28d9">${r.style}</td>
+    <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.sold.toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.stock.toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="text-align:right;font-weight:800;font-size:13px;color:${pctColor}">${pctDisp}</td>
+    <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:600">${daysDisp}</td>
+    <td class="rpt-td" style="text-align:center">${_turnoverBadge(r.pct, r.sold, r.stock)}</td>
   </tr>`;
 }
 
@@ -4479,18 +4509,23 @@ function renderRptTurnover(data) {
     rangeDays = Math.max(1, Math.round(ms / 86400000) + 1);
   }
 
+  const isStyleBody = id => id === 'rptTurnoverStyleBody';
+  const colspan = id => isStyleBody(id) ? 8 : 7;
+
   const renderRows = (rows, bodyId, drillType, showAll) => {
     const body = document.getElementById(bodyId);
     if (!body) return;
-    if (!rows.length) { body.innerHTML = `<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
+    const cols = colspan(bodyId);
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="${cols}" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
     const visible = showAll ? rows : rows.slice(0, 10);
     const moreBtn = (!showAll && rows.length > 10)
-      ? `<tr><td colspan="7" style="text-align:center;padding:12px">
+      ? `<tr><td colspan="${cols}" style="text-align:center;padding:12px">
            <button onclick="expandTurnoverTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">
              ▼ Show All ${rows.length} rows
            </button></td></tr>`
       : '';
-    body.innerHTML = visible.map((r, i) => _turnoverRowHtml(r, i, drillType)).join('') + moreBtn;
+    const rowFn = isStyleBody(bodyId) ? (r, i) => _turnoverStyleRowHtml(r, i) : (r, i) => _turnoverRowHtml(r, i, drillType);
+    body.innerHTML = visible.map((r, i) => rowFn(r, i)).join('') + moreBtn;
   };
 
   const buildRows = (salesArr, stockArr, nameKey, bodyId, drillType) => {
@@ -4501,17 +4536,41 @@ function renderRptTurnover(data) {
       const found = (salesArr||[]).find(s => s[nameKey] === key);
       const sold  = found ? Number(found.qty) || 0 : 0;
       const stock = stockMap[key] || 0;
-      const str   = stock > 0 ? Math.round((sold / stock) * 100) / 100 : (sold > 0 ? 999 : null);
-      const days  = (str !== null && str > 0 && str !== 999) ? Math.round(rangeDays / str) : (str === 999 ? 0 : null);
-      return { key, sold, stock, str, days };
-    }).sort((a, b) => (b.str||0) - (a.str||0));
+      const pct   = _turnoverPct(sold, stock);
+      const soldPerDay = sold / rangeDays;
+      const days  = (soldPerDay > 0 && stock > 0) ? Math.round(stock / soldPerDay) : (stock === 0 && sold > 0 ? 0 : null);
+      return { key, sold, stock, pct, days };
+    }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
     if (!window._turnoverCache) window._turnoverCache = {};
     window._turnoverCache[bodyId] = { rows, drillType };
     renderRows(rows, bodyId, drillType, false);
   };
 
+  const buildStyleRows = (salesArr, stockArr) => {
+    const bodyId = 'rptTurnoverStyleBody';
+    const stockMap = {};
+    (stockArr || []).forEach(s => { stockMap[s.key] = { supName: s.supName, style: s.style, qty: Number(s.qty) || 0 }; });
+    const keys = new Set([...(salesArr||[]).map(s => s.key), ...Object.keys(stockMap)]);
+    const rows = [...keys].map(key => {
+      const sf = (salesArr||[]).find(s => s.key === key);
+      const st = stockMap[key];
+      const sold  = sf ? Number(sf.qty) || 0 : 0;
+      const stock = st ? st.qty : 0;
+      const supName = (sf || st)?.supName || key;
+      const style   = (sf || st)?.style   || '';
+      const pct   = _turnoverPct(sold, stock);
+      const soldPerDay = sold / rangeDays;
+      const days  = (soldPerDay > 0 && stock > 0) ? Math.round(stock / soldPerDay) : (stock === 0 && sold > 0 ? 0 : null);
+      return { key, supName, style, sold, stock, pct, days };
+    }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+    if (!window._turnoverCache) window._turnoverCache = {};
+    window._turnoverCache[bodyId] = { rows, drillType: 'style' };
+    renderRows(rows, bodyId, 'style', false);
+  };
+
   buildRows(data.supplierSales, data.supplierStock, 'name',     'rptTurnoverPartyBody', 'supplier');
   buildRows(data.topCategories, data.categoryStock, 'category', 'rptTurnoverCatBody',   'category');
+  buildStyleRows(data.supplierStyleSales || [], data.supplierStyleStock || []);
 }
 
 function expandTurnoverTable(bodyId) {
@@ -4519,10 +4578,13 @@ function expandTurnoverTable(bodyId) {
   if (!cache) return;
   const body = document.getElementById(bodyId);
   if (!body) return;
-  body.innerHTML = cache.rows.map((r, i) => _turnoverRowHtml(r, i, cache.drillType)).join('');
+  const rowFn = bodyId === 'rptTurnoverStyleBody'
+    ? (r, i) => _turnoverStyleRowHtml(r, i)
+    : (r, i) => _turnoverRowHtml(r, i, cache.drillType);
+  body.innerHTML = cache.rows.map((r, i) => rowFn(r, i)).join('');
 }
 
-async function showTurnoverDetail(key, drillType, sold, stock, str, days) {
+async function showTurnoverDetail(key, drillType, sold, stock, pct, days) {
   let modal = document.getElementById('imsTurnoverModal');
   if (!modal) {
     modal = document.createElement('div');
@@ -4532,7 +4594,7 @@ async function showTurnoverDetail(key, drillType, sold, stock, str, days) {
       <div style="padding:20px 24px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0">
         <div>
           <div id="imsToTitle" style="font-size:16px;font-weight:800;color:#1e293b"></div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:3px">Stock Turnover Analysis</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:3px">Stock Movement Analysis</div>
         </div>
         <button onclick="document.getElementById('imsTurnoverModal').style.display='none'" style="background:#f1f5f9;border:none;font-size:15px;cursor:pointer;color:#64748b;padding:6px 10px;border-radius:8px;margin-left:12px;flex-shrink:0">✕</button>
       </div>
@@ -4544,54 +4606,72 @@ async function showTurnoverDetail(key, drillType, sold, stock, str, days) {
   document.getElementById('imsToTitle').textContent = key;
   modal.style.display = 'flex';
 
-  // Build reason
-  const strDisp = str === null ? '—' : str === 999 ? '∞' : Number(str).toFixed(2);
+  const total    = sold + stock;
+  const pctDisp  = pct === null ? '—' : (stock === 0 && sold > 0 ? '100%' : pct + '%');
   const daysDisp = days === null ? '—' : days === 0 ? 'Cleared' : `${days} days`;
+  const pctColor = pct === null ? '#94a3b8' : pct >= 75 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#ef4444';
+
   let accentColor, reasonHtml;
-  if (str === null) {
+  if (pct === null) {
     accentColor = '#94a3b8';
     reasonHtml = `<div style="font-weight:800;color:#1e293b;margin-bottom:5px">No activity in selected period</div>
       <div style="color:#64748b;font-size:12px;line-height:1.7">This vendor has no sales and no stock data in the selected date range.</div>`;
-  } else if (str === 999 || stock === 0) {
+  } else if (stock === 0 && sold > 0) {
     accentColor = '#10b981';
     reasonHtml = `<div style="font-weight:800;color:#15803d;margin-bottom:5px">✅ Stock completely cleared</div>
-      <div style="color:#475569;font-size:12px;line-height:1.7">Sold <b>${Number(sold).toLocaleString('en-IN')}</b> units with <b>0 remaining stock</b>. STR = ∞ because Sales ÷ Stock = ${sold} ÷ 0.</div>
-      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Demand exists — consider restocking this vendor to avoid lost sales.</div>`;
-  } else if (str >= 2) {
+      <div style="color:#475569;font-size:12px;line-height:1.7">Purchased <b>${Number(total).toLocaleString('en-IN')}</b> units → Sold <b>${Number(sold).toLocaleString('en-IN')}</b> → Remaining <b>0</b>. <b>100% stock sold</b> — fully cleared.</div>
+      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Great demand — consider restocking this vendor to avoid missed sales.</div>`;
+  } else if (pct >= 75) {
     accentColor = '#10b981';
     reasonHtml = `<div style="font-weight:800;color:#15803d;margin-bottom:5px">🚀 Fast moving stock</div>
-      <div style="color:#475569;font-size:12px;line-height:1.7">Sold <b>${Number(sold).toLocaleString('en-IN')}</b> units vs <b>${Number(stock).toLocaleString('en-IN')}</b> in stock. STR = ${strDisp} — selling <b>${strDisp}× faster</b> than current stock. At this rate, stock clears in <b>~${days} days</b>.</div>
-      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 High demand — consider increasing order quantity to avoid stockout.</div>`;
-  } else if (str >= 0.5) {
+      <div style="color:#475569;font-size:12px;line-height:1.7">Purchased <b>${Number(total).toLocaleString('en-IN')}</b> units → Sold <b>${Number(sold).toLocaleString('en-IN')}</b> (<b>${pct}% sold</b>) → Remaining <b>${Number(stock).toLocaleString('en-IN')}</b>. At current rate, remaining stock clears in <b>~${days} days</b>.</div>
+      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 High demand — consider increasing order quantity for this vendor.</div>`;
+  } else if (pct >= 40) {
     accentColor = '#f59e0b';
-    reasonHtml = `<div style="font-weight:800;color:#a16207;margin-bottom:5px">⚡ Moderate movement</div>
-      <div style="color:#475569;font-size:12px;line-height:1.7">Sold <b>${Number(sold).toLocaleString('en-IN')}</b> units vs <b>${Number(stock).toLocaleString('en-IN')}</b> in stock. STR = ${strDisp}. Stock clears in <b>~${days} days</b> at current rate.</div>
-      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Monitor this vendor — targeted promotions could convert it to Fast mover.</div>`;
+    reasonHtml = `<div style="font-weight:800;color:#a16207;margin-bottom:5px">⚡ Medium moving stock</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">Purchased <b>${Number(total).toLocaleString('en-IN')}</b> units → Sold <b>${Number(sold).toLocaleString('en-IN')}</b> (<b>${pct}% sold</b>) → Remaining <b>${Number(stock).toLocaleString('en-IN')}</b>. Stock will clear in <b>~${days} days</b> at current rate.</div>
+      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Moderate demand — targeted promotions could push this to Fast category.</div>`;
   } else {
     accentColor = '#ef4444';
     reasonHtml = `<div style="font-weight:800;color:#dc2626;margin-bottom:5px">🐢 Slow moving stock</div>
-      <div style="color:#475569;font-size:12px;line-height:1.7">Only sold <b>${Number(sold).toLocaleString('en-IN')}</b> units against <b>${Number(stock).toLocaleString('en-IN')}</b> in stock. STR = ${strDisp} — very low velocity. Stock takes <b>~${days} days</b> to clear.</div>
-      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Action needed — consider discounts, promotions, or reducing future orders from this vendor.</div>`;
+      <div style="color:#475569;font-size:12px;line-height:1.7">Purchased <b>${Number(total).toLocaleString('en-IN')}</b> units → Only sold <b>${Number(sold).toLocaleString('en-IN')}</b> (<b>${pct}% sold</b>) → Remaining <b>${Number(stock).toLocaleString('en-IN')}</b>. At this rate, stock takes <b>~${days} days</b> to clear — very slow.</div>
+      <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Action needed — run promotions, offer discounts, or reduce future orders from this vendor.</div>`;
   }
+
+  // % sold visual bar
+  const barPct = pct === null ? 0 : Math.min(pct, 100);
+  const barColor = pct === null ? '#e2e8f0' : pct >= 75 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#ef4444';
 
   document.getElementById('imsToBody').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+      <div style="background:#eef2ff;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">PURCHASED</div>
+        <div style="font-size:22px;font-weight:800;color:#4f46e5">${Number(total).toLocaleString('en-IN')}</div>
+        <div style="font-size:9px;color:#94a3b8;margin-top:2px">Sold + Stock</div>
+      </div>
       <div style="background:#f0fdf4;border-radius:10px;padding:14px;text-align:center">
-        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">SALES QTY</div>
-        <div style="font-size:24px;font-weight:800;color:#10b981">${Number(sold).toLocaleString('en-IN')}</div>
+        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">SOLD</div>
+        <div style="font-size:22px;font-weight:800;color:#10b981">${Number(sold).toLocaleString('en-IN')}</div>
       </div>
       <div style="background:#eff6ff;border-radius:10px;padding:14px;text-align:center">
-        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">STOCK QTY</div>
-        <div style="font-size:24px;font-weight:800;color:#3b82f6">${Number(stock).toLocaleString('en-IN')}</div>
-      </div>
-      <div style="background:#f5f3ff;border-radius:10px;padding:14px;text-align:center">
-        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">STR</div>
-        <div style="font-size:24px;font-weight:800;color:#7c3aed">${strDisp}</div>
-        <div style="font-size:9px;color:#94a3b8;margin-top:2px">Sales ÷ Stock</div>
+        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">REMAINING</div>
+        <div style="font-size:22px;font-weight:800;color:#3b82f6">${Number(stock).toLocaleString('en-IN')}</div>
       </div>
       <div style="background:#fffbeb;border-radius:10px;padding:14px;text-align:center">
         <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">DAYS TO CLEAR</div>
-        <div style="font-size:24px;font-weight:800;color:#f59e0b">${daysDisp}</div>
+        <div style="font-size:22px;font-weight:800;color:#f59e0b">${daysDisp}</div>
+      </div>
+    </div>
+    <div style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700;color:#475569">% Sold</span>
+        <span style="font-size:18px;font-weight:800;color:${pctColor}">${pctDisp}</span>
+      </div>
+      <div style="background:#f1f5f9;border-radius:99px;height:10px;overflow:hidden">
+        <div style="width:${barPct}%;background:${barColor};height:100%;border-radius:99px;transition:width .4s"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:#94a3b8">
+        <span>0%</span><span style="color:#f59e0b">40%</span><span style="color:#10b981">75%</span><span>100%</span>
       </div>
     </div>
     <div style="background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:20px;border-left:4px solid ${accentColor}">
