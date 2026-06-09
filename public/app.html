@@ -1373,8 +1373,10 @@ tbody tr:last-child td{border-bottom:none;}
 
           <!-- ── Supplier Table ── -->
           <div style="margin-bottom:32px">
-            <div style="font-size:15px;font-weight:800;color:#1e293b;margin-bottom:12px;display:flex;align-items:center;gap:8px">
-              🏭 <span>Supplier Performance</span>
+            <div style="font-size:15px;font-weight:800;color:#1e293b;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <span style="display:flex;align-items:center;gap:8px">🏭 <span>Supplier Performance</span></span>
+              <input id="turnoverSupSearch" type="text" placeholder="🔍 Search supplier..." oninput="_turnoverSearch('turnoverSupSearch','rptTurnoverSupplierBody')"
+                style="border:1px solid #c7d2fe;border-radius:8px;padding:6px 12px;font-size:13px;color:#1e293b;outline:none;width:220px;background:#f8f8ff">
             </div>
             <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
               <table style="width:100%;border-collapse:collapse"><thead><tr>
@@ -1394,8 +1396,10 @@ tbody tr:last-child td{border-bottom:none;}
 
           <!-- ── Item / Style Table ── -->
           <div>
-            <div style="font-size:15px;font-weight:800;color:#1e293b;margin-bottom:12px;display:flex;align-items:center;gap:8px">
-              🎯 <span>Item / Style Performance</span>
+            <div style="font-size:15px;font-weight:800;color:#1e293b;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <span style="display:flex;align-items:center;gap:8px">🎯 <span>Item / Style Performance</span></span>
+              <input id="turnoverItemSearch" type="text" placeholder="🔍 Search style/item..." oninput="_turnoverSearch('turnoverItemSearch','rptTurnoverItemBody')"
+                style="border:1px solid #c7d2fe;border-radius:8px;padding:6px 12px;font-size:13px;color:#1e293b;outline:none;width:220px;background:#f8f8ff">
             </div>
             <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
               <table style="width:100%;border-collapse:collapse"><thead><tr>
@@ -4425,6 +4429,18 @@ function renderRptSupplierStock(items) { _rptStockTable('rptSupStockBody', items
 function renderRptStockCat(items)      { _rptStockTable('rptStockCatBody', items, 'category'); renderChartDoughnut('rptChart-stockcat',     'stockcat',      items.slice(0,12), 'category','value', lbl => showDrilldown('stock_category', lbl)); }
 
 // % Sold = sold / (sold + stock) * 100
+function _turnoverSearch(inputId, bodyId) {
+  const q = (document.getElementById(inputId)?.value || '').trim().toLowerCase();
+  const tbody = document.getElementById(bodyId);
+  if (!tbody) return;
+  const rows = tbody.querySelectorAll('tr');
+  rows.forEach(tr => {
+    const firstCell = tr.querySelector('td:nth-child(2)');
+    if (!firstCell) { tr.style.display = ''; return; }
+    tr.style.display = (!q || firstCell.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
 // FAST >= 75%, MEDIUM 40-74%, SLOW < 40%, CLEARED = stock 0 & sold > 0
 function _turnoverPct(sold, stock) {
   const total = sold + stock;
