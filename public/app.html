@@ -6,6 +6,7 @@
 <title>Task Manager</title>
 <link rel="icon" type="image/jpeg" href="/logo.jpeg"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -1026,13 +1027,18 @@ tbody tr:last-child td{border-bottom:none;}
       .rpt-scroll::-webkit-scrollbar-thumb { background:#c7d2fe;border-radius:3px; }
       .rpt-scroll::-webkit-scrollbar-thumb:hover { background:#a5b4fc; }
 
-      /* ── Date inputs ── */
+      /* ── Date inputs (flatpickr) ── */
       #rptFrom,#rptTo {
         background:transparent;border:none;outline:none;
-        color:#0f172a;font-size:12px;font-weight:500;cursor:pointer;
+        color:#0f172a;font-size:12px;font-weight:600;cursor:pointer;width:90px;
       }
-      #rptFrom::-webkit-calendar-picker-indicator,
-      #rptTo::-webkit-calendar-picker-indicator { cursor:pointer;opacity:.45; }
+      .flatpickr-calendar { font-family:'Inter',sans-serif!important; }
+      .flatpickr-day.selected,.flatpickr-day.selected:hover { background:#4f46e5!important;border-color:#4f46e5!important; }
+      .flatpickr-day.inRange { background:#eef2ff!important;border-color:#eef2ff!important; }
+      .flatpickr-months .flatpickr-month { background:#4f46e5!important; }
+      .flatpickr-current-month,.flatpickr-monthDropdown-months { color:#fff!important; }
+      .flatpickr-weekday { color:#4f46e5!important;font-weight:700!important; }
+      .numInputWrapper span { border-color:rgba(255,255,255,.3)!important; }
 
       /* ── Table wrapper ── */
       .rpt-table-wrap { border:1px solid #eef2ff;border-radius:13px;overflow:hidden; }
@@ -1098,10 +1104,10 @@ tbody tr:last-child td{border-bottom:none;}
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <div style="display:flex;align-items:center;gap:7px;background:#fafbff;border:1.5px solid #e8ecf8;border-radius:10px;padding:8px 14px">
                 <span style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:.08em">FROM</span>
-                <input type="date" id="rptFrom" onchange="loadImsReports()">
+                <input type="text" id="rptFrom" placeholder="DD-Mon-YY" readonly style="width:82px">
                 <span style="color:#e8ecf8;font-size:16px;line-height:1">·</span>
                 <span style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:.08em">TO</span>
-                <input type="date" id="rptTo" onchange="loadImsReports()">
+                <input type="text" id="rptTo" placeholder="DD-Mon-YY" readonly style="width:82px">
               </div>
               <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">Reset</button>
               <button class="rpt-btn-pdf" onclick="rptExportPDF()" style="padding:9px 17px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px rgba(239,68,68,.28);display:flex;align-items:center;gap:5px;transition:all .18s">🖨 PDF</button>
@@ -4016,7 +4022,7 @@ function setImsView(view) {
     btn.style.boxShadow = active ? '0 3px 10px rgba(79,70,229,.3)' : 'none';
   });
   localStorage.setItem('imsActiveView', view);
-  if (view === 'reports') switchRptTab(_activeRptTab || 'sales');
+  if (view === 'reports') { _initRptDatepickers(); switchRptTab(_activeRptTab || 'sales'); }
 }
 
 // ── IMS Reports ─────────────────────────────────────────────
@@ -4059,12 +4065,35 @@ function switchRptTab(tab) {
   loadImsReports();
 }
 
+let _fpFrom = null, _fpTo = null;
+
+function _initRptDatepickers(cb) {
+  if (_fpFrom) { if (cb) cb(); return; }
+  const load = (src, onload) => { const s = document.createElement('script'); s.src = src; s.onload = onload; document.head.appendChild(s); };
+  load('https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js', () => {
+    const opts = (otherId, onChange) => ({
+      dateFormat: 'Y-m-d',
+      altInput: true,
+      altFormat: 'd-M-y',
+      allowInput: false,
+      disableMobile: true,
+      onChange: () => { if (onChange) onChange(); loadImsReports(); }
+    });
+    _fpFrom = flatpickr('#rptFrom', opts('#rptTo'));
+    _fpTo   = flatpickr('#rptTo',   opts('#rptFrom'));
+    // style the alt inputs to match original design
+    document.querySelectorAll('#rptFrom + .flatpickr-input, #rptTo + .flatpickr-input, .flatpickr-input.form-control').forEach(el => {
+      el.style.cssText = 'background:transparent;border:none;outline:none;color:#0f172a;font-size:12px;font-weight:600;cursor:pointer;width:82px;font-family:inherit';
+    });
+    if (cb) cb();
+  });
+}
+
 function resetRptFilter() {
-  const f = document.getElementById('rptFrom');
-  const t = document.getElementById('rptTo');
-  if (f) f.value = '';
-  if (t) t.value = '';
   document.querySelectorAll('.rpt-preset-btn').forEach(b => b.classList.remove('active'));
+  if (_fpFrom) _fpFrom.clear();
+  if (_fpTo)   _fpTo.clear();
+  else { const f=document.getElementById('rptFrom'),t=document.getElementById('rptTo'); if(f)f.value=''; if(t)t.value=''; }
   loadImsReports();
 }
 
@@ -4079,14 +4108,18 @@ function setRptPreset(preset) {
   else if (preset === 'lastmonth') { const d = new Date(now.getFullYear(), now.getMonth()-1, 1); const last = new Date(now.getFullYear(), now.getMonth(), 0); from = fmt(d); to = fmt(last); }
   else if (preset === 'quarter') { const q = Math.floor(now.getMonth()/3); from = now.getFullYear() + '-' + pad(q*3+1) + '-01'; }
   else if (preset === 'year') { from = now.getFullYear() + '-01-01'; }
-  const f = document.getElementById('rptFrom');
-  const t = document.getElementById('rptTo');
-  if (f) f.value = from || '';
-  if (t) t.value = to || '';
   document.querySelectorAll('.rpt-preset-btn').forEach(b => b.classList.remove('active'));
   const labels = {today:'Today',week:'This Week',month:'This Month',lastmonth:'Last Month',quarter:'This Quarter',year:'This Year'};
   document.querySelectorAll('.rpt-preset-btn').forEach(b => { if (b.textContent.trim() === (labels[preset]||'')) b.classList.add('active'); });
-  loadImsReports();
+  if (_fpFrom && _fpTo) {
+    _fpFrom.setDate(from || '', false);
+    _fpTo.setDate(to || '', false);
+    loadImsReports();
+  } else {
+    const f=document.getElementById('rptFrom'),t=document.getElementById('rptTo');
+    if(f)f.value=from||''; if(t)t.value=to||'';
+    loadImsReports();
+  }
 }
 
 async function loadImsReports() {
