@@ -2779,8 +2779,10 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const skuSales = sortAmt(Object.entries(bySKU).map(([sku,d]) => ({ sku, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) })));
 
     // ── SP Analytics: current period + Last Year same period ──────────────────
-    const lyFrom = fromDate ? new Date(fromDate.getFullYear()-1, fromDate.getMonth(), fromDate.getDate()) : null;
-    const lyTo   = toDate   ? (() => { const d=new Date(toDate); d.setFullYear(d.getFullYear()-1); return d; })() : null;
+    // LY comparison is only meaningful when a date filter is applied
+    const hasDateFilter = !!(fromDate || toDate);
+    const lyFrom = (hasDateFilter && fromDate) ? new Date(fromDate.getFullYear()-1, fromDate.getMonth(), fromDate.getDate()) : null;
+    const lyTo   = (hasDateFilter && toDate)   ? (() => { const d=new Date(toDate); d.setFullYear(d.getFullYear()-1); return d; })() : null;
     const bySPcur={}, bySPly={}, byMoncur={}, byMonLY={};
     let lyTotQty=0, lyTotAmt=0;
     const lyXns = new Set();
@@ -2792,7 +2794,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const d = parseSheetDate(dateStr);
       if (!d) return;
       const isCur = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
-      const isLY  = (!lyFrom   || d >= lyFrom)   && (!lyTo   || d <= lyTo);
+      const isLY  = hasDateFilter && (!lyFrom || d >= lyFrom) && (!lyTo || d <= lyTo);
       if (!isCur && !isLY) return;
       const qty  = getNum(row, oNetQty);
       const amt  = getNum(row, oNetAmt);
@@ -2867,6 +2869,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       supplierStock,
       categoryStock,
       spAnalytics: {
+        hasDateFilter,
         summary: { curUPT, lyUPT, uptGrowth:pct(curUPT,lyUPT), curATV, lyATV, atvGrowth:pct(curATV,lyATV),
                    curBills:curBillsTot, lyBills:lyBillsTot, billsGrowth:pct(curBillsTot,lyBillsTot),
                    curQty:r2(totalQty), lyQty:r2(lyTotQty), curAmount:Math.round(totalAmt), lyAmount:Math.round(lyTotAmt) },

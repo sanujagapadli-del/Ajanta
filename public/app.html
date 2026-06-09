@@ -1093,17 +1093,20 @@ tbody tr:last-child td{border-bottom:none;}
               <div id="rptSubtitle" style="font-size:11px;color:#94a3b8;margin-top:5px;padding-left:18px;letter-spacing:.025em">All Data</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <div style="display:flex;align-items:center;gap:7px;background:#fafbff;border:1.5px solid #e8ecf8;border-radius:10px;padding:8px 14px">
+              <div style="display:flex;align-items:center;gap:6px">
                 <span style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:.08em">FROM</span>
-                <div style="position:relative;display:inline-flex;align-items:center">
-                  <span id="rptFromLbl" style="font-size:12px;font-weight:600;color:#94a3b8;pointer-events:none;min-width:68px;display:inline-block">All dates</span>
-                  <input type="date" id="rptFrom" onchange="_rptDateChange()" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;border:none;outline:none;font-size:12px">
+                <div style="position:relative;display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;cursor:pointer">
+                  <span id="rptFromLbl" style="font-size:12px;font-weight:500;color:#9ca3af;pointer-events:none;min-width:50px;display:inline-block">--/--/--</span>
+                  <svg style="pointer-events:none;flex-shrink:0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <input type="date" id="rptFrom" onchange="_rptDateChange()" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;border:none;outline:none">
                 </div>
-                <span style="color:#e8ecf8;font-size:16px;line-height:1">·</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
                 <span style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:.08em">TO</span>
-                <div style="position:relative;display:inline-flex;align-items:center">
-                  <span id="rptToLbl" style="font-size:12px;font-weight:600;color:#94a3b8;pointer-events:none;min-width:68px;display:inline-block">All dates</span>
-                  <input type="date" id="rptTo" onchange="_rptDateChange()" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;border:none;outline:none;font-size:12px">
+                <div style="position:relative;display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;cursor:pointer">
+                  <span id="rptToLbl" style="font-size:12px;font-weight:500;color:#9ca3af;pointer-events:none;min-width:50px;display:inline-block">--/--/--</span>
+                  <svg style="pointer-events:none;flex-shrink:0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <input type="date" id="rptTo" onchange="_rptDateChange()" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;border:none;outline:none">
                 </div>
               </div>
               <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">Reset</button>
@@ -4039,7 +4042,8 @@ const RPT_TABS = {
   citystate:    'City / State wise Sales',
   stocksummary: 'Current Stock Summary',
   supplierstock:'Supplier-wise Stock Value',
-  stockcat:     'Stock by Category'
+  stockcat:     'Stock by Category',
+  turnover:     'Stock Turnover'
 };
 // Tabs that use date filter (sales-based); stock tabs ignore it
 const RPT_SALES_TABS = new Set(['sales','cat','supplier','sp','spanalytics','citystate']);
@@ -4064,17 +4068,16 @@ function switchRptTab(tab) {
 
 function _rptFmtDate(val) {
   if (!val) return null;
-  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const [y,m,d] = val.split('-');
-  return `${d}-${M[+m-1]}-${y.slice(2)}`;
+  return `${d}/${m}/${y.slice(2)}`;
 }
 function _rptDateChange() {
   const fv = document.getElementById('rptFrom').value;
   const tv = document.getElementById('rptTo').value;
   const fl = document.getElementById('rptFromLbl');
   const tl = document.getElementById('rptToLbl');
-  if (fl) { const fmt = _rptFmtDate(fv); fl.textContent = fmt || 'All dates'; fl.style.color = fmt ? '#0f172a' : '#94a3b8'; }
-  if (tl) { const fmt = _rptFmtDate(tv); tl.textContent = fmt || 'All dates'; tl.style.color = fmt ? '#0f172a' : '#94a3b8'; }
+  if (fl) { const fmt = _rptFmtDate(fv); fl.textContent = fmt || '--/--/--'; fl.style.color = fmt ? '#111827' : '#9ca3af'; }
+  if (tl) { const fmt = _rptFmtDate(tv); tl.textContent = fmt || '--/--/--'; tl.style.color = fmt ? '#111827' : '#9ca3af'; }
   loadImsReports();
 }
 function _setRptDate(fromVal, toVal) {
@@ -4479,24 +4482,35 @@ function expandTurnoverTable(bodyId) {
 // ══════════════════════════════════════════════════════
 function renderRptSPAnalytics(data) {
   if (!data) return;
-  const { summary, spTable, monthlyCmp } = data;
+  const { summary, spTable, monthlyCmp, hasDateFilter } = data;
   const s = summary || {};
   const el = id => document.getElementById(id);
   const gSign = v => v === null ? '—' : (v >= 0 ? '+' : '') + v + '%';
   const gColor = v => v === null ? '#94a3b8' : v >= 0 ? '#10b981' : '#ef4444';
+  const NA = '—';
 
-  if (el('saUPT'))    el('saUPT').textContent    = s.curUPT ?? '—';
-  if (el('saLYUPT'))  el('saLYUPT').textContent  = s.lyUPT  ?? '—';
-  if (el('saUPTG'))   { el('saUPTG').textContent = gSign(s.uptGrowth); el('saUPTG').style.color = gColor(s.uptGrowth); }
+  // Summary cards
+  if (el('saUPT'))    el('saUPT').textContent    = s.curUPT ?? NA;
+  if (el('saLYUPT'))  el('saLYUPT').textContent  = hasDateFilter ? (s.lyUPT ?? NA) : NA;
+  if (el('saUPTG'))   { el('saUPTG').textContent = hasDateFilter ? gSign(s.uptGrowth) : NA; el('saUPTG').style.color = hasDateFilter ? gColor(s.uptGrowth) : '#94a3b8'; }
   if (el('saATV'))    el('saATV').textContent    = fmtINR(s.curATV);
-  if (el('saLYATV'))  el('saLYATV').textContent  = fmtINR(s.lyATV);
-  if (el('saATVG'))   { el('saATVG').textContent = gSign(s.atvGrowth); el('saATVG').style.color = gColor(s.atvGrowth); }
+  if (el('saLYATV'))  el('saLYATV').textContent  = hasDateFilter ? fmtINR(s.lyATV) : NA;
+  if (el('saATVG'))   { el('saATVG').textContent = hasDateFilter ? gSign(s.atvGrowth) : NA; el('saATVG').style.color = hasDateFilter ? gColor(s.atvGrowth) : '#94a3b8'; }
   if (el('saBills'))  el('saBills').textContent  = (s.curBills||0).toLocaleString('en-IN');
-  if (el('saLYBills'))el('saLYBills').textContent= (s.lyBills||0).toLocaleString('en-IN');
-  if (el('saBillsG')) { el('saBillsG').textContent = gSign(s.billsGrowth); el('saBillsG').style.color = gColor(s.billsGrowth); }
+  if (el('saLYBills'))el('saLYBills').textContent= hasDateFilter ? (s.lyBills||0).toLocaleString('en-IN') : NA;
+  if (el('saBillsG')) { el('saBillsG').textContent = hasDateFilter ? gSign(s.billsGrowth) : NA; el('saBillsG').style.color = hasDateFilter ? gColor(s.billsGrowth) : '#94a3b8'; }
 
   // Monthly comparison chart
-  if (monthlyCmp && monthlyCmp.length) {
+  const chartWrap = document.getElementById('rptChart-spmonthly');
+  if (!hasDateFilter) {
+    _destroyChart('spmonthly');
+    if (chartWrap) {
+      const wrap = chartWrap.parentElement;
+      if (wrap) wrap.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:120px;color:#94a3b8;font-size:13px;background:#f8fafc;border-radius:10px;border:1.5px dashed #e2e8f0">
+        📅 Last Year comparison ke liye <strong style="margin:0 5px;color:#4f46e5">Date Range select karo</strong> (e.g. This Year)
+      </div>`;
+    }
+  } else if (monthlyCmp && monthlyCmp.length) {
     const labels  = monthlyCmp.map(m => m.month);
     const curAmts = monthlyCmp.map(m => m.curAmt);
     const lyAmts  = monthlyCmp.map(m => m.lyAmt);
@@ -4534,23 +4548,23 @@ function renderRptSPAnalytics(data) {
   const renderSPRows = (rows, showAll) => {
     const visible = showAll ? rows : rows.slice(0, 10);
     const rowsHtml = visible.map((r, i) => {
-      const uptG = r.uptGrowth === null ? '—' : (r.uptGrowth >= 0 ? '+' : '') + r.uptGrowth + '%';
-      const atvG = r.atvGrowth === null ? '—' : (r.atvGrowth >= 0 ? '+' : '') + r.atvGrowth + '%';
+      const uptG = !hasDateFilter ? NA : r.uptGrowth === null ? NA : (r.uptGrowth >= 0 ? '+' : '') + r.uptGrowth + '%';
+      const atvG = !hasDateFilter ? NA : r.atvGrowth === null ? NA : (r.atvGrowth >= 0 ? '+' : '') + r.atvGrowth + '%';
       const gc = v => v === null ? '#94a3b8' : v >= 0 ? '#10b981' : '#ef4444';
       return `<tr class="${i%2?'rpt-tr-even':''}">
         <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
         <td class="rpt-td" style="font-weight:700;font-family:monospace">${r.name}</td>
         <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.bills}</td>
-        <td class="rpt-td" style="text-align:right;color:#94a3b8">${r.lyBills}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${hasDateFilter ? r.lyBills : NA}</td>
         <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${r.qty}</td>
-        <td class="rpt-td" style="text-align:right;color:#94a3b8">${r.lyQty}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${hasDateFilter ? r.lyQty : NA}</td>
         <td class="rpt-td" style="text-align:right;font-weight:700">${fmtINR(r.amount)}</td>
-        <td class="rpt-td" style="text-align:right;color:#94a3b8">${fmtINR(r.lyAmount)}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${hasDateFilter ? fmtINR(r.lyAmount) : NA}</td>
         <td class="rpt-td" style="text-align:right;color:#4f46e5;font-weight:800">${r.upt}</td>
-        <td class="rpt-td" style="text-align:right;color:#94a3b8">${r.lyUpt}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${hasDateFilter ? r.lyUpt : NA}</td>
         <td class="rpt-td" style="text-align:right;font-weight:700;color:${gc(r.uptGrowth)}">${uptG}</td>
         <td class="rpt-td" style="text-align:right;color:#f59e0b;font-weight:700">${fmtINR(r.atv)}</td>
-        <td class="rpt-td" style="text-align:right;color:#94a3b8">${fmtINR(r.lyAtv)}</td>
+        <td class="rpt-td" style="text-align:right;color:#94a3b8">${hasDateFilter ? fmtINR(r.lyAtv) : NA}</td>
         <td class="rpt-td" style="text-align:right;font-weight:700;color:${gc(r.atvGrowth)}">${atvG}</td>
       </tr>`;
     }).join('');
