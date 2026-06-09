@@ -2714,7 +2714,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const sku  = oSKU >= 0 ? ((row[oSKU]||'').trim() || 'Unknown') : null;
       const csKey= city + '||' + state;
       const ssKey= sup + '||' + sty;
-      if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, qty: 0 };
+      if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0 };
       bySupStyleSales[ssKey].qty += qty;
       if (!byStyleSales[sty]) byStyleSales[sty] = { qty: 0 };
       byStyleSales[sty].qty += qty;
@@ -2772,7 +2772,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const cat  = (row[iCategory]||'').trim() || 'Unknown';
       const sty  = iStyle >= 0 ? ((row[iStyle]||'').trim() || 'Unknown') : 'Unknown';
       const ssKey= sup + '||' + sty;
-      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, qty: 0 };
+      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0 };
       bySupStyleStock[ssKey].qty += getNum(row, iOpsQty);
       if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0 };
       byStyleStock[sty].qty += getNum(row, iOpsQty);
@@ -2882,8 +2882,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       currentStock: { totalItems: Math.max(0, inRows.length-1), totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue) },
       supplierStock,
       categoryStock,
-      supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, qty: r2(d.qty) })),
-      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, qty: r2(d.qty) })),
+      supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),
+      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),
       styleSales: Object.entries(byStyleSales).map(([style, d]) => ({ style, qty: r2(d.qty) })),
       styleStock: Object.entries(byStyleStock).map(([style, d]) => ({ style, qty: r2(d.qty) })),
       spAnalytics: {
@@ -3021,7 +3021,8 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
         return true;
       }).slice(0, 500).map(row => ({
         date: row[oDate]||'', bill: row[oXn]||'',
-        category: row[oCat]||'', supplier: row[oSup]||'', salesperson: row[oSP]||'',
+        category: row[oCat]||'', style: oSty >= 0 ? (row[oSty]||'') : '',
+        supplier: row[oSup]||'', salesperson: row[oSP]||'',
         qty: getNum(row, oQty), amount: getNum(row, oAmt)
       }));
       return res.json({ rows, type, value });
