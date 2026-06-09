@@ -1028,14 +1028,16 @@ tbody tr:last-child td{border-bottom:none;}
       .rpt-scroll::-webkit-scrollbar-thumb { background:#c7d2fe;border-radius:3px; }
       .rpt-scroll::-webkit-scrollbar-thumb:hover { background:#a5b4fc; }
 
-      /* ── Date picker inputs ── */
-      .rpt-fp-input,.flatpickr-input.flatpickr-alt-input {
-        border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;
-        font-size:12px;font-weight:500;color:#374151;background:#fff;
-        cursor:pointer;width:74px;outline:none;font-family:'Inter',sans-serif;
-      }
-      .rpt-fp-input::placeholder,.flatpickr-input.flatpickr-alt-input::placeholder { color:#9ca3af; }
-      .flatpickr-input.flatpickr-alt-input:focus { border-color:#6366f1;box-shadow:0 0 0 2px rgba(99,102,241,.12); }
+      /* ── Date range picker ── */
+      .rpt-fp-range { border:1px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:500;color:#374151;background:#fff;cursor:pointer;width:190px;outline:none;font-family:'Inter',sans-serif; }
+      .rpt-fp-range::placeholder { color:#9ca3af; }
+      .rpt-fp-range:focus { border-color:#6366f1;box-shadow:0 0 0 2px rgba(99,102,241,.12); }
+      /* Range highlight */
+      .flatpickr-day.inRange { background:#eef2ff;border-color:#c7d2fe;box-shadow:-5px 0 0 #eef2ff,5px 0 0 #eef2ff; }
+      .flatpickr-day.startRange,.flatpickr-day.endRange { background:#4f46e5;border-color:#4f46e5;color:#fff; }
+      .flatpickr-day.startRange { border-radius:6px 0 0 6px; }
+      .flatpickr-day.endRange   { border-radius:0 6px 6px 0; }
+      .flatpickr-day.startRange.endRange { border-radius:6px; }
       /* Flatpickr calendar theme – indigo */
       .flatpickr-calendar { border-radius:12px;border:1.5px solid #e0e7ff;box-shadow:0 8px 32px rgba(79,70,229,.18);font-family:'Inter',sans-serif; }
       .flatpickr-months { background:#4f46e5;border-radius:10px 10px 0 0; }
@@ -1112,14 +1114,9 @@ tbody tr:last-child td{border-bottom:none;}
               <div id="rptSubtitle" style="font-size:11px;color:#94a3b8;margin-top:5px;padding-left:18px;letter-spacing:.025em">All Data</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <div style="display:flex;align-items:center;gap:6px">
-                <span style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:.08em">FROM</span>
-                <input type="text" id="rptFrom" class="rpt-fp-input" placeholder="--/--/--" readonly>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px">
-                <span style="font-size:9px;font-weight:800;color:#94a3b8;letter-spacing:.08em">TO</span>
-                <input type="text" id="rptTo" class="rpt-fp-input" placeholder="--/--/--" readonly>
-              </div>
+              <input type="text" id="rptDateRange" class="rpt-fp-range" placeholder="Select date range..." readonly>
+              <input type="hidden" id="rptFrom">
+              <input type="hidden" id="rptTo">
               <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">Reset</button>
               <button class="rpt-btn-pdf" onclick="rptExportPDF()" style="padding:9px 17px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px rgba(239,68,68,.28);display:flex;align-items:center;gap:5px;transition:all .18s">🖨 PDF</button>
               <button class="rpt-btn-csv" onclick="rptExportCSV()" style="padding:9px 17px;background:#fff;color:#475569;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .18s">⬇ CSV</button>
@@ -4078,34 +4075,46 @@ function switchRptTab(tab) {
 }
 
 function _initRptDatepickers() {
-  const onChange = () => loadImsReports();
-  const opts = {
-    dateFormat: 'Y-m-d',
-    altInput: true,
-    altFormat: 'd/m/y',
+  const el = document.getElementById('rptDateRange');
+  if (!el || el._flatpickr) return;
+  const toISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  flatpickr(el, {
+    mode: 'range',
+    dateFormat: 'd/m/y',
     allowInput: false,
     disableMobile: false,
-    onChange,
-  };
-  const f = document.getElementById('rptFrom');
-  const t = document.getElementById('rptTo');
-  if (f && !f._flatpickr) flatpickr(f, opts);
-  if (t && !t._flatpickr) flatpickr(t, opts);
+    onChange: (dates) => {
+      const fEl = document.getElementById('rptFrom');
+      const tEl = document.getElementById('rptTo');
+      if (fEl) fEl.value = dates[0] ? toISO(dates[0]) : '';
+      if (tEl) tEl.value = dates[1] ? toISO(dates[1]) : '';
+      if (dates.length === 2) loadImsReports();
+    },
+    onReady: (_, __, fp) => { fp.calendarContainer.style.fontFamily = "'Inter',sans-serif"; },
+  });
 }
 
 function _setRptDate(fromVal, toVal) {
-  const f = document.getElementById('rptFrom')?._flatpickr;
-  const t = document.getElementById('rptTo')?._flatpickr;
-  if (f) f.setDate(fromVal || null, false);
-  if (t) t.setDate(toVal   || null, false);
+  const fp = document.getElementById('rptDateRange')?._flatpickr;
+  const fEl = document.getElementById('rptFrom');
+  const tEl = document.getElementById('rptTo');
+  if (fEl) fEl.value = fromVal || '';
+  if (tEl) tEl.value = toVal   || '';
+  if (fp) {
+    if (fromVal && toVal) fp.setDate([fromVal, toVal], false);
+    else fp.clear();
+  }
   loadImsReports();
 }
 
 function resetRptFilter() {
   document.querySelectorAll('.rpt-preset-btn').forEach(b => b.classList.remove('active'));
-  const f = document.getElementById('rptFrom')?._flatpickr;
-  const t = document.getElementById('rptTo')?._flatpickr;
-  if (f) f.clear(); if (t) t.clear();
+  const fp = document.getElementById('rptDateRange')?._flatpickr;
+  if (fp) fp.clear();
+  const fEl = document.getElementById('rptFrom');
+  const tEl = document.getElementById('rptTo');
+  if (fEl) fEl.value = '';
+  if (tEl) tEl.value = '';
   loadImsReports();
 }
 
