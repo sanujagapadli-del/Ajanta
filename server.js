@@ -2643,18 +2643,34 @@ app.get('/api/ims-stats', requireAuth, async (req, res) => {
   }
 });
 
+// IMS raw sheet cache — avoids re-fetching on every date change
+const _imsRawCache = { outRows: null, inRows: null, ts: 0 };
+const IMS_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+
 // IMS Reports — all 8 report types from Out Stock + In Stock tabs
 app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-    const { from, to } = req.query;
+    const { from, to, sync } = req.query;
+    const now = Date.now();
+    const needsFresh = sync === 'true' || !_imsRawCache.outRows || (now - _imsRawCache.ts) > IMS_CACHE_TTL_MS;
 
-    // Read both tabs — each is optional (missing tab returns empty rows)
-    const safeGet = (range) => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range })).catch(() => ({ data: { values: [] } }));
-    const [outResp, inResp] = await Promise.all([
-      safeGet("'Out Stock'!A:AH"),
-      safeGet("'In Stock'!A:AH")
-    ]);
+    let outRows, inRows;
+    if (needsFresh) {
+      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+      const safeGet = (range) => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range })).catch(() => ({ data: { values: [] } }));
+      const [outResp, inResp] = await Promise.all([
+        safeGet("'Out Stock'!A:AH"),
+        safeGet("'In Stock'!A:AH")
+      ]);
+      outRows = outResp.data.values || [];
+      inRows  = inResp.data.values  || [];
+      _imsRawCache.outRows = outRows;
+      _imsRawCache.inRows  = inRows;
+      _imsRawCache.ts      = now;
+    } else {
+      outRows = _imsRawCache.outRows;
+      inRows  = _imsRawCache.inRows;
+    }
 
     const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
     function parseSheetDate(str) {
@@ -2674,7 +2690,6 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const toDate   = to   ? (() => { const d = new Date(to); d.setUTCHours(23,59,59,999); return d; })() : null;
 
     // ── OUT STOCK ────────────────────────────────────────────
-    const outRows = outResp.data.values || [];
     const outHeader = outRows.length ? outRows[0].map(h => String(h).trim().toLowerCase()) : [];
 
     const oXnDate    = findC(outHeader, /^xn[\s._-]?date$/i);
@@ -2751,7 +2766,6 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     })));
 
     // ── IN STOCK ─────────────────────────────────────────────
-    const inRows = inResp.data.values || [];
     const inHeader = inRows.length ? inRows[0].map(h => String(h).trim().toLowerCase()) : [];
 
     const iSupplier = findC(inHeader, /^supplier[\s._-]?name$/i);

@@ -1094,7 +1094,7 @@ tbody tr:last-child td{border-bottom:none;}
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <button id="rptSyncBtn" onclick="loadImsReports()"
+          <button id="rptSyncBtn" onclick="loadImsReports(true)"
             style="display:flex;align-items:center;gap:8px;padding:11px 22px;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 18px rgba(79,70,229,.32);white-space:nowrap">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Sync Live Data
@@ -4158,11 +4158,11 @@ function generateUniqueCodes() {
     .catch(() => {});
 }
 
-async function loadImsReports() {
+async function loadImsReports(forceSync) {
   generateUniqueCodes();
   const status  = document.getElementById('rptStatus');
   const syncBtn = document.getElementById('rptSyncBtn');
-  if (status) { status.style.color = '#64748b'; status.textContent = 'Loading…'; }
+  if (status) { status.style.color = '#64748b'; status.textContent = forceSync ? 'Syncing from sheet…' : 'Loading…'; }
   if (syncBtn) { syncBtn.disabled = true; syncBtn.innerHTML = '⟳ Syncing…'; }
 
   const from = (document.getElementById('rptFrom') || {}).value || '';
@@ -4170,6 +4170,7 @@ async function loadImsReports() {
   const params = new URLSearchParams();
   if (from) params.append('from', from);
   if (to)   params.append('to',   to);
+  if (forceSync) params.append('sync', 'true');
 
   const data = await api('/api/ims-reports?' + params.toString());
 
