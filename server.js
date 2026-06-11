@@ -2652,7 +2652,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
     const { from, to, sync } = req.query;
     const now = Date.now();
-    const needsFresh = sync === 'true' || !_imsRawCache.outRows || (now - _imsRawCache.ts) > IMS_CACHE_TTL_MS;
+    const hasCached = _imsRawCache.outRows && _imsRawCache.outRows.length > 1;
+    const needsFresh = sync === 'true' || !hasCached || (now - _imsRawCache.ts) > IMS_CACHE_TTL_MS;
 
     let outRows, inRows;
     if (needsFresh) {
@@ -2664,9 +2665,12 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       ]);
       outRows = outResp.data.values || [];
       inRows  = inResp.data.values  || [];
-      _imsRawCache.outRows = outRows;
-      _imsRawCache.inRows  = inRows;
-      _imsRawCache.ts      = now;
+      // Only cache if we got real data (not empty due to API failure)
+      if (outRows.length > 1) {
+        _imsRawCache.outRows = outRows;
+        _imsRawCache.inRows  = inRows;
+        _imsRawCache.ts      = now;
+      }
     } else {
       outRows = _imsRawCache.outRows;
       inRows  = _imsRawCache.inRows;
@@ -2769,13 +2773,13 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const inHeader = inRows.length ? inRows[0].map(h => String(h).trim().toLowerCase()) : [];
 
     const iSupplier = findC(inHeader, /^supplier[\s._-]?name$/i);
-    const iCostPrice= findC(inHeader, /^cost[\s._-]?price$/i);
-    const iOpsQty   = findC(inHeader, /^ops[\s._-]?qty$/i);
+    const iCostPrice= findC(inHeader, /^cost[\s._-]?price$|^cp$|^unit[\s._-]?price$|^purchase[\s._-]?price$|^rate$/i);
+    const iOpsQty   = findC(inHeader, /^ops?[\s._-]?qty$|^opg[\s._-]?qty$|^opening[\s._-]?(stock[\s._-]?)?qty$|^avail(able)?[\s._-]?qty$|^bal(ance)?[\s._-]?qty$/i);
     const iCategory = findC(inHeader, /^category$/i);
     const iDept     = findC(inHeader, /^department$/i);
     const iStyle    = findC(inHeader, /^style$/i);
 
-    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCategory, iDept, iStyle });
+    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
 
     const bySupStock={}, byCatStock={}, bySupStyleStock={}, byStyleStock={};
     let totalStockQty=0, totalStockValue=0;
@@ -2893,7 +2897,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       salespersons:  ser(bySP, 'name'),
       cityStateSales,
       skuSales,
-      currentStock: { totalItems: Math.max(0, inRows.length-1), totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue) },
+      currentStock: { totalItems: Math.max(0, inRows.length-1), totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue), _inRowCount: inRows.length, _iOpsQty: iOpsQty, _iCostPrice: iCostPrice },
       supplierStock,
       categoryStock,
       supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),

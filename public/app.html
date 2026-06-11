@@ -4175,12 +4175,20 @@ async function loadImsReports(forceSync) {
   const data = await api('/api/ims-reports?' + params.toString());
 
   if (syncBtn) { syncBtn.disabled = false; syncBtn.innerHTML = '⟳ Sync Live Data'; }
-  if (status)  status.textContent = '';
   _lastRptSync = Date.now();
 
   if (!data || data.error) {
     if (status) { status.style.color = '#94a3b8'; status.textContent = 'No data yet — import files first, then sync.'; }
     return;
+  }
+
+  if (status) {
+    const t = new Date(_lastRptSync);
+    const hh = String(t.getHours()).padStart(2,'0');
+    const mm = String(t.getMinutes()).padStart(2,'0');
+    status.style.color = '#10b981';
+    status.textContent = `✓ Updated ${hh}:${mm}`;
+    setTimeout(() => { if (status) { status.style.color = '#64748b'; status.textContent = ''; } }, 3000);
   }
 
   // Update subtitle
@@ -4216,7 +4224,7 @@ function renderRptSummary(s, stock) {
   const rows = s.byDate || [];
   if (countEl) countEl.textContent = rows.length + ' day' + (rows.length !== 1 ? 's' : '');
   if (!body) return;
-  if (!rows.length) { body.innerHTML = '<tr><td colspan="4" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
+  if (!rows.length) { _destroyChart('sales'); body.innerHTML = '<tr><td colspan="4" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
   body.innerHTML = rows.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
     <td class="rpt-td" style="font-weight:600">${r.date}</td>
     <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(r.transactions||0).toLocaleString('en-IN')}</td>
@@ -4230,7 +4238,7 @@ function renderRptSummary(s, stock) {
 function renderRptCategories(cats, showAll) {
   const body = document.getElementById('rptCatBody');
   if (!body) return;
-  if (!cats.length) { body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
+  if (!cats.length) { _destroyChart('cat'); body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
   const grand = cats.reduce((s, c) => s + (c.amount || 0), 0) || 1;
   const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16','#f97316','#6366f1','#ec4899'];
   window._catCache = cats;
@@ -4275,7 +4283,7 @@ function renderRptCategories(cats, showAll) {
 function renderRptSalespersons(sps, showAll) {
   const body = document.getElementById('rptSpBody');
   if (!body) return;
-  if (!sps.length) { body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
+  if (!sps.length) { _destroyChart('sp'); body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
   window._spCache = sps;
   const visible = showAll ? sps : sps.slice(0, 10);
   const rowsHtml = visible.map((s, i) => {
@@ -4313,7 +4321,7 @@ function _rptPctBar(pct, color) {
 function renderRptSupplierSales(items, showAll) {
   const body = document.getElementById('rptSupplierBody');
   if (!body) return;
-  if (!items.length) { body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
+  if (!items.length) { _destroyChart('supplier'); body.innerHTML = '<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
   const grand = items.reduce((s,c) => s+(c.amount||0), 0) || 1;
   const COLORS = ['#7c3aed','#3b82f6','#10b981','#f59e0b','#ef4444','#06b6d4','#84cc16','#f97316','#6366f1','#ec4899'];
 
@@ -4363,7 +4371,7 @@ function expandSupplierSales() {
 function renderRptCityState(items, showAll) {
   const body = document.getElementById('rptCityStateBody');
   if (!body) return;
-  if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
+  if (!items.length) { _destroyChart('citystate'); body.innerHTML = '<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>'; return; }
   window._cityCache = items;
   const visible = showAll ? items : items.slice(0, 10);
   const rowsHtml = visible.map((c, i) => `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click to view transactions"
@@ -4417,9 +4425,29 @@ function renderRptStockSummary(s) {
   setEl('rptStockItems', (s.totalItems||0).toLocaleString('en-IN'));
   setEl('rptStockQty',   (s.totalQty != null ? Number(s.totalQty).toLocaleString('en-IN') : '—'));
   setEl('rptStockValue', fmtINR(s.totalValue));
-  // Doughnut chart using category stock breakdown
-  if (_rptData && _rptData.categoryStock && _rptData.categoryStock.length) {
-    renderChartDoughnut('rptChart-stocksummary', 'stocksummary', _rptData.categoryStock.slice(0,12), 'category', 'value', lbl => showDrilldown('stock_category', lbl));
+  // Debug info — shows in console to help diagnose 0-data issues
+  if (s._inRowCount !== undefined) {
+    console.log('[StockSummary] inRows:', s._inRowCount, '| iOpsQty col:', s._iOpsQty, '| iCostPrice col:', s._iCostPrice);
+  }
+  const cats = (_rptData && _rptData.categoryStock) || [];
+  document.querySelectorAll('.no-stock-msg').forEach(el => el.remove());
+  if (cats.length) {
+    renderChartDoughnut('rptChart-stocksummary', 'stocksummary', cats.slice(0,12), 'category', 'value', lbl => showDrilldown('stock_category', lbl));
+  } else {
+    _destroyChart('stocksummary');
+    const canvas = document.getElementById('rptChart-stocksummary');
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const wrap = canvas.parentElement;
+      if (wrap && !wrap.querySelector('.no-stock-msg')) {
+        const msg = document.createElement('div');
+        msg.className = 'no-stock-msg';
+        msg.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:#94a3b8;font-size:13px;text-align:center';
+        msg.innerHTML = '<div style="font-size:28px">📦</div><div style="font-weight:600">No In Stock data</div><div style="font-size:11px">Form tab se In Stock file import karo</div>';
+        wrap.appendChild(msg);
+      }
+    }
   }
 }
 
@@ -4451,8 +4479,8 @@ function expandStockTable(bodyId) {
   _rptStockTable(bodyId, cache.items, cache.keyField, true);
 }
 
-function renderRptSupplierStock(items) { _rptStockTable('rptSupStockBody', items, 'name');     renderChartDoughnut('rptChart-supplierstock','supplierstock', items.slice(0,12), 'name',    'value', lbl => showDrilldown('stock_supplier', lbl)); }
-function renderRptStockCat(items)      { _rptStockTable('rptStockCatBody', items, 'category'); renderChartDoughnut('rptChart-stockcat',     'stockcat',      items.slice(0,12), 'category','value', lbl => showDrilldown('stock_category', lbl)); }
+function renderRptSupplierStock(items) { _rptStockTable('rptSupStockBody', items, 'name');     if (items.length) renderChartDoughnut('rptChart-supplierstock','supplierstock', items.slice(0,12), 'name',    'value', lbl => showDrilldown('stock_supplier', lbl)); else _destroyChart('supplierstock'); }
+function renderRptStockCat(items)      { _rptStockTable('rptStockCatBody', items, 'category'); if (items.length) renderChartDoughnut('rptChart-stockcat',     'stockcat',      items.slice(0,12), 'category','value', lbl => showDrilldown('stock_category', lbl)); else _destroyChart('stockcat'); }
 
 // % Sold = sold / (sold + stock) * 100
 function _toTabSwitch(tab) {
