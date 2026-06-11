@@ -2571,23 +2571,41 @@ async function ensureTab(sheetsApi, spreadsheetId, tabName) {
   return { sheetId: r.data.replies[0].addSheet.properties.sheetId, isNew: true };
 }
 
-// Header row ko dark blue + white bold text
+// Header row ko dark blue + white bold text. Data rows (header ke neeche) ko
+// plain white reset karta hai — kyunki INSERT_ROWS append header ka blue format
+// neeche ki rows me copy kar deta hai.
 async function colorHeaderRow(sheetsApi, spreadsheetId, sheetId, rowIndex0) {
   await sheetsApi.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
-      requests: [{
-        repeatCell: {
-          range: { sheetId, startRowIndex: rowIndex0, endRowIndex: rowIndex0 + 1, startColumnIndex: 0, endColumnIndex: 50 },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: { red: 0.071, green: 0.216, blue: 0.376 },
-              textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true, fontSize: 10 }
-            }
-          },
-          fields: 'userEnteredFormat(backgroundColor,textFormat)'
+      requests: [
+        // 1) Header ke neeche sari rows → white bg, black non-bold text
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: rowIndex0 + 1, startColumnIndex: 0, endColumnIndex: 50 },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 1, green: 1, blue: 1 },
+                textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false, fontSize: 10 }
+              }
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat)'
+          }
+        },
+        // 2) Header row → dark blue + white bold
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: rowIndex0, endRowIndex: rowIndex0 + 1, startColumnIndex: 0, endColumnIndex: 50 },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 0.071, green: 0.216, blue: 0.376 },
+                textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true, fontSize: 10 }
+              }
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat)'
+          }
         }
-      }]
+      ]
     }
   });
 }
