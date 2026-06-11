@@ -1149,24 +1149,28 @@ tbody tr:last-child td{border-bottom:none;}
               <div id="rptSubtitle" style="font-size:11px;color:#94a3b8;margin-top:5px;padding-left:18px;letter-spacing:.025em">All Data</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <input type="text" id="rptFromPick" class="rpt-fp-range" placeholder="Start date…" readonly style="width:140px">
-              <input type="text" id="rptToPick" class="rpt-fp-range" placeholder="End date…" readonly style="width:140px">
+              <span id="rptDateControls" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <input type="text" id="rptFromPick" class="rpt-fp-range" placeholder="Start date…" readonly style="width:140px">
+                <input type="text" id="rptToPick" class="rpt-fp-range" placeholder="End date…" readonly style="width:140px">
+                <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">Reset</button>
+              </span>
               <input type="hidden" id="rptFrom">
               <input type="hidden" id="rptTo">
-              <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">Reset</button>
               <button class="rpt-btn-pdf" onclick="rptExportPDF()" style="padding:9px 17px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px rgba(239,68,68,.28);display:flex;align-items:center;gap:5px;transition:all .18s">🖨 PDF</button>
               <button class="rpt-btn-csv" onclick="rptExportCSV()" style="padding:9px 17px;background:#fff;color:#475569;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .18s">⬇ CSV</button>
             </div>
           </div>
           <!-- Quick presets + status -->
           <div style="margin-top:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.1em;margin-right:2px">QUICK</span>
-            <button class="rpt-preset-btn" onclick="setRptPreset('today')">Today</button>
-            <button class="rpt-preset-btn" onclick="setRptPreset('week')">This Week</button>
-            <button class="rpt-preset-btn" onclick="setRptPreset('month')">This Month</button>
-            <button class="rpt-preset-btn" onclick="setRptPreset('lastmonth')">Last Month</button>
-            <button class="rpt-preset-btn" onclick="setRptPreset('quarter')">This Quarter</button>
-            <button class="rpt-preset-btn" onclick="setRptPreset('year')">This Year</button>
+            <span id="rptQuickRow" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.1em;margin-right:2px">QUICK</span>
+              <button class="rpt-preset-btn" onclick="setRptPreset('today')">Today</button>
+              <button class="rpt-preset-btn" onclick="setRptPreset('week')">This Week</button>
+              <button class="rpt-preset-btn" onclick="setRptPreset('month')">This Month</button>
+              <button class="rpt-preset-btn" onclick="setRptPreset('lastmonth')">Last Month</button>
+              <button class="rpt-preset-btn" onclick="setRptPreset('quarter')">This Quarter</button>
+              <button class="rpt-preset-btn" onclick="setRptPreset('year')">This Year</button>
+            </span>
             <span id="rptStatus" style="font-size:11px;color:#64748b;margin-left:6px"></span>
           </div>
         </div>
@@ -4101,8 +4105,8 @@ const RPT_TABS = {
   stockcat:     'Stock by Category',
   turnover:     'Stock Turnover'
 };
-// Tabs that use date filter (sales-based); stock tabs ignore it
-const RPT_SALES_TABS = new Set(['sales','cat','supplier','sp','spanalytics','citystate']);
+// Tabs that use date filter (sales-based); stock tabs ignore it (current snapshot)
+const RPT_SALES_TABS = new Set(['sales','cat','supplier','sp','spanalytics','citystate','sku']);
 let _activeRptTab = 'sales';
 
 function switchRptTab(tab) {
@@ -4118,6 +4122,12 @@ function switchRptTab(tab) {
   // Update title
   const titleEl = document.getElementById('rptActiveTitle');
   if (titleEl) titleEl.textContent = RPT_TABS[tab] || tab;
+  // Stock tabs = current snapshot → date filter lagu nahi hota, isliye chhupa do
+  const isSalesTab = RPT_SALES_TABS.has(tab);
+  const dateCtrl = document.getElementById('rptDateControls');
+  const quickRow = document.getElementById('rptQuickRow');
+  if (dateCtrl) dateCtrl.style.display = isSalesTab ? '' : 'none';
+  if (quickRow) quickRow.style.display = isSalesTab ? '' : 'none';
   // Load data for that tab
   loadImsReports();
 }
@@ -4235,8 +4245,11 @@ async function loadImsReports(forceSync) {
   const sub = document.getElementById('rptSubtitle');
   if (sub) {
     const isSalesTab = RPT_SALES_TABS.has(_activeRptTab);
-    const dateRange = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
-    sub.textContent = dateRange;
+    if (!isSalesTab) {
+      sub.textContent = 'Current snapshot (date filter N/A)';
+    } else {
+      sub.textContent = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
+    }
   }
 
   _rptData = data; // cache for CSV export
