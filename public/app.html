@@ -900,10 +900,7 @@ tbody tr:last-child td{border-bottom:none;}
           <input type="file" id="imsFile-bills" accept=".csv,.xlsx,.xls"
             style="width:100%;padding:9px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;background:#fafbff"/>
         </div>
-        <div style="margin-bottom:14px;padding:10px 12px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;font-size:11px;color:#15803d;line-height:1.6">
-          <strong>Expected columns:</strong> Supplier Name · Pur InvDate · Category · Style · ItemId · PUR Qty · PUR CostValue · Net PUR Qty · Net PUR CostValue
-        </div>
-        <div id="imsStatus-bills" style="display:none;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5"></div>
+<div id="imsStatus-bills" style="display:none;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5"></div>
         <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;border-radius:9px;background:linear-gradient(135deg,#059669,#10b981);box-shadow:0 4px 14px rgba(16,185,129,.25)"
           onclick="importStockCSV('bills')" id="imsBtn-bills">
           ⬆ Import Purchase Bills
@@ -1152,7 +1149,8 @@ tbody tr:last-child td{border-bottom:none;}
               <div id="rptSubtitle" style="font-size:11px;color:#94a3b8;margin-top:5px;padding-left:18px;letter-spacing:.025em">All Data</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <input type="text" id="rptDateRange" class="rpt-fp-range" placeholder="Select date range..." readonly>
+              <input type="text" id="rptFromPick" class="rpt-fp-range" placeholder="Start date…" readonly style="width:140px">
+              <input type="text" id="rptToPick" class="rpt-fp-range" placeholder="End date…" readonly style="width:140px">
               <input type="hidden" id="rptFrom">
               <input type="hidden" id="rptTo">
               <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">Reset</button>
@@ -4125,42 +4123,52 @@ function switchRptTab(tab) {
 }
 
 function _initRptDatepickers() {
-  const el = document.getElementById('rptDateRange');
-  if (!el || el._flatpickr) return;
+  const fromPick = document.getElementById('rptFromPick');
+  const toPick   = document.getElementById('rptToPick');
+  if (!fromPick || !toPick || fromPick._flatpickr) return;
   const toISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  flatpickr(el, {
-    mode: 'range',
+  const commonOpts = {
     dateFormat: 'd/m/y',
     allowInput: false,
     disableMobile: false,
+    onReady: (_, __, fp) => { fp.calendarContainer.style.fontFamily = "'Inter',sans-serif"; },
+  };
+  flatpickr(fromPick, {
+    ...commonOpts,
     onChange: (dates) => {
       const fEl = document.getElementById('rptFrom');
-      const tEl = document.getElementById('rptTo');
       if (fEl) fEl.value = dates[0] ? toISO(dates[0]) : '';
-      if (tEl) tEl.value = dates[1] ? toISO(dates[1]) : '';
-      if (dates.length === 2) loadImsReports();
+      loadImsReports();
     },
-    onReady: (_, __, fp) => { fp.calendarContainer.style.fontFamily = "'Inter',sans-serif"; },
+  });
+  flatpickr(toPick, {
+    ...commonOpts,
+    onChange: (dates) => {
+      const tEl = document.getElementById('rptTo');
+      if (tEl) tEl.value = dates[0] ? toISO(dates[0]) : '';
+      loadImsReports();
+    },
   });
 }
 
 function _setRptDate(fromVal, toVal) {
-  const fp = document.getElementById('rptDateRange')?._flatpickr;
+  const fromFp = document.getElementById('rptFromPick')?._flatpickr;
+  const toFp   = document.getElementById('rptToPick')?._flatpickr;
   const fEl = document.getElementById('rptFrom');
   const tEl = document.getElementById('rptTo');
   if (fEl) fEl.value = fromVal || '';
   if (tEl) tEl.value = toVal   || '';
-  if (fp) {
-    if (fromVal && toVal) fp.setDate([fromVal, toVal], false);
-    else fp.clear();
-  }
+  if (fromFp) { if (fromVal) fromFp.setDate(fromVal, false); else fromFp.clear(); }
+  if (toFp)   { if (toVal)   toFp.setDate(toVal, false);     else toFp.clear(); }
   loadImsReports();
 }
 
 function resetRptFilter() {
   document.querySelectorAll('.rpt-preset-btn').forEach(b => b.classList.remove('active'));
-  const fp = document.getElementById('rptDateRange')?._flatpickr;
-  if (fp) fp.clear();
+  const fromFp = document.getElementById('rptFromPick')?._flatpickr;
+  const toFp   = document.getElementById('rptToPick')?._flatpickr;
+  if (fromFp) fromFp.clear();
+  if (toFp)   toFp.clear();
   const fEl = document.getElementById('rptFrom');
   const tEl = document.getElementById('rptTo');
   if (fEl) fEl.value = '';
