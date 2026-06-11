@@ -2598,7 +2598,8 @@ app.get('/api/ims-stats', requireAuth, async (req, res) => {
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const tabs = [
       { key: 'stock', tab: 'In Stock' },
-      { key: 'sales', tab: 'Out Stock' }
+      { key: 'sales', tab: 'Out Stock' },
+      { key: 'bills', tab: 'Bills' }
     ];
     const out = {};
     for (const { key, tab } of tabs) {
@@ -2633,7 +2634,10 @@ app.get('/api/ims-stats', requireAuth, async (req, res) => {
         out[key] = { totalRows, lastUpload };
       } catch(e) {
         console.error('[IMS Stats] tab error:', tab, e.message);
-        out[key] = { totalRows: null, lastUpload: null }; // null = error, don't overwrite cache
+        // Tab deleted or not found → return 0 so frontend clears the cache
+        // Generic network/auth errors include "ECONNRESET", "quota", "invalid_grant"
+        const isTabMissing = /unable to parse range|sheet.*not found|does not exist/i.test(e.message);
+        out[key] = { totalRows: isTabMissing ? 0 : null, lastUpload: null };
       }
     }
     res.json(out);

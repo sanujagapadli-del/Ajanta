@@ -842,7 +842,7 @@ tbody tr:last-child td{border-bottom:none;}
     <!-- FORM VIEW -->
     <div id="imsView-form">
     <!-- Both forms side by side -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;max-width:1100px">
 
       <!-- IN STOCK form -->
       <div id="imsPanel-stock" style="background:#fff;border-radius:16px;border:1.5px solid #e0e7ff;padding:28px;box-shadow:0 2px 14px rgba(79,70,229,.07)">
@@ -886,10 +886,34 @@ tbody tr:last-child td{border-bottom:none;}
         </button>
       </div>
 
+      <!-- PURCHASE BILLS form -->
+      <div id="imsPanel-bills" style="background:#fff;border-radius:16px;border:1.5px solid #bbf7d0;padding:28px;box-shadow:0 2px 14px rgba(16,185,129,.07)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #f0fdf4">
+          <div style="width:42px;height:42px;border-radius:10px;background:#f0fdf4;display:grid;place-items:center;font-size:22px;flex-shrink:0">🧾</div>
+          <div>
+            <div style="font-size:15px;font-weight:700;color:#0f172a">Purchase Bills</div>
+            <div style="font-size:11px;color:#64748b">MIS Purchase Invoice Report</div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>CSV / Excel File</label>
+          <input type="file" id="imsFile-bills" accept=".csv,.xlsx,.xls"
+            style="width:100%;padding:9px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;background:#fafbff"/>
+        </div>
+        <div style="margin-bottom:14px;padding:10px 12px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;font-size:11px;color:#15803d;line-height:1.6">
+          <strong>Expected columns:</strong> Supplier Name · Pur InvDate · Category · Style · ItemId · PUR Qty · PUR CostValue · Net PUR Qty · Net PUR CostValue
+        </div>
+        <div id="imsStatus-bills" style="display:none;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5"></div>
+        <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;border-radius:9px;background:linear-gradient(135deg,#059669,#10b981);box-shadow:0 4px 14px rgba(16,185,129,.25)"
+          onclick="importStockCSV('bills')" id="imsBtn-bills">
+          ⬆ Import Purchase Bills
+        </button>
+      </div>
+
     </div>
 
     <!-- Stats Cards -->
-    <div id="imsStatsRow" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;max-width:900px;margin-top:20px">
+    <div id="imsStatsRow" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;max-width:1100px;margin-top:20px">
 
       <!-- In Stock stats -->
       <div style="background:#fff;border-radius:16px;border:1.5px solid #e0e7ff;padding:20px 22px;box-shadow:0 2px 12px rgba(79,70,229,.07);position:relative;overflow:hidden">
@@ -913,6 +937,18 @@ tbody tr:last-child td{border-bottom:none;}
         <div style="font-size:26px;font-weight:800;color:#0f172a;line-height:1" id="imsStatRows-sales">—</div>
         <div style="font-size:11px;color:#94a3b8;margin-top:4px">rows in sheet</div>
         <div style="font-size:11px;color:#94a3b8;margin-top:10px">Last upload: <span id="imsStatDate-sales" style="color:#475569;font-weight:600">—</span></div>
+      </div>
+
+      <!-- Purchase Bills stats -->
+      <div style="background:#fff;border-radius:16px;border:1.5px solid #bbf7d0;padding:20px 22px;box-shadow:0 2px 12px rgba(16,185,129,.08);position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#10b981,#34d399)"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:9px;background:#f0fdf4;display:grid;place-items:center;font-size:18px;flex-shrink:0">🧾</div>
+          <div style="font-size:13px;font-weight:700;color:#059669">Purchase Bills</div>
+        </div>
+        <div style="font-size:26px;font-weight:800;color:#0f172a;line-height:1" id="imsStatRows-bills">—</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">rows in sheet</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:10px">Last upload: <span id="imsStatDate-bills" style="color:#475569;font-weight:600">—</span></div>
       </div>
 
       <!-- Open Sheet -->
@@ -3968,7 +4004,7 @@ async function uploadUsersCSV() {
 function setImsTab(type) { /* no-op: both panels always visible */ }
 
 function renderImsStats() {
-  ['stock', 'sales'].forEach(key => {
+  ['stock', 'sales', 'bills'].forEach(key => {
     const saved = JSON.parse(localStorage.getItem('imsStats-' + key) || 'null');
     const rowEl = document.getElementById('imsStatRows-' + key);
     const dateEl = document.getElementById('imsStatDate-' + key);
@@ -4018,16 +4054,12 @@ async function syncImsStats(silent) {
     if (!silent) showToast('Sync failed: ' + (data && data.error ? data.error : 'Server error'), 'error');
     return;
   }
-  ['stock', 'sales'].forEach(key => {
+  ['stock', 'sales', 'bills'].forEach(key => {
     const d = data[key] || {};
-    if (d.totalRows === null) return; // null = API error — keep existing cache
+    if (d.totalRows === null) return; // null = network/auth error — keep existing cache
     const saved = JSON.parse(localStorage.getItem('imsStats-' + key) || 'null') || {};
-    // If rows are 0 (all deleted), clear the upload date too
     const uploadDate = d.totalRows === 0 ? '' : (d.lastUpload || saved.uploadDate || '');
-    localStorage.setItem('imsStats-' + key, JSON.stringify({
-      totalRows: d.totalRows,
-      uploadDate
-    }));
+    localStorage.setItem('imsStats-' + key, JSON.stringify({ totalRows: d.totalRows, uploadDate }));
   });
   _lastStatSync = Date.now();
   renderImsStats();
