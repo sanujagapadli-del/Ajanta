@@ -2669,6 +2669,13 @@ app.get('/api/ims-stats', requireAuth, async (req, res) => {
 const _imsRawCache = { outRows: null, inRows: null, ts: 0 };
 const IMS_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
 
+// Placeholder/junk labels jaise [Default], [None] — inhe pure IMS reports se
+// exclude karte hain (sheet me ye non-product/adjustment entries hote hain).
+function isJunkLabel(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return s === '[default]' || s === 'default' || s === '[none]' || s === 'none';
+}
+
 // IMS Reports — all 8 report types from Out Stock + In Stock tabs
 app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
@@ -2749,6 +2756,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const sp   = (row[oSP]||'').trim() || 'Unknown';
       const sup  = (row[oSupplier]||'').trim() || 'Unknown';
       const sty  = oStyle >= 0 ? ((row[oStyle]||'').trim() || 'Unknown') : 'Unknown';
+      // [Default]/[None] junk entries ko pure IMS se skip karo
+      if (isJunkLabel(sup) || isJunkLabel(sty) || isJunkLabel(cat) || isJunkLabel(sp)) return;
       const city = (row[oCity]||'').trim() || '—';
       const state= (row[oState]||'').trim() || '—';
       const xnNo = (row[oXnNo]||'').trim();
@@ -2815,10 +2824,12 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         const pd = parseSheetDate((row[iPurDate]||'').trim());
         if (!pd || (fromDate && pd < fromDate) || (toDate && pd > toDate)) return;
       }
-      stockItemCount++;
       const sup  = (row[iSupplier]||'').trim() || 'Unknown';
       const cat  = (row[iCategory]||'').trim() || 'Unknown';
       const sty  = iStyle >= 0 ? ((row[iStyle]||'').trim() || 'Unknown') : 'Unknown';
+      // [Default]/[None] junk entries ko skip karo
+      if (isJunkLabel(sup) || isJunkLabel(sty) || isJunkLabel(cat)) return;
+      stockItemCount++;
       const ssKey= sup + '||' + sty;
       const purQ = getNum(row, iPurQty);
       if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0 };
@@ -2861,6 +2872,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const isCur = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
       const isLY  = hasDateFilter && (!lyFrom || d >= lyFrom) && (!lyTo || d <= lyTo);
       if (!isCur && !isLY) return;
+      // [Default]/[None] junk entries ko skip karo (sales summary loop jaise)
+      if (isJunkLabel((row[oSupplier]||'').trim()) || (oStyle>=0 && isJunkLabel((row[oStyle]||'').trim())) || isJunkLabel((row[oCategory]||'').trim()) || isJunkLabel((row[oSP]||'').trim())) return;
       const qty  = getNum(row, oNetQty);
       const amt  = getNum(row, oNetAmt);
       const sp   = (row[oSP]||'').trim() || 'Unknown';
@@ -3076,6 +3089,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
 
       const rows = allRows.slice(1).filter(row => {
         if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
+        if (isJunkLabel(row[oSup]) || (oSty>=0 && isJunkLabel(row[oSty])) || isJunkLabel(row[oCat]) || isJunkLabel(row[oSP])) return false;
         if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
         return true;
       }).slice(0, 500).map(row => ({
@@ -3091,9 +3105,12 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const iQty  = findC(/ops[\s._-]?qty|opening[\s._-]?qty/i), iCost = findC(/cost[\s._-]?price/i);
       const filterCol = { stock_supplier:iSup, stock_category:iCat }[type] ?? -1;
 
-      const rows = allRows.slice(1).filter(row =>
-        filterCol < 0 || String(row[filterCol]||'').trim() === value
-      ).slice(0, 500).map(row => ({
+      const iSty = findC(/^style$/i);
+      const rows = allRows.slice(1).filter(row => {
+        if (!(filterCol < 0 || String(row[filterCol]||'').trim() === value)) return false;
+        if (isJunkLabel(row[iSup]) || isJunkLabel(row[iCat]) || (iSty>=0 && isJunkLabel(row[iSty]))) return false;
+        return true;
+      }).slice(0, 500).map(row => ({
         supplier: row[iSup]||'', category: row[iCat]||'',
         description: row[iDesc]||'', qty: getNum(row, iQty), cost: getNum(row, iCost)
       }));
