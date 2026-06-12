@@ -1435,6 +1435,14 @@ tbody tr:last-child td{border-bottom:none;}
             </button>
           </div>
 
+          <!-- ── Status filter sub-tabs ── -->
+          <div id="toStatusTabs" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+            <button id="toStatus-fast"    onclick="setTurnoverStatus('fast')">🚀 Fast <span id="toCount-fast"></span></button>
+            <button id="toStatus-medium"  onclick="setTurnoverStatus('medium')">⚡ Medium <span id="toCount-medium"></span></button>
+            <button id="toStatus-slow"    onclick="setTurnoverStatus('slow')">🐢 Slow <span id="toCount-slow"></span></button>
+            <button id="toStatus-cleared" onclick="setTurnoverStatus('cleared')">✅ Cleared <span id="toCount-cleared"></span></button>
+          </div>
+
           <!-- Supplier Table -->
           <div id="toPane-supplier">
             <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
@@ -4143,12 +4151,10 @@ function switchRptTab(tab) {
   const titleEl = document.getElementById('rptActiveTitle');
   if (titleEl) titleEl.textContent = RPT_TABS[tab] || tab;
   // Date filter sab reports pe lagu hota hai (sales=XN Date, stock=Pur Date)
-  // — sirf Stock Turnover ise ignore karta hai (full/current sell-through), isliye wahan hide
-  const showDate = tab !== 'turnover';
   const dateCtrl = document.getElementById('rptDateControls');
   const quickRow = document.getElementById('rptQuickRow');
-  if (dateCtrl) dateCtrl.style.display = showDate ? '' : 'none';
-  if (quickRow) quickRow.style.display = showDate ? '' : 'none';
+  if (dateCtrl) dateCtrl.style.display = '';
+  if (quickRow) quickRow.style.display = '';
   // Load data for that tab
   loadImsReports();
 }
@@ -4265,8 +4271,7 @@ async function loadImsReports(forceSync) {
   // Update subtitle
   const sub = document.getElementById('rptSubtitle');
   if (sub) {
-    if (_activeRptTab === 'turnover') sub.textContent = 'Current snapshot · all-time (date filter N/A)';
-    else sub.textContent = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
+    sub.textContent = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
   }
 
   _rptData = data; // cache for CSV export
@@ -4562,16 +4567,77 @@ function _toTabSwitch(tab) {
   const inactiveStyle = 'border:2px solid #e2e8f0;background:#fff;color:#64748b';
   document.getElementById('toTab-supplier').style.cssText += ';' + (isSupplier ? activeStyle : inactiveStyle);
   document.getElementById('toTab-item').style.cssText     += ';' + (isSupplier ? inactiveStyle : activeStyle);
+  _updateTurnoverTabCounts();  // counts active pane ke hisaab se
+}
+
+// Active status filter (Fast/Medium/Slow/Cleared) — default Fast
+let _toStatus = 'fast';
+
+function _turnoverStatus(r) {
+  if (r.pct === null) return 'none';
+  if (r.stock === 0 && r.sold > 0) return 'cleared';
+  if (r.pct >= 75) return 'fast';
+  if (r.pct >= 40) return 'medium';
+  return 'slow';
 }
 
 function _turnoverSearch(inputId, bodyId) {
-  const q = (document.getElementById(inputId)?.value || '').trim().toLowerCase();
-  const tbody = document.getElementById(bodyId);
-  if (!tbody) return;
-  expandTurnoverTable(bodyId); // pehle sab rows DOM me lao
-  tbody.querySelectorAll('tr').forEach(tr => {
-    if (!tr.querySelector('td')) { tr.style.display = ''; return; }
-    tr.style.display = (!q || tr.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  const c = window._turnoverCache?.[bodyId];
+  if (!c) return;
+  c.q = (document.getElementById(inputId)?.value || '').trim();
+  c.expanded = false;
+  _renderTurnover(bodyId);
+}
+
+// Render a turnover pane applying status + search filter (rows already sorted by sales desc)
+function _renderTurnover(bodyId) {
+  const c = window._turnoverCache?.[bodyId];
+  const body = document.getElementById(bodyId);
+  if (!c || !body) return;
+  const colspan = c.drillType === 'item' ? 9 : 8;
+  let rows = c.rows;
+  if (_toStatus !== 'all') rows = rows.filter(r => _turnoverStatus(r) === _toStatus);
+  const q = (c.q || '').toLowerCase();
+  if (q) rows = rows.filter(r => c.drillType === 'item'
+      ? (`${r.supName} ${r.style} ${r.cat}`.toLowerCase().includes(q))
+      : String(r.key).toLowerCase().includes(q));
+  if (!rows.length) { body.innerHTML = `<tr><td colspan="${colspan}" class="rpt-td" style="text-align:center;color:#94a3b8">Is category me koi ${c.drillType==='item'?'item':'supplier'} nahi</td></tr>`; return; }
+  const visible = c.expanded ? rows : rows.slice(0, 10);
+  const html = c.drillType === 'item'
+    ? visible.map(r => _turnoverItemRowHtml(r)).join('')
+    : visible.map((r, i) => _turnoverRowHtml(r, i, c.drillType)).join('');
+  const moreBtn = (!c.expanded && rows.length > 10)
+    ? `<tr><td colspan="${colspan}" style="text-align:center;padding:10px"><button onclick="expandTurnoverTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:6px 20px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${rows.length} rows</button></td></tr>`
+    : '';
+  body.innerHTML = html + moreBtn;
+}
+
+// Status sub-tab switch — applies to both panes
+function setTurnoverStatus(status) {
+  _toStatus = status;
+  const cfg = { fast:{c:'#15803d',bg:'#dcfce7'}, medium:{c:'#a16207',bg:'#fef9c3'}, slow:{c:'#dc2626',bg:'#fee2e2'}, cleared:{c:'#0e7490',bg:'#cffafe'} };
+  ['fast','medium','slow','cleared'].forEach(s => {
+    const b = document.getElementById('toStatus-' + s);
+    if (!b) return;
+    const on = s === status;
+    b.style.cssText = `padding:7px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;border:2px solid ${on?cfg[s].c:'#e2e8f0'};background:${on?cfg[s].bg:'#fff'};color:${on?cfg[s].c:'#64748b'}`;
+  });
+  ['rptTurnoverSupplierBody','rptTurnoverItemBody'].forEach(id => {
+    const c = window._turnoverCache?.[id];
+    if (c) { c.expanded = false; _renderTurnover(id); }
+  });
+}
+
+// Tab counts from the currently visible pane
+function _updateTurnoverTabCounts() {
+  const itemVisible = document.getElementById('toPane-item')?.style.display !== 'none';
+  const bodyId = itemVisible ? 'rptTurnoverItemBody' : 'rptTurnoverSupplierBody';
+  const c = window._turnoverCache?.[bodyId];
+  const counts = { fast:0, medium:0, slow:0, cleared:0 };
+  (c?.rows || []).forEach(r => { const st = _turnoverStatus(r); if (counts[st] != null) counts[st]++; });
+  ['fast','medium','slow','cleared'].forEach(s => {
+    const el = document.getElementById('toCount-' + s);
+    if (el) el.textContent = `(${counts[s]})`;
   });
 }
 
@@ -4614,6 +4680,21 @@ function _turnoverRowHtml(r, i, drillType) {
   </tr>`;
 }
 
+// Item/Style turnover row HTML
+function _turnoverItemRowHtml(r) {
+  return `<tr style="border-bottom:1px solid #f1f5f9;cursor:pointer" onclick="showTurnoverDetail('${(r.style||'').replace(/'/g,"\\'")}','item',${r.sold},${r.stock},${r.pct},null,${r.purQty||0},${r.opening||0},${r.purReturn||0})">
+    <td class="rpt-td" style="padding:5px 8px;font-size:12px;color:#64748b">${r.cat}</td>
+    <td class="rpt-td" style="padding:5px 8px;font-size:12px;font-weight:600;color:#1e293b">${r.supName}</td>
+    <td class="rpt-td" style="padding:5px 8px;font-size:12px;color:#6d28d9">${r.style}</td>
+    <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#64748b;font-weight:700">${Number(r.opening||0).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#d97706;font-weight:700">${Number(r.purQty||0).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#ef4444;font-weight:700">${Number(r.purReturn||0).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#16a34a;font-weight:700">${Number(r.sold).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#2563eb;font-weight:700">${Number(r.stock).toLocaleString('en-IN')}</td>
+    <td class="rpt-td" style="padding:5px 8px;text-align:center">${_turnoverBadge(r.pct, r.sold, r.stock)}</td>
+  </tr>`;
+}
+
 function renderRptTurnover(data) {
   if (!data) return;
   const from = document.getElementById('rptFrom')?.value || '';
@@ -4623,24 +4704,9 @@ function renderRptTurnover(data) {
     const ms = new Date(to) - new Date(from);
     rangeDays = Math.max(1, Math.round(ms / 86400000) + 1);
   }
+  if (!window._turnoverCache) window._turnoverCache = {};
 
-  const renderRows = (rows, bodyId, drillType, showAll) => {
-    const body = document.getElementById(bodyId);
-    if (!body) return;
-    if (!rows.length) { body.innerHTML = `<tr><td colspan="8" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
-    const visible = showAll ? rows : rows.slice(0, 10);
-    const moreBtn = (!showAll && rows.length > 10)
-      ? `<tr><td colspan="8" style="text-align:center;padding:10px">
-           <button onclick="expandTurnoverTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:6px 20px;font-size:12px;font-weight:700;cursor:pointer">
-             ▼ Show All ${rows.length} rows
-           </button></td></tr>`
-      : '';
-    body.innerHTML = visible.map((r, i) => _turnoverRowHtml(r, i, drillType)).join('') + moreBtn;
-    const searchInputId = bodyId === 'rptTurnoverSupplierBody' ? 'turnoverSupSearch' : 'turnoverItemSearch';
-    const q = (document.getElementById(searchInputId)?.value || '').trim();
-    if (q) _turnoverSearch(searchInputId, bodyId);
-  };
-
+  // Supplier rows — sorted by Sales Qty (sabse jada sales upar)
   const buildRows = (salesArr, stockArr, nameKey, bodyId, drillType) => {
     const stockMap = {}, purMap = {}, openMap = {}, retMap = {};
     (stockArr || []).forEach(s => { stockMap[s[nameKey]] = Number(s.qty) || 0; purMap[s[nameKey]] = Number(s.purQty) || 0; openMap[s[nameKey]] = Number(s.opening) || 0; retMap[s[nameKey]] = Number(s.purReturn) || 0; });
@@ -4649,19 +4715,16 @@ function renderRptTurnover(data) {
       const found = (salesArr||[]).find(s => s[nameKey] === key);
       const sold  = found ? Number(found.qty) || 0 : 0;
       const stock = stockMap[key] || 0;
-      const purQty = purMap[key] || 0;
-      const opening = openMap[key] || 0;
-      const purReturn = retMap[key] || 0;
+      const purQty = purMap[key] || 0, opening = openMap[key] || 0, purReturn = retMap[key] || 0;
       const pct   = _turnoverPct(sold, stock);
       const soldPerDay = sold / rangeDays;
       const days  = (soldPerDay > 0 && stock > 0) ? Math.round(stock / soldPerDay) : (stock === 0 && sold > 0 ? 0 : null);
       return { key, sold, stock, purQty, opening, purReturn, pct, days };
-    }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
-    if (!window._turnoverCache) window._turnoverCache = {};
-    window._turnoverCache[bodyId] = { rows, drillType };
-    renderRows(rows, bodyId, drillType, false);
+    }).sort((a, b) => b.sold - a.sold);
+    window._turnoverCache[bodyId] = { rows, drillType, expanded: false, q: '' };
   };
 
+  // Item/Style rows — sorted by Sales Qty
   const buildItemRows = (salesArr, stockArr) => {
     const bodyId = 'rptTurnoverItemBody';
     const stockMap = {}, purMap = {}, openMap = {}, retMap = {}, stockMeta = {};
@@ -4672,55 +4735,24 @@ function renderRptTurnover(data) {
       const meta  = found || stockMeta[key] || {};
       const sold  = found ? Number(found.qty) || 0 : 0;
       const stock = stockMap[key] || 0;
-      const purQty = purMap[key] || 0;
-      const opening = openMap[key] || 0;
-      const purReturn = retMap[key] || 0;
+      const purQty = purMap[key] || 0, opening = openMap[key] || 0, purReturn = retMap[key] || 0;
       const pct   = _turnoverPct(sold, stock);
       return { key, supName: meta.supName || '—', style: meta.style || key, cat: meta.cat || '—', sold, stock, purQty, opening, purReturn, pct };
-    }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || b.sold - a.sold);
-    if (!window._turnoverCache) window._turnoverCache = {};
-    window._turnoverCache[bodyId] = { rows, drillType: 'item' };
-    const renderItemRows = (rows, showAll) => {
-      const body = document.getElementById(bodyId);
-      if (!body) return;
-      if (!rows.length) { body.innerHTML = `<tr><td colspan="9" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
-      const visible = showAll ? rows : rows.slice(0, 10);
-      const moreBtn = (!showAll && rows.length > 10)
-        ? `<tr><td colspan="9" style="text-align:center;padding:10px">
-             <button onclick="expandTurnoverTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:6px 20px;font-size:12px;font-weight:700;cursor:pointer">
-               ▼ Show All ${rows.length} rows
-             </button></td></tr>`
-        : '';
-      body.innerHTML = visible.map(r => `<tr style="border-bottom:1px solid #f1f5f9;cursor:pointer" onclick="showTurnoverDetail('${(r.style||'').replace(/'/g,"\\'")}','item',${r.sold},${r.stock},${r.pct},null,${r.purQty||0},${r.opening||0},${r.purReturn||0})">
-        <td class="rpt-td" style="padding:5px 8px;font-size:12px;color:#64748b">${r.cat}</td>
-        <td class="rpt-td" style="padding:5px 8px;font-size:12px;font-weight:600;color:#1e293b">${r.supName}</td>
-        <td class="rpt-td" style="padding:5px 8px;font-size:12px;color:#6d28d9">${r.style}</td>
-        <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#64748b;font-weight:700">${Number(r.opening||0).toLocaleString('en-IN')}</td>
-        <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#d97706;font-weight:700">${Number(r.purQty||0).toLocaleString('en-IN')}</td>
-        <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#ef4444;font-weight:700">${Number(r.purReturn||0).toLocaleString('en-IN')}</td>
-        <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#16a34a;font-weight:700">${Number(r.sold).toLocaleString('en-IN')}</td>
-        <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#2563eb;font-weight:700">${Number(r.stock).toLocaleString('en-IN')}</td>
-        <td class="rpt-td" style="padding:5px 8px;text-align:center">${_turnoverBadge(r.pct, r.sold, r.stock)}</td>
-      </tr>`).join('') + moreBtn;
-      const q = (document.getElementById('turnoverItemSearch')?.value || '').trim();
-      if (q) _turnoverSearch('turnoverItemSearch', bodyId);
-    };
-    window._turnoverCache[bodyId].renderFn = renderItemRows;
-    renderItemRows(rows, false);
+    }).sort((a, b) => b.sold - a.sold);
+    window._turnoverCache[bodyId] = { rows, drillType: 'item', expanded: false, q: '' };
   };
 
-  // Turnover full/current data use karta hai (date filter se alag) — mismatch na ho
-  buildRows(data.turnoverSupplierSales || data.supplierSales, data.turnoverSupplierStock || data.supplierStock, 'name', 'rptTurnoverSupplierBody', 'supplier');
-  buildItemRows(data.turnoverSupplierStyleSales || data.supplierStyleSales || [], data.turnoverSupplierStyleStock || data.supplierStyleStock || []);
+  buildRows(data.supplierSales, data.supplierStock, 'name', 'rptTurnoverSupplierBody', 'supplier');
+  buildItemRows(data.supplierStyleSales || [], data.supplierStyleStock || []);
+  setTurnoverStatus(_toStatus);   // active status apply + dono panes render
+  _updateTurnoverTabCounts();
 }
 
 function expandTurnoverTable(bodyId) {
-  const cache = window._turnoverCache?.[bodyId];
-  if (!cache) return;
-  if (cache.renderFn) { cache.renderFn(cache.rows, true); return; }
-  const body = document.getElementById(bodyId);
-  if (!body) return;
-  body.innerHTML = cache.rows.map((r, i) => _turnoverRowHtml(r, i, cache.drillType)).join('');
+  const c = window._turnoverCache?.[bodyId];
+  if (!c) return;
+  c.expanded = true;
+  _renderTurnover(bodyId);
 }
 
 async function showTurnoverDetail(key, drillType, sold, stock, pct, days, purchase, opening, purReturn) {

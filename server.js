@@ -2760,8 +2760,6 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU });
 
     const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={}, bySupStyleSales={}, byStyleSales={};
-    // Turnover = sell-through snapshot — date filter se ALAG (hamesha full/all-time)
-    const toSupSales={}, toSupStyleSales={};
     let totalAmt=0, totalQty=0;
     const allXns = new Set();
 
@@ -2777,12 +2775,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       // [Default]/[None] junk entries ko pure IMS se skip karo
       if (isJunkLabel(sup) || isJunkLabel(sty) || isJunkLabel(cat) || isJunkLabel(sp)) return;
       const ssKey= sup + '||' + sty;
-      // ── Turnover sales (full, date filter ignore) ──
-      if (!toSupSales[sup]) toSupSales[sup] = { qty: 0 };
-      toSupSales[sup].qty += qty;
-      if (!toSupStyleSales[ssKey]) toSupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0 };
-      toSupStyleSales[ssKey].qty += qty;
-      // ── Baaki sab date-filtered ──
+      // Date filter (XN Date) — sab sales reports + turnover
       if (fromDate || toDate) {
         const d = parseSheetDate(dateStr);
         if (!d || (fromDate && d < fromDate) || (toDate && d > toDate)) return;
@@ -2849,33 +2842,25 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCbsQty, iStockQty, iPurDate, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
 
     const bySupStock={}, byCatStock={}, bySupStyleStock={}, byStyleStock={};
-    // Turnover stock = current snapshot — date filter se ALAG (hamesha full)
-    const toSupStock={}, toSupStyleStock={};
     let totalStockQty=0, totalStockValue=0, stockItemCount=0;
 
     (inRows.slice(1)).forEach(row => {
       if (!row.length || !row.join('').trim()) return;
+      // Date filter (Pur Date) — sab stock reports + turnover
+      if ((fromDate || toDate) && iPurDate >= 0) {
+        const pd = parseSheetDate((row[iPurDate]||'').trim());
+        if (!pd || (fromDate && pd < fromDate) || (toDate && pd > toDate)) return;
+      }
       const sup  = (row[iSupplier]||'').trim() || 'Unknown';
       const cat  = resolveCategory(row[iCategory], iDept >= 0 ? row[iDept] : '', iArticle >= 0 ? row[iArticle] : '');
       const sty  = iStyle >= 0 ? ((row[iStyle]||'').trim() || 'Unknown') : 'Unknown';
       // [Default]/[None] junk entries ko skip karo
       if (isJunkLabel(sup) || isJunkLabel(sty) || isJunkLabel(cat)) return;
+      stockItemCount++;
       const ssKey= sup + '||' + sty;
       const purQ = getNum(row, iPurQty);
       const openQ= getNum(row, iOpsQty);                 // Opening Stock
       const prtQ = iPrtQty >= 0 ? getNum(row, iPrtQty) : 0;  // Purchase Return
-      const cbsQ = getNum(row, iStockQty);               // Available (closing)
-      // ── Turnover stock (full, date filter ignore) ──
-      if (!toSupStock[sup]) toSupStock[sup] = { qty:0, opening:0, purQty:0, purReturn:0 };
-      toSupStock[sup].qty += cbsQ; toSupStock[sup].opening += openQ; toSupStock[sup].purQty += purQ; toSupStock[sup].purReturn += prtQ;
-      if (!toSupStyleStock[ssKey]) toSupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty:0, opening:0, purQty:0, purReturn:0 };
-      toSupStyleStock[ssKey].qty += cbsQ; toSupStyleStock[ssKey].opening += openQ; toSupStyleStock[ssKey].purQty += purQ; toSupStyleStock[ssKey].purReturn += prtQ;
-      // ── Baaki stock reports date-filtered (Pur Date) ──
-      if ((fromDate || toDate) && iPurDate >= 0) {
-        const pd = parseSheetDate((row[iPurDate]||'').trim());
-        if (!pd || (fromDate && pd < fromDate) || (toDate && pd > toDate)) return;
-      }
-      stockItemCount++;
       if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0 };
       bySupStyleStock[ssKey].qty += getNum(row, iStockQty);
       bySupStyleStock[ssKey].purQty += purQ;
@@ -2999,11 +2984,6 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty), purQty: r2(d.purQty), opening: r2(d.opening), purReturn: r2(d.purReturn) })),
       styleSales: Object.entries(byStyleSales).map(([style, d]) => ({ style, qty: r2(d.qty) })),
       styleStock: Object.entries(byStyleStock).map(([style, d]) => ({ style, qty: r2(d.qty), purQty: r2(d.purQty) })),
-      // Turnover = full/current (date filter ignore) — Avail/Opening snapshot facts hain
-      turnoverSupplierSales: Object.entries(toSupSales).map(([name,d]) => ({ name, qty: r2(d.qty) })),
-      turnoverSupplierStock: Object.entries(toSupStock).map(([name,d]) => ({ name, qty: r2(d.qty), opening: r2(d.opening), purQty: r2(d.purQty), purReturn: r2(d.purReturn) })),
-      turnoverSupplierStyleSales: Object.entries(toSupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),
-      turnoverSupplierStyleStock: Object.entries(toSupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty), opening: r2(d.opening), purQty: r2(d.purQty), purReturn: r2(d.purReturn) })),
       spAnalytics: {
         hasDateFilter,
         summary: { curUPT, lyUPT, uptGrowth:pct(curUPT,lyUPT), curATV, lyATV, atvGrowth:pct(curATV,lyATV),
