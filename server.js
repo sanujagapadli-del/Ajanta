@@ -2831,6 +2831,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const iCbsQty   = findC(inHeader, /^cbs[\s._-]?qty$|^clos(ing)?[\s._-]?(bal(ance)?[\s._-]?)?(stock[\s._-]?)?qty$|^avail(able)?[\s._-]?qty$|^bal(ance)?[\s._-]?qty$/i);
     const iStockQty = iCbsQty >= 0 ? iCbsQty : iOpsQty;  // CBS preferred, OPS fallback
     const iPurQty   = findC(inHeader, /^pur(chase)?[\s._-]?qty$/i);
+    const iPrtQty   = findC(inHeader, /^prt[\s._-]?qty$|^pur(chase)?[\s._-]?ret(urn)?[\s._-]?qty$/i);  // Purchase Return
     const iCategory = findC(inHeader, /^category$/i);
     const iDept     = findC(inHeader, /^department$/i);
     const iStyle    = findC(inHeader, /^style$/i);
@@ -2857,24 +2858,31 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       stockItemCount++;
       const ssKey= sup + '||' + sty;
       const purQ = getNum(row, iPurQty);
-      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0 };
+      const openQ= getNum(row, iOpsQty);                 // Opening Stock
+      const prtQ = iPrtQty >= 0 ? getNum(row, iPrtQty) : 0;  // Purchase Return
+      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0 };
       bySupStyleStock[ssKey].qty += getNum(row, iStockQty);
       bySupStyleStock[ssKey].purQty += purQ;
-      if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0, purQty: 0 };
+      bySupStyleStock[ssKey].opening += openQ;
+      bySupStyleStock[ssKey].purReturn += prtQ;
+      if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0, purQty: 0, opening: 0, purReturn: 0 };
       byStyleStock[sty].qty += getNum(row, iStockQty);
       byStyleStock[sty].purQty += purQ;
+      byStyleStock[sty].opening += openQ;
+      byStyleStock[sty].purReturn += prtQ;
       const cost = getNum(row, iCostPrice);
       const qty  = getNum(row, iStockQty);
       const val  = qty * cost;
       totalStockQty += qty; totalStockValue += val;
-      if (!bySupStock[sup]) bySupStock[sup] = { qty:0, value:0, purQty:0 };
+      if (!bySupStock[sup]) bySupStock[sup] = { qty:0, value:0, purQty:0, opening:0, purReturn:0 };
       bySupStock[sup].qty += qty; bySupStock[sup].value += val; bySupStock[sup].purQty += purQ;
+      bySupStock[sup].opening += openQ; bySupStock[sup].purReturn += prtQ;
       if (!byCatStock[cat]) byCatStock[cat] = { qty:0, value:0, purQty:0 };
       byCatStock[cat].qty += qty; byCatStock[cat].value += val; byCatStock[cat].purQty += purQ;
     });
 
     const sortVal = arr => arr.sort((a,b) => b.value - a.value);
-    const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), purQty:r2(d.purQty), value:Math.round(d.value) })));
+    const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), purQty:r2(d.purQty), opening:r2(d.opening), purReturn:r2(d.purReturn), value:Math.round(d.value) })));
     const categoryStock = sortVal(Object.entries(byCatStock).map(([category,d]) => ({ category, qty:r2(d.qty), value:Math.round(d.value) })));
 
     const skuSales = sortAmt(Object.entries(bySKU).map(([sku,d]) => ({ sku, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) })));
@@ -2972,7 +2980,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       supplierStock,
       categoryStock,
       supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),
-      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty), purQty: r2(d.purQty) })),
+      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty), purQty: r2(d.purQty), opening: r2(d.opening), purReturn: r2(d.purReturn) })),
       styleSales: Object.entries(byStyleSales).map(([style, d]) => ({ style, qty: r2(d.qty) })),
       styleStock: Object.entries(byStyleStock).map(([style, d]) => ({ style, qty: r2(d.qty), purQty: r2(d.purQty) })),
       spAnalytics: {
