@@ -4599,7 +4599,7 @@ function _turnoverReason(pct, sold, stock, days) {
 function _turnoverRowHtml(r, i, drillType) {
   const safeKey = r.key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   return `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click for full details"
-    onclick="showTurnoverDetail('${safeKey}','${drillType}',${r.sold},${r.stock},${r.pct ?? 'null'},${r.days ?? 'null'})">
+    onclick="showTurnoverDetail('${safeKey}','${drillType}',${r.sold},${r.stock},${r.pct ?? 'null'},${r.days ?? 'null'},${r.purQty||0},${r.opening||0},${r.purReturn||0})">
     <td class="rpt-td" style="padding:5px 7px;color:#94a3b8;font-weight:700;font-size:11px">${i+1}</td>
     <td class="rpt-td" style="padding:5px 7px;font-weight:700;font-size:12px">${r.key}</td>
     <td class="rpt-td" style="padding:5px 7px;text-align:right;color:#64748b;font-weight:600;font-size:12px">${Math.round(r.opening||0).toLocaleString('en-IN')}</td>
@@ -4688,7 +4688,7 @@ function renderRptTurnover(data) {
                ▼ Show All ${rows.length} rows
              </button></td></tr>`
         : '';
-      body.innerHTML = visible.map(r => `<tr style="border-bottom:1px solid #f1f5f9;cursor:pointer" onclick="showTurnoverDetail('${(r.style||'').replace(/'/g,"\\'")}','item',${r.sold},${r.stock},${r.pct},null)">
+      body.innerHTML = visible.map(r => `<tr style="border-bottom:1px solid #f1f5f9;cursor:pointer" onclick="showTurnoverDetail('${(r.style||'').replace(/'/g,"\\'")}','item',${r.sold},${r.stock},${r.pct},null,${r.purQty||0},${r.opening||0},${r.purReturn||0})">
         <td class="rpt-td" style="padding:5px 8px;font-size:12px;color:#64748b">${r.cat}</td>
         <td class="rpt-td" style="padding:5px 8px;font-size:12px;font-weight:600;color:#1e293b">${r.supName}</td>
         <td class="rpt-td" style="padding:5px 8px;font-size:12px;color:#6d28d9">${r.style}</td>
@@ -4719,7 +4719,8 @@ function expandTurnoverTable(bodyId) {
   body.innerHTML = cache.rows.map((r, i) => _turnoverRowHtml(r, i, cache.drillType)).join('');
 }
 
-async function showTurnoverDetail(key, drillType, sold, stock, pct, days) {
+async function showTurnoverDetail(key, drillType, sold, stock, pct, days, purchase, opening, purReturn) {
+  purchase = Number(purchase)||0; opening = Number(opening)||0; purReturn = Number(purReturn)||0;
   let modal = document.getElementById('imsTurnoverModal');
   if (!modal) {
     modal = document.createElement('div');
@@ -4742,6 +4743,9 @@ async function showTurnoverDetail(key, drillType, sold, stock, pct, days) {
   modal.style.display = 'flex';
 
   const total    = sold + stock;
+  const N        = n => Number(n||0).toLocaleString('en-IN');
+  // Real ledger flow (table se match karta hai): Opening + Purchase − Return → Sold → Remaining
+  const flowLine = `Opening <b>${N(opening)}</b> + Purchased <b>${N(purchase)}</b> − Returned <b>${N(purReturn)}</b> → Sold <b>${N(sold)}</b> → Remaining <b>${N(stock)}</b>.`;
   const pctDisp  = pct === null ? '—' : (stock === 0 && sold > 0 ? '100%' : pct + '%');
   const daysDisp = days === null ? '—' : days === 0 ? 'Cleared' : `${days} days`;
   const pctColor = pct === null ? '#94a3b8' : pct >= 75 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#ef4444';
@@ -4754,22 +4758,22 @@ async function showTurnoverDetail(key, drillType, sold, stock, pct, days) {
   } else if (stock === 0 && sold > 0) {
     accentColor = '#10b981';
     reasonHtml = `<div style="font-weight:800;color:#15803d;margin-bottom:5px">✅ Stock completely cleared</div>
-      <div style="color:#475569;font-size:12px;line-height:1.7">Purchased <b>${Number(total).toLocaleString('en-IN')}</b> units → Sold <b>${Number(sold).toLocaleString('en-IN')}</b> → Remaining <b>0</b>. <b>100% stock sold</b> — fully cleared.</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">${flowLine} <b>100% stock sold</b> — fully cleared.</div>
       <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Great demand — consider restocking this vendor to avoid missed sales.</div>`;
   } else if (pct >= 75) {
     accentColor = '#10b981';
     reasonHtml = `<div style="font-weight:800;color:#15803d;margin-bottom:5px">🚀 Fast moving stock</div>
-      <div style="color:#475569;font-size:12px;line-height:1.7">Purchased <b>${Number(total).toLocaleString('en-IN')}</b> units → Sold <b>${Number(sold).toLocaleString('en-IN')}</b> (<b>${pct}% sold</b>) → Remaining <b>${Number(stock).toLocaleString('en-IN')}</b>. At current rate, remaining stock clears in <b>~${days} days</b>.</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">${flowLine} (<b>${pct}% sold</b>) At current rate, remaining stock clears in <b>~${days} days</b>.</div>
       <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 High demand — consider increasing order quantity for this vendor.</div>`;
   } else if (pct >= 40) {
     accentColor = '#f59e0b';
     reasonHtml = `<div style="font-weight:800;color:#a16207;margin-bottom:5px">⚡ Medium moving stock</div>
-      <div style="color:#475569;font-size:12px;line-height:1.7">Purchased <b>${Number(total).toLocaleString('en-IN')}</b> units → Sold <b>${Number(sold).toLocaleString('en-IN')}</b> (<b>${pct}% sold</b>) → Remaining <b>${Number(stock).toLocaleString('en-IN')}</b>. Stock will clear in <b>~${days} days</b> at current rate.</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">${flowLine} (<b>${pct}% sold</b>) Stock will clear in <b>~${days} days</b> at current rate.</div>
       <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Moderate demand — targeted promotions could push this to Fast category.</div>`;
   } else {
     accentColor = '#ef4444';
     reasonHtml = `<div style="font-weight:800;color:#dc2626;margin-bottom:5px">🐢 Slow moving stock</div>
-      <div style="color:#475569;font-size:12px;line-height:1.7">Purchased <b>${Number(total).toLocaleString('en-IN')}</b> units → Only sold <b>${Number(sold).toLocaleString('en-IN')}</b> (<b>${pct}% sold</b>) → Remaining <b>${Number(stock).toLocaleString('en-IN')}</b>. At this rate, stock takes <b>~${days} days</b> to clear — very slow.</div>
+      <div style="color:#475569;font-size:12px;line-height:1.7">${flowLine} (<b>${pct}% sold</b>) At this rate, stock takes <b>~${days} days</b> to clear — very slow.</div>
       <div style="color:#4f46e5;font-size:12px;font-weight:600;margin-top:8px">💡 Action needed — run promotions, offer discounts, or reduce future orders from this vendor.</div>`;
   }
 
@@ -4781,8 +4785,8 @@ async function showTurnoverDetail(key, drillType, sold, stock, pct, days) {
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
       <div style="background:#eef2ff;border-radius:10px;padding:14px;text-align:center">
         <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">PURCHASED</div>
-        <div style="font-size:22px;font-weight:800;color:#4f46e5">${Number(total).toLocaleString('en-IN')}</div>
-        <div style="font-size:9px;color:#94a3b8;margin-top:2px">Sold + Stock</div>
+        <div style="font-size:22px;font-weight:800;color:#4f46e5">${N(purchase)}</div>
+        <div style="font-size:9px;color:#94a3b8;margin-top:2px">${opening ? 'Opening '+N(opening) : 'actual'}</div>
       </div>
       <div style="background:#f0fdf4;border-radius:10px;padding:14px;text-align:center">
         <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">SOLD</div>
