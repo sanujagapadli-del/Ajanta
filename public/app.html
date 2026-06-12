@@ -4287,7 +4287,8 @@ function renderRptSummary(s, stock) {
   if (countEl) countEl.textContent = rows.length + ' day' + (rows.length !== 1 ? 's' : '');
   if (!body) return;
   if (!rows.length) { _destroyChart('sales'); body.innerHTML = '<tr><td colspan="4" class="rpt-td" style="text-align:center;color:#94a3b8">No data for selected range</td></tr>'; return; }
-  body.innerHTML = rows.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}">
+  body.innerHTML = rows.map((r, i) => `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click to view transactions"
+    data-date="${String(r.date).replace(/"/g,'&quot;')}" onclick="showDrilldown('date',this.dataset.date)">
     <td class="rpt-td" style="font-weight:600">${r.date}</td>
     <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${(r.transactions||0).toLocaleString('en-IN')}</td>
     <td class="rpt-td" style="text-align:right;color:#10b981;font-weight:600">${Number(r.qty||0).toLocaleString('en-IN')}</td>
@@ -4922,7 +4923,8 @@ function renderRptSPAnalytics(data) {
       const uptG = !hasDateFilter ? NA : r.uptGrowth === null ? NA : (r.uptGrowth >= 0 ? '+' : '') + r.uptGrowth + '%';
       const atvG = !hasDateFilter ? NA : r.atvGrowth === null ? NA : (r.atvGrowth >= 0 ? '+' : '') + r.atvGrowth + '%';
       const gc = v => v === null ? '#94a3b8' : v >= 0 ? '#10b981' : '#ef4444';
-      return `<tr class="${i%2?'rpt-tr-even':''}">
+      return `<tr class="${i%2?'rpt-tr-even':''}" style="cursor:pointer" title="Click to view transactions"
+        data-sp="${String(r.name).replace(/"/g,'&quot;')}" onclick="showDrilldown('salesperson',this.dataset.sp)">
         <td class="rpt-td" style="color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
         <td class="rpt-td" style="font-weight:700;font-family:monospace">${r.name}</td>
         <td class="rpt-td" style="text-align:right;color:#3b82f6;font-weight:600">${r.bills}</td>
@@ -4968,7 +4970,7 @@ async function showDrilldown(filterType, label) {
     document.body.appendChild(modal);
   }
 
-  const TYPE_LABEL = { category:'Category', supplier:'Supplier', salesperson:'Salesperson', city:'City/State', stock_category:'Stock Category', stock_supplier:'Stock Supplier' };
+  const TYPE_LABEL = { category:'Category', supplier:'Supplier', salesperson:'Salesperson', city:'City/State', date:'Date', stock_category:'Stock Category', stock_supplier:'Stock Supplier' };
   document.getElementById('imsDrillTitle').textContent = label;
   document.getElementById('imsDrillSub').textContent = (TYPE_LABEL[filterType] || filterType) + ' — Transaction Details';
   document.getElementById('imsDrillBody').innerHTML = '<div style="text-align:center;padding:48px;color:#94a3b8;font-size:14px">⏳ Loading transactions…</div>';
@@ -4995,8 +4997,23 @@ async function showDrilldown(filterType, label) {
   const rows = data.rows;
 
   if (isStock) {
+    const stkQty  = rows.reduce((s,r) => s+(r.qty||0), 0);
+    const stkCost = rows.reduce((s,r) => s+((r.qty||0)*(r.cost||0)), 0);
     document.getElementById('imsDrillBody').innerHTML = `
-      <div style="font-size:12px;color:#64748b;margin-bottom:14px">${rows.length} records</div>
+      <div style="display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+        <div style="background:#f0f9ff;border-radius:10px;padding:11px 18px;min-width:100px">
+          <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Records</div>
+          <div style="font-size:22px;font-weight:800;color:#0ea5e9">${rows.length}</div>
+        </div>
+        <div style="background:#f0fdf4;border-radius:10px;padding:11px 18px;min-width:100px">
+          <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Total Qty</div>
+          <div style="font-size:22px;font-weight:800;color:#10b981">${Number(stkQty).toLocaleString('en-IN')}</div>
+        </div>
+        <div style="background:#fdf4ff;border-radius:10px;padding:11px 18px;min-width:140px">
+          <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Total Cost</div>
+          <div style="font-size:22px;font-weight:800;color:#7c3aed">₹${Math.round(stkCost).toLocaleString('en-IN')}</div>
+        </div>
+      </div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:#f8fafc">
           <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700;white-space:nowrap">Supplier</th>

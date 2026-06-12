@@ -3064,7 +3064,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const oSup  = findC(/^supplier[\s._-]?name$/i), oCity = findC(/^supplier[\s._-]?city$/i);
       const oSty  = findC(/^style$/i);
       const oQty  = findC(/netsls[\s._-]?qty/i), oAmt = findC(/netsls[\s._-]?net|netsls[\s._-]?amount/i);
-      const filterCol = { category:oCat, supplier:oSup, salesperson:oSP, city:oCity, item:oSty, style:oSty }[type] ?? -1;
+      const filterCol = { category:oCat, supplier:oSup, salesperson:oSP, city:oCity, item:oSty, style:oSty, date:oDate }[type] ?? -1;
 
       const rows = allRows.slice(1).filter(row => {
         if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
