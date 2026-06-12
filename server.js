@@ -2682,16 +2682,23 @@ function isJunkLabel(v) {
 // hoti hai — DUPATTA/SAREE/RMG DRESS), warna ArticleNo prefix se. Sheet untouched.
 function resolveCategory(catRaw, deptRaw, articleRaw) {
   const isNum = v => /^-?\d+(\.\d+)?$/.test(String(v || '').trim());
-  const c = String(catRaw || '').trim();
-  if (c && !isNum(c)) return c;                          // normal text category
-  const dept = String(deptRaw || '').trim();             // Department me asli category
-  if (dept && !isNum(dept)) return dept;
+  const ok = v => { const s = String(v || '').trim(); return (s && !isNum(s) && !isJunkLabel(s)) ? s : null; };
+  const c = ok(catRaw);    if (c) return c;              // valid text category
+  const dept = ok(deptRaw); if (dept) return dept;       // Department me asli category
   const art = String(articleRaw || '').trim();           // fallback: ArticleNo prefix
   if (art) {
-    const derived = art.replace(/[-_\s]*\d+(\.\d+)?\s*$/, '').replace(/\s+/g, ' ').trim();
-    if (derived && !isNum(derived)) return derived.toUpperCase();
+    const x = art.replace(/[-_\s]*\d+(\.\d+)?\s*$/, '').replace(/\s+/g, ' ').trim();
+    if (x && !isNum(x) && !isJunkLabel(x)) return x.toUpperCase();
   }
-  return c || 'Unknown';
+  return 'Unknown';
+}
+
+// [Default]/[None] supplier/style/salesperson ko "Alteration" naam do (exclude nahi —
+// taaki Total Net Sales ERP se match kare). Blank -> Unknown.
+function cleanLabel(v) {
+  const s = String(v || '').trim();
+  if (!s) return 'Unknown';
+  return isJunkLabel(s) ? 'Alteration' : s;
 }
 
 // IMS Reports — all 8 report types from Out Stock + In Stock tabs
@@ -2769,11 +2776,9 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const amt  = getNum(row, oNetAmt);
       const qty  = getNum(row, oNetQty);
       const cat  = resolveCategory(row[oCategory], oDept >= 0 ? row[oDept] : '', oArticle >= 0 ? row[oArticle] : '');
-      const sp   = (row[oSP]||'').trim() || 'Unknown';
-      const sup  = (row[oSupplier]||'').trim() || 'Unknown';
-      const sty  = oStyle >= 0 ? ((row[oStyle]||'').trim() || 'Unknown') : 'Unknown';
-      // [Default]/[None] junk entries ko pure IMS se skip karo
-      if (isJunkLabel(sup) || isJunkLabel(sty) || isJunkLabel(cat) || isJunkLabel(sp)) return;
+      const sp   = cleanLabel(row[oSP]);
+      const sup  = cleanLabel(row[oSupplier]);
+      const sty  = oStyle >= 0 ? cleanLabel(row[oStyle]) : 'Unknown';
       const ssKey= sup + '||' + sty;
       // Date filter (XN Date) — sab sales reports + turnover
       if (fromDate || toDate) {
@@ -2851,11 +2856,9 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         const pd = parseSheetDate((row[iPurDate]||'').trim());
         if (!pd || (fromDate && pd < fromDate) || (toDate && pd > toDate)) return;
       }
-      const sup  = (row[iSupplier]||'').trim() || 'Unknown';
+      const sup  = cleanLabel(row[iSupplier]);
       const cat  = resolveCategory(row[iCategory], iDept >= 0 ? row[iDept] : '', iArticle >= 0 ? row[iArticle] : '');
-      const sty  = iStyle >= 0 ? ((row[iStyle]||'').trim() || 'Unknown') : 'Unknown';
-      // [Default]/[None] junk entries ko skip karo
-      if (isJunkLabel(sup) || isJunkLabel(sty) || isJunkLabel(cat)) return;
+      const sty  = iStyle >= 0 ? cleanLabel(row[iStyle]) : 'Unknown';
       stockItemCount++;
       const ssKey= sup + '||' + sty;
       const purQ = getNum(row, iPurQty);
@@ -2906,11 +2909,9 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const isCur = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
       const isLY  = hasDateFilter && (!lyFrom || d >= lyFrom) && (!lyTo || d <= lyTo);
       if (!isCur && !isLY) return;
-      // [Default]/[None] junk entries ko skip karo (sales summary loop jaise)
-      if (isJunkLabel((row[oSupplier]||'').trim()) || (oStyle>=0 && isJunkLabel((row[oStyle]||'').trim())) || isJunkLabel((row[oCategory]||'').trim()) || isJunkLabel((row[oSP]||'').trim())) return;
       const qty  = getNum(row, oNetQty);
       const amt  = getNum(row, oNetAmt);
-      const sp   = (row[oSP]||'').trim() || 'Unknown';
+      const sp   = cleanLabel(row[oSP]);
       const xnNo = (row[oXnNo]||'').trim();
       const monKey   = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
       const monLabel = `${MON_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
@@ -3121,18 +3122,26 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const oDept = findC(/^department$/i), oArt = findC(/^article[\s._-]?no$|^articleno$/i);
       const oQty  = findC(/netsls[\s._-]?qty/i), oAmt = findC(/netsls[\s._-]?net|netsls[\s._-]?amount/i);
       const oResolveCat = row => resolveCategory(row[oCat], oDept>=0?row[oDept]:'', oArt>=0?row[oArt]:'');
-      const filterCol = { supplier:oSup, salesperson:oSP, city:oCity, item:oSty, style:oSty, date:oDate }[type] ?? -1;
-
+      const matchVal = row => {
+        switch (type) {
+          case 'category':    return oResolveCat(row);
+          case 'supplier':    return cleanLabel(row[oSup]);
+          case 'salesperson': return cleanLabel(row[oSP]);
+          case 'item': case 'style': return oSty>=0 ? cleanLabel(row[oSty]) : null;
+          case 'city':        return String(row[oCity]||'').trim();
+          case 'date':        return String(row[oDate]||'').trim();
+          default:            return null;
+        }
+      };
       const rows = allRows.slice(1).filter(row => {
-        if (type === 'category') { if (oResolveCat(row) !== value) return false; }
-        else if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
-        if (isJunkLabel(row[oSup]) || (oSty>=0 && isJunkLabel(row[oSty])) || isJunkLabel(row[oCat]) || isJunkLabel(row[oSP])) return false;
+        const mv = matchVal(row);
+        if (mv !== null && mv !== value) return false;
         if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
         return true;
       }).slice(0, 500).map(row => ({
         date: row[oDate]||'', bill: row[oXn]||'',
-        category: oResolveCat(row), style: oSty >= 0 ? (row[oSty]||'') : '',
-        supplier: row[oSup]||'', salesperson: row[oSP]||'',
+        category: oResolveCat(row), style: oSty >= 0 ? cleanLabel(row[oSty]) : '',
+        supplier: cleanLabel(row[oSup]), salesperson: cleanLabel(row[oSP]),
         qty: getNum(row, oQty), amount: getNum(row, oAmt)
       }));
       return res.json({ rows, type, value });
@@ -3146,15 +3155,12 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const iSty  = findC(/^style$/i);
       const iDept = findC(/^department$/i), iArt = findC(/^article[\s._-]?no$|^articleno$/i);
       const iResolveCat = row => resolveCategory(row[iCat], iDept>=0?row[iDept]:'', iArt>=0?row[iArt]:'');
-      const filterCol = { stock_supplier:iSup }[type] ?? -1;
-
       const rows = allRows.slice(1).filter(row => {
-        if (type === 'stock_category') { if (iResolveCat(row) !== value) return false; }
-        else if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
-        if (isJunkLabel(row[iSup]) || isJunkLabel(row[iCat]) || (iSty>=0 && isJunkLabel(row[iSty]))) return false;
+        if (type === 'stock_category') return iResolveCat(row) === value;
+        if (type === 'stock_supplier') return cleanLabel(row[iSup]) === value;
         return true;
       }).slice(0, 500).map(row => ({
-        supplier: row[iSup]||'', category: iResolveCat(row),
+        supplier: cleanLabel(row[iSup]), category: iResolveCat(row),
         description: row[iDesc]||'', qty: getNum(row, iQty), cost: getNum(row, iCost)
       }));
       return res.json({ rows, type, value });
