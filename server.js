@@ -3034,16 +3034,24 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
     const { type, value, from, to } = req.query;
     if (!type || !value) return res.status(400).json({ error: 'type and value required' });
 
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const isStock = type.startsWith('stock_');
-    const tabName = isStock ? "'In Stock'!A:AH" : "'Out Stock'!A:AH";
 
-    let resp;
-    try {
-      resp = await withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: tabName }));
-    } catch(e) { return res.json({ rows: [] }); }
-
-    const allRows = resp.data.values || [];
+    // Reuse the in-memory raw cache that /api/ims-reports populates — avoids a
+    // full-sheet (20k+ rows) re-fetch on every drilldown click.
+    const now = Date.now();
+    let allRows = null;
+    if ((now - _imsRawCache.ts) < IMS_CACHE_TTL_MS) {
+      allRows = isStock ? _imsRawCache.inRows : _imsRawCache.outRows;
+    }
+    if (!allRows || !allRows.length) {
+      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+      const tabName = isStock ? "'In Stock'!A:AH" : "'Out Stock'!A:AH";
+      let resp;
+      try {
+        resp = await withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: tabName }));
+      } catch(e) { return res.json({ rows: [] }); }
+      allRows = resp.data.values || [];
+    }
     if (!allRows.length) return res.json({ rows: [] });
 
     const hdr = allRows[0].map(h => String(h).trim().toLowerCase());
