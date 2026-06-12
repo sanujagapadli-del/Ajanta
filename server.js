@@ -2797,6 +2797,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const iSupplier = findC(inHeader, /^supplier[\s._-]?name$/i);
     const iCostPrice= findC(inHeader, /^cost[\s._-]?price$|^cp$|^unit[\s._-]?price$|^purchase[\s._-]?price$|^rate$/i);
     const iOpsQty   = findC(inHeader, /^ops?[\s._-]?qty$|^opg[\s._-]?qty$|^opening[\s._-]?(stock[\s._-]?)?qty$|^avail(able)?[\s._-]?qty$|^bal(ance)?[\s._-]?qty$/i);
+    const iPurQty   = findC(inHeader, /^pur(chase)?[\s._-]?qty$/i);
     const iCategory = findC(inHeader, /^category$/i);
     const iDept     = findC(inHeader, /^department$/i);
     const iStyle    = findC(inHeader, /^style$/i);
@@ -2812,22 +2813,25 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const cat  = (row[iCategory]||'').trim() || 'Unknown';
       const sty  = iStyle >= 0 ? ((row[iStyle]||'').trim() || 'Unknown') : 'Unknown';
       const ssKey= sup + '||' + sty;
-      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0 };
+      const purQ = getNum(row, iPurQty);
+      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0 };
       bySupStyleStock[ssKey].qty += getNum(row, iOpsQty);
-      if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0 };
+      bySupStyleStock[ssKey].purQty += purQ;
+      if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0, purQty: 0 };
       byStyleStock[sty].qty += getNum(row, iOpsQty);
+      byStyleStock[sty].purQty += purQ;
       const cost = getNum(row, iCostPrice);
       const qty  = getNum(row, iOpsQty);
       const val  = qty * cost;
       totalStockQty += qty; totalStockValue += val;
-      if (!bySupStock[sup]) bySupStock[sup] = { qty:0, value:0 };
-      bySupStock[sup].qty += qty; bySupStock[sup].value += val;
-      if (!byCatStock[cat]) byCatStock[cat] = { qty:0, value:0 };
-      byCatStock[cat].qty += qty; byCatStock[cat].value += val;
+      if (!bySupStock[sup]) bySupStock[sup] = { qty:0, value:0, purQty:0 };
+      bySupStock[sup].qty += qty; bySupStock[sup].value += val; bySupStock[sup].purQty += purQ;
+      if (!byCatStock[cat]) byCatStock[cat] = { qty:0, value:0, purQty:0 };
+      byCatStock[cat].qty += qty; byCatStock[cat].value += val; byCatStock[cat].purQty += purQ;
     });
 
     const sortVal = arr => arr.sort((a,b) => b.value - a.value);
-    const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), value:Math.round(d.value) })));
+    const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), purQty:r2(d.purQty), value:Math.round(d.value) })));
     const categoryStock = sortVal(Object.entries(byCatStock).map(([category,d]) => ({ category, qty:r2(d.qty), value:Math.round(d.value) })));
 
     const skuSales = sortAmt(Object.entries(bySKU).map(([sku,d]) => ({ sku, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) })));
@@ -2923,9 +2927,9 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       supplierStock,
       categoryStock,
       supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),
-      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),
+      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty), purQty: r2(d.purQty) })),
       styleSales: Object.entries(byStyleSales).map(([style, d]) => ({ style, qty: r2(d.qty) })),
-      styleStock: Object.entries(byStyleStock).map(([style, d]) => ({ style, qty: r2(d.qty) })),
+      styleStock: Object.entries(byStyleStock).map(([style, d]) => ({ style, qty: r2(d.qty), purQty: r2(d.purQty) })),
       spAnalytics: {
         hasDateFilter,
         summary: { curUPT, lyUPT, uptGrowth:pct(curUPT,lyUPT), curATV, lyATV, atvGrowth:pct(curATV,lyATV),

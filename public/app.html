@@ -1444,11 +1444,12 @@ tbody tr:last-child td{border-bottom:none;}
               <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>
                 <th class="rpt-th-dark" style="text-align:left;padding:8px 10px;width:36px">#</th>
                 <th class="rpt-th-dark" style="text-align:left;padding:8px 10px">Supplier Name</th>
+                <th class="rpt-th-amber" style="text-align:right;padding:8px 10px">Purchase Qty</th>
                 <th class="rpt-th-green" style="text-align:right;padding:8px 10px">Sales Qty</th>
                 <th class="rpt-th-blue" style="text-align:right;padding:8px 10px">Avail Stock</th>
                 <th class="rpt-th-dark" style="text-align:center;padding:8px 10px">Status</th>
               </tr></thead>
-              <tbody id="rptTurnoverSupplierBody"><tr><td colspan="5" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              <tbody id="rptTurnoverSupplierBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
               </table>
             </div></div>
           </div>
@@ -1464,11 +1465,12 @@ tbody tr:last-child td{border-bottom:none;}
                 <th class="rpt-th-dark" style="text-align:left;padding:8px 10px">Category</th>
                 <th class="rpt-th-dark" style="text-align:left;padding:8px 10px">Supplier Name</th>
                 <th class="rpt-th-purple" style="text-align:left;padding:8px 10px">Style</th>
+                <th class="rpt-th-amber" style="text-align:right;padding:8px 10px">Purchase Qty</th>
                 <th class="rpt-th-green" style="text-align:right;padding:8px 10px">Sales Qty</th>
                 <th class="rpt-th-blue" style="text-align:right;padding:8px 10px">Avail Stock</th>
                 <th class="rpt-th-dark" style="text-align:center;padding:8px 10px">Status</th>
               </tr></thead>
-              <tbody id="rptTurnoverItemBody"><tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              <tbody id="rptTurnoverItemBody"><tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
               </table>
             </div></div>
           </div>
@@ -4599,6 +4601,7 @@ function _turnoverRowHtml(r, i, drillType) {
     onclick="showTurnoverDetail('${safeKey}','${drillType}',${r.sold},${r.stock},${r.pct ?? 'null'},${r.days ?? 'null'})">
     <td class="rpt-td" style="padding:5px 7px;color:#94a3b8;font-weight:700;font-size:11px">${i+1}</td>
     <td class="rpt-td" style="padding:5px 7px;font-weight:700;font-size:12px">${r.key}</td>
+    <td class="rpt-td" style="padding:5px 7px;text-align:right;color:#d97706;font-weight:600;font-size:12px">${Math.round(r.purQty||0).toLocaleString('en-IN')}</td>
     <td class="rpt-td" style="padding:5px 7px;text-align:right;color:#10b981;font-weight:600;font-size:12px">${Math.round(r.sold).toLocaleString('en-IN')}</td>
     <td class="rpt-td" style="padding:5px 7px;text-align:right;color:#3b82f6;font-weight:600;font-size:12px">${Math.round(r.stock).toLocaleString('en-IN')}</td>
     <td class="rpt-td" style="padding:5px 7px;text-align:center">${_turnoverBadge(r.pct, r.sold, r.stock)}</td>
@@ -4618,10 +4621,10 @@ function renderRptTurnover(data) {
   const renderRows = (rows, bodyId, drillType, showAll) => {
     const body = document.getElementById(bodyId);
     if (!body) return;
-    if (!rows.length) { body.innerHTML = `<tr><td colspan="5" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
     const visible = showAll ? rows : rows.slice(0, 10);
     const moreBtn = (!showAll && rows.length > 10)
-      ? `<tr><td colspan="5" style="text-align:center;padding:10px">
+      ? `<tr><td colspan="6" style="text-align:center;padding:10px">
            <button onclick="expandTurnoverTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:6px 20px;font-size:12px;font-weight:700;cursor:pointer">
              ▼ Show All ${rows.length} rows
            </button></td></tr>`
@@ -4633,17 +4636,18 @@ function renderRptTurnover(data) {
   };
 
   const buildRows = (salesArr, stockArr, nameKey, bodyId, drillType) => {
-    const stockMap = {};
-    (stockArr || []).forEach(s => { stockMap[s[nameKey]] = Number(s.qty) || 0; });
+    const stockMap = {}, purMap = {};
+    (stockArr || []).forEach(s => { stockMap[s[nameKey]] = Number(s.qty) || 0; purMap[s[nameKey]] = Number(s.purQty) || 0; });
     const keys = new Set([...(salesArr||[]).map(s => s[nameKey]), ...Object.keys(stockMap)]);
     const rows = [...keys].map(key => {
       const found = (salesArr||[]).find(s => s[nameKey] === key);
       const sold  = found ? Number(found.qty) || 0 : 0;
       const stock = stockMap[key] || 0;
+      const purQty = purMap[key] || 0;
       const pct   = _turnoverPct(sold, stock);
       const soldPerDay = sold / rangeDays;
       const days  = (soldPerDay > 0 && stock > 0) ? Math.round(stock / soldPerDay) : (stock === 0 && sold > 0 ? 0 : null);
-      return { key, sold, stock, pct, days };
+      return { key, sold, stock, purQty, pct, days };
     }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
     if (!window._turnoverCache) window._turnoverCache = {};
     window._turnoverCache[bodyId] = { rows, drillType };
@@ -4652,25 +4656,27 @@ function renderRptTurnover(data) {
 
   const buildItemRows = (salesArr, stockArr) => {
     const bodyId = 'rptTurnoverItemBody';
-    const stockMap = {};
-    (stockArr || []).forEach(s => { stockMap[s.key] = Number(s.qty) || 0; });
+    const stockMap = {}, purMap = {}, stockMeta = {};
+    (stockArr || []).forEach(s => { stockMap[s.key] = Number(s.qty) || 0; purMap[s.key] = Number(s.purQty) || 0; stockMeta[s.key] = s; });
     const keys = new Set([...(salesArr||[]).map(s => s.key), ...Object.keys(stockMap)]);
     const rows = [...keys].map(key => {
       const found = (salesArr||[]).find(s => s.key === key);
+      const meta  = found || stockMeta[key] || {};
       const sold  = found ? Number(found.qty) || 0 : 0;
       const stock = stockMap[key] || 0;
+      const purQty = purMap[key] || 0;
       const pct   = _turnoverPct(sold, stock);
-      return { key, supName: found?.supName || '—', style: found?.style || key, cat: found?.cat || '—', sold, stock, pct };
+      return { key, supName: meta.supName || '—', style: meta.style || key, cat: meta.cat || '—', sold, stock, purQty, pct };
     }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || b.sold - a.sold);
     if (!window._turnoverCache) window._turnoverCache = {};
     window._turnoverCache[bodyId] = { rows, drillType: 'item' };
     const renderItemRows = (rows, showAll) => {
       const body = document.getElementById(bodyId);
       if (!body) return;
-      if (!rows.length) { body.innerHTML = `<tr><td colspan="6" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
+      if (!rows.length) { body.innerHTML = `<tr><td colspan="7" class="rpt-td" style="text-align:center;color:#94a3b8">No data</td></tr>`; return; }
       const visible = showAll ? rows : rows.slice(0, 10);
       const moreBtn = (!showAll && rows.length > 10)
-        ? `<tr><td colspan="6" style="text-align:center;padding:10px">
+        ? `<tr><td colspan="7" style="text-align:center;padding:10px">
              <button onclick="expandTurnoverTable('${bodyId}')" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:6px 20px;font-size:12px;font-weight:700;cursor:pointer">
                ▼ Show All ${rows.length} rows
              </button></td></tr>`
@@ -4679,6 +4685,7 @@ function renderRptTurnover(data) {
         <td class="rpt-td" style="padding:5px 8px;font-size:12px;color:#64748b">${r.cat}</td>
         <td class="rpt-td" style="padding:5px 8px;font-size:12px;font-weight:600;color:#1e293b">${r.supName}</td>
         <td class="rpt-td" style="padding:5px 8px;font-size:12px;color:#6d28d9">${r.style}</td>
+        <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#d97706;font-weight:700">${Number(r.purQty||0).toLocaleString('en-IN')}</td>
         <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#16a34a;font-weight:700">${Number(r.sold).toLocaleString('en-IN')}</td>
         <td class="rpt-td" style="padding:5px 8px;font-size:12px;text-align:right;color:#2563eb;font-weight:700">${Number(r.stock).toLocaleString('en-IN')}</td>
         <td class="rpt-td" style="padding:5px 8px;text-align:center">${_turnoverBadge(r.pct, r.sold, r.stock)}</td>
