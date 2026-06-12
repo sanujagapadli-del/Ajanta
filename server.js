@@ -2805,14 +2805,18 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     const iSupplier = findC(inHeader, /^supplier[\s._-]?name$/i);
     const iCostPrice= findC(inHeader, /^cost[\s._-]?price$|^cp$|^unit[\s._-]?price$|^purchase[\s._-]?price$|^rate$/i);
-    const iOpsQty   = findC(inHeader, /^ops?[\s._-]?qty$|^opg[\s._-]?qty$|^opening[\s._-]?(stock[\s._-]?)?qty$|^avail(able)?[\s._-]?qty$|^bal(ance)?[\s._-]?qty$/i);
+    const iOpsQty   = findC(inHeader, /^ops?[\s._-]?qty$|^opg[\s._-]?qty$|^opening[\s._-]?(stock[\s._-]?)?qty$/i);
+    // CBS = Closing Balance Stock = aaj ka actual available stock. Stock value/qty
+    // isi pe banana chahiye (OPS = Opening Stock, period ke shuru ka — galat tha).
+    const iCbsQty   = findC(inHeader, /^cbs[\s._-]?qty$|^clos(ing)?[\s._-]?(bal(ance)?[\s._-]?)?(stock[\s._-]?)?qty$|^avail(able)?[\s._-]?qty$|^bal(ance)?[\s._-]?qty$/i);
+    const iStockQty = iCbsQty >= 0 ? iCbsQty : iOpsQty;  // CBS preferred, OPS fallback
     const iPurQty   = findC(inHeader, /^pur(chase)?[\s._-]?qty$/i);
     const iCategory = findC(inHeader, /^category$/i);
     const iDept     = findC(inHeader, /^department$/i);
     const iStyle    = findC(inHeader, /^style$/i);
     const iPurDate  = findC(inHeader, /^pur(chase)?[\s._-]?date$/i);
 
-    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iPurDate, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
+    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCbsQty, iStockQty, iPurDate, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
 
     const bySupStock={}, byCatStock={}, bySupStyleStock={}, byStyleStock={};
     let totalStockQty=0, totalStockValue=0, stockItemCount=0;
@@ -2833,13 +2837,13 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const ssKey= sup + '||' + sty;
       const purQ = getNum(row, iPurQty);
       if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0 };
-      bySupStyleStock[ssKey].qty += getNum(row, iOpsQty);
+      bySupStyleStock[ssKey].qty += getNum(row, iStockQty);
       bySupStyleStock[ssKey].purQty += purQ;
       if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0, purQty: 0 };
-      byStyleStock[sty].qty += getNum(row, iOpsQty);
+      byStyleStock[sty].qty += getNum(row, iStockQty);
       byStyleStock[sty].purQty += purQ;
       const cost = getNum(row, iCostPrice);
-      const qty  = getNum(row, iOpsQty);
+      const qty  = getNum(row, iStockQty);
       const val  = qty * cost;
       totalStockQty += qty; totalStockValue += val;
       if (!bySupStock[sup]) bySupStock[sup] = { qty:0, value:0, purQty:0 };
@@ -3102,7 +3106,10 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
     } else {
       const iSup  = findC(/^supplier[\s._-]?name$/i), iCat  = findC(/^category$/i);
       const iDesc = findC(/description|item[\s._-]?name/i);
-      const iQty  = findC(/ops[\s._-]?qty|opening[\s._-]?qty/i), iCost = findC(/cost[\s._-]?price/i);
+      // CBS (closing/available) preferred; OPS (opening) as fallback
+      const iCbs  = findC(/^cbs[\s._-]?qty$|clos(ing)?[\s._-]?(bal(ance)?[\s._-]?)?(stock[\s._-]?)?qty/i);
+      const iQty  = iCbs >= 0 ? iCbs : findC(/ops[\s._-]?qty|opening[\s._-]?qty/i);
+      const iCost = findC(/cost[\s._-]?price/i);
       const filterCol = { stock_supplier:iSup, stock_category:iCat }[type] ?? -1;
 
       const iSty = findC(/^style$/i);

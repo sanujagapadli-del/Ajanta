@@ -1342,7 +1342,7 @@ tbody tr:last-child td{border-bottom:none;}
               <div class="rpt-stat-icon" style="opacity:.08">📋</div>
             </div>
             <div class="rpt-stat-card" style="border-top:3px solid #10b981">
-              <div class="rpt-stat-label">Total OPS Qty</div>
+              <div class="rpt-stat-label">Total Available Qty</div>
               <div id="rptStockQty" class="rpt-stat-value" style="color:#10b981">—</div>
               <div class="rpt-stat-icon" style="opacity:.08">📦</div>
             </div>
@@ -1362,7 +1362,7 @@ tbody tr:last-child td{border-bottom:none;}
               📦 Data sourced from the <span style="color:#0891b2;font-weight:600">In Stock</span> tab.<br>
               For deeper insight, switch to <span style="color:#7c3aed;font-weight:600">Supplier-wise Stock</span> or <span style="color:#7c3aed;font-weight:600">Stock by Category</span>.<br><br>
               <div style="color:#64748b;font-size:11px;padding:10px 14px;background:#fff;border-radius:8px;border:1px solid #eef2ff;font-weight:500">
-                📐 Stock Value = OPS Qty × Cost Price
+                📐 Stock Value = Available Qty (Closing Balance) × Cost Price
               </div>
             </div>
           </div>
@@ -1513,7 +1513,7 @@ tbody tr:last-child td{border-bottom:none;}
           <!-- Monthly Comparison Chart -->
           <div class="rpt-chart-wrap" style="margin-bottom:22px">
             <div class="rpt-chart-label">Monthly Sales Comparison — Current Year vs Last Year</div>
-            <div style="position:relative;height:260px"><canvas id="rptChart-spmonthly"></canvas></div>
+            <div id="spMonthlyWrap" style="position:relative;height:260px"><canvas id="rptChart-spmonthly"></canvas></div>
           </div>
           <!-- SP Table -->
           <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
@@ -4873,16 +4873,16 @@ function renderRptSPAnalytics(data) {
   if (el('saBillsG')) { el('saBillsG').textContent = hasDateFilter ? gSign(s.billsGrowth) : NA; el('saBillsG').style.color = hasDateFilter ? gColor(s.billsGrowth) : '#94a3b8'; }
 
   // Monthly comparison chart
-  const chartWrap = document.getElementById('rptChart-spmonthly');
-  if (!hasDateFilter) {
-    _destroyChart('spmonthly');
-    if (chartWrap) {
-      const wrap = chartWrap.parentElement;
-      if (wrap) wrap.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:120px;color:#94a3b8;font-size:13px;background:#f8fafc;border-radius:10px;border:1.5px dashed #e2e8f0">
+  const monWrap = document.getElementById('spMonthlyWrap');
+  const msgHtml = `<div style="display:flex;align-items:center;justify-content:center;height:120px;color:#94a3b8;font-size:13px;background:#f8fafc;border-radius:10px;border:1.5px dashed #e2e8f0">
         📅 Last Year comparison ke liye <strong style="margin:0 5px;color:#4f46e5">Date Range select karo</strong> (e.g. This Year)
       </div>`;
-    }
+  if (!hasDateFilter) {
+    _destroyChart('spmonthly');
+    if (monWrap) monWrap.innerHTML = msgHtml;
   } else if (monthlyCmp && monthlyCmp.length) {
+    // Canvas dobara banao — no-date message ne use replace kiya ho sakta hai
+    if (monWrap && !document.getElementById('rptChart-spmonthly')) monWrap.innerHTML = '<canvas id="rptChart-spmonthly"></canvas>';
     const labels  = monthlyCmp.map(m => m.month);
     const curAmts = monthlyCmp.map(m => m.curAmt);
     const lyAmts  = monthlyCmp.map(m => m.lyAmt);
@@ -4910,6 +4910,10 @@ function renderRptSPAnalytics(data) {
         }
       });
     });
+  } else {
+    // Date set hai par poora range nahi (sirf from ya to) — LY comparison N/A
+    _destroyChart('spmonthly');
+    if (monWrap) monWrap.innerHTML = msgHtml;
   }
 
   // SP table (top-10 default)
@@ -5319,17 +5323,17 @@ function rptExportCSV() {
   } else if (_activeRptTab === 'stocksummary') {
     filename = `Stock_Summary.csv`;
     const cs = _rptData.currentStock || {};
-    rows = [['Metric','Value'], ['Total Items (Rows)', cs.totalItems||0], ['Total OPS Qty', cs.totalQty||0], ['Total Stock Value (INR)', cs.totalValue||0]];
+    rows = [['Metric','Value'], ['Total Items (Rows)', cs.totalItems||0], ['Total Available Qty', cs.totalQty||0], ['Total Stock Value (INR)', cs.totalValue||0]];
 
   } else if (_activeRptTab === 'supplierstock') {
     filename = `Supplier_Stock_Value.csv`;
-    rows = [['#','Supplier Name','OPS Qty','Stock Value (INR)','% of Total Value']];
+    rows = [['#','Supplier Name','Available Qty','Stock Value (INR)','% of Total Value']];
     const g3 = (_rptData.supplierStock||[]).reduce((s,c)=>s+c.value,0)||1;
     (_rptData.supplierStock||[]).forEach((c,i) => rows.push([i+1, c.name, c.qty, c.value, ((c.value/g3)*100).toFixed(1)+'%']));
 
   } else if (_activeRptTab === 'stockcat') {
     filename = `Stock_by_Category.csv`;
-    rows = [['#','Category','OPS Qty','Stock Value (INR)','% of Total Value']];
+    rows = [['#','Category','Available Qty','Stock Value (INR)','% of Total Value']];
     const g4 = (_rptData.categoryStock||[]).reduce((s,c)=>s+c.value,0)||1;
     (_rptData.categoryStock||[]).forEach((c,i) => rows.push([i+1, c.category, c.qty, c.value, ((c.value/g4)*100).toFixed(1)+'%']));
   }
