@@ -2676,6 +2676,24 @@ function isJunkLabel(v) {
   return s === '[default]' || s === 'default' || s === '[none]' || s === 'none';
 }
 
+// Kuch rows me Category ki jagah HSN code (jaise 6204, 5407) aa jaata hai —
+// ye CLIENT DATA hai, sheet me kuch change NAHI karna. Sirf report dikhane ke
+// waqt asli category nikaalte hain: pehle Department column (usme sahi category
+// hoti hai — DUPATTA/SAREE/RMG DRESS), warna ArticleNo prefix se. Sheet untouched.
+function resolveCategory(catRaw, deptRaw, articleRaw) {
+  const isNum = v => /^-?\d+(\.\d+)?$/.test(String(v || '').trim());
+  const c = String(catRaw || '').trim();
+  if (c && !isNum(c)) return c;                          // normal text category
+  const dept = String(deptRaw || '').trim();             // Department me asli category
+  if (dept && !isNum(dept)) return dept;
+  const art = String(articleRaw || '').trim();           // fallback: ArticleNo prefix
+  if (art) {
+    const derived = art.replace(/[-_\s]*\d+(\.\d+)?\s*$/, '').replace(/\s+/g, ' ').trim();
+    if (derived && !isNum(derived)) return derived.toUpperCase();
+  }
+  return c || 'Unknown';
+}
+
 // IMS Reports — all 8 report types from Out Stock + In Stock tabs
 app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
@@ -2728,6 +2746,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oXnDate    = findC(outHeader, /^xn[\s._-]?date$/i);
     const oXnNo      = findC(outHeader, /^xn[\s._-]?no$/i);
     const oCategory  = findC(outHeader, /^category$/i);
+    const oDept      = findC(outHeader, /^department$/i);
     const oSP        = findC(outHeader, /^salesperson$/i);
     const oNetQty    = findC(outHeader, /netsls[\s._-]?qty/i);
     const oNetAmt    = findC(outHeader, /netsls[\s._-]?net|netsls[\s._-]?amount/i);
@@ -2736,6 +2755,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oState     = findC(outHeader, /^supplier[\s._-]?state$/i);
     const oSKU       = findC(outHeader, /sku[\s._-]?code|^sku$|item[\s._-]?code|product[\s._-]?code|article[\s._-]?no|articleno|^itemid$|item[\s._-]?id/i);
     const oStyle     = findC(outHeader, /^style$/i);
+    const oArticle   = findC(outHeader, /^article[\s._-]?no$|^articleno$/i);
 
     console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU });
 
@@ -2752,7 +2772,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       }
       const amt  = getNum(row, oNetAmt);
       const qty  = getNum(row, oNetQty);
-      const cat  = (row[oCategory]||'').trim() || 'Unknown';
+      const cat  = resolveCategory(row[oCategory], oDept >= 0 ? row[oDept] : '', oArticle >= 0 ? row[oArticle] : '');
       const sp   = (row[oSP]||'').trim() || 'Unknown';
       const sup  = (row[oSupplier]||'').trim() || 'Unknown';
       const sty  = oStyle >= 0 ? ((row[oStyle]||'').trim() || 'Unknown') : 'Unknown';
@@ -2814,6 +2834,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const iCategory = findC(inHeader, /^category$/i);
     const iDept     = findC(inHeader, /^department$/i);
     const iStyle    = findC(inHeader, /^style$/i);
+    const iArticle  = findC(inHeader, /^article[\s._-]?no$|^articleno$/i);
     const iPurDate  = findC(inHeader, /^pur(chase)?[\s._-]?date$/i);
 
     console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCbsQty, iStockQty, iPurDate, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
@@ -2829,7 +2850,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         if (!pd || (fromDate && pd < fromDate) || (toDate && pd > toDate)) return;
       }
       const sup  = (row[iSupplier]||'').trim() || 'Unknown';
-      const cat  = (row[iCategory]||'').trim() || 'Unknown';
+      const cat  = resolveCategory(row[iCategory], iDept >= 0 ? row[iDept] : '', iArticle >= 0 ? row[iArticle] : '');
       const sty  = iStyle >= 0 ? ((row[iStyle]||'').trim() || 'Unknown') : 'Unknown';
       // [Default]/[None] junk entries ko skip karo
       if (isJunkLabel(sup) || isJunkLabel(sty) || isJunkLabel(cat)) return;
@@ -3088,17 +3109,20 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const oCat  = findC(/^category$/i),        oSP = findC(/^salesperson$/i);
       const oSup  = findC(/^supplier[\s._-]?name$/i), oCity = findC(/^supplier[\s._-]?city$/i);
       const oSty  = findC(/^style$/i);
+      const oDept = findC(/^department$/i), oArt = findC(/^article[\s._-]?no$|^articleno$/i);
       const oQty  = findC(/netsls[\s._-]?qty/i), oAmt = findC(/netsls[\s._-]?net|netsls[\s._-]?amount/i);
-      const filterCol = { category:oCat, supplier:oSup, salesperson:oSP, city:oCity, item:oSty, style:oSty, date:oDate }[type] ?? -1;
+      const oResolveCat = row => resolveCategory(row[oCat], oDept>=0?row[oDept]:'', oArt>=0?row[oArt]:'');
+      const filterCol = { supplier:oSup, salesperson:oSP, city:oCity, item:oSty, style:oSty, date:oDate }[type] ?? -1;
 
       const rows = allRows.slice(1).filter(row => {
-        if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
+        if (type === 'category') { if (oResolveCat(row) !== value) return false; }
+        else if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
         if (isJunkLabel(row[oSup]) || (oSty>=0 && isJunkLabel(row[oSty])) || isJunkLabel(row[oCat]) || isJunkLabel(row[oSP])) return false;
         if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
         return true;
       }).slice(0, 500).map(row => ({
         date: row[oDate]||'', bill: row[oXn]||'',
-        category: row[oCat]||'', style: oSty >= 0 ? (row[oSty]||'') : '',
+        category: oResolveCat(row), style: oSty >= 0 ? (row[oSty]||'') : '',
         supplier: row[oSup]||'', salesperson: row[oSP]||'',
         qty: getNum(row, oQty), amount: getNum(row, oAmt)
       }));
@@ -3110,15 +3134,18 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const iCbs  = findC(/^cbs[\s._-]?qty$|clos(ing)?[\s._-]?(bal(ance)?[\s._-]?)?(stock[\s._-]?)?qty/i);
       const iQty  = iCbs >= 0 ? iCbs : findC(/ops[\s._-]?qty|opening[\s._-]?qty/i);
       const iCost = findC(/cost[\s._-]?price/i);
-      const filterCol = { stock_supplier:iSup, stock_category:iCat }[type] ?? -1;
+      const iSty  = findC(/^style$/i);
+      const iDept = findC(/^department$/i), iArt = findC(/^article[\s._-]?no$|^articleno$/i);
+      const iResolveCat = row => resolveCategory(row[iCat], iDept>=0?row[iDept]:'', iArt>=0?row[iArt]:'');
+      const filterCol = { stock_supplier:iSup }[type] ?? -1;
 
-      const iSty = findC(/^style$/i);
       const rows = allRows.slice(1).filter(row => {
-        if (!(filterCol < 0 || String(row[filterCol]||'').trim() === value)) return false;
+        if (type === 'stock_category') { if (iResolveCat(row) !== value) return false; }
+        else if (filterCol >= 0 && String(row[filterCol]||'').trim() !== value) return false;
         if (isJunkLabel(row[iSup]) || isJunkLabel(row[iCat]) || (iSty>=0 && isJunkLabel(row[iSty]))) return false;
         return true;
       }).slice(0, 500).map(row => ({
-        supplier: row[iSup]||'', category: row[iCat]||'',
+        supplier: row[iSup]||'', category: iResolveCat(row),
         description: row[iDesc]||'', qty: getNum(row, iQty), cost: getNum(row, iCost)
       }));
       return res.json({ rows, type, value });
