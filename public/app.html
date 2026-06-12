@@ -4143,10 +4143,12 @@ function switchRptTab(tab) {
   const titleEl = document.getElementById('rptActiveTitle');
   if (titleEl) titleEl.textContent = RPT_TABS[tab] || tab;
   // Date filter sab reports pe lagu hota hai (sales=XN Date, stock=Pur Date)
+  // — sirf Stock Turnover ise ignore karta hai (full/current sell-through), isliye wahan hide
+  const showDate = tab !== 'turnover';
   const dateCtrl = document.getElementById('rptDateControls');
   const quickRow = document.getElementById('rptQuickRow');
-  if (dateCtrl) dateCtrl.style.display = '';
-  if (quickRow) quickRow.style.display = '';
+  if (dateCtrl) dateCtrl.style.display = showDate ? '' : 'none';
+  if (quickRow) quickRow.style.display = showDate ? '' : 'none';
   // Load data for that tab
   loadImsReports();
 }
@@ -4263,7 +4265,8 @@ async function loadImsReports(forceSync) {
   // Update subtitle
   const sub = document.getElementById('rptSubtitle');
   if (sub) {
-    sub.textContent = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
+    if (_activeRptTab === 'turnover') sub.textContent = 'Current snapshot · all-time (date filter N/A)';
+    else sub.textContent = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
   }
 
   _rptData = data; // cache for CSV export
@@ -4706,8 +4709,9 @@ function renderRptTurnover(data) {
     renderItemRows(rows, false);
   };
 
-  buildRows(data.supplierSales, data.supplierStock, 'name', 'rptTurnoverSupplierBody', 'supplier');
-  buildItemRows(data.supplierStyleSales || [], data.supplierStyleStock || []);
+  // Turnover full/current data use karta hai (date filter se alag) — mismatch na ho
+  buildRows(data.turnoverSupplierSales || data.supplierSales, data.turnoverSupplierStock || data.supplierStock, 'name', 'rptTurnoverSupplierBody', 'supplier');
+  buildItemRows(data.turnoverSupplierStyleSales || data.supplierStyleSales || [], data.turnoverSupplierStyleStock || data.supplierStyleStock || []);
 }
 
 function expandTurnoverTable(bodyId) {
