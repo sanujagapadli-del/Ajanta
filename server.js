@@ -2801,14 +2801,21 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const iCategory = findC(inHeader, /^category$/i);
     const iDept     = findC(inHeader, /^department$/i);
     const iStyle    = findC(inHeader, /^style$/i);
+    const iPurDate  = findC(inHeader, /^pur(chase)?[\s._-]?date$/i);
 
-    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
+    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iPurDate, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
 
     const bySupStock={}, byCatStock={}, bySupStyleStock={}, byStyleStock={};
-    let totalStockQty=0, totalStockValue=0;
+    let totalStockQty=0, totalStockValue=0, stockItemCount=0;
 
     (inRows.slice(1)).forEach(row => {
       if (!row.length || !row.join('').trim()) return;
+      // Date filter on Purchase Date (In Stock); skip rows outside range
+      if ((fromDate || toDate) && iPurDate >= 0) {
+        const pd = parseSheetDate((row[iPurDate]||'').trim());
+        if (!pd || (fromDate && pd < fromDate) || (toDate && pd > toDate)) return;
+      }
+      stockItemCount++;
       const sup  = (row[iSupplier]||'').trim() || 'Unknown';
       const cat  = (row[iCategory]||'').trim() || 'Unknown';
       const sty  = iStyle >= 0 ? ((row[iStyle]||'').trim() || 'Unknown') : 'Unknown';
@@ -2923,7 +2930,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       salespersons:  ser(bySP, 'name'),
       cityStateSales,
       skuSales,
-      currentStock: { totalItems: Math.max(0, inRows.length-1), totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue), _inRowCount: inRows.length, _iOpsQty: iOpsQty, _iCostPrice: iCostPrice },
+      currentStock: { totalItems: stockItemCount, totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue), _inRowCount: inRows.length, _iOpsQty: iOpsQty, _iCostPrice: iCostPrice },
       supplierStock,
       categoryStock,
       supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),

@@ -4119,7 +4119,8 @@ const RPT_TABS = {
   stockcat:     'Stock by Category',
   turnover:     'Stock Turnover'
 };
-// Tabs that use date filter (sales-based); stock tabs ignore it (current snapshot)
+// Sales-based tabs (reference only). Date filter ab sab tabs pe lagu hota hai —
+// sales tabs XN Date se, stock tabs Pur Date se (backend me handle hota hai).
 const RPT_SALES_TABS = new Set(['sales','cat','supplier','sp','spanalytics','citystate','sku']);
 let _activeRptTab = 'sales';
 
@@ -4136,12 +4137,11 @@ function switchRptTab(tab) {
   // Update title
   const titleEl = document.getElementById('rptActiveTitle');
   if (titleEl) titleEl.textContent = RPT_TABS[tab] || tab;
-  // Stock tabs = current snapshot → date filter lagu nahi hota, isliye chhupa do
-  const isSalesTab = RPT_SALES_TABS.has(tab);
+  // Date filter sab reports pe lagu hota hai (sales=XN Date, stock=Pur Date)
   const dateCtrl = document.getElementById('rptDateControls');
   const quickRow = document.getElementById('rptQuickRow');
-  if (dateCtrl) dateCtrl.style.display = isSalesTab ? '' : 'none';
-  if (quickRow) quickRow.style.display = isSalesTab ? '' : 'none';
+  if (dateCtrl) dateCtrl.style.display = '';
+  if (quickRow) quickRow.style.display = '';
   // Load data for that tab
   loadImsReports();
 }
@@ -4258,12 +4258,7 @@ async function loadImsReports(forceSync) {
   // Update subtitle
   const sub = document.getElementById('rptSubtitle');
   if (sub) {
-    const isSalesTab = RPT_SALES_TABS.has(_activeRptTab);
-    if (!isSalesTab) {
-      sub.textContent = 'Current snapshot (date filter N/A)';
-    } else {
-      sub.textContent = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
-    }
+    sub.textContent = (from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data';
   }
 
   _rptData = data; // cache for CSV export
