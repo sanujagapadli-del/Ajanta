@@ -3152,7 +3152,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const oDate = findC(/^xn[\s._-]?date$/i), oXn = findC(/^xn[\s._-]?no$/i);
       const oCat  = findC(/^category$/i),        oSP = findC(/^salesperson$/i);
       const oSup  = findC(/^supplier[\s._-]?name$/i), oCity = findC(/^supplier[\s._-]?city$/i);
-      const oSty  = findC(/^style$/i);
+      const oSty  = findC(/^style$/i), oSubCat = findC(/^sub[\s._-]?category$/i);
       const oDept = findC(/^department$/i), oArt = findC(/^article[\s._-]?no$|^articleno$/i);
       const oQty  = findC(/netsls[\s._-]?qty/i), oAmt = findC(/netsls[\s._-]?net|netsls[\s._-]?amount/i);
       const oResolveCat = row => resolveCategory(row[oCat], oDept>=0?row[oDept]:'', oArt>=0?row[oArt]:'');
@@ -3162,6 +3162,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
           case 'supplier':    return cleanLabel(row[oSup]);
           case 'salesperson': return cleanLabel(row[oSP]);
           case 'item': case 'style': return oSty>=0 ? cleanLabel(row[oSty]) : null;
+          case 'department':  return oDept>=0 ? cleanLabel(row[oDept]) : null;
           case 'city':        return String(row[oCity]||'').trim();
           case 'date':        return String(row[oDate]||'').trim();
           default:            return null;
@@ -3173,8 +3174,10 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
         if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
         return true;
       }).slice(0, 500).map(row => ({
-        date: row[oDate]||'', bill: row[oXn]||'',
-        category: oResolveCat(row), style: oSty >= 0 ? cleanLabel(row[oSty]) : '',
+        date: row[oDate]||'', xnNo: String(row[oXn]||'').trim(),
+        department: oDept>=0 ? cleanLabel(row[oDept]) : '',
+        category: oResolveCat(row), subcategory: oSubCat>=0 ? cleanLabel(row[oSubCat]) : '',
+        style: oSty >= 0 ? cleanLabel(row[oSty]) : '',
         supplier: cleanLabel(row[oSup]), salesperson: cleanLabel(row[oSP]),
         qty: getNum(row, oQty), amount: getNum(row, oAmt)
       }));

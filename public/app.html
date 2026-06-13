@@ -1649,7 +1649,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2-canvas"><canvas id="r2Chart-trend"></canvas></div>
         </div>
         <div class="r2-card" style="padding:20px 22px">
-          <div class="r2-ctitle" style="margin-bottom:12px">Top Categories by Net Sales <span style="font-weight:600;color:#c4cbdc;text-transform:none;letter-spacing:0">· click for detail</span></div>
+          <div class="r2-ctitle" style="margin-bottom:12px">Top Departments by Net Sales <span style="font-weight:600;color:#c4cbdc;text-transform:none;letter-spacing:0">· click for detail</span></div>
           <div class="r2-canvas"><canvas id="r2Chart-cat"></canvas></div>
         </div>
       </div>
@@ -5225,7 +5225,7 @@ async function showDrilldown(filterType, label) {
     modal = document.createElement('div');
     modal.id = 'imsDrillModal';
     modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.5);align-items:center;justify-content:center;padding:16px';
-    modal.innerHTML = `<div style="background:#fff;border-radius:16px;width:min(94vw,780px);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.25);overflow:hidden">
+    modal.innerHTML = `<div style="background:#fff;border-radius:16px;width:min(96vw,980px);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.25);overflow:hidden">
       <div style="padding:20px 24px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0">
         <div><div id="imsDrillTitle" style="font-size:17px;font-weight:800;color:#1e293b"></div><div id="imsDrillSub" style="font-size:12px;color:#64748b;margin-top:3px"></div></div>
         <button onclick="closeDrillModal()" style="background:#f1f5f9;border:none;font-size:16px;cursor:pointer;color:#64748b;padding:6px 10px;border-radius:8px;margin-left:12px;flex-shrink:0">✕</button>
@@ -5236,7 +5236,7 @@ async function showDrilldown(filterType, label) {
     document.body.appendChild(modal);
   }
 
-  const TYPE_LABEL = { category:'Category', supplier:'Supplier', salesperson:'Salesperson', city:'City/State', date:'Date', stock_category:'Stock Category', stock_supplier:'Stock Supplier' };
+  const TYPE_LABEL = { category:'Category', department:'Department', supplier:'Supplier', salesperson:'Salesperson', city:'City/State', date:'Date', stock_category:'Stock Category', stock_supplier:'Stock Supplier' };
   document.getElementById('imsDrillTitle').textContent = label;
   document.getElementById('imsDrillSub').textContent = (TYPE_LABEL[filterType] || filterType) + ' — Transaction Details';
   document.getElementById('imsDrillBody').innerHTML = '<div style="text-align:center;padding:48px;color:#94a3b8;font-size:14px">⏳ Loading transactions…</div>';
@@ -5321,6 +5321,8 @@ async function showDrilldown(filterType, label) {
           <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700;width:46px">#</th>
           <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700;white-space:nowrap">Date</th>
           <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Xn No</th>
+          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Category</th>
+          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700;white-space:nowrap">Sub Category</th>
           <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Supplier</th>
           <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Salesperson</th>
           <th style="padding:9px 12px;text-align:right;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Qty</th>
@@ -5330,6 +5332,8 @@ async function showDrilldown(filterType, label) {
           <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
           <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#374151;white-space:nowrap">${r.date||'—'}</td>
           <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#6366f1;font-weight:600">${r.xnNo||'—'}</td>
+          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#374151">${r.category||'—'}</td>
+          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#64748b">${r.subcategory||'—'}</td>
           <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#374151">${r.supplier||'—'}</td>
           <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#374151">${r.salesperson||'—'}</td>
           <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;color:#10b981">${Number(r.qty||0).toLocaleString('en-IN')}</td>
@@ -5655,9 +5659,9 @@ function renderReport2(data){
     mc.map(m=>m.curBills?+(m.curQty/m.curBills).toFixed(2):0),
     mc.map(m=>m.curBills?Math.round(m.curAmt/m.curBills):0));
 
-  // Top categories doughnut (clickable)
-  const cats=(data.topCategories||[]).slice(0,10);
-  if(cats.length) renderChartDoughnut('r2Chart-cat','r2cat', cats, 'category','amount', lbl=>r2Drill('category',lbl));
+  // Top departments doughnut by net sales (clickable → department drilldown)
+  const deptsByAmt=(data.deptAnalytics||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0)).slice(0,10);
+  if(deptsByAmt.length) renderChartDoughnut('r2Chart-cat','r2cat', deptsByAmt, 'dept','amount', lbl=>r2Drill('department',lbl));
   else _destroyChart('r2cat');
 
   // Salesperson chart + table (top 5, expandable via "View more")
