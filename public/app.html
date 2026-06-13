@@ -1573,6 +1573,8 @@ tbody tr:last-child td{border-bottom:none;}
         #imsView-report2 .r2h-desc{font-size:12px;color:#94a3b8;margin-top:5px;line-height:1.5;max-width:88%}
         #imsView-report2 .r2h-sec{font-size:10px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;text-transform:uppercase;margin:6px 2px 12px}
         #imsView-report2 .r2h-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+        #imsView-report2 .r2h-card{padding-bottom:44px}
+        #imsView-report2 .r2h-mini{position:relative;height:58px;margin-top:14px}
         #imsView-report2 .r2-card{background:#fff;border:1px solid #eef2ff;border-radius:18px;box-shadow:0 2px 16px rgba(79,70,229,.05)}
         #imsView-report2 .r2-ctitle{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#64748b}
         #imsView-report2 .r2-preset{padding:7px 13px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;color:#64748b;cursor:pointer;transition:all .15s}
@@ -1679,31 +1681,37 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-ico" style="background:#eef2ff;color:#4f46e5">📊</div>
           <div class="r2h-title">Sales Summary</div>
           <div class="r2h-desc">Net sales, transactions, quantity &amp; daily trend.</div>
+          <div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('cat')">
           <div class="r2h-ico" style="background:#f5f3ff;color:#7c3aed">🏷</div>
           <div class="r2h-title">Top Categories</div>
           <div class="r2h-desc">Best-selling categories by net sales.</div>
+          <div class="r2h-mini"><canvas id="r2mini-cat"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('supplier')">
           <div class="r2h-ico" style="background:#ecfeff;color:#06b6d4">🏭</div>
           <div class="r2h-title">Supplier Sales</div>
           <div class="r2h-desc">Sales grouped supplier-wise with speed.</div>
+          <div class="r2h-mini"><canvas id="r2mini-supplier"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('sp')">
           <div class="r2h-ico" style="background:#ecfdf5;color:#10b981">👤</div>
           <div class="r2h-title">Salesperson</div>
           <div class="r2h-desc">Per-salesperson bills, quantity &amp; sales.</div>
+          <div class="r2h-mini"><canvas id="r2mini-sp"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('spanalytics')">
           <div class="r2h-ico" style="background:#fffbeb;color:#f59e0b">📈</div>
           <div class="r2h-title">UPT / ATV</div>
           <div class="r2h-desc">Units &amp; value per transaction vs last year.</div>
+          <div class="r2h-mini"><canvas id="r2mini-spanalytics"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('citystate')">
           <div class="r2h-ico" style="background:#fef2f2;color:#ef4444">🗺</div>
           <div class="r2h-title">City / State</div>
           <div class="r2h-desc">Geography-wise sales breakdown.</div>
+          <div class="r2h-mini"><canvas id="r2mini-citystate"></canvas></div>
         </div>
       </div>
 
@@ -1714,21 +1722,25 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-ico" style="background:#eef2ff;color:#4f46e5">📦</div>
           <div class="r2h-title">Stock Summary</div>
           <div class="r2h-desc">Current stock value &amp; quantity overview.</div>
+          <div class="r2h-mini"><canvas id="r2mini-stocksummary"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('supplierstock')">
           <div class="r2h-ico" style="background:#ecfeff;color:#06b6d4">🏭</div>
           <div class="r2h-title">Supplier Stock</div>
           <div class="r2h-desc">Stock value held by each supplier.</div>
+          <div class="r2h-mini"><canvas id="r2mini-supplierstock"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('stockcat')">
           <div class="r2h-ico" style="background:#f5f3ff;color:#7c3aed">🏷</div>
           <div class="r2h-title">Stock by Category</div>
           <div class="r2h-desc">Stock split across product categories.</div>
+          <div class="r2h-mini"><canvas id="r2mini-stockcat"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('turnover')">
           <div class="r2h-ico" style="background:#ecfdf5;color:#10b981">🔄</div>
           <div class="r2h-title">Stock Turnover</div>
           <div class="r2h-desc">Sell-through, ageing &amp; reconcile.</div>
+          <div class="r2h-mini"><canvas id="r2mini-turnover"></canvas></div>
         </div>
       </div>
       </div><!-- /r2Hub -->
@@ -5604,6 +5616,20 @@ function renderReport2(data){
       <td style="text-align:right;color:#f59e0b;font-weight:700">${fmtINR(r.atv)}</td>
       <td style="text-align:right;font-weight:700;color:#0f172a">${fmtINR(r.amount)}</td>
     </tr>`).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>';
+
+  // Mini charts on the launcher tiles below (reuse the same fetched data — no extra API calls)
+  const _top=(arr,key,n)=>(arr||[]).slice().sort((a,b)=>(b[key]||0)-(a[key]||0)).slice(0,n).map(x=>x[key]||0);
+  const _bd=(ss.byDate||[]); const _stp=Math.max(1,Math.floor(_bd.length/40));
+  _r2Mini('r2mini-sales','line', _bd.filter((_,i)=>i%_stp===0).map(r=>r.amount), '#4f46e5');
+  _r2Mini('r2mini-cat','bar', _top(data.topCategories,'amount',7), '#7c3aed');
+  _r2Mini('r2mini-supplier','bar', _top(data.supplierSales,'amount',7), '#06b6d4');
+  _r2Mini('r2mini-sp','bar', _top(data.salespersons,'amount',7), '#10b981');
+  _r2Mini('r2mini-spanalytics','bar', _top(sa.spTable,'upt',7), '#f59e0b');
+  _r2Mini('r2mini-citystate','bar', _top(data.cityStateSales,'amount',7), '#ef4444');
+  _r2Mini('r2mini-stocksummary','doughnut', _top(data.categoryStock,'value',6), '#4f46e5');
+  _r2Mini('r2mini-supplierstock','bar', _top(data.supplierStock,'value',7), '#06b6d4');
+  _r2Mini('r2mini-stockcat','doughnut', _top(data.categoryStock,'value',6), '#7c3aed');
+  _r2Mini('r2mini-turnover','bar', _top(data.styleStock,'qty',7), '#10b981');
 }
 
 // Generic bar (non-₹): horizontal/vertical, custom tick + tooltip formatters, optional click.
@@ -5650,6 +5676,29 @@ function _r2Trend(canvasId, key, labels, upt, atv){
           x:{ ticks:Object.assign({maxRotation:45}, _DARK_TICK), grid:{color:_DARK_GRID}, border:{color:_DARK_GRID} }
         } }
     });
+  });
+}
+
+// Mini sparkline / bar / doughnut for the hub tiles. No axes, no interaction
+// (events:[]) so clicks pass through to the card's onclick (open the report).
+function _r2Mini(canvasId, type, values, color){
+  _loadChartJS(()=>{
+    _destroyChart(canvasId);
+    const ctx=document.getElementById(canvasId)?.getContext('2d'); if(!ctx||!values||!values.length) return;
+    const base={responsive:true,maintainAspectRatio:false,animation:false,events:[],plugins:{legend:{display:false},tooltip:{enabled:false}}};
+    const lbls=values.map((_,i)=>i);
+    let cfg;
+    if(type==='line'){
+      cfg={type:'line',data:{labels:lbls,datasets:[{data:values,borderColor:color,backgroundColor:color+'22',fill:true,tension:.4,pointRadius:0,borderWidth:2}]},
+        options:Object.assign({},base,{scales:{x:{display:false},y:{display:false,beginAtZero:true}}})};
+    } else if(type==='doughnut'){
+      cfg={type:'doughnut',data:{labels:lbls,datasets:[{data:values,backgroundColor:CHART_C.slice(0,values.length).map(c=>c+'d8'),borderWidth:0}]},
+        options:Object.assign({},base,{cutout:'60%'})};
+    } else {
+      cfg={type:'bar',data:{labels:lbls,datasets:[{data:values,backgroundColor:color+'cc',borderRadius:3,borderSkipped:false}]},
+        options:Object.assign({},base,{scales:{x:{display:false},y:{display:false,beginAtZero:true}}})};
+    }
+    _charts[canvasId]=new Chart(ctx,cfg);
   });
 }
 
