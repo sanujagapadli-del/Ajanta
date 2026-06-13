@@ -1121,7 +1121,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div id="rpt-inner">
 
       <!-- ══ TOP NAV: Tab strips + Sync ══ -->
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
+      <div id="rptTopNav" style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
         <div style="display:flex;flex-direction:column;gap:10px">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;min-width:44px;text-transform:uppercase;padding:0 2px">SALES</span>
@@ -1570,12 +1570,12 @@ tbody tr:last-child td{border-bottom:none;}
         #imsView-report2 .r2h-card:hover::after{color:#4f46e5}
         #imsView-report2 .r2h-ico{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-size:23px;margin-bottom:14px}
         #imsView-report2 .r2h-title{font-size:15px;font-weight:800;color:#0f172a;letter-spacing:-.01em}
-        #imsView-report2 .r2h-desc{font-size:12px;color:#94a3b8;margin-top:5px;line-height:1.5;max-width:88%}
+        #imsView-report2 .r2h-desc{font-size:12px;color:#94a3b8;margin-top:5px;line-height:1.5;max-width:92%;min-height:36px}
         #imsView-report2 .r2h-sec{font-size:10px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;text-transform:uppercase;margin:6px 2px 12px}
         #imsView-report2 .r2h-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px}
         #imsView-report2 .r2h-card{padding:26px 26px 46px}
         #imsView-report2 .r2h-mini{position:relative;height:78px;margin-top:12px}
-        #imsView-report2 .r2h-stat{margin-top:12px;min-height:24px}
+        #imsView-report2 .r2h-stat{margin-top:12px;min-height:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         #imsView-report2 .r2h-stat-v{font-size:21px;font-weight:800;color:#0f172a;letter-spacing:-.02em}
         #imsView-report2 .r2h-stat-s{font-size:12px;color:#94a3b8;font-weight:600;margin-left:5px}
         #imsView-report2 .r2-card{background:#fff;border:1px solid #eef2ff;border-radius:18px;box-shadow:0 2px 16px rgba(79,70,229,.05)}
@@ -5482,6 +5482,7 @@ function _rptInnerHome(){
   const inner = document.getElementById('rpt-inner');
   const home  = document.getElementById('imsView-reports');
   if(inner && home && inner.parentNode !== home) home.appendChild(inner);
+  const tn = document.getElementById('rptTopNav'); if(tn) tn.style.display = '';   // standalone Reports: show tab strip
 }
 // Hub aur report bahut lambe hote hain — view switch pe top par le jao, warna
 // report khulti hai par scroll neeche reh jane se "kuch nahi hua" jaisa lagta hai.
@@ -5500,6 +5501,7 @@ function openR2Report(tab){
   if(inner && slot && inner.parentNode !== slot) slot.appendChild(inner);
   document.getElementById('r2Hub').style.display = 'none';
   document.getElementById('r2Detail').style.display = '';
+  const tn = document.getElementById('rptTopNav'); if(tn) tn.style.display = 'none';   // hub: hide tab strip, show only the picked report
   _initRptDatepickers();
   switchRptTab(tab);
   _r2ScrollTop();
