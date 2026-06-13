@@ -3123,7 +3123,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const tabName = isStock ? "'In Stock'!A:AH" : "'Out Stock'!A:AH";
       let resp;
       try {
-        resp = await withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: tabName }));
+        resp = await withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: tabName, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'FORMATTED_STRING' }));
       } catch(e) { return res.json({ rows: [] }); }
       allRows = resp.data.values || [];
     }
