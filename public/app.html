@@ -1649,18 +1649,20 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
       </div>
 
-      <!-- OVERVIEW: salesperson table -->
+      <!-- OVERVIEW: salesperson chart + table (top 5, expandable) -->
       <div class="r2-card" style="margin-bottom:26px;overflow:hidden">
         <div style="padding:16px 20px;border-bottom:1px solid #eef2ff;display:flex;align-items:center;justify-content:space-between">
-          <div class="r2-ctitle">Salesperson Performance</div>
-          <span style="font-size:11px;color:#94a3b8">Click a row for transactions</span>
+          <div class="r2-ctitle">Salesperson Performance · Net Sales</div>
+          <span style="font-size:11px;color:#94a3b8">Click a bar or row for transactions</span>
         </div>
-        <div style="overflow-x:auto">
+        <div style="padding:18px 20px 6px"><div style="position:relative;height:300px"><canvas id="r2Chart-spbar"></canvas></div></div>
+        <div style="overflow-x:auto;border-top:1px solid #f4f6ff">
           <table class="r2-tbl">
             <thead><tr><th>Salesperson</th><th>Bills</th><th>Net Qty</th><th>UPT</th><th>LY UPT</th><th>UPT △</th><th>ATV</th><th>Net Sales</th></tr></thead>
             <tbody id="r2SpBody"><tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:30px">Loading…</td></tr></tbody>
           </table>
         </div>
+        <div id="r2SpMore" style="padding:14px 20px;text-align:center;border-top:1px solid #f4f6ff"></div>
       </div>
 
       <!-- Divider → launcher tiles -->
@@ -5511,6 +5513,36 @@ function r2Drill(type, label){
 }
 function r2DrillRow(i){ const r=(window._r2SpRows||[])[i]; if(r) r2Drill('salesperson', r.name); }
 
+// Salesperson table: show top 5, expand to all via "View more".
+let _r2SpExpanded = false;
+function r2ToggleSp(){ _r2SpExpanded=!_r2SpExpanded; _r2RenderSpTable(); }
+function _r2RenderSpTable(){
+  const rows = window._r2SpRows || [];
+  const hasLY = !!(_r2Data && _r2Data.spAnalytics && _r2Data.spAnalytics.hasDateFilter);
+  const nfmt = n => (n==null||isNaN(n))?'—':Number(n).toLocaleString('en-IN');
+  const gtxt = g => (g==null||isNaN(g))?'—':(g>=0?'+':'')+g+'%';
+  const gcol = g => (g==null||isNaN(g))?'#94a3b8':g>=0?'#16a34a':'#dc2626';
+  const esc  = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const show = _r2SpExpanded ? rows : rows.slice(0,5);
+  const body = document.getElementById('r2SpBody');
+  if(body) body.innerHTML = show.length ? show.map((r,i)=>`
+    <tr class="r2-row" onclick="r2DrillRow(${i})">
+      <td style="font-weight:600;color:#0f172a">${esc(r.name)}</td>
+      <td style="text-align:right">${nfmt(r.bills)}</td>
+      <td style="text-align:right">${nfmt(r.qty)}</td>
+      <td style="text-align:right;font-weight:800;color:#4f46e5">${r.upt}</td>
+      <td style="text-align:right;color:#94a3b8">${hasLY?(r.lyUpt??'—'):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${gcol(hasLY?r.uptGrowth:null)}">${hasLY?gtxt(r.uptGrowth):'—'}</td>
+      <td style="text-align:right;color:#f59e0b;font-weight:700">${fmtINR(r.atv)}</td>
+      <td style="text-align:right;font-weight:700;color:#0f172a">${fmtINR(r.amount)}</td>
+    </tr>`).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>';
+  const more = document.getElementById('r2SpMore');
+  if(more){
+    if(rows.length>5){ more.style.display=''; more.innerHTML=`<button onclick="r2ToggleSp()" style="padding:8px 22px;background:#fff;color:#4f46e5;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s">${_r2SpExpanded?'Show less':'View all '+rows.length+' salespersons'}</button>`; }
+    else { more.style.display='none'; more.innerHTML=''; }
+  }
+}
+
 async function loadReport2(forceSync){
   const st=document.getElementById('r2Status');
   if(st){ st.style.color='#c7d2fe'; st.textContent=forceSync?'Syncing…':'Loading…'; }
@@ -5593,24 +5625,14 @@ function renderReport2(data){
   if(cats.length) renderChartDoughnut('r2Chart-cat','r2cat', cats, 'category','amount', lbl=>r2Drill('category',lbl));
   else _destroyChart('r2cat');
 
-  // Salesperson table (clickable rows)
-  const rows=(sa.spTable||[]).filter(x=>x.bills>0).sort((a,b)=>b.amount-a.amount).slice(0,20);
-  window._r2SpRows = rows;
-  const gtxt=g=>(g==null||isNaN(g))?'—':(g>=0?'+':'')+g+'%';
-  const gcol=g=>(g==null||isNaN(g))?'#94a3b8':g>=0?'#16a34a':'#dc2626';
-  const esc=str=>String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const body=document.getElementById('r2SpBody');
-  if(body) body.innerHTML = rows.length ? rows.map((r,i)=>`
-    <tr class="r2-row" onclick="r2DrillRow(${i})">
-      <td style="font-weight:600;color:#0f172a">${esc(r.name)}</td>
-      <td style="text-align:right">${nfmt(r.bills)}</td>
-      <td style="text-align:right">${nfmt(r.qty)}</td>
-      <td style="text-align:right;font-weight:800;color:#4f46e5">${r.upt}</td>
-      <td style="text-align:right;color:#94a3b8">${hasLY?(r.lyUpt??'—'):'—'}</td>
-      <td style="text-align:right;font-weight:700;color:${gcol(hasLY?r.uptGrowth:null)}">${hasLY?gtxt(r.uptGrowth):'—'}</td>
-      <td style="text-align:right;color:#f59e0b;font-weight:700">${fmtINR(r.atv)}</td>
-      <td style="text-align:right;font-weight:700;color:#0f172a">${fmtINR(r.amount)}</td>
-    </tr>`).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>';
+  // Salesperson chart + table (top 5, expandable via "View more")
+  const spRows=(sa.spTable||[]).filter(x=>x.bills>0).sort((a,b)=>b.amount-a.amount);
+  window._r2SpRows = spRows;
+  const spTop=spRows.slice(0,10);
+  _r2Bar('r2Chart-spbar','r2spbar', spTop.map(r=>r.name), spTop.map(r=>r.amount),
+    {horizontal:true, color:'#6366f1', tickFmt:v=>'₹'+Math.round(v).toLocaleString('en-IN'), fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN'), onClick:name=>r2Drill('salesperson',name)});
+  _r2SpExpanded=false;
+  _r2RenderSpTable();
 
   // Mini charts on the launcher tiles below (reuse the same fetched data — no extra API calls)
   const _top=(arr,key,n)=>(arr||[]).slice().sort((a,b)=>(b[key]||0)-(a[key]||0)).slice(0,n).map(x=>x[key]||0);
