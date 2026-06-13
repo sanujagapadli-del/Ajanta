@@ -2826,7 +2826,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     })));
 
     const fmtByDate = Object.entries(byDate)
-      .map(([date,d]) => ({ date, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))
+      .map(([date,d]) => ({ date, transactions:d.xns.size, qty:r2(d.qty), amount:r2(d.amt) }))
       .sort((a,b) => { const da=parseSheetDate(a.date),db=parseSheetDate(b.date); return (da||0)-(db||0); });
 
     const cityStateSales = sortAmt(Object.values(byCityState).map(d => ({
@@ -2994,7 +2994,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     }
 
     res.json({
-      salesSummary: { totalAmount:Math.round(totalAmt), totalQty:r2(totalQty), totalTransactions:allXns.size, byDate:fmtByDate },
+      salesSummary: { totalAmount:r2(totalAmt), totalQty:r2(totalQty), totalTransactions:allXns.size, byDate:fmtByDate },
       topCategories: sortAmt(Object.entries(byCat).map(([cat,d]) => ({ category:cat, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))).slice(0,15),
       supplierSales: ser(bySupplier, 'name'),
       salespersons:  ser(bySP, 'name'),
