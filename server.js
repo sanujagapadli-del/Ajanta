@@ -2712,7 +2712,9 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     let outRows, inRows;
     if (needsFresh) {
       const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-      const safeGet = (range) => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range })).catch(() => ({ data: { values: [] } }));
+      // UNFORMATTED_VALUE → raw numbers WITH paise (formatted view rounds paise → ~₹1 mismatch vs sheet).
+      // dateTimeRenderOption FORMATTED_STRING → date cells still come as strings ("01-Apr-2025"), so parseSheetDate keeps working.
+      const safeGet = (range) => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'FORMATTED_STRING' })).catch(() => ({ data: { values: [] } }));
       const [outResp, inResp] = await Promise.all([
         safeGet("'Out Stock'!A:AH"),
         safeGet("'In Stock'!A:AH")
@@ -2767,11 +2769,12 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU });
 
     const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={}, bySupStyleSales={}, byStyleSales={};
+    const byDept={}, billQty={};   // Report 2.0: dept-wise UPT + basket size (qty per bill)
     let totalAmt=0, totalQty=0;
     const allXns = new Set();
 
     (outRows.slice(1)).forEach(row => {
-      const dateStr = (row[oXnDate]||'').trim();
+      const dateStr = String(row[oXnDate]||'').trim();
       if (!dateStr) return;
       const amt  = getNum(row, oNetAmt);
       const qty  = getNum(row, oNetQty);
@@ -2785,10 +2788,10 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         const d = parseSheetDate(dateStr);
         if (!d || (fromDate && d < fromDate) || (toDate && d > toDate)) return;
       }
-      const city = (row[oCity]||'').trim() || '—';
-      const state= (row[oState]||'').trim() || '—';
-      const xnNo = (row[oXnNo]||'').trim();
-      const sku  = oSKU >= 0 ? ((row[oSKU]||'').trim() || 'Unknown') : null;
+      const city = String(row[oCity]||'').trim() || '—';
+      const state= String(row[oState]||'').trim() || '—';
+      const xnNo = String(row[oXnNo]||'').trim();
+      const sku  = oSKU >= 0 ? (String(row[oSKU]||'').trim() || 'Unknown') : null;
       const csKey= city + '||' + state;
       if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0 };
       bySupStyleSales[ssKey].qty += qty;
@@ -2811,6 +2814,10 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       if (!byCityState[csKey]) byCityState[csKey] = { city, state, amt:0, qty:0, xns:new Set() };
       byCityState[csKey].amt += amt; byCityState[csKey].qty += qty;
       if (xnNo) byCityState[csKey].xns.add(xnNo);
+      // Report 2.0 aggregations
+      const dept = oDept >= 0 ? (cleanLabel(row[oDept]) || '—') : '—';
+      push(byDept, dept);
+      if (xnNo) billQty[xnNo] = (billQty[xnNo] || 0) + qty;  // total qty per bill (basket size)
     });
 
     const sortAmt = arr => arr.sort((a,b) => b.amount - a.amount);
@@ -2825,6 +2832,21 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const cityStateSales = sortAmt(Object.values(byCityState).map(d => ({
       city: d.city, state: d.state, transactions: d.xns.size, qty: r2(d.qty), amount: Math.round(d.amt)
     })));
+
+    // ── Report 2.0: Department-wise UPT/ATV + Basket-size distribution ──────
+    const deptAnalytics = Object.entries(byDept).map(([dept,d]) => {
+      const bills = d.xns.size;
+      return { dept, bills, qty: r2(d.qty), amount: Math.round(d.amt),
+               upt: bills ? r2(d.qty/bills) : 0, atv: bills ? Math.round(d.amt/bills) : 0 };
+    }).filter(x => x.dept && x.dept !== '—' && x.bills > 0).sort((a,b) => b.qty - a.qty);
+
+    const _basket = { '1':0, '2':0, '3':0, '4':0, '5+':0 };
+    Object.values(billQty).forEach(q => {
+      const n = Math.round(q);
+      if (n < 1) return;
+      if (n >= 5) _basket['5+']++; else _basket[String(n)]++;
+    });
+    const basketSize = Object.entries(_basket).map(([bucket,bills]) => ({ bucket, bills }));
 
     // ── IN STOCK ─────────────────────────────────────────────
     const inHeader = inRows.length ? inRows[0].map(h => String(h).trim().toLowerCase()) : [];
@@ -2853,7 +2875,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       if (!row.length || !row.join('').trim()) return;
       // Date filter (Pur Date) — sab stock reports + turnover
       if ((fromDate || toDate) && iPurDate >= 0) {
-        const pd = parseSheetDate((row[iPurDate]||'').trim());
+        const pd = parseSheetDate(String(row[iPurDate]||'').trim());
         if (!pd || (fromDate && pd < fromDate) || (toDate && pd > toDate)) return;
       }
       const sup  = cleanLabel(row[iSupplier]);
@@ -2902,7 +2924,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
     outRows.slice(1).forEach(row => {
-      const dateStr = (row[oXnDate]||'').trim();
+      const dateStr = String(row[oXnDate]||'').trim();
       if (!dateStr) return;
       const d = parseSheetDate(dateStr);
       if (!d) return;
@@ -2912,7 +2934,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const qty  = getNum(row, oNetQty);
       const amt  = getNum(row, oNetAmt);
       const sp   = cleanLabel(row[oSP]);
-      const xnNo = (row[oXnNo]||'').trim();
+      const xnNo = String(row[oXnNo]||'').trim();
       const monKey   = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
       const monLabel = `${MON_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
       const pushSP  = (map) => { if (!map[sp])     map[sp]     = {amt:0,qty:0,xns:new Set()}; map[sp].amt+=amt;     map[sp].qty+=qty;     if(xnNo) map[sp].xns.add(xnNo); };
@@ -2989,10 +3011,15 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         hasDateFilter,
         summary: { curUPT, lyUPT, uptGrowth:pct(curUPT,lyUPT), curATV, lyATV, atvGrowth:pct(curATV,lyATV),
                    curBills:curBillsTot, lyBills:lyBillsTot, billsGrowth:pct(curBillsTot,lyBillsTot),
-                   curQty:r2(totalQty), lyQty:r2(lyTotQty), curAmount:Math.round(totalAmt), lyAmount:Math.round(lyTotAmt) },
+                   curQty:r2(totalQty), lyQty:r2(lyTotQty), curAmount:Math.round(totalAmt), lyAmount:Math.round(lyTotAmt),
+                   salespersons: spTable.filter(s=>s.bills>0).length,
+                   lySalespersons: spTable.filter(s=>s.lyBills>0).length,
+                   spGrowth: pct(spTable.filter(s=>s.bills>0).length, spTable.filter(s=>s.lyBills>0).length) },
         spTable,
         monthlyCmp
-      }
+      },
+      deptAnalytics,
+      basketSize
     });
   } catch (err) {
     console.error('[IMS Reports] error:', err.message);
