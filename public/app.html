@@ -5458,6 +5458,16 @@ function _rptInnerHome(){
   const home  = document.getElementById('imsView-reports');
   if(inner && home && inner.parentNode !== home) home.appendChild(inner);
 }
+// Hub aur report bahut lambe hote hain — view switch pe top par le jao, warna
+// report khulti hai par scroll neeche reh jane se "kuch nahi hua" jaisa lagta hai.
+function _r2ScrollTop(){
+  try{
+    window.scrollTo(0,0);
+    if(document.scrollingElement) document.scrollingElement.scrollTop=0;
+    let el=document.getElementById('imsView-report2');
+    while(el){ if(el.scrollTop) el.scrollTop=0; el=el.parentElement; }
+  }catch(e){}
+}
 function openR2Report(tab){
   _activeRptTab = tab;
   const inner = document.getElementById('rpt-inner');
@@ -5467,11 +5477,13 @@ function openR2Report(tab){
   document.getElementById('r2Detail').style.display = '';
   _initRptDatepickers();
   switchRptTab(tab);
+  _r2ScrollTop();
 }
 function r2BackToHub(){
   document.getElementById('r2Detail').style.display = 'none';
   document.getElementById('r2Hub').style.display = '';
   if(_r2Data) renderReport2(_r2Data); else loadReport2();   // redraw overview at correct size
+  _r2ScrollTop();
 }
 
 // ── Overview dashboard at the TOP of the hub (overall data + charts) ──────
