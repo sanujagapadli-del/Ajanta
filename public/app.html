@@ -1603,7 +1603,12 @@ tbody tr:last-child td{border-bottom:none;}
       <!-- Header + date controls -->
       <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;padding-bottom:18px;border-bottom:1px solid #e8ecf8;margin-bottom:22px">
         <div>
-          <div style="font-size:20px;font-weight:800;color:#0f172a;letter-spacing:-.02em">Performance Dashboard</div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="font-size:20px;font-weight:800;color:#0f172a;letter-spacing:-.02em">Performance Dashboard</div>
+            <select id="r2DeptSel" onchange="_r2OnDeptChange()" style="padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:13px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif">
+              <option value="All">All Departments</option>
+            </select>
+          </div>
           <div id="r2Range" style="font-size:12px;color:#94a3b8;margin-top:5px">All data</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -5489,7 +5494,7 @@ function r2BackToHub(){
 // ── Overview dashboard at the TOP of the hub (overall data + charts) ──────
 // Reuses /api/ims-reports (deptAnalytics, basketSize, spAnalytics, etc.). The
 // clickable tiles below open the full reports via openR2Report().
-let _r2From = '', _r2To = '', _r2Data = null;
+let _r2From = '', _r2To = '', _r2Data = null, _r2Dept = 'All';
 
 function _r2FmtDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 
@@ -5515,6 +5520,21 @@ function _r2OnDateChange(){
   _r2To   = (document.getElementById('r2To')||{}).value   || '';
   document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));
   loadReport2();
+}
+
+// Department filter — select karte hi pura dashboard us dept ka ho jata hai.
+function _r2OnDeptChange(){
+  _r2Dept = (document.getElementById('r2DeptSel')||{}).value || 'All';
+  loadReport2();
+}
+function _r2FillDepts(list){
+  const sel = document.getElementById('r2DeptSel');
+  if(!sel || !Array.isArray(list)) return;
+  const opts = ['All', ...list];
+  const cur = Array.from(sel.options).map(o=>o.value);
+  if(cur.length===opts.length && cur.every((v,i)=>v===opts[i])){ sel.value=_r2Dept; return; }  // unchanged
+  sel.innerHTML = '<option value="All">All Departments</option>' + list.map(d=>`<option value="${String(d).replace(/"/g,'&quot;')}">${String(d).replace(/</g,'&lt;')}</option>`).join('');
+  sel.value = _r2Dept;
 }
 
 // showDrilldown() reads hidden rptFrom/rptTo — mirror the overview's range in.
@@ -5557,18 +5577,20 @@ function _r2RenderSpTable(){
 
 async function loadReport2(forceSync){
   const st=document.getElementById('r2Status');
-  if(st){ st.style.color='#c7d2fe'; st.textContent=forceSync?'Syncing…':'Loading…'; }
+  if(st){ st.style.color='#94a3b8'; st.textContent=forceSync?'Syncing…':'Loading…'; }
   const params=new URLSearchParams();
   if(_r2From) params.append('from',_r2From);
   if(_r2To)   params.append('to',_r2To);
+  if(_r2Dept && _r2Dept!=='All') params.append('dept',_r2Dept);
   if(forceSync) params.append('sync','true');
   const data=await api('/api/ims-reports?'+params.toString());
-  if(!data || data.error){ if(st){ st.style.color='#fecaca'; st.textContent='No data'; } return; }
+  if(!data || data.error){ if(st){ st.style.color='#dc2626'; st.textContent='No data'; } return; }
   _r2Data=data;
+  _r2FillDepts(data.departments);
   renderReport2(data);
   const rEl=document.getElementById('r2Range');
-  if(rEl) rEl.textContent=(_r2From&&_r2To)?`${_r2From} to ${_r2To}`:_r2From?`From ${_r2From}`:_r2To?`Up to ${_r2To}`:'All data';
-  if(st){ const t=new Date(); st.style.color='#a7f3d0'; st.textContent='✓ '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'); setTimeout(()=>{ if(st&&st.textContent[0]==='✓') st.textContent=''; },3000); }
+  if(rEl){ const dl=(_r2Dept&&_r2Dept!=='All')?' · '+_r2Dept:''; rEl.textContent=((_r2From&&_r2To)?`${_r2From} to ${_r2To}`:_r2From?`From ${_r2From}`:_r2To?`Up to ${_r2To}`:'All data')+dl; }
+  if(st){ const t=new Date(); st.style.color='#16a34a'; st.textContent='✓ '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'); setTimeout(()=>{ if(st&&st.textContent[0]==='✓') st.textContent=''; },3000); }
 }
 
 function _r2Grow(g){
@@ -5595,13 +5617,17 @@ function renderReport2(data){
 
   // KPI matrix — LY | current | growth per metric (Power BI UPT-dashboard layout).
   // LY/growth populate only when a date range is picked (overall "All" has no LY period).
-  const cell=(lbl,val,color,cur)=>`<div class="r2-mcell${cur?' cur':''}"><div class="lbl">${lbl}</div><div class="val" style="color:${color}">${val}</div></div>`;
+  const cell=(lbl,val,color,cur,big)=>`<div class="r2-mcell${cur?' cur':''}"><div class="lbl">${lbl}</div><div class="val" style="color:${color}${big?';font-size:27px':''}">${val}</div></div>`;
   const metricRows=[
     {key:'UPT',         ly:hasLY?(s.lyUPT??'—'):'—',          cur:(s.curUPT!=null?s.curUPT:'—'), g:s.uptGrowth, color:'#4f46e5'},
     {key:'ATV',         ly:hasLY?fmtINR(s.lyATV):'—',         cur:fmtINR(s.curATV),              g:s.atvGrowth, color:'#10b981'},
     {key:'Salesperson', ly:hasLY?nfmt(s.lySalespersons):'—',  cur:nfmt(s.salespersons),          g:s.spGrowth,  color:'#f59e0b'},
   ];
   let kp='';
+  // Headline totals FIRST — ek nazar me 90% (sabse zaroori numbers upar)
+  kp += cell('Net Sales',  fmtINR(ss.totalAmount), '#0ea5e9', true, true)
+      + cell('Net Qty',    nfmt(ss.totalQty),      '#ef4444', true, true)
+      + cell('Total Bills', nfmt(s.curBills),      '#7c3aed', true, true);
   metricRows.forEach(mr=>{
     const gv=(mr.g==null||isNaN(mr.g))?null:mr.g;
     const gt=gv==null?'—':(gv>=0?'+':'')+gv+'%';
@@ -5610,9 +5636,6 @@ function renderReport2(data){
         + cell(mr.key, mr.cur, mr.color, true)
         + cell(mr.key+' Growth', hasLY?gt:'—', hasLY?gc:'#94a3b8', false);
   });
-  kp += cell('Net Sales',  fmtINR(ss.totalAmount), '#0ea5e9', false)
-      + cell('Net Qty',    nfmt(ss.totalQty),      '#ef4444', false)
-      + cell('Total Bills', nfmt(s.curBills),      '#7c3aed', false);
   const k=document.getElementById('r2Kpis');
   if(k) k.innerHTML = kp;
 

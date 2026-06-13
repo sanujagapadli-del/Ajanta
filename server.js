@@ -2704,7 +2704,8 @@ function cleanLabel(v) {
 // IMS Reports — all 8 report types from Out Stock + In Stock tabs
 app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
-    const { from, to, sync } = req.query;
+    const { from, to, sync, dept } = req.query;
+    const deptFilter = (dept && dept !== 'All') ? dept : null;   // Report 2.0 department filter
     const now = Date.now();
     const hasCached = _imsRawCache.outRows && _imsRawCache.outRows.length > 1;
     const needsFresh = sync === 'true' || !hasCached || (now - _imsRawCache.ts) > IMS_CACHE_TTL_MS;
@@ -2770,6 +2771,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={}, bySupStyleSales={}, byStyleSales={};
     const byDept={}, billQty={};   // Report 2.0: dept-wise UPT + basket size (qty per bill)
+    const allDeptsSet = new Set();  // Report 2.0: full department list for the dropdown
     let totalAmt=0, totalQty=0;
     const allXns = new Set();
 
@@ -2788,6 +2790,10 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         const d = parseSheetDate(dateStr);
         if (!d || (fromDate && d < fromDate) || (toDate && d > toDate)) return;
       }
+      // Report 2.0 department filter: collect full list, then skip non-matching rows
+      const dept = oDept >= 0 ? (cleanLabel(row[oDept]) || '—') : '—';
+      if (dept && dept !== '—') allDeptsSet.add(dept);
+      if (deptFilter && dept !== deptFilter) return;
       const city = String(row[oCity]||'').trim() || '—';
       const state= String(row[oState]||'').trim() || '—';
       const xnNo = String(row[oXnNo]||'').trim();
@@ -2815,7 +2821,6 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       byCityState[csKey].amt += amt; byCityState[csKey].qty += qty;
       if (xnNo) byCityState[csKey].xns.add(xnNo);
       // Report 2.0 aggregations
-      const dept = oDept >= 0 ? (cleanLabel(row[oDept]) || '—') : '—';
       push(byDept, dept);
       if (xnNo) billQty[xnNo] = (billQty[xnNo] || 0) + qty;  // total qty per bill (basket size)
     });
@@ -2931,6 +2936,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const isCur = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
       const isLY  = hasDateFilter && (!lyFrom || d >= lyFrom) && (!lyTo || d <= lyTo);
       if (!isCur && !isLY) return;
+      if (deptFilter) { const dpt = oDept >= 0 ? (cleanLabel(row[oDept]) || '—') : '—'; if (dpt !== deptFilter) return; }
       const qty  = getNum(row, oNetQty);
       const amt  = getNum(row, oNetAmt);
       const sp   = cleanLabel(row[oSP]);
@@ -3019,7 +3025,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         monthlyCmp
       },
       deptAnalytics,
-      basketSize
+      basketSize,
+      departments: [...allDeptsSet].sort((a,b) => a.localeCompare(b))
     });
   } catch (err) {
     console.error('[IMS Reports] error:', err.message);
