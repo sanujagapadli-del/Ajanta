@@ -3168,10 +3168,25 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
           default:            return null;
         }
       };
+      // Basket-size drilldown: bills grouped by total qty per bill; keep bills in the clicked bucket
+      let _basketBills = null;
+      if (type === 'basket') {
+        const want = String(value).replace(/\s*pc\s*$/i,'').trim();
+        const bq = {};
+        allRows.slice(1).forEach(r => {
+          const ds = String(r[oDate]||'').trim(); if(!ds) return;
+          if (fromDate||toDate) { const d=parseD(ds); if(!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return; }
+          const xn = String(r[oXn]||'').trim(); if(!xn) return;
+          bq[xn] = (bq[xn]||0) + getNum(r, oQty);
+        });
+        _basketBills = new Set();
+        Object.entries(bq).forEach(([xn,q]) => { const n=Math.round(q); if(n<1) return; const b=n>=5?'5+':String(n); if(b===want) _basketBills.add(xn); });
+      }
       const rows = allRows.slice(1).filter(row => {
+        if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
+        if (type === 'basket') return _basketBills.has(String(row[oXn]||'').trim());
         const mv = matchVal(row);
         if (mv !== null && mv !== value) return false;
-        if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
         return true;
       }).slice(0, 500).map(row => ({
         date: row[oDate]||'', xnNo: String(row[oXn]||'').trim(),

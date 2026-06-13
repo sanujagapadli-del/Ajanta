@@ -5249,7 +5249,7 @@ async function showDrilldown(filterType, label) {
     document.body.appendChild(modal);
   }
 
-  const TYPE_LABEL = { category:'Category', department:'Department', supplier:'Supplier', salesperson:'Salesperson', city:'City/State', date:'Date', stock_category:'Stock Category', stock_supplier:'Stock Supplier' };
+  const TYPE_LABEL = { category:'Category', department:'Department', basket:'Basket Size', supplier:'Supplier', salesperson:'Salesperson', city:'City/State', date:'Date', stock_category:'Stock Category', stock_supplier:'Stock Supplier' };
   document.getElementById('imsDrillTitle').textContent = label;
   document.getElementById('imsDrillSub').textContent = (TYPE_LABEL[filterType] || filterType) + ' — Transaction Details';
   document.getElementById('imsDrillBody').innerHTML = '<div style="text-align:center;padding:48px;color:#94a3b8;font-size:14px">⏳ Loading transactions…</div>';
@@ -5515,6 +5515,19 @@ let _r2From = '', _r2To = '', _r2Data = null, _r2Dept = 'All';
 
 function _r2FmtDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 
+// Monthly trend click → poora dashboard us month pe filter ho jata hai.
+const _R2_MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function _r2MonthClick(label){
+  const m=String(label).match(/^([A-Za-z]{3})-(\d{2})$/); if(!m) return;
+  const mi=_R2_MON.indexOf(m[1]); if(mi<0) return;
+  const yr=2000+parseInt(m[2],10);
+  _r2From=_r2FmtDate(new Date(yr,mi,1)); _r2To=_r2FmtDate(new Date(yr,mi+1,0));
+  const fEl=document.getElementById('r2From'), tEl=document.getElementById('r2To');
+  if(fEl) fEl.value=_r2From; if(tEl) tEl.value=_r2To;
+  document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));
+  loadReport2();
+}
+
 function setR2Preset(kind, btn){
   document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
@@ -5673,18 +5686,19 @@ function renderReport2(data){
   // Dept-wise UPT (horizontal)
   const dept=(data.deptAnalytics||[]).slice(0,10);
   _r2Bar('r2Chart-dept','r2dept', dept.map(d=>d.dept), dept.map(d=>d.upt),
-    {horizontal:true, color:'#4f46e5', tickFmt:v=>Number(v).toFixed(1), fmt:v=>Number(v).toFixed(2)+' units / bill'});
+    {horizontal:true, color:'#4f46e5', tickFmt:v=>Number(v).toFixed(1), fmt:v=>Number(v).toFixed(2)+' units / bill', onClick:dn=>r2Drill('department',dn)});
 
   // Basket size
   const bk=(data.basketSize||[]);
   _r2Bar('r2Chart-basket','r2basket', bk.map(b=>b.bucket+' pc'), bk.map(b=>b.bills),
-    {color:'#7c3aed', tickFmt:v=>nfmt(v), fmt:v=>nfmt(v)+' bills'});
+    {color:'#7c3aed', tickFmt:v=>nfmt(v), fmt:v=>nfmt(v)+' bills', onClick:lbl=>r2Drill('basket',lbl)});
 
   // Monthly UPT & ATV trend (dual axis)
   const mc=(sa.monthlyCmp||[]);
   _r2Trend('r2Chart-trend','r2trend', mc.map(m=>m.month),
     mc.map(m=>m.curBills?+(m.curQty/m.curBills).toFixed(2):0),
-    mc.map(m=>m.curBills?Math.round(m.curAmt/m.curBills):0));
+    mc.map(m=>m.curBills?Math.round(m.curAmt/m.curBills):0),
+    lbl=>_r2MonthClick(lbl));
 
   // Top departments doughnut by net sales (clickable → department drilldown)
   const deptsByAmt=(data.deptAnalytics||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0)).slice(0,10);
@@ -5755,7 +5769,7 @@ function _r2Bar(canvasId, key, labels, values, opts){
 }
 
 // Dual-axis line: UPT (left) + ATV ₹ (right).
-function _r2Trend(canvasId, key, labels, upt, atv){
+function _r2Trend(canvasId, key, labels, upt, atv, onClick){
   _loadChartJS(()=>{
     _destroyChart(key);
     const ctx=document.getElementById(canvasId)?.getContext('2d'); if(!ctx||!labels.length) return;
@@ -5765,6 +5779,8 @@ function _r2Trend(canvasId, key, labels, upt, atv){
         { label:'ATV (₹)', data:atv, borderColor:'#f59e0b', backgroundColor:'transparent', fill:false, tension:.4, pointRadius:3, pointHoverRadius:5, borderDash:[5,3], yAxisID:'y1' }
       ] },
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        onClick: onClick?(e,els)=>{ if(els.length) onClick(labels[els[0].index]); }:undefined,
+        onHover: onClick?(e,els)=>{ e.native.target.style.cursor=els.length?'pointer':'default'; }:undefined,
         plugins:{ legend:{position:'top', labels:Object.assign({}, _DARK_LGND, {usePointStyle:true, pointStyleWidth:8})} },
         scales:{
           y:{ position:'left', ticks:Object.assign({callback:v=>Number(v).toFixed(1)}, _DARK_TICK), grid:{color:_DARK_GRID}, border:{color:_DARK_GRID} },
