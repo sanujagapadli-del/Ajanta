@@ -1683,9 +1683,8 @@ tbody tr:last-child td{border-bottom:none;}
       <!-- Section label (no divider line) -->
       <div style="font-size:11px;font-weight:800;color:#94a3b8;letter-spacing:.1em;text-transform:uppercase;margin:6px 2px 18px">Open a full report</div>
 
-      <!-- SALES reports -->
-      <div class="r2h-sec">Sales Reports</div>
-      <div class="r2h-grid" style="margin-bottom:26px">
+      <!-- Unified 6-card grid: Row1 Funnel|TopDept|Salesperson  Row2 Supplier|FastMov|SlowMov -->
+      <div class="r2h-grid">
         <div class="r2h-card" onclick="openR2Report('funnel')">
           <div class="r2h-ico" style="background:#eef2ff;color:#4f46e5"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></div>
           <div class="r2h-title">Sales Funnel</div>
@@ -1693,25 +1692,12 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-stat" id="r2stat-funnel"></div>
           <div class="r2h-mini" style="height:116px"><canvas id="r2mini-funnel"></canvas></div>
         </div>
-        <div class="r2h-card" onclick="openR2Report('sales')" style="display:none">
-          <div class="r2h-ico" style="background:#eef2ff;color:#4f46e5"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
-          <div class="r2h-title">Sales Summary</div>
-          <div class="r2h-desc">Net sales, transactions, quantity &amp; daily trend.</div>
-          <div class="r2h-stat" id="r2stat-sales"></div>
-          <div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div>
-        </div>
-        <div class="r2h-card" onclick="openR2Report('cat')" style="display:none">
-          <div class="r2h-ico" style="background:#f5f3ff;color:#7c3aed"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></div>
-          <div class="r2h-title">Top Categories</div>
-          <div class="r2h-desc">Best-selling categories by net sales.</div>
-          <div class="r2h-stat" id="r2stat-cat"></div>
-          <div class="r2h-mini"><canvas id="r2mini-cat"></canvas></div>
-        </div>
-        <div class="r2h-card" onclick="openR2Report('supplier')">
-          <div class="r2h-ico" style="background:#ecfeff;color:#06b6d4"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="9" y1="13" x2="9.01" y2="13"/></svg></div>
-          <div class="r2h-title">Supplier Sales</div>
-          <div class="r2h-desc">Top 10 suppliers by net sales.</div>
-          <div id="r2list-supplier" style="margin-top:10px;font-size:11px;line-height:1.7;overflow:hidden;flex:1"></div>
+        <div class="r2h-card" onclick="openR2Report('topdept')">
+          <div class="r2h-ico" style="background:#f0fdf4;color:#16a34a"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+          <div class="r2h-title">Top Departments</div>
+          <div class="r2h-desc">Department-wise net sales, qty, bills &amp; UPT/ATV.</div>
+          <div class="r2h-stat" id="r2stat-topdept"></div>
+          <div class="r2h-mini"><canvas id="r2mini-topdept"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('sp')">
           <div class="r2h-ico" style="background:#ecfdf5;color:#10b981"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
@@ -1720,52 +1706,11 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-stat" id="r2stat-sp"></div>
           <div id="r2list-sp" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
-        <div class="r2h-card" style="display:none" onclick="openR2Report('spanalytics')">
-          <div class="r2h-ico" style="background:#fffbeb;color:#f59e0b"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
-          <div class="r2h-title">UPT / ATV</div>
-          <div class="r2h-desc">Units &amp; value per transaction vs last year.</div>
-          <div class="r2h-stat" id="r2stat-spanalytics"></div>
-          <div class="r2h-mini"><canvas id="r2mini-spanalytics"></canvas></div>
-        </div>
-        <div class="r2h-card" style="display:none" onclick="openR2Report('citystate')">
-          <div class="r2h-ico" style="background:#fef2f2;color:#ef4444"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
-          <div class="r2h-title">City / State</div>
-          <div class="r2h-desc">Geography-wise sales breakdown.</div>
-          <div class="r2h-stat" id="r2stat-citystate"></div>
-          <div class="r2h-mini"><canvas id="r2mini-citystate"></canvas></div>
-        </div>
-      </div>
-
-      <!-- STOCK reports -->
-      <div class="r2h-sec">Stock Reports</div>
-      <div class="r2h-grid">
-        <div class="r2h-card" style="display:none" onclick="openR2Report('stocksummary')">
-          <div class="r2h-ico" style="background:#eef2ff;color:#4f46e5"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
-          <div class="r2h-title">Stock Summary</div>
-          <div class="r2h-desc">Current stock value &amp; quantity overview.</div>
-          <div class="r2h-stat" id="r2stat-stocksummary"></div>
-          <div class="r2h-mini"><canvas id="r2mini-stocksummary"></canvas></div>
-        </div>
-        <div class="r2h-card" style="display:none" onclick="openR2Report('supplierstock')">
+        <div class="r2h-card" onclick="openR2Report('supplier')">
           <div class="r2h-ico" style="background:#ecfeff;color:#06b6d4"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="9" y1="13" x2="9.01" y2="13"/></svg></div>
-          <div class="r2h-title">Supplier Stock</div>
-          <div class="r2h-desc">Stock value held by each supplier.</div>
-          <div class="r2h-stat" id="r2stat-supplierstock"></div>
-          <div class="r2h-mini"><canvas id="r2mini-supplierstock"></canvas></div>
-        </div>
-        <div class="r2h-card" style="display:none" onclick="openR2Report('stockcat')">
-          <div class="r2h-ico" style="background:#f5f3ff;color:#7c3aed"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></div>
-          <div class="r2h-title">Stock by Category</div>
-          <div class="r2h-desc">Stock split across product categories.</div>
-          <div class="r2h-stat" id="r2stat-stockcat"></div>
-          <div class="r2h-mini"><canvas id="r2mini-stockcat"></canvas></div>
-        </div>
-        <div class="r2h-card" onclick="openR2Report('turnover')">
-          <div class="r2h-ico" style="background:#ecfdf5;color:#10b981"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
-          <div class="r2h-title">Stock Turnover</div>
-          <div class="r2h-desc">Sell-through, ageing &amp; reconcile.</div>
-          <div class="r2h-stat" id="r2stat-turnover"></div>
-          <div class="r2h-mini"><canvas id="r2mini-turnover"></canvas></div>
+          <div class="r2h-title">Supplier Sales</div>
+          <div class="r2h-desc">Top 10 suppliers by net sales.</div>
+          <div id="r2list-supplier" style="margin-top:10px;font-size:11px;line-height:1.7;overflow:hidden;flex:1"></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('fastmov')">
           <div class="r2h-ico" style="background:#ecfdf5;color:#16a34a"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
@@ -1781,6 +1726,15 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-stat" id="r2stat-slowmov"></div>
           <div class="r2h-mini"><canvas id="r2mini-slowmov"></canvas></div>
         </div>
+        <!-- Hidden cards (disabled, kept for future re-enable) -->
+        <div class="r2h-card" style="display:none" onclick="openR2Report('sales')"><div class="r2h-stat" id="r2stat-sales"></div><div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div></div>
+        <div class="r2h-card" style="display:none" onclick="openR2Report('cat')"><div class="r2h-stat" id="r2stat-cat"></div><div class="r2h-mini"><canvas id="r2mini-cat"></canvas></div></div>
+        <div class="r2h-card" style="display:none" onclick="openR2Report('spanalytics')"><div class="r2h-stat" id="r2stat-spanalytics"></div><div class="r2h-mini"><canvas id="r2mini-spanalytics"></canvas></div></div>
+        <div class="r2h-card" style="display:none" onclick="openR2Report('citystate')"><div class="r2h-stat" id="r2stat-citystate"></div><div class="r2h-mini"><canvas id="r2mini-citystate"></canvas></div></div>
+        <div class="r2h-card" style="display:none" onclick="openR2Report('stocksummary')"><div class="r2h-stat" id="r2stat-stocksummary"></div><div class="r2h-mini"><canvas id="r2mini-stocksummary"></canvas></div></div>
+        <div class="r2h-card" style="display:none" onclick="openR2Report('supplierstock')"><div class="r2h-stat" id="r2stat-supplierstock"></div><div class="r2h-mini"><canvas id="r2mini-supplierstock"></canvas></div></div>
+        <div class="r2h-card" style="display:none" onclick="openR2Report('stockcat')"><div class="r2h-stat" id="r2stat-stockcat"></div><div class="r2h-mini"><canvas id="r2mini-stockcat"></canvas></div></div>
+        <div class="r2h-card" style="display:none" onclick="openR2Report('turnover')"><div class="r2h-stat" id="r2stat-turnover"></div><div class="r2h-mini"><canvas id="r2mini-turnover"></canvas></div></div>
       </div>
       </div><!-- /r2Hub -->
 
@@ -1789,6 +1743,7 @@ tbody tr:last-child td{border-bottom:none;}
         <button onclick="r2BackToHub()" style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;margin-bottom:16px;background:#fff;color:#4f46e5;border:1.5px solid #e8ecf8;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 10px rgba(79,70,229,.06)">← All Reports</button>
         <div id="r2FunnelView" style="display:none"></div>
         <div id="r2MovView" style="display:none"></div>
+        <div id="r2TopdeptView" style="display:none"></div>
         <div id="r2DetailSlot"></div>
       </div>
     </div><!-- /imsView-report2 -->
@@ -5560,26 +5515,22 @@ function openR2Report(tab){
   document.getElementById('r2Hub').style.display = 'none';
   document.getElementById('r2Detail').style.display = '';
   const tn = document.getElementById('rptTopNav'); if(tn) tn.style.display = 'none';   // hub: hide tab strip, show only the picked report
-  const movview = document.getElementById('r2MovView');
-  // Sales Funnel is a self-contained Report 2.0 view (uses the already-loaded overview data) — no shared rpt-inner.
+  const movview    = document.getElementById('r2MovView');
+  const topdeptview= document.getElementById('r2TopdeptView');
+  const _hideAll   = ()=>{ if(fview) fview.style.display='none'; if(movview) movview.style.display='none'; if(topdeptview) topdeptview.style.display='none'; if(slot) slot.style.display='none'; };
+  // Sales Funnel — self-contained view
   if(tab === 'funnel'){
-    if(slot) slot.style.display = 'none';
-    if(fview) fview.style.display = '';
-    if(movview) movview.style.display = 'none';
-    _r2RenderFunnel();
-    _r2ScrollTop();
-    return;
+    _hideAll(); if(fview) fview.style.display=''; _r2RenderFunnel(); _r2ScrollTop(); return;
   }
+  // Fast / Slow Moving — self-contained view
   if(tab === 'fastmov' || tab === 'slowmov'){
-    if(slot) slot.style.display = 'none';
-    if(fview) fview.style.display = 'none';
-    if(movview){ movview.style.display = ''; _r2RenderMovers(tab); }
-    _r2ScrollTop();
-    return;
+    _hideAll(); if(movview){ movview.style.display=''; _r2RenderMovers(tab); } _r2ScrollTop(); return;
   }
-  if(fview) fview.style.display = 'none';
-  if(movview) movview.style.display = 'none';
-  if(slot)  slot.style.display  = '';
+  // Top Departments — self-contained view
+  if(tab === 'topdept'){
+    _hideAll(); if(topdeptview){ topdeptview.style.display=''; _r2RenderTopdept(); } _r2ScrollTop(); return;
+  }
+  _hideAll(); if(slot) slot.style.display='';
   const inner = document.getElementById('rpt-inner');
   if(inner && slot && inner.parentNode !== slot) slot.appendChild(inner);
   _initRptDatepickers();
@@ -5926,6 +5877,62 @@ function _r2RenderMovers(tab){
   } else {
     _r2LoadMoversData();
   }
+}
+
+// ── Top Departments detail view ───────────────────────────────────────────────
+function _r2RenderTopdept(){
+  const view=document.getElementById('r2TopdeptView'); if(!view) return;
+  const rows=(_r2Data&&_r2Data.deptAnalytics)||[];
+  const nfI=v=>Number(v||0).toLocaleString('en-IN');
+  const cr=v=>{const n=Number(v||0);if(n>=1e7)return'₹'+(n/1e7).toFixed(2)+'Cr';if(n>=1e5)return'₹'+(n/1e5).toFixed(2)+'L';return'₹'+nfI(Math.round(n));};
+
+  view.innerHTML=`<div class="r2-card" style="padding:20px 22px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+      <div>
+        <div style="font-size:18px;font-weight:800;color:#0f172a">Top Departments</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:3px">Department-wise net sales, qty, bills, UPT &amp; ATV.</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="_r2TopdeptPDF()" style="display:flex;align-items:center;gap:5px;padding:7px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#4f46e5;transition:all .15s">⬇ PDF</button>
+        <button onclick="_r2TopdeptCSV()" style="display:flex;align-items:center;gap:5px;padding:7px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#4f46e5;transition:all .15s">⬇ CSV</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+          <th style="text-align:left;padding:10px 12px;color:#64748b;font-weight:600;width:36px">#</th>
+          <th style="text-align:left;padding:10px 12px;color:#64748b;font-weight:600">Department</th>
+          <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Net Sales</th>
+          <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Net Qty</th>
+          <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Bills</th>
+          <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">UPT</th>
+          <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">ATV</th>
+        </tr></thead>
+        <tbody>${rows.length ? rows.map((r,i)=>`<tr style="border-bottom:1px solid #f1f5f9;${i%2?'background:#fafafa':''}">
+          <td style="padding:10px 12px;color:#94a3b8;font-size:12px">${i+1}</td>
+          <td style="padding:10px 12px;font-weight:600;color:#0f172a">${r.dept}</td>
+          <td style="padding:10px 12px;text-align:right;color:#0ea5e9;font-weight:700">${cr(r.amount)}</td>
+          <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.qty)}</td>
+          <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.bills)}</td>
+          <td style="padding:10px 12px;text-align:right;color:#7c3aed;font-weight:600">${r.upt}</td>
+          <td style="padding:10px 12px;text-align:right;color:#10b981;font-weight:600">${cr(r.atv)}</td>
+        </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:48px;color:#94a3b8">No data</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+function _r2TopdeptPDF(){
+  const w=window.open('','_blank'); if(!w) return;
+  const tbl=document.querySelector('#r2TopdeptView table'); if(!tbl) return;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Top Departments</title><style>body{font-family:sans-serif;padding:24px;color:#0f172a}h2{margin:0 0 16px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;padding:10px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#64748b;font-weight:600}td{padding:9px 12px;border-bottom:1px solid #f1f5f9}@media print{@page{margin:15mm}}</style></head><body><h2>Top Departments</h2>${tbl.outerHTML}</body></html>`);
+  w.document.close(); w.focus(); w.print();
+}
+function _r2TopdeptCSV(){
+  const rows=(_r2Data&&_r2Data.deptAnalytics)||[];
+  const lines=[['#','Department','Net Sales (INR)','Net Qty','Bills','UPT','ATV (INR)'].join(',')];
+  rows.forEach((r,i)=>lines.push([i+1,`"${r.dept}"`,Math.round(r.amount),Math.round(r.qty),r.bills,r.upt,Math.round(r.atv)].join(',')));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='Top_Departments.csv'; a.click();
 }
 
 // ── Overview dashboard at the TOP of the hub (overall data + charts) ──────
@@ -6293,6 +6300,9 @@ function renderReport2(data){
   const curMonLabel=_MN2[new Date().getMonth()];
   _r2Stat('r2stat-funnel', _r2Cr(ss.totalAmount), tmAmt!=null?curMonLabel+' '+_r2Cr(tmAmt):_fmon.length+' months');
   _r2Stat('r2stat-sales', _r2Cr(ss.totalAmount), nfmt(ss.totalTransactions)+' bills');
+  { const da=(data.deptAnalytics||[]).sort((a,b)=>(b.amount||0)-(a.amount||0));
+    _r2Stat('r2stat-topdept', nfmt(da.length)+' depts', da[0]?('top '+_tr(da[0].dept)):'');
+    _r2Mini('r2mini-topdept','bar',{labels:da.slice(0,7).map(d=>d.dept.length>10?d.dept.slice(0,9)+'…':d.dept),values:da.slice(0,7).map(d=>d.amount)},'#16a34a',_r2Cr); }
   { const c=(data.topCategories||[])[0]; _r2Stat('r2stat-cat', c?_tr(c.category):'—', c?_r2Cr(c.amount):''); }
   { const c=(data.supplierSales||[])[0]; _r2Stat('r2stat-supplier', c?_tr(c.name):'—', c?_r2Cr(c.amount):''); }
   { const c=(data.salespersons||[]); _r2Stat('r2stat-sp', nfmt(c.length)+' people', c[0]?('top '+_tr(c[0].name)):''); }
