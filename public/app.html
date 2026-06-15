@@ -5765,18 +5765,18 @@ function renderReport2(data){
   _r2SpExpanded=false;
   _r2RenderSpTable();
 
-  // Mini charts on the launcher tiles below (reuse the same fetched data — no extra API calls)
-  const _top=(arr,key,n)=>(arr||[]).slice().sort((a,b)=>(b[key]||0)-(a[key]||0)).slice(0,n).map(x=>x[key]||0);
-  const _bd=(ss.byDate||[]); const _stp=Math.max(1,Math.floor(_bd.length/40));
-  _r2Mini('r2mini-sales','line', _bd.filter((_,i)=>i%_stp===0).map(r=>r.amount), '#4f46e5');
-  _r2Mini('r2mini-cat','bar', _top(data.topCategories,'amount',7), '#7c3aed');
-  _r2Mini('r2mini-supplier','bar', _top(data.supplierSales,'amount',10), '#06b6d4');
-  _r2Mini('r2mini-sp','bar', _top(data.salespersons,'amount',10), '#10b981');
-  _r2Mini('r2mini-spanalytics','bar', _top(sa.spTable,'upt',7), '#f59e0b');
-  _r2Mini('r2mini-citystate','bar', _top(data.cityStateSales,'amount',7), '#ef4444');
-  _r2Mini('r2mini-stocksummary','doughnut', _top(data.categoryStock,'value',6), '#4f46e5');
-  _r2Mini('r2mini-supplierstock','bar', _top(data.supplierStock,'value',7), '#06b6d4');
-  _r2Mini('r2mini-stockcat','doughnut', _top(data.categoryStock,'value',6), '#7c3aed');
+  // Mini charts on the launcher tiles — hover shows name + value (tooltip); click still opens the report.
+  const _lv=(arr,lk,vk,n)=>{ const a=(arr||[]).slice().sort((x,y)=>(y[vk]||0)-(x[vk]||0)).slice(0,n); return {labels:a.map(x=>x[lk]), values:a.map(x=>x[vk]||0)}; };
+  const _bd=(ss.byDate||[]); const _stp=Math.max(1,Math.floor(_bd.length/40)); const _bdS=_bd.filter((_,i)=>i%_stp===0);
+  _r2Mini('r2mini-sales','line', {labels:_bdS.map(r=>r.date), values:_bdS.map(r=>r.amount)}, '#4f46e5', _r2Cr);
+  _r2Mini('r2mini-cat','bar', _lv(data.topCategories,'category','amount',7), '#7c3aed', _r2Cr);
+  _r2Mini('r2mini-supplier','bar', _lv(data.supplierSales,'name','amount',10), '#06b6d4', _r2Cr);
+  _r2Mini('r2mini-sp','bar', _lv(data.salespersons,'name','amount',10), '#10b981', _r2Cr);
+  _r2Mini('r2mini-spanalytics','bar', _lv(sa.spTable,'name','upt',7), '#f59e0b', v=>Number(v).toFixed(2)+' UPT');
+  _r2Mini('r2mini-citystate','bar', _lv(data.cityStateSales,'city','amount',7), '#ef4444', _r2Cr);
+  _r2Mini('r2mini-stocksummary','doughnut', _lv(data.categoryStock,'category','value',6), '#4f46e5', _r2Cr);
+  _r2Mini('r2mini-supplierstock','bar', _lv(data.supplierStock,'name','value',7), '#06b6d4', _r2Cr);
+  _r2Mini('r2mini-stockcat','doughnut', _lv(data.categoryStock,'category','value',6), '#7c3aed', _r2Cr);
   // Stock Turnover status buckets (per supplier — same logic as the Turnover report: %Sold = sold/(sold+stock))
   const _ssold={}, _sstk={};
   (data.supplierStyleSales||[]).forEach(s=>{ _ssold[s.supName]=(_ssold[s.supName]||0)+(s.qty||0); });
@@ -5789,7 +5789,7 @@ function renderReport2(data){
     const tot=sold+stk, pct=tot>0?(sold/tot*100):0;
     if(pct>=75) _turn.fast++; else if(pct>=40) _turn.medium++; else _turn.slow++;
   });
-  _r2Mini('r2mini-turnover','bar', [_turn.fast,_turn.medium,_turn.slow,_turn.cleared], ['#16a34a','#d97706','#dc2626','#0891b2']);
+  _r2Mini('r2mini-turnover','bar', {labels:['Fast','Medium','Slow','Cleared'], values:[_turn.fast,_turn.medium,_turn.slow,_turn.cleared]}, ['#16a34a','#d97706','#dc2626','#0891b2'], v=>Number(v).toLocaleString('en-IN')+' suppliers');
 
   // Tile overview stats — client ko bina report khole hi key number dikh jaye
   const _cur=(sa.summary||{}); const _tr=s=>{s=String(s||'—');return s.length>17?s.slice(0,16)+'…':s;};
@@ -5854,24 +5854,34 @@ function _r2Trend(canvasId, key, labels, upt, atv, onClick){
   });
 }
 
-// Mini sparkline / bar / doughnut for the hub tiles. No axes, no interaction
-// (events:[]) so clicks pass through to the card's onclick (open the report).
-function _r2Mini(canvasId, type, values, color){
+// Mini sparkline / bar / doughnut for the hub tiles. Hover shows a tooltip
+// (name + value); 'click' is NOT in events so a click still bubbles to the
+// card's onclick (open the report). `data` = array OR {labels, values}; `fmt`
+// formats the tooltip value.
+function _r2Mini(canvasId, type, data, color, fmt){
   _loadChartJS(()=>{
     _destroyChart(canvasId);
-    const ctx=document.getElementById(canvasId)?.getContext('2d'); if(!ctx||!values||!values.length) return;
-    const base={responsive:true,maintainAspectRatio:false,animation:false,events:[],plugins:{legend:{display:false},tooltip:{enabled:false}}};
-    const lbls=values.map((_,i)=>i);
+    const ctx=document.getElementById(canvasId)?.getContext('2d'); if(!ctx) return;
+    const values = Array.isArray(data) ? data : ((data&&data.values)||[]);
+    if(!values.length) return;
+    const names = Array.isArray(data) ? null : ((data&&data.labels)||null);
+    const lbls = names || values.map((_,i)=>i);
+    const f = fmt || (v=>Number(v||0).toLocaleString('en-IN'));
+    const tooltip = { enabled:true, displayColors:false, padding:8, titleFont:{size:11}, bodyFont:{size:12,weight:'700'},
+      callbacks:{ title:items=> names ? String(names[items[0].dataIndex]??'') : '', label:c=>' '+f(c.raw) } };
+    const base={responsive:true,maintainAspectRatio:false,animation:false,
+      events:['mousemove','mouseout','touchstart','touchmove'],
+      plugins:{legend:{display:false},tooltip}};
     let cfg;
     if(type==='line'){
-      cfg={type:'line',data:{labels:lbls,datasets:[{data:values,borderColor:color,backgroundColor:color+'22',fill:true,tension:.4,pointRadius:0,borderWidth:2}]},
-        options:Object.assign({},base,{scales:{x:{display:false},y:{display:false,beginAtZero:true}}})};
+      cfg={type:'line',data:{labels:lbls,datasets:[{data:values,borderColor:color,backgroundColor:color+'22',fill:true,tension:.4,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,borderWidth:2}]},
+        options:Object.assign({},base,{interaction:{mode:'index',intersect:false},scales:{x:{display:false},y:{display:false,beginAtZero:true}}})};
     } else if(type==='doughnut'){
-      cfg={type:'doughnut',data:{labels:lbls,datasets:[{data:values,backgroundColor:CHART_C.slice(0,values.length).map(c=>c+'d8'),borderWidth:0}]},
+      cfg={type:'doughnut',data:{labels:lbls,datasets:[{data:values,backgroundColor:CHART_C.slice(0,values.length).map(c=>c+'d8'),hoverBackgroundColor:CHART_C.slice(0,values.length),borderWidth:0}]},
         options:Object.assign({},base,{cutout:'60%'})};
     } else {
       const bg = Array.isArray(color) ? color.map(c=>c+'dd') : color+'cc';
-      cfg={type:'bar',data:{labels:lbls,datasets:[{data:values,backgroundColor:bg,borderRadius:3,borderSkipped:false}]},
+      cfg={type:'bar',data:{labels:lbls,datasets:[{data:values,backgroundColor:bg,hoverBackgroundColor:(Array.isArray(color)?color:color),borderRadius:3,borderSkipped:false}]},
         options:Object.assign({},base,{scales:{x:{display:false},y:{display:false,beginAtZero:true}}})};
     }
     _charts[canvasId]=new Chart(ctx,cfg);
