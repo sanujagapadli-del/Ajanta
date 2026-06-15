@@ -1714,9 +1714,8 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="r2h-card" onclick="openR2Report('supplier')">
           <div class="r2h-ico" style="background:#ecfeff;color:#06b6d4"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="9" y1="13" x2="9.01" y2="13"/></svg></div>
           <div class="r2h-title">Supplier Sales</div>
-          <div class="r2h-desc">Sales grouped supplier-wise with speed.</div>
-          <div class="r2h-stat" id="r2stat-supplier"></div>
-          <div class="r2h-mini"><canvas id="r2mini-supplier"></canvas></div>
+          <div class="r2h-desc">Top 10 suppliers by net sales.</div>
+          <div id="r2list-supplier" style="margin-top:10px;font-size:11px;line-height:1.7;overflow:hidden;flex:1"></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('sp')">
           <div class="r2h-ico" style="background:#ecfdf5;color:#10b981"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
@@ -6027,7 +6026,23 @@ function renderReport2(data){
   _r2Mini('r2mini-funnel','bar', {labels:_fmon.map(d=>d.label), values:_fmon.map(d=>d.amount)}, '#4f46e5', _r2Cr);
   _r2Mini('r2mini-sales','line', {labels:_bdS.map(r=>r.date), values:_bdS.map(r=>r.amount)}, '#4f46e5', _r2Cr);
   _r2Mini('r2mini-cat','bar', _lv(data.topCategories,'category','amount',7), '#7c3aed', _r2Cr);
-  _r2Mini('r2mini-supplier','bar', _lv(data.supplierSales,'name','amount',10), '#06b6d4', _r2Cr);
+  // Supplier Sales card — top 10 list (no chart)
+  (()=>{
+    const sup=(data.supplierSales||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0));
+    const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const el=document.getElementById('r2list-supplier'); if(!el) return;
+    let _supExp=false;
+    const render=()=>{
+      const show=_supExp?sup:sup.slice(0,10);
+      el.innerHTML = show.map((r,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;${i<show.length-1?'border-bottom:1px solid #f1f5f9':''}">
+        <span style="color:#334155;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62%">${esc(r.name)}</span>
+        <span style="color:#06b6d4;font-weight:800;font-size:11px;white-space:nowrap">${_r2Cr(r.amount)}</span>
+      </div>`).join('')
+      + (sup.length>10?`<div style="text-align:center;margin-top:6px"><button onclick="event.stopPropagation();_supExpToggle()" style="font-size:10px;font-weight:700;color:#06b6d4;background:none;border:none;cursor:pointer;padding:2px 0">${_supExp?'Show less ▲':'View more ('+sup.length+') ▼'}</button></div>`:'');
+    };
+    window._supExpToggle=()=>{ _supExp=!_supExp; render(); };
+    render();
+  })();
   _r2Mini('r2mini-sp','bar', _lv(data.salespersons,'name','amount',10), '#10b981', _r2Cr);
   _r2Mini('r2mini-spanalytics','bar', _lv(sa.spTable,'name','upt',7), '#f59e0b', v=>Number(v).toFixed(2)+' UPT');
   _r2Mini('r2mini-citystate','bar', _lv(data.cityStateSales,'city','amount',7), '#ef4444', _r2Cr);
