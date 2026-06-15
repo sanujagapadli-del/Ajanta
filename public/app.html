@@ -5896,6 +5896,25 @@ async function loadReport2(forceSync){
   window._r2LMData = lmData || null;
   _r2Data=data;
   _r2FillDepts(data.departments);
+
+  // If no date filter is set, auto-fill the date inputs with data's actual range
+  // (earliest record in byDate → today). State vars stay empty so API still returns all data.
+  if(!_r2From && !_r2To){
+    const bd=(data.salesSummary&&data.salesSummary.byDate)||[];
+    const toISO2=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const todayISO=toISO2(new Date());
+    if(bd.length){
+      // byDate is already sorted asc by server — bd[0].date is "01-Apr-2025" format, convert to YYYY-MM-DD
+      const firstRaw=bd[0].date; // e.g. "01-Apr-2025"
+      const _MO={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+      const mm=String(firstRaw||'').match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
+      const firstISO=mm?`${mm[3]}-${String((_MO[mm[2].toLowerCase()]??0)+1).padStart(2,'0')}-${String(mm[1]).padStart(2,'0')}`:null;
+      const fEl=document.getElementById('r2From'), tEl=document.getElementById('r2To');
+      if(fEl&&firstISO) fEl.value=firstISO;
+      if(tEl) tEl.value=todayISO;
+    }
+  }
+
   renderReport2(data);
   const rEl=document.getElementById('r2Range');
   if(rEl){ const dl=(_r2Dept&&_r2Dept!=='All')?' · '+_r2Dept:''; rEl.textContent=((_r2From&&_r2To)?`${_r2From} to ${_r2To}`:_r2From?`From ${_r2From}`:_r2To?`Up to ${_r2To}`:'All data')+dl; }
