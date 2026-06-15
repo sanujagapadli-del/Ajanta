@@ -5776,60 +5776,156 @@ function _r2FunnelCSV(){
   a.download=`Sales_Funnel_${_r2FunnelPeriod}_${range}.csv`; a.click();
 }
 
-// ── Fast / Slow Mover detail views ───────────────────────────────────────────
-function _r2RenderMovers(tab){
-  const isFast = tab === 'fastmov';
-  const list   = isFast ? (window._r2FastMovers||[]) : (window._r2SlowMovers||[]);
-  const view   = document.getElementById('r2MovView');
-  if(!view) return;
-  const top10  = list.slice(0,10);
-  const title  = isFast ? 'Fast Moving Vendors' : 'Slow Moving Vendors';
-  const desc   = isFast ? 'Vendors with highest sell-through rate — top 10 by % sold.'
-                        : 'Vendors with lowest sell-through — stock piling up, top 10.';
-  const clr    = isFast ? '#16a34a' : '#dc2626';
-  const bgClr  = isFast ? '#dcfce7' : '#fee2e2';
-  const nfI    = v=>Number(v||0).toLocaleString('en-IN');
-  const cr     = v=>{ const n=Number(v||0); if(n>=1e7) return '₹'+(n/1e7).toFixed(2)+'Cr'; if(n>=1e5) return '₹'+(n/1e5).toFixed(2)+'L'; return '₹'+nfI(Math.round(n)); };
-  const pctBadge = p=>`<span style="display:inline-block;padding:2px 8px;border-radius:20px;background:${bgClr};color:${clr};font-weight:700;font-size:12px">${Math.round(p)}%</span>`;
+// ── Fast / Slow Mover detail views — with date filter, PDF, CSV ──────────────
+let _r2MovTab='fastmov', _r2MovFrom='', _r2MovTo='', _r2MovCache={fast:null,slow:null};
 
-  view.innerHTML = `
-    <div class="r2-card" style="padding:20px 22px">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
-        <div>
-          <div style="font-size:18px;font-weight:800;color:#0f172a">${title}</div>
-          <div style="font-size:12px;color:#94a3b8;margin-top:3px">${desc}</div>
-        </div>
-        <div style="font-size:12px;color:#94a3b8;background:#f8fafc;border:1px solid #e8ecf8;border-radius:8px;padding:6px 14px">
-          % Sold = Sales Qty ÷ (Sales Qty + Stock Qty) × 100
-        </div>
+function _r2MovFmt(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+
+function _r2MovPreset(kind, btn){
+  document.querySelectorAll('#r2MovPresets .r2-fbtn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  const now=new Date(), y=now.getFullYear(), m=now.getMonth();
+  const fy=(m>=3)?y:y-1;
+  if(kind==='all'){ _r2MovFrom=''; _r2MovTo=''; }
+  else if(kind==='month'){ _r2MovFrom=_r2MovFmt(new Date(y,m,1)); _r2MovTo=_r2MovFmt(new Date(y,m+1,0)); }
+  else if(kind==='lastmonth'){ _r2MovFrom=_r2MovFmt(new Date(y,m-1,1)); _r2MovTo=_r2MovFmt(new Date(y,m,0)); }
+  else if(kind==='quarter'){ const fyM=(m>=3)?m-3:m+9, q=Math.floor(fyM/3), qm=3+q*3; _r2MovFrom=_r2MovFmt(new Date(fy,qm,1)); _r2MovTo=_r2MovFmt(new Date(fy,qm+3,0)); }
+  else if(kind==='year'){ _r2MovFrom=_r2MovFmt(new Date(y,0,1)); _r2MovTo=_r2MovFmt(new Date(y,11,31)); }
+  else if(kind==='fy'){ _r2MovFrom=_r2MovFmt(new Date(fy,3,1)); _r2MovTo=_r2MovFmt(new Date(fy+1,2,31)); }
+  const fEl=document.getElementById('r2MovFromInp'), tEl=document.getElementById('r2MovToInp');
+  if(fEl) fEl.value=_r2MovFrom; if(tEl) tEl.value=_r2MovTo;
+  _r2LoadMoversData();
+}
+
+function _r2MovApply(){
+  const f=document.getElementById('r2MovFromInp'), t=document.getElementById('r2MovToInp');
+  _r2MovFrom=f?f.value:''; _r2MovTo=t?t.value:'';
+  document.querySelectorAll('#r2MovPresets .r2-fbtn').forEach(b=>b.classList.remove('active'));
+  _r2LoadMoversData();
+}
+
+async function _r2LoadMoversData(){
+  const tbody=document.getElementById('r2MovTbody');
+  if(tbody) tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:48px;color:#94a3b8">Loading…</td></tr>';
+  const params=new URLSearchParams();
+  if(_r2MovFrom) params.append('from',_r2MovFrom);
+  if(_r2MovTo)   params.append('to',_r2MovTo);
+  if(_r2Dept&&_r2Dept!=='All') params.append('dept',_r2Dept);
+  try{
+    const d=await fetch('/api/report2?'+params.toString()).then(r=>r.json());
+    const ssold={},sstk={},amtMap={};
+    (d.supplierStyleSales||[]).forEach(s=>{ssold[s.supName]=(ssold[s.supName]||0)+(s.qty||0);});
+    (d.supplierStyleStock||[]).forEach(s=>{sstk[s.supName]=(sstk[s.supName]||0)+(s.qty||0);});
+    (d.supplierSales||[]).forEach(s=>{amtMap[s.name]=(s.amount||0);});
+    const list=[];
+    new Set([...Object.keys(ssold),...Object.keys(sstk)]).forEach(sp=>{
+      if(sp==='Alteration') return;
+      const sold=ssold[sp]||0,stk=sstk[sp]||0,tot=sold+stk,pct=tot>0?(sold/tot*100):0,cleared=stk<=0&&sold>0;
+      list.push({name:sp,sold,stk,pct,cleared,amount:amtMap[sp]||0});
+    });
+    _r2MovCache.fast=list.filter(x=>!x.cleared).sort((a,b)=>b.pct-a.pct);
+    _r2MovCache.slow=list.filter(x=>!x.cleared&&x.pct<40).sort((a,b)=>a.pct-b.pct);
+    _r2DrawMovTable();
+  }catch(e){
+    if(tbody) tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:40px;color:#dc2626">Failed to load</td></tr>';
+  }
+}
+
+function _r2DrawMovTable(){
+  const isFast=_r2MovTab==='fastmov';
+  const list=(isFast?_r2MovCache.fast:_r2MovCache.slow)||[];
+  const top10=list.slice(0,10);
+  const clr=isFast?'#16a34a':'#dc2626', bgClr=isFast?'#dcfce7':'#fee2e2';
+  const nfI=v=>Number(v||0).toLocaleString('en-IN');
+  const cr=v=>{const n=Number(v||0);if(n>=1e7)return'₹'+(n/1e7).toFixed(2)+'Cr';if(n>=1e5)return'₹'+(n/1e5).toFixed(2)+'L';return'₹'+nfI(Math.round(n));};
+  const pctBadge=p=>`<span style="display:inline-block;padding:2px 8px;border-radius:20px;background:${bgClr};color:${clr};font-weight:700;font-size:12px">${Math.round(p)}%</span>`;
+  const tbody=document.getElementById('r2MovTbody'); if(!tbody) return;
+  tbody.innerHTML=top10.length
+    ? top10.map((r,i)=>`<tr style="border-bottom:1px solid #f1f5f9;${i%2?'background:#fafafa':''}">
+        <td style="padding:10px 12px;color:#94a3b8;font-size:12px">${i+1}</td>
+        <td style="padding:10px 12px;font-weight:600;color:#0f172a">${r.name}</td>
+        <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.sold)}</td>
+        <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.stk)}</td>
+        <td style="padding:10px 12px;text-align:right;color:#1e293b">${r.amount?cr(r.amount):'—'}</td>
+        <td style="padding:10px 12px;text-align:center">${pctBadge(r.pct)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" style="text-align:center;padding:48px;color:#94a3b8;font-size:14px">No data available</td></tr>';
+}
+
+function _r2MovPDF(){
+  const title=_r2MovTab==='fastmov'?'Fast Moving Vendors':'Slow Moving Vendors';
+  const w=window.open('','_blank'); if(!w) return;
+  const range=(_r2MovFrom||_r2MovTo)?(_r2MovFrom||'—')+' to '+(_r2MovTo||'—'):'All dates';
+  const tbl=document.querySelector('#r2MovView table'); if(!tbl) return;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:sans-serif;padding:24px;color:#0f172a}h2{margin:0 0 4px}p{color:#64748b;font-size:12px;margin:0 0 18px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f8fafc;padding:10px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#64748b;font-weight:600}td{padding:9px 12px;border-bottom:1px solid #f1f5f9}@media print{@page{margin:15mm}}</style></head><body>`);
+  w.document.write(`<h2>${title}</h2><p>${range}</p>${tbl.outerHTML}</body></html>`);
+  w.document.close(); w.focus(); w.print();
+}
+
+function _r2MovCSV(){
+  const isFast=_r2MovTab==='fastmov';
+  const list=(isFast?_r2MovCache.fast:_r2MovCache.slow)||[];
+  const name=isFast?'Fast_Moving':'Slow_Moving';
+  const range=(_r2MovFrom&&_r2MovTo)?`${_r2MovFrom}_to_${_r2MovTo}`:_r2MovFrom?`from_${_r2MovFrom}`:_r2MovTo?`to_${_r2MovTo}`:'all';
+  const lines=[['#','Vendor','Sold Qty','Stock Qty','Net Sales (INR)','% Sold'].join(',')];
+  list.slice(0,10).forEach((r,i)=>lines.push([i+1,`"${r.name}"`,Math.round(r.sold),Math.round(r.stk),Math.round(r.amount),Math.round(r.pct)].join(',')));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${name}_${range}.csv`; a.click();
+}
+
+function _r2RenderMovers(tab){
+  _r2MovTab=tab;
+  const isFast=tab==='fastmov';
+  const view=document.getElementById('r2MovView'); if(!view) return;
+  const title=isFast?'Fast Moving Vendors':'Slow Moving Vendors';
+  const desc=isFast?'Vendors with highest sell-through rate — top 10 by % sold.':'Vendors with lowest sell-through — stock piling up, top 10.';
+  const presets=[['all','All'],['month','This Month'],['lastmonth','Last Month'],['quarter','This Quarter'],['year','This Year'],['fy','This FY']];
+
+  view.innerHTML=`<div class="r2-card" style="padding:20px 22px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+      <div>
+        <div style="font-size:18px;font-weight:800;color:#0f172a">${title}</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:3px">${desc}</div>
       </div>
-      ${top10.length ? `
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead>
-            <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
-              <th style="text-align:left;padding:10px 12px;color:#64748b;font-weight:600;width:36px">#</th>
-              <th style="text-align:left;padding:10px 12px;color:#64748b;font-weight:600">Vendor</th>
-              <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Sold Qty</th>
-              <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Stock Qty</th>
-              <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Net Sales</th>
-              <th style="text-align:center;padding:10px 12px;color:#64748b;font-weight:600">% Sold</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${top10.map((r,i)=>`
-              <tr style="border-bottom:1px solid #f1f5f9;${i%2?'background:#fafafa':''}">
-                <td style="padding:10px 12px;color:#94a3b8;font-size:12px">${i+1}</td>
-                <td style="padding:10px 12px;font-weight:600;color:#0f172a">${r.name}</td>
-                <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.sold)}</td>
-                <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.stk)}</td>
-                <td style="padding:10px 12px;text-align:right;color:#1e293b">${r.amount?cr(r.amount):'—'}</td>
-                <td style="padding:10px 12px;text-align:center">${pctBadge(r.pct)}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>` : '<div style="text-align:center;color:#94a3b8;padding:48px;font-size:14px">No data available</div>'}
-    </div>`;
+      <div style="display:flex;gap:8px">
+        <button onclick="_r2MovPDF()" style="display:flex;align-items:center;gap:5px;padding:7px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#4f46e5;transition:all .15s">⬇ PDF</button>
+        <button onclick="_r2MovCSV()" style="display:flex;align-items:center;gap:5px;padding:7px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#4f46e5;transition:all .15s">⬇ CSV</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e8ecf8">
+      <span style="font-size:11px;font-weight:700;color:#64748b">QUICK</span>
+      <div id="r2MovPresets" style="display:flex;gap:6px;flex-wrap:wrap">
+        ${presets.map(([k,l])=>`<button class="r2-fbtn${k==='all'?' active':''}" onclick="_r2MovPreset('${k}',this)">${l}</button>`).join('')}
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:4px;flex-wrap:wrap">
+        <input type="date" id="r2MovFromInp" value="${_r2MovFrom}" style="border:1.5px solid #e8ecf8;border-radius:8px;padding:5px 9px;font-size:12px;color:#1e293b;outline:none;background:#fff">
+        <span style="color:#94a3b8;font-size:12px">to</span>
+        <input type="date" id="r2MovToInp" value="${_r2MovTo}" style="border:1.5px solid #e8ecf8;border-radius:8px;padding:5px 9px;font-size:12px;color:#1e293b;outline:none;background:#fff">
+        <button onclick="_r2MovApply()" style="padding:5px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:#4f46e5;color:#fff">Apply</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+          <th style="text-align:left;padding:10px 12px;color:#64748b;font-weight:600;width:36px">#</th>
+          <th style="text-align:left;padding:10px 12px;color:#64748b;font-weight:600">Vendor</th>
+          <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Sold Qty</th>
+          <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Stock Qty</th>
+          <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">Net Sales</th>
+          <th style="text-align:center;padding:10px 12px;color:#64748b;font-weight:600">% Sold</th>
+        </tr></thead>
+        <tbody id="r2MovTbody"><tr><td colspan="6" style="text-align:center;padding:48px;color:#94a3b8">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>`;
+
+  // Use cached overview data first (instant), then allow date filter to refetch
+  if(!_r2MovFrom && !_r2MovTo && window._r2FastMovers && window._r2SlowMovers){
+    _r2MovCache.fast=window._r2FastMovers; _r2MovCache.slow=window._r2SlowMovers;
+    _r2DrawMovTable();
+  } else {
+    _r2LoadMoversData();
+  }
 }
 
 // ── Overview dashboard at the TOP of the hub (overall data + charts) ──────
