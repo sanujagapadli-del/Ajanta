@@ -6111,11 +6111,18 @@ function renderReport2(data){
     let _supExp=false;
     const render=()=>{
       const show=_supExp?sup:sup.slice(0,10);
-      el.innerHTML = show.map((r,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;${i<show.length-1?'border-bottom:1px solid #f1f5f9':''}">
-        <span style="color:#334155;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52%">${esc(r.name)}</span>
-        <span style="color:#94a3b8;font-size:10px;white-space:nowrap;margin:0 6px">${Number(r.qty||0).toLocaleString('en-IN')} pc</span>
-        <span style="color:#06b6d4;font-weight:800;font-size:11px;white-space:nowrap">${_r2Cr(r.amount)}</span>
-      </div>`).join('')
+      el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="border-bottom:1.5px solid #e2e8f0">
+          <th style="text-align:left;padding:3px 6px 5px 0;color:#94a3b8;font-weight:600;font-size:10px">Vendor</th>
+          <th style="text-align:right;padding:3px 6px 5px;color:#94a3b8;font-weight:600;font-size:10px">Net Qty</th>
+          <th style="text-align:right;padding:3px 0 5px 6px;color:#94a3b8;font-weight:600;font-size:10px">Net Sales</th>
+        </tr></thead>
+        <tbody>${show.map((r,i)=>`<tr style="${i<show.length-1?'border-bottom:1px solid #f1f5f9':''}">
+          <td style="padding:4px 6px 4px 0;color:#334155;font-weight:600;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:55%">${esc(r.name)}</td>
+          <td style="padding:4px 6px;text-align:right;color:#94a3b8;white-space:nowrap">${Number(r.qty||0).toLocaleString('en-IN')} pc</td>
+          <td style="padding:4px 0 4px 6px;text-align:right;color:#06b6d4;font-weight:800;white-space:nowrap">${_r2Cr(r.amount)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`
       + (sup.length>10?`<div style="text-align:center;margin-top:6px"><button onclick="event.stopPropagation();_supExpToggle()" style="font-size:10px;font-weight:700;color:#06b6d4;background:none;border:none;cursor:pointer;padding:2px 0">${_supExp?'Show less ▲':'View more ('+sup.length+') ▼'}</button></div>`:'');
     };
     window._supExpToggle=()=>{ _supExp=!_supExp; render(); };
