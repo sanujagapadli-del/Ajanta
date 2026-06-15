@@ -1639,34 +1639,36 @@ tbody tr:last-child td{border-bottom:none;}
       <!-- OVERVIEW: KPI matrix — LY | current | growth (Power BI UPT-dashboard style) -->
       <div id="r2Kpis" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px"></div>
 
-      <!-- OVERVIEW: single chart with selector (default Top Departments by Net Sales) -->
-      <div class="r2-card" style="padding:20px 22px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-          <div class="r2-ctitle" id="r2MainChartTitle">Top Departments by Net Sales <span style="font-weight:600;color:#c4cbdc;text-transform:none;letter-spacing:0">· click for detail</span></div>
-          <select id="r2ChartSel" onchange="_r2RenderMainChart(this.value)" style="padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif">
-            <option value="topdept">Top Departments by Net Sales</option>
-            <option value="dept">Department-wise UPT</option>
-            <option value="basket">Basket Size by Quantity</option>
-            <option value="trend">Monthly UPT &amp; ATV Trend</option>
-          </select>
+      <!-- OVERVIEW: charts as compact tile-width cards (same grid as the report tiles) -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;align-items:start;margin-bottom:26px">
+        <!-- Main chart (selector-driven; default Top Departments) -->
+        <div class="r2-card" style="padding:18px 20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <div class="r2-ctitle" id="r2MainChartTitle">Top Departments by Net Sales</div>
+            <select id="r2ChartSel" onchange="_r2RenderMainChart(this.value)" style="padding:5px 9px;border:1.5px solid #e8ecf8;border-radius:8px;font-size:11px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif">
+              <option value="topdept">Top Departments</option>
+              <option value="dept">Department-wise UPT</option>
+              <option value="basket">Basket Size by Qty</option>
+              <option value="trend">Monthly UPT &amp; ATV</option>
+            </select>
+          </div>
+          <div style="position:relative;height:250px"><canvas id="r2Chart-main"></canvas></div>
         </div>
-        <div class="r2-canvas" style="height:330px"><canvas id="r2Chart-main"></canvas></div>
-      </div>
-
-      <!-- OVERVIEW: salesperson chart + table (top 5, expandable) -->
-      <div class="r2-card" style="margin-bottom:26px;overflow:hidden">
-        <div style="padding:16px 20px;border-bottom:1px solid #eef2ff;display:flex;align-items:center;justify-content:space-between">
-          <div class="r2-ctitle">Salesperson Performance · Net Sales</div>
-          <span style="font-size:11px;color:#94a3b8">Click a bar or row for transactions</span>
+        <!-- Salesperson Performance -->
+        <div class="r2-card" style="overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid #eef2ff">
+            <div class="r2-ctitle">Salesperson Performance</div>
+            <span style="font-size:10px;color:#94a3b8">Click a bar / row for transactions</span>
+          </div>
+          <div style="padding:14px 16px 2px"><div style="position:relative;height:200px"><canvas id="r2Chart-spbar"></canvas></div></div>
+          <div style="overflow-x:auto;border-top:1px solid #f4f6ff">
+            <table class="r2-tbl" style="font-size:12px">
+              <thead><tr><th>Salesperson</th><th>Bills</th><th>Net Qty</th><th>UPT</th><th>LY UPT</th><th>UPT △</th><th>ATV</th><th>Net Sales</th></tr></thead>
+              <tbody id="r2SpBody"><tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:30px">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div id="r2SpMore" style="padding:12px 18px;text-align:center;border-top:1px solid #f4f6ff"></div>
         </div>
-        <div style="padding:18px 20px 6px"><div style="position:relative;height:300px"><canvas id="r2Chart-spbar"></canvas></div></div>
-        <div style="overflow-x:auto;border-top:1px solid #f4f6ff">
-          <table class="r2-tbl">
-            <thead><tr><th>Salesperson</th><th>Bills</th><th>Net Qty</th><th>UPT</th><th>LY UPT</th><th>UPT △</th><th>ATV</th><th>Net Sales</th></tr></thead>
-            <tbody id="r2SpBody"><tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:30px">Loading…</td></tr></tbody>
-          </table>
-        </div>
-        <div id="r2SpMore" style="padding:14px 20px;text-align:center;border-top:1px solid #f4f6ff"></div>
       </div>
 
       <!-- Divider → launcher tiles -->
@@ -5477,7 +5479,7 @@ function renderChartVBar(canvasId, key, labels, values, onClick) {
   });
 }
 
-function renderChartDoughnut(canvasId, key, items, labelField, valueField, onClick) {
+function renderChartDoughnut(canvasId, key, items, labelField, valueField, onClick, legendPos) {
   _loadChartJS(() => {
     _destroyChart(key);
     const ctx = document.getElementById(canvasId)?.getContext('2d');
@@ -5491,7 +5493,7 @@ function renderChartDoughnut(canvasId, key, items, labelField, valueField, onCli
         onClick: onClick ? (evt,els) => { if (els.length) onClick(labels[els[0].index]); } : undefined,
         onHover: onClick ? (evt,els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; } : undefined,
         plugins:{
-          legend:{ position:'right', labels:{..._DARK_LGND, padding:10, boxWidth:12, usePointStyle:true, pointStyleWidth:10} },
+          legend:{ position:legendPos||'right', labels:{..._DARK_LGND, padding:8, boxWidth:10, font:{size:10}, usePointStyle:true, pointStyleWidth:9} },
           tooltip:{ callbacks:{ label:c=>' '+c.label+': ₹'+Math.round(c.parsed).toLocaleString('en-IN') } }
         },
         cutout:'58%'
@@ -5702,7 +5704,7 @@ function _r2RenderMainChart(which){
   const setTitle = (t,hint) => { if(titleEl) titleEl.innerHTML = t + (hint?` <span style="font-weight:600;color:#c4cbdc;text-transform:none;letter-spacing:0">· ${hint}</span>`:''); };
   if(which==='dept'){
     setTitle('Department-wise UPT','click a bar');
-    const dept=(data.deptAnalytics||[]).slice(0,12);
+    const dept=(data.deptAnalytics||[]).slice(0,8);
     _r2Bar('r2Chart-main','r2main', dept.map(d=>d.dept), dept.map(d=>d.upt),
       {horizontal:true, color:'#4f46e5', tickFmt:v=>Number(v).toFixed(1), fmt:v=>Number(v).toFixed(2)+' units / bill', onClick:dn=>r2Drill('department',dn)});
   } else if(which==='basket'){
@@ -5719,8 +5721,8 @@ function _r2RenderMainChart(which){
       lbl=>_r2MonthClick(lbl));
   } else {
     setTitle('Top Departments by Net Sales','click for detail');
-    const dba=(data.deptAnalytics||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0)).slice(0,10);
-    if(dba.length) renderChartDoughnut('r2Chart-main','r2main', dba, 'dept','amount', lbl=>r2Drill('department',lbl));
+    const dba=(data.deptAnalytics||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0)).slice(0,8);
+    if(dba.length) renderChartDoughnut('r2Chart-main','r2main', dba, 'dept','amount', lbl=>r2Drill('department',lbl), 'bottom');
     else _destroyChart('r2main');
   }
 }
