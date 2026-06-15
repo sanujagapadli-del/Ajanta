@@ -5577,7 +5577,7 @@ function r2BackToHub(){
 // Aggregates the overview's salesSummary.byDate (already filtered by the active date+dept).
 // Periods follow the Indian financial year (Apr→Mar), matching the "This FY" preset.
 const _R2_MON3={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-let _r2FunnelPeriod='month';
+let _r2FunnelPeriod='month', _r2FunnelFrom='', _r2FunnelTo='', _r2FunnelBD=null;
 function _r2ParseDate(s){
   const m=String(s||'').match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
   if(m) return new Date(parseInt(m[3],10), _R2_MON3[m[2].toLowerCase()]??0, parseInt(m[1],10));
@@ -5588,11 +5588,11 @@ function _r2FunnelAgg(byDate, period){
   (byDate||[]).forEach(r=>{
     const d=_r2ParseDate(r.date); if(!d) return;
     const y=d.getFullYear(), m=d.getMonth();
-    const fy=(m>=3)?y:y-1, fyM=(m>=3)?m-3:m+9;   // fy = FY start year, fyM = 0=Apr … 11=Mar
+    const fy=(m>=3)?y:y-1, fyM=(m>=3)?m-3:m+9;
     let key, label, sort;
     if(period==='month'){ key='M'+y+'-'+m; sort=y*12+m; label=_R2_MON[m]+'-'+String(y).slice(2); }
-    else if(period==='quarter'){ const q=Math.floor(fyM/3); key='Q'+fy+'-'+q; sort=fy*4+q; label='Q'+(q+1)+" FY"+String(fy).slice(2); }
-    else if(period==='half'){ const h=fyM<6?0:1; key='H'+fy+'-'+h; sort=fy*2+h; label='H'+(h+1)+" FY"+String(fy).slice(2); }
+    else if(period==='quarter'){ const q=Math.floor(fyM/3); key='Q'+fy+'-'+q; sort=fy*4+q; label='Q'+(q+1)+' FY'+String(fy).slice(2); }
+    else if(period==='half'){ const h=fyM<6?0:1; key='H'+fy+'-'+h; sort=fy*2+h; label='H'+(h+1)+' FY'+String(fy).slice(2); }
     else { key='Y'+fy; sort=fy; label='FY '+fy+'-'+String(fy+1).slice(2); }
     if(!b[key]) b[key]={label,sort,amount:0,qty:0,bills:0};
     b[key].amount+=(r.amount||0); b[key].qty+=(r.qty||0); b[key].bills+=(r.transactions||0);
@@ -5601,19 +5601,30 @@ function _r2FunnelAgg(byDate, period){
 }
 function _r2RenderFunnel(){
   const view=document.getElementById('r2FunnelView'); if(!view) return;
-  const btns=[['month','Month'],['quarter','Quarterly'],['half','Half-Yearly'],['year','Yearly']];
+  const pbts=[['month','Month'],['quarter','Quarterly'],['half','Half-Yearly'],['year','Yearly']];
+  const qps=[['all','All'],['month','This Month'],['lastmonth','Last Month'],['quarter','This Quarter'],['year','This Year'],['fy','This FY']];
   view.innerHTML =
     `<div class="r2-card" style="padding:20px 22px">
-       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:4px">
+       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px">
          <div>
            <div style="font-size:18px;font-weight:800;color:#0f172a">Sales Funnel</div>
-           <div style="font-size:12px;color:#94a3b8;margin-top:2px">Net sales over time — pick a period below.</div>
+           <div style="font-size:12px;color:#94a3b8;margin-top:2px">Net sales over time — filter by date &amp; pick a grouping below.</div>
          </div>
          <div id="r2FunnelBtns" style="display:flex;gap:6px;flex-wrap:wrap">
-           ${btns.map(([k,l])=>`<button class="r2-fbtn${_r2FunnelPeriod===k?' active':''}" data-p="${k}" onclick="_r2SetFunnelPeriod('${k}')">${l}</button>`).join('')}
+           ${pbts.map(([k,l])=>`<button class="r2-fbtn${_r2FunnelPeriod===k?' active':''}" data-p="${k}" onclick="_r2SetFunnelPeriod('${k}')">${l}</button>`).join('')}
          </div>
        </div>
-       <div id="r2FunnelKpis" style="display:flex;gap:30px;flex-wrap:wrap;margin:16px 0 18px"></div>
+       <!-- Date filter row -->
+       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid #eef2ff;margin-bottom:14px">
+         <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.12em;margin-right:2px">DATE</span>
+         ${qps.map(([k,l])=>`<button class="r2-preset${(!_r2FunnelFrom&&!_r2FunnelTo&&k==='all')||'' ===k?'':''} r2fp-q" data-q="${k}" onclick="_r2FunnelPreset('${k}',this)" style="padding:6px 11px;font-size:11px">${l}</button>`).join('')}
+         <span style="color:#e2e8f0;font-size:12px">|</span>
+         <input id="r2fFrom" type="text" placeholder="From" readonly style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:8px;font-size:11px;width:90px;cursor:pointer;font-family:'Inter',sans-serif;color:#334155;background:#fff;outline:none">
+         <span style="color:#94a3b8;font-size:11px">to</span>
+         <input id="r2fTo" type="text" placeholder="To" readonly style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:8px;font-size:11px;width:90px;cursor:pointer;font-family:'Inter',sans-serif;color:#334155;background:#fff;outline:none">
+         <span id="r2fStatus" style="font-size:11px;color:#94a3b8;margin-left:4px"></span>
+       </div>
+       <div id="r2FunnelKpis" style="display:flex;gap:30px;flex-wrap:wrap;margin-bottom:18px"></div>
        <div style="position:relative;height:380px"><canvas id="r2FunnelChart"></canvas></div>
        <div style="overflow:auto;margin-top:16px">
          <table class="r2-tbl" style="font-size:12px">
@@ -5622,6 +5633,54 @@ function _r2RenderFunnel(){
          </table>
        </div>
      </div>`;
+  // Init flatpickr on funnel date inputs
+  const toISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  if(window.flatpickr){
+    flatpickr(document.getElementById('r2fFrom'),{ dateFormat:'d/m/y', allowInput:false, disableMobile:false,
+      onChange:dates=>{ _r2FunnelFrom=dates[0]?toISO(dates[0]):''; _r2ClearFunnelPresets(); _r2LoadFunnelData(); }});
+    flatpickr(document.getElementById('r2fTo'),{ dateFormat:'d/m/y', allowInput:false, disableMobile:false,
+      onChange:dates=>{ _r2FunnelTo=dates[0]?toISO(dates[0]):''; _r2ClearFunnelPresets(); _r2LoadFunnelData(); }});
+  }
+  // Set "All" active if no filter
+  _r2SyncFunnelPresetUI();
+  // Use existing loaded data initially (fast), then re-fetch if funnel has its own filter
+  if(_r2FunnelFrom||_r2FunnelTo){ _r2LoadFunnelData(); }
+  else { _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2DrawFunnel(); }
+}
+function _r2ClearFunnelPresets(){ document.querySelectorAll('.r2fp-q').forEach(b=>b.classList.remove('active')); }
+function _r2SyncFunnelPresetUI(){
+  const noFilter=!_r2FunnelFrom&&!_r2FunnelTo;
+  document.querySelectorAll('.r2fp-q').forEach(b=>{ if(b.dataset.q==='all'&&noFilter) b.classList.add('active'); else if(b.dataset.q!=='all') b.classList.remove('active'); });
+}
+function _r2FunnelPreset(kind, btn){
+  _r2ClearFunnelPresets(); if(btn) btn.classList.add('active');
+  const now=new Date(), y=now.getFullYear(), m=now.getMonth();
+  const toISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  let from=null, to=null;
+  if(kind==='all'){ from=null; to=null; }
+  else if(kind==='month'){ from=new Date(y,m,1); to=now; }
+  else if(kind==='lastmonth'){ from=new Date(y,m-1,1); to=new Date(y,m,0); }
+  else if(kind==='quarter'){ const q=Math.floor(m/3); from=new Date(y,q*3,1); to=now; }
+  else if(kind==='year'){ from=new Date(y,0,1); to=now; }
+  else if(kind==='fy'){ const fs=(m>=3)?y:y-1; from=new Date(fs,3,1); to=now; }
+  _r2FunnelFrom=from?toISO(from):''; _r2FunnelTo=to?toISO(to):'';
+  // Sync flatpickr visuals
+  const fp1=document.getElementById('r2fFrom')?._flatpickr, fp2=document.getElementById('r2fTo')?._flatpickr;
+  if(fp1){ if(from) fp1.setDate(from,false); else fp1.clear(); }
+  if(fp2){ if(to)   fp2.setDate(to,false);   else fp2.clear(); }
+  // "All" uses overview's already-loaded byDate directly (no extra fetch)
+  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2DrawFunnel(); }
+  else { _r2LoadFunnelData(); }
+}
+async function _r2LoadFunnelData(){
+  const st=document.getElementById('r2fStatus'); if(st) st.textContent='Loading…';
+  const p=new URLSearchParams();
+  if(_r2FunnelFrom) p.append('from',_r2FunnelFrom);
+  if(_r2FunnelTo)   p.append('to',_r2FunnelTo);
+  if(_r2Dept&&_r2Dept!=='All') p.append('dept',_r2Dept);
+  const d=await api('/api/ims-reports?'+p.toString()).catch(()=>null);
+  _r2FunnelBD=(d&&d.salesSummary&&d.salesSummary.byDate)||[];
+  if(st) st.textContent='';
   _r2DrawFunnel();
 }
 function _r2SetFunnelPeriod(p){
@@ -5630,19 +5689,17 @@ function _r2SetFunnelPeriod(p){
   _r2DrawFunnel();
 }
 function _r2DrawFunnel(){
-  const ss=(_r2Data&&_r2Data.salesSummary)||{};
-  const rows=_r2FunnelAgg(ss.byDate||[], _r2FunnelPeriod);
+  const bd=_r2FunnelBD||(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
+  const rows=_r2FunnelAgg(bd, _r2FunnelPeriod);
   _r2Bar('r2FunnelChart','r2funnel', rows.map(r=>r.label), rows.map(r=>r.amount),
     {color:'#4f46e5', tickFmt:_r2Cr, fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN')});
-  // summary KPIs
   const nf=n=>Number(n||0).toLocaleString('en-IN');
   const tot=rows.reduce((s,r)=>s+r.amount,0), tq=rows.reduce((s,r)=>s+r.qty,0), tb=rows.reduce((s,r)=>s+r.bills,0);
   const kpi=(lbl,val,col)=>`<div><div style="font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#94a3b8">${lbl}</div><div style="font-size:22px;font-weight:800;color:${col};margin-top:3px">${val}</div></div>`;
   const k=document.getElementById('r2FunnelKpis');
-  if(k) k.innerHTML = kpi('Net Sales','₹'+nf(Math.round(tot)),'#0ea5e9')+kpi('Net Qty',nf(Math.round(tq)),'#ef4444')+kpi('Bills',nf(tb),'#7c3aed')+kpi('Periods',rows.length,'#4f46e5');
-  // table
+  if(k) k.innerHTML=kpi('Net Sales','₹'+nf(Math.round(tot)),'#0ea5e9')+kpi('Net Qty',nf(Math.round(tq)),'#ef4444')+kpi('Bills',nf(tb),'#7c3aed')+kpi('Periods',rows.length,'#4f46e5');
   const tb2=document.getElementById('r2FunnelTbody');
-  if(tb2) tb2.innerHTML = rows.length ? rows.map(r=>`<tr><td style="font-weight:600;color:#0f172a">${r.label}</td><td style="text-align:right;font-weight:700">₹${nf(Math.round(r.amount))}</td><td style="text-align:right">${nf(Math.round(r.qty))}</td><td style="text-align:right">${nf(r.bills)}</td></tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>';
+  if(tb2) tb2.innerHTML=rows.length?rows.map(r=>`<tr><td style="font-weight:600;color:#0f172a">${r.label}</td><td style="text-align:right;font-weight:700">₹${nf(Math.round(r.amount))}</td><td style="text-align:right">${nf(Math.round(r.qty))}</td><td style="text-align:right">${nf(r.bills)}</td></tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>';
 }
 
 // ── Overview dashboard at the TOP of the hub (overall data + charts) ──────
