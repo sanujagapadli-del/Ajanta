@@ -1718,7 +1718,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-title">Salesperson</div>
           <div class="r2h-desc">Per-salesperson bills, quantity &amp; sales.</div>
           <div class="r2h-stat" id="r2stat-sp"></div>
-          <div class="r2h-mini"><canvas id="r2mini-sp"></canvas></div>
+          <div id="r2list-sp" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
         <div class="r2h-card" style="display:none" onclick="openR2Report('spanalytics')">
           <div class="r2h-ico" style="background:#fffbeb;color:#f59e0b"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
@@ -6126,7 +6126,25 @@ function renderReport2(data){
     window._supExpToggle=()=>{ _supExp=!_supExp; render(); };
     render();
   })();
-  _r2Mini('r2mini-sp','bar', _lv(data.salespersons,'name','amount',10), '#10b981', _r2Cr);
+  // Salesperson card — top 10 list (name + net qty + net amount)
+  (()=>{
+    const sp=(data.salespersons||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0));
+    const el=document.getElementById('r2list-sp'); if(!el) return;
+    const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const top=sp.slice(0,10);
+    el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1.5px solid #e2e8f0">
+        <th style="text-align:left;padding:3px 6px 5px 0;color:#94a3b8;font-weight:600;font-size:10px">Name</th>
+        <th style="text-align:right;padding:3px 6px 5px;color:#94a3b8;font-weight:600;font-size:10px">Net Qty</th>
+        <th style="text-align:right;padding:3px 0 5px 6px;color:#94a3b8;font-weight:600;font-size:10px">Net Sales</th>
+      </tr></thead>
+      <tbody>${top.map((r,i)=>`<tr style="${i<top.length-1?'border-bottom:1px solid #f1f5f9':''}">
+        <td style="padding:4px 6px 4px 0;color:#334155;font-weight:600;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:55%">${esc(r.name)}</td>
+        <td style="padding:4px 6px;text-align:right;color:#94a3b8;white-space:nowrap">${Number(r.qty||0).toLocaleString('en-IN')} pc</td>
+        <td style="padding:4px 0 4px 6px;text-align:right;color:#10b981;font-weight:800;white-space:nowrap">${_r2Cr(r.amount)}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  })();
   _r2Mini('r2mini-spanalytics','bar', _lv(sa.spTable,'name','upt',7), '#f59e0b', v=>Number(v).toFixed(2)+' UPT');
   _r2Mini('r2mini-citystate','bar', _lv(data.cityStateSales,'city','amount',7), '#ef4444', _r2Cr);
   _r2Mini('r2mini-stocksummary','doughnut', _lv(data.categoryStock,'category','value',6), '#4f46e5', _r2Cr);
