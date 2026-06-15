@@ -1695,7 +1695,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-title">Sales Funnel</div>
           <div class="r2h-desc">Net sales over time — month, quarter, half-year &amp; year.</div>
           <div class="r2h-stat" id="r2stat-funnel"></div>
-          <div class="r2h-mini"><canvas id="r2mini-funnel"></canvas></div>
+          <div class="r2h-mini" style="height:116px"><canvas id="r2mini-funnel"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('sales')" style="display:none">
           <div class="r2h-ico" style="background:#eef2ff;color:#4f46e5"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
@@ -6049,7 +6049,7 @@ function renderReport2(data){
   const _lv=(arr,lk,vk,n)=>{ const a=(arr||[]).slice().sort((x,y)=>(y[vk]||0)-(x[vk]||0)).slice(0,n); return {labels:a.map(x=>x[lk]), values:a.map(x=>x[vk]||0)}; };
   const _bd=(ss.byDate||[]); const _stp=Math.max(1,Math.floor(_bd.length/40)); const _bdS=_bd.filter((_,i)=>i%_stp===0);
   const _fmon=_r2FunnelAgg(ss.byDate||[], 'month');
-  _r2Mini('r2mini-funnel','bar', {labels:_fmon.map(d=>d.label), values:_fmon.map(d=>d.amount)}, '#4f46e5', _r2Cr);
+  _r2Mini('r2mini-funnel','bar', {labels:_fmon.map(d=>d.label), values:_fmon.map(d=>d.amount)}, '#4f46e5', _r2Cr, {showXLabels:true});
   _r2Mini('r2mini-sales','line', {labels:_bdS.map(r=>r.date), values:_bdS.map(r=>r.amount)}, '#4f46e5', _r2Cr);
   _r2Mini('r2mini-cat','bar', _lv(data.topCategories,'category','amount',7), '#7c3aed', _r2Cr);
   // Supplier Sales card — top 10 list (no chart)
@@ -6091,7 +6091,10 @@ function renderReport2(data){
 
   // Tile overview stats — client ko bina report khole hi key number dikh jaye
   const _cur=(sa.summary||{}); const _tr=s=>{s=String(s||'—');return s.length>17?s.slice(0,16)+'…':s;};
-  _r2Stat('r2stat-funnel', _r2Cr(ss.totalAmount), _fmon.length+' months');
+  const tmAmt=(window._r2TMData&&window._r2TMData.salesSummary&&window._r2TMData.salesSummary.totalAmount);
+  const _MN2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const curMonLabel=_MN2[new Date().getMonth()];
+  _r2Stat('r2stat-funnel', _r2Cr(ss.totalAmount), tmAmt!=null?curMonLabel+' '+_r2Cr(tmAmt):_fmon.length+' months');
   _r2Stat('r2stat-sales', _r2Cr(ss.totalAmount), nfmt(ss.totalTransactions)+' bills');
   { const c=(data.topCategories||[])[0]; _r2Stat('r2stat-cat', c?_tr(c.category):'—', c?_r2Cr(c.amount):''); }
   { const c=(data.supplierSales||[])[0]; _r2Stat('r2stat-supplier', c?_tr(c.name):'—', c?_r2Cr(c.amount):''); }
@@ -6157,7 +6160,7 @@ function _r2Trend(canvasId, key, labels, upt, atv, onClick){
 // (name + value); 'click' is NOT in events so a click still bubbles to the
 // card's onclick (open the report). `data` = array OR {labels, values}; `fmt`
 // formats the tooltip value.
-function _r2Mini(canvasId, type, data, color, fmt){
+function _r2Mini(canvasId, type, data, color, fmt, opts){
   _loadChartJS(()=>{
     _destroyChart(canvasId);
     const ctx=document.getElementById(canvasId)?.getContext('2d'); if(!ctx) return;
@@ -6180,8 +6183,12 @@ function _r2Mini(canvasId, type, data, color, fmt){
         options:Object.assign({},base,{cutout:'60%'})};
     } else {
       const bg = Array.isArray(color) ? color.map(c=>c+'dd') : color+'cc';
+      const showX = opts&&opts.showXLabels;
       cfg={type:'bar',data:{labels:lbls,datasets:[{data:values,backgroundColor:bg,hoverBackgroundColor:(Array.isArray(color)?color:color),borderRadius:3,borderSkipped:false}]},
-        options:Object.assign({},base,{scales:{x:{display:false},y:{display:false,beginAtZero:true}}})};
+        options:Object.assign({},base,{scales:{
+          x:showX?{ticks:{color:'#94a3b8',font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:8},grid:{display:false},border:{display:false}}:{display:false},
+          y:{display:false,beginAtZero:true}
+        }})};
     }
     _charts[canvasId]=new Chart(ctx,cfg);
   });
