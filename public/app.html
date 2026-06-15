@@ -5695,9 +5695,6 @@ function _r2FunnelPDF(){
   const nf=n=>Number(n||0).toLocaleString('en-IN');
   const periodLabel={'month':'Monthly','quarter':'Quarterly','half':'Half-Yearly','year':'Yearly'}[_r2FunnelPeriod]||'';
   const tot=rows.reduce((s,r)=>s+r.amount,0), tq=rows.reduce((s,r)=>s+r.qty,0), tb=rows.reduce((s,r)=>s+r.bills,0);
-  // Chart snapshot
-  const cv=document.getElementById('r2FunnelChart');
-  const chartImg=cv?`<img src="${cv.toDataURL('image/png')}" style="width:100%;max-height:320px;object-fit:contain;margin:16px 0">`:'' ;
   const w=window.open('','_blank','width=960,height=700');
   if(!w){ showToast('Popup blocked — allow popups and try again','error'); return; }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sales Funnel</title>
@@ -5711,7 +5708,6 @@ function _r2FunnelPDF(){
     <div class="kpi" style="background:#f5f3ff;color:#7c3aed"><div class="lbl">BILLS</div><div class="val">${nf(tb)}</div></div>
     <div class="kpi" style="background:#eef2ff;color:#4f46e5"><div class="lbl">PERIODS</div><div class="val">${rows.length}</div></div>
   </div>
-  ${chartImg}
   <table><thead><tr><th>Period</th><th style="text-align:right">Net Sales</th><th style="text-align:right">Net Qty</th><th style="text-align:right">Bills</th></tr></thead>
   <tbody>${rows.map(r=>`<tr><td>${r.label}</td><td style="text-align:right">₹${nf(Math.round(r.amount))}</td><td style="text-align:right">${nf(Math.round(r.qty))}</td><td style="text-align:right">${nf(r.bills)}</td></tr>`).join('')}</tbody></table>
   <script>window.onload=()=>{window.print();}<\/script></body></html>`);
