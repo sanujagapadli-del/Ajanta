@@ -3001,7 +3001,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     res.json({
       salesSummary: { totalAmount:r2(totalAmt), totalQty:r2(totalQty), totalTransactions:allXns.size, byDate:fmtByDate },
-      topCategories: sortAmt(Object.entries(byCat).map(([cat,d]) => ({ category:cat, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))).slice(0,15),
+      topCategories: sortAmt(Object.entries(byCat).map(([cat,d]) => ({ category:cat, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))),
       supplierSales: ser(bySupplier, 'name'),
       salespersons:  ser(bySP, 'name'),
       cityStateSales,

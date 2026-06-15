@@ -1571,10 +1571,10 @@ tbody tr:last-child td{border-bottom:none;}
         #imsView-report2 .r2h-ico{width:48px;height:48px;border-radius:13px;display:grid;place-items:center;font-size:24px;margin-bottom:14px}
         #imsView-report2 .r2h-ico svg{width:24px;height:24px}
         #imsView-report2 .r2h-title{font-size:16px;font-weight:800;color:#0f172a;letter-spacing:-.01em}
-        #imsView-report2 .r2h-desc{font-size:12px;color:#94a3b8;margin-top:5px;line-height:1.5;max-width:94%;min-height:34px}
+        #imsView-report2 .r2h-desc{font-size:12px;color:#94a3b8;margin-top:5px;line-height:1.5;max-width:94%;min-height:36px}
         #imsView-report2 .r2h-sec{font-size:11px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;text-transform:uppercase;margin:6px 2px 14px}
         #imsView-report2 .r2h-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
-        #imsView-report2 .r2h-card{padding:22px 22px 42px}
+        #imsView-report2 .r2h-card{padding:22px 22px 42px;min-height:330px}
         #imsView-report2 .r2h-mini{position:relative;height:96px;margin-top:14px}
         #imsView-report2 .r2h-stat{margin-top:14px;min-height:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         #imsView-report2 .r2h-stat-v{font-size:20px;font-weight:800;color:#0f172a;letter-spacing:-.02em}
@@ -4571,7 +4571,8 @@ function renderRptCategories(cats, showAll) {
     ? `<tr><td colspan="7" style="text-align:center;padding:12px"><button onclick="renderRptCategories(window._catCache,true)" style="background:#eef2ff;color:#4f46e5;border:1.5px solid #c7d2fe;border-radius:8px;padding:7px 22px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${cats.length} categories</button></td></tr>`
     : '';
   body.innerHTML = rowsHtml + moreBtn;
-  renderChartHBar('rptChart-cat', 'cat', cats.map(c=>c.category), cats.map(c=>c.amount), lbl => showDrilldown('category', lbl));
+  const _catTop = cats.slice(0,15);   // chart caps at top 15 even when the table shows all
+  renderChartHBar('rptChart-cat', 'cat', _catTop.map(c=>c.category), _catTop.map(c=>c.amount), lbl => showDrilldown('category', lbl));
 }
 
 function renderRptSalespersons(sps, showAll) {
