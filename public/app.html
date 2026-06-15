@@ -1639,24 +1639,18 @@ tbody tr:last-child td{border-bottom:none;}
       <!-- OVERVIEW: KPI matrix — LY | current | growth (Power BI UPT-dashboard style) -->
       <div id="r2Kpis" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px"></div>
 
-      <!-- OVERVIEW: charts -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="r2-card" style="padding:20px 22px">
-          <div class="r2-ctitle" style="margin-bottom:12px">Department-wise UPT</div>
-          <div class="r2-canvas"><canvas id="r2Chart-dept"></canvas></div>
+      <!-- OVERVIEW: single chart with selector (default Top Departments by Net Sales) -->
+      <div class="r2-card" style="padding:20px 22px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div class="r2-ctitle" id="r2MainChartTitle">Top Departments by Net Sales <span style="font-weight:600;color:#c4cbdc;text-transform:none;letter-spacing:0">· click for detail</span></div>
+          <select id="r2ChartSel" onchange="_r2RenderMainChart(this.value)" style="padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif">
+            <option value="topdept">Top Departments by Net Sales</option>
+            <option value="dept">Department-wise UPT</option>
+            <option value="basket">Basket Size by Quantity</option>
+            <option value="trend">Monthly UPT &amp; ATV Trend</option>
+          </select>
         </div>
-        <div class="r2-card" style="padding:20px 22px">
-          <div class="r2-ctitle" style="margin-bottom:12px">Basket Size by Quantity</div>
-          <div class="r2-canvas"><canvas id="r2Chart-basket"></canvas></div>
-        </div>
-        <div class="r2-card" style="padding:20px 22px">
-          <div class="r2-ctitle" style="margin-bottom:12px">Monthly UPT &amp; ATV Trend</div>
-          <div class="r2-canvas"><canvas id="r2Chart-trend"></canvas></div>
-        </div>
-        <div class="r2-card" style="padding:20px 22px">
-          <div class="r2-ctitle" style="margin-bottom:12px">Top Departments by Net Sales <span style="font-weight:600;color:#c4cbdc;text-transform:none;letter-spacing:0">· click for detail</span></div>
-          <div class="r2-canvas"><canvas id="r2Chart-cat"></canvas></div>
-        </div>
+        <div class="r2-canvas" style="height:330px"><canvas id="r2Chart-main"></canvas></div>
       </div>
 
       <!-- OVERVIEW: salesperson chart + table (top 5, expandable) -->
@@ -5318,6 +5312,7 @@ async function showDrilldown(filterType, label) {
   } else {
     const totalAmt = rows.reduce((s,r) => s+(r.amount||0), 0);
     const totalQty = rows.reduce((s,r) => s+(r.qty||0), 0);
+    window._imsDrillRows = rows;
     document.getElementById('imsDrillBody').innerHTML = `
       <div style="display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap">
         <div style="background:#f0f9ff;border-radius:10px;padding:11px 18px;min-width:100px">
@@ -5333,36 +5328,68 @@ async function showDrilldown(filterType, label) {
           <div style="font-size:22px;font-weight:800;color:#7c3aed">₹${Math.round(totalAmt).toLocaleString('en-IN')}</div>
         </div>
       </div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="background:#f8fafc">
-          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700;width:46px">#</th>
-          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700;white-space:nowrap">Date</th>
-          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Xn No</th>
-          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Category</th>
-          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700;white-space:nowrap">Sub Category</th>
-          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Supplier</th>
-          <th style="padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Salesperson</th>
-          <th style="padding:9px 12px;text-align:right;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Qty</th>
-          <th style="padding:9px 12px;text-align:right;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700">Amount</th>
-        </tr></thead>
-        <tbody>${rows.map((r,i)=>`<tr style="background:${i%2?'#f8fafc':'#fff'}">
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#94a3b8;font-weight:700;font-size:12px">${i+1}</td>
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#374151;white-space:nowrap">${r.date||'—'}</td>
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#6366f1;font-weight:600">${r.xnNo||'—'}</td>
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#374151">${r.category||'—'}</td>
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#64748b">${r.subcategory||'—'}</td>
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#374151">${r.supplier||'—'}</td>
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;color:#374151">${r.salesperson||'—'}</td>
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;color:#10b981">${Number(r.qty||0).toLocaleString('en-IN')}</td>
-          <td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:700;color:#7c3aed">₹${Math.round(r.amount||0).toLocaleString('en-IN')}</td>
-        </tr>`).join('')}</tbody>
-      </table></div>`;
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em">View by</span>
+        <select onchange="_imsDrillRender(this.value)" style="padding:8px 12px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:13px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif">
+          <option value="">All Transactions</option>
+          <option value="category">Category</option>
+          <option value="subcategory">Sub Category</option>
+          <option value="salesperson">Salesperson</option>
+          <option value="supplier">Supplier</option>
+        </select>
+      </div>
+      <div id="imsDrillTableWrap"></div>`;
+    _imsDrillRender('');
   }
 }
 
 function closeDrillModal() {
   const m = document.getElementById('imsDrillModal');
   if (m) m.style.display = 'none';
+}
+
+// Drilldown modal: "View by" dropdown — raw transactions OR grouped summary
+// (by category / subcategory / salesperson / supplier). Pure client-side on the
+// already-loaded rows, no re-fetch.
+function _imsDrillRender(groupBy){
+  const rows = window._imsDrillRows || [];
+  const wrap = document.getElementById('imsDrillTableWrap');
+  if(!wrap) return;
+  const esc = s => String(s==null?'—':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const nf  = n => Number(n||0).toLocaleString('en-IN');
+  const TH  = (t,r) => `<th style="padding:9px 12px;text-align:${r?'right':'left'};border-bottom:2px solid #e2e8f0;color:#475569;font-weight:700;white-space:nowrap">${t}</th>`;
+  const TD  = (v,extra) => `<td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;${extra||'color:#374151'}">${v}</td>`;
+  if(!groupBy){
+    wrap.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#f8fafc">${TH('#')}${TH('Date')}${TH('Xn No')}${TH('Category')}${TH('Sub Category')}${TH('Supplier')}${TH('Salesperson')}${TH('Qty',1)}${TH('Amount',1)}</tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr style="background:${i%2?'#f8fafc':'#fff'}">
+        ${TD(i+1,'color:#94a3b8;font-weight:700;font-size:12px')}
+        ${TD(esc(r.date),'color:#374151;white-space:nowrap')}
+        ${TD(esc(r.xnNo),'color:#6366f1;font-weight:600')}
+        ${TD(esc(r.category))}
+        ${TD(esc(r.subcategory),'color:#64748b')}
+        ${TD(esc(r.supplier))}
+        ${TD(esc(r.salesperson))}
+        ${TD(nf(r.qty),'text-align:right;font-weight:600;color:#10b981')}
+        ${TD('₹'+Math.round(r.amount||0).toLocaleString('en-IN'),'text-align:right;font-weight:700;color:#7c3aed')}
+      </tr>`).join('')}</tbody></table></div>`;
+    return;
+  }
+  const LABEL = {category:'Category', subcategory:'Sub Category', salesperson:'Salesperson', supplier:'Supplier'};
+  const map = {}; let tot = 0;
+  rows.forEach(r => { const k = (r[groupBy]==null || r[groupBy]==='') ? '—' : r[groupBy];
+    if(!map[k]) map[k]={n:0,qty:0,amt:0}; map[k].n++; map[k].qty+=(r.qty||0); map[k].amt+=(r.amount||0); tot+=(r.amount||0); });
+  const arr = Object.entries(map).map(([k,v])=>({k,...v})).sort((a,b)=>b.amt-a.amt);
+  wrap.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:#f8fafc">${TH('#')}${TH(LABEL[groupBy]||groupBy)}${TH('Records',1)}${TH('Qty',1)}${TH('Amount',1)}${TH('Share %',1)}</tr></thead>
+    <tbody>${arr.map((r,i)=>`<tr style="background:${i%2?'#f8fafc':'#fff'}">
+      ${TD(i+1,'color:#94a3b8;font-weight:700;font-size:12px')}
+      ${TD(esc(r.k),'color:#0f172a;font-weight:600')}
+      ${TD(nf(r.n),'text-align:right;color:#64748b')}
+      ${TD(nf(r.qty),'text-align:right;font-weight:600;color:#10b981')}
+      ${TD('₹'+Math.round(r.amt).toLocaleString('en-IN'),'text-align:right;font-weight:700;color:#7c3aed')}
+      ${TD((tot?(r.amt/tot*100).toFixed(1):0)+'%','text-align:right;font-weight:700;color:#4f46e5')}
+    </tr>`).join('')}</tbody></table></div>`;
 }
 // ── /Drilldown Modal ─────────────────────────────────────────
 
@@ -5665,6 +5692,38 @@ function _r2KpiCard(lbl, val, color, growth, lyVal){
   </div>`;
 }
 
+// Overview main chart — renders the selected chart into the single canvas.
+function _r2RenderMainChart(which){
+  const data = _r2Data; if(!data) return;
+  const sa = data.spAnalytics||{};
+  const nfmt = n => (n==null||isNaN(n))?'—':Number(n).toLocaleString('en-IN');
+  const titleEl = document.getElementById('r2MainChartTitle');
+  const setTitle = (t,hint) => { if(titleEl) titleEl.innerHTML = t + (hint?` <span style="font-weight:600;color:#c4cbdc;text-transform:none;letter-spacing:0">· ${hint}</span>`:''); };
+  if(which==='dept'){
+    setTitle('Department-wise UPT','click a bar');
+    const dept=(data.deptAnalytics||[]).slice(0,12);
+    _r2Bar('r2Chart-main','r2main', dept.map(d=>d.dept), dept.map(d=>d.upt),
+      {horizontal:true, color:'#4f46e5', tickFmt:v=>Number(v).toFixed(1), fmt:v=>Number(v).toFixed(2)+' units / bill', onClick:dn=>r2Drill('department',dn)});
+  } else if(which==='basket'){
+    setTitle('Basket Size by Quantity','click a bar');
+    const bk=(data.basketSize||[]);
+    _r2Bar('r2Chart-main','r2main', bk.map(b=>b.bucket+' pc'), bk.map(b=>b.bills),
+      {color:'#7c3aed', tickFmt:v=>nfmt(v), fmt:v=>nfmt(v)+' bills', onClick:lbl=>r2Drill('basket',lbl)});
+  } else if(which==='trend'){
+    setTitle('Monthly UPT &amp; ATV Trend','click a month');
+    const mc=(sa.monthlyCmp||[]);
+    _r2Trend('r2Chart-main','r2main', mc.map(m=>m.month),
+      mc.map(m=>m.curBills?+(m.curQty/m.curBills).toFixed(2):0),
+      mc.map(m=>m.curBills?Math.round(m.curAmt/m.curBills):0),
+      lbl=>_r2MonthClick(lbl));
+  } else {
+    setTitle('Top Departments by Net Sales','click for detail');
+    const dba=(data.deptAnalytics||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0)).slice(0,10);
+    if(dba.length) renderChartDoughnut('r2Chart-main','r2main', dba, 'dept','amount', lbl=>r2Drill('department',lbl));
+    else _destroyChart('r2main');
+  }
+}
+
 function renderReport2(data){
   const sa=data.spAnalytics||{}, s=sa.summary||{}, ss=data.salesSummary||{};
   const hasLY=!!sa.hasDateFilter;
@@ -5694,27 +5753,8 @@ function renderReport2(data){
   const k=document.getElementById('r2Kpis');
   if(k) k.innerHTML = kp;
 
-  // Dept-wise UPT (horizontal)
-  const dept=(data.deptAnalytics||[]).slice(0,10);
-  _r2Bar('r2Chart-dept','r2dept', dept.map(d=>d.dept), dept.map(d=>d.upt),
-    {horizontal:true, color:'#4f46e5', tickFmt:v=>Number(v).toFixed(1), fmt:v=>Number(v).toFixed(2)+' units / bill', onClick:dn=>r2Drill('department',dn)});
-
-  // Basket size
-  const bk=(data.basketSize||[]);
-  _r2Bar('r2Chart-basket','r2basket', bk.map(b=>b.bucket+' pc'), bk.map(b=>b.bills),
-    {color:'#7c3aed', tickFmt:v=>nfmt(v), fmt:v=>nfmt(v)+' bills', onClick:lbl=>r2Drill('basket',lbl)});
-
-  // Monthly UPT & ATV trend (dual axis)
-  const mc=(sa.monthlyCmp||[]);
-  _r2Trend('r2Chart-trend','r2trend', mc.map(m=>m.month),
-    mc.map(m=>m.curBills?+(m.curQty/m.curBills).toFixed(2):0),
-    mc.map(m=>m.curBills?Math.round(m.curAmt/m.curBills):0),
-    lbl=>_r2MonthClick(lbl));
-
-  // Top departments doughnut by net sales (clickable → department drilldown)
-  const deptsByAmt=(data.deptAnalytics||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0)).slice(0,10);
-  if(deptsByAmt.length) renderChartDoughnut('r2Chart-cat','r2cat', deptsByAmt, 'dept','amount', lbl=>r2Drill('department',lbl));
-  else _destroyChart('r2cat');
+  // Main overview chart — one card, selector-driven (default Top Departments by Net Sales)
+  _r2RenderMainChart((document.getElementById('r2ChartSel')||{}).value || 'topdept');
 
   // Salesperson chart + table (top 5, expandable via "View more")
   const spRows=(sa.spTable||[]).filter(x=>x.bills>0).sort((a,b)=>b.amount-a.amount);
@@ -5730,14 +5770,26 @@ function renderReport2(data){
   const _bd=(ss.byDate||[]); const _stp=Math.max(1,Math.floor(_bd.length/40));
   _r2Mini('r2mini-sales','line', _bd.filter((_,i)=>i%_stp===0).map(r=>r.amount), '#4f46e5');
   _r2Mini('r2mini-cat','bar', _top(data.topCategories,'amount',7), '#7c3aed');
-  _r2Mini('r2mini-supplier','bar', _top(data.supplierSales,'amount',7), '#06b6d4');
-  _r2Mini('r2mini-sp','bar', _top(data.salespersons,'amount',7), '#10b981');
+  _r2Mini('r2mini-supplier','bar', _top(data.supplierSales,'amount',10), '#06b6d4');
+  _r2Mini('r2mini-sp','bar', _top(data.salespersons,'amount',10), '#10b981');
   _r2Mini('r2mini-spanalytics','bar', _top(sa.spTable,'upt',7), '#f59e0b');
   _r2Mini('r2mini-citystate','bar', _top(data.cityStateSales,'amount',7), '#ef4444');
   _r2Mini('r2mini-stocksummary','doughnut', _top(data.categoryStock,'value',6), '#4f46e5');
   _r2Mini('r2mini-supplierstock','bar', _top(data.supplierStock,'value',7), '#06b6d4');
   _r2Mini('r2mini-stockcat','doughnut', _top(data.categoryStock,'value',6), '#7c3aed');
-  _r2Mini('r2mini-turnover','bar', _top(data.styleStock,'qty',7), '#10b981');
+  // Stock Turnover status buckets (per supplier — same logic as the Turnover report: %Sold = sold/(sold+stock))
+  const _ssold={}, _sstk={};
+  (data.supplierStyleSales||[]).forEach(s=>{ _ssold[s.supName]=(_ssold[s.supName]||0)+(s.qty||0); });
+  (data.supplierStyleStock||[]).forEach(s=>{ _sstk[s.supName]=(_sstk[s.supName]||0)+(s.qty||0); });
+  const _turn={fast:0,medium:0,slow:0,cleared:0};
+  new Set([...Object.keys(_ssold),...Object.keys(_sstk)]).forEach(sp=>{
+    if(sp==='Alteration') return;
+    const sold=_ssold[sp]||0, stk=_sstk[sp]||0;
+    if(stk<=0 && sold>0){ _turn.cleared++; return; }
+    const tot=sold+stk, pct=tot>0?(sold/tot*100):0;
+    if(pct>=75) _turn.fast++; else if(pct>=40) _turn.medium++; else _turn.slow++;
+  });
+  _r2Mini('r2mini-turnover','bar', [_turn.fast,_turn.medium,_turn.slow,_turn.cleared], ['#16a34a','#d97706','#dc2626','#0891b2']);
 
   // Tile overview stats — client ko bina report khole hi key number dikh jaye
   const _cur=(sa.summary||{}); const _tr=s=>{s=String(s||'—');return s.length>17?s.slice(0,16)+'…':s;};
@@ -5750,7 +5802,7 @@ function renderReport2(data){
   { const st=(data.currentStock||{}); _r2Stat('r2stat-stocksummary', _r2Cr(st.totalValue), nfmt(st.totalQty)+' pcs'); }
   { const c=(data.supplierStock||[])[0]; _r2Stat('r2stat-supplierstock', c?_tr(c.name):'—', c?_r2Cr(c.value):''); }
   { const c=(data.categoryStock||[]); _r2Stat('r2stat-stockcat', nfmt(c.length)+' categories', c[0]?('top '+_tr(c[0].category)):''); }
-  _r2Stat('r2stat-turnover', nfmt(ss.totalQty)+' sold', nfmt((data.currentStock||{}).totalQty)+' in stock');
+  _r2Stat('r2stat-turnover', _turn.fast+' Fast · '+_turn.cleared+' Cleared', _turn.medium+' Med · '+_turn.slow+' Slow');
 }
 
 // Generic bar (non-₹): horizontal/vertical, custom tick + tooltip formatters, optional click.
@@ -5818,7 +5870,8 @@ function _r2Mini(canvasId, type, values, color){
       cfg={type:'doughnut',data:{labels:lbls,datasets:[{data:values,backgroundColor:CHART_C.slice(0,values.length).map(c=>c+'d8'),borderWidth:0}]},
         options:Object.assign({},base,{cutout:'60%'})};
     } else {
-      cfg={type:'bar',data:{labels:lbls,datasets:[{data:values,backgroundColor:color+'cc',borderRadius:3,borderSkipped:false}]},
+      const bg = Array.isArray(color) ? color.map(c=>c+'dd') : color+'cc';
+      cfg={type:'bar',data:{labels:lbls,datasets:[{data:values,backgroundColor:bg,borderRadius:3,borderSkipped:false}]},
         options:Object.assign({},base,{scales:{x:{display:false},y:{display:false,beginAtZero:true}}})};
     }
     _charts[canvasId]=new Chart(ctx,cfg);
