@@ -5891,9 +5891,10 @@ function _r2RenderMainChart(which){
       mc.map(m=>m.curBills?Math.round(m.curAmt/m.curBills):0),
       lbl=>_r2MonthClick(lbl));
   } else {
-    setTitle('Top Departments by Net Sales','click for detail');
+    setTitle('Top Departments by Net Sales','click a bar for detail');
     const dba=(data.deptAnalytics||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0)).slice(0,8);
-    if(dba.length) renderChartDoughnut('r2Chart-main','r2main', dba, 'dept','amount', lbl=>r2Drill('department',lbl), 'bottom');
+    if(dba.length) _r2Bar('r2Chart-main','r2main', dba.map(d=>d.dept), dba.map(d=>d.amount),
+      {horizontal:true, tickFmt:_r2Cr, fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN'), onClick:lbl=>r2Drill('department',lbl)});
     else _destroyChart('r2main');
   }
 }
