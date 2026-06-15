@@ -5517,9 +5517,15 @@ function openR2Report(tab){
   if(tab === 'funnel'){
     _hideAll(); if(fview) fview.style.display=''; _r2RenderFunnel(); _r2ScrollTop(); return;
   }
-  // Fast / Slow Moving — self-contained view
+  // Fast / Slow Moving — open Stock Turnover IMS panel pre-filtered to the right status
   if(tab === 'fastmov' || tab === 'slowmov'){
-    _hideAll(); if(movview){ movview.style.display=''; _r2RenderMovers(tab); } _r2ScrollTop(); return;
+    _hideAll(); if(slot) slot.style.display='';
+    const inner=document.getElementById('rpt-inner');
+    if(inner && slot && inner.parentNode!==slot) slot.appendChild(inner);
+    _initRptDatepickers();
+    switchRptTab('turnover');
+    setTimeout(()=>setTurnoverStatus(tab==='fastmov'?'fast':'slow'), 80);
+    _r2ScrollTop(); return;
   }
   // Top Departments — self-contained view
   if(tab === 'topdept'){
@@ -5907,21 +5913,32 @@ function _r2RenderMovers(tab){
 }
 
 // ── Top Departments detail view ───────────────────────────────────────────────
+let _r2TDFrom='', _r2TDTo='';
 function _r2RenderTopdept(){
   const view=document.getElementById('r2TopdeptView'); if(!view) return;
-  const rows=(_r2Data&&_r2Data.deptAnalytics)||[];
-  const nfI=v=>Number(v||0).toLocaleString('en-IN');
-  const cr=v=>{const n=Number(v||0);if(n>=1e7)return'₹'+(n/1e7).toFixed(2)+'Cr';if(n>=1e5)return'₹'+(n/1e5).toFixed(2)+'L';return'₹'+nfI(Math.round(n));};
-
+  const rows=((_r2Data&&_r2Data.deptAnalytics)||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0));
+  const presets=[['all','All'],['month','This Month'],['lastmonth','Last Month'],['quarter','This Quarter'],['year','This Year'],['fy','This FY']];
   view.innerHTML=`<div class="r2-card" style="padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px">
       <div>
         <div style="font-size:18px;font-weight:800;color:#0f172a">Top Departments</div>
-        <div style="font-size:12px;color:#94a3b8;margin-top:3px">Department-wise net sales, qty, bills, UPT &amp; ATV.</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:3px">Department-wise net sales, qty, bills, UPT &amp; ATV. Click a name for transactions.</div>
       </div>
       <div style="display:flex;gap:8px">
         <button onclick="_r2TopdeptPDF()" style="display:flex;align-items:center;gap:5px;padding:7px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#4f46e5;transition:all .15s">⬇ PDF</button>
         <button onclick="_r2TopdeptCSV()" style="display:flex;align-items:center;gap:5px;padding:7px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#4f46e5;transition:all .15s">⬇ CSV</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e8ecf8">
+      <span style="font-size:11px;font-weight:700;color:#64748b">QUICK</span>
+      <div id="r2TDPresets" style="display:flex;gap:6px;flex-wrap:wrap">
+        ${presets.map(([k,l])=>`<button class="r2-fbtn${k==='all'&&!_r2TDFrom?' active':''}" onclick="_r2TDPreset('${k}',this)">${l}</button>`).join('')}
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:4px;flex-wrap:wrap">
+        <input type="date" id="r2TDFromInp" value="${_r2TDFrom}" style="border:1.5px solid #e8ecf8;border-radius:8px;padding:5px 9px;font-size:12px;color:#1e293b;outline:none;background:#fff">
+        <span style="color:#94a3b8;font-size:12px">to</span>
+        <input type="date" id="r2TDToInp" value="${_r2TDTo}" style="border:1.5px solid #e8ecf8;border-radius:8px;padding:5px 9px;font-size:12px;color:#1e293b;outline:none;background:#fff">
+        <button onclick="_r2TDApply()" style="padding:5px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:#4f46e5;color:#fff">Apply</button>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -5935,18 +5952,67 @@ function _r2RenderTopdept(){
           <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">UPT</th>
           <th style="text-align:right;padding:10px 12px;color:#64748b;font-weight:600">ATV</th>
         </tr></thead>
-        <tbody>${rows.length ? rows.map((r,i)=>`<tr style="border-bottom:1px solid #f1f5f9;${i%2?'background:#fafafa':''}">
-          <td style="padding:10px 12px;color:#94a3b8;font-size:12px">${i+1}</td>
-          <td style="padding:10px 12px;font-weight:600;color:#0f172a">${r.dept}</td>
-          <td style="padding:10px 12px;text-align:right;color:#0ea5e9;font-weight:700">${cr(r.amount)}</td>
-          <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.qty)}</td>
-          <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.bills)}</td>
-          <td style="padding:10px 12px;text-align:right;color:#7c3aed;font-weight:600">${r.upt}</td>
-          <td style="padding:10px 12px;text-align:right;color:#10b981;font-weight:600">${cr(r.atv)}</td>
-        </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:48px;color:#94a3b8">No data</td></tr>'}</tbody>
+        <tbody id="r2TDTbody"></tbody>
       </table>
     </div>
   </div>`;
+  _r2DrawTDTable(rows);
+}
+function _r2DrawTDTable(rows){
+  const tbody=document.getElementById('r2TDTbody'); if(!tbody) return;
+  const nfI=v=>Number(v||0).toLocaleString('en-IN');
+  const cr=v=>{const n=Number(v||0);if(n>=1e7)return'₹'+(n/1e7).toFixed(2)+'Cr';if(n>=1e5)return'₹'+(n/1e5).toFixed(2)+'L';return'₹'+nfI(Math.round(n));};
+  const esc=s=>String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  tbody.innerHTML=rows.length ? rows.map((r,i)=>`<tr style="border-bottom:1px solid #f1f5f9;${i%2?'background:#fafafa':''}">
+    <td style="padding:10px 12px;color:#94a3b8;font-size:12px">${i+1}</td>
+    <td style="padding:10px 12px;font-weight:700;color:#4f46e5;cursor:pointer;text-decoration:underline;text-underline-offset:2px" onclick="_r2TopdeptDrill('${esc(r.dept)}')">${r.dept}</td>
+    <td style="padding:10px 12px;text-align:right;color:#0ea5e9;font-weight:700">${cr(r.amount)}</td>
+    <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.qty)}</td>
+    <td style="padding:10px 12px;text-align:right;color:#1e293b">${nfI(r.bills)}</td>
+    <td style="padding:10px 12px;text-align:right;color:#7c3aed;font-weight:600">${r.upt}</td>
+    <td style="padding:10px 12px;text-align:right;color:#10b981;font-weight:600">${cr(r.atv)}</td>
+  </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:48px;color:#94a3b8">No data</td></tr>';
+}
+function _r2TopdeptDrill(dept){
+  const f=document.getElementById('rptFrom'), t=document.getElementById('rptTo');
+  if(f) f.value=_r2TDFrom||_r2From||'';
+  if(t) t.value=_r2TDTo||_r2To||'';
+  showDrilldown('department', dept);
+}
+function _r2TDPreset(kind, btn){
+  document.querySelectorAll('#r2TDPresets .r2-fbtn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  const now=new Date(), y=now.getFullYear(), m=now.getMonth(), fy=(m>=3)?y:y-1;
+  const fmt=_r2FmtDate;
+  if(kind==='all'){ _r2TDFrom=''; _r2TDTo=''; }
+  else if(kind==='month'){ _r2TDFrom=fmt(new Date(y,m,1)); _r2TDTo=fmt(now); }
+  else if(kind==='lastmonth'){ _r2TDFrom=fmt(new Date(y,m-1,1)); _r2TDTo=fmt(new Date(y,m,0)); }
+  else if(kind==='quarter'){ const fyM=(m>=3)?m-3:m+9,q=Math.floor(fyM/3),qm=3+q*3; _r2TDFrom=fmt(new Date(fy,qm,1)); _r2TDTo=fmt(new Date(fy,qm+3,0)); }
+  else if(kind==='year'){ _r2TDFrom=fmt(new Date(y,0,1)); _r2TDTo=fmt(now); }
+  else if(kind==='fy'){ _r2TDFrom=fmt(new Date(fy,3,1)); _r2TDTo=fmt(new Date(fy+1,2,31)); }
+  const fEl=document.getElementById('r2TDFromInp'), tEl=document.getElementById('r2TDToInp');
+  if(fEl) fEl.value=_r2TDFrom; if(tEl) tEl.value=_r2TDTo;
+  _r2LoadTopdeptData();
+}
+function _r2TDApply(){
+  _r2TDFrom=(document.getElementById('r2TDFromInp')||{}).value||'';
+  _r2TDTo=(document.getElementById('r2TDToInp')||{}).value||'';
+  document.querySelectorAll('#r2TDPresets .r2-fbtn').forEach(b=>b.classList.remove('active'));
+  _r2LoadTopdeptData();
+}
+async function _r2LoadTopdeptData(){
+  const tbody=document.getElementById('r2TDTbody');
+  if(tbody) tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:48px;color:#94a3b8">Loading…</td></tr>';
+  const params=new URLSearchParams();
+  if(_r2TDFrom) params.append('from',_r2TDFrom);
+  if(_r2TDTo)   params.append('to',_r2TDTo);
+  if(_r2Dept&&_r2Dept!=='All') params.append('dept',_r2Dept);
+  try{
+    const d=await fetch('/api/ims-reports?'+params.toString()).then(r=>r.json());
+    _r2DrawTDTable((d.deptAnalytics||[]).slice().sort((a,b)=>(b.amount||0)-(a.amount||0)));
+  }catch(e){
+    if(tbody) tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:40px;color:#dc2626">Failed to load</td></tr>';
+  }
 }
 function _r2TopdeptPDF(){
   const w=window.open('','_blank'); if(!w) return;
@@ -5955,11 +6021,14 @@ function _r2TopdeptPDF(){
   w.document.close(); w.focus(); w.print();
 }
 function _r2TopdeptCSV(){
+  const tbody=document.getElementById('r2TDTbody');
+  const trs=tbody?tbody.querySelectorAll('tr'):[];
+  const range=(_r2TDFrom&&_r2TDTo)?`${_r2TDFrom}_to_${_r2TDTo}`:_r2TDFrom?`from_${_r2TDFrom}`:_r2TDTo?`to_${_r2TDTo}`:'all';
   const rows=(_r2Data&&_r2Data.deptAnalytics)||[];
   const lines=[['#','Department','Net Sales (INR)','Net Qty','Bills','UPT','ATV (INR)'].join(',')];
-  rows.forEach((r,i)=>lines.push([i+1,`"${r.dept}"`,Math.round(r.amount),Math.round(r.qty),r.bills,r.upt,Math.round(r.atv)].join(',')));
+  rows.slice().sort((a,b)=>(b.amount||0)-(a.amount||0)).forEach((r,i)=>lines.push([i+1,`"${r.dept}"`,Math.round(r.amount),Math.round(r.qty),r.bills,r.upt,Math.round(r.atv)].join(',')));
   const blob=new Blob([lines.join('\n')],{type:'text/csv'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='Top_Departments.csv'; a.click();
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`Top_Departments_${range}.csv`; a.click();
 }
 
 // ── Overview dashboard at the TOP of the hub (overall data + charts) ──────
@@ -6062,22 +6131,28 @@ async function loadReport2(forceSync){
   if(_r2Dept && _r2Dept!=='All') params.append('dept',_r2Dept);
   if(forceSync) params.append('sync','true');
 
-  // Fetch last month + current month in parallel — used for KPI growth chips & popover comparison.
+  // Fetch same-period-last-year + this-month for YoY growth chips & funnel tile stat.
   const now=new Date(), cy=now.getFullYear(), cm=now.getMonth();
   const toISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  const lmFrom=new Date(cy,cm-1,1), lmTo=new Date(cy,cm,0);
+  const shiftYr=iso=>{const d=new Date(iso);d.setFullYear(d.getFullYear()-1);return toISO(d);};
   const tmFrom=new Date(cy,cm,1);
-  const lmParams=new URLSearchParams({from:toISO(lmFrom),to:toISO(lmTo)});
   const tmParams=new URLSearchParams({from:toISO(tmFrom),to:toISO(now)});
-  if(_r2Dept && _r2Dept!=='All'){ lmParams.append('dept',_r2Dept); tmParams.append('dept',_r2Dept); }
+  if(_r2Dept && _r2Dept!=='All') tmParams.append('dept',_r2Dept);
+  // LY = same date range shifted -1 year; if no filter: current FY-YTD vs same last year
+  const fyStart=(cm>=3)?cy:cy-1;
+  const lyFromStr=_r2From?shiftYr(_r2From):toISO(new Date(fyStart-1,3,1));
+  const lyToStr  =_r2To  ?shiftYr(_r2To)  :toISO(new Date(cy-1,cm,now.getDate()));
+  const lyParams=new URLSearchParams({from:lyFromStr,to:lyToStr});
+  if(_r2Dept && _r2Dept!=='All') lyParams.append('dept',_r2Dept);
+  window._r2LYFrom=lyFromStr; window._r2LYTo=lyToStr;
 
-  const [data, lmData, tmData] = await Promise.all([
+  const [data, lyData, tmData] = await Promise.all([
     api('/api/ims-reports?'+params.toString()),
-    api('/api/ims-reports?'+lmParams.toString()).catch(()=>null),
+    api('/api/ims-reports?'+lyParams.toString()).catch(()=>null),
     api('/api/ims-reports?'+tmParams.toString()).catch(()=>null)
   ]);
   if(!data || data.error){ if(st){ st.style.color='#dc2626'; st.textContent='No data'; } return; }
-  window._r2LMData = lmData || null;
+  window._r2LYData = lyData || null;
   window._r2TMData = tmData || null;
   _r2Data=data;
   _r2FillDepts(data.departments);
@@ -6167,21 +6242,21 @@ function renderReport2(data){
   const gtxt=g=>{g=gv(g); return g==null?'':(g>=0?'+':'')+g+'%';};
   const gcol=g=>{g=gv(g); return g==null?'#94a3b8':g>=0?'#16a34a':'#dc2626';};
 
-  // vs-last-month growth chip: this month vs last month (fixed calendar months, not the active filter).
-  const lm=(window._r2LMData&&window._r2LMData.salesSummary)||null;
-  const lmSA=(window._r2LMData&&window._r2LMData.spAnalytics&&window._r2LMData.spAnalytics.summary)||null;
+  // YoY growth chip: current period vs same period last year
+  const ly=(window._r2LYData&&window._r2LYData.salesSummary)||null;
+  const lySA=(window._r2LYData&&window._r2LYData.spAnalytics&&window._r2LYData.spAnalytics.summary)||null;
   const tm=(window._r2TMData&&window._r2TMData.salesSummary)||null;
   const tmSA=(window._r2TMData&&window._r2TMData.spAnalytics&&window._r2TMData.spAnalytics.summary)||null;
   const pctChg=(cur,prev)=>{
     if(prev==null||isNaN(prev)||prev===0||cur==null||isNaN(cur)) return null;
     return Math.round((cur-prev)/Math.abs(prev)*100);
   };
-  // Growth chip = this month vs last month
-  const lmAmtG=pctChg(tm&&tm.totalAmount, lm&&lm.totalAmount);
-  const lmQtyG=pctChg(tm&&tm.totalQty,    lm&&lm.totalQty);
-  const lmBillG=pctChg(tmSA&&tmSA.curBills, lmSA&&lmSA.curBills);
+  // Growth chip = current selected period vs same period last year
+  const lmAmtG=pctChg(ss.totalAmount, ly&&ly.totalAmount);
+  const lmQtyG=pctChg(ss.totalQty,    ly&&ly.totalQty);
+  const lmBillG=pctChg(s.curBills, lySA&&lySA.curBills);
 
-  // Headline cell with this-month-vs-last-month chip (click → popover)
+  // Headline cell with YoY chip (click → popover)
   const cell=(lbl,val,color,pct,lmKey)=>{
     let chip='';
     if(pct!=null){
@@ -6195,11 +6270,11 @@ function renderReport2(data){
     return `<div class="r2-mcell cur"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div>${sub}</div>`;
   };
 
-  // Store values for popover: lm = last month, tm = this month
+  // Store values for popover: lm = last year same period, tm = current period
   window._r2LMVals={
-    sales: { lm: lm&&lm.totalAmount, tm: tm&&tm.totalAmount, label:'Net Sales' },
-    qty:   { lm: lm&&lm.totalQty,   tm: tm&&tm.totalQty,   label:'Net Qty'   },
-    bills: { lm: lmSA&&lmSA.curBills, tm: tmSA&&tmSA.curBills, label:'Total Bills' }
+    sales: { lm: ly&&ly.totalAmount, tm: ss.totalAmount, label:'Net Sales' },
+    qty:   { lm: ly&&ly.totalQty,   tm: ss.totalQty,   label:'Net Qty'   },
+    bills: { lm: lySA&&lySA.curBills, tm: s.curBills,  label:'Total Bills' }
   };
 
   const k=document.getElementById('r2Kpis');
@@ -9676,14 +9751,16 @@ function _r2LMPop(evt, key){
   const pct=(v.lm!=null&&v.lm!==0&&v.tm!=null)?Math.round((v.tm-v.lm)/Math.abs(v.lm)*100):null;
   const up=pct!=null&&pct>=0;
   const pctHtml=pct!=null?`<span style="font-size:18px;font-weight:900;color:${up?'#16a34a':'#dc2626'}">${up?'▲ +':'▼ '}${pct}%</span>`:'';
-  const now=new Date(); const cm=now.getMonth(); const cy=now.getFullYear();
   const _MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const lmLabel=_MN[(cm-1+12)%12]+' '+cy;
-  const tmLabel=_MN[cm]+' '+cy;
+  const fmtDt=iso=>{if(!iso)return'';const p=iso.split('-');return _MN[+(p[1]||1)-1]+' '+(p[0]||'');};
+  const lyF=window._r2LYFrom||'', lyT=window._r2LYTo||'';
+  const lyLabel=lyF?((lyT&&lyF.slice(0,7)!==lyT.slice(0,7))?fmtDt(lyF)+'–'+fmtDt(lyT):fmtDt(lyF)):'Last Year';
+  const curF=_r2From||'', curT=_r2To||'';
+  const curLabel=curF?((curT&&curF.slice(0,7)!==curT.slice(0,7))?fmtDt(curF)+'–'+fmtDt(curT):fmtDt(curF)):'Current Period';
   pop.innerHTML=`
-    <div style="font-size:11px;font-weight:800;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">${v.label} — Month Comparison</div>
-    <div class="r2lm-row"><span class="lbl">Last Month (${lmLabel})</span><span style="color:#64748b;font-weight:700">${v.lm!=null?fmt(v.lm):'—'}</span></div>
-    <div class="r2lm-row"><span class="lbl">This Month (${tmLabel})</span><span style="font-weight:800;color:#0f172a">${v.tm!=null?fmt(v.tm):'—'}</span></div>
+    <div style="font-size:11px;font-weight:800;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">${v.label} — YoY Comparison</div>
+    <div class="r2lm-row"><span class="lbl">Last Year (${lyLabel})</span><span style="color:#64748b;font-weight:700">${v.lm!=null?fmt(v.lm):'—'}</span></div>
+    <div class="r2lm-row"><span class="lbl">Current (${curLabel})</span><span style="font-weight:800;color:#0f172a">${v.tm!=null?fmt(v.tm):'—'}</span></div>
     ${pctHtml?`<div style="margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px;text-align:center">${pctHtml}</div>`:''}
   `;
   const r=evt.target.getBoundingClientRect();
