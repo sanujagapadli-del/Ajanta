@@ -1717,14 +1717,14 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-title">Fast Moving</div>
           <div class="r2h-desc">Top vendors with highest sell-through rate.</div>
           <div class="r2h-stat" id="r2stat-fastmov"></div>
-          <div class="r2h-mini"><canvas id="r2mini-fastmov"></canvas></div>
+          <div id="r2list-fastmov" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('slowmov')">
           <div class="r2h-ico" style="background:#fef2f2;color:#dc2626"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
           <div class="r2h-title">Slow Moving</div>
           <div class="r2h-desc">Vendors with lowest sell-through — stock piling up.</div>
           <div class="r2h-stat" id="r2stat-slowmov"></div>
-          <div class="r2h-mini"><canvas id="r2mini-slowmov"></canvas></div>
+          <div id="r2list-slowmov" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
         <!-- Hidden cards (disabled, kept for future re-enable) -->
         <div class="r2h-card" style="display:none" onclick="openR2Report('sales')"><div class="r2h-stat" id="r2stat-sales"></div><div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div></div>
@@ -6178,11 +6178,11 @@ function renderReport2(data){
   const k=document.getElementById('r2Kpis');
   if(k) k.innerHTML =
       `<div class="r2-kpi-r1">`
-    +   cell('Net Sales',   fmtINR(ss.totalAmount), '#0ea5e9', lmAmtG,  'sales')
-    +   cell('Net Qty',     nfmt(ss.totalQty),      '#ef4444', lmQtyG,  'qty')
-    +   cell('Total Bills', nfmt(s.curBills),        '#7c3aed', lmBillG, 'bills')
+    +   cell('Net Sales',   fmtINR(ss.totalAmount), '#4f46e5', lmAmtG,  'sales')
+    +   cell('Net Qty',     nfmt(ss.totalQty),      '#4f46e5', lmQtyG,  'qty')
+    +   cell('Total Bills', nfmt(s.curBills),        '#4f46e5', lmBillG, 'bills')
     +   mcell('UPT', (s.curUPT!=null?s.curUPT:'—'), '#4f46e5', (s.lyUPT??'—'), s.uptGrowth)
-    +   mcell('ATV', fmtINR(s.curATV),              '#10b981', fmtINR(s.lyATV), s.atvGrowth)
+    +   mcell('ATV', fmtINR(s.curATV),              '#4f46e5', fmtINR(s.lyATV), s.atvGrowth)
     + `</div>`;
 
   // Main overview chart — one card, selector-driven (default Top Departments by Net Sales)
@@ -6281,17 +6281,39 @@ function renderReport2(data){
   window._r2FastMovers = _movList.filter(x=>!x.cleared).sort((a,b)=>b.pct-a.pct);
   window._r2SlowMovers = _movList.filter(x=>!x.cleared&&x.pct<40).sort((a,b)=>a.pct-b.pct);
   const _tr2=s=>{s=String(s||'');return s.length>13?s.slice(0,12)+'…':s;};
-  _r2Mini('r2mini-fastmov','bar',{
-    labels:window._r2FastMovers.slice(0,7).map(x=>_tr2(x.name)),
-    values:window._r2FastMovers.slice(0,7).map(x=>Math.round(x.pct))
-  },'#16a34a', v=>v+'%');
-  _r2Mini('r2mini-slowmov','bar',{
-    labels:window._r2SlowMovers.slice(0,7).map(x=>_tr2(x.name)),
-    values:window._r2SlowMovers.slice(0,7).map(x=>Math.round(x.pct))
-  },'#dc2626', v=>v+'%');
   const _fm=window._r2FastMovers, _sm=window._r2SlowMovers;
   _r2Stat('r2stat-fastmov', _fm.filter(x=>x.pct>=75).length+' vendors ≥75%', _fm[0]?('Top: '+_tr(_fm[0].name)):'—');
   _r2Stat('r2stat-slowmov', _sm.length+' slow vendors', _sm[0]?('Worst: '+_tr(_sm[0].name)):'—');
+  // Fast Moving — top 10 name list
+  (()=>{
+    const el=document.getElementById('r2list-fastmov'); if(!el) return;
+    const top=_fm.slice(0,10);
+    el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1.5px solid #e2e8f0">
+        <th style="text-align:left;padding:3px 6px 5px 0;color:#94a3b8;font-weight:600;font-size:10px">Vendor</th>
+        <th style="text-align:right;padding:3px 0 5px 6px;color:#94a3b8;font-weight:600;font-size:10px">% Sold</th>
+      </tr></thead>
+      <tbody>${top.map((r,i)=>`<tr style="${i<top.length-1?'border-bottom:1px solid #f1f5f9':''}">
+        <td style="padding:4px 6px 4px 0;color:#334155;font-weight:600;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:75%">${r.name}</td>
+        <td style="padding:4px 0 4px 6px;text-align:right;color:#16a34a;font-weight:800;white-space:nowrap">${Math.round(r.pct)}%</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  })();
+  // Slow Moving — top 10 name list
+  (()=>{
+    const el=document.getElementById('r2list-slowmov'); if(!el) return;
+    const top=_sm.slice(0,10);
+    el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1.5px solid #e2e8f0">
+        <th style="text-align:left;padding:3px 6px 5px 0;color:#94a3b8;font-weight:600;font-size:10px">Vendor</th>
+        <th style="text-align:right;padding:3px 0 5px 6px;color:#94a3b8;font-weight:600;font-size:10px">% Sold</th>
+      </tr></thead>
+      <tbody>${top.map((r,i)=>`<tr style="${i<top.length-1?'border-bottom:1px solid #f1f5f9':''}">
+        <td style="padding:4px 6px 4px 0;color:#334155;font-weight:600;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:75%">${r.name}</td>
+        <td style="padding:4px 0 4px 6px;text-align:right;color:#dc2626;font-weight:800;white-space:nowrap">${Math.round(r.pct)}%</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  })();
 
   // Tile overview stats — client ko bina report khole hi key number dikh jaye
   const _cur=(sa.summary||{}); const _tr=s=>{s=String(s||'—');return s.length>17?s.slice(0,16)+'…':s;};
