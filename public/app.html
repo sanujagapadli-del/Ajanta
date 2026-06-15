@@ -1586,6 +1586,11 @@ tbody tr:last-child td{border-bottom:none;}
         #imsView-report2 .r2-preset{padding:7px 13px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;color:#64748b;cursor:pointer;transition:all .15s}
         #imsView-report2 .r2-preset:hover{border-color:#c7d2fe;color:#4f46e5}
         #imsView-report2 .r2-preset.active{background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border-color:#4f46e5}
+        #imsView-report2 .r2-lm-chip{display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:.03em;user-select:none;transition:opacity .15s}
+        #imsView-report2 .r2-lm-chip:hover{opacity:.8}
+        #r2LMPop{position:fixed;z-index:9999;background:#fff;border:1.5px solid #e8ecf8;border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,.12);min-width:200px;display:none}
+        #r2LMPop .r2lm-row{display:flex;justify-content:space-between;gap:24px;padding:4px 0;font-size:13px;color:#334155}
+        #r2LMPop .r2lm-row .lbl{color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
         #imsView-report2 .r2-fbtn{padding:8px 16px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer;transition:all .15s}
         #imsView-report2 .r2-fbtn:hover{border-color:#c7d2fe;color:#4f46e5}
         #imsView-report2 .r2-fbtn.active{background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border-color:#4f46e5}
@@ -5765,8 +5770,20 @@ async function loadReport2(forceSync){
   if(_r2To)   params.append('to',_r2To);
   if(_r2Dept && _r2Dept!=='All') params.append('dept',_r2Dept);
   if(forceSync) params.append('sync','true');
-  const data=await api('/api/ims-reports?'+params.toString());
+
+  // Also fetch last month in parallel for vs-last-month growth on the headline KPIs.
+  const now=new Date(), cy=now.getFullYear(), cm=now.getMonth();
+  const lmFrom=new Date(cy,cm-1,1), lmTo=new Date(cy,cm,0);
+  const toISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const lmParams=new URLSearchParams({from:toISO(lmFrom),to:toISO(lmTo)});
+  if(_r2Dept && _r2Dept!=='All') lmParams.append('dept',_r2Dept);
+
+  const [data, lmData] = await Promise.all([
+    api('/api/ims-reports?'+params.toString()),
+    api('/api/ims-reports?'+lmParams.toString()).catch(()=>null)
+  ]);
   if(!data || data.error){ if(st){ st.style.color='#dc2626'; st.textContent='No data'; } return; }
+  window._r2LMData = lmData || null;
   _r2Data=data;
   _r2FillDepts(data.departments);
   renderReport2(data);
@@ -5834,17 +5851,45 @@ function renderReport2(data){
   const gv=g=>(g==null||isNaN(g))?null:g;
   const gtxt=g=>{g=gv(g); return g==null?'':(g>=0?'+':'')+g+'%';};
   const gcol=g=>{g=gv(g); return g==null?'#94a3b8':g>=0?'#16a34a':'#dc2626';};
-  const cell=(lbl,val,color)=>`<div class="r2-mcell"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div></div>`;
+
+  // vs-last-month growth for headline KPIs
+  const lm=(window._r2LMData&&window._r2LMData.salesSummary)||null;
+  const lmSA=(window._r2LMData&&window._r2LMData.spAnalytics&&window._r2LMData.spAnalytics.summary)||null;
+  const pctChg=(cur,prev)=>{
+    if(prev==null||isNaN(prev)||prev===0||cur==null||isNaN(cur)) return null;
+    return Math.round((cur-prev)/Math.abs(prev)*100);
+  };
+  const lmAmtG=pctChg(ss.totalAmount, lm&&lm.totalAmount);
+  const lmQtyG=pctChg(ss.totalQty,    lm&&lm.totalQty);
+  const lmBillG=pctChg(s.curBills,    lmSA&&lmSA.curBills);
+
+  // Headline cell with vs-last-month chip (click → popover with actual values)
+  const cell=(lbl,val,color,pct,lmVal,lmKey)=>{
+    let chip='';
+    if(pct!=null){
+      const up=pct>=0, bg=up?'#dcfce7':'#fee2e2', fc=up?'#16a34a':'#dc2626';
+      chip=`<span class="r2-lm-chip" style="background:${bg};color:${fc};cursor:pointer" onclick="_r2LMPop(event,'${lmKey}')">${up?'▲':'▼'} ${up?'+':''}${pct}%</span>`;
+    }
+    return `<div class="r2-mcell"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div>${chip?`<div style="margin-top:6px">${chip}</div>`:''}</div>`;
+  };
   const mcell=(lbl,val,color,ly,g)=>{
     const sub = hasLY ? `<div class="r2-kpi-sub">${gv(g)!=null?`<span class="r2-chip" style="background:${gcol(g)}1f;color:${gcol(g)}">${gtxt(g)}</span>`:''}<span style="color:#cbd5e1">LY <b style="color:#64748b">${ly}</b></span></div>` : '';
     return `<div class="r2-mcell cur"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div>${sub}</div>`;
   };
+
+  // Store last-month values for popover
+  window._r2LMVals={
+    sales: { cur: ss.totalAmount, lm: lm&&lm.totalAmount, label:'Net Sales' },
+    qty:   { cur: ss.totalQty,   lm: lm&&lm.totalQty,   label:'Net Qty'   },
+    bills: { cur: s.curBills,    lm: lmSA&&lmSA.curBills, label:'Total Bills' }
+  };
+
   const k=document.getElementById('r2Kpis');
   if(k) k.innerHTML =
       `<div class="r2-kpi-r1">`
-    +   cell('Net Sales',  fmtINR(ss.totalAmount), '#0ea5e9')
-    +   cell('Net Qty',    nfmt(ss.totalQty),      '#ef4444')
-    +   cell('Total Bills', nfmt(s.curBills),      '#7c3aed')
+    +   cell('Net Sales',   fmtINR(ss.totalAmount), '#0ea5e9', lmAmtG,  lm&&fmtINR(lm.totalAmount),  'sales')
+    +   cell('Net Qty',     nfmt(ss.totalQty),      '#ef4444', lmQtyG,  lm&&nfmt(lm.totalQty),       'qty')
+    +   cell('Total Bills', nfmt(s.curBills),        '#7c3aed', lmBillG, lmSA&&nfmt(lmSA.curBills),  'bills')
     + `</div>`
     + `<div class="r2-kpi-r2">`
     +   mcell('UPT', (s.curUPT!=null?s.curUPT:'—'), '#4f46e5', (s.lyUPT??'—'), s.uptGrowth)
@@ -9195,6 +9240,35 @@ async function handleTransfer(id, action) {
 
 init();
 setDefaultMISDates();
+
+// ── Last-month popover for headline KPIs ─────────────────────────────────
+function _r2LMPop(evt, key){
+  evt.stopPropagation();
+  const v=(window._r2LMVals||{})[key]; if(!v) return;
+  let pop=document.getElementById('r2LMPop');
+  if(!pop){ pop=document.createElement('div'); pop.id='r2LMPop'; document.body.appendChild(pop); }
+  const pct=v.lm!=null&&v.lm!==0?Math.round((v.cur-v.lm)/Math.abs(v.lm)*100):null;
+  const up=pct!=null&&pct>=0;
+  const fmt=key==='sales'?fmtINR:n=>Number(n||0).toLocaleString('en-IN');
+  const pctHtml=pct!=null?`<span style="font-size:18px;font-weight:900;color:${up?'#16a34a':'#dc2626'}">${up?'▲ +':'▼ '}${pct}%</span>`:'';
+  const now=new Date(); const cm=now.getMonth(); const cy=now.getFullYear();
+  const _MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const lmLabel=_MN[(cm-1+12)%12]+' '+cy;
+  pop.innerHTML=`
+    <div style="font-size:11px;font-weight:800;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">${v.label} vs Last Month</div>
+    <div class="r2lm-row"><span class="lbl">This period</span><span style="font-weight:800;color:#0f172a">${fmt(v.cur)}</span></div>
+    <div class="r2lm-row"><span class="lbl">${lmLabel}</span><span style="color:#64748b">${v.lm!=null?fmt(v.lm):'—'}</span></div>
+    ${pctHtml?`<div style="margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px;text-align:center">${pctHtml}</div>`:''}
+  `;
+  const r=evt.target.getBoundingClientRect();
+  pop.style.display='block';
+  const pw=pop.offsetWidth, ph=pop.offsetHeight;
+  let left=r.left, top=r.bottom+6;
+  if(left+pw>window.innerWidth-12) left=window.innerWidth-pw-12;
+  if(top+ph>window.innerHeight-12) top=r.top-ph-6;
+  pop.style.left=left+'px'; pop.style.top=top+'px';
+}
+document.addEventListener('click',()=>{ const p=document.getElementById('r2LMPop'); if(p) p.style.display='none'; });
 </script>
 </body>
 </html>
