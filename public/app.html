@@ -5881,19 +5881,23 @@ async function loadReport2(forceSync){
   if(_r2Dept && _r2Dept!=='All') params.append('dept',_r2Dept);
   if(forceSync) params.append('sync','true');
 
-  // Also fetch last month in parallel for vs-last-month growth on the headline KPIs.
+  // Fetch last month + current month in parallel — used for KPI growth chips & popover comparison.
   const now=new Date(), cy=now.getFullYear(), cm=now.getMonth();
-  const lmFrom=new Date(cy,cm-1,1), lmTo=new Date(cy,cm,0);
   const toISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const lmFrom=new Date(cy,cm-1,1), lmTo=new Date(cy,cm,0);
+  const tmFrom=new Date(cy,cm,1);
   const lmParams=new URLSearchParams({from:toISO(lmFrom),to:toISO(lmTo)});
-  if(_r2Dept && _r2Dept!=='All') lmParams.append('dept',_r2Dept);
+  const tmParams=new URLSearchParams({from:toISO(tmFrom),to:toISO(now)});
+  if(_r2Dept && _r2Dept!=='All'){ lmParams.append('dept',_r2Dept); tmParams.append('dept',_r2Dept); }
 
-  const [data, lmData] = await Promise.all([
+  const [data, lmData, tmData] = await Promise.all([
     api('/api/ims-reports?'+params.toString()),
-    api('/api/ims-reports?'+lmParams.toString()).catch(()=>null)
+    api('/api/ims-reports?'+lmParams.toString()).catch(()=>null),
+    api('/api/ims-reports?'+tmParams.toString()).catch(()=>null)
   ]);
   if(!data || data.error){ if(st){ st.style.color='#dc2626'; st.textContent='No data'; } return; }
   window._r2LMData = lmData || null;
+  window._r2TMData = tmData || null;
   _r2Data=data;
   _r2FillDepts(data.departments);
 
@@ -5982,19 +5986,22 @@ function renderReport2(data){
   const gtxt=g=>{g=gv(g); return g==null?'':(g>=0?'+':'')+g+'%';};
   const gcol=g=>{g=gv(g); return g==null?'#94a3b8':g>=0?'#16a34a':'#dc2626';};
 
-  // vs-last-month growth for headline KPIs
+  // vs-last-month growth chip: this month vs last month (fixed calendar months, not the active filter).
   const lm=(window._r2LMData&&window._r2LMData.salesSummary)||null;
   const lmSA=(window._r2LMData&&window._r2LMData.spAnalytics&&window._r2LMData.spAnalytics.summary)||null;
+  const tm=(window._r2TMData&&window._r2TMData.salesSummary)||null;
+  const tmSA=(window._r2TMData&&window._r2TMData.spAnalytics&&window._r2TMData.spAnalytics.summary)||null;
   const pctChg=(cur,prev)=>{
     if(prev==null||isNaN(prev)||prev===0||cur==null||isNaN(cur)) return null;
     return Math.round((cur-prev)/Math.abs(prev)*100);
   };
-  const lmAmtG=pctChg(ss.totalAmount, lm&&lm.totalAmount);
-  const lmQtyG=pctChg(ss.totalQty,    lm&&lm.totalQty);
-  const lmBillG=pctChg(s.curBills,    lmSA&&lmSA.curBills);
+  // Growth chip = this month vs last month
+  const lmAmtG=pctChg(tm&&tm.totalAmount, lm&&lm.totalAmount);
+  const lmQtyG=pctChg(tm&&tm.totalQty,    lm&&lm.totalQty);
+  const lmBillG=pctChg(tmSA&&tmSA.curBills, lmSA&&lmSA.curBills);
 
-  // Headline cell with vs-last-month chip (click → popover with actual values)
-  const cell=(lbl,val,color,pct,lmVal,lmKey)=>{
+  // Headline cell with this-month-vs-last-month chip (click → popover)
+  const cell=(lbl,val,color,pct,lmKey)=>{
     let chip='';
     if(pct!=null){
       const up=pct>=0, bg=up?'#dcfce7':'#fee2e2', fc=up?'#16a34a':'#dc2626';
@@ -6007,19 +6014,19 @@ function renderReport2(data){
     return `<div class="r2-mcell cur"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div>${sub}</div>`;
   };
 
-  // Store last-month values for popover
+  // Store values for popover: lm = last month, tm = this month
   window._r2LMVals={
-    sales: { cur: ss.totalAmount, lm: lm&&lm.totalAmount, label:'Net Sales' },
-    qty:   { cur: ss.totalQty,   lm: lm&&lm.totalQty,   label:'Net Qty'   },
-    bills: { cur: s.curBills,    lm: lmSA&&lmSA.curBills, label:'Total Bills' }
+    sales: { lm: lm&&lm.totalAmount, tm: tm&&tm.totalAmount, label:'Net Sales' },
+    qty:   { lm: lm&&lm.totalQty,   tm: tm&&tm.totalQty,   label:'Net Qty'   },
+    bills: { lm: lmSA&&lmSA.curBills, tm: tmSA&&tmSA.curBills, label:'Total Bills' }
   };
 
   const k=document.getElementById('r2Kpis');
   if(k) k.innerHTML =
       `<div class="r2-kpi-r1">`
-    +   cell('Net Sales',   fmtINR(ss.totalAmount), '#0ea5e9', lmAmtG,  lm&&fmtINR(lm.totalAmount),  'sales')
-    +   cell('Net Qty',     nfmt(ss.totalQty),      '#ef4444', lmQtyG,  lm&&nfmt(lm.totalQty),       'qty')
-    +   cell('Total Bills', nfmt(s.curBills),        '#7c3aed', lmBillG, lmSA&&nfmt(lmSA.curBills),  'bills')
+    +   cell('Net Sales',   fmtINR(ss.totalAmount), '#0ea5e9', lmAmtG,  'sales')
+    +   cell('Net Qty',     nfmt(ss.totalQty),      '#ef4444', lmQtyG,  'qty')
+    +   cell('Total Bills', nfmt(s.curBills),        '#7c3aed', lmBillG, 'bills')
     + `</div>`
     + `<div class="r2-kpi-r2">`
     +   mcell('UPT', (s.curUPT!=null?s.curUPT:'—'), '#4f46e5', (s.lyUPT??'—'), s.uptGrowth)
@@ -9393,17 +9400,18 @@ function _r2LMPop(evt, key){
   const v=(window._r2LMVals||{})[key]; if(!v) return;
   let pop=document.getElementById('r2LMPop');
   if(!pop){ pop=document.createElement('div'); pop.id='r2LMPop'; document.body.appendChild(pop); }
-  const pct=v.lm!=null&&v.lm!==0?Math.round((v.cur-v.lm)/Math.abs(v.lm)*100):null;
-  const up=pct!=null&&pct>=0;
   const fmt=key==='sales'?fmtINR:n=>Number(n||0).toLocaleString('en-IN');
+  const pct=(v.lm!=null&&v.lm!==0&&v.tm!=null)?Math.round((v.tm-v.lm)/Math.abs(v.lm)*100):null;
+  const up=pct!=null&&pct>=0;
   const pctHtml=pct!=null?`<span style="font-size:18px;font-weight:900;color:${up?'#16a34a':'#dc2626'}">${up?'▲ +':'▼ '}${pct}%</span>`:'';
   const now=new Date(); const cm=now.getMonth(); const cy=now.getFullYear();
   const _MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const lmLabel=_MN[(cm-1+12)%12]+' '+cy;
+  const tmLabel=_MN[cm]+' '+cy;
   pop.innerHTML=`
-    <div style="font-size:11px;font-weight:800;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">${v.label} vs Last Month</div>
-    <div class="r2lm-row"><span class="lbl">This period</span><span style="font-weight:800;color:#0f172a">${fmt(v.cur)}</span></div>
-    <div class="r2lm-row"><span class="lbl">${lmLabel}</span><span style="color:#64748b">${v.lm!=null?fmt(v.lm):'—'}</span></div>
+    <div style="font-size:11px;font-weight:800;color:#94a3b8;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">${v.label} — Month Comparison</div>
+    <div class="r2lm-row"><span class="lbl">Last Month (${lmLabel})</span><span style="color:#64748b;font-weight:700">${v.lm!=null?fmt(v.lm):'—'}</span></div>
+    <div class="r2lm-row"><span class="lbl">This Month (${tmLabel})</span><span style="font-weight:800;color:#0f172a">${v.tm!=null?fmt(v.tm):'—'}</span></div>
     ${pctHtml?`<div style="margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px;text-align:center">${pctHtml}</div>`:''}
   `;
   const r=evt.target.getBoundingClientRect();
