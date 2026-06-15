@@ -1639,11 +1639,11 @@ tbody tr:last-child td{border-bottom:none;}
       <!-- OVERVIEW: KPI matrix — LY | current | growth (Power BI UPT-dashboard style) -->
       <div id="r2Kpis" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px"></div>
 
-      <!-- OVERVIEW: charts as compact tile-width cards (same grid as the report tiles) -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;align-items:start;margin-bottom:26px">
+      <!-- OVERVIEW: charts as fixed-height tile-size cards (same size as everything else) -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;align-items:start;margin-bottom:24px">
         <!-- Main chart (selector-driven; default Top Departments) -->
-        <div class="r2-card" style="padding:18px 20px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div class="r2-card" style="padding:16px 18px;height:340px;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;flex-shrink:0">
             <div class="r2-ctitle" id="r2MainChartTitle">Top Departments by Net Sales</div>
             <select id="r2ChartSel" onchange="_r2RenderMainChart(this.value)" style="padding:5px 9px;border:1.5px solid #e8ecf8;border-radius:8px;font-size:11px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif">
               <option value="topdept">Top Departments</option>
@@ -1652,30 +1652,27 @@ tbody tr:last-child td{border-bottom:none;}
               <option value="trend">Monthly UPT &amp; ATV</option>
             </select>
           </div>
-          <div style="position:relative;height:250px"><canvas id="r2Chart-main"></canvas></div>
+          <div style="position:relative;flex:1;min-height:0"><canvas id="r2Chart-main"></canvas></div>
         </div>
         <!-- Salesperson Performance -->
-        <div class="r2-card" style="overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid #eef2ff">
+        <div class="r2-card" style="height:340px;display:flex;flex-direction:column;overflow:hidden">
+          <div style="padding:12px 16px;border-bottom:1px solid #eef2ff;flex-shrink:0">
             <div class="r2-ctitle">Salesperson Performance</div>
             <span style="font-size:10px;color:#94a3b8">Click a bar / row for transactions</span>
           </div>
-          <div style="padding:14px 16px 2px"><div style="position:relative;height:200px"><canvas id="r2Chart-spbar"></canvas></div></div>
-          <div style="overflow-x:auto;border-top:1px solid #f4f6ff">
+          <div style="padding:10px 14px 2px;flex-shrink:0"><div style="position:relative;height:108px"><canvas id="r2Chart-spbar"></canvas></div></div>
+          <div style="overflow:auto;border-top:1px solid #f4f6ff;flex:1;min-height:0">
             <table class="r2-tbl" style="font-size:12px">
               <thead><tr><th>Salesperson</th><th>Bills</th><th>Net Qty</th><th>UPT</th><th>LY UPT</th><th>UPT △</th><th>ATV</th><th>Net Sales</th></tr></thead>
               <tbody id="r2SpBody"><tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:30px">Loading…</td></tr></tbody>
             </table>
           </div>
-          <div id="r2SpMore" style="padding:12px 18px;text-align:center;border-top:1px solid #f4f6ff"></div>
+          <div id="r2SpMore" style="padding:8px 14px;text-align:center;border-top:1px solid #f4f6ff;flex-shrink:0"></div>
         </div>
       </div>
 
-      <!-- Divider → launcher tiles -->
-      <div style="display:flex;align-items:center;gap:12px;margin:8px 2px 18px">
-        <div style="font-size:11px;font-weight:800;color:#94a3b8;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap">Open a full report</div>
-        <div style="flex:1;height:1px;background:linear-gradient(90deg,#e2e8f0,transparent)"></div>
-      </div>
+      <!-- Section label (no divider line) -->
+      <div style="font-size:11px;font-weight:800;color:#94a3b8;letter-spacing:.1em;text-transform:uppercase;margin:6px 2px 18px">Open a full report</div>
 
       <!-- SALES reports -->
       <div class="r2h-sec">Sales Reports</div>
@@ -5762,7 +5759,7 @@ function renderReport2(data){
   // Salesperson chart + table (top 5, expandable via "View more")
   const spRows=(sa.spTable||[]).filter(x=>x.bills>0).sort((a,b)=>b.amount-a.amount);
   window._r2SpRows = spRows;
-  const spTop=spRows.slice(0,10);
+  const spTop=spRows.slice(0,6);
   _r2Bar('r2Chart-spbar','r2spbar', spTop.map(r=>r.name), spTop.map(r=>r.amount),
     {horizontal:true, color:'#6366f1', tickFmt:v=>'₹'+Math.round(v).toLocaleString('en-IN'), fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN'), onClick:name=>r2Drill('salesperson',name)});
   _r2SpExpanded=false;
