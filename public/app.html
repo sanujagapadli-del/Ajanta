@@ -1597,6 +1597,9 @@ tbody tr:last-child td{border-bottom:none;}
         #imsView-report2 .r2-mcell.cur{background:linear-gradient(135deg,#eef2ff,#f5f3ff);border-color:#c7d2fe}
         #imsView-report2 .r2-mcell .lbl{font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#94a3b8}
         #imsView-report2 .r2-mcell .val{font-size:22px;font-weight:800;margin-top:5px;line-height:1.1}
+        #imsView-report2 .r2-kpi-r1{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+        #imsView-report2 .r2-kpi-r2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+        @media(max-width:680px){#imsView-report2 .r2-kpi-r1,#imsView-report2 .r2-kpi-r2{grid-template-columns:1fr}}
         #imsView-report2 .r2-canvas{position:relative;height:270px}
         #imsView-report2 table.r2-tbl{width:100%;border-collapse:collapse}
         #imsView-report2 .r2-tbl th{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#94a3b8;padding:11px 14px;border-bottom:1px solid #eef2ff;background:#fafbff;text-align:right}
@@ -1639,7 +1642,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
 
       <!-- OVERVIEW: KPI matrix — LY | current | growth (Power BI UPT-dashboard style) -->
-      <div id="r2Kpis" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px"></div>
+      <div id="r2Kpis" style="margin-bottom:16px"></div>
 
       <!-- OVERVIEW: charts as fixed-height tile-size cards (same 3-per-row grid as the tiles) -->
       <div class="r2h-grid" style="align-items:start;margin-bottom:24px">
@@ -5732,28 +5735,27 @@ function renderReport2(data){
   const hasLY=!!sa.hasDateFilter;
   const nfmt = n => (n==null||isNaN(n))?'—':Number(n).toLocaleString('en-IN');
 
-  // KPI matrix — LY | current | growth per metric (Power BI UPT-dashboard layout).
+  // KPI cards — 2 rows: headline totals (Net Sales/Qty/Bills) + UPT/ATV (LY & growth as a sub-line).
   // LY/growth populate only when a date range is picked (overall "All" has no LY period).
-  const cell=(lbl,val,color,cur,big)=>`<div class="r2-mcell${cur?' cur':''}"><div class="lbl">${lbl}</div><div class="val" style="color:${color}${big?';font-size:27px':''}">${val}</div></div>`;
-  const metricRows=[
-    {key:'UPT',         ly:hasLY?(s.lyUPT??'—'):'—',          cur:(s.curUPT!=null?s.curUPT:'—'), g:s.uptGrowth, color:'#4f46e5'},
-    {key:'ATV',         ly:hasLY?fmtINR(s.lyATV):'—',         cur:fmtINR(s.curATV),              g:s.atvGrowth, color:'#10b981'},
-  ];
-  let kp='';
-  // Headline totals FIRST — ek nazar me 90% (sabse zaroori numbers upar)
-  kp += cell('Net Sales',  fmtINR(ss.totalAmount), '#0ea5e9', true, true)
-      + cell('Net Qty',    nfmt(ss.totalQty),      '#ef4444', true, true)
-      + cell('Total Bills', nfmt(s.curBills),      '#7c3aed', true, true);
-  metricRows.forEach(mr=>{
-    const gv=(mr.g==null||isNaN(mr.g))?null:mr.g;
-    const gt=gv==null?'—':(gv>=0?'+':'')+gv+'%';
-    const gc=gv==null?'#94a3b8':gv>=0?'#16a34a':'#dc2626';
-    kp += cell('LY '+mr.key, mr.ly, '#94a3b8', false)
-        + cell(mr.key, mr.cur, mr.color, true)
-        + cell(mr.key+' Growth', hasLY?gt:'—', hasLY?gc:'#94a3b8', false);
-  });
+  const gv=g=>(g==null||isNaN(g))?null:g;
+  const gtxt=g=>{g=gv(g); return g==null?'':(g>=0?'+':'')+g+'%';};
+  const gcol=g=>{g=gv(g); return g==null?'#94a3b8':g>=0?'#16a34a':'#dc2626';};
+  const cell=(lbl,val,color)=>`<div class="r2-mcell"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div></div>`;
+  const mcell=(lbl,val,color,ly,g)=>{
+    const sub = hasLY ? `<div class="r2-kpi-sub">${gv(g)!=null?`<span class="r2-chip" style="background:${gcol(g)}1f;color:${gcol(g)}">${gtxt(g)}</span>`:''}<span style="color:#cbd5e1">LY <b style="color:#64748b">${ly}</b></span></div>` : '';
+    return `<div class="r2-mcell cur"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div>${sub}</div>`;
+  };
   const k=document.getElementById('r2Kpis');
-  if(k) k.innerHTML = kp;
+  if(k) k.innerHTML =
+      `<div class="r2-kpi-r1">`
+    +   cell('Net Sales',  fmtINR(ss.totalAmount), '#0ea5e9')
+    +   cell('Net Qty',    nfmt(ss.totalQty),      '#ef4444')
+    +   cell('Total Bills', nfmt(s.curBills),      '#7c3aed')
+    + `</div>`
+    + `<div class="r2-kpi-r2">`
+    +   mcell('UPT', (s.curUPT!=null?s.curUPT:'—'), '#4f46e5', (s.lyUPT??'—'), s.uptGrowth)
+    +   mcell('ATV', fmtINR(s.curATV),              '#10b981', fmtINR(s.lyATV), s.atvGrowth)
+    + `</div>`;
 
   // Main overview chart — one card, selector-driven (default Top Departments by Net Sales)
   _r2RenderMainChart((document.getElementById('r2ChartSel')||{}).value || 'topdept');
