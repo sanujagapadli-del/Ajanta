@@ -2774,7 +2774,6 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const allDeptsSet = new Set();  // Report 2.0: full department list for the dropdown
     let totalAmt=0, totalQty=0;
     const allXns = new Set();
-    const posXns = new Set();  // bills with net qty > 0 — matches basket size chart total
 
     (outRows.slice(1)).forEach(row => {
       const dateStr = String(row[oXnDate]||'').trim();
@@ -2807,7 +2806,6 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
       totalAmt += amt; totalQty += qty;
       if (xnNo) allXns.add(xnNo);
-      if (xnNo && qty > 0) posXns.add(xnNo);
 
       const push = (map, key) => {
         if (!map[key]) map[key] = { amt:0, qty:0, xns:new Set() };
@@ -2846,6 +2844,9 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       return { dept, bills, qty: r2(d.qty), amount: Math.round(d.amt),
                upt: bills ? r2(d.qty/bills) : 0, atv: bills ? Math.round(d.amt/bills) : 0 };
     }).filter(x => x.dept && x.dept !== '—' && x.bills > 0).sort((a,b) => b.qty - a.qty);
+
+    // posXns: bills with net qty >= 1 — exactly matches basket chart (same Math.round filter)
+    const posXns = new Set(Object.keys(billQty).filter(k => Math.round(billQty[k]) >= 1));
 
     const _basket = { '1':0, '2':0, '3':0, '4':0, '5+':0 };
     Object.values(billQty).forEach(q => {
