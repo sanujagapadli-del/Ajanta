@@ -1586,6 +1586,9 @@ tbody tr:last-child td{border-bottom:none;}
         #imsView-report2 .r2-preset{padding:7px 13px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;color:#64748b;cursor:pointer;transition:all .15s}
         #imsView-report2 .r2-preset:hover{border-color:#c7d2fe;color:#4f46e5}
         #imsView-report2 .r2-preset.active{background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border-color:#4f46e5}
+        #imsView-report2 .r2-fbtn{padding:8px 16px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer;transition:all .15s}
+        #imsView-report2 .r2-fbtn:hover{border-color:#c7d2fe;color:#4f46e5}
+        #imsView-report2 .r2-fbtn.active{background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border-color:#4f46e5}
         #imsView-report2 .r2-din{padding:8px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;background:#fff;color:#0f172a;outline:none;font-family:'Inter',sans-serif}
         #imsView-report2 .r2-din::-webkit-calendar-picker-indicator{opacity:.55}
         #imsView-report2 .r2-kpi{background:#fff;border:1px solid #eef2ff;border-radius:16px;padding:18px 20px}
@@ -1682,6 +1685,13 @@ tbody tr:last-child td{border-bottom:none;}
       <!-- SALES reports -->
       <div class="r2h-sec">Sales Reports</div>
       <div class="r2h-grid" style="margin-bottom:26px">
+        <div class="r2h-card" onclick="openR2Report('funnel')">
+          <div class="r2h-ico" style="background:#eef2ff;color:#4f46e5"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></div>
+          <div class="r2h-title">Sales Funnel</div>
+          <div class="r2h-desc">Net sales over time — month, quarter, half-year &amp; year.</div>
+          <div class="r2h-stat" id="r2stat-funnel"></div>
+          <div class="r2h-mini"><canvas id="r2mini-funnel"></canvas></div>
+        </div>
         <div class="r2h-card" onclick="openR2Report('sales')">
           <div class="r2h-ico" style="background:#eef2ff;color:#4f46e5"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
           <div class="r2h-title">Sales Summary</div>
@@ -1763,6 +1773,7 @@ tbody tr:last-child td{border-bottom:none;}
       <!-- DETAIL: full reports UI (rpt-inner) is moved into the slot below on tile click -->
       <div id="r2Detail" style="display:none">
         <button onclick="r2BackToHub()" style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;margin-bottom:16px;background:#fff;color:#4f46e5;border:1.5px solid #e8ecf8;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 10px rgba(79,70,229,.06)">← All Reports</button>
+        <div id="r2FunnelView" style="display:none"></div>
         <div id="r2DetailSlot"></div>
       </div>
     </div><!-- /imsView-report2 -->
@@ -5529,12 +5540,23 @@ function _r2ScrollTop(){
 }
 function openR2Report(tab){
   _activeRptTab = tab;
-  const inner = document.getElementById('rpt-inner');
   const slot  = document.getElementById('r2DetailSlot');
-  if(inner && slot && inner.parentNode !== slot) slot.appendChild(inner);
+  const fview = document.getElementById('r2FunnelView');
   document.getElementById('r2Hub').style.display = 'none';
   document.getElementById('r2Detail').style.display = '';
   const tn = document.getElementById('rptTopNav'); if(tn) tn.style.display = 'none';   // hub: hide tab strip, show only the picked report
+  // Sales Funnel is a self-contained Report 2.0 view (uses the already-loaded overview data) — no shared rpt-inner.
+  if(tab === 'funnel'){
+    if(slot) slot.style.display = 'none';
+    if(fview) fview.style.display = '';
+    _r2RenderFunnel();
+    _r2ScrollTop();
+    return;
+  }
+  if(fview) fview.style.display = 'none';
+  if(slot)  slot.style.display  = '';
+  const inner = document.getElementById('rpt-inner');
+  if(inner && slot && inner.parentNode !== slot) slot.appendChild(inner);
   _initRptDatepickers();
   switchRptTab(tab);
   _r2ScrollTop();
@@ -5544,6 +5566,78 @@ function r2BackToHub(){
   document.getElementById('r2Hub').style.display = '';
   if(_r2Data) renderReport2(_r2Data); else loadReport2();   // redraw overview at correct size
   _r2ScrollTop();
+}
+
+// ── Sales Funnel — Net Sales over time, switchable Month / Quarter / Half-year / Year ──
+// Aggregates the overview's salesSummary.byDate (already filtered by the active date+dept).
+// Periods follow the Indian financial year (Apr→Mar), matching the "This FY" preset.
+const _R2_MON3={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+let _r2FunnelPeriod='month';
+function _r2ParseDate(s){
+  const m=String(s||'').match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
+  if(m) return new Date(parseInt(m[3],10), _R2_MON3[m[2].toLowerCase()]??0, parseInt(m[1],10));
+  const d=new Date(s); return isNaN(d.getTime())?null:d;
+}
+function _r2FunnelAgg(byDate, period){
+  const b={};
+  (byDate||[]).forEach(r=>{
+    const d=_r2ParseDate(r.date); if(!d) return;
+    const y=d.getFullYear(), m=d.getMonth();
+    const fy=(m>=3)?y:y-1, fyM=(m>=3)?m-3:m+9;   // fy = FY start year, fyM = 0=Apr … 11=Mar
+    let key, label, sort;
+    if(period==='month'){ key='M'+y+'-'+m; sort=y*12+m; label=_R2_MON[m]+'-'+String(y).slice(2); }
+    else if(period==='quarter'){ const q=Math.floor(fyM/3); key='Q'+fy+'-'+q; sort=fy*4+q; label='Q'+(q+1)+" FY"+String(fy).slice(2); }
+    else if(period==='half'){ const h=fyM<6?0:1; key='H'+fy+'-'+h; sort=fy*2+h; label='H'+(h+1)+" FY"+String(fy).slice(2); }
+    else { key='Y'+fy; sort=fy; label='FY '+fy+'-'+String(fy+1).slice(2); }
+    if(!b[key]) b[key]={label,sort,amount:0,qty:0,bills:0};
+    b[key].amount+=(r.amount||0); b[key].qty+=(r.qty||0); b[key].bills+=(r.transactions||0);
+  });
+  return Object.values(b).sort((a,b)=>a.sort-b.sort);
+}
+function _r2RenderFunnel(){
+  const view=document.getElementById('r2FunnelView'); if(!view) return;
+  const btns=[['month','Month'],['quarter','Quarterly'],['half','Half-Yearly'],['year','Yearly']];
+  view.innerHTML =
+    `<div class="r2-card" style="padding:20px 22px">
+       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:4px">
+         <div>
+           <div style="font-size:18px;font-weight:800;color:#0f172a">Sales Funnel</div>
+           <div style="font-size:12px;color:#94a3b8;margin-top:2px">Net sales over time — pick a period below.</div>
+         </div>
+         <div id="r2FunnelBtns" style="display:flex;gap:6px;flex-wrap:wrap">
+           ${btns.map(([k,l])=>`<button class="r2-fbtn${_r2FunnelPeriod===k?' active':''}" data-p="${k}" onclick="_r2SetFunnelPeriod('${k}')">${l}</button>`).join('')}
+         </div>
+       </div>
+       <div id="r2FunnelKpis" style="display:flex;gap:30px;flex-wrap:wrap;margin:16px 0 18px"></div>
+       <div style="position:relative;height:380px"><canvas id="r2FunnelChart"></canvas></div>
+       <div style="overflow:auto;margin-top:16px">
+         <table class="r2-tbl" style="font-size:12px">
+           <thead><tr><th>Period</th><th style="text-align:right">Net Sales</th><th style="text-align:right">Net Qty</th><th style="text-align:right">Bills</th></tr></thead>
+           <tbody id="r2FunnelTbody"></tbody>
+         </table>
+       </div>
+     </div>`;
+  _r2DrawFunnel();
+}
+function _r2SetFunnelPeriod(p){
+  _r2FunnelPeriod=p;
+  document.querySelectorAll('#r2FunnelBtns .r2-fbtn').forEach(x=>x.classList.toggle('active',x.dataset.p===p));
+  _r2DrawFunnel();
+}
+function _r2DrawFunnel(){
+  const ss=(_r2Data&&_r2Data.salesSummary)||{};
+  const rows=_r2FunnelAgg(ss.byDate||[], _r2FunnelPeriod);
+  _r2Bar('r2FunnelChart','r2funnel', rows.map(r=>r.label), rows.map(r=>r.amount),
+    {color:'#4f46e5', tickFmt:_r2Cr, fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN')});
+  // summary KPIs
+  const nf=n=>Number(n||0).toLocaleString('en-IN');
+  const tot=rows.reduce((s,r)=>s+r.amount,0), tq=rows.reduce((s,r)=>s+r.qty,0), tb=rows.reduce((s,r)=>s+r.bills,0);
+  const kpi=(lbl,val,col)=>`<div><div style="font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#94a3b8">${lbl}</div><div style="font-size:22px;font-weight:800;color:${col};margin-top:3px">${val}</div></div>`;
+  const k=document.getElementById('r2FunnelKpis');
+  if(k) k.innerHTML = kpi('Net Sales','₹'+nf(Math.round(tot)),'#0ea5e9')+kpi('Net Qty',nf(Math.round(tq)),'#ef4444')+kpi('Bills',nf(tb),'#7c3aed')+kpi('Periods',rows.length,'#4f46e5');
+  // table
+  const tb2=document.getElementById('r2FunnelTbody');
+  if(tb2) tb2.innerHTML = rows.length ? rows.map(r=>`<tr><td style="font-weight:600;color:#0f172a">${r.label}</td><td style="text-align:right;font-weight:700">₹${nf(Math.round(r.amount))}</td><td style="text-align:right">${nf(Math.round(r.qty))}</td><td style="text-align:right">${nf(r.bills)}</td></tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>';
 }
 
 // ── Overview dashboard at the TOP of the hub (overall data + charts) ──────
@@ -5772,6 +5866,8 @@ function renderReport2(data){
   // Mini charts on the launcher tiles — hover shows name + value (tooltip); click still opens the report.
   const _lv=(arr,lk,vk,n)=>{ const a=(arr||[]).slice().sort((x,y)=>(y[vk]||0)-(x[vk]||0)).slice(0,n); return {labels:a.map(x=>x[lk]), values:a.map(x=>x[vk]||0)}; };
   const _bd=(ss.byDate||[]); const _stp=Math.max(1,Math.floor(_bd.length/40)); const _bdS=_bd.filter((_,i)=>i%_stp===0);
+  const _fmon=_r2FunnelAgg(ss.byDate||[], 'month');
+  _r2Mini('r2mini-funnel','bar', {labels:_fmon.map(d=>d.label), values:_fmon.map(d=>d.amount)}, '#4f46e5', _r2Cr);
   _r2Mini('r2mini-sales','line', {labels:_bdS.map(r=>r.date), values:_bdS.map(r=>r.amount)}, '#4f46e5', _r2Cr);
   _r2Mini('r2mini-cat','bar', _lv(data.topCategories,'category','amount',7), '#7c3aed', _r2Cr);
   _r2Mini('r2mini-supplier','bar', _lv(data.supplierSales,'name','amount',10), '#06b6d4', _r2Cr);
@@ -5797,6 +5893,7 @@ function renderReport2(data){
 
   // Tile overview stats — client ko bina report khole hi key number dikh jaye
   const _cur=(sa.summary||{}); const _tr=s=>{s=String(s||'—');return s.length>17?s.slice(0,16)+'…':s;};
+  _r2Stat('r2stat-funnel', _r2Cr(ss.totalAmount), _fmon.length+' months');
   _r2Stat('r2stat-sales', _r2Cr(ss.totalAmount), nfmt(ss.totalTransactions)+' bills');
   { const c=(data.topCategories||[])[0]; _r2Stat('r2stat-cat', c?_tr(c.category):'—', c?_r2Cr(c.amount):''); }
   { const c=(data.supplierSales||[])[0]; _r2Stat('r2stat-supplier', c?_tr(c.name):'—', c?_r2Cr(c.amount):''); }
