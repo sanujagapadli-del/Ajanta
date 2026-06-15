@@ -2774,6 +2774,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const allDeptsSet = new Set();  // Report 2.0: full department list for the dropdown
     let totalAmt=0, totalQty=0;
     const allXns = new Set();
+    const posXns = new Set();  // bills with net qty > 0 — matches basket size chart total
 
     (outRows.slice(1)).forEach(row => {
       const dateStr = String(row[oXnDate]||'').trim();
@@ -2806,6 +2807,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
       totalAmt += amt; totalQty += qty;
       if (xnNo) allXns.add(xnNo);
+      if (xnNo && qty > 0) posXns.add(xnNo);
 
       const push = (map, key) => {
         if (!map[key]) map[key] = { amt:0, qty:0, xns:new Set() };
@@ -2949,7 +2951,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       if (isLY)  { pushSP(bySPly);  pushMon(byMonLY);  lyTotQty+=qty; lyTotAmt+=amt; if(xnNo) lyXns.add(xnNo); }
     });
 
-    const curBillsTot = allXns.size, lyBillsTot = lyXns.size;
+    const curBillsTot = posXns.size, lyBillsTot = lyXns.size;  // posXns = bills with qty>0, matches basket chart
     const curUPT = curBillsTot ? r2(totalQty/curBillsTot) : 0;
     const lyUPT  = lyBillsTot  ? r2(lyTotQty/lyBillsTot)  : 0;
     const curATV = curBillsTot ? Math.round(totalAmt/curBillsTot) : 0;
@@ -3000,7 +3002,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     }
 
     res.json({
-      salesSummary: { totalAmount:r2(totalAmt), totalQty:r2(totalQty), totalTransactions:allXns.size, byDate:fmtByDate },
+      salesSummary: { totalAmount:r2(totalAmt), totalQty:r2(totalQty), totalTransactions:posXns.size, byDate:fmtByDate },
       topCategories: sortAmt(Object.entries(byCat).map(([cat,d]) => ({ category:cat, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))),
       supplierSales: ser(bySupplier, 'name'),
       salespersons:  ser(bySP, 'name'),
