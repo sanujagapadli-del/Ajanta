@@ -1697,7 +1697,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-title">Top Departments</div>
           <div class="r2h-desc">Department-wise net sales, qty, bills &amp; UPT/ATV.</div>
           <div class="r2h-stat" id="r2stat-topdept"></div>
-          <div class="r2h-mini"><canvas id="r2mini-topdept"></canvas></div>
+          <div class="r2h-mini" style="height:190px"><canvas id="r2mini-topdept"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('sp')">
           <div class="r2h-ico" style="background:#ecfdf5;color:#10b981"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
@@ -1734,7 +1734,13 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="r2h-card" style="display:none" onclick="openR2Report('stocksummary')"><div class="r2h-stat" id="r2stat-stocksummary"></div><div class="r2h-mini"><canvas id="r2mini-stocksummary"></canvas></div></div>
         <div class="r2h-card" style="display:none" onclick="openR2Report('supplierstock')"><div class="r2h-stat" id="r2stat-supplierstock"></div><div class="r2h-mini"><canvas id="r2mini-supplierstock"></canvas></div></div>
         <div class="r2h-card" style="display:none" onclick="openR2Report('stockcat')"><div class="r2h-stat" id="r2stat-stockcat"></div><div class="r2h-mini"><canvas id="r2mini-stockcat"></canvas></div></div>
-        <div class="r2h-card" style="display:none" onclick="openR2Report('turnover')"><div class="r2h-stat" id="r2stat-turnover"></div><div class="r2h-mini"><canvas id="r2mini-turnover"></canvas></div></div>
+        <div class="r2h-card" onclick="openR2Report('turnover')">
+          <div class="r2h-ico" style="background:#f0f4ff;color:#4f46e5"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
+          <div class="r2h-title">Stock Turnover</div>
+          <div class="r2h-desc">Fast, medium &amp; slow-moving vendor distribution.</div>
+          <div class="r2h-stat" id="r2stat-turnover"></div>
+          <div class="r2h-mini"><canvas id="r2mini-turnover"></canvas></div>
+        </div>
       </div>
       </div><!-- /r2Hub -->
 
@@ -4396,8 +4402,8 @@ function _setRptDate(fromVal, toVal) {
   const tEl = document.getElementById('rptTo');
   if (fEl) fEl.value = fromVal || '';
   if (tEl) tEl.value = toVal   || '';
-  if (fromFp) { if (fromVal) fromFp.setDate(fromVal, false); else fromFp.clear(); }
-  if (toFp)   { if (toVal)   toFp.setDate(toVal, false);     else toFp.clear(); }
+  if (fromFp) { if (fromVal) fromFp.setDate(fromVal, false, 'Y-m-d'); else fromFp.clear(); }
+  if (toFp)   { if (toVal)   toFp.setDate(toVal, false, 'Y-m-d');   else toFp.clear(); }
   loadImsReports();
 }
 
@@ -5323,6 +5329,10 @@ async function showDrilldown(filterType, label) {
           <option value="salesperson">Salesperson</option>
           <option value="supplier">Supplier</option>
         </select>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <button onclick="_imsDrillPDF()" style="display:flex;align-items:center;gap:5px;padding:7px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#4f46e5">⬇ PDF</button>
+          <button onclick="_imsDrillCSV()" style="display:flex;align-items:center;gap:5px;padding:7px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#4f46e5">⬇ CSV</button>
+        </div>
       </div>
       <div id="imsDrillTableWrap"></div>`;
     _imsDrillRender('');
@@ -5332,6 +5342,23 @@ async function showDrilldown(filterType, label) {
 function closeDrillModal() {
   const m = document.getElementById('imsDrillModal');
   if (m) m.style.display = 'none';
+}
+function _imsDrillPDF(){
+  const title=document.getElementById('imsDrillTitle')?.textContent||'';
+  const sub=document.getElementById('imsDrillSub')?.textContent||'';
+  const tbl=document.querySelector('#imsDrillTableWrap table'); if(!tbl) return;
+  const w=window.open('','_blank'); if(!w) return;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:sans-serif;padding:24px;color:#0f172a}h2{margin:0 0 4px}p{color:#64748b;font-size:12px;margin:0 0 18px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f8fafc;padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;color:#64748b;font-weight:600}td{padding:8px 12px;border-bottom:1px solid #f1f5f9}@media print{@page{margin:12mm}}</style></head><body>`);
+  w.document.write(`<h2>${title}</h2><p>${sub}</p>${tbl.outerHTML}</body></html>`);
+  w.document.close(); w.focus(); w.print();
+}
+function _imsDrillCSV(){
+  const rows=window._imsDrillRows||[]; if(!rows.length) return;
+  const title=(document.getElementById('imsDrillTitle')?.textContent||'drill').replace(/[^a-zA-Z0-9_]/g,'_');
+  const lines=[['#','Date','Xn No','Category','Sub Category','Supplier','Salesperson','Qty','Amount (INR)'].join(',')];
+  rows.forEach((r,i)=>lines.push([i+1,`"${r.date||''}"`,`"${r.xnNo||''}"`,`"${r.category||''}"`,`"${r.subcategory||''}"`,`"${r.supplier||''}"`,`"${r.salesperson||''}"`,Math.round(r.qty||0),Math.round(r.amount||0)].join(',')));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${title}.csv`; a.click();
 }
 
 // Drilldown modal: "View by" dropdown — raw transactions OR grouped summary
@@ -5763,7 +5790,7 @@ async function _r2LoadMoversData(){
   if(_r2MovTo)   params.append('to',_r2MovTo);
   if(_r2Dept&&_r2Dept!=='All') params.append('dept',_r2Dept);
   try{
-    const d=await fetch('/api/report2?'+params.toString()).then(r=>r.json());
+    const d=await fetch('/api/ims-reports?'+params.toString()).then(r=>r.json());
     const ssold={},sstk={},amtMap={};
     (d.supplierStyleSales||[]).forEach(s=>{ssold[s.supName]=(ssold[s.supName]||0)+(s.qty||0);});
     (d.supplierStyleStock||[]).forEach(s=>{sstk[s.supName]=(sstk[s.supName]||0)+(s.qty||0);});
@@ -6281,6 +6308,7 @@ function renderReport2(data){
   window._r2FastMovers = _movList.filter(x=>!x.cleared).sort((a,b)=>b.pct-a.pct);
   window._r2SlowMovers = _movList.filter(x=>!x.cleared&&x.pct<40).sort((a,b)=>a.pct-b.pct);
   const _tr2=s=>{s=String(s||'');return s.length>13?s.slice(0,12)+'…':s;};
+  const _tr=s=>{s=String(s||'—');return s.length>17?s.slice(0,16)+'…':s;};
   const _fm=window._r2FastMovers, _sm=window._r2SlowMovers;
   _r2Stat('r2stat-fastmov', _fm.filter(x=>x.pct>=75).length+' vendors ≥75%', _fm[0]?('Top: '+_tr(_fm[0].name)):'—');
   _r2Stat('r2stat-slowmov', _sm.length+' slow vendors', _sm[0]?('Worst: '+_tr(_sm[0].name)):'—');
@@ -6316,7 +6344,7 @@ function renderReport2(data){
   })();
 
   // Tile overview stats — client ko bina report khole hi key number dikh jaye
-  const _cur=(sa.summary||{}); const _tr=s=>{s=String(s||'—');return s.length>17?s.slice(0,16)+'…':s;};
+  const _cur=(sa.summary||{});
   const tmAmt=(window._r2TMData&&window._r2TMData.salesSummary&&window._r2TMData.salesSummary.totalAmount);
   const _MN2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const curMonLabel=_MN2[new Date().getMonth()];
@@ -6324,7 +6352,7 @@ function renderReport2(data){
   _r2Stat('r2stat-sales', _r2Cr(ss.totalAmount), nfmt(ss.totalTransactions)+' bills');
   { const da=(data.deptAnalytics||[]).sort((a,b)=>(b.amount||0)-(a.amount||0));
     _r2Stat('r2stat-topdept', nfmt(da.length)+' depts', da[0]?('top '+_tr(da[0].dept)):'');
-    _r2Mini('r2mini-topdept','bar',{labels:da.slice(0,7).map(d=>d.dept.length>10?d.dept.slice(0,9)+'…':d.dept),values:da.slice(0,7).map(d=>d.amount)},'#16a34a',_r2Cr); }
+    _r2Bar('r2mini-topdept','r2hd-topdept',da.slice(0,7).map(d=>d.dept.length>14?d.dept.slice(0,13)+'…':d.dept),da.slice(0,7).map(d=>d.amount),{horizontal:true,tickFmt:_r2Cr,fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN')}); }
   { const c=(data.topCategories||[])[0]; _r2Stat('r2stat-cat', c?_tr(c.category):'—', c?_r2Cr(c.amount):''); }
   { const c=(data.supplierSales||[])[0]; _r2Stat('r2stat-supplier', c?_tr(c.name):'—', c?_r2Cr(c.amount):''); }
   { const c=(data.salespersons||[]); _r2Stat('r2stat-sp', nfmt(c.length)+' people', c[0]?('top '+_tr(c[0].name)):''); }
