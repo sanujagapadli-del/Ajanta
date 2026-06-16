@@ -2759,7 +2759,10 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oCategory  = findC(outHeader, /^category$/i);
     const oSP        = findC(outHeader, /^salesperson$/i);
     const oNetQty    = findC(outHeader, /netsls[\s._-]?qty/i);
-    const oNetAmt    = findC(outHeader, /netsls[\s._-]?net|netsls[\s._-]?amount/i);
+    let oNetAmt      = findC(outHeader, /netsls[\s._-]?(?:amount|amt)/i);
+    if (oNetAmt < 0) oNetAmt = findC(outHeader, /netsls[\s._-]?net(?![\s._-]?(?:qty|count|no))/i);
+    if (oNetAmt < 0) oNetAmt = findC(outHeader, /^(?:net|sale|total)[\s._-]?(?:amount|amt)$/i);
+    if (oNetAmt >= 0 && oNetAmt === oNetQty) oNetAmt = -1; // sanity: never use qty col as amount
     const oSupplier  = findC(outHeader, /^supplier[\s._-]?name$/i);
     const oCity      = findC(outHeader, /^supplier[\s._-]?city$/i);
     const oState     = findC(outHeader, /^supplier[\s._-]?state$/i);
