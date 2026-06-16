@@ -2794,7 +2794,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         if (!d || (fromDate && d < fromDate) || (toDate && d > toDate)) return;
       }
       // Report 2.0 department filter: collect full list, then skip non-matching rows
-      const dept = oDept >= 0 ? (cleanLabel(row[oDept]) || '—') : '—';
+      const _dRaw = oDept >= 0 ? String(row[oDept]||'').trim() : '';
+      const dept = (_dRaw && !isJunkLabel(_dRaw)) ? _dRaw : '—';
       if (dept && dept !== '—') allDeptsSet.add(dept);
       if (deptFilter && dept !== deptFilter) return;
       const city = String(row[oCity]||'').trim() || '—';
@@ -2975,7 +2976,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const isCur = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
       const isLY  = hasDateFilter && (!lyFrom || d >= lyFrom) && (!lyTo || d <= lyTo);
       if (!isCur && !isLY) return;
-      if (deptFilter) { const dpt = oDept >= 0 ? (cleanLabel(row[oDept]) || '—') : '—'; if (dpt !== deptFilter) return; }
+      if (deptFilter) { const _dr=oDept>=0?String(row[oDept]||'').trim():''; const dpt=(_dr&&!isJunkLabel(_dr))?_dr:'—'; if (dpt !== deptFilter) return; }
       const qty  = getNum(row, oNetQty);
       const amt  = getNum(row, oNetAmt);
       const sp   = cleanLabel(row[oSP]);
