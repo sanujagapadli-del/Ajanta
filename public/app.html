@@ -1145,6 +1145,7 @@ tbody tr:last-child td{border-bottom:none;}
             <button class="rpt-tab-btn" data-tab="supplierstock" onclick="switchRptTab('supplierstock')">🏭 Supplier Stock</button>
             <button class="rpt-tab-btn" data-tab="stockcat"      onclick="switchRptTab('stockcat')">🏷 Stock by Category</button>
             <button class="rpt-tab-btn" data-tab="turnover"      onclick="switchRptTab('turnover')">🔄 Stock Turnover</button>
+            <button class="rpt-tab-btn" data-tab="itemledger"   onclick="switchRptTab('itemledger')">💰 Item P&amp;L</button>
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -1558,6 +1559,36 @@ tbody tr:last-child td{border-bottom:none;}
               <th class="rpt-th-amber" style="text-align:right">ATV △</th>
             </tr></thead>
             <tbody id="rptSPAnalyticsBody"><tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+            </table>
+          </div></div>
+        </div>
+
+        <!-- ══ PANEL: Item Profit & Loss ══ -->
+        <div id="rptPanel-itemledger" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+            <input id="ilSearch" type="text" placeholder="Search supplier / item / category…"
+              oninput="renderRptItemLedger(_rptData&&_rptData.itemLedger||[])"
+              style="flex:1;min-width:200px;max-width:340px;padding:8px 13px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:13px;color:#334155;outline:none;font-family:'Inter',sans-serif">
+            <button onclick="_ilExportCSV()" style="padding:8px 16px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='#c7d2fe';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='#e8ecf8';this.style.color='#64748b'">↓ CSV</button>
+          </div>
+          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;min-width:1200px"><thead><tr>
+              <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
+              <th class="rpt-th-dark" style="text-align:left">Supplier</th>
+              <th class="rpt-th-blue" style="text-align:left">Category</th>
+              <th class="rpt-th-blue" style="text-align:left">Sub-Cat</th>
+              <th class="rpt-th-dark" style="text-align:left">Item / Style</th>
+              <th class="rpt-th-dark" style="text-align:left">Article</th>
+              <th class="rpt-th-amber" style="text-align:center">Pur Date</th>
+              <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
+              <th class="rpt-th-amber" style="text-align:right">Cost / Unit</th>
+              <th class="rpt-th-green" style="text-align:center">Sale Date</th>
+              <th class="rpt-th-green" style="text-align:right">Sale Qty</th>
+              <th class="rpt-th-green" style="text-align:right">Sale Amt</th>
+              <th class="rpt-th-purple" style="text-align:right">Profit / Loss</th>
+              <th class="rpt-th-dark" style="text-align:right">Avail Stock</th>
+            </tr></thead>
+            <tbody id="ilBody"><tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
             </table>
           </div></div>
         </div>
@@ -4313,7 +4344,8 @@ const RPT_TABS = {
   stocksummary: 'Current Stock Summary',
   supplierstock:'Supplier-wise Stock Value',
   stockcat:     'Stock by Category',
-  turnover:     'Stock Turnover'
+  turnover:     'Stock Turnover',
+  itemledger:   'Item Profit & Loss'
 };
 // Sales-based tabs (reference only). Date filter ab sab tabs pe lagu hota hai —
 // sales tabs XN Date se, stock tabs Pur Date se (backend me handle hota hai).
@@ -4453,6 +4485,7 @@ async function loadImsReports(forceSync) {
     renderRptStockCat(_r2Data.categoryStock||[]);
     renderRptTurnover(_r2Data);
     renderRptSPAnalytics(_r2Data.spAnalytics||null);
+    renderRptItemLedger(_r2Data.itemLedger||[]);
     return;
   }
 
@@ -4494,6 +4527,7 @@ async function loadImsReports(forceSync) {
   renderRptStockCat(data.categoryStock || []);
   renderRptTurnover(data);
   renderRptSPAnalytics(data.spAnalytics || null);
+  renderRptItemLedger(data.itemLedger || []);
 }
 
 function renderRptSummary(s, stock) {
@@ -5224,6 +5258,63 @@ function renderRptSPAnalytics(data) {
   };
   window._renderSPARows = renderSPRows;
   renderSPRows(spTable, false);
+}
+
+// ══════════════════════════════════════════════════════
+// ITEM PROFIT & LOSS REPORT
+// ══════════════════════════════════════════════════════
+function renderRptItemLedger(rows) {
+  const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
+  let filtered = rows;
+  if (q) filtered = rows.filter(r => `${r.supName} ${r.style} ${r.cat} ${r.subcat} ${r.article}`.toLowerCase().includes(q));
+  const LIMIT = 100;
+  const show  = filtered.slice(0, LIMIT);
+  const body  = document.getElementById('ilBody');
+  if (!body) return;
+  if (!filtered.length) {
+    body.innerHTML = `<tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">${q ? 'No results for "'+q+'"' : 'No data'}</td></tr>`;
+    return;
+  }
+  const td = (v, s='') => `<td class="rpt-td" style="padding:6px 10px;font-size:12px${s?';'+s:''}">${v}</td>`;
+  body.innerHTML = show.map((r, i) => {
+    const pClr = r.profit > 0 ? 'color:#16a34a;font-weight:700' : r.profit < 0 ? 'color:#dc2626;font-weight:700' : 'color:#94a3b8';
+    const aClr = r.availQty <= 0 ? 'color:#dc2626;font-weight:700' : r.availQty < 5 ? 'color:#d97706;font-weight:700' : 'color:#334155';
+    return `<tr style="border-bottom:1px solid #f4f6ff">
+      ${td(i+1,'color:#94a3b8;text-align:center')}
+      ${td(`<span style="font-weight:700;color:#334155">${r.supName||'—'}</span>`)}
+      ${td(r.cat||'—','color:#64748b')}
+      ${td(r.subcat||'—','color:#94a3b8;font-size:11px')}
+      ${td(`<span style="font-weight:700;color:#4f46e5">${r.style||'—'}</span>`)}
+      ${td(r.article||'—','color:#94a3b8;font-size:11px')}
+      ${td(_fmtD(r.firstPurDate)||'—','text-align:center;color:#d97706')}
+      ${td(Number(r.purQty||0).toLocaleString('en-IN'),'text-align:right;color:#64748b')}
+      ${td(r.costPerUnit>0?fmtINR(r.costPerUnit):'—','text-align:right;color:#d97706')}
+      ${td(_fmtD(r.lastSaleDate)||'—','text-align:center;color:#16a34a')}
+      ${td(Number(r.saleQty||0).toLocaleString('en-IN'),'text-align:right;color:#0ea5e9')}
+      ${td(r.saleAmt>0?fmtINR(r.saleAmt):'—','text-align:right;color:#16a34a;font-weight:600')}
+      ${td(r.profit!==0?(r.profit>0?'+':'')+fmtINR(r.profit):'—','text-align:right;'+pClr)}
+      ${td(Number(r.availQty||0).toLocaleString('en-IN'),'text-align:right;'+aClr)}
+    </tr>`;
+  }).join('');
+  if (filtered.length > LIMIT) {
+    body.innerHTML += `<tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8;padding:12px">
+      Showing ${LIMIT} of ${filtered.length} — use search to narrow</td></tr>`;
+  }
+}
+
+function _ilExportCSV() {
+  const rows = _rptData && _rptData.itemLedger || [];
+  if (!rows.length) { alert('No data to export.'); return; }
+  const hdr = ['#','Supplier','Category','Sub-Category','Item/Style','Article No','Pur Date','Pur Qty','Cost/Unit','Sale Date','Sale Qty','Sale Amt','Profit/Loss','Avail Stock'];
+  const esc = s => `"${String(s||'').replace(/"/g,'""')}"`;
+  const lines = [hdr.join(','), ...rows.map((r,i) => [
+    i+1, esc(r.supName), esc(r.cat), esc(r.subcat), esc(r.style), esc(r.article),
+    _fmtD(r.firstPurDate)||'', r.purQty||0, r.costPerUnit||0,
+    _fmtD(r.lastSaleDate)||'', r.saleQty||0, r.saleAmt||0, r.profit||0, r.availQty||0
+  ].join(','))];
+  const blob = new Blob(['﻿'+lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'item-pl-' + new Date().toISOString().slice(0,10) + '.csv'; a.click();
 }
 
 // ══════════════════════════════════════════════════════

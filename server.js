@@ -2746,6 +2746,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     }
     function findC(hdr, regex) { return hdr.findIndex(h => regex.test(h)); }
     function r2(n) { return Math.round(n * 100) / 100; }
+    function toISO(s) { const d = parseSheetDate(String(s||'').trim()); if (!d) return ''; return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`; }
 
     const fromDate = from ? new Date(from) : null;
     const toDate   = to   ? (() => { const d = new Date(to); d.setUTCHours(23,59,59,999); return d; })() : null;
@@ -2800,8 +2801,11 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const sku  = oSKU >= 0 ? (String(row[oSKU]||'').trim() || 'Unknown') : null;
       const csKey= city + '||' + state;
       const art = oArticle >= 0 ? (String(row[oArticle]||'').trim()||'') : '';
-      if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0, article: art };
+      if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0, article: art, amount: 0, lastSaleDate: '' };
       bySupStyleSales[ssKey].qty += qty;
+      bySupStyleSales[ssKey].amount += amt;
+      const sdIso = dateStr ? toISO(dateStr) : '';
+      if (sdIso && (!bySupStyleSales[ssKey].lastSaleDate || sdIso > bySupStyleSales[ssKey].lastSaleDate)) bySupStyleSales[ssKey].lastSaleDate = sdIso;
       if (!byStyleSales[sty]) byStyleSales[sty] = { qty: 0 };
       byStyleSales[sty].qty += qty;
 
@@ -2874,6 +2878,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const iStyle    = findC(inHeader, /^style$/i);
     const iArticle  = findC(inHeader, /^article[\s._-]?no$|^articleno$/i);
     const iPurDate  = findC(inHeader, /^pur(chase)?[\s._-]?date$/i);
+    const iSubCat   = findC(inHeader, /^sub[\s._-]?cat(egory)?$/i);
 
     console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCbsQty, iStockQty, iPurDate, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
 
@@ -2896,7 +2901,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const openQ= getNum(row, iOpsQty);                 // Opening Stock
       const prtQ = iPrtQty >= 0 ? getNum(row, iPrtQty) : 0;  // Purchase Return
       const artI = iArticle >= 0 ? (String(row[iArticle]||'').trim()||'') : '';
-      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0, article: artI };
+      const subcatI = iSubCat >= 0 ? String(row[iSubCat]||'').trim() : '';
+      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0, article: artI, subcat: subcatI, purAmt: 0, firstPurDate: '' };
       bySupStyleStock[ssKey].qty += getNum(row, iStockQty);
       bySupStyleStock[ssKey].purQty += purQ;
       bySupStyleStock[ssKey].opening += openQ;
@@ -2907,6 +2913,10 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       byStyleStock[sty].opening += openQ;
       byStyleStock[sty].purReturn += prtQ;
       const cost = getNum(row, iCostPrice);
+      bySupStyleStock[ssKey].purAmt += purQ * cost;
+      const pdStr = iPurDate >= 0 ? String(row[iPurDate]||'').trim() : '';
+      const pdIso = pdStr ? toISO(pdStr) : '';
+      if (pdIso && (!bySupStyleStock[ssKey].firstPurDate || pdIso < bySupStyleStock[ssKey].firstPurDate)) bySupStyleStock[ssKey].firstPurDate = pdIso;
       const qty  = getNum(row, iStockQty);
       const val  = qty * cost;
       totalStockQty += qty; totalStockValue += val;
@@ -2916,6 +2926,28 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       if (!byCatStock[cat]) byCatStock[cat] = { qty:0, value:0, purQty:0 };
       byCatStock[cat].qty += qty; byCatStock[cat].value += val; byCatStock[cat].purQty += purQ;
     });
+
+    // ── Item Ledger: per-supplier-style purchase/sale profit tracker ────────
+    const _ilMap = {};
+    Object.entries(bySupStyleStock).forEach(([k, v]) => {
+      _ilMap[k] = { key: k, supName: v.supName, style: v.style, cat: v.cat, subcat: v.subcat||'',
+        article: v.article||'', purQty: r2(v.purQty), purAmt: Math.round(v.purAmt||0),
+        costPerUnit: v.purQty > 0 ? Math.round((v.purAmt||0) / v.purQty) : 0,
+        firstPurDate: v.firstPurDate||'',
+        saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
+    });
+    Object.entries(bySupStyleSales).forEach(([k, v]) => {
+      if (!_ilMap[k]) _ilMap[k] = { key: k, supName: v.supName, style: v.style, cat: v.cat, subcat: '',
+        article: v.article||'', purQty: 0, purAmt: 0, costPerUnit: 0, firstPurDate: '',
+        saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
+      _ilMap[k].saleQty = r2(v.qty);
+      _ilMap[k].saleAmt = Math.round(v.amount||0);
+      _ilMap[k].lastSaleDate = v.lastSaleDate||'';
+    });
+    const itemLedger = Object.values(_ilMap).map(r => ({
+      ...r, availQty: r2(r.purQty - r.saleQty),
+      profit: Math.round(r.saleAmt - (r.saleQty * r.costPerUnit))
+    })).sort((a, b) => b.saleAmt - a.saleAmt);
 
     const sortVal = arr => arr.sort((a,b) => b.value - a.value);
     const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), purQty:r2(d.purQty), opening:r2(d.opening), purReturn:r2(d.purReturn), value:Math.round(d.value) })));
@@ -3031,7 +3063,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       },
       deptAnalytics,
       basketSize,
-      departments: [...allDeptsSet].sort((a,b) => a.localeCompare(b))
+      departments: [...allDeptsSet].sort((a,b) => a.localeCompare(b)),
+      itemLedger
     });
   } catch (err) {
     console.error('[IMS Reports] error:', err.message);
