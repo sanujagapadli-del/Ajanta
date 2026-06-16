@@ -1149,6 +1149,7 @@ tbody tr:last-child td{border-bottom:none;}
             <button class="rpt-tab-btn" data-tab="stockcat"      onclick="switchRptTab('stockcat')">🏷 Stock by Category</button>
             <button class="rpt-tab-btn" data-tab="turnover"      onclick="switchRptTab('turnover')">🔄 Stock Turnover</button>
             <button class="rpt-tab-btn" data-tab="itemledger"   onclick="switchRptTab('itemledger')">💰 Item Profit &amp; Loss</button>
+            <button class="rpt-tab-btn" data-tab="dailypl"      onclick="switchRptTab('dailypl')">📅 Daily P&amp;L</button>
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -1596,6 +1597,12 @@ tbody tr:last-child td{border-bottom:none;}
           </div></div>
         </div>
 
+        <!-- ══ PANEL: Daily P&L ══ -->
+        <div id="rptPanel-dailypl" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div style="font-size:11px;color:#94a3b8;margin-bottom:16px">Tip: "All" ya "This Month" filter laga ke sync karo — tab today/yesterday ka data aayega.</div>
+          <div id="dailyplBody"><div style="text-align:center;padding:40px;color:#94a3b8">Generate report to view</div></div>
+        </div>
+
     </div><!-- /rpt-inner -->
     </div><!-- /imsView-reports -->
 
@@ -1735,6 +1742,13 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-desc">Purchase date, cost, sale date, profit &amp; available stock per item.</div>
           <div class="r2h-stat" id="r2stat-itemledger"></div>
           <div id="r2list-itemledger" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
+        </div>
+        <div class="r2h-card" onclick="openR2Report('dailypl')" style="display:flex;flex-direction:column">
+          <div class="r2h-ico" style="background:#fff7ed;color:#ea580c"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+          <div class="r2h-title">Daily P&amp;L</div>
+          <div class="r2h-desc">Today, yesterday &amp; last month — net sales, qty, bills, UPT &amp; ATV.</div>
+          <div class="r2h-stat" id="r2stat-dailypl"></div>
+          <div id="r2list-dailypl" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
         <!-- Hidden cards (disabled, kept for future re-enable) -->
         <div class="r2h-card" style="display:none" onclick="openR2Report('sales')"><div class="r2h-stat" id="r2stat-sales"></div><div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div></div>
@@ -4351,7 +4365,8 @@ const RPT_TABS = {
   supplierstock:'Supplier-wise Stock Value',
   stockcat:     'Stock by Category',
   turnover:     'Stock Turnover',
-  itemledger:   'Item Profit & Loss'
+  itemledger:   'Item Profit & Loss',
+  dailypl:      'Daily Profit & Loss'
 };
 // Sales-based tabs (reference only). Date filter ab sab tabs pe lagu hota hai —
 // sales tabs XN Date se, stock tabs Pur Date se (backend me handle hota hai).
@@ -4492,6 +4507,7 @@ async function loadImsReports(forceSync) {
     renderRptTurnover(_r2Data);
     renderRptSPAnalytics(_r2Data.spAnalytics||null);
     renderRptItemLedger(_r2Data.itemLedger||[]);
+    renderRptDailyPL(_r2Data.salesSummary||{});
     return;
   }
 
@@ -4535,6 +4551,7 @@ async function loadImsReports(forceSync) {
   renderRptSPAnalytics(data.spAnalytics || null);
   _ilDisplayLimit = 100;
   renderRptItemLedger(data.itemLedger || []);
+  renderRptDailyPL(data.salesSummary || {});
 }
 
 function renderRptSummary(s, stock) {
@@ -5312,6 +5329,90 @@ function renderRptItemLedger(rows) {
       <button onclick="_ilLoadMore()" style="padding:7px 20px;border:1.5px solid #4f46e5;border-radius:9px;font-size:12px;font-weight:700;color:#4f46e5;background:#fff;cursor:pointer">View More (${_remaining.toLocaleString('en-IN')})</button>
     </td></tr>`;
   }
+}
+
+// ══════════════════════════════════════════════════════
+// DAILY P&L REPORT — Today / Yesterday / 2nd Last Day / Last Month
+// ══════════════════════════════════════════════════════
+function renderRptDailyPL(ss) {
+  const el = document.getElementById('dailyplBody');
+  if (!el) return;
+  const bd = (ss && ss.byDate) || [];
+
+  const toISO = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  const now  = new Date();
+  const todayISO = toISO(now);
+  const yestISO  = toISO(new Date(now.getFullYear(), now.getMonth(), now.getDate()-1));
+  const d2ISO    = toISO(new Date(now.getFullYear(), now.getMonth(), now.getDate()-2));
+  const lmS      = toISO(new Date(now.getFullYear(), now.getMonth()-1, 1));
+  const lmE      = toISO(new Date(now.getFullYear(), now.getMonth(), 0));
+
+  const find  = iso => bd.find(r => r.date === iso) || {date:iso, transactions:0, qty:0, amount:0};
+  const lmD   = bd.filter(r => r.date >= lmS && r.date <= lmE)
+                  .reduce((a,r) => ({transactions:a.transactions+r.transactions, qty:a.qty+r.qty, amount:a.amount+r.amount}), {transactions:0,qty:0,amount:0});
+
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const lmName = MN[now.getMonth()===0?11:now.getMonth()-1]+' '+(now.getMonth()===0?now.getFullYear()-1:now.getFullYear());
+  const fd = iso => { const p=iso.split('-'); return p[2]+' '+MN[+p[1]-1]; };
+  const cr = v => v>0 ? '₹'+Math.round(v).toLocaleString('en-IN') : '₹0';
+  const nf = v => Number(v||0).toLocaleString('en-IN');
+  const upt = d => d.transactions ? (d.qty/d.transactions).toFixed(2) : '—';
+  const atv = d => d.transactions ? cr(Math.round(d.amount/d.transactions)) : '—';
+
+  const chip = (cur, prev) => {
+    if (!prev || !prev.amount) return cur.amount>0 ? '<span style="font-size:10px;font-weight:700;color:#16a34a;background:#dcfce7;padding:2px 8px;border-radius:20px">▲ New</span>' : '';
+    const pv = (cur.amount - prev.amount) / prev.amount * 100;
+    const c = pv>=0 ? '#16a34a':'#dc2626', bg = pv>=0 ? '#dcfce7':'#fee2e2';
+    return '<span style="font-size:10px;font-weight:700;color:'+c+';background:'+bg+';padding:2px 8px;border-radius:20px">'+(pv>=0?'▲':'▼')+' '+Math.abs(pv).toFixed(1)+'%</span>';
+  };
+
+  const periods = [
+    {label:'Today',         sub:fd(todayISO), d:find(todayISO), prev:find(yestISO), accent:'#4f46e5', bdr:'2px solid #4f46e5', sh:'box-shadow:0 4px 18px rgba(79,70,229,.14)'},
+    {label:'Yesterday',     sub:fd(yestISO),  d:find(yestISO),  prev:find(d2ISO),   accent:'#0ea5e9', bdr:'1.5px solid #e8ecf8', sh:''},
+    {label:'2nd Last Day',  sub:fd(d2ISO),    d:find(d2ISO),    prev:null,          accent:'#64748b', bdr:'1.5px solid #e8ecf8', sh:''},
+    {label:'Last Month',    sub:lmName,       d:lmD,            prev:null,          accent:'#f59e0b', bdr:'1.5px solid #e8ecf8', sh:''},
+  ];
+
+  const cards = periods.map(function(p) {
+    return '<div style="background:#fff;border:'+p.bdr+';border-radius:16px;padding:20px;'+p.sh+'">'
+      + '<div style="font-size:10px;font-weight:800;color:'+p.accent+';letter-spacing:.09em;text-transform:uppercase">'+p.label+'</div>'
+      + '<div style="font-size:11px;color:#94a3b8;margin-bottom:12px">'+p.sub+'</div>'
+      + '<div style="font-size:24px;font-weight:800;color:#0f172a;margin-bottom:8px">'+cr(p.d.amount)+'</div>'
+      + '<div style="min-height:20px;margin-bottom:12px">'+(p.prev ? chip(p.d,p.prev)+' vs prev day' : '')+'</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding-top:12px;border-top:1px solid #f1f5f9">'
+      + '<div><div style="font-size:9px;color:#94a3b8;font-weight:700;letter-spacing:.06em;margin-bottom:2px">QTY</div><div style="font-size:15px;font-weight:700;color:'+p.accent+'">'+nf(Math.round(p.d.qty))+'</div></div>'
+      + '<div><div style="font-size:9px;color:#94a3b8;font-weight:700;letter-spacing:.06em;margin-bottom:2px">BILLS</div><div style="font-size:15px;font-weight:700;color:'+p.accent+'">'+nf(p.d.transactions)+'</div></div>'
+      + '<div><div style="font-size:9px;color:#94a3b8;font-weight:700;letter-spacing:.06em;margin-bottom:2px">UPT</div><div style="font-size:15px;font-weight:700;color:'+p.accent+'">'+upt(p.d)+'</div></div>'
+      + '</div></div>';
+  });
+
+  const rows = [
+    ['Net Sales (₹)',         function(p){return cr(p.d.amount);}],
+    ['Net Qty (pcs)',         function(p){return nf(Math.round(p.d.qty));}],
+    ['Bills',                 function(p){return nf(p.d.transactions);}],
+    ['Unit Per Transaction',  function(p){return upt(p.d);}],
+    ['ATV (₹)',               function(p){return atv(p.d);}],
+  ];
+
+  const thCols = periods.map(function(p,i){
+    return '<th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:700;color:'+p.accent+';border-bottom:2px solid #e8ecf8">'+p.label+'<div style="font-weight:400;color:#94a3b8;font-size:10px">'+p.sub+'</div></th>';
+  }).join('');
+
+  const tbRows = rows.map(function(row,ri){
+    const bg = ri%2 ? 'background:#fafafa;' : '';
+    const last = ri === rows.length-1 ? '' : 'border-bottom:1px solid #f1f5f9;';
+    const cells = periods.map(function(p){
+      return '<td style="padding:11px 14px;text-align:right;font-size:13px;font-weight:700;color:#334155">'+row[1](p)+'</td>';
+    }).join('');
+    return '<tr style="'+bg+last+'"><td style="padding:11px 14px;font-size:12px;font-weight:600;color:#334155">'+row[0]+'</td>'+cells+'</tr>';
+  }).join('');
+
+  el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">'
+    + cards.join('')
+    + '</div>'
+    + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:560px">'
+    + '<thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;border-bottom:2px solid #e8ecf8">Metric</th>'+thCols+'</tr></thead>'
+    + '<tbody>'+tbRows+'</tbody></table></div>';
 }
 
 function _ilExportCSV() {
@@ -6697,6 +6798,42 @@ function renderReport2(data){
           <td style="padding:3px 4px;text-align:right;color:${r.availQty<=0?'#dc2626':'#64748b'}">${Number(r.availQty||0).toLocaleString('en-IN')}</td>
         </tr>`;
       }).join('')}</tbody></table>`;
+  })();
+  // Daily P&L hub card stat — show today's sales vs yesterday
+  (()=>{
+    const bd = (data.salesSummary && data.salesSummary.byDate) || [];
+    const toISO2 = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const n2 = new Date();
+    const todD = bd.find(r=>r.date===toISO2(n2)) || {amount:0,transactions:0};
+    const yesD = bd.find(r=>r.date===toISO2(new Date(n2.getFullYear(),n2.getMonth(),n2.getDate()-1))) || {amount:0};
+    const todAmt = Math.round(todD.amount||0);
+    const yesAmt = Math.round(yesD.amount||0);
+    let sub = 'Today ₹'+todAmt.toLocaleString('en-IN');
+    if (yesAmt > 0) {
+      const pv = ((todAmt - yesAmt) / yesAmt * 100).toFixed(1);
+      sub += ' · vs yest '+(pv>=0?'▲':'▼')+Math.abs(pv)+'%';
+    }
+    _r2Stat('r2stat-dailypl', 'Today '+nfmt(todD.transactions||0)+' bills', sub);
+    const el2 = document.getElementById('r2list-dailypl'); if(!el2) return;
+    const recentDays = bd.slice(-5).reverse();
+    if(!recentDays.length){el2.innerHTML='<div style="color:#94a3b8">No data</div>';return;}
+    el2.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+      + '<thead><tr style="border-bottom:1.5px solid #e2e8f0">'
+      + '<th style="text-align:left;padding:3px 4px 5px 0;color:#94a3b8;font-weight:600;font-size:10px">Date</th>'
+      + '<th style="text-align:right;padding:3px 4px 5px;color:#94a3b8;font-weight:600;font-size:10px">Bills</th>'
+      + '<th style="text-align:right;padding:3px 0 5px 4px;color:#94a3b8;font-weight:600;font-size:10px">Net Sales</th>'
+      + '</tr></thead><tbody>'
+      + recentDays.map(function(r,i){
+          const MN2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const p=r.date.split('-');
+          const dl=p[2]+' '+MN2[+p[1]-1];
+          return '<tr style="'+(i<recentDays.length-1?'border-bottom:1px solid #f1f5f9':'')+'">'
+            +'<td style="padding:4px 4px 4px 0;color:#334155;font-weight:600">'+dl+'</td>'
+            +'<td style="padding:4px 4px;text-align:right;color:#64748b">'+Number(r.transactions||0).toLocaleString('en-IN')+'</td>'
+            +'<td style="padding:4px 0 4px 4px;text-align:right;color:#4f46e5;font-weight:700">₹'+Math.round(r.amount||0).toLocaleString('en-IN')+'</td>'
+            +'</tr>';
+        }).join('')
+      + '</tbody></table>';
   })();
   // Flex-fill charts need a resize nudge after layout settles
   setTimeout(()=>{
