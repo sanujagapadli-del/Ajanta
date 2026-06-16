@@ -3064,7 +3064,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       supplierStock,
       categoryStock,
       supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),
-      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty), purQty: r2(d.purQty), opening: r2(d.opening), purReturn: r2(d.purReturn) })),
+      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, article: d.article||'', subcat: d.subcat||'', qty: r2(d.qty), purQty: r2(d.purQty), opening: r2(d.opening), purReturn: r2(d.purReturn) })),
       styleSales: Object.entries(byStyleSales).map(([style, d]) => ({ style, qty: r2(d.qty) })),
       styleStock: Object.entries(byStyleStock).map(([style, d]) => ({ style, qty: r2(d.qty), purQty: r2(d.purQty) })),
       spAnalytics: {

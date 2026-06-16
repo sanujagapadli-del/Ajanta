@@ -5027,8 +5027,8 @@ function renderRptTurnover(data) {
       const stock = stockMap[key] || 0;
       const purQty = purMap[key] || 0, opening = openMap[key] || 0, purReturn = retMap[key] || 0;
       const pct   = _turnoverPct(sold, stock);
-      return { key, supName: meta.supName || '—', style: meta.style || key, cat: meta.cat || '—', article: meta.article || '', sold, stock, purQty, opening, purReturn, pct };
-    }).sort((a, b) => b.sold - a.sold);
+      return { key, supName: meta.supName || '—', style: meta.style || key, cat: meta.cat || '—', article: stockMeta[key]?.article || found?.article || '', sold, stock, purQty, opening, purReturn, pct };
+    }).filter(r => r.purQty > 0).sort((a, b) => b.sold - a.sold);
     window._turnoverCache[bodyId] = { rows, drillType: 'item', expanded: false, q: '' };
   };
 
@@ -5069,6 +5069,7 @@ async function showTurnoverDetail(key, drillType, sold, stock, pct, days, purcha
   modal.style.display = 'flex';
 
   const total    = sold + stock;
+  const totalIn  = opening + purchase - purReturn;
   const N        = n => Number(n||0).toLocaleString('en-IN');
   // Real ledger flow (table se match karta hai): Opening + Purchase − Return → Sold → Remaining
   const flowLine = `Opening <b>${N(opening)}</b> + Purchased <b>${N(purchase)}</b> − Returned <b>${N(purReturn)}</b> → Sold <b>${N(sold)}</b> → Remaining <b>${N(stock)}</b>.`;
@@ -5110,9 +5111,9 @@ async function showTurnoverDetail(key, drillType, sold, stock, pct, days, purcha
   document.getElementById('imsToBody').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
       <div style="background:#eef2ff;border-radius:10px;padding:14px;text-align:center">
-        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">PURCHASED</div>
-        <div style="font-size:22px;font-weight:800;color:#4f46e5">${N(purchase)}</div>
-        <div style="font-size:9px;color:#94a3b8;margin-top:2px">${opening ? 'Opening '+N(opening) : 'actual'}</div>
+        <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">TOTAL IN</div>
+        <div style="font-size:22px;font-weight:800;color:#4f46e5">${N(totalIn)}</div>
+        <div style="font-size:9px;color:#94a3b8;margin-top:2px">${opening?`Op ${N(opening)} + `:''}Pur ${N(purchase)}${purReturn?` − Ret ${N(purReturn)}`:''}</div>
       </div>
       <div style="background:#f0fdf4;border-radius:10px;padding:14px;text-align:center">
         <div style="font-size:9px;font-weight:700;color:#6b7280;letter-spacing:.07em;margin-bottom:6px">SOLD</div>
@@ -5183,7 +5184,7 @@ async function showTurnoverDetail(key, drillType, sold, stock, pct, days, purcha
         <tbody>${rows.map((r,i) => `<tr style="background:${i%2?'#f8fafc':'#fff'}">
           <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#94a3b8;font-weight:700">${i+1}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9">${r.date||'—'}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#6366f1;font-weight:600">${r.bill||'—'}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#6366f1;font-weight:600">${r.xnNo||'—'}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#475569">${r.category||'—'}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#7c3aed">${r.style||'—'}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;text-align:right;color:#10b981;font-weight:600">${Number(r.qty||0).toLocaleString('en-IN')}</td>
@@ -7216,6 +7217,25 @@ function rptExportCSV() {
     rows = [['#','Category','Available Qty','Stock Value (INR)','% of Total Value']];
     const g4 = (_rptData.categoryStock||[]).reduce((s,c)=>s+c.value,0)||1;
     (_rptData.categoryStock||[]).forEach((c,i) => rows.push([i+1, c.category, c.qty, c.value, ((c.value/g4)*100).toFixed(1)+'%']));
+
+  } else if (_activeRptTab === 'turnover') {
+    const itemVisible = document.getElementById('toPane-item')?.style.display !== 'none';
+    const bodyId = itemVisible ? 'rptTurnoverItemBody' : 'rptTurnoverSupplierBody';
+    const cache = window._turnoverCache?.[bodyId];
+    const statusLabel = _toStatus === 'fast' ? 'Fast' : _toStatus === 'slow' ? 'Slow' : 'All';
+    const viewLabel = itemVisible ? 'Item_Style' : 'Supplier';
+    filename = `Fast_Slow_Moving_${viewLabel}_${statusLabel}_${range}.csv`;
+    let exportRows = cache?.rows || [];
+    if (_toStatus !== 'all') exportRows = exportRows.filter(r => _turnoverStatus(r) === _toStatus);
+    const q = (document.getElementById(itemVisible ? 'turnoverItemSearch' : 'turnoverSupSearch')?.value || '').toLowerCase();
+    if (q) exportRows = exportRows.filter(r => String(r.key||'').toLowerCase().includes(q) || String(r.supName||'').toLowerCase().includes(q) || String(r.style||'').toLowerCase().includes(q));
+    if (itemVisible) {
+      rows = [['#','Supplier','Style / Item','Category','Opening','Purchase Qty','Pur. Return','Sales Qty','Avail Stock','% Sold','Status']];
+      exportRows.forEach((r,i) => rows.push([i+1, r.supName||'—', r.style||r.key, r.cat||'—', Math.round(r.opening||0), Math.round(r.purQty||0), Math.round(r.purReturn||0), Math.round(r.sold||0), Math.round(r.stock||0), r.pct != null ? r.pct+'%' : '—', _turnoverStatus(r)]));
+    } else {
+      rows = [['#','Supplier Name','Opening','Purchase Qty','Pur. Return','Sales Qty','Avail Stock','% Sold','Status']];
+      exportRows.forEach((r,i) => rows.push([i+1, r.key, Math.round(r.opening||0), Math.round(r.purQty||0), Math.round(r.purReturn||0), Math.round(r.sold||0), Math.round(r.stock||0), r.pct != null ? r.pct+'%' : '—', _turnoverStatus(r)]));
+    }
   }
 
   if (!rows.length) { showToast('Export karne ke liye koi data nahi', 'error'); return; }
@@ -10285,7 +10305,8 @@ function _r2LMPop(evt, key){
   const pctHtml=pct!=null?`<span style="font-size:18px;font-weight:900;color:${up?'#16a34a':'#dc2626'}">${up?'▲ +':'▼ '}${pct}%</span>`:'';
   const _MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const fmtDt=iso=>{if(!iso)return'';const p=iso.split('-');return _MN[+(p[1]||1)-1]+' '+(p[0]||'');};
-  const lyF=window._r2LYFrom||'', lyT=window._r2LYTo||'';
+  const lyF=(_r2From&&_r2To)?`${+_r2From.slice(0,4)-1}${_r2From.slice(4)}`:(window._r2LYFrom||'');
+  const lyT=(_r2From&&_r2To)?`${+_r2To.slice(0,4)-1}${_r2To.slice(4)}`:(window._r2LYTo||'');
   const lyLabel=lyF?((lyT&&lyF.slice(0,7)!==lyT.slice(0,7))?fmtDt(lyF)+'–'+fmtDt(lyT):fmtDt(lyF)):'Last Year';
   const curF=_r2From||'', curT=_r2To||'';
   const curLabel=curF?((curT&&curF.slice(0,7)!==curT.slice(0,7))?fmtDt(curF)+'–'+fmtDt(curT):fmtDt(curF)):'Current Period';
