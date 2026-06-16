@@ -2799,7 +2799,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const xnNo = String(row[oXnNo]||'').trim();
       const sku  = oSKU >= 0 ? (String(row[oSKU]||'').trim() || 'Unknown') : null;
       const csKey= city + '||' + state;
-      if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0 };
+      const art = oArticle >= 0 ? (String(row[oArticle]||'').trim()||'') : '';
+      if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0, article: art };
       bySupStyleSales[ssKey].qty += qty;
       if (!byStyleSales[sty]) byStyleSales[sty] = { qty: 0 };
       byStyleSales[sty].qty += qty;
@@ -2894,7 +2895,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const purQ = getNum(row, iPurQty);
       const openQ= getNum(row, iOpsQty);                 // Opening Stock
       const prtQ = iPrtQty >= 0 ? getNum(row, iPrtQty) : 0;  // Purchase Return
-      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0 };
+      const artI = iArticle >= 0 ? (String(row[iArticle]||'').trim()||'') : '';
+      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0, article: artI };
       bySupStyleStock[ssKey].qty += getNum(row, iStockQty);
       bySupStyleStock[ssKey].purQty += purQ;
       bySupStyleStock[ssKey].opening += openQ;
