@@ -1610,7 +1610,7 @@ tbody tr:last-child td{border-bottom:none;}
           </div>
           <div id="shStatus" style="font-size:12px;color:#94a3b8;margin-bottom:12px">Select a date to view stock snapshot.</div>
           <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
-            <table style="width:100%;border-collapse:collapse;min-width:900px"><thead><tr>
+            <table style="width:100%;border-collapse:collapse;min-width:900px"><thead><tr id="shHeaderRow">
               <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
               <th class="rpt-th-dark">Supplier</th>
               <th class="rpt-th-blue">Department</th>
@@ -1619,10 +1619,9 @@ tbody tr:last-child td{border-bottom:none;}
               <th class="rpt-th-dark">Style / Item</th>
               <th class="rpt-th-dark">Article</th>
               <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
-              <th class="rpt-th-green" style="text-align:right">Sold Qty</th>
-              <th class="rpt-th-purple" style="text-align:right">Avail Stock</th>
+              <th class="rpt-th-purple" style="text-align:right" colspan="3">Stock (Select date →)</th>
             </tr></thead>
-            <tbody id="shBody"><tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8">Select a date above to view stock snapshot</td></tr></tbody>
+            <tbody id="shBody"><tr><td colspan="11" class="rpt-td" style="text-align:center;color:#94a3b8">Select a date above to view stock snapshot</td></tr></tbody>
             </table>
           </div></div>
         </div>
@@ -5356,7 +5355,8 @@ function renderRptItemLedger(rows) {
 // ══════════════════════════════════════════════════════
 // STOCK HISTORY REPORT — stock snapshot as of any past date
 // ══════════════════════════════════════════════════════
-let _shData = [], _shAsOf = '';
+let _shData = [], _shAsOf = '', _shDates = [];
+function _shFmtColDate(d){ const p=d.split('-'),mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return p[2]+'-'+mn[+p[1]-1]; }
 function _initShPicker() {
   const el = document.getElementById('shDateInput');
   if (!el) return;
@@ -5383,14 +5383,29 @@ async function _shLoad() {
   const body = document.getElementById('shBody');
   if (!_shAsOf) return;
   if (st) st.textContent = 'Loading…';
-  if (body) body.innerHTML = '<tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8;padding:24px">Loading…</td></tr>';
+  if (body) body.innerHTML = '<tr><td colspan="11" class="rpt-td" style="text-align:center;color:#94a3b8;padding:24px">Loading…</td></tr>';
   const data = await api('/api/ims-stock-history?asOf='+_shAsOf).catch(()=>null);
   if (!data || data.error) {
     if (st) st.textContent = data && data.error ? data.error : 'Failed to load.';
     return;
   }
-  _shData = data.items || [];
-  if (st) st.textContent = _shData.length.toLocaleString('en-IN') + ' items found as of ' + _shAsOf;
+  _shData  = data.items || [];
+  _shDates = data.dates || [_shAsOf];
+  // Update column headers dynamically
+  const hdr = document.getElementById('shHeaderRow');
+  if (hdr) {
+    const fixed = `<th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
+      <th class="rpt-th-dark">Supplier</th>
+      <th class="rpt-th-blue">Department</th>
+      <th class="rpt-th-blue">Category</th>
+      <th class="rpt-th-blue">Sub-Cat</th>
+      <th class="rpt-th-dark">Style / Item</th>
+      <th class="rpt-th-dark">Article</th>
+      <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>`;
+    const dateCols = _shDates.map((d,i)=>`<th class="rpt-th-purple" style="text-align:right;min-width:76px">${_shFmtColDate(d)}${i===_shDates.length-1?' ★':''}</th>`).join('');
+    hdr.innerHTML = fixed + dateCols;
+  }
+  if (st) st.textContent = _shData.length.toLocaleString('en-IN') + ' items — ' + _shDates.map(_shFmtColDate).join(', ');
   _shRender();
 }
 function _shRender() {
@@ -5398,13 +5413,22 @@ function _shRender() {
   if (!body) return;
   const q = ((document.getElementById('shSearch')||{}).value||'').trim().toLowerCase();
   const filtered = q ? _shData.filter(r => (r.supName+' '+r.dept+' '+r.cat+' '+r.subcat+' '+r.style+' '+r.article).toLowerCase().includes(q)) : _shData;
+  const nCols = 8 + (_shDates.length || 1);
   if (!filtered.length) {
-    body.innerHTML = '<tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8">'+(q?'No results for "'+q+'"':'No data')+'</td></tr>';
+    body.innerHTML = '<tr><td colspan="'+nCols+'" class="rpt-td" style="text-align:center;color:#94a3b8">'+(q?'No results for "'+q+'"':'No data')+'</td></tr>';
     return;
   }
-  const td = (v, s) => '<td class="rpt-td" style="padding:6px 10px;font-size:12px'+(s?';'+s:'')+'">'+(v||'—')+'</td>';
+  const td = (v, s) => '<td class="rpt-td" style="padding:6px 10px;font-size:12px'+(s?';'+s:'')+'">'+(v==null?'—':v)+'</td>';
   body.innerHTML = filtered.map(function(r, i) {
-    const aClr = r.availQty <= 0 ? 'color:#dc2626;font-weight:700' : r.availQty < 5 ? 'color:#d97706;font-weight:700' : 'color:#16a34a;font-weight:700';
+    const stocks = r.stocks || [r.availQty || 0];
+    const stockCells = stocks.map(function(qty, si) {
+      const isLatest = si === stocks.length - 1;
+      const clr = qty <= 0 ? 'color:#dc2626;font-weight:700' : qty < 5 ? 'color:#d97706;font-weight:700' : isLatest ? 'color:#4f46e5;font-weight:700' : 'color:#334155';
+      const prev = stocks[si - 1];
+      const delta = (si > 0 && prev != null) ? qty - prev : null;
+      const deltaStr = delta != null && delta !== 0 ? ' <span style="font-size:10px;color:'+(delta>0?'#16a34a':'#dc2626')+'">'+(delta>0?'▲':'▼')+Math.abs(delta)+'</span>' : '';
+      return td(qty.toLocaleString('en-IN')+deltaStr, 'text-align:right;'+clr);
+    }).join('');
     return '<tr style="border-bottom:1px solid #f4f6ff">'
       + td(i+1, 'color:#94a3b8;text-align:center')
       + td('<span style="font-weight:700;color:#334155">'+String(r.supName||'—')+'</span>')
@@ -5414,8 +5438,7 @@ function _shRender() {
       + td('<span style="font-weight:700;color:#0f172a">'+String(r.style||'—')+'</span>')
       + td(r.article||'—', 'color:#94a3b8;font-size:11px')
       + td(Number(r.purQty||0).toLocaleString('en-IN'), 'text-align:right;color:#d97706')
-      + td(Number(r.saleQty||0).toLocaleString('en-IN'), 'text-align:right;color:#0ea5e9')
-      + td(Number(r.availQty||0).toLocaleString('en-IN'), 'text-align:right;'+aClr)
+      + stockCells
       + '</tr>';
   }).join('');
 }
@@ -5423,8 +5446,12 @@ function _shExportCSV() {
   if (!_shData.length) { alert('No data to export.'); return; }
   const q = ((document.getElementById('shSearch')||{}).value||'').trim().toLowerCase();
   const rows = q ? _shData.filter(r => (r.supName+' '+r.dept+' '+r.cat+' '+r.subcat+' '+r.style+' '+r.article).toLowerCase().includes(q)) : _shData;
-  const hdr = ['#','Supplier','Department','Category','Sub-Category','Style / Item','Article','Pur Qty','Sold Qty','Avail Stock'];
-  const lines = [hdr.join(',')].concat(rows.map((r,i) => [i+1,'"'+String(r.supName||'').replace(/"/g,'""')+'"','"'+(r.dept||'')+'\"','"'+(r.cat||'')+'\"','"'+(r.subcat||'')+'\"','"'+String(r.style||'').replace(/"/g,'""')+'"','"'+(r.article||'')+'\"',r.purQty||0,r.saleQty||0,r.availQty||0].join(',')));
+  const dateHdrs = _shDates.length ? _shDates.map(d=>'Stock '+d) : ['Avail Stock'];
+  const hdr = ['#','Supplier','Department','Category','Sub-Category','Style / Item','Article','Pur Qty'].concat(dateHdrs);
+  const lines = [hdr.join(',')].concat(rows.map(function(r,i){
+    const sv = (r.stocks||[r.availQty||0]).map(function(s){return s||0;});
+    return [i+1,'"'+String(r.supName||'').replace(/"/g,'""')+'"','"'+(r.dept||'')+'"','"'+(r.cat||'')+'"','"'+(r.subcat||'')+'"','"'+String(r.style||'').replace(/"/g,'""')+'"','"'+(r.article||'')+'"',r.purQty||0].concat(sv).join(',');
+  }));
   const blob = new Blob([lines.join('\n')], {type:'text/csv'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = 'stock-history-'+(_shAsOf||'all')+'.csv'; a.click();

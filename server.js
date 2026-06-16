@@ -3205,7 +3205,11 @@ app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
     const findC  = (hdr,rx) => hdr.findIndex(h=>rx.test(h));
     const isJunk = s => ['[default]','default','[none]','none'].includes(String(s||'').trim().toLowerCase());
 
-    const asOfDate = new Date(asOf); asOfDate.setUTCHours(23,59,59,999);
+    // Build 3 target dates: asOf-2, asOf-1, asOf
+    const mkD = daysBack => { const d=new Date(asOf); d.setUTCDate(d.getUTCDate()-daysBack); d.setUTCHours(23,59,59,999); return d; };
+    const targetDates = [mkD(2), mkD(1), mkD(0)];
+    const dateLabels  = targetDates.map(d=>d.toISOString().slice(0,10));
+    const maxDate = targetDates[2]; // asOf = latest
 
     // ── Out Stock columns ──
     const oH = outRows[0]||[];
@@ -3223,54 +3227,63 @@ app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
     const iArticle=findC(iH,/^article[\s._-]?no$|^articleno$/i);
     const iDept=findC(iH,/^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
 
-    // ── Build purchase map (In Stock, Pur Date ≤ asOf) ──
-    const purMap = {};
+    // ── Build purchase events per key ──
+    const purByKey = {};
     inRows.slice(1).forEach(row => {
       const pd = parseD(String(row[iPurDate]||'').trim());
-      if (!pd || pd > asOfDate) return;
+      if (!pd || pd > maxDate) return;
       const sup = String(row[iSup]||'').trim()||'Unknown';
       const sty = iSty>=0 ? (String(row[iSty]||'').trim()||'Unknown') : 'Unknown';
       const key = sup+'||'+sty;
-      if (!purMap[key]) purMap[key] = {
-        supName: sup, style: sty,
+      if (!purByKey[key]) purByKey[key] = {
+        supName:sup, style:sty,
         cat:    iCat>=0    ? String(row[iCat]||'').trim()    : '',
         subcat: iSubCat>=0 ? String(row[iSubCat]||'').trim() : '',
         article:iArticle>=0? String(row[iArticle]||'').trim(): '',
         dept:   iDept>=0 && !isJunk(row[iDept]) ? String(row[iDept]||'').trim() : '',
-        purQty: 0
+        events: []
       };
-      purMap[key].purQty += getN(row, iPurQty);
+      purByKey[key].events.push({ t: pd.getTime(), qty: getN(row, iPurQty) });
     });
 
-    // ── Build sale + dept maps (Out Stock, XN Date ≤ asOf) ──
-    const saleMap = {}, deptMap = {};
+    // ── Build sale events per key + dept map ──
+    const saleByKey = {}, deptMap = {};
     outRows.slice(1).forEach(row => {
       const dt = parseD(String(row[oXnDate]||'').trim());
-      if (!dt || dt > asOfDate) return;
+      if (!dt || dt > maxDate) return;
       const sup = String(row[oSup]||'').trim()||'Unknown';
       const sty = oSty>=0 ? (String(row[oSty]||'').trim()||'Unknown') : 'Unknown';
       const key = sup+'||'+sty;
-      saleMap[key] = (saleMap[key]||0) + getN(row, oNetQty);
+      if (!saleByKey[key]) saleByKey[key] = [];
+      saleByKey[key].push({ t: dt.getTime(), qty: getN(row, oNetQty) });
       if (oDept>=0 && !deptMap[key]) {
         const dRaw = String(row[oDept]||'').trim();
         if (dRaw && !isJunk(dRaw)) deptMap[key] = dRaw;
       }
     });
 
-    // ── Build result ──
-    const items = Object.entries(purMap)
-      .map(([key, v]) => {
-        const purQty  = Math.round(v.purQty);
-        const saleQty = Math.round(Math.max(0, saleMap[key]||0));
-        const availQty = purQty - saleQty;
-        const dept = deptMap[key] || v.dept || '—';
-        if (deptFilter && deptFilter !== 'All' && dept !== deptFilter) return null;
-        return { supName:v.supName, dept, cat:v.cat||'—', subcat:v.subcat||'—', style:v.style, article:v.article||'—', purQty, saleQty, availQty };
-      })
-      .filter(r => r && r.purQty > 0)
-      .sort((a,b) => (a.dept||'').localeCompare(b.dept||'') || (a.cat||'').localeCompare(b.cat||'') || (a.supName||'').localeCompare(b.supName||''));
+    // ── Compute stock for each key × each target date ──
+    const items = [];
+    for (const key of Object.keys(purByKey)) {
+      const meta = purByKey[key];
+      const pe   = meta.events;
+      const se   = saleByKey[key] || [];
+      const dept = deptMap[key] || meta.dept || '—';
+      if (deptFilter && deptFilter !== 'All' && dept !== deptFilter) continue;
+      const totalPur = pe.reduce((s,e)=>s+e.qty, 0);
+      if (totalPur <= 0) continue;
+      const stocks = targetDates.map(d => {
+        const dT = d.getTime();
+        const pq = pe.filter(e=>e.t<=dT).reduce((s,e)=>s+e.qty, 0);
+        const sq = se.filter(e=>e.t<=dT).reduce((s,e)=>s+e.qty, 0);
+        return Math.round(pq - sq);
+      });
+      items.push({ supName:meta.supName, dept, cat:meta.cat||'—', subcat:meta.subcat||'—',
+        style:meta.style, article:meta.article||'—', purQty:Math.round(totalPur), stocks });
+    }
 
-    res.json({ asOf, total: items.length, items });
+    items.sort((a,b)=>(a.dept||'').localeCompare(b.dept||'')||(a.cat||'').localeCompare(b.cat||'')||(a.supName||'').localeCompare(b.supName||''));
+    res.json({ asOf, dates: dateLabels, total: items.length, items });
   } catch(e) { console.error('[IMS Stock History]', e); res.status(500).json({ error: e.message }); }
 });
 
