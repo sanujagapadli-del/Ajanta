@@ -6757,7 +6757,7 @@ function renderReport2(data){
     +   cell('Net Sales',   fmtINR(ss.totalAmount), '#4f46e5', lmAmtG,  'sales')
     +   cell('Net Qty',     nfmt(ss.totalQty),      '#4f46e5', lmQtyG,  'qty')
     +   cell('Total Bills', nfmt(s.curBills),        '#4f46e5', lmBillG, 'bills')
-    +   mcell('UPT', (s.curUPT!=null?s.curUPT:'—'), '#4f46e5', (s.lyUPT??'—'), s.uptGrowth)
+    +   mcell('Units Per Transaction', (s.curUPT!=null?s.curUPT:'—'), '#4f46e5', (s.lyUPT??'—'), s.uptGrowth)
     +   mcell('ATV', fmtINR(s.curATV),              '#4f46e5', fmtINR(s.lyATV), s.atvGrowth)
     + `</div>`;
 
@@ -6921,7 +6921,7 @@ function renderReport2(data){
     _r2Bar('r2mini-topdept','r2hd-topdept',da.slice(0,7).map(d=>d.dept.length>14?d.dept.slice(0,13)+'…':d.dept),da.slice(0,7).map(d=>d.amount),{horizontal:true,tickFmt:_r2Cr,fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN')}); }
   { const c=(data.topCategories||[])[0]; _r2Stat('r2stat-cat', c?_tr(c.category):'—', c?_r2Cr(c.amount):''); }
   { const c=(data.supplierSales||[])[0]; _r2Stat('r2stat-supplier', c?_tr(c.name):'—', c?_r2Cr(c.amount):''); }
-  { const c=(data.salespersons||[]); _r2Stat('r2stat-sp', nfmt(c.length)+' people', c[0]?('top '+_tr(c[0].name)):''); }
+  { const c=(data.salespersons||[]); _r2Stat('r2stat-sp', nfmt(c.length)+' salesperson', c[0]?('top '+_tr(c[0].name)):''); }
   _r2Stat('r2stat-spanalytics', 'UPT '+(_cur.curUPT!=null?_cur.curUPT:'—'), 'ATV '+_r2Cr(_cur.curATV));
   { const c=(data.cityStateSales||[])[0]; _r2Stat('r2stat-citystate', c?_tr(c.city):'—', c?_r2Cr(c.amount):''); }
   { const st=(data.currentStock||{}); _r2Stat('r2stat-stocksummary', _r2Cr(st.totalValue), nfmt(st.totalQty)+' pcs'); }
