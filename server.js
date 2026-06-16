@@ -2757,15 +2757,15 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oXnDate    = findC(outHeader, /^xn[\s._-]?date$/i);
     const oXnNo      = findC(outHeader, /^xn[\s._-]?no$/i);
     const oCategory  = findC(outHeader, /^category$/i);
-    let oDept        = findC(outHeader, /^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
-    // Position-based fallback: if dept col not found by name but there's an undetected col between state and category
-    if (oDept < 0 && oState >= 0 && oCategory >= 0 && oCategory > oState + 1) oDept = oState + 1;
     const oSP        = findC(outHeader, /^salesperson$/i);
     const oNetQty    = findC(outHeader, /netsls[\s._-]?qty/i);
     const oNetAmt    = findC(outHeader, /netsls[\s._-]?net|netsls[\s._-]?amount/i);
     const oSupplier  = findC(outHeader, /^supplier[\s._-]?name$/i);
     const oCity      = findC(outHeader, /^supplier[\s._-]?city$/i);
     const oState     = findC(outHeader, /^supplier[\s._-]?state$/i);
+    let oDept        = findC(outHeader, /^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
+    // Position-based fallback: if dept col not found by name, use the column right after state (between state and category)
+    if (oDept < 0 && oState >= 0 && oCategory >= 0 && oCategory > oState + 1) oDept = oState + 1;
     const oSKU       = findC(outHeader, /sku[\s._-]?code|^sku$|item[\s._-]?code|product[\s._-]?code|article[\s._-]?no|articleno|^itemid$|item[\s._-]?id/i);
     const oStyle     = findC(outHeader, /^style$/i);
     const oArticle   = findC(outHeader, /^article[\s._-]?no$|^articleno$/i);
