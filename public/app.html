@@ -5513,9 +5513,11 @@ function openR2Report(tab){
   const movview    = document.getElementById('r2MovView');
   const topdeptview= document.getElementById('r2TopdeptView');
   const _hideAll   = ()=>{ if(fview) fview.style.display='none'; if(movview) movview.style.display='none'; if(topdeptview) topdeptview.style.display='none'; if(slot) slot.style.display='none'; };
-  // Sales Funnel — self-contained view
+  // Sales Funnel — self-contained view (inherit hub date)
   if(tab === 'funnel'){
-    _hideAll(); if(fview) fview.style.display=''; _r2RenderFunnel(); _r2ScrollTop(); return;
+    _hideAll(); if(fview) fview.style.display='';
+    _r2FunnelFrom=_r2From; _r2FunnelTo=_r2To;
+    _r2RenderFunnel(); _r2ScrollTop(); return;
   }
   // Fast / Slow Moving — open Stock Turnover IMS panel pre-filtered to the right status
   if(tab === 'fastmov' || tab === 'slowmov'){
@@ -5527,9 +5529,13 @@ function openR2Report(tab){
     setTimeout(()=>setTurnoverStatus(tab==='fastmov'?'fast':'slow'), 80);
     _r2ScrollTop(); return;
   }
-  // Top Departments — self-contained view
+  // Top Departments — self-contained view (inherit hub date)
   if(tab === 'topdept'){
-    _hideAll(); if(topdeptview){ topdeptview.style.display=''; _r2RenderTopdept(); } _r2ScrollTop(); return;
+    _hideAll(); if(topdeptview){
+      topdeptview.style.display='';
+      _r2TDFrom=_r2From; _r2TDTo=_r2To;
+      _r2RenderTopdept();
+    } _r2ScrollTop(); return;
   }
   _hideAll(); if(slot) slot.style.display='';
   const inner = document.getElementById('rpt-inner');
@@ -5618,12 +5624,17 @@ function _r2RenderFunnel(){
       onChange:dates=>{ _r2FunnelFrom=dates[0]?toISO(dates[0]):''; _r2ClearFunnelPresets(); _r2LoadFunnelData(); }});
     flatpickr(document.getElementById('r2fTo'),{ dateFormat:'d/m/y', allowInput:false, disableMobile:false,
       onChange:dates=>{ _r2FunnelTo=dates[0]?toISO(dates[0]):''; _r2ClearFunnelPresets(); _r2LoadFunnelData(); }});
+    // Pre-fill pickers without triggering onChange (false = no trigger)
+    const fp1=document.getElementById('r2fFrom')?._flatpickr, fp2=document.getElementById('r2fTo')?._flatpickr;
+    if(_r2FunnelFrom && fp1) fp1.setDate(_r2FunnelFrom,false,'Y-m-d');
+    if(_r2FunnelTo   && fp2) fp2.setDate(_r2FunnelTo,  false,'Y-m-d');
   }
-  // Set "All" active if no filter
   _r2SyncFunnelPresetUI();
-  // Use existing loaded data initially (fast), then re-fetch if funnel has its own filter
-  if(_r2FunnelFrom||_r2FunnelTo){ _r2LoadFunnelData(); }
-  else { _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2DrawFunnel(); }
+  // If funnel dates match hub dates, use already-loaded byDate — no extra fetch needed
+  const _fSameAsHub=(_r2FunnelFrom===_r2From && _r2FunnelTo===_r2To);
+  if(!_r2FunnelFrom && !_r2FunnelTo || _fSameAsHub){
+    _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2DrawFunnel();
+  } else { _r2LoadFunnelData(); }
 }
 function _r2ClearFunnelPresets(){ document.querySelectorAll('.r2fp-q').forEach(b=>b.classList.remove('active')); }
 function _r2SyncFunnelPresetUI(){
