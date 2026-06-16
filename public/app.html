@@ -4920,7 +4920,11 @@ function renderRptTurnover(data) {
   const buildRows = (salesArr, stockArr, nameKey, bodyId, drillType) => {
     const stockMap = {}, purMap = {}, openMap = {}, retMap = {};
     (stockArr || []).forEach(s => { stockMap[s[nameKey]] = Number(s.qty) || 0; purMap[s[nameKey]] = Number(s.purQty) || 0; openMap[s[nameKey]] = Number(s.opening) || 0; retMap[s[nameKey]] = Number(s.purReturn) || 0; });
-    const keys = new Set([...(salesArr||[]).map(s => s[nameKey]), ...Object.keys(stockMap)]);
+    // When dept filter is active, stock data is cross-dept — only include vendors with actual sales
+    const deptActive = _r2Dept && _r2Dept !== 'All';
+    const keys = deptActive
+      ? new Set((salesArr||[]).map(s => s[nameKey]))
+      : new Set([...(salesArr||[]).map(s => s[nameKey]), ...Object.keys(stockMap)]);
     const rows = [...keys].map(key => {
       const found = (salesArr||[]).find(s => s[nameKey] === key);
       const sold  = found ? Number(found.qty) || 0 : 0;
@@ -4939,7 +4943,10 @@ function renderRptTurnover(data) {
     const bodyId = 'rptTurnoverItemBody';
     const stockMap = {}, purMap = {}, openMap = {}, retMap = {}, stockMeta = {};
     (stockArr || []).forEach(s => { stockMap[s.key] = Number(s.qty) || 0; purMap[s.key] = Number(s.purQty) || 0; openMap[s.key] = Number(s.opening) || 0; retMap[s.key] = Number(s.purReturn) || 0; stockMeta[s.key] = s; });
-    const keys = new Set([...(salesArr||[]).map(s => s.key), ...Object.keys(stockMap)]);
+    const deptActive2 = _r2Dept && _r2Dept !== 'All';
+    const keys = deptActive2
+      ? new Set((salesArr||[]).map(s => s.key))
+      : new Set([...(salesArr||[]).map(s => s.key), ...Object.keys(stockMap)]);
     const rows = [...keys].map(key => {
       const found = (salesArr||[]).find(s => s.key === key);
       const meta  = found || stockMeta[key] || {};
@@ -5557,6 +5564,8 @@ function openR2Report(tab){
     const inner=document.getElementById('rpt-inner');
     if(inner && slot && inner.parentNode!==slot) slot.appendChild(inner);
     _initRptDatepickers();
+    if(_r2From || _r2To) _setRptDate(_r2From, _r2To);
+    else { const f=document.getElementById('rptFrom'),t=document.getElementById('rptTo'); if(f)f.value=''; if(t)t.value=''; }
     switchRptTab('turnover');
     setTimeout(()=>setTurnoverStatus(tab==='fastmov'?'fast':'slow'), 80);
     _r2ScrollTop(); return;
