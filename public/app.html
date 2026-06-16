@@ -6130,14 +6130,14 @@ async function loadReport2(forceSync){
   // Fetch same-period-last-year + this-month for YoY growth chips & funnel tile stat.
   const now=new Date(), cy=now.getFullYear(), cm=now.getMonth();
   const toISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  const shiftYr=iso=>{const d=new Date(iso);d.setFullYear(d.getFullYear()-1);return toISO(d);};
+  // tmData = current month MTD (1st of this month → today)
   const tmFrom=new Date(cy,cm,1);
   const tmParams=new URLSearchParams({from:toISO(tmFrom),to:toISO(now)});
   if(_r2Dept && _r2Dept!=='All') tmParams.append('dept',_r2Dept);
-  // LY = same date range shifted -1 year; if no filter: current FY-YTD vs same last year
-  const fyStart=(cm>=3)?cy:cy-1;
-  const lyFromStr=_r2From?shiftYr(_r2From):toISO(new Date(fyStart-1,3,1));
-  const lyToStr  =_r2To  ?shiftYr(_r2To)  :toISO(new Date(cy-1,cm,now.getDate()));
+  // lyData = same MTD last year (always fixed: Jun 1 2025 → Jun 15 2025)
+  const pad2=n=>String(n).padStart(2,'0');
+  const lyFromStr=`${cy-1}-${pad2(cm+1)}-01`;
+  const lyToStr  =`${cy-1}-${pad2(cm+1)}-${pad2(now.getDate())}`;
   const lyParams=new URLSearchParams({from:lyFromStr,to:lyToStr});
   if(_r2Dept && _r2Dept!=='All') lyParams.append('dept',_r2Dept);
   window._r2LYFrom=lyFromStr; window._r2LYTo=lyToStr;
@@ -6247,10 +6247,10 @@ function renderReport2(data){
     if(prev==null||isNaN(prev)||prev===0||cur==null||isNaN(cur)) return null;
     return Math.round((cur-prev)/Math.abs(prev)*100);
   };
-  // Growth chip = current selected period vs same period last year
-  const lmAmtG=pctChg(ss.totalAmount, ly&&ly.totalAmount);
-  const lmQtyG=pctChg(ss.totalQty,    ly&&ly.totalQty);
-  const lmBillG=pctChg(s.curBills, lySA&&lySA.curBills);
+  // Growth chip = current month MTD vs same MTD last year (fixed, independent of date filter)
+  const lmAmtG=pctChg(tm&&tm.totalAmount, ly&&ly.totalAmount);
+  const lmQtyG=pctChg(tm&&tm.totalQty,    ly&&ly.totalQty);
+  const lmBillG=pctChg(tmSA&&tmSA.curBills, lySA&&lySA.curBills);
 
   // Headline cell with YoY chip (click → popover)
   const cell=(lbl,val,color,pct,lmKey)=>{
@@ -6266,11 +6266,11 @@ function renderReport2(data){
     return `<div class="r2-mcell cur"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div>${sub}</div>`;
   };
 
-  // Store values for popover: lm = last year same period, tm = current period
+  // Store values for popover: lm = same MTD last year, tm = current month MTD
   window._r2LMVals={
-    sales: { lm: ly&&ly.totalAmount, tm: ss.totalAmount, label:'Net Sales' },
-    qty:   { lm: ly&&ly.totalQty,   tm: ss.totalQty,   label:'Net Qty'   },
-    bills: { lm: lySA&&lySA.curBills, tm: s.curBills,  label:'Total Bills' }
+    sales: { lm: ly&&ly.totalAmount, tm: tm&&tm.totalAmount, label:'Net Sales' },
+    qty:   { lm: ly&&ly.totalQty,   tm: tm&&tm.totalQty,   label:'Net Qty'   },
+    bills: { lm: lySA&&lySA.curBills, tm: tmSA&&tmSA.curBills, label:'Total Bills' }
   };
 
   const k=document.getElementById('r2Kpis');
