@@ -5938,14 +5938,13 @@ function openR2Report(tab){
     _hideAll(); if(fview) fview.style.display='';
     _r2FunnelFrom=_r2From; _r2FunnelTo=_r2To;
     if(!_r2From && !_r2To){
-      const _fn=new Date(),_fy=_fn.getFullYear(),_fm=_fn.getMonth();
-      const _fs=_fm>=3?_fy:_fy-1, _fp=n=>String(n).padStart(2,'0');
-      _r2FunnelFrom=`${_fs}-04-01`; _r2FunnelTo=`${_fy}-${_fp(_fm+1)}-${_fp(_fn.getDate())}`;
+      const _fn=new Date(), _fp=n=>String(n).padStart(2,'0');
+      _r2FunnelFrom=`${_fn.getFullYear()}-01-01`; _r2FunnelTo=`${_fn.getFullYear()}-${_fp(_fn.getMonth()+1)}-${_fp(_fn.getDate())}`;
     }
     _r2RenderFunnel();
     if(!_r2From && !_r2To){
-      const fyBtn=document.querySelector('#r2FunnelView .r2fp-q[data-q="fy"]');
-      if(fyBtn){ document.querySelectorAll('#r2FunnelView .r2fp-q').forEach(b=>b.classList.remove('active')); fyBtn.classList.add('active'); }
+      const yrBtn=document.querySelector('#r2FunnelView .r2fp-q[data-q="year"]');
+      if(yrBtn){ document.querySelectorAll('#r2FunnelView .r2fp-q').forEach(b=>b.classList.remove('active')); yrBtn.classList.add('active'); }
     }
     _r2ScrollTop(); return;
   }
