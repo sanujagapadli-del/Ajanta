@@ -4425,6 +4425,29 @@ async function loadImsReports(forceSync) {
   if (_r2Dept && _r2Dept !== 'All') params.append('dept', _r2Dept);   // same dept filter as the hub overview
   if (forceSync) params.append('sync', 'true');
 
+  // Reuse hub data when same endpoint + same date + dept — avoids a redundant round-trip
+  const _rDept=_r2Dept||'All';
+  if(!forceSync && _r2Data && _r2Data._rptFrom===from && _r2Data._rptTo===to && _r2Data._rptDept===_rDept){
+    if(syncBtn){syncBtn.disabled=false;syncBtn.innerHTML='⟳ Sync Live Data';}
+    if(status){status.style.color='#10b981';status.textContent='✓ Ready';setTimeout(()=>{if(status){status.style.color='#64748b';status.textContent='';}},2000);}
+    const sub=document.getElementById('rptSubtitle');
+    if(sub) sub.textContent=(from&&to?`${from} → ${to}`:from?`From ${from}`:to?`Up to ${to}`:'All Data')+(_rDept!=='All'?` · ${_rDept}`:'');
+    _r2FillDepts(_r2Data.departments,'rptDeptSel');
+    _rptData=_r2Data;
+    renderRptSummary(_r2Data.salesSummary||{},_r2Data.currentStock||{});
+    renderRptCategories(_r2Data.topCategories||[]);
+    renderRptSupplierSales(_r2Data.supplierSales||[]);
+    renderRptSalespersons(_r2Data.salespersons||[]);
+    renderRptCityState(_r2Data.cityStateSales||[]);
+    renderRptSKU(_r2Data.skuSales||[]);
+    renderRptStockSummary(_r2Data.currentStock||{});
+    renderRptSupplierStock(_r2Data.supplierStock||[]);
+    renderRptStockCat(_r2Data.categoryStock||[]);
+    renderRptTurnover(_r2Data);
+    renderRptSPAnalytics(_r2Data.spAnalytics||null);
+    return;
+  }
+
   const data = await api('/api/ims-reports?' + params.toString());
 
   if (syncBtn) { syncBtn.disabled = false; syncBtn.innerHTML = '⟳ Sync Live Data'; }
@@ -5541,6 +5564,9 @@ function openR2Report(tab){
   const inner = document.getElementById('rpt-inner');
   if(inner && slot && inner.parentNode !== slot) slot.appendChild(inner);
   _initRptDatepickers();
+  // Sync IMS panel date to hub's date so cache hit can skip the API call
+  if(_r2From || _r2To) _setRptDate(_r2From, _r2To);
+  else { const f=document.getElementById('rptFrom'),t=document.getElementById('rptTo'); if(f)f.value=''; if(t)t.value=''; }
   switchRptTab(tab);
   _r2ScrollTop();
 }
@@ -6162,6 +6188,7 @@ async function loadReport2(forceSync){
   window._r2LYData = lyData || null;
   window._r2TMData = tmData || null;
   _r2Data=data;
+  _r2Data._rptFrom=_r2From; _r2Data._rptTo=_r2To; _r2Data._rptDept=_r2Dept||'All';
   _r2FillDepts(data.departments);
 
   // If no date filter is set, auto-fill the date inputs with data's actual range
