@@ -1149,7 +1149,7 @@ tbody tr:last-child td{border-bottom:none;}
             <button class="rpt-tab-btn" data-tab="stockcat"      onclick="switchRptTab('stockcat')">🏷 Stock by Category</button>
             <button class="rpt-tab-btn" data-tab="turnover"      onclick="switchRptTab('turnover')">🔄 Stock Turnover</button>
             <button class="rpt-tab-btn" data-tab="itemledger"   onclick="switchRptTab('itemledger')">💰 Item Profit &amp; Loss</button>
-            <button class="rpt-tab-btn" data-tab="dailypl"      onclick="switchRptTab('dailypl')">📅 Daily P&amp;L</button>
+            <button class="rpt-tab-btn" data-tab="stockhistory"  onclick="switchRptTab('stockhistory')">📦 Stock History</button>
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -1598,10 +1598,36 @@ tbody tr:last-child td{border-bottom:none;}
           </div></div>
         </div>
 
-        <!-- ══ PANEL: Daily P&L ══ -->
-        <div id="rptPanel-dailypl" class="rpt-panel" style="display:none;padding:24px 26px">
-          <div style="font-size:11px;color:#94a3b8;margin-bottom:16px">Tip: "All" ya "This Month" filter laga ke sync karo — tab today/yesterday ka data aayega.</div>
-          <div id="dailyplBody"><div style="text-align:center;padding:40px;color:#94a3b8">Generate report to view</div></div>
+        <!-- ══ PANEL: Stock History ══ -->
+        <div id="rptPanel-stockhistory" class="rpt-panel" style="display:none;padding:24px 26px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:12px;font-weight:600;color:#334155;white-space:nowrap">Stock as of date:</span>
+              <input id="shDateInput" type="text" placeholder="Select date…" readonly
+                style="padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;color:#334155;outline:none;font-family:'Inter',sans-serif;cursor:pointer;min-width:130px">
+            </div>
+            <input id="shSearch" type="text" placeholder="Search supplier / style / category…"
+              oninput="_shRender()"
+              style="flex:1;min-width:180px;max-width:300px;padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;color:#334155;outline:none;font-family:'Inter',sans-serif">
+            <button onclick="_shExportCSV()" style="padding:7px 14px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer">↓ CSV</button>
+          </div>
+          <div id="shStatus" style="font-size:12px;color:#94a3b8;margin-bottom:12px">Select a date to view stock snapshot.</div>
+          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;min-width:900px"><thead><tr>
+              <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
+              <th class="rpt-th-dark">Supplier</th>
+              <th class="rpt-th-blue">Department</th>
+              <th class="rpt-th-blue">Category</th>
+              <th class="rpt-th-blue">Sub-Cat</th>
+              <th class="rpt-th-dark">Style / Item</th>
+              <th class="rpt-th-dark">Article</th>
+              <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
+              <th class="rpt-th-green" style="text-align:right">Sold Qty</th>
+              <th class="rpt-th-purple" style="text-align:right">Avail Stock</th>
+            </tr></thead>
+            <tbody id="shBody"><tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8">Select a date above to view stock snapshot</td></tr></tbody>
+            </table>
+          </div></div>
         </div>
 
     </div><!-- /rpt-inner -->
@@ -1676,8 +1702,8 @@ tbody tr:last-child td{border-bottom:none;}
           <span id="r2Range" style="font-size:11px;color:#94a3b8;white-space:nowrap">All data</span>
         </div>
         <div style="display:flex;align-items:center;gap:5px;flex:1;justify-content:center;flex-wrap:wrap">
-          <button class="r2-preset" data-p="all" onclick="setR2Preset('all',this)">All</button>
-          <button class="r2-preset active" data-p="month" onclick="setR2Preset('month',this)">This Month</button>
+          <button class="r2-preset active" data-p="all" onclick="setR2Preset('all',this)">All</button>
+          <button class="r2-preset" data-p="month" onclick="setR2Preset('month',this)">This Month</button>
           <button class="r2-preset" data-p="lastmonth" onclick="setR2Preset('lastmonth',this)">Last Month</button>
           <button class="r2-preset" data-p="quarter" onclick="setR2Preset('quarter',this)">This Quarter</button>
           <button class="r2-preset" data-p="year" onclick="setR2Preset('year',this)">This Year</button>
@@ -1744,12 +1770,11 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-stat" id="r2stat-itemledger"></div>
           <div id="r2list-itemledger" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
-        <div class="r2h-card" onclick="openR2Report('dailypl')" style="display:flex;flex-direction:column">
-          <div class="r2h-ico" style="background:#fff7ed;color:#ea580c"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-          <div class="r2h-title">Daily P&amp;L</div>
-          <div class="r2h-desc">Today, yesterday &amp; last month — net sales, qty, bills, UPT &amp; ATV.</div>
-          <div class="r2h-stat" id="r2stat-dailypl"></div>
-          <div id="r2list-dailypl" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
+        <div class="r2h-card" onclick="openR2Report('stockhistory')" style="display:flex;flex-direction:column">
+          <div class="r2h-ico" style="background:#ecfdf5;color:#059669"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+          <div class="r2h-title">Stock History</div>
+          <div class="r2h-desc">Select any past date — see stock snapshot by supplier, dept, category &amp; style.</div>
+          <div class="r2h-stat" id="r2stat-stockhistory">Select a date to view</div>
         </div>
         <!-- Hidden cards (disabled, kept for future re-enable) -->
         <div class="r2h-card" style="display:none" onclick="openR2Report('sales')"><div class="r2h-stat" id="r2stat-sales"></div><div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div></div>
@@ -4366,8 +4391,8 @@ const RPT_TABS = {
   supplierstock:'Supplier-wise Stock Value',
   stockcat:     'Stock by Category',
   turnover:     'Stock Turnover',
-  itemledger:   'Item Profit & Loss',
-  dailypl:      'Daily Profit & Loss'
+  itemledger:    'Item Profit & Loss',
+  stockhistory:  'Stock History'
 };
 // Sales-based tabs (reference only). Date filter ab sab tabs pe lagu hota hai —
 // sales tabs XN Date se, stock tabs Pur Date se (backend me handle hota hai).
@@ -4508,7 +4533,6 @@ async function loadImsReports(forceSync) {
     renderRptTurnover(_r2Data);
     renderRptSPAnalytics(_r2Data.spAnalytics||null);
     renderRptItemLedger(_r2Data.itemLedger||[]);
-    renderRptDailyPL(_r2Data.salesSummary||{});
     return;
   }
 
@@ -4552,7 +4576,6 @@ async function loadImsReports(forceSync) {
   renderRptSPAnalytics(data.spAnalytics || null);
   _ilDisplayLimit = 100;
   renderRptItemLedger(data.itemLedger || []);
-  renderRptDailyPL(data.salesSummary || {});
 }
 
 function renderRptSummary(s, stock) {
@@ -5333,9 +5356,84 @@ function renderRptItemLedger(rows) {
 }
 
 // ══════════════════════════════════════════════════════
-// DAILY P&L REPORT — Today / Yesterday / 2nd Last Day / Last Month
+// STOCK HISTORY REPORT — stock snapshot as of any past date
 // ══════════════════════════════════════════════════════
-function renderRptDailyPL(ss) {
+let _shData = [], _shAsOf = '';
+function _initShPicker() {
+  const el = document.getElementById('shDateInput');
+  if (!el || el._flatpickr) return;
+  flatpickr(el, {
+    dateFormat: 'd-M-Y',
+    allowInput: false,
+    disableMobile: false,
+    onReady: (_,__,fp) => fp.calendarContainer.style.fontFamily = "'Inter',sans-serif",
+    onChange: dates => {
+      if (!dates[0]) return;
+      const d = dates[0];
+      _shAsOf = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      _shLoad();
+    }
+  });
+}
+async function _shLoad() {
+  const st = document.getElementById('shStatus');
+  const body = document.getElementById('shBody');
+  if (!_shAsOf) return;
+  if (st) st.textContent = 'Loading…';
+  if (body) body.innerHTML = '<tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8;padding:24px">Loading…</td></tr>';
+  const data = await api('/api/ims-stock-history?asOf='+_shAsOf).catch(()=>null);
+  if (!data || data.error) {
+    if (st) st.textContent = data && data.error ? data.error : 'Failed to load.';
+    return;
+  }
+  _shData = data.items || [];
+  if (st) st.textContent = _shData.length.toLocaleString('en-IN') + ' items found as of ' + _shAsOf;
+  _shRender();
+}
+function _shRender() {
+  const body = document.getElementById('shBody');
+  if (!body) return;
+  const q = ((document.getElementById('shSearch')||{}).value||'').trim().toLowerCase();
+  const filtered = q ? _shData.filter(r => (r.supName+' '+r.dept+' '+r.cat+' '+r.subcat+' '+r.style+' '+r.article).toLowerCase().includes(q)) : _shData;
+  if (!filtered.length) {
+    body.innerHTML = '<tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8">'+(q?'No results for "'+q+'"':'No data')+'</td></tr>';
+    return;
+  }
+  const td = (v, s) => '<td class="rpt-td" style="padding:6px 10px;font-size:12px'+(s?';'+s:'')+'">'+(v||'—')+'</td>';
+  body.innerHTML = filtered.map(function(r, i) {
+    const aClr = r.availQty <= 0 ? 'color:#dc2626;font-weight:700' : r.availQty < 5 ? 'color:#d97706;font-weight:700' : 'color:#16a34a;font-weight:700';
+    return '<tr style="border-bottom:1px solid #f4f6ff">'
+      + td(i+1, 'color:#94a3b8;text-align:center')
+      + td('<span style="font-weight:700;color:#334155">'+String(r.supName||'—')+'</span>')
+      + td(r.dept||'—', 'color:#4f46e5')
+      + td(r.cat||'—', 'color:#64748b')
+      + td(r.subcat||'—', 'color:#94a3b8;font-size:11px')
+      + td('<span style="font-weight:700;color:#0f172a">'+String(r.style||'—')+'</span>')
+      + td(r.article||'—', 'color:#94a3b8;font-size:11px')
+      + td(Number(r.purQty||0).toLocaleString('en-IN'), 'text-align:right;color:#d97706')
+      + td(Number(r.saleQty||0).toLocaleString('en-IN'), 'text-align:right;color:#0ea5e9')
+      + td(Number(r.availQty||0).toLocaleString('en-IN'), 'text-align:right;'+aClr)
+      + '</tr>';
+  }).join('');
+}
+function _shExportCSV() {
+  if (!_shData.length) { alert('No data to export.'); return; }
+  const q = ((document.getElementById('shSearch')||{}).value||'').trim().toLowerCase();
+  const rows = q ? _shData.filter(r => (r.supName+' '+r.dept+' '+r.cat+' '+r.subcat+' '+r.style+' '+r.article).toLowerCase().includes(q)) : _shData;
+  const hdr = ['#','Supplier','Department','Category','Sub-Category','Style / Item','Article','Pur Qty','Sold Qty','Avail Stock'];
+  const lines = [hdr.join(',')].concat(rows.map((r,i) => [i+1,'"'+String(r.supName||'').replace(/"/g,'""')+'"','"'+(r.dept||'')+'\"','"'+(r.cat||'')+'\"','"'+(r.subcat||'')+'\"','"'+String(r.style||'').replace(/"/g,'""')+'"','"'+(r.article||'')+'\"',r.purQty||0,r.saleQty||0,r.availQty||0].join(',')));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'stock-history-'+(_shAsOf||'all')+'.csv'; a.click();
+}
+// switchRptTab override for stockhistory: init date picker
+const _origSwitchRptTab = switchRptTab;
+switchRptTab = function(tab) {
+  _origSwitchRptTab(tab);
+  if (tab === 'stockhistory') { setTimeout(_initShPicker, 50); }
+};
+
+function renderRptDailyPL_DELETED(ss) {
   const el = document.getElementById('dailyplBody');
   if (!el) return;
   const bd = (ss && ss.byDate) || [];
@@ -5414,7 +5512,7 @@ function renderRptDailyPL(ss) {
     + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:560px">'
     + '<thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;border-bottom:2px solid #e8ecf8">Metric</th>'+thCols+'</tr></thead>'
     + '<tbody>'+tbRows+'</tbody></table></div>';
-}
+} // end renderRptDailyPL_DELETED
 
 function _ilExportPDF() {
   const allRows = (_rptData && _rptData.itemLedger) || [];
@@ -6398,19 +6496,8 @@ function _initR2HubPickers(){
     document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));loadReport2();}});
   flatpickr(tEl,{...opts,onChange:dates=>{_r2To=dates[0]?toISO(dates[0]):'';
     document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));loadReport2();}});
-  if(!_r2From && !_r2To){
-    // Default to current month (1st → today)
-    const now=new Date(), y=now.getFullYear(), m=now.getMonth();
-    _r2From=toISO(new Date(y,m,1)); _r2To=toISO(now);
-    fEl._flatpickr.setDate(new Date(y,m,1),false);
-    tEl._flatpickr.setDate(now,false);
-    document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));
-    const mBtn=document.querySelector('#imsView-report2 .r2-preset[data-p="month"]');
-    if(mBtn) mBtn.classList.add('active');
-  } else {
-    if(_r2From) fEl._flatpickr.setDate(_r2From,false,'Y-m-d');
-    if(_r2To)   tEl._flatpickr.setDate(_r2To,  false,'Y-m-d');
-  }
+  if(_r2From) fEl._flatpickr.setDate(_r2From,false,'Y-m-d');
+  if(_r2To)   tEl._flatpickr.setDate(_r2To,  false,'Y-m-d');
 }
 function _r2OnDateChange(){
   // Kept for compatibility — hub inputs now handled by Flatpickr onChange
@@ -6853,42 +6940,6 @@ function renderReport2(data){
           <td style="padding:3px 4px;text-align:right;color:${r.availQty<=0?'#dc2626':'#64748b'}">${Number(r.availQty||0).toLocaleString('en-IN')}</td>
         </tr>`;
       }).join('')}</tbody></table>`;
-  })();
-  // Daily P&L hub card stat — show today's sales vs yesterday
-  (()=>{
-    const bd = (data.salesSummary && data.salesSummary.byDate) || [];
-    const toISO2 = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-    const n2 = new Date();
-    const todD = bd.find(r=>r.date===toISO2(n2)) || {amount:0,transactions:0};
-    const yesD = bd.find(r=>r.date===toISO2(new Date(n2.getFullYear(),n2.getMonth(),n2.getDate()-1))) || {amount:0};
-    const todAmt = Math.round(todD.amount||0);
-    const yesAmt = Math.round(yesD.amount||0);
-    let sub = 'Today ₹'+todAmt.toLocaleString('en-IN');
-    if (yesAmt > 0) {
-      const pv = ((todAmt - yesAmt) / yesAmt * 100).toFixed(1);
-      sub += ' · vs yest '+(pv>=0?'▲':'▼')+Math.abs(pv)+'%';
-    }
-    _r2Stat('r2stat-dailypl', 'Today '+nfmt(todD.transactions||0)+' bills', sub);
-    const el2 = document.getElementById('r2list-dailypl'); if(!el2) return;
-    const recentDays = bd.slice(-5).reverse();
-    if(!recentDays.length){el2.innerHTML='<div style="color:#94a3b8">No data</div>';return;}
-    el2.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
-      + '<thead><tr style="border-bottom:1.5px solid #e2e8f0">'
-      + '<th style="text-align:left;padding:3px 4px 5px 0;color:#94a3b8;font-weight:600;font-size:10px">Date</th>'
-      + '<th style="text-align:right;padding:3px 4px 5px;color:#94a3b8;font-weight:600;font-size:10px">Bills</th>'
-      + '<th style="text-align:right;padding:3px 0 5px 4px;color:#94a3b8;font-weight:600;font-size:10px">Net Sales</th>'
-      + '</tr></thead><tbody>'
-      + recentDays.map(function(r,i){
-          const MN2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          const p=r.date.split('-');
-          const dl=p[2]+' '+MN2[+p[1]-1];
-          return '<tr style="'+(i<recentDays.length-1?'border-bottom:1px solid #f1f5f9':'')+'">'
-            +'<td style="padding:4px 4px 4px 0;color:#334155;font-weight:600">'+dl+'</td>'
-            +'<td style="padding:4px 4px;text-align:right;color:#64748b">'+Number(r.transactions||0).toLocaleString('en-IN')+'</td>'
-            +'<td style="padding:4px 0 4px 4px;text-align:right;color:#4f46e5;font-weight:700">₹'+Math.round(r.amount||0).toLocaleString('en-IN')+'</td>'
-            +'</tr>';
-        }).join('')
-      + '</tbody></table>';
   })();
   // Flex-fill charts need a resize nudge after layout settles
   setTimeout(()=>{

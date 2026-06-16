@@ -2839,8 +2839,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     })));
 
     const fmtByDate = Object.entries(byDate)
-      .map(([date,d]) => ({ date, transactions:d.xns.size, qty:r2(d.qty), amount:r2(d.amt) }))
-      .sort((a,b) => { const da=parseSheetDate(a.date),db=parseSheetDate(b.date); return (da||0)-(db||0); });
+      .map(([date,d]) => ({ date: toISO(date)||date, transactions:d.xns.size, qty:r2(d.qty), amount:r2(d.amt), profit:0 }))
+      .sort((a,b) => a.date.localeCompare(b.date));
 
     const cityStateSales = sortAmt(Object.values(byCityState).map(d => ({
       city: d.city, state: d.state, transactions: d.xns.size, qty: r2(d.qty), amount: Math.round(d.amt)
@@ -2951,6 +2951,20 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       ...r, availQty: r2(r.purQty - r.saleQty),
       profit: Math.round(r.saleAmt - (r.saleQty * r.costPerUnit))
     })).sort((a, b) => b.saleAmt - a.saleAmt);
+
+    // ── Daily profit: second pass over ALL out rows (no date filter) ──────────
+    const _bdProfitMap = {};
+    outRows.slice(1).forEach(row => {
+      const ds = toISO(String(row[oXnDate]||'').trim());
+      if (!ds) return;
+      const qty = getNum(row, oNetQty);
+      if (qty <= 0) return;
+      const sty = oStyle >= 0 ? cleanLabel(row[oStyle]) : 'Unknown';
+      const sup = cleanLabel(row[oSupplier]);
+      const cost = (_ilMap[sup+'||'+sty]?.costPerUnit || 0);
+      _bdProfitMap[ds] = (_bdProfitMap[ds]||0) + (getNum(row, oNetAmt) - cost * qty);
+    });
+    fmtByDate.forEach(r => { r.profit = Math.round(_bdProfitMap[r.date] || 0); });
 
     const sortVal = arr => arr.sort((a,b) => b.value - a.value);
     const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), purQty:r2(d.purQty), opening:r2(d.opening), purReturn:r2(d.purReturn), value:Math.round(d.value) })));
@@ -3149,6 +3163,101 @@ app.post('/api/generate-unique-codes', requireAuth, async (req, res) => {
     console.error('[GenerateCodes]', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── IMS Stock History — stock snapshot as of any past date ──────────────────
+// Params: asOf=YYYY-MM-DD (required), dept=filter (optional)
+// Computes: purQty (In Stock Pur Date ≤ asOf) − saleQty (Out Stock XN Date ≤ asOf)
+app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
+  try {
+    const { asOf, dept: deptFilter } = req.query;
+    if (!asOf) return res.status(400).json({ error: 'asOf date required (YYYY-MM-DD)' });
+
+    const nowTs = Date.now();
+    const hasCached = _imsRawCache.outRows && _imsRawCache.outRows.length > 1;
+    const needsFresh = !hasCached || (nowTs - _imsRawCache.ts) > IMS_CACHE_TTL_MS;
+    let outRows, inRows;
+    if (needsFresh) {
+      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+      const safeGet = range => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'FORMATTED_STRING' })).catch(() => ({ data: { values: [] } }));
+      const [oR, iR] = await Promise.all([safeGet("'Out Stock'!A:AH"), safeGet("'In Stock'!A:AH")]);
+      outRows = oR.data.values || []; inRows = iR.data.values || [];
+      if (outRows.length > 1) { _imsRawCache.outRows = outRows; _imsRawCache.inRows = inRows; _imsRawCache.ts = nowTs; }
+    } else { outRows = _imsRawCache.outRows; inRows = _imsRawCache.inRows; }
+
+    const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+    const parseD = s => { const m=String(s||'').trim().match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/); return m ? new Date(Date.UTC(+m[3],MONTHS[m[2].toLowerCase()]??0,+m[1])) : null; };
+    const getN   = (row,i) => i>=0 ? (parseFloat(row[i])||0) : 0;
+    const findC  = (hdr,rx) => hdr.findIndex(h=>rx.test(h));
+    const isJunk = s => ['[default]','default','[none]','none'].includes(String(s||'').trim().toLowerCase());
+
+    const asOfDate = new Date(asOf); asOfDate.setUTCHours(23,59,59,999);
+
+    // ── Out Stock columns ──
+    const oH = outRows[0]||[];
+    const oXnDate=findC(oH,/xn[\s._-]?date/i), oNetQty=findC(oH,/netsls[\s._-]?qty/i);
+    const oSup=findC(oH,/^supplier[\s._-]?name$/i), oSty=findC(oH,/^style$/i);
+    const oState=findC(oH,/^supplier[\s._-]?state$/i);
+    let oDept=findC(oH,/^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
+    if(oDept<0 && oState>=0) oDept=oState+1;
+
+    // ── In Stock columns ──
+    const iH = inRows[0]||[];
+    const iPurDate=findC(iH,/pur[\s._-]?date/i), iPurQty=findC(iH,/pur[\s._-]?qty/i);
+    const iSup=findC(iH,/^supplier[\s._-]?name$/i), iSty=findC(iH,/^style$/i);
+    const iCat=findC(iH,/^category$/i), iSubCat=findC(iH,/sub[\s._-]?cat/i);
+    const iArticle=findC(iH,/^article[\s._-]?no$|^articleno$/i);
+    const iDept=findC(iH,/^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
+
+    // ── Build purchase map (In Stock, Pur Date ≤ asOf) ──
+    const purMap = {};
+    inRows.slice(1).forEach(row => {
+      const pd = parseD(String(row[iPurDate]||'').trim());
+      if (!pd || pd > asOfDate) return;
+      const sup = String(row[iSup]||'').trim()||'Unknown';
+      const sty = iSty>=0 ? (String(row[iSty]||'').trim()||'Unknown') : 'Unknown';
+      const key = sup+'||'+sty;
+      if (!purMap[key]) purMap[key] = {
+        supName: sup, style: sty,
+        cat:    iCat>=0    ? String(row[iCat]||'').trim()    : '',
+        subcat: iSubCat>=0 ? String(row[iSubCat]||'').trim() : '',
+        article:iArticle>=0? String(row[iArticle]||'').trim(): '',
+        dept:   iDept>=0 && !isJunk(row[iDept]) ? String(row[iDept]||'').trim() : '',
+        purQty: 0
+      };
+      purMap[key].purQty += getN(row, iPurQty);
+    });
+
+    // ── Build sale + dept maps (Out Stock, XN Date ≤ asOf) ──
+    const saleMap = {}, deptMap = {};
+    outRows.slice(1).forEach(row => {
+      const dt = parseD(String(row[oXnDate]||'').trim());
+      if (!dt || dt > asOfDate) return;
+      const sup = String(row[oSup]||'').trim()||'Unknown';
+      const sty = oSty>=0 ? (String(row[oSty]||'').trim()||'Unknown') : 'Unknown';
+      const key = sup+'||'+sty;
+      saleMap[key] = (saleMap[key]||0) + getN(row, oNetQty);
+      if (oDept>=0 && !deptMap[key]) {
+        const dRaw = String(row[oDept]||'').trim();
+        if (dRaw && !isJunk(dRaw)) deptMap[key] = dRaw;
+      }
+    });
+
+    // ── Build result ──
+    const items = Object.entries(purMap)
+      .map(([key, v]) => {
+        const purQty  = Math.round(v.purQty);
+        const saleQty = Math.round(Math.max(0, saleMap[key]||0));
+        const availQty = purQty - saleQty;
+        const dept = deptMap[key] || v.dept || '—';
+        if (deptFilter && deptFilter !== 'All' && dept !== deptFilter) return null;
+        return { supName:v.supName, dept, cat:v.cat||'—', subcat:v.subcat||'—', style:v.style, article:v.article||'—', purQty, saleQty, availQty };
+      })
+      .filter(r => r && r.purQty > 0)
+      .sort((a,b) => (a.dept||'').localeCompare(b.dept||'') || (a.cat||'').localeCompare(b.cat||'') || (a.supName||'').localeCompare(b.supName||''));
+
+    res.json({ asOf, total: items.length, items });
+  } catch(e) { console.error('[IMS Stock History]', e); res.status(500).json({ error: e.message }); }
 });
 
 // ── IMS Drilldown — click on chart bar/slice to see raw transactions ──
