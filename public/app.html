@@ -1573,6 +1573,7 @@ tbody tr:last-child td{border-bottom:none;}
             <input id="ilSearch" type="text" placeholder="Search supplier / item / category…"
               oninput="_ilDisplayLimit=100;renderRptItemLedger(_rptData&&_rptData.itemLedger||[])"
               style="flex:1;min-width:200px;max-width:340px;padding:8px 13px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:13px;color:#334155;outline:none;font-family:'Inter',sans-serif">
+            <button onclick="_ilExportPDF()" style="padding:8px 16px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='#c7d2fe';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='#e8ecf8';this.style.color='#64748b'">↓ PDF</button>
             <button onclick="_ilExportCSV()" style="padding:8px 16px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='#c7d2fe';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='#e8ecf8';this.style.color='#64748b'">↓ CSV</button>
           </div>
           <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
@@ -5413,6 +5414,60 @@ function renderRptDailyPL(ss) {
     + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:560px">'
     + '<thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;border-bottom:2px solid #e8ecf8">Metric</th>'+thCols+'</tr></thead>'
     + '<tbody>'+tbRows+'</tbody></table></div>';
+}
+
+function _ilExportPDF() {
+  const allRows = (_rptData && _rptData.itemLedger) || [];
+  const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
+  const filtered = q ? allRows.filter(r => (r.supName+' '+r.style+' '+r.cat+' '+r.subcat+' '+r.article).toLowerCase().includes(q)) : allRows;
+  if (!filtered.length) { alert('No data to export.'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-ups blocked — please allow pop-ups for this site.'); return; }
+  const fmtP = v => v > 0 ? '+₹'+Math.round(v).toLocaleString('en-IN') : v < 0 ? '-₹'+Math.round(Math.abs(v)).toLocaleString('en-IN') : '—';
+  const fmtR = v => v > 0 ? '₹'+Math.round(v).toLocaleString('en-IN') : '—';
+  const nf   = v => Number(v||0).toLocaleString('en-IN');
+  const tbody = filtered.map(function(r, i) {
+    const pc = r.profit > 0 ? '#16a34a' : r.profit < 0 ? '#dc2626' : '#94a3b8';
+    const ac = r.availQty <= 0 ? '#dc2626' : r.availQty < 5 ? '#d97706' : '#334155';
+    return '<tr>'
+      + '<td>'+(i+1)+'</td>'
+      + '<td>'+String(r.supName||'—')+'</td>'
+      + '<td>'+String(r.cat||'—')+'</td>'
+      + '<td>'+String(r.subcat||'—')+'</td>'
+      + '<td><b>'+String(r.style||'—')+'</b></td>'
+      + '<td>'+String(r.article||'—')+'</td>'
+      + '<td>'+(_fmtD(r.firstPurDate)||'—')+'</td>'
+      + '<td style="text-align:right">'+nf(r.purQty)+'</td>'
+      + '<td style="text-align:right">'+fmtR(r.costPerUnit)+'</td>'
+      + '<td>'+(_fmtD(r.lastSaleDate)||'—')+'</td>'
+      + '<td style="text-align:right">'+nf(r.saleQty)+'</td>'
+      + '<td style="text-align:right">'+fmtR(r.saleAmt)+'</td>'
+      + '<td style="text-align:right;color:'+pc+';font-weight:700">'+fmtP(r.profit)+'</td>'
+      + '<td style="text-align:right;color:'+ac+';font-weight:600">'+nf(r.availQty)+'</td>'
+      + '</tr>';
+  }).join('');
+  const now = new Date();
+  const dt = now.getDate()+'/'+( now.getMonth()+1)+'/'+now.getFullYear()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Item Profit & Loss</title>'
+    +'<style>'
+    +'body{font-family:Arial,Helvetica,sans-serif;font-size:8.5px;margin:8mm 6mm;color:#1e293b}'
+    +'h2{font-size:13px;font-weight:700;margin:0 0 3px}p{margin:0 0 8px;color:#64748b;font-size:9px}'
+    +'table{width:100%;border-collapse:collapse}'
+    +'th{background:#f1f5f9;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:5px 4px;border-bottom:2px solid #cbd5e1;text-align:left;white-space:nowrap}'
+    +'td{padding:3.5px 4px;border-bottom:1px solid #f1f5f9;vertical-align:middle;font-size:8.5px}'
+    +'tr:nth-child(even){background:#f8fafc}'
+    +'@page{size:A4 landscape;margin:8mm}'
+    +'</style></head><body>'
+    +'<h2>Item Profit &amp; Loss</h2>'
+    +'<p>Total: '+filtered.length.toLocaleString('en-IN')+' items'+(q?' · Search: "'+q+'"':'')+' &nbsp;|&nbsp; Printed on '+dt+'</p>'
+    +'<table><thead><tr>'
+    +'<th>#</th><th>Supplier</th><th>Category</th><th>Sub-Cat</th><th>Item / Style</th><th>Article</th>'
+    +'<th>Pur Date</th><th style="text-align:right">Pur Qty</th><th style="text-align:right">Cost/Unit</th>'
+    +'<th>Sale Date</th><th style="text-align:right">Sale Qty</th><th style="text-align:right">Sale Amt</th>'
+    +'<th style="text-align:right">Profit / Loss</th><th style="text-align:right">Avail Stock</th>'
+    +'</tr></thead><tbody>'+tbody+'</tbody></table>'
+    +'</body></html>');
+  w.document.close(); w.focus(); w.print();
 }
 
 function _ilExportCSV() {
