@@ -1618,10 +1618,9 @@ tbody tr:last-child td{border-bottom:none;}
               <th class="rpt-th-blue">Sub-Cat</th>
               <th class="rpt-th-dark">Style / Item</th>
               <th class="rpt-th-dark">Article</th>
-              <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
               <th class="rpt-th-purple" style="text-align:right" colspan="3">Stock (Select date →)</th>
             </tr></thead>
-            <tbody id="shBody"><tr><td colspan="11" class="rpt-td" style="text-align:center;color:#94a3b8">Select a date above to view stock snapshot</td></tr></tbody>
+            <tbody id="shBody"><tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8">Select a date above to view stock snapshot</td></tr></tbody>
             </table>
           </div></div>
         </div>
@@ -5393,8 +5392,7 @@ async function _shLoad() {
       <th class="rpt-th-blue">Category</th>
       <th class="rpt-th-blue">Sub-Cat</th>
       <th class="rpt-th-dark">Style / Item</th>
-      <th class="rpt-th-dark">Article</th>
-      <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>`;
+      <th class="rpt-th-dark">Article</th>`;
     const dateCols = _shDates.map((d,i)=>`<th class="rpt-th-purple" style="text-align:right;min-width:76px">${_shFmtColDate(d)}${i===_shDates.length-1?' ★':''}</th>`).join('');
     hdr.innerHTML = fixed + dateCols;
   }
@@ -5406,7 +5404,7 @@ function _shRender() {
   if (!body) return;
   const q = ((document.getElementById('shSearch')||{}).value||'').trim().toLowerCase();
   const filtered = q ? _shData.filter(r => (r.supName+' '+r.dept+' '+r.cat+' '+r.subcat+' '+r.style+' '+r.article).toLowerCase().includes(q)) : _shData;
-  const nCols = 8 + (_shDates.length || 1);
+  const nCols = 7 + (_shDates.length || 1);
   if (!filtered.length) {
     body.innerHTML = '<tr><td colspan="'+nCols+'" class="rpt-td" style="text-align:center;color:#94a3b8">'+(q?'No results for "'+q+'"':'No data')+'</td></tr>';
     return;
@@ -5430,7 +5428,6 @@ function _shRender() {
       + td(r.subcat||'—', 'color:#94a3b8;font-size:11px')
       + td('<span style="font-weight:700;color:#0f172a">'+String(r.style||'—')+'</span>')
       + td(r.article||'—', 'color:#94a3b8;font-size:11px')
-      + td(Number(r.purQty||0).toLocaleString('en-IN'), 'text-align:right;color:#d97706')
       + stockCells
       + '</tr>';
   }).join('');
@@ -5440,10 +5437,10 @@ function _shExportCSV() {
   const q = ((document.getElementById('shSearch')||{}).value||'').trim().toLowerCase();
   const rows = q ? _shData.filter(r => (r.supName+' '+r.dept+' '+r.cat+' '+r.subcat+' '+r.style+' '+r.article).toLowerCase().includes(q)) : _shData;
   const dateHdrs = _shDates.length ? _shDates.map(d=>'Stock '+d) : ['Avail Stock'];
-  const hdr = ['#','Supplier','Department','Category','Sub-Category','Style / Item','Article','Pur Qty'].concat(dateHdrs);
+  const hdr = ['#','Supplier','Department','Category','Sub-Category','Style / Item','Article'].concat(dateHdrs);
   const lines = [hdr.join(',')].concat(rows.map(function(r,i){
     const sv = (r.stocks||[r.availQty||0]).map(function(s){return s||0;});
-    return [i+1,'"'+String(r.supName||'').replace(/"/g,'""')+'"','"'+(r.dept||'')+'"','"'+(r.cat||'')+'"','"'+(r.subcat||'')+'"','"'+String(r.style||'').replace(/"/g,'""')+'"','"'+(r.article||'')+'"',r.purQty||0].concat(sv).join(',');
+    return [i+1,'"'+String(r.supName||'').replace(/"/g,'""')+'"','"'+(r.dept||'')+'"','"'+(r.cat||'')+'"','"'+(r.subcat||'')+'"','"'+String(r.style||'').replace(/"/g,'""')+'"','"'+(r.article||'')+'"'].concat(sv).join(',');
   }));
   const blob = new Blob([lines.join('\n')], {type:'text/csv'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
