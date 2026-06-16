@@ -1668,8 +1668,8 @@ tbody tr:last-child td{border-bottom:none;}
           <span id="r2Range" style="font-size:11px;color:#94a3b8;white-space:nowrap">All data</span>
         </div>
         <div style="display:flex;align-items:center;gap:5px;flex:1;justify-content:center;flex-wrap:wrap">
-          <button class="r2-preset active" data-p="all" onclick="setR2Preset('all',this)">All</button>
-          <button class="r2-preset" data-p="month" onclick="setR2Preset('month',this)">This Month</button>
+          <button class="r2-preset" data-p="all" onclick="setR2Preset('all',this)">All</button>
+          <button class="r2-preset active" data-p="month" onclick="setR2Preset('month',this)">This Month</button>
           <button class="r2-preset" data-p="lastmonth" onclick="setR2Preset('lastmonth',this)">Last Month</button>
           <button class="r2-preset" data-p="quarter" onclick="setR2Preset('quarter',this)">This Quarter</button>
           <button class="r2-preset" data-p="year" onclick="setR2Preset('year',this)">This Year</button>
@@ -6236,8 +6236,19 @@ function _initR2HubPickers(){
     document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));loadReport2();}});
   flatpickr(tEl,{...opts,onChange:dates=>{_r2To=dates[0]?toISO(dates[0]):'';
     document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));loadReport2();}});
-  if(_r2From) fEl._flatpickr.setDate(_r2From,false,'Y-m-d');
-  if(_r2To)   tEl._flatpickr.setDate(_r2To,  false,'Y-m-d');
+  if(!_r2From && !_r2To){
+    // Default to current month (1st → today)
+    const now=new Date(), y=now.getFullYear(), m=now.getMonth();
+    _r2From=toISO(new Date(y,m,1)); _r2To=toISO(now);
+    fEl._flatpickr.setDate(new Date(y,m,1),false);
+    tEl._flatpickr.setDate(now,false);
+    document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));
+    const mBtn=document.querySelector('#imsView-report2 .r2-preset[data-p="month"]');
+    if(mBtn) mBtn.classList.add('active');
+  } else {
+    if(_r2From) fEl._flatpickr.setDate(_r2From,false,'Y-m-d');
+    if(_r2To)   tEl._flatpickr.setDate(_r2To,  false,'Y-m-d');
+  }
 }
 function _r2OnDateChange(){
   // Kept for compatibility — hub inputs now handled by Flatpickr onChange
