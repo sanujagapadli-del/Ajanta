@@ -333,9 +333,14 @@ tbody tr:last-child td{border-bottom:none;}
   font-family:'Inter',sans-serif;
 }
 .modal-close-x:hover{background:#fef2f2;color:#ef4444;}
+@keyframes r2spin{to{transform:rotate(360deg)}}
+#r2Spinner{display:none;position:fixed;inset:0;z-index:9999;pointer-events:none;align-items:center;justify-content:center}
+#r2Spinner.show{display:flex}
+#r2Spinner>div{width:34px;height:34px;border:3.5px solid #e8ecf8;border-top-color:#4f46e5;border-radius:50%;animation:r2spin .65s linear infinite}
 </style>
 </head>
 <body>
+<div id="r2Spinner"><div></div></div>
 
 <!-- ══════════════════════════════════════
      SIDEBAR
@@ -6188,9 +6193,13 @@ let _r2SpExpanded = false;
 function r2ToggleSp(){ /* no-op: table removed from overview card */ }
 function _r2RenderSpTable(){ /* no-op: table removed from overview card */ }
 
+function _r2ShowSpinner(){ document.getElementById('r2Spinner')?.classList.add('show'); }
+function _r2HideSpinner(){ document.getElementById('r2Spinner')?.classList.remove('show'); }
+
 async function loadReport2(forceSync){
   const st=document.getElementById('r2Status');
-  if(st){ st.style.color='#94a3b8'; st.textContent=forceSync?'Syncing…':'Loading…'; }
+  if(st) st.textContent='';
+  _r2ShowSpinner();
   const params=new URLSearchParams();
   if(_r2From) params.append('from',_r2From);
   if(_r2To)   params.append('to',_r2To);
@@ -6217,6 +6226,7 @@ async function loadReport2(forceSync){
     api('/api/ims-reports?'+lyParams.toString()).catch(()=>null),
     api('/api/ims-reports?'+tmParams.toString()).catch(()=>null)
   ]);
+  _r2HideSpinner();
   if(!data || data.error){ if(st){ st.style.color='#dc2626'; st.textContent='No data'; } return; }
   window._r2LYData = lyData || null;
   window._r2TMData = tmData || null;
@@ -6236,9 +6246,9 @@ async function loadReport2(forceSync){
       const _MO={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
       const mm=String(firstRaw||'').match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
       const firstISO=mm?`${mm[3]}-${String((_MO[mm[2].toLowerCase()]??0)+1).padStart(2,'0')}-${String(mm[1]).padStart(2,'0')}`:null;
-      const fEl=document.getElementById('r2From'), tEl=document.getElementById('r2To');
-      if(fEl&&firstISO) fEl.value=firstISO;
-      if(tEl) tEl.value=todayISO;
+      const fp1=document.getElementById('r2From')?._flatpickr, fp2=document.getElementById('r2To')?._flatpickr;
+      if(fp1&&firstISO) fp1.setDate(firstISO,false,'Y-m-d');
+      if(fp2) fp2.setDate(todayISO,false,'Y-m-d');
     }
   }
 
