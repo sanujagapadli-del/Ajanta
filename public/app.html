@@ -1763,7 +1763,8 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-ico" style="background:#ecfdf5;color:#059669"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
           <div class="r2h-title">Stock History</div>
           <div class="r2h-desc">Select any past date — see stock snapshot by supplier, dept, category &amp; style.</div>
-          <div class="r2h-stat" id="r2stat-stockhistory">Select a date to view</div>
+          <div class="r2h-stat" id="r2stat-stockhistory"></div>
+          <div id="r2list-stockhistory" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
         <!-- Hidden cards (disabled, kept for future re-enable) -->
         <div class="r2h-card" style="display:none" onclick="openR2Report('sales')"><div class="r2h-stat" id="r2stat-sales"></div><div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div></div>
@@ -6915,6 +6916,23 @@ function renderReport2(data){
   _r2Stat('r2stat-spanalytics', 'UPT '+(_cur.curUPT!=null?_cur.curUPT:'—'), 'ATV '+_r2Cr(_cur.curATV));
   { const c=(data.cityStateSales||[])[0]; _r2Stat('r2stat-citystate', c?_tr(c.city):'—', c?_r2Cr(c.amount):''); }
   { const st=(data.currentStock||{}); _r2Stat('r2stat-stocksummary', _r2Cr(st.totalValue), nfmt(st.totalQty)+' pcs'); }
+  // Stock History hub card — show current stock summary
+  (()=>{
+    const st=data.currentStock||{}, cats=data.categoryStock||[];
+    _r2Stat('r2stat-stockhistory', nfmt(st.totalItems||0)+' items in stock', nfmt(st.totalQty||0)+' pcs · '+_r2Cr(st.totalValue||0));
+    const el=document.getElementById('r2list-stockhistory'); if(!el) return;
+    const top=cats.slice(0,6);
+    el.innerHTML=top.length?`<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1.5px solid #e2e8f0">
+        <th style="text-align:left;padding:2px 4px 4px 0;color:#94a3b8;font-weight:600;font-size:10px">Category</th>
+        <th style="text-align:right;padding:2px 4px 4px 0;color:#94a3b8;font-weight:600;font-size:10px">Qty</th>
+      </tr></thead>
+      <tbody>${top.map((r,i)=>`<tr style="${i<top.length-1?'border-bottom:1px solid #f1f5f9':''}">
+        <td style="padding:3px 4px 3px 0;color:#334155;font-weight:600;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:70%">${r.category||'—'}</td>
+        <td style="padding:3px 0 3px 4px;text-align:right;color:#4f46e5;font-weight:700">${Number(r.qty||0).toLocaleString('en-IN')}</td>
+      </tr>`).join('')}</tbody>
+    </table>`:'';
+  })();
   { const c=(data.supplierStock||[])[0]; _r2Stat('r2stat-supplierstock', c?_tr(c.name):'—', c?_r2Cr(c.value):''); }
   { const c=(data.categoryStock||[]); _r2Stat('r2stat-stockcat', nfmt(c.length)+' categories', c[0]?('top '+_tr(c[0].category)):''); }
   _r2Stat('r2stat-turnover', _turn.fast+' Fast · '+_turn.cleared+' Cleared', _turn.medium+' Med · '+_turn.slow+' Slow');
