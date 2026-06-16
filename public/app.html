@@ -5359,12 +5359,16 @@ function renderRptItemLedger(rows) {
 let _shData = [], _shAsOf = '';
 function _initShPicker() {
   const el = document.getElementById('shDateInput');
-  if (!el || el._flatpickr) return;
-  flatpickr(el, {
+  if (!el) return;
+  if (el._flatpickr) {
+    if (!_shAsOf) el._flatpickr.setDate(new Date(), true);
+    return;
+  }
+  const fp = flatpickr(el, {
     dateFormat: 'd-M-Y',
     allowInput: false,
     disableMobile: false,
-    onReady: (_,__,fp) => fp.calendarContainer.style.fontFamily = "'Inter',sans-serif",
+    onReady: (_,__,fpInst) => fpInst.calendarContainer.style.fontFamily = "'Inter',sans-serif",
     onChange: dates => {
       if (!dates[0]) return;
       const d = dates[0];
@@ -5372,6 +5376,7 @@ function _initShPicker() {
       _shLoad();
     }
   });
+  fp.setDate(new Date(), true);
 }
 async function _shLoad() {
   const st = document.getElementById('shStatus');
