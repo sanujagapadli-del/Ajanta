@@ -1735,6 +1735,13 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-stat" id="r2stat-slowmov"></div>
           <div id="r2list-slowmov" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
+        <div class="r2h-card" onclick="openR2Report('itemledger')" style="display:flex;flex-direction:column">
+          <div class="r2h-ico" style="background:#fdf4ff;color:#9333ea"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+          <div class="r2h-title">Item P&amp;L</div>
+          <div class="r2h-desc">Purchase date, cost, sale date, profit &amp; available stock per item.</div>
+          <div class="r2h-stat" id="r2stat-itemledger"></div>
+          <div id="r2list-itemledger" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
+        </div>
         <!-- Hidden cards (disabled, kept for future re-enable) -->
         <div class="r2h-card" style="display:none" onclick="openR2Report('sales')"><div class="r2h-stat" id="r2stat-sales"></div><div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div></div>
         <div class="r2h-card" style="display:none" onclick="openR2Report('cat')"><div class="r2h-stat" id="r2stat-cat"></div><div class="r2h-mini"><canvas id="r2mini-cat"></canvas></div></div>
@@ -6656,6 +6663,31 @@ function renderReport2(data){
   { const c=(data.supplierStock||[])[0]; _r2Stat('r2stat-supplierstock', c?_tr(c.name):'—', c?_r2Cr(c.value):''); }
   { const c=(data.categoryStock||[]); _r2Stat('r2stat-stockcat', nfmt(c.length)+' categories', c[0]?('top '+_tr(c[0].category)):''); }
   _r2Stat('r2stat-turnover', _turn.fast+' Fast · '+_turn.cleared+' Cleared', _turn.medium+' Med · '+_turn.slow+' Slow');
+  // Item P&L hub card stat + top-profit mini list
+  (()=>{
+    const il=data.itemLedger||[];
+    const totalProfit=il.reduce((s,r)=>s+(r.profit||0),0);
+    const profItems=il.filter(r=>r.profit>0).length;
+    _r2Stat('r2stat-itemledger', nfmt(il.length)+' items · '+nfmt(profItems)+' profitable', 'Total P&L: '+_r2Cr(totalProfit));
+    const el=document.getElementById('r2list-itemledger'); if(!el) return;
+    const top=il.slice(0,8);
+    if(!top.length){el.innerHTML='<div style="color:#94a3b8">No data</div>';return;}
+    el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1.5px solid #e2e8f0">
+        <th style="text-align:left;padding:3px 4px;color:#94a3b8;font-weight:700">Item</th>
+        <th style="text-align:right;padding:3px 4px;color:#94a3b8;font-weight:700">Profit/Loss</th>
+        <th style="text-align:right;padding:3px 4px;color:#94a3b8;font-weight:700">Stock</th>
+      </tr></thead>
+      <tbody>${top.map(r=>{
+        const pc=r.profit>0?'#16a34a':r.profit<0?'#dc2626':'#94a3b8';
+        const ps=r.profit!==0?(r.profit>0?'+':'')+fmtINR(r.profit):'—';
+        return `<tr style="border-bottom:1px solid #f4f6ff">
+          <td style="padding:3px 4px;color:#334155;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.style||'—'}</td>
+          <td style="padding:3px 4px;text-align:right;font-weight:700;color:${pc}">${ps}</td>
+          <td style="padding:3px 4px;text-align:right;color:${r.availQty<=0?'#dc2626':'#64748b'}">${Number(r.availQty||0).toLocaleString('en-IN')}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  })();
   // Flex-fill charts need a resize nudge after layout settles
   setTimeout(()=>{
     const fc=_charts['r2mini-funnel'], tc=_charts['r2hd-topdept'];
