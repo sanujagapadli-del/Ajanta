@@ -1656,12 +1656,14 @@ tbody tr:last-child td{border-bottom:none;}
       <!-- Unified 6-card grid: Row1 Funnel|TopDept|Salesperson  Row2 Supplier|FastMov|SlowMov -->
       <div class="r2h-grid">
         <div class="r2h-card" onclick="openR2Report('funnel')" style="display:flex;flex-direction:column">
-          <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Sales Funnel</div>
+          <div class="r2h-ico" style="background:#eef2ff;font-size:22px;line-height:1">📊</div>
+          <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin:10px 0 6px">Sales Funnel</div>
           <div class="r2h-stat" id="r2stat-funnel"></div>
           <div class="r2h-mini" style="flex:1;min-height:120px;margin-top:10px"><canvas id="r2mini-funnel"></canvas></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('topdept')" style="display:flex;flex-direction:column">
-          <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Top Departments by Net Sales</div>
+          <div class="r2h-ico" style="background:#f5f3ff;font-size:22px;line-height:1">🏬</div>
+          <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin:10px 0 6px">Top Departments by Net Sales</div>
           <div class="r2h-stat" id="r2stat-topdept"></div>
           <div class="r2h-mini" style="flex:1;min-height:120px;margin-top:10px"><canvas id="r2mini-topdept"></canvas></div>
         </div>
@@ -6450,6 +6452,11 @@ function renderReport2(data){
   { const c=(data.supplierStock||[])[0]; _r2Stat('r2stat-supplierstock', c?_tr(c.name):'—', c?_r2Cr(c.value):''); }
   { const c=(data.categoryStock||[]); _r2Stat('r2stat-stockcat', nfmt(c.length)+' categories', c[0]?('top '+_tr(c[0].category)):''); }
   _r2Stat('r2stat-turnover', _turn.fast+' Fast · '+_turn.cleared+' Cleared', _turn.medium+' Med · '+_turn.slow+' Slow');
+  // Flex-fill charts need a resize nudge after layout settles
+  setTimeout(()=>{
+    const fc=_charts['r2mini-funnel'], tc=_charts['r2hd-topdept'];
+    if(fc) fc.resize(); if(tc) tc.resize();
+  }, 60);
 }
 
 // Generic bar (non-₹): horizontal/vertical, custom tick + tooltip formatters, optional click.
