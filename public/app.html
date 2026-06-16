@@ -4877,8 +4877,8 @@ function _renderTurnover(bodyId) {
   let rows = c.rows;
   if (_toStatus !== 'all') rows = rows.filter(r => _turnoverStatus(r) === _toStatus);
   // Sort by % sold: Fast/Medium highest first, Slow lowest first (matches hub card order)
-  if (_toStatus === 'fast' || _toStatus === 'medium') rows = rows.slice().sort((a,b)=>(b.pct??-1)-(a.pct??-1));
-  else if (_toStatus === 'slow') rows = rows.slice().sort((a,b)=>(a.pct??101)-(b.pct??101));
+  if (_toStatus === 'fast' || _toStatus === 'medium') rows = rows.slice().sort((a,b)=>((b.pct??-1)-(a.pct??-1))||((b.sold||0)-(a.sold||0)));
+  else if (_toStatus === 'slow') rows = rows.slice().sort((a,b)=>((a.pct??101)-(b.pct??101))||((b.sold||0)-(a.sold||0)));
   const q = (c.q || '').toLowerCase();
   if (q) rows = rows.filter(r => c.drillType === 'item'
       ? (`${r.supName} ${r.style} ${r.cat} ${r.article||''}`.toLowerCase().includes(q))
@@ -6202,18 +6202,16 @@ async function _r2LoadMoversData(){
   try{
     const d=await fetch('/api/ims-reports?'+params.toString()).then(r=>r.json());
     const ssold={},sstk={},amtMap={},purMap={};
-    (d.supplierStyleSales||[]).forEach(s=>{ssold[s.supName]=(ssold[s.supName]||0)+(s.qty||0);});
-    (d.supplierStyleStock||[]).forEach(s=>{sstk[s.supName]=(sstk[s.supName]||0)+(s.qty||0);});
-    (d.supplierSales||[]).forEach(s=>{amtMap[s.name]=(s.amount||0);});
-    (d.supplierStock||[]).forEach(s=>{purMap[s.name]=(s.purQty||0);});
+    (d.supplierSales||[]).forEach(s=>{ssold[s.name]=s.qty||0;amtMap[s.name]=s.amount||0;});
+    (d.supplierStock||[]).forEach(s=>{sstk[s.name]=s.qty||0;purMap[s.name]=s.purQty||0;});
     const list=[];
     new Set([...Object.keys(ssold),...Object.keys(sstk)]).forEach(sp=>{
       if(!(purMap[sp]||0)) return;
-      const sold=ssold[sp]||0,stk=sstk[sp]||0,tot=sold+stk,pct=tot>0?(sold/tot*100):0,cleared=stk<=0&&sold>0;
+      const sold=ssold[sp]||0,stk=sstk[sp]||0,tot=sold+stk,pct=tot>0?Math.round(sold/tot*100):0,cleared=stk<=0&&sold>0;
       list.push({name:sp,sold,stk,pct,cleared,amount:amtMap[sp]||0});
     });
-    _r2MovCache.fast=list.filter(x=>!x.cleared).sort((a,b)=>b.pct-a.pct);
-    _r2MovCache.slow=list.filter(x=>!x.cleared&&x.pct<40).sort((a,b)=>a.pct-b.pct);
+    _r2MovCache.fast=list.filter(x=>!x.cleared).sort((a,b)=>(b.pct-a.pct)||((b.sold||0)-(a.sold||0)));
+    _r2MovCache.slow=list.filter(x=>!x.cleared&&x.pct<40).sort((a,b)=>(a.pct-b.pct)||((b.sold||0)-(a.sold||0)));
     // Item-level
     const isold={},istk={};
     (d.supplierStyleSales||[]).forEach(s=>{const k=s.style||'';if(k){isold[k]=(isold[k]||0)+(s.qty||0);}});
@@ -6828,18 +6826,15 @@ function renderReport2(data){
   _r2Mini('r2mini-supplierstock','bar', _lv(data.supplierStock,'name','value',7), '#06b6d4', _r2Cr);
   _r2Mini('r2mini-stockcat','doughnut', _lv(data.categoryStock,'category','value',6), '#7c3aed', _r2Cr);
   // Stock Turnover status buckets (per supplier — same logic as the Turnover report: %Sold = sold/(sold+stock))
-  const _ssold={}, _sstk={};
-  (data.supplierStyleSales||[]).forEach(s=>{ _ssold[s.supName]=(_ssold[s.supName]||0)+(s.qty||0); });
-  (data.supplierStyleStock||[]).forEach(s=>{ _sstk[s.supName]=(_sstk[s.supName]||0)+(s.qty||0); });
-  const _supAmtMap = {}, _supPurMap = {};
-  (data.supplierSales||[]).forEach(s=>{ _supAmtMap[s.name]=(s.amount||0); });
-  (data.supplierStock||[]).forEach(s=>{ _supPurMap[s.name]=(s.purQty||0); });
+  const _ssold={}, _sstk={}, _supAmtMap={}, _supPurMap={};
+  (data.supplierSales||[]).forEach(s=>{ _ssold[s.name]=s.qty||0; _supAmtMap[s.name]=s.amount||0; });
+  (data.supplierStock||[]).forEach(s=>{ _sstk[s.name]=s.qty||0; _supPurMap[s.name]=s.purQty||0; });
   const _turn={fast:0,medium:0,slow:0,cleared:0};
   new Set(Object.keys(_ssold)).forEach(sp=>{
     if(!(_supPurMap[sp]||0)) return;
     const sold=_ssold[sp]||0, stk=_sstk[sp]||0;
     if(stk<=0 && sold>0){ _turn.cleared++; return; }
-    const tot=sold+stk, pct=tot>0?(sold/tot*100):0;
+    const tot=sold+stk, pct=tot>0?Math.round(sold/tot*100):0;
     if(pct>=75) _turn.fast++; else if(pct>=40) _turn.medium++; else _turn.slow++;
   });
   _r2Mini('r2mini-turnover','bar', {labels:['Fast','Medium','Slow','Cleared'], values:[_turn.fast,_turn.medium,_turn.slow,_turn.cleared]}, ['#16a34a','#d97706','#dc2626','#0891b2'], v=>Number(v).toLocaleString('en-IN')+' suppliers');
@@ -6849,12 +6844,12 @@ function renderReport2(data){
   new Set(Object.keys(_ssold)).forEach(sp=>{
     const sold=_ssold[sp]||0, stk=_sstk[sp]||0, purQty=_supPurMap[sp]||0;
     if(!purQty) return;
-    const tot=sold+stk, pct=tot>0?(sold/tot*100):0;
+    const tot=sold+stk, pct=tot>0?Math.round(sold/tot*100):0;
     const cleared=stk<=0&&sold>0;
     _movList.push({name:sp, sold, stk, pct, cleared, amount:_supAmtMap[sp]||0, purQty});
   });
-  window._r2FastMovers = _movList.filter(x=>!x.cleared).sort((a,b)=>b.pct-a.pct);
-  window._r2SlowMovers = _movList.filter(x=>!x.cleared&&x.pct<40).sort((a,b)=>a.pct-b.pct);
+  window._r2FastMovers = _movList.filter(x=>!x.cleared).sort((a,b)=>(b.pct-a.pct)||((b.sold||0)-(a.sold||0)));
+  window._r2SlowMovers = _movList.filter(x=>!x.cleared&&x.pct<40).sort((a,b)=>(a.pct-b.pct)||((b.sold||0)-(a.sold||0)));
   // Item-level movers (by style name) — only styles with sales
   const _isold={},_istk={};
   (data.supplierStyleSales||[]).forEach(s=>{const k=s.style||'';if(k){_isold[k]=(_isold[k]||0)+(s.qty||0);}});
