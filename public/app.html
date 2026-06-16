@@ -6222,23 +6222,33 @@ async function loadReport2(forceSync){
   const tmFrom=new Date(cy,cm,1);
   const tmParams=new URLSearchParams({from:toISO(tmFrom),to:toISO(now)});
   if(_r2Dept && _r2Dept!=='All') tmParams.append('dept',_r2Dept);
-  // lyData = same MTD last year (always fixed: Jun 1 2025 → Jun 15 2025)
+  // lyData = same MTD last year (Jun 1 2025 → Jun 16 2025) — used when no date filter
   const pad2=n=>String(n).padStart(2,'0');
   const lyFromStr=`${cy-1}-${pad2(cm+1)}-01`;
   const lyToStr  =`${cy-1}-${pad2(cm+1)}-${pad2(now.getDate())}`;
   const lyParams=new URLSearchParams({from:lyFromStr,to:lyToStr});
   if(_r2Dept && _r2Dept!=='All') lyParams.append('dept',_r2Dept);
   window._r2LYFrom=lyFromStr; window._r2LYTo=lyToStr;
+  // lyFilterData = same selected date range but previous year — used when date filter is active
+  let lyFilterParams=null;
+  if(_r2From && _r2To){
+    const lyFF=`${+_r2From.slice(0,4)-1}${_r2From.slice(4)}`;
+    const lyFT=`${+_r2To.slice(0,4)-1}${_r2To.slice(4)}`;
+    lyFilterParams=new URLSearchParams({from:lyFF,to:lyFT});
+    if(_r2Dept && _r2Dept!=='All') lyFilterParams.append('dept',_r2Dept);
+  }
 
-  const [data, lyData, tmData] = await Promise.all([
+  const [data, lyData, tmData, lyFilterData] = await Promise.all([
     api('/api/ims-reports?'+params.toString()),
     api('/api/ims-reports?'+lyParams.toString()).catch(()=>null),
-    api('/api/ims-reports?'+tmParams.toString()).catch(()=>null)
+    api('/api/ims-reports?'+tmParams.toString()).catch(()=>null),
+    lyFilterParams ? api('/api/ims-reports?'+lyFilterParams.toString()).catch(()=>null) : Promise.resolve(null)
   ]);
   _r2HideSpinner();
   if(!data || data.error){ if(st){ st.style.color='#dc2626'; st.textContent='No data'; } return; }
   window._r2LYData = lyData || null;
   window._r2TMData = tmData || null;
+  window._r2LYFilterData = lyFilterData || null;
   _r2Data=data;
   _r2Data._rptFrom=_r2From; _r2Data._rptTo=_r2To; _r2Data._rptDept=_r2Dept||'All';
   _r2FillDepts(data.departments);
@@ -6328,19 +6338,26 @@ function renderReport2(data){
   const gtxt=g=>{g=gv(g); return g==null?'':(g>=0?'+':'')+g+'%';};
   const gcol=g=>{g=gv(g); return g==null?'#94a3b8':g>=0?'#16a34a':'#dc2626';};
 
-  // YoY growth chip: current period vs same period last year
+  // YoY growth chip:
+  // — date filter active: compare current filter period vs same range last year (lyFilterData)
+  // — no date filter: compare current month MTD vs same MTD last year
+  const _hasFilter=!!(_r2From&&_r2To);
+  const lyF=window._r2LYFilterData||null;
   const ly=(window._r2LYData&&window._r2LYData.salesSummary)||null;
   const lySA=(window._r2LYData&&window._r2LYData.spAnalytics&&window._r2LYData.spAnalytics.summary)||null;
   const tm=(window._r2TMData&&window._r2TMData.salesSummary)||null;
   const tmSA=(window._r2TMData&&window._r2TMData.spAnalytics&&window._r2TMData.spAnalytics.summary)||null;
+  const curSS=_hasFilter?(data.salesSummary||null):tm;
+  const curSA=_hasFilter?((data.spAnalytics&&data.spAnalytics.summary)||null):tmSA;
+  const prevSS=_hasFilter?((lyF&&lyF.salesSummary)||null):ly;
+  const prevSA=_hasFilter?((lyF&&lyF.spAnalytics&&lyF.spAnalytics.summary)||null):lySA;
   const pctChg=(cur,prev)=>{
     if(prev==null||isNaN(prev)||prev===0||cur==null||isNaN(cur)) return null;
     return Math.round((cur-prev)/Math.abs(prev)*100);
   };
-  // Growth chip = current month MTD vs same MTD last year (fixed, independent of date filter)
-  const lmAmtG=pctChg(tm&&tm.totalAmount, ly&&ly.totalAmount);
-  const lmQtyG=pctChg(tm&&tm.totalQty,    ly&&ly.totalQty);
-  const lmBillG=pctChg(tmSA&&tmSA.curBills, lySA&&lySA.curBills);
+  const lmAmtG =pctChg(curSS&&curSS.totalAmount,  prevSS&&prevSS.totalAmount);
+  const lmQtyG =pctChg(curSS&&curSS.totalQty,     prevSS&&prevSS.totalQty);
+  const lmBillG=pctChg(curSA&&curSA.curBills,     prevSA&&prevSA.curBills);
 
   // Headline cell with YoY chip (click → popover)
   const cell=(lbl,val,color,pct,lmKey)=>{
@@ -6356,11 +6373,10 @@ function renderReport2(data){
     return `<div class="r2-mcell cur"><div class="lbl">${lbl}</div><div class="val" style="color:${color};font-size:27px">${val}</div>${sub}</div>`;
   };
 
-  // Store values for popover: lm = same MTD last year, tm = current month MTD
   window._r2LMVals={
-    sales: { lm: ly&&ly.totalAmount, tm: tm&&tm.totalAmount, label:'Net Sales' },
-    qty:   { lm: ly&&ly.totalQty,   tm: tm&&tm.totalQty,   label:'Net Qty'   },
-    bills: { lm: lySA&&lySA.curBills, tm: tmSA&&tmSA.curBills, label:'Total Bills' }
+    sales: { lm: prevSS&&prevSS.totalAmount, tm: curSS&&curSS.totalAmount, label:'Net Sales' },
+    qty:   { lm: prevSS&&prevSS.totalQty,   tm: curSS&&curSS.totalQty,   label:'Net Qty'   },
+    bills: { lm: prevSA&&prevSA.curBills,   tm: curSA&&curSA.curBills,   label:'Total Bills' }
   };
 
   const k=document.getElementById('r2Kpis');
