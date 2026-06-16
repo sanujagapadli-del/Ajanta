@@ -1443,9 +1443,9 @@ tbody tr:last-child td{border-bottom:none;}
           <!-- ── Status filter sub-tabs ── -->
           <div id="toStatusTabs" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
             <button id="toStatus-fast"    onclick="setTurnoverStatus('fast')">🚀 Fast <span id="toCount-fast"></span></button>
-            <button id="toStatus-medium"  onclick="setTurnoverStatus('medium')">⚡ Medium <span id="toCount-medium"></span></button>
+            <button id="toStatus-medium"  disabled style="opacity:.35;cursor:not-allowed;pointer-events:none">⚡ Medium <span id="toCount-medium"></span></button>
             <button id="toStatus-slow"    onclick="setTurnoverStatus('slow')">🐢 Slow <span id="toCount-slow"></span></button>
-            <button id="toStatus-cleared" onclick="setTurnoverStatus('cleared')">✅ Cleared <span id="toCount-cleared"></span></button>
+            <button id="toStatus-cleared" disabled style="opacity:.35;cursor:not-allowed;pointer-events:none">✅ Cleared <span id="toCount-cleared"></span></button>
           </div>
 
           <!-- Supplier Table -->
@@ -4822,7 +4822,7 @@ function setTurnoverStatus(status) {
   const cfg = { fast:{c:'#15803d',bg:'#dcfce7'}, medium:{c:'#a16207',bg:'#fef9c3'}, slow:{c:'#dc2626',bg:'#fee2e2'}, cleared:{c:'#0e7490',bg:'#cffafe'} };
   ['fast','medium','slow','cleared'].forEach(s => {
     const b = document.getElementById('toStatus-' + s);
-    if (!b) return;
+    if (!b || b.disabled) return;
     const on = s === status;
     b.style.cssText = `padding:7px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;border:2px solid ${on?cfg[s].c:'#e2e8f0'};background:${on?cfg[s].bg:'#fff'};color:${on?cfg[s].c:'#64748b'}`;
   });
