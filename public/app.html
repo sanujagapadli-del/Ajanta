@@ -421,6 +421,22 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="topbar">
     <div class="topbar-title" id="topbarTitle">Dashboard</div>
 
+    <!-- IMS tab buttons — shown only on Inventory Management System page -->
+    <div id="imsTabBtns" style="display:none;align-items:center;gap:8px;margin-left:auto">
+      <button id="imsViewBtn-form" onclick="setImsView('form')"
+        style="padding:7px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #4f46e5;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;transition:all .18s;box-shadow:0 3px 10px rgba(79,70,229,.3)">
+        📋 Form
+      </button>
+      <button id="imsViewBtn-reports" onclick="setImsView('reports')"
+        style="padding:7px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .18s">
+        📊 Reports
+      </button>
+      <button id="imsViewBtn-report2" onclick="setImsView('report2')"
+        style="padding:7px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .18s">
+        📈 Report 2.0
+      </button>
+    </div>
+
     <div class="topbar-right" id="topbarActions"></div>
   </div>
 
@@ -834,21 +850,6 @@ tbody tr:last-child td{border-bottom:none;}
   ══════════════════════════════════════ -->
   <div id="page-stock-import" class="page">
 
-    <!-- IMS Tab bar -->
-    <div style="display:flex;gap:8px;margin-bottom:24px">
-      <button id="imsViewBtn-form" onclick="setImsView('form')"
-        style="padding:9px 24px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #4f46e5;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;transition:all .18s;box-shadow:0 3px 10px rgba(79,70,229,.3)">
-        📋 Form
-      </button>
-      <button id="imsViewBtn-reports" onclick="setImsView('reports')"
-        style="padding:9px 24px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .18s">
-        📊 Reports
-      </button>
-      <button id="imsViewBtn-report2" onclick="setImsView('report2')"
-        style="padding:9px 24px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .18s">
-        📈 Report 2.0
-      </button>
-    </div>
 
     <!-- FORM VIEW -->
     <div id="imsView-form">
@@ -2841,6 +2842,8 @@ function setMinDates() {
 const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','stock-import':'Inventory Management System'};
 
 function navigate(page, el) {
+  const _imsTabs = document.getElementById('imsTabBtns');
+  if (_imsTabs) _imsTabs.style.display = page === 'stock-import' ? 'flex' : 'none';
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
