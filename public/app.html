@@ -6935,7 +6935,9 @@ function renderReport2(data){
   // Stock History hub card — show current stock summary
   (()=>{
     const st=data.currentStock||{}, cats=data.categoryStock||[];
-    _r2Stat('r2stat-stockhistory', nfmt(st.totalItems||0)+' items in stock', nfmt(st.totalQty||0)+' pcs · '+_r2Cr(st.totalValue||0));
+    const _shNow=new Date(), _shMon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const _shDateStr=String(_shNow.getDate()).padStart(2,'0')+'-'+_shMon[_shNow.getMonth()]+'-'+_shNow.getFullYear();
+    _r2Stat('r2stat-stockhistory', nfmt(st.totalItems||0)+' items in stock', nfmt(st.totalQty||0)+' pcs · '+_r2Cr(st.totalValue||0)+' · as of '+_shDateStr);
     const el=document.getElementById('r2list-stockhistory'); if(!el) return;
     const top=cats.slice(0,6);
     el.innerHTML=top.length?`<table style="width:100%;border-collapse:collapse;font-size:11px">
