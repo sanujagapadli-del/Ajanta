@@ -5951,8 +5951,7 @@ function openR2Report(tab){
     const inner=document.getElementById('rpt-inner');
     if(inner && slot && inner.parentNode!==slot) slot.appendChild(inner);
     _initRptDatepickers();
-    if(_r2From || _r2To) _setRptDate(_r2From, _r2To);
-    else { const f=document.getElementById('rptFrom'),t=document.getElementById('rptTo'); if(f)f.value=''; if(t)t.value=''; }
+    _setRptDate(_r2From, _r2To);
     switchRptTab('turnover');
     setTimeout(()=>setTurnoverStatus(tab==='fastmov'?'fast':'slow'), 80);
     _r2ScrollTop(); return;
@@ -5969,9 +5968,7 @@ function openR2Report(tab){
   const inner = document.getElementById('rpt-inner');
   if(inner && slot && inner.parentNode !== slot) slot.appendChild(inner);
   _initRptDatepickers();
-  // Sync IMS panel date to hub's date so cache hit can skip the API call
-  if(_r2From || _r2To) _setRptDate(_r2From, _r2To);
-  else { const f=document.getElementById('rptFrom'),t=document.getElementById('rptTo'); if(f)f.value=''; if(t)t.value=''; }
+  _setRptDate(_r2From, _r2To);
   switchRptTab(tab);
   _r2ScrollTop();
 }
@@ -6203,13 +6200,14 @@ async function _r2LoadMoversData(){
   if(_r2Dept&&_r2Dept!=='All') params.append('dept',_r2Dept);
   try{
     const d=await fetch('/api/ims-reports?'+params.toString()).then(r=>r.json());
-    const ssold={},sstk={},amtMap={};
+    const ssold={},sstk={},amtMap={},purMap={};
     (d.supplierStyleSales||[]).forEach(s=>{ssold[s.supName]=(ssold[s.supName]||0)+(s.qty||0);});
     (d.supplierStyleStock||[]).forEach(s=>{sstk[s.supName]=(sstk[s.supName]||0)+(s.qty||0);});
     (d.supplierSales||[]).forEach(s=>{amtMap[s.name]=(s.amount||0);});
+    (d.supplierStock||[]).forEach(s=>{purMap[s.name]=(s.purQty||0);});
     const list=[];
     new Set([...Object.keys(ssold),...Object.keys(sstk)]).forEach(sp=>{
-      if(sp==='Alteration') return;
+      if(!(purMap[sp]||0)) return;
       const sold=ssold[sp]||0,stk=sstk[sp]||0,tot=sold+stk,pct=tot>0?(sold/tot*100):0,cleared=stk<=0&&sold>0;
       list.push({name:sp,sold,stk,pct,cleared,amount:amtMap[sp]||0});
     });
@@ -6832,8 +6830,12 @@ function renderReport2(data){
   const _ssold={}, _sstk={};
   (data.supplierStyleSales||[]).forEach(s=>{ _ssold[s.supName]=(_ssold[s.supName]||0)+(s.qty||0); });
   (data.supplierStyleStock||[]).forEach(s=>{ _sstk[s.supName]=(_sstk[s.supName]||0)+(s.qty||0); });
+  const _supAmtMap = {}, _supPurMap = {};
+  (data.supplierSales||[]).forEach(s=>{ _supAmtMap[s.name]=(s.amount||0); });
+  (data.supplierStock||[]).forEach(s=>{ _supPurMap[s.name]=(s.purQty||0); });
   const _turn={fast:0,medium:0,slow:0,cleared:0};
   new Set(Object.keys(_ssold)).forEach(sp=>{
+    if(!(_supPurMap[sp]||0)) return;
     const sold=_ssold[sp]||0, stk=_sstk[sp]||0;
     if(stk<=0 && sold>0){ _turn.cleared++; return; }
     const tot=sold+stk, pct=tot>0?(sold/tot*100):0;
@@ -6841,13 +6843,11 @@ function renderReport2(data){
   });
   _r2Mini('r2mini-turnover','bar', {labels:['Fast','Medium','Slow','Cleared'], values:[_turn.fast,_turn.medium,_turn.slow,_turn.cleared]}, ['#16a34a','#d97706','#dc2626','#0891b2'], v=>Number(v).toLocaleString('en-IN')+' suppliers');
 
-  // Fast / Slow mover vendor lists — only vendors with sales in selected dept/period
-  const _supAmtMap = {}, _supPurMap = {};
-  (data.supplierSales||[]).forEach(s=>{ _supAmtMap[s.name]=(s.amount||0); });
-  (data.supplierStock||[]).forEach(s=>{ _supPurMap[s.name]=(s.purQty||0); });
+  // Fast / Slow mover vendor lists — only vendors with purchases (purQty>0 = real vendor)
   const _movList = [];
   new Set(Object.keys(_ssold)).forEach(sp=>{
     const sold=_ssold[sp]||0, stk=_sstk[sp]||0, purQty=_supPurMap[sp]||0;
+    if(!purQty) return;
     const tot=sold+stk, pct=tot>0?(sold/tot*100):0;
     const cleared=stk<=0&&sold>0;
     _movList.push({name:sp, sold, stk, pct, cleared, amount:_supAmtMap[sp]||0, purQty});
