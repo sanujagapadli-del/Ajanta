@@ -1692,30 +1692,31 @@ tbody tr:last-child td{border-bottom:none;}
       </style>
 
       <div id="r2Hub">
-      <!-- Header: title + dept + presets + date range -->
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-        <div style="display:flex;align-items:center;gap:9px;flex-shrink:0">
-          <span style="font-size:15px;font-weight:800;color:#0f172a;letter-spacing:-.01em;white-space:nowrap">Performance Dashboard</span>
-          <select id="r2DeptSel" onchange="_r2OnDeptChange()" style="padding:5px 9px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif">
-            <option value="All">All Departments</option>
-          </select>
-          <span id="r2Range" style="font-size:11px;color:#94a3b8;white-space:nowrap">All data</span>
+      <!-- Header row 1: title + dept + reset + sync -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:15px;font-weight:800;color:#0f172a;letter-spacing:-.01em;white-space:nowrap">Performance Dashboard</span>
+        <select id="r2DeptSel" onchange="_r2OnDeptChange()" style="padding:5px 9px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif">
+          <option value="All">All Departments</option>
+        </select>
+        <span id="r2Range" style="display:none"></span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <span id="r2Status" style="font-size:11px;color:#94a3b8;min-width:36px"></span>
+          <button onclick="_r2ResetDate()" style="padding:7px 12px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Reset</button>
+          <button onclick="loadReport2(true)" style="padding:7px 16px;background:#4f46e5;color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Sync</button>
         </div>
-        <div style="display:flex;align-items:center;gap:5px;flex:1;justify-content:center;flex-wrap:wrap">
-          <button class="r2-preset active" data-p="all" onclick="setR2Preset('all',this)">All</button>
-          <button class="r2-preset" data-p="month" onclick="setR2Preset('month',this)">This Month</button>
-          <button class="r2-preset" data-p="lastmonth" onclick="setR2Preset('lastmonth',this)">Last Month</button>
-          <button class="r2-preset" data-p="quarter" onclick="setR2Preset('quarter',this)">This Quarter</button>
-          <button class="r2-preset" data-p="year" onclick="setR2Preset('year',this)">This Year</button>
-          <button class="r2-preset" data-p="fy" onclick="setR2Preset('fy',this)">This FY</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+      </div>
+      <!-- Header row 2: preset buttons + date inputs -->
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="r2-preset active" data-p="all" onclick="setR2Preset('all',this)">All</button>
+        <button class="r2-preset" data-p="month" onclick="setR2Preset('month',this)">This Month</button>
+        <button class="r2-preset" data-p="lastmonth" onclick="setR2Preset('lastmonth',this)">Last Month</button>
+        <button class="r2-preset" data-p="quarter" onclick="setR2Preset('quarter',this)">This Quarter</button>
+        <button class="r2-preset" data-p="year" onclick="setR2Preset('year',this)">This Year</button>
+        <button class="r2-preset" data-p="fy" onclick="setR2Preset('fy',this)">This FY</button>
+        <div style="display:flex;align-items:center;gap:5px;margin-left:auto;flex-shrink:0">
           <input type="text" id="r2From" class="r2-din" placeholder="From date" readonly style="cursor:pointer;min-width:96px">
           <span style="color:#cbd5e1">–</span>
           <input type="text" id="r2To" class="r2-din" placeholder="To date" readonly style="cursor:pointer;min-width:96px">
-          <span id="r2Status" style="font-size:11px;color:#94a3b8;min-width:40px"></span>
-          <button onclick="_r2ResetDate()" style="padding:7px 12px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer">Reset</button>
-          <button onclick="loadReport2(true)" style="padding:7px 16px;background:#4f46e5;color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer">Sync</button>
         </div>
       </div>
       <!-- OVERVIEW: KPI matrix — LY | current | growth (Power BI UPT-dashboard style) -->
