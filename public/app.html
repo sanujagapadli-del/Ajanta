@@ -4878,6 +4878,9 @@ function _renderTurnover(bodyId) {
   const colspan = c.drillType === 'item' ? 10 : 8;
   let rows = c.rows;
   if (_toStatus !== 'all') rows = rows.filter(r => _turnoverStatus(r) === _toStatus);
+  // Sort by % sold: Fast/Medium highest first, Slow lowest first (matches hub card order)
+  if (_toStatus === 'fast' || _toStatus === 'medium') rows = rows.slice().sort((a,b)=>(b.pct??-1)-(a.pct??-1));
+  else if (_toStatus === 'slow') rows = rows.slice().sort((a,b)=>(a.pct??101)-(b.pct??101));
   const q = (c.q || '').toLowerCase();
   if (q) rows = rows.filter(r => c.drillType === 'item'
       ? (`${r.supName} ${r.style} ${r.cat} ${r.article||''}`.toLowerCase().includes(q))
