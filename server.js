@@ -2757,7 +2757,9 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oXnDate    = findC(outHeader, /^xn[\s._-]?date$/i);
     const oXnNo      = findC(outHeader, /^xn[\s._-]?no$/i);
     const oCategory  = findC(outHeader, /^category$/i);
-    const oDept      = findC(outHeader, /^department$/i);
+    let oDept        = findC(outHeader, /^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
+    // Position-based fallback: if dept col not found by name but there's an undetected col between state and category
+    if (oDept < 0 && oState >= 0 && oCategory >= 0 && oCategory > oState + 1) oDept = oState + 1;
     const oSP        = findC(outHeader, /^salesperson$/i);
     const oNetQty    = findC(outHeader, /netsls[\s._-]?qty/i);
     const oNetAmt    = findC(outHeader, /netsls[\s._-]?net|netsls[\s._-]?amount/i);
@@ -2768,7 +2770,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const oStyle     = findC(outHeader, /^style$/i);
     const oArticle   = findC(outHeader, /^article[\s._-]?no$|^articleno$/i);
 
-    console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU });
+    console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oDept, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU, header: outHeader.slice(0,12) });
 
     const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={}, bySupStyleSales={}, byStyleSales={};
     const byDept={}, billQty={};   // Report 2.0: dept-wise UPT + basket size (qty per bill)
