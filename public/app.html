@@ -6424,8 +6424,7 @@ function renderReport2(data){
   (data.supplierStyleSales||[]).forEach(s=>{ _ssold[s.supName]=(_ssold[s.supName]||0)+(s.qty||0); });
   (data.supplierStyleStock||[]).forEach(s=>{ _sstk[s.supName]=(_sstk[s.supName]||0)+(s.qty||0); });
   const _turn={fast:0,medium:0,slow:0,cleared:0};
-  new Set([...Object.keys(_ssold),...Object.keys(_sstk)]).forEach(sp=>{
-    if(sp==='Alteration') return;
+  new Set(Object.keys(_ssold)).forEach(sp=>{
     const sold=_ssold[sp]||0, stk=_sstk[sp]||0;
     if(stk<=0 && sold>0){ _turn.cleared++; return; }
     const tot=sold+stk, pct=tot>0?(sold/tot*100):0;
@@ -6433,12 +6432,11 @@ function renderReport2(data){
   });
   _r2Mini('r2mini-turnover','bar', {labels:['Fast','Medium','Slow','Cleared'], values:[_turn.fast,_turn.medium,_turn.slow,_turn.cleared]}, ['#16a34a','#d97706','#dc2626','#0891b2'], v=>Number(v).toLocaleString('en-IN')+' suppliers');
 
-  // Fast / Slow mover vendor lists
+  // Fast / Slow mover vendor lists — only vendors with sales in selected dept/period
   const _supAmtMap = {};
   (data.supplierSales||[]).forEach(s=>{ _supAmtMap[s.name]=(s.amount||0); });
   const _movList = [];
-  new Set([...Object.keys(_ssold),...Object.keys(_sstk)]).forEach(sp=>{
-    if(sp==='Alteration') return;
+  new Set(Object.keys(_ssold)).forEach(sp=>{
     const sold=_ssold[sp]||0, stk=_sstk[sp]||0;
     const tot=sold+stk, pct=tot>0?(sold/tot*100):0;
     const cleared=stk<=0&&sold>0;
@@ -6446,12 +6444,12 @@ function renderReport2(data){
   });
   window._r2FastMovers = _movList.filter(x=>!x.cleared).sort((a,b)=>b.pct-a.pct);
   window._r2SlowMovers = _movList.filter(x=>!x.cleared&&x.pct<40).sort((a,b)=>a.pct-b.pct);
-  // Item-level movers (by style name)
+  // Item-level movers (by style name) — only styles with sales
   const _isold={},_istk={};
   (data.supplierStyleSales||[]).forEach(s=>{const k=s.style||'';if(k){_isold[k]=(_isold[k]||0)+(s.qty||0);}});
   (data.supplierStyleStock||[]).forEach(s=>{const k=s.style||'';if(k){_istk[k]=(_istk[k]||0)+(s.qty||0);}});
   const _ilist=[];
-  new Set([...Object.keys(_isold),...Object.keys(_istk)]).forEach(st=>{
+  new Set(Object.keys(_isold)).forEach(st=>{
     const sold=_isold[st]||0,stk2=_istk[st]||0,tot=sold+stk2,pct=tot>0?(sold/tot*100):0,cleared=stk2<=0&&sold>0;
     _ilist.push({name:st,sold,stk:stk2,pct,cleared,amount:0});
   });
