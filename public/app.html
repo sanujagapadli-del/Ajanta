@@ -5934,7 +5934,17 @@ function openR2Report(tab){
   if(tab === 'funnel'){
     _hideAll(); if(fview) fview.style.display='';
     _r2FunnelFrom=_r2From; _r2FunnelTo=_r2To;
-    _r2RenderFunnel(); _r2ScrollTop(); return;
+    if(!_r2From && !_r2To){
+      const _fn=new Date(),_fy=_fn.getFullYear(),_fm=_fn.getMonth();
+      const _fs=_fm>=3?_fy:_fy-1, _fp=n=>String(n).padStart(2,'0');
+      _r2FunnelFrom=`${_fs}-04-01`; _r2FunnelTo=`${_fy}-${_fp(_fm+1)}-${_fp(_fn.getDate())}`;
+    }
+    _r2RenderFunnel();
+    if(!_r2From && !_r2To){
+      const fyBtn=document.querySelector('#r2FunnelView .r2fp-q[data-q="fy"]');
+      if(fyBtn){ document.querySelectorAll('#r2FunnelView .r2fp-q').forEach(b=>b.classList.remove('active')); fyBtn.classList.add('active'); }
+    }
+    _r2ScrollTop(); return;
   }
   // Fast / Slow Moving — open Stock Turnover IMS panel pre-filtered to the right status
   if(tab === 'fastmov' || tab === 'slowmov'){
@@ -6905,7 +6915,11 @@ function renderReport2(data){
   const tmAmt=(window._r2TMData&&window._r2TMData.salesSummary&&window._r2TMData.salesSummary.totalAmount);
   const _MN2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const curMonLabel=_MN2[new Date().getMonth()];
-  _r2Stat('r2stat-funnel', _r2Cr(ss.totalAmount), tmAmt!=null?curMonLabel+' '+_r2Cr(tmAmt):_fmon.length+' months');
+  if(!_r2From && !_r2To && tmAmt!=null){
+    _r2Stat('r2stat-funnel', curMonLabel+' '+_r2Cr(tmAmt), _r2Cr(ss.totalAmount)+' total');
+  } else {
+    _r2Stat('r2stat-funnel', _r2Cr(ss.totalAmount), tmAmt!=null?curMonLabel+' '+_r2Cr(tmAmt):_fmon.length+' months');
+  }
   _r2Stat('r2stat-sales', _r2Cr(ss.totalAmount), nfmt(ss.totalTransactions)+' bills');
   { const da=(data.deptAnalytics||[]).sort((a,b)=>(b.amount||0)-(a.amount||0));
     _r2Stat('r2stat-topdept', nfmt(da.length)+' depts', da[0]?('top '+_tr(da[0].dept)):'');
