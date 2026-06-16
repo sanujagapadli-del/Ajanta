@@ -1570,7 +1570,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div id="rptPanel-itemledger" class="rpt-panel" style="display:none;padding:24px 26px">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
             <input id="ilSearch" type="text" placeholder="Search supplier / item / category…"
-              oninput="renderRptItemLedger(_rptData&&_rptData.itemLedger||[])"
+              oninput="_ilDisplayLimit=100;renderRptItemLedger(_rptData&&_rptData.itemLedger||[])"
               style="flex:1;min-width:200px;max-width:340px;padding:8px 13px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:13px;color:#334155;outline:none;font-family:'Inter',sans-serif">
             <button onclick="_ilExportCSV()" style="padding:8px 16px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='#c7d2fe';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='#e8ecf8';this.style.color='#64748b'">↓ CSV</button>
           </div>
@@ -4533,6 +4533,7 @@ async function loadImsReports(forceSync) {
   renderRptStockCat(data.categoryStock || []);
   renderRptTurnover(data);
   renderRptSPAnalytics(data.spAnalytics || null);
+  _ilDisplayLimit = 100;
   renderRptItemLedger(data.itemLedger || []);
 }
 
@@ -5269,11 +5270,13 @@ function renderRptSPAnalytics(data) {
 // ══════════════════════════════════════════════════════
 // ITEM PROFIT & LOSS REPORT
 // ══════════════════════════════════════════════════════
+let _ilDisplayLimit = 100;
+function _ilLoadMore(){ _ilDisplayLimit += 100; renderRptItemLedger(_rptData&&_rptData.itemLedger||[]); }
 function renderRptItemLedger(rows) {
   const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
   let filtered = rows;
   if (q) filtered = rows.filter(r => `${r.supName} ${r.style} ${r.cat} ${r.subcat} ${r.article}`.toLowerCase().includes(q));
-  const LIMIT = 100;
+  const LIMIT = _ilDisplayLimit;
   const show  = filtered.slice(0, LIMIT);
   const body  = document.getElementById('ilBody');
   if (!body) return;
@@ -5303,8 +5306,11 @@ function renderRptItemLedger(rows) {
     </tr>`;
   }).join('');
   if (filtered.length > LIMIT) {
-    body.innerHTML += `<tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8;padding:12px">
-      Showing ${LIMIT} of ${filtered.length} — use search to narrow</td></tr>`;
+    const _remaining = filtered.length - LIMIT;
+    body.innerHTML += `<tr><td colspan="14" class="rpt-td" style="text-align:center;padding:16px">
+      <span style="font-size:11px;color:#94a3b8;margin-right:12px">Showing ${LIMIT.toLocaleString('en-IN')} of ${filtered.length.toLocaleString('en-IN')}</span>
+      <button onclick="_ilLoadMore()" style="padding:7px 20px;border:1.5px solid #4f46e5;border-radius:9px;font-size:12px;font-weight:700;color:#4f46e5;background:#fff;cursor:pointer">View More (${_remaining.toLocaleString('en-IN')})</button>
+    </td></tr>`;
   }
 }
 
