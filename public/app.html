@@ -1631,9 +1631,9 @@ tbody tr:last-child td{border-bottom:none;}
           <div id="r2Range" style="font-size:12px;color:#94a3b8;margin-top:5px">All data</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <input type="date" id="r2From" class="r2-din" onchange="_r2OnDateChange()">
+          <input type="text" id="r2From" class="r2-din" placeholder="From date" readonly style="cursor:pointer;min-width:102px">
           <span style="color:#cbd5e1">–</span>
-          <input type="date" id="r2To" class="r2-din" onchange="_r2OnDateChange()">
+          <input type="text" id="r2To" class="r2-din" placeholder="To date" readonly style="cursor:pointer;min-width:102px">
           <span id="r2Status" style="font-size:11px;color:#94a3b8;min-width:58px"></span>
           <button onclick="_r2ResetDate()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer">Reset</button>
           <button onclick="loadReport2(true)" style="padding:9px 18px;background:#4f46e5;color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer">Sync</button>
@@ -4283,6 +4283,7 @@ function setImsView(view) {
   if (view === 'report2') {                      // land on the hub + load the overview dashboard
     document.getElementById('r2Detail').style.display = 'none';
     document.getElementById('r2Hub').style.display = '';
+    _initR2HubPickers();
     loadReport2();
   }
 }
@@ -4342,7 +4343,7 @@ function _initRptDatepickers() {
   if (!fromPick || !toPick || fromPick._flatpickr) return;
   const toISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const commonOpts = {
-    dateFormat: 'd/m/y',
+    dateFormat: 'd-M-Y',
     allowInput: false,
     disableMobile: false,
     onReady: (_, __, fp) => { fp.calendarContainer.style.fontFamily = "'Inter',sans-serif"; },
@@ -4433,7 +4434,7 @@ async function loadImsReports(forceSync) {
     if(syncBtn){syncBtn.disabled=false;syncBtn.innerHTML='⟳ Sync Live Data';}
     if(status){status.style.color='#10b981';status.textContent='✓ Ready';setTimeout(()=>{if(status){status.style.color='#64748b';status.textContent='';}},2000);}
     const sub=document.getElementById('rptSubtitle');
-    if(sub) sub.textContent=(from&&to?`${from} → ${to}`:from?`From ${from}`:to?`Up to ${to}`:'All Data')+(_rDept!=='All'?` · ${_rDept}`:'');
+    if(sub) sub.textContent=(from&&to?`${_fmtD(from)} → ${_fmtD(to)}`:from?`From ${_fmtD(from)}`:to?`Up to ${_fmtD(to)}`:'All Data')+(_rDept!=='All'?` · ${_rDept}`:'');
     _r2FillDepts(_r2Data.departments,'rptDeptSel');
     _rptData=_r2Data;
     renderRptSummary(_r2Data.salesSummary||{},_r2Data.currentStock||{});
@@ -4473,7 +4474,7 @@ async function loadImsReports(forceSync) {
   // Update subtitle
   const sub = document.getElementById('rptSubtitle');
   if (sub) {
-    sub.textContent = ((from && to) ? `${from} → ${to}` : from ? `From ${from}` : to ? `Up to ${to}` : 'All Data') + (_r2Dept && _r2Dept!=='All' ? ` · ${_r2Dept}` : '');
+    sub.textContent = ((from && to) ? `${_fmtD(from)} → ${_fmtD(to)}` : from ? `From ${_fmtD(from)}` : to ? `Up to ${_fmtD(to)}` : 'All Data') + (_r2Dept && _r2Dept!=='All' ? ` · ${_r2Dept}` : '');
   }
 
   _rptData = data; // cache for CSV export
@@ -5649,9 +5650,9 @@ function _r2RenderFunnel(){
   // Init flatpickr on funnel date inputs
   const toISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   if(window.flatpickr){
-    flatpickr(document.getElementById('r2fFrom'),{ dateFormat:'d/m/y', allowInput:false, disableMobile:false,
+    flatpickr(document.getElementById('r2fFrom'),{ dateFormat:'d-M-Y', allowInput:false, disableMobile:false,
       onChange:dates=>{ _r2FunnelFrom=dates[0]?toISO(dates[0]):''; _r2ClearFunnelPresets(); _r2LoadFunnelData(); }});
-    flatpickr(document.getElementById('r2fTo'),{ dateFormat:'d/m/y', allowInput:false, disableMobile:false,
+    flatpickr(document.getElementById('r2fTo'),{ dateFormat:'d-M-Y', allowInput:false, disableMobile:false,
       onChange:dates=>{ _r2FunnelTo=dates[0]?toISO(dates[0]):''; _r2ClearFunnelPresets(); _r2LoadFunnelData(); }});
     // Pre-fill pickers without triggering onChange (false = no trigger)
     const fp1=document.getElementById('r2fFrom')?._flatpickr, fp2=document.getElementById('r2fTo')?._flatpickr;
@@ -5971,9 +5972,9 @@ function _r2RenderTopdept(){
         ${presets.map(([k,l])=>`<button class="r2-fbtn${k==='all'&&!_r2TDFrom?' active':''}" onclick="_r2TDPreset('${k}',this)">${l}</button>`).join('')}
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-left:4px;flex-wrap:wrap">
-        <input type="date" id="r2TDFromInp" value="${_r2TDFrom}" style="border:1.5px solid #e8ecf8;border-radius:8px;padding:5px 9px;font-size:12px;color:#1e293b;outline:none;background:#fff">
+        <input type="text" id="r2TDFromInp" placeholder="From date" readonly style="border:1.5px solid #e8ecf8;border-radius:8px;padding:5px 9px;font-size:12px;color:#1e293b;outline:none;background:#fff;cursor:pointer;min-width:100px">
         <span style="color:#94a3b8;font-size:12px">to</span>
-        <input type="date" id="r2TDToInp" value="${_r2TDTo}" style="border:1.5px solid #e8ecf8;border-radius:8px;padding:5px 9px;font-size:12px;color:#1e293b;outline:none;background:#fff">
+        <input type="text" id="r2TDToInp" placeholder="To date" readonly style="border:1.5px solid #e8ecf8;border-radius:8px;padding:5px 9px;font-size:12px;color:#1e293b;outline:none;background:#fff;cursor:pointer;min-width:100px">
         <button onclick="_r2TDApply()" style="padding:5px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:#4f46e5;color:#fff">Apply</button>
       </div>
     </div>
@@ -5993,6 +5994,14 @@ function _r2RenderTopdept(){
     </div>
   </div>`;
   _r2DrawTDTable(rows);
+  // Init Flatpickr on Top Dept date inputs
+  const _tdISO=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const _tdOpts={dateFormat:'d-M-Y',allowInput:false,disableMobile:false,
+    onReady:(_,__,fp)=>fp.calendarContainer.style.fontFamily="'Inter',sans-serif"};
+  flatpickr(document.getElementById('r2TDFromInp'),{..._tdOpts,onChange:dates=>{_r2TDFrom=dates[0]?_tdISO(dates[0]):''; }});
+  flatpickr(document.getElementById('r2TDToInp'),  {..._tdOpts,onChange:dates=>{_r2TDTo  =dates[0]?_tdISO(dates[0]):''; }});
+  if(_r2TDFrom) document.getElementById('r2TDFromInp')._flatpickr.setDate(_r2TDFrom,false,'Y-m-d');
+  if(_r2TDTo)   document.getElementById('r2TDToInp')._flatpickr.setDate(_r2TDTo,  false,'Y-m-d');
 }
 function _r2DrawTDTable(rows){
   const tbody=document.getElementById('r2TDTbody'); if(!tbody) return;
@@ -6026,13 +6035,13 @@ function _r2TDPreset(kind, btn){
   else if(kind==='quarter'){ const fyM=(m>=3)?m-3:m+9,q=Math.floor(fyM/3),qm=3+q*3; _r2TDFrom=fmt(new Date(fy,qm,1)); _r2TDTo=fmt(new Date(fy,qm+3,0)); }
   else if(kind==='year'){ _r2TDFrom=fmt(new Date(y,0,1)); _r2TDTo=fmt(now); }
   else if(kind==='fy'){ _r2TDFrom=fmt(new Date(fy,3,1)); _r2TDTo=fmt(new Date(fy+1,2,31)); }
-  const fEl=document.getElementById('r2TDFromInp'), tEl=document.getElementById('r2TDToInp');
-  if(fEl) fEl.value=_r2TDFrom; if(tEl) tEl.value=_r2TDTo;
+  const fp1=document.getElementById('r2TDFromInp')?._flatpickr, fp2=document.getElementById('r2TDToInp')?._flatpickr;
+  if(fp1){ if(_r2TDFrom) fp1.setDate(_r2TDFrom,false,'Y-m-d'); else fp1.clear(); }
+  if(fp2){ if(_r2TDTo)   fp2.setDate(_r2TDTo,  false,'Y-m-d'); else fp2.clear(); }
   _r2LoadTopdeptData();
 }
 function _r2TDApply(){
-  _r2TDFrom=(document.getElementById('r2TDFromInp')||{}).value||'';
-  _r2TDTo=(document.getElementById('r2TDToInp')||{}).value||'';
+  // _r2TDFrom/_r2TDTo updated by Flatpickr onChange; Apply just triggers load
   document.querySelectorAll('#r2TDPresets .r2-fbtn').forEach(b=>b.classList.remove('active'));
   _r2LoadTopdeptData();
 }
@@ -6073,6 +6082,7 @@ function _r2TopdeptCSV(){
 let _r2From = '', _r2To = '', _r2Data = null, _r2Dept = 'All';
 
 function _r2FmtDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _fmtD(s){ if(!s) return s; const p=s.split('-'); if(p.length<3) return s; const mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return `${p[2]}-${mn[+p[1]-1]}-${p[0]}`; }
 
 // Monthly trend click → poora dashboard us month pe filter ho jata hai.
 const _R2_MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -6081,8 +6091,8 @@ function _r2MonthClick(label){
   const mi=_R2_MON.indexOf(m[1]); if(mi<0) return;
   const yr=2000+parseInt(m[2],10);
   _r2From=_r2FmtDate(new Date(yr,mi,1)); _r2To=_r2FmtDate(new Date(yr,mi+1,0));
-  const fEl=document.getElementById('r2From'), tEl=document.getElementById('r2To');
-  if(fEl) fEl.value=_r2From; if(tEl) tEl.value=_r2To;
+  const fp1=document.getElementById('r2From')?._flatpickr, fp2=document.getElementById('r2To')?._flatpickr;
+  if(fp1) fp1.setDate(new Date(yr,mi,1),false); if(fp2) fp2.setDate(new Date(yr,mi+1,0),false);
   document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));
   loadReport2();
 }
@@ -6099,21 +6109,32 @@ function setR2Preset(kind, btn){
   else if(kind==='year'){ from=new Date(y,0,1); to=now; }
   else if(kind==='fy'){ const fyStart=(m>=3)?y:y-1; from=new Date(fyStart,3,1); to=now; }  // Apr→Mar
   _r2From = from?_r2FmtDate(from):''; _r2To = to?_r2FmtDate(to):'';
-  const fEl=document.getElementById('r2From'), tEl=document.getElementById('r2To');
-  if(fEl) fEl.value=_r2From; if(tEl) tEl.value=_r2To;
+  const fp1=document.getElementById('r2From')?._flatpickr, fp2=document.getElementById('r2To')?._flatpickr;
+  if(fp1){ if(from) fp1.setDate(from,false); else fp1.clear(); }
+  if(fp2){ if(to)   fp2.setDate(to,  false); else fp2.clear(); }
   loadReport2();
 }
 
+function _initR2HubPickers(){
+  const fEl=document.getElementById('r2From'), tEl=document.getElementById('r2To');
+  if(!fEl||!tEl||fEl._flatpickr) return;
+  const toISO=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const opts={dateFormat:'d-M-Y',allowInput:false,disableMobile:false,
+    onReady:(_,__,fp)=>fp.calendarContainer.style.fontFamily="'Inter',sans-serif"};
+  flatpickr(fEl,{...opts,onChange:dates=>{_r2From=dates[0]?toISO(dates[0]):'';
+    document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));loadReport2();}});
+  flatpickr(tEl,{...opts,onChange:dates=>{_r2To=dates[0]?toISO(dates[0]):'';
+    document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));loadReport2();}});
+  if(_r2From) fEl._flatpickr.setDate(_r2From,false,'Y-m-d');
+  if(_r2To)   tEl._flatpickr.setDate(_r2To,  false,'Y-m-d');
+}
 function _r2OnDateChange(){
-  _r2From = (document.getElementById('r2From')||{}).value || '';
-  _r2To   = (document.getElementById('r2To')||{}).value   || '';
-  document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));
-  loadReport2();
+  // Kept for compatibility — hub inputs now handled by Flatpickr onChange
 }
 function _r2ResetDate(){
   _r2From=''; _r2To='';
-  const fEl=document.getElementById('r2From'), tEl=document.getElementById('r2To');
-  if(fEl) fEl.value=''; if(tEl) tEl.value='';
+  const fp1=document.getElementById('r2From')?._flatpickr, fp2=document.getElementById('r2To')?._flatpickr;
+  if(fp1) fp1.clear(); if(fp2) fp2.clear();
   document.querySelectorAll('#imsView-report2 .r2-preset').forEach(b=>b.classList.remove('active'));
   const allBtn=document.querySelector('#imsView-report2 .r2-preset[data-p="all"]');
   if(allBtn) allBtn.classList.add('active');
