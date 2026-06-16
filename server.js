@@ -3165,6 +3165,20 @@ app.post('/api/generate-unique-codes', requireAuth, async (req, res) => {
   }
 });
 
+// ── Temporary debug: expose sheet column headers ──────────────────────────────
+app.get('/api/ims-dbg-cols', requireAuth, async (req, res) => {
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const [oR, iR] = await Promise.all([
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: "'Out Stock'!1:1" }),
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: "'In Stock'!1:1" })
+    ]);
+    const outH = (oR.data.values||[[]])[0] || [];
+    const inH  = (iR.data.values||[[]])[0] || [];
+    res.json({ outStock: outH.map((h,i)=>({col:i,name:h})), inStock: inH.map((h,i)=>({col:i,name:h})) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── IMS Stock History — stock snapshot as of any past date ──────────────────
 // Params: asOf=YYYY-MM-DD (required), dept=filter (optional)
 // Computes: purQty (In Stock Pur Date ≤ asOf) − saleQty (Out Stock XN Date ≤ asOf)
