@@ -6461,7 +6461,9 @@ function renderReport2(data){
   const prevSS=_hasFilter?((lyF&&lyF.salesSummary)||null):ly;
   const prevSA=_hasFilter?((lyF&&lyF.spAnalytics&&lyF.spAnalytics.summary)||null):lySA;
   const pctChg=(cur,prev)=>{
-    if(prev==null||isNaN(prev)||prev===0||cur==null||isNaN(cur)) return null;
+    if(cur==null||isNaN(cur)) return null;
+    if(prev==null||isNaN(prev)) return null;
+    if(prev===0) return cur>0?'new':null;
     return Math.round((cur-prev)/Math.abs(prev)*100);
   };
   const lmAmtG =pctChg(curSS&&curSS.totalAmount,  prevSS&&prevSS.totalAmount);
@@ -6471,7 +6473,9 @@ function renderReport2(data){
   // Headline cell with YoY chip (click → popover)
   const cell=(lbl,val,color,pct,lmKey)=>{
     let chip='';
-    if(pct!=null){
+    if(pct==='new'){
+      chip=`<span class="r2-lm-chip" style="background:#dcfce7;color:#16a34a;cursor:pointer" onclick="_r2LMPop(event,'${lmKey}')">▲ New</span>`;
+    } else if(pct!=null){
       const up=pct>=0, bg=up?'#dcfce7':'#fee2e2', fc=up?'#16a34a':'#dc2626';
       chip=`<span class="r2-lm-chip" style="background:${bg};color:${fc};cursor:pointer" onclick="_r2LMPop(event,'${lmKey}')">${up?'▲':'▼'} ${up?'+':''}${pct}%</span>`;
     }
