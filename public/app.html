@@ -5225,6 +5225,7 @@ function _renderSTR(bodyId) {
   const c = _strCache[bodyId];
   const body = document.getElementById(bodyId);
   if (!c || !body) return;
+  const type = bodyId.includes('Cat') ? 'cat' : 'supplier';
   let rows = c.rows || [];
   const q = (c.q || '').toLowerCase();
   if (q) rows = rows.filter(r => String(r.name).toLowerCase().includes(q));
@@ -5246,9 +5247,10 @@ function _renderSTR(bodyId) {
             ? ['#fef9c3','#a16207','⚡ '+str.toFixed(2)+'×']
             : ['#fee2e2','#dc2626','🐢 '+str.toFixed(2)+'×'];
     const daysColor = days==null?'#94a3b8':days<=120?'#15803d':days<=300?'#a16207':'#dc2626';
+    const nameEsc = r.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     return `<tr style="border-bottom:1px solid #f1f5f9">
       <td class="rpt-td">${i+1}</td>
-      <td class="rpt-td" style="font-weight:600">${r.name}</td>
+      <td class="rpt-td" style="font-weight:700;color:#4f46e5;cursor:pointer" onclick="_strDrilldown('${type}','${nameEsc}')" title="Click to see item breakdown">${r.name} <span style="font-size:10px;color:#a5b4fc">↗</span></td>
       <td class="rpt-td" style="text-align:right;color:#16a34a;font-weight:600">${Number(r.sold||0).toLocaleString('en-IN')}</td>
       <td class="rpt-td" style="text-align:right">${Number(r.opening||0).toLocaleString('en-IN')}</td>
       <td class="rpt-td" style="text-align:right;color:#b45309">${Number(r.purQty||0).toLocaleString('en-IN')}</td>
@@ -5259,6 +5261,101 @@ function _renderSTR(bodyId) {
       <td class="rpt-td" style="text-align:right;font-weight:600;color:${daysColor}">${days!=null?days+'d':'—'}</td>
     </tr>`;
   }).join('') + moreBtn;
+}
+
+function _strDrilldown(type, name) {
+  const data = _rptData;
+  if (!data) return;
+  // Aggregate style-level data for this supplier/category (no purQty filter — includes Alteration)
+  const ssold = {}, sstk = {};
+  (data.supplierStyleSales||[]).forEach(s => {
+    const match = type==='supplier' ? s.supName===name : s.cat===name;
+    if (!match) return;
+    const k = s.key||s.style||'—';
+    ssold[k] = (ssold[k]||0) + (s.qty||0);
+  });
+  (data.supplierStyleStock||[]).forEach(s => {
+    const match = type==='supplier' ? s.supName===name : s.cat===name;
+    if (!match) return;
+    const k = s.key||s.style||'—';
+    if (!sstk[k]) sstk[k] = { supName:s.supName||'—', style:s.style||k, cat:s.cat||'—', qty:0, purQty:0, opening:0, purReturn:0 };
+    sstk[k].qty      += s.qty||0;
+    sstk[k].purQty   += s.purQty||0;
+    sstk[k].opening  += s.opening||0;
+    sstk[k].purReturn+= s.purReturn||0;
+  });
+  const rows = [];
+  new Set([...Object.keys(ssold),...Object.keys(sstk)]).forEach(k => {
+    const sold    = ssold[k]||0;
+    const sd      = sstk[k]||{};
+    const opening = sd.opening||0;
+    const purQty  = sd.purQty||0;
+    const purReturn = sd.purReturn||0;
+    const closing = Math.max(0, sd.qty||0);
+    const avgStock = (opening+closing)/2;
+    const str = avgStock>0 ? sold/avgStock : (sold>0 ? null : 0);
+    const days = (str!==null && str>0) ? Math.round(365/str) : null;
+    rows.push({ style:sd.style||k, supName:sd.supName||'—', cat:sd.cat||'—', sold, opening, purQty, purReturn, closing, avgStock, str, days });
+  });
+  rows.sort((a,b) => (b.str??Infinity)-(a.str??Infinity));
+  // Build modal
+  let modal = document.getElementById('strDrillModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'strDrillModal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.52);backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:16px';
+    modal.innerHTML = `<div style="background:#fff;border-radius:18px;width:min(96vw,1100px);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.28);overflow:hidden">
+      <div style="padding:20px 24px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0">
+        <div>
+          <div id="strDrillTitle" style="font-size:16px;font-weight:800;color:#1e293b"></div>
+          <div id="strDrillSub" style="font-size:11px;color:#94a3b8;margin-top:3px"></div>
+        </div>
+        <button onclick="document.getElementById('strDrillModal').style.display='none'" style="background:#f1f5f9;border:none;font-size:15px;cursor:pointer;color:#64748b;padding:6px 10px;border-radius:8px;margin-left:12px;flex-shrink:0">✕</button>
+      </div>
+      <div id="strDrillBody" style="overflow-y:auto;padding:20px 24px;flex:1"></div>
+    </div>`;
+    modal.addEventListener('click', e => { if(e.target===modal) modal.style.display='none'; });
+    document.body.appendChild(modal);
+  }
+  document.getElementById('strDrillTitle').textContent = name;
+  document.getElementById('strDrillSub').textContent = (type==='supplier'?'Supplier':'Category') + ' — Item-wise Stock Turnover Ratio';
+  const secCol = type==='supplier' ? 'Category' : 'Supplier';
+  const secVal = r => type==='supplier' ? r.cat : r.supName;
+  const tbody = rows.map((r,i) => {
+    const str = r.str;
+    const [strBg,strColor,strLabel] = str===null?['#cffafe','#0e7490','✅ Cleared']:str===0?['#f1f5f9','#94a3b8','—']:str>=3?['#dcfce7','#15803d','🔥 '+str.toFixed(2)+'×']:str>=1?['#fef9c3','#a16207','⚡ '+str.toFixed(2)+'×']:['#fee2e2','#dc2626','🐢 '+str.toFixed(2)+'×'];
+    const dc = r.days==null?'#94a3b8':r.days<=120?'#15803d':r.days<=300?'#a16207':'#dc2626';
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td class="rpt-td" style="color:#94a3b8">${i+1}</td>
+      <td class="rpt-td" style="font-weight:700;color:#334155">${r.style}</td>
+      <td class="rpt-td" style="color:#64748b;font-size:11px">${secVal(r)}</td>
+      <td class="rpt-td" style="text-align:right;color:#16a34a;font-weight:600">${Number(r.sold||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right">${Number(r.opening||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#b45309">${Number(r.purQty||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#dc2626">${Number(r.purReturn||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#4f46e5;font-weight:600">${Number(r.closing||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#64748b">${r.avgStock.toFixed(1)}</td>
+      <td class="rpt-td" style="text-align:center"><span style="background:${strBg};color:${strColor};font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px">${strLabel}</span></td>
+      <td class="rpt-td" style="text-align:right;font-weight:600;color:${dc}">${r.days!=null?r.days+'d':'—'}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('strDrillBody').innerHTML = rows.length ? `
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:900px"><thead><tr>
+      <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
+      <th class="rpt-th-dark" style="text-align:left">Style / Item</th>
+      <th class="rpt-th-blue" style="text-align:left">${secCol}</th>
+      <th class="rpt-th-green" style="text-align:right">Sold Qty</th>
+      <th class="rpt-th-dark" style="text-align:right">Opening</th>
+      <th class="rpt-th-amber" style="text-align:right">Purchased</th>
+      <th class="rpt-th-red" style="text-align:right">Pur. Return</th>
+      <th class="rpt-th-blue" style="text-align:right">Closing</th>
+      <th class="rpt-th-dark" style="text-align:right">Avg Stock</th>
+      <th class="rpt-th-dark" style="text-align:center">STR</th>
+      <th class="rpt-th-dark" style="text-align:right">Days/Year</th>
+    </tr></thead><tbody>${tbody}</tbody></table></div>`
+    : '<div style="text-align:center;padding:40px;color:#94a3b8">Koi item data nahi mila</div>';
+  modal.style.display = 'flex';
 }
 
 function renderRptSTR(data) {
