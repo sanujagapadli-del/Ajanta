@@ -5855,7 +5855,8 @@ function _ilItemDetail(style) {
   document.getElementById('ilItemModalBody').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
       <div style="grid-column:1/-1;font-size:9px;font-weight:800;letter-spacing:.1em;color:#78350f;background:#fef3c7;padding:5px 10px;border-radius:7px">PURCHASED</div>
-      ${card('Purchase Date', _fmtD(r.firstPurDate)||'—', '#d97706')}
+      ${card(r.lastPurDate&&r.lastPurDate!==r.firstPurDate?'First Purchase':'Purchase Date', _fmtD(r.firstPurDate)||'—', '#d97706')}
+      ${r.lastPurDate&&r.lastPurDate!==r.firstPurDate?card('Last Purchase', _fmtD(r.lastPurDate)||'—', '#d97706'):''}
       ${card('Purchase Qty', nf(r.purQty), '#d97706')}
       ${card('Cost / Unit', r.costPerUnit>0?fmtINR(r.costPerUnit):'—', '#d97706')}
       ${card('Total Cost', r.purQty&&r.costPerUnit?(fmtINR(r.purQty*r.costPerUnit)):'—', '#92400e')}
@@ -5902,7 +5903,7 @@ function renderRptItemLedger(rows) {
       ${td(styleLine+' <span style="font-size:10px;color:#a5b4fc">↗</span>')}
       ${td(`<span style="font-weight:600;color:#334155">${r.supName||'—'}</span>`)}
       ${td(catLine,sep)}
-      ${td(_fmtD(r.firstPurDate)||'—','text-align:center;color:#d97706')}
+      ${td((()=>{ const f=_fmtD(r.firstPurDate), l=_fmtD(r.lastPurDate); return f?(f===l||!l?f:`<span style="font-size:10px">${f}<br>→ ${l}</span>`):'—'; })(),'text-align:center;color:#d97706')}
       ${td(Number(r.purQty||0).toLocaleString('en-IN'),'text-align:right;color:#64748b')}
       ${td(r.costPerUnit>0?fmtINR(r.costPerUnit):'—','text-align:right;color:#d97706;'+sep)}
       ${td(_fmtD(r.lastSaleDate)||'—','text-align:center;color:#16a34a')}

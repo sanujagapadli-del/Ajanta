@@ -2905,7 +2905,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const prtQ = iPrtQty >= 0 ? getNum(row, iPrtQty) : 0;  // Purchase Return
       const artI = iArticle >= 0 ? (String(row[iArticle]||'').trim()||'') : '';
       const subcatI = iSubCat >= 0 ? String(row[iSubCat]||'').trim() : '';
-      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0, article: artI, subcat: subcatI, purAmt: 0, firstPurDate: '' };
+      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0, article: artI, subcat: subcatI, purAmt: 0, firstPurDate: '', lastPurDate: '' };
       bySupStyleStock[ssKey].qty += getNum(row, iStockQty);
       bySupStyleStock[ssKey].purQty += purQ;
       bySupStyleStock[ssKey].opening += openQ;
@@ -2920,6 +2920,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const pdStr = iPurDate >= 0 ? String(row[iPurDate]||'').trim() : '';
       const pdIso = pdStr ? toISO(pdStr) : '';
       if (pdIso && (!bySupStyleStock[ssKey].firstPurDate || pdIso < bySupStyleStock[ssKey].firstPurDate)) bySupStyleStock[ssKey].firstPurDate = pdIso;
+      if (pdIso && (!bySupStyleStock[ssKey].lastPurDate  || pdIso > bySupStyleStock[ssKey].lastPurDate))  bySupStyleStock[ssKey].lastPurDate  = pdIso;
       const qty  = getNum(row, iStockQty);
       const val  = qty * cost;
       totalStockQty += qty; totalStockValue += val;
@@ -2936,7 +2937,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       _ilMap[k] = { key: k, supName: v.supName, style: v.style, cat: v.cat, subcat: v.subcat||'',
         article: v.article||'', purQty: r2(v.purQty), purAmt: Math.round(v.purAmt||0),
         costPerUnit: v.purQty > 0 ? Math.round((v.purAmt||0) / v.purQty) : 0,
-        firstPurDate: v.firstPurDate||'',
+        firstPurDate: v.firstPurDate||'', lastPurDate: v.lastPurDate||'',
         saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
     });
     Object.entries(bySupStyleSales).forEach(([k, v]) => {
