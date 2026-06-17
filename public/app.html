@@ -6507,30 +6507,24 @@ function _r2RenderFunnel(){
   const qps=[['all','All'],['month','This Month'],['lastmonth','Last Month'],['quarter','This Quarter'],['year','This Year'],['fy','This FY']];
   view.innerHTML =
     `<div class="r2-card" style="padding:20px 22px">
-       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding-bottom:14px;border-bottom:1px solid #eef2ff;margin-bottom:14px">
          <div>
            <div style="font-size:18px;font-weight:800;color:#0f172a">Sales Funnel</div>
-           <div style="font-size:12px;color:#94a3b8;margin-top:2px">Net sales over time — filter by date &amp; pick a grouping below.</div>
+           <div style="font-size:12px;color:#94a3b8;margin-top:2px">Net sales over time — filter by date below.</div>
          </div>
          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-           <div id="r2FunnelBtns" style="display:flex;gap:6px;flex-wrap:wrap">
-             ${pbts.map(([k,l])=>`<button class="r2-fbtn${_r2FunnelPeriod===k?' active':''}" data-p="${k}" onclick="_r2SetFunnelPeriod('${k}')">${l}</button>`).join('')}
-           </div>
+           <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.12em">DATE</span>
+           ${qps.map(([k,l])=>`<button class="r2-preset r2fp-q" data-q="${k}" onclick="_r2FunnelPreset('${k}',this)" style="padding:6px 11px;font-size:11px">${l}</button>`).join('')}
+           <span style="color:#e2e8f0;font-size:12px">|</span>
+           <input id="r2fFrom" type="text" placeholder="Start date..." readonly style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:8px;font-size:11px;width:100px;cursor:pointer;font-family:'Inter',sans-serif;color:#334155;background:#fff;outline:none">
+           <span style="color:#94a3b8;font-size:11px">to</span>
+           <input id="r2fTo" type="text" placeholder="End date..." readonly style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:8px;font-size:11px;width:100px;cursor:pointer;font-family:'Inter',sans-serif;color:#334155;background:#fff;outline:none">
+           <button onclick="_r2FunnelReset()" style="padding:6px 12px;background:#fff;color:#64748b;border:1.5px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer">Reset</button>
+           <span id="r2fStatus" style="font-size:11px;color:#94a3b8"></span>
            <span style="color:#e2e8f0;font-size:14px">|</span>
            <button onclick="_r2FunnelPDF()" style="padding:8px 14px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px">🖨 PDF</button>
            <button onclick="_r2FunnelCSV()" style="padding:8px 14px;background:#fff;color:#334155;border:1.5px solid #e2e8f0;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px">↓ CSV</button>
          </div>
-       </div>
-       <!-- Date filter row -->
-       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid #eef2ff;margin-bottom:14px">
-         <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.12em;margin-right:2px">DATE</span>
-         ${qps.map(([k,l])=>`<button class="r2-preset r2fp-q" data-q="${k}" onclick="_r2FunnelPreset('${k}',this)" style="padding:6px 11px;font-size:11px">${l}</button>`).join('')}
-         <span style="color:#e2e8f0;font-size:12px">|</span>
-         <input id="r2fFrom" type="text" placeholder="Start date..." readonly style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:8px;font-size:11px;width:100px;cursor:pointer;font-family:'Inter',sans-serif;color:#334155;background:#fff;outline:none">
-         <span style="color:#94a3b8;font-size:11px">to</span>
-         <input id="r2fTo" type="text" placeholder="End date..." readonly style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:8px;font-size:11px;width:100px;cursor:pointer;font-family:'Inter',sans-serif;color:#334155;background:#fff;outline:none">
-         <button onclick="_r2FunnelReset()" style="padding:6px 12px;background:#fff;color:#64748b;border:1.5px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer">Reset</button>
-         <span id="r2fStatus" style="font-size:11px;color:#94a3b8;margin-left:4px"></span>
        </div>
        <div id="r2FunnelKpis" style="display:flex;gap:30px;flex-wrap:wrap;margin-bottom:18px"></div>
        <div style="position:relative;height:380px"><canvas id="r2FunnelChart"></canvas></div>
