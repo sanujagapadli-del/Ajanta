@@ -6519,12 +6519,14 @@ function _r2RenderFunnel(){
          <table class="r2-tbl" style="font-size:12px">
            <thead id="r2FunnelThead"><tr>
              <th>Period</th>
-             <th style="text-align:right">Current Year</th>
-             <th style="text-align:right;color:#94a3b8">Last Year</th>
+             <th style="text-align:right">CY Sales</th>
+             <th style="text-align:right;color:#94a3b8">LY Sales</th>
              <th style="text-align:right">Change ₹</th>
              <th style="text-align:right">Change %</th>
-             <th style="text-align:right">Net Qty</th>
-             <th style="text-align:right">Bills</th>
+             <th style="text-align:right">CY Qty</th>
+             <th style="text-align:right;color:#94a3b8">LY Qty</th>
+             <th style="text-align:right">CY Bills</th>
+             <th style="text-align:right;color:#94a3b8">LY Bills</th>
            </tr></thead>
            <tbody id="r2FunnelTbody"></tbody>
          </table>
@@ -6547,7 +6549,8 @@ function _r2RenderFunnel(){
   const _fSameAsHub=(_r2FunnelFrom===_r2From && _r2FunnelTo===_r2To);
   if(!_r2FunnelFrom && !_r2FunnelTo || _fSameAsHub){
     _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
-    _r2FunnelBDLY=(_r2LYFilterData&&_r2LYFilterData.salesSummary&&_r2LYFilterData.salesSummary.byDate)||null;
+    _r2FunnelBDLY=(_r2LYFilterData&&_r2LYFilterData.salesSummary&&_r2LYFilterData.salesSummary.byDate)||
+                  ((!_r2FunnelFrom&&!_r2FunnelTo)?(window._r2LYData&&window._r2LYData.salesSummary&&window._r2LYData.salesSummary.byDate)||null:null);
     _r2DrawFunnel();
   } else { _r2LoadFunnelData(); }
 }
@@ -6573,7 +6576,7 @@ function _r2FunnelPreset(kind, btn){
   if(fp1){ if(from) fp1.setDate(from,false); else fp1.clear(); }
   if(fp2){ if(to)   fp2.setDate(to,false);   else fp2.clear(); }
   // "All" uses overview's already-loaded byDate directly (no extra fetch)
-  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2FunnelBDLY=null; _r2DrawFunnel(); }
+  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2FunnelBDLY=(window._r2LYData&&window._r2LYData.salesSummary&&window._r2LYData.salesSummary.byDate)||null; _r2DrawFunnel(); }
   else { _r2LoadFunnelData(); }
 }
 async function _r2LoadFunnelData(){
@@ -6657,7 +6660,7 @@ function _r2DrawFunnel(){
   // ── Table ──
   const tb2=document.getElementById('r2FunnelTbody');
   if(!tb2) return;
-  if(!merged.length){ tb2.innerHTML=`<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>`; return; }
+  if(!merged.length){ tb2.innerHTML=`<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>`; return; }
   tb2.innerHTML=merged.map(r=>{
     const lyAmt=r.ly?r.ly.amount:0;
     const diff=r.amount-lyAmt;
@@ -6665,14 +6668,18 @@ function _r2DrawFunnel(){
     const pctHtml=!r.ly?'—':pct===null?`<span style="color:#16a34a;font-weight:700">▲ New</span>`:
       `<span style="color:${diff>=0?'#16a34a':'#dc2626'};font-weight:700">${diff>=0?'▲ +':'▼ '}${pct}%</span>`;
     const diffHtml=!r.ly?'—':`<span style="color:${diff>=0?'#16a34a':'#dc2626'};font-weight:600">${diff>=0?'+':'-'}₹${nf(Math.round(Math.abs(diff)))}</span>`;
+    const lyQty=r.ly?nf(Math.round(r.ly.qty)):'—';
+    const lyBills=r.ly?nf(r.ly.bills):'—';
     return `<tr style="border-bottom:1px solid #f4f6ff">
       <td style="font-weight:600;color:#0f172a;padding:8px 10px">${r.label}</td>
       <td style="text-align:right;font-weight:700;padding:8px 10px">₹${nf(Math.round(r.amount))}</td>
       <td style="text-align:right;color:#64748b;padding:8px 10px">${r.ly?'₹'+nf(Math.round(lyAmt)):'—'}</td>
       <td style="text-align:right;padding:8px 10px">${diffHtml}</td>
       <td style="text-align:right;padding:8px 10px">${pctHtml}</td>
-      <td style="text-align:right;padding:8px 10px;color:#64748b">${nf(Math.round(r.qty))}</td>
-      <td style="text-align:right;padding:8px 10px;color:#64748b">${nf(r.bills)}</td>
+      <td style="text-align:right;padding:8px 10px;color:#0f172a;font-weight:600">${nf(Math.round(r.qty))}</td>
+      <td style="text-align:right;padding:8px 10px;color:#64748b">${lyQty}</td>
+      <td style="text-align:right;padding:8px 10px;color:#0f172a;font-weight:600">${nf(r.bills)}</td>
+      <td style="text-align:right;padding:8px 10px;color:#64748b">${lyBills}</td>
     </tr>`;
   }).join('');
 }
@@ -6682,6 +6689,7 @@ function _r2FunnelReset(){
   if(fp1) fp1.clear(); if(fp2) fp2.clear();
   document.querySelectorAll('.r2fp-q').forEach(b=>b.classList.toggle('active', b.dataset.q==='all'));
   _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
+  _r2FunnelBDLY=(window._r2LYData&&window._r2LYData.salesSummary&&window._r2LYData.salesSummary.byDate)||null;
   _r2DrawFunnel();
 }
 function _r2FunnelPDF(){
@@ -6720,14 +6728,14 @@ function _r2FunnelCSV(){
   const lyMap=new Map(lyRows.map(r=>[r.sort+lyOff, r]));
   const hasLY=lyRows.length>0;
   const range=(_r2FunnelFrom&&_r2FunnelTo)?`${_r2FunnelFrom}_to_${_r2FunnelTo}`:_r2FunnelFrom?`from_${_r2FunnelFrom}`:_r2FunnelTo?`to_${_r2FunnelTo}`:'all';
-  const hdr=hasLY?['Period','CY Net Sales (INR)','LY Net Sales (INR)','Change INR','Change %','Net Qty','Bills']:['Period','Net Sales (INR)','Net Qty','Bills'];
+  const hdr=hasLY?['Period','CY Net Sales (INR)','LY Net Sales (INR)','Change INR','Change %','CY Net Qty','LY Net Qty','CY Bills','LY Bills']:['Period','Net Sales (INR)','Net Qty','Bills'];
   const lines=[hdr.join(',')];
   rows.forEach(r=>{
     const ly=lyMap.get(r.sort);
     const lyAmt=ly?ly.amount:0;
     const diff=r.amount-lyAmt;
     const pct=ly&&lyAmt>0?Math.round((diff/lyAmt)*100):'';
-    if(hasLY) lines.push([r.label,Math.round(r.amount),ly?Math.round(lyAmt):'',Math.round(diff),pct,Math.round(r.qty),r.bills].join(','));
+    if(hasLY) lines.push([r.label,Math.round(r.amount),ly?Math.round(lyAmt):'',Math.round(diff),pct,Math.round(r.qty),ly?Math.round(ly.qty):'',r.bills,ly?ly.bills:''].join(','));
     else lines.push([r.label,Math.round(r.amount),Math.round(r.qty),r.bills].join(','));
   });
   const blob=new Blob([lines.join('\n')],{type:'text/csv'});
