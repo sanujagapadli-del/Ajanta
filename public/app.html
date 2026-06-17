@@ -1593,23 +1593,30 @@ tbody tr:last-child td{border-bottom:none;}
           <!-- Pane: Item / Style (default) -->
           <div id="ilPane-item">
             <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
-              <table style="width:100%;border-collapse:collapse;min-width:1200px"><thead><tr>
-                <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
-                <th class="rpt-th-dark" style="text-align:left">Supplier</th>
-                <th class="rpt-th-blue" style="text-align:left">Category</th>
-                <th class="rpt-th-blue" style="text-align:left">Sub-Cat</th>
-                <th class="rpt-th-dark" style="text-align:left">Item / Style</th>
-                <th class="rpt-th-dark" style="text-align:left">Article</th>
-                <th class="rpt-th-amber" style="text-align:center">Pur Date</th>
-                <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
-                <th class="rpt-th-amber" style="text-align:right">Cost / Unit</th>
-                <th class="rpt-th-green" style="text-align:center">Sale Date</th>
-                <th class="rpt-th-green" style="text-align:right">Sale Qty</th>
-                <th class="rpt-th-green" style="text-align:right">Sale Amt</th>
-                <th class="rpt-th-purple" style="text-align:right">Profit / Loss</th>
-                <th class="rpt-th-dark" style="text-align:right">Avail Stock</th>
-              </tr></thead>
-              <tbody id="ilBody"><tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              <table style="width:100%;border-collapse:collapse;min-width:1100px"><thead>
+                <tr>
+                  <th colspan="4" style="background:#1e293b;color:#94a3b8;font-size:9px;font-weight:800;letter-spacing:.1em;text-align:center;padding:5px 8px;border-right:3px solid #fff">ITEM INFO</th>
+                  <th colspan="3" style="background:#78350f;color:#fcd34d;font-size:9px;font-weight:800;letter-spacing:.1em;text-align:center;padding:5px 8px;border-right:3px solid #fff">PURCHASED</th>
+                  <th colspan="3" style="background:#14532d;color:#86efac;font-size:9px;font-weight:800;letter-spacing:.1em;text-align:center;padding:5px 8px;border-right:3px solid #fff">SOLD</th>
+                  <th colspan="3" style="background:#3730a3;color:#c4b5fd;font-size:9px;font-weight:800;letter-spacing:.1em;text-align:center;padding:5px 8px">RESULT</th>
+                </tr>
+                <tr>
+                  <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
+                  <th class="rpt-th-dark" style="text-align:left">Item / Style</th>
+                  <th class="rpt-th-dark" style="text-align:left">Supplier</th>
+                  <th class="rpt-th-blue" style="text-align:left;border-right:3px solid #e2e8f0">Category</th>
+                  <th class="rpt-th-amber" style="text-align:center">Pur Date</th>
+                  <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
+                  <th class="rpt-th-amber" style="text-align:right;border-right:3px solid #e2e8f0">Cost / Unit</th>
+                  <th class="rpt-th-green" style="text-align:center">Last Sale</th>
+                  <th class="rpt-th-green" style="text-align:right">Sale Qty</th>
+                  <th class="rpt-th-green" style="text-align:right;border-right:3px solid #e2e8f0">Sale Amt</th>
+                  <th class="rpt-th-purple" style="text-align:right">Profit / Loss</th>
+                  <th class="rpt-th-purple" style="text-align:right">Margin %</th>
+                  <th class="rpt-th-dark" style="text-align:right">Avail Stock</th>
+                </tr>
+              </thead>
+              <tbody id="ilBody"><tr><td colspan="13" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
               </table>
             </div></div>
           </div>
@@ -5739,33 +5746,41 @@ function renderRptItemLedger(rows) {
   const body  = document.getElementById('ilBody');
   if (!body) return;
   if (!filtered.length) {
-    body.innerHTML = `<tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">${q ? 'No results for "'+q+'"' : 'No data'}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="13" class="rpt-td" style="text-align:center;color:#94a3b8">${q ? 'No results for "'+q+'"' : 'No data'}</td></tr>`;
     return;
   }
-  const td = (v, s='') => `<td class="rpt-td" style="padding:6px 10px;font-size:12px${s?';'+s:''}">${v}</td>`;
+  const td = (v, s='') => `<td class="rpt-td" style="padding:7px 10px;font-size:12px${s?';'+s:''}">${v}</td>`;
+  const sep = 'border-right:3px solid #e2e8f0';
   body.innerHTML = show.map((r, i) => {
-    const pClr = r.profit > 0 ? 'color:#16a34a;font-weight:700' : r.profit < 0 ? 'color:#dc2626;font-weight:700' : 'color:#94a3b8';
+    const prof = r.profit || 0;
+    const pClr = prof > 0 ? 'color:#16a34a;font-weight:700' : prof < 0 ? 'color:#dc2626;font-weight:700' : 'color:#94a3b8';
     const aClr = r.availQty <= 0 ? 'color:#dc2626;font-weight:700' : r.availQty < 5 ? 'color:#d97706;font-weight:700' : 'color:#334155';
-    return `<tr style="border-bottom:1px solid #f4f6ff">
-      ${td(i+1,'color:#94a3b8;text-align:center')}
-      ${td(`<span style="font-weight:700;color:#334155">${r.supName||'—'}</span>`)}
-      ${td(r.cat||'—','color:#64748b')}
-      ${td(r.subcat||'—','color:#94a3b8;font-size:11px')}
-      ${td(`<span style="font-weight:700;color:#4f46e5">${r.style||'—'}</span>`)}
-      ${td(r.article||'—','color:#94a3b8;font-size:11px')}
+    const margin = r.saleAmt > 0 ? ((prof / r.saleAmt) * 100).toFixed(1) : null;
+    const mClr = margin !== null ? (margin > 0 ? 'color:#16a34a;font-weight:700' : margin < 0 ? 'color:#dc2626;font-weight:700' : 'color:#94a3b8') : 'color:#94a3b8';
+    const rowBg = prof > 0 ? '#f0fdf4' : prof < 0 ? '#fff1f2' : (i%2===0?'#ffffff':'#f8fafc');
+    const styleLine = `<span style="font-weight:700;color:#4f46e5;font-size:12px">${r.style||'—'}</span>`
+      + (r.article ? `<br><span style="font-size:10px;color:#94a3b8">${r.article}</span>` : '');
+    const catLine = `<span style="color:#334155">${r.cat||'—'}</span>`
+      + (r.subcat && r.subcat !== r.cat ? `<br><span style="font-size:10px;color:#94a3b8">${r.subcat}</span>` : '');
+    return `<tr style="border-bottom:1px solid #f1f5f9;background:${rowBg}">
+      ${td(i+1,'color:#94a3b8;text-align:center;width:32px')}
+      ${td(styleLine)}
+      ${td(`<span style="font-weight:600;color:#334155">${r.supName||'—'}</span>`)}
+      ${td(catLine,sep)}
       ${td(_fmtD(r.firstPurDate)||'—','text-align:center;color:#d97706')}
       ${td(Number(r.purQty||0).toLocaleString('en-IN'),'text-align:right;color:#64748b')}
-      ${td(r.costPerUnit>0?fmtINR(r.costPerUnit):'—','text-align:right;color:#d97706')}
+      ${td(r.costPerUnit>0?fmtINR(r.costPerUnit):'—','text-align:right;color:#d97706;'+sep)}
       ${td(_fmtD(r.lastSaleDate)||'—','text-align:center;color:#16a34a')}
       ${td(Number(r.saleQty||0).toLocaleString('en-IN'),'text-align:right;color:#0ea5e9')}
-      ${td(r.saleAmt>0?fmtINR(r.saleAmt):'—','text-align:right;color:#16a34a;font-weight:600')}
-      ${td(r.profit!==0?(r.profit>0?'+':'')+fmtINR(r.profit):'—','text-align:right;'+pClr)}
+      ${td(r.saleAmt>0?fmtINR(r.saleAmt):'—','text-align:right;color:#16a34a;font-weight:600;'+sep)}
+      ${td(prof!==0?(prof>0?'+':'')+fmtINR(prof):'—','text-align:right;'+pClr)}
+      ${td(margin!==null?margin+'%':'—','text-align:right;'+mClr)}
       ${td(Number(r.availQty||0).toLocaleString('en-IN'),'text-align:right;'+aClr)}
     </tr>`;
   }).join('');
   if (filtered.length > LIMIT) {
     const _remaining = filtered.length - LIMIT;
-    body.innerHTML += `<tr><td colspan="14" class="rpt-td" style="text-align:center;padding:16px">
+    body.innerHTML += `<tr><td colspan="13" class="rpt-td" style="text-align:center;padding:16px">
       <span style="font-size:11px;color:#94a3b8;margin-right:12px">Showing ${LIMIT.toLocaleString('en-IN')} of ${filtered.length.toLocaleString('en-IN')}</span>
       <button onclick="_ilLoadMore()" style="padding:7px 20px;border:1.5px solid #4f46e5;border-radius:9px;font-size:12px;font-weight:700;color:#4f46e5;background:#fff;cursor:pointer">View More (${_remaining.toLocaleString('en-IN')})</button>
     </td></tr>`;
@@ -6022,13 +6037,16 @@ function _ilExportPDF() {
   const dt = now.getDate()+'/'+( now.getMonth()+1)+'/'+now.getFullYear()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Item Profit & Loss</title>'
     +'<style>'
-    +'body{font-family:Arial,Helvetica,sans-serif;font-size:8.5px;margin:8mm 6mm;color:#1e293b}'
-    +'h2{font-size:13px;font-weight:700;margin:0 0 3px}p{margin:0 0 8px;color:#64748b;font-size:9px}'
+    +'*{box-sizing:border-box}'
+    +'html,body{width:297mm;max-width:none}'
+    +'body{font-family:Arial,Helvetica,sans-serif;font-size:7.5px;margin:0;padding:7mm 7mm;color:#1e293b}'
+    +'h2{font-size:12px;font-weight:700;margin:0 0 2px}p{margin:0 0 6px;color:#64748b;font-size:8px}'
     +'table{width:100%;border-collapse:collapse}'
-    +'th{background:#f1f5f9;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:5px 4px;border-bottom:2px solid #cbd5e1;text-align:left;white-space:nowrap}'
-    +'td{padding:3.5px 4px;border-bottom:1px solid #f1f5f9;vertical-align:middle;font-size:8.5px}'
+    +'th{background:#f1f5f9;font-size:6.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:4px 3px;border-bottom:2px solid #cbd5e1;text-align:left;white-space:nowrap}'
+    +'td{padding:3px 3px;border-bottom:1px solid #f1f5f9;vertical-align:middle;font-size:7.5px;white-space:nowrap}'
     +'tr:nth-child(even){background:#f8fafc}'
-    +'@page{size:A4 landscape;margin:8mm}'
+    +'@page{size:A4 landscape;margin:7mm}'
+    +'@media print{@page{size:landscape}}'
     +'</style></head><body>'
     +'<h2>Item Profit &amp; Loss</h2>'
     +'<p>Total: '+filtered.length.toLocaleString('en-IN')+' items'+(q?' · Search: "'+q+'"':'')+' &nbsp;|&nbsp; Printed on '+dt+'</p>'
@@ -6038,8 +6056,9 @@ function _ilExportPDF() {
     +'<th>Sale Date</th><th style="text-align:right">Sale Qty</th><th style="text-align:right">Sale Amt</th>'
     +'<th style="text-align:right">Profit / Loss</th><th style="text-align:right">Avail Stock</th>'
     +'</tr></thead><tbody>'+tbody+'</tbody></table>'
+    +'<script>window.onload=function(){window.print();};<\/script>'
     +'</body></html>');
-  w.document.close(); w.focus(); w.print();
+  w.document.close(); w.focus();
 }
 
 function _ilExportCSV() {
@@ -6519,14 +6538,14 @@ function _r2RenderFunnel(){
          <table class="r2-tbl" style="font-size:12px">
            <thead id="r2FunnelThead"><tr>
              <th>Period</th>
-             <th style="text-align:right">CY Sales</th>
-             <th style="text-align:right;color:#94a3b8">LY Sales</th>
+             <th style="text-align:right">Sales (This Yr)</th>
+             <th style="text-align:right;color:#94a3b8">Sales (Last Yr)</th>
              <th style="text-align:right">Change ₹</th>
              <th style="text-align:right">Change %</th>
-             <th style="text-align:right">CY Qty</th>
-             <th style="text-align:right;color:#94a3b8">LY Qty</th>
-             <th style="text-align:right">CY Bills</th>
-             <th style="text-align:right;color:#94a3b8">LY Bills</th>
+             <th style="text-align:right">Net Qty (This Yr)</th>
+             <th style="text-align:right;color:#94a3b8">Net Qty (Last Yr)</th>
+             <th style="text-align:right">Bills (This Yr)</th>
+             <th style="text-align:right;color:#94a3b8">Bills (Last Yr)</th>
            </tr></thead>
            <tbody id="r2FunnelTbody"></tbody>
          </table>
@@ -6549,9 +6568,9 @@ function _r2RenderFunnel(){
   const _fSameAsHub=(_r2FunnelFrom===_r2From && _r2FunnelTo===_r2To);
   if(!_r2FunnelFrom && !_r2FunnelTo || _fSameAsHub){
     _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
-    _r2FunnelBDLY=(_r2LYFilterData&&_r2LYFilterData.salesSummary&&_r2LYFilterData.salesSummary.byDate)||
-                  ((!_r2FunnelFrom&&!_r2FunnelTo)?(window._r2LYData&&window._r2LYData.salesSummary&&window._r2LYData.salesSummary.byDate)||null:null);
+    _r2FunnelBDLY=(_r2LYFilterData&&_r2LYFilterData.salesSummary&&_r2LYFilterData.salesSummary.byDate)||null;
     _r2DrawFunnel();
+    if(!_r2FunnelFrom&&!_r2FunnelTo&&!_r2LYFilterData) _r2FetchFunnelAllLY(_r2FunnelBD);
   } else { _r2LoadFunnelData(); }
 }
 function _r2ClearFunnelPresets(){ document.querySelectorAll('.r2fp-q').forEach(b=>b.classList.remove('active')); }
@@ -6575,9 +6594,20 @@ function _r2FunnelPreset(kind, btn){
   const fp1=document.getElementById('r2fFrom')?._flatpickr, fp2=document.getElementById('r2fTo')?._flatpickr;
   if(fp1){ if(from) fp1.setDate(from,false); else fp1.clear(); }
   if(fp2){ if(to)   fp2.setDate(to,false);   else fp2.clear(); }
-  // "All" uses overview's already-loaded byDate directly (no extra fetch)
-  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2FunnelBDLY=(window._r2LYData&&window._r2LYData.salesSummary&&window._r2LYData.salesSummary.byDate)||null; _r2DrawFunnel(); }
+  // "All" uses overview's already-loaded byDate directly; fetch LY for the same range
+  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2FunnelBDLY=null; _r2DrawFunnel(); _r2FetchFunnelAllLY(_r2FunnelBD); }
   else { _r2LoadFunnelData(); }
+}
+async function _r2FetchFunnelAllLY(bd){
+  if(!bd||!bd.length) return;
+  const dates=bd.map(r=>r.date).filter(Boolean).sort();
+  const minD=dates[0], maxD=dates[dates.length-1];
+  const shiftYr=s=>s.replace(/^(\d{4})/,y=>String(+y-1));
+  const lyP=new URLSearchParams({from:shiftYr(minD),to:shiftYr(maxD)});
+  if(_r2Dept&&_r2Dept!=='All') lyP.append('dept',_r2Dept);
+  const lyD=await api('/api/ims-reports?'+lyP.toString()).catch(()=>null);
+  _r2FunnelBDLY=(lyD&&lyD.salesSummary&&lyD.salesSummary.byDate)||null;
+  _r2DrawFunnel();
 }
 async function _r2LoadFunnelData(){
   const st=document.getElementById('r2fStatus'); if(st) st.textContent='Loading…';
@@ -6689,8 +6719,9 @@ function _r2FunnelReset(){
   if(fp1) fp1.clear(); if(fp2) fp2.clear();
   document.querySelectorAll('.r2fp-q').forEach(b=>b.classList.toggle('active', b.dataset.q==='all'));
   _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
-  _r2FunnelBDLY=(window._r2LYData&&window._r2LYData.salesSummary&&window._r2LYData.salesSummary.byDate)||null;
+  _r2FunnelBDLY=null;
   _r2DrawFunnel();
+  _r2FetchFunnelAllLY(_r2FunnelBD);
 }
 function _r2FunnelPDF(){
   const bd=_r2FunnelBD||(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
