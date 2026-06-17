@@ -6460,7 +6460,7 @@ function r2BackToHub(){
 // Aggregates the overview's salesSummary.byDate (already filtered by the active date+dept).
 // Periods follow the Indian financial year (Apr→Mar), matching the "This FY" preset.
 const _R2_MON3={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-let _r2FunnelPeriod='month', _r2FunnelFrom='', _r2FunnelTo='', _r2FunnelBD=null;
+let _r2FunnelPeriod='month', _r2FunnelFrom='', _r2FunnelTo='', _r2FunnelBD=null, _r2FunnelBDLY=null;
 function _r2ParseDate(s){
   const m=String(s||'').match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
   if(m) return new Date(parseInt(m[3],10), _R2_MON3[m[2].toLowerCase()]??0, parseInt(m[1],10));
@@ -6517,7 +6517,15 @@ function _r2RenderFunnel(){
        <div style="position:relative;height:380px"><canvas id="r2FunnelChart"></canvas></div>
        <div style="overflow:auto;margin-top:16px">
          <table class="r2-tbl" style="font-size:12px">
-           <thead><tr><th>Period</th><th style="text-align:right">Net Sales</th><th style="text-align:right">Net Qty</th><th style="text-align:right">Bills</th></tr></thead>
+           <thead id="r2FunnelThead"><tr>
+             <th>Period</th>
+             <th style="text-align:right">Current Year</th>
+             <th style="text-align:right;color:#94a3b8">Last Year</th>
+             <th style="text-align:right">Change ₹</th>
+             <th style="text-align:right">Change %</th>
+             <th style="text-align:right">Net Qty</th>
+             <th style="text-align:right">Bills</th>
+           </tr></thead>
            <tbody id="r2FunnelTbody"></tbody>
          </table>
        </div>
@@ -6538,7 +6546,9 @@ function _r2RenderFunnel(){
   // If funnel dates match hub dates, use already-loaded byDate — no extra fetch needed
   const _fSameAsHub=(_r2FunnelFrom===_r2From && _r2FunnelTo===_r2To);
   if(!_r2FunnelFrom && !_r2FunnelTo || _fSameAsHub){
-    _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2DrawFunnel();
+    _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
+    _r2FunnelBDLY=(_r2LYFilterData&&_r2LYFilterData.salesSummary&&_r2LYFilterData.salesSummary.byDate)||null;
+    _r2DrawFunnel();
   } else { _r2LoadFunnelData(); }
 }
 function _r2ClearFunnelPresets(){ document.querySelectorAll('.r2fp-q').forEach(b=>b.classList.remove('active')); }
@@ -6563,7 +6573,7 @@ function _r2FunnelPreset(kind, btn){
   if(fp1){ if(from) fp1.setDate(from,false); else fp1.clear(); }
   if(fp2){ if(to)   fp2.setDate(to,false);   else fp2.clear(); }
   // "All" uses overview's already-loaded byDate directly (no extra fetch)
-  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2DrawFunnel(); }
+  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2FunnelBDLY=null; _r2DrawFunnel(); }
   else { _r2LoadFunnelData(); }
 }
 async function _r2LoadFunnelData(){
@@ -6572,8 +6582,19 @@ async function _r2LoadFunnelData(){
   if(_r2FunnelFrom) p.append('from',_r2FunnelFrom);
   if(_r2FunnelTo)   p.append('to',_r2FunnelTo);
   if(_r2Dept&&_r2Dept!=='All') p.append('dept',_r2Dept);
-  const d=await api('/api/ims-reports?'+p.toString()).catch(()=>null);
+  // Compute last year date range (shift year -1)
+  const lyP=new URLSearchParams();
+  const _shiftYr=s=>s?s.replace(/^(\d{4})/,y=>String(+y-1)):'';
+  const lyFrom=_shiftYr(_r2FunnelFrom), lyTo=_shiftYr(_r2FunnelTo);
+  if(lyFrom) lyP.append('from',lyFrom);
+  if(lyTo)   lyP.append('to',lyTo);
+  if(_r2Dept&&_r2Dept!=='All') lyP.append('dept',_r2Dept);
+  const [d, lyD] = await Promise.all([
+    api('/api/ims-reports?'+p.toString()).catch(()=>null),
+    (lyFrom||lyTo) ? api('/api/ims-reports?'+lyP.toString()).catch(()=>null) : Promise.resolve(null)
+  ]);
   _r2FunnelBD=(d&&d.salesSummary&&d.salesSummary.byDate)||[];
+  _r2FunnelBDLY=(lyD&&lyD.salesSummary&&lyD.salesSummary.byDate)||null;
   if(st) st.textContent='';
   _r2DrawFunnel();
 }
@@ -6584,16 +6605,76 @@ function _r2SetFunnelPeriod(p){
 }
 function _r2DrawFunnel(){
   const bd=_r2FunnelBD||(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
+  const lyBd=_r2FunnelBDLY||[];
   const rows=_r2FunnelAgg(bd, _r2FunnelPeriod);
-  _r2Bar('r2FunnelChart','r2funnel', rows.map(r=>r.label), rows.map(r=>r.amount),
-    {color:'#4f46e5', tickFmt:_r2Cr, fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN')});
+  const lyRows=_r2FunnelAgg(lyBd, _r2FunnelPeriod);
+  // Match LY rows to CY rows by period-offset (same period, 1 year earlier)
+  const offsets={month:12,quarter:4,half:2,year:1};
+  const lyOff=offsets[_r2FunnelPeriod]||12;
+  const lyMap=new Map(lyRows.map(r=>[r.sort+lyOff, r]));
+  const merged=rows.map(r=>({ ...r, ly:lyMap.get(r.sort)||null }));
+  const hasLY=lyRows.length>0;
   const nf=n=>Number(n||0).toLocaleString('en-IN');
+  // ── Chart ──
+  if(hasLY){
+    _loadChartJS(()=>{
+      _destroyChart('r2funnel');
+      const ctx=document.getElementById('r2FunnelChart')?.getContext('2d'); if(!ctx||!merged.length) return;
+      _charts['r2funnel']=new Chart(ctx,{
+        type:'bar',
+        data:{
+          labels:merged.map(r=>r.label),
+          datasets:[
+            { label:'Last Year', data:merged.map(r=>r.ly?r.ly.amount:0), backgroundColor:'rgba(148,163,184,0.55)', borderRadius:5, borderSkipped:false },
+            { label:'Current Year', data:merged.map(r=>r.amount), backgroundColor:'rgba(79,70,229,0.85)', borderRadius:5, borderSkipped:false }
+          ]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{
+            legend:{display:true,position:'top',labels:{font:{size:12,weight:'700'},color:'#475569',boxWidth:14,padding:18}},
+            tooltip:{callbacks:{label:c=>' '+c.dataset.label+': ₹'+Math.round(c.parsed.y).toLocaleString('en-IN')}}
+          },
+          scales:{
+            x:{grid:{display:false},ticks:{font:{size:11},color:'#94a3b8'}},
+            y:{ticks:{callback:v=>_r2Cr(v),font:{size:11},color:'#94a3b8'},grid:{color:'#f1f5f9'}}
+          }
+        }
+      });
+    });
+  } else {
+    _r2Bar('r2FunnelChart','r2funnel', rows.map(r=>r.label), rows.map(r=>r.amount),
+      {color:'#4f46e5', tickFmt:_r2Cr, fmt:v=>'₹'+Math.round(v).toLocaleString('en-IN')});
+  }
+  // ── KPIs ──
   const tot=rows.reduce((s,r)=>s+r.amount,0), tq=rows.reduce((s,r)=>s+r.qty,0), tb=rows.reduce((s,r)=>s+r.bills,0);
-  const kpi=(lbl,val,col)=>`<div><div style="font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#94a3b8">${lbl}</div><div style="font-size:22px;font-weight:800;color:${col};margin-top:3px">${val}</div></div>`;
+  const lyTot=lyRows.reduce((s,r)=>s+r.amount,0);
+  const kpi=(lbl,val,col,sub)=>`<div><div style="font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#94a3b8">${lbl}</div><div style="font-size:22px;font-weight:800;color:${col};margin-top:3px">${val}</div>${sub?`<div style="font-size:11px;color:#94a3b8;margin-top:3px">${sub}</div>`:''}</div>`;
   const k=document.getElementById('r2FunnelKpis');
-  if(k) k.innerHTML=kpi('Net Sales','₹'+nf(Math.round(tot)),'#0ea5e9')+kpi('Net Qty',nf(Math.round(tq)),'#ef4444')+kpi('Bills',nf(tb),'#7c3aed')+kpi('Periods',rows.length,'#4f46e5');
+  const lyDiff=tot-lyTot, lyPct=lyTot>0?Math.round(lyDiff/lyTot*100):null;
+  const lyChip=hasLY&&lyTot>0?`<span style="background:${lyDiff>=0?'#dcfce7':'#fee2e2'};color:${lyDiff>=0?'#16a34a':'#dc2626'};font-size:10px;font-weight:800;padding:2px 7px;border-radius:8px">${lyDiff>=0?'▲ +':'▼ '}${lyPct}% YoY</span>`:'';
+  if(k) k.innerHTML=kpi('Net Sales','₹'+nf(Math.round(tot)),'#0ea5e9',lyChip||'')+kpi('Net Qty',nf(Math.round(tq)),'#ef4444')+kpi('Bills',nf(tb),'#7c3aed')+kpi('Periods',rows.length,'#4f46e5');
+  // ── Table ──
   const tb2=document.getElementById('r2FunnelTbody');
-  if(tb2) tb2.innerHTML=rows.length?rows.map(r=>`<tr><td style="font-weight:600;color:#0f172a">${r.label}</td><td style="text-align:right;font-weight:700">₹${nf(Math.round(r.amount))}</td><td style="text-align:right">${nf(Math.round(r.qty))}</td><td style="text-align:right">${nf(r.bills)}</td></tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>';
+  if(!tb2) return;
+  if(!merged.length){ tb2.innerHTML=`<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:30px">No data for selected range</td></tr>`; return; }
+  tb2.innerHTML=merged.map(r=>{
+    const lyAmt=r.ly?r.ly.amount:0;
+    const diff=r.amount-lyAmt;
+    const pct=r.ly&&lyAmt>0?Math.round((diff/lyAmt)*100):r.ly&&lyAmt===0&&r.amount>0?null:null;
+    const pctHtml=!r.ly?'—':pct===null?`<span style="color:#16a34a;font-weight:700">▲ New</span>`:
+      `<span style="color:${diff>=0?'#16a34a':'#dc2626'};font-weight:700">${diff>=0?'▲ +':'▼ '}${pct}%</span>`;
+    const diffHtml=!r.ly?'—':`<span style="color:${diff>=0?'#16a34a':'#dc2626'};font-weight:600">${diff>=0?'+':'-'}₹${nf(Math.round(Math.abs(diff)))}</span>`;
+    return `<tr style="border-bottom:1px solid #f4f6ff">
+      <td style="font-weight:600;color:#0f172a;padding:8px 10px">${r.label}</td>
+      <td style="text-align:right;font-weight:700;padding:8px 10px">₹${nf(Math.round(r.amount))}</td>
+      <td style="text-align:right;color:#64748b;padding:8px 10px">${r.ly?'₹'+nf(Math.round(lyAmt)):'—'}</td>
+      <td style="text-align:right;padding:8px 10px">${diffHtml}</td>
+      <td style="text-align:right;padding:8px 10px">${pctHtml}</td>
+      <td style="text-align:right;padding:8px 10px;color:#64748b">${nf(Math.round(r.qty))}</td>
+      <td style="text-align:right;padding:8px 10px;color:#64748b">${nf(r.bills)}</td>
+    </tr>`;
+  }).join('');
 }
 function _r2FunnelReset(){
   _r2FunnelFrom=''; _r2FunnelTo='';
@@ -6631,10 +6712,24 @@ function _r2FunnelPDF(){
 }
 function _r2FunnelCSV(){
   const bd=_r2FunnelBD||(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
+  const lyBd=_r2FunnelBDLY||[];
   const rows=_r2FunnelAgg(bd, _r2FunnelPeriod);
+  const lyRows=_r2FunnelAgg(lyBd, _r2FunnelPeriod);
+  const offsets={month:12,quarter:4,half:2,year:1};
+  const lyOff=offsets[_r2FunnelPeriod]||12;
+  const lyMap=new Map(lyRows.map(r=>[r.sort+lyOff, r]));
+  const hasLY=lyRows.length>0;
   const range=(_r2FunnelFrom&&_r2FunnelTo)?`${_r2FunnelFrom}_to_${_r2FunnelTo}`:_r2FunnelFrom?`from_${_r2FunnelFrom}`:_r2FunnelTo?`to_${_r2FunnelTo}`:'all';
-  const lines=[['Period','Net Sales (INR)','Net Qty','Bills'].join(',')];
-  rows.forEach(r=>lines.push([r.label, Math.round(r.amount), Math.round(r.qty), r.bills].join(',')));
+  const hdr=hasLY?['Period','CY Net Sales (INR)','LY Net Sales (INR)','Change INR','Change %','Net Qty','Bills']:['Period','Net Sales (INR)','Net Qty','Bills'];
+  const lines=[hdr.join(',')];
+  rows.forEach(r=>{
+    const ly=lyMap.get(r.sort);
+    const lyAmt=ly?ly.amount:0;
+    const diff=r.amount-lyAmt;
+    const pct=ly&&lyAmt>0?Math.round((diff/lyAmt)*100):'';
+    if(hasLY) lines.push([r.label,Math.round(r.amount),ly?Math.round(lyAmt):'',Math.round(diff),pct,Math.round(r.qty),r.bills].join(','));
+    else lines.push([r.label,Math.round(r.amount),Math.round(r.qty),r.bills].join(','));
+  });
   const blob=new Blob([lines.join('\n')],{type:'text/csv'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download=`Sales_Funnel_${_r2FunnelPeriod}_${range}.csv`; a.click();
