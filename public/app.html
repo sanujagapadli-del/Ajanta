@@ -6569,8 +6569,8 @@ function _r2RenderFunnel(){
   if(!_r2FunnelFrom && !_r2FunnelTo || _fSameAsHub){
     _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
     _r2FunnelBDLY=(_r2LYFilterData&&_r2LYFilterData.salesSummary&&_r2LYFilterData.salesSummary.byDate)||null;
-    _r2DrawFunnel();
     if(!_r2FunnelFrom&&!_r2FunnelTo&&!_r2LYFilterData) _r2FetchFunnelAllLY(_r2FunnelBD);
+    else _r2DrawFunnel();
   } else { _r2LoadFunnelData(); }
 }
 function _r2ClearFunnelPresets(){ document.querySelectorAll('.r2fp-q').forEach(b=>b.classList.remove('active')); }
@@ -6594,12 +6594,13 @@ function _r2FunnelPreset(kind, btn){
   const fp1=document.getElementById('r2fFrom')?._flatpickr, fp2=document.getElementById('r2fTo')?._flatpickr;
   if(fp1){ if(from) fp1.setDate(from,false); else fp1.clear(); }
   if(fp2){ if(to)   fp2.setDate(to,false);   else fp2.clear(); }
-  // "All" uses overview's already-loaded byDate directly; fetch LY for the same range
-  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2FunnelBDLY=null; _r2DrawFunnel(); _r2FetchFunnelAllLY(_r2FunnelBD); }
+  // "All" uses overview's already-loaded byDate directly; fetch LY then draw once
+  if(kind==='all'){ _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[]; _r2FunnelBDLY=null; _r2FetchFunnelAllLY(_r2FunnelBD); }
   else { _r2LoadFunnelData(); }
 }
 async function _r2FetchFunnelAllLY(bd){
-  if(!bd||!bd.length) return;
+  if(!bd||!bd.length){ _r2DrawFunnel(); return; }
+  const st=document.getElementById('r2fStatus'); if(st) st.textContent='Loading…';
   const dates=bd.map(r=>r.date).filter(Boolean).sort();
   const minD=dates[0], maxD=dates[dates.length-1];
   const shiftYr=s=>s.replace(/^(\d{4})/,y=>String(+y-1));
@@ -6607,6 +6608,7 @@ async function _r2FetchFunnelAllLY(bd){
   if(_r2Dept&&_r2Dept!=='All') lyP.append('dept',_r2Dept);
   const lyD=await api('/api/ims-reports?'+lyP.toString()).catch(()=>null);
   _r2FunnelBDLY=(lyD&&lyD.salesSummary&&lyD.salesSummary.byDate)||null;
+  if(st) st.textContent='';
   _r2DrawFunnel();
 }
 async function _r2LoadFunnelData(){
@@ -6720,7 +6722,6 @@ function _r2FunnelReset(){
   document.querySelectorAll('.r2fp-q').forEach(b=>b.classList.toggle('active', b.dataset.q==='all'));
   _r2FunnelBD=(_r2Data&&_r2Data.salesSummary&&_r2Data.salesSummary.byDate)||[];
   _r2FunnelBDLY=null;
-  _r2DrawFunnel();
   _r2FetchFunnelAllLY(_r2FunnelBD);
 }
 function _r2FunnelPDF(){
