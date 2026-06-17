@@ -1595,7 +1595,7 @@ tbody tr:last-child td{border-bottom:none;}
 
         <!-- ══ PANEL: Stock History ══ -->
         <div id="rptPanel-stockhistory" class="rpt-panel" style="display:none;padding:24px 26px">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px">
               <span style="font-size:12px;font-weight:600;color:#334155;white-space:nowrap">Stock as of date:</span>
               <input id="shDateInput" type="text" placeholder="Select date…" readonly
@@ -1605,6 +1605,11 @@ tbody tr:last-child td{border-bottom:none;}
               oninput="_shRender()"
               style="flex:1;min-width:180px;max-width:300px;padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;color:#334155;outline:none;font-family:'Inter',sans-serif">
             <button onclick="_shExportCSV()" style="padding:7px 14px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer">↓ CSV</button>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+            <button id="shPreset-7" onclick="_shPreset(7)" style="padding:5px 13px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .15s">Last 7 Days</button>
+            <button id="shPreset-15" onclick="_shPreset(15)" style="padding:5px 13px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .15s">Last 15 Days</button>
+            <button id="shPreset-month" onclick="_shPreset('month')" style="padding:5px 13px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .15s">Last Month</button>
           </div>
           <div id="shStatus" style="font-size:12px;color:#94a3b8;margin-bottom:12px">Select a date to view stock snapshot.</div>
           <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
@@ -1763,6 +1768,13 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-desc">Select any past date — see stock snapshot by supplier, dept, category &amp; style.</div>
           <div class="r2h-stat" id="r2stat-stockhistory"></div>
           <div id="r2list-stockhistory" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
+        </div>
+        <div class="r2h-card" onclick="openR2Report('itemledger')">
+          <div class="r2h-ico" style="background:#fefce8;color:#ca8a04"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+          <div class="r2h-title">Item Profit &amp; Loss</div>
+          <div class="r2h-desc">Per-item revenue, cost &amp; profit across the period.</div>
+          <div class="r2h-stat" id="r2stat-itemledger"></div>
+          <div id="r2list-itemledger" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
         <!-- Hidden cards (disabled, kept for future re-enable) -->
         <div class="r2h-card" style="display:none" onclick="openR2Report('sales')"><div class="r2h-stat" id="r2stat-sales"></div><div class="r2h-mini"><canvas id="r2mini-sales"></canvas></div></div>
@@ -5350,13 +5362,32 @@ function renderRptItemLedger(rows) {
 // ══════════════════════════════════════════════════════
 // STOCK HISTORY REPORT — stock snapshot as of any past date
 // ══════════════════════════════════════════════════════
-let _shData = [], _shAsOf = '', _shDates = [];
+let _shData = [], _shAsOf = '', _shDates = [], _shFrom = '', _shTo = '';
 function _shFmtColDate(d){ const p=d.split('-'),mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return p[2]+'-'+mn[+p[1]-1]; }
+function _shSetPresetActive(id) {
+  ['7','15','month'].forEach(k=>{ const b=document.getElementById('shPreset-'+k); if(b){b.style.background=k===String(id)?'#4f46e5':'#fff';b.style.color=k===String(id)?'#fff':'#64748b';b.style.borderColor=k===String(id)?'#4f46e5':'#e8ecf8';} });
+}
+function _shPreset(n) {
+  const now=new Date(), pad=v=>String(v).padStart(2,'0');
+  const toISO=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  let from, to=toISO(now);
+  if(n==='month'){
+    const lm=new Date(now.getFullYear(),now.getMonth()-1,1);
+    const lme=new Date(now.getFullYear(),now.getMonth(),0);
+    from=toISO(lm); to=toISO(lme);
+  } else {
+    const d=new Date(now); d.setDate(now.getDate()-(n-1)); from=toISO(d);
+  }
+  _shFrom=from; _shTo=to; _shAsOf='';
+  const fp=document.getElementById('shDateInput')?._flatpickr; if(fp) fp.clear();
+  _shSetPresetActive(n);
+  _shLoad();
+}
 function _initShPicker() {
   const el = document.getElementById('shDateInput');
   if (!el) return;
   if (el._flatpickr) {
-    if (!_shAsOf) el._flatpickr.setDate(new Date(), true);
+    if (!_shAsOf && !_shFrom) el._flatpickr.setDate(new Date(), true);
     return;
   }
   const fp = flatpickr(el, {
@@ -5368,6 +5399,7 @@ function _initShPicker() {
       if (!dates[0]) return;
       const d = dates[0];
       _shAsOf = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      _shFrom=''; _shTo=''; _shSetPresetActive('');
       _shLoad();
     }
   });
@@ -5376,10 +5408,13 @@ function _initShPicker() {
 async function _shLoad() {
   const st = document.getElementById('shStatus');
   const body = document.getElementById('shBody');
-  if (!_shAsOf) return;
+  if (!_shAsOf && !_shTo) return;
   if (st) st.textContent = 'Loading…';
   if (body) body.innerHTML = '<tr><td colspan="11" class="rpt-td" style="text-align:center;color:#94a3b8;padding:24px">Loading…</td></tr>';
-  const data = await api('/api/ims-stock-history?asOf='+_shAsOf).catch(()=>null);
+  const _shp = new URLSearchParams();
+  if (_shFrom && _shTo) { _shp.append('from',_shFrom); _shp.append('to',_shTo); }
+  else { _shp.append('asOf', _shAsOf); }
+  const data = await api('/api/ims-stock-history?'+_shp.toString()).catch(()=>null);
   if (!data || data.error) {
     if (st) st.textContent = data && data.error ? data.error : 'Failed to load.';
     return;
@@ -7109,28 +7144,22 @@ function rptExportPDF() {
   // Expand all tables so PDF contains full data
   _expandAllRptTables();
 
-  // Convert live canvas charts → PNG data URLs before cloning (cloneNode loses canvas pixels)
-  const canvasMap = {};
-  if (panel) {
-    panel.querySelectorAll('canvas').forEach(cv => {
-      if (cv.id) {
-        try { canvasMap[cv.id] = { src: cv.toDataURL('image/png'), w: cv.offsetWidth || cv.width, h: cv.offsetHeight || cv.height }; } catch(e) {}
-      }
-    });
-  }
-
   const clone = panel ? panel.cloneNode(true) : document.createElement('div');
   // Restore top-10 view immediately after clone
   _collapseAllRptTables();
-  // Replace cloned <canvas> elements with <img> snapshots
+  // Remove charts and their empty wrapper containers — PDF is data-only
   clone.querySelectorAll('canvas').forEach(cv => {
-    const info = canvasMap[cv.id];
-    if (info && info.src) {
-      const img = document.createElement('img');
-      img.src = info.src;
-      img.style.cssText = `width:100%;max-width:${info.w}px;height:auto;display:block;margin:8px 0`;
-      cv.parentNode.replaceChild(img, cv);
+    let node = cv.parentNode;
+    cv.remove();
+    while (node && node !== clone) {
+      if (!node.textContent.trim() && node.children.length === 0) {
+        const par = node.parentNode; node.remove(); node = par;
+      } else break;
     }
+  });
+  // Remove any residual chart wrapper divs left with only inline height/min-height but no content
+  clone.querySelectorAll('div, section').forEach(el => {
+    if (!el.textContent.trim() && !el.querySelector('table,input,button,select')) el.remove();
   });
 
   const w = window.open('', '_blank', 'width=960,height=700');
@@ -7149,7 +7178,7 @@ function rptExportPDF() {
     .card{border-radius:10px;padding:16px 18px;color:#fff}
     .card-label{font-size:10px;font-weight:700;opacity:.8;letter-spacing:.05em;margin-bottom:6px}
     .card-val{font-size:22px;font-weight:800}
-    img{max-width:100%;height:auto}
+    canvas,img{display:none!important;height:0!important;margin:0!important}
     @media print{body{padding:16px}}
   </style></head><body>
   <h1>${title}</h1>

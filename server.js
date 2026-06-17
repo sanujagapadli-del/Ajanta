@@ -3184,8 +3184,8 @@ app.get('/api/ims-dbg-cols', requireAuth, async (req, res) => {
 // Computes: purQty (In Stock Pur Date ≤ asOf) − saleQty (Out Stock XN Date ≤ asOf)
 app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
   try {
-    const { asOf, dept: deptFilter } = req.query;
-    if (!asOf) return res.status(400).json({ error: 'asOf date required (YYYY-MM-DD)' });
+    const { asOf, from, to, dept: deptFilter } = req.query;
+    if (!asOf && !to) return res.status(400).json({ error: 'asOf or to date required (YYYY-MM-DD)' });
 
     const nowTs = Date.now();
     const hasCached = _imsRawCache.outRows && _imsRawCache.outRows.length > 1;
@@ -3205,11 +3205,21 @@ app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
     const findC  = (hdr,rx) => hdr.findIndex(h=>rx.test(h));
     const isJunk = s => ['[default]','default','[none]','none'].includes(String(s||'').trim().toLowerCase());
 
-    // Build 3 target dates: asOf-2, asOf-1, asOf
-    const mkD = daysBack => { const d=new Date(asOf); d.setUTCDate(d.getUTCDate()-daysBack); d.setUTCHours(23,59,59,999); return d; };
-    const targetDates = [mkD(2), mkD(1), mkD(0)];
-    const dateLabels  = targetDates.map(d=>d.toISOString().slice(0,10));
-    const maxDate = targetDates[2]; // asOf = latest
+    // Build target dates: range (from→to) or fallback 3-day window around asOf
+    const toStr   = to || asOf;
+    const fromStr = from || null;
+    const maxDate = (() => { const d=new Date(toStr); d.setUTCHours(23,59,59,999); return d; })();
+    let dateLabels;
+    if (fromStr) {
+      const dates=[], cur=new Date(fromStr+'T00:00:00Z'), end=new Date(toStr+'T00:00:00Z');
+      const MAX_COLS=45;
+      while(cur<=end && dates.length<MAX_COLS){ dates.push(cur.toISOString().slice(0,10)); cur.setUTCDate(cur.getUTCDate()+1); }
+      dateLabels = dates;
+    } else {
+      const mkD = n=>{ const d=new Date(asOf); d.setUTCDate(d.getUTCDate()-n); d.setUTCHours(23,59,59,999); return d; };
+      dateLabels = [mkD(2),mkD(1),mkD(0)].map(d=>d.toISOString().slice(0,10));
+    }
+    const targetDates = dateLabels.map(d=>{ const dt=new Date(d); dt.setUTCHours(23,59,59,999); return dt; });
 
     // ── Out Stock columns ──
     const oH = outRows[0]||[];
