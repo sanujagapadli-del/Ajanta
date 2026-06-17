@@ -7814,6 +7814,7 @@ function _collapseAllRptTables() {
 }
 
 function rptExportPDF() {
+  if (_activeRptTab === 'itemledger') { _ilExportPDF(); return; }
   const panel = document.getElementById('rptPanel-' + _activeRptTab);
   const title = RPT_TABS[_activeRptTab] || 'Report';
   const from  = document.getElementById('rptFrom')?.value || '';
@@ -7962,6 +7963,7 @@ function rptExportCSV() {
     }
   }
 
+  if (_activeRptTab === 'itemledger') { _ilExportCSV(); return; }
   if (!rows.length) { showToast('Export karne ke liye koi data nahi', 'error'); return; }
 
   // Build CSV string — wrap fields with commas/quotes in double quotes
