@@ -1565,33 +1565,88 @@ tbody tr:last-child td{border-bottom:none;}
 
         <!-- ══ PANEL: Item Profit & Loss ══ -->
         <div id="rptPanel-itemledger" class="rpt-panel" style="display:none;padding:24px 26px">
+          <!-- View tabs -->
+          <div style="display:flex;gap:8px;margin-bottom:18px">
+            <button id="ilTab-item" onclick="_ilTabSwitch('item')"
+              style="display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #4f46e5;background:#4f46e5;color:#fff;transition:all .15s">
+              🎯 Item / Style
+            </button>
+            <button id="ilTab-supplier" onclick="_ilTabSwitch('supplier')"
+              style="display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #e2e8f0;background:#fff;color:#64748b;transition:all .15s">
+              🏭 By Supplier
+            </button>
+            <button id="ilTab-cat" onclick="_ilTabSwitch('cat')"
+              style="display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #e2e8f0;background:#fff;color:#64748b;transition:all .15s">
+              🏷 By Category
+            </button>
+          </div>
+          <!-- Toolbar -->
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
             <input id="ilSearch" type="text" placeholder="Search supplier / item / category…"
-              oninput="_ilDisplayLimit=100;renderRptItemLedger(_rptData&&_rptData.itemLedger||[])"
+              oninput="_ilOnSearch()"
               style="flex:1;min-width:200px;max-width:340px;padding:8px 13px;border:1.5px solid #e8ecf8;border-radius:9px;font-size:13px;color:#334155;outline:none;font-family:'Inter',sans-serif">
             <button onclick="_ilExportPDF()" style="padding:8px 16px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='#c7d2fe';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='#e8ecf8';this.style.color='#64748b'">↓ PDF</button>
             <button onclick="_ilExportCSV()" style="padding:8px 16px;background:#fff;border:1.5px solid #e8ecf8;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='#c7d2fe';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='#e8ecf8';this.style.color='#64748b'">↓ CSV</button>
           </div>
-          <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
-            <table style="width:100%;border-collapse:collapse;min-width:1200px"><thead><tr>
-              <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
-              <th class="rpt-th-dark" style="text-align:left">Supplier</th>
-              <th class="rpt-th-blue" style="text-align:left">Category</th>
-              <th class="rpt-th-blue" style="text-align:left">Sub-Cat</th>
-              <th class="rpt-th-dark" style="text-align:left">Item / Style</th>
-              <th class="rpt-th-dark" style="text-align:left">Article</th>
-              <th class="rpt-th-amber" style="text-align:center">Pur Date</th>
-              <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
-              <th class="rpt-th-amber" style="text-align:right">Cost / Unit</th>
-              <th class="rpt-th-green" style="text-align:center">Sale Date</th>
-              <th class="rpt-th-green" style="text-align:right">Sale Qty</th>
-              <th class="rpt-th-green" style="text-align:right">Sale Amt</th>
-              <th class="rpt-th-purple" style="text-align:right">Profit / Loss</th>
-              <th class="rpt-th-dark" style="text-align:right">Avail Stock</th>
-            </tr></thead>
-            <tbody id="ilBody"><tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
-            </table>
-          </div></div>
+          <!-- Pane: Item / Style (default) -->
+          <div id="ilPane-item">
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:1200px"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
+                <th class="rpt-th-dark" style="text-align:left">Supplier</th>
+                <th class="rpt-th-blue" style="text-align:left">Category</th>
+                <th class="rpt-th-blue" style="text-align:left">Sub-Cat</th>
+                <th class="rpt-th-dark" style="text-align:left">Item / Style</th>
+                <th class="rpt-th-dark" style="text-align:left">Article</th>
+                <th class="rpt-th-amber" style="text-align:center">Pur Date</th>
+                <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
+                <th class="rpt-th-amber" style="text-align:right">Cost / Unit</th>
+                <th class="rpt-th-green" style="text-align:center">Sale Date</th>
+                <th class="rpt-th-green" style="text-align:right">Sale Qty</th>
+                <th class="rpt-th-green" style="text-align:right">Sale Amt</th>
+                <th class="rpt-th-purple" style="text-align:right">Profit / Loss</th>
+                <th class="rpt-th-dark" style="text-align:right">Avail Stock</th>
+              </tr></thead>
+              <tbody id="ilBody"><tr><td colspan="14" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
+          </div>
+          <!-- Pane: By Supplier -->
+          <div id="ilPane-supplier" style="display:none">
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:900px"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
+                <th class="rpt-th-dark" style="text-align:left">Supplier Name</th>
+                <th class="rpt-th-blue" style="text-align:center">Items</th>
+                <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
+                <th class="rpt-th-green" style="text-align:right">Sale Qty</th>
+                <th class="rpt-th-green" style="text-align:right">Sale Amt</th>
+                <th class="rpt-th-purple" style="text-align:right">Profit / Loss</th>
+                <th class="rpt-th-dark" style="text-align:right">Margin %</th>
+                <th class="rpt-th-dark" style="text-align:right">Avail Stock</th>
+              </tr></thead>
+              <tbody id="ilBody-supplier"><tr><td colspan="9" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
+          </div>
+          <!-- Pane: By Category -->
+          <div id="ilPane-cat" style="display:none">
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:900px"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:center;width:32px">#</th>
+                <th class="rpt-th-blue" style="text-align:left">Category</th>
+                <th class="rpt-th-blue" style="text-align:center">Items</th>
+                <th class="rpt-th-amber" style="text-align:right">Pur Qty</th>
+                <th class="rpt-th-green" style="text-align:right">Sale Qty</th>
+                <th class="rpt-th-green" style="text-align:right">Sale Amt</th>
+                <th class="rpt-th-purple" style="text-align:right">Profit / Loss</th>
+                <th class="rpt-th-dark" style="text-align:right">Margin %</th>
+                <th class="rpt-th-dark" style="text-align:right">Avail Stock</th>
+              </tr></thead>
+              <tbody id="ilBody-cat"><tr><td colspan="9" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
+          </div>
         </div>
 
         <!-- ══ PANEL: Stock Turnover Ratio ══ -->
@@ -5512,6 +5567,69 @@ function renderRptSPAnalytics(data) {
 // ITEM PROFIT & LOSS REPORT
 // ══════════════════════════════════════════════════════
 let _ilDisplayLimit = 100;
+let _ilView = 'item';
+
+function _ilTabSwitch(view) {
+  _ilView = view;
+  const act = 'display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #4f46e5;background:#4f46e5;color:#fff;transition:all .15s';
+  const inact = 'display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #e2e8f0;background:#fff;color:#64748b;transition:all .15s';
+  ['item','supplier','cat'].forEach(v => {
+    const b = document.getElementById('ilTab-'+v); if (b) b.style.cssText = v===view ? act : inact;
+  });
+  document.getElementById('ilPane-item').style.display     = view==='item'     ? '' : 'none';
+  document.getElementById('ilPane-supplier').style.display = view==='supplier' ? '' : 'none';
+  document.getElementById('ilPane-cat').style.display      = view==='cat'      ? '' : 'none';
+  _ilOnSearch();
+}
+
+function _ilOnSearch() {
+  const rows = _rptData && _rptData.itemLedger || [];
+  if (_ilView === 'item') { _ilDisplayLimit = 100; renderRptItemLedger(rows); }
+  else _ilRenderGrouped(rows, _ilView);
+}
+
+function _ilRenderGrouped(rows, groupBy) {
+  const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
+  const bodyId = 'ilBody-' + groupBy;
+  const body = document.getElementById(bodyId); if (!body) return;
+  const map = new Map();
+  rows.forEach(r => {
+    const key = groupBy === 'supplier' ? (r.supName||'—') : (r.cat||'—');
+    if (q && !`${r.supName} ${r.style} ${r.cat} ${r.subcat} ${r.article}`.toLowerCase().includes(q)) return;
+    if (!map.has(key)) map.set(key, { name: key, items: 0, purQty: 0, saleQty: 0, saleAmt: 0, profit: 0, availQty: 0 });
+    const g = map.get(key);
+    g.items++;
+    g.purQty   += r.purQty   || 0;
+    g.saleQty  += r.saleQty  || 0;
+    g.saleAmt  += r.saleAmt  || 0;
+    g.profit   += r.profit   || 0;
+    g.availQty += r.availQty || 0;
+  });
+  const grouped = [...map.values()].sort((a, b) => b.profit - a.profit);
+  if (!grouped.length) {
+    body.innerHTML = `<tr><td colspan="9" class="rpt-td" style="text-align:center;color:#94a3b8">${q?'No results for "'+q+'"':'No data'}</td></tr>`;
+    return;
+  }
+  const td = (v, s='') => `<td class="rpt-td" style="padding:6px 10px;font-size:12px${s?';'+s:''}">${v}</td>`;
+  body.innerHTML = grouped.map((g, i) => {
+    const pClr = g.profit > 0 ? 'color:#16a34a;font-weight:700' : g.profit < 0 ? 'color:#dc2626;font-weight:700' : 'color:#94a3b8';
+    const margin = g.saleAmt > 0 ? ((g.profit / g.saleAmt) * 100).toFixed(1) + '%' : '—';
+    const mClr = g.profit > 0 ? 'color:#16a34a' : g.profit < 0 ? 'color:#dc2626' : 'color:#94a3b8';
+    const aClr = g.availQty <= 0 ? 'color:#dc2626;font-weight:700' : 'color:#334155';
+    return `<tr style="border-bottom:1px solid #f4f6ff">
+      ${td(i+1,'color:#94a3b8;text-align:center')}
+      ${td(`<span style="font-weight:700;color:#334155">${g.name}</span>`)}
+      ${td(g.items,'text-align:center;color:#64748b')}
+      ${td(Number(g.purQty||0).toLocaleString('en-IN'),'text-align:right;color:#d97706')}
+      ${td(Number(g.saleQty||0).toLocaleString('en-IN'),'text-align:right;color:#0ea5e9')}
+      ${td(g.saleAmt>0?fmtINR(g.saleAmt):'—','text-align:right;color:#16a34a;font-weight:600')}
+      ${td(g.profit!==0?(g.profit>0?'+':'')+fmtINR(g.profit):'—','text-align:right;'+pClr)}
+      ${td(margin,'text-align:right;font-weight:600;'+mClr)}
+      ${td(Number(g.availQty||0).toLocaleString('en-IN'),'text-align:right;'+aClr)}
+    </tr>`;
+  }).join('');
+}
+
 function _ilLoadMore(){ _ilDisplayLimit += 100; renderRptItemLedger(_rptData&&_rptData.itemLedger||[]); }
 function renderRptItemLedger(rows) {
   const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
@@ -5553,6 +5671,9 @@ function renderRptItemLedger(rows) {
       <button onclick="_ilLoadMore()" style="padding:7px 20px;border:1.5px solid #4f46e5;border-radius:9px;font-size:12px;font-weight:700;color:#4f46e5;background:#fff;cursor:pointer">View More (${_remaining.toLocaleString('en-IN')})</button>
     </td></tr>`;
   }
+  // Always keep grouped views in sync
+  _ilRenderGrouped(rows, 'supplier');
+  _ilRenderGrouped(rows, 'cat');
 }
 
 // ══════════════════════════════════════════════════════
@@ -5823,18 +5944,42 @@ function _ilExportPDF() {
 }
 
 function _ilExportCSV() {
-  const rows = _rptData && _rptData.itemLedger || [];
-  if (!rows.length) { alert('No data to export.'); return; }
-  const hdr = ['#','Supplier','Category','Sub-Category','Item/Style','Article No','Pur Date','Pur Qty','Cost/Unit','Sale Date','Sale Qty','Sale Amt','Profit/Loss','Avail Stock'];
+  const allRows = _rptData && _rptData.itemLedger || [];
+  if (!allRows.length) { alert('No data to export.'); return; }
   const esc = s => `"${String(s||'').replace(/"/g,'""')}"`;
-  const lines = [hdr.join(','), ...rows.map((r,i) => [
-    i+1, esc(r.supName), esc(r.cat), esc(r.subcat), esc(r.style), esc(r.article),
-    _fmtD(r.firstPurDate)||'', r.purQty||0, r.costPerUnit||0,
-    _fmtD(r.lastSaleDate)||'', r.saleQty||0, r.saleAmt||0, r.profit||0, r.availQty||0
-  ].join(','))];
+  const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
+  const date = new Date().toISOString().slice(0,10);
+  let lines, filename;
+  if (_ilView === 'supplier' || _ilView === 'cat') {
+    const map = new Map();
+    allRows.forEach(r => {
+      const key = _ilView==='supplier' ? (r.supName||'—') : (r.cat||'—');
+      if (q && !`${r.supName} ${r.style} ${r.cat} ${r.subcat} ${r.article}`.toLowerCase().includes(q)) return;
+      if (!map.has(key)) map.set(key, { name: key, items:0, purQty:0, saleQty:0, saleAmt:0, profit:0, availQty:0 });
+      const g = map.get(key);
+      g.items++; g.purQty+=r.purQty||0; g.saleQty+=r.saleQty||0; g.saleAmt+=r.saleAmt||0; g.profit+=r.profit||0; g.availQty+=r.availQty||0;
+    });
+    const grouped = [...map.values()].sort((a,b)=>b.profit-a.profit);
+    const label = _ilView==='supplier' ? 'Supplier' : 'Category';
+    const hdr = ['#', label, 'Items', 'Pur Qty', 'Sale Qty', 'Sale Amt', 'Profit/Loss', 'Margin %', 'Avail Stock'];
+    lines = [hdr.join(','), ...grouped.map((g,i) => {
+      const margin = g.saleAmt > 0 ? ((g.profit/g.saleAmt)*100).toFixed(1)+'%' : '0%';
+      return [i+1, esc(g.name), g.items, g.purQty, g.saleQty, g.saleAmt.toFixed(0), g.profit.toFixed(0), margin, g.availQty].join(',');
+    })];
+    filename = `item-pl-by-${_ilView}-${date}.csv`;
+  } else {
+    const hdr = ['#','Supplier','Category','Sub-Category','Item/Style','Article No','Pur Date','Pur Qty','Cost/Unit','Sale Date','Sale Qty','Sale Amt','Profit/Loss','Avail Stock'];
+    const filtered = q ? allRows.filter(r=>`${r.supName} ${r.style} ${r.cat} ${r.subcat} ${r.article}`.toLowerCase().includes(q)) : allRows;
+    lines = [hdr.join(','), ...filtered.map((r,i) => [
+      i+1, esc(r.supName), esc(r.cat), esc(r.subcat), esc(r.style), esc(r.article),
+      _fmtD(r.firstPurDate)||'', r.purQty||0, r.costPerUnit||0,
+      _fmtD(r.lastSaleDate)||'', r.saleQty||0, r.saleAmt||0, r.profit||0, r.availQty||0
+    ].join(','))];
+    filename = `item-pl-${date}.csv`;
+  }
   const blob = new Blob(['﻿'+lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = 'item-pl-' + new Date().toISOString().slice(0,10) + '.csv'; a.click();
+  a.download = filename; a.click();
 }
 
 // ══════════════════════════════════════════════════════
