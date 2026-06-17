@@ -5799,7 +5799,7 @@ function _ilDrilldown(type, name) {
   modal.style.display = 'flex';
 }
 
-function _ilLoadMore(){ _ilDisplayLimit += 100; renderRptItemLedger(_rptData&&_rptData.itemLedger||[]); }
+function _ilLoadMore(){ _ilDisplayLimit = (_rptData&&_rptData.itemLedger||[]).length||999999; renderRptItemLedger(_rptData&&_rptData.itemLedger||[]); }
 function renderRptItemLedger(rows) {
   const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
   let filtered = rows;
@@ -5845,7 +5845,7 @@ function renderRptItemLedger(rows) {
     const _remaining = filtered.length - LIMIT;
     body.innerHTML += `<tr><td colspan="13" class="rpt-td" style="text-align:center;padding:16px">
       <span style="font-size:11px;color:#94a3b8;margin-right:12px">Showing ${LIMIT.toLocaleString('en-IN')} of ${filtered.length.toLocaleString('en-IN')}</span>
-      <button onclick="_ilLoadMore()" style="padding:7px 20px;border:1.5px solid #4f46e5;border-radius:9px;font-size:12px;font-weight:700;color:#4f46e5;background:#fff;cursor:pointer">View More (${_remaining.toLocaleString('en-IN')})</button>
+      <button onclick="_ilLoadMore()" style="padding:7px 20px;border:1.5px solid #4f46e5;border-radius:9px;font-size:12px;font-weight:700;color:#4f46e5;background:#fff;cursor:pointer">View All (${_remaining.toLocaleString('en-IN')} more)</button>
     </td></tr>`;
   }
   // Always keep grouped views in sync
@@ -6071,53 +6071,58 @@ function _ilExportPDF() {
   const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
   const filtered = q ? allRows.filter(r => (r.supName+' '+r.style+' '+r.cat+' '+r.subcat+' '+r.article).toLowerCase().includes(q)) : allRows;
   if (!filtered.length) { alert('No data to export.'); return; }
-  const w = window.open('', '_blank');
-  if (!w) { alert('Pop-ups blocked — please allow pop-ups for this site.'); return; }
+  const w = window.open('', '_blank', 'width=1200,height=850,scrollbars=1');
+  if (!w) { showToast('Pop-ups blocked — allow pop-ups and try again','error'); return; }
   const fmtP = v => v > 0 ? '+₹'+Math.round(v).toLocaleString('en-IN') : v < 0 ? '-₹'+Math.round(Math.abs(v)).toLocaleString('en-IN') : '—';
   const fmtR = v => v > 0 ? '₹'+Math.round(v).toLocaleString('en-IN') : '—';
   const nf   = v => Number(v||0).toLocaleString('en-IN');
   const tbody = filtered.map(function(r, i) {
     const pc = r.profit > 0 ? '#16a34a' : r.profit < 0 ? '#dc2626' : '#94a3b8';
     const ac = r.availQty <= 0 ? '#dc2626' : r.availQty < 5 ? '#d97706' : '#334155';
+    const margin = r.saleAmt > 0 ? ((r.profit/r.saleAmt)*100).toFixed(1)+'%' : '—';
     return '<tr>'
-      + '<td>'+(i+1)+'</td>'
+      + '<td style="color:#94a3b8">'+(i+1)+'</td>'
+      + '<td style="font-weight:700;color:#4f46e5">'+String(r.style||'—')+'</td>'
       + '<td>'+String(r.supName||'—')+'</td>'
-      + '<td>'+String(r.cat||'—')+'</td>'
-      + '<td>'+String(r.subcat||'—')+'</td>'
-      + '<td><b>'+String(r.style||'—')+'</b></td>'
-      + '<td>'+String(r.article||'—')+'</td>'
-      + '<td>'+(_fmtD(r.firstPurDate)||'—')+'</td>'
-      + '<td style="text-align:right">'+nf(r.purQty)+'</td>'
-      + '<td style="text-align:right">'+fmtR(r.costPerUnit)+'</td>'
-      + '<td>'+(_fmtD(r.lastSaleDate)||'—')+'</td>'
-      + '<td style="text-align:right">'+nf(r.saleQty)+'</td>'
-      + '<td style="text-align:right">'+fmtR(r.saleAmt)+'</td>'
+      + '<td style="color:#64748b">'+String(r.cat||'—')+'</td>'
+      + '<td style="color:#d97706">'+(_fmtD(r.firstPurDate)||'—')+'</td>'
+      + '<td style="text-align:right;color:#64748b">'+nf(r.purQty)+'</td>'
+      + '<td style="text-align:right;color:#d97706">'+fmtR(r.costPerUnit)+'</td>'
+      + '<td style="color:#16a34a">'+(_fmtD(r.lastSaleDate)||'—')+'</td>'
+      + '<td style="text-align:right;color:#0ea5e9">'+nf(r.saleQty)+'</td>'
+      + '<td style="text-align:right;color:#16a34a;font-weight:600">'+fmtR(r.saleAmt)+'</td>'
       + '<td style="text-align:right;color:'+pc+';font-weight:700">'+fmtP(r.profit)+'</td>'
+      + '<td style="text-align:right;color:'+pc+'">'+margin+'</td>'
       + '<td style="text-align:right;color:'+ac+';font-weight:600">'+nf(r.availQty)+'</td>'
       + '</tr>';
   }).join('');
   const now = new Date();
-  const dt = now.getDate()+'/'+( now.getMonth()+1)+'/'+now.getFullYear()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  const dt = now.getDate()+'/'+(now.getMonth()+1)+'/'+now.getFullYear()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Item Profit & Loss</title>'
     +'<style>'
-    +'*{box-sizing:border-box}'
-    +'html,body{width:297mm;max-width:none}'
-    +'body{font-family:Arial,Helvetica,sans-serif;font-size:7.5px;margin:0;padding:7mm 7mm;color:#1e293b}'
-    +'h2{font-size:12px;font-weight:700;margin:0 0 2px}p{margin:0 0 6px;color:#64748b;font-size:8px}'
-    +'table{width:100%;border-collapse:collapse}'
-    +'th{background:#f1f5f9;font-size:6.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:4px 3px;border-bottom:2px solid #cbd5e1;text-align:left;white-space:nowrap}'
-    +'td{padding:3px 3px;border-bottom:1px solid #f1f5f9;vertical-align:middle;font-size:7.5px;white-space:nowrap}'
-    +'tr:nth-child(even){background:#f8fafc}'
-    +'@page{size:A4 landscape;margin:7mm}'
-    +'@media print{@page{size:landscape}}'
+    +'*{box-sizing:border-box;margin:0;padding:0}'
+    +'@page{size:297mm 210mm;margin:7mm}'
+    +'html{width:297mm}'
+    +'body{font-family:Arial,Helvetica,sans-serif;font-size:7px;padding:0;color:#1e293b;width:283mm}'
+    +'h2{font-size:11px;font-weight:700;margin-bottom:1mm}p{color:#64748b;font-size:7.5px;margin-bottom:3mm}'
+    +'table{width:100%;border-collapse:collapse;table-layout:fixed}'
+    +'col.c0{width:8mm}col.c1{width:32mm}col.c2{width:32mm}col.c3{width:22mm}'
+    +'col.c4{width:17mm}col.c5{width:13mm}col.c6{width:18mm}'
+    +'col.c7{width:17mm}col.c8{width:13mm}col.c9{width:19mm}'
+    +'col.c10{width:20mm}col.c11{width:12mm}col.c12{width:10mm}'
+    +'th{background:#334155;color:#fff;font-size:6px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:3px 2px;text-align:left;white-space:nowrap;overflow:hidden}'
+    +'td{padding:2.5px 2px;border-bottom:1px solid #f1f5f9;font-size:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+    +'tr:nth-child(even) td{background:#f8fafc}'
     +'</style></head><body>'
     +'<h2>Item Profit &amp; Loss</h2>'
-    +'<p>Total: '+filtered.length.toLocaleString('en-IN')+' items'+(q?' · Search: "'+q+'"':'')+' &nbsp;|&nbsp; Printed on '+dt+'</p>'
-    +'<table><thead><tr>'
-    +'<th>#</th><th>Supplier</th><th>Category</th><th>Sub-Cat</th><th>Item / Style</th><th>Article</th>'
+    +'<p>'+filtered.length.toLocaleString('en-IN')+' items'+(q?' · Search: "'+q+'"':'')+' &nbsp;|&nbsp; Printed: '+dt+'</p>'
+    +'<table>'
+    +'<colgroup><col class="c0"><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"><col class="c7"><col class="c8"><col class="c9"><col class="c10"><col class="c11"><col class="c12"></colgroup>'
+    +'<thead><tr>'
+    +'<th>#</th><th>Item / Style</th><th>Supplier</th><th>Category</th>'
     +'<th>Pur Date</th><th style="text-align:right">Pur Qty</th><th style="text-align:right">Cost/Unit</th>'
-    +'<th>Sale Date</th><th style="text-align:right">Sale Qty</th><th style="text-align:right">Sale Amt</th>'
-    +'<th style="text-align:right">Profit / Loss</th><th style="text-align:right">Avail Stock</th>'
+    +'<th>Last Sale</th><th style="text-align:right">Sale Qty</th><th style="text-align:right">Sale Amt</th>'
+    +'<th style="text-align:right">Profit/Loss</th><th style="text-align:right">Margin%</th><th style="text-align:right">Avail</th>'
     +'</tr></thead><tbody>'+tbody+'</tbody></table>'
     +'<script>window.onload=function(){window.print();};<\/script>'
     +'</body></html>');
