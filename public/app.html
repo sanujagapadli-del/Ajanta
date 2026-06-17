@@ -1146,6 +1146,7 @@ tbody tr:last-child td{border-bottom:none;}
             <button class="rpt-tab-btn" data-tab="stockcat"      onclick="switchRptTab('stockcat')">🏷 Stock by Category</button>
             <button class="rpt-tab-btn" data-tab="turnover"      onclick="switchRptTab('turnover')">🔄 Fast &amp; Slow Moving</button>
             <button class="rpt-tab-btn" data-tab="itemledger"   onclick="switchRptTab('itemledger')">💰 Item Profit &amp; Loss</button>
+            <button class="rpt-tab-btn" data-tab="str"           onclick="switchRptTab('str')">📐 Stock Turnover Ratio</button>
             <button class="rpt-tab-btn" data-tab="stockhistory"  onclick="switchRptTab('stockhistory')">📦 Stock History</button>
           </div>
         </div>
@@ -1593,6 +1594,77 @@ tbody tr:last-child td{border-bottom:none;}
           </div></div>
         </div>
 
+        <!-- ══ PANEL: Stock Turnover Ratio ══ -->
+        <div id="rptPanel-str" class="rpt-panel" style="display:none;padding:24px 26px">
+          <!-- Info banner -->
+          <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 14px;font-size:12px;color:#9a3412;margin-bottom:22px;line-height:1.6">
+            <strong>Stock Turnover Ratio (STR)</strong> = Sold Qty ÷ Avg Stock &nbsp;|&nbsp; Avg Stock = (Opening + Closing) ÷ 2 &nbsp;|&nbsp; Days to Sell = 365 ÷ STR
+            <div style="margin-top:6px">
+              <span style="background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 7px;font-weight:700">🔥 STR ≥ 3</span>&nbsp;
+              <span style="background:#fef9c3;color:#a16207;border-radius:4px;padding:1px 7px;font-weight:700">⚡ 1 – 2.9</span>&nbsp;
+              <span style="background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 7px;font-weight:700">🐢 &lt; 1</span>&nbsp;
+              <span style="background:#cffafe;color:#0e7490;border-radius:4px;padding:1px 7px;font-weight:700">✅ Cleared</span>
+            </div>
+          </div>
+          <!-- View toggle -->
+          <div style="display:flex;gap:8px;margin-bottom:18px">
+            <button id="strTab-supplier" onclick="_strTabSwitch('supplier')"
+              style="display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #ea580c;background:#ea580c;color:#fff;transition:all .15s">
+              🏭 By Supplier
+            </button>
+            <button id="strTab-cat" onclick="_strTabSwitch('cat')"
+              style="display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #e2e8f0;background:#fff;color:#64748b;transition:all .15s">
+              🏷 By Category
+            </button>
+          </div>
+          <!-- Supplier pane -->
+          <div id="strPane-supplier">
+            <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
+              <input id="strSupSearch" type="text" placeholder="🔍 Search supplier…" oninput="_strSearch('strSupSearch','rptSTRSupplierBody')"
+                style="border:1px solid #fed7aa;border-radius:8px;padding:6px 12px;font-size:13px;color:#1e293b;outline:none;width:220px;background:#fffbf7">
+            </div>
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:left;padding:8px 10px;width:36px">#</th>
+                <th class="rpt-th-dark" style="text-align:left;padding:8px 10px">Supplier Name</th>
+                <th class="rpt-th-green" style="text-align:right;padding:8px 10px">Sold Qty</th>
+                <th class="rpt-th-dark" style="text-align:right;padding:8px 10px">Opening</th>
+                <th class="rpt-th-amber" style="text-align:right;padding:8px 10px">Purchased</th>
+                <th class="rpt-th-red" style="text-align:right;padding:8px 10px">Pur. Return</th>
+                <th class="rpt-th-blue" style="text-align:right;padding:8px 10px">Closing Stock</th>
+                <th class="rpt-th-dark" style="text-align:right;padding:8px 10px">Avg Stock</th>
+                <th class="rpt-th-dark" style="text-align:center;padding:8px 10px">STR</th>
+                <th class="rpt-th-dark" style="text-align:right;padding:8px 10px">Days/Year</th>
+              </tr></thead>
+              <tbody id="rptSTRSupplierBody"><tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
+          </div>
+          <!-- Category pane -->
+          <div id="strPane-cat" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
+              <input id="strCatSearch" type="text" placeholder="🔍 Search category…" oninput="_strSearch('strCatSearch','rptSTRCatBody')"
+                style="border:1px solid #fed7aa;border-radius:8px;padding:6px 12px;font-size:13px;color:#1e293b;outline:none;width:220px;background:#fffbf7">
+            </div>
+            <div class="rpt-table-wrap"><div class="rpt-scroll" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px"><thead><tr>
+                <th class="rpt-th-dark" style="text-align:left;padding:8px 10px;width:36px">#</th>
+                <th class="rpt-th-dark" style="text-align:left;padding:8px 10px">Category</th>
+                <th class="rpt-th-green" style="text-align:right;padding:8px 10px">Sold Qty</th>
+                <th class="rpt-th-dark" style="text-align:right;padding:8px 10px">Opening</th>
+                <th class="rpt-th-amber" style="text-align:right;padding:8px 10px">Purchased</th>
+                <th class="rpt-th-red" style="text-align:right;padding:8px 10px">Pur. Return</th>
+                <th class="rpt-th-blue" style="text-align:right;padding:8px 10px">Closing Stock</th>
+                <th class="rpt-th-dark" style="text-align:right;padding:8px 10px">Avg Stock</th>
+                <th class="rpt-th-dark" style="text-align:center;padding:8px 10px">STR</th>
+                <th class="rpt-th-dark" style="text-align:right;padding:8px 10px">Days/Year</th>
+              </tr></thead>
+              <tbody id="rptSTRCatBody"><tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8">Generate report to view</td></tr></tbody>
+              </table>
+            </div></div>
+          </div>
+        </div>
+
         <!-- ══ PANEL: Stock History ══ -->
         <div id="rptPanel-stockhistory" class="rpt-panel" style="display:none;padding:24px 26px">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
@@ -1768,6 +1840,13 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="r2h-desc">Select any past date — see stock snapshot by supplier, dept, category &amp; style.</div>
           <div class="r2h-stat" id="r2stat-stockhistory"></div>
           <div id="r2list-stockhistory" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
+        </div>
+        <div class="r2h-card" onclick="openR2Report('str')">
+          <div class="r2h-ico" style="background:#fff7ed;color:#ea580c"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
+          <div class="r2h-title">Stock Turnover Ratio</div>
+          <div class="r2h-desc">How fast inventory is sold — by supplier &amp; category.</div>
+          <div class="r2h-stat" id="r2stat-str"></div>
+          <div id="r2list-str" style="margin-top:10px;font-size:11px;overflow:hidden;flex:1"></div>
         </div>
         <div class="r2h-card" onclick="openR2Report('itemledger')">
           <div class="r2h-ico" style="background:#fefce8;color:#ca8a04"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
@@ -4392,6 +4471,7 @@ const RPT_TABS = {
   stockcat:     'Stock by Category',
   turnover:     'Fast & Slow Moving',
   itemledger:    'Item Profit & Loss',
+  str:           'Stock Turnover Ratio',
   stockhistory:  'Stock History'
 };
 // Sales-based tabs (reference only). Date filter ab sab tabs pe lagu hota hai —
@@ -4531,6 +4611,7 @@ async function loadImsReports(forceSync) {
     renderRptSupplierStock(_r2Data.supplierStock||[]);
     renderRptStockCat(_r2Data.categoryStock||[]);
     renderRptTurnover(_r2Data);
+    renderRptSTR(_r2Data);
     renderRptSPAnalytics(_r2Data.spAnalytics||null);
     renderRptItemLedger(_r2Data.itemLedger||[]);
     return;
@@ -4573,6 +4654,7 @@ async function loadImsReports(forceSync) {
   renderRptSupplierStock(data.supplierStock || []);
   renderRptStockCat(data.categoryStock || []);
   renderRptTurnover(data);
+  renderRptSTR(data);
   renderRptSPAnalytics(data.spAnalytics || null);
   _ilDisplayLimit = 100;
   renderRptItemLedger(data.itemLedger || []);
@@ -5055,6 +5137,120 @@ function expandTurnoverTable(bodyId) {
   if (!c) return;
   c.expanded = true;
   _renderTurnover(bodyId);
+}
+
+// ── Stock Turnover Ratio (STR) ──────────────────────────────────────────────
+let _strView = 'supplier';
+const _strCache = {};
+
+function _strTabSwitch(view) {
+  _strView = view;
+  const act = 'display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #ea580c;background:#ea580c;color:#fff;transition:all .15s';
+  const inact = 'display:flex;align-items:center;gap:6px;padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:2px solid #e2e8f0;background:#fff;color:#64748b;transition:all .15s';
+  document.getElementById('strTab-supplier').style.cssText = view==='supplier' ? act : inact;
+  document.getElementById('strTab-cat').style.cssText      = view==='cat'      ? act : inact;
+  document.getElementById('strPane-supplier').style.display = view==='supplier' ? '' : 'none';
+  document.getElementById('strPane-cat').style.display      = view==='cat'      ? '' : 'none';
+}
+
+function _strSearch(inputId, bodyId) {
+  _strCache[bodyId] = _strCache[bodyId] || { rows:[], expanded:false, q:'' };
+  _strCache[bodyId].q = (document.getElementById(inputId)?.value || '').trim();
+  _strCache[bodyId].expanded = false;
+  _renderSTR(bodyId);
+}
+
+function _expandSTR(bodyId) {
+  if (_strCache[bodyId]) { _strCache[bodyId].expanded = true; _renderSTR(bodyId); }
+}
+
+function _renderSTR(bodyId) {
+  const c = _strCache[bodyId];
+  const body = document.getElementById(bodyId);
+  if (!c || !body) return;
+  let rows = c.rows || [];
+  const q = (c.q || '').toLowerCase();
+  if (q) rows = rows.filter(r => String(r.name).toLowerCase().includes(q));
+  if (!rows.length) { body.innerHTML = `<tr><td colspan="10" class="rpt-td" style="text-align:center;color:#94a3b8">Koi data nahi</td></tr>`; return; }
+  const visible = c.expanded ? rows : rows.slice(0, 15);
+  const moreBtn = (!c.expanded && rows.length > 15)
+    ? `<tr><td colspan="10" style="text-align:center;padding:10px"><button onclick="_expandSTR('${bodyId}')" style="background:#fff7ed;color:#ea580c;border:1.5px solid #fed7aa;border-radius:8px;padding:6px 20px;font-size:12px;font-weight:700;cursor:pointer">▼ Show All ${rows.length} rows</button></td></tr>`
+    : '';
+  body.innerHTML = visible.map((r, i) => {
+    const str = r.str;
+    const days = (str !== null && str > 0) ? Math.round(365 / str) : null;
+    const [strBg, strColor, strLabel] = str === null
+      ? ['#cffafe','#0e7490','✅ Cleared']
+      : str === 0
+        ? ['#f1f5f9','#94a3b8','—']
+        : str >= 3
+          ? ['#dcfce7','#15803d','🔥 '+str.toFixed(2)+'×']
+          : str >= 1
+            ? ['#fef9c3','#a16207','⚡ '+str.toFixed(2)+'×']
+            : ['#fee2e2','#dc2626','🐢 '+str.toFixed(2)+'×'];
+    const daysColor = days==null?'#94a3b8':days<=120?'#15803d':days<=300?'#a16207':'#dc2626';
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td class="rpt-td">${i+1}</td>
+      <td class="rpt-td" style="font-weight:600">${r.name}</td>
+      <td class="rpt-td" style="text-align:right;color:#16a34a;font-weight:600">${Number(r.sold||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right">${Number(r.opening||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#b45309">${Number(r.purQty||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#dc2626">${Number(r.purReturn||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#4f46e5;font-weight:600">${Number(r.closing||0).toLocaleString('en-IN')}</td>
+      <td class="rpt-td" style="text-align:right;color:#64748b">${r.avgStock.toFixed(1)}</td>
+      <td class="rpt-td" style="text-align:center"><span style="background:${strBg};color:${strColor};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px">${strLabel}</span></td>
+      <td class="rpt-td" style="text-align:right;font-weight:600;color:${daysColor}">${days!=null?days+'d':'—'}</td>
+    </tr>`;
+  }).join('') + moreBtn;
+}
+
+function renderRptSTR(data) {
+  if (!data) return;
+  // ── Supplier view ──
+  const ssold = {}, sstk = {};
+  (data.supplierSales||[]).forEach(s => { ssold[s.name] = s.qty||0; });
+  (data.supplierStock||[]).forEach(s => { sstk[s.name] = s; });
+  const supRows = [];
+  new Set([...Object.keys(ssold),...Object.keys(sstk)]).forEach(name => {
+    const sold    = ssold[name]||0;
+    const sd      = sstk[name]||{};
+    const opening = sd.opening||0;
+    const purQty  = sd.purQty||0;
+    const purReturn = sd.purReturn||0;
+    const closing = Math.max(0, sd.qty||0);
+    const avgStock = (opening + closing) / 2;
+    const str = avgStock > 0 ? sold/avgStock : (sold > 0 ? null : 0);
+    supRows.push({ name, sold, opening, purQty, purReturn, closing, avgStock, str });
+  });
+  supRows.sort((a,b) => (b.str??Infinity)-(a.str??Infinity));
+  _strCache['rptSTRSupplierBody'] = { rows: supRows, expanded: false, q: '' };
+  _renderSTR('rptSTRSupplierBody');
+  // ── Category view (aggregate from style-level data) ──
+  const csold = {}, cstk = {};
+  (data.supplierStyleSales||[]).forEach(s => { const c=s.cat||'—'; csold[c]=(csold[c]||0)+(s.qty||0); });
+  (data.supplierStyleStock||[]).forEach(s => {
+    const c=s.cat||'—';
+    if (!cstk[c]) cstk[c]={qty:0,purQty:0,opening:0,purReturn:0};
+    cstk[c].qty     += s.qty||0;
+    cstk[c].purQty  += s.purQty||0;
+    cstk[c].opening += s.opening||0;
+    cstk[c].purReturn += s.purReturn||0;
+  });
+  const catRows = [];
+  new Set([...Object.keys(csold),...Object.keys(cstk)]).forEach(cat => {
+    const sold    = csold[cat]||0;
+    const sd      = cstk[cat]||{};
+    const opening = sd.opening||0;
+    const purQty  = sd.purQty||0;
+    const purReturn = sd.purReturn||0;
+    const closing = Math.max(0, sd.qty||0);
+    const avgStock = (opening + closing) / 2;
+    const str = avgStock > 0 ? sold/avgStock : (sold > 0 ? null : 0);
+    catRows.push({ name: cat, sold, opening, purQty, purReturn, closing, avgStock, str });
+  });
+  catRows.sort((a,b) => (b.str??Infinity)-(a.str??Infinity));
+  _strCache['rptSTRCatBody'] = { rows: catRows, expanded: false, q: '' };
+  _renderSTR('rptSTRCatBody');
 }
 
 async function showTurnoverDetail(key, drillType, sold, stock, pct, days, purchase, opening, purReturn) {
@@ -7008,6 +7204,49 @@ function renderReport2(data){
         </tr>`;
       }).join('')}</tbody></table>`;
   })();
+  // Stock Turnover Ratio hub card
+  (()=>{
+    const ssold={},sstk={};
+    (data.supplierSales||[]).forEach(s=>{ ssold[s.name]=s.qty||0; });
+    (data.supplierStock||[]).forEach(s=>{ sstk[s.name]=s; });
+    let totSold=0,totOpen=0,totClose=0;
+    const strRows=[];
+    new Set([...Object.keys(ssold),...Object.keys(sstk)]).forEach(name=>{
+      const sold=ssold[name]||0;
+      const sd=sstk[name]||{};
+      const opening=sd.opening||0;
+      const closing=Math.max(0,sd.qty||0);
+      totSold+=sold; totOpen+=opening; totClose+=closing;
+      const avg=(opening+closing)/2;
+      const str=avg>0?sold/avg:(sold>0?null:0);
+      if(str!==0) strRows.push({name,str});
+    });
+    strRows.sort((a,b)=>(b.str??Infinity)-(a.str??Infinity));
+    const avgAll=(totOpen+totClose)/2;
+    const overallStr=avgAll>0?totSold/avgAll:(totSold>0?null:0);
+    const strLabel=overallStr===null?'N/A':overallStr>0?overallStr.toFixed(2)+'×':'0×';
+    const days=overallStr>0?Math.round(365/overallStr):null;
+    _r2Stat('r2stat-str','Overall STR: '+strLabel, days?'~'+days+' days to sell':'No sales data');
+    const el=document.getElementById('r2list-str'); if(!el) return;
+    const top=strRows.slice(0,8);
+    if(!top.length){el.innerHTML='<div style="color:#94a3b8">No data</div>';return;}
+    el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="border-bottom:1.5px solid #e2e8f0">
+        <th style="text-align:left;padding:3px 4px;color:#94a3b8;font-weight:700">Supplier</th>
+        <th style="text-align:right;padding:3px 4px;color:#94a3b8;font-weight:700">STR</th>
+        <th style="text-align:right;padding:3px 4px;color:#94a3b8;font-weight:700">Days</th>
+      </tr></thead>
+      <tbody>${top.map(r=>{
+        const c=r.str===null?'#0e7490':r.str>=3?'#16a34a':r.str>=1?'#a16207':'#dc2626';
+        const lbl=r.str===null?'Cleared':r.str.toFixed(2)+'×';
+        const d=r.str>0?Math.round(365/r.str):null;
+        return `<tr style="border-bottom:1px solid #f4f6ff">
+          <td style="padding:3px 4px;color:#334155;font-weight:600;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:55%">${r.name}</td>
+          <td style="padding:3px 4px;text-align:right;font-weight:700;color:${c}">${lbl}</td>
+          <td style="padding:3px 4px;text-align:right;color:#64748b">${d!=null?d+'d':'—'}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  })();
   // Flex-fill charts need a resize nudge after layout settles
   setTimeout(()=>{
     const fc=_charts['r2mini-funnel'], tc=_charts['r2hd-topdept'];
@@ -7246,6 +7485,21 @@ function rptExportCSV() {
     rows = [['#','Category','Available Qty','Stock Value (INR)','% of Total Value']];
     const g4 = (_rptData.categoryStock||[]).reduce((s,c)=>s+c.value,0)||1;
     (_rptData.categoryStock||[]).forEach((c,i) => rows.push([i+1, c.category, c.qty, c.value, ((c.value/g4)*100).toFixed(1)+'%']));
+
+  } else if (_activeRptTab === 'str') {
+    const isCat = _strView === 'cat';
+    const bodyId = isCat ? 'rptSTRCatBody' : 'rptSTRSupplierBody';
+    const cache = _strCache?.[bodyId];
+    filename = `Stock_Turnover_Ratio_${isCat?'Category':'Supplier'}_${range}.csv`;
+    rows = [['#', isCat?'Category':'Supplier Name', 'Sold Qty', 'Opening', 'Purchased', 'Pur. Return', 'Closing Stock', 'Avg Stock', 'STR', 'Days to Sell (Annualized)']];
+    let exportRows = cache?.rows || [];
+    const sq = (document.getElementById(isCat?'strCatSearch':'strSupSearch')?.value||'').toLowerCase();
+    if (sq) exportRows = exportRows.filter(r=>String(r.name).toLowerCase().includes(sq));
+    exportRows.forEach((r,i) => {
+      const str = r.str;
+      const days = (str!==null && str>0) ? Math.round(365/str) : null;
+      rows.push([i+1, r.name, Math.round(r.sold||0), Math.round(r.opening||0), Math.round(r.purQty||0), Math.round(r.purReturn||0), Math.round(r.closing||0), r.avgStock.toFixed(1), str===null?'Cleared':str===0?'0':str.toFixed(2), days||'—']);
+    });
 
   } else if (_activeRptTab === 'turnover') {
     const itemVisible = document.getElementById('toPane-item')?.style.display !== 'none';
