@@ -1017,33 +1017,83 @@ tbody tr:last-child td{border-bottom:none;}
         box-shadow:0 0 0 3px rgba(79,70,229,.09);
       }
 
+      /* ── Top nav card ── */
+      #rptTopNav {
+        background:linear-gradient(160deg,#fafbff 0%,#fff 100%);
+        border:1px solid #eef2ff;border-radius:18px;
+        padding:18px 22px 16px;
+        box-shadow:0 2px 16px rgba(79,70,229,.06);
+        margin-bottom:16px!important;
+      }
+
+      /* ── Tab navigation groups ── */
+      .rpt-nav-group {
+        display:flex;align-items:center;gap:4px;flex-wrap:wrap;
+        background:rgba(248,249,255,.8);border:1px solid #eef2ff;
+        border-radius:12px;padding:5px 10px;
+      }
+      .rpt-nav-label {
+        font-size:8px;font-weight:900;color:#b6bfd4;letter-spacing:.22em;
+        text-transform:uppercase;padding-right:10px;margin-right:4px;
+        border-right:1.5px solid #e2e8f0;white-space:nowrap;align-self:center;
+        flex-shrink:0;
+      }
+
+      /* ── Sync button hover ── */
+      #rptSyncBtn { transition:all .18s; }
+      #rptSyncBtn:hover { transform:translateY(-1px);box-shadow:0 6px 22px rgba(79,70,229,.42)!important; }
+      #rptSyncBtn:active { transform:translateY(0); }
+
+      /* ── Dept select focus ── */
+      #rptDeptSel:focus { border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.1);outline:none; }
+
+      /* ── Date picker focus ── */
+      .rpt-fp-range { transition:border-color .15s,box-shadow .15s; }
+      .rpt-fp-range:focus { border-color:#6366f1!important;box-shadow:0 0 0 3px rgba(99,102,241,.1)!important;outline:none; }
+
       /* ── Main card ── */
       .rpt-glass {
         background:#fff;border:1px solid #eef2ff;
         border-radius:18px;overflow:hidden;
-        box-shadow:0 4px 28px rgba(79,70,229,.08);
+        box-shadow:0 4px 32px rgba(79,70,229,.09);
+      }
+
+      /* ── Card header ── */
+      .rpt-card-hdr {
+        padding:20px 26px;border-bottom:1px solid #eef2ff;
+        background:linear-gradient(180deg,#fcfcff 0%,#fff 100%);
+      }
+
+      /* ── Preset row ── */
+      .rpt-preset-row {
+        margin-top:14px;padding-top:12px;
+        border-top:1px dashed #eef2ff;
+        display:flex;align-items:center;gap:6px;flex-wrap:wrap;
       }
 
       /* ── Stat cards ── */
       .rpt-stat-card {
         border-radius:16px;padding:22px 24px;
         position:relative;overflow:hidden;
-        transition:transform .18s,box-shadow .18s;
+        transition:transform .2s,box-shadow .2s;
         background:#fff;border:1px solid #eef2ff;
         box-shadow:0 2px 14px rgba(79,70,229,.07);
       }
-      .rpt-stat-card:hover { transform:translateY(-2px);box-shadow:0 6px 26px rgba(79,70,229,.12); }
+      .rpt-stat-card:hover { transform:translateY(-3px);box-shadow:0 8px 30px rgba(79,70,229,.14); }
       .rpt-stat-card::before {
         content:'';position:absolute;top:0;left:0;right:0;height:3px;
       }
       .rpt-stat-card::after {
-        content:'';position:absolute;bottom:-26px;right:-16px;
-        width:85px;height:85px;border-radius:50%;
+        content:'';position:absolute;bottom:-28px;right:-18px;
+        width:110px;height:110px;border-radius:50%;
         background:rgba(79,70,229,.04);pointer-events:none;
+        transition:all .2s;
       }
+      .rpt-stat-card:hover::after { transform:scale(1.12); }
       .rpt-stat-label { font-size:10px;font-weight:800;color:#94a3b8;letter-spacing:.12em;margin-bottom:10px;text-transform:uppercase; }
       .rpt-stat-value { font-size:28px;font-weight:800;letter-spacing:-.025em;line-height:1;color:#0f172a; }
-      .rpt-stat-icon  { position:absolute;top:16px;right:18px;font-size:22px;opacity:.12; }
+      .rpt-stat-sub   { font-size:10px;color:#c4cbdc;margin-top:7px;font-weight:600;letter-spacing:.03em; }
+      .rpt-stat-icon  { position:absolute;top:14px;right:16px;font-size:34px;opacity:.09;pointer-events:none; }
 
       /* ── Chart section ── */
       .rpt-chart-wrap {
@@ -1064,9 +1114,11 @@ tbody tr:last-child td{border-bottom:none;}
       .rpt-th-amber  { background:#fffbeb!important;  color:#d97706!important; font-weight:700;padding:12px 16px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #eef2ff; }
 
       /* ── Table rows ── */
-      .rpt-td { padding:11px 16px;border-bottom:1px solid #f3f4ff;font-size:13px;color:#0f172a;transition:background .1s; }
+      .rpt-td { padding:11px 16px;border-bottom:1px solid #f3f4ff;font-size:13px;color:#0f172a;transition:background .12s; }
       .rpt-tr-even { background:#fafbff; }
-      tbody tr:hover .rpt-td { background:#f3f4ff!important; }
+      tbody tr:hover .rpt-td { background:#eff0ff!important;cursor:default; }
+      tbody tr:hover .rpt-td:first-child { border-left:2px solid #c7d2fe;padding-left:14px; }
+
 
       /* ── Scrollbar ── */
       .rpt-scroll::-webkit-scrollbar { width:5px;height:5px; }
@@ -1110,7 +1162,10 @@ tbody tr:last-child td{border-bottom:none;}
       .flatpickr-day.flatpickr-disabled,.flatpickr-day.flatpickr-disabled:hover { color:#e2e8f0; }
 
       /* ── Table wrapper ── */
-      .rpt-table-wrap { border:1px solid #eef2ff;border-radius:13px;overflow:hidden; }
+      .rpt-table-wrap {
+        border:1px solid #eef2ff;border-radius:14px;overflow:hidden;
+        box-shadow:0 1px 10px rgba(79,70,229,.05);
+      }
       .rpt-table-header {
         display:flex;align-items:center;justify-content:space-between;
         padding:13px 18px;background:#fafbff;border-bottom:1px solid #eef2ff;
@@ -1190,33 +1245,32 @@ tbody tr:last-child td{border-bottom:none;}
     <div id="rpt-inner">
 
       <!-- ══ TOP NAV: Tab strips + Sync ══ -->
-      <div id="rptTopNav" style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
-        <div style="display:flex;flex-direction:column;gap:10px">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;min-width:44px;text-transform:uppercase;padding:0 2px">SALES</span>
-            <button class="rpt-tab-btn active" data-tab="sales"     onclick="switchRptTab('sales')">📊 Sales Summary</button>
-            <button class="rpt-tab-btn"        data-tab="cat"       onclick="switchRptTab('cat')">🏷 Top Categories</button>
-            <button class="rpt-tab-btn"        data-tab="supplier"  onclick="switchRptTab('supplier')">🏭 Supplier Sales</button>
-            <button class="rpt-tab-btn"        data-tab="sp"        onclick="switchRptTab('sp')">👤 Salesperson</button>
+      <div id="rptTopNav" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="rpt-nav-group">
+            <span class="rpt-nav-label">Sales</span>
+            <button class="rpt-tab-btn active" data-tab="sales"       onclick="switchRptTab('sales')">📊 Sales Summary</button>
+            <button class="rpt-tab-btn"        data-tab="cat"         onclick="switchRptTab('cat')">🏷 Top Categories</button>
+            <button class="rpt-tab-btn"        data-tab="supplier"    onclick="switchRptTab('supplier')">🏭 Supplier Sales</button>
+            <button class="rpt-tab-btn"        data-tab="sp"          onclick="switchRptTab('sp')">👤 Salesperson</button>
             <button class="rpt-tab-btn"        data-tab="spanalytics" onclick="switchRptTab('spanalytics')">📈 UPT / ATV</button>
-            <button class="rpt-tab-btn"        data-tab="citystate" onclick="switchRptTab('citystate')">🗺 City / State</button>
-            <!-- SKU Code report disabled (hidden) — future me wapas chalu karne ke liye display:none hatao -->
-            <button class="rpt-tab-btn"        data-tab="sku"       onclick="switchRptTab('sku')" style="display:none">🔖 SKU Code</button>
+            <button class="rpt-tab-btn"        data-tab="citystate"   onclick="switchRptTab('citystate')">🗺 City / State</button>
+            <button class="rpt-tab-btn"        data-tab="sku"         onclick="switchRptTab('sku')" style="display:none">🔖 SKU Code</button>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.16em;min-width:44px;text-transform:uppercase;padding:0 2px">STOCK</span>
+          <div class="rpt-nav-group">
+            <span class="rpt-nav-label">Stock</span>
             <button class="rpt-tab-btn" data-tab="stocksummary"  onclick="switchRptTab('stocksummary')">📦 Stock Summary</button>
             <button class="rpt-tab-btn" data-tab="supplierstock" onclick="switchRptTab('supplierstock')">🏭 Supplier Stock</button>
             <button class="rpt-tab-btn" data-tab="stockcat"      onclick="switchRptTab('stockcat')">🏷 Stock by Category</button>
             <button class="rpt-tab-btn" data-tab="turnover"      onclick="switchRptTab('turnover')">🔄 Fast &amp; Slow Moving</button>
-            <button class="rpt-tab-btn" data-tab="itemledger"   onclick="switchRptTab('itemledger')">💰 Item Profit &amp; Loss</button>
-            <button class="rpt-tab-btn" data-tab="str"           onclick="switchRptTab('str')">📐 Stock Turnover Ratio</button>
-            <button class="rpt-tab-btn" data-tab="stockhistory"  onclick="switchRptTab('stockhistory')">📦 Stock History</button>
+            <button class="rpt-tab-btn" data-tab="itemledger"    onclick="switchRptTab('itemledger')">💰 Item P&amp;L</button>
+            <button class="rpt-tab-btn" data-tab="str"           onclick="switchRptTab('str')">📐 Stock Turnover</button>
+            <button class="rpt-tab-btn" data-tab="stockhistory"  onclick="switchRptTab('stockhistory')">📅 Stock History</button>
           </div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
+        <div style="display:flex;gap:8px;align-items:flex-start">
           <button id="rptSyncBtn" onclick="loadImsReports(true)"
-            style="display:flex;align-items:center;gap:8px;padding:11px 22px;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 18px rgba(79,70,229,.32);white-space:nowrap">
+            style="display:flex;align-items:center;gap:8px;padding:11px 24px;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 18px rgba(79,70,229,.32);white-space:nowrap;letter-spacing:-.01em">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Sync Live Data
           </button>
@@ -1227,32 +1281,37 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="rpt-glass">
 
         <!-- Card header -->
-        <div style="padding:20px 26px;border-bottom:1px solid #eef2ff">
+        <div class="rpt-card-hdr">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
             <div>
               <div style="display:flex;align-items:center;gap:10px">
-                <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;box-shadow:0 0 8px rgba(34,197,94,.5)"></span>
+                <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;box-shadow:0 0 0 3px rgba(34,197,94,.18),0 0 8px rgba(34,197,94,.4)"></span>
                 <span id="rptActiveTitle" style="font-size:19px;font-weight:800;color:#0f172a;letter-spacing:-.022em">Sales Summary</span>
               </div>
               <div id="rptSubtitle" style="font-size:11px;color:#94a3b8;margin-top:5px;padding-left:18px;letter-spacing:.025em">All Data</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <select id="rptDeptSel" onchange="_rptOnDeptChange()" title="Filter by department" style="padding:9px 11px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif"><option value="All">All Departments</option></select>
+              <select id="rptDeptSel" onchange="_rptOnDeptChange()" title="Filter by department"
+                style="padding:9px 11px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;color:#334155;background:#fff;cursor:pointer;outline:none;font-family:'Inter',sans-serif;transition:border-color .15s">
+                <option value="All">All Departments</option>
+              </select>
               <span id="rptDateControls" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <input type="text" id="rptFromPick" class="rpt-fp-range" placeholder="Start date…" readonly style="width:140px">
-                <input type="text" id="rptToPick" class="rpt-fp-range" placeholder="End date…" readonly style="width:140px">
-                <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">Reset</button>
+                <input type="text" id="rptFromPick" class="rpt-fp-range" placeholder="Start date…" readonly style="width:132px">
+                <span style="color:#c4cbdc;font-size:11px;font-weight:700">→</span>
+                <input type="text" id="rptToPick" class="rpt-fp-range" placeholder="End date…" readonly style="width:132px">
+                <button class="rpt-btn-reset" onclick="resetRptFilter()" style="padding:9px 14px;background:#fff;color:#64748b;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">✕ Reset</button>
               </span>
               <input type="hidden" id="rptFrom">
               <input type="hidden" id="rptTo">
+              <div style="width:1px;height:28px;background:#e8ecf8;margin:0 2px"></div>
               <button class="rpt-btn-pdf" onclick="rptExportPDF()" style="padding:9px 17px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px rgba(239,68,68,.28);display:flex;align-items:center;gap:5px;transition:all .18s">🖨 PDF</button>
               <button class="rpt-btn-csv" onclick="rptExportCSV()" style="padding:9px 17px;background:#fff;color:#475569;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .18s">⬇ CSV</button>
             </div>
           </div>
           <!-- Quick presets + status -->
-          <div style="margin-top:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <span id="rptQuickRow" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-              <span style="font-size:9px;font-weight:800;color:#c4cbdc;letter-spacing:.1em;margin-right:2px">QUICK</span>
+          <div class="rpt-preset-row">
+            <span id="rptQuickRow" style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+              <span style="font-size:8px;font-weight:900;color:#b6bfd4;letter-spacing:.2em;text-transform:uppercase;margin-right:4px">Quick</span>
               <button class="rpt-preset-btn" onclick="setRptPreset('today')">Today</button>
               <button class="rpt-preset-btn" onclick="setRptPreset('week')">This Week</button>
               <button class="rpt-preset-btn" onclick="setRptPreset('month')">This Month</button>
@@ -1260,7 +1319,7 @@ tbody tr:last-child td{border-bottom:none;}
               <button class="rpt-preset-btn" onclick="setRptPreset('quarter')">This Quarter</button>
               <button class="rpt-preset-btn" onclick="setRptPreset('year')">This Year</button>
             </span>
-            <span id="rptStatus" style="font-size:11px;color:#64748b;margin-left:6px"></span>
+            <span id="rptStatus" style="font-size:11px;color:#64748b;margin-left:8px"></span>
           </div>
         </div>
 
@@ -1270,22 +1329,22 @@ tbody tr:last-child td{border-bottom:none;}
             <div class="rpt-stat-card" style="border-top:3px solid #4f46e5">
               <div class="rpt-stat-label">Total Net Sales</div>
               <div id="rptTotalAmt" class="rpt-stat-value" style="color:#4f46e5">—</div>
-              <div class="rpt-stat-icon" style="opacity:.08">₹</div>
+              <div class="rpt-stat-icon">₹</div>
             </div>
             <div class="rpt-stat-card" style="border-top:3px solid #7c3aed">
               <div class="rpt-stat-label">Unique Transactions</div>
               <div id="rptTotalTxn" class="rpt-stat-value" style="color:#7c3aed">—</div>
-              <div class="rpt-stat-icon" style="opacity:.08">#</div>
+              <div class="rpt-stat-icon">#</div>
             </div>
             <div class="rpt-stat-card" style="border-top:3px solid #10b981">
               <div class="rpt-stat-label">Total Net Qty</div>
               <div id="rptTotalQty" class="rpt-stat-value" style="color:#10b981">—</div>
-              <div class="rpt-stat-icon" style="opacity:.08">📦</div>
+              <div class="rpt-stat-icon">📦</div>
             </div>
             <div class="rpt-stat-card" style="border-top:3px solid #f59e0b">
               <div class="rpt-stat-label">Left Stock (Qty)</div>
               <div id="rptLeftStock" class="rpt-stat-value" style="color:#f59e0b">—</div>
-              <div class="rpt-stat-icon" style="opacity:.08">🏭</div>
+              <div class="rpt-stat-icon">🏭</div>
             </div>
           </div>
           <div class="rpt-chart-wrap">
@@ -1416,17 +1475,17 @@ tbody tr:last-child td{border-bottom:none;}
               <div class="rpt-stat-label">Total Items</div>
               <div id="rptStockItems" class="rpt-stat-value" style="color:#0891b2">—</div>
               <div style="font-size:10px;color:#c4cbdc;margin-top:6px;font-weight:500">rows in sheet</div>
-              <div class="rpt-stat-icon" style="opacity:.08">📋</div>
+              <div class="rpt-stat-icon">📋</div>
             </div>
             <div class="rpt-stat-card" style="border-top:3px solid #10b981">
               <div class="rpt-stat-label">Total Available Qty</div>
               <div id="rptStockQty" class="rpt-stat-value" style="color:#10b981">—</div>
-              <div class="rpt-stat-icon" style="opacity:.08">📦</div>
+              <div class="rpt-stat-icon">📦</div>
             </div>
             <div class="rpt-stat-card" style="border-top:3px solid #f59e0b">
               <div class="rpt-stat-label">Total Stock Value</div>
               <div id="rptStockValue" style="font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1;color:#d97706">—</div>
-              <div class="rpt-stat-icon" style="opacity:.08">₹</div>
+              <div class="rpt-stat-icon">₹</div>
             </div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
