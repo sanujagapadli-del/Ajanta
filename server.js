@@ -1182,8 +1182,8 @@ app.get('/api/mis', requireAuth, async (req, res) => {
       let score = total > 0 ? Math.max(-100, Math.round((0-(pending/total)*100-(overdue/total)*50-(revised/total)*25)*10)/10) : 0;
       return { ...r, delayed: overdue, score };
     });
-    const [delRows] = await db.query(`SELECT u.id AS userId,u.name,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,SUM(CASE WHEN t.status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM delegation_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${userFilter} GROUP BY u.id,u.name ORDER BY u.name`, deptParams);
-    const [chlRows] = await db.query(`SELECT u.id AS userId,u.name,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,0 AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM checklist_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${userFilter} GROUP BY u.id,u.name ORDER BY u.name`, deptParams);
+    const [delRows] = await db.query(`SELECT u.id AS userId,u.name,u.department,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,SUM(CASE WHEN t.status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM delegation_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${userFilter} GROUP BY u.id,u.name,u.department ORDER BY u.name`, deptParams);
+    const [chlRows] = await db.query(`SELECT u.id AS userId,u.name,u.department,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,0 AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM checklist_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${userFilter} GROUP BY u.id,u.name,u.department ORDER BY u.name`, deptParams);
     res.json({ delegation: calc(delRows), checklist: calc(chlRows) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2409,10 +2409,10 @@ app.get('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
     if (to)   { where.push('wp.start_date <= ?'); params.push(to); }
     // HOD should only see users in their department (admin sees all)
     // Department is not in the JWT, so it must be fetched fresh from the DB
+    let hodDeptFilter = '';
     if (req.session.role === 'hod') {
       const [me] = await db.query('SELECT department FROM users WHERE id=?', [req.session.userId]);
-      where.push('u.department = ?');
-      params.push((me[0] && me[0].department) || '');
+      hodDeptFilter = (me[0] && me[0].department) || '';
     }
     const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const [allUW] = await db.query('SELECT id,name,department FROM users');
@@ -2430,12 +2430,16 @@ app.get('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
        LIMIT ${limit}`,
       params
     );
-    const rows = rawWP.map(wp => ({
+    let rows = rawWP.map(wp => ({
       ...wp,
       employee_name: uMapW[wp.employee_id]?.name || '',
       employee_department: uMapW[wp.employee_id]?.department || '',
       hod_name: uMapW[wp.hod_id]?.name || ''
     }));
+    // HOD dept filter applied post-query (users table is separate from week_plans)
+    if (hodDeptFilter) {
+      rows = rows.filter(r => r.employee_department === hodDeptFilter);
+    }
     res.json(rows);
   } catch (e) {
     console.error('  ❌ Week Plan fetch failed:', e.message);
@@ -2714,8 +2718,9 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     if (needsFresh) {
       const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
       // UNFORMATTED_VALUE → raw numbers WITH paise (formatted view rounds paise → ~₹1 mismatch vs sheet).
-      // dateTimeRenderOption FORMATTED_STRING → date cells still come as strings ("01-Apr-2025"), so parseSheetDate keeps working.
-      const safeGet = (range) => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'FORMATTED_STRING' })).catch(() => ({ data: { values: [] } }));
+      // SERIAL_NUMBER → date cells return as numeric serial (days since 1899-12-30), strings as text.
+      // This is format-agnostic: no dependency on Sheets locale or column date format.
+      const safeGet = (range) => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' })).catch(() => ({ data: { values: [] } }));
       const [outResp, inResp] = await Promise.all([
         safeGet("'Out Stock'!A:AH"),
         safeGet("'In Stock'!A:AH")
@@ -2735,10 +2740,24 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
     function parseSheetDate(str) {
-      const m = String(str||'').trim().match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
-      // Use UTC to match fromDate/toDate which are also UTC (new Date('YYYY-MM-DD'))
-      if (m) return new Date(Date.UTC(parseInt(m[3]), MONTHS[m[2].toLowerCase()]??0, parseInt(m[1])));
-      const d = new Date(str); return isNaN(d.getTime()) ? null : d;
+      if (str == null || str === '') return null;
+      // Sheets serial number (date cell, SERIAL_NUMBER render) — days since 1899-12-30
+      if (typeof str === 'number') {
+        const n = Math.floor(str);
+        return (n > 1 && n < 100000) ? new Date(Date.UTC(1899, 11, 30) + n * 86400000) : null;
+      }
+      const s = String(str).trim();
+      if (!s) return null;
+      // DD-Mon-YYYY / DD/Mon/YYYY (ERP export, e.g. 01-Feb-2024)
+      const m1 = s.match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
+      if (m1) return new Date(Date.UTC(+m1[3], MONTHS[m1[2].toLowerCase()]??0, +m1[1]));
+      // YYYY-MM-DD (ISO — written by new import)
+      const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m2) return new Date(Date.UTC(+m2[1], +m2[2]-1, +m2[3]));
+      // DD/MM/YYYY or D/M/YYYY (Indian locale Sheets default, e.g. 01/02/2024 = Feb 1)
+      const m3 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m3) return new Date(Date.UTC(+m3[3], +m3[2]-1, +m3[1]));
+      const d = new Date(s); return isNaN(d.getTime()) ? null : d;
     }
     function getNum(row, idx) {
       if (idx < 0 || row[idx] == null || row[idx] === '') return 0;
@@ -2746,7 +2765,11 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     }
     function findC(hdr, regex) { return hdr.findIndex(h => regex.test(h)); }
     function r2(n) { return Math.round(n * 100) / 100; }
-    function toISO(s) { const d = parseSheetDate(String(s||'').trim()); if (!d) return ''; return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`; }
+    function toISO(s) {
+      const d = (s instanceof Date) ? s : parseSheetDate(s);
+      if (!d) return '';
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    }
 
     const fromDate = from ? new Date(from) : null;
     const toDate   = to   ? (() => { const d = new Date(to); d.setUTCHours(23,59,59,999); return d; })() : null;
@@ -2779,7 +2802,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const allXns = new Set();
 
     (outRows.slice(1)).forEach(row => {
-      const dateStr = String(row[oXnDate]||'').trim();
+      const dateRaw = row[oXnDate];                           // may be serial number or text string
+      const dateStr = String(dateRaw||'').trim();
       if (!dateStr) return;
       const amt  = getNum(row, oNetAmt);
       const qty  = getNum(row, oNetQty);
@@ -2790,7 +2814,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       const ssKey= sup + '||' + sty;
       // Date filter (XN Date) — sab sales reports + turnover
       if (fromDate || toDate) {
-        const d = parseSheetDate(dateStr);
+        const d = parseSheetDate(dateRaw);                    // pass raw so serial numbers parse correctly
         if (!d || (fromDate && d < fromDate) || (toDate && d > toDate)) return;
       }
       // Report 2.0 department filter: collect full list, then skip non-matching rows
@@ -2807,7 +2831,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0, article: art, amount: 0, lastSaleDate: '' };
       bySupStyleSales[ssKey].qty += qty;
       bySupStyleSales[ssKey].amount += amt;
-      const sdIso = dateStr ? toISO(dateStr) : '';
+      const sdIso = dateRaw != null ? toISO(dateRaw) : '';
       if (sdIso && (!bySupStyleSales[ssKey].lastSaleDate || sdIso > bySupStyleSales[ssKey].lastSaleDate)) bySupStyleSales[ssKey].lastSaleDate = sdIso;
       if (!byStyleSales[sty]) byStyleSales[sty] = { qty: 0 };
       byStyleSales[sty].qty += qty;
@@ -2820,7 +2844,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
         map[key].amt += amt; map[key].qty += qty;
         if (xnNo) map[key].xns.add(xnNo);
       };
-      push(byDate, dateStr);
+      push(byDate, sdIso || dateStr);  // use ISO date string as key (handles serial numbers)
       push(byCat, cat);
       push(bySP, sp);
       push(bySupplier, sup);
@@ -2839,7 +2863,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     })));
 
     const fmtByDate = Object.entries(byDate)
-      .map(([date,d]) => ({ date: toISO(date)||date, transactions:d.xns.size, qty:r2(d.qty), amount:r2(d.amt), profit:0 }))
+      .map(([date,d]) => ({ date, transactions:d.xns.size, qty:r2(d.qty), amount:r2(d.amt), profit:0 }))
       .sort((a,b) => a.date.localeCompare(b.date));
 
     const cityStateSales = sortAmt(Object.values(byCityState).map(d => ({
@@ -2890,45 +2914,52 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     (inRows.slice(1)).forEach(row => {
       if (!row.length || !row.join('').trim()) return;
-      // Date filter (Pur Date) — sab stock reports + turnover
-      if ((fromDate || toDate) && iPurDate >= 0) {
-        const pd = parseSheetDate(String(row[iPurDate]||'').trim());
-        if (!pd || (fromDate && pd < fromDate) || (toDate && pd > toDate)) return;
-      }
+
+      // Determine whether this purchase lot is pre-period, in-period, or post-period.
+      // Pre-period  (purDate < fromDate) → CBS = Opening stock (was in hand at period start)
+      // In-period   (fromDate ≤ purDate ≤ toDate) → PUR QTY = Purchased this period
+      // Post-period (purDate > toDate) → skip entirely (not yet purchased during this period)
+      // No date / no filter → treat as in-period
+      let pd = null;
+      if (iPurDate >= 0) pd = parseSheetDate(row[iPurDate]);
+      if (toDate && pd && pd > toDate) return;               // post-period: skip
+      const isPrePeriod = !!(fromDate && pd && pd < fromDate);
+
       const sup  = cleanLabel(row[iSupplier]);
       const cat  = resolveCategory(row[iCategory], iDept >= 0 ? row[iDept] : '', iArticle >= 0 ? row[iArticle] : '');
       const sty  = iStyle >= 0 ? cleanLabel(row[iStyle]) : 'Unknown';
       stockItemCount++;
       const ssKey= sup + '||' + sty;
-      const purQ = getNum(row, iPurQty);
-      const openQ= getNum(row, iOpsQty);                 // Opening Stock
-      const prtQ = iPrtQty >= 0 ? getNum(row, iPrtQty) : 0;  // Purchase Return
+      const cbsQ = getNum(row, iStockQty);                  // CBS = closing balance (current remaining)
+      // Opening: for pre-period lots use their CBS; for in-period use OPS QTY from sheet (often 0)
+      const openQ= isPrePeriod ? cbsQ : getNum(row, iOpsQty);
+      // Purchased: only count lots bought during the period
+      const purQ = isPrePeriod ? 0 : getNum(row, iPurQty);
+      const prtQ = isPrePeriod ? 0 : (iPrtQty >= 0 ? getNum(row, iPrtQty) : 0);
       const artI = iArticle >= 0 ? (String(row[iArticle]||'').trim()||'') : '';
       const subcatI = iSubCat >= 0 ? String(row[iSubCat]||'').trim() : '';
       if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0, article: artI, subcat: subcatI, purAmt: 0, firstPurDate: '', lastPurDate: '' };
-      bySupStyleStock[ssKey].qty += getNum(row, iStockQty);
+      bySupStyleStock[ssKey].qty += cbsQ;                   // closing = sum of all CBS
       bySupStyleStock[ssKey].purQty += purQ;
       bySupStyleStock[ssKey].opening += openQ;
       bySupStyleStock[ssKey].purReturn += prtQ;
       if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0, purQty: 0, opening: 0, purReturn: 0 };
-      byStyleStock[sty].qty += getNum(row, iStockQty);
+      byStyleStock[sty].qty += cbsQ;
       byStyleStock[sty].purQty += purQ;
       byStyleStock[sty].opening += openQ;
       byStyleStock[sty].purReturn += prtQ;
       const cost = getNum(row, iCostPrice);
       bySupStyleStock[ssKey].purAmt += purQ * cost;
-      const pdStr = iPurDate >= 0 ? String(row[iPurDate]||'').trim() : '';
-      const pdIso = pdStr ? toISO(pdStr) : '';
+      const pdIso = pd ? toISO(pd) : '';
       if (pdIso && (!bySupStyleStock[ssKey].firstPurDate || pdIso < bySupStyleStock[ssKey].firstPurDate)) bySupStyleStock[ssKey].firstPurDate = pdIso;
       if (pdIso && (!bySupStyleStock[ssKey].lastPurDate  || pdIso > bySupStyleStock[ssKey].lastPurDate))  bySupStyleStock[ssKey].lastPurDate  = pdIso;
-      const qty  = getNum(row, iStockQty);
-      const val  = qty * cost;
-      totalStockQty += qty; totalStockValue += val;
+      const val  = cbsQ * cost;
+      totalStockQty += cbsQ; totalStockValue += val;
       if (!bySupStock[sup]) bySupStock[sup] = { qty:0, value:0, purQty:0, opening:0, purReturn:0 };
-      bySupStock[sup].qty += qty; bySupStock[sup].value += val; bySupStock[sup].purQty += purQ;
+      bySupStock[sup].qty += cbsQ; bySupStock[sup].value += val; bySupStock[sup].purQty += purQ;
       bySupStock[sup].opening += openQ; bySupStock[sup].purReturn += prtQ;
       if (!byCatStock[cat]) byCatStock[cat] = { qty:0, value:0, purQty:0 };
-      byCatStock[cat].qty += qty; byCatStock[cat].value += val; byCatStock[cat].purQty += purQ;
+      byCatStock[cat].qty += cbsQ; byCatStock[cat].value += val; byCatStock[cat].purQty += purQ;
     });
 
     // ── Item Ledger: per-supplier-style purchase/sale profit tracker ────────
@@ -2942,7 +2973,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     });
     Object.entries(bySupStyleSales).forEach(([k, v]) => {
       if (!_ilMap[k]) _ilMap[k] = { key: k, supName: v.supName, style: v.style, cat: v.cat, subcat: '',
-        article: v.article||'', purQty: 0, purAmt: 0, costPerUnit: 0, firstPurDate: '',
+        article: v.article||'', purQty: 0, purAmt: 0, costPerUnit: 0, firstPurDate: '', lastPurDate: '',
         saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
       _ilMap[k].saleQty = r2(v.qty);
       _ilMap[k].saleAmt = Math.round(v.amount||0);
@@ -2956,7 +2987,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     // ── Daily profit: second pass over ALL out rows (no date filter) ──────────
     const _bdProfitMap = {};
     outRows.slice(1).forEach(row => {
-      const ds = toISO(String(row[oXnDate]||'').trim());
+      const ds = toISO(row[oXnDate]);
       if (!ds) return;
       const qty = getNum(row, oNetQty);
       if (qty <= 0) return;
@@ -2969,7 +3000,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     const sortVal = arr => arr.sort((a,b) => b.value - a.value);
     const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), purQty:r2(d.purQty), opening:r2(d.opening), purReturn:r2(d.purReturn), value:Math.round(d.value) })));
-    const categoryStock = sortVal(Object.entries(byCatStock).map(([category,d]) => ({ category, qty:r2(d.qty), value:Math.round(d.value) })));
+    const categoryStock = sortVal(Object.entries(byCatStock).map(([category,d]) => ({ category, qty:r2(d.qty), purQty:r2(d.purQty), value:Math.round(d.value) })));
 
     const skuSales = sortAmt(Object.entries(bySKU).map(([sku,d]) => ({ sku, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) })));
 
@@ -2984,9 +3015,10 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
     outRows.slice(1).forEach(row => {
-      const dateStr = String(row[oXnDate]||'').trim();
+      const dateRaw2 = row[oXnDate];
+      const dateStr = String(dateRaw2||'').trim();
       if (!dateStr) return;
-      const d = parseSheetDate(dateStr);
+      const d = parseSheetDate(dateRaw2);
       if (!d) return;
       const isCur = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
       const isLY  = hasDateFilter && (!lyFrom || d >= lyFrom) && (!lyTo || d <= lyTo);
@@ -3194,14 +3226,25 @@ app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
     let outRows, inRows;
     if (needsFresh) {
       const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-      const safeGet = range => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'FORMATTED_STRING' })).catch(() => ({ data: { values: [] } }));
+      const safeGet = range => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' })).catch(() => ({ data: { values: [] } }));
       const [oR, iR] = await Promise.all([safeGet("'Out Stock'!A:AH"), safeGet("'In Stock'!A:AH")]);
       outRows = oR.data.values || []; inRows = iR.data.values || [];
       if (outRows.length > 1) { _imsRawCache.outRows = outRows; _imsRawCache.inRows = inRows; _imsRawCache.ts = nowTs; }
     } else { outRows = _imsRawCache.outRows; inRows = _imsRawCache.inRows; }
 
     const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
-    const parseD = s => { const m=String(s||'').trim().match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/); return m ? new Date(Date.UTC(+m[3],MONTHS[m[2].toLowerCase()]??0,+m[1])) : null; };
+    const parseD = s => {
+      if (s==null||s==='') return null;
+      if (typeof s==='number') { const n=Math.floor(s); return (n>1&&n<100000)?new Date(Date.UTC(1899,11,30)+n*86400000):null; }
+      const str=String(s).trim(); if(!str) return null;
+      const m=str.match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
+      if(m) return new Date(Date.UTC(+m[3],MONTHS[m[2].toLowerCase()]??0,+m[1]));
+      const m2=str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(m2) return new Date(Date.UTC(+m2[1],+m2[2]-1,+m2[3]));
+      const m3=str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if(m3) return new Date(Date.UTC(+m3[3],+m3[2]-1,+m3[1]));
+      const d=new Date(str); return isNaN(d)?null:d;
+    };
     const getN   = (row,i) => i>=0 ? (parseFloat(row[i])||0) : 0;
     const findC  = (hdr,rx) => hdr.findIndex(h=>rx.test(h));
     const isJunk = s => ['[default]','default','[none]','none'].includes(String(s||'').trim().toLowerCase());
@@ -3241,7 +3284,7 @@ app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
     // ── Build purchase events per key ──
     const purByKey = {};
     inRows.slice(1).forEach(row => {
-      const pd = parseD(String(row[iPurDate]||'').trim());
+      const pd = parseD(row[iPurDate]);
       if (!pd || pd > maxDate) return;
       const sup = String(row[iSup]||'').trim()||'Unknown';
       const sty = iSty>=0 ? (String(row[iSty]||'').trim()||'Unknown') : 'Unknown';
@@ -3260,7 +3303,7 @@ app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
     // ── Build sale events per key + dept map ──
     const saleByKey = {}, deptMap = {};
     outRows.slice(1).forEach(row => {
-      const dt = parseD(String(row[oXnDate]||'').trim());
+      const dt = parseD(row[oXnDate]);
       if (!dt || dt > maxDate) return;
       const sup = String(row[oSup]||'').trim()||'Unknown';
       const sty = oSty>=0 ? (String(row[oSty]||'').trim()||'Unknown') : 'Unknown';
@@ -3318,7 +3361,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const tabName = isStock ? "'In Stock'!A:AH" : "'Out Stock'!A:AH";
       let resp;
       try {
-        resp = await withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: tabName, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'FORMATTED_STRING' }));
+        resp = await withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: tabName, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' }));
       } catch(e) { return res.json({ rows: [] }); }
       allRows = resp.data.values || [];
     }
@@ -3328,9 +3371,16 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
     const findC = rx => hdr.findIndex(h => rx.test(h));
     const MONS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
     function parseD(str) {
-      const m = String(str||'').trim().match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
-      if (m) return new Date(Date.UTC(+m[3], MONS[m[2].toLowerCase()]??0, +m[1]));
-      const d = new Date(str); return isNaN(d) ? null : d;
+      if (str==null||str==='') return null;
+      if (typeof str==='number') { const n=Math.floor(str); return (n>1&&n<100000)?new Date(Date.UTC(1899,11,30)+n*86400000):null; }
+      const s=String(str).trim(); if(!s) return null;
+      const m=s.match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
+      if(m) return new Date(Date.UTC(+m[3],MONS[m[2].toLowerCase()]??0,+m[1]));
+      const m2=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(m2) return new Date(Date.UTC(+m2[1],+m2[2]-1,+m2[3]));
+      const m3=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if(m3) return new Date(Date.UTC(+m3[3],+m3[2]-1,+m3[1]));
+      const d=new Date(s); return isNaN(d)?null:d;
     }
     const fromDate = from ? new Date(from) : null;
     const toDate   = to   ? (() => { const d=new Date(to); d.setUTCHours(23,59,59,999); return d; })() : null;
@@ -3340,6 +3390,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const oDate = findC(/^xn[\s._-]?date$/i), oXn = findC(/^xn[\s._-]?no$/i);
       const oCat  = findC(/^category$/i),        oSP = findC(/^salesperson$/i);
       const oSup  = findC(/^supplier[\s._-]?name$/i), oCity = findC(/^supplier[\s._-]?city$/i);
+      const oState= findC(/^supplier[\s._-]?state$/i);
       const oSty  = findC(/^style$/i), oSubCat = findC(/^sub[\s._-]?category$/i);
       const oDept = findC(/^department$/i), oArt = findC(/^article[\s._-]?no$|^articleno$/i);
       const oQty  = findC(/netsls[\s._-]?qty/i), oAmt = findC(/netsls[\s._-]?net|netsls[\s._-]?amount/i);
@@ -3352,18 +3403,26 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
           case 'item': case 'style': return oSty>=0 ? cleanLabel(row[oSty]) : null;
           case 'department':  return oDept>=0 ? cleanLabel(row[oDept]) : null;
           case 'city':        return String(row[oCity]||'').trim();
+          case 'citystate': {
+            // value = "city||state" composite — match both columns to avoid same-name city merges
+            const [wCity, wState] = value.split('||');
+            const rCity  = String(row[oCity]||'').trim();
+            const rState = oState>=0 ? String(row[oState]||'').trim() : '';
+            return (rCity === wCity && rState === (wState||'')) ? value : null;
+          }
           case 'date':        return String(row[oDate]||'').trim();
           default:            return null;
         }
       };
       // Basket-size drilldown: bills grouped by total qty per bill; keep bills in the clicked bucket
       let _basketBills = null;
+      const toISOd = v => { const _d=parseD(v); return _d?_d.toISOString().slice(0,10):String(v||''); };
       if (type === 'basket') {
         const want = String(value).replace(/\s*pc\s*$/i,'').trim();
         const bq = {};
         allRows.slice(1).forEach(r => {
-          const ds = String(r[oDate]||'').trim(); if(!ds) return;
-          if (fromDate||toDate) { const d=parseD(ds); if(!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return; }
+          if (!r[oDate]) return;
+          if (fromDate||toDate) { const d=parseD(r[oDate]); if(!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return; }
           const xn = String(r[oXn]||'').trim(); if(!xn) return;
           bq[xn] = (bq[xn]||0) + getNum(r, oQty);
         });
@@ -3371,13 +3430,13 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
         Object.entries(bq).forEach(([xn,q]) => { const n=Math.round(q); if(n<1) return; const b=n>=5?'5+':String(n); if(b===want) _basketBills.add(xn); });
       }
       const rows = allRows.slice(1).filter(row => {
-        if (fromDate||toDate) { const d=parseD(row[oDate]||''); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
+        if (fromDate||toDate) { const d=parseD(row[oDate]); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
         if (type === 'basket') return _basketBills.has(String(row[oXn]||'').trim());
         const mv = matchVal(row);
         if (mv !== null && mv !== value) return false;
         return true;
       }).slice(0, 500).map(row => ({
-        date: row[oDate]||'', xnNo: String(row[oXn]||'').trim(),
+        date: toISOd(row[oDate]), xnNo: String(row[oXn]||'').trim(),
         department: oDept>=0 ? cleanLabel(row[oDept]) : '',
         category: oResolveCat(row), subcategory: oSubCat>=0 ? cleanLabel(row[oSubCat]) : '',
         style: oSty >= 0 ? cleanLabel(row[oSty]) : '',
@@ -3536,7 +3595,7 @@ app.post('/api/stock-csv-import', requireAuth, misUpload.single('file'), async (
     const appendResp = await withRetry(() => sheetsApi.spreadsheets.values.append({
       spreadsheetId: STOCK_SHEET_ID,
       range: tabName + '!A1',
-      valueInputOption: 'RAW',
+      valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: appendRows }
     }));
@@ -3605,7 +3664,7 @@ app.post('/api/stock-rows-import', requireAuth, async (req, res) => {
 
       await withRetry(() => sheetsApi.spreadsheets.values.append({
         spreadsheetId: STOCK_SHEET_ID, range: tabName + '!A1',
-        valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+        valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS',
         requestBody: { values: rowsToWrite }
       }));
 
@@ -3620,7 +3679,7 @@ app.post('/api/stock-rows-import', requireAuth, async (req, res) => {
       const rowsToWrite = rows.map(r => r.map(c => (c === null || c === undefined) ? '' : String(c)));
       await withRetry(() => sheetsApi.spreadsheets.values.append({
         spreadsheetId: STOCK_SHEET_ID, range: tabName + '!A1',
-        valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+        valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS',
         requestBody: { values: rowsToWrite }
       }));
 
