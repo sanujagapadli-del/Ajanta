@@ -4111,7 +4111,13 @@ function getEndDate(startDate, freq, count) {
 
 function generateDates(startDate, freq, weekOffStr, extraOffStr) {
   const dates = [];
-  const d = new Date(startDate+'T00:00:00');
+  // Normalise startDate: DD/MM/YYYY or D/M/YYYY (Indian CSV format) → YYYY-MM-DD
+  let iso = startDate;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(String(startDate||''))) {
+    const [dd, mm, yyyy] = startDate.split('/');
+    iso = `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+  }
+  const d = new Date(iso+'T00:00:00');
   const counts = {daily:365, weekly:52, alternative_week:26, monthly:12, quarterly:4, yearly:1};
   const count = counts[freq];
   const weekOff = (weekOffStr||'').split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
