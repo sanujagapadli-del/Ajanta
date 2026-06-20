@@ -4537,6 +4537,7 @@ function filterUsers() {
 
 // Map to store full user data for safe edit access (avoids inline special-char bugs)
 const _usersMap = {};
+const _usersArr = [];
 
 function renderUsersTable(users) {
   const tbody = document.getElementById('usersTbody');
@@ -4544,10 +4545,10 @@ function renderUsersTable(users) {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8">No users found</td></tr>`;
     return;
   }
-  // Store all users in map so openEditUser(id) can safely retrieve data
-  users.forEach(u => { _usersMap[u.id] = u; });
+  // Store by index (not id) so edit works correctly even if ids ever clash
+  users.forEach((u, idx) => { _usersMap[u.id] = u; _usersArr[idx] = u; });
   const roleLabel = r => r==='admin'?'👑 Admin':r==='hod'?'🏢 HOD':r==='pc'?'🖥️ PC':'👤 User';
-  tbody.innerHTML = users.map(u=>`
+  tbody.innerHTML = users.map((u, idx)=>`
     <tr>
       <td style="font-weight:600">${u.name}</td>
       <td style="color:#64748b">${u.email}</td>
@@ -4555,7 +4556,7 @@ function renderUsersTable(users) {
       <td style="color:#64748b">${u.department||'—'}</td>
       <td><span class="role-badge ${u.role}">${roleLabel(u.role)}</span></td>
       <td>
-        <button class="action-btn edit" onclick="openEditUser(${u.id})">Edit</button>
+        <button class="action-btn edit" onclick="openEditUser(${idx})">Edit</button>
         <button class="action-btn delete" style="margin-left:6px" onclick="deleteUser(${u.id})">Delete</button>
       </td>
     </tr>`).join('');
@@ -4626,9 +4627,9 @@ function openAddUser() {
   document.getElementById('userModal').classList.add('open');
 }
 
-function openEditUser(id) {
-  const u = _usersMap[id];
-  if (!u) { alert('User data not found. Please refresh the page.'); return; }
+function openEditUser(idx) {
+  const u = _usersArr[idx] || _usersMap[idx];
+  if (!u) { showToast('❌ User data not found. Please refresh.'); return; }
   document.getElementById('userModalTitle').textContent='Edit User';
   document.getElementById('editUserId').value=u.id;
   document.getElementById('uName').value=u.name||'';
@@ -8708,10 +8709,15 @@ async function confirmRevisionReject() {
 }
 
 async function deleteUser(id) {
-  if (!confirm('Delete this user?')) return;
-  const r=await api(`/api/users/${id}`,'DELETE');
-  if (r.error) return alert(r.error);
-  loadUsers();
+  showConfirm(
+    { icon: '👤', title: 'Delete this user?', msg: 'All their tasks will remain but the user will be removed.', okLabel: 'Delete', okColor: '#dc2626' },
+    async () => {
+      const r = await api(`/api/users/${id}`, 'DELETE');
+      if (r.error) { showToast('❌ ' + r.error); return; }
+      showToast('User deleted');
+      loadUsers();
+    }
+  );
 }
 
 // ══════════════════════════════════════════════════════
