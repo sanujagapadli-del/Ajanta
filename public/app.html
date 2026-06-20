@@ -522,13 +522,17 @@ tbody tr:last-child td{border-bottom:none;}
           </div>
         </div>
         <div style="overflow-x:auto;max-height:340px;overflow-y:auto;">
-          <table style="min-width:600px">
+          <table style="min-width:900px">
             <thead style="position:sticky;top:0;z-index:2;background:#f8fafc">
               <tr>
                 <th style="white-space:nowrap">Type</th>
+                <th>Dept</th>
+                <th>Title</th>
                 <th>Description</th>
                 <th id="dashDoerHead">Doer</th>
-                <th style="white-space:nowrap;cursor:pointer;user-select:none" onclick="toggleDashDateSort()" title="Click to sort by date">Date <span id="dashDateSortIcon" style="font-size:10px;color:#94a3b8">⇅</span></th>
+                <th>Frequency</th>
+                <th style="white-space:nowrap">Start Date</th>
+                <th style="white-space:nowrap;cursor:pointer;user-select:none" onclick="toggleDashDateSort()" title="Click to sort by date">Due Date <span id="dashDateSortIcon" style="font-size:10px;color:#94a3b8">⇅</span></th>
                 <th>Priority</th>
                 <th>Action</th>
               </tr>
@@ -3125,7 +3129,7 @@ async function init() {
       document.getElementById('sidebarName').textContent = 'Offline';
       document.getElementById('sidebarRole').textContent = '🔴 Server unreachable';
       document.getElementById('dashTbody').innerHTML =
-        '<tr><td colspan="6" style="padding:24px;text-align:center;color:#dc2626">⚠️ Cannot reach server.<br><small>Check your connection, then <a href="/" style="color:#4f46e5">click here to reload</a>.</small></td></tr>';
+        '<tr><td colspan="10" style="padding:24px;text-align:center;color:#dc2626">⚠️ Cannot reach server.<br><small>Check your connection, then <a href="/" style="color:#4f46e5">click here to reload</a>.</small></td></tr>';
       return;
     }
     clearTimeout(timeoutId);
@@ -3306,7 +3310,7 @@ async function loadDashboard() {
     document.getElementById('dPending').textContent = 'Err';
     document.getElementById('dRevised').textContent = 'Err';
     document.getElementById('dCompleted').textContent = 'Err';
-    document.getElementById('dashTbody').innerHTML = `<tr><td colspan="6" style="color:red;padding:16px;text-align:center">⚠️ Data load failed: ${errMsg}<br><small>Check /api/debug for details</small></td></tr>`;
+    document.getElementById('dashTbody').innerHTML = `<tr><td colspan="10" style="color:red;padding:16px;text-align:center">⚠️ Data load failed: ${errMsg}<br><small>Check /api/debug for details</small></td></tr>`;
     return;
   }
 
@@ -3675,7 +3679,7 @@ function renderDashTable(tasks, type) {
   } else if (_dashDateSortState === 2) {
     allPending = [...allPending].sort((a,b) => (b.due_date||b.date||'').localeCompare(a.due_date||a.date||''));
   }
-  if (!allPending.length) { tbody.innerHTML=`<tr><td colspan="6" class="empty">No pending tasks 🎉</td></tr>`; return; }
+  if (!allPending.length) { tbody.innerHTML=`<tr><td colspan="10" class="empty">No pending tasks 🎉</td></tr>`; return; }
   const typeBadge = t => t.type==='checklist'
     ? `<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #bbf7d0">✅ Checklist</span>`
     : `<span style="font-size:10px;background:#eef2ff;color:#4f46e5;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #c7d2fe">📋 Delegation</span>`;
@@ -3710,9 +3714,13 @@ function renderDashTable(tasks, type) {
     }
     return `<tr style="${rowStyle}">
       <td style="white-space:nowrap">${typeBadge(t)}</td>
+      <td style="font-size:11px;color:#64748b;white-space:nowrap">${t.assignedToDept||'—'}</td>
+      <td style="font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap">${t.title||'—'}</td>
       <td>${descCell}</td>
-      <td>${(isAdmin||isPC)?t.assignedToName:t.assignedByName}</td>
-      <td>${fmtDate(t.due_date||t.date)}</td>
+      <td style="white-space:nowrap;font-size:12px;font-weight:600">${(isAdmin||isPC)?t.assignedToName:t.assignedByName}</td>
+      <td style="font-size:11px;color:#6366f1;font-weight:600;white-space:nowrap">${t.frequency||'—'}</td>
+      <td style="white-space:nowrap;font-size:12px;color:#64748b">${fmtDate(t.start_date||'')||'—'}</td>
+      <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||t.date)}</td>
       <td>${t.type!=='checklist' ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
       <td style="white-space:nowrap">${actions}</td>
     </tr>`;
