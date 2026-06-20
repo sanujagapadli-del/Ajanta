@@ -35,11 +35,11 @@ const SCHEMA = {
     autoFill: {}
   },
   delegation_tasks: {
-    cols: ['id','description','assigned_to','assigned_by','due_date','status','priority','approval','waiting_approval','remarks','link','revision_status','created_at','last_reminder_date','completed_at'],
+    cols: ['id','title','description','assigned_to','assigned_by','due_date','start_date','status','priority','approval','waiting_approval','remarks','link','revision_status','created_at','last_reminder_date','completed_at'],
     autoFill: { created_at: 'NOW' }
   },
   checklist_tasks: {
-    cols: ['id','description','assigned_to','assigned_by','due_date','status','priority','remarks','frequency','created_at','completed_at'],
+    cols: ['id','title','description','assigned_to','assigned_by','due_date','start_date','status','priority','remarks','frequency','created_at','completed_at'],
     autoFill: { created_at: 'NOW' }
   },
   task_approvals: {

@@ -3897,10 +3897,12 @@ function renderTasksTable() {
         const statusLabel = t.status==='revised'?'Revision Req':t.status.charAt(0).toUpperCase()+t.status.slice(1);
         return `<tr>
           <td style="font-size:11px;color:#64748b;white-space:nowrap">${t.assignedToDept||'—'}</td>
-          ${freqTd}
+          <td style="font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap">${t.title||'—'}</td>
+          <td style="max-width:240px;font-size:12px;color:#475569">${t.description||''}</td>
           <td><span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span></td>
-          <td style="max-width:260px">${t.description||''}</td>
+          ${freqTd}
           <td style="white-space:nowrap;font-size:12px;color:#1e293b;font-weight:600">${t.assignedToName||'—'}</td>
+          <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}</td>
           <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}</td>
           <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
           <td style="white-space:nowrap">${_taskActionBtns(t, true, isChecklist)}</td>
@@ -3921,8 +3923,8 @@ function renderTasksTable() {
         <div id="empBody_${uid}" style="overflow-x:auto;${isSelf?'':'display:none'}">
           <table style="min-width:760px">
             <thead><tr style="background:#f8f9ff">
-              <th>Department</th>${freqTh}
-              <th>Priority</th><th>Description</th><th>Assigned To</th><th>Due Date</th><th>Status</th><th>Action</th>
+              <th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}
+              <th>Assigned To</th><th>Start Date</th><th>Due Date</th><th>Status</th><th>Action</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
@@ -3943,10 +3945,12 @@ function renderTasksTable() {
     return `<tr>
       <td style="white-space:nowrap">${_taskActionBtns(t, false, isChecklist)}</td>
       <td style="font-size:11px;color:#64748b;white-space:nowrap">${t.assignedToDept||'—'}</td>
-      ${freqTd}
+      <td style="font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap">${t.title||'—'}</td>
+      <td style="font-size:12px;color:#475569">${t.description||''}</td>
       <td><span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span></td>
-      <td>${t.description||''}</td>
+      ${freqTd}
       <td style="white-space:nowrap;font-size:12px;color:#1e293b;font-weight:600">${t.assignedToName||'—'}</td>
+      <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}</td>
       <td style="white-space:nowrap">${fmtDate(t.due_date||'')||'—'}</td>
       <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
     </tr>`;
@@ -3959,7 +3963,7 @@ function renderTasksTable() {
     </div>` : '';
   container.innerHTML = `<div class="flat-tasks-table"><div style="overflow-x:auto">
     <table style="min-width:760px"><thead><tr>
-      <th>Action</th><th>Department</th>${freqTh}<th>Priority</th><th>Description</th><th>Assigned To</th><th>Due Date</th><th>Status</th>
+      <th>Action</th><th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}<th>Assigned To</th><th>Start Date</th><th>Due Date</th><th>Status</th>
     </tr></thead><tbody>${pageRows}</tbody></table></div>${paginationHtml}</div>`;
 }
 

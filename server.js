@@ -817,7 +817,7 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
     allUsers.forEach(u => { uMap[u.id] = { name: u.name||'', dept: u.department||'' }; });
 
     const freqCol = isDeleg ? "'' AS frequency" : "COALESCE(t.frequency,'') AS frequency";
-    const [rawTasks] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,":"'no' AS approval,0 AS waiting_approval,t.remarks,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC`, params);
+    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,":"'no' AS approval,0 AS waiting_approval,t.remarks,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC`, params);
     const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]?.name||'', assignedToDept: uMap[t.assigned_to]?.dept||'', assignedByName: uMap[t.assigned_by]?.name||'' }));
 
     // mine=1 mode always returns flat tasks (not grouped)
