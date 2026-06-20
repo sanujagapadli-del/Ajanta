@@ -4737,7 +4737,7 @@ function renderUsersTable(users) {
       <td><span class="role-badge ${u.role}">${roleLabel(u.role)}</span></td>
       <td>${statusBadge}</td>
       <td style="white-space:nowrap">
-        <button class="action-btn edit" onclick="openEditUser(${idx})">Edit</button>
+        <button class="action-btn edit" onclick="openEditUser(${u.id})">Edit</button>
         ${toggleBtn}
         <button class="action-btn delete" style="margin-left:6px" onclick="deleteUser(${u.id})">Delete</button>
       </td>
@@ -4810,8 +4810,8 @@ function openAddUser() {
   document.getElementById('userModal').classList.add('open');
 }
 
-function openEditUser(idx) {
-  const u = _usersArr[idx] || _usersMap[idx];
+function openEditUser(id) {
+  const u = _usersMap[id];
   if (!u) { showToast('❌ User data not found. Please refresh.'); return; }
   document.getElementById('userModalTitle').textContent='Edit User';
   document.getElementById('editUserId').value=u.id;
