@@ -102,6 +102,22 @@ const INT_COLS = new Set([
   'total_steps','header_row','from_user','to_user','waiting_approval','created_by'
 ]);
 
+// Date-only columns — stored as proper date cells in Sheets (USER_ENTERED write).
+// When read back with UNFORMATTED_VALUE, Sheets returns these as date serial numbers
+// (days since 1899-12-30). We convert them back to YYYY-MM-DD strings here.
+const DATE_COLS = new Set(['due_date','start_date','date','last_reminder_date']);
+// Datetime columns — serial may be fractional (fractional = time-of-day).
+const DATETIME_COLS = new Set(['created_at','updated_at','completed_at','assigned_on']);
+
+function _serialToDate(n) {
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000);
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+function _serialToDatetime(n) {
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n * 86400000));
+  return d.toISOString().slice(0, 19).replace('T', ' '); // YYYY-MM-DD HH:MM:SS
+}
+
 // ══════════════════════════════════════════════════════════════════
 // ALASQL CUSTOM FUNCTIONS (MySQL compatibility)
 // ══════════════════════════════════════════════════════════════════
@@ -185,6 +201,13 @@ function parseCellValue(col, raw) {
   if (INT_COLS.has(col)) {
     const n = parseInt(v, 10);
     return Number.isNaN(n) ? null : n;
+  }
+  // Sheets returns date cells as serial numbers when read with UNFORMATTED_VALUE
+  if (DATE_COLS.has(col) && typeof v === 'number' && v > 1) {
+    return _serialToDate(v);
+  }
+  if (DATETIME_COLS.has(col) && typeof v === 'number' && v > 1) {
+    return _serialToDatetime(v);
   }
   return v;
 }
@@ -333,7 +356,9 @@ async function init() {
       if (ranges.length) {
         const batchResp = await api.spreadsheets.values.batchGet({
           spreadsheetId: _spreadsheetId,
-          ranges
+          ranges,
+          valueRenderOption: 'UNFORMATTED_VALUE',
+          dateTimeRenderOption: 'SERIAL_NUMBER'
         });
         valueRanges = batchResp.data.valueRanges || [];
       }
@@ -840,10 +865,10 @@ async function writeTablesToSheet(tables) {
     clearRanges.push(`${table}!A${values.length + 1}:ZZ`);
   }
 
-  // Single batchUpdate call
+  // Single batchUpdate call — USER_ENTERED so Sheets interprets dates as date cells
   await api.spreadsheets.values.batchUpdate({
     spreadsheetId: _spreadsheetId,
-    requestBody: { valueInputOption: 'RAW', data }
+    requestBody: { valueInputOption: 'USER_ENTERED', data }
   });
   // Clear excess (only if there's any chance of leftover; quick API call)
   try {
