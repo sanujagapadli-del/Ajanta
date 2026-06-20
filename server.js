@@ -966,14 +966,16 @@ app.delete('/api/tasks/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { type, skipCompleted } = req.query;
     const table = getTable(type||'delegation');
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) return res.status(400).json({ error: 'Invalid task id' });
     // v16: bulk-delete flows pass skipCompleted=1 — refuse to delete completed tasks
     if (skipCompleted === '1' || skipCompleted === 'true') {
-      const [rows] = await db.query(`SELECT status FROM ${table} WHERE id=?`, [req.params.id]);
+      const [rows] = await db.query(`SELECT status FROM ${table} WHERE id=?`, [taskId]);
       if (rows[0] && rows[0].status === 'completed') {
         return res.status(400).json({ error: 'Completed tasks cannot be deleted in bulk', skipped: true });
       }
     }
-    await db.query(`DELETE FROM ${table} WHERE id=?`, [req.params.id]);
+    await db.query(`DELETE FROM ${table} WHERE id=?`, [taskId]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

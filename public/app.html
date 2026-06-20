@@ -2535,6 +2535,21 @@ tbody tr:last-child td{border-bottom:none;}
 </div>
 
 <!-- ══════════════════════════════════════
+     CONFIRM MODAL (replaces browser confirm())
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="confirmModal" onclick="if(event.target===this)_confirmReject()">
+  <div class="modal" style="max-width:340px;text-align:center;padding:28px 24px">
+    <div id="confirmIcon" style="font-size:38px;margin-bottom:10px">🗑️</div>
+    <div id="confirmTitle" style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:6px">Delete Task?</div>
+    <div id="confirmMsg" style="font-size:13px;color:#64748b;margin-bottom:22px">This action cannot be undone.</div>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button onclick="_confirmReject()" style="padding:8px 22px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;color:#64748b;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
+      <button id="confirmOkBtn" onclick="_confirmAccept()" style="padding:8px 22px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!--
      REVISE DATE MODAL
 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="reviseDateModal">
@@ -3935,10 +3950,36 @@ async function updateStatus(id, status, from, type) {
   loadApprovalBadge();
 }
 
+let _confirmCb = null;
+function showConfirm({ icon='🗑️', title='Are you sure?', msg='This cannot be undone.', okLabel='Delete', okColor='#dc2626' }, onYes) {
+  document.getElementById('confirmIcon').textContent = icon;
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmMsg').textContent = msg;
+  const btn = document.getElementById('confirmOkBtn');
+  btn.textContent = okLabel;
+  btn.style.background = okColor;
+  _confirmCb = onYes;
+  document.getElementById('confirmModal').classList.add('open');
+}
+function _confirmAccept() {
+  document.getElementById('confirmModal').classList.remove('open');
+  if (_confirmCb) { _confirmCb(); _confirmCb = null; }
+}
+function _confirmReject() {
+  document.getElementById('confirmModal').classList.remove('open');
+  _confirmCb = null;
+}
+
 async function deleteTask(id, type) {
-  if (!confirm('Delete this task?')) return;
-  await api(`/api/tasks/${id}?type=${type||tasksType}`,'DELETE');
-  loadAllTasks();
+  showConfirm(
+    { icon: '🗑️', title: 'Delete this task?', msg: 'This action cannot be undone.', okLabel: 'Delete', okColor: '#dc2626' },
+    async () => {
+      const r = await api(`/api/tasks/${id}?type=${type||tasksType}`, 'DELETE');
+      if (r.error) { showToast('❌ ' + r.error); return; }
+      showToast('Task deleted');
+      loadAllTasks();
+    }
+  );
 }
 
 // ══════════════════════════════════════════════════════
