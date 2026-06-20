@@ -2270,7 +2270,7 @@ tbody tr:last-child td{border-bottom:none;}
         <button class="btn btn-green btn-sm" onclick="uploadCSV()">⬆ Upload CSV</button>
         <button class="btn btn-outline btn-sm" onclick="downloadSample()">⬇ Sample</button>
       </div>
-      <div style="font-size:11px;color:#94a3b8;margin-top:6px">Format: doer_email, approver_email, due_date, priority, approval, description, remarks</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:6px">Format: doer_email, approver_email, title, start_date, due_date, priority, approval, description, remarks</div>
     </div>
   </div>
 </div>
@@ -2346,7 +2346,7 @@ tbody tr:last-child td{border-bottom:none;}
         <button class="btn btn-green btn-sm" onclick="uploadCSVC()">⬆ Upload CSV</button>
         <button class="btn btn-outline btn-sm" onclick="downloadSampleC()">⬇ Sample</button>
       </div>
-      <div style="font-size:11px;color:#94a3b8;margin-top:6px">Format: user_email, frequency (daily/weekly/monthly/yearly/quarterly/alternative_week), start_date, description, remarks — tasks auto-generate!</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:6px">Format: user_email, frequency, title, start_date, description, remarks — tasks auto-generate!</div>
     </div>
   </div>
 </div>
@@ -4486,19 +4486,19 @@ function formatDate(d) {
 // BULK UPLOAD
 // ══════════════════════════════════════════════════════
 function downloadSample() {
-  const csv = `doer_email,approver_email,due_date,priority,approval,description,remarks\npriyanka@test.com,aman@test.com,2026-04-01,high,yes,Complete sales report,Follow up needed\npooja@test.com,aman@test.com,2026-04-02,medium,no,Prepare presentation,`;
+  const csv = `doer_email,approver_email,title,start_date,due_date,priority,approval,description,remarks\npriyanka@test.com,aman@test.com,Sales Report,2026-04-01,2026-04-05,high,yes,Complete sales report,Follow up needed\npooja@test.com,aman@test.com,Presentation,,2026-04-02,medium,no,Prepare presentation,`;
   downloadFile(csv,'delegation_sample.csv');
 }
 
 function downloadSampleC() {
   const csv = [
-    'user_email,frequency,start_date,description,remarks',
-    'priyanka@test.com,daily,2026-04-01,Review attendance sheet,',
-    'pooja@test.com,weekly,2026-04-01,Send weekly report,',
-    'rahul@test.com,monthly,2026-04-01,Submit monthly expense report,April month',
-    'neha@test.com,yearly,2026-04-01,Annual performance self-review,',
-    'amit@test.com,alternative_week,2026-04-01,Bi-weekly team sync notes,',
-    'sneha@test.com,quarterly,2026-04-01,Quarterly audit checklist,Q2 2026',
+    'user_email,frequency,title,start_date,description,remarks',
+    'priyanka@test.com,daily,Attendance,2026-04-01,Review attendance sheet,',
+    'pooja@test.com,weekly,Weekly Report,2026-04-01,Send weekly report,',
+    'rahul@test.com,monthly,Expense Report,2026-04-01,Submit monthly expense report,April month',
+    'neha@test.com,yearly,Self Review,2026-04-01,Annual performance self-review,',
+    'amit@test.com,alternative_week,Team Sync,2026-04-01,Bi-weekly team sync notes,',
+    'sneha@test.com,quarterly,Audit,2026-04-01,Quarterly audit checklist,Q2 2026',
   ].join('\n');
   downloadFile(csv,'checklist_bulk_sample.csv');
 }
@@ -4521,11 +4521,11 @@ async function uploadCSV() {
   let count = 0, skipped = 0;
   for (const line of lines) {
     if (!line.trim()) continue;
-    const [doer_email,approver_email,due_date,priority,approval,description,remarks] = line.split(',').map(s=>s.trim());
+    const [doer_email,approver_email,title,start_date,due_date,priority,approval,description,remarks] = line.split(',').map(s=>s.trim());
     if (!doer_email||!description) { skipped++; continue; }
     const doer = allUsers.find(u=>u.email===doer_email);
     if (!doer) { skipped++; continue; }
-    await api('/api/tasks','POST',{type:'delegation',desc:description,assignedTo:doer.id,approverEmail:approver_email,date:due_date,priority,approval,remarks});
+    await api('/api/tasks','POST',{type:'delegation',title:title||'',desc:description,assignedTo:doer.id,approverEmail:approver_email,startDate:start_date||'',date:due_date,priority,approval,remarks});
     count++;
   }
   showToast(`✅ ${count} tasks uploaded! ${skipped?`(${skipped} skipped)`:''}`);
@@ -4555,11 +4555,11 @@ async function uploadCSVC() {
   for (const line of dataLines) {
     if (!line.trim()) continue;
 
-    let user_email, frequency, start_date, description, remarks;
+    let user_email, frequency, title, start_date, description, remarks;
 
     if (isNewFormat) {
-      // New format: user_email, frequency, start_date, description, remarks
-      [user_email, frequency, start_date, description, remarks] = line.split(',').map(s => s.trim());
+      // New format: user_email, frequency, title, start_date, description, remarks
+      [user_email, frequency, title, start_date, description, remarks] = line.split(',').map(s => s.trim());
       if (!user_email || !description || !frequency || !start_date) { skipped++; continue; }
       frequency = frequency.toLowerCase();
       if (!validFreqs.includes(frequency)) { skipped++; continue; }
@@ -4585,12 +4585,14 @@ async function uploadCSVC() {
     if (!dates.length) { skipped++; continue; }
 
     const result = await api('/api/tasks/bulk-checklist','POST',{
+      title: title || '',
       desc: description,
       assignedTo: user.id,
       priority: 'low',
       remarks: remarks || '',
       dates,
-      frequency
+      frequency,
+      startDate: start_date
     });
 
     if (!result.error) totalTasks += dates.length;
