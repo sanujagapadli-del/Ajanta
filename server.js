@@ -3715,7 +3715,11 @@ app.post('/api/stock-rows-import', requireAuth, async (req, res) => {
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 // Auth check is handled client-side via /api/me in init() — removing server-side
 // requireAuth here prevents app.html from loading if cookie has any timing/domain issue
-app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
+// no-cache: browser always fetches latest version (prevents stale JS bugs)
+app.get('/app', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'public', 'app.html'));
+});
 
 if (process.env.VERCEL) {
   module.exports = async (req, res) => {
