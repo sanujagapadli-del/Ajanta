@@ -4692,6 +4692,8 @@ let allUsersData = [];
 
 async function loadUsers() {
   allUsersData = await api('/api/users');
+  window._allUsersById = {};
+  allUsersData.forEach(u => { window._allUsersById[u.id] = u; });
   renderUsersTable(allUsersData);
 }
 
@@ -4811,7 +4813,7 @@ function openAddUser() {
 }
 
 function openEditUser(id) {
-  const u = _usersMap[id];
+  const u = (window._allUsersById || {})[id] || (window._allUsersById || {})[String(id)];
   if (!u) { showToast('❌ User data not found. Please refresh.'); return; }
   document.getElementById('userModalTitle').textContent='Edit User';
   document.getElementById('editUserId').value=u.id;
