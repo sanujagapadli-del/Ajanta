@@ -1733,7 +1733,7 @@ app.get('/api/users/with-pending-tasks', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off FROM users ORDER BY role DESC,name ASC');
+    const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,COALESCE(is_active,1) AS is_active FROM users ORDER BY role DESC,name ASC');
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1765,6 +1765,39 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     if (parseInt(req.params.id) === req.session.userId) return res.status(400).json({ error: 'Cannot delete yourself' });
     await db.query('DELETE FROM users WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Check pending checklist tasks before deactivating
+app.get('/api/users/:id/pending-checklist', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [tasks] = await db.query(
+      `SELECT id, COALESCE(title,'') AS title, description, DATE_FORMAT(due_date,'%Y-%m-%d') AS due_date FROM checklist_tasks WHERE assigned_to=? AND status IN ('pending','revised')`,
+      [req.params.id]
+    );
+    res.json(tasks);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Deactivate user (with optional checklist task reassignment)
+app.put('/api/users/:id/deactivate', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const uid = req.params.id;
+    if (parseInt(uid) === req.session.userId) return res.status(400).json({ error: 'Cannot deactivate yourself' });
+    const { reassignTo } = req.body;
+    if (reassignTo) {
+      await db.query(`UPDATE checklist_tasks SET assigned_to=? WHERE assigned_to=? AND status IN ('pending','revised')`, [reassignTo, uid]);
+    }
+    await db.query('UPDATE users SET is_active=0 WHERE id=?', [uid]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Reactivate user
+app.put('/api/users/:id/activate', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await db.query('UPDATE users SET is_active=1 WHERE id=?', [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

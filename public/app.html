@@ -683,7 +683,7 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div class="users-grid">
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Department</th><th>Role</th><th>Action</th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Department</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
         <tbody id="usersTbody"></tbody>
       </table>
     </div>
@@ -2359,6 +2359,34 @@ tbody tr:last-child td{border-bottom:none;}
         <button class="btn btn-outline btn-sm" onclick="downloadSampleC()">⬇ Sample</button>
       </div>
       <div style="font-size:11px;color:#94a3b8;margin-top:6px">Format: user_email, frequency, title, start_date, description, priority, remarks — tasks auto-generate!</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     DEACTIVATE USER MODAL
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="deactivateModal">
+  <div class="modal" style="max-width:420px">
+    <h3>🚫 Deactivate User</h3>
+    <input type="hidden" id="deactivateUserId"/>
+    <div id="deactivateNoTasks" style="display:none">
+      <p style="font-size:14px;color:#64748b;margin-bottom:18px">This user has no pending checklist tasks. They will be marked as inactive immediately.</p>
+    </div>
+    <div id="deactivateHasTasks" style="display:none">
+      <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:#92400e">
+        ⚠️ This user has <strong id="deactivateTaskCount">0</strong> pending checklist task(s). Please reassign them before deactivating.
+      </div>
+      <div class="form-group">
+        <label>Reassign all checklist tasks to</label>
+        <select id="deactivateReassignTo" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;outline:none">
+          <option value="">— Select user —</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn btn-outline" onclick="closeModal('deactivateModal')">Cancel</button>
+      <button class="btn" id="deactivateConfirmBtn" onclick="confirmDeactivate()" style="background:#f59e0b;color:#fff;font-weight:700;padding:9px 20px;border:none;border-radius:8px;cursor:pointer">Deactivate</button>
     </div>
   </div>
 </div>
@@ -4297,7 +4325,8 @@ async function openDelegate() {
   document.getElementById('dDate').value=today;
   document.getElementById('dDate').min=today;
   const users = await api('/api/users');
-  const opts = users.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
+  const activeUsers = users.filter(u => u.is_active == null || +u.is_active === 1);
+  const opts = activeUsers.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
   document.getElementById('dDoer').innerHTML='<option value="">Select Doer</option>'+opts;
   document.getElementById('delegateModal').classList.add('open');
 }
@@ -4339,8 +4368,9 @@ async function openChecklist() {
   document.getElementById('cDate').value=today;
   document.getElementById('cDate').min=today;
   const users = await api('/api/users');
+  const activeUsers = users.filter(u => u.is_active == null || +u.is_active === 1);
   document.getElementById('cDoer').innerHTML='<option value="">Select Employee</option>'+
-    users.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
+    activeUsers.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
 
   ['cFrequency','cDate','cDesc'].forEach(id=>{
     document.getElementById(id).onchange = updateChecklistPreview;
@@ -4685,24 +4715,34 @@ const _usersArr = [];
 function renderUsersTable(users) {
   const tbody = document.getElementById('usersTbody');
   if (!users.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8">No users found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:#94a3b8">No users found</td></tr>`;
     return;
   }
   // Store by index (not id) so edit works correctly even if ids ever clash
   users.forEach((u, idx) => { _usersMap[u.id] = u; _usersArr[idx] = u; });
   const roleLabel = r => r==='admin'?'👑 Admin':r==='hod'?'🏢 HOD':r==='pc'?'🖥️ PC':'👤 User';
-  tbody.innerHTML = users.map((u, idx)=>`
-    <tr>
+  tbody.innerHTML = users.map((u, idx)=>{
+    const isActive = u.is_active == null || +u.is_active === 1;
+    const statusBadge = isActive
+      ? `<span style="background:#dcfce7;color:#16a34a;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px">Active</span>`
+      : `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px">Inactive</span>`;
+    const toggleBtn = isActive
+      ? `<button class="action-btn" style="margin-left:6px;background:#fef3c7;color:#92400e;border:1px solid #fde68a" onclick="openDeactivate(${u.id})">Deactivate</button>`
+      : `<button class="action-btn" style="margin-left:6px;background:#dcfce7;color:#15803d;border:1px solid #bbf7d0" onclick="activateUser(${u.id})">Activate</button>`;
+    return `<tr style="${isActive?'':'opacity:.6;background:#f8fafc'}">
       <td style="font-weight:600">${u.name}</td>
       <td style="color:#64748b">${u.email}</td>
       <td style="color:#64748b">${u.phone||'—'}</td>
       <td style="color:#64748b">${u.department||'—'}</td>
       <td><span class="role-badge ${u.role}">${roleLabel(u.role)}</span></td>
+      <td>${statusBadge}</td>
       <td>
         <button class="action-btn edit" onclick="openEditUser(${idx})">Edit</button>
+        ${toggleBtn}
         <button class="action-btn delete" style="margin-left:6px" onclick="deleteUser(${u.id})">Delete</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 function _setWeekOff(s) {
@@ -8858,6 +8898,44 @@ function confirmRevisionReject() {
     loadApprovals();
     loadApprovalBadge();
   });
+}
+
+async function openDeactivate(id) {
+  document.getElementById('deactivateUserId').value = id;
+  const tasks = await api(`/api/users/${id}/pending-checklist`);
+  const hasTasks = Array.isArray(tasks) && tasks.length > 0;
+  document.getElementById('deactivateNoTasks').style.display = hasTasks ? 'none' : '';
+  document.getElementById('deactivateHasTasks').style.display = hasTasks ? '' : 'none';
+  if (hasTasks) {
+    document.getElementById('deactivateTaskCount').textContent = tasks.length;
+    // Populate reassign dropdown with active users (excluding the one being deactivated)
+    const allUsers = await api('/api/users');
+    const sel = document.getElementById('deactivateReassignTo');
+    sel.innerHTML = '<option value="">— Select user —</option>' +
+      allUsers.filter(u => u.id != id && (+u.is_active === 1 || u.is_active == null)).map(u =>
+        `<option value="${u.id}">${u.name} (${u.department||u.role})</option>`
+      ).join('');
+  }
+  document.getElementById('deactivateModal').classList.add('open');
+}
+
+async function confirmDeactivate() {
+  const id = document.getElementById('deactivateUserId').value;
+  const hasTasks = document.getElementById('deactivateHasTasks').style.display !== 'none';
+  const reassignTo = hasTasks ? document.getElementById('deactivateReassignTo').value : '';
+  if (hasTasks && !reassignTo) { showToast('⚠️ Please select a user to reassign tasks to','error'); return; }
+  const r = await api(`/api/users/${id}/deactivate`, 'PUT', { reassignTo: reassignTo || null });
+  if (r.error) { showToast('❌ ' + r.error); return; }
+  closeModal('deactivateModal');
+  showToast('User marked as inactive');
+  loadUsers();
+}
+
+async function activateUser(id) {
+  const r = await api(`/api/users/${id}/activate`, 'PUT', {});
+  if (r.error) { showToast('❌ ' + r.error); return; }
+  showToast('✅ User activated');
+  loadUsers();
 }
 
 async function deleteUser(id) {
