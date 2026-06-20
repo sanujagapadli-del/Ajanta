@@ -4691,9 +4691,8 @@ async function uploadCSVC() {
 let allUsersData = [];
 
 async function loadUsers() {
-  allUsersData = await api('/api/users');
-  window._allUsersById = {};
-  allUsersData.forEach(u => { window._allUsersById[u.id] = u; });
+  const res = await api('/api/users');
+  allUsersData = Array.isArray(res) ? res : [];
   renderUsersTable(allUsersData);
 }
 
@@ -4813,8 +4812,9 @@ function openAddUser() {
 }
 
 function openEditUser(id) {
-  const u = (window._allUsersById || {})[id] || (window._allUsersById || {})[String(id)];
-  if (!u) { showToast('❌ User data not found. Please refresh.'); return; }
+  if (!Array.isArray(allUsersData) || !allUsersData.length) { showToast('❌ Please refresh the page'); return; }
+  const u = allUsersData.find(u => String(u.id) === String(id));
+  if (!u) { showToast('❌ User not found (id=' + id + ')'); return; }
   document.getElementById('userModalTitle').textContent='Edit User';
   document.getElementById('editUserId').value=u.id;
   document.getElementById('uName').value=u.name||'';
