@@ -2219,15 +2219,9 @@ tbody tr:last-child td{border-bottom:none;}
         </select>
       </div>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Title</label>
-        <input type="text" id="dTitle" placeholder="Short task title…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <textarea id="dDesc" placeholder="Enter task description…" style="min-height:42px"></textarea>
-      </div>
+    <div class="form-group">
+      <label>Title</label>
+      <input type="text" id="dTitle" placeholder="Short task title…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -2253,6 +2247,10 @@ tbody tr:last-child td{border-bottom:none;}
         <label>Link <span style="color:#94a3b8;font-weight:400;font-size:11px">(optional)</span></label>
         <input type="url" id="dLink" placeholder="https://…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
       </div>
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="dDesc" placeholder="Enter task description…" style="min-height:90px;width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:'Inter',sans-serif;outline:none;resize:vertical"></textarea>
     </div>
     <div class="form-group">
       <label>Remarks</label>
@@ -2319,9 +2317,19 @@ tbody tr:last-child td{border-bottom:none;}
         <input type="text" id="cTitle" placeholder="Short task title…"/>
       </div>
       <div class="form-group">
-        <label>Description</label>
-        <input type="text" id="cDesc" placeholder="Enter task description…"/>
+        <label>Priority</label>
+        <select id="cPriority">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="urgent">Urgent</option>
+        </select>
       </div>
+    </div>
+
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="cDesc" placeholder="Enter task description…" style="min-height:90px;width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:'Inter',sans-serif;outline:none;resize:vertical"></textarea>
     </div>
 
     <div class="form-group">
@@ -2350,7 +2358,7 @@ tbody tr:last-child td{border-bottom:none;}
         <button class="btn btn-green btn-sm" onclick="uploadCSVC()">⬆ Upload CSV</button>
         <button class="btn btn-outline btn-sm" onclick="downloadSampleC()">⬇ Sample</button>
       </div>
-      <div style="font-size:11px;color:#94a3b8;margin-top:6px">Format: user_email, frequency, title, start_date, description, remarks — tasks auto-generate!</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:6px">Format: user_email, frequency, title, start_date, description, priority, remarks — tasks auto-generate!</div>
     </div>
   </div>
 </div>
@@ -2605,15 +2613,13 @@ tbody tr:last-child td{border-bottom:none;}
     <input type="hidden" id="editTId"/>
     <input type="hidden" id="editTType"/>
     <div class="alert error" id="editTaskErr"></div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Title</label>
-        <input type="text" id="editTTitle" placeholder="Short task title…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <textarea id="editTDesc" style="min-height:42px;width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:vertical"></textarea>
-      </div>
+    <div class="form-group">
+      <label>Title</label>
+      <input type="text" id="editTTitle" placeholder="Short task title…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="editTDesc" style="min-height:90px;width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:'Inter',sans-serif;outline:none;resize:vertical"></textarea>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -4290,6 +4296,7 @@ async function openChecklist() {
   document.getElementById('checklistSuccess').style.display='none';
   document.getElementById('cTitle').value='';
   document.getElementById('cDesc').value='';
+  document.getElementById('cPriority').value='low';
   document.getElementById('cRemarks').value='';
   document.getElementById('cFrequency').value='daily';
   document.getElementById('cPreview').style.display='none';
@@ -4388,12 +4395,13 @@ async function saveChecklist() {
   const suc = document.getElementById('checklistSuccess');
   err.style.display='none'; suc.style.display='none';
 
-  const doer    = document.getElementById('cDoer').value;
-  const title   = document.getElementById('cTitle').value.trim();
-  const date    = document.getElementById('cDate').value;
-  const desc    = document.getElementById('cDesc').value.trim();
-  const remarks = document.getElementById('cRemarks').value.trim();
-  const freq    = document.getElementById('cFrequency').value;
+  const doer     = document.getElementById('cDoer').value;
+  const title    = document.getElementById('cTitle').value.trim();
+  const priority = document.getElementById('cPriority').value;
+  const date     = document.getElementById('cDate').value;
+  const desc     = document.getElementById('cDesc').value.trim();
+  const remarks  = document.getElementById('cRemarks').value.trim();
+  const freq     = document.getElementById('cFrequency').value;
 
   if (!doer) { err.textContent='Please select an employee'; err.style.display='block'; return; }
   if (!date) { err.textContent='Please select a start date'; err.style.display='block'; return; }
@@ -4411,7 +4419,7 @@ async function saveChecklist() {
   const dates = generateDates(date, freq, weekOff, extraOff);
 
   const result = await api('/api/tasks/bulk-checklist','POST',{
-    title, desc, assignedTo: doer, priority: 'low', remarks, dates, frequency: freq, startDate: date
+    title, desc, assignedTo: doer, priority: priority||'low', remarks, dates, frequency: freq, startDate: date
   });
 
   btn.disabled=false; btn.textContent='Generate Tasks';
@@ -4500,13 +4508,13 @@ function downloadSample() {
 
 function downloadSampleC() {
   const csv = [
-    'user_email,frequency,title,start_date,description,remarks',
-    'priyanka@test.com,daily,Attendance,2026-04-01,Review attendance sheet,',
-    'pooja@test.com,weekly,Weekly Report,2026-04-01,Send weekly report,',
-    'rahul@test.com,monthly,Expense Report,2026-04-01,Submit monthly expense report,April month',
-    'neha@test.com,yearly,Self Review,2026-04-01,Annual performance self-review,',
-    'amit@test.com,alternative_week,Team Sync,2026-04-01,Bi-weekly team sync notes,',
-    'sneha@test.com,quarterly,Audit,2026-04-01,Quarterly audit checklist,Q2 2026',
+    'user_email,frequency,title,start_date,description,priority,remarks',
+    'priyanka@test.com,daily,Attendance,2026-04-01,Review attendance sheet,high,',
+    'pooja@test.com,weekly,Weekly Report,2026-04-01,Send weekly report,medium,',
+    'rahul@test.com,monthly,Expense Report,2026-04-01,Submit monthly expense report,high,April month',
+    'neha@test.com,yearly,Self Review,2026-04-01,Annual performance self-review,low,',
+    'amit@test.com,alternative_week,Team Sync,2026-04-01,Bi-weekly team sync notes,low,',
+    'sneha@test.com,quarterly,Audit,2026-04-01,Quarterly audit checklist,medium,Q2 2026',
   ].join('\n');
   downloadFile(csv,'checklist_bulk_sample.csv');
 }
@@ -4563,11 +4571,11 @@ async function uploadCSVC() {
   for (const line of dataLines) {
     if (!line.trim()) continue;
 
-    let user_email, frequency, title, start_date, description, remarks;
+    let user_email, frequency, title, start_date, description, priority, remarks;
 
     if (isNewFormat) {
-      // New format: user_email, frequency, title, start_date, description, remarks
-      [user_email, frequency, title, start_date, description, remarks] = line.split(',').map(s => s.trim());
+      // New format: user_email, frequency, title, start_date, description, priority, remarks
+      [user_email, frequency, title, start_date, description, priority, remarks] = line.split(',').map(s => s.trim());
       if (!user_email || !description || !frequency || !start_date) { skipped++; continue; }
       frequency = frequency.toLowerCase();
       if (!validFreqs.includes(frequency)) { skipped++; continue; }
@@ -4596,7 +4604,7 @@ async function uploadCSVC() {
       title: title || '',
       desc: description,
       assignedTo: user.id,
-      priority: 'low',
+      priority: priority || 'low',
       remarks: remarks || '',
       dates,
       frequency,
