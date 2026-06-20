@@ -3835,9 +3835,8 @@ function toggleEmpGroup(uid) {
   _empGroupOpen[uid] = !_empGroupOpen[uid];
   const body = document.getElementById(`empBody_${uid}`);
   const arrow = document.getElementById(`empArrow_${uid}`);
-  if (body) body.style.display = _empGroupOpen[uid] ? 'none' : '';
-  if (arrow) arrow.textContent = _empGroupOpen[uid] ? '▶' : '▼';
-  _empGroupOpen[uid] = !_empGroupOpen[uid]; // toggle back after DOM update
+  if (body) body.style.display = _empGroupOpen[uid] ? '' : 'none';
+  if (arrow) arrow.textContent = _empGroupOpen[uid] ? '▼' : '▶';
 }
 
 function renderTasksTable() {
@@ -3904,17 +3903,19 @@ function renderTasksTable() {
           <td style="white-space:nowrap">${_taskActionBtns(t, true, isChecklist)}</td>
         </tr>`;
       }).join('');
-      return `<div class="emp-group" style="background:#fff;border:1.5px solid #e8ecf4;border-radius:14px;margin-bottom:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.04)">
-        <div onclick="toggleEmpGroup('${uid}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;background:linear-gradient(90deg,#f8f9ff,#fff);border-bottom:1px solid #eef2ff">
+      const isSelf = String(uid) === String(ME.id);
+      _empGroupOpen[uid] = isSelf;
+      return `<div class="emp-group" style="background:#fff;border:1.5px solid ${isSelf?'#c7d2fe':'#e8ecf4'};border-radius:14px;margin-bottom:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.04)">
+        <div onclick="toggleEmpGroup('${uid}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;background:linear-gradient(90deg,${isSelf?'#eef2ff':'#f8f9ff'},#fff);border-bottom:1px solid #eef2ff">
           <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${initials}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:14px;color:#1e293b">${g.name}</div>
+            <div style="font-weight:700;font-size:14px;color:#1e293b">${g.name}${isSelf?' <span style="font-size:10px;font-weight:600;color:#6366f1;background:#eef2ff;padding:2px 6px;border-radius:8px;margin-left:6px">Me</span>':''}</div>
             <div style="font-size:11px;color:#94a3b8;margin-top:1px">${g.dept||'—'}</div>
           </div>
           <span style="background:#eef2ff;color:#4f46e5;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">${tc} task${tc===1?'':'s'}</span>
-          <span id="empArrow_${uid}" style="color:#94a3b8;font-size:12px;margin-left:4px">▼</span>
+          <span id="empArrow_${uid}" style="color:#94a3b8;font-size:12px;margin-left:4px">${isSelf?'▼':'▶'}</span>
         </div>
-        <div id="empBody_${uid}" style="overflow-x:auto">
+        <div id="empBody_${uid}" style="overflow-x:auto;${isSelf?'':'display:none'}">`
           <table style="min-width:600px">
             <thead><tr style="background:#f8f9ff">
               ${freqTh}
