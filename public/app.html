@@ -2367,26 +2367,24 @@ tbody tr:last-child td{border-bottom:none;}
      DEACTIVATE USER MODAL
 ══════════════════════════════════════ -->
 <div class="modal-overlay" id="deactivateModal">
-  <div class="modal" style="max-width:420px">
-    <h3>🚫 Deactivate User</h3>
+  <div class="modal" style="max-width:520px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="margin:0">🚫 Deactivate User</h3>
+      <button onclick="closeModal('deactivateModal')" style="background:none;border:none;font-size:22px;color:#94a3b8;cursor:pointer;line-height:1;padding:2px 6px">&times;</button>
+    </div>
     <input type="hidden" id="deactivateUserId"/>
     <div id="deactivateNoTasks" style="display:none">
       <p style="font-size:14px;color:#64748b;margin-bottom:18px">This user has no pending checklist tasks. They will be marked as inactive immediately.</p>
     </div>
     <div id="deactivateHasTasks" style="display:none">
-      <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:#92400e">
-        ⚠️ This user has <strong id="deactivateTaskCount">0</strong> pending checklist task(s). Please reassign them before deactivating.
+      <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#92400e">
+        ⚠️ <strong id="deactivateTaskCount">0</strong> pending checklist task(s) — assign each to someone before deactivating.
       </div>
-      <div class="form-group">
-        <label>Reassign all checklist tasks to</label>
-        <select id="deactivateReassignTo" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;outline:none">
-          <option value="">— Select user —</option>
-        </select>
-      </div>
+      <div id="deactivateTaskList" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:10px"></div>
     </div>
-    <div class="modal-footer" style="justify-content:space-between">
+    <div class="modal-footer" style="justify-content:space-between;margin-top:16px">
       <button class="btn btn-outline" onclick="closeModal('deactivateModal')">Cancel</button>
-      <button class="btn" id="deactivateConfirmBtn" onclick="confirmDeactivate()" style="background:#f59e0b;color:#fff;font-weight:700;padding:9px 20px;border:none;border-radius:8px;cursor:pointer">Deactivate</button>
+      <button class="btn" onclick="confirmDeactivate()" style="background:#f59e0b;color:#fff;font-weight:700;padding:9px 20px;border:none;border-radius:8px;cursor:pointer">Deactivate</button>
     </div>
   </div>
 </div>
@@ -8902,19 +8900,29 @@ function confirmRevisionReject() {
 
 async function openDeactivate(id) {
   document.getElementById('deactivateUserId').value = id;
-  const tasks = await api(`/api/users/${id}/pending-checklist`);
+  const [tasks, allUsers] = await Promise.all([
+    api(`/api/users/${id}/pending-checklist`),
+    api('/api/users')
+  ]);
   const hasTasks = Array.isArray(tasks) && tasks.length > 0;
   document.getElementById('deactivateNoTasks').style.display = hasTasks ? 'none' : '';
   document.getElementById('deactivateHasTasks').style.display = hasTasks ? '' : 'none';
   if (hasTasks) {
     document.getElementById('deactivateTaskCount').textContent = tasks.length;
-    // Populate reassign dropdown with active users (excluding the one being deactivated)
-    const allUsers = await api('/api/users');
-    const sel = document.getElementById('deactivateReassignTo');
-    sel.innerHTML = '<option value="">— Select user —</option>' +
-      allUsers.filter(u => u.id != id && (+u.is_active === 1 || u.is_active == null)).map(u =>
-        `<option value="${u.id}">${u.name} (${u.department||u.role})</option>`
-      ).join('');
+    const activeOpts = allUsers
+      .filter(u => u.id != id && (+u.is_active === 1 || u.is_active == null))
+      .map(u => `<option value="${u.id}">${u.name}${u.department ? ' — ' + u.department : ''}</option>`)
+      .join('');
+    document.getElementById('deactivateTaskList').innerHTML = tasks.map(t => `
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px">
+        <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:2px">${t.title || t.description || '(no title)'}</div>
+        ${t.title ? `<div style="font-size:12px;color:#64748b;margin-bottom:6px">${t.description||''}</div>` : ''}
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:8px">Due: ${t.due_date || '—'}</div>
+        <select data-task-id="${t.id}" style="width:100%;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:7px;font-size:12px;outline:none;color:#1e293b">
+          <option value="">— Assign to —</option>
+          ${activeOpts}
+        </select>
+      </div>`).join('');
   }
   document.getElementById('deactivateModal').classList.add('open');
 }
@@ -8922,9 +8930,15 @@ async function openDeactivate(id) {
 async function confirmDeactivate() {
   const id = document.getElementById('deactivateUserId').value;
   const hasTasks = document.getElementById('deactivateHasTasks').style.display !== 'none';
-  const reassignTo = hasTasks ? document.getElementById('deactivateReassignTo').value : '';
-  if (hasTasks && !reassignTo) { showToast('⚠️ Please select a user to reassign tasks to','error'); return; }
-  const r = await api(`/api/users/${id}/deactivate`, 'PUT', { reassignTo: reassignTo || null });
+  let taskAssignments = [];
+  if (hasTasks) {
+    const selects = document.querySelectorAll('#deactivateTaskList select[data-task-id]');
+    for (const sel of selects) {
+      if (!sel.value) { showToast('⚠️ Please assign all tasks before deactivating', 'error'); return; }
+      taskAssignments.push({ taskId: sel.dataset.taskId, assignTo: sel.value });
+    }
+  }
+  const r = await api(`/api/users/${id}/deactivate`, 'PUT', { taskAssignments });
   if (r.error) { showToast('❌ ' + r.error); return; }
   closeModal('deactivateModal');
   showToast('User marked as inactive');

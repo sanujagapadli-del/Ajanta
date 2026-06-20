@@ -1780,14 +1780,18 @@ app.get('/api/users/:id/pending-checklist', requireAuth, requireAdmin, async (re
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Deactivate user (with optional checklist task reassignment)
+// Deactivate user (with per-task checklist reassignment)
 app.put('/api/users/:id/deactivate', requireAuth, requireAdmin, async (req, res) => {
   try {
     const uid = req.params.id;
     if (parseInt(uid) === req.session.userId) return res.status(400).json({ error: 'Cannot deactivate yourself' });
-    const { reassignTo } = req.body;
-    if (reassignTo) {
-      await db.query(`UPDATE checklist_tasks SET assigned_to=? WHERE assigned_to=? AND status IN ('pending','revised')`, [reassignTo, uid]);
+    const { taskAssignments } = req.body;
+    if (Array.isArray(taskAssignments) && taskAssignments.length) {
+      for (const { taskId, assignTo } of taskAssignments) {
+        if (taskId && assignTo) {
+          await db.query('UPDATE checklist_tasks SET assigned_to=? WHERE id=?', [assignTo, taskId]);
+        }
+      }
     }
     await db.query('UPDATE users SET is_active=0 WHERE id=?', [uid]);
     res.json({ success: true });
