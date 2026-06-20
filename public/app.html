@@ -2541,9 +2541,9 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="modal" style="max-width:340px;text-align:center;padding:28px 24px">
     <div id="confirmIcon" style="font-size:38px;margin-bottom:10px">🗑️</div>
     <div id="confirmTitle" style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:6px">Delete Task?</div>
-    <div id="confirmMsg" style="font-size:13px;color:#64748b;margin-bottom:22px">This action cannot be undone.</div>
+    <div id="confirmMsg" style="font-size:13px;color:#64748b;margin-bottom:22px;white-space:pre-line;text-align:left">This action cannot be undone.</div>
     <div style="display:flex;gap:10px;justify-content:center">
-      <button onclick="_confirmReject()" style="padding:8px 22px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;color:#64748b;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
+      <button id="confirmCancelBtn" onclick="_confirmReject()" style="padding:8px 22px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;color:#64748b;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
       <button id="confirmOkBtn" onclick="_confirmAccept()" style="padding:8px 22px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Delete</button>
     </div>
   </div>
@@ -3203,12 +3203,13 @@ function handleProfileImage(event) {
 
 // Remove profile image
 async function removeProfileImage() {
-  if (!confirm('Remove profile photo?')) return;
-  await api('/api/profile/image','POST',{image: null});
-  ME.profile_image = null;
-  const initials = ME.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
-  setAvatarDisplay(null, initials);
-  showToast('Profile photo removed!');
+  showConfirm({ icon:'🖼️', title:'Remove Profile Photo?', msg:'Profile photo permanently remove ho jayegi.', okLabel:'Remove', okColor:'#dc2626' }, async () => {
+    await api('/api/profile/image','POST',{image: null});
+    ME.profile_image = null;
+    const initials = ME.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+    setAvatarDisplay(null, initials);
+    showToast('Profile photo removed!');
+  });
 }
 
 function setMinDates() {
@@ -3988,15 +3989,29 @@ function showConfirm({ icon='🗑️', title='Are you sure?', msg='This cannot b
   const btn = document.getElementById('confirmOkBtn');
   btn.textContent = okLabel;
   btn.style.background = okColor;
+  document.getElementById('confirmCancelBtn').style.display = '';
   _confirmCb = onYes;
+  document.getElementById('confirmModal').classList.add('open');
+}
+function showAlert({ icon='ℹ️', title='Notice', msg='' }, onOk) {
+  document.getElementById('confirmIcon').textContent = icon;
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmMsg').textContent = msg;
+  const btn = document.getElementById('confirmOkBtn');
+  btn.textContent = 'OK';
+  btn.style.background = '#4f46e5';
+  document.getElementById('confirmCancelBtn').style.display = 'none';
+  _confirmCb = onOk || null;
   document.getElementById('confirmModal').classList.add('open');
 }
 function _confirmAccept() {
   document.getElementById('confirmModal').classList.remove('open');
+  document.getElementById('confirmCancelBtn').style.display = '';
   if (_confirmCb) { _confirmCb(); _confirmCb = null; }
 }
 function _confirmReject() {
   document.getElementById('confirmModal').classList.remove('open');
+  document.getElementById('confirmCancelBtn').style.display = '';
   _confirmCb = null;
 }
 
@@ -4159,17 +4174,19 @@ async function addComment() {
 }
 
 async function deleteComment(id) {
-  if (!confirm('Delete this comment?')) return;
-  await api(`/api/comments/${id}`,'DELETE');
-  const taskId = document.getElementById('commentTaskId').value;
-  const taskType = document.getElementById('commentTaskType').value;
-  await loadComments(taskId, taskType);
+  showConfirm({ icon:'💬', title:'Delete Comment?', msg:'Ye comment permanently delete ho jayega.', okLabel:'Delete', okColor:'#dc2626' }, async () => {
+    await api(`/api/comments/${id}`,'DELETE');
+    const taskId = document.getElementById('commentTaskId').value;
+    const taskType = document.getElementById('commentTaskType').value;
+    await loadComments(taskId, taskType);
+  });
 }
 
 async function bulkDelete(userId) {
-  if (!confirm(`Delete all ${tasksType} tasks for this user?`)) return;
-  await api(`/api/tasks/user/${userId}?type=${tasksType}`,'DELETE');
-  loadAllTasks();
+  showConfirm({ icon:'🗑️', title:`Delete All Tasks?`, msg:`Is user ke saare ${tasksType} tasks permanently delete ho jayenge.`, okLabel:'Delete All', okColor:'#dc2626' }, async () => {
+    await api(`/api/tasks/user/${userId}?type=${tasksType}`,'DELETE');
+    loadAllTasks();
+  });
 }
 
 async function transferToday(userId) {
@@ -6402,7 +6419,7 @@ function _shRender() {
   }).join('');
 }
 function _shExportCSV() {
-  if (!_shData.length) { alert('No data to export.'); return; }
+  if (!_shData.length) { showToast('ℹ️ No data to export'); return; }
   const q = ((document.getElementById('shSearch')||{}).value||'').trim().toLowerCase();
   const rows = q ? _shData.filter(r => (r.supName+' '+r.dept+' '+r.cat+' '+r.subcat+' '+r.style+' '+r.article).toLowerCase().includes(q)) : _shData;
   const dateHdrs = _shDates.length ? _shDates.map(d=>'Stock '+d) : ['Avail Stock'];
@@ -6507,7 +6524,7 @@ function _ilExportPDF() {
   const allRows = (_rptData && _rptData.itemLedger) || [];
   const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
   const filtered = q ? allRows.filter(r => (r.supName+' '+r.style+' '+r.cat+' '+r.subcat+' '+r.article).toLowerCase().includes(q)) : allRows;
-  if (!filtered.length) { alert('No data to export.'); return; }
+  if (!filtered.length) { showToast('ℹ️ No data to export'); return; }
   const w = window.open('', '_blank', 'width=1200,height=850,scrollbars=1');
   if (!w) { showToast('Pop-ups blocked — allow pop-ups and try again','error'); return; }
   const fmtP = v => v > 0 ? '+₹'+Math.round(v).toLocaleString('en-IN') : v < 0 ? '-₹'+Math.round(Math.abs(v)).toLocaleString('en-IN') : '—';
@@ -6568,7 +6585,7 @@ function _ilExportPDF() {
 
 function _ilExportCSV() {
   const allRows = _rptData && _rptData.itemLedger || [];
-  if (!allRows.length) { alert('No data to export.'); return; }
+  if (!allRows.length) { showToast('ℹ️ No data to export'); return; }
   const esc = s => `"${String(s||'').replace(/"/g,'""')}"`;
   const q = ((document.getElementById('ilSearch')||{}).value||'').trim().toLowerCase();
   const date = new Date().toISOString().slice(0,10);
@@ -9866,12 +9883,13 @@ function showFMSStepData(steps, idx) {
 }
 
 async function deleteFMSSheet(id) {
-  if (!confirm('Delete this FMS? This cannot be undone!')) return;
-  await api(`/api/fms/${id}`,'DELETE');
-  fmsActiveId = null;
-  document.getElementById('fmsDetailView').style.display='none';
-  showToast('FMS deleted!');
-  loadFMSAdmin();
+  showConfirm({ icon:'🗑️', title:'Delete FMS Sheet?', msg:'Ye FMS sheet permanently delete ho jayegi. This cannot be undone!', okLabel:'Delete', okColor:'#dc2626' }, async () => {
+    await api(`/api/fms/${id}`,'DELETE');
+    fmsActiveId = null;
+    document.getElementById('fmsDetailView').style.display='none';
+    showToast('FMS deleted!');
+    loadFMSAdmin();
+  });
 }
 
 // ── Edit FMS ──
@@ -11206,18 +11224,17 @@ async function _doBulkDelete(tasks) {
     document.getElementById('bulkDeleteErr').style.display = 'block';
     return;
   }
-  if (!confirm(`${tasks.length} task(s) permanently delete karna chahte ho?`)) return;
-
-  let deleted = 0, skipped = 0;
-  for (const t of tasks) {
-    const r = await api(`/api/tasks/${t.id}?type=${t.taskType}&skipCompleted=1`, 'DELETE');
-    if (r.error) skipped++;
-    else deleted++;
-  }
-
-  closeModal('bulkDeleteModal');
-  showToast(`🗑 ${deleted} task(s) deleted${skipped ? ` (${skipped} skipped)` : ''}!`);
-  loadAllTasks();
+  showConfirm({ icon:'⚠️', title:'Bulk Delete?', msg:`${tasks.length} task(s) permanently delete honge.\nCompleted tasks safe hain — wo delete nahi hongi.`, okLabel:'Delete', okColor:'#dc2626' }, async () => {
+    let deleted = 0, skipped = 0;
+    for (const t of tasks) {
+      const r = await api(`/api/tasks/${t.id}?type=${t.taskType}&skipCompleted=1`, 'DELETE');
+      if (r.error) skipped++;
+      else deleted++;
+    }
+    closeModal('bulkDeleteModal');
+    showToast(`🗑 ${deleted} task(s) deleted${skipped ? ` (${skipped} skipped)` : ''}!`);
+    loadAllTasks();
+  });
 }
 
 async function bulkDeleteAll() { await _doBulkDelete(_bdDateTasks); }
@@ -11251,47 +11268,37 @@ function onBdYearUserChange() {
 async function openDelete12MonthsConfirm() {
   const freqSel = document.getElementById('bdYearFreq');
   const freq = freqSel.value;
-  if (!freq) { alert('Please select a frequency category first (daily / weekly / monthly)!'); freqSel.focus(); return; }
+  if (!freq) { showToast('⚠️ Pehle frequency category select karo (daily / weekly / monthly)!'); freqSel.focus(); return; }
 
   const sel = document.getElementById('bdYearUser');
   const userId = sel.value;
-  if (!userId) { alert('Please select an employee!'); return; }
+  if (!userId) { showToast('⚠️ Koi employee select karo!'); return; }
 
   const userName = sel.options[sel.selectedIndex].text;
   const userEmail = sel.options[sel.selectedIndex]?.dataset?.email || '';
   const freqLabel = freqSel.options[freqSel.selectedIndex].text;
 
-  // Fetch count for this user + frequency (completed automatically excluded server-side)
   const data = await api(`/api/tasks/checklist-year-count?userId=${userId}&year=all&frequency=${encodeURIComponent(freq)}`);
-  if (data.error) { alert('Error: ' + data.error); return; }
+  if (data.error) { showToast('❌ Error: ' + data.error); return; }
 
   const count = data.count || 0;
   if (count === 0) {
-    alert(`${userName} — no deletable tasks found in category (${freqLabel}) ).\n\nNote: Completed tasks are never included in bulk delete — they are safe.`);
+    showAlert({ icon:'ℹ️', title:'Koi Task Nahi Mila', msg:`${userName} — "${freqLabel}" category me koi deletable task nahi mila.\n\nCompleted tasks always safe hain — wo kabhi delete nahi hongi.` });
     return;
   }
 
-  const confirmed = confirm(
-    `⚠️ CONFIRM DELETE\n\n` +
-    `Employee: ${userName}\n` +
-    `Email: ${userEmail}\n` +
-    `Category: ${freqLabel}\n\n` +
-    `Pending/Revised Tasks to Delete: ${count}\n` +
-    `(Completed tasks SAFE — wo delete nahi hongi)\n\n` +
-    `Ye ${count} tasks will be permanently deleted and cannot be recovered!\n\n` +
-    `Proceed karna hai?`
-  );
-  if (!confirmed) return;
-
-  const result = await api('/api/tasks/checklist-year-delete', 'POST', {
-    userId: parseInt(userId),
-    frequency: freq
+  showConfirm({
+    icon: '⚠️',
+    title: 'Confirm Delete',
+    msg: `Employee: ${userName}\nEmail: ${userEmail}\nCategory: ${freqLabel}\n\nDelete honge: ${count} task(s)\n(Completed tasks SAFE — wo delete nahi hongi)\n\nYe tasks permanently delete ho jayenge!`,
+    okLabel: 'Delete', okColor: '#dc2626'
+  }, async () => {
+    const result = await api('/api/tasks/checklist-year-delete', 'POST', { userId: parseInt(userId), frequency: freq });
+    if (result.error) { showToast('❌ Error: ' + result.error); return; }
+    closeModal('bulkDeleteModal');
+    showToast(`🗑 ${result.deleted} ${freqLabel} checklist task(s) deleted for ${userName}!`);
+    loadAllTasks();
   });
-  if (result.error) { alert('Error: ' + result.error); return; }
-
-  closeModal('bulkDeleteModal');
-  showToast(`🗑 ${result.deleted} ${freqLabel} checklist task(s) deleted for ${userName}!`);
-  loadAllTasks();
 }
 
 
