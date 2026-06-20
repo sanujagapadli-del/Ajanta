@@ -3652,7 +3652,10 @@ function renderDashTable(tasks, type) {
     } else if (rs === 'rejected') {
       rowStyle = 'background:#fef2f2';
       actions = `<span style="font-size:11px;background:#fee2e2;color:#dc2626;padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid #fecaca">❌ Revision Rejected</span>`;
-      if (!isPC) actions += ` <button class="action-btn revise" style="margin-left:4px" onclick="openReviseModal(${t.id},'${t.type}')">Revise Again</button>`;
+      if (!isPC) {
+        actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>`;
+        actions += ` <button class="action-btn revise" style="margin-left:4px" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
+      }
     } else if (isRevised) {
       rowStyle = 'background:#fffdf0';
       actions = `<span style="font-size:11px;background:#fffbeb;color:#d97706;padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid #fde68a">🔄 Revision Applied</span>`;
