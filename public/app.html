@@ -573,18 +573,12 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <!-- PC-only: user filter + date range (desktop only) -->
+        <!-- PC-only: employee filter -->
         <div id="tasksUserDateFilters" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
           <select id="tasksUserFilter" onchange="filterTasks()"
             style="padding:7px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff">
             <option value="all">All Employees</option>
           </select>
-          <input type="date" id="tasksDateFrom" onchange="filterTasks()"
-            style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff">
-          <span style="font-size:12px;color:#94a3b8">to</span>
-          <input type="date" id="tasksDateTo" onchange="filterTasks()"
-            style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff">
-          <button onclick="clearTasksDateFilter()" style="padding:6px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:12px;background:#fff;cursor:pointer;color:#64748b">✕ Clear</button>
         </div>
         <div style="position:relative">
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8">🔍</span>
@@ -600,11 +594,22 @@ tbody tr:last-child td{border-bottom:none;}
           style="color:#dc2626;border-color:#fecaca;display:none">🗑 Bulk Delete</button>
       </div>
     </div>
-    <!-- Status filter tabs -->
-    <div style="display:flex;gap:8px;margin-bottom:16px;">
+    <!-- Status filter tabs + date range -->
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
       <div class="tab-group">
         <div class="tab active" id="statusTabPending" onclick="filterTaskStatus('pending',this)">Pending</div>
         <div class="tab" id="statusTabCompleted" onclick="filterTaskStatus('completed',this)">Completed</div>
+      </div>
+      <!-- Date range filter — all roles -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:10px;font-weight:800;color:#b6bfd4;letter-spacing:.16em;text-transform:uppercase">Due Date</span>
+        <input type="date" id="tasksDateFrom" onchange="filterTasks()"
+          style="padding:7px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff;transition:border-color .15s">
+        <span style="font-size:11px;color:#c4cbdc;font-weight:700">→</span>
+        <input type="date" id="tasksDateTo" onchange="filterTasks()"
+          style="padding:7px 10px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:#0f172a;background:#fafbff;transition:border-color .15s">
+        <button id="tasksDateClearBtn" onclick="clearTasksDateFilter()"
+          style="display:none;padding:7px 12px;border:1.5px solid #fecaca;border-radius:10px;font-size:12px;font-weight:600;background:#fff5f5;cursor:pointer;color:#dc2626;transition:all .15s">✕ Clear</button>
       </div>
     </div>
     <div id="tasksContent"></div>
@@ -3691,12 +3696,24 @@ async function loadAllTasks() {
 function clearTasksDateFilter() {
   const f = document.getElementById('tasksDateFrom');
   const t = document.getElementById('tasksDateTo');
-  if (f) f.value = '';
-  if (t) t.value = '';
+  if (f) { f.value = ''; f.style.borderColor = '#e8ecf8'; }
+  if (t) { t.value = ''; t.style.borderColor = '#e8ecf8'; }
+  const clr = document.getElementById('tasksDateClearBtn');
+  if (clr) clr.style.display = 'none';
   filterTasks();
 }
 
-function filterTasks() { allTasksPage = 1; renderTasksTable(); }
+function filterTasks() {
+  allTasksPage = 1;
+  const f = document.getElementById('tasksDateFrom');
+  const t = document.getElementById('tasksDateTo');
+  const clr = document.getElementById('tasksDateClearBtn');
+  if (clr) clr.style.display = (f?.value || t?.value) ? '' : 'none';
+  // Highlight active date inputs
+  if (f) f.style.borderColor = f.value ? '#6366f1' : '#e8ecf8';
+  if (t) t.style.borderColor = t.value ? '#6366f1' : '#e8ecf8';
+  renderTasksTable();
+}
 
 function filterTaskStatus(status, el) {
   taskStatusFilter = status;
