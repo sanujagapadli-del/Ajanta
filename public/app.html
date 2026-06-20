@@ -2215,11 +2215,21 @@ tbody tr:last-child td{border-bottom:none;}
         </select>
       </div>
     </div>
+    <div class="form-group">
+      <label>Title</label>
+      <input type="text" id="dTitle" placeholder="Short task title…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+    </div>
     <div class="form-row">
+      <div class="form-group">
+        <label>Start Date</label>
+        <input type="date" id="dStartDate"/>
+      </div>
       <div class="form-group">
         <label>Due Date</label>
         <input type="date" id="dDate"/>
       </div>
+    </div>
+    <div class="form-row">
       <div class="form-group">
         <label>Priority</label>
         <select id="dPriority">
@@ -2229,10 +2239,10 @@ tbody tr:last-child td{border-bottom:none;}
           <option value="urgent">Urgent</option>
         </select>
       </div>
-    </div>
-    <div class="form-group">
-      <label>Link <span style="color:#94a3b8;font-weight:400;font-size:11px">(optional)</span></label>
-      <input type="url" id="dLink" placeholder="https://…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+      <div class="form-group">
+        <label>Link <span style="color:#94a3b8;font-weight:400;font-size:11px">(optional)</span></label>
+        <input type="url" id="dLink" placeholder="https://…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+      </div>
     </div>
     <div class="form-group">
       <label>Description</label>
@@ -2298,8 +2308,12 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div class="form-group">
+      <label>Title</label>
+      <input type="text" id="cTitle" placeholder="Short task title…"/>
+    </div>
+    <div class="form-group">
       <label>Task Name / Description</label>
-      <input type="text" id="cDesc" placeholder="Enter task name…"/>
+      <input type="text" id="cDesc" placeholder="Enter task description…"/>
     </div>
 
     <div class="form-group">
@@ -2584,10 +2598,18 @@ tbody tr:last-child td{border-bottom:none;}
     <input type="hidden" id="editTType"/>
     <div class="alert error" id="editTaskErr"></div>
     <div class="form-group">
+      <label>Title</label>
+      <input type="text" id="editTTitle" placeholder="Short task title…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+    </div>
+    <div class="form-group">
       <label>Description</label>
       <textarea id="editTDesc" style="min-height:70px;width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:vertical"></textarea>
     </div>
     <div class="form-row">
+      <div class="form-group">
+        <label>Start Date</label>
+        <input type="date" id="editTStartDate"/>
+      </div>
       <div class="form-group">
         <label>Due Date</label>
         <input type="date" id="editTDate"/>
@@ -4095,7 +4117,9 @@ async function openEditTask(id, type) {
 
   document.getElementById('editTId').value = id;
   document.getElementById('editTType').value = type;
+  document.getElementById('editTTitle').value = t.title || '';
   document.getElementById('editTDesc').value = t.description || '';
+  document.getElementById('editTStartDate').value = t.start_date || '';
   document.getElementById('editTDate').value = t.due_date || '';
   document.getElementById('editTRemarks').value = t.remarks || '';
   document.getElementById('editTaskErr').style.display = 'none';
@@ -4113,18 +4137,20 @@ async function openEditTask(id, type) {
 }
 
 async function saveEditTask() {
-  const id      = document.getElementById('editTId').value;
-  const type    = document.getElementById('editTType').value;
-  const desc    = document.getElementById('editTDesc').value.trim();
-  const date    = document.getElementById('editTDate').value;
-  const remarks = document.getElementById('editTRemarks').value.trim();
-  const err     = document.getElementById('editTaskErr');
+  const id        = document.getElementById('editTId').value;
+  const type      = document.getElementById('editTType').value;
+  const title     = document.getElementById('editTTitle').value.trim();
+  const desc      = document.getElementById('editTDesc').value.trim();
+  const startDate = document.getElementById('editTStartDate').value;
+  const date      = document.getElementById('editTDate').value;
+  const remarks   = document.getElementById('editTRemarks').value.trim();
+  const err       = document.getElementById('editTaskErr');
   err.style.display = 'none';
 
   if (!desc) { err.textContent='Description required'; err.style.display='block'; return; }
   if (!date)  { err.textContent='Date required'; err.style.display='block'; return; }
 
-  const body = { desc, date, remarks, type };
+  const body = { title, desc, startDate, date, remarks, type };
   if (type === 'delegation') {
     body.priority = document.getElementById('editTPriority').value;
     body.approval = document.getElementById('editTApproval').value;
@@ -4224,17 +4250,19 @@ async function openDelegate() {
 async function saveDelegate() {
   const err = document.getElementById('delegateErr');
   err.style.display='none';
-  const doer = document.getElementById('dDoer').value;
-  const date = document.getElementById('dDate').value;
-  const desc = document.getElementById('dDesc').value.trim();
-  const priority = document.getElementById('dPriority').value;
-  const approval = document.getElementById('dApproval').value;
-  const remarks = document.getElementById('dRemarks').value.trim();
-  const link = document.getElementById('dLink').value.trim();
+  const doer      = document.getElementById('dDoer').value;
+  const title     = document.getElementById('dTitle').value.trim();
+  const startDate = document.getElementById('dStartDate').value;
+  const date      = document.getElementById('dDate').value;
+  const desc      = document.getElementById('dDesc').value.trim();
+  const priority  = document.getElementById('dPriority').value;
+  const approval  = document.getElementById('dApproval').value;
+  const remarks   = document.getElementById('dRemarks').value.trim();
+  const link      = document.getElementById('dLink').value.trim();
   if (!doer) { err.textContent='Please select a doer'; err.style.display='block'; return; }
-  if (!date) { err.textContent='Please select a date'; err.style.display='block'; return; }
+  if (!date) { err.textContent='Please select a due date'; err.style.display='block'; return; }
   if (!desc) { err.textContent='Description is required'; err.style.display='block'; return; }
-  await api('/api/tasks','POST',{type:'delegation',desc,assignedTo:doer,date,priority,approval,remarks,link});
+  await api('/api/tasks','POST',{type:'delegation',title,desc,assignedTo:doer,startDate,date,priority,approval,remarks,link});
   closeModal('delegateModal');
   showToast('Task delegated successfully!');
   loadDashboard();
@@ -4246,6 +4274,7 @@ async function saveDelegate() {
 async function openChecklist() {
   document.getElementById('checklistErr').style.display='none';
   document.getElementById('checklistSuccess').style.display='none';
+  document.getElementById('cTitle').value='';
   document.getElementById('cDesc').value='';
   document.getElementById('cRemarks').value='';
   document.getElementById('cFrequency').value='daily';
@@ -4346,6 +4375,7 @@ async function saveChecklist() {
   err.style.display='none'; suc.style.display='none';
 
   const doer    = document.getElementById('cDoer').value;
+  const title   = document.getElementById('cTitle').value.trim();
   const date    = document.getElementById('cDate').value;
   const desc    = document.getElementById('cDesc').value.trim();
   const remarks = document.getElementById('cRemarks').value.trim();
@@ -4353,7 +4383,7 @@ async function saveChecklist() {
 
   if (!doer) { err.textContent='Please select an employee'; err.style.display='block'; return; }
   if (!date) { err.textContent='Please select a start date'; err.style.display='block'; return; }
-  if (!desc) { err.textContent='Task name is required'; err.style.display='block'; return; }
+  if (!desc) { err.textContent='Task description is required'; err.style.display='block'; return; }
 
   const btn = document.getElementById('cGenerateBtn');
   btn.disabled=true; btn.textContent='Generating…';
@@ -4367,7 +4397,7 @@ async function saveChecklist() {
   const dates = generateDates(date, freq, weekOff, extraOff);
 
   const result = await api('/api/tasks/bulk-checklist','POST',{
-    desc, assignedTo: doer, priority: 'low', remarks, dates, frequency: freq
+    title, desc, assignedTo: doer, priority: 'low', remarks, dates, frequency: freq, startDate: date
   });
 
   btn.disabled=false; btn.textContent='Generate Tasks';

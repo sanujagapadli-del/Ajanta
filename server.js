@@ -838,7 +838,7 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
 
 app.post('/api/tasks', requireAuth, async (req, res) => {
   try {
-    const { type, desc, assignedTo, approverEmail, date, priority, approval, remarks, link } = req.body;
+    const { type, title, desc, assignedTo, approverEmail, startDate, date, priority, approval, remarks, link } = req.body;
     const isAdmin = req.session.role === 'admin';
     const isHod   = req.session.role === 'hod';
     const isUser  = req.session.role === 'user';
@@ -852,7 +852,7 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
         const [aprRows] = await db.query('SELECT id FROM users WHERE email=? LIMIT 1', [approverEmail]);
         if (aprRows.length) assignedBy = aprRows[0].id;
       }
-      await db.query(`INSERT INTO delegation_tasks (description,assigned_to,assigned_by,due_date,status,priority,approval,remarks,link) VALUES (?,?,?,?,?,?,?,?,?)`, [desc, targetUser, assignedBy, date, 'pending', priority||'low', approval||'no', remarks||'', link||'']);
+      await db.query(`INSERT INTO delegation_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,approval,remarks,link) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, assignedBy, startDate||'', date, 'pending', priority||'low', approval||'no', remarks||'', link||'']);
       // 📧 Send delegation email (non-blocking — fire and forget)
       (async () => {
         const target = await getNotifyTarget(targetUser);
@@ -873,7 +873,7 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
         );
       })();
     } else {
-      await db.query(`INSERT INTO checklist_tasks (description,assigned_to,assigned_by,due_date,status,priority,remarks) VALUES (?,?,?,?,?,?,?)`, [desc, targetUser, req.session.userId, date, 'pending', priority||'low', remarks||'']);
+      await db.query(`INSERT INTO checklist_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,remarks) VALUES (?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, req.session.userId, startDate||'', date, 'pending', priority||'low', remarks||'']);
     }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -881,7 +881,7 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
 
 app.post('/api/tasks/bulk-checklist', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { desc, assignedTo, priority, remarks, dates, frequency } = req.body;
+    const { title, desc, assignedTo, priority, remarks, dates, frequency, startDate } = req.body;
     if (!desc || !assignedTo || !dates || !dates.length) return res.status(400).json({ error: 'Missing fields' });
     const freq = (frequency || '').toLowerCase().trim();
     // Normalize & validate dates: accept YYYY-MM-DD and DD/MM/YYYY; reject NaN/invalid
@@ -895,8 +895,8 @@ app.post('/api/tasks/bulk-checklist', requireAuth, requireAdmin, async (req, res
       return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
     }).filter(Boolean);
     if (!normalizeDates.length) return res.status(400).json({ error: 'No valid dates generated — check start_date format (use DD/MM/YYYY or YYYY-MM-DD)' });
-    const values = normalizeDates.map(date => [desc, parseInt(assignedTo), req.session.userId, date, 'pending', priority||'low', remarks||'', freq]);
-    await db.query(`INSERT INTO checklist_tasks (description,assigned_to,assigned_by,due_date,status,priority,remarks,frequency) VALUES ?`, [values]);
+    const values = normalizeDates.map((date, i) => [title||'', desc, parseInt(assignedTo), req.session.userId, i===0 ? (startDate||date) : date, date, 'pending', priority||'low', remarks||'', freq]);
+    await db.query(`INSERT INTO checklist_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,remarks,frequency) VALUES ?`, [values]);
     res.json({ success: true, count: normalizeDates.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -948,7 +948,7 @@ app.get('/api/tasks/:id/detail', requireAuth, requireAdmin, async (req, res) => 
   try {
     const { type } = req.query;
     const table = getTable(type||'delegation');
-    const [rows] = await db.query(`SELECT t.*,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM ${table} t WHERE t.id=?`, [parseInt(req.params.id, 10)]);
+    const [rows] = await db.query(`SELECT t.*,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM ${table} t WHERE t.id=?`, [parseInt(req.params.id, 10)]);
     if (!rows[0]) return res.status(404).json({ error: 'Task not found' });
     res.json({ task: rows[0] });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -956,11 +956,11 @@ app.get('/api/tasks/:id/detail', requireAuth, requireAdmin, async (req, res) => 
 
 app.put('/api/tasks/:id/edit', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { type, desc, date, priority, approval, remarks } = req.body;
+    const { type, title, desc, startDate, date, priority, approval, remarks } = req.body;
     const table = getTable(type||'delegation');
     const taskId = parseInt(req.params.id, 10);
-    if (type === 'delegation') await db.query(`UPDATE ${table} SET description=?,due_date=?,priority=?,approval=?,remarks=? WHERE id=?`, [desc, date, priority||'low', approval||'no', remarks||'', taskId]);
-    else await db.query(`UPDATE ${table} SET description=?,due_date=?,remarks=? WHERE id=?`, [desc, date, remarks||'', taskId]);
+    if (type === 'delegation') await db.query(`UPDATE ${table} SET title=?,description=?,start_date=?,due_date=?,priority=?,approval=?,remarks=? WHERE id=?`, [title||'', desc, startDate||'', date, priority||'low', approval||'no', remarks||'', taskId]);
+    else await db.query(`UPDATE ${table} SET title=?,description=?,start_date=?,due_date=?,remarks=? WHERE id=?`, [title||'', desc, startDate||'', date, remarks||'', taskId]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
