@@ -217,6 +217,52 @@ tbody tr:last-child td{border-bottom:none;}
 .alert.error{background:#fef2f2;border:1.5px solid #fecaca;color:#dc2626;}
 .empty{text-align:center;padding:40px;color:#c4cbdc;font-size:13px;}
 
+/* ── Tasks page card + skeleton ── */
+#tasksContent {
+  background:#fff;border-radius:14px;border:1px solid #eef2ff;
+  overflow:hidden;box-shadow:0 1px 10px rgba(79,70,229,.05);min-height:100px;
+}
+.tasks-empty {
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:60px 24px;text-align:center;
+}
+.tasks-empty-icon { font-size:44px;margin-bottom:14px;line-height:1; }
+.tasks-empty-title { font-size:15px;font-weight:700;color:#334155;margin-bottom:6px; }
+.tasks-empty-sub { font-size:12px;color:#94a3b8;line-height:1.7;max-width:280px; }
+
+/* ── Shimmer skeleton ── */
+.sk-wrap { padding:0; }
+.sk-row {
+  display:flex;align-items:center;gap:14px;
+  padding:14px 16px;border-bottom:1px solid #f3f4ff;
+}
+.sk-row:last-child { border-bottom:none; }
+.sk-box {
+  background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%);
+  background-size:200% 100%;
+  animation:sk-shimmer 1.4s ease-in-out infinite;
+  border-radius:6px;flex-shrink:0;
+}
+@keyframes sk-shimmer {
+  0%   { background-position:200% 0 }
+  100% { background-position:-200% 0 }
+}
+
+/* ── Page title strip ── */
+.tasks-page-title {
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:20px;
+}
+.tasks-page-title h2 {
+  font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-.03em;
+}
+.tasks-count-badge {
+  display:inline-flex;align-items:center;gap:5px;
+  padding:4px 12px;border-radius:20px;
+  background:#eef2ff;color:#4f46e5;
+  font-size:11px;font-weight:700;letter-spacing:.03em;
+}
+
 .action-btn{padding:5px 11px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:none;font-family:'Inter',sans-serif;transition:all .15s;}
 .action-btn.done{background:#f0fdf4;color:#16a34a;}.action-btn.done:hover{background:#dcfce7;}
 .action-btn.revise{background:#fffbeb;color:#d97706;}.action-btn.revise:hover{background:#fef3c7;}
@@ -565,6 +611,10 @@ tbody tr:last-child td{border-bottom:none;}
 
   <!-- ── ALL TASKS ── -->
   <div id="page-alltasks" class="page">
+    <div class="tasks-page-title">
+      <h2>All Tasks</h2>
+      <span id="tasksCountBadge" class="tasks-count-badge" style="display:none">0 tasks</span>
+    </div>
     <div class="page-header">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <div class="tab-group" id="tasksTypeTabGroup">
@@ -3638,6 +3688,12 @@ async function loadAllTasks() {
   const isUser = ME.role==='user';
   const isDesktop = window.innerWidth >= 768;
 
+  // Show skeleton loader while fetching
+  const _tc = document.getElementById('tasksContent');
+  if (_tc) _tc.innerHTML = _taskSkeleton();
+  const _badge = document.getElementById('tasksCountBadge');
+  if (_badge) _badge.style.display = 'none';
+
   // Show/hide assign task button based on role
   const assignBtn = document.getElementById('tasksAssignBtn');
   if (assignBtn) assignBtn.style.display = (isAdmin || isHod || isUser) ? '' : 'none';
@@ -3703,6 +3759,19 @@ function clearTasksDateFilter() {
   filterTasks();
 }
 
+function _taskSkeleton() {
+  const row = `<div class="sk-row">
+    <div class="sk-box" style="width:30px;height:30px;border-radius:8px"></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+      <div class="sk-box" style="width:55%;height:12px"></div>
+      <div class="sk-box" style="width:30%;height:10px"></div>
+    </div>
+    <div class="sk-box" style="width:70px;height:22px;border-radius:20px;margin-right:8px"></div>
+    <div class="sk-box" style="width:60px;height:22px;border-radius:20px"></div>
+  </div>`;
+  return `<div class="sk-wrap">${row.repeat(7)}</div>`;
+}
+
 function filterTasks() {
   allTasksPage = 1;
   const f = document.getElementById('tasksDateFrom');
@@ -3749,8 +3818,20 @@ function renderTasksTable() {
     return matchStatus && matchSearch && matchUser && matchDateFrom && matchDateTo;
   });
 
+  // Update count badge
+  const _badge = document.getElementById('tasksCountBadge');
+  if (_badge) {
+    _badge.textContent = `${tasks.length} task${tasks.length===1?'':'s'}`;
+    _badge.style.display = '';
+  }
+
   if (!tasks.length) {
-    container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">No tasks found</div>`;
+    const hasFilter = (document.getElementById('tasksDateFrom')?.value || document.getElementById('tasksDateTo')?.value || search);
+    container.innerHTML = `<div class="tasks-empty">
+      <div class="tasks-empty-icon">${hasFilter ? '🔍' : '📋'}</div>
+      <div class="tasks-empty-title">${hasFilter ? 'No matching tasks' : 'No tasks yet'}</div>
+      <div class="tasks-empty-sub">${hasFilter ? 'Try adjusting the date range, search, or status filter.' : 'Tasks will appear here once assigned.'}</div>
+    </div>`;
     return;
   }
 
