@@ -1787,9 +1787,11 @@ app.put('/api/users/:id/deactivate', requireAuth, requireAdmin, async (req, res)
     if (parseInt(uid) === req.session.userId) return res.status(400).json({ error: 'Cannot deactivate yourself' });
     const { taskAssignments } = req.body;
     if (Array.isArray(taskAssignments) && taskAssignments.length) {
-      for (const { taskId, assignTo } of taskAssignments) {
-        if (taskId && assignTo) {
-          await db.query('UPDATE checklist_tasks SET assigned_to=? WHERE id=?', [assignTo, taskId]);
+      for (const { taskIds, assignTo } of taskAssignments) {
+        if (Array.isArray(taskIds) && assignTo) {
+          for (const tid of taskIds) {
+            await db.query('UPDATE checklist_tasks SET assigned_to=? WHERE id=?', [assignTo, tid]);
+          }
         }
       }
     }
