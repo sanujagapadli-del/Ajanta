@@ -3896,9 +3896,11 @@ function renderTasksTable() {
         const freqTd = isChecklist ? `<td style="font-size:11px;color:#6366f1;font-weight:600;white-space:nowrap">${t.frequency||'—'}</td>` : '';
         const statusLabel = t.status==='revised'?'Revision Req':t.status.charAt(0).toUpperCase()+t.status.slice(1);
         return `<tr>
+          <td style="font-size:11px;color:#64748b;white-space:nowrap">${t.assignedToDept||'—'}</td>
           ${freqTd}
           <td><span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span></td>
-          <td style="max-width:280px">${t.description||''}</td>
+          <td style="max-width:260px">${t.description||''}</td>
+          <td style="white-space:nowrap;font-size:12px;color:#1e293b;font-weight:600">${t.assignedToName||'—'}</td>
           <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}</td>
           <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
           <td style="white-space:nowrap">${_taskActionBtns(t, true, isChecklist)}</td>
@@ -3917,10 +3919,10 @@ function renderTasksTable() {
           <span id="empArrow_${uid}" style="color:#94a3b8;font-size:12px;margin-left:4px">${isSelf?'▼':'▶'}</span>
         </div>
         <div id="empBody_${uid}" style="overflow-x:auto;${isSelf?'':'display:none'}">
-          <table style="min-width:600px">
+          <table style="min-width:760px">
             <thead><tr style="background:#f8f9ff">
-              ${freqTh}
-              <th>Priority</th><th>Description</th><th>Due Date</th><th>Status</th><th>Action</th>
+              <th>Department</th>${freqTh}
+              <th>Priority</th><th>Description</th><th>Assigned To</th><th>Due Date</th><th>Status</th><th>Action</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
@@ -3940,11 +3942,12 @@ function renderTasksTable() {
     const statusLabel = t.status==='revised'?'Revision Requested':t.status.charAt(0).toUpperCase()+t.status.slice(1);
     return `<tr>
       <td style="white-space:nowrap">${_taskActionBtns(t, false, isChecklist)}</td>
+      <td style="font-size:11px;color:#64748b;white-space:nowrap">${t.assignedToDept||'—'}</td>
       ${freqTd}
       <td><span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span></td>
       <td>${t.description||''}</td>
+      <td style="white-space:nowrap;font-size:12px;color:#1e293b;font-weight:600">${t.assignedToName||'—'}</td>
       <td style="white-space:nowrap">${fmtDate(t.due_date||'')||'—'}</td>
-      <td style="color:#64748b;font-size:12px">${t.remarks||'—'}</td>
       <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
     </tr>`;
   }).join('');
@@ -3955,8 +3958,8 @@ function renderTasksTable() {
       <button onclick="if(allTasksPage<${totalPages}){allTasksPage++;renderTasksTable();}" style="padding:4px 12px;border:1.5px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;${allTasksPage===totalPages?'opacity:.4;cursor:not-allowed;pointer-events:none;':''}">Next ▶</button>
     </div>` : '';
   container.innerHTML = `<div class="flat-tasks-table"><div style="overflow-x:auto">
-    <table style="min-width:600px"><thead><tr>
-      <th>Action</th>${freqTh}<th>Priority</th><th>Description</th><th>Due Date</th><th>Remarks</th><th>Status</th>
+    <table style="min-width:760px"><thead><tr>
+      <th>Action</th><th>Department</th>${freqTh}<th>Priority</th><th>Description</th><th>Assigned To</th><th>Due Date</th><th>Status</th>
     </tr></thead><tbody>${pageRows}</tbody></table></div>${paginationHtml}</div>`;
 }
 
