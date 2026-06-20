@@ -4724,7 +4724,7 @@ function renderUsersTable(users) {
   users.forEach((u, idx) => { _usersMap[u.id] = u; _usersArr[idx] = u; });
   const roleLabel = r => r==='admin'?'👑 Admin':r==='hod'?'🏢 HOD':r==='pc'?'🖥️ PC':'👤 User';
   tbody.innerHTML = users.map((u, idx)=>{
-    const isActive = u.is_active == null || +u.is_active === 1;
+    const isActive = u.is_active === '' || u.is_active == null || +u.is_active !== 0;
     const statusBadge = isActive
       ? `<span style="background:#dcfce7;color:#16a34a;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px">Active</span>`
       : `<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px">Inactive</span>`;

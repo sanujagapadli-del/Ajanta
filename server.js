@@ -97,7 +97,18 @@ const db = require('./sheets-db');
 // Schema is defined in sheets-db.js — no runtime migrations needed for Sheets.
 // init() loads all tabs into in-memory store on boot.
 const _dbReady = db.init()
-  .then(() => console.log('  ✅ Sheets DB ready'))
+  .then(async () => {
+    console.log('  ✅ Sheets DB ready');
+    // Migration: set is_active=1 for users where it is null/empty (added after initial deploy)
+    try {
+      const [rows] = await db.query('SELECT id, is_active FROM users');
+      for (const u of rows) {
+        if (u.is_active === '' || u.is_active === null || u.is_active === undefined) {
+          await db.query('UPDATE users SET is_active=1 WHERE id=?', [u.id]);
+        }
+      }
+    } catch(e) { console.warn('  ⚠️ is_active migration skipped:', e.message); }
+  })
   .catch(err => {
     console.error('  ❌ Sheets DB init failed:', err.message);
     console.error('  💡 Set GOOGLE_SHEET_ID in .env and share the sheet with the service account.');
@@ -1733,8 +1744,9 @@ app.get('/api/users/with-pending-tasks', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,COALESCE(is_active,1) AS is_active FROM users ORDER BY role DESC,name ASC');
-    res.json(rows);
+    const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,is_active FROM users ORDER BY role DESC,name ASC');
+    // Treat null/empty string as active (1) — existing users before is_active column had '' in sheet
+    res.json(rows.map(r => ({ ...r, is_active: (r.is_active === '' || r.is_active === null || r.is_active === undefined) ? 1 : +r.is_active })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1805,6 +1817,21 @@ app.put('/api/users/:id/activate', requireAuth, requireAdmin, async (req, res) =
   try {
     await db.query('UPDATE users SET is_active=1 WHERE id=?', [req.params.id]);
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// One-time migration: set is_active=1 for all users where it is null/empty
+app.post('/api/users/fix-active', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT id, is_active FROM users');
+    let fixed = 0;
+    for (const u of rows) {
+      if (u.is_active === '' || u.is_active === null || u.is_active === undefined) {
+        await db.query('UPDATE users SET is_active=1 WHERE id=?', [u.id]);
+        fixed++;
+      }
+    }
+    res.json({ success: true, fixed });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
