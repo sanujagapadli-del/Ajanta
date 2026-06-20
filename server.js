@@ -883,9 +883,20 @@ app.post('/api/tasks/bulk-checklist', requireAuth, requireAdmin, async (req, res
     const { desc, assignedTo, priority, remarks, dates, frequency } = req.body;
     if (!desc || !assignedTo || !dates || !dates.length) return res.status(400).json({ error: 'Missing fields' });
     const freq = (frequency || '').toLowerCase().trim();
-    const values = dates.map(date => [desc, parseInt(assignedTo), req.session.userId, date, 'pending', priority||'low', remarks||'', freq]);
+    // Normalize & validate dates: accept YYYY-MM-DD and DD/MM/YYYY; reject NaN/invalid
+    const normalizeDates = (dates || []).map(d => {
+      if (!d || String(d).includes('NaN')) return null;
+      const s = String(d).trim();
+      // DD/MM/YYYY or D/M/YYYY → YYYY-MM-DD
+      const mDMY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (mDMY) return `${mDMY[3]}-${mDMY[2].padStart(2,'0')}-${mDMY[1].padStart(2,'0')}`;
+      // Must be YYYY-MM-DD
+      return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+    }).filter(Boolean);
+    if (!normalizeDates.length) return res.status(400).json({ error: 'No valid dates generated — check start_date format (use DD/MM/YYYY or YYYY-MM-DD)' });
+    const values = normalizeDates.map(date => [desc, parseInt(assignedTo), req.session.userId, date, 'pending', priority||'low', remarks||'', freq]);
     await db.query(`INSERT INTO checklist_tasks (description,assigned_to,assigned_by,due_date,status,priority,remarks,frequency) VALUES ?`, [values]);
-    res.json({ success: true, count: dates.length });
+    res.json({ success: true, count: normalizeDates.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
