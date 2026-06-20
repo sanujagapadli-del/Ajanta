@@ -4414,7 +4414,7 @@ function generateDates(startDate, freq, weekOffStr, extraOffStr) {
   const d = new Date(iso+'T00:00:00');
   const counts = {daily:365, weekly:52, alternative_week:26, monthly:12, quarterly:4, yearly:1};
   const count = counts[freq];
-  const weekOff = (weekOffStr||'').split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
+  const weekOff = String(weekOffStr ?? '').split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
   let extraOff = [];
   try { extraOff = extraOffStr ? JSON.parse(extraOffStr) : []; } catch(e) {}
 
@@ -4478,8 +4478,8 @@ async function saveChecklist() {
   // Get user's week_off to skip those days
   const allUsers = await api('/api/users');
   const selUser = allUsers.find(u=>String(u.id)===String(doer));
-  const weekOff = selUser?.week_off || '';
-  const extraOff = selUser?.extra_off || '';
+  const weekOff = String(selUser?.week_off ?? '');
+  const extraOff = String(selUser?.extra_off ?? '');
 
   const dates = generateDates(date, freq, weekOff, extraOff);
 
@@ -4659,8 +4659,8 @@ async function uploadCSVC() {
     const user = allUsers.find(u => u.email === user_email);
     if (!user) { skipped++; continue; }
 
-    const weekOff  = user.week_off  || '';
-    const extraOff = user.extra_off || '';
+    const weekOff  = String(user.week_off  ?? '');
+    const extraOff = String(user.extra_off ?? '');
     const dates    = generateDates(start_date, frequency, weekOff, extraOff);
 
     if (!dates.length) { skipped++; continue; }
@@ -4747,7 +4747,7 @@ function renderUsersTable(users) {
 }
 
 function _setWeekOff(s) {
-  const offs = (s||'').split(',').map(x=>x.trim()).filter(Boolean);
+  const offs = String(s ?? '').split(',').map(x=>x.trim()).filter(Boolean);
   document.querySelectorAll('.woff-cb').forEach(cb => { cb.checked = offs.includes(cb.value); });
 }
 function _getWeekOff() {
