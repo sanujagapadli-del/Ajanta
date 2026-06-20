@@ -2579,6 +2579,20 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- PROMPT MODAL (replaces browser prompt()) -->
+<div class="modal-overlay" id="promptModal" onclick="if(event.target===this)_promptReject()">
+  <div class="modal" style="max-width:360px;padding:28px 24px">
+    <div id="promptIcon" style="font-size:34px;margin-bottom:8px;text-align:center">💬</div>
+    <div id="promptTitle" style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:14px;text-align:center">Enter Reason</div>
+    <textarea id="promptInput" rows="3" placeholder="" onkeydown="if(event.key==='Enter'&&event.ctrlKey)_promptAccept()" style="width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:vertical;box-sizing:border-box"></textarea>
+    <div style="font-size:11px;color:#94a3b8;margin-top:4px;text-align:right">Ctrl+Enter to submit</div>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
+      <button onclick="_promptReject()" style="padding:8px 22px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;color:#64748b;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
+      <button onclick="_promptAccept()" style="padding:8px 22px;border:none;border-radius:8px;background:#4f46e5;color:#fff;font-size:13px;font-weight:700;cursor:pointer">OK</button>
+    </div>
+  </div>
+</div>
+
 <!--
      REVISE DATE MODAL
 ══════════════════════════════════════ -->
@@ -4062,6 +4076,27 @@ function _confirmReject() {
   document.getElementById('confirmModal').classList.remove('open');
   document.getElementById('confirmCancelBtn').style.display = '';
   _confirmCb = null;
+}
+
+let _promptCb = null;
+function showPrompt({ icon='💬', title='Enter Reason', placeholder='' }, onSubmit) {
+  document.getElementById('promptIcon').textContent = icon;
+  document.getElementById('promptTitle').textContent = title;
+  const inp = document.getElementById('promptInput');
+  inp.placeholder = placeholder;
+  inp.value = '';
+  _promptCb = onSubmit;
+  document.getElementById('promptModal').classList.add('open');
+  setTimeout(() => inp.focus(), 80);
+}
+function _promptAccept() {
+  const val = document.getElementById('promptInput').value.trim();
+  document.getElementById('promptModal').classList.remove('open');
+  if (_promptCb) { _promptCb(val); _promptCb = null; }
+}
+function _promptReject() {
+  document.getElementById('promptModal').classList.remove('open');
+  _promptCb = null;
 }
 
 async function deleteTask(id, type) {
@@ -8788,11 +8823,19 @@ async function handleApproval(id, action) {
     document.getElementById('revisionApproveModal').classList.add('open');
     return;
   }
-  const note = action === 'rejected' ? prompt('Reason for rejection (optional):') : '';
-  await api(`/api/approvals/${id}`,'PUT',{action, note: note||''});
-  showToast(action === 'approved' ? '✅ Approved!' : '❌ Rejected!');
-  loadApprovals();
-  loadApprovalBadge();
+  if (action === 'rejected') {
+    showPrompt({ icon: '❌', title: 'Reason for Rejection', placeholder: 'Optional reason…' }, async (note) => {
+      await api(`/api/approvals/${id}`,'PUT',{action, note: note||''});
+      showToast('❌ Rejected!');
+      loadApprovals();
+      loadApprovalBadge();
+    });
+  } else {
+    await api(`/api/approvals/${id}`,'PUT',{action, note: ''});
+    showToast('✅ Approved!');
+    loadApprovals();
+    loadApprovalBadge();
+  }
 }
 
 async function confirmRevisionApprove() {
@@ -8805,15 +8848,16 @@ async function confirmRevisionApprove() {
   loadApprovalBadge();
 }
 
-async function confirmRevisionReject() {
+function confirmRevisionReject() {
   if (!_pendingApprovalId) return;
-  const note = prompt('Reason for rejection (optional):') || '';
   closeModal('revisionApproveModal');
-  await api(`/api/approvals/${_pendingApprovalId}`,'PUT',{action:'rejected', note});
-  _pendingApprovalId = null;
-  showToast('❌ Revision Rejected!');
-  loadApprovals();
-  loadApprovalBadge();
+  showPrompt({ icon: '❌', title: 'Reason for Rejection', placeholder: 'Optional reason…' }, async (note) => {
+    await api(`/api/approvals/${_pendingApprovalId}`,'PUT',{action:'rejected', note: note||''});
+    _pendingApprovalId = null;
+    showToast('❌ Revision Rejected!');
+    loadApprovals();
+    loadApprovalBadge();
+  });
 }
 
 async function deleteUser(id) {
@@ -11520,11 +11564,19 @@ async function loadTransferApprovals() {
 }
 
 async function handleTransfer(id, action) {
-  const note = action === 'rejected' ? prompt('Reason (optional):') : '';
-  await api(`/api/transfers/${id}`,'PUT',{ action, note: note||'' });
-  showToast(action === 'approved' ? '✅ Transfer approved!' : '❌ Transfer rejected!');
-  loadTransferApprovals();
-  loadTransferBadge();
+  if (action === 'rejected') {
+    showPrompt({ icon: '❌', title: 'Reason for Rejection', placeholder: 'Optional reason…' }, async (note) => {
+      await api(`/api/transfers/${id}`,'PUT',{ action, note: note||'' });
+      showToast('❌ Transfer rejected!');
+      loadTransferApprovals();
+      loadTransferBadge();
+    });
+  } else {
+    await api(`/api/transfers/${id}`,'PUT',{ action, note: '' });
+    showToast('✅ Transfer approved!');
+    loadTransferApprovals();
+    loadTransferBadge();
+  }
 }
 
 init();
