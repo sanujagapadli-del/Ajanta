@@ -907,7 +907,8 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
     const isAdmin = req.session.role === 'admin';
     const isPC = req.session.role === 'pc';
     const uid = req.session.userId;
-    const [rows] = await db.query(`SELECT * FROM ${table} WHERE id=?`, [req.params.id]);
+    const taskId = parseInt(req.params.id, 10);
+    const [rows] = await db.query(`SELECT * FROM ${table} WHERE id=?`, [taskId]);
     if (!rows[0]) return res.status(404).json({ error: 'Task not found' });
     const task = rows[0];
     if (!isAdmin && !isPC && task.assigned_to !== uid) return res.status(403).json({ error: 'Not allowed' });
@@ -915,9 +916,9 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
     const nowTs = new Date().toISOString().slice(0,19).replace('T',' ');
     const completedAt = status === 'completed' ? nowTs : null;
     if (status === 'completed' && task.waiting_approval) {
-      await db.query(`DELETE FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending'`, [req.params.id, type]);
-      if (type === 'checklist') await db.query(`UPDATE ${table} SET status='completed',completed_at=? WHERE id=?`, [nowTs, req.params.id]);
-      else await db.query(`UPDATE ${table} SET status='completed',waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [nowTs, req.params.id]);
+      await db.query(`DELETE FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending'`, [taskId, type]);
+      if (type === 'checklist') await db.query(`UPDATE ${table} SET status='completed',completed_at=? WHERE id=?`, [nowTs, taskId]);
+      else await db.query(`UPDATE ${table} SET status='completed',waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [nowTs, taskId]);
       return res.json({ success: true, needsApproval: false });
     }
     // Revision request: always requires approval (task.approval field is only for completion)
@@ -925,18 +926,18 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
     const needsApproval = type === 'delegation' && !isAdmin && !isPC &&
       (status === 'revised' || task.approval === 'yes');
     if (needsApproval) {
-      const [existing] = await db.query(`SELECT id FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending'`, [req.params.id, type]);
+      const [existing] = await db.query(`SELECT id FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending'`, [taskId, type]);
       if (existing[0]) return res.status(400).json({ error: 'Approval already pending' });
-      await db.query(`INSERT INTO task_approvals (task_id,task_type,requested_by,requested_to,action_type,status,note) VALUES (?,?,?,?,?,'pending',?)`, [req.params.id, type, uid, task.assigned_by, status, reason||'']);
-      if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET waiting_approval=1,revision_status='pending',due_date=? WHERE id=?`, [newDate, req.params.id]);
-      else await db.query(`UPDATE ${table} SET waiting_approval=1,revision_status='pending' WHERE id=?`, [req.params.id]);
+      await db.query(`INSERT INTO task_approvals (task_id,task_type,requested_by,requested_to,action_type,status,note) VALUES (?,?,?,?,?,'pending',?)`, [taskId, type, uid, task.assigned_by, status, reason||'']);
+      if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET waiting_approval=1,revision_status='pending',due_date=? WHERE id=?`, [newDate, taskId]);
+      else await db.query(`UPDATE ${table} SET waiting_approval=1,revision_status='pending' WHERE id=?`, [taskId]);
       return res.json({ success: true, needsApproval: true });
     }
-    if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='pending',due_date=?,completed_at=? WHERE id=?`, [status, newDate, completedAt, req.params.id]);
+    if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='pending',due_date=?,completed_at=? WHERE id=?`, [status, newDate, completedAt, taskId]);
     else {
       // checklist_tasks does not have a waiting_approval column
-      if (type === 'checklist') await db.query(`UPDATE ${table} SET status=?,completed_at=? WHERE id=?`, [status, completedAt, req.params.id]);
-      else await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [status, completedAt, req.params.id]);
+      if (type === 'checklist') await db.query(`UPDATE ${table} SET status=?,completed_at=? WHERE id=?`, [status, completedAt, taskId]);
+      else await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [status, completedAt, taskId]);
     }
     res.json({ success: true, needsApproval: false });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -946,7 +947,7 @@ app.get('/api/tasks/:id/detail', requireAuth, requireAdmin, async (req, res) => 
   try {
     const { type } = req.query;
     const table = getTable(type||'delegation');
-    const [rows] = await db.query(`SELECT t.*,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM ${table} t WHERE t.id=?`, [req.params.id]);
+    const [rows] = await db.query(`SELECT t.*,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM ${table} t WHERE t.id=?`, [parseInt(req.params.id, 10)]);
     if (!rows[0]) return res.status(404).json({ error: 'Task not found' });
     res.json({ task: rows[0] });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -956,8 +957,9 @@ app.put('/api/tasks/:id/edit', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { type, desc, date, priority, approval, remarks } = req.body;
     const table = getTable(type||'delegation');
-    if (type === 'delegation') await db.query(`UPDATE ${table} SET description=?,due_date=?,priority=?,approval=?,remarks=? WHERE id=?`, [desc, date, priority||'low', approval||'no', remarks||'', req.params.id]);
-    else await db.query(`UPDATE ${table} SET description=?,due_date=?,remarks=? WHERE id=?`, [desc, date, remarks||'', req.params.id]);
+    const taskId = parseInt(req.params.id, 10);
+    if (type === 'delegation') await db.query(`UPDATE ${table} SET description=?,due_date=?,priority=?,approval=?,remarks=? WHERE id=?`, [desc, date, priority||'low', approval||'no', remarks||'', taskId]);
+    else await db.query(`UPDATE ${table} SET description=?,due_date=?,remarks=? WHERE id=?`, [desc, date, remarks||'', taskId]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1135,13 +1137,14 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
   try {
     const { action, note } = req.body;
     const role = req.session.role;
-    const [rows] = await db.query('SELECT * FROM task_approvals WHERE id=?', [req.params.id]);
+    const approvalId = parseInt(req.params.id, 10);
+    const [rows] = await db.query('SELECT * FROM task_approvals WHERE id=?', [approvalId]);
     if (!rows[0]) return res.status(404).json({ error: 'Approval not found' });
     const appr = rows[0];
     // PC and admin can approve any; others only their own
     const canApprove = role === 'admin' || role === 'pc' || appr.requested_to === req.session.userId;
     if (!canApprove) return res.status(403).json({ error: 'Not allowed' });
-    await db.query('UPDATE task_approvals SET status=?,note=? WHERE id=?', [action, note||'', req.params.id]);
+    await db.query('UPDATE task_approvals SET status=?,note=? WHERE id=?', [action, note||'', approvalId]);
     const table = getTable(appr.task_type);
     if (action === 'approved') {
       const completedAt = appr.action_type === 'completed' ? new Date().toISOString().slice(0,19).replace('T',' ') : null;

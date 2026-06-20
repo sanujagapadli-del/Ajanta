@@ -416,6 +416,19 @@ async function init() {
 
       _initialized = true;
 
+      // Fix stale waiting_approval=1 with no matching pending task_approvals record.
+      // Caused by previous PRIMARY KEY bug where task_approvals INSERT silently failed.
+      try {
+        const [staleRows] = await module.exports.query(`SELECT id FROM delegation_tasks WHERE waiting_approval=1`);
+        for (const row of staleRows) {
+          const [apprRows] = await module.exports.query(`SELECT id FROM task_approvals WHERE task_id=? AND status='pending'`, [row.id]);
+          if (!apprRows.length) {
+            await module.exports.query(`UPDATE delegation_tasks SET waiting_approval=0, revision_status='' WHERE id=?`, [row.id]);
+            console.log(`  🔧 Fixed stale waiting_approval for delegation_tasks id=${row.id}`);
+          }
+        }
+      } catch (e) { console.warn('  ⚠️ Stale-approval cleanup failed:', e.message); }
+
       // Mark derived-column tables dirty so existing sheets get the new
       // is_done column populated on first flush after deployment.
       for (const t of Object.keys(SHEET_DERIVED)) markDirty(t);
