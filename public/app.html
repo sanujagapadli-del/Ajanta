@@ -387,6 +387,9 @@ tbody tr:last-child td{border-bottom:none;}
 #r2Spinner .r2sr{width:36px;height:36px;border:3.5px solid #e8ecf8;border-top-color:#4f46e5;border-radius:50%;animation:r2spin .65s linear infinite}
 #r2Spinner .r2sl{font-size:12px;font-weight:600;color:#94a3b8;letter-spacing:.03em}
 
+/* Desktop: hide dept-in-type span (shown only in mobile card header) */
+.dt-dept-in-type{display:none}
+
 /* ═══════════════════════════════
    BOTTOM NAV (mobile)
 ═══════════════════════════════ */
@@ -496,6 +499,7 @@ tbody tr:last-child td{border-bottom:none;}
     margin-bottom:2px;justify-content:space-between;align-items:center;
   }
   #dashTable tbody td.dt-type::before{display:none}
+  .dt-dept-in-type{display:inline}
   /* Dept row: hidden on mobile (shown inside type row already) */
   #dashTable tbody td[data-label="Dept"]{display:none}
   /* Action row: full-width footer */
@@ -3952,7 +3956,7 @@ function renderDashTable(tasks, type) {
       if (!isPC && t.type!=='checklist') actions += ` <button class="action-btn revise" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
     }
     return `<tr style="${rowStyle}">
-      <td class="dt-type" style="white-space:nowrap">${typeBadge(t)}<span style="font-size:11px;color:#64748b;font-weight:600">${t.assignedToDept||''}</span></td>
+      <td class="dt-type" style="white-space:nowrap">${typeBadge(t)}<span class="dt-dept-in-type" style="font-size:11px;color:#64748b;font-weight:600">${t.assignedToDept||''}</span></td>
       <td data-label="Dept" style="font-size:11px;color:#64748b;white-space:nowrap">${t.assignedToDept||'—'}</td>
       <td data-label="Title" style="font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap">${t.title||'—'}</td>
       <td data-label="Desc">${descCell}</td>
