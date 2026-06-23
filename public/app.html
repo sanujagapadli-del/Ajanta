@@ -469,6 +469,41 @@ tbody tr:last-child td{border-bottom:none;}
   /* Topbar right */
   .topbar-right{gap:4px}
   .topbar-right button{font-size:11px;padding:5px 10px}
+
+  /* ── Dashboard pending table: card view ── */
+  #dashTableWrap{overflow-x:visible !important;max-height:none !important}
+  #dashTable{min-width:0 !important;width:100%;border-collapse:separate;border-spacing:0}
+  #dashTableHead{display:none}
+  #dashTable tbody tr{
+    display:block;background:#fff;border-radius:12px;
+    border:1.5px solid #eef2ff;padding:10px 12px;
+    margin-bottom:10px;
+    box-shadow:0 1px 6px rgba(79,70,229,.07);
+  }
+  #dashTable tbody td{
+    display:flex;align-items:flex-start;gap:8px;
+    padding:3px 0;border:none;font-size:12px;
+    white-space:normal !important;line-height:1.5;
+  }
+  #dashTable tbody td::before{
+    content:attr(data-label);font-size:9px;font-weight:700;
+    color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;
+    min-width:56px;flex-shrink:0;padding-top:2px;
+  }
+  /* Type row: badge + dept on same line */
+  #dashTable tbody td.dt-type{
+    border-bottom:1px solid #f1f5f9;padding-bottom:8px;
+    margin-bottom:2px;justify-content:space-between;align-items:center;
+  }
+  #dashTable tbody td.dt-type::before{display:none}
+  /* Dept row: hidden on mobile (shown inside type row already) */
+  #dashTable tbody td[data-label="Dept"]{display:none}
+  /* Action row: full-width footer */
+  #dashTable tbody td.dt-action{
+    border-top:1px solid #f1f5f9;padding-top:8px;
+    margin-top:2px;flex-wrap:wrap;gap:6px;
+  }
+  #dashTable tbody td.dt-action::before{display:none}
 }
 
 @media(max-width:420px){
@@ -652,9 +687,9 @@ tbody tr:last-child td{border-bottom:none;}
             <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
           </div>
         </div>
-        <div style="overflow-x:auto;max-height:340px;overflow-y:auto;">
-          <table style="min-width:900px">
-            <thead style="position:sticky;top:0;z-index:2;background:#f8fafc">
+        <div id="dashTableWrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;">
+          <table id="dashTable" style="min-width:900px">
+            <thead id="dashTableHead" style="position:sticky;top:0;z-index:2;background:#f8fafc">
               <tr>
                 <th style="white-space:nowrap">Type</th>
                 <th>Dept</th>
@@ -3886,6 +3921,7 @@ function renderDashTable(tasks, type) {
   const typeBadge = t => t.type==='checklist'
     ? `<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #bbf7d0">✅ Checklist</span>`
     : `<span style="font-size:10px;background:#eef2ff;color:#4f46e5;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #c7d2fe">📋 Delegation</span>`;
+  const doerLabel = (isAdmin||isPC) ? 'Doer' : 'From';
   tbody.innerHTML = allPending.map(t => {
     const rs = t.revision_status || '';
     const isRevised = t.status === 'revised';
@@ -3916,16 +3952,16 @@ function renderDashTable(tasks, type) {
       if (!isPC && t.type!=='checklist') actions += ` <button class="action-btn revise" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
     }
     return `<tr style="${rowStyle}">
-      <td style="white-space:nowrap">${typeBadge(t)}</td>
-      <td style="font-size:11px;color:#64748b;white-space:nowrap">${t.assignedToDept||'—'}</td>
-      <td style="font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap">${t.title||'—'}</td>
-      <td>${descCell}</td>
-      <td style="white-space:nowrap;font-size:12px;font-weight:600">${(isAdmin||isPC)?t.assignedToName:t.assignedByName}</td>
-      <td style="font-size:11px;color:#6366f1;font-weight:600;white-space:nowrap">${t.frequency||'—'}</td>
-      <td style="white-space:nowrap;font-size:12px;color:#64748b">${fmtDate(t.start_date||'')||'—'}</td>
-      <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||t.date)}</td>
-      <td>${t.type!=='checklist' ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
-      <td style="white-space:nowrap">${actions}</td>
+      <td class="dt-type" style="white-space:nowrap">${typeBadge(t)}<span style="font-size:11px;color:#64748b;font-weight:600">${t.assignedToDept||''}</span></td>
+      <td data-label="Dept" style="font-size:11px;color:#64748b;white-space:nowrap">${t.assignedToDept||'—'}</td>
+      <td data-label="Title" style="font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap">${t.title||'—'}</td>
+      <td data-label="Desc">${descCell}</td>
+      <td data-label="${doerLabel}" style="white-space:nowrap;font-size:12px;font-weight:600">${(isAdmin||isPC)?t.assignedToName:t.assignedByName}</td>
+      <td data-label="Freq" style="font-size:11px;color:#6366f1;font-weight:600;white-space:nowrap">${t.frequency||'—'}</td>
+      <td data-label="Start" style="white-space:nowrap;font-size:12px;color:#64748b">${fmtDate(t.start_date||'')||'—'}</td>
+      <td data-label="Due" style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||t.date)}</td>
+      <td data-label="Priority">${t.type!=='checklist' ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
+      <td class="dt-action" style="white-space:nowrap">${actions}</td>
     </tr>`;
   }).join('');
 }
