@@ -386,6 +386,79 @@ tbody tr:last-child td{border-bottom:none;}
 #r2Spinner .r2sc{background:#fff;border-radius:18px;padding:26px 30px;box-shadow:0 8px 36px rgba(79,70,229,.13),0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;align-items:center;gap:12px}
 #r2Spinner .r2sr{width:36px;height:36px;border:3.5px solid #e8ecf8;border-top-color:#4f46e5;border-radius:50%;animation:r2spin .65s linear infinite}
 #r2Spinner .r2sl{font-size:12px;font-weight:600;color:#94a3b8;letter-spacing:.03em}
+
+/* ═══════════════════════════════
+   MOBILE HAMBURGER BUTTON
+═══════════════════════════════ */
+.mobile-menu-btn{display:none;flex-direction:column;justify-content:center;gap:5px;background:none;border:none;cursor:pointer;padding:6px;border-radius:8px;flex-shrink:0}
+.mobile-menu-btn span{display:block;width:22px;height:2px;background:#4f46e5;border-radius:2px;transition:all .25s}
+#sidebarBackdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:150;backdrop-filter:blur(2px)}
+#sidebarBackdrop.active{display:block}
+
+/* ═══════════════════════════════
+   MOBILE RESPONSIVE
+═══════════════════════════════ */
+@media(max-width:768px){
+  /* Hamburger visible */
+  .mobile-menu-btn{display:flex}
+
+  /* Sidebar: hidden off-screen */
+  .sidebar{transform:translateX(-100%);width:240px !important;z-index:200;box-shadow:none}
+  .sidebar:hover{width:240px !important}
+  .sidebar.mobile-open{transform:translateX(0);box-shadow:6px 0 40px rgba(15,23,42,.18)}
+
+  /* Always show nav labels in mobile sidebar */
+  .sidebar.mobile-open .nav-label-text{opacity:1 !important}
+  .sidebar.mobile-open .sidebar-logo .logo-text{opacity:1;max-width:200px}
+  .sidebar.mobile-open .su-info{opacity:1;max-width:200px}
+  .sidebar.mobile-open .logout-label{opacity:1;max-width:200px}
+
+  /* Main full width */
+  .main{margin-left:0 !important}
+
+  /* Topbar padding */
+  .topbar{padding:0 12px;gap:10px}
+  .topbar-title{font-size:15px}
+
+  /* Page padding */
+  .page{padding:14px 12px}
+
+  /* Overview cards 2 col */
+  .overview-cards{grid-template-columns:1fr 1fr;gap:10px}
+  .ov-card{padding:16px 14px}
+  .ov-card .number{font-size:26px}
+
+  /* Dash bottom: stack */
+  .dash-bottom{grid-template-columns:1fr;gap:14px}
+
+  /* Form rows stack */
+  .form-row{flex-direction:column !important;gap:0}
+
+  /* Modal full width */
+  .modal{width:100% !important;max-width:100vw !important;max-height:100dvh !important;border-radius:18px 18px 0 0;padding:20px 16px}
+  .modal-overlay{align-items:flex-end}
+
+  /* Tables scroll */
+  .users-grid>div{overflow-x:auto}
+
+  /* Task group cards */
+  .task-table-card{border-radius:12px}
+
+  /* Smaller action buttons */
+  .action-btn{padding:4px 8px;font-size:11px}
+
+  /* Chart card */
+  .chart-card{padding:14px 12px}
+
+  /* Reduce topbar right gap */
+  .topbar-right{gap:4px}
+}
+
+@media(max-width:420px){
+  .overview-cards{grid-template-columns:1fr}
+  .topbar-title{font-size:13px}
+  .page{padding:10px 8px}
+}
 </style>
 </head>
 <body>
@@ -465,8 +538,14 @@ tbody tr:last-child td{border-bottom:none;}
 <!-- ══════════════════════════════════════
      MAIN
 ══════════════════════════════════════ -->
+<!-- Mobile sidebar backdrop -->
+<div id="sidebarBackdrop" onclick="closeMobileSidebar()"></div>
+
 <div class="main" id="mainContent">
   <div class="topbar">
+    <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleMobileSidebar()" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
     <div class="topbar-title" id="topbarTitle">Dashboard</div>
 
     <!-- IMS tab buttons — shown only on Inventory Management System page -->
@@ -3305,7 +3384,17 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','stock-import':'Inventory Management System'};
 
+function toggleMobileSidebar() {
+  document.getElementById('sidebar').classList.toggle('mobile-open');
+  document.getElementById('sidebarBackdrop').classList.toggle('active');
+}
+function closeMobileSidebar() {
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('sidebarBackdrop').classList.remove('active');
+}
+
 function navigate(page, el) {
+  closeMobileSidebar();
   const _imsTabs = document.getElementById('imsTabBtns');
   if (_imsTabs) _imsTabs.style.display = page === 'stock-import' ? 'flex' : 'none';
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
