@@ -641,13 +641,9 @@ tbody tr:last-child td{border-bottom:none;}
 
     <!-- IMS tab buttons — shown only on Inventory Management System page -->
     <div id="imsTabBtns" style="display:none;align-items:center;gap:8px;margin-left:auto">
-      <button id="imsViewBtn-form" onclick="setImsView('form')"
-        style="padding:7px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #4f46e5;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;transition:all .18s;box-shadow:0 3px 10px rgba(79,70,229,.3)">
-        📋 Form
-      </button>
       <button id="imsViewBtn-reports" onclick="setImsView('reports')" style="display:none"></button>
       <button id="imsViewBtn-report2" onclick="setImsView('report2')"
-        style="padding:7px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #e8ecf8;background:#fff;color:#64748b;transition:all .18s">
+        style="padding:7px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #4f46e5;background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;transition:all .18s;box-shadow:0 3px 10px rgba(79,70,229,.3)">
         📈 Report
       </button>
     </div>
@@ -1090,132 +1086,6 @@ tbody tr:last-child td{border-bottom:none;}
   ══════════════════════════════════════ -->
   <div id="page-stock-import" class="page">
 
-
-    <!-- FORM VIEW -->
-    <div id="imsView-form">
-    <!-- Both forms side by side -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;max-width:1100px">
-
-      <!-- IN STOCK form -->
-      <div id="imsPanel-stock" style="background:#fff;border-radius:16px;border:1.5px solid #e0e7ff;padding:28px;box-shadow:0 2px 14px rgba(79,70,229,.07)">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #eef2ff">
-          <div style="width:42px;height:42px;border-radius:10px;background:#eef2ff;display:grid;place-items:center;font-size:22px;flex-shrink:0">📦</div>
-          <div>
-            <div style="font-size:15px;font-weight:700;color:#0f172a">In Stock</div>
-            <div style="font-size:11px;color:#64748b">MIS Complete Stock Report</div>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>CSV / Excel File</label>
-          <input type="file" id="imsFile-stock" accept=".csv,.xlsx,.xls"
-            style="width:100%;padding:9px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;background:#fafbff"/>
-        </div>
-        <div id="imsStatus-stock" style="display:none;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5"></div>
-        <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;border-radius:9px"
-          onclick="importStockCSV('stock')" id="imsBtn-stock">
-          ⬆ Import In Stock
-        </button>
-      </div>
-
-      <!-- OUT STOCK form -->
-      <div id="imsPanel-sales" style="background:#fff;border-radius:16px;border:1.5px solid #fed7aa;padding:28px;box-shadow:0 2px 14px rgba(245,158,11,.07)">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #fff7ed">
-          <div style="width:42px;height:42px;border-radius:10px;background:#fff7ed;display:grid;place-items:center;font-size:22px;flex-shrink:0">💰</div>
-          <div>
-            <div style="font-size:15px;font-weight:700;color:#0f172a">Out Stock</div>
-            <div style="font-size:11px;color:#64748b">MIS Customer Wise Sale Report</div>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>CSV / Excel File</label>
-          <input type="file" id="imsFile-sales" accept=".csv,.xlsx,.xls"
-            style="width:100%;padding:9px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;background:#fafbff"/>
-        </div>
-        <div id="imsStatus-sales" style="display:none;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5"></div>
-        <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;border-radius:9px;background:linear-gradient(135deg,#ea580c,#f97316);box-shadow:0 4px 14px rgba(234,88,12,.25)"
-          onclick="importStockCSV('sales')" id="imsBtn-sales">
-          ⬆ Import Out Stock
-        </button>
-      </div>
-
-      <!-- PURCHASE BILLS form -->
-      <div id="imsPanel-bills" style="background:#fff;border-radius:16px;border:1.5px solid #bbf7d0;padding:28px;box-shadow:0 2px 14px rgba(16,185,129,.07)">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #f0fdf4">
-          <div style="width:42px;height:42px;border-radius:10px;background:#f0fdf4;display:grid;place-items:center;font-size:22px;flex-shrink:0">🧾</div>
-          <div>
-            <div style="font-size:15px;font-weight:700;color:#0f172a">Purchase Bills</div>
-            <div style="font-size:11px;color:#64748b">MIS Purchase Invoice Report</div>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>CSV / Excel File</label>
-          <input type="file" id="imsFile-bills" accept=".csv,.xlsx,.xls"
-            style="width:100%;padding:9px 12px;border:1.5px solid #e8ecf8;border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;background:#fafbff"/>
-        </div>
-<div id="imsStatus-bills" style="display:none;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5"></div>
-        <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;border-radius:9px;background:linear-gradient(135deg,#059669,#10b981);box-shadow:0 4px 14px rgba(16,185,129,.25)"
-          onclick="importStockCSV('bills')" id="imsBtn-bills">
-          ⬆ Import Purchase Bills
-        </button>
-      </div>
-
-    </div>
-
-    <!-- Stats Cards -->
-    <div id="imsStatsRow" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;max-width:1100px;margin-top:20px">
-
-      <!-- In Stock stats -->
-      <div style="background:#fff;border-radius:16px;border:1.5px solid #e0e7ff;padding:20px 22px;box-shadow:0 2px 12px rgba(79,70,229,.07);position:relative;overflow:hidden">
-        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#4f46e5,#818cf8)"></div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-          <div style="width:36px;height:36px;border-radius:9px;background:#eef2ff;display:grid;place-items:center;font-size:18px;flex-shrink:0">📦</div>
-          <div style="font-size:13px;font-weight:700;color:#4f46e5">In Stock</div>
-        </div>
-        <div style="font-size:26px;font-weight:800;color:#0f172a;line-height:1" id="imsStatRows-stock">—</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">rows in sheet</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:10px">Last upload: <span id="imsStatDate-stock" style="color:#475569;font-weight:600">—</span></div>
-      </div>
-
-      <!-- Out Stock stats -->
-      <div style="background:#fff;border-radius:16px;border:1.5px solid #fed7aa;padding:20px 22px;box-shadow:0 2px 12px rgba(245,158,11,.08);position:relative;overflow:hidden">
-        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#f59e0b,#fbbf24)"></div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-          <div style="width:36px;height:36px;border-radius:9px;background:#fff7ed;display:grid;place-items:center;font-size:18px;flex-shrink:0">💰</div>
-          <div style="font-size:13px;font-weight:700;color:#d97706">Out Stock</div>
-        </div>
-        <div style="font-size:26px;font-weight:800;color:#0f172a;line-height:1" id="imsStatRows-sales">—</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">rows in sheet</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:10px">Last upload: <span id="imsStatDate-sales" style="color:#475569;font-weight:600">—</span></div>
-      </div>
-
-      <!-- Purchase Bills stats -->
-      <div style="background:#fff;border-radius:16px;border:1.5px solid #bbf7d0;padding:20px 22px;box-shadow:0 2px 12px rgba(16,185,129,.08);position:relative;overflow:hidden">
-        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#10b981,#34d399)"></div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-          <div style="width:36px;height:36px;border-radius:9px;background:#f0fdf4;display:grid;place-items:center;font-size:18px;flex-shrink:0">🧾</div>
-          <div style="font-size:13px;font-weight:700;color:#059669">Purchase Bills</div>
-        </div>
-        <div style="font-size:26px;font-weight:800;color:#0f172a;line-height:1" id="imsStatRows-bills">—</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">rows in sheet</div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:10px">Last upload: <span id="imsStatDate-bills" style="color:#475569;font-weight:600">—</span></div>
-      </div>
-
-      <!-- Open Sheet -->
-      <div style="background:linear-gradient(135deg,#4f46e5,#6d28d9);border-radius:16px;padding:20px 22px;box-shadow:0 4px 18px rgba(79,70,229,.28);display:flex;flex-direction:column;justify-content:space-between">
-        <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,.9);margin-bottom:8px">Google Sheet</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.6);line-height:1.6;margin-bottom:18px">View or verify your imported data directly in Google Sheets.</div>
-        <a href="https://docs.google.com/spreadsheets/d/1UrIu9HeNabJ1XUqdyivZadTm6e8NH4ogVPdK_IqWv-s/edit" target="_blank"
-          style="display:block;background:#fff;color:#4f46e5;text-align:center;padding:9px 0;border-radius:10px;font-size:12px;font-weight:700;text-decoration:none;margin-bottom:8px">
-          🔗 Open Google Sheet
-        </a>
-        <button id="imsSyncBtn" onclick="syncImsStats()"
-          style="width:100%;background:rgba(255,255,255,.12);color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s">
-          ⟳ Sync with Sheet
-        </button>
-      </div>
-
-    </div>
-    </div><!-- /imsView-form -->
 
     <!-- REPORTS VIEW — PREMIUM DARK ANALYTICS -->
     <div id="imsView-reports" style="display:none">
@@ -3528,7 +3398,7 @@ function navigate(page, el) {
   if (page==='fms-tasks') loadFMSTasks();
   if (page==='mis') initMISDeptFilter();
   if (page==='records') loadRecords();
-  if (page==='stock-import') { setImsView(localStorage.getItem('imsActiveView') || 'form'); loadImsStats(); }
+  if (page==='stock-import') { const v = localStorage.getItem('imsActiveView'); setImsView(v === 'form' || !v ? 'report2' : v); }
   localStorage.setItem('lastPage', page);
   window.scrollTo(0,0);
 }
@@ -5102,76 +4972,22 @@ async function uploadUsersCSV() {
 }
 
 
-// ══════════════════════════════════════════════════════
-// STOCK CSV IMPORT
-// ══════════════════════════════════════════════════════
-function setImsTab(type) { /* no-op: both panels always visible */ }
-
-function renderImsStats() {
-  ['stock', 'sales', 'bills'].forEach(key => {
-    const saved = JSON.parse(localStorage.getItem('imsStats-' + key) || 'null');
-    const rowEl = document.getElementById('imsStatRows-' + key);
-    const dateEl = document.getElementById('imsStatDate-' + key);
-    if (rowEl) rowEl.textContent = saved && saved.totalRows != null ? Number(saved.totalRows).toLocaleString() : '—';
-    if (dateEl) dateEl.textContent = (saved && saved.uploadDate) || '—';
-  });
-}
-
-function loadImsStats() {
-  renderImsStats();         // show cached instantly
-  syncImsStats(true);       // silently refresh from actual sheet
-}
-
-// Auto-refresh when user returns to this tab after editing Google Sheet
-let _lastStatSync = 0;
+// Auto-refresh live report data when the user returns to this tab
 let _lastRptSync = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   const imsPage = document.getElementById('page-stock-import');
   if (!imsPage || imsPage.style.display === 'none') return;
 
-  const formView    = document.getElementById('imsView-form');
   const reportsView = document.getElementById('imsView-reports');
   const now = Date.now();
-
-  // Form view — refresh stats cards
-  if (formView && formView.style.display !== 'none') {
-    if (now - _lastStatSync >= 5000) { _lastStatSync = now; syncImsStats(true); }
-  }
-
-  // Reports view — refresh live report data + stats
   if (reportsView && reportsView.style.display !== 'none') {
-    if (now - _lastRptSync >= 5000) { _lastRptSync = now; loadImsReports(); syncImsStats(true); }
+    if (now - _lastRptSync >= 5000) { _lastRptSync = now; loadImsReports(); }
   }
 });
 
-let _lastImportTime = 0;
-
-async function syncImsStats(silent) {
-  // Don't auto-sync within 10s of an import (race condition — import already set localStorage)
-  if (silent && (Date.now() - _lastImportTime) < 10000) return;
-  const btn = document.getElementById('imsSyncBtn');
-  if (!silent && btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
-  const data = await api('/api/ims-stats');
-  if (!silent && btn) { btn.disabled = false; btn.textContent = '⟳ Sync with Sheet'; }
-  if (!data || data.error) {
-    if (!silent) showToast('Sync failed: ' + (data && data.error ? data.error : 'Server error'), 'error');
-    return;
-  }
-  ['stock', 'sales', 'bills'].forEach(key => {
-    const d = data[key] || {};
-    if (d.totalRows === null) return; // null = network/auth error — keep existing cache
-    const saved = JSON.parse(localStorage.getItem('imsStats-' + key) || 'null') || {};
-    const uploadDate = d.totalRows === 0 ? '' : (d.lastUpload || saved.uploadDate || '');
-    localStorage.setItem('imsStats-' + key, JSON.stringify({ totalRows: d.totalRows, uploadDate }));
-  });
-  _lastStatSync = Date.now();
-  renderImsStats();
-  if (!silent) showToast('Stats synced from Google Sheet', 'success');
-}
-
 function setImsView(view) {
-  const views = ['form', 'reports', 'report2'];
+  const views = ['reports', 'report2'];
   views.forEach(v => {
     const el = document.getElementById('imsView-' + v);
     const btn = document.getElementById('imsViewBtn-' + v);
@@ -5314,11 +5130,6 @@ function setRptPreset(preset) {
   const labels = {today:'Today',week:'This Week',month:'This Month',lastmonth:'Last Month',quarter:'This Quarter',year:'This Year'};
   document.querySelectorAll('.rpt-preset-btn').forEach(b => { if (b.textContent.trim() === (labels[preset]||'')) b.classList.add('active'); });
   _setRptDate(from, to);
-}
-
-function generateUniqueCodes() {
-  fetch('/api/generate-unique-codes', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-    .catch(() => {});
 }
 
 async function loadImsReports(forceSync) {
@@ -8791,221 +8602,6 @@ function rptExportCSV() {
 
   showToast('CSV downloaded: ' + filename, 'success');
 }
-// ── /IMS Reports ─────────────────────────────────────────────
-
-async function importStockCSV(reportType) {
-  const fileEl = document.getElementById('imsFile-' + reportType);
-  const status = document.getElementById('imsStatus-' + reportType);
-  const btn    = document.getElementById('imsBtn-' + reportType);
-  const file   = fileEl.files[0];
-
-  if (!file) { showToast('Please select a file first (CSV or Excel)', 'error'); return; }
-
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (!['csv','xlsx','xls'].includes(ext)) {
-    status.style.cssText = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
-    status.innerHTML = '<strong>.' + ext + ' not supported</strong> — only CSV, XLSX or XLS files are supported.';
-    fileEl.value = ''; return;
-  }
-
-  const ERR_CSS  = 'display:block;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
-  const OK_CSS   = 'display:block;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;line-height:1.5';
-  const tabLabels = { stock: '📦 In Stock', sales: '💰 Out Stock', bills: '🧾 Purchase Bills' };
-  const MONTHS    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const GARBAGE_RE = /\uFFFD|[\x00-\x08\x0B\x0C\x0E-\x1F]/;
-  const CFG = {
-    stock: { tab:'In Stock',  keywords:['supplier name','cost price','ops qty'] },
-    sales: { tab:'Out Stock', keywords:['xn date','xn no','sls qty'] },
-    bills: { tab:'Bills',     keywords:['pur invdate','pur qty','pur costvalue'] }
-  };
-
-  status.style.display = 'none';
-  btn.disabled = true;
-  btn.textContent = '⏳  Uploading...';
-
-  const token = localStorage.getItem('authToken') || '';
-  let useBrowserFallback = false;
-
-  // ── ATTEMPT 1: Direct server upload (server-side SheetJS — same as localhost) ──
-  try {
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('reportType', reportType);
-    const resp = await fetch('/api/stock-csv-import', {
-      method: 'POST', credentials: 'include',
-      headers: token ? { 'Authorization': 'Bearer ' + token } : {},
-      body: fd
-    });
-    const ct = resp.headers.get('content-type') || '';
-    if (resp.status === 413 || (resp.status >= 400 && !ct.includes('application/json'))) {
-      useBrowserFallback = true; // file too large or infra error, try browser parsing
-    } else if (ct.includes('application/json')) {
-      const data = await resp.json();
-      if (data.error) {
-        // 500 = server parse failure → fall back to browser parsing
-        // 400 = config/auth error → show to user and stop
-        if (resp.status === 500) { useBrowserFallback = true; }
-        else throw new Error(data.error);
-      } else {
-        const now2 = new Date();
-        const ds2 = String(now2.getDate()).padStart(2,'0') + '-' + MONTHS[now2.getMonth()] + '-' + now2.getFullYear();
-        status.style.cssText = OK_CSS;
-        status.innerHTML = data.isAppend
-          ? '<strong>✅ Data Appended!</strong><br/>' + data.rowsAdded + ' rows added to ' + (tabLabels[reportType]||data.tab) + ' tab.'
-          : '<strong>✅ Import successful!</strong><br/>' + data.rowsAdded + ' rows imported to ' + (tabLabels[reportType]||data.tab) + ' tab.';
-        fileEl.value = '';
-        localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: data.rowsAdded, uploadDate: ds2 }));
-        _lastImportTime = Date.now(); loadImsStats();
-        setTimeout(() => { status.style.display = 'none'; }, 3000);
-        btn.disabled = false; btn.textContent = '⬆  Import to Google Sheet'; return;
-      }
-    } else {
-      useBrowserFallback = true;
-    }
-  } catch (e) {
-    if (e && e.message) {
-      // Config/auth error → show to user
-      status.style.cssText = ERR_CSS;
-      status.innerHTML = '<strong>❌ Error:</strong> ' + e.message;
-      setTimeout(() => { status.style.cssText = ''; status.innerHTML = ''; }, 3000);
-      btn.disabled = false; btn.textContent = '⬆  Import to Google Sheet'; return;
-    }
-    useBrowserFallback = true;
-  }
-
-  if (!useBrowserFallback) { btn.disabled = false; btn.textContent = '⬆  Import to Google Sheet'; return; }
-
-  // ── ATTEMPT 2: Browser-side parse + chunked JSON (for files > 4.5 MB) ──
-  try {
-    btn.textContent = '⏳  Reading file...';
-    // readAsBinaryString is more compatible with old OLE2 .xls format than arrayBuffer
-    const binaryStr = await new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = e => resolve(e.target.result);
-      fr.onerror = () => reject(new Error('Could not read file.'));
-      fr.readAsBinaryString(file);
-    });
-
-    if (!window.XLSX) {
-      btn.textContent = '⏳  Loading parser...';
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('Could not load XLSX parser — check internet connection.'));
-        document.head.appendChild(s);
-      });
-    }
-
-    btn.textContent = '⏳  Parsing...';
-    const xlsConvertMsg = 'This .xls file cannot be parsed in browser. Open in Excel → File → Save As → CSV, then import that file.';
-    let workbook;
-    try {
-      workbook = window.XLSX.read(binaryStr, { type:'binary', cellDates:true });
-    } catch (e1) {
-      try {
-        workbook = window.XLSX.read(binaryStr, { type:'binary', cellDates:false });
-      } catch (e2) {
-        throw new Error(xlsConvertMsg);
-      }
-    }
-    if (!workbook || !workbook.SheetNames || !workbook.SheetNames.length) throw new Error(xlsConvertMsg);
-
-    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    let allRows;
-    try {
-      allRows = window.XLSX.utils.sheet_to_json(firstSheet, {
-        header:1, defval:'', blankrows:false, raw:true
-      }).map(row => row.map(cell => {
-        if (cell === null || cell === undefined) return '';
-        if (cell instanceof Date) return String(cell.getDate()).padStart(2,'0') + '-' + MONTHS[cell.getMonth()] + '-' + cell.getFullYear();
-        return String(cell);
-      })).filter(row => { const t = row.join('').trim(); return t && !GARBAGE_RE.test(t); });
-    } catch (_parseErr) { throw new Error(xlsConvertMsg); }
-
-    if (!allRows.length) throw new Error('File is empty or unreadable.');
-
-    const cfg = CFG[reportType];
-    if (!cfg) throw new Error('Invalid report type.');
-    let headerIdx = -1;
-    for (let i = 0; i < Math.min(allRows.length, 25); i++) {
-      if (cfg.keywords.every(kw => allRows[i].join('|').toLowerCase().includes(kw))) { headerIdx = i; break; }
-    }
-    if (headerIdx === -1) throw new Error('Column headers not found. Check that you selected the correct report type.');
-
-    let printDate = '';
-    for (const row of allRows.slice(0, headerIdx)) {
-      const text = row.join(' ');
-      if (/printed\s+on/i.test(text)) {
-        const m = text.match(/printed\s+on\s+([\d\-\/]+(?:\s+[\d:]+)?)/i);
-        printDate = m ? m[1].trim() : text.replace(/printed\s+on\s*/i,'').split('By')[0].trim();
-        break;
-      }
-    }
-
-    const now = new Date();
-    const dateStr = String(now.getDate()).padStart(2,'0') + '-' + MONTHS[now.getMonth()] + '-' + now.getFullYear();
-    const headerRow = [...allRows[headerIdx], 'Print Date', 'Upload Date'];
-    const bodyRows  = allRows.slice(headerIdx + 1).filter(row => {
-      const rowText  = row.join(' ').trim();
-      if (!rowText) return false;
-      const firstCell = String(row[0]||'').trim().toLowerCase();
-      if (/gross\s*total|grand\s*total|sub\s*total|net\s*total/i.test(firstCell)) return false;
-      if (/gross\s*total|grand\s*total/i.test(rowText)) return false;
-      if (/printed\s+on/i.test(rowText)) return false;
-      return true;
-    }).map(r => [...r, printDate, dateStr]);
-
-    if (!bodyRows.length) throw new Error('No data rows found after filtering.');
-
-    const CHUNK = 1500;
-    const hdrs  = { 'Content-Type':'application/json', ...(token ? {'Authorization':'Bearer '+token} : {}) };
-    let sheetState = null;
-    let totalAdded = 0;
-
-    for (let i = 0; i < bodyRows.length; i += CHUNK) {
-      const chunk = bodyRows.slice(i, i + CHUNK);
-      const isFirst = i === 0, isLast = (i + CHUNK) >= bodyRows.length;
-      btn.textContent = '⏳  Uploading ' + Math.min(100, Math.round(((i + chunk.length) / bodyRows.length) * 100)) + '%...';
-      const payload = {
-        reportType, rows: chunk, isFirst, isLast, uploadDate: dateStr,
-        headerRow: isFirst ? headerRow : undefined,
-        isAppend: sheetState ? sheetState.isAppend : null,
-        sheetId:  sheetState ? sheetState.sheetId  : null
-      };
-      const resp = await fetch('/api/stock-rows-import', {
-        method:'POST', credentials:'include', headers:hdrs, body: JSON.stringify(payload)
-      });
-      const ct = resp.headers.get('content-type') || '';
-      let r;
-      if (ct.includes('application/json')) { r = await resp.json(); }
-      else { const raw = await resp.text().catch(()=>''); throw new Error('HTTP ' + resp.status + ': ' + raw.replace(/<[^>]*>/g,'').slice(0,120)); }
-      if (r.error) throw new Error(r.error);
-      totalAdded += chunk.length;
-      if (isFirst) sheetState = { isAppend: r.isAppend, sheetId: r.sheetId };
-    }
-
-    const isAppend = sheetState && sheetState.isAppend;
-    status.style.cssText = OK_CSS;
-    status.innerHTML = isAppend
-      ? '<strong>✅ Data Appended!</strong><br/>' + totalAdded + ' rows added to ' + (tabLabels[reportType]||cfg.tab) + ' tab.'
-      : '<strong>✅ Import successful!</strong><br/>' + totalAdded + ' rows imported to ' + (tabLabels[reportType]||cfg.tab) + ' tab.';
-    fileEl.value = '';
-    localStorage.setItem('imsStats-' + reportType, JSON.stringify({ totalRows: totalAdded, uploadDate: dateStr }));
-    _lastImportTime = Date.now(); loadImsStats();
-    setTimeout(() => { status.style.display = 'none'; }, 3000);
-
-  } catch (e) {
-    status.style.cssText = ERR_CSS;
-    status.innerHTML = '<strong>❌ Error:</strong> ' + (e.message || 'Unknown error. Try again.');
-    setTimeout(() => { status.style.cssText = ''; status.innerHTML = ''; }, 3000);
-  }
-
-  btn.disabled = false;
-  btn.textContent = '⬆  Import to Google Sheet';
-}
-
-// ══════════════════════════════════════════════════════
 async function loadApprovalBadge() {
   const d = await api('/api/approvals/count');
   const badge = document.getElementById('approvalBadge');

@@ -1551,7 +1551,7 @@ async function getSqlPool() {
     password: process.env.SQL_PASSWORD,
     database: process.env.SQL_DATABASE,
     options: { encrypt: false, trustServerCertificate: true },
-    pool: { max: 5, min: 0, idleTimeoutMillis: 30000 }
+    pool: { max: 15, min: 0, idleTimeoutMillis: 30000 }
   }).connect();
   return _sqlPool;
 }
@@ -2713,596 +2713,289 @@ app.get('/api/debug', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════
-// MIS REPORT IMPORT → GOOGLE SHEET
+// IMS REPORTS — live SQL Server (zRetail ERP), no manual upload
 // ══════════════════════════════════════════════════════
-const STOCK_SHEET_ID = process.env.STOCK_SHEET_ID || '1UrIu9HeNabJ1XUqdyivZadTm6e8NH4ogVPdK_IqWv-s';
-const XLSX = require('xlsx');
-const multer = require('multer');
-const misUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
-
-// Report type config: tab name + header row detect keywords (lowercase)
-const REPORT_CONFIG = {
-  stock: { tab: 'In Stock', keywords: ['supplier name', 'cost price', 'ops qty'] },
-  sales: { tab: 'Out Stock', keywords: ['xn date', 'xn no', 'sls qty'] },
-  bills: { tab: 'Bills', keywords: ['pur invdate', 'pur qty', 'pur costvalue'] }
-};
-
-// Scan first 25 rows — the row containing all keywords is the header
-function findHeaderRowIndex(rows, keywords) {
-  for (let i = 0; i < Math.min(rows.length, 25); i++) {
-    const text = rows[i].join('|').toLowerCase();
-    if (keywords.every(kw => text.includes(kw))) return i;
-  }
-  return -1;
-}
-
-// Exponential backoff retry on quota errors
-async function withRetry(fn, retries = 4) {
-  for (let i = 0; i <= retries; i++) {
-    try { return await fn(); }
-    catch (err) {
-      const isQuota = err.code === 429 || (err.message && err.message.toLowerCase().includes('quota'));
-      if (!isQuota || i === retries) throw err;
-      const wait = (Math.pow(2, i) * 1000) + Math.floor(Math.random() * 500);
-      console.log('Quota limit — retry', i + 1, 'in', wait + 'ms');
-      await new Promise(r => setTimeout(r, wait));
-    }
-  }
-}
-
-// Ensure tab exists, creating it if needed — returns { sheetId, isNew }
-async function ensureTab(sheetsApi, spreadsheetId, tabName) {
-  const meta = await withRetry(() => sheetsApi.spreadsheets.get({ spreadsheetId }));
-  const found = meta.data.sheets.find(s => s.properties.title === tabName);
-  if (found) return { sheetId: found.properties.sheetId, isNew: false };
-  const r = await withRetry(() => sheetsApi.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] }
-  }));
-  return { sheetId: r.data.replies[0].addSheet.properties.sheetId, isNew: true };
-}
-
-// Header row ko dark blue + white bold text. Data rows (header ke neeche) ko
-// plain white reset karta hai — kyunki INSERT_ROWS append header ka blue format
-// neeche ki rows me copy kar deta hai.
-async function colorHeaderRow(sheetsApi, spreadsheetId, sheetId, rowIndex0) {
-  await sheetsApi.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        // 1) Header ke neeche sari rows → white bg, black non-bold text
-        {
-          repeatCell: {
-            range: { sheetId, startRowIndex: rowIndex0 + 1, startColumnIndex: 0, endColumnIndex: 50 },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: { red: 1, green: 1, blue: 1 },
-                textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false, fontSize: 10 }
-              }
-            },
-            fields: 'userEnteredFormat(backgroundColor,textFormat)'
-          }
-        },
-        // 2) Header row → dark blue + white bold
-        {
-          repeatCell: {
-            range: { sheetId, startRowIndex: rowIndex0, endRowIndex: rowIndex0 + 1, startColumnIndex: 0, endColumnIndex: 50 },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: { red: 0.071, green: 0.216, blue: 0.376 },
-                textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true, fontSize: 10 }
-              }
-            },
-            fields: 'userEnteredFormat(backgroundColor,textFormat)'
-          }
-        }
-      ]
-    }
-  });
-}
-
-// IMS Stats — row count + last upload date for each tab
-app.get('/api/ims-stats', requireAuth, async (req, res) => {
-  try {
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-    const tabs = [
-      { key: 'stock', tab: 'In Stock' },
-      { key: 'sales', tab: 'Out Stock' },
-      { key: 'bills', tab: 'Bills' }
-    ];
-    const out = {};
-    for (const { key, tab } of tabs) {
-      try {
-        // Single-quote tab names with spaces — required by Sheets API A1 notation
-        const quotedTab = "'" + tab.replace(/'/g, "''") + "'";
-        const colAResp = await withRetry(() => sheetsApi.spreadsheets.values.get({
-          spreadsheetId: STOCK_SHEET_ID,
-          range: quotedTab + '!A:A'
-        }));
-        const colA = colAResp.data.values || [];
-        const totalRows = Math.max(0, colA.length - 1); // minus header row
-        console.log('[IMS Stats]', tab, '→ colA rows:', colA.length, '→ totalRows:', totalRows);
-
-        let lastUpload = null;
-        if (totalRows > 0) {
-          const headerResp = await withRetry(() => sheetsApi.spreadsheets.values.get({
-            spreadsheetId: STOCK_SHEET_ID,
-            range: quotedTab + '!1:1'
-          }));
-          const header = ((headerResp.data.values || [[]])[0] || []).map(h => String(h).trim().toLowerCase());
-          const uploadColIdx = header.indexOf('upload date');
-          if (uploadColIdx >= 0) {
-            const colLetter = idxToCol(uploadColIdx);
-            const cellResp = await withRetry(() => sheetsApi.spreadsheets.values.get({
-              spreadsheetId: STOCK_SHEET_ID,
-              range: quotedTab + '!' + colLetter + (totalRows + 1)
-            }));
-            lastUpload = ((cellResp.data.values || [[]])[0] || [])[0] || null;
-          }
-        }
-        out[key] = { totalRows, lastUpload };
-      } catch(e) {
-        console.error('[IMS Stats] tab error:', tab, e.message);
-        // Tab deleted or not found → return 0 so frontend clears the cache
-        // Generic network/auth errors include "ECONNRESET", "quota", "invalid_grant"
-        const isTabMissing = /unable to parse range|sheet.*not found|does not exist/i.test(e.message);
-        out[key] = { totalRows: isTabMissing ? 0 : null, lastUpload: null };
-      }
-    }
-    res.json(out);
-  } catch (err) {
-    console.error('[IMS Stats] fatal:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// IMS raw sheet cache — avoids re-fetching on every date change
-const _imsRawCache = { outRows: null, inRows: null, ts: 0 };
-const IMS_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
-
-// Placeholder/junk labels jaise [Default], [None] — inhe pure IMS reports se
-// exclude karte hain (sheet me ye non-product/adjustment entries hote hain).
-function isJunkLabel(v) {
-  const s = String(v || '').trim().toLowerCase();
-  return s === '[default]' || s === 'default' || s === '[none]' || s === 'none';
-}
-
-// Kuch rows me Category ki jagah HSN code (jaise 6204, 5407) aa jaata hai —
-// ye CLIENT DATA hai, sheet me kuch change NAHI karna. Sirf report dikhane ke
-// waqt asli category nikaalte hain: pehle Department column (usme sahi category
-// hoti hai — DUPATTA/SAREE/RMG DRESS), warna ArticleNo prefix se. Sheet untouched.
-function resolveCategory(catRaw, deptRaw, articleRaw) {
-  const isNum = v => /^-?\d+(\.\d+)?$/.test(String(v || '').trim());
-  const ok = v => { const s = String(v || '').trim(); return (s && !isNum(s) && !isJunkLabel(s)) ? s : null; };
-  const c = ok(catRaw);    if (c) return c;              // valid text category
-  const dept = ok(deptRaw); if (dept) return dept;       // Department me asli category
-  const art = String(articleRaw || '').trim();           // fallback: ArticleNo prefix
-  if (art) {
-    const x = art.replace(/[-_\s]*\d+(\.\d+)?\s*$/, '').replace(/\s+/g, ' ').trim();
-    if (x && !isNum(x) && !isJunkLabel(x)) return x.toUpperCase();
-  }
-  return 'Unknown';
-}
-
-// [Default]/[None] supplier/style/salesperson ko "Alteration" naam do (exclude nahi —
-// taaki Total Net Sales ERP se match kare). Blank -> Unknown.
-function cleanLabel(v) {
-  const s = String(v || '').trim();
-  if (!s) return 'Unknown';
-  return isJunkLabel(s) ? 'Alteration' : s;
-}
-
 // IMS Reports — all 8 report types from Out Stock + In Stock tabs
+// Live-SQL join chain shared by every /api/ims-reports sales-side aggregate:
+// InvCashmemoDetail line item → salesperson (proven Target MIS pattern) → item →
+// article → subcategory → category → department. Verified against zRetail002
+// with real sample data (see plan doc) — department names match the business's
+// own Saree/Suit framing (e.g. "SUITTING SHIRTING", "SAREE").
+const IMS_SALES_JOIN = `
+  FROM InvCashmemoDetail d
+  JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
+  LEFT JOIN MstSalesPerson sp ON sp.SalesPersonId = d.SalesPersonId_1
+  LEFT JOIN MstItems mi ON mi.ItemCode = d.ItemId
+  LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+  LEFT JOIN MstInvSubCategory subcat ON subcat.InvSubCategoryId = art.InvSubCategoryId
+  LEFT JOIN MstInvCategory cat ON cat.InvCategoryId = subcat.InvCategoryId
+  LEFT JOIN MstInvDepartment dept ON dept.InvDepartmentId = cat.InvDepartmentId
+`;
+// Per-item supplier: MstArticle.PreferredSupplierId is almost never populated in
+// this data, so we resolve supplier via the item's most recent purchase instead
+// (verified: gives real names like "ROOP RANG FASHION PRIVATE LIMITED"). Takes
+// the outer query's item-row alias ('d' for InvCashmemoDetail, 's' for
+// InvItemStock) — parameterized rather than string-replaced, since a naive
+// replace of "d.ItemId" would also corrupt "pd.ItemId" inside the subquery.
+const imsSupplierJoin = (outerAlias) => `
+  LEFT JOIN (
+    SELECT pd.ItemId, p.PartyName,
+           ROW_NUMBER() OVER (PARTITION BY pd.ItemId ORDER BY ph.PurchaseDt DESC) rn
+    FROM InvPurchaseDetail pd
+    JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
+    JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
+    WHERE ph.IsCancelled = 0
+  ) supl ON supl.ItemId = ${outerAlias}.ItemId AND supl.rn = 1
+`;
+const IMS_SUPPLIER_JOIN = imsSupplierJoin('d');
+
+const _imsSqlCache = new Map();           // cacheKey -> { ts, data }
+const IMS_SQL_CACHE_TTL_MS = 5 * 60 * 1000;
+
 app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
     const { from, to, sync, dept } = req.query;
-    const deptFilter = (dept && dept !== 'All') ? dept : null;   // Report 2.0 department filter
-    const now = Date.now();
-    const hasCached = _imsRawCache.outRows && _imsRawCache.outRows.length > 1;
-    const needsFresh = sync === 'true' || !hasCached || (now - _imsRawCache.ts) > IMS_CACHE_TTL_MS;
+    const deptFilter = (dept && dept !== 'All') ? dept : null;
 
-    let outRows, inRows;
-    if (needsFresh) {
-      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-      // UNFORMATTED_VALUE → raw numbers WITH paise (formatted view rounds paise → ~₹1 mismatch vs sheet).
-      // SERIAL_NUMBER → date cells return as numeric serial (days since 1899-12-30), strings as text.
-      // This is format-agnostic: no dependency on Sheets locale or column date format.
-      const safeGet = (range) => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' })).catch(() => ({ data: { values: [] } }));
-      const [outResp, inResp] = await Promise.all([
-        safeGet("'Out Stock'!A:AH"),
-        safeGet("'In Stock'!A:AH")
-      ]);
-      outRows = outResp.data.values || [];
-      inRows  = inResp.data.values  || [];
-      // Only cache if we got real data (not empty due to API failure)
-      if (outRows.length > 1) {
-        _imsRawCache.outRows = outRows;
-        _imsRawCache.inRows  = inRows;
-        _imsRawCache.ts      = now;
-      }
-    } else {
-      outRows = _imsRawCache.outRows;
-      inRows  = _imsRawCache.inRows;
-    }
-
-    const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
-    function parseSheetDate(str) {
-      if (str == null || str === '') return null;
-      // Sheets serial number (date cell, SERIAL_NUMBER render) — days since 1899-12-30
-      if (typeof str === 'number') {
-        const n = Math.floor(str);
-        return (n > 1 && n < 100000) ? new Date(Date.UTC(1899, 11, 30) + n * 86400000) : null;
-      }
-      const s = String(str).trim();
-      if (!s) return null;
-      // DD-Mon-YYYY / DD/Mon/YYYY (ERP export, e.g. 01-Feb-2024)
-      const m1 = s.match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
-      if (m1) return new Date(Date.UTC(+m1[3], MONTHS[m1[2].toLowerCase()]??0, +m1[1]));
-      // YYYY-MM-DD (ISO — written by new import)
-      const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if (m2) return new Date(Date.UTC(+m2[1], +m2[2]-1, +m2[3]));
-      // DD/MM/YYYY or D/M/YYYY (Indian locale Sheets default, e.g. 01/02/2024 = Feb 1)
-      const m3 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (m3) return new Date(Date.UTC(+m3[3], +m3[2]-1, +m3[1]));
-      const d = new Date(s); return isNaN(d.getTime()) ? null : d;
-    }
-    function getNum(row, idx) {
-      if (idx < 0 || row[idx] == null || row[idx] === '') return 0;
-      return parseFloat(String(row[idx]).replace(/[^\d.-]/g,'')) || 0;
-    }
-    function findC(hdr, regex) { return hdr.findIndex(h => regex.test(h)); }
     function r2(n) { return Math.round(n * 100) / 100; }
-    function toISO(s) {
-      const d = (s instanceof Date) ? s : parseSheetDate(s);
-      if (!d) return '';
-      return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    const toISODate = d => d ? new Date(d).toISOString().slice(0, 10) : '';
+
+    // Default window when none given: last 12 months (avoids scanning 8+ years
+    // of ERP history on every unfiltered load).
+    const toDate   = to || new Date().toISOString().slice(0, 10);
+    const fromDate = from || (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+    const lyFromDate = (() => { const d = new Date(fromDate); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+    const lyToDate   = (() => { const d = new Date(toDate);   d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+
+    const cacheKey = `${fromDate}|${toDate}|${deptFilter || 'All'}`;
+    const cached = _imsSqlCache.get(cacheKey);
+    if (sync !== 'true' && cached && (Date.now() - cached.ts) < IMS_SQL_CACHE_TTL_MS) {
+      return res.json(cached.data);
     }
 
-    const fromDate = from ? new Date(from) : null;
-    const toDate   = to   ? (() => { const d = new Date(to); d.setUTCHours(23,59,59,999); return d; })() : null;
+    const pool = await getSqlPool();
+    const deptSql = deptFilter ? 'AND dept.InvDepartmentName = @dept' : '';
+    const mkReq = (f, t) => {
+      const r = pool.request().input('from', sql.Date, f).input('to', sql.Date, t);
+      if (deptFilter) r.input('dept', sql.VarChar, deptFilter);
+      return r;
+    };
 
-    // ── OUT STOCK ────────────────────────────────────────────
-    const outHeader = outRows.length ? outRows[0].map(h => String(h).trim().toLowerCase()) : [];
+    const [byDateRs, deptRs, allDeptRs, spRs, supRs, basketRs, styleSupSalesRs, lySpRs, lyMonRs, lyTotalRs] = await Promise.all([
+      mkReq(fromDate, toDate).query(`SELECT CONVERT(varchar(10),h.CashmemoDt,23) AS date, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY CONVERT(varchar(10),h.CashmemoDt,23) ORDER BY date`),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'—') AS dept, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY dept.InvDepartmentName`),
+      mkReq(fromDate, toDate).query(`SELECT DISTINCT dept.InvDepartmentName AS dept ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND dept.InvDepartmentName IS NOT NULL`),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName ORDER BY amount DESC`),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName ORDER BY amount DESC`),
+      mkReq(fromDate, toDate).query(`SELECT h.CashmemoId, SUM(d.Quantity) AS qty ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY h.CashmemoId`),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount, MAX(h.CashmemoDt) AS lastSaleDate ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`),
+      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName`),
+      mkReq(lyFromDate, lyToDate).query(`SELECT FORMAT(h.CashmemoDt,'yyyy-MM') AS monKey, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY FORMAT(h.CashmemoDt,'yyyy-MM')`),
+      mkReq(lyFromDate, lyToDate).query(`SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql}`)
+    ]);
 
-    const oXnDate    = findC(outHeader, /^xn[\s._-]?date$/i);
-    const oXnNo      = findC(outHeader, /^xn[\s._-]?no$/i);
-    const oCategory  = findC(outHeader, /^category$/i);
-    const oSP        = findC(outHeader, /^salesperson$/i);
-    const oNetQty    = findC(outHeader, /netsls[\s._-]?qty/i);
-    const oNetAmt    = findC(outHeader, /netsls[\s._-]?net|netsls[\s._-]?amount/i);
-    const oSupplier  = findC(outHeader, /^supplier[\s._-]?name$/i);
-    const oCity      = findC(outHeader, /^supplier[\s._-]?city$/i);
-    const oState     = findC(outHeader, /^supplier[\s._-]?state$/i);
-    let oDept        = findC(outHeader, /^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
-    // Position-based fallback: if dept col not found by name, use the column right after state (between state and category)
-    if (oDept < 0 && oState >= 0 && oCategory >= 0 && oCategory > oState + 1) oDept = oState + 1;
-    const oSKU       = findC(outHeader, /sku[\s._-]?code|^sku$|item[\s._-]?code|product[\s._-]?code|article[\s._-]?no|articleno|^itemid$|item[\s._-]?id/i);
-    const oStyle     = findC(outHeader, /^style$/i);
-    const oArticle   = findC(outHeader, /^article[\s._-]?no$|^articleno$/i);
-
-    console.log('[IMS Reports] Out Stock cols:', { oXnDate, oXnNo, oCategory, oDept, oSP, oNetQty, oNetAmt, oSupplier, oCity, oState, oSKU, header: outHeader.slice(0,12) });
-
-    const byDate={}, byCat={}, bySP={}, bySupplier={}, byCityState={}, bySKU={}, bySupStyleSales={}, byStyleSales={};
-    const byDept={}, billQty={};   // Report 2.0: dept-wise UPT + basket size (qty per bill)
-    const allDeptsSet = new Set();  // Report 2.0: full department list for the dropdown
-    let totalAmt=0, totalQty=0;
-    const allXns = new Set();
-
-    (outRows.slice(1)).forEach(row => {
-      const dateRaw = row[oXnDate];                           // may be serial number or text string
-      const dateStr = String(dateRaw||'').trim();
-      if (!dateStr) return;
-      const amt  = getNum(row, oNetAmt);
-      const qty  = getNum(row, oNetQty);
-      const cat  = resolveCategory(row[oCategory], oDept >= 0 ? row[oDept] : '', oArticle >= 0 ? row[oArticle] : '');
-      const sp   = cleanLabel(row[oSP]);
-      const sup  = cleanLabel(row[oSupplier]);
-      const sty  = oStyle >= 0 ? cleanLabel(row[oStyle]) : 'Unknown';
-      const ssKey= sup + '||' + sty;
-      // Date filter (XN Date) — sab sales reports + turnover
-      if (fromDate || toDate) {
-        const d = parseSheetDate(dateRaw);                    // pass raw so serial numbers parse correctly
-        if (!d || (fromDate && d < fromDate) || (toDate && d > toDate)) return;
-      }
-      // Report 2.0 department filter: collect full list, then skip non-matching rows
-      const _dRaw = oDept >= 0 ? String(row[oDept]||'').trim() : '';
-      const dept = (_dRaw && !isJunkLabel(_dRaw)) ? _dRaw : '—';
-      if (dept && dept !== '—') allDeptsSet.add(dept);
-      if (deptFilter && dept !== deptFilter) return;
-      const city = String(row[oCity]||'').trim() || '—';
-      const state= String(row[oState]||'').trim() || '—';
-      const xnNo = String(row[oXnNo]||'').trim();
-      const sku  = oSKU >= 0 ? (String(row[oSKU]||'').trim() || 'Unknown') : null;
-      const csKey= city + '||' + state;
-      const art = oArticle >= 0 ? (String(row[oArticle]||'').trim()||'') : '';
-      if (!bySupStyleSales[ssKey]) bySupStyleSales[ssKey] = { supName: sup, style: sty, cat, qty: 0, article: art, amount: 0, lastSaleDate: '' };
-      bySupStyleSales[ssKey].qty += qty;
-      bySupStyleSales[ssKey].amount += amt;
-      const sdIso = dateRaw != null ? toISO(dateRaw) : '';
-      if (sdIso && (!bySupStyleSales[ssKey].lastSaleDate || sdIso > bySupStyleSales[ssKey].lastSaleDate)) bySupStyleSales[ssKey].lastSaleDate = sdIso;
-      if (!byStyleSales[sty]) byStyleSales[sty] = { qty: 0 };
-      byStyleSales[sty].qty += qty;
-
-      totalAmt += amt; totalQty += qty;
-      if (xnNo) allXns.add(xnNo);
-
-      const push = (map, key) => {
-        if (!map[key]) map[key] = { amt:0, qty:0, xns:new Set() };
-        map[key].amt += amt; map[key].qty += qty;
-        if (xnNo) map[key].xns.add(xnNo);
-      };
-      push(byDate, sdIso || dateStr);  // use ISO date string as key (handles serial numbers)
-      push(byCat, cat);
-      push(bySP, sp);
-      push(bySupplier, sup);
-      if (sku !== null) push(bySKU, sku);
-      if (!byCityState[csKey]) byCityState[csKey] = { city, state, amt:0, qty:0, xns:new Set() };
-      byCityState[csKey].amt += amt; byCityState[csKey].qty += qty;
-      if (xnNo) byCityState[csKey].xns.add(xnNo);
-      // Report 2.0 aggregations
-      push(byDept, dept);
-      if (xnNo) billQty[xnNo] = (billQty[xnNo] || 0) + qty;  // total qty per bill (basket size)
-    });
-
-    const sortAmt = arr => arr.sort((a,b) => b.amount - a.amount);
-    const ser = (map, keyField='name') => sortAmt(Object.entries(map).map(([k,d]) => ({
-      [keyField]: k, transactions: d.xns.size, qty: r2(d.qty), amount: Math.round(d.amt)
-    })));
-
-    const fmtByDate = Object.entries(byDate)
-      .map(([date,d]) => ({ date, transactions:d.xns.size, qty:r2(d.qty), amount:r2(d.amt), profit:0 }))
-      .sort((a,b) => a.date.localeCompare(b.date));
-
-    const cityStateSales = sortAmt(Object.values(byCityState).map(d => ({
-      city: d.city, state: d.state, transactions: d.xns.size, qty: r2(d.qty), amount: Math.round(d.amt)
-    })));
-
-    // ── Report 2.0: Department-wise UPT/ATV + Basket-size distribution ──────
-    const deptAnalytics = Object.entries(byDept).map(([dept,d]) => {
-      const bills = d.xns.size;
-      return { dept, bills, qty: r2(d.qty), amount: Math.round(d.amt),
-               upt: bills ? r2(d.qty/bills) : 0, atv: bills ? Math.round(d.amt/bills) : 0 };
-    }).filter(x => x.dept && x.dept !== '—' && x.bills > 0).sort((a,b) => b.qty - a.qty);
-
-    // posXns: bills with net qty >= 1 — exactly matches basket chart (same Math.round filter)
-    const posXns = new Set(Object.keys(billQty).filter(k => Math.round(billQty[k]) >= 1));
-
-    const _basket = { '1':0, '2':0, '3':0, '4':0, '5+':0 };
-    Object.values(billQty).forEach(q => {
-      const n = Math.round(q);
-      if (n < 1) return;
-      if (n >= 5) _basket['5+']++; else _basket[String(n)]++;
-    });
-    const basketSize = Object.entries(_basket).map(([bucket,bills]) => ({ bucket, bills }));
-
-    // ── IN STOCK ─────────────────────────────────────────────
-    const inHeader = inRows.length ? inRows[0].map(h => String(h).trim().toLowerCase()) : [];
-
-    const iSupplier = findC(inHeader, /^supplier[\s._-]?name$/i);
-    const iCostPrice= findC(inHeader, /^cost[\s._-]?price$|^cp$|^unit[\s._-]?price$|^purchase[\s._-]?price$|^rate$/i);
-    const iOpsQty   = findC(inHeader, /^ops?[\s._-]?qty$|^opg[\s._-]?qty$|^opening[\s._-]?(stock[\s._-]?)?qty$/i);
-    // CBS = Closing Balance Stock = aaj ka actual available stock. Stock value/qty
-    // isi pe banana chahiye (OPS = Opening Stock, period ke shuru ka — galat tha).
-    const iCbsQty   = findC(inHeader, /^cbs[\s._-]?qty$|^clos(ing)?[\s._-]?(bal(ance)?[\s._-]?)?(stock[\s._-]?)?qty$|^avail(able)?[\s._-]?qty$|^bal(ance)?[\s._-]?qty$/i);
-    const iStockQty = iCbsQty >= 0 ? iCbsQty : iOpsQty;  // CBS preferred, OPS fallback
-    const iPurQty   = findC(inHeader, /^pur(chase)?[\s._-]?qty$/i);
-    const iPrtQty   = findC(inHeader, /^prt[\s._-]?qty$|^pur(chase)?[\s._-]?ret(urn)?[\s._-]?qty$/i);  // Purchase Return
-    const iCategory = findC(inHeader, /^category$/i);
-    const iDept     = findC(inHeader, /^department$/i);
-    const iStyle    = findC(inHeader, /^style$/i);
-    const iArticle  = findC(inHeader, /^article[\s._-]?no$|^articleno$/i);
-    const iPurDate  = findC(inHeader, /^pur(chase)?[\s._-]?date$/i);
-    const iSubCat   = findC(inHeader, /^sub[\s._-]?cat(egory)?$/i);
-
-    console.log('[IMS Reports] In Stock cols:', { iSupplier, iCostPrice, iOpsQty, iCbsQty, iStockQty, iPurDate, iCategory, iDept, iStyle, inRowCount: inRows.length, header: inHeader.slice(0,15) });
-
-    const bySupStock={}, byCatStock={}, bySupStyleStock={}, byStyleStock={};
-    let totalStockQty=0, totalStockValue=0, stockItemCount=0;
-
-    (inRows.slice(1)).forEach(row => {
-      if (!row.length || !row.join('').trim()) return;
-
-      // Determine whether this purchase lot is pre-period, in-period, or post-period.
-      // Pre-period  (purDate < fromDate) → CBS = Opening stock (was in hand at period start)
-      // In-period   (fromDate ≤ purDate ≤ toDate) → PUR QTY = Purchased this period
-      // Post-period (purDate > toDate) → skip entirely (not yet purchased during this period)
-      // No date / no filter → treat as in-period
-      let pd = null;
-      if (iPurDate >= 0) pd = parseSheetDate(row[iPurDate]);
-      if (toDate && pd && pd > toDate) return;               // post-period: skip
-      const isPrePeriod = !!(fromDate && pd && pd < fromDate);
-
-      const sup  = cleanLabel(row[iSupplier]);
-      const cat  = resolveCategory(row[iCategory], iDept >= 0 ? row[iDept] : '', iArticle >= 0 ? row[iArticle] : '');
-      const sty  = iStyle >= 0 ? cleanLabel(row[iStyle]) : 'Unknown';
-      stockItemCount++;
-      const ssKey= sup + '||' + sty;
-      const cbsQ = getNum(row, iStockQty);                  // CBS = closing balance (current remaining)
-      // Opening: for pre-period lots use their CBS; for in-period use OPS QTY from sheet (often 0)
-      const openQ= isPrePeriod ? cbsQ : getNum(row, iOpsQty);
-      // Purchased: only count lots bought during the period
-      const purQ = isPrePeriod ? 0 : getNum(row, iPurQty);
-      const prtQ = isPrePeriod ? 0 : (iPrtQty >= 0 ? getNum(row, iPrtQty) : 0);
-      const artI = iArticle >= 0 ? (String(row[iArticle]||'').trim()||'') : '';
-      const subcatI = iSubCat >= 0 ? String(row[iSubCat]||'').trim() : '';
-      if (!bySupStyleStock[ssKey]) bySupStyleStock[ssKey] = { supName: sup, style: sty, cat, qty: 0, purQty: 0, opening: 0, purReturn: 0, article: artI, subcat: subcatI, purAmt: 0, firstPurDate: '', lastPurDate: '' };
-      bySupStyleStock[ssKey].qty += cbsQ;                   // closing = sum of all CBS
-      bySupStyleStock[ssKey].purQty += purQ;
-      bySupStyleStock[ssKey].opening += openQ;
-      bySupStyleStock[ssKey].purReturn += prtQ;
-      if (!byStyleStock[sty]) byStyleStock[sty] = { qty: 0, purQty: 0, opening: 0, purReturn: 0 };
-      byStyleStock[sty].qty += cbsQ;
-      byStyleStock[sty].purQty += purQ;
-      byStyleStock[sty].opening += openQ;
-      byStyleStock[sty].purReturn += prtQ;
-      const cost = getNum(row, iCostPrice);
-      bySupStyleStock[ssKey].purAmt += purQ * cost;
-      const pdIso = pd ? toISO(pd) : '';
-      if (pdIso && (!bySupStyleStock[ssKey].firstPurDate || pdIso < bySupStyleStock[ssKey].firstPurDate)) bySupStyleStock[ssKey].firstPurDate = pdIso;
-      if (pdIso && (!bySupStyleStock[ssKey].lastPurDate  || pdIso > bySupStyleStock[ssKey].lastPurDate))  bySupStyleStock[ssKey].lastPurDate  = pdIso;
-      const val  = cbsQ * cost;
-      totalStockQty += cbsQ; totalStockValue += val;
-      if (!bySupStock[sup]) bySupStock[sup] = { qty:0, value:0, purQty:0, opening:0, purReturn:0 };
-      bySupStock[sup].qty += cbsQ; bySupStock[sup].value += val; bySupStock[sup].purQty += purQ;
-      bySupStock[sup].opening += openQ; bySupStock[sup].purReturn += prtQ;
-      if (!byCatStock[cat]) byCatStock[cat] = { qty:0, value:0, purQty:0 };
-      byCatStock[cat].qty += cbsQ; byCatStock[cat].value += val; byCatStock[cat].purQty += purQ;
-    });
-
-    // ── Item Ledger: per-supplier-style purchase/sale profit tracker ────────
-    const _ilMap = {};
-    Object.entries(bySupStyleStock).forEach(([k, v]) => {
-      _ilMap[k] = { key: k, supName: v.supName, style: v.style, cat: v.cat, subcat: v.subcat||'',
-        article: v.article||'', purQty: r2(v.purQty), purAmt: Math.round(v.purAmt||0),
-        costPerUnit: v.purQty > 0 ? Math.round((v.purAmt||0) / v.purQty) : 0,
-        firstPurDate: v.firstPurDate||'', lastPurDate: v.lastPurDate||'',
-        saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
-    });
-    Object.entries(bySupStyleSales).forEach(([k, v]) => {
-      if (!_ilMap[k]) _ilMap[k] = { key: k, supName: v.supName, style: v.style, cat: v.cat, subcat: '',
-        article: v.article||'', purQty: 0, purAmt: 0, costPerUnit: 0, firstPurDate: '', lastPurDate: '',
-        saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
-      _ilMap[k].saleQty = r2(v.qty);
-      _ilMap[k].saleAmt = Math.round(v.amount||0);
-      _ilMap[k].lastSaleDate = v.lastSaleDate||'';
-    });
-    const itemLedger = Object.values(_ilMap).map(r => ({
-      ...r, availQty: r2(r.purQty - r.saleQty),
-      profit: Math.round(r.saleAmt - (r.saleQty * r.costPerUnit))
-    })).sort((a, b) => b.saleAmt - a.saleAmt);
-
-    // ── Daily profit: second pass over ALL out rows (no date filter) ──────────
-    const _bdProfitMap = {};
-    outRows.slice(1).forEach(row => {
-      const ds = toISO(row[oXnDate]);
-      if (!ds) return;
-      const qty = getNum(row, oNetQty);
-      if (qty <= 0) return;
-      const sty = oStyle >= 0 ? cleanLabel(row[oStyle]) : 'Unknown';
-      const sup = cleanLabel(row[oSupplier]);
-      const cost = (_ilMap[sup+'||'+sty]?.costPerUnit || 0);
-      _bdProfitMap[ds] = (_bdProfitMap[ds]||0) + (getNum(row, oNetAmt) - cost * qty);
-    });
-    fmtByDate.forEach(r => { r.profit = Math.round(_bdProfitMap[r.date] || 0); });
-
-    const sortVal = arr => arr.sort((a,b) => b.value - a.value);
-    const supplierStock = sortVal(Object.entries(bySupStock).map(([name,d]) => ({ name, qty:r2(d.qty), purQty:r2(d.purQty), opening:r2(d.opening), purReturn:r2(d.purReturn), value:Math.round(d.value) })));
-    const categoryStock = sortVal(Object.entries(byCatStock).map(([category,d]) => ({ category, qty:r2(d.qty), purQty:r2(d.purQty), value:Math.round(d.value) })));
-
-    const skuSales = sortAmt(Object.entries(bySKU).map(([sku,d]) => ({ sku, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) })));
-
-    // ── SP Analytics: current period + Last Year same period ──────────────────
-    // LY comparison is only meaningful when a date filter is applied
-    const hasDateFilter = !!(fromDate || toDate);
-    const lyFrom = (hasDateFilter && fromDate) ? new Date(fromDate.getFullYear()-1, fromDate.getMonth(), fromDate.getDate()) : null;
-    const lyTo   = (hasDateFilter && toDate)   ? (() => { const d=new Date(toDate); d.setFullYear(d.getFullYear()-1); return d; })() : null;
-    const bySPcur={}, bySPly={}, byMoncur={}, byMonLY={};
-    let lyTotQty=0, lyTotAmt=0;
-    const lyXns = new Set();
+    const num = v => Number(v) || 0;
     const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-    outRows.slice(1).forEach(row => {
-      const dateRaw2 = row[oXnDate];
-      const dateStr = String(dateRaw2||'').trim();
-      if (!dateStr) return;
-      const d = parseSheetDate(dateRaw2);
-      if (!d) return;
-      const isCur = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
-      const isLY  = hasDateFilter && (!lyFrom || d >= lyFrom) && (!lyTo || d <= lyTo);
-      if (!isCur && !isLY) return;
-      if (deptFilter) { const _dr=oDept>=0?String(row[oDept]||'').trim():''; const dpt=(_dr&&!isJunkLabel(_dr))?_dr:'—'; if (dpt !== deptFilter) return; }
-      const qty  = getNum(row, oNetQty);
-      const amt  = getNum(row, oNetAmt);
-      const sp   = cleanLabel(row[oSP]);
-      const xnNo = String(row[oXnNo]||'').trim();
-      const monKey   = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-      const monLabel = `${MON_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
-      const pushSP  = (map) => { if (!map[sp])     map[sp]     = {amt:0,qty:0,xns:new Set()}; map[sp].amt+=amt;     map[sp].qty+=qty;     if(xnNo) map[sp].xns.add(xnNo); };
-      const pushMon = (map) => { if (!map[monKey]) map[monKey] = {label:monLabel,amt:0,qty:0,xns:new Set()}; map[monKey].amt+=amt; map[monKey].qty+=qty; if(xnNo) map[monKey].xns.add(xnNo); };
-      if (isCur) { pushSP(bySPcur); pushMon(byMoncur); }
-      if (isLY)  { pushSP(bySPly);  pushMon(byMonLY);  lyTotQty+=qty; lyTotAmt+=amt; if(xnNo) lyXns.add(xnNo); }
+    // ── Sales Funnel: net sales by date (profit wired in Phase 2 once cost data is live) ──
+    const fmtByDate = byDateRs.recordset.map(r => ({
+      date: r.date, transactions: r.transactions, qty: r2(num(r.qty)), amount: Math.round(num(r.amount)), profit: 0
+    }));
+    let totalAmt = 0, totalQty = 0;
+    fmtByDate.forEach(r => { totalAmt += r.amount; totalQty += r.qty; });
+
+    // ── Basket size + total transactions (bills with net qty >= 1) ──
+    const posBills = basketRs.recordset.filter(r => Math.round(num(r.qty)) >= 1);
+    const _basket = { '1': 0, '2': 0, '3': 0, '4': 0, '5+': 0 };
+    posBills.forEach(r => { const n = Math.round(num(r.qty)); if (n >= 5) _basket['5+']++; else _basket[String(n)]++; });
+    const basketSize = Object.entries(_basket).map(([bucket, bills]) => ({ bucket, bills }));
+    const totalTransactions = posBills.length;
+
+    // ── Top Departments by Net Sales ──
+    const deptAnalytics = deptRs.recordset.map(r => {
+      const bills = r.bills, qty = r2(num(r.qty)), amount = Math.round(num(r.amount));
+      return { dept: r.dept, bills, qty, amount, upt: bills ? r2(qty / bills) : 0, atv: bills ? Math.round(amount / bills) : 0 };
+    }).filter(x => x.dept && x.dept !== '—' && x.bills > 0).sort((a, b) => b.qty - a.qty);
+
+    const departments = allDeptRs.recordset.map(r => r.dept).filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+    const sortAmt = arr => arr.sort((a, b) => b.amount - a.amount);
+    const salespersons = sortAmt(spRs.recordset.map(r => ({ name: r.name, transactions: r.transactions, qty: r2(num(r.qty)), amount: Math.round(num(r.amount)) })));
+    const supplierSales = sortAmt(supRs.recordset.map(r => ({ name: r.name, transactions: r.transactions, qty: r2(num(r.qty)), amount: Math.round(num(r.amount)) })));
+
+    const supplierStyleSales = styleSupSalesRs.recordset.map(r => ({
+      key: r.supName + '||' + r.style, supName: r.supName, style: r.style, cat: r.cat,
+      qty: r2(num(r.qty)), amount: Math.round(num(r.amount)), lastSaleDate: toISODate(r.lastSaleDate)
+    }));
+    const _byStyle = {};
+    supplierStyleSales.forEach(r => { if (!_byStyle[r.style]) _byStyle[r.style] = 0; _byStyle[r.style] += r.qty; });
+    const styleSales = Object.entries(_byStyle).map(([style, qty]) => ({ style, qty: r2(qty) }));
+
+    // ── SP Analytics: current period vs same period last year ──
+    const curByMon = {};
+    fmtByDate.forEach(r => {
+      const mk = r.date.slice(0, 7);
+      if (!curByMon[mk]) curByMon[mk] = { amt: 0, qty: 0, bills: 0 };
+      curByMon[mk].amt += r.amount; curByMon[mk].qty += r.qty; curByMon[mk].bills += r.transactions;
     });
+    const lyByMon = {};
+    lyMonRs.recordset.forEach(r => { lyByMon[r.monKey] = { amt: Math.round(num(r.amount)), qty: r2(num(r.qty)), bills: r.bills }; });
 
-    const curBillsTot = posXns.size, lyBillsTot = lyXns.size;  // posXns = bills with qty>0, matches basket chart
-    const curUPT = curBillsTot ? r2(totalQty/curBillsTot) : 0;
-    const lyUPT  = lyBillsTot  ? r2(lyTotQty/lyBillsTot)  : 0;
-    const curATV = curBillsTot ? Math.round(totalAmt/curBillsTot) : 0;
-    const lyATV  = lyBillsTot  ? Math.round(lyTotAmt/lyBillsTot)  : 0;
-    const pct = (a,b) => b ? r2((a-b)/b*100) : null;
-
-    const allSPKeys = new Set([...Object.keys(bySPcur), ...Object.keys(bySPly)]);
-    const spTable = [...allSPKeys].map(sp => {
-      const c = bySPcur[sp] || {amt:0,qty:0,xns:new Set()};
-      const l = bySPly[sp]  || {amt:0,qty:0,xns:new Set()};
-      const cB=c.xns.size, lB=l.xns.size;
-      const cUPT=cB?r2(c.qty/cB):0, lUPT=lB?r2(l.qty/lB):0;
-      const cATV=cB?Math.round(c.amt/cB):0, lATV=lB?Math.round(l.amt/lB):0;
-      return { name:sp, bills:cB, qty:r2(c.qty), amount:Math.round(c.amt), upt:cUPT, atv:cATV,
-               lyBills:lB, lyQty:r2(l.qty), lyAmount:Math.round(l.amt), lyUpt:lUPT, lyAtv:lATV,
-               uptGrowth:pct(cUPT,lUPT), atvGrowth:pct(cATV,lATV), billsGrowth:pct(cB,lB) };
-    }).sort((a,b) => b.amount-a.amount);
-
-    // Monthly comparison: align by calendar month, not position
-    // For each month in the current period range, look up the same calendar month -1 year in LY data
     let monthlyCmp = [];
-    if (fromDate && toDate) {
-      const start = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
-      const end   = new Date(toDate.getFullYear(),   toDate.getMonth(),   1);
-      for (let d = new Date(start); d <= end; d.setMonth(d.getMonth()+1)) {
+    {
+      const start = new Date(fromDate.slice(0,7) + '-01');
+      const end = new Date(toDate.slice(0,7) + '-01');
+      for (let d = new Date(start); d <= end; d.setMonth(d.getMonth() + 1)) {
         const curKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-        const lyKey  = `${d.getFullYear()-1}-${String(d.getMonth()+1).padStart(2,'0')}`;
-        const c = byMoncur[curKey] || null;
-        const l = byMonLY[lyKey]   || null;
+        const lyKey = `${d.getFullYear()-1}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        const c = curByMon[curKey] || null, l = lyByMon[lyKey] || null;
         monthlyCmp.push({
           month: `${MON_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`,
-          curAmt: c?Math.round(c.amt):0, curQty: c?r2(c.qty):0, curBills: c?c.xns.size:0,
-          lyAmt:  l?Math.round(l.amt):0, lyQty:  l?r2(l.qty):0, lyBills:  l?l.xns.size:0,
+          curAmt: c ? Math.round(c.amt) : 0, curQty: c ? r2(c.qty) : 0, curBills: c ? c.bills : 0,
+          lyAmt: l ? l.amt : 0, lyQty: l ? l.qty : 0, lyBills: l ? l.bills : 0
         });
       }
-    } else {
-      // No date filter — show all available months side by side (no alignment guarantee)
-      const allCurMons = Object.entries(byMoncur).sort(([a],[b])=>a.localeCompare(b));
-      const allLYMons  = Object.entries(byMonLY).sort(([a],[b])=>a.localeCompare(b));
-      const monLen = Math.max(allCurMons.length, allLYMons.length);
-      monthlyCmp = Array.from({length:monLen}, (_,i) => {
-        const [,c] = allCurMons[i]||[null,null];
-        const [,l] = allLYMons[i] ||[null,null];
-        return { month: c?c.label:l?l.label:`M${i+1}`,
-                 curAmt:c?Math.round(c.amt):0, curQty:c?r2(c.qty):0, curBills:c?c.xns.size:0,
-                 lyAmt: l?Math.round(l.amt):0, lyQty: l?r2(l.qty):0, lyBills: l?l.xns.size:0 };
-      });
     }
 
-    res.json({
-      salesSummary: { totalAmount:r2(totalAmt), totalQty:r2(totalQty), totalTransactions:posXns.size, byDate:fmtByDate },
-      topCategories: sortAmt(Object.entries(byCat).map(([cat,d]) => ({ category:cat, transactions:d.xns.size, qty:r2(d.qty), amount:Math.round(d.amt) }))),
-      supplierSales: ser(bySupplier, 'name'),
-      salespersons:  ser(bySP, 'name'),
-      cityStateSales,
-      skuSales,
-      currentStock: { totalItems: stockItemCount, totalQty:r2(totalStockQty), totalValue:Math.round(totalStockValue), _inRowCount: inRows.length, _iOpsQty: iOpsQty, _iCostPrice: iCostPrice },
-      supplierStock,
-      categoryStock,
-      supplierStyleSales: Object.entries(bySupStyleSales).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, qty: r2(d.qty) })),
-      supplierStyleStock: Object.entries(bySupStyleStock).map(([k,d]) => ({ key: k, supName: d.supName, style: d.style, cat: d.cat, article: d.article||'', subcat: d.subcat||'', qty: r2(d.qty), purQty: r2(d.purQty), opening: r2(d.opening), purReturn: r2(d.purReturn) })),
-      styleSales: Object.entries(byStyleSales).map(([style, d]) => ({ style, qty: r2(d.qty) })),
-      styleStock: Object.entries(byStyleStock).map(([style, d]) => ({ style, qty: r2(d.qty), purQty: r2(d.purQty) })),
-      spAnalytics: {
-        hasDateFilter,
-        summary: { curUPT, lyUPT, uptGrowth:pct(curUPT,lyUPT), curATV, lyATV, atvGrowth:pct(curATV,lyATV),
-                   curBills:curBillsTot, lyBills:lyBillsTot, billsGrowth:pct(curBillsTot,lyBillsTot),
-                   curQty:r2(totalQty), lyQty:r2(lyTotQty), curAmount:Math.round(totalAmt), lyAmount:Math.round(lyTotAmt),
-                   salespersons: spTable.filter(s=>s.bills>0).length,
-                   lySalespersons: spTable.filter(s=>s.lyBills>0).length,
-                   spGrowth: pct(spTable.filter(s=>s.bills>0).length, spTable.filter(s=>s.lyBills>0).length) },
-        spTable,
-        monthlyCmp
-      },
-      deptAnalytics,
-      basketSize,
-      departments: [...allDeptsSet].sort((a,b) => a.localeCompare(b)),
-      itemLedger
+    const lyTotalRow = lyTotalRs.recordset[0] || { bills: 0, qty: 0, amount: 0 };
+    const curBillsTot = totalTransactions, lyBillsTot = lyTotalRow.bills;
+    const lyTotQty = r2(num(lyTotalRow.qty)), lyTotAmt = Math.round(num(lyTotalRow.amount));
+    const curUPT = curBillsTot ? r2(totalQty / curBillsTot) : 0;
+    const lyUPT = lyBillsTot ? r2(lyTotQty / lyBillsTot) : 0;
+    const curATV = curBillsTot ? Math.round(totalAmt / curBillsTot) : 0;
+    const lyATV = lyBillsTot ? Math.round(lyTotAmt / lyBillsTot) : 0;
+    const pct = (a, b) => b ? r2((a - b) / b * 100) : null;
+
+    const lySpMap = {}; lySpRs.recordset.forEach(r => { lySpMap[r.name] = { bills: r.transactions, qty: num(r.qty), amount: num(r.amount) }; });
+    const allSPKeys = new Set([...salespersons.map(s => s.name), ...Object.keys(lySpMap)]);
+    const spTable = [...allSPKeys].map(name => {
+      const c = salespersons.find(s => s.name === name) || { transactions: 0, qty: 0, amount: 0 };
+      const l = lySpMap[name] || { bills: 0, qty: 0, amount: 0 };
+      const cB = c.transactions, lB = l.bills;
+      const cUPT = cB ? r2(c.qty / cB) : 0, lUPT = lB ? r2(l.qty / lB) : 0;
+      const cATV = cB ? Math.round(c.amount / cB) : 0, lATV = lB ? Math.round(l.amount / lB) : 0;
+      return { name, bills: cB, qty: r2(c.qty), amount: Math.round(c.amount), upt: cUPT, atv: cATV,
+               lyBills: lB, lyQty: r2(l.qty), lyAmount: Math.round(l.amount), lyUpt: lUPT, lyAtv: lATV,
+               uptGrowth: pct(cUPT, lUPT), atvGrowth: pct(cATV, lATV), billsGrowth: pct(cB, lB) };
+    }).sort((a, b) => b.amount - a.amount);
+
+    const spAnalytics = {
+      hasDateFilter: true,
+      summary: { curUPT, lyUPT, uptGrowth: pct(curUPT, lyUPT), curATV, lyATV, atvGrowth: pct(curATV, lyATV),
+                 curBills: curBillsTot, lyBills: lyBillsTot, billsGrowth: pct(curBillsTot, lyBillsTot),
+                 curQty: r2(totalQty), lyQty: lyTotQty, curAmount: totalAmt, lyAmount: lyTotAmt,
+                 salespersons: spTable.filter(s => s.bills > 0).length,
+                 lySalespersons: spTable.filter(s => s.lyBills > 0).length,
+                 spGrowth: pct(spTable.filter(s => s.bills > 0).length, spTable.filter(s => s.lyBills > 0).length) },
+      spTable, monthlyCmp
+    };
+
+    // ── Stock-side: InvItemStock is a live real-time balance (no CBS/running-
+    // balance duality like the old sheet had). Cost basis comes from actual
+    // purchase price history, not MstArticle.ArticlePurPrice (almost always
+    // unset in this data) — grouped by (supplier,style) to stay fast, rather
+    // than joining a per-item weighted-cost derived table against the full
+    // ~350k-row InvItemStock table (tested: 15s vs <2s for the grouped form).
+    const [stockTotalsRs, stockStyleRs, purchaseStyleRs] = await Promise.all([
+      pool.request().query(`SELECT COUNT(*) totalItems, SUM(s.StockQty) totalQty FROM InvItemStock s WHERE s.StockQty <> 0`),
+      pool.request().query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(s.StockQty) AS qty
+        FROM InvItemStock s
+        LEFT JOIN MstItems mi ON mi.ItemCode = s.ItemId
+        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+        LEFT JOIN MstInvSubCategory subcat ON subcat.InvSubCategoryId = art.InvSubCategoryId
+        LEFT JOIN MstInvCategory cat ON cat.InvCategoryId = subcat.InvCategoryId
+        LEFT JOIN MstInvDepartment dept ON dept.InvDepartmentId = cat.InvDepartmentId
+        ${imsSupplierJoin('s')}
+        WHERE s.StockQty <> 0
+        GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`),
+      pool.request().query(`SELECT ISNULL(p.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style,
+        SUM(pd.Quantity) AS purQty, SUM(pd.Quantity*pd.PurPrice) AS purAmt, MIN(ph.PurchaseDt) AS firstPurDate, MAX(ph.PurchaseDt) AS lastPurDate
+        FROM InvPurchaseDetail pd
+        JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
+        JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
+        LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
+        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+        WHERE ph.IsCancelled = 0
+        GROUP BY p.PartyName, art.ArticleNo`)
+    ]);
+
+    const costMap = {};   // supName||style -> costPerUnit, from actual purchase history
+    const purMap = {};    // supName||style -> {purQty, purAmt, firstPurDate, lastPurDate}
+    purchaseStyleRs.recordset.forEach(r => {
+      const key = r.supName + '||' + r.style;
+      const purQty = num(r.purQty), purAmt = Math.round(num(r.purAmt));
+      purMap[key] = { purQty: r2(purQty), purAmt, firstPurDate: toISODate(r.firstPurDate), lastPurDate: toISODate(r.lastPurDate) };
+      costMap[key] = purQty > 0 ? Math.round(purAmt / purQty) : 0;
     });
+
+    const supplierStyleStock = stockStyleRs.recordset.map(r => {
+      const key = r.supName + '||' + r.style;
+      const qty = r2(num(r.qty));
+      return { key, supName: r.supName, style: r.style, cat: r.cat, article: r.style, subcat: '',
+               qty, purQty: (purMap[key]||{}).purQty || 0, opening: 0, purReturn: 0, value: Math.round(qty * (costMap[key]||0)) };
+    });
+
+    const _bySupStock = {};
+    supplierStyleStock.forEach(r => {
+      if (!_bySupStock[r.supName]) _bySupStock[r.supName] = { qty: 0, value: 0 };
+      _bySupStock[r.supName].qty += r.qty; _bySupStock[r.supName].value += r.value;
+    });
+    const supplierStock = Object.entries(_bySupStock).map(([name, d]) => ({
+      name, qty: r2(d.qty), purQty: 0, opening: 0, purReturn: 0, value: Math.round(d.value)
+    })).sort((a, b) => b.value - a.value);
+
+    const _byStyleStock = {};
+    supplierStyleStock.forEach(r => { if (!_byStyleStock[r.style]) _byStyleStock[r.style] = 0; _byStyleStock[r.style] += r.qty; });
+    const styleStock = Object.entries(_byStyleStock).map(([style, qty]) => ({ style, qty: r2(qty), purQty: 0 }));
+
+    const stockTotalsRow = stockTotalsRs.recordset[0] || { totalItems: 0, totalQty: 0 };
+    const currentStock = {
+      totalItems: stockTotalsRow.totalItems || 0,
+      totalQty: r2(num(stockTotalsRow.totalQty)),
+      totalValue: Math.round(supplierStock.reduce((s, r) => s + r.value, 0))
+    };
+
+    // ── Item Ledger: purchase cost basis (all-time weighted avg) vs sales in
+    // the selected period; availQty uses the real live stock balance instead
+    // of a derived purQty-saleQty running total.
+    const _ilMap = {};
+    Object.entries(purMap).forEach(([key, p]) => {
+      const [supName, style] = key.split('||');
+      _ilMap[key] = { key, supName, style, cat: '', subcat: '', article: style,
+        purQty: p.purQty, purAmt: p.purAmt, costPerUnit: costMap[key] || 0,
+        firstPurDate: p.firstPurDate, lastPurDate: p.lastPurDate,
+        saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
+    });
+    supplierStyleSales.forEach(r => {
+      if (!_ilMap[r.key]) _ilMap[r.key] = { key: r.key, supName: r.supName, style: r.style, cat: r.cat, subcat: '', article: r.style,
+        purQty: 0, purAmt: 0, costPerUnit: 0, firstPurDate: '', lastPurDate: '', saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
+      _ilMap[r.key].saleQty = r.qty; _ilMap[r.key].saleAmt = r.amount; _ilMap[r.key].lastSaleDate = r.lastSaleDate || '';
+      if (!_ilMap[r.key].cat) _ilMap[r.key].cat = r.cat;
+    });
+    const stockQtyMap = {}; supplierStyleStock.forEach(r => { stockQtyMap[r.key] = r.qty; });
+    // Some styles (e.g. "SUITTING LENGTH"/"SHIRTING LENGTH" — sold by the metre, likely
+    // cut from bulk rolls purchased under a different item code) have no traceable
+    // purchase record at all. Rather than showing those as 100% margin (costPerUnit=0),
+    // report profit as unknown (0) so they don't inflate/mislead the P&L view.
+    const itemLedger = Object.values(_ilMap).map(r => ({
+      ...r, availQty: stockQtyMap[r.key] != null ? stockQtyMap[r.key] : r2(r.purQty - r.saleQty),
+      profit: (r.purQty > 0) ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0
+    })).sort((a, b) => b.saleAmt - a.saleAmt);
+
+    const responseData = {
+      salesSummary: { totalAmount: r2(totalAmt), totalQty: r2(totalQty), totalTransactions, byDate: fmtByDate },
+      topCategories: [], cityStateSales: [], skuSales: [],
+      supplierSales, salespersons,
+      currentStock,
+      supplierStock, categoryStock: [],
+      supplierStyleSales,
+      supplierStyleStock,
+      styleSales, styleStock,
+      spAnalytics, deptAnalytics, basketSize, departments,
+      itemLedger
+    };
+    _imsSqlCache.set(cacheKey, { ts: Date.now(), data: responseData });
+    return res.json(responseData);
   } catch (err) {
     console.error('[IMS Reports] error:', err.message);
     const msg = (err.message || 'Failed to load').replace(/[^\x20-\x7E]/g, '?').slice(0, 200);
@@ -3310,578 +3003,154 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
   }
 });
 
-// ── Generate Unique Codes: Supplier_Style column in InStock + OutStock ──
-app.post('/api/generate-unique-codes', requireAuth, async (req, res) => {
-  try {
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-
-    const norm = s => String(s || '').trim().toUpperCase()
-      .replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'UNKNOWN';
-    const makeCode = (sup, style) => `${norm(sup)}_${norm(style)}`;
-
-    const results = [];
-
-    for (const tabName of ['In Stock', 'Out Stock']) {
-      const resp = await withRetry(() => sheetsApi.spreadsheets.values.get({
-        spreadsheetId: STOCK_SHEET_ID, range: `'${tabName}'!A1:AH1`
-      }));
-      const headerRow = (resp.data.values || [[]])[0].map(h => String(h).trim());
-      const headerLow = headerRow.map(h => h.toLowerCase());
-
-      // Find supplier and style columns
-      const supIdx   = headerLow.findIndex(h => /supplier[\s._-]?name/i.test(h) || h === 'supplier');
-      const styleIdx = headerLow.findIndex(h => /^style$/i.test(h));
-
-      if (supIdx < 0 || styleIdx < 0) {
-        results.push({ tab: tabName, error: `Columns not found — Supplier:${supIdx} Style:${styleIdx}` });
-        continue;
-      }
-
-      // Find or decide column for "Unique Code"
-      let codeIdx = headerLow.findIndex(h => h === 'unique code' || h === 'uniquecode');
-      const colLetter = n => {
-        let s = '';
-        for (n++; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
-        return s;
-      };
-
-      if (codeIdx < 0) {
-        // Append header in new column
-        codeIdx = headerRow.length;
-        await withRetry(() => sheetsApi.spreadsheets.values.update({
-          spreadsheetId: STOCK_SHEET_ID,
-          range: `'${tabName}'!${colLetter(codeIdx)}1`,
-          valueInputOption: 'RAW',
-          requestBody: { values: [['Unique Code']] }
-        }));
-      }
-
-      // Read all rows (supplier + style columns)
-      const dataResp = await withRetry(() => sheetsApi.spreadsheets.values.get({
-        spreadsheetId: STOCK_SHEET_ID, range: `'${tabName}'!A:AH`
-      }));
-      const allRows = dataResp.data.values || [];
-      if (allRows.length <= 1) { results.push({ tab: tabName, updated: 0 }); continue; }
-
-      const codes = allRows.slice(1).map(row => [makeCode(row[supIdx], row[styleIdx])]);
-      const startRow = 2;
-      const endRow   = startRow + codes.length - 1;
-      const colL     = colLetter(codeIdx);
-
-      await withRetry(() => sheetsApi.spreadsheets.values.update({
-        spreadsheetId: STOCK_SHEET_ID,
-        range: `'${tabName}'!${colL}${startRow}:${colL}${endRow}`,
-        valueInputOption: 'RAW',
-        requestBody: { values: codes }
-      }));
-
-      results.push({ tab: tabName, updated: codes.length, col: colL });
-    }
-
-    res.json({ ok: true, results });
-  } catch (err) {
-    console.error('[GenerateCodes]', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Temporary debug: expose sheet column headers ──────────────────────────────
-app.get('/api/ims-dbg-cols', requireAuth, async (req, res) => {
-  try {
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-    const [oR, iR] = await Promise.all([
-      sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: "'Out Stock'!1:1" }),
-      sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: "'In Stock'!1:1" })
-    ]);
-    const outH = (oR.data.values||[[]])[0] || [];
-    const inH  = (iR.data.values||[[]])[0] || [];
-    res.json({ outStock: outH.map((h,i)=>({col:i,name:h})), inStock: inH.map((h,i)=>({col:i,name:h})) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
 // ── IMS Stock History — stock snapshot as of any past date ──────────────────
 // Params: asOf=YYYY-MM-DD (required), dept=filter (optional)
-// Computes: purQty (In Stock Pur Date ≤ asOf) − saleQty (Out Stock XN Date ≤ asOf)
+// Works BACKWARDS from InvItemStock's live current balance rather than forward
+// from zero — computing stock_asOf(d) = currentQty - net(events after d) only
+// needs to scan the small (targetDate, today] window, not all-time history
+// (tested: all-time forward scan = 15s, this windowed approach = ~2-3s).
 app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
   try {
     const { asOf, from, to, dept: deptFilter } = req.query;
     if (!asOf && !to) return res.status(400).json({ error: 'asOf or to date required (YYYY-MM-DD)' });
 
-    const nowTs = Date.now();
-    const hasCached = _imsRawCache.outRows && _imsRawCache.outRows.length > 1;
-    const needsFresh = !hasCached || (nowTs - _imsRawCache.ts) > IMS_CACHE_TTL_MS;
-    let outRows, inRows;
-    if (needsFresh) {
-      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-      const safeGet = range => withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' })).catch(() => ({ data: { values: [] } }));
-      const [oR, iR] = await Promise.all([safeGet("'Out Stock'!A:AH"), safeGet("'In Stock'!A:AH")]);
-      outRows = oR.data.values || []; inRows = iR.data.values || [];
-      if (outRows.length > 1) { _imsRawCache.outRows = outRows; _imsRawCache.inRows = inRows; _imsRawCache.ts = nowTs; }
-    } else { outRows = _imsRawCache.outRows; inRows = _imsRawCache.inRows; }
-
-    const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
-    const parseD = s => {
-      if (s==null||s==='') return null;
-      if (typeof s==='number') { const n=Math.floor(s); return (n>1&&n<100000)?new Date(Date.UTC(1899,11,30)+n*86400000):null; }
-      const str=String(s).trim(); if(!str) return null;
-      const m=str.match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
-      if(m) return new Date(Date.UTC(+m[3],MONTHS[m[2].toLowerCase()]??0,+m[1]));
-      const m2=str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if(m2) return new Date(Date.UTC(+m2[1],+m2[2]-1,+m2[3]));
-      const m3=str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if(m3) return new Date(Date.UTC(+m3[3],+m3[2]-1,+m3[1]));
-      const d=new Date(str); return isNaN(d)?null:d;
-    };
-    const getN   = (row,i) => i>=0 ? (parseFloat(row[i])||0) : 0;
-    const findC  = (hdr,rx) => hdr.findIndex(h=>rx.test(h));
-    const isJunk = s => ['[default]','default','[none]','none'].includes(String(s||'').trim().toLowerCase());
-
-    // Build target dates: range (from→to) or fallback 3-day window around asOf
-    const toStr   = to || asOf;
-    const fromStr = from || null;
-    const maxDate = (() => { const d=new Date(toStr); d.setUTCHours(23,59,59,999); return d; })();
     let dateLabels;
-    if (fromStr) {
-      const dates=[], cur=new Date(fromStr+'T00:00:00Z'), end=new Date(toStr+'T00:00:00Z');
-      const MAX_COLS=45;
-      while(cur<=end && dates.length<MAX_COLS){ dates.push(cur.toISOString().slice(0,10)); cur.setUTCDate(cur.getUTCDate()+1); }
+    if (from) {
+      const dates = [], cur = new Date(from + 'T00:00:00Z'), end = new Date((to || asOf) + 'T00:00:00Z');
+      const MAX_COLS = 45;
+      while (cur <= end && dates.length < MAX_COLS) { dates.push(cur.toISOString().slice(0, 10)); cur.setUTCDate(cur.getUTCDate() + 1); }
       dateLabels = dates;
     } else {
-      const mkD = n=>{ const d=new Date(asOf); d.setUTCDate(d.getUTCDate()-n); d.setUTCHours(23,59,59,999); return d; };
-      dateLabels = [mkD(2),mkD(1),mkD(0)].map(d=>d.toISOString().slice(0,10));
+      const mkD = n => { const d = new Date(asOf + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+      dateLabels = [mkD(2), mkD(1), mkD(0)];
     }
-    const targetDates = dateLabels.map(d=>{ const dt=new Date(d); dt.setUTCHours(23,59,59,999); return dt; });
+    const minTargetDate = dateLabels[0];
 
-    // ── Out Stock columns ──
-    const oH = outRows[0]||[];
-    const oXnDate=findC(oH,/xn[\s._-]?date/i), oNetQty=findC(oH,/netsls[\s._-]?qty/i);
-    const oSup=findC(oH,/^supplier[\s._-]?name$/i), oSty=findC(oH,/^style$/i);
-    const oState=findC(oH,/^supplier[\s._-]?state$/i);
-    let oDept=findC(oH,/^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
-    if(oDept<0 && oState>=0) oDept=oState+1;
+    const pool = await getSqlPool();
+    const [stockRs, purTotalRs, purAfterRs, saleAfterRs] = await Promise.all([
+      pool.request().query(`SELECT ISNULL(supl.PartyName,'Unknown') supName, ISNULL(art.ArticleNo,'Unknown') style,
+          ISNULL(dept.InvDepartmentName,'') dept, ISNULL(cat.InvCategoryName,'') cat, ISNULL(subcat.InvSubCategoryName,'') subcat,
+          SUM(s.StockQty) qty
+        FROM InvItemStock s
+        LEFT JOIN MstItems mi ON mi.ItemCode = s.ItemId
+        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+        LEFT JOIN MstInvSubCategory subcat ON subcat.InvSubCategoryId = art.InvSubCategoryId
+        LEFT JOIN MstInvCategory cat ON cat.InvCategoryId = subcat.InvCategoryId
+        LEFT JOIN MstInvDepartment dept ON dept.InvDepartmentId = cat.InvDepartmentId
+        ${imsSupplierJoin('s')}
+        GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName, cat.InvCategoryName, subcat.InvSubCategoryName`),
+      pool.request().query(`SELECT ISNULL(p.PartyName,'Unknown') supName, ISNULL(art.ArticleNo,'Unknown') style, SUM(pd.Quantity) totalPur
+        FROM InvPurchaseDetail pd
+        JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
+        JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
+        LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
+        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+        WHERE ph.IsCancelled = 0
+        GROUP BY p.PartyName, art.ArticleNo`),
+      pool.request().input('minD', sql.Date, minTargetDate).query(`SELECT ISNULL(p.PartyName,'Unknown') supName, ISNULL(art.ArticleNo,'Unknown') style, CONVERT(varchar(10),ph.PurchaseDt,23) dt, SUM(pd.Quantity) qty
+        FROM InvPurchaseDetail pd
+        JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
+        JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
+        LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
+        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+        WHERE ph.IsCancelled = 0 AND ph.PurchaseDt > @minD
+        GROUP BY p.PartyName, art.ArticleNo, ph.PurchaseDt`),
+      pool.request().input('minD', sql.Date, minTargetDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') supName, ISNULL(art.ArticleNo,'Unknown') style, CONVERT(varchar(10),h.CashmemoDt,23) dt, SUM(d.Quantity) qty
+        ${IMS_SALES_JOIN} ${imsSupplierJoin('d')}
+        WHERE h.IsCancelled = 0 AND h.CashmemoDt > @minD
+        GROUP BY supl.PartyName, art.ArticleNo, h.CashmemoDt`)
+    ]);
 
-    // ── In Stock columns ──
-    const iH = inRows[0]||[];
-    const iPurDate=findC(iH,/pur[\s._-]?date/i), iPurQty=findC(iH,/pur[\s._-]?qty/i);
-    const iSup=findC(iH,/^supplier[\s._-]?name$/i), iSty=findC(iH,/^style$/i);
-    const iCat=findC(iH,/^category$/i), iSubCat=findC(iH,/sub[\s._-]?cat/i);
-    const iArticle=findC(iH,/^article[\s._-]?no$|^articleno$/i);
-    const iDept=findC(iH,/^dep(ar)?t(ment)?\.?$|^dept\.?$|^department\s+name$/i);
+    const keyMeta = {};
+    stockRs.recordset.forEach(r => {
+      keyMeta[r.supName + '||' + r.style] = { supName: r.supName, style: r.style, dept: r.dept || '—', cat: r.cat || '', subcat: r.subcat || '', currentQty: Number(r.qty) || 0 };
+    });
+    const totalPurMap = {};
+    purTotalRs.recordset.forEach(r => { totalPurMap[r.supName + '||' + r.style] = Number(r.totalPur) || 0; });
 
-    // ── Build purchase events per key ──
-    const purByKey = {};
-    inRows.slice(1).forEach(row => {
-      const pd = parseD(row[iPurDate]);
-      if (!pd || pd > maxDate) return;
-      const sup = String(row[iSup]||'').trim()||'Unknown';
-      const sty = iSty>=0 ? (String(row[iSty]||'').trim()||'Unknown') : 'Unknown';
-      const key = sup+'||'+sty;
-      if (!purByKey[key]) purByKey[key] = {
-        supName:sup, style:sty,
-        cat:    iCat>=0    ? String(row[iCat]||'').trim()    : '',
-        subcat: iSubCat>=0 ? String(row[iSubCat]||'').trim() : '',
-        article:iArticle>=0? String(row[iArticle]||'').trim(): '',
-        dept:   iDept>=0 && !isJunk(row[iDept]) ? String(row[iDept]||'').trim() : '',
-        events: []
-      };
-      purByKey[key].events.push({ t: pd.getTime(), qty: getN(row, iPurQty) });
+    const eventsAfter = {};
+    purAfterRs.recordset.forEach(r => {
+      const key = r.supName + '||' + r.style;
+      (eventsAfter[key] || (eventsAfter[key] = [])).push({ t: r.dt, qty: Number(r.qty) || 0 });
+    });
+    saleAfterRs.recordset.forEach(r => {
+      const key = r.supName + '||' + r.style;
+      (eventsAfter[key] || (eventsAfter[key] = [])).push({ t: r.dt, qty: -(Number(r.qty) || 0) });
     });
 
-    // ── Build sale events per key + dept map ──
-    const saleByKey = {}, deptMap = {};
-    outRows.slice(1).forEach(row => {
-      const dt = parseD(row[oXnDate]);
-      if (!dt || dt > maxDate) return;
-      const sup = String(row[oSup]||'').trim()||'Unknown';
-      const sty = oSty>=0 ? (String(row[oSty]||'').trim()||'Unknown') : 'Unknown';
-      const key = sup+'||'+sty;
-      if (!saleByKey[key]) saleByKey[key] = [];
-      saleByKey[key].push({ t: dt.getTime(), qty: getN(row, oNetQty) });
-      if (oDept>=0 && !deptMap[key]) {
-        const dRaw = String(row[oDept]||'').trim();
-        if (dRaw && !isJunk(dRaw)) deptMap[key] = dRaw;
-      }
-    });
-
-    // ── Compute stock for each key × each target date ──
+    const allKeys = new Set([...Object.keys(keyMeta), ...Object.keys(totalPurMap)]);
     const items = [];
-    for (const key of Object.keys(purByKey)) {
-      const meta = purByKey[key];
-      const pe   = meta.events;
-      const se   = saleByKey[key] || [];
-      const dept = deptMap[key] || meta.dept || '—';
-      if (deptFilter && deptFilter !== 'All' && dept !== deptFilter) continue;
-      const totalPur = pe.reduce((s,e)=>s+e.qty, 0);
-      if (totalPur <= 0) continue;
-      const stocks = targetDates.map(d => {
-        const dT = d.getTime();
-        const pq = pe.filter(e=>e.t<=dT).reduce((s,e)=>s+e.qty, 0);
-        const sq = se.filter(e=>e.t<=dT).reduce((s,e)=>s+e.qty, 0);
-        return Math.round(pq - sq);
-      });
-      items.push({ supName:meta.supName, dept, cat:meta.cat||'—', subcat:meta.subcat||'—',
-        style:meta.style, article:meta.article||'—', purQty:Math.round(totalPur), stocks });
+    for (const key of allKeys) {
+      const totalPur = totalPurMap[key] || 0;
+      if (totalPur <= 0) continue;   // matches original: skip items never purchased
+      const meta = keyMeta[key] || { supName: key.split('||')[0], style: key.split('||')[1], dept: '—', cat: '', subcat: '', currentQty: 0 };
+      if (deptFilter && deptFilter !== 'All' && meta.dept !== deptFilter) continue;
+      const evs = eventsAfter[key] || [];
+      const stocks = dateLabels.map(d => Math.round(meta.currentQty - evs.filter(e => e.t > d).reduce((s, e) => s + e.qty, 0)));
+      items.push({ supName: meta.supName, dept: meta.dept, cat: meta.cat || '—', subcat: meta.subcat || '—', style: meta.style, article: meta.style, purQty: Math.round(totalPur), stocks });
     }
 
-    items.sort((a,b)=>(a.dept||'').localeCompare(b.dept||'')||(a.cat||'').localeCompare(b.cat||'')||(a.supName||'').localeCompare(b.supName||''));
+    items.sort((a, b) => (a.dept||'').localeCompare(b.dept||'') || (a.cat||'').localeCompare(b.cat||'') || (a.supName||'').localeCompare(b.supName||''));
     res.json({ asOf, dates: dateLabels, total: items.length, items });
-  } catch(e) { console.error('[IMS Stock History]', e); res.status(500).json({ error: e.message }); }
+  } catch (e) { console.error('[IMS Stock History]', e); res.status(500).json({ error: e.message }); }
 });
 
-// ── IMS Drilldown — click on chart bar/slice to see raw transactions ──
+// 'department', 'basket', 'salesperson' come from r2Drill (hub charts); 'item'
+// comes from showTurnoverDetail (Fast/Slow-Moving + STR turnover row clicks —
+// r.key there is "supplier||style" for the supplier-grouped table, or a bare
+// style for the style-only table, so 'item' matches on style alone, optionally
+// also constrained to a supplier when the value contains "||"). The classic
+// drilldown types (category, city, stock_category, stock_supplier) only live
+// on hidden tabs and aren't reimplemented here.
 app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
   try {
     const { type, value, from, to } = req.query;
     if (!type || !value) return res.status(400).json({ error: 'type and value required' });
 
-    const isStock = type.startsWith('stock_');
+    const pool = await getSqlPool();
+    const toDate = to || new Date().toISOString().slice(0, 10);
+    const fromDate = from || (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+    const rowCols = `CONVERT(varchar(10),h.CashmemoDt,23) date, h.CashmemoId xnNo,
+        ISNULL(dept.InvDepartmentName,'') department, ISNULL(dept.InvDepartmentName,'') category, '' subcategory,
+        ISNULL(art.ArticleNo,'') style, ISNULL(supl.PartyName,'Unknown') supplier, ISNULL(sp.SalesPersonName,'Unknown') salesperson,
+        d.Quantity qty, d.NetAmount amount`;
+    const mapRow = r => ({ ...r, qty: Number(r.qty) || 0, amount: Number(r.amount) || 0 });
 
-    // Reuse the in-memory raw cache that /api/ims-reports populates — avoids a
-    // full-sheet (20k+ rows) re-fetch on every drilldown click.
-    const now = Date.now();
-    let allRows = null;
-    if ((now - _imsRawCache.ts) < IMS_CACHE_TTL_MS) {
-      allRows = isStock ? _imsRawCache.inRows : _imsRawCache.outRows;
+    if (type === 'basket') {
+      const want = String(value).replace(/\s*pc\s*$/i, '').trim();
+      const billRs = await pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate)
+        .query(`SELECT h.CashmemoId, SUM(d.Quantity) qty ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to GROUP BY h.CashmemoId`);
+      const matchIds = billRs.recordset.filter(r => {
+        const n = Math.round(Number(r.qty) || 0); if (n < 1) return false;
+        return (n >= 5 ? '5+' : String(n)) === want;
+      }).map(r => r.CashmemoId).slice(0, 500);
+      if (!matchIds.length) return res.json({ rows: [], type, value });
+      const idsReq = pool.request();
+      const idParams = matchIds.map((id, i) => { const p = `id${i}`; idsReq.input(p, sql.VarChar, id); return '@' + p; }).join(',');
+      const rowsRs = await idsReq.query(`SELECT ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d')} WHERE h.CashmemoId IN (${idParams})`);
+      return res.json({ rows: rowsRs.recordset.map(mapRow), type, value });
     }
-    if (!allRows || !allRows.length) {
-      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-      const tabName = isStock ? "'In Stock'!A:AH" : "'Out Stock'!A:AH";
-      let resp;
-      try {
-        resp = await withRetry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: STOCK_SHEET_ID, range: tabName, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' }));
-      } catch(e) { return res.json({ rows: [] }); }
-      allRows = resp.data.values || [];
-    }
-    if (!allRows.length) return res.json({ rows: [] });
 
-    const hdr = allRows[0].map(h => String(h).trim().toLowerCase());
-    const findC = rx => hdr.findIndex(h => rx.test(h));
-    const MONS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
-    function parseD(str) {
-      if (str==null||str==='') return null;
-      if (typeof str==='number') { const n=Math.floor(str); return (n>1&&n<100000)?new Date(Date.UTC(1899,11,30)+n*86400000):null; }
-      const s=String(str).trim(); if(!s) return null;
-      const m=s.match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{4})$/);
-      if(m) return new Date(Date.UTC(+m[3],MONS[m[2].toLowerCase()]??0,+m[1]));
-      const m2=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if(m2) return new Date(Date.UTC(+m2[1],+m2[2]-1,+m2[3]));
-      const m3=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if(m3) return new Date(Date.UTC(+m3[3],+m3[2]-1,+m3[1]));
-      const d=new Date(s); return isNaN(d)?null:d;
+    if (type === 'item' || type === 'style') {
+      let supName = null, style = value;
+      if (String(value).includes('||')) { [supName, style] = String(value).split('||'); }
+      const req_ = pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate).input('style', sql.VarChar, style);
+      let extraWhere = '';
+      if (supName) { req_.input('supName', sql.VarChar, supName); extraWhere = 'AND supl.PartyName = @supName'; }
+      const r = await req_.query(`SELECT TOP 500 ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d')} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND art.ArticleNo = @style ${extraWhere} ORDER BY h.CashmemoDt DESC`);
+      return res.json({ rows: r.recordset.map(mapRow), type, value });
     }
-    const fromDate = from ? new Date(from) : null;
-    const toDate   = to   ? (() => { const d=new Date(to); d.setUTCHours(23,59,59,999); return d; })() : null;
-    const getNum = (row, idx) => idx < 0 ? 0 : parseFloat(String(row[idx]||'0').replace(/[^\d.-]/g,''))||0;
 
-    if (!isStock) {
-      const oDate = findC(/^xn[\s._-]?date$/i), oXn = findC(/^xn[\s._-]?no$/i);
-      const oCat  = findC(/^category$/i),        oSP = findC(/^salesperson$/i);
-      const oSup  = findC(/^supplier[\s._-]?name$/i), oCity = findC(/^supplier[\s._-]?city$/i);
-      const oState= findC(/^supplier[\s._-]?state$/i);
-      const oSty  = findC(/^style$/i), oSubCat = findC(/^sub[\s._-]?category$/i);
-      const oDept = findC(/^department$/i), oArt = findC(/^article[\s._-]?no$|^articleno$/i);
-      const oQty  = findC(/netsls[\s._-]?qty/i), oAmt = findC(/netsls[\s._-]?net|netsls[\s._-]?amount/i);
-      const oResolveCat = row => resolveCategory(row[oCat], oDept>=0?row[oDept]:'', oArt>=0?row[oArt]:'');
-      const matchVal = row => {
-        switch (type) {
-          case 'category':    return oResolveCat(row);
-          case 'supplier':    return cleanLabel(row[oSup]);
-          case 'salesperson': return cleanLabel(row[oSP]);
-          case 'item': case 'style': return oSty>=0 ? cleanLabel(row[oSty]) : null;
-          case 'department':  return oDept>=0 ? cleanLabel(row[oDept]) : null;
-          case 'city':        return String(row[oCity]||'').trim();
-          case 'citystate': {
-            // value = "city||state" composite — match both columns to avoid same-name city merges
-            const [wCity, wState] = value.split('||');
-            const rCity  = String(row[oCity]||'').trim();
-            const rState = oState>=0 ? String(row[oState]||'').trim() : '';
-            return (rCity === wCity && rState === (wState||'')) ? value : null;
-          }
-          case 'date':        return String(row[oDate]||'').trim();
-          default:            return null;
-        }
-      };
-      // Basket-size drilldown: bills grouped by total qty per bill; keep bills in the clicked bucket
-      let _basketBills = null;
-      const toISOd = v => { const _d=parseD(v); return _d?_d.toISOString().slice(0,10):String(v||''); };
-      if (type === 'basket') {
-        const want = String(value).replace(/\s*pc\s*$/i,'').trim();
-        const bq = {};
-        allRows.slice(1).forEach(r => {
-          if (!r[oDate]) return;
-          if (fromDate||toDate) { const d=parseD(r[oDate]); if(!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return; }
-          const xn = String(r[oXn]||'').trim(); if(!xn) return;
-          bq[xn] = (bq[xn]||0) + getNum(r, oQty);
-        });
-        _basketBills = new Set();
-        Object.entries(bq).forEach(([xn,q]) => { const n=Math.round(q); if(n<1) return; const b=n>=5?'5+':String(n); if(b===want) _basketBills.add(xn); });
-      }
-      const rows = allRows.slice(1).filter(row => {
-        if (fromDate||toDate) { const d=parseD(row[oDate]); if (!d||(fromDate&&d<fromDate)||(toDate&&d>toDate)) return false; }
-        if (type === 'basket') return _basketBills.has(String(row[oXn]||'').trim());
-        const mv = matchVal(row);
-        if (mv !== null && mv !== value) return false;
-        return true;
-      }).slice(0, 500).map(row => ({
-        date: toISOd(row[oDate]), xnNo: String(row[oXn]||'').trim(),
-        department: oDept>=0 ? cleanLabel(row[oDept]) : '',
-        category: oResolveCat(row), subcategory: oSubCat>=0 ? cleanLabel(row[oSubCat]) : '',
-        style: oSty >= 0 ? cleanLabel(row[oSty]) : '',
-        supplier: cleanLabel(row[oSup]), salesperson: cleanLabel(row[oSP]),
-        qty: getNum(row, oQty), amount: getNum(row, oAmt)
-      }));
-      return res.json({ rows, type, value });
-    } else {
-      const iSup  = findC(/^supplier[\s._-]?name$/i), iCat  = findC(/^category$/i);
-      const iDesc = findC(/description|item[\s._-]?name/i);
-      // CBS (closing/available) preferred; OPS (opening) as fallback
-      const iCbs  = findC(/^cbs[\s._-]?qty$|clos(ing)?[\s._-]?(bal(ance)?[\s._-]?)?(stock[\s._-]?)?qty/i);
-      const iQty  = iCbs >= 0 ? iCbs : findC(/ops[\s._-]?qty|opening[\s._-]?qty/i);
-      const iCost = findC(/cost[\s._-]?price/i);
-      const iSty  = findC(/^style$/i);
-      const iDept = findC(/^department$/i), iArt = findC(/^article[\s._-]?no$|^articleno$/i);
-      const iResolveCat = row => resolveCategory(row[iCat], iDept>=0?row[iDept]:'', iArt>=0?row[iArt]:'');
-      const rows = allRows.slice(1).filter(row => {
-        if (type === 'stock_category') return iResolveCat(row) === value;
-        if (type === 'stock_supplier') return cleanLabel(row[iSup]) === value;
-        return true;
-      }).slice(0, 500).map(row => ({
-        supplier: cleanLabel(row[iSup]), category: iResolveCat(row),
-        description: row[iDesc]||'', qty: getNum(row, iQty), cost: getNum(row, iCost)
-      }));
-      return res.json({ rows, type, value });
-    }
-  } catch(err) {
+    const colMap = { department: 'dept.InvDepartmentName', salesperson: 'sp.SalesPersonName' };
+    const col = colMap[type];
+    if (!col) return res.json({ rows: [], type, value });
+
+    const r = await pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate).input('value', sql.VarChar, value)
+      .query(`SELECT TOP 500 ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d')} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND ${col} = @value ORDER BY h.CashmemoDt DESC`);
+    res.json({ rows: r.recordset.map(mapRow), type, value });
+  } catch (err) {
     console.error('[IMS Drilldown]', err.message);
-    res.status(500).json({ error: err.message.slice(0,200) });
-  }
-});
-
-app.post('/api/stock-csv-import', requireAuth, misUpload.single('file'), async (req, res) => {
-  try {
-    const reportType = (req.body && req.body.reportType) || '';
-    const buffer = req.file && req.file.buffer;
-    if (!buffer) return res.status(400).json({ error: 'File data missing' });
-
-    const config = REPORT_CONFIG[reportType];
-    if (!config) return res.status(400).json({ error: 'Invalid report type. Please select In Stock or Out Stock.' });
-
-    const tabName = config.tab;
-
-    // File parse + Sheets auth in PARALLEL (CPU + I/O overlap)
-    const GARBAGE_RE = /[\u25A0-\u25FF\u2580-\u259F\uFFFD\u0000-\u0008\u000B\u000C\u000E-\u001F]/;
-
-    const [parsedRows, sheetsApi] = await Promise.all([
-      Promise.resolve().then(() => {
-        let workbook;
-        try {
-          workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-        } catch (e1) {
-          // Some old .xls files fail with cellDates — retry without it
-          try {
-            workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false });
-          } catch (e2) {
-            const isOle2 = buffer[0] === 0xD0 && buffer[1] === 0xCF;
-            throw new Error(
-              isOle2
-                ? 'Old .xls format could not be parsed. Please open in Excel → Save As → Excel Workbook (.xlsx) or CSV, then import that file.'
-                : 'File format not supported. Please use .xlsx or .csv format.'
-            );
-          }
-        }
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        // raw:true = no currency/format symbols; cellDates:true keeps dates as JS Date objects
-        const allRows = XLSX.utils.sheet_to_json(firstSheet, {
-          header: 1, defval: '', blankrows: false, raw: true,
-          range: firstSheet['!ref'] || undefined
-        });
-        return allRows.filter(row => {
-          const text = row.join('').trim();
-          return text && !GARBAGE_RE.test(text);
-        });
-      }),
-      getSheetsClient(['https://www.googleapis.com/auth/spreadsheets'])
-    ]);
-
-    if (!parsedRows.length) return res.status(400).json({ error: 'File is empty or could not be parsed' });
-
-    // Ensure tab exists and check if it's new (determines append vs fresh)
-    const { sheetId, isNew } = await ensureTab(sheetsApi, STOCK_SHEET_ID, tabName);
-    // If tab exists but is empty (user deleted all data), treat as fresh — write header
-    let isAppend = !isNew;
-    if (isAppend) {
-      const existCheck = await withRetry(() => sheetsApi.spreadsheets.values.get({
-        spreadsheetId: STOCK_SHEET_ID,
-        range: tabName + '!A1'
-      }));
-      if (!existCheck.data.values || !existCheck.data.values.length) isAppend = false;
-    }
-    const now = new Date();
-    const dateStr = String(now.getDate()).padStart(2,'0') + '-'
-      + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()]
-      + '-' + now.getFullYear();
-
-    console.log('[IMS] reportType:', reportType, '| totalRows:', parsedRows.length, '| first3:', parsedRows.slice(0,3).map(r=>r.slice(0,3).join('|')));
-
-    const headerIdx = findHeaderRowIndex(parsedRows, config.keywords);
-    console.log('[IMS] headerIdx:', headerIdx, '| keywords:', config.keywords);
-    if (headerIdx === -1) {
-      return res.status(400).json({
-        error: 'Column headers not found. Please make sure you selected the correct report type (' + reportType + ').'
-      });
-    }
-
-    // Extract print date from metadata rows (before header)
-    const TOTAL_RE = /^(gross\s*total|grand\s*total|sub\s*total|net\s*total|total)$/i;
-    const metaRows = parsedRows.slice(0, headerIdx);
-    let printDate = '';
-    for (const row of metaRows) {
-      const text = row.join(' ');
-      if (/printed\s+on/i.test(text)) {
-        const m = text.match(/printed\s+on\s+([\d\-\/]+(?:\s+[\d:]+)?)/i);
-        printDate = m ? m[1].trim() : text.replace(/printed\s+on\s*/i, '').split('By')[0].trim();
-        break;
-      }
-    }
-
-    const dataRows = parsedRows
-      .slice(headerIdx)
-      .map(row => row.map(cell => {
-        if (cell === null || cell === undefined) return '';
-        if (cell instanceof Date) {
-          const dd = String(cell.getDate()).padStart(2, '0');
-          const mm = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][cell.getMonth()];
-          return dd + '-' + mm + '-' + cell.getFullYear();
-        }
-        return String(cell);
-      }));
-
-    const headerRow = dataRows[0];
-
-    // Filter out Gross Total, Grand Total, Printed On footer rows
-    const bodyRows = dataRows.slice(1).filter(row => {
-      const rowText = row.join(' ').trim();
-      if (!rowText) return false;
-      const firstCell = String(row[0] || '').trim().toLowerCase();
-      if (/gross\s*total|grand\s*total|sub\s*total|net\s*total/i.test(firstCell)) return false;
-      if (/gross\s*total|grand\s*total/i.test(rowText)) return false;
-      if (/printed\s+on/i.test(rowText)) return false;
-      return true;
-    });
-
-    console.log('[IMS] bodyRows:', bodyRows.length, '| isAppend:', isAppend, '| tab:', tabName);
-
-    const appendRows = [];
-    if (isAppend) {
-      bodyRows.forEach(r => appendRows.push([...r, printDate, dateStr]));
-    } else {
-      appendRows.push([...headerRow, 'Print Date', 'Upload Date']);
-      bodyRows.forEach(r => appendRows.push([...r, printDate, dateStr]));
-    }
-
-    const appendResp = await withRetry(() => sheetsApi.spreadsheets.values.append({
-      spreadsheetId: STOCK_SHEET_ID,
-      range: tabName + '!A1',
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: appendRows }
-    }));
-
-    // Parse total rows from updatedRange e.g. 'In Stock'!A1:P4662 → 4661 data rows
-    let totalRows = bodyRows.length;
-    try {
-      const updatedRange = appendResp.data.updates && appendResp.data.updates.updatedRange;
-      if (updatedRange) {
-        const m = updatedRange.match(/:(?:[A-Z]+)(\d+)$/);
-        if (m) totalRows = parseInt(m[1], 10) - 1; // minus header row
-      }
-    } catch {}
-
-    if (!isAppend) {
-      await withRetry(() => colorHeaderRow(sheetsApi, STOCK_SHEET_ID, sheetId, 0));
-    }
-
-    res.json({ success: true, rowsAdded: bodyRows.length, totalRows, isAppend, tab: tabName, uploadDate: dateStr });
-  } catch (err) {
-    console.error('MIS import error:', err.message);
-    if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Grant the service account Editor access.' });
-    if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Check the Sheet ID in .env.' });
-    // Strip non-printable / binary chars from error message before sending to client
-    const safeMsg = (err.message || 'Unknown error').replace(/[^\x20-\x7E -￿]/g, '?').slice(0, 300);
-    res.status(500).json({ error: safeMsg });
-  }
-});
-
-// ──────────────────────────────────────────────────────
-// /api/stock-rows-import  — accepts pre-parsed rows from browser
-// Used when the XLS file exceeds Vercel's 4.5 MB body limit.
-// Client parses XLS in-browser via SheetJS, then sends rows
-// as JSON in chunks of ~1500 rows so each request is small.
-// ──────────────────────────────────────────────────────
-app.post('/api/stock-rows-import', requireAuth, async (req, res) => {
-  try {
-    const { reportType, headerRow, rows, isFirst, isLast,
-            isAppend: clientIsAppend, sheetId: clientSheetId, uploadDate } = req.body;
-
-    if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows array required' });
-    const config = REPORT_CONFIG[reportType];
-    if (!config) return res.status(400).json({ error: 'Invalid report type' });
-
-    const tabName  = config.tab;
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-
-    if (isFirst) {
-      // Initialise tab; determine whether this is append or fresh
-      const { sheetId, isNew } = await ensureTab(sheetsApi, STOCK_SHEET_ID, tabName);
-      let isAppend = !isNew;
-      if (isAppend) {
-        const existCheck = await withRetry(() => sheetsApi.spreadsheets.values.get({
-          spreadsheetId: STOCK_SHEET_ID, range: tabName + '!A1'
-        }));
-        if (!existCheck.data.values || !existCheck.data.values.length) isAppend = false;
-      }
-
-      // If fresh import, prepend header row; if append, skip it
-      const rowsToWrite = isAppend
-        ? rows.map(r => r.map(c => (c === null || c === undefined) ? '' : String(c)))
-        : [
-            headerRow.map(c => String(c || '')),
-            ...rows.map(r => r.map(c => (c === null || c === undefined) ? '' : String(c)))
-          ];
-
-      await withRetry(() => sheetsApi.spreadsheets.values.append({
-        spreadsheetId: STOCK_SHEET_ID, range: tabName + '!A1',
-        valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS',
-        requestBody: { values: rowsToWrite }
-      }));
-
-      if (isLast && !isAppend) {
-        await withRetry(() => colorHeaderRow(sheetsApi, STOCK_SHEET_ID, sheetId, 0));
-      }
-
-      return res.json({ batchOk: true, success: !!isLast, isAppend, sheetId, rowsAdded: rows.length, tab: tabName, uploadDate });
-
-    } else {
-      // Subsequent chunk — just append rows
-      const rowsToWrite = rows.map(r => r.map(c => (c === null || c === undefined) ? '' : String(c)));
-      await withRetry(() => sheetsApi.spreadsheets.values.append({
-        spreadsheetId: STOCK_SHEET_ID, range: tabName + '!A1',
-        valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS',
-        requestBody: { values: rowsToWrite }
-      }));
-
-      if (isLast && !clientIsAppend && clientSheetId != null) {
-        await withRetry(() => colorHeaderRow(sheetsApi, STOCK_SHEET_ID, clientSheetId, 0));
-      }
-
-      return res.json({ batchOk: true, success: !!isLast, isAppend: clientIsAppend, rowsAdded: rows.length, tab: tabName, uploadDate });
-    }
-
-  } catch (err) {
-    console.error('MIS rows import error:', err.message);
-    if (err.code === 403) return res.status(400).json({ error: 'Sheet access denied. Grant the service account Editor access.' });
-    if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Check the Sheet ID in .env.' });
-    res.status(500).json({ error: (err.message || 'Unknown error').slice(0, 300) });
+    res.status(500).json({ error: err.message.slice(0, 200) });
   }
 });
 
