@@ -1034,13 +1034,19 @@ tbody tr:last-child td{border-bottom:none;}
     <!-- Filters -->
     <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:18px;margin-bottom:18px;">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <div>
+        <div id="misStartWrap">
           <div style="font-size:11px;font-weight:600;color:#64748b;margin-bottom:4px;text-transform:uppercase">Start Date</div>
           <input type="date" id="misStart" style="padding:8px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;"/>
         </div>
-        <div>
+        <div id="misEndWrap">
           <div style="font-size:11px;font-weight:600;color:#64748b;margin-bottom:4px;text-transform:uppercase">End Date</div>
           <input type="date" id="misEnd" style="padding:8px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;"/>
+        </div>
+        <!-- Target MIS: Year selector (shown only on the Target tab) -->
+        <div id="misTargetYearWrap" style="display:none">
+          <div style="font-size:11px;font-weight:600;color:#64748b;margin-bottom:4px;text-transform:uppercase">Year</div>
+          <select id="misTargetYear"
+            style="padding:8px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:100px;background:#fff;color:#1e293b;cursor:pointer;"></select>
         </div>
         <!-- Department filter: Admin only -->
         <div id="misDeptFilterWrap" style="display:none">
@@ -1063,6 +1069,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="tab" id="misTabChl" onclick="switchMisTab('checklist',this)">Checklist MIS</div>
           <div class="tab" id="misTabFMS" onclick="switchMisTab('fms',this)">FMS MIS</div>
           <div class="tab" id="misTabAll" onclick="switchMisTab('all',this)">All MIS</div>
+          <div class="tab" id="misTabTarget" onclick="switchMisTab('target',this)">🎯 Target</div>
         </div>
       </div>
     </div>
@@ -4629,11 +4636,9 @@ function generateDates(startDate, freq, weekOffStr, extraOffStr) {
   let safety = count * 14;
   while (added < count && safety-- > 0) {
     const day = d.getDay();
-    if (freq === 'daily') {
-      if (weekOff.includes(day) || isExtraOff(d)) {
-        d.setDate(d.getDate() + 1);
-        continue;
-      }
+    if (weekOff.includes(day) || isExtraOff(d)) {
+      d.setDate(d.getDate() + 1);
+      continue;
     }
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth()+1).padStart(2,'0');
@@ -9351,6 +9356,19 @@ let misType = 'delegation';
 let misData = {};
 let misFMSData = [];
 let misAllData = [];
+let misTargetData = null;   // [{label,num,pct,salespersons|null,error}] per month, filled by generateTargetMIS()
+
+// Target MIS: sales-person targets per brand. "Other" is intentionally excluded
+// from target achievement (per business rule) but still shown for reference.
+const MIS_TARGET_MONTHS_DEF = [
+  { label: 'Jul', num: 7, pct: 29 },
+  { label: 'Aug', num: 8, pct: 31 },
+  { label: 'Sep', num: 9, pct: 40 }
+];
+const MIS_TARGET_GROUPS = [
+  { key: 'shree', name: 'Shree', icon: '🧵', codes: ['AK','ASK','RA','KS'], otherCode: 'Other', target: 11000000 },
+  { key: 'suit',  name: 'Suit',  icon: '🧥', codes: ['AA','MS','MJ','SN','KR','RS','SD'], otherCode: 'Other', target: 195000 }
+];
 
 // Department filter (Admin only) + All MIS tab visibility
 function initMISDeptFilter() {
@@ -9383,6 +9401,134 @@ function filterMISDept() {
   // FMS MIS tab does not have per-user dept data, skip
 }
 
+// ── Target MIS ──────────────────────────────────────────────
+function populateMisTargetYears() {
+  const sel = document.getElementById('misTargetYear');
+  if (!sel || sel.options.length) return;
+  const cur = new Date().getFullYear();
+  sel.innerHTML = [cur-1, cur, cur+1].map(y => `<option value="${y}"${y===cur?' selected':''}>${y}</option>`).join('');
+}
+
+// Exact (case-insensitive) match of a salesperson code against the IMS "Salesperson" column.
+// Returns null when the month's data itself failed to load (vs 0 when it loaded but the code had no sales).
+function misTargetMatchAmt(salespersons, code) {
+  if (!salespersons) return null;
+  const row = salespersons.find(s => String(s.name||'').trim().toUpperCase() === String(code).toUpperCase());
+  return row ? Math.round(row.amount||0) : 0;
+}
+
+function misTargetGroupMonthStats(g, m) {
+  const monthTarget = Math.round(g.target * m.pct / 100);
+  if (!m.salespersons) return { monthTarget, achieved: null, pct: null };
+  const achieved = g.codes.reduce((sum, code) => sum + (misTargetMatchAmt(m.salespersons, code) || 0), 0);
+  return { monthTarget, achieved, pct: monthTarget ? (achieved / monthTarget * 100) : 0 };
+}
+
+async function generateTargetMIS() {
+  populateMisTargetYears();
+  const year = parseInt(document.getElementById('misTargetYear').value, 10) || new Date().getFullYear();
+  const container = document.getElementById('misResults');
+  container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Loading…</div>`;
+
+  const results = await Promise.all(MIS_TARGET_MONTHS_DEF.map(m => {
+    const from = `${year}-${String(m.num).padStart(2,'0')}-01`;
+    const lastDay = new Date(year, m.num, 0).getDate();
+    const to = `${year}-${String(m.num).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    return api(`/api/ims-reports?from=${from}&to=${to}`).catch(() => ({ error: 'Network error' }));
+  }));
+
+  misTargetData = MIS_TARGET_MONTHS_DEF.map((m, i) => {
+    const r = results[i];
+    const ok = r && !r.error;
+    return { ...m, salespersons: ok ? (r.salespersons || []) : null, error: ok ? null : ((r && r.error) || 'Failed to load') };
+  });
+
+  renderTargetMIS(misTargetData, year);
+}
+
+function renderTargetMIS(monthsData, year) {
+  const container = document.getElementById('misResults');
+  if (!monthsData) { container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Select year and click Generate</div>`; return; }
+
+  const allFailed = monthsData.every(m => m.salespersons == null);
+  const banner = allFailed
+    ? `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #fecaca;color:#dc2626;margin-bottom:14px;">⚠️ Could not load live sales data from the Out Stock sheet — showing target plan only.</div>`
+    : '';
+
+  const groupHtml = MIS_TARGET_GROUPS.map(g => {
+    let qTarget = 0, qAchieved = 0, qHasData = true;
+    const monthRows = monthsData.map(m => {
+      const { monthTarget, achieved, pct } = misTargetGroupMonthStats(g, m);
+      qTarget += monthTarget;
+      const missing = achieved == null;
+      if (missing) qHasData = false; else qAchieved += achieved;
+      const color = missing ? '#94a3b8' : pct>=100 ? '#10b981' : pct>=75 ? '#f59e0b' : '#ef4444';
+      return `<tr>
+        <td style="font-weight:600">${m.label} ${year}</td>
+        <td style="text-align:center">${m.pct}%</td>
+        <td style="text-align:right;font-weight:600">${fmtINR(monthTarget)}</td>
+        <td style="text-align:right;font-weight:600">${missing?'—':fmtINR(achieved)}</td>
+        <td style="text-align:right;font-weight:700;color:${color}">${missing?'—':pct.toFixed(1)+'%'}</td>
+      </tr>`;
+    }).join('');
+    const qPct = qTarget ? (qAchieved / qTarget * 100) : 0;
+
+    const codeRows = g.codes.map(code => {
+      const cells = monthsData.map(m => {
+        const amt = misTargetMatchAmt(m.salespersons, code);
+        return `<td style="text-align:right">${amt==null?'—':fmtINR(amt)}</td>`;
+      }).join('');
+      const total = monthsData.reduce((s,m) => s + (misTargetMatchAmt(m.salespersons, code) || 0), 0);
+      return `<tr><td style="font-weight:600">${code}</td>${cells}<td style="text-align:right;font-weight:700">${fmtINR(total)}</td></tr>`;
+    }).join('');
+
+    const otherCells = monthsData.map(m => {
+      const amt = misTargetMatchAmt(m.salespersons, g.otherCode);
+      return `<span style="margin-right:14px">${m.label}: <b>${amt==null?'—':fmtINR(amt)}</b></span>`;
+    }).join('');
+
+    return `
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:20px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:#0f172a">${g.icon} ${g.name}</div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px">Codes: ${g.codes.join(', ')}, ${g.otherCode} <span style="color:#94a3b8">(${g.otherCode} excluded from target)</span></div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Total Target</div>
+          <div style="font-size:20px;font-weight:800;color:#4f46e5">${fmtINR(g.target)}</div>
+        </div>
+      </div>
+      <div class="mis-table-wrap">
+        <table>
+          <thead><tr><th>Month</th><th style="text-align:center">Split %</th><th style="text-align:right">Target</th><th style="text-align:right">Achieved</th><th style="text-align:right">Achievement %</th></tr></thead>
+          <tbody>${monthRows}
+            <tr style="background:#f8fafc;font-weight:700">
+              <td>Total (${monthsData[0].label}–${monthsData[monthsData.length-1].label} ${year})</td>
+              <td style="text-align:center">100%</td>
+              <td style="text-align:right">${fmtINR(qTarget)}</td>
+              <td style="text-align:right">${qHasData?fmtINR(qAchieved):'—'}</td>
+              <td style="text-align:right;color:${qHasData?(qPct>=100?'#10b981':qPct>=75?'#f59e0b':'#ef4444'):'#94a3b8'}">${qHasData?qPct.toFixed(1)+'%':'—'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#4f46e5">Salesperson-wise breakdown</summary>
+        <div class="mis-table-wrap" style="margin-top:8px">
+          <table>
+            <thead><tr><th>Code</th>${monthsData.map(m=>`<th style="text-align:right">${m.label}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead>
+            <tbody>${codeRows}</tbody>
+          </table>
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:8px">${g.otherCode} sales (excluded from target): ${otherCells}</div>
+      </details>
+    </div>`;
+  }).join('');
+
+  container.innerHTML = banner + groupHtml + `<div style="font-size:12px;color:#94a3b8;margin-top:4px;padding:0 4px">* Achieved amount is live Out Stock sales data (IMS), matched by exact Salesperson code. "Other" is excluded from target achievement.</div>`;
+}
+
 function getSelectedMISDept() {
   const sel = document.getElementById('misDeptFilter');
   return sel ? sel.value : '';
@@ -9395,9 +9541,21 @@ function switchMisTab(type, el) {
   // Department dropdown: show only on 'all' and delegation/checklist tabs for admin
   const deptWrap = document.getElementById('misDeptFilterWrap');
   if (deptWrap && ME && ME.role === 'admin') {
-    deptWrap.style.display = (type !== 'fms') ? '' : 'none';
+    deptWrap.style.display = (type !== 'fms' && type !== 'target') ? '' : 'none';
   }
-  if (type === 'fms') {
+  // Target MIS uses a Year selector instead of a Start/End date range
+  const startWrap = document.getElementById('misStartWrap');
+  const endWrap    = document.getElementById('misEndWrap');
+  const yearWrap   = document.getElementById('misTargetYearWrap');
+  if (startWrap) startWrap.style.display = (type === 'target') ? 'none' : '';
+  if (endWrap)   endWrap.style.display   = (type === 'target') ? 'none' : '';
+  if (yearWrap)  yearWrap.style.display  = (type === 'target') ? '' : 'none';
+
+  if (type === 'target') {
+    populateMisTargetYears();
+    if (misTargetData) renderTargetMIS(misTargetData, parseInt(document.getElementById('misTargetYear').value, 10));
+    else document.getElementById('misResults').innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Select year and click Generate</div>`;
+  } else if (type === 'fms') {
     if (misFMSData.length) renderFMSMIS(misFMSData);
     else document.getElementById('misResults').innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Click Generate to load FMS MIS</div>`;
   } else if (type === 'all') {
@@ -9409,6 +9567,8 @@ function switchMisTab(type, el) {
 }
 
 async function generateMIS() {
+  if (misType === 'target') { await generateTargetMIS(); return; }
+
   const start = document.getElementById('misStart').value;
   const end   = document.getElementById('misEnd').value;
   if (!start || !end) { showToast('Please select start and end date','error'); return; }
@@ -9626,6 +9786,24 @@ function exportMIS() {
     showToast('CSV exported!');
   };
   const dateSuffix = `${document.getElementById('misStart').value}_to_${document.getElementById('misEnd').value}`;
+
+  if (misType === 'target') {
+    if (!misTargetData) { showToast('Generate Target report first','error'); return; }
+    const year = parseInt(document.getElementById('misTargetYear').value, 10) || new Date().getFullYear();
+    const lines = ['Group,Code,Month,Target,Achieved'];
+    MIS_TARGET_GROUPS.forEach(g => {
+      misTargetData.forEach(m => {
+        const { monthTarget, achieved } = misTargetGroupMonthStats(g, m);
+        g.codes.forEach(code => {
+          const amt = misTargetMatchAmt(m.salespersons, code);
+          lines.push([esc(g.name), esc(code), esc(`${m.label} ${year}`), '', amt==null?'':amt].join(','));
+        });
+        lines.push([esc(g.name), 'TOTAL', esc(`${m.label} ${year}`), monthTarget, achieved==null?'':achieved].join(','));
+      });
+    });
+    downloadCSV(lines.join('\n'), `Target_MIS_${year}.csv`);
+    return;
+  }
 
   if (misType === 'fms') {
     if (!misFMSData || !misFMSData.length) { showToast('Generate FMS report first','error'); return; }
