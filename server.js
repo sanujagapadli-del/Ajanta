@@ -1551,7 +1551,8 @@ async function getSqlPool() {
     password: process.env.SQL_PASSWORD,
     database: process.env.SQL_DATABASE,
     options: { encrypt: false, trustServerCertificate: true },
-    pool: { max: 15, min: 0, idleTimeoutMillis: 30000 }
+    pool: { max: 15, min: 0, idleTimeoutMillis: 30000 },
+    requestTimeout: 60000   // IMS "All time" reports can scan years of history — default 15s is too tight
   }).connect();
   return _sqlPool;
 }
@@ -2737,20 +2738,26 @@ const IMS_SALES_JOIN = `
 // the outer query's item-row alias ('d' for InvCashmemoDetail, 's' for
 // InvItemStock) — parameterized rather than string-replaced, since a naive
 // replace of "d.ItemId" would also corrupt "pd.ItemId" inside the subquery.
-const imsSupplierJoin = (outerAlias) => `
+// itemScopeSql (optional): "AND pd.ItemId IN (...)" to restrict the window
+// function to only items that can actually appear in the outer query's date
+// range — without it, this subquery re-ranks ALL purchase history (270k+
+// rows) on every call, which is fine warm but very slow on a cold cache.
+const imsSupplierJoin = (outerAlias, itemScopeSql = '') => `
   LEFT JOIN (
     SELECT pd.ItemId, p.PartyName,
            ROW_NUMBER() OVER (PARTITION BY pd.ItemId ORDER BY ph.PurchaseDt DESC) rn
     FROM InvPurchaseDetail pd
     JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
     JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
-    WHERE ph.IsCancelled = 0
+    WHERE ph.IsCancelled = 0 ${itemScopeSql}
   ) supl ON supl.ItemId = ${outerAlias}.ItemId AND supl.rn = 1
 `;
-const IMS_SUPPLIER_JOIN = imsSupplierJoin('d');
+// Scope to items sold in the sales query's own @from/@to range (same bound params).
+const IMS_SALES_ITEM_SCOPE = `AND pd.ItemId IN (SELECT DISTINCT d2.ItemId FROM InvCashmemoDetail d2 JOIN InvCashmemoHead h2 ON h2.CashmemoId = d2.CashmemoId WHERE h2.IsCancelled = 0 AND h2.CashmemoDt BETWEEN @from AND @to)`;
+const IMS_SUPPLIER_JOIN = imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE);
 
 const _imsSqlCache = new Map();           // cacheKey -> { ts, data }
-const IMS_SQL_CACHE_TTL_MS = 5 * 60 * 1000;
+const IMS_SQL_CACHE_TTL_MS = 20 * 60 * 1000;
 
 app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
@@ -2760,10 +2767,12 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     function r2(n) { return Math.round(n * 100) / 100; }
     const toISODate = d => d ? new Date(d).toISOString().slice(0, 10) : '';
 
-    // Default window when none given: last 12 months (avoids scanning 8+ years
-    // of ERP history on every unfiltered load).
+    // Default window when none given (incl. the hub's "All" preset, which sends
+    // no dates): last 30 days. A full year's cold-cache scan of InvCashmemoDetail
+    // (1M+ rows, no date-correlated clustering) measured 50s+ on this SQL Server;
+    // 30 days keeps even a cold hit reasonably bounded.
     const toDate   = to || new Date().toISOString().slice(0, 10);
-    const fromDate = from || (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+    const fromDate = from || (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
     const lyFromDate = (() => { const d = new Date(fromDate); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
     const lyToDate   = (() => { const d = new Date(toDate);   d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
 
@@ -3109,7 +3118,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
 
     const pool = await getSqlPool();
     const toDate = to || new Date().toISOString().slice(0, 10);
-    const fromDate = from || (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+    const fromDate = from || (() => { const d = new Date(); d.setDate(d.getDate() - 60); return d.toISOString().slice(0, 10); })();
     const rowCols = `CONVERT(varchar(10),h.CashmemoDt,23) date, h.CashmemoId xnNo,
         ISNULL(dept.InvDepartmentName,'') department, ISNULL(dept.InvDepartmentName,'') category, '' subcategory,
         ISNULL(art.ArticleNo,'') style, ISNULL(supl.PartyName,'Unknown') supplier, ISNULL(sp.SalesPersonName,'Unknown') salesperson,
@@ -3125,9 +3134,9 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
         return (n >= 5 ? '5+' : String(n)) === want;
       }).map(r => r.CashmemoId).slice(0, 500);
       if (!matchIds.length) return res.json({ rows: [], type, value });
-      const idsReq = pool.request();
+      const idsReq = pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate);
       const idParams = matchIds.map((id, i) => { const p = `id${i}`; idsReq.input(p, sql.VarChar, id); return '@' + p; }).join(',');
-      const rowsRs = await idsReq.query(`SELECT ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d')} WHERE h.CashmemoId IN (${idParams})`);
+      const rowsRs = await idsReq.query(`SELECT ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE)} WHERE h.CashmemoId IN (${idParams})`);
       return res.json({ rows: rowsRs.recordset.map(mapRow), type, value });
     }
 
@@ -3137,7 +3146,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       const req_ = pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate).input('style', sql.VarChar, style);
       let extraWhere = '';
       if (supName) { req_.input('supName', sql.VarChar, supName); extraWhere = 'AND supl.PartyName = @supName'; }
-      const r = await req_.query(`SELECT TOP 500 ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d')} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND art.ArticleNo = @style ${extraWhere} ORDER BY h.CashmemoDt DESC`);
+      const r = await req_.query(`SELECT TOP 500 ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE)} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND art.ArticleNo = @style ${extraWhere} ORDER BY h.CashmemoDt DESC`);
       return res.json({ rows: r.recordset.map(mapRow), type, value });
     }
 
@@ -3146,7 +3155,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
     if (!col) return res.json({ rows: [], type, value });
 
     const r = await pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate).input('value', sql.VarChar, value)
-      .query(`SELECT TOP 500 ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d')} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND ${col} = @value ORDER BY h.CashmemoDt DESC`);
+      .query(`SELECT TOP 500 ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE)} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND ${col} = @value ORDER BY h.CashmemoDt DESC`);
     res.json({ rows: r.recordset.map(mapRow), type, value });
   } catch (err) {
     console.error('[IMS Drilldown]', err.message);
