@@ -77,6 +77,10 @@ const SCHEMA = {
   holidays: {
     cols: ['id','date','name'],
     autoFill: {}
+  },
+  sales_targets: {
+    cols: ['id','group_key','group_name','target_amount','month1_pct','month2_pct','month3_pct','updated_by','updated_at'],
+    autoFill: { updated_at: 'NOW' }
   }
 };
 
@@ -99,7 +103,8 @@ const SHEET_DERIVED = {
 const INT_COLS = new Set([
   'id','assigned_to','assigned_by','user_id','task_id','requested_by','requested_to',
   'employee_id','hod_id','target_count','improvement_pct','fms_id','step_id','step_order',
-  'total_steps','header_row','from_user','to_user','waiting_approval','created_by'
+  'total_steps','header_row','from_user','to_user','waiting_approval','created_by',
+  'target_amount','month1_pct','month2_pct','month3_pct'
 ]);
 
 // Date-only columns — stored as proper date cells in Sheets (USER_ENTERED write).
@@ -730,7 +735,8 @@ function injectAutoId(table, sql, params) {
 // ON DUPLICATE KEY UPDATE — manual upsert
 // Key detection: known schemas (week_plans: employee_id + start_date)
 const UNIQUE_KEYS = {
-  week_plans: ['employee_id', 'start_date']
+  week_plans: ['employee_id', 'start_date'],
+  sales_targets: ['group_key']
 };
 function executeUpsert({ table, cols, valTokens, updateClause, params }) {
   const keys = UNIQUE_KEYS[table];

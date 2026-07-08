@@ -1584,6 +1584,65 @@ app.get('/api/mis/target-sales', requireAuth, async (req, res) => {
   }
 });
 
+// Target MIS: editable target amount + monthly split % per group (Shree/Suit).
+// Seeded with defaults on first read so the sheet always has a row to edit.
+const TARGET_CONFIG_DEFAULTS = [
+  { group_key: 'shree', group_name: 'Shree', target_amount: 11000000, month1_pct: 29, month2_pct: 31, month3_pct: 40 },
+  { group_key: 'suit',  group_name: 'Suit',  target_amount: 19500000, month1_pct: 29, month2_pct: 31, month3_pct: 40 }
+];
+
+app.get('/api/mis/target-config', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM sales_targets');
+    const byKey = {};
+    for (const r of rows) byKey[r.group_key] = r;
+    for (const d of TARGET_CONFIG_DEFAULTS) {
+      if (!byKey[d.group_key]) {
+        await db.execute(
+          `INSERT INTO sales_targets (group_key, group_name, target_amount, month1_pct, month2_pct, month3_pct)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE target_amount = VALUES(target_amount)`,
+          [d.group_key, d.group_name, d.target_amount, d.month1_pct, d.month2_pct, d.month3_pct]
+        );
+        byKey[d.group_key] = d;
+      }
+    }
+    res.json({ groups: TARGET_CONFIG_DEFAULTS.map(d => byKey[d.group_key]) });
+  } catch (err) {
+    console.error('[Target Config] read error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mis/target-config', requireAuth, requireAdminOrHod, async (req, res) => {
+  try {
+    const { groups } = req.body;
+    if (!Array.isArray(groups) || !groups.length) return res.status(400).json({ error: 'groups array required' });
+    for (const g of groups) {
+      if (!g.group_key || !TARGET_CONFIG_DEFAULTS.some(d => d.group_key === g.group_key)) {
+        return res.status(400).json({ error: `Unknown group_key: ${g.group_key}` });
+      }
+      const targetAmount = parseInt(g.target_amount, 10) || 0;
+      const m1 = parseInt(g.month1_pct, 10) || 0;
+      const m2 = parseInt(g.month2_pct, 10) || 0;
+      const m3 = parseInt(g.month3_pct, 10) || 0;
+      const groupName = TARGET_CONFIG_DEFAULTS.find(d => d.group_key === g.group_key).group_name;
+      await db.execute(
+        `INSERT INTO sales_targets (group_key, group_name, target_amount, month1_pct, month2_pct, month3_pct, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE target_amount = VALUES(target_amount), month1_pct = VALUES(month1_pct),
+           month2_pct = VALUES(month2_pct), month3_pct = VALUES(month3_pct), updated_by = VALUES(updated_by)`,
+        [g.group_key, groupName, targetAmount, m1, m2, m3, req.session.userId]
+      );
+    }
+    console.log(`  🎯 Target config updated by user=${req.session.userId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Target Config] save error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════
 // EMPLOYEE RECORDS  (Admin / HOD / PC) — Plan vs Done
 // ──────────────────────────────────────────────────────
