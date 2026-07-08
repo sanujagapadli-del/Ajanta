@@ -1539,6 +1539,51 @@ app.get('/api/mis/fms', requireAuth, requireAdminOrHod, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── zRetail ERP SQL Server (live sales data for Target MIS) ──
+const sql = require('mssql');
+let _sqlPool = null;
+async function getSqlPool() {
+  if (_sqlPool && _sqlPool.connected) return _sqlPool;
+  _sqlPool = await new sql.ConnectionPool({
+    server: process.env.SQL_SERVER,
+    port: parseInt(process.env.SQL_PORT, 10),
+    user: process.env.SQL_USER,
+    password: process.env.SQL_PASSWORD,
+    database: process.env.SQL_DATABASE,
+    options: { encrypt: false, trustServerCertificate: true },
+    pool: { max: 5, min: 0, idleTimeoutMillis: 30000 }
+  }).connect();
+  return _sqlPool;
+}
+
+// Target MIS: salesperson-wise net sales for a date range, straight from the
+// ERP (not the manually-imported Out Stock sheet). SalesPersonName holds the
+// short code (AK, RA, ...) — same codes used in the Target MIS groups.
+app.get('/api/mis/target-sales', requireAuth, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ error: 'from/to dates required (YYYY-MM-DD)' });
+    if (!process.env.SQL_SERVER) return res.status(503).json({ error: 'SQL Server not configured' });
+
+    const pool = await getSqlPool();
+    const result = await pool.request()
+      .input('from', sql.Date, from)
+      .input('to', sql.Date, to)
+      .query(`
+        SELECT sp.SalesPersonName AS name, SUM(d.NetAmount) AS amount
+        FROM InvCashmemoDetail d
+        JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
+        JOIN MstSalesPerson sp ON sp.SalesPersonId = d.SalesPersonId_1
+        WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to
+        GROUP BY sp.SalesPersonName
+      `);
+    res.json({ salespersons: result.recordset.map(r => ({ name: r.name, amount: Math.round(r.amount || 0) })) });
+  } catch (err) {
+    console.error('[Target Sales] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════
 // EMPLOYEE RECORDS  (Admin / HOD / PC) — Plan vs Done
 // ──────────────────────────────────────────────────────

@@ -9434,7 +9434,7 @@ async function generateTargetMIS() {
     const from = `${year}-${String(m.num).padStart(2,'0')}-01`;
     const lastDay = new Date(year, m.num, 0).getDate();
     const to = `${year}-${String(m.num).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
-    return api(`/api/ims-reports?from=${from}&to=${to}`).catch(() => ({ error: 'Network error' }));
+    return api(`/api/mis/target-sales?from=${from}&to=${to}`).catch(() => ({ error: 'Network error' }));
   }));
 
   misTargetData = MIS_TARGET_MONTHS_DEF.map((m, i) => {
@@ -9452,7 +9452,7 @@ function renderTargetMIS(monthsData, year) {
 
   const allFailed = monthsData.every(m => m.salespersons == null);
   const banner = allFailed
-    ? `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #fecaca;color:#dc2626;margin-bottom:14px;">⚠️ Could not load live sales data from the Out Stock sheet — showing target plan only.</div>`
+    ? `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #fecaca;color:#dc2626;margin-bottom:14px;">⚠️ Could not load live sales data from the ERP database — showing target plan only.</div>`
     : '';
 
   const groupHtml = MIS_TARGET_GROUPS.map(g => {
@@ -9526,7 +9526,7 @@ function renderTargetMIS(monthsData, year) {
     </div>`;
   }).join('');
 
-  container.innerHTML = banner + groupHtml + `<div style="font-size:12px;color:#94a3b8;margin-top:4px;padding:0 4px">* Achieved amount is live Out Stock sales data (IMS), matched by exact Salesperson code. "Other" is excluded from target achievement.</div>`;
+  container.innerHTML = banner + groupHtml + `<div style="font-size:12px;color:#94a3b8;margin-top:4px;padding:0 4px">* Achieved amount is live sales data from the ERP database, matched by exact Salesperson code. "Other" is excluded from target achievement.</div>`;
 }
 
 function getSelectedMISDept() {
