@@ -2946,11 +2946,11 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     const _bySupStock = {};
     supplierStyleStock.forEach(r => {
-      if (!_bySupStock[r.supName]) _bySupStock[r.supName] = { qty: 0, value: 0 };
-      _bySupStock[r.supName].qty += r.qty; _bySupStock[r.supName].value += r.value;
+      if (!_bySupStock[r.supName]) _bySupStock[r.supName] = { qty: 0, value: 0, purQty: 0 };
+      _bySupStock[r.supName].qty += r.qty; _bySupStock[r.supName].value += r.value; _bySupStock[r.supName].purQty += r.purQty;
     });
     const supplierStock = Object.entries(_bySupStock).map(([name, d]) => ({
-      name, qty: r2(d.qty), purQty: 0, opening: 0, purReturn: 0, value: Math.round(d.value)
+      name, qty: r2(d.qty), purQty: r2(d.purQty), opening: 0, purReturn: 0, value: Math.round(d.value)
     })).sort((a, b) => b.value - a.value);
 
     const _byStyleStock = {};
