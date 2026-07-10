@@ -1557,91 +1557,210 @@ async function getSqlPool() {
   return _sqlPool;
 }
 
-// Target MIS: salesperson-wise net sales for a date range, straight from the
-// ERP (not the manually-imported Out Stock sheet). SalesPersonName holds the
-// short code (AK, RA, ...) — same codes used in the Target MIS groups.
-app.get('/api/mis/target-sales', requireAuth, async (req, res) => {
-  try {
-    const { from, to } = req.query;
-    if (!from || !to) return res.status(400).json({ error: 'from/to dates required (YYYY-MM-DD)' });
-    if (!process.env.SQL_SERVER) return res.status(503).json({ error: 'SQL Server not configured' });
+// Target MIS — admin-configurable categories: any number of groups, each with
+// its own salesperson codes, target amount, and Monthly/Quarterly/Yearly split.
+// Replaces the old hardcoded 2-group (Saree/Suite) system.
 
-    const pool = await getSqlPool();
-    const result = await pool.request()
-      .input('from', sql.Date, from)
-      .input('to', sql.Date, to)
-      .query(`
-        SELECT sp.SalesPersonName AS name, SUM(d.NetAmount) AS amount
-        FROM InvCashmemoDetail d
-        JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
-        JOIN MstSalesPerson sp ON sp.SalesPersonId = d.SalesPersonId_1
-        WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to
-        GROUP BY sp.SalesPersonName
-      `);
-    res.json({ salespersons: result.recordset.map(r => ({ name: r.name, amount: Math.round(r.amount || 0) })) });
+// Shared: salesperson code -> net sales amount for a date range, straight from
+// the ERP. SalesPersonName holds the short code (AK, RA, ...).
+async function getSalespersonSalesMap(from, to) {
+  if (!process.env.SQL_SERVER) throw new Error('SQL Server not configured');
+  const pool = await getSqlPool();
+  const result = await pool.request()
+    .input('from', sql.Date, from)
+    .input('to', sql.Date, to)
+    .query(`
+      SELECT sp.SalesPersonName AS name, SUM(d.NetAmount) AS amount
+      FROM InvCashmemoDetail d
+      JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
+      JOIN MstSalesPerson sp ON sp.SalesPersonId = d.SalesPersonId_1
+      WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to
+      GROUP BY sp.SalesPersonName
+    `);
+  const map = {};
+  result.recordset.forEach(r => { map[String(r.name || '').trim().toUpperCase()] = Math.round(r.amount || 0); });
+  return map;
+}
+
+const TARGET_PERIOD_LABELS = {
+  monthly: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+  quarterly: ['Q1','Q2','Q3','Q4'],
+  yearly: ['FY']
+};
+function defaultTargetPeriods(periodType) {
+  const labels = TARGET_PERIOD_LABELS[periodType] || TARGET_PERIOD_LABELS.monthly;
+  const pct = periodType === 'yearly' ? 100 : 0;
+  return labels.map(label => ({ label, pct }));
+}
+// Calendar [start,end] (UTC) for period `index` of `periodType` within `year`.
+function targetPeriodRange(year, periodType, index) {
+  if (periodType === 'quarterly') {
+    const startMonth = index * 3;
+    return { start: new Date(Date.UTC(year, startMonth, 1)), end: new Date(Date.UTC(year, startMonth + 3, 0)) };
+  }
+  if (periodType === 'yearly') return { start: new Date(Date.UTC(year, 0, 1)), end: new Date(Date.UTC(year, 11, 31)) };
+  return { start: new Date(Date.UTC(year, index, 1)), end: new Date(Date.UTC(year, index + 1, 0)) };
+}
+function parseTargetCategoryRow(row) {
+  let periods = [];
+  try { periods = JSON.parse(row.periods_json || '[]'); } catch (e) { periods = []; }
+  return {
+    id: row.id, year: row.year, category_name: row.category_name,
+    codes: String(row.codes || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
+    period_type: row.period_type || 'monthly', periods,
+    target_amount: Number(row.target_amount) || 0
+  };
+}
+
+// One-time migration: old sales_targets (group_key based, hardcoded 3-month
+// Saree/Suite split) -> new sales_target_categories. Codes used to live only
+// in the frontend, never in the sheet, so they're hardcoded here just for
+// this one-time conversion.
+const LEGACY_TARGET_GROUPS = {
+  shree: { name: 'Saree', codes: ['AK','ASK','RA','KS'] },
+  suit:  { name: 'Suite', codes: ['AA','MS','MJ','SN','KR','RS','SD'] }
+};
+async function migrateLegacyTargetsIfNeeded(year) {
+  const [existing] = await db.query('SELECT id FROM sales_target_categories');
+  if (existing.length) return;
+  const [oldRows] = await db.query('SELECT * FROM sales_targets');
+  if (!oldRows.length) return;
+  for (const r of oldRows) {
+    const legacy = LEGACY_TARGET_GROUPS[r.group_key];
+    if (!legacy) continue;
+    const periods = defaultTargetPeriods('monthly');
+    periods[6].pct = Number(r.month1_pct) || 0;  // Jul
+    periods[7].pct = Number(r.month2_pct) || 0;  // Aug
+    periods[8].pct = Number(r.month3_pct) || 0;  // Sep
+    await db.execute(
+      `INSERT INTO sales_target_categories (year, category_name, codes, period_type, periods_json, target_amount, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [year, legacy.name, legacy.codes.join(','), 'monthly', JSON.stringify(periods), r.target_amount, 'migration']
+    );
+  }
+  console.log('  🎯 Migrated legacy Saree/Suite targets into sales_target_categories');
+}
+
+app.get('/api/mis/target-categories', requireAuth, async (req, res) => {
+  try {
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    await migrateLegacyTargetsIfNeeded(year);
+    const [rows] = await db.query('SELECT * FROM sales_target_categories WHERE year=? ORDER BY id', [year]);
+    res.json({ categories: rows.map(parseTargetCategoryRow) });
   } catch (err) {
-    console.error('[Target Sales] error:', err.message);
+    console.error('[Target Categories] read error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Target MIS: editable target amount + monthly split % per group (Saree/Suite).
-// Seeded with defaults on first read so the sheet always has a row to edit.
-// group_key stays 'shree'/'suit' (internal id, matches existing sheet rows) —
-// only the display name changed.
-const TARGET_CONFIG_DEFAULTS = [
-  { group_key: 'shree', group_name: 'Saree', target_amount: 11000000, month1_pct: 29, month2_pct: 31, month3_pct: 40 },
-  { group_key: 'suit',  group_name: 'Suite', target_amount: 19500000, month1_pct: 29, month2_pct: 31, month3_pct: 40 }
-];
+function validateTargetCategoryBody(body) {
+  const { year, category_name, codes, period_type, periods } = body || {};
+  if (!year || !category_name || !Array.isArray(codes) || !codes.length) return 'year, category_name, codes required';
+  if (!['monthly', 'quarterly', 'yearly'].includes(period_type)) return 'period_type must be monthly, quarterly, or yearly';
+  if (!Array.isArray(periods) || !periods.length) return 'periods required';
+  return null;
+}
 
-app.get('/api/mis/target-config', requireAuth, async (req, res) => {
+app.post('/api/mis/target-categories', requireAuth, requireAdminOrHod, async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT * FROM sales_targets');
-    const byKey = {};
-    for (const r of rows) byKey[r.group_key] = r;
-    for (const d of TARGET_CONFIG_DEFAULTS) {
-      if (!byKey[d.group_key]) {
-        await db.execute(
-          `INSERT INTO sales_targets (group_key, group_name, target_amount, month1_pct, month2_pct, month3_pct)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE target_amount = VALUES(target_amount)`,
-          [d.group_key, d.group_name, d.target_amount, d.month1_pct, d.month2_pct, d.month3_pct]
-        );
-        byKey[d.group_key] = d;
-      }
-    }
-    res.json({ groups: TARGET_CONFIG_DEFAULTS.map(d => byKey[d.group_key]) });
+    const err = validateTargetCategoryBody(req.body);
+    if (err) return res.status(400).json({ error: err });
+    const { year, category_name, codes, period_type, periods, target_amount } = req.body;
+    const [result] = await db.execute(
+      `INSERT INTO sales_target_categories (year, category_name, codes, period_type, periods_json, target_amount, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [parseInt(year, 10), category_name, codes.map(c => String(c).trim().toUpperCase()).join(','), period_type,
+       JSON.stringify(periods), parseInt(target_amount, 10) || 0, req.session.userId]
+    );
+    res.json({ success: true, id: result.insertId });
   } catch (err) {
-    console.error('[Target Config] read error:', err.message);
+    console.error('[Target Categories] create error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/mis/target-config', requireAuth, requireAdminOrHod, async (req, res) => {
+app.put('/api/mis/target-categories/:id', requireAuth, requireAdminOrHod, async (req, res) => {
   try {
-    const { groups } = req.body;
-    if (!Array.isArray(groups) || !groups.length) return res.status(400).json({ error: 'groups array required' });
-    for (const g of groups) {
-      if (!g.group_key || !TARGET_CONFIG_DEFAULTS.some(d => d.group_key === g.group_key)) {
-        return res.status(400).json({ error: `Unknown group_key: ${g.group_key}` });
-      }
-      const targetAmount = parseInt(g.target_amount, 10) || 0;
-      const m1 = parseInt(g.month1_pct, 10) || 0;
-      const m2 = parseInt(g.month2_pct, 10) || 0;
-      const m3 = parseInt(g.month3_pct, 10) || 0;
-      const groupName = TARGET_CONFIG_DEFAULTS.find(d => d.group_key === g.group_key).group_name;
-      await db.execute(
-        `INSERT INTO sales_targets (group_key, group_name, target_amount, month1_pct, month2_pct, month3_pct, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE target_amount = VALUES(target_amount), month1_pct = VALUES(month1_pct),
-           month2_pct = VALUES(month2_pct), month3_pct = VALUES(month3_pct), updated_by = VALUES(updated_by)`,
-        [g.group_key, groupName, targetAmount, m1, m2, m3, req.session.userId]
-      );
-    }
-    console.log(`  🎯 Target config updated by user=${req.session.userId}`);
+    const err = validateTargetCategoryBody(req.body);
+    if (err) return res.status(400).json({ error: err });
+    const { year, category_name, codes, period_type, periods, target_amount } = req.body;
+    await db.execute(
+      `UPDATE sales_target_categories SET year=?, category_name=?, codes=?, period_type=?, periods_json=?, target_amount=?, updated_by=? WHERE id=?`,
+      [parseInt(year, 10), category_name, codes.map(c => String(c).trim().toUpperCase()).join(','), period_type,
+       JSON.stringify(periods), parseInt(target_amount, 10) || 0, req.session.userId, req.params.id]
+    );
     res.json({ success: true });
   } catch (err) {
-    console.error('[Target Config] save error:', err.message);
+    console.error('[Target Categories] update error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mis/target-categories/:id', requireAuth, requireAdminOrHod, async (req, res) => {
+  try {
+    await db.execute('DELETE FROM sales_target_categories WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Target Categories] delete error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Target MIS report: achieved sales per category (live SQL) vs the target for
+// whichever period(s) [from,to] overlaps, plus an "Others" bucket for any
+// salesperson code not assigned to any category (visible, never counted
+// toward a category's achievement).
+app.get('/api/mis/target-report', requireAuth, async (req, res) => {
+  try {
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const toDate = req.query.to || new Date().toISOString().slice(0, 10);
+    const fromDate = req.query.from || `${year}-01-01`;
+    const categoryFilter = req.query.category && req.query.category !== 'All' ? req.query.category : null;
+    const spFilter = req.query.salesperson && req.query.salesperson !== 'All' ? String(req.query.salesperson).trim().toUpperCase() : null;
+
+    await migrateLegacyTargetsIfNeeded(year);
+    const [rows] = await db.query('SELECT * FROM sales_target_categories WHERE year=? ORDER BY id', [year]);
+    const categories = rows.map(parseTargetCategoryRow);
+    const salesMap = await getSalespersonSalesMap(fromDate, toDate);
+
+    const rangeStart = new Date(fromDate + 'T00:00:00Z');
+    const rangeEnd = new Date(toDate + 'T00:00:00Z');
+    const overlaps = (a, b, c, d) => a <= d && c <= b;
+
+    const assignedCodes = new Set();
+    let result = categories.map(cat => {
+      cat.codes.forEach(c => assignedCodes.add(c));
+      let targetForRange = 0;
+      cat.periods.forEach((p, i) => {
+        const { start, end } = targetPeriodRange(cat.year, cat.period_type, i);
+        if (overlaps(start, end, rangeStart, rangeEnd)) targetForRange += Math.round(cat.target_amount * (p.pct || 0) / 100);
+      });
+      const bySp = cat.codes.map(code => ({ code, amount: salesMap[code] || 0 }));
+      const achieved = bySp.reduce((s, r) => s + r.amount, 0);
+      return { id: cat.id, category_name: cat.category_name, codes: cat.codes, period_type: cat.period_type,
+        target_amount: cat.target_amount, targetForRange, achieved, bySp };
+    });
+
+    const others = Object.entries(salesMap)
+      .filter(([code]) => !assignedCodes.has(code))
+      .map(([code, amount]) => ({ code, amount }))
+      .sort((a, b) => b.amount - a.amount);
+
+    if (categoryFilter) result = result.filter(c => String(c.id) === String(categoryFilter));
+    if (spFilter) {
+      result = result.filter(c => c.codes.includes(spFilter));
+      result.forEach(c => { c.bySp = c.bySp.filter(s => s.code === spFilter); c.achieved = c.bySp.reduce((s, r) => s + r.amount, 0); });
+    }
+    const othersOut = spFilter ? others.filter(o => o.code === spFilter) : others;
+
+    res.json({
+      year, from: fromDate, to: toDate,
+      categories: result,
+      others: othersOut,
+      othersTotal: othersOut.reduce((s, r) => s + r.amount, 0)
+    });
+  } catch (err) {
+    console.error('[Target Report] error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

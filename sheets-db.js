@@ -81,6 +81,10 @@ const SCHEMA = {
   sales_targets: {
     cols: ['id','group_key','group_name','target_amount','month1_pct','month2_pct','month3_pct','updated_by','updated_at'],
     autoFill: { updated_at: 'NOW' }
+  },
+  sales_target_categories: {
+    cols: ['id','year','category_name','codes','period_type','periods_json','target_amount','updated_by','updated_at'],
+    autoFill: { updated_at: 'NOW' }
   }
 };
 
@@ -104,7 +108,7 @@ const INT_COLS = new Set([
   'id','assigned_to','assigned_by','user_id','task_id','requested_by','requested_to',
   'employee_id','hod_id','target_count','improvement_pct','fms_id','step_id','step_order',
   'total_steps','header_row','from_user','to_user','waiting_approval','created_by',
-  'target_amount','month1_pct','month2_pct','month3_pct'
+  'target_amount','month1_pct','month2_pct','month3_pct','year'
 ]);
 
 // Date-only columns — stored as proper date cells in Sheets (USER_ENTERED write).

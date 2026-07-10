@@ -1058,9 +1058,6 @@ tbody tr:last-child td{border-bottom:none;}
         <div style="align-self:flex-end">
           <button class="btn btn-outline" onclick="exportMIS()">⬇ Export CSV</button>
         </div>
-        <div id="misTargetEditWrap" style="display:none;align-self:flex-end">
-          <button class="btn btn-outline" onclick="openTargetConfigModal()">✏️ Edit Targets</button>
-        </div>
       </div>
       <div style="display:flex;gap:6px;margin-top:14px;">
         <div class="tab-group">
@@ -3079,14 +3076,35 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
-<!-- ── TARGET MIS: EDIT TARGETS MODAL ─────────────────────────────── -->
+<!-- ── TARGET MIS: ADD/EDIT CATEGORY MODAL ─────────────────────────── -->
 <div class="modal-overlay" id="targetConfigModal">
-  <div class="modal" style="max-width:480px">
-    <h3 style="margin-bottom:18px">🎯 Edit Sales Targets</h3>
+  <div class="modal" style="max-width:520px">
+    <h3 id="tcatTitle" style="margin-bottom:18px">🎯 Add Category</h3>
     <div class="alert error" id="targetConfigErr" style="display:none"></div>
-    <div id="targetConfigRows"></div>
+    <div class="form-group">
+      <label>Category Name <span style="color:#ef4444">*</span></label>
+      <input type="text" id="tcatName" placeholder="e.g. Saree" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
+    </div>
+    <div class="form-group">
+      <label>Total Target (₹) <span style="color:#ef4444">*</span></label>
+      <input type="number" id="tcatAmount" placeholder="e.g. 11000000" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
+    </div>
+    <div class="form-group">
+      <label>Salesperson Codes <span style="color:#ef4444">*</span> <span style="font-size:11px;color:#94a3b8;font-weight:400">(comma-separated, e.g. AK, ASK, RA)</span></label>
+      <input type="text" id="tcatCodes" placeholder="AK, ASK, RA, KS" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
+    </div>
+    <div class="form-group">
+      <label>Period Split</label>
+      <div style="display:flex;gap:14px;margin-bottom:10px">
+        <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="radio" name="tcatPeriodType" value="monthly" checked onchange="onTcatPeriodTypeChange()"> Monthly</label>
+        <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="radio" name="tcatPeriodType" value="quarterly" onchange="onTcatPeriodTypeChange()"> Quarterly</label>
+        <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="radio" name="tcatPeriodType" value="yearly" onchange="onTcatPeriodTypeChange()"> Yearly</label>
+      </div>
+      <div id="tcatPeriods" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div id="tcatSum" style="font-size:11px;margin-top:6px"></div>
+    </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
-      <button class="btn btn-primary" onclick="saveTargetConfig()">Save Targets</button>
+      <button class="btn btn-primary" onclick="saveTargetCategoryModal()">Save Category</button>
       <button class="btn btn-outline" onclick="closeModal('targetConfigModal')">Cancel</button>
     </div>
   </div>
@@ -8968,101 +8986,93 @@ let misType = 'delegation';
 let misData = {};
 let misFMSData = [];
 let misAllData = [];
-let misTargetData = null;   // [{label,num,salespersons|null,error}] per month, filled by generateTargetMIS()
-let misTargetConfig = null; // {group_key: {target_amount,month1_pct,month2_pct,month3_pct}}, fetched from /api/mis/target-config
+let misTargetYear = null;
+let misTargetCategories = [];      // raw category list from /api/mis/target-categories (for dropdowns + edit modal)
+let misTargetReportData = null;    // last /api/mis/target-report response
+let misTargetFrom = '', misTargetTo = '';   // '' = backend default (whole year to date)
+let misTargetActivePreset = 'all';
+let misTargetCategoryFilter = 'All';
+let misTargetSpFilter = 'All';
+let misTargetEditingId = null;     // set when the Add/Edit modal is editing an existing category
 
-// Target MIS: sales-person codes per brand (fixed) + fallback target/split defaults,
-// used only until /api/mis/target-config loads. "Other" is intentionally excluded
-// from target achievement (per business rule) but still shown for reference.
-const MIS_TARGET_MONTHS_DEF = [
-  { label: 'Jul', num: 7, pct: 29 },
-  { label: 'Aug', num: 8, pct: 31 },
-  { label: 'Sep', num: 9, pct: 40 }
-];
-const MIS_TARGET_GROUPS = [
-  { key: 'shree', name: 'Saree', icon: '🧵', codes: ['AK','ASK','RA','KS'], otherCode: 'Other', target: 11000000 },
-  { key: 'suit',  name: 'Suite', icon: '🧥', codes: ['AA','MS','MJ','SN','KR','RS','SD'], otherCode: 'Other', target: 19500000 }
-];
+const TARGET_PERIOD_LABELS = {
+  monthly: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+  quarterly: ['Q1','Q2','Q3','Q4'],
+  yearly: ['FY']
+};
 
-// Live config for a group: values from the editable sales_targets sheet, falling
-// back to the hardcoded defaults above until the config has loaded.
-function misTargetGroupCfg(g) {
-  const cfg = (misTargetConfig && misTargetConfig[g.key]) || {};
-  return {
-    target: cfg.target_amount != null ? cfg.target_amount : g.target,
-    pcts: [0, 1, 2].map(i => cfg['month' + (i + 1) + '_pct'] != null ? cfg['month' + (i + 1) + '_pct'] : MIS_TARGET_MONTHS_DEF[i].pct)
-  };
-}
-
-async function openTargetConfigModal() {
+function openTargetCategoryModal(id) {
+  misTargetEditingId = id || null;
+  const cat = id ? misTargetCategories.find(c => String(c.id) === String(id)) : null;
+  document.getElementById('tcatTitle').textContent = cat ? '🎯 Edit Category' : '🎯 Add Category';
+  document.getElementById('tcatName').value = cat ? cat.category_name : '';
+  document.getElementById('tcatAmount').value = cat ? cat.target_amount : '';
+  document.getElementById('tcatCodes').value = cat ? cat.codes.join(', ') : '';
+  const periodType = cat ? cat.period_type : 'monthly';
+  document.querySelectorAll('input[name="tcatPeriodType"]').forEach(r => r.checked = (r.value === periodType));
+  renderTargetPeriodInputs(periodType, cat ? cat.periods : null);
   const err = document.getElementById('targetConfigErr');
   err.style.display = 'none'; err.textContent = '';
-  const container = document.getElementById('targetConfigRows');
-  container.innerHTML = '<div style="text-align:center;padding:20px;color:#94a3b8">Loading…</div>';
   document.getElementById('targetConfigModal').classList.add('open');
-
-  const data = await api('/api/mis/target-config');
-  if (!data || data.error || !Array.isArray(data.groups)) {
-    container.innerHTML = '';
-    err.textContent = (data && data.error) || 'Could not load target config';
-    err.style.display = 'block';
-    return;
-  }
-  const byKey = {};
-  data.groups.forEach(g => byKey[g.group_key] = g);
-
-  container.innerHTML = MIS_TARGET_GROUPS.map(g => {
-    const saved = byKey[g.key] || {};
-    return `
-    <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:12px">
-      <div style="font-weight:700;margin-bottom:10px">${g.icon} ${g.name}</div>
-      <div class="form-group">
-        <label>Total Target (₹)</label>
-        <input type="number" id="tc-${g.key}-amount" value="${saved.target_amount != null ? saved.target_amount : g.target}"
-          style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
-      </div>
-      <div style="display:flex;gap:8px">
-        ${MIS_TARGET_MONTHS_DEF.map((m, i) => `
-        <div class="form-group" style="flex:1">
-          <label>${m.label} %</label>
-          <input type="number" id="tc-${g.key}-m${i+1}" value="${saved['month'+(i+1)+'_pct'] != null ? saved['month'+(i+1)+'_pct'] : m.pct}"
-            oninput="updateTcSum('${g.key}')"
-            style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
-        </div>`).join('')}
-      </div>
-      <div id="tc-${g.key}-sum" style="font-size:11px;margin-top:6px"></div>
-    </div>`;
-  }).join('');
-
-  MIS_TARGET_GROUPS.forEach(g => updateTcSum(g.key));
 }
 
-function updateTcSum(key) {
-  const vals = [1,2,3].map(i => parseFloat(document.getElementById(`tc-${key}-m${i}`).value) || 0);
-  const sum = vals.reduce((a,b) => a+b, 0);
-  const el = document.getElementById(`tc-${key}-sum`);
+function renderTargetPeriodInputs(periodType, existingPeriods) {
+  const labels = TARGET_PERIOD_LABELS[periodType] || TARGET_PERIOD_LABELS.monthly;
+  const container = document.getElementById('tcatPeriods');
+  container.innerHTML = labels.map((label, i) => {
+    const pct = existingPeriods && existingPeriods[i] ? existingPeriods[i].pct : (periodType === 'yearly' ? 100 : 0);
+    return `<div style="flex:1;min-width:60px">
+      <label style="font-size:11px;color:#64748b">${label}</label>
+      <input type="number" class="tcat-pct" data-label="${label}" value="${pct}" oninput="updateTcatSum()"
+        style="width:100%;padding:6px 8px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    </div>`;
+  }).join('');
+  updateTcatSum();
+}
+
+function onTcatPeriodTypeChange() {
+  const type = document.querySelector('input[name="tcatPeriodType"]:checked').value;
+  renderTargetPeriodInputs(type, null);
+}
+
+function updateTcatSum() {
+  const sum = [...document.querySelectorAll('.tcat-pct')].reduce((s, el) => s + (parseFloat(el.value) || 0), 0);
+  const el = document.getElementById('tcatSum');
   if (!el) return;
   el.innerHTML = sum === 100
     ? `<span style="color:#10b981">✓ Split adds up to 100%</span>`
     : `<span style="color:#f59e0b">⚠ Split adds up to ${sum}% (usually should be 100%)</span>`;
 }
 
-async function saveTargetConfig() {
+async function saveTargetCategoryModal() {
   const err = document.getElementById('targetConfigErr');
   err.style.display = 'none';
-  const groups = MIS_TARGET_GROUPS.map(g => ({
-    group_key: g.key,
-    target_amount: parseInt(document.getElementById(`tc-${g.key}-amount`).value, 10) || 0,
-    month1_pct: parseInt(document.getElementById(`tc-${g.key}-m1`).value, 10) || 0,
-    month2_pct: parseInt(document.getElementById(`tc-${g.key}-m2`).value, 10) || 0,
-    month3_pct: parseInt(document.getElementById(`tc-${g.key}-m3`).value, 10) || 0
-  }));
-  const res = await api('/api/mis/target-config', 'POST', { groups });
+  const name = document.getElementById('tcatName').value.trim();
+  const amount = parseInt(document.getElementById('tcatAmount').value, 10) || 0;
+  const codes = document.getElementById('tcatCodes').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  const periodType = document.querySelector('input[name="tcatPeriodType"]:checked').value;
+  const periods = [...document.querySelectorAll('.tcat-pct')].map(el => ({ label: el.dataset.label, pct: parseFloat(el.value) || 0 }));
+  if (!name) { err.textContent = 'Category name is required'; err.style.display = 'block'; return; }
+  if (!codes.length) { err.textContent = 'At least one salesperson code is required'; err.style.display = 'block'; return; }
+
+  const body = { year: misTargetYear, category_name: name, codes, period_type: periodType, periods, target_amount: amount };
+  const url = misTargetEditingId ? `/api/mis/target-categories/${misTargetEditingId}` : '/api/mis/target-categories';
+  const method = misTargetEditingId ? 'PUT' : 'POST';
+  const res = await api(url, method, body);
   if (res.error) { err.textContent = res.error; err.style.display = 'block'; return; }
   closeModal('targetConfigModal');
-  showToast('✅ Targets updated!');
-  misTargetConfig = null;
-  if (misType === 'target') generateTargetMIS();
+  showToast(misTargetEditingId ? '✅ Category updated!' : '✅ Category added!');
+  await loadTargetCategories();
+  await fetchAndRenderTargetReport();
+}
+
+async function deleteTargetCategory(id) {
+  if (!confirm('Delete this category? This cannot be undone.')) return;
+  const res = await api(`/api/mis/target-categories/${id}`, 'DELETE');
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('Category deleted');
+  await loadTargetCategories();
+  await fetchAndRenderTargetReport();
 }
 
 // Department filter (Admin only) + All MIS tab visibility
@@ -9102,138 +9112,138 @@ function populateMisTargetYears() {
   if (!sel || sel.options.length) return;
   const cur = new Date().getFullYear();
   sel.innerHTML = [cur-1, cur, cur+1].map(y => `<option value="${y}"${y===cur?' selected':''}>${y}</option>`).join('');
-}
-
-// Exact (case-insensitive) match of a salesperson code against the IMS "Salesperson" column.
-// Returns null when the month's data itself failed to load (vs 0 when it loaded but the code had no sales).
-function misTargetMatchAmt(salespersons, code) {
-  if (!salespersons) return null;
-  const row = salespersons.find(s => String(s.name||'').trim().toUpperCase() === String(code).toUpperCase());
-  return row ? Math.round(row.amount||0) : 0;
-}
-
-function misTargetGroupMonthStats(g, m, idx) {
-  const { target, pcts } = misTargetGroupCfg(g);
-  const splitPct = pcts[idx];
-  const monthTarget = Math.round(target * splitPct / 100);
-  if (!m.salespersons) return { monthTarget, achieved: null, pct: null, splitPct };
-  const achieved = g.codes.reduce((sum, code) => sum + (misTargetMatchAmt(m.salespersons, code) || 0), 0);
-  return { monthTarget, achieved, pct: monthTarget ? (achieved / monthTarget * 100) : 0, splitPct };
+  misTargetYear = cur;
 }
 
 async function generateTargetMIS() {
   populateMisTargetYears();
-  const year = parseInt(document.getElementById('misTargetYear').value, 10) || new Date().getFullYear();
-  const container = document.getElementById('misResults');
-  container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Loading…</div>`;
-
-  const [configRes, ...results] = await Promise.all([
-    api('/api/mis/target-config').catch(() => null),
-    ...MIS_TARGET_MONTHS_DEF.map(m => {
-      const from = `${year}-${String(m.num).padStart(2,'0')}-01`;
-      const lastDay = new Date(year, m.num, 0).getDate();
-      const to = `${year}-${String(m.num).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
-      return api(`/api/mis/target-sales?from=${from}&to=${to}`).catch(() => ({ error: 'Network error' }));
-    })
-  ]);
-
-  if (configRes && Array.isArray(configRes.groups)) {
-    misTargetConfig = {};
-    configRes.groups.forEach(g => misTargetConfig[g.group_key] = g);
-  }
-
-  misTargetData = MIS_TARGET_MONTHS_DEF.map((m, i) => {
-    const r = results[i];
-    const ok = r && !r.error;
-    return { ...m, salespersons: ok ? (r.salespersons || []) : null, error: ok ? null : ((r && r.error) || 'Failed to load') };
-  });
-
-  renderTargetMIS(misTargetData, year);
+  const yearSel = document.getElementById('misTargetYear');
+  misTargetYear = parseInt(yearSel && yearSel.value, 10) || new Date().getFullYear();
+  misTargetFrom = ''; misTargetTo = ''; misTargetActivePreset = 'all';
+  misTargetCategoryFilter = 'All'; misTargetSpFilter = 'All';
+  document.getElementById('misResults').innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Loading…</div>`;
+  await loadTargetCategories();
+  await fetchAndRenderTargetReport();
 }
 
-function renderTargetMIS(monthsData, year) {
+async function loadTargetCategories() {
+  const data = await api(`/api/mis/target-categories?year=${misTargetYear}`).catch(() => null);
+  misTargetCategories = (data && Array.isArray(data.categories)) ? data.categories : [];
+}
+
+async function fetchAndRenderTargetReport() {
+  const params = new URLSearchParams({ year: misTargetYear });
+  if (misTargetFrom) params.append('from', misTargetFrom);
+  if (misTargetTo) params.append('to', misTargetTo);
+  if (misTargetCategoryFilter !== 'All') params.append('category', misTargetCategoryFilter);
+  if (misTargetSpFilter !== 'All') params.append('salesperson', misTargetSpFilter);
+  const data = await api('/api/mis/target-report?' + params.toString()).catch(() => null);
+  if (!data || data.error) {
+    document.getElementById('misResults').innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #fecaca;color:#dc2626">⚠️ ${(data && data.error) || 'Could not load target report'}</div>`;
+    return;
+  }
+  misTargetReportData = data;
+  renderTargetReport();
+}
+
+function setTargetDatePreset(kind) {
+  misTargetActivePreset = kind;
+  const now = new Date(); const y = misTargetYear;
+  const iso = d => d.toISOString().slice(0,10);
+  if (kind === 'all') { misTargetFrom = ''; misTargetTo = ''; }
+  else if (kind === 'today') { const t = iso(now); misTargetFrom = t; misTargetTo = t; }
+  else if (kind === 'month') { const m = now.getMonth(); misTargetFrom = iso(new Date(y,m,1)); misTargetTo = iso(now); }
+  else if (kind === 'quarter') { const q = Math.floor(now.getMonth()/3); misTargetFrom = iso(new Date(y,q*3,1)); misTargetTo = iso(now); }
+  fetchAndRenderTargetReport();
+}
+
+function onTargetFilterChange() {
+  misTargetCategoryFilter = document.getElementById('misTargetCategorySel').value;
+  misTargetSpFilter = document.getElementById('misTargetSpSel').value;
+  fetchAndRenderTargetReport();
+}
+
+function onTargetCustomDate() {
+  misTargetFrom = document.getElementById('misTargetFromInput').value;
+  misTargetTo = document.getElementById('misTargetToInput').value;
+  misTargetActivePreset = null;
+  if (misTargetFrom && misTargetTo) fetchAndRenderTargetReport();
+}
+
+function renderTargetReport() {
   const container = document.getElementById('misResults');
-  if (!monthsData) { container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Select year and click Generate</div>`; return; }
+  const data = misTargetReportData;
+  if (!data) { container.innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Select year and click Generate</div>`; return; }
 
-  const allFailed = monthsData.every(m => m.salespersons == null);
-  const banner = allFailed
-    ? `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #fecaca;color:#dc2626;margin-bottom:14px;">⚠️ Could not load live sales data from the ERP database — showing target plan only.</div>`
-    : '';
+  const presets = [['all','All Year'],['today','Today'],['month','This Month'],['quarter','This Quarter']];
+  const presetBtns = presets.map(([k,l]) => `<button class="btn ${misTargetActivePreset===k?'btn-primary':'btn-outline'}" style="padding:6px 14px;font-size:12px" onclick="setTargetDatePreset('${k}')">${l}</button>`).join('');
 
-  const groupHtml = MIS_TARGET_GROUPS.map(g => {
-    const cfg = misTargetGroupCfg(g);
-    const splitSum = cfg.pcts.reduce((a,b) => a+b, 0);
-    let qTarget = 0, qAchieved = 0, qHasData = true;
-    const monthRows = monthsData.map((m, idx) => {
-      const { monthTarget, achieved, pct, splitPct } = misTargetGroupMonthStats(g, m, idx);
-      qTarget += monthTarget;
-      const missing = achieved == null;
-      if (missing) qHasData = false; else qAchieved += achieved;
-      const color = missing ? '#94a3b8' : pct>=100 ? '#10b981' : pct>=75 ? '#f59e0b' : '#ef4444';
-      return `<tr>
-        <td style="font-weight:600">${m.label} ${year}</td>
-        <td style="text-align:center">${splitPct}%</td>
-        <td style="text-align:right;font-weight:600">${fmtINR(monthTarget)}</td>
-        <td style="text-align:right;font-weight:600">${missing?'—':fmtINR(achieved)}</td>
-        <td style="text-align:right;font-weight:700;color:${color}">${missing?'—':pct.toFixed(1)+'%'}</td>
-      </tr>`;
-    }).join('');
-    const qPct = qTarget ? (qAchieved / qTarget * 100) : 0;
+  const catOptions = `<option value="All">All Categories</option>` + misTargetCategories.map(c => `<option value="${c.id}"${String(c.id)===String(misTargetCategoryFilter)?' selected':''}>${c.category_name}</option>`).join('');
+  const allCodes = [...new Set(misTargetCategories.flatMap(c => c.codes))].sort();
+  const spOptions = `<option value="All">All Salespersons</option><option value="Others"${misTargetSpFilter==='Others'?' selected':''}>Others (unassigned)</option>` +
+    allCodes.map(code => `<option value="${code}"${code===misTargetSpFilter?' selected':''}>${code}</option>`).join('');
 
-    const codeRows = g.codes.map(code => {
-      const cells = monthsData.map(m => {
-        const amt = misTargetMatchAmt(m.salespersons, code);
-        return `<td style="text-align:right">${amt==null?'—':fmtINR(amt)}</td>`;
-      }).join('');
-      const total = monthsData.reduce((s,m) => s + (misTargetMatchAmt(m.salespersons, code) || 0), 0);
-      return `<tr><td style="font-weight:600">${code}</td>${cells}<td style="text-align:right;font-weight:700">${fmtINR(total)}</td></tr>`;
-    }).join('');
+  const filterBar = `
+  <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px;margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <div style="display:flex;gap:6px">${presetBtns}</div>
+    <input type="date" id="misTargetFromInput" value="${misTargetFrom}" onchange="onTargetCustomDate()" style="padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px"/>
+    <span style="color:#94a3b8;font-size:12px">to</span>
+    <input type="date" id="misTargetToInput" value="${misTargetTo}" onchange="onTargetCustomDate()" style="padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px"/>
+    <select id="misTargetCategorySel" onchange="onTargetFilterChange()" style="padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;background:#fff">${catOptions}</select>
+    <select id="misTargetSpSel" onchange="onTargetFilterChange()" style="padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;background:#fff">${spOptions}</select>
+    <span style="font-size:11px;color:#94a3b8;margin-left:auto">${data.from} to ${data.to}</span>
+  </div>`;
 
-    const otherCells = monthsData.map(m => {
-      const amt = misTargetMatchAmt(m.salespersons, g.otherCode);
-      return `<span style="margin-right:14px">${m.label}: <b>${amt==null?'—':fmtINR(amt)}</b></span>`;
-    }).join('');
+  const canEdit = ME && (ME.role === 'admin' || ME.role === 'hod');
+  const addBtn = canEdit ? `<div style="margin-bottom:16px"><button class="btn btn-primary" onclick="openTargetCategoryModal()">+ Add Category</button></div>` : '';
 
+  const catCards = (data.categories || []).map(cat => {
+    const pct = cat.targetForRange ? (cat.achieved / cat.targetForRange * 100) : (cat.achieved > 0 ? 100 : 0);
+    const color = pct >= 100 ? '#10b981' : pct >= 75 ? '#f59e0b' : '#ef4444';
+    const spRows = cat.bySp.map(s => `<tr><td style="font-weight:600">${s.code}</td><td style="text-align:right">${fmtINR(s.amount)}</td></tr>`).join('');
     return `
-    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:20px;margin-bottom:18px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:20px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         <div>
-          <div style="font-size:16px;font-weight:800;color:#0f172a">${g.icon} ${g.name}</div>
-          <div style="font-size:11px;color:#64748b;margin-top:2px">Codes: ${g.codes.join(', ')}, ${g.otherCode} <span style="color:#94a3b8">(${g.otherCode} excluded from target)</span></div>
+          <div style="font-size:16px;font-weight:800;color:#0f172a">${cat.category_name}</div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px">Codes: ${cat.codes.join(', ')} · ${cat.period_type}</div>
         </div>
-        <div style="text-align:right">
-          <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Total Target</div>
-          <div style="font-size:20px;font-weight:800;color:#4f46e5">${fmtINR(cfg.target)}</div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <div style="text-align:right">
+            <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Full Target</div>
+            <div style="font-size:16px;font-weight:800;color:#4f46e5">${fmtINR(cat.target_amount)}</div>
+          </div>
+          ${canEdit ? `<button class="btn btn-outline" style="padding:5px 10px;font-size:11px" onclick="openTargetCategoryModal(${cat.id})">✏️ Edit</button>
+          <button class="btn btn-outline" style="padding:5px 10px;font-size:11px;color:#ef4444;border-color:#fecaca" onclick="deleteTargetCategory(${cat.id})">🗑</button>` : ''}
         </div>
       </div>
-      <div class="mis-table-wrap">
-        <table>
-          <thead><tr><th>Month</th><th style="text-align:center">Split %</th><th style="text-align:right">Target</th><th style="text-align:right">Achieved</th><th style="text-align:right">Achievement %</th></tr></thead>
-          <tbody>${monthRows}
-            <tr style="background:#f8fafc;font-weight:700">
-              <td>Total (${monthsData[0].label}–${monthsData[monthsData.length-1].label} ${year})</td>
-              <td style="text-align:center">${splitSum}%</td>
-              <td style="text-align:right">${fmtINR(qTarget)}</td>
-              <td style="text-align:right">${qHasData?fmtINR(qAchieved):'—'}</td>
-              <td style="text-align:right;color:${qHasData?(qPct>=100?'#10b981':qPct>=75?'#f59e0b':'#ef4444'):'#94a3b8'}">${qHasData?qPct.toFixed(1)+'%':'—'}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:6px">
+        <div><div style="font-size:11px;color:#64748b;text-transform:uppercase">Target (this range)</div><div style="font-size:18px;font-weight:700">${fmtINR(cat.targetForRange)}</div></div>
+        <div><div style="font-size:11px;color:#64748b;text-transform:uppercase">Achieved</div><div style="font-size:18px;font-weight:700">${fmtINR(cat.achieved)}</div></div>
+        <div><div style="font-size:11px;color:#64748b;text-transform:uppercase">Achievement</div><div style="font-size:18px;font-weight:700;color:${color}">${pct.toFixed(1)}%</div></div>
       </div>
-      <details style="margin-top:12px">
+      <details style="margin-top:8px">
         <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#4f46e5">Salesperson-wise breakdown</summary>
-        <div class="mis-table-wrap" style="margin-top:8px">
-          <table>
-            <thead><tr><th>Code</th>${monthsData.map(m=>`<th style="text-align:right">${m.label}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead>
-            <tbody>${codeRows}</tbody>
-          </table>
-        </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:8px">${g.otherCode} sales (excluded from target): ${otherCells}</div>
+        <div class="mis-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th style="text-align:right">Achieved</th></tr></thead><tbody>${spRows}</tbody></table></div>
       </details>
     </div>`;
   }).join('');
 
-  container.innerHTML = banner + groupHtml + `<div style="font-size:12px;color:#94a3b8;margin-top:4px;padding:0 4px">* Achieved amount is live sales data from the ERP database, matched by exact Salesperson code. "Other" is excluded from target achievement.</div>`;
+  const othersRows = (data.others || []).map(o => `<tr><td style="font-weight:600">${o.code}</td><td style="text-align:right">${fmtINR(o.amount)}</td></tr>`).join('');
+  const othersCard = `
+  <div style="background:#fafbff;border-radius:12px;border:1.5px dashed #cbd5e1;padding:18px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:14px;font-weight:700;color:#475569">Others <span style="font-size:11px;color:#94a3b8;font-weight:400">(not assigned to any category — shown for visibility, not counted toward any target)</span></div>
+      <div style="font-size:16px;font-weight:800;color:#475569">${fmtINR(data.othersTotal)}</div>
+    </div>
+    ${data.others && data.others.length
+      ? `<details><summary style="cursor:pointer;font-size:12px;color:#4f46e5">Salesperson-wise</summary><div class="mis-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th style="text-align:right">Achieved</th></tr></thead><tbody>${othersRows}</tbody></table></div></details>`
+      : '<div style="font-size:12px;color:#94a3b8">No unassigned sales in this range.</div>'}
+  </div>`;
+
+  container.innerHTML = filterBar + addBtn +
+    (catCards || `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">No categories yet — click "+ Add Category" to set one up.</div>`) +
+    othersCard;
 }
 
 function getSelectedMISDept() {
@@ -9257,12 +9267,10 @@ function switchMisTab(type, el) {
   if (startWrap) startWrap.style.display = (type === 'target') ? 'none' : '';
   if (endWrap)   endWrap.style.display   = (type === 'target') ? 'none' : '';
   if (yearWrap)  yearWrap.style.display  = (type === 'target') ? '' : 'none';
-  const editWrap = document.getElementById('misTargetEditWrap');
-  if (editWrap) editWrap.style.display = (type === 'target' && ME && (ME.role === 'admin' || ME.role === 'hod')) ? '' : 'none';
 
   if (type === 'target') {
     populateMisTargetYears();
-    if (misTargetData) renderTargetMIS(misTargetData, parseInt(document.getElementById('misTargetYear').value, 10));
+    if (misTargetReportData) renderTargetReport();
     else document.getElementById('misResults').innerHTML = `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">Select year and click Generate</div>`;
   } else if (type === 'fms') {
     if (misFMSData.length) renderFMSMIS(misFMSData);
@@ -9497,20 +9505,14 @@ function exportMIS() {
   const dateSuffix = `${document.getElementById('misStart').value}_to_${document.getElementById('misEnd').value}`;
 
   if (misType === 'target') {
-    if (!misTargetData) { showToast('Generate Target report first','error'); return; }
-    const year = parseInt(document.getElementById('misTargetYear').value, 10) || new Date().getFullYear();
-    const lines = ['Group,Code,Month,Target,Achieved'];
-    MIS_TARGET_GROUPS.forEach(g => {
-      misTargetData.forEach((m, idx) => {
-        const { monthTarget, achieved } = misTargetGroupMonthStats(g, m, idx);
-        g.codes.forEach(code => {
-          const amt = misTargetMatchAmt(m.salespersons, code);
-          lines.push([esc(g.name), esc(code), esc(`${m.label} ${year}`), '', amt==null?'':amt].join(','));
-        });
-        lines.push([esc(g.name), 'TOTAL', esc(`${m.label} ${year}`), monthTarget, achieved==null?'':achieved].join(','));
-      });
+    if (!misTargetReportData) { showToast('Generate Target report first','error'); return; }
+    const lines = ['Category,Code,Target(Range),Achieved'];
+    (misTargetReportData.categories || []).forEach(cat => {
+      cat.bySp.forEach(s => lines.push([esc(cat.category_name), esc(s.code), '', s.amount].join(',')));
+      lines.push([esc(cat.category_name), 'TOTAL', cat.targetForRange, cat.achieved].join(','));
     });
-    downloadCSV(lines.join('\n'), `Target_MIS_${year}.csv`);
+    (misTargetReportData.others || []).forEach(o => lines.push(['Others', esc(o.code), '', o.amount].join(',')));
+    downloadCSV(lines.join('\n'), `Target_MIS_${misTargetReportData.from}_to_${misTargetReportData.to}.csv`);
     return;
   }
 
