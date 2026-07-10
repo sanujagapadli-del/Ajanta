@@ -1585,11 +1585,13 @@ app.get('/api/mis/target-sales', requireAuth, async (req, res) => {
   }
 });
 
-// Target MIS: editable target amount + monthly split % per group (Shree/Suit).
+// Target MIS: editable target amount + monthly split % per group (Saree/Suite).
 // Seeded with defaults on first read so the sheet always has a row to edit.
+// group_key stays 'shree'/'suit' (internal id, matches existing sheet rows) —
+// only the display name changed.
 const TARGET_CONFIG_DEFAULTS = [
-  { group_key: 'shree', group_name: 'Shree', target_amount: 11000000, month1_pct: 29, month2_pct: 31, month3_pct: 40 },
-  { group_key: 'suit',  group_name: 'Suit',  target_amount: 19500000, month1_pct: 29, month2_pct: 31, month3_pct: 40 }
+  { group_key: 'shree', group_name: 'Saree', target_amount: 11000000, month1_pct: 29, month2_pct: 31, month3_pct: 40 },
+  { group_key: 'suit',  group_name: 'Suite', target_amount: 19500000, month1_pct: 29, month2_pct: 31, month3_pct: 40 }
 ];
 
 app.get('/api/mis/target-config', requireAuth, async (req, res) => {
