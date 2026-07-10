@@ -2756,31 +2756,106 @@ const imsSupplierJoin = (outerAlias, itemScopeSql = '') => `
 const IMS_SALES_ITEM_SCOPE = `AND pd.ItemId IN (SELECT DISTINCT d2.ItemId FROM InvCashmemoDetail d2 JOIN InvCashmemoHead h2 ON h2.CashmemoId = d2.CashmemoId WHERE h2.IsCancelled = 0 AND h2.CashmemoDt BETWEEN @from AND @to)`;
 const IMS_SUPPLIER_JOIN = imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE);
 
-const _imsSqlCache = new Map();           // cacheKey -> { ts, data }
+const _imsSqlCache = new Map();           // cacheKey (date-range+dept) -> { ts, data }
 const IMS_SQL_CACHE_TTL_MS = 20 * 60 * 1000;
 
-app.get('/api/ims-reports', requireAuth, async (req, res) => {
-  try {
-    const { from, to, sync, dept } = req.query;
-    const deptFilter = (dept && dept !== 'All') ? dept : null;
+function r2(n) { return Math.round(n * 100) / 100; }
+const toISODate = d => d ? new Date(d).toISOString().slice(0, 10) : '';
+const imsDefaultRange = () => {
+  // Default window when none given (incl. the hub's "All" preset, which sends
+  // no dates): last 30 days. A full year's cold-cache scan of InvCashmemoDetail
+  // (1M+ rows, no date-correlated clustering) measured 50s+ on this SQL Server;
+  // 30 days keeps even a cold hit reasonably bounded.
+  const toDate = new Date().toISOString().slice(0, 10);
+  const fromDate = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+  return { fromDate, toDate };
+};
 
-    function r2(n) { return Math.round(n * 100) / 100; }
-    const toISODate = d => d ? new Date(d).toISOString().slice(0, 10) : '';
+// Stock/purchase data doesn't depend on the sales date range at all (current
+// stock is always "right now"; cost basis is all-time purchase history) — so
+// it was being recomputed on every single /api/ims-reports call even when a
+// user just switched date presets. Cached on its own cadence instead.
+let _imsStockCache = { ts: 0, data: null };
+const IMS_STOCK_CACHE_TTL_MS = 15 * 60 * 1000;
 
-    // Default window when none given (incl. the hub's "All" preset, which sends
-    // no dates): last 30 days. A full year's cold-cache scan of InvCashmemoDetail
-    // (1M+ rows, no date-correlated clustering) measured 50s+ on this SQL Server;
-    // 30 days keeps even a cold hit reasonably bounded.
-    const toDate   = to || new Date().toISOString().slice(0, 10);
-    const fromDate = from || (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+async function getImsStockData(pool, forceFresh) {
+  if (!forceFresh && _imsStockCache.data && (Date.now() - _imsStockCache.ts) < IMS_STOCK_CACHE_TTL_MS) {
+    return _imsStockCache.data;
+  }
+  // ── Stock-side: InvItemStock is a live real-time balance (no CBS/running-
+  // balance duality like the old sheet had). Cost basis comes from actual
+  // purchase price history, not MstArticle.ArticlePurPrice (almost always
+  // unset in this data) — grouped by (supplier,style) to stay fast, rather
+  // than joining a per-item weighted-cost derived table against the full
+  // ~350k-row InvItemStock table (tested: 15s vs <2s for the grouped form).
+  const [stockTotalsRs, stockStyleRs, purchaseStyleRs] = await Promise.all([
+    pool.request().query(`SELECT COUNT(*) totalItems, SUM(s.StockQty) totalQty FROM InvItemStock s WHERE s.StockQty <> 0`),
+    pool.request().query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(s.StockQty) AS qty
+      FROM InvItemStock s
+      LEFT JOIN MstItems mi ON mi.ItemCode = s.ItemId
+      LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+      LEFT JOIN MstInvSubCategory subcat ON subcat.InvSubCategoryId = art.InvSubCategoryId
+      LEFT JOIN MstInvCategory cat ON cat.InvCategoryId = subcat.InvCategoryId
+      LEFT JOIN MstInvDepartment dept ON dept.InvDepartmentId = cat.InvDepartmentId
+      ${imsSupplierJoin('s')}
+      WHERE s.StockQty <> 0
+      GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`),
+    pool.request().query(`SELECT ISNULL(p.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style,
+      SUM(pd.Quantity) AS purQty, SUM(pd.Quantity*pd.PurPrice) AS purAmt, MIN(ph.PurchaseDt) AS firstPurDate, MAX(ph.PurchaseDt) AS lastPurDate
+      FROM InvPurchaseDetail pd
+      JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
+      JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
+      LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
+      LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+      WHERE ph.IsCancelled = 0
+      GROUP BY p.PartyName, art.ArticleNo`)
+  ]);
+
+  const num = v => Number(v) || 0;
+  const costMap = {};   // supName||style -> costPerUnit, from actual purchase history
+  const purMap = {};    // supName||style -> {purQty, purAmt, firstPurDate, lastPurDate}
+  purchaseStyleRs.recordset.forEach(r => {
+    const key = r.supName + '||' + r.style;
+    const purQty = num(r.purQty), purAmt = Math.round(num(r.purAmt));
+    purMap[key] = { purQty: r2(purQty), purAmt, firstPurDate: toISODate(r.firstPurDate), lastPurDate: toISODate(r.lastPurDate) };
+    costMap[key] = purQty > 0 ? Math.round(purAmt / purQty) : 0;
+  });
+
+  const supplierStyleStock = stockStyleRs.recordset.map(r => {
+    const key = r.supName + '||' + r.style;
+    const qty = r2(num(r.qty));
+    return { key, supName: r.supName, style: r.style, cat: r.cat, article: r.style, subcat: '',
+             qty, purQty: (purMap[key]||{}).purQty || 0, opening: 0, purReturn: 0, value: Math.round(qty * (costMap[key]||0)) };
+  });
+
+  const _bySupStock = {};
+  supplierStyleStock.forEach(r => {
+    if (!_bySupStock[r.supName]) _bySupStock[r.supName] = { qty: 0, value: 0, purQty: 0 };
+    _bySupStock[r.supName].qty += r.qty; _bySupStock[r.supName].value += r.value; _bySupStock[r.supName].purQty += r.purQty;
+  });
+  const supplierStock = Object.entries(_bySupStock).map(([name, d]) => ({
+    name, qty: r2(d.qty), purQty: r2(d.purQty), opening: 0, purReturn: 0, value: Math.round(d.value)
+  })).sort((a, b) => b.value - a.value);
+
+  const _byStyleStock = {};
+  supplierStyleStock.forEach(r => { if (!_byStyleStock[r.style]) _byStyleStock[r.style] = 0; _byStyleStock[r.style] += r.qty; });
+  const styleStock = Object.entries(_byStyleStock).map(([style, qty]) => ({ style, qty: r2(qty), purQty: 0 }));
+
+  const stockTotalsRow = stockTotalsRs.recordset[0] || { totalItems: 0, totalQty: 0 };
+  const currentStock = {
+    totalItems: stockTotalsRow.totalItems || 0,
+    totalQty: r2(num(stockTotalsRow.totalQty)),
+    totalValue: Math.round(supplierStock.reduce((s, r) => s + r.value, 0))
+  };
+
+  const data = { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock };
+  _imsStockCache = { ts: Date.now(), data };
+  return data;
+}
+
+async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFresh) {
     const lyFromDate = (() => { const d = new Date(fromDate); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
     const lyToDate   = (() => { const d = new Date(toDate);   d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
-
-    const cacheKey = `${fromDate}|${toDate}|${deptFilter || 'All'}`;
-    const cached = _imsSqlCache.get(cacheKey);
-    if (sync !== 'true' && cached && (Date.now() - cached.ts) < IMS_SQL_CACHE_TTL_MS) {
-      return res.json(cached.data);
-    }
 
     const pool = await getSqlPool();
     const deptSql = deptFilter ? 'AND dept.InvDepartmentName = @dept' : '';
@@ -2899,70 +2974,8 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       spTable, monthlyCmp
     };
 
-    // ── Stock-side: InvItemStock is a live real-time balance (no CBS/running-
-    // balance duality like the old sheet had). Cost basis comes from actual
-    // purchase price history, not MstArticle.ArticlePurPrice (almost always
-    // unset in this data) — grouped by (supplier,style) to stay fast, rather
-    // than joining a per-item weighted-cost derived table against the full
-    // ~350k-row InvItemStock table (tested: 15s vs <2s for the grouped form).
-    const [stockTotalsRs, stockStyleRs, purchaseStyleRs] = await Promise.all([
-      pool.request().query(`SELECT COUNT(*) totalItems, SUM(s.StockQty) totalQty FROM InvItemStock s WHERE s.StockQty <> 0`),
-      pool.request().query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(s.StockQty) AS qty
-        FROM InvItemStock s
-        LEFT JOIN MstItems mi ON mi.ItemCode = s.ItemId
-        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-        LEFT JOIN MstInvSubCategory subcat ON subcat.InvSubCategoryId = art.InvSubCategoryId
-        LEFT JOIN MstInvCategory cat ON cat.InvCategoryId = subcat.InvCategoryId
-        LEFT JOIN MstInvDepartment dept ON dept.InvDepartmentId = cat.InvDepartmentId
-        ${imsSupplierJoin('s')}
-        WHERE s.StockQty <> 0
-        GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`),
-      pool.request().query(`SELECT ISNULL(p.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style,
-        SUM(pd.Quantity) AS purQty, SUM(pd.Quantity*pd.PurPrice) AS purAmt, MIN(ph.PurchaseDt) AS firstPurDate, MAX(ph.PurchaseDt) AS lastPurDate
-        FROM InvPurchaseDetail pd
-        JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
-        JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
-        LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
-        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-        WHERE ph.IsCancelled = 0
-        GROUP BY p.PartyName, art.ArticleNo`)
-    ]);
-
-    const costMap = {};   // supName||style -> costPerUnit, from actual purchase history
-    const purMap = {};    // supName||style -> {purQty, purAmt, firstPurDate, lastPurDate}
-    purchaseStyleRs.recordset.forEach(r => {
-      const key = r.supName + '||' + r.style;
-      const purQty = num(r.purQty), purAmt = Math.round(num(r.purAmt));
-      purMap[key] = { purQty: r2(purQty), purAmt, firstPurDate: toISODate(r.firstPurDate), lastPurDate: toISODate(r.lastPurDate) };
-      costMap[key] = purQty > 0 ? Math.round(purAmt / purQty) : 0;
-    });
-
-    const supplierStyleStock = stockStyleRs.recordset.map(r => {
-      const key = r.supName + '||' + r.style;
-      const qty = r2(num(r.qty));
-      return { key, supName: r.supName, style: r.style, cat: r.cat, article: r.style, subcat: '',
-               qty, purQty: (purMap[key]||{}).purQty || 0, opening: 0, purReturn: 0, value: Math.round(qty * (costMap[key]||0)) };
-    });
-
-    const _bySupStock = {};
-    supplierStyleStock.forEach(r => {
-      if (!_bySupStock[r.supName]) _bySupStock[r.supName] = { qty: 0, value: 0, purQty: 0 };
-      _bySupStock[r.supName].qty += r.qty; _bySupStock[r.supName].value += r.value; _bySupStock[r.supName].purQty += r.purQty;
-    });
-    const supplierStock = Object.entries(_bySupStock).map(([name, d]) => ({
-      name, qty: r2(d.qty), purQty: r2(d.purQty), opening: 0, purReturn: 0, value: Math.round(d.value)
-    })).sort((a, b) => b.value - a.value);
-
-    const _byStyleStock = {};
-    supplierStyleStock.forEach(r => { if (!_byStyleStock[r.style]) _byStyleStock[r.style] = 0; _byStyleStock[r.style] += r.qty; });
-    const styleStock = Object.entries(_byStyleStock).map(([style, qty]) => ({ style, qty: r2(qty), purQty: 0 }));
-
-    const stockTotalsRow = stockTotalsRs.recordset[0] || { totalItems: 0, totalQty: 0 };
-    const currentStock = {
-      totalItems: stockTotalsRow.totalItems || 0,
-      totalQty: r2(num(stockTotalsRow.totalQty)),
-      totalValue: Math.round(supplierStock.reduce((s, r) => s + r.value, 0))
-    };
+    // Stock/purchase data — decoupled cache, see getImsStockData() above.
+    const { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock } = await getImsStockData(pool, forceStockFresh);
 
     // ── Item Ledger: purchase cost basis (all-time weighted avg) vs sales in
     // the selected period; availQty uses the real live stock balance instead
@@ -2991,7 +3004,7 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       profit: (r.purQty > 0) ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0
     })).sort((a, b) => b.saleAmt - a.saleAmt);
 
-    const responseData = {
+    return {
       salesSummary: { totalAmount: r2(totalAmt), totalQty: r2(totalQty), totalTransactions, byDate: fmtByDate },
       topCategories: [], cityStateSales: [], skuSales: [],
       supplierSales, salespersons,
@@ -3003,6 +3016,37 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
       spAnalytics, deptAnalytics, basketSize, departments,
       itemLedger
     };
+}
+
+// Refreshes the default (no filter) report into the cache on a timer, so real
+// users hitting the hub's "All" preset rarely see a cold-cache load — the
+// SQL Server's own buffer cache for this date range stays warm too.
+async function prewarmImsReports() {
+  try {
+    const { fromDate, toDate } = imsDefaultRange();
+    const data = await computeImsReportsData(fromDate, toDate, null);
+    _imsSqlCache.set(`${fromDate}|${toDate}|All`, { ts: Date.now(), data });
+    console.log('[IMS Prewarm] refreshed default report cache');
+  } catch (e) { console.warn('[IMS Prewarm] failed:', e.message); }
+}
+setInterval(prewarmImsReports, IMS_STOCK_CACHE_TTL_MS);
+setTimeout(prewarmImsReports, 20 * 1000);   // first warm-up shortly after boot, not blocking startup
+
+app.get('/api/ims-reports', requireAuth, async (req, res) => {
+  try {
+    const { from, to, sync, dept } = req.query;
+    const deptFilter = (dept && dept !== 'All') ? dept : null;
+    const { fromDate: defFrom, toDate: defTo } = imsDefaultRange();
+    const fromDate = from || defFrom;
+    const toDate = to || defTo;
+
+    const cacheKey = `${fromDate}|${toDate}|${deptFilter || 'All'}`;
+    const cached = _imsSqlCache.get(cacheKey);
+    if (sync !== 'true' && cached && (Date.now() - cached.ts) < IMS_SQL_CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+
+    const responseData = await computeImsReportsData(fromDate, toDate, deptFilter, sync === 'true');
     _imsSqlCache.set(cacheKey, { ts: Date.now(), data: responseData });
     return res.json(responseData);
   } catch (err) {
