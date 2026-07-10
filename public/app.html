@@ -9200,8 +9200,8 @@ function renderTargetReport() {
   const catCards = (data.categories || []).map(cat => {
     const pct = cat.targetForRange ? (cat.achieved / cat.targetForRange * 100) : (cat.achieved > 0 ? 100 : 0);
     const color = pct >= 100 ? '#10b981' : pct >= 75 ? '#f59e0b' : '#ef4444';
-    const spRows = cat.bySp.map(s => `<tr><td style="font-weight:600">${s.code}</td><td style="text-align:right">${fmtINR(s.amount)}</td></tr>`).join('')
-      + `<tr style="background:#fafbff"><td style="font-weight:600;color:#64748b">Others <span style="font-size:10px;color:#94a3b8;font-weight:400">(not in target)</span></td><td style="text-align:right;color:#64748b">${fmtINR(data.othersTotal)}</td></tr>`;
+    const spRows = cat.bySp.map(s => `<tr><td style="font-weight:600">${s.code}</td><td style="text-align:right">${fmtINR(s.amount)}</td><td style="text-align:right">${fmtINR(s.today)}</td></tr>`).join('')
+      + `<tr style="background:#fafbff"><td style="font-weight:600;color:#64748b">Others <span style="font-size:10px;color:#94a3b8;font-weight:400">(not in target)</span></td><td style="text-align:right;color:#64748b">${fmtINR(data.othersTotal)}</td><td style="text-align:right;color:#64748b">${fmtINR(data.othersTodaySale)}</td></tr>`;
     const periodRows = (cat.periodBreakdown || []).map(p => {
       const pColor = p.achievementPct >= 100 ? '#10b981' : p.achievementPct >= 75 ? '#f59e0b' : '#ef4444';
       return `<tr>
@@ -9245,12 +9245,12 @@ function renderTargetReport() {
       ${periodTable}
       <details style="margin-top:8px">
         <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#4f46e5">Salesperson-wise breakdown</summary>
-        <div class="mis-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th style="text-align:right">Achieved</th></tr></thead><tbody>${spRows}</tbody></table></div>
+        <div class="mis-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th style="text-align:right">Achieved</th><th style="text-align:right">Today's Sale</th></tr></thead><tbody>${spRows}</tbody></table></div>
       </details>
     </div>`;
   }).join('');
 
-  const othersRows = (data.others || []).map(o => `<tr><td style="font-weight:600">${o.code}</td><td style="text-align:right">${fmtINR(o.amount)}</td></tr>`).join('');
+  const othersRows = (data.others || []).map(o => `<tr><td style="font-weight:600">${o.code}</td><td style="text-align:right">${fmtINR(o.amount)}</td><td style="text-align:right">${fmtINR(o.today)}</td></tr>`).join('');
   const othersCard = `
   <div style="background:#fafbff;border-radius:12px;border:1.5px dashed #cbd5e1;padding:18px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -9258,7 +9258,7 @@ function renderTargetReport() {
       <div style="font-size:16px;font-weight:800;color:#475569">${fmtINR(data.othersTotal)}</div>
     </div>
     ${data.others && data.others.length
-      ? `<details><summary style="cursor:pointer;font-size:12px;color:#4f46e5">Salesperson-wise</summary><div class="mis-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th style="text-align:right">Achieved</th></tr></thead><tbody>${othersRows}</tbody></table></div></details>`
+      ? `<details><summary style="cursor:pointer;font-size:12px;color:#4f46e5">Salesperson-wise</summary><div class="mis-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th style="text-align:right">Achieved</th><th style="text-align:right">Today's Sale</th></tr></thead><tbody>${othersRows}</tbody></table></div></details>`
       : '<div style="font-size:12px;color:#94a3b8">No unassigned sales in this range.</div>'}
   </div>`;
 

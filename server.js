@@ -1746,7 +1746,12 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
     const effEnd = maxEnd && maxEnd < rangeEnd ? maxEnd : rangeEnd;
     const effFromDate = effStart.toISOString().slice(0, 10);
     const effToDate = effEnd.toISOString().slice(0, 10);
-    const salesMap = await getSalespersonSalesMap(effFromDate, effToDate);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayUTC = new Date(todayStr + 'T00:00:00Z');
+    const [salesMap, todayMap] = await Promise.all([
+      getSalespersonSalesMap(effFromDate, effToDate),
+      getSalespersonSalesMap(todayStr, todayStr)
+    ]);
 
     const assignedCodes = new Set();
     let result = categories.map(cat => {
@@ -1756,7 +1761,7 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
         const { start, end } = targetPeriodRange(cat.year, cat.period_type, i);
         if (overlaps(start, end, rangeStart, rangeEnd)) targetForRange += Math.round(cat.target_amount * (p.pct || 0) / 100);
       });
-      const bySp = cat.codes.map(code => ({ code, amount: salesMap[code] || 0 }));
+      const bySp = cat.codes.map(code => ({ code, amount: salesMap[code] || 0, today: todayMap[code] || 0 }));
       const achieved = bySp.reduce((s, r) => s + r.amount, 0);
       return { id: cat.id, category_name: cat.category_name, codes: cat.codes, period_type: cat.period_type,
         target_amount: cat.target_amount, targetForRange, achieved, bySp, _cat: cat };
@@ -1764,7 +1769,7 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
 
     const others = Object.entries(salesMap)
       .filter(([code]) => !assignedCodes.has(code))
-      .map(([code, amount]) => ({ code, amount }))
+      .map(([code, amount]) => ({ code, amount, today: todayMap[code] || 0 }))
       .sort((a, b) => b.amount - a.amount);
 
     if (categoryFilter) result = result.filter(c => String(c.id) === String(categoryFilter));
@@ -1780,10 +1785,8 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
     // Per-period (Month/Quarter/FY) breakdown — the category's own defined
     // calendar periods with pct>0, independent of the [from,to] range filter
     // above. Needed for "Today's Sale" and "Need to sell per day" columns.
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const todayUTC = new Date(todayStr + 'T00:00:00Z');
     const periodMapCache = {};
-    const periodKeys = new Set([`${todayStr}|${todayStr}`]);
+    const periodKeys = new Set();
     result.forEach(c => {
       c._cat.periods.forEach((p, i) => {
         if (!p.pct) return;
@@ -1795,7 +1798,6 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
       const [s, e] = key.split('|');
       periodMapCache[key] = await getSalespersonSalesMap(s, e);
     }));
-    const todayMap = periodMapCache[`${todayStr}|${todayStr}`] || {};
 
     result.forEach(c => {
       const codes = c.bySp.map(s => s.code);
@@ -1830,7 +1832,8 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
       year, from: fromDate, to: toDate,
       categories: result,
       others: othersOut,
-      othersTotal: othersOut.reduce((s, r) => s + r.amount, 0)
+      othersTotal: othersOut.reduce((s, r) => s + r.amount, 0),
+      othersTodaySale: othersOut.reduce((s, r) => s + (r.today || 0), 0)
     });
   } catch (err) {
     console.error('[Target Report] error:', err.message);
