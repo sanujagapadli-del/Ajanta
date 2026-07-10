@@ -1738,7 +1738,7 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
       const bySp = cat.codes.map(code => ({ code, amount: salesMap[code] || 0 }));
       const achieved = bySp.reduce((s, r) => s + r.amount, 0);
       return { id: cat.id, category_name: cat.category_name, codes: cat.codes, period_type: cat.period_type,
-        target_amount: cat.target_amount, targetForRange, achieved, bySp };
+        target_amount: cat.target_amount, targetForRange, achieved, bySp, _cat: cat };
     });
 
     const others = Object.entries(salesMap)
@@ -1752,6 +1752,55 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
       result.forEach(c => { c.bySp = c.bySp.filter(s => s.code === spFilter); c.achieved = c.bySp.reduce((s, r) => s + r.amount, 0); });
     }
     const othersOut = spFilter ? others.filter(o => o.code === spFilter) : others;
+
+    // Per-period (Month/Quarter/FY) breakdown — the category's own defined
+    // calendar periods with pct>0, independent of the [from,to] range filter
+    // above. Needed for "Today's Sale" and "Need to sell per day" columns.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayUTC = new Date(todayStr + 'T00:00:00Z');
+    const periodMapCache = {};
+    const periodKeys = new Set([`${todayStr}|${todayStr}`]);
+    result.forEach(c => {
+      c._cat.periods.forEach((p, i) => {
+        if (!p.pct) return;
+        const { start, end } = targetPeriodRange(c._cat.year, c._cat.period_type, i);
+        periodKeys.add(`${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`);
+      });
+    });
+    await Promise.all([...periodKeys].map(async key => {
+      const [s, e] = key.split('|');
+      periodMapCache[key] = await getSalespersonSalesMap(s, e);
+    }));
+    const todayMap = periodMapCache[`${todayStr}|${todayStr}`] || {};
+
+    result.forEach(c => {
+      const codes = c.bySp.map(s => s.code);
+      c.periodBreakdown = c._cat.periods.map((p, i) => {
+        if (!p.pct) return null;
+        const { start, end } = targetPeriodRange(c._cat.year, c._cat.period_type, i);
+        const key = `${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`;
+        const map = periodMapCache[key] || {};
+        const achieved = codes.reduce((s2, code) => s2 + (map[code] || 0), 0);
+        const target = Math.round(c._cat.target_amount * p.pct / 100);
+        const pending = Math.max(0, target - achieved);
+        const todayInPeriod = todayUTC >= start && todayUTC <= end;
+        const todaySale = todayInPeriod ? codes.reduce((s2, code) => s2 + (todayMap[code] || 0), 0) : null;
+        // "Need to sell per day" = pending / days left in the period (from today, or
+        // from period start if the period hasn't begun yet). Past periods -> null.
+        let needPerDay = null;
+        if (todayUTC <= end) {
+          const remainStart = todayUTC > start ? todayUTC : start;
+          const remainingDays = Math.floor((end - remainStart) / 86400000) + 1;
+          needPerDay = remainingDays > 0 ? Math.round(pending / remainingDays) : 0;
+        }
+        return {
+          label: p.label, target, achieved, pending,
+          achievementPct: target ? (achieved / target * 100) : (achieved > 0 ? 100 : 0),
+          todaySale, needPerDay
+        };
+      }).filter(Boolean);
+      delete c._cat;
+    });
 
     res.json({
       year, from: fromDate, to: toDate,

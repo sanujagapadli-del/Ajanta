@@ -9201,6 +9201,25 @@ function renderTargetReport() {
     const pct = cat.targetForRange ? (cat.achieved / cat.targetForRange * 100) : (cat.achieved > 0 ? 100 : 0);
     const color = pct >= 100 ? '#10b981' : pct >= 75 ? '#f59e0b' : '#ef4444';
     const spRows = cat.bySp.map(s => `<tr><td style="font-weight:600">${s.code}</td><td style="text-align:right">${fmtINR(s.amount)}</td></tr>`).join('');
+    const periodRows = (cat.periodBreakdown || []).map(p => {
+      const pColor = p.achievementPct >= 100 ? '#10b981' : p.achievementPct >= 75 ? '#f59e0b' : '#ef4444';
+      return `<tr>
+        <td style="font-weight:600">${p.label}</td>
+        <td style="text-align:right">${fmtINR(p.target)}</td>
+        <td style="text-align:right">${fmtINR(p.achieved)}</td>
+        <td style="text-align:right;font-weight:700;color:${pColor}">${p.achievementPct.toFixed(1)}%</td>
+        <td style="text-align:right">${fmtINR(p.pending)}</td>
+        <td style="text-align:right">${p.todaySale == null ? '—' : fmtINR(p.todaySale)}</td>
+        <td style="text-align:right">${p.needPerDay == null ? '—' : fmtINR(p.needPerDay) + '/day'}</td>
+      </tr>`;
+    }).join('');
+    const periodTable = (cat.periodBreakdown && cat.periodBreakdown.length) ? `
+      <div class="mis-table-wrap" style="margin-top:14px">
+        <table>
+          <thead><tr><th>Month</th><th style="text-align:right">Target</th><th style="text-align:right">Achieved</th><th style="text-align:right">Achievement</th><th style="text-align:right">Pending</th><th style="text-align:right">Today's Sale</th><th style="text-align:right">Need to be Sale</th></tr></thead>
+          <tbody>${periodRows}</tbody>
+        </table>
+      </div>` : '';
     return `
     <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:20px;margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px">
@@ -9222,6 +9241,7 @@ function renderTargetReport() {
         <div><div style="font-size:11px;color:#64748b;text-transform:uppercase">Achieved</div><div style="font-size:18px;font-weight:700">${fmtINR(cat.achieved)}</div></div>
         <div><div style="font-size:11px;color:#64748b;text-transform:uppercase">Achievement</div><div style="font-size:18px;font-weight:700;color:${color}">${pct.toFixed(1)}%</div></div>
       </div>
+      ${periodTable}
       <details style="margin-top:8px">
         <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#4f46e5">Salesperson-wise breakdown</summary>
         <div class="mis-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th style="text-align:right">Achieved</th></tr></thead><tbody>${spRows}</tbody></table></div>
