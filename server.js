@@ -2854,8 +2854,11 @@ async function getImsStockData(pool, forceFresh) {
 }
 
 async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFresh) {
-    const lyFromDate = (() => { const d = new Date(fromDate); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
-    const lyToDate   = (() => { const d = new Date(toDate);   d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+    // UTC-explicit throughout: fromDate/toDate are YYYY-MM-DD, which Date()
+    // parses as UTC midnight — mixing that with *local* getters/setters would
+    // silently shift the month/year in any timezone behind UTC.
+    const lyFromDate = (() => { const d = new Date(fromDate + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() - 1); return d.toISOString().slice(0, 10); })();
+    const lyToDate   = (() => { const d = new Date(toDate   + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() - 1); return d.toISOString().slice(0, 10); })();
 
     const pool = await getSqlPool();
     const deptSql = deptFilter ? 'AND dept.InvDepartmentName = @dept' : '';
@@ -2927,14 +2930,14 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
 
     let monthlyCmp = [];
     {
-      const start = new Date(fromDate.slice(0,7) + '-01');
-      const end = new Date(toDate.slice(0,7) + '-01');
-      for (let d = new Date(start); d <= end; d.setMonth(d.getMonth() + 1)) {
-        const curKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-        const lyKey = `${d.getFullYear()-1}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const start = new Date(fromDate.slice(0,7) + '-01T00:00:00Z');
+      const end = new Date(toDate.slice(0,7) + '-01T00:00:00Z');
+      for (let d = new Date(start); d <= end; d.setUTCMonth(d.getUTCMonth() + 1)) {
+        const curKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+        const lyKey = `${d.getUTCFullYear()-1}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
         const c = curByMon[curKey] || null, l = lyByMon[lyKey] || null;
         monthlyCmp.push({
-          month: `${MON_ABBR[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`,
+          month: `${MON_ABBR[d.getUTCMonth()]}-${String(d.getUTCFullYear()).slice(2)}`,
           curAmt: c ? Math.round(c.amt) : 0, curQty: c ? r2(c.qty) : 0, curBills: c ? c.bills : 0,
           lyAmt: l ? l.amt : 0, lyQty: l ? l.qty : 0, lyBills: l ? l.bills : 0
         });
