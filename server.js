@@ -1721,11 +1721,32 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
     await migrateLegacyTargetsIfNeeded(year);
     const [rows] = await db.query('SELECT * FROM sales_target_categories WHERE year=? ORDER BY id', [year]);
     const categories = rows.map(parseTargetCategoryRow);
-    const salesMap = await getSalespersonSalesMap(fromDate, toDate);
 
     const rangeStart = new Date(fromDate + 'T00:00:00Z');
     const rangeEnd = new Date(toDate + 'T00:00:00Z');
     const overlaps = (a, b, c, d) => a <= d && c <= b;
+
+    // "Achieved" (and Others) must only reflect sales within periods that
+    // actually carry a target — otherwise a wide filter like "All Year"
+    // sums e.g. Jan-Jun sales against a target that only exists for Jul-Sep,
+    // producing a nonsensical >100% achievement and an inflated Others total.
+    // Clip the sales query window to the overlap of [from,to] and the union
+    // of every category's active (pct>0) target periods.
+    let minStart = null, maxEnd = null;
+    categories.forEach(cat => {
+      cat.periods.forEach((p, i) => {
+        if (!p.pct) return;
+        const { start, end } = targetPeriodRange(cat.year, cat.period_type, i);
+        if (!overlaps(start, end, rangeStart, rangeEnd)) return;
+        if (!minStart || start < minStart) minStart = start;
+        if (!maxEnd || end > maxEnd) maxEnd = end;
+      });
+    });
+    const effStart = minStart && minStart > rangeStart ? minStart : rangeStart;
+    const effEnd = maxEnd && maxEnd < rangeEnd ? maxEnd : rangeEnd;
+    const effFromDate = effStart.toISOString().slice(0, 10);
+    const effToDate = effEnd.toISOString().slice(0, 10);
+    const salesMap = await getSalespersonSalesMap(effFromDate, effToDate);
 
     const assignedCodes = new Set();
     let result = categories.map(cat => {
