@@ -6808,7 +6808,7 @@ function _ilExportCSV() {
 // ══════════════════════════════════════════════════════
 // DRILLDOWN MODAL
 // ══════════════════════════════════════════════════════
-async function showDrilldown(filterType, label) {
+async function showDrilldown(filterType, label, fromOverride, toOverride) {
   let modal = document.getElementById('imsDrillModal');
   if (!modal) {
     modal = document.createElement('div');
@@ -6827,12 +6827,13 @@ async function showDrilldown(filterType, label) {
 
   const TYPE_LABEL = { category:'Category', department:'Department', basket:'Basket Size', supplier:'Supplier', salesperson:'Salesperson', city:'City/State', date:'Date', stock_category:'Stock Category', stock_supplier:'Stock Supplier' };
   document.getElementById('imsDrillTitle').textContent = label;
-  document.getElementById('imsDrillSub').textContent = (TYPE_LABEL[filterType] || filterType) + ' — Transaction Details';
+  document.getElementById('imsDrillSub').textContent = (TYPE_LABEL[filterType] || filterType) + ' — Transaction Details'
+    + (fromOverride ? ` (${fromOverride}${toOverride && toOverride !== fromOverride ? ' to ' + toOverride : ''})` : '');
   document.getElementById('imsDrillBody').innerHTML = '<div style="text-align:center;padding:48px;color:#94a3b8;font-size:14px">⏳ Loading transactions…</div>';
   modal.style.display = 'flex';
 
-  const from = document.getElementById('rptFrom')?.value || '';
-  const to   = document.getElementById('rptTo')?.value   || '';
+  const from = fromOverride || document.getElementById('rptFrom')?.value || '';
+  const to   = toOverride   || document.getElementById('rptTo')?.value   || '';
   const params = new URLSearchParams({ type: filterType, value: label });
   if (from) params.append('from', from);
   if (to)   params.append('to', to);
@@ -9170,6 +9171,11 @@ function onTargetCustomDate() {
   if (misTargetFrom && misTargetTo) fetchAndRenderTargetReport();
 }
 
+function showTargetTodayDrilldown(code) {
+  const t = new Date().toISOString().slice(0, 10);
+  showDrilldown('salesperson', code, t, t);
+}
+
 function renderTargetReport() {
   const container = document.getElementById('misResults');
   const data = misTargetReportData;
@@ -9200,7 +9206,7 @@ function renderTargetReport() {
   const catCards = (data.categories || []).map(cat => {
     const pct = cat.targetForRange ? (cat.achieved / cat.targetForRange * 100) : (cat.achieved > 0 ? 100 : 0);
     const color = pct >= 100 ? '#10b981' : pct >= 75 ? '#f59e0b' : '#ef4444';
-    const spRows = cat.bySp.map(s => `<tr><td style="font-weight:600">${s.code}</td><td style="text-align:right">${fmtINR(s.amount)}</td><td style="text-align:right">${fmtINR(s.today)}</td></tr>`).join('')
+    const spRows = cat.bySp.map(s => `<tr><td style="font-weight:600">${s.code}</td><td style="text-align:right">${fmtINR(s.amount)}</td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetTodayDrilldown('${s.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(s.today)}</a></td></tr>`).join('')
       + `<tr style="background:#fafbff"><td style="font-weight:600;color:#64748b">Others <span style="font-size:10px;color:#94a3b8;font-weight:400">(not in target)</span></td><td style="text-align:right;color:#64748b">${fmtINR(data.othersTotal)}</td><td style="text-align:right;color:#64748b">${fmtINR(data.othersTodaySale)}</td></tr>`;
     const periodRows = (cat.periodBreakdown || []).map(p => {
       const pColor = p.achievementPct >= 100 ? '#10b981' : p.achievementPct >= 75 ? '#f59e0b' : '#ef4444';
@@ -9250,7 +9256,7 @@ function renderTargetReport() {
     </div>`;
   }).join('');
 
-  const othersRows = (data.others || []).map(o => `<tr><td style="font-weight:600">${o.code}</td><td style="text-align:right">${fmtINR(o.amount)}</td><td style="text-align:right">${fmtINR(o.today)}</td></tr>`).join('');
+  const othersRows = (data.others || []).map(o => `<tr><td style="font-weight:600">${o.code}</td><td style="text-align:right">${fmtINR(o.amount)}</td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetTodayDrilldown('${o.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(o.today)}</a></td></tr>`).join('');
   const othersCard = `
   <div style="background:#fafbff;border-radius:12px;border:1.5px dashed #cbd5e1;padding:18px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
