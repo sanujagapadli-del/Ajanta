@@ -1830,6 +1830,7 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
 
     res.json({
       year, from: fromDate, to: toDate,
+      effFrom: effFromDate, effTo: effToDate, // actual window "Achieved" figures were summed over
       categories: result,
       others: othersOut,
       othersTotal: othersOut.reduce((s, r) => s + r.amount, 0),

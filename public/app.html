@@ -9176,6 +9176,12 @@ function showTargetTodayDrilldown(code) {
   showDrilldown('salesperson', code, t, t);
 }
 
+function showTargetAchievedDrilldown(code) {
+  const d = misTargetReportData;
+  if (!d) return;
+  showDrilldown('salesperson', code, d.effFrom || d.from, d.effTo || d.to);
+}
+
 function renderTargetReport() {
   const container = document.getElementById('misResults');
   const data = misTargetReportData;
@@ -9206,7 +9212,7 @@ function renderTargetReport() {
   const catCards = (data.categories || []).map(cat => {
     const pct = cat.targetForRange ? (cat.achieved / cat.targetForRange * 100) : (cat.achieved > 0 ? 100 : 0);
     const color = pct >= 100 ? '#10b981' : pct >= 75 ? '#f59e0b' : '#ef4444';
-    const spRows = cat.bySp.map(s => `<tr><td style="font-weight:600">${s.code}</td><td style="text-align:right">${fmtINR(s.amount)}</td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetTodayDrilldown('${s.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(s.today)}</a></td></tr>`).join('')
+    const spRows = cat.bySp.map(s => `<tr><td style="font-weight:600">${s.code}</td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetAchievedDrilldown('${s.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(s.amount)}</a></td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetTodayDrilldown('${s.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(s.today)}</a></td></tr>`).join('')
       + `<tr style="background:#fafbff"><td style="font-weight:600;color:#64748b">Others <span style="font-size:10px;color:#94a3b8;font-weight:400">(not in target)</span></td><td style="text-align:right;color:#64748b">${fmtINR(data.othersTotal)}</td><td style="text-align:right;color:#64748b">${fmtINR(data.othersTodaySale)}</td></tr>`;
     const periodRows = (cat.periodBreakdown || []).map(p => {
       const pColor = p.achievementPct >= 100 ? '#10b981' : p.achievementPct >= 75 ? '#f59e0b' : '#ef4444';
@@ -9256,7 +9262,7 @@ function renderTargetReport() {
     </div>`;
   }).join('');
 
-  const othersRows = (data.others || []).map(o => `<tr><td style="font-weight:600">${o.code}</td><td style="text-align:right">${fmtINR(o.amount)}</td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetTodayDrilldown('${o.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(o.today)}</a></td></tr>`).join('');
+  const othersRows = (data.others || []).map(o => `<tr><td style="font-weight:600">${o.code}</td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetAchievedDrilldown('${o.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(o.amount)}</a></td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetTodayDrilldown('${o.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(o.today)}</a></td></tr>`).join('');
   const othersCard = `
   <div style="background:#fafbff;border-radius:12px;border:1.5px dashed #cbd5e1;padding:18px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
