@@ -1747,11 +1747,14 @@ app.get('/api/mis/target-report', requireAuth, async (req, res) => {
       .sort((a, b) => b.amount - a.amount);
 
     if (categoryFilter) result = result.filter(c => String(c.id) === String(categoryFilter));
-    if (spFilter) {
+    const isOthersFilter = spFilter === 'OTHERS';
+    if (isOthersFilter) {
+      result = []; // "Others" isn't assigned to any category by definition
+    } else if (spFilter) {
       result = result.filter(c => c.codes.includes(spFilter));
       result.forEach(c => { c.bySp = c.bySp.filter(s => s.code === spFilter); c.achieved = c.bySp.reduce((s, r) => s + r.amount, 0); });
     }
-    const othersOut = spFilter ? others.filter(o => o.code === spFilter) : others;
+    const othersOut = isOthersFilter ? others : (spFilter ? others.filter(o => o.code === spFilter) : others);
 
     // Per-period (Month/Quarter/FY) breakdown — the category's own defined
     // calendar periods with pct>0, independent of the [from,to] range filter
