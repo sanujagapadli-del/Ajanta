@@ -5203,36 +5203,44 @@ async function loadImsReports(forceSync) {
   if (_r2Dept && _r2Dept !== 'All') params.append('dept', _r2Dept);   // same dept filter as the hub overview
   if (forceSync) params.append('sync', 'true');
 
-  // Reuse hub data when same endpoint + same date + dept — avoids a redundant round-trip
+  // Reuse already-fetched data when same date + dept — avoids a redundant round-trip.
+  // Two possible sources: the hub's own fetch (_r2Data), or this same tab-strip view's
+  // own last fetch (_rptData) — the latter matters because switchRptTab() calls
+  // loadImsReports() on every single tab click, and without this check every click
+  // re-fetched the whole payload from the server even though every tab renders from
+  // the exact same response.
   const _rDept=_r2Dept||'All';
-  if(!forceSync && _r2Data && _r2Data._rptFrom===from && _r2Data._rptTo===to && _r2Data._rptDept===_rDept){
+  const _reuseSource = (!forceSync && _r2Data && _r2Data._rptFrom===from && _r2Data._rptTo===to && _r2Data._rptDept===_rDept) ? _r2Data
+    : (!forceSync && _rptData && _rptData._rptFrom===from && _rptData._rptTo===to && _rptData._rptDept===_rDept) ? _rptData
+    : null;
+  if (_reuseSource) {
     if(syncBtn){syncBtn.disabled=false;syncBtn.innerHTML='⟳ Sync Live Data';}
     if(status){status.style.color='#10b981';status.textContent='✓ Ready';setTimeout(()=>{if(status){status.style.color='#64748b';status.textContent='';}},2000);}
     const sub=document.getElementById('rptSubtitle');
     if(sub) sub.textContent=(from&&to?`${_fmtD(from)} → ${_fmtD(to)}`:from?`From ${_fmtD(from)}`:to?`Up to ${_fmtD(to)}`:'All Data')+(_rDept!=='All'?` · ${_rDept}`:'');
-    _r2FillDepts(_r2Data.departments,'rptDeptSel');
-    _rptData=_r2Data;
-    renderRptSummary(_r2Data.salesSummary||{},_r2Data.currentStock||{});
-    renderRptCategories(_r2Data.topCategories||[]);
-    renderRptSupplierSales(_r2Data.supplierSales||[]);
-    renderRptSalespersons(_r2Data.salespersons||[]);
-    renderRptCityState(_r2Data.cityStateSales||[]);
-    renderRptSKU(_r2Data.skuSales||[]);
-    renderRptStockSummary(_r2Data.currentStock||{});
-    renderRptSupplierStock(_r2Data.supplierStock||[]);
-    renderRptStockCat(_r2Data.categoryStock||[]);
-    renderRptTurnover(_r2Data);
-    renderRptSTR(_r2Data);
-    renderRptSPAnalytics(_r2Data.spAnalytics||null);
-    renderRptItemLedger(_r2Data.itemLedger||[]);
-    renderRptKPI(_r2Data);
-    renderRptSalesDash(_r2Data);
-    renderRptGPDash(_r2Data);
-    renderRptInventoryDash(_r2Data);
-    renderRptBuyingDash(_r2Data);
-    renderRptSalesmanDash(_r2Data);
-    renderRptVendorDash(_r2Data);
-    renderRptCustomerDash(_r2Data);
+    _r2FillDepts(_reuseSource.departments,'rptDeptSel');
+    _rptData=_reuseSource;
+    renderRptSummary(_reuseSource.salesSummary||{},_reuseSource.currentStock||{});
+    renderRptCategories(_reuseSource.topCategories||[]);
+    renderRptSupplierSales(_reuseSource.supplierSales||[]);
+    renderRptSalespersons(_reuseSource.salespersons||[]);
+    renderRptCityState(_reuseSource.cityStateSales||[]);
+    renderRptSKU(_reuseSource.skuSales||[]);
+    renderRptStockSummary(_reuseSource.currentStock||{});
+    renderRptSupplierStock(_reuseSource.supplierStock||[]);
+    renderRptStockCat(_reuseSource.categoryStock||[]);
+    renderRptTurnover(_reuseSource);
+    renderRptSTR(_reuseSource);
+    renderRptSPAnalytics(_reuseSource.spAnalytics||null);
+    renderRptItemLedger(_reuseSource.itemLedger||[]);
+    renderRptKPI(_reuseSource);
+    renderRptSalesDash(_reuseSource);
+    renderRptGPDash(_reuseSource);
+    renderRptInventoryDash(_reuseSource);
+    renderRptBuyingDash(_reuseSource);
+    renderRptSalesmanDash(_reuseSource);
+    renderRptVendorDash(_reuseSource);
+    renderRptCustomerDash(_reuseSource);
     return;
   }
 
@@ -5262,6 +5270,7 @@ async function loadImsReports(forceSync) {
     sub.textContent = ((from && to) ? `${_fmtD(from)} → ${_fmtD(to)}` : from ? `From ${_fmtD(from)}` : to ? `Up to ${_fmtD(to)}` : 'All Data') + (_r2Dept && _r2Dept!=='All' ? ` · ${_r2Dept}` : '');
   }
 
+  data._rptFrom = from; data._rptTo = to; data._rptDept = _rDept; // tag for the reuse check above, on the next tab switch
   _rptData = data; // cache for CSV export
   renderRptSummary(data.salesSummary || {}, data.currentStock || {});
   renderRptCategories(data.topCategories || []);
