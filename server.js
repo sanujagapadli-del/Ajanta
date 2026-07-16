@@ -1544,7 +1544,7 @@ const sql = require('mssql');
 let _sqlPool = null;
 async function getSqlPool() {
   if (_sqlPool && _sqlPool.connected) return _sqlPool;
-  _sqlPool = await new sql.ConnectionPool({
+  const connectPromise = new sql.ConnectionPool({
     server: process.env.SQL_SERVER,
     port: parseInt(process.env.SQL_PORT, 10),
     user: process.env.SQL_USER,
@@ -1552,8 +1552,24 @@ async function getSqlPool() {
     database: process.env.SQL_DATABASE,
     options: { encrypt: false, trustServerCertificate: true },
     pool: { max: 15, min: 0, idleTimeoutMillis: 30000 },
+    connectionTimeout: 15000,
     requestTimeout: 60000   // IMS "All time" reports can scan years of history — default 15s is too tight
   }).connect();
+  // Belt-and-suspenders on top of connectionTimeout above: some serverless network
+  // environments silently drop outbound connections to an unreachable host without
+  // ever surfacing the driver's own timeout, leaving the request hanging until the
+  // platform's own function limit kills it uncleanly (observed on Vercel:
+  // FUNCTION_INVOCATION_TIMEOUT instead of a clean JSON error). Race a hard deadline
+  // so an unreachable SQL Server always fails fast, on every platform.
+  const pool = await Promise.race([
+    connectPromise,
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error(`Failed to connect to ${process.env.SQL_SERVER}:${process.env.SQL_PORT} (timed out)`)),
+      15000
+    ))
+  ]);
+  connectPromise.catch(() => {}); // avoid an unhandled rejection if the pool connects late, after we've already timed out
+  _sqlPool = pool;
   return _sqlPool;
 }
 
@@ -2986,7 +3002,9 @@ async function getImsStockData(pool, forceFresh) {
   // unset in this data) — grouped by (supplier,style) to stay fast, rather
   // than joining a per-item weighted-cost derived table against the full
   // ~350k-row InvItemStock table (tested: 15s vs <2s for the grouped form).
-  const [stockTotalsRs, stockStyleRs, purchaseStyleRs] = await Promise.all([
+  const freshFrom = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+  const freshTo = new Date().toISOString().slice(0, 10);
+  const [stockTotalsRs, stockStyleRs, purchaseStyleRs, styleLastSaleRs, freshSalesRs] = await Promise.all([
     pool.request().query(`SELECT COUNT(*) totalItems, SUM(s.StockQty) totalQty FROM InvItemStock s WHERE s.StockQty <> 0`),
     pool.request().query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(s.StockQty) AS qty
       FROM InvItemStock s
@@ -3006,7 +3024,27 @@ async function getImsStockData(pool, forceFresh) {
       LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
       LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
       WHERE ph.IsCancelled = 0
-      GROUP BY p.PartyName, art.ArticleNo`)
+      GROUP BY p.PartyName, art.ArticleNo`),
+    // All-time last-sale-date per style (no supplier join — direct joins only, kept cheap;
+    // ageing/dead-stock only needs to know "has this ARTICLE sold recently", not which
+    // supplier). Feeds the >365-day dead-stock cutoff below.
+    pool.request().query(`SELECT ISNULL(art.ArticleNo,'Unknown') AS style, MAX(h.CashmemoDt) AS lastSaleDate
+      FROM InvCashmemoDetail d
+      JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
+      LEFT JOIN MstItems mi ON mi.ItemCode = d.ItemId
+      LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+      WHERE h.IsCancelled = 0
+      GROUP BY art.ArticleNo`),
+    // Fresh Stock Sell-through (30 days): sales in the last 30 days, per style — cross-
+    // referenced below against styles whose lastPurDate also falls in the last 30 days.
+    pool.request().input('ffrom', sql.Date, freshFrom).input('fto', sql.Date, freshTo)
+      .query(`SELECT ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty
+      FROM InvCashmemoDetail d
+      JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
+      LEFT JOIN MstItems mi ON mi.ItemCode = d.ItemId
+      LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
+      WHERE h.IsCancelled = 0 AND h.CashmemoDt BETWEEN @ffrom AND @fto
+      GROUP BY art.ArticleNo`)
   ]);
 
   const num = v => Number(v) || 0;
@@ -3019,25 +3057,54 @@ async function getImsStockData(pool, forceFresh) {
     costMap[key] = purQty > 0 ? Math.round(purAmt / purQty) : 0;
   });
 
+  const styleLastSaleMap = {};  // style -> all-time last sale date (ISO)
+  styleLastSaleRs.recordset.forEach(r => { styleLastSaleMap[r.style] = toISODate(r.lastSaleDate); });
+  const freshSalesMap = {};     // style -> qty sold in the last 30 days
+  freshSalesRs.recordset.forEach(r => { freshSalesMap[r.style] = r2(num(r.qty)); });
+
+  // Dead stock: >365 days since the item last sold or was purchased, only counting
+  // rows that still have stock on hand (a sold-out item isn't "dead", it's just gone).
+  const DEAD_STOCK_DAYS = 365;
+  const todayMs = Date.now();
+  const daysSince = iso => iso ? Math.floor((todayMs - new Date(iso + 'T00:00:00Z').getTime()) / 86400000) : Infinity;
+
   const supplierStyleStock = stockStyleRs.recordset.map(r => {
     const key = r.supName + '||' + r.style;
     const qty = r2(num(r.qty));
+    const lastPurDate = (purMap[key] || {}).lastPurDate || '';
+    const lastSaleDate = styleLastSaleMap[r.style] || '';
+    const ageingDays = Math.min(daysSince(lastPurDate), daysSince(lastSaleDate));
     return { key, supName: r.supName, style: r.style, cat: r.cat, article: r.style, subcat: '',
-             qty, purQty: (purMap[key]||{}).purQty || 0, opening: 0, purReturn: 0, value: Math.round(qty * (costMap[key]||0)) };
+             qty, purQty: (purMap[key]||{}).purQty || 0, opening: 0, purReturn: 0, value: Math.round(qty * (costMap[key]||0)),
+             lastPurDate, lastSaleDate, ageingDays: Number.isFinite(ageingDays) ? ageingDays : null,
+             isDead: qty > 0 && Number.isFinite(ageingDays) && ageingDays > DEAD_STOCK_DAYS };
   });
 
   const _bySupStock = {};
   supplierStyleStock.forEach(r => {
-    if (!_bySupStock[r.supName]) _bySupStock[r.supName] = { qty: 0, value: 0, purQty: 0 };
+    if (!_bySupStock[r.supName]) _bySupStock[r.supName] = { qty: 0, value: 0, purQty: 0, deadValue: 0 };
     _bySupStock[r.supName].qty += r.qty; _bySupStock[r.supName].value += r.value; _bySupStock[r.supName].purQty += r.purQty;
+    if (r.isDead) _bySupStock[r.supName].deadValue += r.value;
   });
   const supplierStock = Object.entries(_bySupStock).map(([name, d]) => ({
-    name, qty: r2(d.qty), purQty: r2(d.purQty), opening: 0, purReturn: 0, value: Math.round(d.value)
+    name, qty: r2(d.qty), purQty: r2(d.purQty), opening: 0, purReturn: 0, value: Math.round(d.value),
+    deadValue: Math.round(d.deadValue), deadPct: d.value ? r2(d.deadValue / d.value * 100) : 0
   })).sort((a, b) => b.value - a.value);
 
   const _byStyleStock = {};
   supplierStyleStock.forEach(r => { if (!_byStyleStock[r.style]) _byStyleStock[r.style] = 0; _byStyleStock[r.style] += r.qty; });
   const styleStock = Object.entries(_byStyleStock).map(([style, qty]) => ({ style, qty: r2(qty), purQty: 0 }));
+
+  // Category (= department, see topCategories comment in computeImsReportsData) stock rollup.
+  const _byCatStock = {};
+  supplierStyleStock.forEach(r => {
+    const key = r.cat || 'Unknown';
+    if (!_byCatStock[key]) _byCatStock[key] = { qty: 0, value: 0 };
+    _byCatStock[key].qty += r.qty; _byCatStock[key].value += r.value;
+  });
+  const categoryStock = Object.entries(_byCatStock).map(([category, d]) => ({
+    category, qty: r2(d.qty), value: Math.round(d.value)
+  })).sort((a, b) => b.value - a.value);
 
   const stockTotalsRow = stockTotalsRs.recordset[0] || { totalItems: 0, totalQty: 0 };
   const currentStock = {
@@ -3046,9 +3113,152 @@ async function getImsStockData(pool, forceFresh) {
     totalValue: Math.round(supplierStock.reduce((s, r) => s + r.value, 0))
   };
 
-  const data = { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock };
+  const deadStockValue = supplierStyleStock.reduce((s, r) => s + (r.isDead ? r.value : 0), 0);
+  const deadStockQty = supplierStyleStock.reduce((s, r) => s + (r.isDead ? r.qty : 0), 0);
+  const deadStockSummary = {
+    days: DEAD_STOCK_DAYS,
+    value: Math.round(deadStockValue), qty: r2(deadStockQty),
+    pct: currentStock.totalValue ? r2(deadStockValue / currentStock.totalValue * 100) : 0
+  };
+
+  // Fresh Stock Sell-through (30 days): cohort = styles first/last purchased in the
+  // last 30 days (using the per-supplier purMap, taking the most recent lastPurDate
+  // per style across suppliers), sell-through = sold/(sold+stock) over that cohort.
+  const freshFromMs = new Date(freshFrom + 'T00:00:00Z').getTime();
+  const freshCohortStyles = new Set();
+  const _styleLastPur = {};
+  Object.entries(purMap).forEach(([key, p]) => {
+    const style = key.split('||')[1];
+    if (!p.lastPurDate) return;
+    if (!_styleLastPur[style] || p.lastPurDate > _styleLastPur[style]) _styleLastPur[style] = p.lastPurDate;
+  });
+  Object.entries(_styleLastPur).forEach(([style, lastPurDate]) => {
+    if (new Date(lastPurDate + 'T00:00:00Z').getTime() >= freshFromMs) freshCohortStyles.add(style);
+  });
+  let freshSoldQty = 0, freshStockQty = 0;
+  freshCohortStyles.forEach(style => {
+    freshSoldQty += freshSalesMap[style] || 0;
+    freshStockQty += _byStyleStock[style] || 0;
+  });
+  // Some styles show negative recorded stock in InvItemStock (sales recorded ahead of
+  // purchase entry — a live data-quality reality in this ERP, not a query bug). Clamp to
+  // 0 for the sell-through % denominator so a negative "available stock" can't flip the
+  // result negative — floor of 0 reads as "effectively nothing left to sell", which is
+  // directionally correct even if the true recorded number is a data-entry artifact.
+  const freshStockQtyClamped = Math.max(0, freshStockQty);
+  const freshStockSellThrough = {
+    days: 30, cohortStyles: freshCohortStyles.size, soldQty: r2(freshSoldQty), stockQty: r2(freshStockQty),
+    pct: (freshSoldQty + freshStockQtyClamped) ? r2(freshSoldQty / (freshSoldQty + freshStockQtyClamped) * 100) : 0
+  };
+
+  const data = { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock,
+    categoryStock, deadStockSummary, freshStockSellThrough };
   _imsStockCache = { ts: Date.now(), data };
   return data;
+}
+
+// Daily/MTD/YTD sales — independent of the report's own [from,to] filter, always the
+// rolling "as of right now" windows. Cached separately (shorter TTL — feels fresher
+// than stock data) since it's requested by every dashboard regardless of date filter.
+let _imsFixedWindowCache = { ts: 0, data: null };
+const IMS_FIXED_WINDOW_TTL_MS = 10 * 60 * 1000;
+
+async function getImsFixedWindowSales(pool, forceFresh) {
+  if (!forceFresh && _imsFixedWindowCache.data && (Date.now() - _imsFixedWindowCache.ts) < IMS_FIXED_WINDOW_TTL_MS) {
+    return _imsFixedWindowCache.data;
+  }
+  const now = new Date();
+  const iso = d => d.toISOString().slice(0, 10);
+  const todayStr = iso(now);
+  const mtdFrom = iso(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
+  const ytdFrom = iso(new Date(Date.UTC(now.getUTCFullYear(), 0, 1)));
+  const lyToday = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate())));
+  const lyMtdFrom = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), 1)));
+  const lyMtdTo = lyToday;
+  const lyYtdFrom = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, 0, 1)));
+  const lyYtdTo = lyToday;
+
+  const windowQuery = (f, t) => pool.request().input('from', sql.Date, f).input('to', sql.Date, t).query(`
+    SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount
+    FROM InvCashmemoDetail d JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
+    WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to
+  `);
+  const [todayRs, mtdRs, ytdRs, lyTodayRs, lyMtdRs, lyYtdRs] = await Promise.all([
+    windowQuery(todayStr, todayStr), windowQuery(mtdFrom, todayStr), windowQuery(ytdFrom, todayStr),
+    windowQuery(lyToday, lyToday), windowQuery(lyMtdFrom, lyMtdTo), windowQuery(lyYtdFrom, lyYtdTo)
+  ]);
+  const num = v => Number(v) || 0;
+  const pct = (a, b) => b ? r2((a - b) / b * 100) : null;
+  const row = rs => { const r = (rs.recordset[0]) || {}; return { bills: r.bills || 0, qty: r2(num(r.qty)), amount: Math.round(num(r.amount)) }; };
+  const withGrowth = (cur, ly) => ({ ...cur, ly, growthPct: pct(cur.amount, ly.amount) });
+
+  const data = {
+    today: withGrowth(row(todayRs), row(lyTodayRs)),
+    mtd: withGrowth(row(mtdRs), row(lyMtdRs)),
+    ytd: withGrowth(row(ytdRs), row(lyYtdRs))
+  };
+  _imsFixedWindowCache = { ts: Date.now(), data };
+  return data;
+}
+
+// Monthly Stock Turn (storewide, MoM): reconstructs stock-as-of-a-past-boundary the
+// same way /api/ims-stock-history does (current stock minus net movements since the
+// boundary), but storewide only (no per-supplier/style breakdown) so it's cheap —
+// 2 lightweight SUM(Quantity) queries per month boundary, no joins.
+let _imsStockTurnCache = { ts: 0, data: null };
+const IMS_STOCK_TURN_TTL_MS = 30 * 60 * 1000;
+const STOCK_TURN_MONTHS = 6;
+
+async function getImsMonthlyStockTurn(pool, currentTotalQty, forceFresh) {
+  if (!forceFresh && _imsStockTurnCache.data && (Date.now() - _imsStockTurnCache.ts) < IMS_STOCK_TURN_TTL_MS) {
+    return _imsStockTurnCache.data;
+  }
+  const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const now = new Date();
+  const boundaries = [];
+  for (let i = 0; i < STOCK_TURN_MONTHS; i++) {
+    boundaries.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)));
+  }
+  const iso = d => d.toISOString().slice(0, 10);
+  const movementSince = async (boundaryIso) => {
+    const [purRs, saleRs] = await Promise.all([
+      pool.request().input('b', sql.Date, boundaryIso).query(`SELECT SUM(pd.Quantity) qty FROM InvPurchaseDetail pd JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId WHERE ph.IsCancelled = 0 AND ph.PurchaseDt >= @b`),
+      pool.request().input('b', sql.Date, boundaryIso).query(`SELECT SUM(d.Quantity) qty FROM InvCashmemoDetail d JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @b`)
+    ]);
+    const num = v => Number(v) || 0;
+    return { purQty: num(purRs.recordset[0] && purRs.recordset[0].qty), saleQty: num(saleRs.recordset[0] && saleRs.recordset[0].qty) };
+  };
+
+  // movements[k] = cumulative purchases/sales since boundaries[k] (start of month k-months-ago), through now.
+  const movements = await Promise.all(boundaries.map(b => movementSince(iso(b))));
+  // stockAt[k] = reconstructed stock AT boundaries[k] (start of that month), working
+  // backward from current: stockAtBoundary = current - purchasedSince + soldSince.
+  const stockAt = movements.map(m => currentTotalQty - m.purQty + m.saleQty);
+
+  const monthlyStockTurn = [];
+  for (let k = 0; k < STOCK_TURN_MONTHS; k++) {
+    // Month k runs from boundaries[k] to boundaries[k-1] (or "now" for k=0, the current
+    // partial month) — so sales *during* month k = cumulative-since-boundaries[k] minus
+    // cumulative-since-boundaries[k-1] (the latter already covers everything in month k too).
+    const soldQty = movements[k].saleQty - (k > 0 ? movements[k - 1].saleQty : 0);
+    const stockAtEnd = k > 0 ? stockAt[k - 1] : currentTotalQty;
+    const avgStock = (stockAt[k] + stockAtEnd) / 2;
+    const d = boundaries[k];
+    // Reconstructing stock this many months back compounds any gaps in purchase history
+    // (e.g. an opening-balance stock adjustment never entered as a purchase record) —
+    // a negative avgStock means the reconstruction has become unreliable for that month,
+    // not that stock was truly negative. Report it as unavailable rather than a
+    // confusing negative number or a fake 0.00 ratio.
+    const reliable = avgStock > 0;
+    monthlyStockTurn.push({
+      month: `${MON_ABBR[d.getUTCMonth()]}-${String(d.getUTCFullYear()).slice(2)}`,
+      soldQty: r2(soldQty), avgStock: reliable ? r2(avgStock) : null, str: reliable ? r2(soldQty / avgStock) : null
+    });
+  }
+  monthlyStockTurn.reverse();
+
+  _imsStockTurnCache = { ts: Date.now(), data: monthlyStockTurn };
+  return monthlyStockTurn;
 }
 
 async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFresh) {
@@ -3066,7 +3276,7 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
       return r;
     };
 
-    const [byDateRs, deptRs, allDeptRs, spRs, supRs, basketRs, styleSupSalesRs, lySpRs, lyMonRs, lyTotalRs] = await Promise.all([
+    const [byDateRs, deptRs, allDeptRs, spRs, supRs, basketRs, styleSupSalesRs, lySpRs, lyMonRs, lyTotalRs, catRs, lyCatRs, spGpRs, lySpGpRs] = await Promise.all([
       mkReq(fromDate, toDate).query(`SELECT CONVERT(varchar(10),h.CashmemoDt,23) AS date, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY CONVERT(varchar(10),h.CashmemoDt,23) ORDER BY date`),
       mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'—') AS dept, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY dept.InvDepartmentName`),
       mkReq(fromDate, toDate).query(`SELECT DISTINCT dept.InvDepartmentName AS dept ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND dept.InvDepartmentName IS NOT NULL`),
@@ -3076,7 +3286,19 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
       mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount, MAX(h.CashmemoDt) AS lastSaleDate ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`),
       mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName`),
       mkReq(lyFromDate, lyToDate).query(`SELECT FORMAT(h.CashmemoDt,'yyyy-MM') AS monKey, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY FORMAT(h.CashmemoDt,'yyyy-MM')`),
-      mkReq(lyFromDate, lyToDate).query(`SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql}`)
+      mkReq(lyFromDate, lyToDate).query(`SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql}`),
+      // Top Categories: business calls department-level grouping "category" throughout this app
+      // (see supplierStyleSales.cat above, and Target MIS's own "category_name" = Saree/Suite) —
+      // topCategories.category must match supplierStyleSales.cat exactly so the frontend's
+      // "top items per category" cross-reference (app.html renderRptCategories) keeps working.
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'Unknown') AS category, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} AND dept.InvDepartmentName IS NOT NULL GROUP BY dept.InvDepartmentName`),
+      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(dept.InvDepartmentName,'Unknown') AS category, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} AND dept.InvDepartmentName IS NOT NULL GROUP BY dept.InvDepartmentName`),
+      // Salesperson-wise GP: itemLedger (below) has no salesperson dimension, so this is a
+      // genuinely new query — same joins as styleSupSalesRs above, plus SalesPersonName.
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName, supl.PartyName, art.ArticleNo`),
+      // LY twin of the above — used for "GP trend vs LY" (applies the same all-time
+      // costMap to LY quantities; approximate since cost basis isn't point-in-time).
+      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName, supl.PartyName, art.ArticleNo`)
     ]);
 
     const num = v => Number(v) || 0;
@@ -3176,7 +3398,15 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
     };
 
     // Stock/purchase data — decoupled cache, see getImsStockData() above.
-    const { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock } = await getImsStockData(pool, forceStockFresh);
+    const { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock,
+      categoryStock, deadStockSummary, freshStockSellThrough } = await getImsStockData(pool, forceStockFresh);
+
+    // Fixed windows (Daily/MTD/YTD) + monthly stock turn — both date-filter-independent
+    // with their own caches, so calling them here is cheap after the first request.
+    const [fixedWindowSales, monthlyStockTurn] = await Promise.all([
+      getImsFixedWindowSales(pool, forceStockFresh),
+      getImsMonthlyStockTurn(pool, currentStock.totalQty, forceStockFresh)
+    ]);
 
     // ── Item Ledger: purchase cost basis (all-time weighted avg) vs sales in
     // the selected period; availQty uses the real live stock balance instead
@@ -3200,22 +3430,85 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
     // cut from bulk rolls purchased under a different item code) have no traceable
     // purchase record at all. Rather than showing those as 100% margin (costPerUnit=0),
     // report profit as unknown (0) so they don't inflate/mislead the P&L view.
-    const itemLedger = Object.values(_ilMap).map(r => ({
-      ...r, availQty: stockQtyMap[r.key] != null ? stockQtyMap[r.key] : r2(r.purQty - r.saleQty),
-      profit: (r.purQty > 0) ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0
-    })).sort((a, b) => b.saleAmt - a.saleAmt);
+    const itemLedger = Object.values(_ilMap).map(r => {
+      const knownCost = r.purQty > 0;
+      const profit = knownCost ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0;
+      return { ...r, availQty: stockQtyMap[r.key] != null ? stockQtyMap[r.key] : r2(r.purQty - r.saleQty),
+        profit, knownCost, gpPct: (knownCost && r.saleAmt) ? r2(profit / r.saleAmt * 100) : null };
+    }).sort((a, b) => b.saleAmt - a.saleAmt);
+
+    // ── Top Categories (= department-level, see comment on catRs above) with growth vs LY ──
+    const lyCatMap = {}; lyCatRs.recordset.forEach(r => { lyCatMap[r.category] = Math.round(num(r.amount)); });
+    const topCategories = catRs.recordset.map(r => {
+      const amount = Math.round(num(r.amount)), lyAmount = lyCatMap[r.category] || 0;
+      return { category: r.category, transactions: r.transactions, qty: r2(num(r.qty)), amount, lyAmount, growthPct: pct(amount, lyAmount) };
+    }).sort((a, b) => b.amount - a.amount);
+
+    // ── GP% (overall + salesperson-wise, current vs LY) ──
+    // Revenue with an unknown cost basis (costPerUnit=0, no traceable purchase) is
+    // excluded from BOTH numerator and denominator of overall GP% — otherwise it
+    // silently dilutes the true margin by looking like 0% on items we simply don't
+    // have cost data for. knownCostCoveragePct reports how much revenue that affects.
+    const gpFromRows = rows => {
+      let knownSaleAmt = 0, profit = 0, totalSaleAmt = 0;
+      rows.forEach(r => { totalSaleAmt += r.amount; if (r.knownCost) { knownSaleAmt += r.amount; profit += r.profit; } });
+      return { saleAmt: Math.round(totalSaleAmt), knownSaleAmt: Math.round(knownSaleAmt), profit: Math.round(profit),
+        gpPct: knownSaleAmt ? r2(profit / knownSaleAmt * 100) : 0,
+        knownCostCoveragePct: totalSaleAmt ? r2(knownSaleAmt / totalSaleAmt * 100) : 0 };
+    };
+    const buildGpRow = (key, rows) => {
+      const g = gpFromRows(rows);
+      return { name: key, qty: r2(rows.reduce((s, r) => s + r.qty, 0)), ...g };
+    };
+    const groupGpRows = keyFn => {
+      const rowsWithGp = Object.values(_ilMap).map(r => {
+        const knownCost = r.purQty > 0;
+        return { key: r.key, cat: r.cat, supName: r.supName, qty: r.saleQty, amount: r.saleAmt, knownCost,
+          profit: knownCost ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0 };
+      }).filter(r => r.amount > 0);
+      const groups = {};
+      rowsWithGp.forEach(r => { const k = keyFn(r) || 'Unknown'; (groups[k] = groups[k] || []).push(r); });
+      return Object.entries(groups).map(([k, rows]) => buildGpRow(k, rows)).sort((a, b) => b.saleAmt - a.saleAmt);
+    };
+    const gpByCategory = groupGpRows(r => r.cat);
+    const gpBySupplier = groupGpRows(r => r.supName);
+    const gpSummary = { ...gpFromRows(Object.values(_ilMap).filter(r => r.saleAmt > 0).map(r => ({
+      amount: r.saleAmt, knownCost: r.purQty > 0, profit: (r.purQty > 0) ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0
+    }))), byCategory: gpByCategory, bySupplier: gpBySupplier };
+
+    // Salesperson GP: current + LY (approx — same all-time costMap applied to both).
+    const buildSpGp = (rs) => {
+      const rows = rs.recordset.map(r => {
+        const key = r.supName + '||' + r.style;
+        const knownCost = (costMap[key] || 0) > 0;
+        const amount = Math.round(num(r.amount)), qty = r2(num(r.qty));
+        const profit = knownCost ? Math.round(amount - qty * costMap[key]) : 0;
+        return { name: r.name, qty, amount, knownCost, profit };
+      });
+      const groups = {};
+      rows.forEach(r => { (groups[r.name] = groups[r.name] || []).push(r); });
+      return groups;
+    };
+    const curSpGpGroups = buildSpGp(spGpRs), lySpGpGroups = buildSpGp(lySpGpRs);
+    const allSpGpNames = new Set([...Object.keys(curSpGpGroups), ...Object.keys(lySpGpGroups)]);
+    const salespersonGP = [...allSpGpNames].map(name => {
+      const cur = gpFromRows(curSpGpGroups[name] || []);
+      const ly = gpFromRows(lySpGpGroups[name] || []);
+      return { name, ...cur, lyGpPct: ly.gpPct, lyProfit: ly.profit, lySaleAmt: ly.saleAmt, gpPctGrowth: pct(cur.gpPct, ly.gpPct) };
+    }).sort((a, b) => b.saleAmt - a.saleAmt);
 
     return {
       salesSummary: { totalAmount: r2(totalAmt), totalQty: r2(totalQty), totalTransactions, byDate: fmtByDate },
-      topCategories: [], cityStateSales: [], skuSales: [],
+      topCategories, cityStateSales: [], skuSales: [],
       supplierSales, salespersons,
       currentStock,
-      supplierStock, categoryStock: [],
+      supplierStock, categoryStock,
       supplierStyleSales,
       supplierStyleStock,
       styleSales, styleStock,
       spAnalytics, deptAnalytics, basketSize, departments,
-      itemLedger
+      itemLedger, gpSummary, salespersonGP,
+      deadStockSummary, freshStockSellThrough, fixedWindowSales, monthlyStockTurn
     };
 }
 
@@ -3230,8 +3523,27 @@ async function prewarmImsReports() {
     console.log('[IMS Prewarm] refreshed default report cache');
   } catch (e) { console.warn('[IMS Prewarm] failed:', e.message); }
 }
-setInterval(prewarmImsReports, IMS_STOCK_CACHE_TTL_MS);
-setTimeout(prewarmImsReports, 20 * 1000);   // first warm-up shortly after boot, not blocking startup
+if (!process.env.VERCEL) {
+  // setInterval only makes sense on an always-on process — on Vercel's serverless
+  // functions there's no persistent event loop between invocations, so this would
+  // just be dead weight (or worse, keep a container alive longer than needed).
+  // Vercel gets its own cron-triggered prewarm instead, see /api/cron/prewarm-ims below.
+  setInterval(prewarmImsReports, IMS_STOCK_CACHE_TTL_MS);
+  setTimeout(prewarmImsReports, 20 * 1000);   // first warm-up shortly after boot, not blocking startup
+}
+
+// Vercel Cron target — Hobby plan only allows once-daily cron schedules, so this can't
+// fully replace the always-on prewarm interval above, but firing once before business
+// hours means the first real user of the day doesn't hit a cold cache. Vercel signs
+// cron requests with `Authorization: Bearer $CRON_SECRET` automatically when that env
+// var is set on the project.
+app.get('/api/cron/prewarm-ims', async (req, res) => {
+  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  await prewarmImsReports();
+  res.json({ success: true });
+});
 
 app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
@@ -3395,7 +3707,7 @@ app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
       return res.json({ rows: r.recordset.map(mapRow), type, value });
     }
 
-    const colMap = { department: 'dept.InvDepartmentName', salesperson: 'sp.SalesPersonName' };
+    const colMap = { department: 'dept.InvDepartmentName', salesperson: 'sp.SalesPersonName', category: 'dept.InvDepartmentName' };
     const col = colMap[type];
     if (!col) return res.json({ rows: [], type, value });
 

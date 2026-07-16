@@ -1375,6 +1375,17 @@ tbody tr:last-child td{border-bottom:none;}
             <button class="rpt-tab-btn" data-tab="str"           onclick="switchRptTab('str')">📐 Stock Turnover</button>
             <button class="rpt-tab-btn" data-tab="stockhistory"  onclick="switchRptTab('stockhistory')">📅 Stock History</button>
           </div>
+          <div class="rpt-nav-group">
+            <span class="rpt-nav-label">Dashboards</span>
+            <button class="rpt-tab-btn" data-tab="kpi"           onclick="switchRptTab('kpi')">📋 KPI Dashboard</button>
+            <button class="rpt-tab-btn" data-tab="salesdash"     onclick="switchRptTab('salesdash')">🛍 Sales Dashboard</button>
+            <button class="rpt-tab-btn" data-tab="gpdash"        onclick="switchRptTab('gpdash')">💹 Gross Profit</button>
+            <button class="rpt-tab-btn" data-tab="inventorydash" onclick="switchRptTab('inventorydash')">🏬 Inventory Dashboard</button>
+            <button class="rpt-tab-btn" data-tab="buyingdash"    onclick="switchRptTab('buyingdash')">🛒 Buying Dashboard</button>
+            <button class="rpt-tab-btn" data-tab="salesmandash"  onclick="switchRptTab('salesmandash')">🧑‍💼 Salesman Dashboard</button>
+            <button class="rpt-tab-btn" data-tab="vendordash"    onclick="switchRptTab('vendordash')">🚚 Vendor Dashboard</button>
+            <button class="rpt-tab-btn" data-tab="customerdash"  onclick="switchRptTab('customerdash')">👥 Customer Dashboard</button>
+          </div>
         </div>
         <div style="display:flex;gap:8px;align-items:flex-start">
           <button id="rptSyncBtn" onclick="loadImsReports(true)"
@@ -2001,6 +2012,23 @@ tbody tr:last-child td{border-bottom:none;}
             </table>
           </div></div>
         </div>
+
+        <!-- ══ PANEL: KPI Dashboard ══ -->
+        <div id="rptPanel-kpi" class="rpt-panel" style="display:none;padding:24px 26px"><div id="rptKpiBody"></div></div>
+        <!-- ══ PANEL: Sales Dashboard ══ -->
+        <div id="rptPanel-salesdash" class="rpt-panel" style="display:none;padding:24px 26px"><div id="rptSalesDashBody"></div></div>
+        <!-- ══ PANEL: Gross Profit Dashboard ══ -->
+        <div id="rptPanel-gpdash" class="rpt-panel" style="display:none;padding:24px 26px"><div id="rptGpDashBody"></div></div>
+        <!-- ══ PANEL: Inventory Dashboard ══ -->
+        <div id="rptPanel-inventorydash" class="rpt-panel" style="display:none;padding:24px 26px"><div id="rptInventoryDashBody"></div></div>
+        <!-- ══ PANEL: Buying Dashboard ══ -->
+        <div id="rptPanel-buyingdash" class="rpt-panel" style="display:none;padding:24px 26px"><div id="rptBuyingDashBody"></div></div>
+        <!-- ══ PANEL: Salesman Dashboard ══ -->
+        <div id="rptPanel-salesmandash" class="rpt-panel" style="display:none;padding:24px 26px"><div id="rptSalesmanDashBody"></div></div>
+        <!-- ══ PANEL: Vendor Dashboard ══ -->
+        <div id="rptPanel-vendordash" class="rpt-panel" style="display:none;padding:24px 26px"><div id="rptVendorDashBody"></div></div>
+        <!-- ══ PANEL: Customer Dashboard ══ -->
+        <div id="rptPanel-customerdash" class="rpt-panel" style="display:none;padding:24px 26px"><div id="rptCustomerDashBody"></div></div>
 
     </div><!-- /rpt-inner -->
     </div><!-- /imsView-reports -->
@@ -5050,7 +5078,15 @@ const RPT_TABS = {
   turnover:     'Fast & Slow Moving',
   itemledger:    'Item Profit & Loss',
   str:           'Stock Turnover Ratio',
-  stockhistory:  'Stock History'
+  stockhistory:  'Stock History',
+  kpi:           'KPI Dashboard',
+  salesdash:     'Sales Dashboard',
+  gpdash:        'Gross Profit Dashboard',
+  inventorydash: 'Inventory Dashboard',
+  buyingdash:    'Buying Dashboard',
+  salesmandash:  'Salesman Dashboard',
+  vendordash:    'Vendor Dashboard',
+  customerdash:  'Customer Dashboard'
 };
 // Sales-based tabs (reference only). Date filter ab sab tabs pe lagu hota hai —
 // sales tabs XN Date se, stock tabs Pur Date se (backend me handle hota hai).
@@ -5186,6 +5222,14 @@ async function loadImsReports(forceSync) {
     renderRptSTR(_r2Data);
     renderRptSPAnalytics(_r2Data.spAnalytics||null);
     renderRptItemLedger(_r2Data.itemLedger||[]);
+    renderRptKPI(_r2Data);
+    renderRptSalesDash(_r2Data);
+    renderRptGPDash(_r2Data);
+    renderRptInventoryDash(_r2Data);
+    renderRptBuyingDash(_r2Data);
+    renderRptSalesmanDash(_r2Data);
+    renderRptVendorDash(_r2Data);
+    renderRptCustomerDash(_r2Data);
     return;
   }
 
@@ -5230,6 +5274,366 @@ async function loadImsReports(forceSync) {
   renderRptSPAnalytics(data.spAnalytics || null);
   _ilDisplayLimit = 100;
   renderRptItemLedger(data.itemLedger || []);
+  renderRptKPI(data);
+  renderRptSalesDash(data);
+  renderRptGPDash(data);
+  renderRptInventoryDash(data);
+  renderRptBuyingDash(data);
+  renderRptSalesmanDash(data);
+  renderRptVendorDash(data);
+  renderRptCustomerDash(data);
+}
+
+// ── KPI Dashboard ──────────────────────────────────────────
+function renderRptKPI(data) {
+  const body = document.getElementById('rptKpiBody');
+  if (!body) return;
+  const sold = (data.salesSummary && data.salesSummary.totalQty) || 0;
+  const stockQty = (data.currentStock && data.currentStock.totalQty) || 0;
+  const sellThroughPct = (sold + stockQty) ? (sold / (sold + stockQty) * 100) : 0;
+  const dead = data.deadStockSummary || { pct: 0, value: 0, days: 365 };
+  const fresh = data.freshStockSellThrough || { pct: 0, days: 30 };
+
+  const soldKeys = new Set((data.supplierStyleSales || []).filter(r => r.qty > 0).map(r => r.key));
+  const everPurchasedKeys = (data.supplierStyleStock || []).filter(r => r.purQty > 0).map(r => r.key);
+  const hitRatePct = everPurchasedKeys.length ? (everPurchasedKeys.filter(k => soldKeys.has(k)).length / everPurchasedKeys.length * 100) : 0;
+
+  // Some months' stock-turn reconstruction is marked unreliable (str: null) — walk back
+  // to the most recent two months that actually have a usable ratio to compare.
+  const strTurns = (data.monthlyStockTurn || []).filter(t => t.str != null);
+  const latestStr = strTurns.length ? strTurns[strTurns.length - 1].str : null;
+  const prevStr = strTurns.length > 1 ? strTurns[strTurns.length - 2].str : null;
+  const strImproving = (latestStr != null && prevStr != null) ? latestStr >= prevStr : null;
+
+  const rows = [
+    { kpi: 'Sell-through %', target: '—', actual: sellThroughPct.toFixed(1) + '%', ok: null },
+    { kpi: `Dead Stock (>${dead.days} days)`, target: 'Below 15%', actual: dead.pct.toFixed(1) + '%', ok: dead.pct < 15 },
+    { kpi: `Fresh Stock Sell-through (${fresh.days} days)`, target: 'Above 25%', actual: fresh.pct.toFixed(1) + '%', ok: fresh.pct > 25 },
+    { kpi: 'Supplier Hit Rate', target: 'Above 60%', actual: hitRatePct.toFixed(1) + '%', ok: hitRatePct > 60 },
+    { kpi: 'Stock Turn (MoM)', target: 'Improve MoM', actual: latestStr == null ? '—' : latestStr.toFixed(2), ok: strImproving }
+  ];
+  const rowsHtml = rows.map(r => {
+    const badge = r.ok == null ? '<span style="color:#94a3b8">—</span>' : r.ok
+      ? '<span style="color:#10b981;font-weight:700">✅ On Target</span>' : '<span style="color:#ef4444;font-weight:700">⚠️ Off Target</span>';
+    return `<tr><td style="font-weight:600">${r.kpi}</td><td style="color:#64748b">${r.target}</td>
+      <td style="text-align:right;font-weight:700">${r.actual}</td><td style="text-align:right">${badge}</td></tr>`;
+  }).join('');
+  body.innerHTML = `
+    <div style="font-size:16px;font-weight:800;margin-bottom:14px">KPI Dashboard to Track Every Month</div>
+    <div class="mis-table-wrap"><table><thead><tr>
+      <th>KPI</th><th>Target</th><th style="text-align:right">Actual</th><th style="text-align:right">Status</th>
+    </tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:10px">Sell-through % has no fixed target set — shown for reference. Stock Turn compares the latest two months' ratios.</div>
+  `;
+}
+
+// ── Sales Dashboard ────────────────────────────────────────
+function renderRptSalesDash(data) {
+  const body = document.getElementById('rptSalesDashBody');
+  if (!body) return;
+  const fw = data.fixedWindowSales || {};
+  const windowCard = (label, w) => {
+    if (!w) return '';
+    const color = w.growthPct == null ? '#64748b' : w.growthPct >= 0 ? '#10b981' : '#ef4444';
+    const growthTxt = w.growthPct == null ? '' : `${w.growthPct >= 0 ? '▲' : '▼'} ${Math.abs(w.growthPct).toFixed(1)}% vs LY`;
+    return `<div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">${label}</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${fmtINR(w.amount)}</div>
+      <div style="font-size:11px;color:${color};margin-top:4px;font-weight:600">${growthTxt}</div>
+    </div>`;
+  };
+  const windowsHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px">
+    ${windowCard("Today's Sale", fw.today)}${windowCard('MTD', fw.mtd)}${windowCard('YTD', fw.ytd)}
+  </div>`;
+
+  const sp = (data.spAnalytics && data.spAnalytics.summary) || {};
+  const abvPpbHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px">
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Avg Bill Value</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${fmtINR(sp.curATV)}</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Pieces per Bill</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${(sp.curUPT || 0).toFixed(2)}</div>
+    </div>
+  </div>`;
+
+  const catRows = (data.topCategories || []).slice(0, 15).map(c => {
+    const color = c.growthPct == null ? '#64748b' : c.growthPct >= 0 ? '#10b981' : '#ef4444';
+    return `<tr><td style="font-weight:600">${c.category}</td><td style="text-align:right">${fmtINR(c.amount)}</td>
+      <td style="text-align:right;color:${color};font-weight:600">${c.growthPct == null ? '—' : (c.growthPct >= 0 ? '▲ ' : '▼ ') + Math.abs(c.growthPct).toFixed(1) + '%'}</td></tr>`;
+  }).join('');
+
+  const spRows = (data.salespersons || []).slice(0, 15).map(s =>
+    `<tr><td style="font-weight:600">${s.name}</td><td style="text-align:right">${fmtINR(s.amount)}</td><td style="text-align:right">${s.transactions}</td></tr>`
+  ).join('');
+
+  body.innerHTML = `
+    ${windowsHtml}${abvPpbHtml}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+      <div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px">Category-wise Growth vs Last Year</div>
+        <div class="mis-table-wrap"><table><thead><tr><th>Category</th><th style="text-align:right">Sales</th><th style="text-align:right">Growth</th></tr></thead><tbody>${catRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+      </div>
+      <div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px">Salesman-wise Sales</div>
+        <div class="mis-table-wrap"><table><thead><tr><th>Salesperson</th><th style="text-align:right">Sales</th><th style="text-align:right">Bills</th></tr></thead><tbody>${spRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:14px">Brand-wise growth and Hour-wise sales are not available — the ERP schema doesn't expose a brand field or sale-time granularity for this store.</div>
+  `;
+}
+
+// ── Gross Profit Dashboard ─────────────────────────────────
+function renderRptGPDash(data) {
+  const body = document.getElementById('rptGpDashBody');
+  if (!body) return;
+  const g = data.gpSummary || { gpPct: 0, knownCostCoveragePct: 0, profit: 0, saleAmt: 0, byCategory: [], bySupplier: [] };
+  const gpColor = g.gpPct >= 20 ? '#10b981' : g.gpPct >= 10 ? '#f59e0b' : '#ef4444';
+
+  const spGp = data.salespersonGP || [];
+  const lyProfit = spGp.reduce((s, r) => s + (r.lyProfit || 0), 0);
+  const lySaleAmt = spGp.reduce((s, r) => s + (r.lySaleAmt || 0), 0);
+  const lyGpPct = lySaleAmt ? (lyProfit / lySaleAmt * 100) : 0;
+  const gpGrowth = lySaleAmt ? (g.gpPct - lyGpPct) : null;
+
+  const summaryHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px">
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Overall GP%</div>
+      <div style="font-size:22px;font-weight:800;margin-top:4px;color:${gpColor}">${g.gpPct.toFixed(1)}%</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px">${g.knownCostCoveragePct.toFixed(0)}% of revenue has known cost basis</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Total Profit</div>
+      <div style="font-size:22px;font-weight:800;margin-top:4px">${fmtINR(g.profit)}</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">GP% vs Last Year (approx.)</div>
+      <div style="font-size:22px;font-weight:800;margin-top:4px;color:${gpGrowth == null ? '#64748b' : gpGrowth >= 0 ? '#10b981' : '#ef4444'}">${gpGrowth == null ? '—' : (gpGrowth >= 0 ? '▲ ' : '▼ ') + Math.abs(gpGrowth).toFixed(1) + ' pts'}</div>
+    </div>
+  </div>`;
+
+  const gpRow = r => {
+    const color = r.gpPct >= 20 ? '#10b981' : r.gpPct >= 10 ? '#f59e0b' : r.gpPct >= 0 ? '#ef4444' : '#991b1b';
+    return `<tr><td style="font-weight:600">${r.name}</td><td style="text-align:right">${fmtINR(r.saleAmt)}</td>
+      <td style="text-align:right;font-weight:700;color:${color}">${r.gpPct.toFixed(1)}%</td></tr>`;
+  };
+  const catRows = (g.byCategory || []).slice(0, 15).map(gpRow).join('');
+  const supRows = (g.bySupplier || []).slice(0, 15).map(gpRow).join('');
+  const spRows = spGp.slice(0, 15).map(gpRow).join('');
+
+  const lowGp = [...(g.byCategory || []).map(r => ({ ...r, type: 'Category' })), ...(g.bySupplier || []).map(r => ({ ...r, type: 'Supplier' }))]
+    .filter(r => r.knownSaleAmt > 0 && r.gpPct < 10)
+    .sort((a, b) => a.gpPct - b.gpPct).slice(0, 10);
+  const lowGpRows = lowGp.map(r => `<tr><td>${r.type}: <b>${r.name}</b></td><td style="text-align:right">${fmtINR(r.saleAmt)}</td>
+    <td style="text-align:right;font-weight:700;color:${r.gpPct < 0 ? '#991b1b' : '#ef4444'}">${r.gpPct.toFixed(1)}%</td></tr>`).join('');
+
+  body.innerHTML = `
+    ${summaryHtml}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:20px">
+      <div><div style="font-size:14px;font-weight:700;margin-bottom:8px">Category-wise GP%</div>
+        <div class="mis-table-wrap"><table><thead><tr><th>Category</th><th style="text-align:right">Sales</th><th style="text-align:right">GP%</th></tr></thead><tbody>${catRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+      </div>
+      <div><div style="font-size:14px;font-weight:700;margin-bottom:8px">Supplier-wise GP%</div>
+        <div class="mis-table-wrap"><table><thead><tr><th>Supplier</th><th style="text-align:right">Sales</th><th style="text-align:right">GP%</th></tr></thead><tbody>${supRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+      </div>
+      <div><div style="font-size:14px;font-weight:700;margin-bottom:8px">Salesperson-wise GP%</div>
+        <div class="mis-table-wrap"><table><thead><tr><th>Salesperson</th><th style="text-align:right">Sales</th><th style="text-align:right">GP%</th></tr></thead><tbody>${spRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+      </div>
+    </div>
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px">⚠️ Low GP Alerts (below 10%)</div>
+    <div class="mis-table-wrap"><table><thead><tr><th>Item</th><th style="text-align:right">Sales</th><th style="text-align:right">GP%</th></tr></thead><tbody>${lowGpRows || '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:16px">None — all categories/suppliers above 10% GP</td></tr>'}</tbody></table></div>
+  `;
+}
+
+// ── Inventory Dashboard ────────────────────────────────────
+function renderRptInventoryDash(data) {
+  const body = document.getElementById('rptInventoryDashBody');
+  if (!body) return;
+  const stock = data.currentStock || {};
+  const sold = (data.salesSummary && data.salesSummary.totalQty) || 0;
+  const sellThroughPct = (sold + (stock.totalQty || 0)) ? (sold / (sold + stock.totalQty) * 100) : 0;
+  const dead = data.deadStockSummary || { pct: 0, value: 0, qty: 0, days: 365 };
+  const turns = data.monthlyStockTurn || [];
+  const strTurns = turns.filter(t => t.str != null);
+  const latestStr = strTurns.length ? strTurns[strTurns.length - 1].str : null;
+
+  const summaryHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px">
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Closing Stock (Qty)</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${Number(stock.totalQty || 0).toLocaleString('en-IN')}</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Closing Stock (Value)</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${fmtINR(stock.totalValue)}</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Sales (this period)</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${Number(sold).toLocaleString('en-IN')} pcs</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Sell-through %</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${sellThroughPct.toFixed(1)}%</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Stock Turn (latest month)</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${latestStr == null ? '—' : latestStr.toFixed(2)}</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;border:1px solid #fecaca;padding:16px 18px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Dead Stock (&gt;${dead.days}d)</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px;color:#ef4444">${dead.pct.toFixed(1)}%</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px">${fmtINR(dead.value)}</div>
+    </div>
+  </div>`;
+
+  const turnRows = turns.map(t => `<tr><td style="font-weight:600">${t.month}</td><td style="text-align:right">${Number(t.soldQty).toLocaleString('en-IN')}</td>
+    <td style="text-align:right">${t.avgStock == null ? '—' : Number(t.avgStock).toLocaleString('en-IN')}</td><td style="text-align:right;font-weight:700">${t.str == null ? '—' : t.str.toFixed(2)}</td></tr>`).join('');
+
+  body.innerHTML = `
+    ${summaryHtml}
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px">Monthly Stock Turn (storewide)</div>
+    <div class="mis-table-wrap"><table><thead><tr><th>Month</th><th style="text-align:right">Sold Qty</th><th style="text-align:right">Avg Stock</th><th style="text-align:right">Stock Turn Ratio</th></tr></thead><tbody>${turnRows || '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:10px">For a full Fast/Slow Movers breakdown by item, see the <b>Fast &amp; Slow Moving</b> tab under Stock.</div>
+  `;
+}
+
+// ── Buying Dashboard ───────────────────────────────────────
+function renderRptBuyingDash(data) {
+  const body = document.getElementById('rptBuyingDashBody');
+  if (!body) return;
+  const gpBySup = {}; ((data.gpSummary && data.gpSummary.bySupplier) || []).forEach(r => { gpBySup[r.name] = r; });
+  const stockBySup = {}; (data.supplierStock || []).forEach(r => { stockBySup[r.name] = r; });
+  const salesBySup = {}; (data.supplierSales || []).forEach(r => { salesBySup[r.name] = r; });
+
+  const names = new Set([...Object.keys(gpBySup), ...Object.keys(stockBySup), ...Object.keys(salesBySup)]);
+  const rows = [...names].map(name => {
+    const gp = gpBySup[name] || { gpPct: 0, saleAmt: 0 };
+    const stock = stockBySup[name] || { qty: 0, deadPct: 0, value: 0 };
+    const sales = salesBySup[name] || { qty: 0, amount: 0 };
+    const sellThroughPct = (sales.qty + stock.qty) ? (sales.qty / (sales.qty + stock.qty) * 100) : 0;
+
+    let bucket;
+    if (stock.deadPct >= 30) bucket = { label: 'Clearance Required', icon: '🔵', color: '#0e7490', bg: '#cffafe' };
+    else if (gp.gpPct >= 20 && sellThroughPct >= 60) bucket = { label: 'Buy More', icon: '🟢', color: '#15803d', bg: '#dcfce7' };
+    else if (gp.gpPct < 10 && sellThroughPct < 40) bucket = { label: 'Stop Buying', icon: '🔴', color: '#dc2626', bg: '#fee2e2' };
+    else bucket = { label: 'Buy Carefully', icon: '🟡', color: '#a16207', bg: '#fef9c3' };
+
+    return { name, gpPct: gp.gpPct, sellThroughPct, deadPct: stock.deadPct || 0, stockValue: stock.value || 0, saleAmt: gp.saleAmt || sales.amount || 0, bucket };
+  }).filter(r => r.stockValue > 0 || r.saleAmt > 0).sort((a, b) => b.stockValue - a.stockValue);
+
+  const counts = { 'Buy More': 0, 'Buy Carefully': 0, 'Stop Buying': 0, 'Clearance Required': 0 };
+  rows.forEach(r => counts[r.bucket.label]++);
+  const summaryHtml = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+    ${Object.entries(counts).map(([label, n]) => `<div style="flex:1;min-width:140px;background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:14px 16px;text-align:center">
+      <div style="font-size:22px;font-weight:800">${n}</div><div style="font-size:11px;color:#64748b;margin-top:2px">${label}</div></div>`).join('')}
+  </div>`;
+
+  const rowsHtml = rows.map(r => `<tr>
+    <td style="font-weight:600">${r.name}</td>
+    <td style="text-align:right">${fmtINR(r.stockValue)}</td>
+    <td style="text-align:right">${r.gpPct.toFixed(1)}%</td>
+    <td style="text-align:right">${r.sellThroughPct.toFixed(1)}%</td>
+    <td style="text-align:right">${r.deadPct.toFixed(1)}%</td>
+    <td style="text-align:right"><span style="background:${r.bucket.bg};color:${r.bucket.color};padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700">${r.bucket.icon} ${r.bucket.label}</span></td>
+  </tr>`).join('');
+
+  body.innerHTML = `
+    ${summaryHtml}
+    <div class="mis-table-wrap"><table><thead><tr>
+      <th>Supplier</th><th style="text-align:right">Stock Value</th><th style="text-align:right">GP%</th>
+      <th style="text-align:right">Sell-through%</th><th style="text-align:right">Dead Stock%</th><th style="text-align:right">Classification</th>
+    </tr></thead><tbody>${rowsHtml || '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:10px">🔵 Clearance: dead stock ≥30% of stock value · 🟢 Buy More: GP%≥20 and sell-through≥60% · 🔴 Stop Buying: GP%&lt;10 and sell-through&lt;40% · 🟡 Buy Carefully: everything else.</div>
+  `;
+}
+
+// ── Salesman Dashboard ─────────────────────────────────────
+function renderRptSalesmanDash(data) {
+  const body = document.getElementById('rptSalesmanDashBody');
+  if (!body) return;
+  const gpByName = {}; (data.salespersonGP || []).forEach(r => { gpByName[r.name] = r; });
+  const spTable = (data.spAnalytics && data.spAnalytics.spTable) || [];
+  const rows = spTable.filter(s => s.bills > 0).map(s => {
+    const gp = gpByName[s.name] || { gpPct: null };
+    return `<tr>
+      <td style="font-weight:600">${s.name}</td>
+      <td style="text-align:right">${fmtINR(s.amount)}</td>
+      <td style="text-align:right">${gp.gpPct == null ? '—' : gp.gpPct.toFixed(1) + '%'}</td>
+      <td style="text-align:right">${fmtINR(s.atv)}</td>
+      <td style="text-align:right">${s.upt.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:14px;font-weight:700">Salesman Performance</div>
+      <button class="btn btn-outline" style="padding:6px 14px;font-size:12px" onclick="navigate('mis', null); setTimeout(()=>{ const t=document.getElementById('misTabTarget'); if (t) t.click(); }, 50)">🎯 View full Target MIS →</button>
+    </div>
+    <div class="mis-table-wrap"><table><thead><tr>
+      <th>Salesperson</th><th style="text-align:right">Sales</th><th style="text-align:right">GP%</th><th style="text-align:right">Avg Bill Value</th><th style="text-align:right">Pieces/Bill</th>
+    </tr></thead><tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:10px">Conversion% requires footfall/visitor data, which isn't tracked in this ERP — not shown. Target Achievement is tracked separately in MIS Report → Target.</div>
+  `;
+}
+
+// ── Vendor Dashboard ───────────────────────────────────────
+function renderRptVendorDash(data) {
+  const body = document.getElementById('rptVendorDashBody');
+  if (!body) return;
+  const gpBySup = {}; ((data.gpSummary && data.gpSummary.bySupplier) || []).forEach(r => { gpBySup[r.name] = r; });
+  const salesBySup = {}; (data.supplierSales || []).forEach(r => { salesBySup[r.name] = r; });
+  const stockBySup = {}; (data.supplierStock || []).forEach(r => { stockBySup[r.name] = r; });
+
+  const ageBySup = {};
+  (data.supplierStyleStock || []).forEach(r => {
+    if (r.ageingDays == null || r.qty <= 0) return;
+    if (!ageBySup[r.supName]) ageBySup[r.supName] = { totalDays: 0, count: 0 };
+    ageBySup[r.supName].totalDays += r.ageingDays; ageBySup[r.supName].count++;
+  });
+
+  const names = new Set([...Object.keys(salesBySup), ...Object.keys(stockBySup)]);
+  const rows = [...names].map(name => {
+    const sales = salesBySup[name] || { qty: 0, amount: 0 };
+    const stock = stockBySup[name] || { qty: 0, value: 0, deadPct: 0 };
+    const gp = gpBySup[name] || { gpPct: null };
+    const age = ageBySup[name];
+    const sellThroughPct = (sales.qty + stock.qty) ? (sales.qty / (sales.qty + stock.qty) * 100) : 0;
+    return { name, amount: sales.amount, sellThroughPct, avgAge: age ? age.totalDays / age.count : null, deadPct: stock.deadPct || 0, gpPct: gp.gpPct };
+  }).filter(r => r.amount > 0 || r.deadPct > 0).sort((a, b) => b.amount - a.amount);
+
+  const rowsHtml = rows.map((r, i) => `<tr>
+    <td style="color:#94a3b8;font-weight:700;font-size:12px">${i + 1}</td>
+    <td style="font-weight:600">${r.name}</td>
+    <td style="text-align:right">${fmtINR(r.amount)}</td>
+    <td style="text-align:right">${r.sellThroughPct.toFixed(1)}%</td>
+    <td style="text-align:right">${r.avgAge == null ? '—' : Math.round(r.avgAge) + 'd'}</td>
+    <td style="text-align:right">${r.deadPct.toFixed(1)}%</td>
+    <td style="text-align:right">${r.gpPct == null ? '—' : r.gpPct.toFixed(1) + '%'}</td>
+  </tr>`).join('');
+
+  body.innerHTML = `
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px">Vendor / Supplier Ranking</div>
+    <div class="mis-table-wrap"><table><thead><tr>
+      <th>#</th><th>Supplier</th><th style="text-align:right">Sales</th><th style="text-align:right">Sell-through%</th>
+      <th style="text-align:right">Avg Stock Age</th><th style="text-align:right">Dead Stock%</th><th style="text-align:right">Purchase Efficiency (GP%)</th>
+    </tr></thead><tbody>${rowsHtml || '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:16px">No data</td></tr>'}</tbody></table></div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:10px">Return % / Purchase Return % is not available — no returns table found in this ERP install.</div>
+  `;
+}
+
+// ── Customer Dashboard (gated — no customer master found in this ERP) ─────
+function renderRptCustomerDash(data) {
+  const body = document.getElementById('rptCustomerDashBody');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="info-banner info-banner-blue">
+      <div class="info-banner-icon">👥</div>
+      <div class="info-banner-body">
+        <strong>Customer Dashboard is not available yet.</strong>
+        <div style="margin-top:6px;font-size:12px;color:#64748b">This ERP's sales data doesn't include a customer master (name/phone linked to each bill) as currently connected — repeat/lost/high-value customer tracking, birthday/anniversary lists, and WhatsApp campaign lists all need that data. If the ERP does track customers elsewhere, this can be enabled once that's confirmed.</div>
+      </div>
+    </div>
+  `;
 }
 
 function renderRptSummary(s, stock) {

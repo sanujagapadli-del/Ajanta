@@ -1,9 +1,15 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "server.js", "use": "@vercel/node", "config": { "includeFiles": ["public/**"] } }
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "public/**",
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
   ],
-  "routes": [
-    { "src": "/(.*)", "dest": "/server.js" }
+  "crons": [
+    { "path": "/api/cron/prewarm-ims", "schedule": "0 3 * * *" }
   ]
 }
