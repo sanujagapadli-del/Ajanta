@@ -3173,27 +3173,34 @@ async function getImsFixedWindowSales(pool, forceFresh) {
   const ytdFrom = iso(new Date(Date.UTC(now.getUTCFullYear(), 0, 1)));
   const lyToday = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate())));
   const lyMtdFrom = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), 1)));
-  const lyMtdTo = lyToday;
   const lyYtdFrom = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, 0, 1)));
-  const lyYtdTo = lyToday;
 
-  const windowQuery = (f, t) => pool.request().input('from', sql.Date, f).input('to', sql.Date, t).query(`
-    SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount
+  // Today/MTD/YTD all nest inside each other (YTD ⊇ MTD ⊇ Today) — one day-grouped scan
+  // of the full year covers all three instead of 3 separate overlapping full re-scans.
+  // Same for the LY side. 2 queries total instead of 6.
+  const byDayQuery = (f, t) => pool.request().input('from', sql.Date, f).input('to', sql.Date, t).query(`
+    SELECT CONVERT(varchar(10), h.CashmemoDt, 23) AS d, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount
     ${IMS_SALES_JOIN} WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to ${IMS_EXCLUDE_DEPT_SQL}
+    GROUP BY CONVERT(varchar(10), h.CashmemoDt, 23)
   `);
-  const [todayRs, mtdRs, ytdRs, lyTodayRs, lyMtdRs, lyYtdRs] = await Promise.all([
-    windowQuery(todayStr, todayStr), windowQuery(mtdFrom, todayStr), windowQuery(ytdFrom, todayStr),
-    windowQuery(lyToday, lyToday), windowQuery(lyMtdFrom, lyMtdTo), windowQuery(lyYtdFrom, lyYtdTo)
+  const [curRs, lyRs] = await Promise.all([
+    byDayQuery(ytdFrom, todayStr),
+    byDayQuery(lyYtdFrom, lyToday)
   ]);
+
   const num = v => Number(v) || 0;
   const pct = (a, b) => b ? r2((a - b) / b * 100) : null;
-  const row = rs => { const r = (rs.recordset[0]) || {}; return { bills: r.bills || 0, qty: r2(num(r.qty)), amount: Math.round(num(r.amount)) }; };
-  const withGrowth = (cur, ly) => ({ ...cur, ly, growthPct: pct(cur.amount, ly.amount) });
+  const sumRange = (rows, from, to) => rows
+    .filter(r => r.d >= from && r.d <= to)
+    .reduce((s, r) => ({ bills: s.bills + (r.bills || 0), qty: s.qty + num(r.qty), amount: s.amount + num(r.amount) }), { bills: 0, qty: 0, amount: 0 });
+  const finalize = r => ({ bills: r.bills, qty: r2(r.qty), amount: Math.round(r.amount) });
+  const withGrowth = (cur, ly) => ({ ...finalize(cur), ly: finalize(ly), growthPct: pct(cur.amount, ly.amount) });
 
+  const curRows = curRs.recordset, lyRows = lyRs.recordset;
   const data = {
-    today: withGrowth(row(todayRs), row(lyTodayRs)),
-    mtd: withGrowth(row(mtdRs), row(lyMtdRs)),
-    ytd: withGrowth(row(ytdRs), row(lyYtdRs))
+    today: withGrowth(sumRange(curRows, todayStr, todayStr), sumRange(lyRows, lyToday, lyToday)),
+    mtd: withGrowth(sumRange(curRows, mtdFrom, todayStr), sumRange(lyRows, lyMtdFrom, lyToday)),
+    ytd: withGrowth(sumRange(curRows, ytdFrom, todayStr), sumRange(lyRows, lyYtdFrom, lyToday))
   };
   _imsFixedWindowCache = { ts: Date.now(), data };
   return data;
@@ -3201,8 +3208,10 @@ async function getImsFixedWindowSales(pool, forceFresh) {
 
 // Monthly Stock Turn (storewide, MoM): reconstructs stock-as-of-a-past-boundary the
 // same way /api/ims-stock-history does (current stock minus net movements since the
-// boundary), but storewide only (no per-supplier/style breakdown) so it's cheap —
-// 2 lightweight SUM(Quantity) queries per month boundary, no joins.
+// boundary), but storewide only (no per-supplier/style breakdown). Two month-grouped
+// queries cover the whole window — cumulative "since boundary[k]" figures are then a
+// simple running sum in JS, instead of N separate queries each re-scanning an
+// increasingly-overlapping date range.
 let _imsStockTurnCache = { ts: 0, data: null };
 const IMS_STOCK_TURN_TTL_MS = 30 * 60 * 1000;
 const STOCK_TURN_MONTHS = 6;
@@ -3218,17 +3227,28 @@ async function getImsMonthlyStockTurn(pool, currentTotalQty, forceFresh) {
     boundaries.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)));
   }
   const iso = d => d.toISOString().slice(0, 10);
-  const movementSince = async (boundaryIso) => {
-    const [purRs, saleRs] = await Promise.all([
-      pool.request().input('b', sql.Date, boundaryIso).query(`SELECT SUM(pd.Quantity) qty FROM InvPurchaseDetail pd JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId WHERE ph.IsCancelled = 0 AND ph.PurchaseDt >= @b`),
-      pool.request().input('b', sql.Date, boundaryIso).query(`SELECT SUM(d.Quantity) qty FROM InvCashmemoDetail d JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @b`)
-    ]);
-    const num = v => Number(v) || 0;
-    return { purQty: num(purRs.recordset[0] && purRs.recordset[0].qty), saleQty: num(saleRs.recordset[0] && saleRs.recordset[0].qty) };
-  };
+  const monthKey = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  const earliestBoundary = iso(boundaries[boundaries.length - 1]);
+  const num = v => Number(v) || 0;
 
-  // movements[k] = cumulative purchases/sales since boundaries[k] (start of month k-months-ago), through now.
-  const movements = await Promise.all(boundaries.map(b => movementSince(iso(b))));
+  const [purRs, saleRs] = await Promise.all([
+    pool.request().input('b', sql.Date, earliestBoundary).query(`SELECT FORMAT(ph.PurchaseDt,'yyyy-MM') monKey, SUM(pd.Quantity) qty FROM InvPurchaseDetail pd JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId WHERE ph.IsCancelled = 0 AND ph.PurchaseDt >= @b GROUP BY FORMAT(ph.PurchaseDt,'yyyy-MM')`),
+    pool.request().input('b', sql.Date, earliestBoundary).query(`SELECT FORMAT(h.CashmemoDt,'yyyy-MM') monKey, SUM(d.Quantity) qty FROM InvCashmemoDetail d JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @b GROUP BY FORMAT(h.CashmemoDt,'yyyy-MM')`)
+  ]);
+  const purByMonth = {}; purRs.recordset.forEach(r => { purByMonth[r.monKey] = num(r.qty); });
+  const saleByMonth = {}; saleRs.recordset.forEach(r => { saleByMonth[r.monKey] = num(r.qty); });
+
+  // movements[k] = cumulative purchases/sales since boundaries[k] (start of month
+  // k-months-ago), through now — a running sum of that month's own bucket plus
+  // everything more recent (indices 0..k, since boundaries[0] is the current month).
+  const movements = [];
+  let cumPur = 0, cumSale = 0;
+  for (let k = 0; k < STOCK_TURN_MONTHS; k++) {
+    const key = monthKey(boundaries[k]);
+    cumPur += purByMonth[key] || 0;
+    cumSale += saleByMonth[key] || 0;
+    movements.push({ purQty: cumPur, saleQty: cumSale });
+  }
   // stockAt[k] = reconstructed stock AT boundaries[k] (start of that month), working
   // backward from current: stockAtBoundary = current - purchasedSince + soldSince.
   const stockAt = movements.map(m => currentTotalQty - m.purQty + m.saleQty);
