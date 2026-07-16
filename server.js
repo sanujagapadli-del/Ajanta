@@ -3544,16 +3544,34 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
     };
 }
 
-// Refreshes the default (no filter) report into the cache on a timer, so real
-// users hitting the hub's "All" preset rarely see a cold-cache load — the
-// SQL Server's own buffer cache for this date range stays warm too.
+// Refreshes the default range plus the common wide presets (This Month/Quarter/Year —
+// mirrors setRptPreset() in app.html) into the cache on a timer, so real users picking
+// any of those rarely hit a cold, from-scratch computation — including the very first
+// time a wide range like "This Year" is ever requested after a deploy, which otherwise
+// has nothing to fall back on and must block. Runs sequentially, not in parallel — 4
+// full report computations at once would recreate the exact connection-pool contention
+// already fixed elsewhere (each computation alone fires ~14+ queries in a single burst).
+function _imsWidePresetRanges() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const today = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+  const q = Math.floor(now.getUTCMonth() / 3);
+  return [
+    { from: `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-01`, to: today },
+    { from: `${now.getUTCFullYear()}-${pad(q * 3 + 1)}-01`, to: today },
+    { from: `${now.getUTCFullYear()}-01-01`, to: today }
+  ];
+}
 async function prewarmImsReports() {
-  try {
-    const { fromDate, toDate } = imsDefaultRange();
-    const data = await computeImsReportsData(fromDate, toDate, null);
-    _imsSqlCache.set(`${fromDate}|${toDate}|All`, { ts: Date.now(), data });
-    console.log('[IMS Prewarm] refreshed default report cache');
-  } catch (e) { console.warn('[IMS Prewarm] failed:', e.message); }
+  const { fromDate, toDate } = imsDefaultRange();
+  const ranges = [{ from: fromDate, to: toDate }, ..._imsWidePresetRanges()];
+  for (const r of ranges) {
+    try {
+      const data = await computeImsReportsData(r.from, r.to, null, false);
+      _imsSqlCache.set(`${r.from}|${r.to}|All`, { ts: Date.now(), data });
+      console.log(`[IMS Prewarm] refreshed ${r.from} to ${r.to}`);
+    } catch (e) { console.warn(`[IMS Prewarm] failed for ${r.from} to ${r.to}:`, e.message); }
+  }
 }
 if (!process.env.VERCEL) {
   // setInterval only makes sense on an always-on process — on Vercel's serverless
@@ -3577,6 +3595,23 @@ app.get('/api/cron/prewarm-ims', async (req, res) => {
   res.json({ success: true });
 });
 
+// Stale-while-revalidate: once a (date range, dept) has ever loaded successfully, that
+// result never gets thrown away just for being past its TTL — it's served instantly
+// while a fresh copy is computed in the background for next time. Only a range that has
+// NEVER been computed at all blocks on a live computation. This is what makes wide
+// ranges (This Year, This FY) reliable: the first load is still slow (nothing to fall
+// back on), but every load after that is instant, and the user never sees "no data"
+// again for a range that has ever loaded once — old data stays until new data replaces it.
+const _imsRefreshing = new Set(); // cacheKeys currently being recomputed, to avoid piling up duplicate work
+function refreshImsCacheInBackground(cacheKey, fromDate, toDate, deptFilter) {
+  if (_imsRefreshing.has(cacheKey)) return;
+  _imsRefreshing.add(cacheKey);
+  computeImsReportsData(fromDate, toDate, deptFilter, false)
+    .then(data => { _imsSqlCache.set(cacheKey, { ts: Date.now(), data }); console.log(`[IMS Reports] background refresh done: ${cacheKey}`); })
+    .catch(e => console.warn(`[IMS Reports] background refresh failed for ${cacheKey}:`, e.message))
+    .finally(() => { _imsRefreshing.delete(cacheKey); });
+}
+
 app.get('/api/ims-reports', requireAuth, async (req, res) => {
   try {
     const { from, to, sync, dept } = req.query;
@@ -3594,11 +3629,23 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
     // fast "Today" query.
     const spanDays = (new Date(toDate + 'T00:00:00Z') - new Date(fromDate + 'T00:00:00Z')) / 86400000;
     const ttl = spanDays > 45 ? IMS_WIDE_RANGE_CACHE_TTL_MS : IMS_SQL_CACHE_TTL_MS;
-    if (sync !== 'true' && cached && (Date.now() - cached.ts) < ttl) {
+
+    if (sync === 'true') {
+      // Explicit "Sync Live Data" click — the one case that should actually wait for a
+      // guaranteed-fresh computation rather than serving anything stale.
+      const responseData = await computeImsReportsData(fromDate, toDate, deptFilter, true);
+      _imsSqlCache.set(cacheKey, { ts: Date.now(), data: responseData });
+      return res.json(responseData);
+    }
+
+    if (cached) {
+      if ((Date.now() - cached.ts) >= ttl) refreshImsCacheInBackground(cacheKey, fromDate, toDate, deptFilter);
       return res.json(cached.data);
     }
 
-    const responseData = await computeImsReportsData(fromDate, toDate, deptFilter, sync === 'true');
+    // Never computed for this exact (range, dept) before — nothing to fall back on, so
+    // this one request has to wait for the real thing.
+    const responseData = await computeImsReportsData(fromDate, toDate, deptFilter, false);
     _imsSqlCache.set(cacheKey, { ts: Date.now(), data: responseData });
     return res.json(responseData);
   } catch (err) {
