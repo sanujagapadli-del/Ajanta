@@ -317,59 +317,80 @@ async function init() {
         alasql(`CREATE TABLE IF NOT EXISTS ${t} (${colsSql})`);
       }
 
-      // 2. Spreadsheet metadata — check which tabs already exist
-      const meta = await api.spreadsheets.get({
-        spreadsheetId: _spreadsheetId,
-        fields: 'sheets.properties'
-      });
-      _tabIdByName = {};
-      for (const s of meta.data.sheets || []) {
-        _tabIdByName[s.properties.title] = s.properties.sheetId;
-      }
-
-      // 3. Missing tabs auto-create with headers (non-fatal — if creation fails, proceed with empty table)
-      const missing = TABLE_NAMES.filter(t => !(t in _tabIdByName));
-      if (missing.length) {
-        console.log(`  📊 Creating ${missing.length} missing tab(s): ${missing.join(', ')}`);
-        try {
-          const requests = missing.map(t => ({
-            addSheet: { properties: { title: t } }
-          }));
-          const resp = await api.spreadsheets.batchUpdate({
-            spreadsheetId: _spreadsheetId,
-            requestBody: { requests }
-          });
-          for (const reply of resp.data.replies || []) {
-            if (reply.addSheet) {
-              _tabIdByName[reply.addSheet.properties.title] = reply.addSheet.properties.sheetId;
-            }
-          }
-          // Write headers in newly created tabs (include derived cols)
-          const headerData = missing.map(t => {
-            const derivedCols = Object.keys(SHEET_DERIVED[t] || {});
-            return { range: `${t}!A1`, values: [[...SCHEMA[t].cols, ...derivedCols]] };
-          });
-          await api.spreadsheets.values.batchUpdate({
-            spreadsheetId: _spreadsheetId,
-            requestBody: { valueInputOption: 'RAW', data: headerData }
-          });
-        } catch (createErr) {
-          console.warn(`  ⚠️ Could not create missing tabs (${missing.join(', ')}): ${createErr.message} — continuing with empty tables`);
-        }
-      }
-
-      // 4. Bulk load only tabs that actually exist in the sheet
-      const existingTables = TABLE_NAMES.filter(t => t in _tabIdByName);
-      const ranges = existingTables.map(t => `${t}!A:ZZ`);
-      let valueRanges = [];
-      if (ranges.length) {
+      // 2. Optimistic fast path: try to bulk-load every expected tab directly, skipping
+      // the separate metadata/tab-existence check that used to always run first. Every
+      // tab already existing is by far the common case (true on every run except the
+      // very first setup, or right after a new table is added to SCHEMA) — this cuts
+      // Google Sheets API calls per init from 2 down to 1. That matters a lot more than
+      // it used to: on an always-on process this only ran once per deployment, but on
+      // Vercel's serverless model every cold start re-runs this whole init from scratch,
+      // and enough of those within a minute can trip Google's per-minute read quota.
+      let existingTables = TABLE_NAMES;
+      let valueRanges;
+      try {
         const batchResp = await api.spreadsheets.values.batchGet({
           spreadsheetId: _spreadsheetId,
-          ranges,
+          ranges: TABLE_NAMES.map(t => `${t}!A:ZZ`),
           valueRenderOption: 'UNFORMATTED_VALUE',
           dateTimeRenderOption: 'SERIAL_NUMBER'
         });
         valueRanges = batchResp.data.valueRanges || [];
+      } catch (fastPathErr) {
+        // Almost always means a tab in TABLE_NAMES doesn't exist in the sheet yet — fall
+        // back to the full metadata-check + auto-create flow (costs more API calls, but
+        // only happens on first-ever setup or when a table is newly added to SCHEMA).
+        console.log(`  📊 Fast bulk-load failed (${String(fastPathErr.message || fastPathErr).slice(0, 120)}) — checking for missing tabs`);
+        const meta = await api.spreadsheets.get({
+          spreadsheetId: _spreadsheetId,
+          fields: 'sheets.properties'
+        });
+        _tabIdByName = {};
+        for (const s of meta.data.sheets || []) {
+          _tabIdByName[s.properties.title] = s.properties.sheetId;
+        }
+
+        const missing = TABLE_NAMES.filter(t => !(t in _tabIdByName));
+        if (missing.length) {
+          console.log(`  📊 Creating ${missing.length} missing tab(s): ${missing.join(', ')}`);
+          try {
+            const requests = missing.map(t => ({
+              addSheet: { properties: { title: t } }
+            }));
+            const resp = await api.spreadsheets.batchUpdate({
+              spreadsheetId: _spreadsheetId,
+              requestBody: { requests }
+            });
+            for (const reply of resp.data.replies || []) {
+              if (reply.addSheet) {
+                _tabIdByName[reply.addSheet.properties.title] = reply.addSheet.properties.sheetId;
+              }
+            }
+            // Write headers in newly created tabs (include derived cols)
+            const headerData = missing.map(t => {
+              const derivedCols = Object.keys(SHEET_DERIVED[t] || {});
+              return { range: `${t}!A1`, values: [[...SCHEMA[t].cols, ...derivedCols]] };
+            });
+            await api.spreadsheets.values.batchUpdate({
+              spreadsheetId: _spreadsheetId,
+              requestBody: { valueInputOption: 'RAW', data: headerData }
+            });
+          } catch (createErr) {
+            console.warn(`  ⚠️ Could not create missing tabs (${missing.join(', ')}): ${createErr.message} — continuing with empty tables`);
+          }
+        }
+
+        existingTables = TABLE_NAMES.filter(t => t in _tabIdByName);
+        const ranges = existingTables.map(t => `${t}!A:ZZ`);
+        valueRanges = [];
+        if (ranges.length) {
+          const batchResp = await api.spreadsheets.values.batchGet({
+            spreadsheetId: _spreadsheetId,
+            ranges,
+            valueRenderOption: 'UNFORMATTED_VALUE',
+            dateTimeRenderOption: 'SERIAL_NUMBER'
+          });
+          valueRanges = batchResp.data.valueRanges || [];
+        }
       }
 
       // 5. Populate alasql tables (only for tabs that exist in sheet)
