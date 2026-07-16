@@ -9669,21 +9669,8 @@ function renderTargetReport() {
     </div>`;
   }).join('');
 
-  const othersRows = (data.others || []).map(o => `<tr><td style="font-weight:600">${o.code}</td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetAchievedDrilldown('${o.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(o.amount)}</a></td><td style="text-align:right"><a href="javascript:void(0)" onclick="showTargetTodayDrilldown('${o.code}')" style="color:#4f46e5;text-decoration:none">${fmtINR(o.today)}</a></td></tr>`).join('');
-  const othersCard = `
-  <div style="background:#fafbff;border-radius:12px;border:1.5px dashed #cbd5e1;padding:18px;margin-bottom:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-size:14px;font-weight:700;color:#475569">Others <span style="font-size:11px;color:#94a3b8;font-weight:400">(not assigned to any category — shown for visibility, not counted toward any target)</span></div>
-      <div style="font-size:16px;font-weight:800;color:#475569">${fmtINR(data.othersTotal)}</div>
-    </div>
-    ${data.others && data.others.length
-      ? `<details><summary style="cursor:pointer;font-size:12px;color:#4f46e5">Salesperson-wise</summary><div class="mis-table-wrap" style="margin-top:8px"><table><thead><tr><th>Code</th><th style="text-align:right">Achieved</th><th style="text-align:right">Today's Sale</th></tr></thead><tbody>${othersRows}</tbody></table></div></details>`
-      : '<div style="font-size:12px;color:#94a3b8">No unassigned sales in this range.</div>'}
-  </div>`;
-
   container.innerHTML = filterBar + addBtn +
-    (catCards || `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">No categories yet — click "+ Add Category" to set one up.</div>`) +
-    othersCard;
+    (catCards || `<div class="empty" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;">No categories yet — click "+ Add Category" to set one up.</div>`);
 }
 
 function getSelectedMISDept() {
