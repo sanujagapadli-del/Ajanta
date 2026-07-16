@@ -2970,6 +2970,12 @@ const imsSupplierJoin = (outerAlias, itemScopeSql = '') => `
 const IMS_SALES_ITEM_SCOPE = `AND pd.ItemId IN (SELECT DISTINCT d2.ItemId FROM InvCashmemoDetail d2 JOIN InvCashmemoHead h2 ON h2.CashmemoId = d2.CashmemoId WHERE h2.IsCancelled = 0 AND h2.CashmemoDt BETWEEN @from AND @to)`;
 const IMS_SUPPLIER_JOIN = imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE);
 
+// SUITTING SHIRTING has no traceable purchase history for any of its items (sold by the
+// metre, cut from bulk rolls purchased under a different item code — see itemLedger
+// comment below), making its cost/GP figures meaningless. Excluded from every sales-side
+// report and total per business request, not just flagged as unknown-cost.
+const IMS_EXCLUDE_DEPT_SQL = `AND dept.InvDepartmentName <> 'SUITTING SHIRTING'`;
+
 const _imsSqlCache = new Map();           // cacheKey (date-range+dept) -> { ts, data }
 const IMS_SQL_CACHE_TTL_MS = 20 * 60 * 1000;
 
@@ -3029,21 +3035,13 @@ async function getImsStockData(pool, forceFresh) {
     // ageing/dead-stock only needs to know "has this ARTICLE sold recently", not which
     // supplier). Feeds the >365-day dead-stock cutoff below.
     pool.request().query(`SELECT ISNULL(art.ArticleNo,'Unknown') AS style, MAX(h.CashmemoDt) AS lastSaleDate
-      FROM InvCashmemoDetail d
-      JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
-      LEFT JOIN MstItems mi ON mi.ItemCode = d.ItemId
-      LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-      WHERE h.IsCancelled = 0
+      ${IMS_SALES_JOIN} WHERE h.IsCancelled = 0 ${IMS_EXCLUDE_DEPT_SQL}
       GROUP BY art.ArticleNo`),
     // Fresh Stock Sell-through (30 days): sales in the last 30 days, per style — cross-
     // referenced below against styles whose lastPurDate also falls in the last 30 days.
     pool.request().input('ffrom', sql.Date, freshFrom).input('fto', sql.Date, freshTo)
       .query(`SELECT ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty
-      FROM InvCashmemoDetail d
-      JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
-      LEFT JOIN MstItems mi ON mi.ItemCode = d.ItemId
-      LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-      WHERE h.IsCancelled = 0 AND h.CashmemoDt BETWEEN @ffrom AND @fto
+      ${IMS_SALES_JOIN} WHERE h.IsCancelled = 0 AND h.CashmemoDt BETWEEN @ffrom AND @fto ${IMS_EXCLUDE_DEPT_SQL}
       GROUP BY art.ArticleNo`)
   ]);
 
@@ -3180,8 +3178,7 @@ async function getImsFixedWindowSales(pool, forceFresh) {
 
   const windowQuery = (f, t) => pool.request().input('from', sql.Date, f).input('to', sql.Date, t).query(`
     SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount
-    FROM InvCashmemoDetail d JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
-    WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to
+    ${IMS_SALES_JOIN} WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to ${IMS_EXCLUDE_DEPT_SQL}
   `);
   const [todayRs, mtdRs, ytdRs, lyTodayRs, lyMtdRs, lyYtdRs] = await Promise.all([
     windowQuery(todayStr, todayStr), windowQuery(mtdFrom, todayStr), windowQuery(ytdFrom, todayStr),
@@ -3269,7 +3266,7 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
     const lyToDate   = (() => { const d = new Date(toDate   + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() - 1); return d.toISOString().slice(0, 10); })();
 
     const pool = await getSqlPool();
-    const deptSql = deptFilter ? 'AND dept.InvDepartmentName = @dept' : '';
+    const deptSql = (deptFilter ? 'AND dept.InvDepartmentName = @dept ' : '') + IMS_EXCLUDE_DEPT_SQL;
     const mkReq = (f, t) => {
       const r = pool.request().input('from', sql.Date, f).input('to', sql.Date, t);
       if (deptFilter) r.input('dept', sql.VarChar, deptFilter);
@@ -3279,7 +3276,7 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
     const [byDateRs, deptRs, allDeptRs, spRs, supRs, basketRs, styleSupSalesRs, lySpRs, lyMonRs, lyTotalRs, catRs, lyCatRs, spGpRs, lySpGpRs] = await Promise.all([
       mkReq(fromDate, toDate).query(`SELECT CONVERT(varchar(10),h.CashmemoDt,23) AS date, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY CONVERT(varchar(10),h.CashmemoDt,23) ORDER BY date`),
       mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'—') AS dept, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY dept.InvDepartmentName`),
-      mkReq(fromDate, toDate).query(`SELECT DISTINCT dept.InvDepartmentName AS dept ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND dept.InvDepartmentName IS NOT NULL`),
+      mkReq(fromDate, toDate).query(`SELECT DISTINCT dept.InvDepartmentName AS dept ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND dept.InvDepartmentName IS NOT NULL ${IMS_EXCLUDE_DEPT_SQL}`),
       mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName ORDER BY amount DESC`),
       mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName ORDER BY amount DESC`),
       mkReq(fromDate, toDate).query(`SELECT h.CashmemoId, SUM(d.Quantity) AS qty ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY h.CashmemoId`),
