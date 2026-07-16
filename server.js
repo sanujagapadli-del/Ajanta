@@ -1551,7 +1551,13 @@ async function getSqlPool() {
     password: process.env.SQL_PASSWORD,
     database: process.env.SQL_DATABASE,
     options: { encrypt: false, trustServerCertificate: true },
-    pool: { max: 15, min: 0, idleTimeoutMillis: 30000 },
+    // A single IMS report computation fires ~14 queries in one burst (the main
+    // Promise.all in computeImsReportsData) — with max:15 that already leaves almost
+    // no headroom, and two overlapping computations (e.g. the background prewarm
+    // firing while a real request is in flight) queue behind each other for a free
+    // connection, turning ~1-2s queries into 40s+ waits. Observed directly while
+    // diagnosing a slow-report report — not the SQL Server itself being slow.
+    pool: { max: 30, min: 0, idleTimeoutMillis: 30000 },
     connectionTimeout: 15000,
     requestTimeout: 60000   // IMS "All time" reports can scan years of history — default 15s is too tight
   }).connect();
@@ -2979,6 +2985,7 @@ const IMS_EXCLUDE_DEPT_SQL = `AND dept.InvDepartmentName NOT IN ('SUITTING SHIRT
 
 const _imsSqlCache = new Map();           // cacheKey (date-range+dept) -> { ts, data }
 const IMS_SQL_CACHE_TTL_MS = 20 * 60 * 1000;
+const IMS_WIDE_RANGE_CACHE_TTL_MS = 90 * 60 * 1000; // ranges spanning >45 days — see /api/ims-reports
 
 function r2(n) { return Math.round(n * 100) / 100; }
 const toISODate = d => d ? new Date(d).toISOString().slice(0, 10) : '';
@@ -3294,29 +3301,33 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
       return r;
     };
 
+    const _t = label => { const t0 = Date.now(); return () => console.log(`[IMS TIMING] ${label}: ${Date.now() - t0}ms`); };
+    const _e1 = _t('byDateRs'), _e2 = _t('deptRs'), _e3 = _t('allDeptRs'), _e4 = _t('spRs'), _e5 = _t('supRs'),
+          _e6 = _t('basketRs'), _e7 = _t('styleSupSalesRs'), _e8 = _t('lySpRs'), _e9 = _t('lyMonRs'), _e10 = _t('lyTotalRs'),
+          _e11 = _t('catRs'), _e12 = _t('lyCatRs'), _e13 = _t('spGpRs'), _e14 = _t('lySpGpRs');
     const [byDateRs, deptRs, allDeptRs, spRs, supRs, basketRs, styleSupSalesRs, lySpRs, lyMonRs, lyTotalRs, catRs, lyCatRs, spGpRs, lySpGpRs] = await Promise.all([
-      mkReq(fromDate, toDate).query(`SELECT CONVERT(varchar(10),h.CashmemoDt,23) AS date, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY CONVERT(varchar(10),h.CashmemoDt,23) ORDER BY date`),
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'—') AS dept, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY dept.InvDepartmentName`),
-      mkReq(fromDate, toDate).query(`SELECT DISTINCT dept.InvDepartmentName AS dept ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND dept.InvDepartmentName IS NOT NULL ${IMS_EXCLUDE_DEPT_SQL}`),
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName ORDER BY amount DESC`),
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName ORDER BY amount DESC`),
-      mkReq(fromDate, toDate).query(`SELECT h.CashmemoId, SUM(d.Quantity) AS qty ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY h.CashmemoId`),
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount, MAX(h.CashmemoDt) AS lastSaleDate ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`),
-      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName`),
-      mkReq(lyFromDate, lyToDate).query(`SELECT FORMAT(h.CashmemoDt,'yyyy-MM') AS monKey, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY FORMAT(h.CashmemoDt,'yyyy-MM')`),
-      mkReq(lyFromDate, lyToDate).query(`SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql}`),
+      mkReq(fromDate, toDate).query(`SELECT CONVERT(varchar(10),h.CashmemoDt,23) AS date, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY CONVERT(varchar(10),h.CashmemoDt,23) ORDER BY date`).then(r => { _e1(); return r; }),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'—') AS dept, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY dept.InvDepartmentName`).then(r => { _e2(); return r; }),
+      mkReq(fromDate, toDate).query(`SELECT DISTINCT dept.InvDepartmentName AS dept ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND dept.InvDepartmentName IS NOT NULL ${IMS_EXCLUDE_DEPT_SQL}`).then(r => { _e3(); return r; }),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName ORDER BY amount DESC`).then(r => { _e4(); return r; }),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName ORDER BY amount DESC`).then(r => { _e5(); return r; }),
+      mkReq(fromDate, toDate).query(`SELECT h.CashmemoId, SUM(d.Quantity) AS qty ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY h.CashmemoId`).then(r => { _e6(); return r; }),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount, MAX(h.CashmemoDt) AS lastSaleDate ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`).then(r => { _e7(); return r; }),
+      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName`).then(r => { _e8(); return r; }),
+      mkReq(lyFromDate, lyToDate).query(`SELECT FORMAT(h.CashmemoDt,'yyyy-MM') AS monKey, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY FORMAT(h.CashmemoDt,'yyyy-MM')`).then(r => { _e9(); return r; }),
+      mkReq(lyFromDate, lyToDate).query(`SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql}`).then(r => { _e10(); return r; }),
       // Top Categories: business calls department-level grouping "category" throughout this app
       // (see supplierStyleSales.cat above, and Target MIS's own "category_name" = Saree/Suite) —
       // topCategories.category must match supplierStyleSales.cat exactly so the frontend's
       // "top items per category" cross-reference (app.html renderRptCategories) keeps working.
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'Unknown') AS category, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} AND dept.InvDepartmentName IS NOT NULL GROUP BY dept.InvDepartmentName`),
-      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(dept.InvDepartmentName,'Unknown') AS category, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} AND dept.InvDepartmentName IS NOT NULL GROUP BY dept.InvDepartmentName`),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'Unknown') AS category, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} AND dept.InvDepartmentName IS NOT NULL GROUP BY dept.InvDepartmentName`).then(r => { _e11(); return r; }),
+      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(dept.InvDepartmentName,'Unknown') AS category, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} AND dept.InvDepartmentName IS NOT NULL GROUP BY dept.InvDepartmentName`).then(r => { _e12(); return r; }),
       // Salesperson-wise GP: itemLedger (below) has no salesperson dimension, so this is a
       // genuinely new query — same joins as styleSupSalesRs above, plus SalesPersonName.
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName, supl.PartyName, art.ArticleNo`),
+      mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName, supl.PartyName, art.ArticleNo`).then(r => { _e13(); return r; }),
       // LY twin of the above — used for "GP trend vs LY" (applies the same all-time
       // costMap to LY quantities; approximate since cost basis isn't point-in-time).
-      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName, supl.PartyName, art.ArticleNo`)
+      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName, supl.PartyName, art.ArticleNo`).then(r => { _e14(); return r; })
     ]);
 
     const num = v => Number(v) || 0;
@@ -3416,14 +3427,17 @@ async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFre
     };
 
     // Stock/purchase data — decoupled cache, see getImsStockData() above.
+    const _tStock = _t('getImsStockData');
     const { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock,
       categoryStock, deadStockSummary, freshStockSellThrough } = await getImsStockData(pool, forceStockFresh);
+    _tStock();
 
     // Fixed windows (Daily/MTD/YTD) + monthly stock turn — both date-filter-independent
     // with their own caches, so calling them here is cheap after the first request.
+    const _tFixed = _t('getImsFixedWindowSales'), _tTurn = _t('getImsMonthlyStockTurn');
     const [fixedWindowSales, monthlyStockTurn] = await Promise.all([
-      getImsFixedWindowSales(pool, forceStockFresh),
-      getImsMonthlyStockTurn(pool, currentStock.totalQty, forceStockFresh)
+      getImsFixedWindowSales(pool, forceStockFresh).then(r => { _tFixed(); return r; }),
+      getImsMonthlyStockTurn(pool, currentStock.totalQty, forceStockFresh).then(r => { _tTurn(); return r; })
     ]);
 
     // ── Item Ledger: purchase cost basis (all-time weighted avg) vs sales in
@@ -3573,7 +3587,14 @@ app.get('/api/ims-reports', requireAuth, async (req, res) => {
 
     const cacheKey = `${fromDate}|${toDate}|${deptFilter || 'All'}`;
     const cached = _imsSqlCache.get(cacheKey);
-    if (sync !== 'true' && cached && (Date.now() - cached.ts) < IMS_SQL_CACHE_TTL_MS) {
+    // Wide ranges (This Year, This FY, All) are the slowest to compute (touch the most
+    // history) and the least time-sensitive to view (a YTD total doesn't need to be
+    // fresh to the minute the way "Today" does) — cache them longer so the expensive
+    // computation runs far less often, not just within the same 20-minute window as a
+    // fast "Today" query.
+    const spanDays = (new Date(toDate + 'T00:00:00Z') - new Date(fromDate + 'T00:00:00Z')) / 86400000;
+    const ttl = spanDays > 45 ? IMS_WIDE_RANGE_CACHE_TTL_MS : IMS_SQL_CACHE_TTL_MS;
+    if (sync !== 'true' && cached && (Date.now() - cached.ts) < ttl) {
       return res.json(cached.data);
     }
 
