@@ -2972,9 +2972,10 @@ const IMS_SUPPLIER_JOIN = imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE);
 
 // SUITTING SHIRTING has no traceable purchase history for any of its items (sold by the
 // metre, cut from bulk rolls purchased under a different item code — see itemLedger
-// comment below), making its cost/GP figures meaningless. Excluded from every sales-side
-// report and total per business request, not just flagged as unknown-cost.
-const IMS_EXCLUDE_DEPT_SQL = `AND dept.InvDepartmentName <> 'SUITTING SHIRTING'`;
+// comment below), making its cost/GP figures meaningless. MISC is a genuine catch-all
+// bucket, not a real sellable department. Both excluded from every sales-side report
+// and total per business request, not just flagged as unknown-cost.
+const IMS_EXCLUDE_DEPT_SQL = `AND dept.InvDepartmentName NOT IN ('SUITTING SHIRTING', 'MISC')`;
 
 const _imsSqlCache = new Map();           // cacheKey (date-range+dept) -> { ts, data }
 const IMS_SQL_CACHE_TTL_MS = 20 * 60 * 1000;
