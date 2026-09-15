@@ -985,8 +985,16 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="btn btn-outline" onclick="loadO2dFmsList()">🔄 Refresh</button>
     </div>
 
-    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:14px 18px;margin-bottom:16px;">
-      <input type="text" id="o2dSearch" oninput="renderO2dFmsList()" placeholder="🔍 Search by Order Id, Counter Name, Product…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <div style="display:flex;gap:6px;margin-bottom:16px;">
+      <div class="tab-group">
+        <div class="tab active" id="o2dViewFms" onclick="switchO2dView('fms',this)">FMS View</div>
+        <div class="tab" id="o2dViewPC" onclick="switchO2dView('pc',this)">PC View</div>
+        <div class="tab" id="o2dViewReports" onclick="switchO2dView('reports',this)">📊 Reports</div>
+      </div>
+    </div>
+
+    <div style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:14px 18px;margin-bottom:16px;" id="o2dSearchWrap">
+      <input type="text" id="o2dSearch" oninput="o2dSearchChanged()" placeholder="🔍 Search by Order Id, Order No, Counter Name, Product…" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
     </div>
 
     <div id="o2dListWrap" class="mis-table-wrap" style="background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow-x:auto">
@@ -5787,6 +5795,9 @@ const O2D_INPUT_STYLE = "width:100%;padding:12px 14px;border:1.5px solid #e2e8f0
 const O2D_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
 
 let o2dData = [];
+let o2dView = 'fms';
+let o2dPage = 1;
+const O2D_PAGE_SIZE = 50;
 
 async function loadO2dFmsList() {
   const wrap = document.getElementById('o2dListWrap');
@@ -5794,34 +5805,168 @@ async function loadO2dFmsList() {
   const data = await api('/api/o2d-fms');
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   o2dData = data;
-  renderO2dFmsList();
+  renderO2dActiveView();
 }
 
-function renderO2dFmsList() {
-  const wrap = document.getElementById('o2dListWrap');
+function o2dSearchChanged() { o2dPage = 1; renderO2dActiveView(); }
+
+function switchO2dView(view, el) {
+  o2dView = view;
+  o2dPage = 1;
+  document.querySelectorAll('#page-o2d-fms .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('o2dSearchWrap').style.display = view === 'reports' ? 'none' : '';
+  renderO2dActiveView();
+}
+
+function renderO2dActiveView() {
+  if (o2dView === 'fms') return renderO2dFmsView();
+  if (o2dView === 'pc') return renderO2dPCView();
+  return renderO2dReportsView();
+}
+
+// Thousands of orders would otherwise mean rendering tens of thousands of
+// table cells at once — paginate client-side to keep this fast.
+function o2dPaginate(rows) {
+  const totalPages = Math.max(1, Math.ceil(rows.length / O2D_PAGE_SIZE));
+  if (o2dPage > totalPages) o2dPage = totalPages;
+  const start = (o2dPage - 1) * O2D_PAGE_SIZE;
+  return { pageRows: rows.slice(start, start + O2D_PAGE_SIZE), totalPages, total: rows.length };
+}
+function o2dPaginationHtml(totalPages, total) {
+  return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid #e2e8f0">
+    <span style="font-size:12px;color:#94a3b8">${total} orders — page ${o2dPage} of ${totalPages}</span>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-outline btn-sm" ${o2dPage <= 1 ? 'disabled' : ''} onclick="o2dGoToPage(${o2dPage - 1})">← Prev</button>
+      <button class="btn btn-outline btn-sm" ${o2dPage >= totalPages ? 'disabled' : ''} onclick="o2dGoToPage(${o2dPage + 1})">Next →</button>
+    </div>
+  </div>`;
+}
+function o2dGoToPage(p) { o2dPage = p; renderO2dActiveView(); }
+
+function o2dFilteredRows() {
   const q = (document.getElementById('o2dSearch').value || '').trim().toLowerCase();
-  let rows = o2dData;
-  if (q) rows = rows.filter(o =>
+  if (!q) return o2dData;
+  return o2dData.filter(o =>
     (o.orderId || '').toLowerCase().includes(q) ||
+    (o.orderNo || '').toLowerCase().includes(q) ||
     (o.counterName || '').toLowerCase().includes(q) ||
     (o.productName || '').toLowerCase().includes(q)
   );
+}
+
+// A row's underlying date strings look like "2026-09-04 12:26:11" (from the
+// sheet's serial dates) — parse as local time, same as the sheet's own clock.
+function o2dParseDate(s) { return s ? new Date(s.replace(' ', 'T')) : null; }
+function o2dIsOverdue(plannedStr) {
+  const d = o2dParseDate(plannedStr);
+  return d && d.getTime() < Date.now();
+}
+
+// ── FMS View: the full grid, one row per order, laid out exactly like the
+// sheet — Planned/Actual/Status per step, side by side. ──
+function renderO2dFmsView() {
+  const wrap = document.getElementById('o2dListWrap');
+  const rows = o2dFilteredRows();
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No orders found.</div>'; return; }
-  wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:4px">
-  ${rows.map(o => {
-    const nextStep = O2D_STEP_DEFS.find(d => d.n === o.currentStep + 1);
-    return `
-    <div onclick="openO2dDetail(${o.row})" style="background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:16px;cursor:pointer">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span style="font-size:19px;font-weight:800;color:#1e293b">${o.orderId}</span>
-        <span class="status-badge" style="background:${o.closed ? '#dcfce7' : '#fef9c3'};color:${o.closed ? '#15803d' : '#92400e'}">${o.closed ? '✅ Closed' : 'Step ' + o.currentStep + '/9'}</span>
-      </div>
-      <div style="font-size:16px;font-weight:700;color:#374151;margin-bottom:4px">🏬 ${o.counterName || '—'}</div>
-      <div style="font-size:15px;color:#64748b;margin-bottom:10px">📦 ${o.productName || '—'}${o.qty ? ' × ' + o.qty : ''}</div>
-      ${nextStep ? `<div style="background:#f5f3ff;border-radius:10px;padding:10px 12px;font-size:14px;font-weight:700;color:#4f46e5">👉 ${nextStep.label}</div>` : ''}
+  const { pageRows, totalPages, total } = o2dPaginate(rows);
+  const stepHeadTop = O2D_STEP_DEFS.map(sd => `<th colspan="3" style="text-align:center;border-left:2px solid #e2e8f0">${sd.n}. ${sd.label}</th>`).join('');
+  const stepHeadSub = O2D_STEP_DEFS.map(() => `<th style="border-left:2px solid #e2e8f0">Planned</th><th>Actual</th><th>Status</th>`).join('');
+  wrap.innerHTML = `<table style="font-size:12px;white-space:nowrap">
+    <thead>
+      <tr><th rowspan="2">Order No</th><th rowspan="2">Order Id</th><th rowspan="2">Counter Name</th><th rowspan="2">Product</th><th rowspan="2">Qty</th>${stepHeadTop}<th colspan="2" style="text-align:center;border-left:2px solid #e2e8f0">Bill</th></tr>
+      <tr>${stepHeadSub}<th style="border-left:2px solid #e2e8f0">Bill No</th><th>Amount</th></tr>
+    </thead>
+    <tbody>
+      ${pageRows.map(o => `
+        <tr onclick="openO2dDetail(${o.row})" style="cursor:pointer">
+          <td>${o.orderNo || '—'}</td>
+          <td style="font-weight:600">${o.orderId}</td>
+          <td>${o.counterName || '—'}</td>
+          <td>${o.productName || '—'}</td>
+          <td>${o.qty || '—'}</td>
+          ${o.steps.map(s => `
+            <td style="border-left:2px solid #e2e8f0">${s.planned || '—'}</td>
+            <td>${s.actual || '—'}</td>
+            <td>${s.status ? `<span class="status-badge" style="background:${s.status==='No'?'#fee2e2':'#dcfce7'};color:${s.status==='No'?'#b91c1c':'#15803d'}">${s.status}</span>` : '—'}</td>
+          `).join('')}
+          <td style="border-left:2px solid #e2e8f0">${o.billNo || '—'}</td>
+          <td>${o.amount || '—'}</td>
+        </tr>`).join('')}
+    </tbody>
+  </table>
+  ${o2dPaginationHtml(totalPages, total)}`;
+}
+
+// ── PC View: pending orders only — where each is stuck, that step's planned
+// time, and the doer responsible. Overdue (planned time already passed) is
+// highlighted red so it reads at a glance. ──
+function renderO2dPCView() {
+  const wrap = document.getElementById('o2dListWrap');
+  const rows = o2dFilteredRows().filter(o => !o.closed);
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending orders — everything is dispatched 🎉</div>'; return; }
+  const { pageRows, totalPages, total } = o2dPaginate(rows);
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Order No</th><th>Order Id</th><th>Counter Name</th><th>Product</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th></tr></thead>
+    <tbody>
+      ${pageRows.map(o => {
+        const pendingStep = o.steps[o.currentStep]; // 0-indexed: next step after currentStep
+        const overdue = o2dIsOverdue(pendingStep.planned);
+        const rowStyle = overdue ? 'background:#fef2f2' : '';
+        const plannedStyle = overdue ? 'color:#dc2626;font-weight:700' : 'color:#1e293b';
+        return `
+        <tr onclick="openO2dDetail(${o.row})" style="cursor:pointer;${rowStyle}">
+          <td>${o.orderNo || '—'}</td>
+          <td style="font-weight:600">${o.orderId}</td>
+          <td>${o.counterName || '—'}</td>
+          <td>${o.productName || '—'}</td>
+          <td>${o.qty || '—'}</td>
+          <td style="font-weight:600">${pendingStep.n}. ${pendingStep.label}</td>
+          <td style="${plannedStyle}">${pendingStep.planned || '—'}${overdue ? ' ⚠️' : ''}</td>
+          <td>${pendingStep.doer || '—'}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+  ${o2dPaginationHtml(totalPages, total)}`;
+}
+
+// ── Reports: summary counts — total/closed/pending, and how many orders are
+// currently stuck at each step. ──
+function renderO2dReportsView() {
+  const wrap = document.getElementById('o2dListWrap');
+  const total = o2dData.length;
+  const closed = o2dData.filter(o => o.closed).length;
+  const pending = total - closed;
+  const overdueCount = o2dData.filter(o => !o.closed && o2dIsOverdue(o.steps[o.currentStep].planned)).length;
+
+  const perStep = O2D_STEP_DEFS.map(sd => ({
+    step: sd,
+    count: o2dData.filter(o => !o.closed && o.currentStep === sd.n - 1).length
+  }));
+
+  const statCard = (label, value, color) => `
+    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:18px;flex:1;min-width:140px">
+      <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">${label}</div>
+      <div style="font-size:28px;font-weight:800;color:${color}">${value}</div>
     </div>`;
-  }).join('')}
-  </div>`;
+
+  wrap.innerHTML = `
+    <div style="padding:16px">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+        ${statCard('Total Orders', total, '#1e293b')}
+        ${statCard('Dispatched (Closed)', closed, '#15803d')}
+        ${statCard('Pending', pending, '#92400e')}
+        ${statCard('Overdue', overdueCount, '#dc2626')}
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Pending Orders By Step</div>
+      <table>
+        <thead><tr><th>Step</th><th>Doer</th><th>Pending Count</th></tr></thead>
+        <tbody>
+          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${p.step.label}</td><td>${p.step.doer || '—'}</td><td>${p.count}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function renderO2dField(f, row) {

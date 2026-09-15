@@ -2787,8 +2787,17 @@ const O2D_STEPS = [
     extra: [ { key: 'loaderName', col: 'BE', label: 'Loader Name' } ] }
 ];
 
+// The Master. tab is 2300+ rows wide (A:BM) — reading it straight from Sheets
+// takes ~10-15s, so cache the parsed result briefly. A completed step-write
+// (below) clears this so "Mark Done" is reflected immediately, not after TTL.
+let _o2dCache = null; // { orders, ts }
+const O2D_CACHE_TTL_MS = 60 * 1000;
+
 app.get('/api/o2d-fms', requireAuth, async (req, res) => {
   try {
+    if (_o2dCache && (Date.now() - _o2dCache.ts) < O2D_CACHE_TTL_MS) {
+      return res.json(_o2dCache.orders);
+    }
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const result = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: O2D_SHEET_ID,
@@ -2838,6 +2847,7 @@ app.get('/api/o2d-fms', requireAuth, async (req, res) => {
     }).filter(Boolean);
 
     orders.reverse(); // newest first
+    _o2dCache = { orders, ts: Date.now() };
     res.json(orders);
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
@@ -2872,6 +2882,7 @@ app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
       requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
     });
 
+    _o2dCache = null; // next GET re-reads the sheet so this write shows up right away
     res.json({ success: true });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
