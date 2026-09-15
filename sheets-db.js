@@ -99,8 +99,7 @@ const SHEET_DERIVED = {
 const INT_COLS = new Set([
   'id','assigned_to','assigned_by','user_id','task_id','requested_by','requested_to',
   'employee_id','hod_id','target_count','improvement_pct','fms_id','step_id','step_order',
-  'total_steps','header_row','from_user','to_user','waiting_approval','created_by',
-  'target_amount','month1_pct','month2_pct','month3_pct','year'
+  'total_steps','header_row','from_user','to_user','waiting_approval','created_by'
 ]);
 
 // Date-only columns — stored as proper date cells in Sheets (USER_ENTERED write).
