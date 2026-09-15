@@ -5865,14 +5865,25 @@ function o2dIsOverdue(plannedStr) {
 
 // ── FMS View: the full grid, one row per order, laid out exactly like the
 // sheet — Planned/Actual/Status per step, side by side. ──
+let o2dFmsSubView = 'pending';
+function switchO2dFmsSubView(sub) { o2dFmsSubView = sub; o2dPage = 1; renderO2dFmsView(); }
+
 function renderO2dFmsView() {
   const wrap = document.getElementById('o2dListWrap');
-  const rows = o2dFilteredRows();
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No orders found.</div>'; return; }
+  const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid #e2e8f0">
+    <button onclick="switchO2dFmsSubView('pending')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='pending'?'#4f46e5':'#e2e8f0'};background:${o2dFmsSubView==='pending'?'#eef2ff':'#fff'};color:${o2dFmsSubView==='pending'?'#4f46e5':'#475569'}">Pending</button>
+    <button onclick="switchO2dFmsSubView('completed')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='completed'?'#4f46e5':'#e2e8f0'};background:${o2dFmsSubView==='completed'?'#eef2ff':'#fff'};color:${o2dFmsSubView==='completed'?'#4f46e5':'#475569'}">Completed (All Steps)</button>
+  </div>`;
+
+  const rows = o2dFilteredRows().filter(o => o2dFmsSubView === 'pending' ? !o.closed : o.closed);
+  if (!rows.length) {
+    wrap.innerHTML = subTabsHtml + `<div class="empty">${o2dFmsSubView === 'pending' ? 'No pending orders.' : 'No completed orders yet.'}</div>`;
+    return;
+  }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
   const stepHeadTop = O2D_STEP_DEFS.map(sd => `<th colspan="3" style="text-align:center;border-left:2px solid #e2e8f0">${sd.n}. ${sd.label}</th>`).join('');
   const stepHeadSub = O2D_STEP_DEFS.map(() => `<th style="border-left:2px solid #e2e8f0">Planned</th><th>Actual</th><th>Status</th>`).join('');
-  wrap.innerHTML = `<table style="font-size:12px;white-space:nowrap">
+  wrap.innerHTML = subTabsHtml + `<table style="font-size:12px;white-space:nowrap">
     <thead>
       <tr><th rowspan="2">Order No</th><th rowspan="2">Order Id</th><th rowspan="2">Counter Name</th><th rowspan="2">Product</th><th rowspan="2">Qty</th>${stepHeadTop}<th colspan="2" style="text-align:center;border-left:2px solid #e2e8f0">Bill</th></tr>
       <tr>${stepHeadSub}<th style="border-left:2px solid #e2e8f0">Bill No</th><th>Amount</th></tr>
