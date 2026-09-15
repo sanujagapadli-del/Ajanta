@@ -982,6 +982,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── O2D FMS (Order to Dispatch) ── -->
   <div id="page-o2d-fms" class="page">
     <div class="page-header">
+      <button class="btn btn-primary" onclick="openNewO2dOrderModal()">+ New Order</button>
       <button class="btn btn-outline" onclick="loadO2dFmsList()">🔄 Refresh</button>
     </div>
 
@@ -1997,6 +1998,79 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── O2D FMS: NEW ORDER MODAL ── -->
+<div class="modal-overlay" id="newO2dOrderModal">
+  <div class="modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0">📦 New Order</h3>
+      <button class="modal-close-x" onclick="closeModal('newO2dOrderModal')" title="Close (Esc)">✕</button>
+    </div>
+    <div class="alert error" id="newO2dOrderErr" style="display:none"></div>
+    <div style="overflow-y:auto;flex:1">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Counter Type</label>
+          <select id="noCounterType" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box;background:#fff">
+            <option>Old Counter</option><option>New Counter</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Counter Name <span style="color:#ef4444">*</span></label>
+          <input type="text" id="noCounterName" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </div>
+        <div class="form-group">
+          <label>Area / Location</label>
+          <input type="text" id="noArea" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </div>
+        <div class="form-group">
+          <label>Order By</label>
+          <input type="text" id="noOrderBy" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </div>
+        <div class="form-group">
+          <label>Payment Terms</label>
+          <input type="text" id="noPaymentTerms" placeholder="e.g. 30 Days, Cash on Delivery" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </div>
+        <div class="form-group">
+          <label>Channel (Freight / Rent)</label>
+          <input type="text" id="noChannel" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </div>
+        <div class="form-group">
+          <label>Deliver by Transport?</label>
+          <select id="noDeliverByTransport" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box;background:#fff">
+            <option>No</option><option>Yes</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Make Performa Invoice?</label>
+          <select id="noMakePI" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box;background:#fff">
+            <option>No</option><option>Yes</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>When to Send</label>
+          <input type="text" id="noWhenToSend" placeholder="e.g. Today, Most Urgent" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </div>
+        <div class="form-group">
+          <label>Date to Send</label>
+          <input type="date" id="noDateToSend" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Remark</label>
+        <textarea id="noRemark" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px">Products</div>
+      <div id="noProductRows"></div>
+      <button type="button" class="btn btn-outline btn-sm" onclick="addO2dProductRow()">+ Add Product</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" id="noSubmitBtn" onclick="submitNewO2dOrder()">Save Order</button>
+      <button class="btn btn-outline" onclick="closeModal('newO2dOrderModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── SET PLAN MODAL ── -->
 <div class="modal-overlay" id="setPlanModal">
   <div class="modal" style="max-width:440px">
@@ -2390,7 +2464,7 @@ async function loadDashboard() {
     document.getElementById('dPending').textContent = 'Err';
     document.getElementById('dRevised').textContent = 'Err';
     document.getElementById('dCompleted').textContent = 'Err';
-    document.getElementById('dashTbody').innerHTML = `<tr><td colspan="10" style="color:red;padding:16px;text-align:center">⚠️ Data load failed: ${errMsg}<br><small>Check /api/debug for details</small></td></tr>`;
+    document.getElementById('dashTbody').innerHTML = `<tr><td colspan="10" style="color:red;padding:16px;text-align:center">⚠️ Data load failed: ${errMsg}</td></tr>`;
     return;
   }
 
@@ -5958,6 +6032,84 @@ function renderO2dReportsView() {
         </tbody>
       </table>
     </div>`;
+}
+
+// ── New Order ──
+// Orders don't originate in Master. (that whole tab is a computed view) —
+// they're created in the separate "O2D Response" intake sheet, one row per
+// product, all sharing one auto-generated Order No. That sheet feeds Master.
+// via IMPORTRANGE, so a new order can take a little while to show up here.
+let o2dProductRowCount = 0;
+function addO2dProductRow() {
+  const id = o2dProductRowCount++;
+  const wrap = document.getElementById('noProductRows');
+  const row = document.createElement('div');
+  row.id = `noProductRow_${id}`;
+  row.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:center';
+  row.innerHTML = `
+    <input type="text" placeholder="Product Name *" id="noProdName_${id}" style="padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="number" placeholder="Rate" id="noProdRate_${id}" style="padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="number" placeholder="Qty *" id="noProdQty_${id}" style="padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <select id="noProdSample_${id}" style="padding:9px 8px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box;background:#fff"><option>No</option><option>Yes</option></select>
+    <button type="button" onclick="removeO2dProductRow(${id})" style="border:none;background:none;color:#94a3b8;cursor:pointer;font-size:16px">✕</button>`;
+  wrap.appendChild(row);
+}
+function removeO2dProductRow(id) {
+  const wrap = document.getElementById('noProductRows');
+  if (wrap.children.length <= 1) { showToast('At least one product is required', 'error'); return; }
+  document.getElementById(`noProductRow_${id}`).remove();
+}
+
+function openNewO2dOrderModal() {
+  document.getElementById('newO2dOrderErr').style.display = 'none';
+  ['noCounterName','noArea','noOrderBy','noPaymentTerms','noChannel','noWhenToSend','noDateToSend','noRemark'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('noCounterType').value = 'Old Counter';
+  document.getElementById('noDeliverByTransport').value = 'No';
+  document.getElementById('noMakePI').value = 'No';
+  document.getElementById('noProductRows').innerHTML = '';
+  o2dProductRowCount = 0;
+  addO2dProductRow();
+  document.getElementById('newO2dOrderModal').classList.add('open');
+}
+
+async function submitNewO2dOrder() {
+  const errEl = document.getElementById('newO2dOrderErr');
+  errEl.style.display = 'none';
+  const counterName = document.getElementById('noCounterName').value.trim();
+  if (!counterName) { errEl.textContent = 'Counter name is required'; errEl.style.display = 'block'; return; }
+
+  const products = [];
+  for (const row of document.getElementById('noProductRows').children) {
+    const id = row.id.split('_')[1];
+    const productName = document.getElementById(`noProdName_${id}`).value.trim();
+    const qty = document.getElementById(`noProdQty_${id}`).value.trim();
+    if (!productName || !qty) { errEl.textContent = 'Every product needs a name and quantity'; errEl.style.display = 'block'; return; }
+    products.push({
+      productName, qty,
+      rate: document.getElementById(`noProdRate_${id}`).value.trim(),
+      isSample: document.getElementById(`noProdSample_${id}`).value
+    });
+  }
+
+  const body = {
+    counterType: document.getElementById('noCounterType').value,
+    counterName,
+    area: document.getElementById('noArea').value.trim(),
+    orderBy: document.getElementById('noOrderBy').value.trim(),
+    paymentTerms: document.getElementById('noPaymentTerms').value.trim(),
+    channel: document.getElementById('noChannel').value.trim(),
+    deliverByTransport: document.getElementById('noDeliverByTransport').value,
+    makePerformaInvoice: document.getElementById('noMakePI').value,
+    whenToSend: document.getElementById('noWhenToSend').value.trim(),
+    dateToSend: document.getElementById('noDateToSend').value,
+    remark: document.getElementById('noRemark').value.trim(),
+    products
+  };
+
+  const res = await api('/api/o2d-fms/new-order', 'POST', body);
+  if (res.error) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
+  showToast(`✅ Order ${res.orderNo} created! It may take a few minutes to appear in the FMS view (the sheet pulls it in on its own refresh cycle).`);
+  closeModal('newO2dOrderModal');
 }
 
 async function openO2dDetail(row) {

@@ -2854,6 +2854,71 @@ app.get('/api/o2d-fms', requireAuth, async (req, res) => {
   }
 });
 
+// ── New Order ── orders don't originate in "Master." at all — that tab's
+// own A-R columns are QUERY(IMPORTRANGE(...)) pulling live from this
+// separate "O2D Response" spreadsheet's Sheet1 (confirmed by reading
+// Master.'s formulas: it filters Sheet1 on "Condition" blank and
+// "PI status" = 'No'). So creating an order means appending here, not to
+// Master. — Master. picks it up on IMPORTRANGE's own refresh cycle (can lag
+// a little, this isn't instant).
+const O2D_INTAKE_SHEET_ID = '1B1wjNcww9RLhluR3_crISg6aTAF20tijwKZp3C6JAP0';
+const O2D_INTAKE_TAB = 'Sheet1';
+
+app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
+  try {
+    const {
+      counterType, counterName, area, orderBy, paymentTerms, channel, remark,
+      deliverByTransport, makePerformaInvoice, whenToSend, dateToSend, products
+    } = req.body;
+    if (!counterName || !Array.isArray(products) || !products.length) {
+      return res.status(400).json({ error: 'Counter name and at least one product are required' });
+    }
+    for (const p of products) {
+      if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
+    }
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    // Order No. and Order Id are sequential ("Ord-1435", "Order-3074") —
+    // read both key columns once, take the current max of each.
+    const keyCols = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: O2D_INTAKE_SHEET_ID, range: `'${O2D_INTAKE_TAB}'!Q2:R`, valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    const keyRows = keyCols.data.values || [];
+    let maxOrderNo = 0, maxOrderId = 0;
+    keyRows.forEach(r => {
+      const mNo = String(r[0] || '').match(/Ord-(\d+)/);
+      const mId = String(r[1] || '').match(/Order-(\d+)/);
+      if (mNo) maxOrderNo = Math.max(maxOrderNo, parseInt(mNo[1], 10));
+      if (mId) maxOrderId = Math.max(maxOrderId, parseInt(mId[1], 10));
+    });
+    const orderNo = `Ord-${String(maxOrderNo + 1).padStart(4, '0')}`;
+
+    const nowSerial = sfmsDateToSerial(new Date());
+    const dateToSendSerial = dateToSend ? sfmsDateToSerial(new Date(dateToSend + 'T00:00:00')) : '';
+
+    const rows = products.map((p, i) => [
+      nowSerial, counterType || '', counterName, area || '', dateToSendSerial, whenToSend || '',
+      channel || '', deliverByTransport || 'No', makePerformaInvoice || 'No', orderBy || '',
+      paymentTerms || '', remark || '', p.productName, p.rate || '', p.qty,
+      p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`, '', '', 'No'
+    ]);
+
+    await sheetsApi.spreadsheets.values.append({
+      spreadsheetId: O2D_INTAKE_SHEET_ID,
+      range: `'${O2D_INTAKE_TAB}'!A:U`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: rows }
+    });
+
+    res.json({ success: true, orderNo, orderIds: rows.map(r => r[17]) });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the intake sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DISABLED — every cell in "Master." (order info AND every step's
 // Planned/Actual/Status) is computed: columns A-R spill in from an external
 // sheet via QUERY(IMPORTRANGE(...)), and each step's Actual/Status is an
@@ -3214,40 +3279,6 @@ app.get('/api/week-plan/history/:employeeId', requireAuth, requireAdminOrHod, as
     console.error('  ❌ Week Plan history fetch failed:', e.message);
     res.json({ error: 'Failed to fetch history', plans: [] });
   }
-});
-
-// ══════════════════════════════════════════════════════
-// DEBUG ENDPOINT (remove after fixing)
-// ══════════════════════════════════════════════════════
-app.get('/api/debug', async (req, res) => {
-  const result = { time: new Date().toISOString(), env: {}, db: {}, tables: {} };
-  result.env = {
-    NODE_ENV: process.env.NODE_ENV || '(not set)',
-    DB_HOST: process.env.DB_HOST || 'localhost (default)',
-    DB_USER: process.env.DB_USER || 'root (default)',
-    DB_NAME: process.env.DB_NAME || 'task_manager (default)',
-    PORT: process.env.PORT || '3000 (default)',
-  };
-  try {
-    await db.query('SELECT 1');
-    result.db.connected = true;
-    const counts = ['users','delegation_tasks','checklist_tasks','fms_sheets'];
-    for (const t of counts) {
-      try {
-        const [[row]] = await db.query(`SELECT COUNT(*) AS c FROM ${t}`);
-        result.tables[t] = row.c;
-      } catch(e) { result.tables[t] = 'ERROR: ' + e.message; }
-    }
-    // Show users with their roles and departments
-    try {
-      const [users] = await db.query('SELECT id, name, role, department FROM users ORDER BY role, name');
-      result.users = users;
-    } catch(e) { result.users = 'ERROR: ' + e.message; }
-  } catch(e) {
-    result.db.connected = false;
-    result.db.error = e.message;
-  }
-  res.json(result);
 });
 
 // ══════════════════════════════════════════════════════
