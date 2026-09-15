@@ -1349,8 +1349,7 @@ app.get('/api/fms-dashboard', requireAuth, async (req, res) => {
         const tabName = sheet.sheet_name || 'Sheet1';
         const headerRowIdx = (sheet.header_row || 1) - 1;
 
-        const filteredSteps = steps; // fix: was undefined, use steps array
-        const allCols = filteredSteps.flatMap(s => [colToIdx(s.plan_col), colToIdx(s.actual_col)]).filter(x => x >= 0);
+        const allCols = steps.flatMap(s => [colToIdx(s.plan_col), colToIdx(s.actual_col)]).filter(x => x >= 0);
         if (!allCols.length) continue;
         const maxCol = Math.max(...allCols);
         const lastCol = idxToCol(maxCol);
@@ -2855,39 +2854,18 @@ app.get('/api/o2d-fms', requireAuth, async (req, res) => {
   }
 });
 
+// DISABLED — every cell in "Master." (order info AND every step's
+// Planned/Actual/Status) is computed: columns A-R spill in from an external
+// sheet via QUERY(IMPORTRANGE(...)), and each step's Actual/Status is an
+// ARRAYFORMULA doing a VLOOKUP into a different source tab (Step1, "FMS
+// Updation", Step4Response, "Takeout and loading5", "6", Loading13...).
+// Writing a literal value into any of those cells breaks the array formula
+// for that row (Sheets blocks/corrupts it the moment manual data lands in
+// its spill range). Confirmed by reading the cells with valueRenderOption
+// 'FORMULA' — do not re-enable this without writing to the real source tab
+// for that step instead of Master. directly.
 app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
-  try {
-    const row = parseInt(req.params.row, 10);
-    const stepNum = parseInt(req.params.stepNum, 10);
-    const stepDef = O2D_STEPS.find(s => s.n === stepNum);
-    if (!row || !stepDef) return res.status(400).json({ error: 'Invalid row or step number' });
-
-    const nowVal = sfmsDateToSerial(new Date());
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-
-    // status defaults to 'Yes' for plain completion steps; a step with a
-    // dropdown answer (e.g. Accounts ok? Yes/No) sends its selected value.
-    const batchData = [
-      { range: `'${O2D_TAB}'!${stepDef.actual}${row}`, values: [[nowVal]] },
-      { range: `'${O2D_TAB}'!${stepDef.status}${row}`, values: [[req.body.status || 'Yes']] }
-    ];
-    for (const e of stepDef.extra) {
-      if (req.body[e.key] !== undefined && req.body[e.key] !== '') {
-        batchData.push({ range: `'${O2D_TAB}'!${e.col}${row}`, values: [[req.body[e.key]]] });
-      }
-    }
-
-    await sheetsApi.spreadsheets.values.batchUpdate({
-      spreadsheetId: O2D_SHEET_ID,
-      requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
-    });
-
-    _o2dCache = null; // next GET re-reads the sheet so this write shows up right away
-    res.json({ success: true });
-  } catch (err) {
-    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    res.status(500).json({ error: err.message });
-  }
+  res.status(400).json({ error: 'Marking O2D steps done from here is disabled — "Master." is a computed view (ARRAYFORMULA/QUERY), not editable. Each step is actually completed via its own source tab/form; ask to have that wired up instead.' });
 });
 
 // ══════════════════════════════════════════════════════

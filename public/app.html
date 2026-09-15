@@ -2055,7 +2055,6 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
 <script>
 // ══════════════════════════════════════════════════════
 // DELEGATE BY ME — modal jisme login user ne jo tasks doosron ko delegate kiye un ki list dikhti hai
@@ -2907,8 +2906,6 @@ function tasksTab(type, el) {
   loadAllTasks();
 }
 
-function toggleBlock(header) { header.nextElementSibling.classList.toggle('open'); }
-
 // ══════════════════════════════════════════════════════
 // TASK ACTIONS
 // ══════════════════════════════════════════════════════
@@ -3145,19 +3142,6 @@ async function deleteComment(id) {
     const taskType = document.getElementById('commentTaskType').value;
     await loadComments(taskId, taskType);
   });
-}
-
-async function bulkDelete(userId) {
-  showConfirm({ icon:'🗑️', title:`Delete All Tasks?`, msg:`Is user ke saare ${tasksType} tasks permanently delete ho jayenge.`, okLabel:'Delete All', okColor:'#dc2626' }, async () => {
-    await api(`/api/tasks/user/${userId}?type=${tasksType}`,'DELETE');
-    loadAllTasks();
-  });
-}
-
-async function transferToday(userId) {
-  await api(`/api/tasks/user/${userId}/transfer-today?type=${tasksType}`,'PUT');
-  loadAllTasks();
-  showToast('Tasks moved to today!');
 }
 
 // ══════════════════════════════════════════════════════
@@ -3996,9 +3980,6 @@ document.addEventListener('keydown', function(e) {
 });
 
 // Modals sirf Cancel/Close button se band honge — bahar click se nahi
-// document.querySelectorAll('.modal-overlay').forEach(m=>{
-//   m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); });
-// });
 
 function logout() {
   localStorage.removeItem('authToken');
@@ -5791,7 +5772,6 @@ const O2D_STEP_DEFS = [
       { key: 'loaderName', label: 'Loader Name' }
     ] }
 ];
-const O2D_INPUT_STYLE = "width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
 const O2D_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
 
 let o2dData = [];
@@ -5980,15 +5960,6 @@ function renderO2dReportsView() {
     </div>`;
 }
 
-function renderO2dField(f, row) {
-  const id = `o2dExtra_${row}_${f.key}`;
-  return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${O2D_INPUT_STYLE}"/>`;
-}
-function readO2dField(f, row) {
-  const el = document.getElementById(`o2dExtra_${row}_${f.key}`);
-  return el ? el.value.trim() : '';
-}
-
 async function openO2dDetail(row) {
   const o = o2dData.find(x => x.row === row);
   if (!o) { showToast('Order not found — please refresh', 'error'); return; }
@@ -6023,22 +5994,18 @@ function renderO2dDetailBody(o) {
       </div>
     </div>`;
 
+  // Master. is a computed dashboard (every cell is an ARRAYFORMULA/QUERY
+  // pulling from the sheet's own source tabs/forms per step) — this app
+  // only reads it. No "Mark Done" here; that step's own form/tab is what
+  // actually needs filling in.
   const nextStepDef = O2D_STEP_DEFS.find(d => d.n === o.currentStep + 1);
   let actionHtml;
   if (nextStepDef) {
-    const statusSelectHtml = nextStepDef.statusOptions
-      ? `<select id="o2dStatusSelect_${o.row}" style="${O2D_INPUT_STYLE}"><option value="">-- Select --</option>${nextStepDef.statusOptions.map(v => `<option value="${v}">${v}</option>`).join('')}</select>`
-      : '';
-    const extraInputsHtml = nextStepDef.extraFields.map(f => renderO2dField(f, o.row)).join('');
-    const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     actionHtml = `
       <div style="border:1.5px solid #ddd6fe;background:#f5f3ff;border-radius:14px;padding:18px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:#6d28d9;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
+        <div style="font-size:11px;font-weight:700;color:#6d28d9;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Waiting On</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:#1e293b">${nextStepDef.label}</div>
-        ${nextStepDef.doer ? `<div style="font-size:12px;color:#94a3b8;margin-bottom:12px">Doer: ${nextStepDef.doer}</div>` : ''}
-        ${statusSelectHtml}
-        ${extraInputsHtml}
-        <button onclick="advanceO2dStep(${o.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
+        ${nextStepDef.doer ? `<div style="font-size:12px;color:#94a3b8">Doer: ${nextStepDef.doer}</div>` : ''}
       </div>`;
   } else {
     actionHtml = `<div style="text-align:center;color:#15803d;font-weight:700;font-size:15px;padding:18px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:14px;margin-bottom:16px">All 9 steps complete — order closed</div>`;
@@ -6083,25 +6050,6 @@ function renderO2dDetailBody(o) {
     </details>`;
 
   body.innerHTML = infoHtml + actionHtml + checklistHtml;
-}
-
-async function advanceO2dStep(row, step) {
-  const stepDef = O2D_STEP_DEFS.find(d => d.n === step);
-  const body = {};
-
-  if (stepDef.statusOptions) {
-    const statusEl = document.getElementById(`o2dStatusSelect_${row}`);
-    body.status = statusEl ? statusEl.value : '';
-    if (!body.status) { showToast(`Select ${stepDef.label}`, 'error'); return; }
-  }
-
-  for (const f of stepDef.extraFields) body[f.key] = readO2dField(f, row);
-
-  const res = await api(`/api/o2d-fms/${row}/step/${step}`, 'PUT', body);
-  if (res.error) { showToast(res.error, 'error'); return; }
-  showToast('✅ Step updated!');
-  await loadO2dFmsList();
-  closeModal('o2dDetailModal');
 }
 
 // ══════════════════════════════════════════════════════
@@ -6274,9 +6222,7 @@ async function openEditFMS() {
   fmsSheetHeaders = [];
   try {
     const payload = { sheetId: sheet.sheet_id, sheetName: sheet.sheet_name, headerRow: sheet.header_row };
-    console.log('Fetching headers:', payload);
     const hRes = await api('/api/fms/fetch-headers','POST', payload);
-    console.log('Headers response:', hRes);
     fmsSheetHeaders = hRes.headers || [];
     if (fmsSheetHeaders.length) showToast(`✅ ${fmsSheetHeaders.length} headers loaded!`);
     else showToast(`⚠️ ${hRes.error || 'No headers found'}`, 'error');
@@ -6329,8 +6275,6 @@ async function saveEditFMS() {
       if (labelEl) fmsSteps[i].extraRows[ri].label = labelEl.value;
     });
   });
-
-  console.log('Saving steps count:', fmsSteps.length); // debug
 
   const r = await api(`/api/fms/${fmsActiveId}`,'PUT',{
     fmsName: fmsName || sheetName,
@@ -6569,12 +6513,6 @@ function buildStepBoxHTML(idx) {
 
   // Show cols — multi-select badges
   const showColsSelected = s.showCols || [];
-  const showColsBadges = showColsSelected.map(ci=>{
-    const hdr = headers[ci] || { name:`COL ${ci}`, col:'' };
-    return `<span class="hdr-tag" onclick="removeFMSShowCol(${idx},${ci})">${hdr.name} <span class="rm">✕</span></span>`;
-  }).join('');
-  const unusedHeaders = headers.filter(h=>!showColsSelected.includes(h.index));
-  const showColsOpts = `<option value="">+ Add column to show</option>`+unusedHeaders.map(h=>`<option value="${h.index}">${h.name} (COL ${h.col})</option>`).join('');
 
   return `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
@@ -6676,21 +6614,6 @@ function buildStepBoxHTML(idx) {
     </div>`;
 }
 
-function addFMSShowCol(idx, colIndex) {
-  if (isNaN(colIndex)) return;
-  if (!fmsSteps[idx].showCols) fmsSteps[idx].showCols = [];
-  if (!fmsSteps[idx].showCols.includes(colIndex)) {
-    fmsSteps[idx].showCols.push(colIndex);
-    refreshStepBox(idx);
-  }
-}
-
-function removeFMSShowCol(idx, colIndex) {
-  if (!fmsSteps[idx].showCols) return;
-  fmsSteps[idx].showCols = fmsSteps[idx].showCols.filter(c=>c!==colIndex);
-  refreshStepBox(idx);
-}
-
 function updateStepNum(idx, val) {
   const boxes = document.querySelectorAll('.fms-step-box');
   boxes.forEach((b,i)=>{
@@ -6717,51 +6640,6 @@ function addFMSExtraRow(idx) {
   refreshStepBox(idx);
   setupMultiSelect(idx);
   updateFMSDoerTags(idx);
-}
-
-function buildExtraRowHTML(idx, ri, headers) {
-  const r = (fmsSteps[idx].extraRows || [])[ri] || {};
-  const colSel = headers.length
-    ? `<select onchange="onFMSExtraColChange(${idx},${ri},this)"
-        style="width:100%;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:7px;font-size:12px;font-family:'Inter',sans-serif;outline:none;background:#fff">
-        <option value="">-- Select Column --</option>
-        ${headers.map(h=>`<option value="${h.col}" data-name="${h.name}" ${r.col_letter===h.col?'selected':''}>${h.name} (COL ${h.col})</option>`).join('')}
-      </select>`
-    : `<input type="text" value="${r.col_letter||''}" placeholder="Col e.g. AS"
-        oninput="fmsSteps[${idx}].extraRows[${ri}].col_letter=this.value"
-        style="width:100%;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:7px;font-size:12px;font-family:'Inter',sans-serif;outline:none"/>`;
-  const labelField = `<input type="text" value="${(r.label||'').replace(/"/g,'&quot;')}" placeholder="Label (auto-filled from header)"
-    oninput="fmsSteps[${idx}].extraRows[${ri}].label=this.value"
-    id="fmsExtraLabel_${idx}_${ri}"
-    style="width:100%;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:7px;font-size:12px;font-family:'Inter',sans-serif;outline:none"/>`;
-  const ftSel = `<select onchange="onFMSExtraTypeChange(${idx},${ri},this.value)"
-    style="width:100%;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:7px;font-size:12px;font-family:'Inter',sans-serif;outline:none;background:#fff">
-    <option value="text" ${(r.field_type||'text')==='text'?'selected':''}>📝 Text</option>
-    <option value="number" ${r.field_type==='number'?'selected':''}>🔢 Number</option>
-    <option value="date" ${r.field_type==='date'?'selected':''}>📅 Date</option>
-    <option value="link" ${r.field_type==='link'?'selected':''}>🔗 Link</option>
-    <option value="dropdown" ${r.field_type==='dropdown'?'selected':''}>🔽 Dropdown</option>
-  </select>`;
-  const dropOptsSection = r.field_type==='dropdown' ? buildDropdownOptionsHTML(idx, ri, r) : '';
-  return `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">
-      <div>
-        <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">Column</div>
-        ${colSel}
-      </div>
-      <div>
-        <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">Label</div>
-        ${labelField}
-      </div>
-      <div>
-        <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">Field Type</div>
-        ${ftSel}
-      </div>
-      <div style="display:flex;align-items:flex-end">
-        <button class="action-btn delete" style="padding:5px 14px;width:100%" onclick="removeFMSExtraRow(${idx},${ri})">✕ Remove</button>
-      </div>
-    </div>
-    <div id="fmsDropOptSection_${idx}_${ri}">${dropOptsSection}</div>`;
 }
 
 function buildDropdownOptionsHTML(idx, ri, r) {
