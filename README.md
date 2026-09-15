@@ -1,4 +1,4 @@
-# Rajkamal - Task Manager (v20)
+# Ajanta Electronics - Task Manager (v20)
 
 ## 🆕 What's New in v20 — Employee Records (Plan vs Done)
 
@@ -37,7 +37,7 @@
 
 ---
 
-# Rajkamal - Task Manager (v16)
+# Ajanta Electronics - Task Manager (v16)
 
 ## What's New in v16
 
@@ -112,7 +112,7 @@ PORT=3000
 SESSION_SECRET=any_random_long_string
 SMTP_USER=yourgmail@gmail.com
 SMTP_PASS=abcdefghijklmnop
-SMTP_FROM_NAME=KSX Task Manager
+SMTP_FROM_NAME=Ajanta Electronics Task Manager
 APP_URL=https://yourdomain.com
 ```
 

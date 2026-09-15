@@ -64,6 +64,7 @@ const bcrypt = require('bcryptjs'); // only for comparing legacy bcrypt hashes (
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 // Plain text password storage + legacy bcrypt migration.
 // Passwords are stored as plain text so admins can see them in the sheet.
@@ -181,7 +182,7 @@ function delegationEmailHtml({ assigneeName, assignerName, desc, dueDate, priori
         ${remarks ? `<tr><td style="padding:8px;background:#f0f4f8;"><b>Remarks</b></td><td style="padding:8px;">${remarks}</td></tr>` : ''}
       </table>
       <a href="${appUrl}" style="display:inline-block;background:#1976d2;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;">Open Task Manager</a>
-      <p style="color:#777;font-size:12px;margin-top:30px;">This is an automated email from Rajkamal Task Manager.</p>
+      <p style="color:#777;font-size:12px;margin-top:30px;">This is an automated email from Ajanta Electronics Task Manager.</p>
     </div>
   </div>`;
 }
@@ -441,6 +442,60 @@ async function getSheetsClient(scopes) {
     console.log('  ✅ Google Auth pre-warmed');
   } catch(e) { console.log('  ⚠️ Google Auth pre-warm failed:', e.message); }
 })();
+
+// ══════════════════════════════════════════════════════
+// GOOGLE DRIVE — photo uploads (Service FMS bill/product photos)
+// Service accounts have no storage quota of their own, so uploads only work
+// inside a Shared Drive the account has been added to as a member.
+// ══════════════════════════════════════════════════════
+const SFMS_PHOTOS_DRIVE_ID = '0APU6dyk7HwhXUk9PVA';
+let _driveClient = null;
+async function getDriveClient() {
+  if (_driveClient) return _driveClient;
+  const { google } = require('googleapis');
+  let creds;
+  if (process.env.GOOGLE_CREDENTIALS_B64) {
+    creds = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_B64.replace(/[^A-Za-z0-9+/=]/g, ''), 'base64').toString('utf8'));
+  } else if (process.env.GOOGLE_CREDENTIALS) {
+    creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+  } else {
+    creds = require('./credentials.json');
+  }
+  if (creds && creds.private_key) {
+    creds.private_key = creds.private_key.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
+  }
+  const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/drive'] });
+  _driveClient = google.drive({ version: 'v3', auth: await auth.getClient() });
+  return _driveClient;
+}
+
+// Uploads a data-URI (e.g. "data:image/jpeg;base64,...") to the Shared Drive,
+// makes it viewable by anyone with the link, and returns that link — same
+// format already used by older complaints' Drive-based photo links.
+async function uploadPhotoToDrive(dataUri, filename) {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUri);
+  if (!match) throw new Error('Invalid image data');
+  const [, mimeType, base64Data] = match;
+  const buffer = Buffer.from(base64Data, 'base64');
+
+  const { Readable } = require('stream');
+  const drive = await getDriveClient();
+  const created = await drive.files.create({
+    requestBody: { name: filename, parents: [SFMS_PHOTOS_DRIVE_ID] },
+    media: { mimeType, body: Readable.from(buffer) },
+    supportsAllDrives: true,
+    fields: 'id'
+  });
+  const fileId = created.data.id;
+
+  await drive.permissions.create({
+    fileId,
+    supportsAllDrives: true,
+    requestBody: { role: 'reader', type: 'anyone' }
+  });
+
+  return `https://drive.google.com/open?id=${fileId}`;
+}
 
 function extractSpreadsheetId(raw) {
   const s = (raw || '').trim();
@@ -1539,331 +1594,6 @@ app.get('/api/mis/fms', requireAuth, requireAdminOrHod, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── zRetail ERP SQL Server (live sales data for Target MIS) ──
-const sql = require('mssql');
-let _sqlPool = null;
-async function getSqlPool() {
-  if (_sqlPool && _sqlPool.connected) return _sqlPool;
-  const connectPromise = new sql.ConnectionPool({
-    server: process.env.SQL_SERVER,
-    port: parseInt(process.env.SQL_PORT, 10),
-    user: process.env.SQL_USER,
-    password: process.env.SQL_PASSWORD,
-    database: process.env.SQL_DATABASE,
-    options: { encrypt: false, trustServerCertificate: true },
-    // A single IMS report computation fires ~14 queries in one burst (the main
-    // Promise.all in computeImsReportsData) — with max:15 that already leaves almost
-    // no headroom, and two overlapping computations (e.g. the background prewarm
-    // firing while a real request is in flight) queue behind each other for a free
-    // connection, turning ~1-2s queries into 40s+ waits. Observed directly while
-    // diagnosing a slow-report report — not the SQL Server itself being slow.
-    pool: { max: 30, min: 0, idleTimeoutMillis: 30000 },
-    connectionTimeout: 15000,
-    requestTimeout: 60000   // IMS "All time" reports can scan years of history — default 15s is too tight
-  }).connect();
-  // Belt-and-suspenders on top of connectionTimeout above: some serverless network
-  // environments silently drop outbound connections to an unreachable host without
-  // ever surfacing the driver's own timeout, leaving the request hanging until the
-  // platform's own function limit kills it uncleanly (observed on Vercel:
-  // FUNCTION_INVOCATION_TIMEOUT instead of a clean JSON error). Race a hard deadline
-  // so an unreachable SQL Server always fails fast, on every platform.
-  const pool = await Promise.race([
-    connectPromise,
-    new Promise((_, reject) => setTimeout(
-      () => reject(new Error(`Failed to connect to ${process.env.SQL_SERVER}:${process.env.SQL_PORT} (timed out)`)),
-      15000
-    ))
-  ]);
-  connectPromise.catch(() => {}); // avoid an unhandled rejection if the pool connects late, after we've already timed out
-  _sqlPool = pool;
-  return _sqlPool;
-}
-
-// Target MIS — admin-configurable categories: any number of groups, each with
-// its own salesperson codes, target amount, and Monthly/Quarterly/Yearly split.
-// Replaces the old hardcoded 2-group (Saree/Suite) system.
-
-// Shared: salesperson code -> net sales amount for a date range, straight from
-// the ERP. SalesPersonName holds the short code (AK, RA, ...).
-async function getSalespersonSalesMap(from, to) {
-  if (!process.env.SQL_SERVER) throw new Error('SQL Server not configured');
-  const pool = await getSqlPool();
-  const result = await pool.request()
-    .input('from', sql.Date, from)
-    .input('to', sql.Date, to)
-    .query(`
-      SELECT sp.SalesPersonName AS name, SUM(d.NetAmount) AS amount
-      FROM InvCashmemoDetail d
-      JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
-      JOIN MstSalesPerson sp ON sp.SalesPersonId = d.SalesPersonId_1
-      WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to
-      GROUP BY sp.SalesPersonName
-    `);
-  const map = {};
-  result.recordset.forEach(r => { map[String(r.name || '').trim().toUpperCase()] = Math.round(r.amount || 0); });
-  return map;
-}
-
-const TARGET_PERIOD_LABELS = {
-  monthly: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
-  quarterly: ['Q1','Q2','Q3','Q4'],
-  yearly: ['FY']
-};
-function defaultTargetPeriods(periodType) {
-  const labels = TARGET_PERIOD_LABELS[periodType] || TARGET_PERIOD_LABELS.monthly;
-  const pct = periodType === 'yearly' ? 100 : 0;
-  return labels.map(label => ({ label, pct }));
-}
-// Calendar [start,end] (UTC) for period `index` of `periodType` within `year`.
-function targetPeriodRange(year, periodType, index) {
-  if (periodType === 'quarterly') {
-    const startMonth = index * 3;
-    return { start: new Date(Date.UTC(year, startMonth, 1)), end: new Date(Date.UTC(year, startMonth + 3, 0)) };
-  }
-  if (periodType === 'yearly') return { start: new Date(Date.UTC(year, 0, 1)), end: new Date(Date.UTC(year, 11, 31)) };
-  return { start: new Date(Date.UTC(year, index, 1)), end: new Date(Date.UTC(year, index + 1, 0)) };
-}
-function parseTargetCategoryRow(row) {
-  let periods = [];
-  try { periods = JSON.parse(row.periods_json || '[]'); } catch (e) { periods = []; }
-  return {
-    id: row.id, year: row.year, category_name: row.category_name,
-    codes: String(row.codes || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
-    period_type: row.period_type || 'monthly', periods,
-    target_amount: Number(row.target_amount) || 0
-  };
-}
-
-// One-time migration: old sales_targets (group_key based, hardcoded 3-month
-// Saree/Suite split) -> new sales_target_categories. Codes used to live only
-// in the frontend, never in the sheet, so they're hardcoded here just for
-// this one-time conversion.
-const LEGACY_TARGET_GROUPS = {
-  shree: { name: 'Saree', codes: ['AK','ASK','RA','KS'] },
-  suit:  { name: 'Suite', codes: ['AA','MS','MJ','SN','KR','RS','SD'] }
-};
-async function migrateLegacyTargetsIfNeeded(year) {
-  const [existing] = await db.query('SELECT id FROM sales_target_categories');
-  if (existing.length) return;
-  const [oldRows] = await db.query('SELECT * FROM sales_targets');
-  if (!oldRows.length) return;
-  for (const r of oldRows) {
-    const legacy = LEGACY_TARGET_GROUPS[r.group_key];
-    if (!legacy) continue;
-    const periods = defaultTargetPeriods('monthly');
-    periods[6].pct = Number(r.month1_pct) || 0;  // Jul
-    periods[7].pct = Number(r.month2_pct) || 0;  // Aug
-    periods[8].pct = Number(r.month3_pct) || 0;  // Sep
-    await db.execute(
-      `INSERT INTO sales_target_categories (year, category_name, codes, period_type, periods_json, target_amount, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [year, legacy.name, legacy.codes.join(','), 'monthly', JSON.stringify(periods), r.target_amount, 'migration']
-    );
-  }
-  console.log('  🎯 Migrated legacy Saree/Suite targets into sales_target_categories');
-}
-
-app.get('/api/mis/target-categories', requireAuth, async (req, res) => {
-  try {
-    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
-    await migrateLegacyTargetsIfNeeded(year);
-    const [rows] = await db.query('SELECT * FROM sales_target_categories WHERE year=? ORDER BY id', [year]);
-    res.json({ categories: rows.map(parseTargetCategoryRow) });
-  } catch (err) {
-    console.error('[Target Categories] read error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-function validateTargetCategoryBody(body) {
-  const { year, category_name, codes, period_type, periods } = body || {};
-  if (!year || !category_name || !Array.isArray(codes) || !codes.length) return 'year, category_name, codes required';
-  if (!['monthly', 'quarterly', 'yearly'].includes(period_type)) return 'period_type must be monthly, quarterly, or yearly';
-  if (!Array.isArray(periods) || !periods.length) return 'periods required';
-  return null;
-}
-
-app.post('/api/mis/target-categories', requireAuth, requireAdminOrHod, async (req, res) => {
-  try {
-    const err = validateTargetCategoryBody(req.body);
-    if (err) return res.status(400).json({ error: err });
-    const { year, category_name, codes, period_type, periods, target_amount } = req.body;
-    const [result] = await db.execute(
-      `INSERT INTO sales_target_categories (year, category_name, codes, period_type, periods_json, target_amount, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [parseInt(year, 10), category_name, codes.map(c => String(c).trim().toUpperCase()).join(','), period_type,
-       JSON.stringify(periods), parseInt(target_amount, 10) || 0, req.session.userId]
-    );
-    res.json({ success: true, id: result.insertId });
-  } catch (err) {
-    console.error('[Target Categories] create error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/mis/target-categories/:id', requireAuth, requireAdminOrHod, async (req, res) => {
-  try {
-    const err = validateTargetCategoryBody(req.body);
-    if (err) return res.status(400).json({ error: err });
-    const { year, category_name, codes, period_type, periods, target_amount } = req.body;
-    await db.execute(
-      `UPDATE sales_target_categories SET year=?, category_name=?, codes=?, period_type=?, periods_json=?, target_amount=?, updated_by=? WHERE id=?`,
-      [parseInt(year, 10), category_name, codes.map(c => String(c).trim().toUpperCase()).join(','), period_type,
-       JSON.stringify(periods), parseInt(target_amount, 10) || 0, req.session.userId, req.params.id]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[Target Categories] update error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/mis/target-categories/:id', requireAuth, requireAdminOrHod, async (req, res) => {
-  try {
-    await db.execute('DELETE FROM sales_target_categories WHERE id=?', [req.params.id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[Target Categories] delete error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Target MIS report: achieved sales per category (live SQL) vs the target for
-// whichever period(s) [from,to] overlaps, plus an "Others" bucket for any
-// salesperson code not assigned to any category (visible, never counted
-// toward a category's achievement).
-app.get('/api/mis/target-report', requireAuth, async (req, res) => {
-  try {
-    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
-    const toDate = req.query.to || new Date().toISOString().slice(0, 10);
-    const fromDate = req.query.from || `${year}-01-01`;
-    const categoryFilter = req.query.category && req.query.category !== 'All' ? req.query.category : null;
-    const spFilter = req.query.salesperson && req.query.salesperson !== 'All' ? String(req.query.salesperson).trim().toUpperCase() : null;
-
-    await migrateLegacyTargetsIfNeeded(year);
-    const [rows] = await db.query('SELECT * FROM sales_target_categories WHERE year=? ORDER BY id', [year]);
-    const categories = rows.map(parseTargetCategoryRow);
-
-    const rangeStart = new Date(fromDate + 'T00:00:00Z');
-    const rangeEnd = new Date(toDate + 'T00:00:00Z');
-    const overlaps = (a, b, c, d) => a <= d && c <= b;
-
-    // "Achieved" (and Others) must only reflect sales within periods that
-    // actually carry a target — otherwise a wide filter like "All Year"
-    // sums e.g. Jan-Jun sales against a target that only exists for Jul-Sep,
-    // producing a nonsensical >100% achievement and an inflated Others total.
-    // Clip the sales query window to the overlap of [from,to] and the union
-    // of every category's active (pct>0) target periods.
-    let minStart = null, maxEnd = null;
-    categories.forEach(cat => {
-      cat.periods.forEach((p, i) => {
-        if (!p.pct) return;
-        const { start, end } = targetPeriodRange(cat.year, cat.period_type, i);
-        if (!overlaps(start, end, rangeStart, rangeEnd)) return;
-        if (!minStart || start < minStart) minStart = start;
-        if (!maxEnd || end > maxEnd) maxEnd = end;
-      });
-    });
-    const effStart = minStart && minStart > rangeStart ? minStart : rangeStart;
-    const effEnd = maxEnd && maxEnd < rangeEnd ? maxEnd : rangeEnd;
-    const effFromDate = effStart.toISOString().slice(0, 10);
-    const effToDate = effEnd.toISOString().slice(0, 10);
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const todayUTC = new Date(todayStr + 'T00:00:00Z');
-    const [salesMap, todayMap] = await Promise.all([
-      getSalespersonSalesMap(effFromDate, effToDate),
-      getSalespersonSalesMap(todayStr, todayStr)
-    ]);
-
-    const assignedCodes = new Set();
-    let result = categories.map(cat => {
-      cat.codes.forEach(c => assignedCodes.add(c));
-      let targetForRange = 0;
-      cat.periods.forEach((p, i) => {
-        const { start, end } = targetPeriodRange(cat.year, cat.period_type, i);
-        if (overlaps(start, end, rangeStart, rangeEnd)) targetForRange += Math.round(cat.target_amount * (p.pct || 0) / 100);
-      });
-      const bySp = cat.codes.map(code => ({ code, amount: salesMap[code] || 0, today: todayMap[code] || 0 }));
-      const achieved = bySp.reduce((s, r) => s + r.amount, 0);
-      return { id: cat.id, category_name: cat.category_name, codes: cat.codes, period_type: cat.period_type,
-        target_amount: cat.target_amount, targetForRange, achieved, bySp, _cat: cat };
-    });
-
-    const others = Object.entries(salesMap)
-      .filter(([code]) => !assignedCodes.has(code))
-      .map(([code, amount]) => ({ code, amount, today: todayMap[code] || 0 }))
-      .sort((a, b) => b.amount - a.amount);
-
-    if (categoryFilter) result = result.filter(c => String(c.id) === String(categoryFilter));
-    const isOthersFilter = spFilter === 'OTHERS';
-    if (isOthersFilter) {
-      result = []; // "Others" isn't assigned to any category by definition
-    } else if (spFilter) {
-      result = result.filter(c => c.codes.includes(spFilter));
-      result.forEach(c => { c.bySp = c.bySp.filter(s => s.code === spFilter); c.achieved = c.bySp.reduce((s, r) => s + r.amount, 0); });
-    }
-    const othersOut = isOthersFilter ? others : (spFilter ? others.filter(o => o.code === spFilter) : others);
-
-    // Per-period (Month/Quarter/FY) breakdown — the category's own defined
-    // calendar periods with pct>0, independent of the [from,to] range filter
-    // above. Needed for "Today's Sale" and "Need to sell per day" columns.
-    const periodMapCache = {};
-    const periodKeys = new Set();
-    result.forEach(c => {
-      c._cat.periods.forEach((p, i) => {
-        if (!p.pct) return;
-        const { start, end } = targetPeriodRange(c._cat.year, c._cat.period_type, i);
-        periodKeys.add(`${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`);
-      });
-    });
-    await Promise.all([...periodKeys].map(async key => {
-      const [s, e] = key.split('|');
-      periodMapCache[key] = await getSalespersonSalesMap(s, e);
-    }));
-
-    result.forEach(c => {
-      const codes = c.bySp.map(s => s.code);
-      c.periodBreakdown = c._cat.periods.map((p, i) => {
-        if (!p.pct) return null;
-        const { start, end } = targetPeriodRange(c._cat.year, c._cat.period_type, i);
-        const key = `${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`;
-        const map = periodMapCache[key] || {};
-        const achieved = codes.reduce((s2, code) => s2 + (map[code] || 0), 0);
-        const target = Math.round(c._cat.target_amount * p.pct / 100);
-        const pending = Math.max(0, target - achieved);
-        const todayInPeriod = todayUTC >= start && todayUTC <= end;
-        const todaySale = todayInPeriod ? codes.reduce((s2, code) => s2 + (todayMap[code] || 0), 0) : null;
-        // "Need to sell per day" = pending / days left in the period (from today, or
-        // from period start if the period hasn't begun yet). Past periods -> null.
-        let needPerDay = null;
-        if (todayUTC <= end) {
-          const remainStart = todayUTC > start ? todayUTC : start;
-          const remainingDays = Math.floor((end - remainStart) / 86400000) + 1;
-          needPerDay = remainingDays > 0 ? Math.round(pending / remainingDays) : 0;
-        }
-        return {
-          label: p.label, target, achieved, pending,
-          achievementPct: target ? (achieved / target * 100) : (achieved > 0 ? 100 : 0),
-          todaySale, needPerDay
-        };
-      }).filter(Boolean);
-      delete c._cat;
-    });
-
-    res.json({
-      year, from: fromDate, to: toDate,
-      effFrom: effFromDate, effTo: effToDate, // actual window "Achieved" figures were summed over
-      categories: result,
-      others: othersOut,
-      othersTotal: othersOut.reduce((s, r) => s + r.amount, 0),
-      othersTodaySale: othersOut.reduce((s, r) => s + (r.today || 0), 0)
-    });
-  } catch (err) {
-    console.error('[Target Report] error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ══════════════════════════════════════════════════════
 // EMPLOYEE RECORDS  (Admin / HOD / PC) — Plan vs Done
 // ──────────────────────────────────────────────────────
@@ -2552,6 +2282,604 @@ app.post('/api/fms-tasks/:fmsId/steps/:stepId/done', requireAuth, async (req, re
 });
 
 // ══════════════════════════════════════════════════════
+// SERVICE FMS — live-connected to the real "Complain FMS" Google Sheet
+// (Sheet: "Service FMS-AE" — this is the customer's own production sheet,
+// not our app's Google Sheet DB. We read/write specific cells directly.)
+// ══════════════════════════════════════════════════════
+const SFMS_SHEET_ID = '1sim5xXi7uKiUdLh_O1NjWbB9b047p9VVW-Z8oAG1gSE';
+const SFMS_TAB = 'Complain FMS';
+const SFMS_HEADER_ROW = 6;
+const SFMS_DATA_START_ROW = 7;
+const SFMS_LAST_COL = 'BJ';
+const SFMS_PHOTO_MAX_CHARS = 40000; // stays under the 45k Sheets cell limit
+const SFMS_OTP_CODE_COL = 'AN';
+const SFMS_OTP_SENT_COL = 'AO';
+const SFMS_OTP_TTL_MS = 30 * 60 * 1000; // OTP valid for 30 minutes after send
+const SFMS_ITEMS_TAB = 'Items';
+const SFMS_MECHANICS_TAB = 'Mechanics';
+
+// NOTE: 2026-07-20 — reordered so the OTP/location-confirmation step now comes
+// right after the mechanic is assigned (step 5), and the field spare in/out
+// entry comes after that (step 6), with a new "Complaint Solved?" step 7 that
+// repeats (via requireValue) until answered "Yes" before Evening Review (step 8).
+// Column letters below were verified directly against the live sheet's header
+// row (an earlier version of this file had them wrong — AH-AM+AN/AO is step 5,
+// AP-AU is step 6, confirmed by reading row 6 directly rather than assuming).
+// Step 6 is a single actual/status pair here, not two-stage — the sheet tracks
+// only how many pieces came back plus a reason if short, not a separate
+// out-then-in pair of events. Six brand-new columns were appended at the end
+// (BE-BJ) for Step 3's item name and the new Step 7. BC/BD (old Final
+// Status/Holidays) and BF/BH (unused now that Step 6 isn't two-stage) are
+// left in place, just no longer read or written.
+const SFMS_STEPS = [
+  { n: 1, label: 'Check Product in Warranty', planned: 'O', actual: 'P', status: 'Q', timeDelay: 'R', extra: [] },
+  { n: 2, label: 'Spare Available?', planned: 'S', actual: 'T', status: 'U', timeDelay: 'V', extra: [] },
+  { n: 3, label: 'Takeout Spare', planned: 'W', actual: 'X', status: 'Y',
+    extra: [
+      { key: 'itemName', col: 'BE', label: 'Item Name' },
+      { key: 'spareTaken', col: 'Z', label: 'Qty' },
+      { key: 'spareReturned', col: 'AA', label: 'Spares Returned' }
+    ],
+    timeDelay: 'AB' },
+  { n: 4, label: 'Assign Complaint to Mechanic After Batching', planned: 'AC', actual: 'AD', status: 'AE',
+    extra: [{ key: 'mechanic', col: 'AF', label: 'Mechanic Name' }], timeDelay: 'AG' },
+  // Mechanic reaching the customer's location — OTP-gated, plus a repair-status answer.
+  { n: 5, label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
+    extra: [{ key: 'repairStatus', col: 'AK', label: 'Repair Status' }],
+    timeDelay: 'AM', otpRequired: true },
+  // Spare in/out for the field visit — how many pieces came back, and why if short.
+  { n: 6, label: 'Spare In/Out Entry (in the field)', planned: 'AP', actual: 'AQ', status: 'AT',
+    extra: [
+      { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
+      { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' }
+    ],
+    timeDelay: 'AU' },
+  // Repeats until answered "Yes" — a "No" is recorded (so there's a check-in trail) but
+  // does not advance currentStep, so this stays the next action every time it's revisited.
+  { n: 7, label: 'Complaint Solved?', actual: 'BJ', status: 'BI', extra: [], requireValue: 'Yes' },
+  { n: 8, label: 'Evening Review', planned: 'AV', actual: 'AW', status: 'AX', timeDelay: 'AY',
+    extra: [
+      { key: 'distanceChargesAgree', col: 'AZ', label: 'Distance Charges Agreed by Customer' },
+      { key: 'amount', col: 'BA', label: 'Amount' },
+      { key: 'remark', col: 'BB', label: 'Remark' }
+    ] }
+];
+
+function sfmsSerialToDate(n) {
+  if (n === '' || n === null || n === undefined) return '';
+  if (typeof n !== 'number') return String(n);
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n * 86400000));
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+// Inverse of sfmsSerialToDate — write real numeric date-serial values (matching
+// how every existing row already stores dates), never date-like strings. A
+// plain string here can silently break the sheet's own TIMEVALUE()-based
+// automation for "Planned" dates if its format doesn't match the sheet locale.
+function sfmsDateToSerial(date) {
+  return (date.getTime() - Date.UTC(1899, 11, 30)) / 86400000;
+}
+
+// Maytapi WhatsApp API
+const MAYTAPI_PRODUCT_ID = process.env.MAYTAPI_PRODUCT_ID;
+const MAYTAPI_PHONE_ID = process.env.MAYTAPI_PHONE_ID;
+
+function sfmsNormalizeMobile(mobile) {
+  const digits = String(mobile || '').replace(/\D/g, '');
+  const last10 = digits.slice(-10);
+  return last10.length === 10 ? `91${last10}` : null;
+}
+
+async function sendMaytapiWhatsApp(mobile, text) {
+  const token = process.env.MAYTAPI_TOKEN;
+  if (!token || !MAYTAPI_PRODUCT_ID || !MAYTAPI_PHONE_ID) throw new Error('Maytapi is not configured (missing product ID, phone ID or token)');
+  const to = sfmsNormalizeMobile(mobile);
+  if (!to) throw new Error('Invalid mobile number on file');
+
+  const res = await fetch(`https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-maytapi-key': token },
+    body: JSON.stringify({ to_number: to, type: 'text', message: text })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) throw new Error((data.message || data.error) || `WhatsApp send failed (HTTP ${res.status})`);
+  return data;
+}
+
+app.get('/api/service-fms', requireAuth, async (req, res) => {
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const result = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: SFMS_SHEET_ID,
+      range: `'${SFMS_TAB}'!A${SFMS_DATA_START_ROW}:${SFMS_LAST_COL}`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    const rows = result.data.values || [];
+    const complaints = rows.map((r, i) => {
+      const rowNum = SFMS_DATA_START_ROW + i;
+      const get = col => r[colToIdx(col)];
+      if (!get('B')) return null; // skip blank rows
+      const c = {
+        row: rowNum,
+        timestamp: sfmsSerialToDate(get('A')),
+        complainNo: get('B') || '',
+        filledByName: get('C') || '',
+        mobile: get('D') || '',
+        customerType: get('E') || '',
+        dealerName: get('F') || '',
+        productName: get('G') || '',
+        purchaseDate: sfmsSerialToDate(get('H')),
+        problemDescription: get('I') || '',
+        billPhoto: get('J') || '',
+        productPhoto: get('K') || '',
+        productLocation: get('L') || '',
+        address: get('M') || '',
+        area: get('N') || ''
+      };
+      c.steps = SFMS_STEPS.map(sd => {
+        const step = {
+          n: sd.n, label: sd.label,
+          planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
+          status: get(sd.status) || ''
+        };
+        if (sd.twoStage) {
+          step.out = sfmsSerialToDate(get(sd.out));
+          step.in = sfmsSerialToDate(get(sd.in));
+        } else {
+          step.actual = sfmsSerialToDate(get(sd.actual));
+        }
+        sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
+        return step;
+      });
+      let currentStep = 0;
+      for (let i = 0; i < SFMS_STEPS.length; i++) {
+        const sd = SFMS_STEPS[i], s = c.steps[i];
+        if (s.status && (!sd.requireValue || s.status === sd.requireValue)) currentStep = sd.n;
+        else break;
+      }
+      c.currentStep = currentStep;
+      c.closed = currentStep === SFMS_STEPS.length;
+      return c;
+    }).filter(Boolean);
+
+    complaints.reverse(); // newest first
+    res.json(complaints);
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/service-fms', requireAuth, async (req, res) => {
+  try {
+    const {
+      filledByName, mobile, customerType, dealerName, productName, purchaseDate,
+      problemDescription, billPhoto, productPhoto, productLocation, address, area
+    } = req.body;
+    if (!filledByName || !mobile || !productName || !problemDescription) {
+      return res.status(400).json({ error: 'Name, mobile, product name and problem description are required' });
+    }
+    if (billPhoto && billPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Bill photo is too large — try a smaller/compressed image' });
+    if (productPhoto && productPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Product photo is too large — try a smaller/compressed image' });
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    const colB = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${SFMS_DATA_START_ROW}:B`, valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    const bRows = colB.data.values || [];
+    let maxNum = 0;
+    bRows.forEach(r => { const m = String(r[0] || '').match(/C-(\d+)/); if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10)); });
+    const complainNo = `C-${maxNum + 1}`;
+    const timestamp = sfmsDateToSerial(new Date());
+    const purchaseDateSerial = purchaseDate ? sfmsDateToSerial(new Date(purchaseDate + 'T00:00:00Z')) : '';
+
+    // Photos are uploaded to Drive (never stored as raw base64 in the sheet) —
+    // the sheet cell only ever holds the resulting share link.
+    let billPhotoLink = '', productPhotoLink = '';
+    if (billPhoto) billPhotoLink = await uploadPhotoToDrive(billPhoto, `${complainNo}-bill.jpg`);
+    if (productPhoto) productPhotoLink = await uploadPhotoToDrive(productPhoto, `${complainNo}-product.jpg`);
+
+    // append (not a computed-row update) so a stale/short bRows read can never
+    // overwrite an existing row — Sheets itself finds the true last row.
+    const appendRes = await sheetsApi.spreadsheets.values.append({
+      spreadsheetId: SFMS_SHEET_ID,
+      range: `'${SFMS_TAB}'!A${SFMS_DATA_START_ROW}:N`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [[
+        timestamp, complainNo, filledByName, mobile, customerType || '', dealerName || '',
+        productName, purchaseDateSerial, problemDescription, billPhotoLink, productPhotoLink,
+        productLocation || '', address || '', area || ''
+      ]] }
+    });
+    const writtenRange = appendRes.data.updates.updatedRange; // e.g. "'Complain FMS'!A195:N195"
+    const nextRow = parseInt(writtenRange.match(/![A-Z]+(\d+)/)[1], 10);
+
+    // The sheet's own row-creation flow only ever copied down the "Planned" date
+    // formulas for the first 3 steps (O/S/W) — every complaint made through this
+    // app was silently missing them for steps 4/5/6/8 (AC/AH/AP/AV). Write the
+    // exact same per-row formula pattern every older row already has, so newly
+    // created complaints behave identically.
+    const r = nextRow;
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID,
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data: [
+          { range: `'${SFMS_TAB}'!O${r}`, values: [[`=IF(A${r}<>"",IFS(HOUR(A${r}+O$5)>$D$1,workday.intl(A${r},1,"0000001")+$C$1/24+O$5,HOUR(A${r}+O$5)<$C$1,Datevalue(A${r})+$C$1/24+O$5,and(hour(A${r}+O$5)>=$C$1,hour(A${r}+O$5)<=$D$1),A${r}+O$5),"")`]] },
+          { range: `'${SFMS_TAB}'!S${r}`, values: [[`=IF(P${r}<>"",IFS(HOUR(P${r}+S$5)>$D$1,workday.intl(P${r},1,"0000001")+$C$1/24+S$5,HOUR(P${r}+S$5)<$C$1,Datevalue(P${r})+$C$1/24+S$5,and(hour(P${r}+S$5)>=$C$1,hour(P${r}+S$5)<=$D$1),P${r}+S$5),"")`]] },
+          { range: `'${SFMS_TAB}'!W${r}`, values: [[`=if(T${r},workday.intl(int(T${r}),0,"0000001",Holidays!A:A)+"17:00","")`]] },
+          { range: `'${SFMS_TAB}'!AC${r}`, values: [[`=if(X${r},workday.intl(int(X${r}),0,"0000001",Holidays!A:A)+"18:00","")`]] },
+          { range: `'${SFMS_TAB}'!AH${r}`, values: [[`=if(AD${r},workday.intl(int(AD${r}),0,"0000001",Holidays!A:A)+"18:00","")`]] },
+          { range: `'${SFMS_TAB}'!AP${r}`, values: [[`=if(AI${r},WORKDAY.INTL(AI${r},AN$5,"0000001",Holidays!A:A)+hour(AI${r})/24+MINUTE(AI${r})/1440,"")`]] },
+          { range: `'${SFMS_TAB}'!AV${r}`, values: [[`=if(AO${r},workday.intl(int(AO${r}),0,"0000001",Holidays!A:A)+"19:30","")`]] }
+        ]
+      }
+    });
+
+    res.json({ success: true, row: nextRow, complainNo });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Sends a 6-digit OTP to the customer's WhatsApp; the mechanic must read it
+// from the customer and enter it to mark Step 6 (Complaint Solve) done.
+app.post('/api/service-fms/:row/step/:stepNum/send-otp', requireAuth, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    const stepNum = parseInt(req.params.stepNum, 10);
+    const stepDef = SFMS_STEPS.find(s => s.n === stepNum);
+    if (!row || !stepDef || !stepDef.otpRequired) return res.status(400).json({ error: 'Invalid row or step number' });
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const rowRes = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: SFMS_SHEET_ID,
+      range: `'${SFMS_TAB}'!D${row}:D${row}`
+    });
+    const mobile = (rowRes.data.values && rowRes.data.values[0] && rowRes.data.values[0][0]) || '';
+    if (!mobile) return res.status(400).json({ error: 'No customer mobile number on file for this complaint' });
+
+    const otp = String(crypto.randomInt(100000, 1000000));
+    const sentAtIso = new Date().toISOString();
+
+    await sendMaytapiWhatsApp(mobile, `Ajanta Electronics Service: Your OTP to confirm the technician's visit is ${otp}. Please share this with the technician. Valid for 30 minutes.`);
+
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data: [
+          { range: `'${SFMS_TAB}'!${SFMS_OTP_CODE_COL}${row}`, values: [[otp]] },
+          { range: `'${SFMS_TAB}'!${SFMS_OTP_SENT_COL}${row}`, values: [[sentAtIso]] }
+        ]
+      }
+    });
+
+    res.json({ success: true, otp: req.session.role === 'admin' ? otp : undefined });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Master lists (Items, Mechanics) — single-column tabs in the same spreadsheet,
+// backing the dropdown + "add new" fields on Steps 3, 4 and 6.
+async function sfmsGetList(tab) {
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const result = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: SFMS_SHEET_ID,
+    range: `'${tab}'!A2:A`
+  });
+  return (result.data.values || []).map(r => r[0]).filter(Boolean);
+}
+async function sfmsAddToList(tab, name) {
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+  await sheetsApi.spreadsheets.values.append({
+    spreadsheetId: SFMS_SHEET_ID,
+    range: `'${tab}'!A:A`,
+    valueInputOption: 'USER_ENTERED',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [[name]] }
+  });
+}
+
+app.get('/api/service-fms/items', requireAuth, async (req, res) => {
+  try { res.json(await sfmsGetList(SFMS_ITEMS_TAB)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/service-fms/items', requireAuth, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Item name is required' });
+    await sfmsAddToList(SFMS_ITEMS_TAB, name);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Mechanics tab has a second column (B = Mobile) so the Mechanic-Wise report
+// can WhatsApp a mechanic directly via Maytapi instead of opening wa.me.
+async function sfmsGetMechanics() {
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const result = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: SFMS_SHEET_ID,
+    range: `'${SFMS_MECHANICS_TAB}'!A2:B`
+  });
+  return (result.data.values || [])
+    .filter(r => r[0])
+    .map(r => ({ name: r[0], mobile: r[1] || '' }));
+}
+async function sfmsSetMechanicMobile(name, mobile) {
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+  const result = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: SFMS_SHEET_ID,
+    range: `'${SFMS_MECHANICS_TAB}'!A2:A`
+  });
+  const names = (result.data.values || []).map(r => r[0]);
+  const idx = names.indexOf(name);
+  if (idx === -1) throw new Error('Mechanic not found');
+  await sheetsApi.spreadsheets.values.update({
+    spreadsheetId: SFMS_SHEET_ID,
+    range: `'${SFMS_MECHANICS_TAB}'!B${idx + 2}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[mobile]] }
+  });
+}
+
+app.get('/api/service-fms/mechanics', requireAuth, async (req, res) => {
+  try { res.json(await sfmsGetMechanics()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/service-fms/mechanics', requireAuth, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    const mobile = String(req.body.mobile || '').trim();
+    if (!name) return res.status(400).json({ error: 'Mechanic name is required' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    await sheetsApi.spreadsheets.values.append({
+      spreadsheetId: SFMS_SHEET_ID,
+      range: `'${SFMS_MECHANICS_TAB}'!A:B`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [[name, mobile]] }
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/service-fms/mechanics/mobile', requireAuth, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    const mobile = String(req.body.mobile || '').trim();
+    if (!name || !mobile) return res.status(400).json({ error: 'Mechanic name and mobile are required' });
+    await sfmsSetMechanicMobile(name, mobile);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Generic WhatsApp send used by the Mechanic-Wise report's "Send via WhatsApp"
+// button — sends straight through Maytapi instead of opening wa.me.
+app.post('/api/service-fms/send-whatsapp', requireAuth, async (req, res) => {
+  try {
+    const mobile = String(req.body.mobile || '').trim();
+    const message = String(req.body.message || '').trim();
+    if (!mobile || !message) return res.status(400).json({ error: 'Mobile and message are required' });
+    await sendMaytapiWhatsApp(mobile, message);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    const stepNum = parseInt(req.params.stepNum, 10);
+    const stepDef = SFMS_STEPS.find(s => s.n === stepNum);
+    if (!row || !stepDef) return res.status(400).json({ error: 'Invalid row or step number' });
+
+    const nowVal = sfmsDateToSerial(new Date());
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    let batchData;
+
+    if (stepDef.otpRequired) {
+      const otpRes = await sheetsApi.spreadsheets.values.get({
+        spreadsheetId: SFMS_SHEET_ID,
+        range: `'${SFMS_TAB}'!${SFMS_OTP_CODE_COL}${row}:${SFMS_OTP_SENT_COL}${row}`
+      });
+      const otpRow = (otpRes.data.values && otpRes.data.values[0]) || [];
+      const storedOtp = otpRow[0] || '';
+      const sentAt = otpRow[1] ? new Date(otpRow[1]) : null;
+      if (!storedOtp || !sentAt) return res.status(400).json({ error: 'Send the OTP to the customer first' });
+      if (Date.now() - sentAt.getTime() > SFMS_OTP_TTL_MS) return res.status(400).json({ error: 'OTP expired — please send a new one' });
+      if (String(req.body.otp || '').trim() !== String(storedOtp).trim()) return res.status(400).json({ error: 'Incorrect OTP' });
+    }
+
+    if (stepDef.twoStage) {
+      const stage = req.body.stage;
+      if (stage === 'out') {
+        batchData = [{ range: `'${SFMS_TAB}'!${stepDef.out}${row}`, values: [[nowVal]] }];
+        for (const e of stepDef.extra) {
+          if (e.stage === 'out' && req.body[e.key] !== undefined && req.body[e.key] !== '') {
+            batchData.push({ range: `'${SFMS_TAB}'!${e.col}${row}`, values: [[req.body[e.key]]] });
+          }
+        }
+      } else if (stage === 'in') {
+        batchData = [
+          { range: `'${SFMS_TAB}'!${stepDef.in}${row}`, values: [[nowVal]] },
+          { range: `'${SFMS_TAB}'!${stepDef.status}${row}`, values: [['Yes']] }
+        ];
+        for (const e of stepDef.extra) {
+          if (e.stage === 'in' && req.body[e.key] !== undefined && req.body[e.key] !== '') {
+            batchData.push({ range: `'${SFMS_TAB}'!${e.col}${row}`, values: [[req.body[e.key]]] });
+          }
+        }
+      } else {
+        return res.status(400).json({ error: "stage must be 'out' or 'in' for this step" });
+      }
+    } else {
+      // status defaults to 'Yes' for plain completion steps; steps with a dropdown
+      // answer (warranty Yes/No, spare Available/Need to Purchase, Complaint Solved
+      // Yes/No) send their actual selected value instead.
+      batchData = [
+        { range: `'${SFMS_TAB}'!${stepDef.actual}${row}`, values: [[nowVal]] },
+        { range: `'${SFMS_TAB}'!${stepDef.status}${row}`, values: [[req.body.status || 'Yes']] }
+      ];
+      for (const e of stepDef.extra) {
+        if (req.body[e.key] !== undefined && req.body[e.key] !== '') {
+          batchData.push({ range: `'${SFMS_TAB}'!${e.col}${row}`, values: [[req.body[e.key]]] });
+        }
+      }
+      if (stepDef.otpRequired) {
+        // One-time use — clear so the same OTP can't be replayed.
+        batchData.push({ range: `'${SFMS_TAB}'!${SFMS_OTP_CODE_COL}${row}:${SFMS_OTP_SENT_COL}${row}`, values: [['', '']] });
+      }
+    }
+
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID,
+      requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// O2D FMS — live-connected to the real "Order To Dispatch Fms" Google
+// Sheet (tab "Master." — trailing dot; this is the customer's own
+// production sheet, not our app's Google Sheet DB). The sheet also has a
+// "Master" tab (no dot) with a fuller 21-step layout, but its data shows
+// ~92% of orders never progressing past step 1 — it's a stalled/unused
+// redesign. "Master." is the one actually driving the business: 77% of
+// its orders (1803/2341) run all the way through step 9.
+//
+// Columns were verified two ways: reading the header row directly, and
+// (because the header disagreed with itself for step 9 — its own labels
+// call BE "Status" and BF "Loader Name") sampling hundreds of real data
+// rows per column to see which one actually holds Yes/No values versus
+// names. BF holds "Yes"/"No" and BE holds names — the header is wrong,
+// the mapping below follows the data.
+// ══════════════════════════════════════════════════════
+const O2D_SHEET_ID = '1pWxyrbDFzHRlK_UmVt7Cw30pz-vb9mt3Pamgq8Jlf4c';
+const O2D_TAB = 'Master.';
+const O2D_HEADER_ROW = 6;
+const O2D_DATA_START_ROW = 7;
+const O2D_LAST_COL = 'BM';
+
+const O2D_STEPS = [
+  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', planned: 'T', actual: 'U', status: 'V',
+    extra: [ { key: 'reason', col: 'W', label: 'Reason' } ] },
+  { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', planned: 'X', actual: 'Y', status: 'Z', timeDelay: 'AA', extra: [] },
+  { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', planned: 'AB', actual: 'AC', status: 'AD', timeDelay: 'AE', extra: [] },
+  { n: 4, label: 'Make Bill', doer: 'Accountant', planned: 'AF', actual: 'AG', status: 'AH', timeDelay: 'AI', extra: [] },
+  { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', planned: 'AJ', actual: 'AK', status: 'AL', timeDelay: 'AO',
+    extra: [
+      { key: 'doerName', col: 'AM', label: 'Doer Name' },
+      { key: 'photo', col: 'AN', label: 'Photo (link)' }
+    ] },
+  { n: 6, label: 'Check physical stock with bill', doer: 'Aziz', planned: 'AP', actual: 'AQ', status: 'AR', timeDelay: 'AT',
+    extra: [ { key: 'doerName', col: 'AS', label: 'Doer Name' } ] },
+  { n: 7, label: 'Arrange Loader', doer: 'Kavita', planned: 'AU', actual: 'AV', status: 'AW', timeDelay: 'AX', extra: [] },
+  { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', planned: 'AY', actual: 'AZ', status: 'BA', timeDelay: 'BB', extra: [] },
+  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', planned: 'BC', actual: 'BD', status: 'BF', timeDelay: 'BG',
+    extra: [ { key: 'loaderName', col: 'BE', label: 'Loader Name' } ] }
+];
+
+app.get('/api/o2d-fms', requireAuth, async (req, res) => {
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const result = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: O2D_SHEET_ID,
+      range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:${O2D_LAST_COL}`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    const rows = result.data.values || [];
+    const orders = rows.map((r, i) => {
+      const rowNum = O2D_DATA_START_ROW + i;
+      const get = col => r[colToIdx(col)];
+      if (!get('R')) return null; // skip blank rows (Order Id is the unique key column)
+      const o = {
+        row: rowNum,
+        timestamp: sfmsSerialToDate(get('A')),
+        counterType: get('B') || '',
+        counterName: get('C') || '',
+        area: get('D') || '',
+        orderBy: get('J') || '',
+        paymentTerms: get('K') || '',
+        productName: get('M') || '',
+        qty: get('O') || '',
+        isSample: get('P') || '',
+        orderNo: get('Q') || '',
+        orderId: get('R') || '',
+        billNo: get('BJ') || '',
+        amount: get('BK') || ''
+      };
+      o.steps = O2D_STEPS.map(sd => {
+        const step = {
+          n: sd.n, label: sd.label, doer: sd.doer,
+          planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
+          actual: sd.actual ? sfmsSerialToDate(get(sd.actual)) : '',
+          status: get(sd.status) || ''
+        };
+        sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
+        return step;
+      });
+      let currentStep = 0;
+      for (let i = 0; i < O2D_STEPS.length; i++) {
+        const s = o.steps[i];
+        if (s.status) currentStep = s.n;
+        else break;
+      }
+      o.currentStep = currentStep;
+      o.closed = currentStep === O2D_STEPS.length;
+      return o;
+    }).filter(Boolean);
+
+    orders.reverse(); // newest first
+    res.json(orders);
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    const stepNum = parseInt(req.params.stepNum, 10);
+    const stepDef = O2D_STEPS.find(s => s.n === stepNum);
+    if (!row || !stepDef) return res.status(400).json({ error: 'Invalid row or step number' });
+
+    const nowVal = sfmsDateToSerial(new Date());
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    // status defaults to 'Yes' for plain completion steps; a step with a
+    // dropdown answer (e.g. Accounts ok? Yes/No) sends its selected value.
+    const batchData = [
+      { range: `'${O2D_TAB}'!${stepDef.actual}${row}`, values: [[nowVal]] },
+      { range: `'${O2D_TAB}'!${stepDef.status}${row}`, values: [[req.body.status || 'Yes']] }
+    ];
+    for (const e of stepDef.extra) {
+      if (req.body[e.key] !== undefined && req.body[e.key] !== '') {
+        batchData.push({ range: `'${O2D_TAB}'!${e.col}${row}`, values: [[req.body[e.key]]] });
+      }
+    }
+
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: O2D_SHEET_ID,
+      requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
 // TASK TRANSFERS
 // ══════════════════════════════════════════════════════
 
@@ -2934,879 +3262,6 @@ app.get('/api/debug', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════
-// IMS REPORTS — live SQL Server (zRetail ERP), no manual upload
-// ══════════════════════════════════════════════════════
-// IMS Reports — all 8 report types from Out Stock + In Stock tabs
-// Live-SQL join chain shared by every /api/ims-reports sales-side aggregate:
-// InvCashmemoDetail line item → salesperson (proven Target MIS pattern) → item →
-// article → subcategory → category → department. Verified against zRetail002
-// with real sample data (see plan doc) — department names match the business's
-// own Saree/Suit framing (e.g. "SUITTING SHIRTING", "SAREE").
-const IMS_SALES_JOIN = `
-  FROM InvCashmemoDetail d
-  JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId
-  LEFT JOIN MstSalesPerson sp ON sp.SalesPersonId = d.SalesPersonId_1
-  LEFT JOIN MstItems mi ON mi.ItemCode = d.ItemId
-  LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-  LEFT JOIN MstInvSubCategory subcat ON subcat.InvSubCategoryId = art.InvSubCategoryId
-  LEFT JOIN MstInvCategory cat ON cat.InvCategoryId = subcat.InvCategoryId
-  LEFT JOIN MstInvDepartment dept ON dept.InvDepartmentId = cat.InvDepartmentId
-`;
-// Per-item supplier: MstArticle.PreferredSupplierId is almost never populated in
-// this data, so we resolve supplier via the item's most recent purchase instead
-// (verified: gives real names like "ROOP RANG FASHION PRIVATE LIMITED"). Takes
-// the outer query's item-row alias ('d' for InvCashmemoDetail, 's' for
-// InvItemStock) — parameterized rather than string-replaced, since a naive
-// replace of "d.ItemId" would also corrupt "pd.ItemId" inside the subquery.
-// itemScopeSql (optional): "AND pd.ItemId IN (...)" to restrict the window
-// function to only items that can actually appear in the outer query's date
-// range — without it, this subquery re-ranks ALL purchase history (270k+
-// rows) on every call, which is fine warm but very slow on a cold cache.
-const imsSupplierJoin = (outerAlias, itemScopeSql = '') => `
-  LEFT JOIN (
-    SELECT pd.ItemId, p.PartyName,
-           ROW_NUMBER() OVER (PARTITION BY pd.ItemId ORDER BY ph.PurchaseDt DESC) rn
-    FROM InvPurchaseDetail pd
-    JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
-    JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
-    WHERE ph.IsCancelled = 0 ${itemScopeSql}
-  ) supl ON supl.ItemId = ${outerAlias}.ItemId AND supl.rn = 1
-`;
-// Scope to items sold in the sales query's own @from/@to range (same bound params).
-const IMS_SALES_ITEM_SCOPE = `AND pd.ItemId IN (SELECT DISTINCT d2.ItemId FROM InvCashmemoDetail d2 JOIN InvCashmemoHead h2 ON h2.CashmemoId = d2.CashmemoId WHERE h2.IsCancelled = 0 AND h2.CashmemoDt BETWEEN @from AND @to)`;
-const IMS_SUPPLIER_JOIN = imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE);
-
-// SUITTING SHIRTING has no traceable purchase history for any of its items (sold by the
-// metre, cut from bulk rolls purchased under a different item code — see itemLedger
-// comment below), making its cost/GP figures meaningless. MISC is a genuine catch-all
-// bucket, not a real sellable department. Both excluded from every sales-side report
-// and total per business request, not just flagged as unknown-cost.
-const IMS_EXCLUDE_DEPT_SQL = `AND dept.InvDepartmentName NOT IN ('SUITTING SHIRTING', 'MISC')`;
-
-const _imsSqlCache = new Map();           // cacheKey (date-range+dept) -> { ts, data }
-const IMS_SQL_CACHE_TTL_MS = 20 * 60 * 1000;
-const IMS_WIDE_RANGE_CACHE_TTL_MS = 90 * 60 * 1000; // ranges spanning >45 days — see /api/ims-reports
-
-function r2(n) { return Math.round(n * 100) / 100; }
-const toISODate = d => d ? new Date(d).toISOString().slice(0, 10) : '';
-const imsDefaultRange = () => {
-  // Default window when none given (incl. the hub's "All" preset, which sends
-  // no dates): last 30 days. A full year's cold-cache scan of InvCashmemoDetail
-  // (1M+ rows, no date-correlated clustering) measured 50s+ on this SQL Server;
-  // 30 days keeps even a cold hit reasonably bounded.
-  const toDate = new Date().toISOString().slice(0, 10);
-  const fromDate = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
-  return { fromDate, toDate };
-};
-
-// Stock/purchase data doesn't depend on the sales date range at all (current
-// stock is always "right now"; cost basis is all-time purchase history) — so
-// it was being recomputed on every single /api/ims-reports call even when a
-// user just switched date presets. Cached on its own cadence instead.
-let _imsStockCache = { ts: 0, data: null };
-const IMS_STOCK_CACHE_TTL_MS = 15 * 60 * 1000;
-
-async function getImsStockData(pool, forceFresh) {
-  if (!forceFresh && _imsStockCache.data && (Date.now() - _imsStockCache.ts) < IMS_STOCK_CACHE_TTL_MS) {
-    return _imsStockCache.data;
-  }
-  // ── Stock-side: InvItemStock is a live real-time balance (no CBS/running-
-  // balance duality like the old sheet had). Cost basis comes from actual
-  // purchase price history, not MstArticle.ArticlePurPrice (almost always
-  // unset in this data) — grouped by (supplier,style) to stay fast, rather
-  // than joining a per-item weighted-cost derived table against the full
-  // ~350k-row InvItemStock table (tested: 15s vs <2s for the grouped form).
-  const freshFrom = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
-  const freshTo = new Date().toISOString().slice(0, 10);
-  const [stockTotalsRs, stockStyleRs, purchaseStyleRs, styleLastSaleRs, freshSalesRs] = await Promise.all([
-    pool.request().query(`SELECT COUNT(*) totalItems, SUM(s.StockQty) totalQty FROM InvItemStock s WHERE s.StockQty <> 0`),
-    pool.request().query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(s.StockQty) AS qty
-      FROM InvItemStock s
-      LEFT JOIN MstItems mi ON mi.ItemCode = s.ItemId
-      LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-      LEFT JOIN MstInvSubCategory subcat ON subcat.InvSubCategoryId = art.InvSubCategoryId
-      LEFT JOIN MstInvCategory cat ON cat.InvCategoryId = subcat.InvCategoryId
-      LEFT JOIN MstInvDepartment dept ON dept.InvDepartmentId = cat.InvDepartmentId
-      ${imsSupplierJoin('s')}
-      WHERE s.StockQty <> 0
-      GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`),
-    pool.request().query(`SELECT ISNULL(p.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style,
-      SUM(pd.Quantity) AS purQty, SUM(pd.Quantity*pd.PurPrice) AS purAmt, MIN(ph.PurchaseDt) AS firstPurDate, MAX(ph.PurchaseDt) AS lastPurDate
-      FROM InvPurchaseDetail pd
-      JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
-      JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
-      LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
-      LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-      WHERE ph.IsCancelled = 0
-      GROUP BY p.PartyName, art.ArticleNo`),
-    // All-time last-sale-date per style (no supplier join — direct joins only, kept cheap;
-    // ageing/dead-stock only needs to know "has this ARTICLE sold recently", not which
-    // supplier). Feeds the >365-day dead-stock cutoff below.
-    pool.request().query(`SELECT ISNULL(art.ArticleNo,'Unknown') AS style, MAX(h.CashmemoDt) AS lastSaleDate
-      ${IMS_SALES_JOIN} WHERE h.IsCancelled = 0 ${IMS_EXCLUDE_DEPT_SQL}
-      GROUP BY art.ArticleNo`),
-    // Fresh Stock Sell-through (30 days): sales in the last 30 days, per style — cross-
-    // referenced below against styles whose lastPurDate also falls in the last 30 days.
-    pool.request().input('ffrom', sql.Date, freshFrom).input('fto', sql.Date, freshTo)
-      .query(`SELECT ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty
-      ${IMS_SALES_JOIN} WHERE h.IsCancelled = 0 AND h.CashmemoDt BETWEEN @ffrom AND @fto ${IMS_EXCLUDE_DEPT_SQL}
-      GROUP BY art.ArticleNo`)
-  ]);
-
-  const num = v => Number(v) || 0;
-  const costMap = {};   // supName||style -> costPerUnit, from actual purchase history
-  const purMap = {};    // supName||style -> {purQty, purAmt, firstPurDate, lastPurDate}
-  purchaseStyleRs.recordset.forEach(r => {
-    const key = r.supName + '||' + r.style;
-    const purQty = num(r.purQty), purAmt = Math.round(num(r.purAmt));
-    purMap[key] = { purQty: r2(purQty), purAmt, firstPurDate: toISODate(r.firstPurDate), lastPurDate: toISODate(r.lastPurDate) };
-    costMap[key] = purQty > 0 ? Math.round(purAmt / purQty) : 0;
-  });
-
-  const styleLastSaleMap = {};  // style -> all-time last sale date (ISO)
-  styleLastSaleRs.recordset.forEach(r => { styleLastSaleMap[r.style] = toISODate(r.lastSaleDate); });
-  const freshSalesMap = {};     // style -> qty sold in the last 30 days
-  freshSalesRs.recordset.forEach(r => { freshSalesMap[r.style] = r2(num(r.qty)); });
-
-  // Dead stock: >365 days since the item last sold or was purchased, only counting
-  // rows that still have stock on hand (a sold-out item isn't "dead", it's just gone).
-  const DEAD_STOCK_DAYS = 365;
-  const todayMs = Date.now();
-  const daysSince = iso => iso ? Math.floor((todayMs - new Date(iso + 'T00:00:00Z').getTime()) / 86400000) : Infinity;
-
-  const supplierStyleStock = stockStyleRs.recordset.map(r => {
-    const key = r.supName + '||' + r.style;
-    const qty = r2(num(r.qty));
-    const lastPurDate = (purMap[key] || {}).lastPurDate || '';
-    const lastSaleDate = styleLastSaleMap[r.style] || '';
-    const ageingDays = Math.min(daysSince(lastPurDate), daysSince(lastSaleDate));
-    return { key, supName: r.supName, style: r.style, cat: r.cat, article: r.style, subcat: '',
-             qty, purQty: (purMap[key]||{}).purQty || 0, opening: 0, purReturn: 0, value: Math.round(qty * (costMap[key]||0)),
-             lastPurDate, lastSaleDate, ageingDays: Number.isFinite(ageingDays) ? ageingDays : null,
-             isDead: qty > 0 && Number.isFinite(ageingDays) && ageingDays > DEAD_STOCK_DAYS };
-  });
-
-  const _bySupStock = {};
-  supplierStyleStock.forEach(r => {
-    if (!_bySupStock[r.supName]) _bySupStock[r.supName] = { qty: 0, value: 0, purQty: 0, deadValue: 0 };
-    _bySupStock[r.supName].qty += r.qty; _bySupStock[r.supName].value += r.value; _bySupStock[r.supName].purQty += r.purQty;
-    if (r.isDead) _bySupStock[r.supName].deadValue += r.value;
-  });
-  const supplierStock = Object.entries(_bySupStock).map(([name, d]) => ({
-    name, qty: r2(d.qty), purQty: r2(d.purQty), opening: 0, purReturn: 0, value: Math.round(d.value),
-    deadValue: Math.round(d.deadValue), deadPct: d.value ? r2(d.deadValue / d.value * 100) : 0
-  })).sort((a, b) => b.value - a.value);
-
-  const _byStyleStock = {};
-  supplierStyleStock.forEach(r => { if (!_byStyleStock[r.style]) _byStyleStock[r.style] = 0; _byStyleStock[r.style] += r.qty; });
-  const styleStock = Object.entries(_byStyleStock).map(([style, qty]) => ({ style, qty: r2(qty), purQty: 0 }));
-
-  // Category (= department, see topCategories comment in computeImsReportsData) stock rollup.
-  const _byCatStock = {};
-  supplierStyleStock.forEach(r => {
-    const key = r.cat || 'Unknown';
-    if (!_byCatStock[key]) _byCatStock[key] = { qty: 0, value: 0 };
-    _byCatStock[key].qty += r.qty; _byCatStock[key].value += r.value;
-  });
-  const categoryStock = Object.entries(_byCatStock).map(([category, d]) => ({
-    category, qty: r2(d.qty), value: Math.round(d.value)
-  })).sort((a, b) => b.value - a.value);
-
-  const stockTotalsRow = stockTotalsRs.recordset[0] || { totalItems: 0, totalQty: 0 };
-  const currentStock = {
-    totalItems: stockTotalsRow.totalItems || 0,
-    totalQty: r2(num(stockTotalsRow.totalQty)),
-    totalValue: Math.round(supplierStock.reduce((s, r) => s + r.value, 0))
-  };
-
-  const deadStockValue = supplierStyleStock.reduce((s, r) => s + (r.isDead ? r.value : 0), 0);
-  const deadStockQty = supplierStyleStock.reduce((s, r) => s + (r.isDead ? r.qty : 0), 0);
-  const deadStockSummary = {
-    days: DEAD_STOCK_DAYS,
-    value: Math.round(deadStockValue), qty: r2(deadStockQty),
-    pct: currentStock.totalValue ? r2(deadStockValue / currentStock.totalValue * 100) : 0
-  };
-
-  // Fresh Stock Sell-through (30 days): cohort = styles first/last purchased in the
-  // last 30 days (using the per-supplier purMap, taking the most recent lastPurDate
-  // per style across suppliers), sell-through = sold/(sold+stock) over that cohort.
-  const freshFromMs = new Date(freshFrom + 'T00:00:00Z').getTime();
-  const freshCohortStyles = new Set();
-  const _styleLastPur = {};
-  Object.entries(purMap).forEach(([key, p]) => {
-    const style = key.split('||')[1];
-    if (!p.lastPurDate) return;
-    if (!_styleLastPur[style] || p.lastPurDate > _styleLastPur[style]) _styleLastPur[style] = p.lastPurDate;
-  });
-  Object.entries(_styleLastPur).forEach(([style, lastPurDate]) => {
-    if (new Date(lastPurDate + 'T00:00:00Z').getTime() >= freshFromMs) freshCohortStyles.add(style);
-  });
-  let freshSoldQty = 0, freshStockQty = 0;
-  freshCohortStyles.forEach(style => {
-    freshSoldQty += freshSalesMap[style] || 0;
-    freshStockQty += _byStyleStock[style] || 0;
-  });
-  // Some styles show negative recorded stock in InvItemStock (sales recorded ahead of
-  // purchase entry — a live data-quality reality in this ERP, not a query bug). Clamp to
-  // 0 for the sell-through % denominator so a negative "available stock" can't flip the
-  // result negative — floor of 0 reads as "effectively nothing left to sell", which is
-  // directionally correct even if the true recorded number is a data-entry artifact.
-  const freshStockQtyClamped = Math.max(0, freshStockQty);
-  const freshStockSellThrough = {
-    days: 30, cohortStyles: freshCohortStyles.size, soldQty: r2(freshSoldQty), stockQty: r2(freshStockQty),
-    pct: (freshSoldQty + freshStockQtyClamped) ? r2(freshSoldQty / (freshSoldQty + freshStockQtyClamped) * 100) : 0
-  };
-
-  const data = { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock,
-    categoryStock, deadStockSummary, freshStockSellThrough };
-  _imsStockCache = { ts: Date.now(), data };
-  return data;
-}
-
-// Daily/MTD/YTD sales — independent of the report's own [from,to] filter, always the
-// rolling "as of right now" windows. Cached separately (shorter TTL — feels fresher
-// than stock data) since it's requested by every dashboard regardless of date filter.
-let _imsFixedWindowCache = { ts: 0, data: null };
-const IMS_FIXED_WINDOW_TTL_MS = 10 * 60 * 1000;
-
-async function getImsFixedWindowSales(pool, forceFresh) {
-  if (!forceFresh && _imsFixedWindowCache.data && (Date.now() - _imsFixedWindowCache.ts) < IMS_FIXED_WINDOW_TTL_MS) {
-    return _imsFixedWindowCache.data;
-  }
-  const now = new Date();
-  const iso = d => d.toISOString().slice(0, 10);
-  const todayStr = iso(now);
-  const mtdFrom = iso(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
-  const ytdFrom = iso(new Date(Date.UTC(now.getUTCFullYear(), 0, 1)));
-  const lyToday = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate())));
-  const lyMtdFrom = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), 1)));
-  const lyYtdFrom = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, 0, 1)));
-
-  // Today/MTD/YTD all nest inside each other (YTD ⊇ MTD ⊇ Today) — one day-grouped scan
-  // of the full year covers all three instead of 3 separate overlapping full re-scans.
-  // Same for the LY side. 2 queries total instead of 6.
-  const byDayQuery = (f, t) => pool.request().input('from', sql.Date, f).input('to', sql.Date, t).query(`
-    SELECT CONVERT(varchar(10), h.CashmemoDt, 23) AS d, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount
-    ${IMS_SALES_JOIN} WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @from AND h.CashmemoDt <= @to ${IMS_EXCLUDE_DEPT_SQL}
-    GROUP BY CONVERT(varchar(10), h.CashmemoDt, 23)
-  `);
-  const [curRs, lyRs] = await Promise.all([
-    byDayQuery(ytdFrom, todayStr),
-    byDayQuery(lyYtdFrom, lyToday)
-  ]);
-
-  const num = v => Number(v) || 0;
-  const pct = (a, b) => b ? r2((a - b) / b * 100) : null;
-  const sumRange = (rows, from, to) => rows
-    .filter(r => r.d >= from && r.d <= to)
-    .reduce((s, r) => ({ bills: s.bills + (r.bills || 0), qty: s.qty + num(r.qty), amount: s.amount + num(r.amount) }), { bills: 0, qty: 0, amount: 0 });
-  const finalize = r => ({ bills: r.bills, qty: r2(r.qty), amount: Math.round(r.amount) });
-  const withGrowth = (cur, ly) => ({ ...finalize(cur), ly: finalize(ly), growthPct: pct(cur.amount, ly.amount) });
-
-  const curRows = curRs.recordset, lyRows = lyRs.recordset;
-  const data = {
-    today: withGrowth(sumRange(curRows, todayStr, todayStr), sumRange(lyRows, lyToday, lyToday)),
-    mtd: withGrowth(sumRange(curRows, mtdFrom, todayStr), sumRange(lyRows, lyMtdFrom, lyToday)),
-    ytd: withGrowth(sumRange(curRows, ytdFrom, todayStr), sumRange(lyRows, lyYtdFrom, lyToday))
-  };
-  _imsFixedWindowCache = { ts: Date.now(), data };
-  return data;
-}
-
-// Monthly Stock Turn (storewide, MoM): reconstructs stock-as-of-a-past-boundary the
-// same way /api/ims-stock-history does (current stock minus net movements since the
-// boundary), but storewide only (no per-supplier/style breakdown). Two month-grouped
-// queries cover the whole window — cumulative "since boundary[k]" figures are then a
-// simple running sum in JS, instead of N separate queries each re-scanning an
-// increasingly-overlapping date range.
-let _imsStockTurnCache = { ts: 0, data: null };
-const IMS_STOCK_TURN_TTL_MS = 30 * 60 * 1000;
-const STOCK_TURN_MONTHS = 6;
-
-async function getImsMonthlyStockTurn(pool, currentTotalQty, forceFresh) {
-  if (!forceFresh && _imsStockTurnCache.data && (Date.now() - _imsStockTurnCache.ts) < IMS_STOCK_TURN_TTL_MS) {
-    return _imsStockTurnCache.data;
-  }
-  const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const now = new Date();
-  const boundaries = [];
-  for (let i = 0; i < STOCK_TURN_MONTHS; i++) {
-    boundaries.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)));
-  }
-  const iso = d => d.toISOString().slice(0, 10);
-  const monthKey = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-  const earliestBoundary = iso(boundaries[boundaries.length - 1]);
-  const num = v => Number(v) || 0;
-
-  const [purRs, saleRs] = await Promise.all([
-    pool.request().input('b', sql.Date, earliestBoundary).query(`SELECT FORMAT(ph.PurchaseDt,'yyyy-MM') monKey, SUM(pd.Quantity) qty FROM InvPurchaseDetail pd JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId WHERE ph.IsCancelled = 0 AND ph.PurchaseDt >= @b GROUP BY FORMAT(ph.PurchaseDt,'yyyy-MM')`),
-    pool.request().input('b', sql.Date, earliestBoundary).query(`SELECT FORMAT(h.CashmemoDt,'yyyy-MM') monKey, SUM(d.Quantity) qty FROM InvCashmemoDetail d JOIN InvCashmemoHead h ON h.CashmemoId = d.CashmemoId WHERE h.IsCancelled = 0 AND h.CashmemoDt >= @b GROUP BY FORMAT(h.CashmemoDt,'yyyy-MM')`)
-  ]);
-  const purByMonth = {}; purRs.recordset.forEach(r => { purByMonth[r.monKey] = num(r.qty); });
-  const saleByMonth = {}; saleRs.recordset.forEach(r => { saleByMonth[r.monKey] = num(r.qty); });
-
-  // movements[k] = cumulative purchases/sales since boundaries[k] (start of month
-  // k-months-ago), through now — a running sum of that month's own bucket plus
-  // everything more recent (indices 0..k, since boundaries[0] is the current month).
-  const movements = [];
-  let cumPur = 0, cumSale = 0;
-  for (let k = 0; k < STOCK_TURN_MONTHS; k++) {
-    const key = monthKey(boundaries[k]);
-    cumPur += purByMonth[key] || 0;
-    cumSale += saleByMonth[key] || 0;
-    movements.push({ purQty: cumPur, saleQty: cumSale });
-  }
-  // stockAt[k] = reconstructed stock AT boundaries[k] (start of that month), working
-  // backward from current: stockAtBoundary = current - purchasedSince + soldSince.
-  const stockAt = movements.map(m => currentTotalQty - m.purQty + m.saleQty);
-
-  const monthlyStockTurn = [];
-  for (let k = 0; k < STOCK_TURN_MONTHS; k++) {
-    // Month k runs from boundaries[k] to boundaries[k-1] (or "now" for k=0, the current
-    // partial month) — so sales *during* month k = cumulative-since-boundaries[k] minus
-    // cumulative-since-boundaries[k-1] (the latter already covers everything in month k too).
-    const soldQty = movements[k].saleQty - (k > 0 ? movements[k - 1].saleQty : 0);
-    const stockAtEnd = k > 0 ? stockAt[k - 1] : currentTotalQty;
-    const avgStock = (stockAt[k] + stockAtEnd) / 2;
-    const d = boundaries[k];
-    // Reconstructing stock this many months back compounds any gaps in purchase history
-    // (e.g. an opening-balance stock adjustment never entered as a purchase record) —
-    // a negative avgStock means the reconstruction has become unreliable for that month,
-    // not that stock was truly negative. Report it as unavailable rather than a
-    // confusing negative number or a fake 0.00 ratio.
-    const reliable = avgStock > 0;
-    monthlyStockTurn.push({
-      month: `${MON_ABBR[d.getUTCMonth()]}-${String(d.getUTCFullYear()).slice(2)}`,
-      soldQty: r2(soldQty), avgStock: reliable ? r2(avgStock) : null, str: reliable ? r2(soldQty / avgStock) : null
-    });
-  }
-  monthlyStockTurn.reverse();
-
-  _imsStockTurnCache = { ts: Date.now(), data: monthlyStockTurn };
-  return monthlyStockTurn;
-}
-
-async function computeImsReportsData(fromDate, toDate, deptFilter, forceStockFresh) {
-    // UTC-explicit throughout: fromDate/toDate are YYYY-MM-DD, which Date()
-    // parses as UTC midnight — mixing that with *local* getters/setters would
-    // silently shift the month/year in any timezone behind UTC.
-    const lyFromDate = (() => { const d = new Date(fromDate + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() - 1); return d.toISOString().slice(0, 10); })();
-    const lyToDate   = (() => { const d = new Date(toDate   + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() - 1); return d.toISOString().slice(0, 10); })();
-
-    const pool = await getSqlPool();
-    const deptSql = (deptFilter ? 'AND dept.InvDepartmentName = @dept ' : '') + IMS_EXCLUDE_DEPT_SQL;
-    const mkReq = (f, t) => {
-      const r = pool.request().input('from', sql.Date, f).input('to', sql.Date, t);
-      if (deptFilter) r.input('dept', sql.VarChar, deptFilter);
-      return r;
-    };
-
-    const _t = label => { const t0 = Date.now(); return () => console.log(`[IMS TIMING] ${label}: ${Date.now() - t0}ms`); };
-    const _e1 = _t('byDateRs'), _e2 = _t('deptRs'), _e3 = _t('allDeptRs'), _e4 = _t('spRs'), _e5 = _t('supRs'),
-          _e6 = _t('basketRs'), _e7 = _t('styleSupSalesRs'), _e8 = _t('lySpRs'), _e9 = _t('lyMonRs'), _e10 = _t('lyTotalRs'),
-          _e11 = _t('catRs'), _e12 = _t('lyCatRs'), _e13 = _t('spGpRs'), _e14 = _t('lySpGpRs');
-    const [byDateRs, deptRs, allDeptRs, spRs, supRs, basketRs, styleSupSalesRs, lySpRs, lyMonRs, lyTotalRs, catRs, lyCatRs, spGpRs, lySpGpRs] = await Promise.all([
-      mkReq(fromDate, toDate).query(`SELECT CONVERT(varchar(10),h.CashmemoDt,23) AS date, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY CONVERT(varchar(10),h.CashmemoDt,23) ORDER BY date`).then(r => { _e1(); return r; }),
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'—') AS dept, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY dept.InvDepartmentName`).then(r => { _e2(); return r; }),
-      mkReq(fromDate, toDate).query(`SELECT DISTINCT dept.InvDepartmentName AS dept ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND dept.InvDepartmentName IS NOT NULL ${IMS_EXCLUDE_DEPT_SQL}`).then(r => { _e3(); return r; }),
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName ORDER BY amount DESC`).then(r => { _e4(); return r; }),
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName ORDER BY amount DESC`).then(r => { _e5(); return r; }),
-      mkReq(fromDate, toDate).query(`SELECT h.CashmemoId, SUM(d.Quantity) AS qty ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY h.CashmemoId`).then(r => { _e6(); return r; }),
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, ISNULL(dept.InvDepartmentName,'Unknown') AS cat, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount, MAX(h.CashmemoDt) AS lastSaleDate ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName`).then(r => { _e7(); return r; }),
-      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName`).then(r => { _e8(); return r; }),
-      mkReq(lyFromDate, lyToDate).query(`SELECT FORMAT(h.CashmemoDt,'yyyy-MM') AS monKey, COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY FORMAT(h.CashmemoDt,'yyyy-MM')`).then(r => { _e9(); return r; }),
-      mkReq(lyFromDate, lyToDate).query(`SELECT COUNT(DISTINCT h.CashmemoId) AS bills, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql}`).then(r => { _e10(); return r; }),
-      // Top Categories: business calls department-level grouping "category" throughout this app
-      // (see supplierStyleSales.cat above, and Target MIS's own "category_name" = Saree/Suite) —
-      // topCategories.category must match supplierStyleSales.cat exactly so the frontend's
-      // "top items per category" cross-reference (app.html renderRptCategories) keeps working.
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(dept.InvDepartmentName,'Unknown') AS category, COUNT(DISTINCT h.CashmemoId) AS transactions, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} AND dept.InvDepartmentName IS NOT NULL GROUP BY dept.InvDepartmentName`).then(r => { _e11(); return r; }),
-      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(dept.InvDepartmentName,'Unknown') AS category, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} AND dept.InvDepartmentName IS NOT NULL GROUP BY dept.InvDepartmentName`).then(r => { _e12(); return r; }),
-      // Salesperson-wise GP: itemLedger (below) has no salesperson dimension, so this is a
-      // genuinely new query — same joins as styleSupSalesRs above, plus SalesPersonName.
-      mkReq(fromDate, toDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName, supl.PartyName, art.ArticleNo`).then(r => { _e13(); return r; }),
-      // LY twin of the above — used for "GP trend vs LY" (applies the same all-time
-      // costMap to LY quantities; approximate since cost basis isn't point-in-time).
-      mkReq(lyFromDate, lyToDate).query(`SELECT ISNULL(sp.SalesPersonName,'Unknown') AS name, ISNULL(supl.PartyName,'Unknown') AS supName, ISNULL(art.ArticleNo,'Unknown') AS style, SUM(d.Quantity) AS qty, SUM(d.NetAmount) AS amount ${IMS_SALES_JOIN} ${IMS_SUPPLIER_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to ${deptSql} GROUP BY sp.SalesPersonName, supl.PartyName, art.ArticleNo`).then(r => { _e14(); return r; })
-    ]);
-
-    const num = v => Number(v) || 0;
-    const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-    // ── Sales Funnel: net sales by date (profit wired in Phase 2 once cost data is live) ──
-    const fmtByDate = byDateRs.recordset.map(r => ({
-      date: r.date, transactions: r.transactions, qty: r2(num(r.qty)), amount: Math.round(num(r.amount)), profit: 0
-    }));
-    let totalAmt = 0, totalQty = 0;
-    fmtByDate.forEach(r => { totalAmt += r.amount; totalQty += r.qty; });
-
-    // ── Basket size + total transactions (bills with net qty >= 1) ──
-    const posBills = basketRs.recordset.filter(r => Math.round(num(r.qty)) >= 1);
-    const _basket = { '1': 0, '2': 0, '3': 0, '4': 0, '5+': 0 };
-    posBills.forEach(r => { const n = Math.round(num(r.qty)); if (n >= 5) _basket['5+']++; else _basket[String(n)]++; });
-    const basketSize = Object.entries(_basket).map(([bucket, bills]) => ({ bucket, bills }));
-    const totalTransactions = posBills.length;
-
-    // ── Top Departments by Net Sales ──
-    const deptAnalytics = deptRs.recordset.map(r => {
-      const bills = r.bills, qty = r2(num(r.qty)), amount = Math.round(num(r.amount));
-      return { dept: r.dept, bills, qty, amount, upt: bills ? r2(qty / bills) : 0, atv: bills ? Math.round(amount / bills) : 0 };
-    }).filter(x => x.dept && x.dept !== '—' && x.bills > 0).sort((a, b) => b.qty - a.qty);
-
-    const departments = allDeptRs.recordset.map(r => r.dept).filter(Boolean).sort((a, b) => a.localeCompare(b));
-
-    const sortAmt = arr => arr.sort((a, b) => b.amount - a.amount);
-    const salespersons = sortAmt(spRs.recordset.map(r => ({ name: r.name, transactions: r.transactions, qty: r2(num(r.qty)), amount: Math.round(num(r.amount)) })));
-    const supplierSales = sortAmt(supRs.recordset.map(r => ({ name: r.name, transactions: r.transactions, qty: r2(num(r.qty)), amount: Math.round(num(r.amount)) })));
-
-    const supplierStyleSales = styleSupSalesRs.recordset.map(r => ({
-      key: r.supName + '||' + r.style, supName: r.supName, style: r.style, cat: r.cat,
-      qty: r2(num(r.qty)), amount: Math.round(num(r.amount)), lastSaleDate: toISODate(r.lastSaleDate)
-    }));
-    const _byStyle = {};
-    supplierStyleSales.forEach(r => { if (!_byStyle[r.style]) _byStyle[r.style] = 0; _byStyle[r.style] += r.qty; });
-    const styleSales = Object.entries(_byStyle).map(([style, qty]) => ({ style, qty: r2(qty) }));
-
-    // ── SP Analytics: current period vs same period last year ──
-    const curByMon = {};
-    fmtByDate.forEach(r => {
-      const mk = r.date.slice(0, 7);
-      if (!curByMon[mk]) curByMon[mk] = { amt: 0, qty: 0, bills: 0 };
-      curByMon[mk].amt += r.amount; curByMon[mk].qty += r.qty; curByMon[mk].bills += r.transactions;
-    });
-    const lyByMon = {};
-    lyMonRs.recordset.forEach(r => { lyByMon[r.monKey] = { amt: Math.round(num(r.amount)), qty: r2(num(r.qty)), bills: r.bills }; });
-
-    let monthlyCmp = [];
-    {
-      const start = new Date(fromDate.slice(0,7) + '-01T00:00:00Z');
-      const end = new Date(toDate.slice(0,7) + '-01T00:00:00Z');
-      for (let d = new Date(start); d <= end; d.setUTCMonth(d.getUTCMonth() + 1)) {
-        const curKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
-        const lyKey = `${d.getUTCFullYear()-1}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
-        const c = curByMon[curKey] || null, l = lyByMon[lyKey] || null;
-        monthlyCmp.push({
-          month: `${MON_ABBR[d.getUTCMonth()]}-${String(d.getUTCFullYear()).slice(2)}`,
-          curAmt: c ? Math.round(c.amt) : 0, curQty: c ? r2(c.qty) : 0, curBills: c ? c.bills : 0,
-          lyAmt: l ? l.amt : 0, lyQty: l ? l.qty : 0, lyBills: l ? l.bills : 0
-        });
-      }
-    }
-
-    const lyTotalRow = lyTotalRs.recordset[0] || { bills: 0, qty: 0, amount: 0 };
-    const curBillsTot = totalTransactions, lyBillsTot = lyTotalRow.bills;
-    const lyTotQty = r2(num(lyTotalRow.qty)), lyTotAmt = Math.round(num(lyTotalRow.amount));
-    const curUPT = curBillsTot ? r2(totalQty / curBillsTot) : 0;
-    const lyUPT = lyBillsTot ? r2(lyTotQty / lyBillsTot) : 0;
-    const curATV = curBillsTot ? Math.round(totalAmt / curBillsTot) : 0;
-    const lyATV = lyBillsTot ? Math.round(lyTotAmt / lyBillsTot) : 0;
-    const pct = (a, b) => b ? r2((a - b) / b * 100) : null;
-
-    const lySpMap = {}; lySpRs.recordset.forEach(r => { lySpMap[r.name] = { bills: r.transactions, qty: num(r.qty), amount: num(r.amount) }; });
-    const allSPKeys = new Set([...salespersons.map(s => s.name), ...Object.keys(lySpMap)]);
-    const spTable = [...allSPKeys].map(name => {
-      const c = salespersons.find(s => s.name === name) || { transactions: 0, qty: 0, amount: 0 };
-      const l = lySpMap[name] || { bills: 0, qty: 0, amount: 0 };
-      const cB = c.transactions, lB = l.bills;
-      const cUPT = cB ? r2(c.qty / cB) : 0, lUPT = lB ? r2(l.qty / lB) : 0;
-      const cATV = cB ? Math.round(c.amount / cB) : 0, lATV = lB ? Math.round(l.amount / lB) : 0;
-      return { name, bills: cB, qty: r2(c.qty), amount: Math.round(c.amount), upt: cUPT, atv: cATV,
-               lyBills: lB, lyQty: r2(l.qty), lyAmount: Math.round(l.amount), lyUpt: lUPT, lyAtv: lATV,
-               uptGrowth: pct(cUPT, lUPT), atvGrowth: pct(cATV, lATV), billsGrowth: pct(cB, lB) };
-    }).sort((a, b) => b.amount - a.amount);
-
-    const spAnalytics = {
-      hasDateFilter: true,
-      summary: { curUPT, lyUPT, uptGrowth: pct(curUPT, lyUPT), curATV, lyATV, atvGrowth: pct(curATV, lyATV),
-                 curBills: curBillsTot, lyBills: lyBillsTot, billsGrowth: pct(curBillsTot, lyBillsTot),
-                 curQty: r2(totalQty), lyQty: lyTotQty, curAmount: totalAmt, lyAmount: lyTotAmt,
-                 salespersons: spTable.filter(s => s.bills > 0).length,
-                 lySalespersons: spTable.filter(s => s.lyBills > 0).length,
-                 spGrowth: pct(spTable.filter(s => s.bills > 0).length, spTable.filter(s => s.lyBills > 0).length) },
-      spTable, monthlyCmp
-    };
-
-    // Stock/purchase data — decoupled cache, see getImsStockData() above.
-    const _tStock = _t('getImsStockData');
-    const { costMap, purMap, supplierStyleStock, supplierStock, styleStock, currentStock,
-      categoryStock, deadStockSummary, freshStockSellThrough } = await getImsStockData(pool, forceStockFresh);
-    _tStock();
-
-    // Fixed windows (Daily/MTD/YTD) + monthly stock turn — both date-filter-independent
-    // with their own caches, so calling them here is cheap after the first request.
-    const _tFixed = _t('getImsFixedWindowSales'), _tTurn = _t('getImsMonthlyStockTurn');
-    const [fixedWindowSales, monthlyStockTurn] = await Promise.all([
-      getImsFixedWindowSales(pool, forceStockFresh).then(r => { _tFixed(); return r; }),
-      getImsMonthlyStockTurn(pool, currentStock.totalQty, forceStockFresh).then(r => { _tTurn(); return r; })
-    ]);
-
-    // ── Item Ledger: purchase cost basis (all-time weighted avg) vs sales in
-    // the selected period; availQty uses the real live stock balance instead
-    // of a derived purQty-saleQty running total.
-    const _ilMap = {};
-    Object.entries(purMap).forEach(([key, p]) => {
-      const [supName, style] = key.split('||');
-      _ilMap[key] = { key, supName, style, cat: '', subcat: '', article: style,
-        purQty: p.purQty, purAmt: p.purAmt, costPerUnit: costMap[key] || 0,
-        firstPurDate: p.firstPurDate, lastPurDate: p.lastPurDate,
-        saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
-    });
-    supplierStyleSales.forEach(r => {
-      if (!_ilMap[r.key]) _ilMap[r.key] = { key: r.key, supName: r.supName, style: r.style, cat: r.cat, subcat: '', article: r.style,
-        purQty: 0, purAmt: 0, costPerUnit: 0, firstPurDate: '', lastPurDate: '', saleQty: 0, saleAmt: 0, lastSaleDate: '', profit: 0, availQty: 0 };
-      _ilMap[r.key].saleQty = r.qty; _ilMap[r.key].saleAmt = r.amount; _ilMap[r.key].lastSaleDate = r.lastSaleDate || '';
-      if (!_ilMap[r.key].cat) _ilMap[r.key].cat = r.cat;
-    });
-    const stockQtyMap = {}; supplierStyleStock.forEach(r => { stockQtyMap[r.key] = r.qty; });
-    // Some styles (e.g. "SUITTING LENGTH"/"SHIRTING LENGTH" — sold by the metre, likely
-    // cut from bulk rolls purchased under a different item code) have no traceable
-    // purchase record at all. Rather than showing those as 100% margin (costPerUnit=0),
-    // report profit as unknown (0) so they don't inflate/mislead the P&L view.
-    const itemLedger = Object.values(_ilMap).map(r => {
-      const knownCost = r.purQty > 0;
-      const profit = knownCost ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0;
-      return { ...r, availQty: stockQtyMap[r.key] != null ? stockQtyMap[r.key] : r2(r.purQty - r.saleQty),
-        profit, knownCost, gpPct: (knownCost && r.saleAmt) ? r2(profit / r.saleAmt * 100) : null };
-    }).sort((a, b) => b.saleAmt - a.saleAmt);
-
-    // ── Top Categories (= department-level, see comment on catRs above) with growth vs LY ──
-    const lyCatMap = {}; lyCatRs.recordset.forEach(r => { lyCatMap[r.category] = Math.round(num(r.amount)); });
-    const topCategories = catRs.recordset.map(r => {
-      const amount = Math.round(num(r.amount)), lyAmount = lyCatMap[r.category] || 0;
-      return { category: r.category, transactions: r.transactions, qty: r2(num(r.qty)), amount, lyAmount, growthPct: pct(amount, lyAmount) };
-    }).sort((a, b) => b.amount - a.amount);
-
-    // ── GP% (overall + salesperson-wise, current vs LY) ──
-    // Revenue with an unknown cost basis (costPerUnit=0, no traceable purchase) is
-    // excluded from BOTH numerator and denominator of overall GP% — otherwise it
-    // silently dilutes the true margin by looking like 0% on items we simply don't
-    // have cost data for. knownCostCoveragePct reports how much revenue that affects.
-    const gpFromRows = rows => {
-      let knownSaleAmt = 0, profit = 0, totalSaleAmt = 0;
-      rows.forEach(r => { totalSaleAmt += r.amount; if (r.knownCost) { knownSaleAmt += r.amount; profit += r.profit; } });
-      return { saleAmt: Math.round(totalSaleAmt), knownSaleAmt: Math.round(knownSaleAmt), profit: Math.round(profit),
-        gpPct: knownSaleAmt ? r2(profit / knownSaleAmt * 100) : 0,
-        knownCostCoveragePct: totalSaleAmt ? r2(knownSaleAmt / totalSaleAmt * 100) : 0 };
-    };
-    const buildGpRow = (key, rows) => {
-      const g = gpFromRows(rows);
-      return { name: key, qty: r2(rows.reduce((s, r) => s + r.qty, 0)), ...g };
-    };
-    const groupGpRows = keyFn => {
-      const rowsWithGp = Object.values(_ilMap).map(r => {
-        const knownCost = r.purQty > 0;
-        return { key: r.key, cat: r.cat, supName: r.supName, qty: r.saleQty, amount: r.saleAmt, knownCost,
-          profit: knownCost ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0 };
-      }).filter(r => r.amount > 0);
-      const groups = {};
-      rowsWithGp.forEach(r => { const k = keyFn(r) || 'Unknown'; (groups[k] = groups[k] || []).push(r); });
-      return Object.entries(groups).map(([k, rows]) => buildGpRow(k, rows)).sort((a, b) => b.saleAmt - a.saleAmt);
-    };
-    const gpByCategory = groupGpRows(r => r.cat);
-    const gpBySupplier = groupGpRows(r => r.supName);
-    const gpSummary = { ...gpFromRows(Object.values(_ilMap).filter(r => r.saleAmt > 0).map(r => ({
-      amount: r.saleAmt, knownCost: r.purQty > 0, profit: (r.purQty > 0) ? Math.round(r.saleAmt - r.saleQty * r.costPerUnit) : 0
-    }))), byCategory: gpByCategory, bySupplier: gpBySupplier };
-
-    // Salesperson GP: current + LY (approx — same all-time costMap applied to both).
-    const buildSpGp = (rs) => {
-      const rows = rs.recordset.map(r => {
-        const key = r.supName + '||' + r.style;
-        const knownCost = (costMap[key] || 0) > 0;
-        const amount = Math.round(num(r.amount)), qty = r2(num(r.qty));
-        const profit = knownCost ? Math.round(amount - qty * costMap[key]) : 0;
-        return { name: r.name, qty, amount, knownCost, profit };
-      });
-      const groups = {};
-      rows.forEach(r => { (groups[r.name] = groups[r.name] || []).push(r); });
-      return groups;
-    };
-    const curSpGpGroups = buildSpGp(spGpRs), lySpGpGroups = buildSpGp(lySpGpRs);
-    const allSpGpNames = new Set([...Object.keys(curSpGpGroups), ...Object.keys(lySpGpGroups)]);
-    const salespersonGP = [...allSpGpNames].map(name => {
-      const cur = gpFromRows(curSpGpGroups[name] || []);
-      const ly = gpFromRows(lySpGpGroups[name] || []);
-      return { name, ...cur, lyGpPct: ly.gpPct, lyProfit: ly.profit, lySaleAmt: ly.saleAmt, gpPctGrowth: pct(cur.gpPct, ly.gpPct) };
-    }).sort((a, b) => b.saleAmt - a.saleAmt);
-
-    return {
-      salesSummary: { totalAmount: r2(totalAmt), totalQty: r2(totalQty), totalTransactions, byDate: fmtByDate },
-      topCategories, cityStateSales: [], skuSales: [],
-      supplierSales, salespersons,
-      currentStock,
-      supplierStock, categoryStock,
-      supplierStyleSales,
-      supplierStyleStock,
-      styleSales, styleStock,
-      spAnalytics, deptAnalytics, basketSize, departments,
-      itemLedger, gpSummary, salespersonGP,
-      deadStockSummary, freshStockSellThrough, fixedWindowSales, monthlyStockTurn
-    };
-}
-
-// Refreshes the default range plus the common wide presets (This Month/Quarter/Year —
-// mirrors setRptPreset() in app.html) into the cache on a timer, so real users picking
-// any of those rarely hit a cold, from-scratch computation — including the very first
-// time a wide range like "This Year" is ever requested after a deploy, which otherwise
-// has nothing to fall back on and must block. Runs sequentially, not in parallel — 4
-// full report computations at once would recreate the exact connection-pool contention
-// already fixed elsewhere (each computation alone fires ~14+ queries in a single burst).
-function _imsWidePresetRanges() {
-  const now = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  const today = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
-  const q = Math.floor(now.getUTCMonth() / 3);
-  return [
-    { from: `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-01`, to: today },
-    { from: `${now.getUTCFullYear()}-${pad(q * 3 + 1)}-01`, to: today },
-    { from: `${now.getUTCFullYear()}-01-01`, to: today }
-  ];
-}
-async function prewarmImsReports() {
-  const { fromDate, toDate } = imsDefaultRange();
-  const ranges = [{ from: fromDate, to: toDate }, ..._imsWidePresetRanges()];
-  for (const r of ranges) {
-    try {
-      const data = await computeImsReportsData(r.from, r.to, null, false);
-      _imsSqlCache.set(`${r.from}|${r.to}|All`, { ts: Date.now(), data });
-      console.log(`[IMS Prewarm] refreshed ${r.from} to ${r.to}`);
-    } catch (e) { console.warn(`[IMS Prewarm] failed for ${r.from} to ${r.to}:`, e.message); }
-  }
-}
-if (!process.env.VERCEL) {
-  // setInterval only makes sense on an always-on process — on Vercel's serverless
-  // functions there's no persistent event loop between invocations, so this would
-  // just be dead weight (or worse, keep a container alive longer than needed).
-  // Vercel gets its own cron-triggered prewarm instead, see /api/cron/prewarm-ims below.
-  setInterval(prewarmImsReports, IMS_STOCK_CACHE_TTL_MS);
-  setTimeout(prewarmImsReports, 20 * 1000);   // first warm-up shortly after boot, not blocking startup
-}
-
-// Vercel Cron target — Hobby plan only allows once-daily cron schedules, so this can't
-// fully replace the always-on prewarm interval above, but firing once before business
-// hours means the first real user of the day doesn't hit a cold cache. Vercel signs
-// cron requests with `Authorization: Bearer $CRON_SECRET` automatically when that env
-// var is set on the project.
-app.get('/api/cron/prewarm-ims', async (req, res) => {
-  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  await prewarmImsReports();
-  res.json({ success: true });
-});
-
-// Stale-while-revalidate: once a (date range, dept) has ever loaded successfully, that
-// result never gets thrown away just for being past its TTL — it's served instantly
-// while a fresh copy is computed in the background for next time. Only a range that has
-// NEVER been computed at all blocks on a live computation. This is what makes wide
-// ranges (This Year, This FY) reliable: the first load is still slow (nothing to fall
-// back on), but every load after that is instant, and the user never sees "no data"
-// again for a range that has ever loaded once — old data stays until new data replaces it.
-const _imsRefreshing = new Set(); // cacheKeys currently being recomputed, to avoid piling up duplicate work
-function refreshImsCacheInBackground(cacheKey, fromDate, toDate, deptFilter) {
-  if (_imsRefreshing.has(cacheKey)) return;
-  _imsRefreshing.add(cacheKey);
-  computeImsReportsData(fromDate, toDate, deptFilter, false)
-    .then(data => { _imsSqlCache.set(cacheKey, { ts: Date.now(), data }); console.log(`[IMS Reports] background refresh done: ${cacheKey}`); })
-    .catch(e => console.warn(`[IMS Reports] background refresh failed for ${cacheKey}:`, e.message))
-    .finally(() => { _imsRefreshing.delete(cacheKey); });
-}
-
-app.get('/api/ims-reports', requireAuth, async (req, res) => {
-  try {
-    const { from, to, sync, dept } = req.query;
-    const deptFilter = (dept && dept !== 'All') ? dept : null;
-    const { fromDate: defFrom, toDate: defTo } = imsDefaultRange();
-    const fromDate = from || defFrom;
-    const toDate = to || defTo;
-
-    const cacheKey = `${fromDate}|${toDate}|${deptFilter || 'All'}`;
-    const cached = _imsSqlCache.get(cacheKey);
-    // Wide ranges (This Year, This FY, All) are the slowest to compute (touch the most
-    // history) and the least time-sensitive to view (a YTD total doesn't need to be
-    // fresh to the minute the way "Today" does) — cache them longer so the expensive
-    // computation runs far less often, not just within the same 20-minute window as a
-    // fast "Today" query.
-    const spanDays = (new Date(toDate + 'T00:00:00Z') - new Date(fromDate + 'T00:00:00Z')) / 86400000;
-    const ttl = spanDays > 45 ? IMS_WIDE_RANGE_CACHE_TTL_MS : IMS_SQL_CACHE_TTL_MS;
-
-    if (sync === 'true') {
-      // Explicit "Sync Live Data" click — the one case that should actually wait for a
-      // guaranteed-fresh computation rather than serving anything stale.
-      const responseData = await computeImsReportsData(fromDate, toDate, deptFilter, true);
-      _imsSqlCache.set(cacheKey, { ts: Date.now(), data: responseData });
-      return res.json(responseData);
-    }
-
-    if (cached) {
-      if ((Date.now() - cached.ts) >= ttl) refreshImsCacheInBackground(cacheKey, fromDate, toDate, deptFilter);
-      return res.json(cached.data);
-    }
-
-    // Never computed for this exact (range, dept) before — nothing to fall back on, so
-    // this one request has to wait for the real thing.
-    const responseData = await computeImsReportsData(fromDate, toDate, deptFilter, false);
-    _imsSqlCache.set(cacheKey, { ts: Date.now(), data: responseData });
-    return res.json(responseData);
-  } catch (err) {
-    console.error('[IMS Reports] error:', err.message);
-    const msg = (err.message || 'Failed to load').replace(/[^\x20-\x7E]/g, '?').slice(0, 200);
-    res.status(500).json({ error: msg });
-  }
-});
-
-// ── IMS Stock History — stock snapshot as of any past date ──────────────────
-// Params: asOf=YYYY-MM-DD (required), dept=filter (optional)
-// Works BACKWARDS from InvItemStock's live current balance rather than forward
-// from zero — computing stock_asOf(d) = currentQty - net(events after d) only
-// needs to scan the small (targetDate, today] window, not all-time history
-// (tested: all-time forward scan = 15s, this windowed approach = ~2-3s).
-app.get('/api/ims-stock-history', requireAuth, async (req, res) => {
-  try {
-    const { asOf, from, to, dept: deptFilter } = req.query;
-    if (!asOf && !to) return res.status(400).json({ error: 'asOf or to date required (YYYY-MM-DD)' });
-
-    let dateLabels;
-    if (from) {
-      const dates = [], cur = new Date(from + 'T00:00:00Z'), end = new Date((to || asOf) + 'T00:00:00Z');
-      const MAX_COLS = 45;
-      while (cur <= end && dates.length < MAX_COLS) { dates.push(cur.toISOString().slice(0, 10)); cur.setUTCDate(cur.getUTCDate() + 1); }
-      dateLabels = dates;
-    } else {
-      const mkD = n => { const d = new Date(asOf + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
-      dateLabels = [mkD(2), mkD(1), mkD(0)];
-    }
-    const minTargetDate = dateLabels[0];
-
-    const pool = await getSqlPool();
-    const [stockRs, purTotalRs, purAfterRs, saleAfterRs] = await Promise.all([
-      pool.request().query(`SELECT ISNULL(supl.PartyName,'Unknown') supName, ISNULL(art.ArticleNo,'Unknown') style,
-          ISNULL(dept.InvDepartmentName,'') dept, ISNULL(cat.InvCategoryName,'') cat, ISNULL(subcat.InvSubCategoryName,'') subcat,
-          SUM(s.StockQty) qty
-        FROM InvItemStock s
-        LEFT JOIN MstItems mi ON mi.ItemCode = s.ItemId
-        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-        LEFT JOIN MstInvSubCategory subcat ON subcat.InvSubCategoryId = art.InvSubCategoryId
-        LEFT JOIN MstInvCategory cat ON cat.InvCategoryId = subcat.InvCategoryId
-        LEFT JOIN MstInvDepartment dept ON dept.InvDepartmentId = cat.InvDepartmentId
-        ${imsSupplierJoin('s')}
-        GROUP BY supl.PartyName, art.ArticleNo, dept.InvDepartmentName, cat.InvCategoryName, subcat.InvSubCategoryName`),
-      pool.request().query(`SELECT ISNULL(p.PartyName,'Unknown') supName, ISNULL(art.ArticleNo,'Unknown') style, SUM(pd.Quantity) totalPur
-        FROM InvPurchaseDetail pd
-        JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
-        JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
-        LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
-        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-        WHERE ph.IsCancelled = 0
-        GROUP BY p.PartyName, art.ArticleNo`),
-      pool.request().input('minD', sql.Date, minTargetDate).query(`SELECT ISNULL(p.PartyName,'Unknown') supName, ISNULL(art.ArticleNo,'Unknown') style, CONVERT(varchar(10),ph.PurchaseDt,23) dt, SUM(pd.Quantity) qty
-        FROM InvPurchaseDetail pd
-        JOIN InvPurchaseHead ph ON ph.PurchaseId = pd.PurchaseId
-        JOIN MstParty p ON p.PartyId = ph.SupplierPartyId
-        LEFT JOIN MstItems mi ON mi.ItemCode = pd.ItemId
-        LEFT JOIN MstArticle art ON art.ArticleId = mi.ArticleId
-        WHERE ph.IsCancelled = 0 AND ph.PurchaseDt > @minD
-        GROUP BY p.PartyName, art.ArticleNo, ph.PurchaseDt`),
-      pool.request().input('minD', sql.Date, minTargetDate).query(`SELECT ISNULL(supl.PartyName,'Unknown') supName, ISNULL(art.ArticleNo,'Unknown') style, CONVERT(varchar(10),h.CashmemoDt,23) dt, SUM(d.Quantity) qty
-        ${IMS_SALES_JOIN} ${imsSupplierJoin('d')}
-        WHERE h.IsCancelled = 0 AND h.CashmemoDt > @minD
-        GROUP BY supl.PartyName, art.ArticleNo, h.CashmemoDt`)
-    ]);
-
-    const keyMeta = {};
-    stockRs.recordset.forEach(r => {
-      keyMeta[r.supName + '||' + r.style] = { supName: r.supName, style: r.style, dept: r.dept || '—', cat: r.cat || '', subcat: r.subcat || '', currentQty: Number(r.qty) || 0 };
-    });
-    const totalPurMap = {};
-    purTotalRs.recordset.forEach(r => { totalPurMap[r.supName + '||' + r.style] = Number(r.totalPur) || 0; });
-
-    const eventsAfter = {};
-    purAfterRs.recordset.forEach(r => {
-      const key = r.supName + '||' + r.style;
-      (eventsAfter[key] || (eventsAfter[key] = [])).push({ t: r.dt, qty: Number(r.qty) || 0 });
-    });
-    saleAfterRs.recordset.forEach(r => {
-      const key = r.supName + '||' + r.style;
-      (eventsAfter[key] || (eventsAfter[key] = [])).push({ t: r.dt, qty: -(Number(r.qty) || 0) });
-    });
-
-    const allKeys = new Set([...Object.keys(keyMeta), ...Object.keys(totalPurMap)]);
-    const items = [];
-    for (const key of allKeys) {
-      const totalPur = totalPurMap[key] || 0;
-      if (totalPur <= 0) continue;   // matches original: skip items never purchased
-      const meta = keyMeta[key] || { supName: key.split('||')[0], style: key.split('||')[1], dept: '—', cat: '', subcat: '', currentQty: 0 };
-      if (deptFilter && deptFilter !== 'All' && meta.dept !== deptFilter) continue;
-      const evs = eventsAfter[key] || [];
-      const stocks = dateLabels.map(d => Math.round(meta.currentQty - evs.filter(e => e.t > d).reduce((s, e) => s + e.qty, 0)));
-      items.push({ supName: meta.supName, dept: meta.dept, cat: meta.cat || '—', subcat: meta.subcat || '—', style: meta.style, article: meta.style, purQty: Math.round(totalPur), stocks });
-    }
-
-    items.sort((a, b) => (a.dept||'').localeCompare(b.dept||'') || (a.cat||'').localeCompare(b.cat||'') || (a.supName||'').localeCompare(b.supName||''));
-    res.json({ asOf, dates: dateLabels, total: items.length, items });
-  } catch (e) { console.error('[IMS Stock History]', e); res.status(500).json({ error: e.message }); }
-});
-
-// 'department', 'basket', 'salesperson' come from r2Drill (hub charts); 'item'
-// comes from showTurnoverDetail (Fast/Slow-Moving + STR turnover row clicks —
-// r.key there is "supplier||style" for the supplier-grouped table, or a bare
-// style for the style-only table, so 'item' matches on style alone, optionally
-// also constrained to a supplier when the value contains "||"). The classic
-// drilldown types (category, city, stock_category, stock_supplier) only live
-// on hidden tabs and aren't reimplemented here.
-app.get('/api/ims-drilldown', requireAuth, async (req, res) => {
-  try {
-    const { type, value, from, to } = req.query;
-    if (!type || !value) return res.status(400).json({ error: 'type and value required' });
-
-    const pool = await getSqlPool();
-    const toDate = to || new Date().toISOString().slice(0, 10);
-    const fromDate = from || (() => { const d = new Date(); d.setDate(d.getDate() - 60); return d.toISOString().slice(0, 10); })();
-    const rowCols = `CONVERT(varchar(10),h.CashmemoDt,23) date, h.CashmemoId xnNo,
-        ISNULL(dept.InvDepartmentName,'') department, ISNULL(dept.InvDepartmentName,'') category, '' subcategory,
-        ISNULL(art.ArticleNo,'') style, ISNULL(supl.PartyName,'Unknown') supplier, ISNULL(sp.SalesPersonName,'Unknown') salesperson,
-        d.Quantity qty, d.NetAmount amount`;
-    const mapRow = r => ({ ...r, qty: Number(r.qty) || 0, amount: Number(r.amount) || 0 });
-
-    if (type === 'basket') {
-      const want = String(value).replace(/\s*pc\s*$/i, '').trim();
-      const billRs = await pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate)
-        .query(`SELECT h.CashmemoId, SUM(d.Quantity) qty ${IMS_SALES_JOIN} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to GROUP BY h.CashmemoId`);
-      const matchIds = billRs.recordset.filter(r => {
-        const n = Math.round(Number(r.qty) || 0); if (n < 1) return false;
-        return (n >= 5 ? '5+' : String(n)) === want;
-      }).map(r => r.CashmemoId).slice(0, 500);
-      if (!matchIds.length) return res.json({ rows: [], type, value });
-      const idsReq = pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate);
-      const idParams = matchIds.map((id, i) => { const p = `id${i}`; idsReq.input(p, sql.VarChar, id); return '@' + p; }).join(',');
-      const rowsRs = await idsReq.query(`SELECT ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE)} WHERE h.CashmemoId IN (${idParams})`);
-      return res.json({ rows: rowsRs.recordset.map(mapRow), type, value });
-    }
-
-    if (type === 'item' || type === 'style') {
-      let supName = null, style = value;
-      if (String(value).includes('||')) { [supName, style] = String(value).split('||'); }
-      const req_ = pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate).input('style', sql.VarChar, style);
-      let extraWhere = '';
-      if (supName) { req_.input('supName', sql.VarChar, supName); extraWhere = 'AND supl.PartyName = @supName'; }
-      const r = await req_.query(`SELECT TOP 500 ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE)} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND art.ArticleNo = @style ${extraWhere} ORDER BY h.CashmemoDt DESC`);
-      return res.json({ rows: r.recordset.map(mapRow), type, value });
-    }
-
-    const colMap = { department: 'dept.InvDepartmentName', salesperson: 'sp.SalesPersonName', category: 'dept.InvDepartmentName' };
-    const col = colMap[type];
-    if (!col) return res.json({ rows: [], type, value });
-
-    const r = await pool.request().input('from', sql.Date, fromDate).input('to', sql.Date, toDate).input('value', sql.VarChar, value)
-      .query(`SELECT TOP 500 ${rowCols} ${IMS_SALES_JOIN} ${imsSupplierJoin('d', IMS_SALES_ITEM_SCOPE)} WHERE h.IsCancelled=0 AND h.CashmemoDt BETWEEN @from AND @to AND ${col} = @value ORDER BY h.CashmemoDt DESC`);
-    res.json({ rows: r.recordset.map(mapRow), type, value });
-  } catch (err) {
-    console.error('[IMS Drilldown]', err.message);
-    res.status(500).json({ error: err.message.slice(0, 200) });
-  }
-});
-
-// ══════════════════════════════════════════════════════
 // PAGES
 // ══════════════════════════════════════════════════════
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
@@ -3826,6 +3281,6 @@ if (process.env.VERCEL) {
 } else {
   _dbReady.finally(() => app.listen(PORT, () => {
     console.log(`\n  ✦ Task Manager: http://localhost:${PORT}`);
-    console.log(`  Login: Vishal@gmail.com / pass123\n`);
+    console.log(`  Login: admin@ajantaelectronics.com / Ajanta@2024\n`);
   }));
 }

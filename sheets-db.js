@@ -77,14 +77,6 @@ const SCHEMA = {
   holidays: {
     cols: ['id','date','name'],
     autoFill: {}
-  },
-  sales_targets: {
-    cols: ['id','group_key','group_name','target_amount','month1_pct','month2_pct','month3_pct','updated_by','updated_at'],
-    autoFill: { updated_at: 'NOW' }
-  },
-  sales_target_categories: {
-    cols: ['id','year','category_name','codes','period_type','periods_json','target_amount','updated_by','updated_at'],
-    autoFill: { updated_at: 'NOW' }
   }
 };
 
@@ -437,11 +429,11 @@ async function init() {
       if (userCount === 0) {
         alasql(
           'INSERT INTO users (id,name,email,notification_email,password,role,phone,profile_image,department,week_off,extra_off) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-          [1, 'Admin', 'admin@rajkamal.com', '', 'Rajkamal@2024', 'admin', '', '', '', '', '']
+          [1, 'Admin', 'admin@ajantaelectronics.com', '', 'Ajanta@2024', 'admin', '', '', '', '', '']
         );
         _nextId.users = 2;
         markDirty('users');
-        console.log('  🌱 Seeded default admin: admin@rajkamal.com / Rajkamal@2024');
+        console.log('  🌱 Seeded default admin: admin@ajantaelectronics.com / Ajanta@2024');
       }
 
       _initialized = true;
@@ -760,8 +752,7 @@ function injectAutoId(table, sql, params) {
 // ON DUPLICATE KEY UPDATE — manual upsert
 // Key detection: known schemas (week_plans: employee_id + start_date)
 const UNIQUE_KEYS = {
-  week_plans: ['employee_id', 'start_date'],
-  sales_targets: ['group_key']
+  week_plans: ['employee_id', 'start_date']
 };
 function executeUpsert({ table, cols, valTokens, updateClause, params }) {
   const keys = UNIQUE_KEYS[table];
