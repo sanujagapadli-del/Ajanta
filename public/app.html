@@ -5964,7 +5964,12 @@ const O2D_STEP_DEFS = [
     ] },
   { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', extraFields: [] },
   { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', extraFields: [] },
-  { n: 4, label: 'Make Bill', doer: 'Accountant', extraFields: [] },
+  { n: 4, label: 'Make Bill', doer: 'Accountant', extraFields: [
+      { key: 'billNo', label: 'Bill No' },
+      { key: 'billAmount', label: 'Bill Amount', type: 'number' },
+      { key: 'photoLink', label: 'Photo Link' },
+      { key: 'billDate', label: 'Bill Date', type: 'date' }
+    ] },
   { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', extraFields: [
       { key: 'doerName', label: 'Doer Name' },
       { key: 'photo', label: 'Photo (link)' }
@@ -5975,10 +5980,12 @@ const O2D_STEP_DEFS = [
   { n: 7, label: 'Arrange Loader', doer: 'Kavita', extraFields: [] },
   { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', extraFields: [] },
   { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', extraFields: [
-      { key: 'loaderName', label: 'Loader Name' }
+      { key: 'doerName', label: 'Doer Name' },
+      { key: 'deliveryBy', label: 'Delivery By' }
     ] }
 ];
 const O2D_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
+const O2D_INPUT_STYLE = "width:100%;padding:10px 12px;border:1.5px solid var(--border-base);border-radius:var(--radius-sm);font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
 
 let o2dData = [];
 let o2dView = 'fms';
@@ -6252,6 +6259,36 @@ async function openO2dDetail(row) {
   renderO2dDetailBody(o);
 }
 
+function renderO2dField(f, row) {
+  const id = `o2dExtra_${row}_${f.key}`;
+  return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${O2D_INPUT_STYLE}"/>`;
+}
+function readO2dField(f, row) {
+  const el = document.getElementById(`o2dExtra_${row}_${f.key}`);
+  return el ? el.value.trim() : '';
+}
+
+async function advanceO2dStep(row, step) {
+  const o = o2dData.find(x => x.row === row);
+  if (!o) { showToast('Order not found — please refresh', 'error'); return; }
+  const stepDef = O2D_STEP_DEFS.find(d => d.n === step);
+  const body = { orderId: o.orderId, orderNo: o.orderNo, counterName: o.counterName, qty: o.qty };
+
+  if (stepDef.statusOptions) {
+    const statusEl = document.getElementById(`o2dStatusSelect_${row}`);
+    body.status = statusEl ? statusEl.value : '';
+    if (!body.status) { showToast(`Select ${stepDef.label}`, 'error'); return; }
+  }
+
+  for (const f of stepDef.extraFields) body[f.key] = readO2dField(f, row);
+
+  const res = await api(`/api/o2d-fms/${row}/step/${step}`, 'PUT', body);
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('✅ Step recorded! May take a few minutes to reflect here (sheet refresh lag).');
+  closeModal('o2dDetailModal');
+  await loadO2dFmsList();
+}
+
 function renderO2dDetailBody(o) {
   const body = document.getElementById('o2dBody');
 
@@ -6278,18 +6315,28 @@ function renderO2dDetailBody(o) {
       </div>
     </div>`;
 
-  // Master. is a computed dashboard (every cell is an ARRAYFORMULA/QUERY
-  // pulling from the sheet's own source tabs/forms per step) — this app
-  // only reads it. No "Mark Done" here; that step's own form/tab is what
-  // actually needs filling in.
+  // Master. is a computed dashboard — every Actual/Status cell is an
+  // ARRAYFORMULA doing a VLOOKUP into that step's own source tab (the same
+  // tab its real Google Form response lands in). "Mark Done" below appends
+  // a row to that source tab in the same shape a real form submission
+  // would, instead of writing into Master. directly — Master. then picks
+  // it up on its own the next time it's read (can lag a few minutes).
   const nextStepDef = O2D_STEP_DEFS.find(d => d.n === o.currentStep + 1);
   let actionHtml;
   if (nextStepDef) {
+    const statusSelectHtml = nextStepDef.statusOptions
+      ? `<select id="o2dStatusSelect_${o.row}" style="${O2D_INPUT_STYLE}"><option value="">-- Select --</option>${nextStepDef.statusOptions.map(v => `<option value="${v}">${v}</option>`).join('')}</select>`
+      : '';
+    const extraInputsHtml = nextStepDef.extraFields.map(f => renderO2dField(f, o.row)).join('');
+    const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Waiting On</div>
+        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
-        ${nextStepDef.doer ? `<div style="font-size:12px;color:var(--gray-400)">Doer: ${nextStepDef.doer}</div>` : ''}
+        ${nextStepDef.doer ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${nextStepDef.doer}</div>` : ''}
+        ${statusSelectHtml}
+        ${extraInputsHtml}
+        <button onclick="advanceO2dStep(${o.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
       </div>`;
   } else {
     actionHtml = `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All 9 steps complete — order closed</div>`;

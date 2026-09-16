@@ -2919,18 +2919,88 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   }
 });
 
-// DISABLED — every cell in "Master." (order info AND every step's
-// Planned/Actual/Status) is computed: columns A-R spill in from an external
-// sheet via QUERY(IMPORTRANGE(...)), and each step's Actual/Status is an
-// ARRAYFORMULA doing a VLOOKUP into a different source tab (Step1, "FMS
-// Updation", Step4Response, "Takeout and loading5", "6", Loading13...).
-// Writing a literal value into any of those cells breaks the array formula
-// for that row (Sheets blocks/corrupts it the moment manual data lands in
-// its spill range). Confirmed by reading the cells with valueRenderOption
-// 'FORMULA' — do not re-enable this without writing to the real source tab
-// for that step instead of Master. directly.
+// "Master." never gets written to directly — every one of its Actual/Status
+// cells is an ARRAYFORMULA doing a VLOOKUP into a different source tab (the
+// same tab each step's own Google Form response lands in). So "marking a
+// step done" means appending a row to THAT tab, in the same shape a real
+// form submission would — Master. then picks it up on its own via the
+// VLOOKUP the next time it's read. Confirmed empirically by reading real
+// historical rows from each of these tabs, not just the formula text.
+const O2D_STEP_WRITE_TARGETS = {
+  // Step1's real form range is F:I (Ord-#### four-digit numbering matches
+  // current orders) — A:D is an older/legacy block Master.'s own formula
+  // doesn't even read (it points at F1:I), so nothing is written there.
+  1: {
+    tab: 'Step1', range: 'F:I',
+    build: (o, b, now) => [o.orderNo, now, b.status || 'Yes', b.reason || '']
+  },
+  2: {
+    tab: 'FMS Updation', range: 'G:L',
+    build: (o, b, now) => [`${o.orderId}Step-2`, now, o.orderId, 'Step-2', b.status || 'Yes', o.orderNo]
+  },
+  // Steps 3/7/8 all share the same "FMS Updation" A:F block, distinguished
+  // by the Step column — Master.'s VLOOKUP keys on OrderId+StepTag.
+  3: {
+    tab: 'FMS Updation', range: 'A:F',
+    build: (o, b, now) => [`${o.orderId}Step-3`, now, o.orderId, 'Step-3', b.status || 'Yes', o.orderNo]
+  },
+  4: {
+    tab: 'Step4Response', range: 'A:J',
+    build: (o, b, now) => [now, o.counterName, o.orderNo, o.orderId, b.billNo || '', b.billAmount || '', b.status || 'Yes', b.photoLink || '', o.qty || '', b.billDate || '']
+  },
+  5: {
+    tab: 'Takeout and loading5', range: 'A:H',
+    build: (o, b, now) => [`${o.orderId}Step-5`, now, o.orderId, 'Step-5', b.doerName || '', b.status || 'Yes', b.photo || '', o.orderNo]
+  },
+  // Steps 6 and 9 key on the plain Order Id directly — no concatenation.
+  6: {
+    tab: '6', range: 'A:E',
+    build: (o, b, now) => [o.orderId, now, b.doerName || '', b.status || 'Yes', o.orderNo]
+  },
+  7: {
+    tab: 'FMS Updation', range: 'A:F',
+    build: (o, b, now) => [`${o.orderId}Step-7`, now, o.orderId, 'Step-7', b.status || 'Yes', o.orderNo]
+  },
+  8: {
+    tab: 'FMS Updation', range: 'A:F',
+    build: (o, b, now) => [`${o.orderId}Step-8`, now, o.orderId, 'Step-8', b.status || 'Yes', o.orderNo]
+  },
+  9: {
+    tab: 'Loading13', range: 'A:F',
+    build: (o, b, now) => [o.orderId, now, b.doerName || '', b.status || 'Yes', b.deliveryBy || '', b.billDate || '']
+  }
+};
+
 app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
-  res.status(400).json({ error: 'Marking O2D steps done from here is disabled — "Master." is a computed view (ARRAYFORMULA/QUERY), not editable. Each step is actually completed via its own source tab/form; ask to have that wired up instead.' });
+  try {
+    const stepNum = parseInt(req.params.stepNum, 10);
+    const target = O2D_STEP_WRITE_TARGETS[stepNum];
+    if (!target) return res.status(400).json({ error: 'Invalid step number' });
+
+    // Order context comes from the client (already holds the row from its
+    // last /api/o2d-fms load) rather than re-reading Master. here — avoids
+    // an extra Sheets read per "Mark Done" click.
+    const { orderId, orderNo, counterName, qty } = req.body;
+    if (!orderId) return res.status(400).json({ error: 'orderId is required' });
+
+    const now = sfmsDateToSerial(new Date());
+    const row = target.build({ orderId, orderNo: orderNo || '', counterName: counterName || '', qty: qty || '' }, req.body, now);
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    await sheetsApi.spreadsheets.values.append({
+      spreadsheetId: O2D_SHEET_ID,
+      range: `'${target.tab}'!${target.range}`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] }
+    });
+
+    _o2dCache = null; // next GET re-reads Master. so this shows up once IMPORTRANGE/VLOOKUP catch up
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════
