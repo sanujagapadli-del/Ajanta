@@ -1,0 +1,160 @@
+-- ══════════════════════════════════════════════════════════════════
+-- Ajanta Electronics Task Manager — MySQL schema
+-- Mirrors the table/column layout in sheets-db.js's SCHEMA constant,
+-- so server.js's existing SQL (written for a real MySQL pool) runs
+-- unchanged against this.
+-- ══════════════════════════════════════════════════════════════════
+
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  notification_email VARCHAR(255),
+  password VARCHAR(255) NOT NULL,
+  role VARCHAR(50),
+  phone VARCHAR(50),
+  profile_image MEDIUMTEXT,
+  department VARCHAR(100),
+  week_off VARCHAR(50),
+  extra_off VARCHAR(50),
+  is_active TINYINT DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS delegation_tasks (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(500),
+  description TEXT,
+  assigned_to INT,
+  assigned_by INT,
+  due_date DATE,
+  start_date DATE,
+  status VARCHAR(50),
+  priority VARCHAR(50),
+  approval VARCHAR(50),
+  waiting_approval INT DEFAULT 0,
+  remarks TEXT,
+  link VARCHAR(1000),
+  revision_status VARCHAR(50),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_reminder_date DATE,
+  completed_at DATETIME,
+  INDEX idx_assigned_to (assigned_to),
+  INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS checklist_tasks (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(500),
+  description TEXT,
+  assigned_to INT,
+  assigned_by INT,
+  due_date DATE,
+  start_date DATE,
+  status VARCHAR(50),
+  priority VARCHAR(50),
+  remarks TEXT,
+  frequency VARCHAR(50),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME,
+  INDEX idx_assigned_to (assigned_to),
+  INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS task_approvals (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT,
+  task_type VARCHAR(50),
+  requested_by INT,
+  requested_to INT,
+  action_type VARCHAR(50),
+  status VARCHAR(50),
+  note TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_task (task_id, task_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS task_transfers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT,
+  task_type VARCHAR(50),
+  from_user INT,
+  to_user INT,
+  requested_by INT,
+  status VARCHAR(50),
+  note TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_task (task_id, task_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS task_comments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT,
+  task_type VARCHAR(50),
+  user_id INT,
+  comment TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_task (task_id, task_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS week_plans (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  employee_id INT,
+  hod_id INT,
+  start_date DATE,
+  target_count INT,
+  improvement_pct INT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_employee_week (employee_id, start_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fms_sheets (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  fms_name VARCHAR(255),
+  sheet_name VARCHAR(255),
+  sheet_id VARCHAR(500),
+  header_row INT,
+  total_steps INT,
+  created_by INT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fms_steps (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  fms_id INT,
+  step_order INT,
+  step_name VARCHAR(255),
+  plan_col VARCHAR(10),
+  actual_col VARCHAR(10),
+  extra_input VARCHAR(10),
+  extra_col VARCHAR(10),
+  show_cols TEXT,
+  delay_reason_col VARCHAR(10),
+  doer_name_col VARCHAR(10),
+  INDEX idx_fms_id (fms_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fms_step_doers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  step_id INT,
+  user_id INT,
+  INDEX idx_step_id (step_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fms_extra_rows (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  step_id INT,
+  row_label VARCHAR(255),
+  col_letter VARCHAR(10),
+  field_type VARCHAR(50),
+  dropdown_options TEXT,
+  INDEX idx_step_id (step_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS holidays (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  date DATE,
+  name VARCHAR(255)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

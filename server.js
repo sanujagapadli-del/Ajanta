@@ -91,15 +91,15 @@ app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ══════════════════════════════════════════════════════
-// SHEETS DB — Google Sheets backed in-memory adapter
-// (drop-in replacement for mysql2 — same db.query / db.execute / db.getConnection API)
+// DATABASE — real MySQL when DB_HOST is set, else the Google Sheets
+// backed in-memory adapter (sheets-db.js is a drop-in stand-in for the
+// same mysql2/promise db.query / db.execute / db.getConnection API).
 // ══════════════════════════════════════════════════════
-const db = require('./sheets-db');
-// Schema is defined in sheets-db.js — no runtime migrations needed for Sheets.
-// init() loads all tabs into in-memory store on boot.
+const _usingMysql = !!process.env.DB_HOST;
+const db = _usingMysql ? require('./mysql-db') : require('./sheets-db');
 const _dbReady = db.init()
   .then(async () => {
-    console.log('  ✅ Sheets DB ready');
+    console.log(_usingMysql ? '  ✅ MySQL DB ready' : '  ✅ Sheets DB ready');
     // Migration: set is_active=1 for users where it is null/empty (added after initial deploy)
     try {
       const [rows] = await db.query('SELECT id, is_active FROM users');
