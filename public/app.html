@@ -3531,12 +3531,14 @@ async function deleteComment(id) {
 // ══════════════════════════════════════════════════════
 async function openDelegate() {
   document.getElementById('delegateErr').style.display='none';
+  document.getElementById('dTitle').value='';
   document.getElementById('dDesc').value='';
   document.getElementById('dRemarks').value='';
   document.getElementById('dLink').value='';
   document.getElementById('dPriority').value='low';
   document.getElementById('dApproval').value='no';
   const today = new Date().toISOString().split('T')[0];
+  document.getElementById('dStartDate').value=today;
   document.getElementById('dDate').value=today;
   document.getElementById('dDate').min=today;
   const users = await api('/api/users');
@@ -5087,8 +5089,8 @@ async function openAllMISDetail(userId, userName) {
 // Set default MIS dates (current week)
 function setDefaultMISDates() {
   const today = new Date();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - today.getDay() + 1);
+  const dow = today.getDay(); // 0=Sun
+  const monday = new Date(today); monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
   document.getElementById('misStart').value = monday.toISOString().split('T')[0];
   document.getElementById('misEnd').value = today.toISOString().split('T')[0];
 }
@@ -5463,11 +5465,21 @@ function renderSfmsStepView(n) {
           <td>${c.productName}</td>
           <td style="max-width:220px;white-space:normal">${c.problemDescription || '—'}</td>
           <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending} day${daysPending === 1 ? '' : 's'}${isLate ? ' ⚠️' : ''}</td>
-          <td style="min-width:300px;padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
+          <td id="sfmsStepAction_${c.row}" style="min-width:300px;padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
         </tr>`;
       }).join('')}
     </tbody>
   </table>`;
+}
+
+// Patches just one row's action cell in the per-step table (instead of a full
+// renderSfmsStepView(), which would wipe whatever any OTHER row on screen has
+// half-typed into its own inline form) — used after an action that only
+// changes this one complaint's state, like sending its OTP.
+function refreshSfmsStepActionCell(row) {
+  const cell = document.getElementById(`sfmsStepAction_${row}`);
+  const c = sfmsData.find(x => x.row === row);
+  if (cell && c) cell.innerHTML = buildSfmsNextActionHtml(c, true);
 }
 
 function renderServiceFmsList() {
@@ -6212,7 +6224,9 @@ async function sendSfmsOtp(row, step) {
   // (if open) and/or a per-step tab table (both can reflect the same row).
   const updated = sfmsData.find(x => x.row === row);
   if (updated && document.getElementById('complaintDetailModal').classList.contains('open')) renderComplaintDetailBody(updated);
-  if (sfmsView.startsWith('step')) renderServiceFmsList();
+  // Patch just this row's cell — a full renderServiceFmsList() would blow away
+  // whatever any other pending row on this same step tab has half-typed in.
+  if (sfmsView.startsWith('step')) refreshSfmsStepActionCell(row);
 }
 
 // ══════════════════════════════════════════════════════
@@ -6861,9 +6875,14 @@ function goToO2dOrderStep1() {
   document.getElementById('noFooterButtons').style.display = 'none';
 }
 
-function goToO2dOrderStep2() {
+async function goToO2dOrderStep2() {
   const name = document.getElementById('noCounterName').value.trim();
   if (!name) { showToast('Pehle counter/dealer name daalo', 'error'); return; }
+  // openNewO2dOrderModal() kicks this off without awaiting so the modal opens
+  // instantly — but the "Old Counter"/"New Counter" call below depends on it,
+  // so make sure it's actually resolved before deciding (otherwise a real
+  // existing dealer can get silently misclassified as brand-new on a fast click).
+  await loadO2dDealers(false);
   document.getElementById('noStep2DealerName').textContent = name;
   const d = findO2dDealer(name);
   document.getElementById('noCounterType').value = d ? 'Old Counter' : 'New Counter';
