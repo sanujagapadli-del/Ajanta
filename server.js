@@ -2786,6 +2786,62 @@ const O2D_STEPS = [
     extra: [ { key: 'loaderName', col: 'BE', label: 'Loader Name' } ] }
 ];
 
+// ── O2D step doers — who's actually assigned to each of the 9 fixed steps.
+// O2D_STEPS' own `doer` field is just a static role label ("Accountant",
+// "Kavita"...); this layers real user assignments on top, same shape as the
+// generic FMS system's fms_step_doers table.
+async function ensureO2dStepDoersTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_step_doers (
+      step_n INT NOT NULL,
+      user_id INT NOT NULL,
+      PRIMARY KEY (step_n, user_id)
+    )
+  `);
+}
+async function withO2dStepDoersTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureO2dStepDoersTable(); return await fn(); }
+}
+
+let _o2dStepDoersCache = null; // { map, ts } — step_n -> [{id,name}]
+const O2D_STEP_DOERS_CACHE_TTL_MS = 60 * 1000;
+async function getO2dStepDoersMap() {
+  if (_o2dStepDoersCache && (Date.now() - _o2dStepDoersCache.ts) < O2D_STEP_DOERS_CACHE_TTL_MS) return _o2dStepDoersCache.map;
+  const [rows] = await withO2dStepDoersTable(() => db.query(
+    `SELECT osd.step_n, u.id, u.name FROM o2d_step_doers osd JOIN users u ON osd.user_id=u.id ORDER BY u.name`
+  ));
+  const map = {};
+  rows.forEach(r => { (map[r.step_n] = map[r.step_n] || []).push({ id: r.id, name: r.name }); });
+  _o2dStepDoersCache = { map, ts: Date.now() };
+  return map;
+}
+
+app.get('/api/o2d-fms/step-doers', requireAuth, async (req, res) => {
+  try {
+    const map = await getO2dStepDoersMap();
+    const assignments = {};
+    O2D_STEPS.forEach(s => { assignments[s.n] = map[s.n] || []; });
+    res.json({ assignments });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/o2d-fms/step-doers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { assignments } = req.body; // { "1": [userId,...], "2": [...], ... }
+    await ensureO2dStepDoersTable();
+    await db.query('DELETE FROM o2d_step_doers');
+    const rows = [];
+    Object.entries(assignments || {}).forEach(([stepN, userIds]) => {
+      (userIds || []).forEach(uid => rows.push([Number(stepN), Number(uid)]));
+    });
+    if (rows.length) await db.query('INSERT INTO o2d_step_doers (step_n, user_id) VALUES ?', [rows]);
+    _o2dStepDoersCache = null;
+    _o2dCache = null; // orders embed doers — force a fresh merge on next read
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // The Master. tab is 2300+ rows wide (A:BM) — reading it straight from Sheets
 // takes ~10-15s, so cache the parsed result briefly. A completed step-write
 // (below) clears this so "Mark Done" is reflected immediately, not after TTL.
@@ -2797,12 +2853,26 @@ async function getO2dOrders() {
     if (_o2dCache && (Date.now() - _o2dCache.ts) < O2D_CACHE_TTL_MS) {
       return _o2dCache.orders;
     }
+    const stepDoersMap = await getO2dStepDoersMap();
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-    const result = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: O2D_SHEET_ID,
-      range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:${O2D_LAST_COL}`,
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
+    let result;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        result = await sheetsApi.spreadsheets.values.get({
+          spreadsheetId: O2D_SHEET_ID,
+          range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:${O2D_LAST_COL}`,
+          valueRenderOption: 'UNFORMATTED_VALUE'
+        });
+        break;
+      } catch (e) {
+        const isRateLimit = e.code === 429 || (e.message || '').includes('Quota exceeded');
+        if (!isRateLimit || attempt >= 2) {
+          if (_o2dCache) return _o2dCache.orders; // serve stale rather than a hard failure
+          throw e;
+        }
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      }
+    }
     const rows = result.data.values || [];
     const orders = rows.map((r, i) => {
       const rowNum = O2D_DATA_START_ROW + i;
@@ -2826,7 +2896,7 @@ async function getO2dOrders() {
       };
       o.steps = O2D_STEPS.map(sd => {
         const step = {
-          n: sd.n, label: sd.label, doer: sd.doer,
+          n: sd.n, label: sd.label, doer: sd.doer, doers: stepDoersMap[sd.n] || [],
           planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
           actual: sd.actual ? sfmsSerialToDate(get(sd.actual)) : '',
           status: get(sd.status) || ''

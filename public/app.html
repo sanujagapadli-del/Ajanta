@@ -1136,6 +1136,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="page-header">
       <button class="btn btn-primary" onclick="openNewO2dOrderModal()">+ New Order</button>
       <button class="btn btn-outline" onclick="loadO2dFmsList()">🔄 Refresh</button>
+      <button class="btn btn-outline" id="o2dStepDoersBtn" style="display:none" onclick="openStepDoersModal()">⚙ Step Doers</button>
     </div>
 
     <div style="display:flex;gap:6px;margin-bottom:16px;">
@@ -2309,6 +2310,19 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── O2D: STEP DOERS MODAL ── -->
+<div class="modal-overlay" id="stepDoersModal">
+  <div class="modal" style="max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 style="margin:0">⚙ Step Doers</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('stepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">Har step ke liye ek ya zyada log assign karo — unka naam step ke default label ki jagah pe dikhega.</div>
+    <div id="stepDoersRows" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="submitStepDoers()">Save</button>
+  </div>
+</div>
+
 <!-- ── SET PLAN MODAL ── -->
 <div class="modal-overlay" id="setPlanModal">
   <div class="modal" style="max-width:440px">
@@ -2528,6 +2542,7 @@ async function init() {
       document.getElementById('nav-records').style.display = 'flex';
       document.getElementById('nav-section-fms').style.display = 'block';
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
+      document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
     }
     // hod/pc nav blocks — re-enable when ROLE FEATURE FLAGS above are removed
     // if (ME.role === 'hod') { nav-fms-tasks, nav-records, setPlanBtn }
@@ -2818,8 +2833,8 @@ async function loadDashboard() {
         id: o.row, type: 'o2d', status: 'pending',
         title: o.orderId,
         description,
-        assignedToName: pendingStep.doer || '—',
-        assignedByName: pendingStep.doer || '—',
+        assignedToName: stepDoerLabel(pendingStep),
+        assignedByName: stepDoerLabel(pendingStep),
         assignedToDept: '',
         start_date: o.timestamp
       });
@@ -6181,6 +6196,7 @@ const O2D_PAGE_SIZE = 50;
 async function loadO2dFmsList() {
   const wrap = document.getElementById('o2dListWrap');
   wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (!_o2dStepDoersMerged) await mergeO2dStepDoersIntoDefs();
   const data = await api('/api/o2d-fms');
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   o2dData = data;
@@ -6314,7 +6330,7 @@ function renderO2dPCView() {
           <td>${o.qty || '—'}</td>
           <td style="font-weight:600">${pendingStep.n}. ${pendingStep.label}</td>
           <td style="${plannedStyle}">${pendingStep.planned || '—'}${overdue ? ' ⚠️' : ''}</td>
-          <td>${pendingStep.doer || '—'}</td>
+          <td>${stepDoerLabel(pendingStep)}</td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -6354,7 +6370,7 @@ function renderO2dReportsView() {
       <table>
         <thead><tr><th>Step</th><th>Doer</th><th>Pending Count</th></tr></thead>
         <tbody>
-          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${p.step.label}</td><td>${p.step.doer || '—'}</td><td>${p.count}</td></tr>`).join('')}
+          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${p.step.label}</td><td>${stepDoerLabel(p.step)}</td><td>${p.count}</td></tr>`).join('')}
         </tbody>
       </table>
     </div>`;
@@ -6674,6 +6690,63 @@ async function submitCreditLimit() {
   refreshDealerViews();
 }
 
+// Real assigned doer(s) win over the step's static role label — same
+// fallback everywhere a step's "doer" is displayed.
+function stepDoerLabel(step) {
+  if (step && step.doers && step.doers.length) return step.doers.map(d => d.name).join(', ');
+  return (step && step.doer) || '—';
+}
+
+let _o2dAllUsersForDoers = null;
+let _o2dStepDoersMerged = false;
+async function mergeO2dStepDoersIntoDefs() {
+  const r = await api('/api/o2d-fms/step-doers');
+  const assignments = (r && r.assignments) || {};
+  O2D_STEP_DEFS.forEach(sd => { sd.doers = assignments[sd.n] || []; });
+  _o2dStepDoersMerged = true;
+}
+
+async function openStepDoersModal() {
+  const [usersRes, doersRes] = await Promise.all([
+    _o2dAllUsersForDoers ? Promise.resolve(_o2dAllUsersForDoers) : api('/api/users'),
+    api('/api/o2d-fms/step-doers')
+  ]);
+  if (Array.isArray(usersRes)) _o2dAllUsersForDoers = usersRes;
+  const users = _o2dAllUsersForDoers || [];
+  const assignments = (doersRes && doersRes.assignments) || {};
+
+  document.getElementById('stepDoersRows').innerHTML = O2D_STEP_DEFS.map(sd => {
+    const assignedIds = new Set((assignments[sd.n] || []).map(u => u.id));
+    const checkboxes = users.map(u => `
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer">
+        <input type="checkbox" class="stepDoerCheck_${sd.n}" value="${u.id}" ${assignedIds.has(u.id) ? 'checked' : ''}/>
+        ${u.name}
+      </label>`).join('');
+    return `
+      <div style="border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${sd.label}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${sd.doer || '—'}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:140px;overflow-y:auto">${checkboxes || '<span style="color:var(--gray-400);font-size:12px">No users found</span>'}</div>
+      </div>`;
+  }).join('');
+  document.getElementById('stepDoersModal').classList.add('open');
+}
+
+async function submitStepDoers() {
+  const assignments = {};
+  O2D_STEP_DEFS.forEach(sd => {
+    const checked = [...document.querySelectorAll(`.stepDoerCheck_${sd.n}:checked`)].map(el => Number(el.value));
+    assignments[sd.n] = checked;
+  });
+  const r = await api('/api/o2d-fms/step-doers', 'PUT', { assignments });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Step doers updated!');
+  closeModal('stepDoersModal');
+  await mergeO2dStepDoersIntoDefs();
+  // server-side order cache was invalidated too, so this re-fetch picks up the new assignments
+  if (document.getElementById('page-o2d-fms').classList.contains('active')) loadO2dFmsList();
+}
+
 // ── New Order ──
 // Orders don't originate in Master. (that whole tab is a computed view) —
 // they're created in the separate "O2D Response" intake sheet, one row per
@@ -6885,7 +6958,7 @@ function renderO2dDetailBody(o) {
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
-        ${nextStepDef.doer ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${nextStepDef.doer}</div>` : ''}
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)}</div>
         ${statusSelectHtml}
         ${extraInputsHtml}
         <button onclick="advanceO2dStep(${o.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
@@ -6920,7 +6993,7 @@ function renderO2dDetailBody(o) {
             const extraText = def.extraFields.map(f => s[f.key] ? `${f.label}: ${s[f.key]}` : '').filter(Boolean).join(', ') || '—';
             return `<tr>
             <td style="font-weight:600">${s.n}. ${s.label}</td>
-            <td>${s.doer || '—'}</td>
+            <td>${stepDoerLabel(s)}</td>
             <td>${s.planned || '—'}</td>
             <td>${s.actual || '—'}</td>
             <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${s.status}</span>` : '—'}</td>
