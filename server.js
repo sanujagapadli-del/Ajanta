@@ -2792,10 +2792,10 @@ const O2D_STEPS = [
 let _o2dCache = null; // { orders, ts }
 const O2D_CACHE_TTL_MS = 60 * 1000;
 
-app.get('/api/o2d-fms', requireAuth, async (req, res) => {
-  try {
+async function getO2dOrders() {
+  {
     if (_o2dCache && (Date.now() - _o2dCache.ts) < O2D_CACHE_TTL_MS) {
-      return res.json(_o2dCache.orders);
+      return _o2dCache.orders;
     }
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const result = await sheetsApi.spreadsheets.values.get({
@@ -2847,7 +2847,13 @@ app.get('/api/o2d-fms', requireAuth, async (req, res) => {
 
     orders.reverse(); // newest first
     _o2dCache = { orders, ts: Date.now() };
-    res.json(orders);
+    return orders;
+  }
+}
+
+app.get('/api/o2d-fms', requireAuth, async (req, res) => {
+  try {
+    res.json(await getO2dOrders());
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     res.status(500).json({ error: err.message });
@@ -2928,6 +2934,206 @@ app.get('/api/o2d-fms/customer-names', requireAuth, async (req, res) => {
     const map = await getDebtorsMap();
     const names = Object.values(map).map(v => v.name).sort((a, b) => a.localeCompare(b));
     res.json({ names });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ══════════════════════════════════════════════════════
+// O2D DEALERS — profile (city/phone/credit limit/location/KYC) +
+// payment-history rating, layered on top of the debtors sheet and
+// the live order data. Both tables are lazily created on first write
+// (mirrors the week_plans/app_settings self-healing pattern).
+// ══════════════════════════════════════════════════════
+async function ensureDealerTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_dealers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      counter_name VARCHAR(255) NOT NULL UNIQUE,
+      city VARCHAR(255),
+      phone VARCHAR(50),
+      credit_limit DECIMAL(12,2),
+      location_lat DECIMAL(10,7),
+      location_lng DECIMAL(10,7),
+      location_address VARCHAR(500),
+      kyc_aadhar_url VARCHAR(1000),
+      kyc_pan_url VARCHAR(1000),
+      kyc_gst_url VARCHAR(1000),
+      kyc_shop_url VARCHAR(1000),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_dealer_payments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      counter_name VARCHAR(255) NOT NULL,
+      amount DECIMAL(12,2),
+      due_date DATE,
+      paid_date DATE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_counter (counter_name)
+    )
+  `);
+}
+
+async function withDealerTables(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+    await ensureDealerTables();
+    return await fn();
+  }
+}
+
+function computeDealerRating(payments) {
+  if (!payments.length) return { stars: 0, label: null, total: 0, late: 0, avgLateDays: 0 };
+  let late = 0, lateDaysSum = 0;
+  for (const p of payments) {
+    if (p.due_date && p.paid_date && p.paid_date > p.due_date) {
+      late++;
+      lateDaysSum += Math.round((new Date(p.paid_date) - new Date(p.due_date)) / 86400000);
+    }
+  }
+  const total = payments.length;
+  const onTimeRatio = (total - late) / total;
+  const stars = Math.max(1, Math.round(onTimeRatio * 5));
+  const label = stars >= 4 ? 'Good' : stars === 3 ? 'OK' : 'Risky';
+  return { stars, label, total, late, avgLateDays: late > 0 ? Math.round(lateDaysSum / late) : 0 };
+}
+
+app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
+  try {
+    const [debtorsMap, dealerRows, paymentRows, orders] = await Promise.all([
+      getDebtorsMap(),
+      withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
+      withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
+      getO2dOrders().catch(() => []) // dealer directory shouldn't 500 just because the orders sheet hiccups
+    ]);
+
+    const byKey = {}; // lowercased counter name -> merged dealer record
+    const ensure = (name) => {
+      const key = name.trim().toLowerCase();
+      if (!key) return null;
+      if (!byKey[key]) byKey[key] = { name: name.trim(), city: '', phone: '', creditLimit: null, outstanding: null,
+        locationLat: null, locationLng: null, locationAddress: '', kyc: { aadhar: null, pan: null, gst: null, shop: null },
+        lastOrder: null, payments: [] };
+      return byKey[key];
+    };
+
+    Object.values(debtorsMap).forEach(v => { const d = ensure(v.name); if (d) d.outstanding = v.outstanding; });
+
+    dealerRows.forEach(row => {
+      const d = ensure(row.counter_name);
+      if (!d) return;
+      d.name = row.counter_name; // profile row is the authoritative display name/casing
+      d.city = row.city || '';
+      d.phone = row.phone || '';
+      d.creditLimit = row.credit_limit !== null && row.credit_limit !== undefined ? Number(row.credit_limit) : null;
+      d.locationLat = row.location_lat !== null ? Number(row.location_lat) : null;
+      d.locationLng = row.location_lng !== null ? Number(row.location_lng) : null;
+      d.locationAddress = row.location_address || '';
+      d.kyc = { aadhar: row.kyc_aadhar_url || null, pan: row.kyc_pan_url || null, gst: row.kyc_gst_url || null, shop: row.kyc_shop_url || null };
+    });
+
+    paymentRows.forEach(p => { const d = ensure(p.counter_name); if (d) d.payments.push(p); });
+
+    // group orders by counterName+orderId for a per-order qty/amount total, then take each dealer's most recent
+    const orderGroups = {};
+    orders.forEach(o => {
+      if (!o.counterName) return;
+      const gKey = o.counterName.trim().toLowerCase() + '::' + o.orderId;
+      if (!orderGroups[gKey]) orderGroups[gKey] = { counterName: o.counterName, timestamp: o.timestamp, orderNo: o.orderNo, qty: 0, amount: 0 };
+      orderGroups[gKey].qty += Number(o.qty) || 0;
+      orderGroups[gKey].amount += Number(o.amount) || 0;
+      if (o.timestamp > orderGroups[gKey].timestamp) orderGroups[gKey].timestamp = o.timestamp;
+    });
+    Object.values(orderGroups).forEach(g => {
+      const d = ensure(g.counterName);
+      if (!d) return;
+      if (!d.lastOrder || g.timestamp > d.lastOrder.timestamp) {
+        d.lastOrder = { timestamp: g.timestamp, orderNo: g.orderNo, qty: g.qty, amount: g.amount };
+      }
+    });
+
+    const dealers = Object.values(byKey).map(d => {
+      const rating = computeDealerRating(d.payments);
+      const kycCount = Object.values(d.kyc).filter(Boolean).length;
+      delete d.payments;
+      return { ...d, kycCount, rating };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({ dealers });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
+  try {
+    const { name, city, phone } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Dealer name is required' });
+    await withDealerTables(() => db.query(
+      'INSERT INTO o2d_dealers (counter_name, city, phone) VALUES (?,?,?) ON DUPLICATE KEY UPDATE city=VALUES(city), phone=VALUES(phone)',
+      [name.trim(), city || null, phone || null]
+    ));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
+  try {
+    const name = req.params.name.trim();
+    const { city, phone, creditLimit } = req.body;
+    await withDealerTables(() => db.query(
+      `INSERT INTO o2d_dealers (counter_name, city, phone, credit_limit) VALUES (?,?,?,?)
+       ON DUPLICATE KEY UPDATE
+         city = COALESCE(VALUES(city), city),
+         phone = COALESCE(VALUES(phone), phone),
+         credit_limit = VALUES(credit_limit)`,
+      [name, city || null, phone || null, (creditLimit === '' || creditLimit === undefined || creditLimit === null) ? null : Number(creditLimit)]
+    ));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/o2d-fms/dealers/:name/kyc', requireAuth, async (req, res) => {
+  try {
+    const name = req.params.name.trim();
+    const { docType, image } = req.body;
+    const colMap = { aadhar: 'kyc_aadhar_url', pan: 'kyc_pan_url', gst: 'kyc_gst_url', shop: 'kyc_shop_url' };
+    const col = colMap[docType];
+    if (!col) return res.status(400).json({ error: 'Invalid KYC document type' });
+    if (!image) return res.status(400).json({ error: 'No image provided' });
+    const link = await uploadPhotoToDrive(image, `${name}-kyc-${docType}-${Date.now()}.jpg`);
+    await withDealerTables(() => db.query(
+      `INSERT INTO o2d_dealers (counter_name, ${col}) VALUES (?,?) ON DUPLICATE KEY UPDATE ${col}=VALUES(${col})`,
+      [name, link]
+    ));
+    res.json({ success: true, link });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/o2d-fms/dealers/:name/location', requireAuth, async (req, res) => {
+  try {
+    const name = req.params.name.trim();
+    const { lat, lng, address } = req.body;
+    await withDealerTables(() => db.query(
+      `INSERT INTO o2d_dealers (counter_name, location_lat, location_lng, location_address) VALUES (?,?,?,?)
+       ON DUPLICATE KEY UPDATE location_lat=VALUES(location_lat), location_lng=VALUES(location_lng), location_address=VALUES(location_address)`,
+      [name, lat ?? null, lng ?? null, address || null]
+    ));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/o2d-fms/dealers/:name/payments', requireAuth, async (req, res) => {
+  try {
+    const name = req.params.name.trim();
+    const { amount, dueDate, paidDate } = req.body;
+    if (!dueDate || !paidDate) return res.status(400).json({ error: 'Due date and paid date are required' });
+    await withDealerTables(() => db.query(
+      'INSERT INTO o2d_dealer_payments (counter_name, amount, due_date, paid_date) VALUES (?,?,?,?)',
+      [name, amount || null, dueDate, paidDate]
+    ));
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

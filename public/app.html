@@ -1143,6 +1143,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab active" id="o2dViewFms" onclick="switchO2dView('fms',this)">FMS View</div>
         <div class="tab" id="o2dViewPC" onclick="switchO2dView('pc',this)">PC View</div>
         <div class="tab" id="o2dViewReports" onclick="switchO2dView('reports',this)">📊 Reports</div>
+        <div class="tab" id="o2dViewDealers" onclick="switchO2dView('dealers',this)">🏪 Dealers</div>
       </div>
     </div>
 
@@ -2222,6 +2223,77 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="btn btn-primary" id="noSubmitBtn" onclick="submitNewO2dOrder()">Save Order</button>
       <button class="btn btn-outline" onclick="closeModal('newO2dOrderModal')">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- ── O2D DEALERS: ADD DEALER MODAL ── -->
+<div class="modal-overlay" id="addDealerModal">
+  <div class="modal" style="max-width:420px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0">🏪 Naya Dealer Add Karo</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('addDealerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="alert error" id="addDealerErr" style="display:none"></div>
+    <div class="form-group"><label>Dealer / Counter Name <span style="color:var(--color-danger)">*</span></label><input type="text" id="adName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+    <div class="form-group"><label>City</label><input type="text" id="adCity" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+    <div class="form-group"><label>Phone</label><input type="tel" id="adPhone" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+    <button class="btn btn-primary" style="width:100%" onclick="submitAddDealer()">Save Dealer</button>
+  </div>
+</div>
+
+<!-- ── O2D DEALERS: KYC UPLOAD MODAL ── -->
+<div class="modal-overlay" id="kycModal">
+  <div class="modal" style="max-width:440px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 style="margin:0">📎 KYC Documents</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('kycModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:16px" id="kycModalDealerName"></div>
+    <div id="kycDocRows" style="display:flex;flex-direction:column;gap:10px"></div>
+  </div>
+</div>
+
+<!-- ── O2D DEALERS: LOCATION MODAL ── -->
+<div class="modal-overlay" id="locationModal">
+  <div class="modal" style="max-width:420px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0">📍 Set Location</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('locationModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="alert error" id="locationModalErr" style="display:none"></div>
+    <button class="btn btn-outline" style="width:100%;margin-bottom:14px" onclick="captureGpsLocation()" id="gpsBtn">📡 Use Current GPS Location</button>
+    <div id="gpsResult" style="display:none;font-size:12px;color:var(--gray-600);background:var(--gray-100);border-radius:8px;padding:8px 10px;margin-bottom:14px"></div>
+    <div class="form-group"><label>Address (optional)</label><textarea id="locAddress" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea></div>
+    <button class="btn btn-primary" style="width:100%" onclick="submitLocation()">Save Location</button>
+  </div>
+</div>
+
+<!-- ── O2D DEALERS: LOG PAYMENT MODAL ── -->
+<div class="modal-overlay" id="logPaymentModal">
+  <div class="modal" style="max-width:420px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0">💵 Log Payment</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('logPaymentModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="alert error" id="logPaymentErr" style="display:none"></div>
+    <div class="form-group"><label>Amount (₹)</label><input type="number" id="lpAmount" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label>Due Date <span style="color:var(--color-danger)">*</span></label><input type="date" id="lpDueDate" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+      <div class="form-group"><label>Paid Date <span style="color:var(--color-danger)">*</span></label><input type="date" id="lpPaidDate" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="submitLogPayment()">Save Payment</button>
+  </div>
+</div>
+
+<!-- ── O2D DEALERS: CREDIT LIMIT MODAL ── -->
+<div class="modal-overlay" id="creditLimitModal">
+  <div class="modal" style="max-width:360px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0">💳 Set Credit Limit</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('creditLimitModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="form-group"><label>Credit Limit (₹)</label><input type="number" id="clAmount" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+    <button class="btn btn-primary" style="width:100%" onclick="submitCreditLimit()">Save</button>
   </div>
 </div>
 
@@ -6110,13 +6182,14 @@ function switchO2dView(view, el) {
   o2dPage = 1;
   document.querySelectorAll('#page-o2d-fms .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  document.getElementById('o2dSearchWrap').style.display = view === 'reports' ? 'none' : '';
+  document.getElementById('o2dSearchWrap').style.display = (view === 'reports' || view === 'dealers') ? 'none' : '';
   renderO2dActiveView();
 }
 
 function renderO2dActiveView() {
   if (o2dView === 'fms') return renderO2dFmsView();
   if (o2dView === 'pc') return renderO2dPCView();
+  if (o2dView === 'dealers') return renderO2dDealersView();
   return renderO2dReportsView();
 }
 
@@ -6273,6 +6346,250 @@ function renderO2dReportsView() {
         </tbody>
       </table>
     </div>`;
+}
+
+// ── Dealers ──
+// A profile layer over the debtors-outstanding sheet + live order data:
+// credit limit, KYC docs, a GPS location, and a payment-reliability rating
+// built from admin-logged due/paid dates (there's no payment-collection
+// tracking anywhere upstream, so this is its own small log).
+let o2dDealers = [];
+let o2dDealersLoaded = false;
+let o2dDealerSearchQ = '';
+
+async function loadO2dDealers(force) {
+  if (o2dDealersLoaded && !force) return;
+  const r = await api('/api/o2d-fms/dealers');
+  o2dDealers = (r && r.dealers) || [];
+  o2dDealersLoaded = true;
+}
+
+async function renderO2dDealersView() {
+  const wrap = document.getElementById('o2dListWrap');
+  wrap.innerHTML = `<div class="empty">Loading dealers…</div>`;
+  await loadO2dDealers(false);
+  renderDealerGrid();
+}
+
+function starsHtml(n) {
+  let s = '';
+  for (let i = 1; i <= 5; i++) s += i <= n ? '★' : '☆';
+  return s;
+}
+
+function inr(n) { return '₹' + Math.round(n).toLocaleString('en-IN'); }
+
+function onDealerSearchInput(v) {
+  o2dDealerSearchQ = v;
+  renderDealerGrid();
+}
+
+function renderDealerGrid() {
+  const wrap = document.getElementById('o2dListWrap');
+  const q = o2dDealerSearchQ.trim().toLowerCase();
+  const filtered = q ? o2dDealers.filter(d => d.name.toLowerCase().includes(q) || (d.city || '').toLowerCase().includes(q)) : o2dDealers;
+
+  wrap.innerHTML = `
+    <div style="padding:16px">
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <input type="text" id="dealerSearchInput" placeholder="🔍 Search dealer or city…" value="${o2dDealerSearchQ.replace(/"/g,'&quot;')}" oninput="onDealerSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <button class="btn btn-outline" onclick="loadO2dDealers(true).then(renderDealerGrid)">🔄 Refresh</button>
+        <button class="btn btn-primary" onclick="openAddDealerModal()">+ Naya Dealer Add Karo</button>
+      </div>
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">${filtered.length} dealer${filtered.length===1?'':'s'}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
+        ${filtered.map(dealerCardHtml).join('') || '<div class="empty">No dealers found</div>'}
+      </div>
+    </div>`;
+}
+
+function dealerCardHtml(d) {
+  const nameEsc = d.name.replace(/'/g, "\\'");
+  const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
+  const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
+  const outstandingStr = d.outstanding !== null ? `<strong>${inr(d.outstanding)}</strong>` : '<span style="color:var(--gray-400)">—</span>';
+  const creditStr = d.creditLimit !== null ? inr(d.creditLimit) : `<span style="color:var(--gray-400)">credit limit set nahi</span>`;
+  const ratingHtml = d.rating.total > 0
+    ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span> ${d.rating.label} · ${d.rating.total} payment${d.rating.total===1?'':'s'}, ${d.rating.late} late · avg ${d.rating.avgLateDays} din`
+    : `<span style="color:var(--gray-400)">No payment history yet</span>`;
+  const lastOrderHtml = d.lastOrder
+    ? `Last order: ${fmtDate((d.lastOrder.timestamp || '').split(' ')[0])} — ${d.lastOrder.qty} pcs${d.lastOrder.amount ? ', ' + inr(d.lastOrder.amount) : ''}`
+    : `<span style="color:var(--gray-400)">No orders yet</span>`;
+  const locHtml = d.locationLat
+    ? `<a href="https://maps.google.com/?q=${d.locationLat},${d.locationLng}" target="_blank" style="font-size:11px;color:var(--color-primary)">📍 View saved location</a>`
+    : '';
+
+  return `
+    <div style="background:var(--color-primary-light);border:1.5px solid var(--color-primary-ring);border-radius:12px;padding:14px 16px">
+      <div style="font-weight:700;font-size:14px;color:var(--gray-900)">${d.name}${d.city ? ' · ' + d.city : ''}${d.phone ? ' · ' + d.phone : ''}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor}">KYC: ${d.kycCount}/4</span>
+        <button class="btn btn-outline btn-sm" onclick="openKycModal('${nameEsc}')">Upload KYC</button>
+        <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
+      </div>
+      <div style="font-size:12.5px;color:var(--gray-600);margin-top:8px">
+        Outstanding: ${outstandingStr} · <span style="cursor:pointer;text-decoration:underline dotted" onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})">${creditStr}</span>
+      </div>
+      <div style="font-size:12.5px;color:var(--gray-600);margin-top:4px">${ratingHtml} · <span style="cursor:pointer;color:var(--color-primary);text-decoration:underline dotted" onclick="openLogPaymentModal('${nameEsc}')">+ Log Payment</span></div>
+      <div style="font-size:12.5px;color:var(--gray-600);margin-top:4px">${lastOrderHtml}</div>
+      ${locHtml ? `<div style="margin-top:4px">${locHtml}</div>` : ''}
+    </div>`;
+}
+
+function openAddDealerModal() {
+  document.getElementById('adName').value = '';
+  document.getElementById('adCity').value = '';
+  document.getElementById('adPhone').value = '';
+  document.getElementById('addDealerErr').style.display = 'none';
+  document.getElementById('addDealerModal').classList.add('open');
+}
+async function submitAddDealer() {
+  const name = document.getElementById('adName').value.trim();
+  const errEl = document.getElementById('addDealerErr');
+  if (!name) { errEl.textContent = 'Dealer name is required'; errEl.style.display = 'block'; return; }
+  const r = await api('/api/o2d-fms/dealers', 'POST', {
+    name, city: document.getElementById('adCity').value.trim(), phone: document.getElementById('adPhone').value.trim()
+  });
+  if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
+  showToast('Dealer added!');
+  closeModal('addDealerModal');
+  await loadO2dDealers(true);
+  renderDealerGrid();
+}
+
+const KYC_DOC_TYPES = [
+  { key: 'aadhar', label: 'Aadhar Card' },
+  { key: 'pan', label: 'PAN Card' },
+  { key: 'gst', label: 'GST Certificate' },
+  { key: 'shop', label: 'Shop Photo' }
+];
+let _kycCurrentDealer = null;
+function openKycModal(name) {
+  _kycCurrentDealer = name;
+  document.getElementById('kycModalDealerName').textContent = name;
+  renderKycRows();
+  document.getElementById('kycModal').classList.add('open');
+}
+function renderKycRows() {
+  const d = o2dDealers.find(x => x.name === _kycCurrentDealer);
+  const kyc = (d && d.kyc) || {};
+  document.getElementById('kycDocRows').innerHTML = KYC_DOC_TYPES.map(t => {
+    const url = kyc[t.key];
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:8px">
+        <div>
+          <div style="font-size:13px;font-weight:600">${t.label}</div>
+          <div style="font-size:11px;color:${url ? 'var(--color-success-text)' : 'var(--gray-400)'}">${url ? '✅ Uploaded' : 'Not uploaded'}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${url ? `<a href="${url}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">View</a>` : ''}
+          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('kycFile_${t.key}').click()">${url ? 'Replace' : 'Upload'}</button>
+          <input type="file" id="kycFile_${t.key}" accept="image/*" style="display:none" onchange="handleKycFile('${t.key}', event)"/>
+        </div>
+      </div>`;
+  }).join('');
+}
+function handleKycFile(docType, event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('File size must be under 5MB', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    showToast('Uploading…');
+    const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_kycCurrentDealer)}/kyc`, 'POST', { docType, image: e.target.result });
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('KYC document uploaded!');
+    await loadO2dDealers(true);
+    renderKycRows();
+    renderDealerGrid();
+  };
+  reader.readAsDataURL(file);
+}
+
+let _locCurrentDealer = null;
+let _capturedGps = null;
+function openLocationModal(name) {
+  _locCurrentDealer = name;
+  _capturedGps = null;
+  document.getElementById('gpsResult').style.display = 'none';
+  document.getElementById('locationModalErr').style.display = 'none';
+  const d = o2dDealers.find(x => x.name === name);
+  document.getElementById('locAddress').value = (d && d.locationAddress) || '';
+  document.getElementById('locationModal').classList.add('open');
+}
+function captureGpsLocation() {
+  if (!navigator.geolocation) { showToast('GPS not supported on this device/browser', 'error'); return; }
+  const btn = document.getElementById('gpsBtn');
+  btn.disabled = true; btn.textContent = 'Getting location…';
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      _capturedGps = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const box = document.getElementById('gpsResult');
+      box.style.display = 'block';
+      box.innerHTML = `📍 Captured: ${_capturedGps.lat.toFixed(6)}, ${_capturedGps.lng.toFixed(6)} — <a href="https://maps.google.com/?q=${_capturedGps.lat},${_capturedGps.lng}" target="_blank">View on map</a>`;
+      btn.disabled = false; btn.textContent = '📡 Use Current GPS Location';
+    },
+    err => {
+      const errEl = document.getElementById('locationModalErr');
+      errEl.textContent = 'Could not get location: ' + err.message;
+      errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = '📡 Use Current GPS Location';
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+async function submitLocation() {
+  const address = document.getElementById('locAddress').value.trim();
+  const d = o2dDealers.find(x => x.name === _locCurrentDealer);
+  const lat = _capturedGps ? _capturedGps.lat : (d ? d.locationLat : null);
+  const lng = _capturedGps ? _capturedGps.lng : (d ? d.locationLng : null);
+  const errEl = document.getElementById('locationModalErr');
+  if (!lat && !address) { errEl.textContent = 'GPS capture karo ya address likho'; errEl.style.display = 'block'; return; }
+  const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_locCurrentDealer)}/location`, 'POST', { lat, lng, address });
+  if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
+  showToast('Location saved!');
+  closeModal('locationModal');
+  await loadO2dDealers(true);
+  renderDealerGrid();
+}
+
+let _lpCurrentDealer = null;
+function openLogPaymentModal(name) {
+  _lpCurrentDealer = name;
+  document.getElementById('lpAmount').value = '';
+  document.getElementById('lpDueDate').value = '';
+  document.getElementById('lpPaidDate').value = '';
+  document.getElementById('logPaymentErr').style.display = 'none';
+  document.getElementById('logPaymentModal').classList.add('open');
+}
+async function submitLogPayment() {
+  const amount = document.getElementById('lpAmount').value;
+  const dueDate = document.getElementById('lpDueDate').value;
+  const paidDate = document.getElementById('lpPaidDate').value;
+  const errEl = document.getElementById('logPaymentErr');
+  if (!dueDate || !paidDate) { errEl.textContent = 'Due date aur paid date dono chahiye'; errEl.style.display = 'block'; return; }
+  const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_lpCurrentDealer)}/payments`, 'POST', { amount: amount || null, dueDate, paidDate });
+  if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
+  showToast('Payment logged!');
+  closeModal('logPaymentModal');
+  await loadO2dDealers(true);
+  renderDealerGrid();
+}
+
+let _clCurrentDealer = null;
+function openCreditLimitModal(name, current) {
+  _clCurrentDealer = name;
+  document.getElementById('clAmount').value = current || '';
+  document.getElementById('creditLimitModal').classList.add('open');
+}
+async function submitCreditLimit() {
+  const val = document.getElementById('clAmount').value;
+  const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_clCurrentDealer)}`, 'PUT', { creditLimit: val });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Credit limit updated!');
+  closeModal('creditLimitModal');
+  await loadO2dDealers(true);
+  renderDealerGrid();
 }
 
 // ── New Order ──

@@ -158,3 +158,30 @@ CREATE TABLE IF NOT EXISTS holidays (
   date DATE,
   name VARCHAR(255)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS o2d_dealers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  counter_name VARCHAR(255) NOT NULL UNIQUE,
+  city VARCHAR(255),
+  phone VARCHAR(50),
+  credit_limit DECIMAL(12,2),
+  location_lat DECIMAL(10,7),
+  location_lng DECIMAL(10,7),
+  location_address VARCHAR(500),
+  kyc_aadhar_url VARCHAR(1000),
+  kyc_pan_url VARCHAR(1000),
+  kyc_gst_url VARCHAR(1000),
+  kyc_shop_url VARCHAR(1000),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS o2d_dealer_payments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  counter_name VARCHAR(255) NOT NULL,
+  amount DECIMAL(12,2),
+  due_date DATE,
+  paid_date DATE,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_counter (counter_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
