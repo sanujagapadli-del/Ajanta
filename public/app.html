@@ -1115,9 +1115,17 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="btn btn-outline" onclick="loadServiceFmsList()">🔄 Refresh</button>
     </div>
 
-    <div style="display:flex;gap:6px;margin-bottom:16px;">
+    <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto">
       <div class="tab-group">
         <div class="tab active" id="sfmsViewAll" onclick="switchSfmsView('all',this)">All Complaints</div>
+        <div class="tab" id="sfmsViewStep1" onclick="switchSfmsView('step1',this)">1. Warranty</div>
+        <div class="tab" id="sfmsViewStep2" onclick="switchSfmsView('step2',this)">2. Spare Check</div>
+        <div class="tab" id="sfmsViewStep3" onclick="switchSfmsView('step3',this)">3. Takeout</div>
+        <div class="tab" id="sfmsViewStep4" onclick="switchSfmsView('step4',this)">4. Assign</div>
+        <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. Solve</div>
+        <div class="tab" id="sfmsViewStep6" onclick="switchSfmsView('step6',this)">6. In/Out</div>
+        <div class="tab" id="sfmsViewStep7" onclick="switchSfmsView('step7',this)">7. Solved?</div>
+        <div class="tab" id="sfmsViewStep8" onclick="switchSfmsView('step8',this)">8. Review</div>
         <div class="tab" id="sfmsViewReports" onclick="switchSfmsView('reports',this)">📊 Reports</div>
       </div>
     </div>
@@ -5430,8 +5438,41 @@ function switchSfmsView(view, el) {
   renderServiceFmsList();
 }
 
+// One tab per step: a table of everything currently pending right there,
+// with the exact same "Next Action" form used in the detail modal (via
+// buildSfmsNextActionHtml) sitting inline in its own column — mark a step
+// done straight from the list, no need to open each complaint separately.
+function renderSfmsStepView(n) {
+  const wrap = document.getElementById('sfmsListWrap');
+  const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
+  const rows = sfmsData.filter(c => !c.closed && c.currentStep + 1 === n);
+  if (!rows.length) { wrap.innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`; return; }
+  wrap.innerHTML = `<table>
+    <thead><tr>
+      <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Product</th><th>Problem</th><th>Pending</th>
+      <th style="min-width:300px">${n}. ${stepDef.label}</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map(c => {
+        const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
+        const isLate = daysPending >= 2;
+        return `<tr>
+          <td style="font-weight:600;cursor:pointer" onclick="openComplaintDetail(${c.row})">${c.complainNo}</td>
+          <td>${c.filledByName}</td>
+          <td><a href="tel:${c.mobile}">${c.mobile}</a></td>
+          <td>${c.productName}</td>
+          <td style="max-width:220px;white-space:normal">${c.problemDescription || '—'}</td>
+          <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending} day${daysPending === 1 ? '' : 's'}${isLate ? ' ⚠️' : ''}</td>
+          <td style="min-width:300px;padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
+}
+
 function renderServiceFmsList() {
   if (sfmsView === 'reports') { renderSfmsReportsView(); return; }
+  if (sfmsView.startsWith('step')) { renderSfmsStepView(Number(sfmsView.slice(4))); return; }
   const wrap = document.getElementById('sfmsListWrap');
   const q = (document.getElementById('sfmsSearch').value || '').trim().toLowerCase();
   let rows = sfmsData;
@@ -5925,41 +5966,18 @@ function openO2dQuickAction(row) {
 const SFMS_INPUT_STYLE = "width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
 const SFMS_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
 
-function renderComplaintDetailBody(c) {
-  const body = document.getElementById('cdBody');
-
-  const showDealer = c.dealerName && c.dealerName !== c.filledByName;
-  const infoHtml = `
-    <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px">
-        <div>
-          <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${c.filledByName}</div>
-          ${showDealer ? `<div style="font-size:13px;color:var(--gray-500);margin-top:2px">Dealer: ${c.dealerName}</div>` : ''}
-        </div>
-        <a href="tel:${c.mobile}" class="btn btn-outline btn-sm" style="white-space:nowrap">${c.mobile}</a>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-        <div>
-          <div style="${SFMS_FIELD_LABEL_STYLE}">Product</div>
-          <div style="font-size:14px;color:var(--gray-800);font-weight:600">${c.productName}</div>
-        </div>
-        ${c.productLocation ? `<div>
-          <div style="${SFMS_FIELD_LABEL_STYLE}">Location</div>
-          <div style="font-size:14px;color:var(--gray-800)">${c.productLocation}${c.area ? ', ' + c.area : ''}</div>
-        </div>` : ''}
-      </div>
-      <div style="${(c.billPhoto || c.productPhoto) ? 'margin-bottom:14px' : ''}">
-        <div style="${SFMS_FIELD_LABEL_STYLE}">Problem Reported</div>
-        <div style="font-size:14px;color:var(--gray-800);line-height:1.5">${c.problemDescription}</div>
-      </div>
-      ${(c.billPhoto || c.productPhoto) ? `<div style="display:flex;gap:8px">
-        ${c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" class="btn btn-outline btn-sm">Bill Photo</a>` : ''}
-        ${c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" class="btn btn-outline btn-sm">Product Photo</a>` : ''}
-      </div>` : ''}
-    </div>`;
-
-  const nextActionWrapOpen = `<div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
+// Builds the "what to do next" form for a complaint's current step — OTP
+// gating, two-stage spare out/in, and the per-step conditional fields all
+// live here once, shared by the complaint detail modal and the per-step
+// tab tables (compact:true drops the bordered "Next Action" card chrome so
+// it fits inside a table cell instead).
+function buildSfmsNextActionHtml(c, compact) {
+  const nextActionWrapOpen = compact
+    ? ''
+    : `<div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
     <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>`;
+  const wrapClose = compact ? '' : '</div>';
+  const titleStyle = compact ? 'font-weight:700;font-size:13px;margin-bottom:6px;color:var(--gray-800)' : 'font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)';
 
   const nextStepDef = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
   let actionHtml;
@@ -5969,39 +5987,39 @@ function renderComplaintDetailBody(c) {
       const outInputsHtml = nextStepDef.extraFields.filter(f => f.stage === 'out').map(f => renderSfmsField(f, c.row)).join('');
       actionHtml = `
         ${nextActionWrapOpen}
-          <div style="font-weight:700;font-size:16px;margin-bottom:14px;color:var(--gray-800)">${nextStepDef.label}</div>
+          <div style="${titleStyle}">${nextStepDef.label}</div>
           ${outInputsHtml}
           <button onclick="advanceSfmsStep(${c.row},${nextStepDef.n},'out')" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Spare Taken Out</button>
-        </div>`;
+        ${wrapClose}`;
     } else {
       const inInputsHtml = nextStepDef.extraFields.filter(f => f.stage === 'in').map(f => renderSfmsField(f, c.row)).join('');
       actionHtml = `
         ${nextActionWrapOpen}
-          <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
+          <div style="${titleStyle}">${nextStepDef.label}</div>
           <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Taken out ${stepData.out} — currently in the field</div>
           ${inInputsHtml}
           <button onclick="advanceSfmsStep(${c.row},${nextStepDef.n},'in')" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Spare Returned</button>
-        </div>`;
+        ${wrapClose}`;
     }
   } else if (nextStepDef && nextStepDef.otpRequired) {
     const extraInputsHtml = nextStepDef.extraFields.map(f => renderSfmsField(f, c.row)).join('');
     if (!sfmsOtpSentFor[c.row]) {
       actionHtml = `
         ${nextActionWrapOpen}
-          <div style="font-weight:700;font-size:16px;margin-bottom:6px;color:var(--gray-800)">${nextStepDef.label}</div>
+          <div style="${titleStyle}">${nextStepDef.label}</div>
           <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Send a verification code to the customer's WhatsApp, then ask them for it to confirm the visit.</div>
           <button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px">Send OTP to Customer</button>
-        </div>`;
+        ${wrapClose}`;
     } else {
       actionHtml = `
         ${nextActionWrapOpen}
-          <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
+          <div style="${titleStyle}">${nextStepDef.label}</div>
           <div style="font-size:13px;color:var(--color-success-text);font-weight:600;margin-bottom:14px">OTP sent — ask the customer for the code</div>
           <input type="text" inputmode="numeric" id="sfmsOtpInput_${c.row}" placeholder="Enter OTP" style="${SFMS_INPUT_STYLE};text-align:center;letter-spacing:6px;font-weight:700;font-size:18px"/>
           ${extraInputsHtml}
           <button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px;margin-bottom:8px">Verify &amp; Mark Complete</button>
           <button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-outline btn-sm" style="width:100%;justify-content:center">Resend OTP</button>
-        </div>`;
+        ${wrapClose}`;
     }
   } else if (nextStepDef) {
     // Step 3 (Takeout Spare): only ask how many were taken here — "Spares Returned"
@@ -6035,17 +6053,56 @@ function renderComplaintDetailBody(c) {
     const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     actionHtml = `
       ${nextActionWrapOpen}
-        <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
+        <div style="${titleStyle}">${nextStepDef.label}</div>
         ${lastCheckedHtml}
         <div style="${lastCheckedHtml ? '' : 'margin-bottom:14px'}"></div>
         ${statusSelectHtml}
         ${takenSummaryHtml}
         ${extraInputsHtml}
         <button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
-      </div>`;
+      ${wrapClose}`;
   } else {
-    actionHtml = `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All steps complete — complaint closed</div>`;
+    actionHtml = compact
+      ? `<div style="color:var(--color-success-text);font-weight:700;font-size:12px">✓ Closed</div>`
+      : `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All steps complete — complaint closed</div>`;
   }
+  return actionHtml;
+}
+
+function renderComplaintDetailBody(c) {
+  const body = document.getElementById('cdBody');
+
+  const showDealer = c.dealerName && c.dealerName !== c.filledByName;
+  const infoHtml = `
+    <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${c.filledByName}</div>
+          ${showDealer ? `<div style="font-size:13px;color:var(--gray-500);margin-top:2px">Dealer: ${c.dealerName}</div>` : ''}
+        </div>
+        <a href="tel:${c.mobile}" class="btn btn-outline btn-sm" style="white-space:nowrap">${c.mobile}</a>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div>
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Product</div>
+          <div style="font-size:14px;color:var(--gray-800);font-weight:600">${c.productName}</div>
+        </div>
+        ${c.productLocation ? `<div>
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Location</div>
+          <div style="font-size:14px;color:var(--gray-800)">${c.productLocation}${c.area ? ', ' + c.area : ''}</div>
+        </div>` : ''}
+      </div>
+      <div style="${(c.billPhoto || c.productPhoto) ? 'margin-bottom:14px' : ''}">
+        <div style="${SFMS_FIELD_LABEL_STYLE}">Problem Reported</div>
+        <div style="font-size:14px;color:var(--gray-800);line-height:1.5">${c.problemDescription}</div>
+      </div>
+      ${(c.billPhoto || c.productPhoto) ? `<div style="display:flex;gap:8px">
+        ${c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" class="btn btn-outline btn-sm">Bill Photo</a>` : ''}
+        ${c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" class="btn btn-outline btn-sm">Product Photo</a>` : ''}
+      </div>` : ''}
+    </div>`;
+
+  const actionHtml = buildSfmsNextActionHtml(c);
 
   // Progress checklist + full record table: admin-only, and only once the
   // complaint is fully closed — while it's still open, "Next Action" is all
@@ -6151,8 +6208,11 @@ async function sendSfmsOtp(row, step) {
   if (res.error) { showToast(res.error, 'error'); return; }
   sfmsOtpSentFor[row] = true;
   showToast(res.otp ? `✅ OTP sent to customer! (Admin fallback code: ${res.otp})` : '✅ OTP sent to customer via WhatsApp!');
+  // Re-render whichever view is actually showing this — the detail modal
+  // (if open) and/or a per-step tab table (both can reflect the same row).
   const updated = sfmsData.find(x => x.row === row);
-  if (updated) renderComplaintDetailBody(updated);
+  if (updated && document.getElementById('complaintDetailModal').classList.contains('open')) renderComplaintDetailBody(updated);
+  if (sfmsView.startsWith('step')) renderServiceFmsList();
 }
 
 // ══════════════════════════════════════════════════════
