@@ -810,6 +810,7 @@ tbody tr:last-child td{border-bottom:none;}
             <div class="tab"        id="dashTabDel"   onclick="dashTab('delegation',this)">Delegation</div>
             <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
             <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">FMS</div>
+            <div class="tab"        id="dashTabO2D"   onclick="dashTab('o2d',this)">O2D</div>
           </div>
         </div>
         <div id="dashTableWrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;">
@@ -2661,11 +2662,14 @@ async function loadDashboard() {
   // Combine both types for the unified pending table
   const allTodayPending = [...(dDel.todayPending||[]), ...(dChl.todayPending||[])];
 
-  // Service FMS — open complaints, mapped into the same row shape
-  const sfms = await api('/api/service-fms').catch(() => null);
+  // Service FMS + O2D FMS — open items, mapped into the same row shape
+  const [sfms, o2d] = await Promise.all([
+    api('/api/service-fms').catch(() => null),
+    api('/api/o2d-fms').catch(() => null)
+  ]);
+  const fmsFieldRow = (label, value, valueStyle) => `<div style="font-size:11px;margin-top:2px"><span style="color:var(--gray-400);font-weight:700;letter-spacing:.3px">${label}:</span> <span style="color:var(--gray-700);${valueStyle||''}">${value}</span></div>`;
   window._lastSfmsData = Array.isArray(sfms) ? sfms : [];
   if (Array.isArray(sfms)) {
-    const fmsFieldRow = (label, value, valueStyle) => `<div style="font-size:11px;margin-top:2px"><span style="color:var(--gray-400);font-weight:700;letter-spacing:.3px">${label}:</span> <span style="color:var(--gray-700);${valueStyle||''}">${value}</span></div>`;
     sfms.filter(c => !c.closed).forEach(c => {
       const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
       const step4 = c.steps.find(s => s.n === 4);
@@ -2688,6 +2692,29 @@ async function loadDashboard() {
         assignedByName: mechanic,
         assignedToDept: '',
         start_date: c.timestamp
+      });
+    });
+  }
+
+  window._lastO2dData = Array.isArray(o2d) ? o2d : [];
+  if (Array.isArray(o2d)) {
+    o2d.filter(o => !o.closed).forEach(o => {
+      const pendingStep = o.steps[o.currentStep];
+      const overdue = o2dIsOverdue(pendingStep.planned);
+      const description = `
+        <div style="font-weight:700;color:var(--gray-800);font-size:13px">${o.counterName || '—'}</div>
+        <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.productName || '—'}${o.qty ? ' × ' + o.qty : ''}</div>
+        ${fmsFieldRow('PENDING STEP', `${pendingStep.n}. ${pendingStep.label}`)}
+        ${fmsFieldRow('PLANNED', `${pendingStep.planned || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
+      `;
+      allTodayPending.push({
+        id: o.row, type: 'o2d', status: 'pending',
+        title: o.orderId,
+        description,
+        assignedToName: pendingStep.doer || '—',
+        assignedByName: pendingStep.doer || '—',
+        assignedToDept: '',
+        start_date: o.timestamp
       });
     });
   }
@@ -2781,6 +2808,8 @@ function renderDashTable(tasks, type) {
     ? `<span style="font-size:9px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-success-border)">✅ Che</span>`
     : t.type==='fms'
     ? `<span style="font-size:9px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-purple-border)">🛠️ FMS</span>`
+    : t.type==='o2d'
+    ? `<span style="font-size:9px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-warning-border)">🚚 O2D</span>`
     : `<span style="font-size:9px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-primary-ring)">📋 Del</span>`;
   const doerLabel = (isAdmin||isPC) ? 'Doer' : 'From';
   tbody.innerHTML = allPending.map(t => {
@@ -2792,6 +2821,8 @@ function renderDashTable(tasks, type) {
     let rowStyle = '';
     if (t.type === 'fms') {
       actions = `<button class="action-btn done" onclick="openFmsQuickAction(${t.id})">Fill Details</button>`;
+    } else if (t.type === 'o2d') {
+      actions = `<button class="action-btn done" onclick="openO2dQuickAction(${t.id})">Fill Details</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
       rowStyle = 'background:var(--color-warning-bg)';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">⏳ Awaiting Decision</span>`;
@@ -2822,8 +2853,8 @@ function renderDashTable(tasks, type) {
       <td data-label="${doerLabel}" style="white-space:nowrap;font-size:12px;font-weight:600">${(isAdmin||isPC)?t.assignedToName:t.assignedByName}</td>
       <td data-label="Freq" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${t.frequency||'—'}</td>
       <td data-label="Start" style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate((t.start_date||'').slice(0,10))||'—'}</td>
-      <td data-label="Due" style="white-space:nowrap;font-size:12px">${t.type==='fms' ? '—' : fmtDate(t.due_date||t.date)}</td>
-      <td data-label="Priority">${(t.type!=='checklist' && t.type!=='fms') ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
+      <td data-label="Due" style="white-space:nowrap;font-size:12px">${(t.type==='fms'||t.type==='o2d') ? '—' : fmtDate(t.due_date||t.date)}</td>
+      <td data-label="Priority">${(t.type!=='checklist' && t.type!=='fms' && t.type!=='o2d') ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
       <td class="dt-action" style="white-space:nowrap">${actions}</td>
     </tr>`;
   }).join('');
@@ -5715,6 +5746,13 @@ async function openComplaintDetail(row) {
 function openFmsQuickAction(row) {
   sfmsData = window._lastSfmsData || [];
   openComplaintDetail(row);
+}
+
+// Same pattern for O2D FMS — reuses whichever data the Dashboard already
+// fetched for its own table instead of hitting the API again.
+function openO2dQuickAction(row) {
+  o2dData = window._lastO2dData || [];
+  openO2dDetail(row);
 }
 
 const SFMS_INPUT_STYLE = "width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
