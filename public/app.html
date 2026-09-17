@@ -2820,8 +2820,12 @@ async function loadDashboard() {
 
   window._lastO2dData = Array.isArray(o2d) ? o2d : [];
   if (Array.isArray(o2d)) {
+    // Regular employees only see steps they're actually assigned as doer for;
+    // admin/hod/pc see everyone unless they've picked one employee from the filter.
+    const o2dDoerFilterId = (isAdmin || isHod || isPC) ? (empVal !== 'all' ? Number(empVal) : null) : ME.id;
     o2d.filter(o => !o.closed).forEach(o => {
       const pendingStep = o.steps[o.currentStep];
+      if (o2dDoerFilterId && !(pendingStep.doers || []).some(d => d.id === o2dDoerFilterId)) return;
       const overdue = o2dIsOverdue(pendingStep.planned);
       const description = `
         <div style="font-weight:700;color:var(--gray-800);font-size:13px">${o.counterName || '—'}</div>
