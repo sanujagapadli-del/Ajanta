@@ -2168,7 +2168,8 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
         <div class="form-group">
           <label>Counter Name <span style="color:var(--color-danger)">*</span></label>
-          <input type="text" id="noCounterName" oninput="onO2dCounterNameInput()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <input type="text" id="noCounterName" list="noCounterNameList" oninput="onO2dCounterNameInput()" placeholder="Select existing or type a new name" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <datalist id="noCounterNameList"></datalist>
         </div>
         <div id="noOutstandingBox" style="display:none;grid-column:1/-1;padding:10px 14px;border-radius:8px;font-size:13px"></div>
         <div class="form-group">
@@ -6311,6 +6312,16 @@ function openNewO2dOrderModal() {
   addO2dProductRow();
   document.getElementById('noOutstandingBox').style.display = 'none';
   document.getElementById('newO2dOrderModal').classList.add('open');
+  loadO2dCounterNames();
+}
+
+let _o2dCounterNames = null; // cached across modal opens — same debtors sheet, no need to refetch each time
+async function loadO2dCounterNames() {
+  if (!_o2dCounterNames) {
+    const r = await api('/api/o2d-fms/customer-names');
+    _o2dCounterNames = (r && r.names) || [];
+  }
+  document.getElementById('noCounterNameList').innerHTML = _o2dCounterNames.map(n => `<option value="${n.replace(/"/g,'&quot;')}">`).join('');
 }
 
 let _o2dCounterLookupTimer = null;

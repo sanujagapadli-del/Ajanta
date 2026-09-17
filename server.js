@@ -2873,26 +2873,42 @@ const DEBTORS_CACHE_TTL_MS = 10 * 60 * 1000; // sheet is a daily Tally export, n
 
 async function getDebtorsMap() {
   if (_debtorsCache && (Date.now() - _debtorsCache.ts) < DEBTORS_CACHE_TTL_MS) return _debtorsCache.map;
-  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-  const resp = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: O2D_DEBTORS_SHEET_ID,
-    range: `${O2D_DEBTORS_TAB}!A1:B1000`
-  });
-  const rows = resp.data.values || [];
-  const map = {};
-  let started = false; // rows before the ["", "Debit", "Credit"] header are report title/metadata, not data
-  for (const row of rows) {
-    if (!started) {
-      if (row[1] === 'Debit') started = true;
-      continue;
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    let resp;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        resp = await sheetsApi.spreadsheets.values.get({
+          spreadsheetId: O2D_DEBTORS_SHEET_ID,
+          range: `${O2D_DEBTORS_TAB}!A1:B1000`
+        });
+        break;
+      } catch (e) {
+        const isRateLimit = e.code === 429 || (e.message || '').includes('Quota exceeded');
+        if (!isRateLimit || attempt >= 2) throw e;
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      }
     }
-    const name = (row[0] || '').trim();
-    if (!name || name === 'Grand Total') continue;
-    const num = parseFloat(String(row[1] || '').replace(/,/g, ''));
-    if (!isNaN(num)) map[name.toLowerCase()] = { name, outstanding: num };
+    const rows = resp.data.values || [];
+    const map = {};
+    let started = false; // rows before the ["", "Debit", "Credit"] header are report title/metadata, not data
+    for (const row of rows) {
+      if (!started) {
+        if (row[1] === 'Debit') started = true;
+        continue;
+      }
+      const name = (row[0] || '').trim();
+      if (!name || name === 'Grand Total') continue;
+      const num = parseFloat(String(row[1] || '').replace(/,/g, ''));
+      if (!isNaN(num)) map[name.toLowerCase()] = { name, outstanding: num };
+    }
+    _debtorsCache = { map, ts: Date.now() };
+    return map;
+  } catch (e) {
+    // Sheets API hiccup (rate limit etc.) — serve stale cache rather than failing outright, if we have one
+    if (_debtorsCache) return _debtorsCache.map;
+    throw e;
   }
-  _debtorsCache = { map, ts: Date.now() };
-  return map;
 }
 
 app.get('/api/o2d-fms/customer-lookup', requireAuth, async (req, res) => {
@@ -2904,6 +2920,14 @@ app.get('/api/o2d-fms/customer-lookup', requireAuth, async (req, res) => {
     const match = Object.values(map).find(v => v.name.toLowerCase().includes(q) || q.includes(v.name.toLowerCase()));
     if (match) return res.json({ found: true, ...match, fuzzy: true });
     res.json({ found: false });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/o2d-fms/customer-names', requireAuth, async (req, res) => {
+  try {
+    const map = await getDebtorsMap();
+    const names = Object.values(map).map(v => v.name).sort((a, b) => a.localeCompare(b));
+    res.json({ names });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
