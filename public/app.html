@@ -2159,7 +2159,25 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="modal-close-x modal-close" onclick="closeModal('newO2dOrderModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="alert error" id="newO2dOrderErr" style="display:none"></div>
-    <div style="overflow-y:auto;overflow-x:hidden;flex:1;padding-right:2px">
+
+    <!-- STEP 1: pick the dealer, review their profile -->
+    <div id="noStep1">
+      <div class="form-group">
+        <label>Counter / Dealer Name <span style="color:var(--color-danger)">*</span></label>
+        <input type="text" id="noCounterName" list="noCounterNameList" oninput="onO2dCounterNameInput()" placeholder="Select existing or type a new name" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <datalist id="noCounterNameList"></datalist>
+      </div>
+      <div id="noDealerDetailBox" style="margin-top:4px"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="goToO2dOrderStep2()">Continue →</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px" onclick="closeModal('newO2dOrderModal')">Cancel</button>
+    </div>
+
+    <!-- STEP 2: the rest of the order — only shown once a dealer's picked -->
+    <div id="noStep2" style="display:none;overflow-y:auto;overflow-x:hidden;flex:1;padding-right:2px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <button type="button" class="btn btn-outline btn-sm" onclick="goToO2dOrderStep1()">← Back</button>
+        <span style="font-size:13px;font-weight:700;color:var(--gray-800)" id="noStep2DealerName"></span>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
           <label>Counter Type</label>
@@ -2167,12 +2185,6 @@ tbody tr:last-child td{border-bottom:none;}
             <option>Old Counter</option><option>New Counter</option>
           </select>
         </div>
-        <div class="form-group">
-          <label>Counter Name <span style="color:var(--color-danger)">*</span></label>
-          <input type="text" id="noCounterName" list="noCounterNameList" oninput="onO2dCounterNameInput()" placeholder="Select existing or type a new name" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-          <datalist id="noCounterNameList"></datalist>
-        </div>
-        <div id="noOutstandingBox" style="display:none;grid-column:1/-1;padding:10px 14px;border-radius:8px;font-size:13px"></div>
         <div class="form-group">
           <label>Area / Location</label>
           <input type="text" id="noArea" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
@@ -2219,7 +2231,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="noProductRows"></div>
       <button type="button" class="btn btn-outline btn-sm" onclick="addO2dProductRow()">+ Add Product</button>
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+    <div id="noFooterButtons" style="display:none;flex-direction:column;gap:8px;margin-top:16px">
       <button class="btn btn-primary" id="noSubmitBtn" onclick="submitNewO2dOrder()">Save Order</button>
       <button class="btn btn-outline" onclick="closeModal('newO2dOrderModal')">Cancel</button>
     </div>
@@ -6381,13 +6393,35 @@ function inr(n) { return '₹' + Math.round(n).toLocaleString('en-IN'); }
 
 function onDealerSearchInput(v) {
   o2dDealerSearchQ = v;
+  o2dDealerPage = 1;
   renderDealerGrid();
+}
+
+let o2dDealerPage = 1;
+const O2D_DEALER_PAGE_SIZE = 50;
+
+function o2dDealerGoToPage(p) { o2dDealerPage = p; renderDealerGrid(); }
+
+// Refreshes wherever dealer data is currently on screen — the Dealers tab
+// table, and/or the New Order modal's step-1 profile preview (both can be
+// open-ish/cached at once since KYC/location/payment modals nest on top).
+function refreshDealerViews() {
+  if (document.getElementById('o2dListWrap') && o2dView === 'dealers') renderDealerGrid();
+  if (document.getElementById('newO2dOrderModal').classList.contains('open')
+      && document.getElementById('noStep1').style.display !== 'none') {
+    onO2dCounterNameInput();
+  }
 }
 
 function renderDealerGrid() {
   const wrap = document.getElementById('o2dListWrap');
   const q = o2dDealerSearchQ.trim().toLowerCase();
   const filtered = q ? o2dDealers.filter(d => d.name.toLowerCase().includes(q) || (d.city || '').toLowerCase().includes(q)) : o2dDealers;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / O2D_DEALER_PAGE_SIZE));
+  if (o2dDealerPage > totalPages) o2dDealerPage = totalPages;
+  const start = (o2dDealerPage - 1) * O2D_DEALER_PAGE_SIZE;
+  const pageRows = filtered.slice(start, start + O2D_DEALER_PAGE_SIZE);
 
   wrap.innerHTML = `
     <div style="padding:16px">
@@ -6396,11 +6430,59 @@ function renderDealerGrid() {
         <button class="btn btn-outline" onclick="loadO2dDealers(true).then(renderDealerGrid)">🔄 Refresh</button>
         <button class="btn btn-primary" onclick="openAddDealerModal()">+ Naya Dealer Add Karo</button>
       </div>
-      <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">${filtered.length} dealer${filtered.length===1?'':'s'}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
-        ${filtered.map(dealerCardHtml).join('') || '<div class="empty">No dealers found</div>'}
+      <table>
+        <thead><tr>
+          <th>Dealer</th><th>KYC</th><th>Outstanding</th><th>Credit Limit</th><th>Rating</th><th>Last Order</th><th>Actions</th>
+        </tr></thead>
+        <tbody>
+          ${pageRows.map(dealerRowHtml).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">No dealers found</td></tr>`}
+        </tbody>
+      </table>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 4px">
+        <span style="font-size:12px;color:var(--gray-400)">${filtered.length} dealer${filtered.length===1?'':'s'} — page ${o2dDealerPage} of ${totalPages}</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm" ${o2dDealerPage <= 1 ? 'disabled' : ''} onclick="o2dDealerGoToPage(${o2dDealerPage - 1})">← Prev</button>
+          <button class="btn btn-outline btn-sm" ${o2dDealerPage >= totalPages ? 'disabled' : ''} onclick="o2dDealerGoToPage(${o2dDealerPage + 1})">Next →</button>
+        </div>
       </div>
     </div>`;
+}
+
+function dealerRowHtml(d) {
+  const nameEsc = d.name.replace(/'/g, "\\'");
+  const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
+  const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
+  const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '<span style="color:var(--gray-400)">—</span>';
+  const creditStr = d.creditLimit !== null ? inr(d.creditLimit) : `<span style="color:var(--gray-400);font-size:11px">set nahi</span>`;
+  const ratingHtml = d.rating.total > 0
+    ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span><div style="font-size:11px;color:var(--gray-500)">${d.rating.label} · ${d.rating.total} pmt, ${d.rating.late} late, avg ${d.rating.avgLateDays}d</div>`
+    : `<span style="color:var(--gray-400);font-size:11px">No history</span>`;
+  const lastOrderHtml = d.lastOrder
+    ? `${fmtDate((d.lastOrder.timestamp || '').split(' ')[0])}<div style="font-size:11px;color:var(--gray-500)">${d.lastOrder.qty} pcs${d.lastOrder.amount ? ', ' + inr(d.lastOrder.amount) : ''}</div>`
+    : `<span style="color:var(--gray-400);font-size:11px">No orders</span>`;
+  const locHtml = d.locationLat
+    ? `<a href="https://maps.google.com/?q=${d.locationLat},${d.locationLng}" target="_blank" title="View saved location">📍</a>`
+    : '';
+
+  return `<tr>
+    <td>
+      <div style="font-weight:600">${d.name}</div>
+      <div style="font-size:11px;color:var(--gray-500)">${[d.city, d.phone].filter(Boolean).join(' · ') || '—'}</div>
+    </td>
+    <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor};white-space:nowrap">${d.kycCount}/4</span></td>
+    <td style="white-space:nowrap">${outstandingStr}</td>
+    <td style="white-space:nowrap;cursor:pointer;text-decoration:underline dotted" onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})">${creditStr}</td>
+    <td style="white-space:nowrap">${ratingHtml}</td>
+    <td style="white-space:nowrap">${lastOrderHtml}</td>
+    <td style="white-space:nowrap">
+      <div style="display:flex;gap:4px;align-items:center">
+        <button class="btn btn-outline btn-sm" title="Upload KYC" onclick="openKycModal('${nameEsc}')">📎</button>
+        <button class="btn btn-outline btn-sm" title="Location set karo" onclick="openLocationModal('${nameEsc}')">📍</button>
+        <button class="btn btn-outline btn-sm" title="Log Payment" onclick="openLogPaymentModal('${nameEsc}')">💵</button>
+        ${locHtml}
+      </div>
+    </td>
+  </tr>`;
 }
 
 function dealerCardHtml(d) {
@@ -6454,7 +6536,7 @@ async function submitAddDealer() {
   showToast('Dealer added!');
   closeModal('addDealerModal');
   await loadO2dDealers(true);
-  renderDealerGrid();
+  refreshDealerViews();
 }
 
 const KYC_DOC_TYPES = [
@@ -6501,7 +6583,7 @@ function handleKycFile(docType, event) {
     showToast('KYC document uploaded!');
     await loadO2dDealers(true);
     renderKycRows();
-    renderDealerGrid();
+    refreshDealerViews();
   };
   reader.readAsDataURL(file);
 }
@@ -6550,7 +6632,7 @@ async function submitLocation() {
   showToast('Location saved!');
   closeModal('locationModal');
   await loadO2dDealers(true);
-  renderDealerGrid();
+  refreshDealerViews();
 }
 
 let _lpCurrentDealer = null;
@@ -6573,7 +6655,7 @@ async function submitLogPayment() {
   showToast('Payment logged!');
   closeModal('logPaymentModal');
   await loadO2dDealers(true);
-  renderDealerGrid();
+  refreshDealerViews();
 }
 
 let _clCurrentDealer = null;
@@ -6589,7 +6671,7 @@ async function submitCreditLimit() {
   showToast('Credit limit updated!');
   closeModal('creditLimitModal');
   await loadO2dDealers(true);
-  renderDealerGrid();
+  refreshDealerViews();
 }
 
 // ── New Order ──
@@ -6620,16 +6702,36 @@ function removeO2dProductRow(id) {
 
 function openNewO2dOrderModal() {
   document.getElementById('newO2dOrderErr').style.display = 'none';
-  ['noCounterName','noArea','noOrderBy','noPaymentTerms','noChannel','noWhenToSend','noDateToSend','noRemark'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('noCounterName').value = '';
+  ['noArea','noOrderBy','noPaymentTerms','noChannel','noWhenToSend','noDateToSend','noRemark'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('noCounterType').value = 'Old Counter';
   document.getElementById('noDeliverByTransport').value = 'No';
   document.getElementById('noMakePI').value = 'No';
   document.getElementById('noProductRows').innerHTML = '';
   o2dProductRowCount = 0;
   addO2dProductRow();
-  document.getElementById('noOutstandingBox').style.display = 'none';
+  document.getElementById('noDealerDetailBox').innerHTML = '';
   document.getElementById('newO2dOrderModal').classList.add('open');
+  goToO2dOrderStep1();
   loadO2dCounterNames();
+  loadO2dDealers(false); // cached — instant if the Dealers tab's already been opened this session
+}
+
+function goToO2dOrderStep1() {
+  document.getElementById('noStep1').style.display = '';
+  document.getElementById('noStep2').style.display = 'none';
+  document.getElementById('noFooterButtons').style.display = 'none';
+}
+
+function goToO2dOrderStep2() {
+  const name = document.getElementById('noCounterName').value.trim();
+  if (!name) { showToast('Pehle counter/dealer name daalo', 'error'); return; }
+  document.getElementById('noStep2DealerName').textContent = name;
+  const d = findO2dDealer(name);
+  document.getElementById('noCounterType').value = d ? 'Old Counter' : 'New Counter';
+  document.getElementById('noStep1').style.display = 'none';
+  document.getElementById('noStep2').style.display = '';
+  document.getElementById('noFooterButtons').style.display = 'flex';
 }
 
 let _o2dCounterNames = null; // cached across modal opens — same debtors sheet, no need to refetch each time
@@ -6641,29 +6743,24 @@ async function loadO2dCounterNames() {
   document.getElementById('noCounterNameList').innerHTML = _o2dCounterNames.map(n => `<option value="${n.replace(/"/g,'&quot;')}">`).join('');
 }
 
-let _o2dCounterLookupTimer = null;
+// Case-insensitive exact match first, else the closest partial match — same
+// dealer-merge data (debtors sheet + o2d_dealers + order history) already
+// loaded for the Dealers tab, so this is instant, no extra network call.
+function findO2dDealer(name) {
+  const q = name.trim().toLowerCase();
+  if (!q) return null;
+  return o2dDealers.find(d => d.name.toLowerCase() === q)
+    || o2dDealers.find(d => d.name.toLowerCase().includes(q) || q.includes(d.name.toLowerCase()));
+}
+
 function onO2dCounterNameInput() {
-  clearTimeout(_o2dCounterLookupTimer);
   const name = document.getElementById('noCounterName').value.trim();
-  const box = document.getElementById('noOutstandingBox');
-  if (!name) { box.style.display = 'none'; return; }
-  _o2dCounterLookupTimer = setTimeout(async () => {
-    const r = await api('/api/o2d-fms/customer-lookup?name=' + encodeURIComponent(name));
-    // user may have kept typing while the request was in flight — ignore stale results
-    if (document.getElementById('noCounterName').value.trim() !== name) return;
-    if (r && r.found) {
-      box.style.background = 'var(--color-warning-bg)';
-      box.style.border = '1px solid var(--color-warning-border)';
-      box.style.color = 'var(--color-warning-text)';
-      box.innerHTML = `💰 Outstanding for <strong>${r.name}</strong>: ₹${r.outstanding.toLocaleString('en-IN')}${r.fuzzy ? ' <span style="font-weight:400;opacity:.75">(closest match)</span>' : ''}`;
-    } else {
-      box.style.background = 'var(--gray-100)';
-      box.style.border = '1px solid var(--gray-200)';
-      box.style.color = 'var(--gray-500)';
-      box.innerHTML = `No outstanding record found for "${name}"`;
-    }
-    box.style.display = 'block';
-  }, 500);
+  const box = document.getElementById('noDealerDetailBox');
+  if (!name) { box.innerHTML = ''; return; }
+  const d = findO2dDealer(name);
+  box.innerHTML = d
+    ? dealerCardHtml(d)
+    : `<div style="padding:10px 14px;border-radius:8px;font-size:13px;background:var(--gray-100);border:1px solid var(--gray-200);color:var(--gray-500)">🆕 New dealer — abhi koi record nahi hai. Order ke baad profile apne aap ban jayega.</div>`;
 }
 
 async function submitNewO2dOrder() {
