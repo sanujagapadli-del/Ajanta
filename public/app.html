@@ -29,17 +29,17 @@
   --sidebar-accent-bar:var(--color-accent);
 
   /* Neutral scale */
-  --gray-50:var(--gray-50); --gray-100:var(--gray-100); --gray-200:var(--gray-200); --gray-300:var(--gray-300);
-  --gray-400:var(--gray-400); --gray-500:var(--gray-500); --gray-600:var(--gray-600); --gray-700:var(--gray-700);
-  --gray-800:var(--gray-800); --gray-900:var(--gray-900);
+  --gray-50:#f8fafc; --gray-100:#f1f5f9; --gray-200:#e2e8f0; --gray-300:#cbd5e1;
+  --gray-400:#94a3b8; --gray-500:#64748b; --gray-600:#475569; --gray-700:#334155;
+  --gray-800:#1e293b; --gray-900:#0f172a;
 
   /* Semantic colors */
-  --color-success:var(--color-success); --color-success-bg:#ecfdf5; --color-success-border:#a7f3d0; --color-success-text:#047857;
-  --color-warning:var(--color-warning); --color-warning-bg:var(--color-warning-bg); --color-warning-border:var(--color-warning-border); --color-warning-text:var(--color-warning-text);
-  --color-danger:var(--color-danger);  --color-danger-bg:var(--color-danger-bg);  --color-danger-border:var(--color-danger-border);  --color-danger-text:var(--color-danger-text);
+  --color-success:#059669; --color-success-bg:#ecfdf5; --color-success-border:#a7f3d0; --color-success-text:#047857;
+  --color-warning:#d97706; --color-warning-bg:#fffbeb; --color-warning-border:#fde68a; --color-warning-text:#b45309;
+  --color-danger:#dc2626;  --color-danger-bg:#fef2f2;  --color-danger-border:#fecaca;  --color-danger-text:#b91c1c;
   --color-info:#2563eb;    --color-info-bg:#eff6ff;    --color-info-border:#bfdbfe;    --color-info-text:#1d4ed8;
   --color-neutral-bg:var(--gray-100); --color-neutral-text:var(--gray-600); --color-neutral-border:var(--gray-200);
-  --color-purple:var(--color-purple);  --color-purple-bg:var(--color-purple-bg);  --color-purple-border:var(--color-purple-border);  --color-purple-text:var(--color-purple-text);
+  --color-purple:#7c3aed;  --color-purple-bg:#f5f3ff;  --color-purple-border:#ddd6fe;  --color-purple-text:#6d28d9;
 
   /* Spacing scale */
   --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
@@ -232,6 +232,11 @@ body{font-family:'Inter',sans-serif;background:var(--app-bg);color:var(--gray-90
 .btn-danger:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);}
 .btn-green{background:var(--color-success);color:#fff;box-shadow:var(--shadow-sm);}
 .btn-green:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);}
+.btn-amber{background:var(--color-warning);color:#fff;box-shadow:var(--shadow-sm);}
+.btn-amber:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);}
+.btn-purple{background:var(--color-purple);color:#fff;box-shadow:var(--shadow-sm);}
+.btn-purple:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);}
+.btn-pill{border-radius:999px;padding:9px 18px;font-weight:700;}
 .btn-yellow{background:var(--color-warning);color:#fff;box-shadow:var(--shadow-sm);}
 .btn-yellow:hover{transform:translateY(-1px);}
 .btn-sm{padding:6px 12px;font-size:12px;}
@@ -414,7 +419,12 @@ tbody tr:last-child td{border-bottom:none;}
 
 .mis-header{display:flex;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap;}
 .mis-table-wrap{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--border-light);overflow:hidden;box-shadow:var(--shadow-sm);}
-.mis-score-bar{height:6px;border-radius:3px;background:var(--color-primary-light);margin-top:4px;overflow:hidden;}
+.mis-score-bar{height:8px;border-radius:4px;background:var(--color-primary-light);margin-top:5px;overflow:hidden;}
+.mis-summary-strip{display:flex;flex-wrap:wrap;gap:0;background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--border-light);box-shadow:var(--shadow-sm);margin-bottom:16px;overflow:hidden;}
+.mis-summary-item{flex:1 1 140px;padding:14px 18px;border-right:1px solid var(--border-light);}
+.mis-summary-item:last-child{border-right:none;}
+.mis-summary-item .mis-summary-label{font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+.mis-summary-item .mis-summary-value{font-size:22px;font-weight:800;letter-spacing:-.3px;}
 .mis-score-fill{height:100%;border-radius:3px;transition:width .5s ease;}
 .score-positive{color:var(--color-success);font-weight:700;}
 .score-negative{color:var(--color-danger);font-weight:700;}
@@ -2702,20 +2712,20 @@ async function loadDashboard() {
 
     if (isAdmin) {
       document.getElementById('dashBtns').innerHTML = `
-        <button class="btn btn-outline" onclick="openHoliday()">🗓 Holidays</button>
-        <button class="btn btn-outline" onclick="openChecklist()">+ Checklist</button>
-        <button class="btn btn-primary" onclick="openDelegate()">+ Delegate</button>`;
+        <button class="btn btn-pill btn-amber" onclick="openHoliday()">🗓 Holidays</button>
+        <button class="btn btn-pill btn-green" onclick="openChecklist()">✓ Checklist</button>
+        <button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>`;
     } else if (isHod) {
       document.getElementById('dashBtns').innerHTML = `
-        <button class="btn btn-outline" onclick="openChecklist()">+ Checklist</button>
-        <button class="btn btn-primary" onclick="openDelegate()">+ Delegate</button>`;
+        <button class="btn btn-pill btn-green" onclick="openChecklist()">✓ Checklist</button>
+        <button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>`;
     }
   }
 
   if (ME.role === 'user') {
     document.getElementById('dashBtns').innerHTML = `
-      <button class="btn btn-outline" onclick="openChecklist()">+ Checklist</button>
-      <button class="btn btn-primary" onclick="openDelegate()">+ Delegate</button>`;
+      <button class="btn btn-pill btn-green" onclick="openChecklist()">✓ Checklist</button>
+      <button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>`;
   }
 
   if (dashChartInst) dashChartInst.destroy();
@@ -4586,7 +4596,7 @@ function renderMIS(data) {
       <td style="color:var(--color-success);font-weight:600">${r.completed}</td>
       ${misType==='delegation' ? `<td style="color:var(--color-warning);font-weight:600">${r.revised||0}</td>` : ''}
       <td style="color:var(--color-danger);font-weight:600">${r.delayed||0}</td>
-      <td>
+      <td style="min-width:170px">
         <div class="${scoreClass}" style="font-size:14px;font-weight:700">${score.toFixed(1)}%</div>
         <div style="font-size:10px;color:var(--gray-400);margin-top:1px">${scoreLabel}</div>
         <div class="mis-score-bar">
@@ -4596,7 +4606,22 @@ function renderMIS(data) {
     </tr>`;
   }).join('');
 
+  const sumTotal = rows.reduce((s,r) => s + (parseInt(r.total)||0), 0);
+  const sumCompleted = rows.reduce((s,r) => s + (parseInt(r.completed)||0), 0);
+  const sumPending = rows.reduce((s,r) => s + (parseInt(r.pending)||0), 0);
+  const sumDelayed = rows.reduce((s,r) => s + (parseInt(r.delayed)||0), 0);
+  const periodStart = document.getElementById('misStart').value;
+  const periodEnd = document.getElementById('misEnd').value;
+
   container.innerHTML = `
+    <div class="mis-summary-strip">
+      <div class="mis-summary-item"><div class="mis-summary-label">Total Tasks</div><div class="mis-summary-value">${sumTotal}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Employees</div><div class="mis-summary-value">${rows.length}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Completed</div><div class="mis-summary-value" style="color:var(--color-success)">${sumCompleted}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Pending</div><div class="mis-summary-value" style="color:var(--color-danger)">${sumPending}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Delayed</div><div class="mis-summary-value" style="color:var(--color-warning)">${sumDelayed}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Period</div><div class="mis-summary-value" style="font-size:14px;font-weight:700;white-space:nowrap">${periodStart?fmtDate(periodStart):'—'} – ${periodEnd?fmtDate(periodEnd):'—'}</div></div>
+    </div>
     <div class="mis-table-wrap">
       <table>
         <thead><tr>
@@ -4857,7 +4882,7 @@ function renderAllMIS(data, fmsData) {
       <td style="color:var(--color-warning);font-weight:600">${emp.revisedAll}</td>
       <td style="color:var(--color-danger);font-weight:600">${emp.overdueAll}</td>
       <td>${planHtml}</td>
-      <td>
+      <td style="min-width:170px">
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">${delBadge}${chlBadge}${fmsBadge}</div>
         <div class="${scoreClass}" style="font-size:15px;font-weight:800">${scoreDisplay}</div>
         <div style="font-size:10px;color:var(--gray-400)">${scoreLabel}</div>
@@ -4868,7 +4893,22 @@ function renderAllMIS(data, fmsData) {
     </tr>`;
   }).join('');
 
+  const sumTotal = filtered.reduce((s,e) => s + (e.totalAll||0), 0);
+  const sumCompleted = filtered.reduce((s,e) => s + ((e.completedAll!==undefined&&e.completedAll!==null) ? e.completedAll : (e.delegation.completed||0)+(e.checklist.completed||0)+((e.fms&&e.fms.done)||0)), 0);
+  const sumPending = filtered.reduce((s,e) => s + (e.pendingAll||0), 0);
+  const sumDelayed = filtered.reduce((s,e) => s + (e.overdueAll||0), 0);
+  const periodStart = document.getElementById('misStart').value;
+  const periodEnd = document.getElementById('misEnd').value;
+
   container.innerHTML = `
+    <div class="mis-summary-strip">
+      <div class="mis-summary-item"><div class="mis-summary-label">Total Tasks</div><div class="mis-summary-value">${sumTotal}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Employees</div><div class="mis-summary-value">${filtered.length}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Completed</div><div class="mis-summary-value" style="color:var(--color-success)">${sumCompleted}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Pending</div><div class="mis-summary-value" style="color:var(--color-danger)">${sumPending}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Delayed</div><div class="mis-summary-value" style="color:var(--color-warning)">${sumDelayed}</div></div>
+      <div class="mis-summary-item"><div class="mis-summary-label">Period</div><div class="mis-summary-value" style="font-size:14px;font-weight:700;white-space:nowrap">${periodStart?fmtDate(periodStart):'—'} – ${periodEnd?fmtDate(periodEnd):'—'}</div></div>
+    </div>
     <div class="mis-table-wrap" style="overflow-x:auto">
       <table style="min-width:900px">
         <thead><tr>
