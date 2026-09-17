@@ -2158,7 +2158,7 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="modal-close-x modal-close" onclick="closeModal('newO2dOrderModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="alert error" id="newO2dOrderErr" style="display:none"></div>
-    <div style="overflow-y:auto;flex:1">
+    <div style="overflow-y:auto;overflow-x:hidden;flex:1;padding-right:2px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
           <label>Counter Type</label>
@@ -6284,13 +6284,13 @@ function addO2dProductRow() {
   const wrap = document.getElementById('noProductRows');
   const row = document.createElement('div');
   row.id = `noProductRow_${id}`;
-  row.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:center';
+  row.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
   row.innerHTML = `
-    <input type="text" placeholder="Product Name *" id="noProdName_${id}" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-    <input type="number" placeholder="Rate" id="noProdRate_${id}" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-    <input type="number" placeholder="Qty *" id="noProdQty_${id}" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-    <select id="noProdSample_${id}" style="padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface)"><option>No</option><option>Yes</option></select>
-    <button type="button" onclick="removeO2dProductRow(${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px">✕</button>`;
+    <input type="text" placeholder="Product Name *" id="noProdName_${id}" style="min-width:0;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="number" placeholder="Rate" id="noProdRate_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="number" placeholder="Qty *" id="noProdQty_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <select id="noProdSample_${id}" style="min-width:0;padding:9px 4px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px;box-sizing:border-box;background:var(--surface)"><option>No</option><option>Yes</option></select>
+    <button type="button" onclick="removeO2dProductRow(${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0;flex-shrink:0">✕</button>`;
   wrap.appendChild(row);
 }
 function removeO2dProductRow(id) {
