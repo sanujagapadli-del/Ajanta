@@ -803,13 +803,20 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div class="dash-bottom">
       <div class="task-table-card">
-        <div class="card-head">
+        <div class="card-head" style="flex-wrap:wrap;gap:10px">
           <div class="card-head-title">All Pending Tasks</div>
-          <div class="tab-group" id="dashTypeTabGroup">
-            <div class="tab active" id="dashTabAll"   onclick="dashTab('all',this)">All</div>
-            <div class="tab"        id="dashTabDel"   onclick="dashTab('delegation',this)">Delegation</div>
-            <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
-            <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">FMS</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <select id="dashFmsSelect" onchange="renderDashTable(window._lastDashTasks||[], dashType)" style="display:none;padding:6px 10px;border:1.5px solid var(--border-base);border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;background:var(--surface);color:var(--gray-700);cursor:pointer">
+              <option value="all">All FMS</option>
+              <option value="fms">Service FMS</option>
+              <option value="o2d">O2D FMS</option>
+            </select>
+            <div class="tab-group" id="dashTypeTabGroup">
+              <div class="tab active" id="dashTabAll"   onclick="dashTab('all',this)">All</div>
+              <div class="tab"        id="dashTabDel"   onclick="dashTab('delegation',this)">Delegation</div>
+              <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
+              <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">FMS</div>
+            </div>
           </div>
         </div>
         <div id="dashTableWrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;">
@@ -2767,6 +2774,12 @@ function dashTab(type, el) {
   dashType = type;
   document.querySelectorAll('#dashTypeTabGroup .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
+  // FMS sub-select (Service FMS / O2D FMS) only makes sense on the FMS tab
+  const fmsSelect = document.getElementById('dashFmsSelect');
+  if (fmsSelect) {
+    fmsSelect.style.display = type === 'fms' ? 'block' : 'none';
+    if (type !== 'fms') fmsSelect.value = 'all';
+  }
   // Re-render table without full API reload
   if (window._lastDashTasks) {
     renderDashTable(window._lastDashTasks, dashType);
@@ -2792,11 +2805,12 @@ function renderDashTable(tasks, type) {
   document.getElementById('dashDoerHead').textContent = (isAdmin||isPC)?'Doer':'Assigned By';
   const tbody = document.getElementById('dashTbody');
   // Filter by selected tab: all / delegation / checklist; include pending + revised
+  // "FMS" tab shows Service FMS + O2D FMS together by default; the
+  // dashFmsSelect dropdown (only visible on this tab) narrows to just one.
+  const fmsSelectVal = document.getElementById('dashFmsSelect')?.value || 'all';
   let allPending = tasks.filter(t => {
-    // "FMS" tab shows both Service FMS and O2D FMS together; "O2D" stays
-    // available separately for O2D-only filtering.
     const matchType = (!type || type === 'all') ? true
-      : type === 'fms' ? (t.type === 'fms' || t.type === 'o2d')
+      : type === 'fms' ? (fmsSelectVal === 'all' ? (t.type === 'fms' || t.type === 'o2d') : t.type === fmsSelectVal)
       : t.type === type;
     return matchType && (t.status === 'pending' || t.status === 'revised' || !t.status);
   });
