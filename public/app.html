@@ -2794,7 +2794,11 @@ function renderDashTable(tasks, type) {
   const tbody = document.getElementById('dashTbody');
   // Filter by selected tab: all / delegation / checklist; include pending + revised
   let allPending = tasks.filter(t => {
-    const matchType = (!type || type === 'all') ? true : t.type === type;
+    // "FMS" tab shows both Service FMS and O2D FMS together; "O2D" stays
+    // available separately for O2D-only filtering.
+    const matchType = (!type || type === 'all') ? true
+      : type === 'fms' ? (t.type === 'fms' || t.type === 'o2d')
+      : t.type === type;
     return matchType && (t.status === 'pending' || t.status === 'revised' || !t.status);
   });
   // Apply date sort
