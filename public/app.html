@@ -6160,27 +6160,27 @@ async function sendSfmsOtp(row, step) {
 // lists — just mark-done + a couple of steps with extra fields.
 // ══════════════════════════════════════════════════════
 const O2D_STEP_DEFS = [
-  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', statusOptions: ['Yes', 'No'], extraFields: [
+  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', tat: '10 min', statusOptions: ['Yes', 'No'], extraFields: [
       { key: 'reason', label: 'Reason (if No)' }
     ] },
-  { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', extraFields: [] },
-  { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', extraFields: [] },
-  { n: 4, label: 'Make Bill', doer: 'Accountant', extraFields: [
+  { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [] },
+  { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', extraFields: [] },
+  { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', extraFields: [
       { key: 'billNo', label: 'Bill No' },
       { key: 'billAmount', label: 'Bill Amount', type: 'number' },
       { key: 'photoLink', label: 'Photo Link' },
       { key: 'billDate', label: 'Bill Date', type: 'date' }
     ] },
-  { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', extraFields: [
+  { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', extraFields: [
       { key: 'doerName', label: 'Doer Name' },
       { key: 'photo', label: 'Photo (link)' }
     ] },
-  { n: 6, label: 'Check physical stock with bill', doer: 'Aziz', extraFields: [
+  { n: 6, label: 'Check physical stock with bill', doer: 'Aziz', tat: '10 min', extraFields: [
       { key: 'doerName', label: 'Doer Name' }
     ] },
-  { n: 7, label: 'Arrange Loader', doer: 'Kavita', extraFields: [] },
-  { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', extraFields: [] },
-  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', extraFields: [
+  { n: 7, label: 'Arrange Loader', doer: 'Kavita', tat: '10 min', extraFields: [] },
+  { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', tat: '10 min', extraFields: [] },
+  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', extraFields: [
       { key: 'doerName', label: 'Doer Name' },
       { key: 'deliveryBy', label: 'Delivery By' }
     ] }
@@ -6314,7 +6314,7 @@ function renderO2dPCView() {
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending orders — everything is dispatched 🎉</div>'; return; }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
   wrap.innerHTML = `<table>
-    <thead><tr><th>Order No</th><th>Order Id</th><th>Counter Name</th><th>Product</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th></tr></thead>
+    <thead><tr><th>Order No</th><th>Order Id</th><th>Counter Name</th><th>Product</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
     <tbody>
       ${pageRows.map(o => {
         const pendingStep = o.steps[o.currentStep]; // 0-indexed: next step after currentStep
@@ -6331,6 +6331,7 @@ function renderO2dPCView() {
           <td style="font-weight:600">${pendingStep.n}. ${pendingStep.label}</td>
           <td style="${plannedStyle}">${pendingStep.planned || '—'}${overdue ? ' ⚠️' : ''}</td>
           <td>${stepDoerLabel(pendingStep)}</td>
+          <td style="color:var(--gray-500)">${pendingStep.tat || '—'}</td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -6368,9 +6369,9 @@ function renderO2dReportsView() {
       </div>
       <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Pending Orders By Step</div>
       <table>
-        <thead><tr><th>Step</th><th>Doer</th><th>Pending Count</th></tr></thead>
+        <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Pending Count</th></tr></thead>
         <tbody>
-          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${p.step.label}</td><td>${stepDoerLabel(p.step)}</td><td>${p.count}</td></tr>`).join('')}
+          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${p.step.label}</td><td>${stepDoerLabel(p.step)}</td><td style="color:var(--gray-500)">${p.step.tat || '—'}</td><td>${p.count}</td></tr>`).join('')}
         </tbody>
       </table>
     </div>`;
@@ -6725,7 +6726,7 @@ async function openStepDoersModal() {
     return `
       <div style="border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px">
         <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${sd.label}</div>
-        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${sd.doer || '—'}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${sd.doer || '—'} · TAT: ${sd.tat || '—'}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:140px;overflow-y:auto">${checkboxes || '<span style="color:var(--gray-400);font-size:12px">No users found</span>'}</div>
       </div>`;
   }).join('');
@@ -6958,7 +6959,7 @@ function renderO2dDetailBody(o) {
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
-        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)}</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)} · TAT: ${nextStepDef.tat || '—'}</div>
         ${statusSelectHtml}
         ${extraInputsHtml}
         <button onclick="advanceO2dStep(${o.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
@@ -6986,7 +6987,7 @@ function renderO2dDetailBody(o) {
       <summary style="cursor:pointer;font-size:12px;color:var(--gray-400);font-weight:600">View full record (dates, details)</summary>
       <div class="mis-table-wrap" style="margin-top:8px;overflow-x:auto">
       <table>
-        <thead><tr><th>Step</th><th>Doer</th><th>Planned</th><th>Actual</th><th>Status</th><th>Extra</th></tr></thead>
+        <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Planned</th><th>Actual</th><th>Status</th><th>Extra</th></tr></thead>
         <tbody>
           ${o.steps.map(s => {
             const def = O2D_STEP_DEFS.find(d => d.n === s.n);
@@ -6994,6 +6995,7 @@ function renderO2dDetailBody(o) {
             return `<tr>
             <td style="font-weight:600">${s.n}. ${s.label}</td>
             <td>${stepDoerLabel(s)}</td>
+            <td style="color:var(--gray-500)">${s.tat || '—'}</td>
             <td>${s.planned || '—'}</td>
             <td>${s.actual || '—'}</td>
             <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${s.status}</span>` : '—'}</td>

@@ -2767,22 +2767,23 @@ const O2D_HEADER_ROW = 6;
 const O2D_DATA_START_ROW = 7;
 const O2D_LAST_COL = 'BM';
 
+// doer + tat (the "Who"/"When" rows in Master.'s own header, rows 3 & 5)
 const O2D_STEPS = [
-  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', planned: 'T', actual: 'U', status: 'V',
+  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', tat: '10 min', planned: 'T', actual: 'U', status: 'V',
     extra: [ { key: 'reason', col: 'W', label: 'Reason' } ] },
-  { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', planned: 'X', actual: 'Y', status: 'Z', timeDelay: 'AA', extra: [] },
-  { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', planned: 'AB', actual: 'AC', status: 'AD', timeDelay: 'AE', extra: [] },
-  { n: 4, label: 'Make Bill', doer: 'Accountant', planned: 'AF', actual: 'AG', status: 'AH', timeDelay: 'AI', extra: [] },
-  { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', planned: 'AJ', actual: 'AK', status: 'AL', timeDelay: 'AO',
+  { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', planned: 'X', actual: 'Y', status: 'Z', timeDelay: 'AA', extra: [] },
+  { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', planned: 'AB', actual: 'AC', status: 'AD', timeDelay: 'AE', extra: [] },
+  { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', planned: 'AF', actual: 'AG', status: 'AH', timeDelay: 'AI', extra: [] },
+  { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', planned: 'AJ', actual: 'AK', status: 'AL', timeDelay: 'AO',
     extra: [
       { key: 'doerName', col: 'AM', label: 'Doer Name' },
       { key: 'photo', col: 'AN', label: 'Photo (link)' }
     ] },
-  { n: 6, label: 'Check physical stock with bill', doer: 'Aziz', planned: 'AP', actual: 'AQ', status: 'AR', timeDelay: 'AT',
+  { n: 6, label: 'Check physical stock with bill', doer: 'Aziz', tat: '10 min', planned: 'AP', actual: 'AQ', status: 'AR', timeDelay: 'AT',
     extra: [ { key: 'doerName', col: 'AS', label: 'Doer Name' } ] },
-  { n: 7, label: 'Arrange Loader', doer: 'Kavita', planned: 'AU', actual: 'AV', status: 'AW', timeDelay: 'AX', extra: [] },
-  { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', planned: 'AY', actual: 'AZ', status: 'BA', timeDelay: 'BB', extra: [] },
-  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', planned: 'BC', actual: 'BD', status: 'BF', timeDelay: 'BG',
+  { n: 7, label: 'Arrange Loader', doer: 'Kavita', tat: '10 min', planned: 'AU', actual: 'AV', status: 'AW', timeDelay: 'AX', extra: [] },
+  { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', tat: '10 min', planned: 'AY', actual: 'AZ', status: 'BA', timeDelay: 'BB', extra: [] },
+  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', planned: 'BC', actual: 'BD', status: 'BF', timeDelay: 'BG',
     extra: [ { key: 'loaderName', col: 'BE', label: 'Loader Name' } ] }
 ];
 
@@ -2896,7 +2897,7 @@ async function getO2dOrders() {
       };
       o.steps = O2D_STEPS.map(sd => {
         const step = {
-          n: sd.n, label: sd.label, doer: sd.doer, doers: stepDoersMap[sd.n] || [],
+          n: sd.n, label: sd.label, doer: sd.doer, tat: sd.tat, doers: stepDoersMap[sd.n] || [],
           planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
           actual: sd.actual ? sfmsSerialToDate(get(sd.actual)) : '',
           status: get(sd.status) || ''
