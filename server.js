@@ -1937,6 +1937,62 @@ app.post('/api/profile/image', requireAuth, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════
+// APP LOGO — admin-uploaded branding, stored in the DB so it survives
+// Vercel's read-only/ephemeral filesystem; falls back to the bundled
+// public/logo*.png files when nothing has been uploaded yet.
+// ══════════════════════════════════════════════════════
+const LOGO_VARIANTS = { full: 'logo.png', mark: 'logo-mark.png', horizontal: 'logo-horizontal.png' };
+
+async function ensureAppSettingsTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      setting_key VARCHAR(64) PRIMARY KEY,
+      setting_value LONGTEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+app.get('/logo/:variant', async (req, res) => {
+  const variant = req.params.variant;
+  const fallbackFile = LOGO_VARIANTS[variant];
+  if (!fallbackFile) return res.status(404).end();
+  try {
+    const [rows] = await db.query('SELECT setting_value FROM app_settings WHERE setting_key=?', [`logo_${variant}`]);
+    const dataUri = rows[0] && rows[0].setting_value;
+    if (dataUri) {
+      const m = /^data:([^;]+);base64,(.+)$/.exec(dataUri);
+      if (m) {
+        res.set('Content-Type', m[1]);
+        res.set('Cache-Control', 'no-store');
+        return res.send(Buffer.from(m[2], 'base64'));
+      }
+    }
+  } catch (e) {
+    if (e.code !== 'ER_NO_SUCH_TABLE') console.error('logo lookup failed:', e.message);
+  }
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'public', fallbackFile));
+});
+
+app.post('/api/settings/logo', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { variant, image } = req.body;
+    if (!LOGO_VARIANTS[variant]) return res.status(400).json({ error: 'Invalid logo variant' });
+    await ensureAppSettingsTable();
+    if (image) {
+      await db.query(
+        'INSERT INTO app_settings (setting_key, setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)',
+        [`logo_${variant}`, image]
+      );
+    } else {
+      await db.query('DELETE FROM app_settings WHERE setting_key=?', [`logo_${variant}`]);
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ══════════════════════════════════════════════════════
 // COMMENTS
 // ══════════════════════════════════════════════════════
 app.get('/api/comments/:type/:taskId', requireAuth, async (req, res) => {
