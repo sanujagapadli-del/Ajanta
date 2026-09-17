@@ -4,7 +4,6 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Ajanta Electronics Task Manager</title>
-<link rel="icon" type="image/png" href="/logo/mark"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
@@ -156,8 +155,6 @@ body{font-family:'Inter',sans-serif;background:var(--app-bg);color:var(--gray-90
   font-weight:800;font-size:15px;flex-shrink:0;
   box-shadow:var(--shadow-glow);
 }
-.sidebar:hover .logo-icon-only{opacity:0;}
-.sidebar:hover .logo-full-lockup{opacity:1 !important;}
 
 .nav{padding:10px 9px;flex:1;overflow:hidden;}
 .sidebar:hover .nav{overflow-y:auto;overflow-x:hidden;}
@@ -667,9 +664,9 @@ tbody tr:last-child td{border-bottom:none;}
      SIDEBAR
 ══════════════════════════════════════ -->
 <aside class="sidebar" id="sidebar">
-  <div class="sidebar-logo" style="position:relative">
-    <img src="/logo/mark" alt="Ajanta Electronics" class="logo-icon-only" style="width:36px;height:36px;flex-shrink:0;object-fit:contain;transition:opacity .22s"/>
-    <img src="/logo/horizontal" alt="Ajanta Electronics" class="logo-full-lockup" style="position:absolute;left:13px;top:50%;transform:translateY(-50%);height:32px;width:auto;opacity:0;transition:opacity .22s"/>
+  <div class="sidebar-logo">
+    <div class="logo-icon">A</div>
+    <span class="nav-label-text" style="font-weight:800;font-size:16px;color:#fff;letter-spacing:-.3px">Ajanta</span>
   </div>
   <nav class="nav">
     <div class="nav-item active" onclick="navigate('dashboard',this)">
@@ -975,43 +972,6 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="form-group"><label>New Password</label><input type="password" id="pNew" placeholder="Enter new password"/></div>
       <div class="form-group"><label>Confirm Password</label><input type="password" id="pConfirm" placeholder="Confirm new password"/></div>
       <button class="btn btn-primary" onclick="saveProfile()">Save Changes</button>
-    </div>
-
-    <!-- App Logo (admin only) -->
-    <div class="profile-card" id="logoSettingsCard" style="display:none;margin-top:20px">
-      <div class="section-title" style="margin-top:0">App Logo</div>
-      <div style="display:flex;flex-direction:column;gap:18px">
-        <div style="display:flex;align-items:center;gap:16px">
-          <img id="logoPreviewFull" src="/logo/full" style="width:64px;height:64px;object-fit:contain;border:1px solid var(--gray-200);border-radius:8px;background:#fff;padding:6px;flex-shrink:0"/>
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--gray-800)">Login Page Logo</div>
-            <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px">Full logo shown on the sign-in screen</div>
-            <button class="btn btn-outline" style="font-size:12px;padding:5px 12px" onclick="document.getElementById('logoInputFull').click()">📷 Change</button>
-            <button class="btn btn-outline" style="font-size:12px;padding:5px 12px;margin-left:6px;color:var(--color-danger);border-color:var(--color-danger-border)" onclick="resetLogo('full')">✕ Reset</button>
-          </div>
-          <input type="file" id="logoInputFull" accept="image/*" style="display:none" onchange="handleLogoImage('full',event)"/>
-        </div>
-        <div style="display:flex;align-items:center;gap:16px">
-          <img id="logoPreviewMark" src="/logo/mark" style="width:64px;height:64px;object-fit:contain;border:1px solid var(--gray-200);border-radius:8px;background:#fff;padding:6px;flex-shrink:0"/>
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--gray-800)">Sidebar Icon</div>
-            <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px">Small icon shown when the sidebar is collapsed, and the browser favicon</div>
-            <button class="btn btn-outline" style="font-size:12px;padding:5px 12px" onclick="document.getElementById('logoInputMark').click()">📷 Change</button>
-            <button class="btn btn-outline" style="font-size:12px;padding:5px 12px;margin-left:6px;color:var(--color-danger);border-color:var(--color-danger-border)" onclick="resetLogo('mark')">✕ Reset</button>
-          </div>
-          <input type="file" id="logoInputMark" accept="image/*" style="display:none" onchange="handleLogoImage('mark',event)"/>
-        </div>
-        <div style="display:flex;align-items:center;gap:16px">
-          <img id="logoPreviewHorizontal" src="/logo/horizontal" style="width:120px;height:64px;object-fit:contain;border:1px solid var(--gray-200);border-radius:8px;background:#fff;padding:6px;flex-shrink:0"/>
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--gray-800)">Sidebar Logo (expanded)</div>
-            <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px">Icon + wordmark shown when the sidebar is hovered open</div>
-            <button class="btn btn-outline" style="font-size:12px;padding:5px 12px" onclick="document.getElementById('logoInputHorizontal').click()">📷 Change</button>
-            <button class="btn btn-outline" style="font-size:12px;padding:5px 12px;margin-left:6px;color:var(--color-danger);border-color:var(--color-danger-border)" onclick="resetLogo('horizontal')">✕ Reset</button>
-          </div>
-          <input type="file" id="logoInputHorizontal" accept="image/*" style="display:none" onchange="handleLogoImage('horizontal',event)"/>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -2462,7 +2422,6 @@ async function init() {
     document.getElementById('pPhone').value = ME.phone || '';
     document.getElementById('profileNameDisplay').textContent = ME.name;
     document.getElementById('profileRoleDisplay').textContent = roleLabel;
-    document.getElementById('logoSettingsCard').style.display = (ME.role === 'admin') ? '' : 'none';
 
     setAvatarDisplay(ME.profile_image, initials);
 
@@ -2559,35 +2518,6 @@ async function removeProfileImage() {
 }
 
 // App logo upload (admin only) — mirrors handleProfileImage, but scoped to a logo variant
-function refreshLogoImages(variant) {
-  const bust = '?t=' + Date.now();
-  document.querySelectorAll('img[src^="/logo/' + variant + '"]').forEach(el => { el.src = '/logo/' + variant + bust; });
-}
-
-function handleLogoImage(variant, event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  if (file.size > 2 * 1024 * 1024) { showToast('Image size must be under 2MB','error'); return; }
-
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    const r = await api('/api/settings/logo','POST',{ variant, image: e.target.result });
-    if (r.error) { showToast(r.error,'error'); return; }
-    refreshLogoImages(variant);
-    showToast('Logo updated!');
-  };
-  reader.readAsDataURL(file);
-}
-
-async function resetLogo(variant) {
-  showConfirm({ icon:'🖼️', title:'Reset to default logo?', msg:'Ye custom logo hat ke default wapas aa jayega.', okLabel:'Reset', okColor:'var(--color-danger)' }, async () => {
-    const r = await api('/api/settings/logo','POST',{ variant, image: null });
-    if (r.error) { showToast(r.error,'error'); return; }
-    refreshLogoImages(variant);
-    showToast('Logo reset to default!');
-  });
-}
-
 function setMinDates() {
   const today = new Date().toISOString().split('T')[0];
   ['dDate','cDate','hDate'].forEach(id => {
