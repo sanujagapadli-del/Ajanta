@@ -82,6 +82,9 @@ function checkPassword(plain, stored) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+if (!process.env.SESSION_SECRET) {
+  console.warn('  ⚠️  SESSION_SECRET is not set — falling back to a hardcoded secret that is visible in the source. Set SESSION_SECRET in the environment so JWTs (including admin logins) can\'t be forged by anyone with repo access.');
+}
 const JWT_SECRET = process.env.SESSION_SECRET || 'taskmanager_secret_2026';
 
 const cookieParser = require('cookie-parser');
@@ -3488,6 +3491,18 @@ app.put('/api/transfers/:id', requireAuth, requireAdminOrHod, async (req, res) =
     if (!rows[0]) return res.status(404).json({ error: 'Transfer not found' });
     const tr = rows[0];
 
+    // HOD can only act on transfers involving their own department (GET /api/transfers
+    // already scopes visibility the same way — this closes the gap where the write
+    // endpoint didn't re-check it, letting an HOD approve/reject any department's transfer).
+    if (req.session.role === 'hod') {
+      const [me] = await db.query('SELECT department FROM users WHERE id=?', [req.session.userId]);
+      const dept = me[0]?.department || '';
+      const [involved] = await db.query('SELECT department FROM users WHERE id IN (?,?)', [tr.from_user, tr.to_user]);
+      if (!involved.some(u => u.department === dept)) {
+        return res.status(403).json({ error: 'Not authorized for this department\'s transfers' });
+      }
+    }
+
     await db.query('UPDATE task_transfers SET status=?, note=? WHERE id=?', [action, note||'', req.params.id]);
 
     if (action === 'approved') {
@@ -3524,6 +3539,15 @@ app.post('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
     const { employeeId, startDate, targetCount, hodId, improvementPct } = req.body;
     if (!employeeId || !startDate) {
       return res.json({ error: 'employeeId and startDate required' });
+    }
+    // Same department-scoping /api/employee-records already applies for HOD —
+    // without it an HOD could set/overwrite another department's weekly targets.
+    if (req.session.role === 'hod') {
+      const [me] = await db.query('SELECT department FROM users WHERE id=?', [req.session.userId]);
+      const [target] = await db.query('SELECT department FROM users WHERE id=?', [employeeId]);
+      if (!target[0] || target[0].department !== (me[0]?.department || '')) {
+        return res.status(403).json({ error: 'Not authorized to set a plan for this employee' });
+      }
     }
     const impPct = (improvementPct !== undefined && improvementPct !== null && improvementPct !== '') ? parseInt(improvementPct) : null;
     const tCount = (targetCount !== undefined && targetCount !== null && targetCount !== '') ? parseInt(targetCount) : 0;
