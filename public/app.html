@@ -2168,8 +2168,9 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
         <div class="form-group">
           <label>Counter Name <span style="color:var(--color-danger)">*</span></label>
-          <input type="text" id="noCounterName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <input type="text" id="noCounterName" oninput="onO2dCounterNameInput()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         </div>
+        <div id="noOutstandingBox" style="display:none;grid-column:1/-1;padding:10px 14px;border-radius:8px;font-size:13px"></div>
         <div class="form-group">
           <label>Area / Location</label>
           <input type="text" id="noArea" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
@@ -6308,7 +6309,33 @@ function openNewO2dOrderModal() {
   document.getElementById('noProductRows').innerHTML = '';
   o2dProductRowCount = 0;
   addO2dProductRow();
+  document.getElementById('noOutstandingBox').style.display = 'none';
   document.getElementById('newO2dOrderModal').classList.add('open');
+}
+
+let _o2dCounterLookupTimer = null;
+function onO2dCounterNameInput() {
+  clearTimeout(_o2dCounterLookupTimer);
+  const name = document.getElementById('noCounterName').value.trim();
+  const box = document.getElementById('noOutstandingBox');
+  if (!name) { box.style.display = 'none'; return; }
+  _o2dCounterLookupTimer = setTimeout(async () => {
+    const r = await api('/api/o2d-fms/customer-lookup?name=' + encodeURIComponent(name));
+    // user may have kept typing while the request was in flight — ignore stale results
+    if (document.getElementById('noCounterName').value.trim() !== name) return;
+    if (r && r.found) {
+      box.style.background = 'var(--color-warning-bg)';
+      box.style.border = '1px solid var(--color-warning-border)';
+      box.style.color = 'var(--color-warning-text)';
+      box.innerHTML = `💰 Outstanding for <strong>${r.name}</strong>: ₹${r.outstanding.toLocaleString('en-IN')}${r.fuzzy ? ' <span style="font-weight:400;opacity:.75">(closest match)</span>' : ''}`;
+    } else {
+      box.style.background = 'var(--gray-100)';
+      box.style.border = '1px solid var(--gray-200)';
+      box.style.color = 'var(--gray-500)';
+      box.innerHTML = `No outstanding record found for "${name}"`;
+    }
+    box.style.display = 'block';
+  }, 500);
 }
 
 async function submitNewO2dOrder() {

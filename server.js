@@ -2864,6 +2864,49 @@ app.get('/api/o2d-fms', requireAuth, async (req, res) => {
 const O2D_INTAKE_SHEET_ID = '1B1wjNcww9RLhluR3_crISg6aTAF20tijwKZp3C6JAP0';
 const O2D_INTAKE_TAB = 'Sheet1';
 
+// ── Customer outstanding lookup (Tally debtors report sheet) ──
+// Sheet has just [Party Name, Debit/Outstanding] rows — no credit limit column.
+const O2D_DEBTORS_SHEET_ID = '1oCGFCvCwuZRLHa_OV3Ae9PMjiaBr9VpAxCi3uMjqb-k';
+const O2D_DEBTORS_TAB = 'Sheet1';
+let _debtorsCache = null; // { map, ts }
+const DEBTORS_CACHE_TTL_MS = 10 * 60 * 1000; // sheet is a daily Tally export, no need to re-read often
+
+async function getDebtorsMap() {
+  if (_debtorsCache && (Date.now() - _debtorsCache.ts) < DEBTORS_CACHE_TTL_MS) return _debtorsCache.map;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const resp = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: O2D_DEBTORS_SHEET_ID,
+    range: `${O2D_DEBTORS_TAB}!A1:B1000`
+  });
+  const rows = resp.data.values || [];
+  const map = {};
+  let started = false; // rows before the ["", "Debit", "Credit"] header are report title/metadata, not data
+  for (const row of rows) {
+    if (!started) {
+      if (row[1] === 'Debit') started = true;
+      continue;
+    }
+    const name = (row[0] || '').trim();
+    if (!name || name === 'Grand Total') continue;
+    const num = parseFloat(String(row[1] || '').replace(/,/g, ''));
+    if (!isNaN(num)) map[name.toLowerCase()] = { name, outstanding: num };
+  }
+  _debtorsCache = { map, ts: Date.now() };
+  return map;
+}
+
+app.get('/api/o2d-fms/customer-lookup', requireAuth, async (req, res) => {
+  try {
+    const q = (req.query.name || '').trim().toLowerCase();
+    if (!q) return res.json({ found: false });
+    const map = await getDebtorsMap();
+    if (map[q]) return res.json({ found: true, ...map[q] });
+    const match = Object.values(map).find(v => v.name.toLowerCase().includes(q) || q.includes(v.name.toLowerCase()));
+    if (match) return res.json({ found: true, ...match, fuzzy: true });
+    res.json({ found: false });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   try {
     const {
