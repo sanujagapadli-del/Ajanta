@@ -2361,29 +2361,31 @@ function sfmsDateToSerial(date) {
   return (date.getTime() - Date.UTC(1899, 11, 30)) / 86400000;
 }
 
-// Maytapi WhatsApp API
-const MAYTAPI_PRODUCT_ID = process.env.MAYTAPI_PRODUCT_ID;
-const MAYTAPI_PHONE_ID = process.env.MAYTAPI_PHONE_ID;
-
+// WhatsApp sending — via the user's own self-hosted "MYAPI" WhatsApp gateway
+// (a QR-linked-device session, connected once via MYAPI's own /api/sessions
+// flow; not re-established here). Was Maytapi before; kept the same
+// mobile-normalizing helper and call shape so nothing else had to change.
 function sfmsNormalizeMobile(mobile) {
   const digits = String(mobile || '').replace(/\D/g, '');
   const last10 = digits.slice(-10);
   return last10.length === 10 ? `91${last10}` : null;
 }
 
-async function sendMaytapiWhatsApp(mobile, text) {
-  const token = process.env.MAYTAPI_TOKEN;
-  if (!token || !MAYTAPI_PRODUCT_ID || !MAYTAPI_PHONE_ID) throw new Error('Maytapi is not configured (missing product ID, phone ID or token)');
+async function sendWhatsApp(mobile, text) {
+  const baseUrl = process.env.MYAPI_BASE_URL;
+  const apiKey = process.env.MYAPI_API_KEY;
+  const sessionId = process.env.MYAPI_SESSION_ID;
+  if (!baseUrl || !apiKey || !sessionId) throw new Error('WhatsApp (MYAPI) is not configured (missing base URL, API key or session ID)');
   const to = sfmsNormalizeMobile(mobile);
   if (!to) throw new Error('Invalid mobile number on file');
 
-  const res = await fetch(`https://api.maytapi.com/api/${MAYTAPI_PRODUCT_ID}/${MAYTAPI_PHONE_ID}/sendMessage`, {
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/sessions/${encodeURIComponent(sessionId)}/send`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-maytapi-key': token },
-    body: JSON.stringify({ to_number: to, type: 'text', message: text })
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify({ to, message: text })
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.success === false) throw new Error((data.message || data.error) || `WhatsApp send failed (HTTP ${res.status})`);
+  if (!res.ok || data.status === 'error') throw new Error((data.message || data.error) || `WhatsApp send failed (HTTP ${res.status})`);
   return data;
 }
 
@@ -2546,7 +2548,7 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp', requireAuth, async (req
     const otp = String(crypto.randomInt(100000, 1000000));
     const sentAtIso = new Date().toISOString();
 
-    await sendMaytapiWhatsApp(mobile, `Ajanta Electronics Service: Your OTP to confirm the technician's visit is ${otp}. Please share this with the technician. Valid for 30 minutes.`);
+    await sendWhatsApp(mobile, `Ajanta Electronics Service: Your OTP to confirm the technician's visit is ${otp}. Please share this with the technician. Valid for 30 minutes.`);
 
     await sheetsApi.spreadsheets.values.batchUpdate({
       spreadsheetId: SFMS_SHEET_ID,
@@ -2601,7 +2603,7 @@ app.post('/api/service-fms/items', requireAuth, async (req, res) => {
 });
 
 // Mechanics tab has a second column (B = Mobile) so the Mechanic-Wise report
-// can WhatsApp a mechanic directly via Maytapi instead of opening wa.me.
+// can WhatsApp a mechanic directly via the WhatsApp API instead of opening wa.me.
 async function sfmsGetMechanics() {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   const result = await sheetsApi.spreadsheets.values.get({
@@ -2660,13 +2662,13 @@ app.post('/api/service-fms/mechanics/mobile', requireAuth, async (req, res) => {
 });
 
 // Generic WhatsApp send used by the Mechanic-Wise report's "Send via WhatsApp"
-// button — sends straight through Maytapi instead of opening wa.me.
+// button — sends straight through the WhatsApp API instead of opening wa.me.
 app.post('/api/service-fms/send-whatsapp', requireAuth, async (req, res) => {
   try {
     const mobile = String(req.body.mobile || '').trim();
     const message = String(req.body.message || '').trim();
     if (!mobile || !message) return res.status(400).json({ error: 'Mobile and message are required' });
-    await sendMaytapiWhatsApp(mobile, message);
+    await sendWhatsApp(mobile, message);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
