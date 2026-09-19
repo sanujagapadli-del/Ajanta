@@ -3255,11 +3255,14 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`
     ]);
 
+    // OVERWRITE, not INSERT_ROWS — inserting rows shifts the sheet's row
+    // dimensions, which corrupts the Planned column's ARRAYFORMULA (it spills
+    // down live from row 6). Overwrite just fills the next blank row instead.
     await sheetsApi.spreadsheets.values.append({
       spreadsheetId: O2D_SHEET_ID,
       range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
       valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
+      insertDataOption: 'OVERWRITE',
       requestBody: { values: rows }
     });
 
