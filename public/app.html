@@ -6442,8 +6442,8 @@ async function sendSfmsOtp(row, step) {
 // lists — just mark-done + a couple of steps with extra fields.
 // ══════════════════════════════════════════════════════
 const O2D_STEP_DEFS = [
-  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', tat: '10 min', statusOptions: ['Yes', 'No'], extraFields: [
-      { key: 'reason', label: 'Reason (if No)' }
+  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', tat: '10 min', extraFields: [
+      { key: 'reason', label: 'Reason (if Not Available)' }
     ] },
   { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [] },
   { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', extraFields: [], allowAddOrder: true },
@@ -7227,11 +7227,20 @@ async function advanceO2dStep(orderNo, step) {
   const stepDef = O2D_STEP_DEFS.find(d => d.n === step);
   const body = {};
 
-  if (stepDef.statusOptions) {
-    const statusEl = document.getElementById(`o2dStatusSelect_${orderNo}`);
-    body.status = statusEl ? statusEl.value : '';
-    if (!body.status) { showToast(`Select ${stepDef.label}`, 'error'); return; }
+  // Every item that hasn't cleared this step yet needs its own
+  // Available/Not Available choice — different items in the same order can
+  // genuinely differ (some in stock, some not), so this isn't one combined
+  // yes/no for the whole order.
+  const pendingProducts = (o.products || []).filter(p => p.currentStep < step);
+  const perRowStatus = {};
+  for (const p of pendingProducts) {
+    const sel = document.getElementById(`o2dItemStatus_${orderNo}_${p.row}`);
+    const val = sel ? sel.value : '';
+    if (!val) { showToast(`Select Available/Not Available for "${p.productName}"`, 'error'); return; }
+    perRowStatus[p.row] = val === 'Available' ? 'Yes' : 'No';
   }
+  body.perRowStatus = perRowStatus;
+  body.status = 'Yes'; // fallback only, for any row the server finds pending that the client didn't know about
 
   for (const f of stepDef.extraFields) body[f.key] = readO2dField(f, orderNo);
 
@@ -7254,10 +7263,12 @@ async function advanceO2dStep(orderNo, step) {
   // manual refresh) still self-corrects once the cache catches up.
   const stepIdx = o.steps.findIndex(s => s.n === step);
   if (stepIdx >= 0) {
+    (o.products || []).forEach(p => { if (perRowStatus[p.row] !== undefined) p.currentStep = step; });
+    const allDone = (o.products || []).every(p => p.currentStep >= step);
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
-    o.steps[stepIdx].actual = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-    o.steps[stepIdx].status = body.status || 'Yes';
+    o.steps[stepIdx].actual = allDone ? `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}` : '';
+    o.steps[stepIdx].status = allDone ? 'Yes' : '';
     stepDef.extraFields.forEach(f => { o.steps[stepIdx][f.key] = body[f.key] || ''; });
     let currentStep = 0;
     for (const s of o.steps) { if (s.status) currentStep = s.n; else break; }
@@ -7359,14 +7370,22 @@ function renderO2dDetailBody(o, hideProgress) {
   // it's clear at a glance which ones already have the current step and
   // which don't, instead of just one combined order-level status.
   const nextStepN = o.currentStep + 1;
+  // Each pending item gets its own Available/Not Available choice instead
+  // of one combined status for the whole order — different items in the
+  // same order can genuinely differ (some in stock, some not; some billed,
+  // some not), and the sheet already tracks status per product row.
   const productsListHtml = (o.products || []).map(p => {
     const itemDone = nextStepN > 9 || p.currentStep >= nextStepN;
-    const badge = itemDone
+    const control = itemDone
       ? `<span style="font-size:10px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">Yes</span>`
-      : `<span style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">No</span>`;
+      : `<select id="o2dItemStatus_${o.orderNo}_${p.row}" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)">
+          <option value="">-- Select --</option>
+          <option value="Available">Available</option>
+          <option value="Not Available">Not Available</option>
+        </select>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
       <span>${p.productName} <span style="color:var(--gray-500)">— ${p.qty}${p.rate ? ' @ ₹' + p.rate : ''}</span></span>
-      ${badge}
+      ${control}
     </div>`;
   }).join('');
 
@@ -7400,19 +7419,14 @@ function renderO2dDetailBody(o, hideProgress) {
   const nextStepDef = O2D_STEP_DEFS.find(d => d.n === o.currentStep + 1);
   let actionHtml;
   if (nextStepDef) {
-    const statusSelectHtml = nextStepDef.statusOptions
-      ? `<select id="o2dStatusSelect_${o.orderNo}" style="${O2D_INPUT_STYLE}"><option value="">-- Select --</option>${nextStepDef.statusOptions.map(v => `<option value="${v}">${v}</option>`).join('')}</select>`
-      : '';
     const extraInputsHtml = nextStepDef.extraFields.map(f => renderO2dField(f, o.orderNo)).join('');
-    const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole order</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
-        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)} · TAT: ${nextStepDef.tat || '—'}</div>
-        ${statusSelectHtml}
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)} · TAT: ${nextStepDef.tat || '—'} · pick Available/Not Available per item above</div>
         ${extraInputsHtml}
-        <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${o.orderNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
+        <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${o.orderNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
         ${nextStepDef.allowAddOrder ? `
         <div style="border-top:1px dashed var(--color-purple-border);margin-top:14px;padding-top:14px">
           <button type="button" onclick="toggleO2dAddOrder('${o.orderNo}')" class="btn btn-outline btn-sm" id="o2dAddOrderToggleBtn_${o.orderNo}">+ Add Order</button>

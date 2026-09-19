@@ -3412,9 +3412,11 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
   if (!targetRows.length) return 0;
 
   const now = sfmsDateToSerial(new Date());
-  const status = body.status || 'Yes';
+  const defaultStatus = body.status || 'Yes';
+  const perRowStatus = body.perRowStatus || {}; // { rowNum: 'Yes'|'No' } — per-item Available/Not Available
   const batchData = [];
   targetRows.forEach(rowNum => {
+    const status = perRowStatus[rowNum] || defaultStatus;
     batchData.push({ range: `'${O2D_TAB}'!${stepDef.actual}${rowNum}`, values: [[now]] });
     batchData.push({ range: `'${O2D_TAB}'!${stepDef.status}${rowNum}`, values: [[status]] });
     stepDef.extra.forEach(f => {
