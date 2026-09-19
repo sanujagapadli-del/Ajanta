@@ -7023,9 +7023,28 @@ async function advanceO2dStep(row, step) {
 
   const res = await api(`/api/o2d-fms/${row}/step/${step}`, 'PUT', body);
   if (res.error) { showToast(res.error, 'error'); return; }
-  showToast('✅ Step recorded! May take a few minutes to reflect here (sheet refresh lag).');
+  showToast('✅ Step recorded!');
   closeModal('o2dDetailModal');
-  await loadO2dFmsList();
+
+  // Optimistic update — Vercel's serverless functions run on multiple
+  // instances, so a refresh right after this write can land on an instance
+  // whose in-memory O2D cache hasn't been invalidated yet and still looks
+  // stale. Update the row we already have in memory instead of trusting a
+  // reload to reflect this write immediately; a later reload (page nav,
+  // manual refresh) still self-corrects once the cache catches up.
+  const stepIdx = o.steps.findIndex(s => s.n === step);
+  if (stepIdx >= 0) {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    o.steps[stepIdx].actual = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    o.steps[stepIdx].status = body.status || 'Yes';
+    stepDef.extraFields.forEach(f => { o.steps[stepIdx][f.key] = body[f.key] || ''; });
+    let currentStep = 0;
+    for (const s of o.steps) { if (s.status) currentStep = s.n; else break; }
+    o.currentStep = currentStep;
+    o.closed = currentStep === o.steps.length;
+  }
+  renderO2dActiveView();
 }
 
 function renderO2dDetailBody(o, hideProgress) {
