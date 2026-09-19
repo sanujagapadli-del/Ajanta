@@ -2885,9 +2885,16 @@ async function loadDashboard() {
       const pendingStep = o.steps[o.currentStep];
       if (o2dDoerFilterId && !(pendingStep.doers || []).some(d => d.id === o2dDoerFilterId)) return;
       const overdue = o2dIsOverdue(pendingStep.planned);
+      // Some items already past this step (order pending again only because
+      // a newer item hasn't caught up) — flag it so it doesn't read as if
+      // the whole order regressed.
+      const isReorder = (o.products || []).some(p => p.currentStep > o.currentStep);
+      const reorderBadge = isReorder
+        ? ` <span style="font-size:10px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🔄 Reorder — new item added</span>`
+        : '';
       const productsText = (o.products || []).map(p => `${p.productName}${p.qty ? ' × ' + p.qty : ''}`).join(', ');
       const description = `
-        <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${pendingStep.label}</div>
+        <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${pendingStep.label}${reorderBadge}</div>
         <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.counterName || '—'}</div>
         <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
         ${fmsFieldRow('PLANNED', `${pendingStep.planned || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
@@ -6532,9 +6539,9 @@ function renderO2dFmsView() {
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer">
-          <td style="font-weight:600">${o.orderNo || '—'}</td>
+          <td style="font-weight:600">${o.orderNo || '—'}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td>${o.counterName || '—'}</td>
-          <td style="white-space:normal;max-width:220px">${(o.products||[]).map(p => `${p.productName} × ${p.qty}`).join(', ') || '—'}</td>
+          <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${p.productName} × ${p.qty}</div>`).join('') || '—'}</td>
           <td>${o.qty || '—'}</td>
           ${o.steps.map(s => `
             <td style="border-left:2px solid var(--gray-200)">${s.planned || '—'}</td>
@@ -6567,9 +6574,9 @@ function renderO2dPCView() {
         const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
         return `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer;${rowStyle}">
-          <td style="font-weight:600">${o.orderNo || '—'}</td>
+          <td style="font-weight:600">${o.orderNo || '—'}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td>${o.counterName || '—'}</td>
-          <td style="white-space:normal;max-width:220px">${(o.products||[]).map(p => `${p.productName} × ${p.qty}`).join(', ') || '—'}</td>
+          <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${p.productName} × ${p.qty}</div>`).join('') || '—'}</td>
           <td>${o.qty || '—'}</td>
           <td style="font-weight:600">${pendingStep.n}. ${pendingStep.label}</td>
           <td style="${plannedStyle}">${pendingStep.planned || '—'}${overdue ? ' ⚠️' : ''}</td>
@@ -7206,7 +7213,20 @@ async function advanceO2dStep(orderNo, step) {
     o.currentStep = currentStep;
     o.closed = currentStep === o.steps.length;
   }
-  renderO2dActiveView();
+  refreshO2dAfterAction();
+}
+
+// advanceO2dStep/submitO2dAddOrder can be triggered from the O2D FMS page
+// itself OR from a Dashboard quick-action modal — re-rendering the O2D list
+// (renderO2dActiveView) has no visible effect if Dashboard is the page
+// actually on screen, which left it looking like nothing happened until a
+// manual refresh. Refresh whichever one the user is actually looking at.
+function refreshO2dAfterAction() {
+  if (document.getElementById('page-dashboard')?.classList.contains('active')) {
+    loadDashboard();
+  } else {
+    renderO2dActiveView();
+  }
 }
 
 // "+ Add Order" — lets CRM add more product lines to an existing order
@@ -7267,20 +7287,36 @@ async function submitO2dAddOrder(orderNo) {
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast(`✅ ${products.length} item(s) added to ${orderNo} and step marked done!`);
   closeModal('o2dDetailModal');
-  loadO2dFmsList();
+  if (document.getElementById('page-dashboard')?.classList.contains('active')) {
+    loadDashboard();
+  } else {
+    loadO2dFmsList();
+  }
 }
 
 function renderO2dDetailBody(o, hideProgress) {
   const body = document.getElementById('o2dBody');
 
-  const productsListHtml = (o.products || []).map(p =>
-    `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid var(--gray-100)"><span>${p.productName}</span><span style="color:var(--gray-500)">${p.qty}${p.rate ? ' @ ₹' + p.rate : ''}</span></div>`
-  ).join('');
+  // Each item's own progress can lag the order's (a newly added item starts
+  // back at step 1 while older ones may be well ahead) — shown per item so
+  // it's clear at a glance which ones already have the current step and
+  // which don't, instead of just one combined order-level status.
+  const nextStepN = o.currentStep + 1;
+  const productsListHtml = (o.products || []).map(p => {
+    const itemDone = nextStepN > 9 || p.currentStep >= nextStepN;
+    const badge = itemDone
+      ? `<span style="font-size:10px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">✓ Done</span>`
+      : `<span style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">⏳ Pending</span>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
+      <span>${p.productName} <span style="color:var(--gray-500)">— ${p.qty}${p.rate ? ' @ ₹' + p.rate : ''}</span></span>
+      ${badge}
+    </div>`;
+  }).join('');
 
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${o.counterName || '—'}${o.area ? ' · ' + o.area : ''}</div>
-      <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
+      <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})${nextStepN <= 9 ? ` — status for step ${nextStepN}. ${(O2D_STEP_DEFS.find(d=>d.n===nextStepN)||{}).label||''}` : ' — all steps complete'}</div>
       <div style="margin-bottom:14px">${productsListHtml || '—'}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>

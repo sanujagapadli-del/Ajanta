@@ -2408,8 +2408,18 @@ function sfmsSerialToDate(n) {
 // how every existing row already stores dates), never date-like strings. A
 // plain string here can silently break the sheet's own TIMEVALUE()-based
 // automation for "Planned" dates if its format doesn't match the sheet locale.
+//
+// The sheet has no timezone tag on its numbers — a serial's fractional part
+// is just whatever wall-clock hour the business reads it as, which for this
+// app is IST. date.getTime() is a UTC instant, so without shifting it first
+// every serial we wrote came out 5:30 fast of real IST time (a 4:06pm punch
+// recorded as if it were 10:36am) — visibly wrong to anyone reading the
+// sheet, and silently wrong for the sheet's own business-hours formulas
+// (WORKDAY.INTL/HOUR() checks), which were judging "before 10am"/"after
+// 6pm" against the UTC hour instead of the real IST one.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 function sfmsDateToSerial(date) {
-  return (date.getTime() - Date.UTC(1899, 11, 30)) / 86400000;
+  return (date.getTime() + IST_OFFSET_MS - Date.UTC(1899, 11, 30)) / 86400000;
 }
 
 // WhatsApp sending — via the user's own self-hosted "MYAPI" WhatsApp gateway
@@ -2959,6 +2969,9 @@ async function getO2dOrders() {
         sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
         return step;
       });
+      let lineCurrentStep = 0;
+      for (const s of line.steps) { if (s.status) lineCurrentStep++; else break; }
+      line.currentStep = lineCurrentStep;
       return line;
     }).filter(Boolean);
 
@@ -2991,7 +3004,7 @@ async function getO2dOrders() {
         amount: group.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
         productName: group.length > 1 ? `${first.productName} +${group.length - 1} more` : first.productName,
         qty: group.reduce((sum, l) => sum + (Number(l.qty) || 0), 0),
-        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample }))
+        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample, currentStep: l.currentStep }))
       };
       o.steps = O2D_STEPS.map((sd, idx) => {
         const lineSteps = group.map(l => l.steps[idx]);
