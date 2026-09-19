@@ -2208,7 +2208,15 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
         <div class="form-group">
           <label>Channel (Freight / Rent)</label>
-          <input type="text" id="noChannel" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <select id="noChannel" onchange="onNoChannelChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface)">
+            <option value="">-- Select --</option>
+            <option>Ajay Marketing</option>
+            <option>Salesman will Deliver</option>
+            <option>Dealer</option>
+            <option>50:50</option>
+            <option value="__other__">+ Add Other</option>
+          </select>
+          <input type="text" id="noChannelOther" placeholder="Enter channel" style="display:none;width:100%;padding:9px 12px;margin-top:6px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         </div>
         <div class="form-group">
           <label>Deliver by Transport?</label>
@@ -2224,7 +2232,12 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
         <div class="form-group">
           <label>When to Send</label>
-          <input type="text" id="noWhenToSend" placeholder="e.g. Today, Most Urgent" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <select id="noWhenToSend" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface)">
+            <option value="">-- Select --</option>
+            <option>Today</option>
+            <option>Most Urgent</option>
+            <option>Talk to Salesman</option>
+          </select>
         </div>
         <div class="form-group">
           <label>Date to Send</label>
@@ -6851,11 +6864,20 @@ function removeO2dProductRow(id) {
   if (wrap.children.length <= 1) { showToast('At least one product is required', 'error'); return; }
   document.getElementById(`noProductRow_${id}`).remove();
 }
+function onNoChannelChange() {
+  const isOther = document.getElementById('noChannel').value === '__other__';
+  const other = document.getElementById('noChannelOther');
+  other.style.display = isOther ? 'block' : 'none';
+  if (isOther) other.focus(); else other.value = '';
+}
 
 function openNewO2dOrderModal() {
   document.getElementById('newO2dOrderErr').style.display = 'none';
   document.getElementById('noCounterName').value = '';
-  ['noArea','noOrderBy','noPaymentTerms','noChannel','noWhenToSend','noDateToSend','noRemark'].forEach(id => document.getElementById(id).value = '');
+  ['noArea','noOrderBy','noPaymentTerms','noWhenToSend','noDateToSend','noRemark'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('noChannel').value = '';
+  document.getElementById('noChannelOther').value = '';
+  document.getElementById('noChannelOther').style.display = 'none';
   document.getElementById('noCounterType').value = 'Old Counter';
   document.getElementById('noDeliverByTransport').value = 'No';
   document.getElementById('noMakePI').value = 'No';
@@ -6945,7 +6967,7 @@ async function submitNewO2dOrder() {
     area: document.getElementById('noArea').value.trim(),
     orderBy: document.getElementById('noOrderBy').value.trim(),
     paymentTerms: document.getElementById('noPaymentTerms').value.trim(),
-    channel: document.getElementById('noChannel').value.trim(),
+    channel: document.getElementById('noChannel').value === '__other__' ? document.getElementById('noChannelOther').value.trim() : document.getElementById('noChannel').value,
     deliverByTransport: document.getElementById('noDeliverByTransport').value,
     makePerformaInvoice: document.getElementById('noMakePI').value,
     whenToSend: document.getElementById('noWhenToSend').value.trim(),

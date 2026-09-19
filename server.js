@@ -438,6 +438,21 @@ async function getSheetsClient(scopes) {
   }
 }
 
+// Separate credentials for the O2D intake sheet only — that sheet is owned/
+// shared under a different Google identity (celestile-fms) than the rest of
+// the app's sheets, so it gets its own cached client instead of overwriting
+// GOOGLE_CREDENTIALS_B64 (which would break every other sheet using it).
+let _celestileSheetsClient = null;
+async function getCelestileSheetsClient() {
+  if (_celestileSheetsClient) return _celestileSheetsClient;
+  const { google } = require('googleapis');
+  const creds = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_CELESTILE_B64.replace(/[^A-Za-z0-9+/=]/g, ''), 'base64').toString('utf8'));
+  if (creds.private_key) creds.private_key = creds.private_key.replace(/\\n/g, '\n');
+  const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+  _celestileSheetsClient = google.sheets({ version: 'v4', auth: await auth.getClient() });
+  return _celestileSheetsClient;
+}
+
 // Pre-warm Google auth on startup (reduces cold start time)
 (async () => {
   try {
@@ -2766,7 +2781,13 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
 // names. BF holds "Yes"/"No" and BE holds names — the header is wrong,
 // the mapping below follows the data.
 // ══════════════════════════════════════════════════════
-const O2D_SHEET_ID = '1pWxyrbDFzHRlK_UmVt7Cw30pz-vb9mt3Pamgq8Jlf4c';
+// "Order To Dispatch Fms Erp" — this replaced the old '1pWxyrbDF...' workbook.
+// Master. used to be a QUERY(IMPORTRANGE(...)) pulling live from a separate
+// intake spreadsheet; that formula has been flattened to static values so
+// this sheet is now self-contained (New Order appends straight into it, no
+// other spreadsheet involved). Only accessible via the celestile-fms
+// service account (getCelestileSheetsClient), not the app's default one.
+const O2D_SHEET_ID = '1UWGXIuB4Igl4siTzbSP9RmtV5EcnubkW2-MJtMu4lbY';
 const O2D_TAB = 'Master.';
 const O2D_HEADER_ROW = 6;
 const O2D_DATA_START_ROW = 7;
@@ -2860,7 +2881,7 @@ async function getO2dOrders() {
       return _o2dCache.orders;
     }
     const stepDoersMap = await getO2dStepDoersMap();
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const sheetsApi = await getCelestileSheetsClient();
     let result;
     for (let attempt = 0; ; attempt++) {
       try {
@@ -2936,15 +2957,10 @@ app.get('/api/o2d-fms', requireAuth, async (req, res) => {
   }
 });
 
-// ── New Order ── orders don't originate in "Master." at all — that tab's
-// own A-R columns are QUERY(IMPORTRANGE(...)) pulling live from this
-// separate "O2D Response" spreadsheet's Sheet1 (confirmed by reading
-// Master.'s formulas: it filters Sheet1 on "Condition" blank and
-// "PI status" = 'No'). So creating an order means appending here, not to
-// Master. — Master. picks it up on IMPORTRANGE's own refresh cycle (can lag
-// a little, this isn't instant).
-const O2D_INTAKE_SHEET_ID = '1B1wjNcww9RLhluR3_crISg6aTAF20tijwKZp3C6JAP0';
-const O2D_INTAKE_TAB = 'Sheet1';
+// ── New Order ── used to append to a separate intake spreadsheet that fed
+// Master. via IMPORTRANGE; that formula is now flattened to static values
+// (see O2D_SHEET_ID comment above), so new orders append straight into
+// Master. itself — no other spreadsheet involved, and no import lag.
 
 // ── Customer outstanding lookup (Tally debtors report sheet) ──
 // Sheet has just [Party Name, Debit/Outstanding] rows — no credit limit column.
@@ -3226,12 +3242,12 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
     }
 
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const sheetsApi = await getCelestileSheetsClient();
 
     // Order No. and Order Id are sequential ("Ord-1435", "Order-3074") —
     // read both key columns once, take the current max of each.
     const keyCols = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: O2D_INTAKE_SHEET_ID, range: `'${O2D_INTAKE_TAB}'!Q2:R`, valueRenderOption: 'UNFORMATTED_VALUE'
+      spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!Q${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE'
     });
     const keyRows = keyCols.data.values || [];
     let maxOrderNo = 0, maxOrderId = 0;
@@ -3250,20 +3266,21 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       nowSerial, counterType || '', counterName, area || '', dateToSendSerial, whenToSend || '',
       channel || '', deliverByTransport || 'No', makePerformaInvoice || 'No', orderBy || '',
       paymentTerms || '', remark || '', p.productName, p.rate || '', p.qty,
-      p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`, '', '', 'No'
+      p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`
     ]);
 
     await sheetsApi.spreadsheets.values.append({
-      spreadsheetId: O2D_INTAKE_SHEET_ID,
-      range: `'${O2D_INTAKE_TAB}'!A:U`,
+      spreadsheetId: O2D_SHEET_ID,
+      range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: rows }
     });
 
+    _o2dCache = null; // new order is now visible immediately — no IMPORTRANGE lag to wait out
     res.json({ success: true, orderNo, orderIds: rows.map(r => r[17]) });
   } catch (err) {
-    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the intake sheet with the service account.' });
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
     res.status(500).json({ error: err.message });
   }
 });
@@ -3335,7 +3352,7 @@ app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
     const now = sfmsDateToSerial(new Date());
     const row = target.build({ orderId, orderNo: orderNo || '', counterName: counterName || '', qty: qty || '' }, req.body, now);
 
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const sheetsApi = await getCelestileSheetsClient();
     await sheetsApi.spreadsheets.values.append({
       spreadsheetId: O2D_SHEET_ID,
       range: `'${target.tab}'!${target.range}`,
