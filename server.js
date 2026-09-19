@@ -2899,22 +2899,18 @@ app.put('/api/o2d-fms/step-doers', requireAuth, requireAdmin, async (req, res) =
     });
     if (rows.length) await db.query('INSERT INTO o2d_step_doers (step_n, user_id) VALUES ?', [rows]);
     _o2dStepDoersCache = null;
-    _o2dCache = null; // orders embed doers — force a fresh merge on next read
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// The Master. tab is 2300+ rows wide (A:BM) — reading it straight from Sheets
-// takes ~10-15s, so cache the parsed result briefly. A completed step-write
-// (below) clears this so "Mark Done" is reflected immediately, not after TTL.
-let _o2dCache = null; // { orders, ts }
-const O2D_CACHE_TTL_MS = 60 * 1000;
-
+// No caching here — Vercel runs this across multiple serverless instances,
+// each with its own memory, so a TTL cache led to "Mark Done" writes not
+// showing up until some later request happened to land on an instance whose
+// cache had already expired. The sheet's small now (a handful of rows, not
+// the 2300+ it briefly held), so a fresh read on every request is fast
+// enough that the cache wasn't worth that inconsistency.
 async function getO2dOrders() {
   {
-    if (_o2dCache && (Date.now() - _o2dCache.ts) < O2D_CACHE_TTL_MS) {
-      return _o2dCache.orders;
-    }
     const stepDoersMap = await getO2dStepDoersMap();
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     let result;
@@ -2928,10 +2924,7 @@ async function getO2dOrders() {
         break;
       } catch (e) {
         const isRateLimit = e.code === 429 || (e.message || '').includes('Quota exceeded');
-        if (!isRateLimit || attempt >= 2) {
-          if (_o2dCache) return _o2dCache.orders; // serve stale rather than a hard failure
-          throw e;
-        }
+        if (!isRateLimit || attempt >= 2) throw e;
         await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
       }
     }
@@ -2978,7 +2971,6 @@ async function getO2dOrders() {
     }).filter(Boolean);
 
     orders.reverse(); // newest first
-    _o2dCache = { orders, ts: Date.now() };
     return orders;
   }
 }
@@ -3315,7 +3307,6 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       requestBody: { values: rows }
     });
 
-    _o2dCache = null; // new order is now visible immediately — no IMPORTRANGE lag to wait out
     res.json({ success: true, orderNo, orderIds: rows.map(r => r[17]) });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
@@ -3350,7 +3341,6 @@ app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
       requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
     });
 
-    _o2dCache = null; // next GET re-reads Master. — shows up immediately, no lag
     res.json({ success: true });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
