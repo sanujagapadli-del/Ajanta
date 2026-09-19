@@ -518,6 +518,21 @@ async function uploadPhotoToDrive(dataUri, filename) {
   return `https://drive.google.com/open?id=${fileId}`;
 }
 
+// Generic upload — any "photo" extra field (O2D's invoice photo, etc.) can
+// upload straight away and just carry the resulting link like any other
+// text field, instead of needing its own bespoke endpoint per feature.
+app.post('/api/upload-photo', requireAuth, async (req, res) => {
+  try {
+    const { image, filename } = req.body;
+    if (!image) return res.status(400).json({ error: 'image is required' });
+    const link = await uploadPhotoToDrive(image, filename || `upload-${Date.now()}.jpg`);
+    res.json({ success: true, url: link });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 function extractSpreadsheetId(raw) {
   const s = (raw || '').trim();
   const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);

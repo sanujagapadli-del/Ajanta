@@ -6421,7 +6421,7 @@ const O2D_STEP_DEFS = [
   { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', extraFields: [
       { key: 'billNo', label: 'Bill No' },
       { key: 'billAmount', label: 'Bill Amount', type: 'number' },
-      { key: 'photoLink', label: 'Photo Link' },
+      { key: 'photoLink', label: 'Invoice', type: 'photo' },
       { key: 'billDate', label: 'Bill Date', type: 'date' }
     ] },
   { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', extraFields: [
@@ -7159,7 +7159,29 @@ async function openO2dDetail(orderNo, hideProgress) {
 
 function renderO2dField(f, orderNo) {
   const id = `o2dExtra_${orderNo}_${f.key}`;
+  if (f.type === 'photo') {
+    return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}</div>
+      <input type="file" accept="image/*" id="${id}_file" onchange="onO2dPhotoSelected('${orderNo}','${f.key}',event)" style="${O2D_INPUT_STYLE}"/>
+      <input type="hidden" id="${id}"/>
+      <div id="${id}_status" style="font-size:11px;color:var(--gray-500);margin-top:-6px;margin-bottom:10px"></div>`;
+  }
   return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${O2D_INPUT_STYLE}"/>`;
+}
+async function onO2dPhotoSelected(orderNo, key, event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById(`o2dExtra_${orderNo}_${key}_status`);
+  statusEl.textContent = '⏳ Uploading...';
+  statusEl.style.color = 'var(--gray-500)';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const res = await api('/api/upload-photo', 'POST', { image: reader.result, filename: `${orderNo}-${key}-${Date.now()}.jpg` });
+    if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
+    document.getElementById(`o2dExtra_${orderNo}_${key}`).value = res.url;
+    statusEl.textContent = '✅ Uploaded';
+    statusEl.style.color = 'var(--color-success-text)';
+  };
+  reader.readAsDataURL(file);
 }
 function readO2dField(f, orderNo) {
   const el = document.getElementById(`o2dExtra_${orderNo}_${f.key}`);
