@@ -2980,7 +2980,7 @@ function renderDashTable(tasks, type) {
     if (t.type === 'fms') {
       actions = `<button class="action-btn done" onclick="openFmsQuickAction(${t.id})">Fill Details</button>`;
     } else if (t.type === 'o2d') {
-      actions = `<button class="action-btn done" onclick="openO2dQuickAction(${t.id})">Fill Details</button>`;
+      actions = `<button class="action-btn done" onclick="openO2dQuickAction(${t.id})">Done</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
       rowStyle = 'background:var(--color-warning-bg)';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">⏳ Awaiting Decision</span>`;
@@ -6850,12 +6850,11 @@ function addO2dProductRow() {
   const wrap = document.getElementById('noProductRows');
   const row = document.createElement('div');
   row.id = `noProductRow_${id}`;
-  row.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
+  row.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
   row.innerHTML = `
     <input type="text" placeholder="Product Name *" id="noProdName_${id}" style="min-width:0;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     <input type="number" placeholder="Rate" id="noProdRate_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     <input type="number" placeholder="Qty *" id="noProdQty_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-    <select id="noProdSample_${id}" style="min-width:0;padding:9px 4px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px;box-sizing:border-box;background:var(--surface)"><option>No</option><option>Yes</option></select>
     <button type="button" onclick="removeO2dProductRow(${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0;flex-shrink:0">✕</button>`;
   wrap.appendChild(row);
 }
@@ -6956,8 +6955,7 @@ async function submitNewO2dOrder() {
     if (!productName || !qty) { errEl.textContent = 'Every product needs a name and quantity'; errEl.style.display = 'block'; return; }
     products.push({
       productName, qty,
-      rate: document.getElementById(`noProdRate_${id}`).value.trim(),
-      isSample: document.getElementById(`noProdSample_${id}`).value
+      rate: document.getElementById(`noProdRate_${id}`).value.trim()
     });
   }
 
@@ -6976,9 +6974,18 @@ async function submitNewO2dOrder() {
     products
   };
 
+  const submitBtn = document.getElementById('noSubmitBtn');
+  const originalBtnText = submitBtn.textContent;
+  submitBtn.textContent = '⏳ Saving...';
+  submitBtn.disabled = true;
+
   const res = await api('/api/o2d-fms/new-order', 'POST', body);
+
+  submitBtn.textContent = originalBtnText;
+  submitBtn.disabled = false;
+
   if (res.error) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
-  showToast(`✅ Order ${res.orderNo} created! It may take a few minutes to appear in the FMS view (the sheet pulls it in on its own refresh cycle).`);
+  showToast(`✅ Order ${res.orderNo} created!`);
   closeModal('newO2dOrderModal');
 }
 
@@ -8201,11 +8208,19 @@ function openFMSDoneModal(rowIdx) {
   document.getElementById('fmsDoneDelaySection').style.display = 'none';
   document.getElementById('fmsDoneDelayReason').value = '';
 
-  // Show row data
+  // Show row data — only columns the admin picked for this step (show_cols).
+  // When nothing's configured beyond the mandatory plan column, this preview
+  // is redundant with the Plan Value box below, so skip it entirely.
   const colKeys = Object.keys(row.data);
-  document.getElementById('fmsDoneRowPreview').innerHTML = colKeys.map(k =>
-    `<div style="display:flex;gap:8px;margin-bottom:4px"><span style="font-size:11px;font-weight:600;color:var(--gray-500);min-width:120px;flex-shrink:0">${k}</span><span style="color:var(--gray-800)">${row.data[k]||'—'}</span></div>`
-  ).join('');
+  const rowPreviewEl = document.getElementById('fmsDoneRowPreview');
+  if (colKeys.length <= 1) {
+    rowPreviewEl.style.display = 'none';
+  } else {
+    rowPreviewEl.style.display = 'block';
+    rowPreviewEl.innerHTML = colKeys.map(k =>
+      `<div style="display:flex;gap:8px;margin-bottom:4px"><span style="font-size:11px;font-weight:600;color:var(--gray-500);min-width:120px;flex-shrink:0">${k}</span><span style="color:var(--gray-800)">${row.data[k]||'—'}</span></div>`
+    ).join('');
+  }
 
   // Set plan display
   document.getElementById('fmsDonePlanDisplay').textContent = row.planValue || '—';

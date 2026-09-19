@@ -2203,7 +2203,9 @@ app.get('/api/fms-tasks/:fmsId/steps/:stepId/rows', requireAuth, async (req, res
       const actualVal = actualIdx >= 0 ? (row[actualIdx]||'').trim() : '';
       if (planVal && !actualVal) {
         const rowData = {};
-        let colsToShow = showCols.length ? showCols : headers.map((_,hi) => hi);
+        // Only show columns the admin explicitly picked for this step — no
+        // longer falls back to dumping every sheet column when unconfigured.
+        let colsToShow = showCols.length ? showCols : [];
         // Always show the plan column — mandatory
         if (planIdx >= 0 && !colsToShow.includes(planIdx)) colsToShow = [planIdx, ...colsToShow];
         colsToShow.forEach(ci => {
@@ -3096,7 +3098,7 @@ function computeDealerRating(payments) {
 app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
     const [debtorsMap, dealerRows, paymentRows, orders] = await Promise.all([
-      getDebtorsMap(),
+      getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
       withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
       withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
       getO2dOrders().catch(() => []) // dealer directory shouldn't 500 just because the orders sheet hiccups
