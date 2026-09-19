@@ -31,7 +31,7 @@ const BLOB_DIR = path.join(__dirname, 'data', 'blobs');
 
 const SCHEMA = {
   users: {
-    cols: ['id','name','email','notification_email','password','role','phone','profile_image','department','week_off','extra_off','is_active'],
+    cols: ['id','name','email','notification_email','password','role','phone','profile_image','department','week_off','extra_off','is_active','page_access'],
     autoFill: { is_active: 1 }
   },
   delegation_tasks: {

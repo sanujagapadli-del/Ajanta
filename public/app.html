@@ -408,6 +408,17 @@ tbody tr:last-child td{border-bottom:none;}
 .role-badge.hod{background:var(--color-purple-bg);color:var(--color-purple-text);}
 .role-badge.user{background:var(--color-success-bg);color:var(--color-success-text);}
 
+.access-tag{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;background:var(--gray-100);color:var(--gray-500);}
+.access-table{width:100%;border-collapse:collapse;min-width:1000px;}
+.access-table th,.access-table td{padding:9px 12px;text-align:center;border-bottom:1px solid var(--gray-100);white-space:nowrap;}
+.access-table thead tr.access-group-row th{padding:6px 12px 2px;border-bottom:none;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--gray-400);}
+.access-table thead tr.access-page-row th{font-size:10.5px;font-weight:700;letter-spacing:.2px;text-transform:uppercase;color:var(--gray-500);border-bottom:1.5px solid var(--gray-200);}
+.access-table td.access-user-cell,.access-table th.access-user-th{text-align:left;position:sticky;left:0;background:var(--surface);z-index:1;}
+.access-table td.access-user-cell{font-weight:600;color:var(--gray-900);}
+.access-table td.access-user-cell .access-email{display:block;font-weight:400;font-size:11.5px;color:var(--gray-500);}
+.access-check{width:16px;height:16px;accent-color:var(--color-primary);cursor:pointer;}
+.access-check-lock{color:var(--color-success);font-size:15px;font-weight:700;}
+
 .priority-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.3px;}
 .priority-badge.low{background:var(--color-success-bg);color:var(--color-success-text);}
 .priority-badge.medium{background:var(--color-primary-light);color:var(--color-primary);}
@@ -925,21 +936,57 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── USERS ── -->
   <div id="page-users" class="page">
     <div class="page-header">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="position:relative">
-          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)">🔍</span>
-          <input type="text" id="userSearch" placeholder="Search by name, email, dept, role…" oninput="filterUsers()"
-            style="padding:8px 12px 8px 32px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:260px;background:var(--surface-alt);color:var(--gray-900)"/>
-        </div>
-        <button class="btn btn-primary" onclick="openAddUser()">+ Add User</button>
+      <div class="tab-group" id="usersPageTabGroup">
+        <div class="tab active" id="usersTabList" onclick="switchUsersPageTab('list',this)">Users</div>
+        <div class="tab" id="usersTabAccess" onclick="switchUsersPageTab('access',this)">Access</div>
       </div>
     </div>
-    <div class="users-grid">
-      <div style="overflow-x:auto">
-      <table style="min-width:780px">
-        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Department</th><th>Role</th><th>Status</th><th style="white-space:nowrap">Action</th></tr></thead>
-        <tbody id="usersTbody"></tbody>
-      </table>
+
+    <!-- Users list -->
+    <div id="usersListPane">
+      <div class="page-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="position:relative">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)">🔍</span>
+            <input type="text" id="userSearch" placeholder="Search by name, email, dept, role…" oninput="filterUsers()"
+              style="padding:8px 12px 8px 32px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:260px;background:var(--surface-alt);color:var(--gray-900)"/>
+          </div>
+          <button class="btn btn-primary" onclick="openAddUser()">+ Add User</button>
+        </div>
+      </div>
+      <div class="users-grid">
+        <div style="overflow-x:auto">
+        <table style="min-width:780px">
+          <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Department</th><th>Role</th><th>Status</th><th style="white-space:nowrap">Action</th></tr></thead>
+          <tbody id="usersTbody"></tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Page access matrix -->
+    <div id="accessPane" style="display:none">
+      <div class="page-header">
+        <div>
+          <div style="font-weight:700;font-size:14px;color:var(--gray-900)">Page Access</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">Tick the pages each user can open. Admins always have full access.</div>
+        </div>
+        <div style="position:relative">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)">🔍</span>
+          <input type="text" id="accessSearch" placeholder="Search user…" oninput="filterAccessUsers()"
+            style="padding:8px 12px 8px 32px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:220px;background:var(--surface-alt);color:var(--gray-900)"/>
+        </div>
+      </div>
+      <div class="users-grid">
+        <div style="overflow-x:auto">
+        <table class="access-table" id="accessTable">
+          <thead>
+            <tr class="access-group-row"><th class="access-user-th"></th></tr>
+            <tr class="access-page-row"><th class="access-user-th">User</th></tr>
+          </thead>
+          <tbody id="accessTbody"></tbody>
+        </table>
+        </div>
       </div>
     </div>
   </div>
@@ -2554,14 +2601,17 @@ async function init() {
     setAvatarDisplay(ME.profile_image, initials);
 
     // MIS Report: admin, hod, and regular users all see it
-    document.getElementById('nav-mis').style.display = 'flex';
+    // Per-user page access (Users → Access tab). Admins always see everything.
+    MY_PAGES = new Set(ME.role === 'admin' ? [] : (Array.isArray(ME.page_access) ? ME.page_access : ['mis']));
+    const canSee = page => ME.role === 'admin' || MY_PAGES.has(page);
 
+    if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
+    if (canSee('users')) document.getElementById('nav-users').style.display = 'flex';
+    if (canSee('service-fms')) document.getElementById('nav-service-fms').style.display = 'flex';
+    if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
+    if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
+    if (canSee('service-fms') || canSee('o2d-fms')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
-      document.getElementById('nav-users').style.display = 'flex';
-      document.getElementById('nav-service-fms').style.display = 'flex';
-      document.getElementById('nav-o2d-fms').style.display = 'flex';
-      document.getElementById('nav-records').style.display = 'flex';
-      document.getElementById('nav-section-fms').style.display = 'block';
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
     }
@@ -2573,7 +2623,8 @@ async function init() {
     // Refresh pe last visited page restore karo
     const savedPage = localStorage.getItem('lastPage');
     const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
-    if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl) {
+    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms'].includes(savedPage) && !MY_PAGES.has(savedPage);
+    if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
       loadDashboard();
@@ -2670,6 +2721,10 @@ function closeMobileSidebar() {
 }
 
 function navigate(page, el) {
+  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms'].includes(page) && !MY_PAGES.has(page)) {
+    showToast("You don't have access to this page", 'error');
+    return;
+  }
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -2694,15 +2749,13 @@ function navigate(page, el) {
 }
 function setupBottomNav() {
   const isAdmin = ME && ME.role === 'admin';
-  const isHod = ME && ME.role === 'hod';
+  const canSee = page => isAdmin || MY_PAGES.has(page);
   const bnFms = document.getElementById('bnFms');
   const bnO2d = document.getElementById('bnO2d');
   const bnUsers = document.getElementById('bnUsers');
-  if (isAdmin || isHod) {
-    if (bnFms) bnFms.style.display = '';
-    if (bnO2d) bnO2d.style.display = '';
-    if (bnUsers) bnUsers.style.display = '';
-  }
+  if (bnFms && canSee('service-fms')) bnFms.style.display = '';
+  if (bnO2d && canSee('o2d-fms')) bnO2d.style.display = '';
+  if (bnUsers && canSee('users')) bnUsers.style.display = '';
 }
 
 // ══════════════════════════════════════════════════════
@@ -3918,6 +3971,7 @@ async function uploadCSVC() {
 // USERS
 // ══════════════════════════════════════════════════════
 let allUsersData = [];
+let MY_PAGES = new Set(); // pages the logged-in user may open (restrictable pages only); see init()
 
 async function loadUsers() {
   const res = await api('/api/users');
@@ -3973,6 +4027,106 @@ function renderUsersTable(users) {
       </td>
     </tr>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// USERS PAGE — Users / Access tabs
+// ══════════════════════════════════════════════════════
+function switchUsersPageTab(tab, el) {
+  document.querySelectorAll('#usersPageTabGroup .tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('usersListPane').style.display = tab === 'list' ? '' : 'none';
+  document.getElementById('accessPane').style.display = tab === 'access' ? '' : 'none';
+  if (tab === 'access') loadAccessTab();
+}
+
+// Locked pages are always on for every user (no per-user storage needed).
+// Restrictable pages mirror RESTRICTABLE_PAGES in server.js.
+const PAGE_ACCESS_GROUPS = [
+  { label: 'Basic', locked: true, pages: [
+    { key: 'dashboard', label: 'Dashboard' },
+    { key: 'alltasks', label: 'All Tasks' },
+    { key: 'approvals', label: 'Approvals' },
+    { key: 'profile', label: 'Profile' },
+  ]},
+  { label: 'Reports & Admin', locked: false, pages: [
+    { key: 'mis', label: 'MIS Report' },
+    { key: 'users', label: 'Users' },
+    { key: 'records', label: 'Records' },
+  ]},
+  { label: 'FMS', locked: false, pages: [
+    { key: 'service-fms', label: 'Service FMS' },
+    { key: 'o2d-fms', label: 'O2D FMS' },
+  ]},
+];
+
+function _renderAccessTableHeader() {
+  const groupRow = document.querySelector('#accessTable .access-group-row');
+  const pageRow = document.querySelector('#accessTable .access-page-row');
+  groupRow.innerHTML = '<th class="access-user-th"></th>' + PAGE_ACCESS_GROUPS.map(g =>
+    `<th colspan="${g.pages.length}">${g.label}</th>`).join('');
+  pageRow.innerHTML = '<th class="access-user-th">User</th>' + PAGE_ACCESS_GROUPS.map(g =>
+    g.pages.map(p => `<th>${p.label}</th>`).join('')).join('');
+}
+
+let allAccessUsersData = [];
+
+async function loadAccessTab() {
+  _renderAccessTableHeader();
+  if (!allUsersData.length) await loadUsers();
+  allAccessUsersData = allUsersData;
+  renderAccessTable(allAccessUsersData);
+}
+
+function filterAccessUsers() {
+  const q = (document.getElementById('accessSearch')?.value||'').toLowerCase().trim();
+  if (!q) { renderAccessTable(allAccessUsersData); return; }
+  renderAccessTable(allAccessUsersData.filter(u =>
+    (u.name||'').toLowerCase().includes(q) || (u.email||'').toLowerCase().includes(q)
+  ));
+}
+
+function renderAccessTable(users) {
+  const tbody = document.getElementById('accessTbody');
+  const totalCols = 1 + PAGE_ACCESS_GROUPS.reduce((n,g)=>n+g.pages.length,0);
+  if (!users.length) {
+    tbody.innerHTML = `<tr><td colspan="${totalCols}" style="text-align:center;padding:24px;color:var(--gray-400)">No users found</td></tr>`;
+    return;
+  }
+  const roleLabel = r => r==='admin'?'👑 Admin':r==='hod'?'🏢 HOD':r==='pc'?'🖥️ PC':'👤 User';
+  tbody.innerHTML = users.map(u => {
+    const isAdmin = u.role === 'admin';
+    const granted = new Set(isAdmin ? [] : (u.page_access||[]));
+    const cells = PAGE_ACCESS_GROUPS.map(g => g.pages.map(p => {
+      if (isAdmin || g.locked) return `<td><span class="access-check-lock">✓</span></td>`;
+      const checked = granted.has(p.key);
+      return `<td><input type="checkbox" class="access-check" ${checked?'checked':''} onchange="toggleAccess(${u.id},'${p.key}',this.checked,this)"/></td>`;
+    }).join('')).join('');
+    return `<tr>
+      <td class="access-user-cell">
+        ${u.name}<span class="access-email">${u.email}</span>
+        <span class="role-badge ${u.role}" style="margin-left:6px">${roleLabel(u.role)}</span>
+        ${isAdmin ? `<span class="access-tag" style="margin-left:4px">default (all)</span>` : ''}
+      </td>
+      ${cells}
+    </tr>`;
+  }).join('');
+}
+
+async function toggleAccess(userId, pageKey, checked, cbEl) {
+  const user = allUsersData.find(u => u.id === userId);
+  if (!user) return;
+  const before = new Set(user.page_access||[]);
+  // Optimistic update — flip immediately, revert only if the save fails
+  const after = new Set(before);
+  if (checked) after.add(pageKey); else after.delete(pageKey);
+  user.page_access = [...after];
+  const r = await api(`/api/users/${userId}/access`, 'PUT', { pages: user.page_access });
+  if (r.error) {
+    user.page_access = [...before];
+    if (cbEl) cbEl.checked = !checked;
+    showToast(r.error || 'Failed to update access', 'error');
+  }
 }
 
 function _setWeekOff(s) {

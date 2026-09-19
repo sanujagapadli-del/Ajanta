@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
   department VARCHAR(100),
   week_off VARCHAR(50),
   extra_off VARCHAR(50),
-  is_active TINYINT DEFAULT 1
+  is_active TINYINT DEFAULT 1,
+  page_access TEXT DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS delegation_tasks (

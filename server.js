@@ -112,6 +112,11 @@ const _dbReady = db.init()
         }
       }
     } catch(e) { console.warn('  ⚠️ is_active migration skipped:', e.message); }
+    // Migration: add page_access column (per-user page permissions, added after initial deploy)
+    if (_usingMysql) {
+      try { await db.query('ALTER TABLE users ADD COLUMN page_access TEXT DEFAULT NULL'); }
+      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ page_access migration skipped:', e.message); }
+    }
   })
   .catch(err => {
     console.error('  ❌ Sheets DB init failed:', err.message);
@@ -400,6 +405,19 @@ function requireAdminOrHod(req, res, next) {
 function requireAdminOrPC(req, res, next) {
   if (req.session.role === 'admin' || req.session.role === 'pc') return next();
   res.status(403).json({ error: 'Admin or PC only' });
+}
+
+// Per-user page access — only these pages are ever restrictable; everything
+// else (dashboard, all tasks, approvals, profile) stays open to everyone.
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms'];
+const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
+function parsePageAccess(raw, role) {
+  if (role === 'admin') return RESTRICTABLE_PAGES.slice();
+  if (!raw) return DEFAULT_USER_PAGES.slice();
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(p => RESTRICTABLE_PAGES.includes(p)) : DEFAULT_USER_PAGES.slice();
+  } catch(e) { return DEFAULT_USER_PAGES.slice(); }
 }
 function getTable(type) {
   return type === 'delegation' ? 'delegation_tasks' : 'checklist_tasks';
@@ -740,6 +758,13 @@ app.get('/api/me', requireAuth, async (req, res) => {
       const [ex] = await db.query('SELECT extra_off FROM users WHERE id=?', [req.session.userId]);
       rows[0].extra_off = ex[0]?.extra_off || '';
     } catch(e) { rows[0].extra_off = ''; }
+    // page_access fetch separately — safe if column not yet added
+    let rawAccess = null;
+    try {
+      const [pa] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
+      rawAccess = pa[0]?.page_access;
+    } catch(e) {}
+    rows[0].page_access = parsePageAccess(rawAccess, rows[0].role);
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1802,8 +1827,32 @@ app.get('/api/users/with-pending-tasks', requireAuth, async (req, res) => {
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
     const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,is_active FROM users ORDER BY role DESC,name ASC');
+    // page_access fetch separately — safe if column not yet added
+    let accessById = {};
+    try {
+      const [pa] = await db.query('SELECT id, page_access FROM users');
+      accessById = Object.fromEntries(pa.map(r => [r.id, r.page_access]));
+    } catch(e) {}
     // Treat null/empty string as active (1) — existing users before is_active column had '' in sheet
-    res.json(rows.map(r => ({ ...r, is_active: (r.is_active === '' || r.is_active === null || r.is_active === undefined) ? 1 : +r.is_active })));
+    res.json(rows.map(r => ({
+      ...r,
+      is_active: (r.is_active === '' || r.is_active === null || r.is_active === undefined) ? 1 : +r.is_active,
+      page_access: parsePageAccess(accessById[r.id], r.role)
+    })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Update a user's per-page access (admin only; admins always keep full access)
+app.put('/api/users/:id/access', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { pages } = req.body;
+    if (!Array.isArray(pages)) return res.status(400).json({ error: 'pages must be an array' });
+    const [rows] = await db.query('SELECT role FROM users WHERE id=?', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    if (rows[0].role === 'admin') return res.status(400).json({ error: 'Admins always have full access' });
+    const cleaned = pages.filter(p => RESTRICTABLE_PAGES.includes(p));
+    await db.query('UPDATE users SET page_access=? WHERE id=?', [JSON.stringify(cleaned), req.params.id]);
+    res.json({ success: true, page_access: cleaned });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
