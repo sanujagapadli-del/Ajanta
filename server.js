@@ -411,10 +411,14 @@ function getTable(type) {
 let _sheetsReadClient = null;
 let _sheetsWriteClient = null;
 
-async function getSheetsClient(scopes) {
-  const { google } = require('googleapis');
+// All app sheets (O2D, SFMS, Debtors, generic FMS) are shared with this one
+// service account (celestile-fms) — falls back to the older env vars/local
+// credentials.json only if that's not set, so local dev without it still works.
+function loadGoogleCreds() {
   let creds;
-  if (process.env.GOOGLE_CREDENTIALS_B64) {
+  if (process.env.GOOGLE_CREDENTIALS_CELESTILE_B64) {
+    creds = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_CELESTILE_B64.replace(/[^A-Za-z0-9+/=]/g, ''), 'base64').toString('utf8'));
+  } else if (process.env.GOOGLE_CREDENTIALS_B64) {
     creds = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_B64.replace(/[^A-Za-z0-9+/=]/g, ''), 'base64').toString('utf8'));
   } else if (process.env.GOOGLE_CREDENTIALS) {
     creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
@@ -424,6 +428,12 @@ async function getSheetsClient(scopes) {
   if (creds && creds.private_key) {
     creds.private_key = creds.private_key.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
   }
+  return creds;
+}
+
+async function getSheetsClient(scopes) {
+  const { google } = require('googleapis');
+  const creds = loadGoogleCreds();
   const isWrite = scopes.some(s => !s.includes('readonly'));
   if (isWrite) {
     if (_sheetsWriteClient) return _sheetsWriteClient;
@@ -436,21 +446,6 @@ async function getSheetsClient(scopes) {
     _sheetsReadClient = google.sheets({ version: 'v4', auth: await auth.getClient() });
     return _sheetsReadClient;
   }
-}
-
-// Separate credentials for the O2D intake sheet only — that sheet is owned/
-// shared under a different Google identity (celestile-fms) than the rest of
-// the app's sheets, so it gets its own cached client instead of overwriting
-// GOOGLE_CREDENTIALS_B64 (which would break every other sheet using it).
-let _celestileSheetsClient = null;
-async function getCelestileSheetsClient() {
-  if (_celestileSheetsClient) return _celestileSheetsClient;
-  const { google } = require('googleapis');
-  const creds = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_CELESTILE_B64.replace(/[^A-Za-z0-9+/=]/g, ''), 'base64').toString('utf8'));
-  if (creds.private_key) creds.private_key = creds.private_key.replace(/\\n/g, '\n');
-  const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
-  _celestileSheetsClient = google.sheets({ version: 'v4', auth: await auth.getClient() });
-  return _celestileSheetsClient;
 }
 
 // Pre-warm Google auth on startup (reduces cold start time)
@@ -471,17 +466,7 @@ let _driveClient = null;
 async function getDriveClient() {
   if (_driveClient) return _driveClient;
   const { google } = require('googleapis');
-  let creds;
-  if (process.env.GOOGLE_CREDENTIALS_B64) {
-    creds = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_B64.replace(/[^A-Za-z0-9+/=]/g, ''), 'base64').toString('utf8'));
-  } else if (process.env.GOOGLE_CREDENTIALS) {
-    creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-  } else {
-    creds = require('./credentials.json');
-  }
-  if (creds && creds.private_key) {
-    creds.private_key = creds.private_key.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
-  }
+  const creds = loadGoogleCreds();
   const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/drive'] });
   _driveClient = google.drive({ version: 'v3', auth: await auth.getClient() });
   return _driveClient;
@@ -2787,8 +2772,7 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
 // Master. used to be a QUERY(IMPORTRANGE(...)) pulling live from a separate
 // intake spreadsheet; that formula has been flattened to static values so
 // this sheet is now self-contained (New Order appends straight into it, no
-// other spreadsheet involved). Only accessible via the celestile-fms
-// service account (getCelestileSheetsClient), not the app's default one.
+// other spreadsheet involved).
 const O2D_SHEET_ID = '1UWGXIuB4Igl4siTzbSP9RmtV5EcnubkW2-MJtMu4lbY';
 const O2D_TAB = 'Master.';
 const O2D_HEADER_ROW = 6;
@@ -2883,7 +2867,7 @@ async function getO2dOrders() {
       return _o2dCache.orders;
     }
     const stepDoersMap = await getO2dStepDoersMap();
-    const sheetsApi = await getCelestileSheetsClient();
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     let result;
     for (let attempt = 0; ; attempt++) {
       try {
@@ -3244,7 +3228,7 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
     }
 
-    const sheetsApi = await getCelestileSheetsClient();
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
 
     // Order No. and Order Id are sequential ("Ord-1435", "Order-3074") —
     // read both key columns once, take the current max of each.
@@ -3308,7 +3292,7 @@ app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
       if (val !== undefined && val !== '') batchData.push({ range: `'${O2D_TAB}'!${f.col}${rowNum}`, values: [[val]] });
     });
 
-    const sheetsApi = await getCelestileSheetsClient();
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     await sheetsApi.spreadsheets.values.batchUpdate({
       spreadsheetId: O2D_SHEET_ID,
       requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
