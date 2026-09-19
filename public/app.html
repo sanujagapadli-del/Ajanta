@@ -2849,9 +2849,9 @@ async function loadDashboard() {
       if (o2dDoerFilterId && !(pendingStep.doers || []).some(d => d.id === o2dDoerFilterId)) return;
       const overdue = o2dIsOverdue(pendingStep.planned);
       const description = `
-        <div style="font-weight:700;color:var(--gray-800);font-size:13px">${o.counterName || '—'}</div>
-        <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.productName || '—'}${o.qty ? ' × ' + o.qty : ''}</div>
-        ${fmsFieldRow('PENDING STEP', `${pendingStep.n}. ${pendingStep.label}`)}
+        <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${pendingStep.label}</div>
+        <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.counterName || '—'}</div>
+        <div style="font-size:12px;color:var(--gray-600)">${o.productName || '—'}${o.qty ? ' × ' + o.qty : ''}</div>
         ${fmsFieldRow('PLANNED', `${pendingStep.planned || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
       `;
       allTodayPending.push({
@@ -5985,7 +5985,7 @@ function openFmsQuickAction(row) {
 // fetched for its own table instead of hitting the API again.
 function openO2dQuickAction(row) {
   o2dData = window._lastO2dData || [];
-  openO2dDetail(row);
+  openO2dDetail(row, true);
 }
 
 const SFMS_INPUT_STYLE = "width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
@@ -6989,12 +6989,12 @@ async function submitNewO2dOrder() {
   closeModal('newO2dOrderModal');
 }
 
-async function openO2dDetail(row) {
+async function openO2dDetail(row, hideProgress) {
   const o = o2dData.find(x => x.row === row);
   if (!o) { showToast('Order not found — please refresh', 'error'); return; }
   document.getElementById('o2dTitle').textContent = `${o.orderId} — ${o.productName || ''}`;
   document.getElementById('o2dDetailModal').classList.add('open');
-  renderO2dDetailBody(o);
+  renderO2dDetailBody(o, hideProgress);
 }
 
 function renderO2dField(f, row) {
@@ -7027,7 +7027,7 @@ async function advanceO2dStep(row, step) {
   await loadO2dFmsList();
 }
 
-function renderO2dDetailBody(o) {
+function renderO2dDetailBody(o, hideProgress) {
   const body = document.getElementById('o2dBody');
 
   const infoHtml = `
@@ -7119,7 +7119,7 @@ function renderO2dDetailBody(o) {
       </div>
     </details>`;
 
-  body.innerHTML = infoHtml + actionHtml + checklistHtml;
+  body.innerHTML = infoHtml + actionHtml + (hideProgress ? '' : checklistHtml);
 }
 
 // ══════════════════════════════════════════════════════

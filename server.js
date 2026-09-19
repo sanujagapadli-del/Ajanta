@@ -3287,83 +3287,34 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   }
 });
 
-// "Master." never gets written to directly — every one of its Actual/Status
-// cells is an ARRAYFORMULA doing a VLOOKUP into a different source tab (the
-// same tab each step's own Google Form response lands in). So "marking a
-// step done" means appending a row to THAT tab, in the same shape a real
-// form submission would — Master. then picks it up on its own via the
-// VLOOKUP the next time it's read. Confirmed empirically by reading real
-// historical rows from each of these tabs, not just the formula text.
-const O2D_STEP_WRITE_TARGETS = {
-  // Step1's real form range is F:I (Ord-#### four-digit numbering matches
-  // current orders) — A:D is an older/legacy block Master.'s own formula
-  // doesn't even read (it points at F1:I), so nothing is written there.
-  1: {
-    tab: 'Step1', range: 'F:I',
-    build: (o, b, now) => [o.orderNo, now, b.status || 'Yes', b.reason || '']
-  },
-  2: {
-    tab: 'FMS Updation', range: 'G:L',
-    build: (o, b, now) => [`${o.orderId}Step-2`, now, o.orderId, 'Step-2', b.status || 'Yes', o.orderNo]
-  },
-  // Steps 3/7/8 all share the same "FMS Updation" A:F block, distinguished
-  // by the Step column — Master.'s VLOOKUP keys on OrderId+StepTag.
-  3: {
-    tab: 'FMS Updation', range: 'A:F',
-    build: (o, b, now) => [`${o.orderId}Step-3`, now, o.orderId, 'Step-3', b.status || 'Yes', o.orderNo]
-  },
-  4: {
-    tab: 'Step4Response', range: 'A:J',
-    build: (o, b, now) => [now, o.counterName, o.orderNo, o.orderId, b.billNo || '', b.billAmount || '', b.status || 'Yes', b.photoLink || '', o.qty || '', b.billDate || '']
-  },
-  5: {
-    tab: 'Takeout and loading5', range: 'A:H',
-    build: (o, b, now) => [`${o.orderId}Step-5`, now, o.orderId, 'Step-5', b.doerName || '', b.status || 'Yes', b.photo || '', o.orderNo]
-  },
-  // Steps 6 and 9 key on the plain Order Id directly — no concatenation.
-  6: {
-    tab: '6', range: 'A:E',
-    build: (o, b, now) => [o.orderId, now, b.doerName || '', b.status || 'Yes', o.orderNo]
-  },
-  7: {
-    tab: 'FMS Updation', range: 'A:F',
-    build: (o, b, now) => [`${o.orderId}Step-7`, now, o.orderId, 'Step-7', b.status || 'Yes', o.orderNo]
-  },
-  8: {
-    tab: 'FMS Updation', range: 'A:F',
-    build: (o, b, now) => [`${o.orderId}Step-8`, now, o.orderId, 'Step-8', b.status || 'Yes', o.orderNo]
-  },
-  9: {
-    tab: 'Loading13', range: 'A:F',
-    build: (o, b, now) => [o.orderId, now, b.doerName || '', b.status || 'Yes', b.deliveryBy || '', b.billDate || '']
-  }
-};
-
 app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
   try {
     const stepNum = parseInt(req.params.stepNum, 10);
-    const target = O2D_STEP_WRITE_TARGETS[stepNum];
-    if (!target) return res.status(400).json({ error: 'Invalid step number' });
-
-    // Order context comes from the client (already holds the row from its
-    // last /api/o2d-fms load) rather than re-reading Master. here — avoids
-    // an extra Sheets read per "Mark Done" click.
-    const { orderId, orderNo, counterName, qty } = req.body;
-    if (!orderId) return res.status(400).json({ error: 'orderId is required' });
+    const rowNum = parseInt(req.params.row, 10);
+    const stepDef = O2D_STEPS.find(s => s.n === stepNum);
+    if (!stepDef || !rowNum) return res.status(400).json({ error: 'Invalid step number or row' });
 
     const now = sfmsDateToSerial(new Date());
-    const row = target.build({ orderId, orderNo: orderNo || '', counterName: counterName || '', qty: qty || '' }, req.body, now);
+    const status = req.body.status || 'Yes';
 
-    const sheetsApi = await getCelestileSheetsClient();
-    await sheetsApi.spreadsheets.values.append({
-      spreadsheetId: O2D_SHEET_ID,
-      range: `'${target.tab}'!${target.range}`,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [row] }
+    // Writes straight into Master.'s own Actual/Status/extra columns for
+    // this order's row — no side tab, no VLOOKUP to wait on.
+    const batchData = [
+      { range: `'${O2D_TAB}'!${stepDef.actual}${rowNum}`, values: [[now]] },
+      { range: `'${O2D_TAB}'!${stepDef.status}${rowNum}`, values: [[status]] }
+    ];
+    stepDef.extra.forEach(f => {
+      const val = req.body[f.key];
+      if (val !== undefined && val !== '') batchData.push({ range: `'${O2D_TAB}'!${f.col}${rowNum}`, values: [[val]] });
     });
 
-    _o2dCache = null; // next GET re-reads Master. so this shows up once IMPORTRANGE/VLOOKUP catch up
+    const sheetsApi = await getCelestileSheetsClient();
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: O2D_SHEET_ID,
+      requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
+    });
+
+    _o2dCache = null; // next GET re-reads Master. — shows up immediately, no lag
     res.json({ success: true });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
