@@ -7392,8 +7392,6 @@ function renderO2dDetailBody(o, hideProgress) {
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${o.counterName || '—'}${o.area ? ' · ' + o.area : ''}</div>
-      <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})${nextStepN <= 9 ? ` — status for step ${nextStepN}. ${(O2D_STEP_DEFS.find(d=>d.n===nextStepN)||{}).label||''}` : ' — all steps complete'}</div>
-      <div style="margin-bottom:14px">${productsListHtml || '—'}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Order By</div>
@@ -7424,7 +7422,9 @@ function renderO2dDetailBody(o, hideProgress) {
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole order</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
-        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)} · TAT: ${nextStepDef.tat || '—'} · pick Available/Not Available per item above</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)} · TAT: ${nextStepDef.tat || '—'}</div>
+        <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length}) — pick Available/Not Available per item</div>
+        <div style="margin-bottom:14px;background:var(--surface);border-radius:10px;padding:2px 10px">${productsListHtml || '—'}</div>
         ${extraInputsHtml}
         <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${o.orderNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
         ${nextStepDef.allowAddOrder ? `
