@@ -2885,15 +2885,16 @@ async function loadDashboard() {
       const pendingStep = o.steps[o.currentStep];
       if (o2dDoerFilterId && !(pendingStep.doers || []).some(d => d.id === o2dDoerFilterId)) return;
       const overdue = o2dIsOverdue(pendingStep.planned);
+      const productsText = (o.products || []).map(p => `${p.productName}${p.qty ? ' × ' + p.qty : ''}`).join(', ');
       const description = `
         <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${pendingStep.label}</div>
         <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.counterName || '—'}</div>
-        <div style="font-size:12px;color:var(--gray-600)">${o.productName || '—'}${o.qty ? ' × ' + o.qty : ''}</div>
+        <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
         ${fmsFieldRow('PLANNED', `${pendingStep.planned || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
       `;
       allTodayPending.push({
-        id: o.row, type: 'o2d', status: 'pending',
-        title: o.orderId,
+        id: o.orderNo, type: 'o2d', status: 'pending',
+        title: o.orderNo,
         description,
         assignedToName: stepDoerLabel(pendingStep),
         assignedByName: stepDoerLabel(pendingStep),
@@ -3033,7 +3034,7 @@ function renderDashTable(tasks, type) {
     if (t.type === 'fms') {
       actions = `<button class="action-btn done" onclick="openFmsQuickAction(${t.id})">Fill Details</button>`;
     } else if (t.type === 'o2d') {
-      actions = `<button class="action-btn done" onclick="openO2dQuickAction(${t.id})">Done</button>`;
+      actions = `<button class="action-btn done" onclick="openO2dQuickAction('${t.id}')">Done</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
       rowStyle = 'background:var(--color-warning-bg)';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">⏳ Awaiting Decision</span>`;
@@ -6137,9 +6138,9 @@ function openFmsQuickAction(row) {
 
 // Same pattern for O2D FMS — reuses whichever data the Dashboard already
 // fetched for its own table instead of hitting the API again.
-function openO2dQuickAction(row) {
+function openO2dQuickAction(orderNo) {
   o2dData = window._lastO2dData || [];
-  openO2dDetail(row, true);
+  openO2dDetail(orderNo, true);
 }
 
 const SFMS_INPUT_STYLE = "width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
@@ -6489,10 +6490,9 @@ function o2dFilteredRows() {
   const q = (document.getElementById('o2dSearch').value || '').trim().toLowerCase();
   if (!q) return o2dData;
   return o2dData.filter(o =>
-    (o.orderId || '').toLowerCase().includes(q) ||
     (o.orderNo || '').toLowerCase().includes(q) ||
     (o.counterName || '').toLowerCase().includes(q) ||
-    (o.productName || '').toLowerCase().includes(q)
+    (o.products || []).some(p => (p.orderId || '').toLowerCase().includes(q) || (p.productName || '').toLowerCase().includes(q))
   );
 }
 
@@ -6526,16 +6526,15 @@ function renderO2dFmsView() {
   const stepHeadSub = O2D_STEP_DEFS.map(() => `<th style="border-left:2px solid var(--gray-200)">Planned</th><th>Actual</th><th>Status</th>`).join('');
   wrap.innerHTML = subTabsHtml + `<table style="font-size:12px;white-space:nowrap">
     <thead>
-      <tr><th rowspan="2">Order No</th><th rowspan="2">Order Id</th><th rowspan="2">Counter Name</th><th rowspan="2">Product</th><th rowspan="2">Qty</th>${stepHeadTop}<th colspan="2" style="text-align:center;border-left:2px solid var(--gray-200)">Bill</th></tr>
+      <tr><th rowspan="2">Order No</th><th rowspan="2">Counter Name</th><th rowspan="2">Items</th><th rowspan="2">Qty</th>${stepHeadTop}<th colspan="2" style="text-align:center;border-left:2px solid var(--gray-200)">Bill</th></tr>
       <tr>${stepHeadSub}<th style="border-left:2px solid var(--gray-200)">Bill No</th><th>Amount</th></tr>
     </thead>
     <tbody>
       ${pageRows.map(o => `
-        <tr onclick="openO2dDetail(${o.row})" style="cursor:pointer">
-          <td>${o.orderNo || '—'}</td>
-          <td style="font-weight:600">${o.orderId}</td>
+        <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer">
+          <td style="font-weight:600">${o.orderNo || '—'}</td>
           <td>${o.counterName || '—'}</td>
-          <td>${o.productName || '—'}</td>
+          <td style="white-space:normal;max-width:220px">${(o.products||[]).map(p => `${p.productName} × ${p.qty}`).join(', ') || '—'}</td>
           <td>${o.qty || '—'}</td>
           ${o.steps.map(s => `
             <td style="border-left:2px solid var(--gray-200)">${s.planned || '—'}</td>
@@ -6559,7 +6558,7 @@ function renderO2dPCView() {
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending orders — everything is dispatched 🎉</div>'; return; }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
   wrap.innerHTML = `<table>
-    <thead><tr><th>Order No</th><th>Order Id</th><th>Counter Name</th><th>Product</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
+    <thead><tr><th>Order No</th><th>Counter Name</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
     <tbody>
       ${pageRows.map(o => {
         const pendingStep = o.steps[o.currentStep]; // 0-indexed: next step after currentStep
@@ -6567,11 +6566,10 @@ function renderO2dPCView() {
         const rowStyle = overdue ? 'background:var(--color-danger-bg)' : '';
         const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
         return `
-        <tr onclick="openO2dDetail(${o.row})" style="cursor:pointer;${rowStyle}">
-          <td>${o.orderNo || '—'}</td>
-          <td style="font-weight:600">${o.orderId}</td>
+        <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer;${rowStyle}">
+          <td style="font-weight:600">${o.orderNo || '—'}</td>
           <td>${o.counterName || '—'}</td>
-          <td>${o.productName || '—'}</td>
+          <td style="white-space:normal;max-width:220px">${(o.products||[]).map(p => `${p.productName} × ${p.qty}`).join(', ') || '—'}</td>
           <td>${o.qty || '—'}</td>
           <td style="font-weight:600">${pendingStep.n}. ${pendingStep.label}</td>
           <td style="${plannedStyle}">${pendingStep.planned || '—'}${overdue ? ' ⚠️' : ''}</td>
@@ -7144,38 +7142,48 @@ async function submitNewO2dOrder() {
   loadO2dFmsList();
 }
 
-async function openO2dDetail(row, hideProgress) {
-  const o = o2dData.find(x => x.row === row);
+async function openO2dDetail(orderNo, hideProgress) {
+  const o = o2dData.find(x => x.orderNo === orderNo);
   if (!o) { showToast('Order not found — please refresh', 'error'); return; }
-  document.getElementById('o2dTitle').textContent = `${o.orderId} — ${o.productName || ''}`;
+  document.getElementById('o2dTitle').textContent = `${o.orderNo} — ${o.counterName || ''}`;
   document.getElementById('o2dDetailModal').classList.add('open');
   renderO2dDetailBody(o, hideProgress);
 }
 
-function renderO2dField(f, row) {
-  const id = `o2dExtra_${row}_${f.key}`;
+function renderO2dField(f, orderNo) {
+  const id = `o2dExtra_${orderNo}_${f.key}`;
   return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${O2D_INPUT_STYLE}"/>`;
 }
-function readO2dField(f, row) {
-  const el = document.getElementById(`o2dExtra_${row}_${f.key}`);
+function readO2dField(f, orderNo) {
+  const el = document.getElementById(`o2dExtra_${orderNo}_${f.key}`);
   return el ? el.value.trim() : '';
 }
 
-async function advanceO2dStep(row, step) {
-  const o = o2dData.find(x => x.row === row);
+// Marking a step done applies to the WHOLE order (every product line under
+// this Order No.) in one call — the server only writes to lines that don't
+// already have this step, so re-confirming after a new item's been added
+// (Add Order, step 3) doesn't re-timestamp lines that already finished it.
+async function advanceO2dStep(orderNo, step) {
+  const o = o2dData.find(x => x.orderNo === orderNo);
   if (!o) { showToast('Order not found — please refresh', 'error'); return; }
   const stepDef = O2D_STEP_DEFS.find(d => d.n === step);
-  const body = { orderId: o.orderId, orderNo: o.orderNo, counterName: o.counterName, qty: o.qty };
+  const body = {};
 
   if (stepDef.statusOptions) {
-    const statusEl = document.getElementById(`o2dStatusSelect_${row}`);
+    const statusEl = document.getElementById(`o2dStatusSelect_${orderNo}`);
     body.status = statusEl ? statusEl.value : '';
     if (!body.status) { showToast(`Select ${stepDef.label}`, 'error'); return; }
   }
 
-  for (const f of stepDef.extraFields) body[f.key] = readO2dField(f, row);
+  for (const f of stepDef.extraFields) body[f.key] = readO2dField(f, orderNo);
 
-  const res = await api(`/api/o2d-fms/${row}/step/${step}`, 'PUT', body);
+  const btn = document.getElementById(`o2dMarkDoneBtn_${orderNo}`);
+  const originalBtnText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Saving...'; btn.disabled = true; }
+
+  const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/step/${step}`, 'PUT', body);
+
+  if (btn) { btn.textContent = originalBtnText; btn.disabled = false; }
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast('✅ Step recorded!');
   closeModal('o2dDetailModal');
@@ -7183,7 +7191,7 @@ async function advanceO2dStep(row, step) {
   // Optimistic update — Vercel's serverless functions run on multiple
   // instances, so a refresh right after this write can land on an instance
   // whose in-memory O2D cache hasn't been invalidated yet and still looks
-  // stale. Update the row we already have in memory instead of trusting a
+  // stale. Update the order we already have in memory instead of trusting a
   // reload to reflect this write immediately; a later reload (page nav,
   // manual refresh) still self-corrects once the cache catches up.
   const stepIdx = o.steps.findIndex(s => s.n === step);
@@ -7207,18 +7215,18 @@ async function advanceO2dStep(row, step) {
 // as any other order line — the sheet tracks progress per product, not per
 // whole order.
 let o2dAddOrderRowCount = 0;
-function toggleO2dAddOrder(row) {
-  const section = document.getElementById(`o2dAddOrderSection_${row}`);
+function toggleO2dAddOrder(orderNo) {
+  const section = document.getElementById(`o2dAddOrderSection_${orderNo}`);
   const isOpen = section.style.display !== 'none';
   section.style.display = isOpen ? 'none' : 'block';
-  document.getElementById(`o2dAddOrderToggleBtn_${row}`).textContent = isOpen ? '+ Add Order' : '− Hide';
-  if (!isOpen && !document.getElementById(`o2dAddOrderRows_${row}`).children.length) {
-    addO2dAddOrderRow(row);
+  document.getElementById(`o2dAddOrderToggleBtn_${orderNo}`).textContent = isOpen ? '+ Add Order' : '− Hide';
+  if (!isOpen && !document.getElementById(`o2dAddOrderRows_${orderNo}`).children.length) {
+    addO2dAddOrderRow(orderNo);
   }
 }
-function addO2dAddOrderRow(row) {
+function addO2dAddOrderRow(orderNo) {
   const id = o2dAddOrderRowCount++;
-  const wrap = document.getElementById(`o2dAddOrderRows_${row}`);
+  const wrap = document.getElementById(`o2dAddOrderRows_${orderNo}`);
   const rowEl = document.createElement('div');
   rowEl.id = `o2dAddOrderRow_${id}`;
   rowEl.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
@@ -7229,10 +7237,14 @@ function addO2dAddOrderRow(row) {
     <button type="button" onclick="document.getElementById('o2dAddOrderRow_${id}').remove()" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0">✕</button>`;
   wrap.appendChild(rowEl);
 }
-async function submitO2dAddOrder(row) {
-  const o = o2dData.find(x => x.row === row);
+// One submit does both: appends the new items AND resolves step 3 for the
+// whole order (no separate "Save" then "Mark Done" clicks). Items already
+// on the order that finished step 3 earlier aren't re-touched — only the
+// newly added lines (which haven't been through step 3 yet) get it.
+async function submitO2dAddOrder(orderNo) {
+  const o = o2dData.find(x => x.orderNo === orderNo);
   if (!o) { showToast('Order not found — please refresh', 'error'); return; }
-  const wrap = document.getElementById(`o2dAddOrderRows_${row}`);
+  const wrap = document.getElementById(`o2dAddOrderRows_${orderNo}`);
   const products = [];
   for (const rowEl of wrap.children) {
     const id = rowEl.id.split('_')[1];
@@ -7243,25 +7255,34 @@ async function submitO2dAddOrder(row) {
   }
   if (!products.length) { showToast('Add at least one product', 'error'); return; }
 
-  const res = await api('/api/o2d-fms/add-order-items', 'POST', { orderNo: o.orderNo, products });
+  const btn = document.getElementById(`o2dAddOrderSubmitBtn_${orderNo}`);
+  const originalBtnText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Saving...'; btn.disabled = true; }
+
+  const res = await api('/api/o2d-fms/add-order-items', 'POST', {
+    orderNo, products, alsoCompleteStep: { stepNum: 3, status: 'Yes' }
+  });
+
+  if (btn) { btn.textContent = originalBtnText; btn.disabled = false; }
   if (res.error) { showToast(res.error, 'error'); return; }
-  showToast(`✅ ${products.length} item(s) added to ${o.orderNo}!`);
-  toggleO2dAddOrder(row);
-  wrap.innerHTML = '';
+  showToast(`✅ ${products.length} item(s) added to ${orderNo} and step marked done!`);
+  closeModal('o2dDetailModal');
   loadO2dFmsList();
 }
 
 function renderO2dDetailBody(o, hideProgress) {
   const body = document.getElementById('o2dBody');
 
+  const productsListHtml = (o.products || []).map(p =>
+    `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid var(--gray-100)"><span>${p.productName}</span><span style="color:var(--gray-500)">${p.qty}${p.rate ? ' @ ₹' + p.rate : ''}</span></div>`
+  ).join('');
+
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${o.counterName || '—'}${o.area ? ' · ' + o.area : ''}</div>
+      <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
+      <div style="margin-bottom:14px">${productsListHtml || '—'}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div>
-          <div style="${O2D_FIELD_LABEL_STYLE}">Product</div>
-          <div style="font-size:14px;color:var(--gray-800);font-weight:600">${o.productName || '—'}${o.qty ? ' × ' + o.qty : ''}</div>
-        </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Order By</div>
           <div style="font-size:14px;color:var(--gray-800)">${o.orderBy || '—'}</div>
@@ -7277,35 +7298,35 @@ function renderO2dDetailBody(o, hideProgress) {
       </div>
     </div>`;
 
-  // Master. is a computed dashboard — every Actual/Status cell is an
-  // ARRAYFORMULA doing a VLOOKUP into that step's own source tab (the same
-  // tab its real Google Form response lands in). "Mark Done" below appends
-  // a row to that source tab in the same shape a real form submission
-  // would, instead of writing into Master. directly — Master. then picks
-  // it up on its own the next time it's read (can lag a few minutes).
+  // A step is only "done" for the order once every product line under it
+  // has that step's Actual/Status filled — "Mark Done" writes to every line
+  // that's still missing it in one call. A newly added item (Add Order,
+  // step 3) starts with nothing filled, so it correctly drags the order
+  // back to whichever step it hasn't cleared yet, while older lines keep
+  // showing their own already-completed data.
   const nextStepDef = O2D_STEP_DEFS.find(d => d.n === o.currentStep + 1);
   let actionHtml;
   if (nextStepDef) {
     const statusSelectHtml = nextStepDef.statusOptions
-      ? `<select id="o2dStatusSelect_${o.row}" style="${O2D_INPUT_STYLE}"><option value="">-- Select --</option>${nextStepDef.statusOptions.map(v => `<option value="${v}">${v}</option>`).join('')}</select>`
+      ? `<select id="o2dStatusSelect_${o.orderNo}" style="${O2D_INPUT_STYLE}"><option value="">-- Select --</option>${nextStepDef.statusOptions.map(v => `<option value="${v}">${v}</option>`).join('')}</select>`
       : '';
-    const extraInputsHtml = nextStepDef.extraFields.map(f => renderO2dField(f, o.row)).join('');
+    const extraInputsHtml = nextStepDef.extraFields.map(f => renderO2dField(f, o.orderNo)).join('');
     const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
+        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole order</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)} · TAT: ${nextStepDef.tat || '—'}</div>
         ${statusSelectHtml}
         ${extraInputsHtml}
-        <button onclick="advanceO2dStep(${o.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
+        <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${o.orderNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
         ${nextStepDef.allowAddOrder ? `
         <div style="border-top:1px dashed var(--color-purple-border);margin-top:14px;padding-top:14px">
-          <button type="button" onclick="toggleO2dAddOrder(${o.row})" class="btn btn-outline btn-sm" id="o2dAddOrderToggleBtn_${o.row}">+ Add Order</button>
-          <div id="o2dAddOrderSection_${o.row}" style="display:none;margin-top:12px">
-            <div id="o2dAddOrderRows_${o.row}"></div>
-            <button type="button" class="btn btn-outline btn-sm" onclick="addO2dAddOrderRow(${o.row})">+ Add Product</button>
-            <button type="button" class="btn btn-primary" style="width:100%;margin-top:8px" onclick="submitO2dAddOrder(${o.row})">Save Items</button>
+          <button type="button" onclick="toggleO2dAddOrder('${o.orderNo}')" class="btn btn-outline btn-sm" id="o2dAddOrderToggleBtn_${o.orderNo}">+ Add Order</button>
+          <div id="o2dAddOrderSection_${o.orderNo}" style="display:none;margin-top:12px">
+            <div id="o2dAddOrderRows_${o.orderNo}"></div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="addO2dAddOrderRow('${o.orderNo}')">+ Add Product</button>
+            <button type="button" class="btn btn-primary" id="o2dAddOrderSubmitBtn_${o.orderNo}" style="width:100%;margin-top:8px" onclick="submitO2dAddOrder('${o.orderNo}')">Add Items &amp; Mark Done</button>
           </div>
         </div>` : ''}
       </div>`;

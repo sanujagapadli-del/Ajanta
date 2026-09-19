@@ -2928,12 +2928,12 @@ async function getO2dOrders() {
         await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
       }
     }
-    const rows = result.data.values || [];
-    const orders = rows.map((r, i) => {
+    const sheetRows = result.data.values || [];
+    const lines = sheetRows.map((r, i) => {
       const rowNum = O2D_DATA_START_ROW + i;
       const get = col => r[colToIdx(col)];
       if (!get('R')) return null; // skip blank rows (Order Id is the unique key column)
-      const o = {
+      const line = {
         row: rowNum,
         timestamp: sfmsSerialToDate(get('A')),
         counterType: get('B') || '',
@@ -2942,6 +2942,7 @@ async function getO2dOrders() {
         orderBy: get('J') || '',
         paymentTerms: get('K') || '',
         productName: get('M') || '',
+        rate: get('N') || '',
         qty: get('O') || '',
         isSample: get('P') || '',
         orderNo: get('Q') || '',
@@ -2949,9 +2950,8 @@ async function getO2dOrders() {
         billNo: get('BJ') || '',
         amount: get('BK') || ''
       };
-      o.steps = O2D_STEPS.map(sd => {
+      line.steps = O2D_STEPS.map(sd => {
         const step = {
-          n: sd.n, label: sd.label, doer: sd.doer, tat: sd.tat, doers: stepDoersMap[sd.n] || [],
           planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
           actual: sd.actual ? sfmsSerialToDate(get(sd.actual)) : '',
           status: get(sd.status) || ''
@@ -2959,16 +2959,65 @@ async function getO2dOrders() {
         sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
         return step;
       });
+      return line;
+    }).filter(Boolean);
+
+    // One order = one Order No., not one product row. A step is only
+    // "done" for the order once every one of its product lines has it, and
+    // the order's currentStep is bottlenecked by whichever line is furthest
+    // behind — so a freshly added item (Add Order, step 3) correctly drags
+    // the whole order back to "pending" on the steps it hasn't cleared,
+    // while lines that already finished those steps keep their own data.
+    const orderNos = [];
+    const byOrderNo = {};
+    lines.forEach(line => {
+      if (!byOrderNo[line.orderNo]) { byOrderNo[line.orderNo] = []; orderNos.push(line.orderNo); }
+      byOrderNo[line.orderNo].push(line);
+    });
+
+    const orders = orderNos.map(orderNo => {
+      const group = byOrderNo[orderNo];
+      const first = group[0];
+      const o = {
+        orderNo,
+        rows: group.map(l => l.row),
+        timestamp: group.map(l => l.timestamp).sort()[0],
+        counterType: first.counterType,
+        counterName: first.counterName,
+        area: first.area,
+        orderBy: first.orderBy,
+        paymentTerms: first.paymentTerms,
+        billNo: first.billNo,
+        amount: group.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
+        productName: group.length > 1 ? `${first.productName} +${group.length - 1} more` : first.productName,
+        qty: group.reduce((sum, l) => sum + (Number(l.qty) || 0), 0),
+        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample }))
+      };
+      o.steps = O2D_STEPS.map((sd, idx) => {
+        const lineSteps = group.map(l => l.steps[idx]);
+        const allDone = lineSteps.every(s => s.status);
+        const actuals = lineSteps.map(s => s.actual).filter(Boolean).sort();
+        const step = {
+          n: sd.n, label: sd.label, doer: sd.doer, tat: sd.tat, doers: stepDoersMap[sd.n] || [],
+          planned: lineSteps[0].planned,
+          actual: allDone ? (actuals[actuals.length - 1] || '') : '',
+          status: allDone ? 'Yes' : ''
+        };
+        sd.extra.forEach(e => {
+          const withVal = lineSteps.find(s => s[e.key]);
+          step[e.key] = withVal ? withVal[e.key] : '';
+        });
+        return step;
+      });
       let currentStep = 0;
       for (let i = 0; i < O2D_STEPS.length; i++) {
-        const s = o.steps[i];
-        if (s.status) currentStep = s.n;
+        if (o.steps[i].status) currentStep = i + 1;
         else break;
       }
       o.currentStep = currentStep;
       o.closed = currentStep === O2D_STEPS.length;
       return o;
-    }).filter(Boolean);
+    });
 
     orders.reverse(); // newest first
     return orders;
@@ -3156,21 +3205,13 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
 
     paymentRows.forEach(p => { const d = ensure(p.counter_name); if (d) d.payments.push(p); });
 
-    // group orders by counterName+orderId for a per-order qty/amount total, then take each dealer's most recent
-    const orderGroups = {};
+    // getO2dOrders() already groups by Order No. — just take each dealer's most recent
     orders.forEach(o => {
       if (!o.counterName) return;
-      const gKey = o.counterName.trim().toLowerCase() + '::' + o.orderId;
-      if (!orderGroups[gKey]) orderGroups[gKey] = { counterName: o.counterName, timestamp: o.timestamp, orderNo: o.orderNo, qty: 0, amount: 0 };
-      orderGroups[gKey].qty += Number(o.qty) || 0;
-      orderGroups[gKey].amount += Number(o.amount) || 0;
-      if (o.timestamp > orderGroups[gKey].timestamp) orderGroups[gKey].timestamp = o.timestamp;
-    });
-    Object.values(orderGroups).forEach(g => {
-      const d = ensure(g.counterName);
+      const d = ensure(o.counterName);
       if (!d) return;
-      if (!d.lastOrder || g.timestamp > d.lastOrder.timestamp) {
-        d.lastOrder = { timestamp: g.timestamp, orderNo: g.orderNo, qty: g.qty, amount: g.amount };
+      if (!d.lastOrder || o.timestamp > d.lastOrder.timestamp) {
+        d.lastOrder = { timestamp: o.timestamp, orderNo: o.orderNo, qty: o.qty, amount: o.amount };
       }
     });
 
@@ -3314,87 +3355,129 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   }
 });
 
+// Marks a step done for every product row under an Order No. whose next
+// pending step genuinely IS this one — every earlier step already done,
+// this one not yet. This is how "mark done" applies to a whole order in one
+// action, and how a step re-opens for just a newly added item without
+// touching lines that were already through it. Rows that are further
+// behind (e.g. a brand new line still on step 1) are correctly skipped
+// rather than having a later step's Actual/Status written out of order.
+// Returns how many rows got written (0 = nothing to do — either the order
+// doesn't exist or no line has this as its next step right now).
+async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
+  const stepDef = O2D_STEPS.find(s => s.n === stepNum);
+  if (!stepDef) return -1;
+  const priorStatusCols = O2D_STEPS.filter(s => s.n < stepNum).map(s => s.status);
+
+  const keyCols = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!Q${O2D_DATA_START_ROW}:${stepDef.status}`, valueRenderOption: 'UNFORMATTED_VALUE'
+  });
+  const keyRows = keyCols.data.values || [];
+  const qOffset = colToIdx('Q');
+  const targetRows = [];
+  keyRows.forEach((r, i) => {
+    if ((r[0] || '') !== orderNo) return;
+    if (r[colToIdx(stepDef.status) - qOffset]) return; // already has this step
+    const priorDone = priorStatusCols.every(col => r[colToIdx(col) - qOffset]);
+    if (priorDone) targetRows.push(O2D_DATA_START_ROW + i);
+  });
+  if (!targetRows.length) return 0;
+
+  const now = sfmsDateToSerial(new Date());
+  const status = body.status || 'Yes';
+  const batchData = [];
+  targetRows.forEach(rowNum => {
+    batchData.push({ range: `'${O2D_TAB}'!${stepDef.actual}${rowNum}`, values: [[now]] });
+    batchData.push({ range: `'${O2D_TAB}'!${stepDef.status}${rowNum}`, values: [[status]] });
+    stepDef.extra.forEach(f => {
+      const val = body[f.key];
+      if (val !== undefined && val !== '') batchData.push({ range: `'${O2D_TAB}'!${f.col}${rowNum}`, values: [[val]] });
+    });
+  });
+
+  await sheetsApi.spreadsheets.values.batchUpdate({
+    spreadsheetId: O2D_SHEET_ID,
+    requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
+  });
+  return targetRows.length;
+}
+
 // Step 3 ("Call Made By CRM When Add More Order") — CRM calls the dealer to
 // ask if they want to add anything before the order proceeds. Adds more
 // product lines under the SAME Order No, reusing the dealer/order metadata
-// from an existing row instead of asking for it again.
+// from an existing row instead of asking for it again. Optionally resolves
+// a step (normally step 3 itself) in the same request, so "add items" and
+// "mark this step done" are one submit instead of two.
 app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
   try {
-    const { orderNo, products } = req.body;
+    const { orderNo, products, alsoCompleteStep } = req.body;
     if (!orderNo) return res.status(400).json({ error: 'orderNo is required' });
-    if (!Array.isArray(products) || !products.length) {
+    const hasProducts = Array.isArray(products) && products.length;
+    if (!hasProducts && !alsoCompleteStep) {
       return res.status(400).json({ error: 'At least one product is required' });
     }
-    for (const p of products) {
-      if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
+    if (hasProducts) {
+      for (const p of products) {
+        if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
+      }
     }
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    let orderIds = [];
 
-    const existing = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-    const existingRows = existing.data.values || [];
-    const template = existingRows.find(r => (r[16] || '') === orderNo); // Q = Order No.
-    if (!template) return res.status(404).json({ error: `Order ${orderNo} not found` });
+    if (hasProducts) {
+      const existing = await sheetsApi.spreadsheets.values.get({
+        spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE'
+      });
+      const existingRows = existing.data.values || [];
+      const template = existingRows.find(r => (r[16] || '') === orderNo); // Q = Order No.
+      if (!template) return res.status(404).json({ error: `Order ${orderNo} not found` });
 
-    let maxOrderId = 0;
-    existingRows.forEach(r => {
-      const m = String(r[17] || '').match(/Order-(\d+)/);
-      if (m) maxOrderId = Math.max(maxOrderId, parseInt(m[1], 10));
-    });
+      let maxOrderId = 0;
+      existingRows.forEach(r => {
+        const m = String(r[17] || '').match(/Order-(\d+)/);
+        if (m) maxOrderId = Math.max(maxOrderId, parseInt(m[1], 10));
+      });
 
-    const nowSerial = sfmsDateToSerial(new Date());
-    const rows = products.map((p, i) => [
-      nowSerial, template[1] || '', template[2] || '', template[3] || '', template[4] || '', template[5] || '',
-      template[6] || '', template[7] || 'No', template[8] || 'No', template[9] || '',
-      template[10] || '', template[11] || '', p.productName, p.rate || '', p.qty,
-      p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`
-    ]);
+      const nowSerial = sfmsDateToSerial(new Date());
+      const rows = products.map((p, i) => [
+        nowSerial, template[1] || '', template[2] || '', template[3] || '', template[4] || '', template[5] || '',
+        template[6] || '', template[7] || 'No', template[8] || 'No', template[9] || '',
+        template[10] || '', template[11] || '', p.productName, p.rate || '', p.qty,
+        p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`
+      ]);
 
-    await sheetsApi.spreadsheets.values.append({
-      spreadsheetId: O2D_SHEET_ID,
-      range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'OVERWRITE',
-      requestBody: { values: rows }
-    });
+      await sheetsApi.spreadsheets.values.append({
+        spreadsheetId: O2D_SHEET_ID,
+        range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'OVERWRITE',
+        requestBody: { values: rows }
+      });
+      orderIds = rows.map(r => r[17]);
+    }
 
-    res.json({ success: true, orderIds: rows.map(r => r[17]) });
+    let rowsUpdated = 0;
+    if (alsoCompleteStep && alsoCompleteStep.stepNum) {
+      rowsUpdated = await writeO2dStepForOrder(sheetsApi, orderNo, alsoCompleteStep.stepNum, alsoCompleteStep);
+    }
+
+    res.json({ success: true, orderIds, rowsUpdated });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
+app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, res) => {
   try {
+    const orderNo = req.params.orderNo;
     const stepNum = parseInt(req.params.stepNum, 10);
-    const rowNum = parseInt(req.params.row, 10);
-    const stepDef = O2D_STEPS.find(s => s.n === stepNum);
-    if (!stepDef || !rowNum) return res.status(400).json({ error: 'Invalid step number or row' });
-
-    const now = sfmsDateToSerial(new Date());
-    const status = req.body.status || 'Yes';
-
-    // Writes straight into Master.'s own Actual/Status/extra columns for
-    // this order's row — no side tab, no VLOOKUP to wait on.
-    const batchData = [
-      { range: `'${O2D_TAB}'!${stepDef.actual}${rowNum}`, values: [[now]] },
-      { range: `'${O2D_TAB}'!${stepDef.status}${rowNum}`, values: [[status]] }
-    ];
-    stepDef.extra.forEach(f => {
-      const val = req.body[f.key];
-      if (val !== undefined && val !== '') batchData.push({ range: `'${O2D_TAB}'!${f.col}${rowNum}`, values: [[val]] });
-    });
-
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    await sheetsApi.spreadsheets.values.batchUpdate({
-      spreadsheetId: O2D_SHEET_ID,
-      requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
-    });
-
-    res.json({ success: true });
+    const rowsUpdated = await writeO2dStepForOrder(sheetsApi, orderNo, stepNum, req.body);
+    if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
+    if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under order ${orderNo}` });
+    res.json({ success: true, rowsUpdated });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     res.status(500).json({ error: err.message });
