@@ -2797,7 +2797,6 @@ async function loadDashboard() {
     return;
   }
 
-  document.getElementById('dPending').textContent = (dDel.pending||0) + (dChl.pending||0);
   document.getElementById('dRevised').textContent = (dDel.revised||0) + (dChl.revised||0);
   document.getElementById('dCompleted').textContent = (dDel.completed||0) + (dChl.completed||0);
 
@@ -2839,21 +2838,6 @@ async function loadDashboard() {
       <button class="btn btn-pill btn-green" onclick="openChecklist()">✓ Checklist</button>
       <button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>`;
   }
-
-  if (dashChartInst) dashChartInst.destroy();
-
-  const combinedPending   = (dDel.pending||0)   + (dChl.pending||0);
-  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0);
-  const combinedRevised   = dDel.revised||0;
-  const chartLabels = ['Completed','Pending','Revised'];
-  const chartData   = [combinedCompleted, combinedPending, combinedRevised];
-  const chartColors = ['var(--color-success)','var(--color-danger)','var(--color-warning)'];
-
-  dashChartInst = new Chart(document.getElementById('dashChart').getContext('2d'), {
-    type:'pie',
-    data:{labels:chartLabels,datasets:[{data:chartData,backgroundColor:chartColors,borderWidth:3,borderColor:'#fff',hoverOffset:6}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw}`}}}}
-  });
 
   // Combine both types for the unified pending table
   const allTodayPending = [...(dDel.todayPending||[]), ...(dChl.todayPending||[])];
@@ -2918,6 +2902,22 @@ async function loadDashboard() {
       });
     });
   }
+
+  // Pending count/chart use allTodayPending's actual length — it's the same
+  // Delegation+Checklist+SFMS+O2D mix the table below renders, so the card
+  // above it can't disagree with what's visibly listed.
+  document.getElementById('dPending').textContent = allTodayPending.length;
+  if (dashChartInst) dashChartInst.destroy();
+  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0);
+  const combinedRevised   = dDel.revised||0;
+  const chartLabels = ['Completed','Pending','Revised'];
+  const chartData   = [combinedCompleted, allTodayPending.length, combinedRevised];
+  const chartColors = ['var(--color-success)','var(--color-danger)','var(--color-warning)'];
+  dashChartInst = new Chart(document.getElementById('dashChart').getContext('2d'), {
+    type:'pie',
+    data:{labels:chartLabels,datasets:[{data:chartData,backgroundColor:chartColors,borderWidth:3,borderColor:'#fff',hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw}`}}}}
+  });
 
   window._lastDashTasks = allTodayPending;
   // Keep sort state across reloads (don't reset)
