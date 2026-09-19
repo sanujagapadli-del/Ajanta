@@ -3314,6 +3314,59 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   }
 });
 
+// Step 3 ("Call Made By CRM When Add More Order") — CRM calls the dealer to
+// ask if they want to add anything before the order proceeds. Adds more
+// product lines under the SAME Order No, reusing the dealer/order metadata
+// from an existing row instead of asking for it again.
+app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
+  try {
+    const { orderNo, products } = req.body;
+    if (!orderNo) return res.status(400).json({ error: 'orderNo is required' });
+    if (!Array.isArray(products) || !products.length) {
+      return res.status(400).json({ error: 'At least one product is required' });
+    }
+    for (const p of products) {
+      if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
+    }
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    const existing = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    const existingRows = existing.data.values || [];
+    const template = existingRows.find(r => (r[16] || '') === orderNo); // Q = Order No.
+    if (!template) return res.status(404).json({ error: `Order ${orderNo} not found` });
+
+    let maxOrderId = 0;
+    existingRows.forEach(r => {
+      const m = String(r[17] || '').match(/Order-(\d+)/);
+      if (m) maxOrderId = Math.max(maxOrderId, parseInt(m[1], 10));
+    });
+
+    const nowSerial = sfmsDateToSerial(new Date());
+    const rows = products.map((p, i) => [
+      nowSerial, template[1] || '', template[2] || '', template[3] || '', template[4] || '', template[5] || '',
+      template[6] || '', template[7] || 'No', template[8] || 'No', template[9] || '',
+      template[10] || '', template[11] || '', p.productName, p.rate || '', p.qty,
+      p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`
+    ]);
+
+    await sheetsApi.spreadsheets.values.append({
+      spreadsheetId: O2D_SHEET_ID,
+      range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'OVERWRITE',
+      requestBody: { values: rows }
+    });
+
+    res.json({ success: true, orderIds: rows.map(r => r[17]) });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/o2d-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
   try {
     const stepNum = parseInt(req.params.stepNum, 10);

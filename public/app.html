@@ -6409,7 +6409,7 @@ const O2D_STEP_DEFS = [
       { key: 'reason', label: 'Reason (if No)' }
     ] },
   { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [] },
-  { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', extraFields: [] },
+  { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', extraFields: [], allowAddOrder: true },
   { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', extraFields: [
       { key: 'billNo', label: 'Bill No' },
       { key: 'billAmount', label: 'Bill Amount', type: 'number' },
@@ -7201,6 +7201,56 @@ async function advanceO2dStep(row, step) {
   renderO2dActiveView();
 }
 
+// "+ Add Order" — lets CRM add more product lines to an existing order
+// (same Order No.) while resolving step 3, without opening the full New
+// Order form. Each added product becomes its own pending-step-1 line, same
+// as any other order line — the sheet tracks progress per product, not per
+// whole order.
+let o2dAddOrderRowCount = 0;
+function toggleO2dAddOrder(row) {
+  const section = document.getElementById(`o2dAddOrderSection_${row}`);
+  const isOpen = section.style.display !== 'none';
+  section.style.display = isOpen ? 'none' : 'block';
+  document.getElementById(`o2dAddOrderToggleBtn_${row}`).textContent = isOpen ? '+ Add Order' : '− Hide';
+  if (!isOpen && !document.getElementById(`o2dAddOrderRows_${row}`).children.length) {
+    addO2dAddOrderRow(row);
+  }
+}
+function addO2dAddOrderRow(row) {
+  const id = o2dAddOrderRowCount++;
+  const wrap = document.getElementById(`o2dAddOrderRows_${row}`);
+  const rowEl = document.createElement('div');
+  rowEl.id = `o2dAddOrderRow_${id}`;
+  rowEl.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
+  rowEl.innerHTML = `
+    <input type="text" placeholder="Product Name *" id="o2dAddProdName_${id}" style="${O2D_INPUT_STYLE};margin-bottom:0"/>
+    <input type="number" placeholder="Rate" id="o2dAddProdRate_${id}" style="${O2D_INPUT_STYLE};margin-bottom:0"/>
+    <input type="number" placeholder="Qty *" id="o2dAddProdQty_${id}" style="${O2D_INPUT_STYLE};margin-bottom:0"/>
+    <button type="button" onclick="document.getElementById('o2dAddOrderRow_${id}').remove()" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0">✕</button>`;
+  wrap.appendChild(rowEl);
+}
+async function submitO2dAddOrder(row) {
+  const o = o2dData.find(x => x.row === row);
+  if (!o) { showToast('Order not found — please refresh', 'error'); return; }
+  const wrap = document.getElementById(`o2dAddOrderRows_${row}`);
+  const products = [];
+  for (const rowEl of wrap.children) {
+    const id = rowEl.id.split('_')[1];
+    const productName = document.getElementById(`o2dAddProdName_${id}`).value.trim();
+    const qty = document.getElementById(`o2dAddProdQty_${id}`).value.trim();
+    if (!productName || !qty) { showToast('Every product needs a name and quantity', 'error'); return; }
+    products.push({ productName, qty, rate: document.getElementById(`o2dAddProdRate_${id}`).value.trim() });
+  }
+  if (!products.length) { showToast('Add at least one product', 'error'); return; }
+
+  const res = await api('/api/o2d-fms/add-order-items', 'POST', { orderNo: o.orderNo, products });
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(`✅ ${products.length} item(s) added to ${o.orderNo}!`);
+  toggleO2dAddOrder(row);
+  wrap.innerHTML = '';
+  loadO2dFmsList();
+}
+
 function renderO2dDetailBody(o, hideProgress) {
   const body = document.getElementById('o2dBody');
 
@@ -7249,6 +7299,15 @@ function renderO2dDetailBody(o, hideProgress) {
         ${statusSelectHtml}
         ${extraInputsHtml}
         <button onclick="advanceO2dStep(${o.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
+        ${nextStepDef.allowAddOrder ? `
+        <div style="border-top:1px dashed var(--color-purple-border);margin-top:14px;padding-top:14px">
+          <button type="button" onclick="toggleO2dAddOrder(${o.row})" class="btn btn-outline btn-sm" id="o2dAddOrderToggleBtn_${o.row}">+ Add Order</button>
+          <div id="o2dAddOrderSection_${o.row}" style="display:none;margin-top:12px">
+            <div id="o2dAddOrderRows_${o.row}"></div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="addO2dAddOrderRow(${o.row})">+ Add Product</button>
+            <button type="button" class="btn btn-primary" style="width:100%;margin-top:8px" onclick="submitO2dAddOrder(${o.row})">Save Items</button>
+          </div>
+        </div>` : ''}
       </div>`;
   } else {
     actionHtml = `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All 9 steps complete — order closed</div>`;
