@@ -2764,6 +2764,68 @@ function setupBottomNav() {
 // Submits (task create/status/revise/bulk-upload) refresh the dashboard 10s
 // later instead of immediately, so counts reflect the write actually landing.
 function scheduleDashboardRefresh() { setTimeout(loadDashboard, 10000); }
+
+const fmsFieldRow = (label, value, valueStyle) => `<div style="font-size:11px;margin-top:2px"><span style="color:var(--gray-400);font-weight:700;letter-spacing:.3px">${label}:</span> <span style="color:var(--gray-700);${valueStyle||''}">${value}</span></div>`;
+
+// Builds the O2D rows of the Dashboard's pending-tasks list from whatever's
+// already in window._lastO2dData — no network call. Used both by the full
+// loadDashboard() and by refreshDashboardO2dLocally() (called right after
+// marking a step done from the Dashboard), so that update is instant instead
+// of waiting out a full re-fetch of every task source just to reflect one
+// O2D step.
+function buildO2dDashboardTasks() {
+  const o2d = window._lastO2dData || [];
+  const empFilter = document.getElementById('dashEmployeeFilter');
+  const empVal = empFilter ? empFilter.value : 'all';
+  const isAdmin = ME.role === 'admin';
+  const isHod = ME.role === 'hod';
+  const isPC = ME.role === 'pc';
+  const o2dDoerFilterId = (isAdmin || isHod || isPC) ? (empVal !== 'all' ? Number(empVal) : null) : ME.id;
+  const tasks = [];
+  o2d.filter(o => !o.closed).forEach(o => {
+    const pendingStep = o.steps[o.currentStep];
+    if (o2dDoerFilterId && !(pendingStep.doers || []).some(d => d.id === o2dDoerFilterId)) return;
+    const overdue = o2dIsOverdue(pendingStep.planned);
+    // Some items already past this step (order pending again only because
+    // a newer item hasn't caught up) — flag it so it doesn't read as if
+    // the whole order regressed.
+    const isReorder = (o.products || []).some(p => p.currentStep > o.currentStep);
+    const reorderBadge = isReorder
+      ? ` <span style="font-size:10px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🔄 Reorder — new item added</span>`
+      : '';
+    const productsText = (o.products || []).map(p => `${p.productName}${p.qty ? ' × ' + p.qty : ''}`).join(', ');
+    const description = `
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${pendingStep.label}${reorderBadge}</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.counterName || '—'}</div>
+      <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
+      ${fmsFieldRow('PLANNED', `${pendingStep.planned || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
+    `;
+    tasks.push({
+      id: o.orderNo, type: 'o2d', status: 'pending',
+      title: o.orderNo,
+      description,
+      assignedToName: stepDoerLabel(pendingStep),
+      assignedByName: stepDoerLabel(pendingStep),
+      assignedToDept: '',
+      start_date: o.timestamp
+    });
+  });
+  return tasks;
+}
+
+// Re-renders just the O2D portion of the Dashboard's pending list from the
+// already-optimistically-updated window._lastO2dData, instead of a full
+// loadDashboard() re-fetch (which was taking 5-10s and looked like nothing
+// had happened in the meantime).
+function refreshDashboardO2dLocally() {
+  if (!window._lastDashTasks) return;
+  const merged = [...window._lastDashTasks.filter(t => t.type !== 'o2d'), ...buildO2dDashboardTasks()];
+  window._lastDashTasks = merged;
+  const pendingEl = document.getElementById('dPending');
+  if (pendingEl) pendingEl.textContent = merged.length;
+  renderDashTable(merged, dashType);
+}
+
 async function loadDashboard() {
   const empFilter = document.getElementById('dashEmployeeFilter');
   const empVal = empFilter ? empFilter.value : 'all';
@@ -2847,7 +2909,6 @@ async function loadDashboard() {
     api('/api/service-fms').catch(() => null),
     api('/api/o2d-fms').catch(() => null)
   ]);
-  const fmsFieldRow = (label, value, valueStyle) => `<div style="font-size:11px;margin-top:2px"><span style="color:var(--gray-400);font-weight:700;letter-spacing:.3px">${label}:</span> <span style="color:var(--gray-700);${valueStyle||''}">${value}</span></div>`;
   window._lastSfmsData = Array.isArray(sfms) ? sfms : [];
   if (Array.isArray(sfms)) {
     sfms.filter(c => !c.closed).forEach(c => {
@@ -2877,39 +2938,7 @@ async function loadDashboard() {
   }
 
   window._lastO2dData = Array.isArray(o2d) ? o2d : [];
-  if (Array.isArray(o2d)) {
-    // Regular employees only see steps they're actually assigned as doer for;
-    // admin/hod/pc see everyone unless they've picked one employee from the filter.
-    const o2dDoerFilterId = (isAdmin || isHod || isPC) ? (empVal !== 'all' ? Number(empVal) : null) : ME.id;
-    o2d.filter(o => !o.closed).forEach(o => {
-      const pendingStep = o.steps[o.currentStep];
-      if (o2dDoerFilterId && !(pendingStep.doers || []).some(d => d.id === o2dDoerFilterId)) return;
-      const overdue = o2dIsOverdue(pendingStep.planned);
-      // Some items already past this step (order pending again only because
-      // a newer item hasn't caught up) — flag it so it doesn't read as if
-      // the whole order regressed.
-      const isReorder = (o.products || []).some(p => p.currentStep > o.currentStep);
-      const reorderBadge = isReorder
-        ? ` <span style="font-size:10px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🔄 Reorder — new item added</span>`
-        : '';
-      const productsText = (o.products || []).map(p => `${p.productName}${p.qty ? ' × ' + p.qty : ''}`).join(', ');
-      const description = `
-        <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${pendingStep.label}${reorderBadge}</div>
-        <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.counterName || '—'}</div>
-        <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
-        ${fmsFieldRow('PLANNED', `${pendingStep.planned || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
-      `;
-      allTodayPending.push({
-        id: o.orderNo, type: 'o2d', status: 'pending',
-        title: o.orderNo,
-        description,
-        assignedToName: stepDoerLabel(pendingStep),
-        assignedByName: stepDoerLabel(pendingStep),
-        assignedToDept: '',
-        start_date: o.timestamp
-      });
-    });
-  }
+  allTodayPending.push(...buildO2dDashboardTasks());
 
   // Pending count/chart use allTodayPending's actual length — it's the same
   // Delegation+Checklist+SFMS+O2D mix the table below renders, so the card
@@ -7245,7 +7274,7 @@ async function advanceO2dStep(orderNo, step) {
 // manual refresh. Refresh whichever one the user is actually looking at.
 function refreshO2dAfterAction() {
   if (document.getElementById('page-dashboard')?.classList.contains('active')) {
-    loadDashboard();
+    refreshDashboardO2dLocally();
   } else {
     renderO2dActiveView();
   }
@@ -7309,8 +7338,14 @@ async function submitO2dAddOrder(orderNo) {
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast(`✅ ${products.length} item(s) added to ${orderNo} and step marked done!`);
   closeModal('o2dDetailModal');
+  // New rows got appended server-side, so (unlike advanceO2dStep) there's no
+  // reliable way to fake this one locally — but re-fetching just the O2D
+  // list is still far lighter than a full loadDashboard() (which also
+  // re-pulls Delegation/Checklist/SFMS for no reason).
   if (document.getElementById('page-dashboard')?.classList.contains('active')) {
-    loadDashboard();
+    const data = await api('/api/o2d-fms');
+    if (Array.isArray(data)) window._lastO2dData = data;
+    refreshDashboardO2dLocally();
   } else {
     loadO2dFmsList();
   }
