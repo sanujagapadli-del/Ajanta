@@ -7202,9 +7202,11 @@ async function submitNewO2dOrder() {
   loadO2dFmsList();
 }
 
+let _o2dDetailHideProgress = false; // remembered so advanceO2dStep can re-render this same modal in the same mode
 async function openO2dDetail(orderNo, hideProgress) {
   const o = o2dData.find(x => x.orderNo === orderNo);
   if (!o) { showToast('Order not found — please refresh', 'error'); return; }
+  _o2dDetailHideProgress = hideProgress;
   document.getElementById('o2dTitle').textContent = `${o.orderNo} — ${o.counterName || ''}`;
   document.getElementById('o2dDetailModal').classList.add('open');
   renderO2dDetailBody(o, hideProgress);
@@ -7308,14 +7310,37 @@ async function advanceO2dStep(orderNo, step) {
 
   const btn = document.getElementById(`o2dMarkDoneBtn_${orderNo}`);
   const originalBtnText = btn ? btn.textContent : '';
+  // Stays disabled/showing a loader all the way through the re-render below
+  // — closing the modal the instant the network call returned (with no
+  // visible confirmation) was leaving people unsure whether Mark Done had
+  // actually worked, so they'd retry and hit "already done" on the retry.
   if (btn) { btn.textContent = '⏳ Saving...'; btn.disabled = true; }
 
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/step/${step}`, 'PUT', body);
 
-  if (btn) { btn.textContent = originalBtnText; btn.disabled = false; }
-  if (res.error) { showToast(res.error, 'error'); return; }
-  showToast('✅ Step recorded!');
-  closeModal('o2dDetailModal');
+  if (res.error) {
+    // The one case worth treating as "not really an error": this step was
+    // already completed (e.g. an earlier click did go through, unnoticed).
+    // Re-sync from the server instead of leaving the stale form on screen —
+    // that stale-looking state is exactly what caused the confusing retry.
+    if (/No pending rows/i.test(res.error)) {
+      const fresh = await api('/api/o2d-fms');
+      if (Array.isArray(fresh)) {
+        o2dData = fresh;
+        window._lastO2dData = fresh;
+        const freshOrder = fresh.find(x => x.orderNo === orderNo);
+        if (freshOrder) {
+          showToast('This step was already marked done — showing the latest status.');
+          renderO2dDetailBody(freshOrder, _o2dDetailHideProgress);
+          refreshO2dAfterAction();
+          return;
+        }
+      }
+    }
+    if (btn) { btn.textContent = originalBtnText; btn.disabled = false; }
+    showToast(res.error, 'error');
+    return;
+  }
 
   // Optimistic update — Vercel's serverless functions run on multiple
   // instances, so a refresh right after this write can land on an instance
@@ -7342,7 +7367,14 @@ async function advanceO2dStep(orderNo, step) {
     o.currentStep = currentStep;
     o.closed = currentStep === o.steps.length;
   }
+  showToast('✅ Step recorded!');
   refreshO2dAfterAction();
+  // Re-render this same modal in place (instead of closing) so the user
+  // visibly sees it land on the next step — no reopening needed, and
+  // nothing to look "stuck" or ambiguous about whether it worked.
+  if (document.getElementById('o2dDetailModal').classList.contains('open')) {
+    renderO2dDetailBody(o, _o2dDetailHideProgress);
+  }
 }
 
 // advanceO2dStep/submitO2dAddOrder can be triggered from the O2D FMS page
