@@ -7209,12 +7209,20 @@ async function loadCataloguePdfs(force) {
 function cataloguePdfRowHtml(item) {
   const deleteBtn = o2dCataloguePdfsCanEdit
     ? `<button class="btn btn-outline btn-sm" onclick="deleteCataloguePdf(${item.id},'${item.filename.replace(/'/g,"\\'")}')" title="Remove">🗑</button>` : '';
+  // Drive's normal "open" link just previews the file — export=download makes
+  // the browser actually save it, so sales staff can grab it and share with dealers.
+  const downloadUrl = item.drive_file_id
+    ? `https://drive.google.com/uc?export=download&id=${item.drive_file_id}`
+    : item.url;
   return `<tr>
     <td>📄</td>
     <td><a href="${item.url}" target="_blank" style="font-weight:600;color:var(--color-primary)">${item.filename}</a></td>
     <td>${item.uploaded_by_name || '—'}</td>
     <td style="white-space:nowrap;color:var(--gray-500)">${item.created_at || '—'}</td>
-    <td style="white-space:nowrap">${deleteBtn}</td>
+    <td style="white-space:nowrap;display:flex;gap:4px">
+      <a class="btn btn-outline btn-sm" href="${downloadUrl}" target="_blank" title="Download">⬇ Download</a>
+      ${deleteBtn}
+    </td>
   </tr>`;
 }
 
@@ -7255,22 +7263,40 @@ function blobToBase64(blob) {
 }
 
 // Vercel caps the whole request body at ~4.5MB, so a base64-encoded PDF of
-// more than a few MB gets a 413 in one shot. We upload it in small chunks
-// instead — well under that cap even after base64's ~33% size bloat — and
-// the server reassembles + pushes it to Drive on the last chunk.
+// more than a few MB gets a 413 in one shot. We upload it in chunks instead
+// — sized so base64 + JSON overhead stays safely under that cap — and the
+// server reassembles + pushes it to Drive once every chunk is in. Chunks are
+// sent several at a time (order doesn't matter, the server keys them by
+// index) instead of one-at-a-time, which is most of the previous slowness.
 async function uploadOnePdfChunked(file, docType, onProgress) {
-  const CHUNK_SIZE = 1.5 * 1024 * 1024; // raw bytes/chunk
+  const CHUNK_SIZE = 3 * 1024 * 1024; // raw bytes/chunk (~4MB after base64, ~0.5MB headroom under Vercel's 4.5MB cap)
+  const CONCURRENCY = 4;
   const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
   const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  for (let i = 0; i < totalChunks; i++) {
-    onProgress(i, totalChunks);
+  let completed = 0;
+  let firstError = null;
+  let next = 0;
+
+  async function sendChunk(i) {
     const start = i * CHUNK_SIZE;
     const chunkData = await blobToBase64(file.slice(start, start + CHUNK_SIZE));
     const res = await api('/api/o2d-fms/catalogue-pdfs/chunk', 'POST', {
       uploadId, chunkIndex: i, totalChunks, chunkData, filename: file.name, docType, mimeType: file.type || 'application/pdf'
     });
     if (res.error) throw new Error(res.error);
+    completed++;
+    onProgress(completed, totalChunks);
   }
+
+  async function worker() {
+    while (next < totalChunks && !firstError) {
+      const i = next++;
+      try { await sendChunk(i); }
+      catch (e) { firstError = firstError || e; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, totalChunks) }, worker));
+  if (firstError) throw firstError;
 }
 
 // Handles one or many files picked at once (batch upload) — uploads them
@@ -7286,9 +7312,9 @@ async function onCataloguePdfSelected(event, docType) {
     const file = files[f];
     const fileLabel = files.length > 1 ? `File ${f + 1}/${files.length} (${file.name}): ` : '';
     try {
-      await uploadOnePdfChunked(file, docType, (chunkIdx, totalChunks) => {
+      await uploadOnePdfChunked(file, docType, (completed, totalChunks) => {
         statusEl.textContent = totalChunks > 1
-          ? `⏳ ${fileLabel}Uploading... ${chunkIdx + 1}/${totalChunks}`
+          ? `⏳ ${fileLabel}Uploading... ${completed}/${totalChunks}`
           : `⏳ ${fileLabel}Uploading...`;
       });
     } catch (e) {

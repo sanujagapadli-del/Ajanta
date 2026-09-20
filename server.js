@@ -3474,6 +3474,24 @@ async function withCataloguePdfChunksTable(fn) {
   catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureCataloguePdfChunksTable(); return await fn(); }
 }
 
+// Chunks now upload in parallel (see the /chunk route) instead of strictly
+// in order, so "was this the last chunk index" no longer tells us when to
+// reassemble — several requests can see "all chunks are in" at once. This
+// lock table makes sure only one of them actually does the reassembly +
+// Drive upload; INSERT IGNORE on a PRIMARY KEY is an atomic "first one wins".
+async function ensureCataloguePdfUploadLocksTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_catalogue_pdf_upload_locks (
+      upload_id VARCHAR(64) PRIMARY KEY,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+async function withCataloguePdfUploadLocksTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureCataloguePdfUploadLocksTable(); return await fn(); }
+}
+
 // Ajay (ajaykumarparwani@gmail.com, user id 9) + admins, per their request —
 // not the generic page_access permission below since it's just these two.
 function canEditPriceList(req) {
@@ -3597,17 +3615,31 @@ app.post('/api/o2d-fms/catalogue-pdfs/chunk', requireAuth, async (req, res) => {
     }
     // Best-effort prune of abandoned uploads (browser closed mid-upload etc).
     db.query('DELETE FROM o2d_catalogue_pdf_chunks WHERE created_at < DATE_SUB(NOW(), INTERVAL 6 HOUR)').catch(() => {});
+    db.query('DELETE FROM o2d_catalogue_pdf_upload_locks WHERE created_at < DATE_SUB(NOW(), INTERVAL 6 HOUR)').catch(() => {});
 
     await withCataloguePdfChunksTable(() => db.query(
       'INSERT INTO o2d_catalogue_pdf_chunks (upload_id, chunk_index, chunk_data) VALUES (?,?,?) ON DUPLICATE KEY UPDATE chunk_data=VALUES(chunk_data)',
       [uploadId, chunkIndex, chunkData]
     ));
 
-    if (Number(chunkIndex) < Number(totalChunks) - 1) {
+    // The client fires several chunks at once for speed, so they can land in
+    // any order — completion means "all chunks are stored", not "this was
+    // the highest index".
+    const [countRows] = await db.query('SELECT COUNT(*) as c FROM o2d_catalogue_pdf_chunks WHERE upload_id=?', [uploadId]);
+    if (Number(countRows[0].c) < Number(totalChunks)) {
       return res.json({ success: true, done: false });
     }
 
-    // Last chunk — reassemble in order, upload to Drive, record it, clean up.
+    // All chunks are in — but several concurrent requests can reach this
+    // point at once, so only the one that wins this lock actually reassembles.
+    const [lockResult] = await withCataloguePdfUploadLocksTable(() => db.query(
+      'INSERT IGNORE INTO o2d_catalogue_pdf_upload_locks (upload_id) VALUES (?)',
+      [uploadId]
+    ));
+    if (!lockResult.affectedRows) {
+      return res.json({ success: true, done: false });
+    }
+
     const [rows] = await db.query(
       'SELECT chunk_data FROM o2d_catalogue_pdf_chunks WHERE upload_id=? ORDER BY chunk_index ASC',
       [uploadId]
@@ -3625,6 +3657,7 @@ app.post('/api/o2d-fms/catalogue-pdfs/chunk', requireAuth, async (req, res) => {
       [type, filename, link, driveFileId, req.session.userId, req.session.name || '']
     ));
     await db.query('DELETE FROM o2d_catalogue_pdf_chunks WHERE upload_id=?', [uploadId]);
+    await db.query('DELETE FROM o2d_catalogue_pdf_upload_locks WHERE upload_id=?', [uploadId]);
 
     res.json({ success: true, done: true, url: link });
   } catch (err) {
