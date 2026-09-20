@@ -727,6 +727,10 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
       <span class="nav-label-text">New Order</span>
     </div>
+    <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+      <span class="nav-label-text">Price List & Catalogue</span>
+    </div>
     <div class="nav-divider"></div>
     <div class="nav-item" onclick="navigate('profile',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
@@ -1204,7 +1208,6 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab" id="o2dViewPC" onclick="switchO2dView('pc',this)">PC View</div>
         <div class="tab" id="o2dViewReports" onclick="switchO2dView('reports',this)">📊 Reports</div>
         <div class="tab" id="o2dViewDealers" onclick="switchO2dView('dealers',this)">🏪 Dealers</div>
-        <div class="tab" id="o2dViewPriceList" onclick="switchO2dView('pricelist',this)">💰 Price List</div>
       </div>
     </div>
 
@@ -1213,6 +1216,19 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div id="o2dListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── PRICE LIST & CATALOGUE ── -->
+  <div id="page-price-catalogue" class="page">
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Price List</div>
+    <div id="priceListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
+      <div class="empty">Loading…</div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Catalogue PDFs</div>
+    <div id="cataloguePdfWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty">Loading…</div>
     </div>
   </div>
@@ -2644,8 +2660,9 @@ async function init() {
     if (canSee('service-fms')) document.getElementById('nav-service-fms').style.display = 'flex';
     if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
     if (canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
+    if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
-    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-section-fms').style.display = 'block';
+    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('price-catalogue')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
@@ -2744,7 +2761,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','price-catalogue':'Price List & Catalogue'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -2756,7 +2773,7 @@ function closeMobileSidebar() {
 }
 
 function navigate(page, el) {
-  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms'].includes(page) && !MY_PAGES.has(page)) {
+  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','price-catalogue'].includes(page) && !MY_PAGES.has(page)) {
     showToast("You don't have access to this page", 'error');
     return;
   }
@@ -2779,6 +2796,7 @@ function navigate(page, el) {
   if (page==='records') loadRecords();
   if (page==='service-fms') loadServiceFmsList();
   if (page==='o2d-fms') loadO2dFmsList();
+  if (page==='price-catalogue') loadPriceCataloguePage();
   localStorage.setItem('lastPage', page);
   window.scrollTo(0,0);
 }
@@ -4130,6 +4148,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'service-fms', label: 'Service FMS' },
     { key: 'o2d-fms', label: 'O2D FMS' },
     { key: 'o2d-new-order', label: 'New Order' },
+    { key: 'price-catalogue', label: 'Price List & Catalogue' },
   ]},
 ];
 
@@ -6529,7 +6548,7 @@ function switchO2dView(view, el) {
   o2dPage = 1;
   document.querySelectorAll('#page-o2d-fms .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  document.getElementById('o2dSearchWrap').style.display = (view === 'reports' || view === 'dealers' || view === 'pricelist') ? 'none' : '';
+  document.getElementById('o2dSearchWrap').style.display = (view === 'reports' || view === 'dealers') ? 'none' : '';
   renderO2dActiveView();
 }
 
@@ -6537,7 +6556,6 @@ function renderO2dActiveView() {
   if (o2dView === 'fms') return renderO2dFmsView();
   if (o2dView === 'pc') return renderO2dPCView();
   if (o2dView === 'dealers') return renderO2dDealersView();
-  if (o2dView === 'pricelist') return renderO2dPriceListView();
   return renderO2dReportsView();
 }
 
@@ -7021,29 +7039,30 @@ async function submitCreditLimit() {
 }
 
 // ══════════════════════════════════════════════════════
-// O2D PRICE LIST / CATALOGUE — viewing is open to anyone with O2D access;
-// editing (price, photo, add/remove products) is restricted server-side
-// to Ajay + admins, so the buttons below only render for them (server
-// checks it too, this is just to avoid showing controls that would 403).
+// PRICE LIST & CATALOGUE — own page (Access-gated by 'price-catalogue').
+// Viewing needs that permission (or Ajay/admin, who always have it);
+// editing (price, photo, add/remove products, PDF upload) is restricted
+// server-side to Ajay + admins, so the buttons below only render for them
+// (server checks it too, this is just to avoid showing controls that'd 403).
 // ══════════════════════════════════════════════════════
 let o2dPriceList = [];
 let o2dPriceListCanEdit = false;
 let o2dPriceListLoaded = false;
 let o2dPriceListSearchQ = '';
 
+async function loadPriceCataloguePage() {
+  await Promise.all([loadO2dPriceList(false), loadCataloguePdfs(false)]);
+  renderPriceListGrid();
+  renderCataloguePdfList();
+}
+
 async function loadO2dPriceList(force) {
   if (o2dPriceListLoaded && !force) return;
   const r = await api('/api/o2d-fms/price-list');
+  if (r && r.error) { document.getElementById('priceListWrap').innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; return; }
   o2dPriceList = (r && r.items) || [];
   o2dPriceListCanEdit = !!(r && r.canEdit);
   o2dPriceListLoaded = true;
-}
-
-async function renderO2dPriceListView() {
-  const wrap = document.getElementById('o2dListWrap');
-  wrap.innerHTML = `<div class="empty">Loading price list…</div>`;
-  await loadO2dPriceList(false);
-  renderPriceListGrid();
 }
 
 function onPriceListSearchInput(v) { o2dPriceListSearchQ = v; renderPriceListGrid(); }
@@ -7070,7 +7089,8 @@ function priceListRowHtml(item) {
 }
 
 function renderPriceListGrid() {
-  const wrap = document.getElementById('o2dListWrap');
+  const wrap = document.getElementById('priceListWrap');
+  if (!wrap) return;
   const q = o2dPriceListSearchQ.trim().toLowerCase();
   const filtered = q ? o2dPriceList.filter(p => p.product_name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q)) : o2dPriceList;
 
@@ -7163,6 +7183,79 @@ async function deletePriceListItem(id, name) {
   showToast('Removed');
   await loadO2dPriceList(true);
   renderPriceListGrid();
+}
+
+// ── Catalogue PDFs — full upload history, newest first ──
+let o2dCataloguePdfs = [];
+let o2dCataloguePdfsCanEdit = false;
+let o2dCataloguePdfsLoaded = false;
+
+async function loadCataloguePdfs(force) {
+  if (o2dCataloguePdfsLoaded && !force) return;
+  const r = await api('/api/o2d-fms/catalogue-pdfs');
+  if (r && r.error) { document.getElementById('cataloguePdfWrap').innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; return; }
+  o2dCataloguePdfs = (r && r.items) || [];
+  o2dCataloguePdfsCanEdit = !!(r && r.canEdit);
+  o2dCataloguePdfsLoaded = true;
+}
+
+function cataloguePdfRowHtml(item) {
+  const deleteBtn = o2dCataloguePdfsCanEdit
+    ? `<button class="btn btn-outline btn-sm" onclick="deleteCataloguePdf(${item.id},'${item.filename.replace(/'/g,"\\'")}')" title="Remove">🗑</button>` : '';
+  return `<tr>
+    <td>📄</td>
+    <td><a href="${item.url}" target="_blank" style="font-weight:600;color:var(--color-primary)">${item.filename}</a></td>
+    <td>${item.uploaded_by_name || '—'}</td>
+    <td style="white-space:nowrap;color:var(--gray-500)">${item.created_at || '—'}</td>
+    <td style="white-space:nowrap">${deleteBtn}</td>
+  </tr>`;
+}
+
+function renderCataloguePdfList() {
+  const wrap = document.getElementById('cataloguePdfWrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div style="padding:16px">
+      ${o2dCataloguePdfsCanEdit ? `
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+        <input type="file" accept="application/pdf" id="cataloguePdfFile" onchange="onCataloguePdfSelected(event)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <span id="cataloguePdfUploadStatus" style="font-size:12px;color:var(--gray-500)"></span>
+      </div>` : ''}
+      <table>
+        <thead><tr><th></th><th>File</th><th>Uploaded By</th><th>Date</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${o2dCataloguePdfs.map(cataloguePdfRowHtml).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--gray-400)">No catalogue PDFs uploaded yet</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function onCataloguePdfSelected(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('cataloguePdfUploadStatus');
+  statusEl.textContent = '⏳ Uploading...';
+  statusEl.style.color = 'var(--gray-500)';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const res = await api('/api/o2d-fms/catalogue-pdfs', 'POST', { filename: file.name, pdfData: reader.result });
+    if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
+    statusEl.textContent = '✅ Uploaded';
+    statusEl.style.color = 'var(--color-success-text)';
+    event.target.value = '';
+    await loadCataloguePdfs(true);
+    renderCataloguePdfList();
+  };
+  reader.readAsDataURL(file);
+}
+
+async function deleteCataloguePdf(id, filename) {
+  if (!confirm(`Remove "${filename}"?`)) return;
+  const res = await api(`/api/o2d-fms/catalogue-pdfs/${id}`, 'DELETE');
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('Removed');
+  await loadCataloguePdfs(true);
+  renderCataloguePdfList();
 }
 
 // Real assigned doer(s) win over the step's static role label — same

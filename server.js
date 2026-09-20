@@ -409,7 +409,7 @@ function requireAdminOrPC(req, res, next) {
 
 // Per-user page access — only these pages are ever restrictable; everything
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue'];
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
 function parsePageAccess(raw, role) {
   if (role === 'admin') return RESTRICTABLE_PAGES.slice();
@@ -3397,11 +3397,13 @@ app.post('/api/o2d-fms/dealers/:name/payments', requireAuth, async (req, res) =>
 });
 
 // ══════════════════════════════════════════════════════
-// O2D PRICE LIST / CATALOGUE — an editable-in-app product price list,
-// seeded once from the read-only Product Master workbook (name/category/
-// UOM/HSN/GST — no real prices in that workbook, just a sample). Viewing
-// is open to anyone with O2D access; editing (price, photo, add/remove
-// products) is restricted to Ajay and admins per their request.
+// PRICE LIST & CATALOGUE — its own page (not nested in O2D FMS), gated by
+// the 'price-catalogue' permission on the Access page. Has two parts: an
+// editable product price list (seeded once from the read-only Product
+// Master workbook — name/category/UOM/HSN/GST, no real prices in that
+// workbook) and a history of uploaded catalogue PDFs. Editing/uploading is
+// restricted to Ajay and admins; viewing needs the page permission (admins
+// always have it, others only once granted it).
 // ══════════════════════════════════════════════════════
 async function ensurePriceListTable() {
   await db.query(`
@@ -3425,14 +3427,43 @@ async function withPriceListTable(fn) {
   catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensurePriceListTable(); return await fn(); }
 }
 
+async function ensureCataloguePdfsTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_catalogue_pdfs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      filename VARCHAR(500) NOT NULL,
+      url VARCHAR(1000) NOT NULL,
+      drive_file_id VARCHAR(255),
+      uploaded_by_id INT,
+      uploaded_by_name VARCHAR(255),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+async function withCataloguePdfsTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureCataloguePdfsTable(); return await fn(); }
+}
+
 // Ajay (ajaykumarparwani@gmail.com, user id 9) + admins, per their request —
-// not a generic page_access permission since it's just these two for now.
+// not the generic page_access permission below since it's just these two.
 function canEditPriceList(req) {
   return req.session.role === 'admin' || req.session.userId === 9;
 }
 
+// Whole-page viewing permission — admins and Ajay always have it (they can
+// edit, so they can obviously view); everyone else needs 'price-catalogue'
+// explicitly granted on the Access page.
+async function canAccessPriceCatalogue(req) {
+  if (canEditPriceList(req)) return true;
+  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
+  const pages = parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role);
+  return pages.includes('price-catalogue');
+}
+
 app.get('/api/o2d-fms/price-list', requireAuth, async (req, res) => {
   try {
+    if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to the price list' });
     let [rows] = await withPriceListTable(() => db.query('SELECT * FROM o2d_price_list ORDER BY category, product_name'));
     if (!rows.length) {
       // First-ever load — seed names/category/UOM/HSN/GST from the Product
@@ -3490,6 +3521,50 @@ app.delete('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
   try {
     if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can edit the price list' });
     await withPriceListTable(() => db.query('DELETE FROM o2d_price_list WHERE id = ?', [parseInt(req.params.id, 10)]));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Catalogue PDFs — full upload history kept (not just the latest), same
+// viewing permission as the price list above.
+app.get('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to the catalogue' });
+    const [rows] = await withCataloguePdfsTable(() => db.query('SELECT * FROM o2d_catalogue_pdfs ORDER BY created_at DESC'));
+    res.json({ items: rows, canEdit: canEditPriceList(req) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
+  try {
+    if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can upload catalogue PDFs' });
+    const { filename, pdfData } = req.body;
+    if (!filename || !pdfData) return res.status(400).json({ error: 'filename and pdfData are required' });
+    const link = await uploadPhotoToDrive(pdfData, filename);
+    const driveFileId = (link.match(/[?&]id=([^&]+)/) || [])[1] || null;
+    await withCataloguePdfsTable(() => db.query(
+      'INSERT INTO o2d_catalogue_pdfs (filename, url, drive_file_id, uploaded_by_id, uploaded_by_name) VALUES (?,?,?,?,?)',
+      [filename, link, driveFileId, req.session.userId, req.session.name || '']
+    ));
+    res.json({ success: true, url: link });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/o2d-fms/catalogue-pdfs/:id', requireAuth, async (req, res) => {
+  try {
+    if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can remove catalogue PDFs' });
+    const id = parseInt(req.params.id, 10);
+    const [rows] = await withCataloguePdfsTable(() => db.query('SELECT drive_file_id FROM o2d_catalogue_pdfs WHERE id=?', [id]));
+    if (rows[0] && rows[0].drive_file_id) {
+      try {
+        const drive = await getDriveClient();
+        await drive.files.delete({ fileId: rows[0].drive_file_id, supportsAllDrives: true });
+      } catch (e) { /* Drive file may already be gone — don't block removing the DB record */ }
+    }
+    await db.query('DELETE FROM o2d_catalogue_pdfs WHERE id=?', [id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
