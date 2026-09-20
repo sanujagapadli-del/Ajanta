@@ -65,7 +65,6 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
-const XLSX = require('xlsx');
 
 // Plain text password storage + legacy bcrypt migration.
 // Passwords are stored as plain text so admins can see them in the sheet.
@@ -546,12 +545,14 @@ const MASTER_WORKBOOK_FILE_ID = '1zAcazPtIhM3MsPBLKy0m8f_P3D9JoZeH';
 let _masterWorkbookCache = null; // { products, dealerNames, ts }
 // Downloading this file is the slow part (~5s, mostly Drive API network
 // time, not parsing) — cache long since it's a manually re-uploaded
-// reference workbook, and pre-warm below so most requests never pay that
-// cost at all.
+// reference workbook. Deliberately NOT pre-warmed at startup: on Vercel
+// every cold container would pay that ~5s cost even for requests that never
+// touch this data at all, which made things worse, not better.
 const MASTER_WORKBOOK_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 async function getMasterWorkbookData() {
   if (_masterWorkbookCache && (Date.now() - _masterWorkbookCache.ts) < MASTER_WORKBOOK_CACHE_TTL_MS) return _masterWorkbookCache;
+  const XLSX = require('xlsx'); // lazy — a fairly heavy lib, no reason to pay its load cost on every cold start
   const drive = await getDriveClient();
   const resp = await drive.files.get({ fileId: MASTER_WORKBOOK_FILE_ID, alt: 'media' }, { responseType: 'arraybuffer' });
   const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer', sheets: ['2. Product Master', '5. Dealer Master'] });
@@ -572,16 +573,6 @@ async function getMasterWorkbookData() {
   _masterWorkbookCache = { products, dealerNames, ts: Date.now() };
   return _masterWorkbookCache;
 }
-
-// Pre-warm — downloading this file is the slowest single thing in the app
-// (~5s, Drive API), so pay that cost once at startup instead of on
-// whichever request happens to hit a cold cache (e.g. someone opening New Order).
-(async () => {
-  try {
-    await getMasterWorkbookData();
-    console.log('  ✅ Master workbook pre-warmed');
-  } catch(e) { console.log('  ⚠️ Master workbook pre-warm failed:', e.message); }
-})();
 
 app.get('/api/o2d-fms/product-names', requireAuth, async (req, res) => {
   try {
