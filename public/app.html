@@ -1175,8 +1175,8 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab active" id="sfmsViewAll" onclick="switchSfmsView('all',this)">All Complaints</div>
         <div class="tab" id="sfmsViewStep1" onclick="switchSfmsView('step1',this)">1. Warranty</div>
         <div class="tab" id="sfmsViewStep2" onclick="switchSfmsView('step2',this)">2. Spare Check</div>
-        <div class="tab" id="sfmsViewStep3" onclick="switchSfmsView('step3',this)">3. Takeout</div>
-        <div class="tab" id="sfmsViewStep4" onclick="switchSfmsView('step4',this)">4. Assign</div>
+        <div class="tab" id="sfmsViewStep3" onclick="switchSfmsView('step3',this)">3. Assign</div>
+        <div class="tab" id="sfmsViewStep4" onclick="switchSfmsView('step4',this)">4. Takeout</div>
         <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. Solve</div>
         <div class="tab" id="sfmsViewStep6" onclick="switchSfmsView('step6',this)">6. In/Out</div>
         <div class="tab" id="sfmsViewStep7" onclick="switchSfmsView('step7',this)">7. Solved?</div>
@@ -2974,8 +2974,8 @@ async function loadDashboard() {
   if (Array.isArray(sfms)) {
     sfms.filter(c => !c.closed).forEach(c => {
       const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
-      const step4 = c.steps.find(s => s.n === 4);
-      const mechanic = (step4 && step4.mechanic) ? step4.mechanic : '—';
+      const assignStep = c.steps.find(s => s.n === 3);
+      const mechanic = (assignStep && assignStep.mechanic) ? assignStep.mechanic : '—';
       const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
       const isLate = daysPending >= 2;
       const description = `
@@ -5592,13 +5592,16 @@ function exportRecords() {
 const SFMS_STEP_DEFS = [
   { n: 1, label: 'Check Product in Warranty', statusOptions: ['Yes', 'No'], extraFields: [] },
   { n: 2, label: 'Spare Available?', statusOptions: ['Available', 'Need to be Purchased'], extraFields: [] },
-  { n: 3, label: 'Takeout Spare', extraFields: [
-      { key: 'itemName', label: 'Item Name', masterList: 'items' },
-      { key: 'spareTaken', label: 'Qty', type: 'number' }
-    ] },
-  { n: 4, label: 'Assign Complaint to Mechanic After Batching', extraFields: [
+  // Reordered (was step 4) — mechanic gets assigned zone-wise before the
+  // spare is taken out.
+  { n: 3, label: 'Assign Complaint to Mechanic After Batching', extraFields: [
       { key: 'zone', label: 'Zone', masterList: 'zone' },
       { key: 'mechanic', label: 'Mechanic Name', masterList: 'mechanics' }
+    ] },
+  // Reordered (was step 3) — now comes after Assign.
+  { n: 4, label: 'Takeout Spare', extraFields: [
+      { key: 'itemName', label: 'Item Name', masterList: 'items' },
+      { key: 'spareTaken', label: 'Qty', type: 'number' }
     ] },
   { n: 5, label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
       { key: 'repairStatus', label: 'Repair Status', options: ['Repaired at Location', 'Brought to Office'] }
@@ -5620,11 +5623,13 @@ let sfmsMechanicsList = [];
 let sfmsMechanicPhones = {};
 let sfmsMechanicZones = {}; // mechanic name -> zone, for filtering step 4's Mechanic dropdown by Zone
 let sfmsZoneList = [];
+let sfmsAreaZoneMap = {}; // area name -> zone, so the Assign tab can filter complaints by zone (a complaint only ever records its Area)
 let sfmsMasterListsLoaded = false;
 async function ensureSfmsMasterLists() {
   if (sfmsMasterListsLoaded) return;
-  const [spareParts, items, mechanics, zones] = await Promise.all([
-    api('/api/service-fms/spare-parts'), api('/api/service-fms/items'), api('/api/service-fms/mechanics'), api('/api/service-fms/zones')
+  const [spareParts, items, mechanics, zones, areaZoneMap] = await Promise.all([
+    api('/api/service-fms/spare-parts'), api('/api/service-fms/items'), api('/api/service-fms/mechanics'),
+    api('/api/service-fms/zones'), api('/api/service-fms/area-zone-map')
   ]);
   // Item Name dropdown = the real Spare Parts Master catalog (396 items),
   // plus any ad-hoc items added via "+ Add New" that aren't already in it.
@@ -5637,6 +5642,7 @@ async function ensureSfmsMasterLists() {
   sfmsMechanicPhones = Object.fromEntries(mechList.map(m => [m.name, m.mobile || '']));
   sfmsMechanicZones = Object.fromEntries(mechList.map(m => [m.name, m.zone || '']));
   sfmsZoneList = Array.isArray(zones) ? zones : [];
+  sfmsAreaZoneMap = (areaZoneMap && typeof areaZoneMap === 'object' && !areaZoneMap.error) ? areaZoneMap : {};
   sfmsMasterListsLoaded = true;
 }
 function sfmsMasterListFor(name) {
@@ -5762,17 +5768,49 @@ function switchSfmsView(view, el) {
 // with the exact same "Next Action" form used in the detail modal (via
 // buildSfmsNextActionHtml) sitting inline in its own column — mark a step
 // done straight from the list, no need to open each complaint separately.
+// Zone filter (point 8) — only relevant on the Assign tab (step 3): filter
+// the pending-Assign list down to one zone (derived from each complaint's
+// Area via sfmsAreaZoneMap, since a complaint only ever records its Area)
+// so a batch of complaints from the same area can be assigned to one
+// mechanic quickly, without re-picking Zone on every single row.
+let sfmsAssignZoneFilter = '';
+function onSfmsAssignZoneFilterChange(value) {
+  sfmsAssignZoneFilter = value;
+  renderSfmsStepView(3);
+}
+
 function renderSfmsStepView(n) {
   const wrap = document.getElementById('sfmsListWrap');
   const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
-  const rows = sfmsData.filter(c => !c.closed && c.currentStep + 1 === n);
-  if (!rows.length) { wrap.innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`; return; }
+  const allRows = sfmsData.filter(c => !c.closed && c.currentStep + 1 === n);
+  if (!allRows.length) { wrap.innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`; return; }
+
+  const isAssignTab = n === 3;
+  const rows = (isAssignTab && sfmsAssignZoneFilter)
+    ? allRows.filter(c => sfmsAreaZoneMap[c.area] === sfmsAssignZoneFilter)
+    : allRows;
+
+  const zoneFilterHtml = isAssignTab ? `
+    <div style="padding:14px 16px 0;display:flex;align-items:center;gap:8px">
+      <label style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">Filter by Zone</label>
+      <select onchange="onSfmsAssignZoneFilterChange(this.value)" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px">
+        <option value="">-- All Zones --</option>
+        ${sfmsZoneList.map(z => `<option value="${z.replace(/"/g, '&quot;')}" ${z === sfmsAssignZoneFilter ? 'selected' : ''}>${z}</option>`).join('')}
+      </select>
+      <span style="font-size:12px;color:var(--gray-400)">${rows.length} of ${allRows.length} complaint${allRows.length === 1 ? '' : 's'}</span>
+    </div>` : '';
+
+  if (isAssignTab && !rows.length) {
+    wrap.innerHTML = zoneFilterHtml + `<div class="empty">No complaints pending at "${stepDef.label}" in this zone.</div>`;
+    return;
+  }
+
   // The action column is pinned to the right edge (position:sticky) so it
   // stays visible while scrolling through the detail columns, instead of
   // needing a full scroll to the far right just to see the submit button.
   const stickyTh = 'position:sticky;right:0;background:var(--surface-alt);box-shadow:-2px 0 4px rgba(0,0,0,.06)';
   const stickyTd = 'position:sticky;right:0;background:#fff;box-shadow:-2px 0 4px rgba(0,0,0,.06)';
-  wrap.innerHTML = `<div class="mis-table-wrap" style="overflow-x:auto">
+  wrap.innerHTML = zoneFilterHtml + `<div class="mis-table-wrap" style="overflow-x:auto;margin-top:${isAssignTab ? '12px' : '0'}">
   <table>
     <thead><tr>
       <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
@@ -5805,6 +5843,17 @@ function renderSfmsStepView(n) {
     </tbody>
   </table>
   </div>`;
+
+  // Pre-fill each visible row's own Zone picker to match the active filter
+  // (and cascade-filter its Mechanic list) so staff only need to pick a
+  // Mechanic per row, not re-select Zone every time — the whole point of
+  // filtering by zone first.
+  if (isAssignTab && sfmsAssignZoneFilter) {
+    rows.forEach(c => {
+      const zoneSel = document.getElementById(`sfmsExtra_${c.row}_zone`);
+      if (zoneSel) { zoneSel.value = sfmsAssignZoneFilter; onSfmsZoneChange(c.row); }
+    });
+  }
 }
 
 // Patches just one row's action cell in the per-step table (instead of a full
@@ -5853,9 +5902,9 @@ function renderMechanicWiseView() {
   const wrap = document.getElementById('sfmsReportContent');
   const groups = {};
   sfmsData.filter(c => !c.closed).forEach(c => {
-    const step4 = c.steps.find(s => s.n === 4);
+    const assignStep = c.steps.find(s => s.n === 3);
     const step7 = c.steps.find(s => s.n === 7);
-    const mech = (step4 && step4.mechanic) ? step4.mechanic.trim() : '';
+    const mech = (assignStep && assignStep.mechanic) ? assignStep.mechanic.trim() : '';
     if (!mech || (step7 && step7.status === 'Yes')) return;
     (groups[mech] = groups[mech] || []).push(c);
   });
@@ -6001,14 +6050,14 @@ function exportSfmsReportCsv(tableId) {
 // Spare Shortage Report — Step 6 entries where returned qty fell short of taken.
 function buildReportShortage() {
   const withShortage = sfmsData.map(c => {
-    const step3 = c.steps.find(s => s.n === 3);
+    const takeoutStep = c.steps.find(s => s.n === 4);
     const step6 = c.steps.find(s => s.n === 6);
-    if (!step6.status || step3.spareTaken === '' || step3.spareTaken === undefined) return null;
-    const taken = Number(step3.spareTaken) || 0;
+    if (!step6.status || takeoutStep.spareTaken === '' || takeoutStep.spareTaken === undefined) return null;
+    const taken = Number(takeoutStep.spareTaken) || 0;
     const returned = Number(step6.qtyReturned) || 0;
     const shortage = taken - returned;
     if (shortage <= 0) return null;
-    return { c, step3, step6, taken, returned, shortage };
+    return { c, takeoutStep, step6, taken, returned, shortage };
   }).filter(Boolean).sort((a, b) => b.shortage - a.shortage);
 
   if (!withShortage.length) return '<div class="empty">No spare shortages recorded. 🎉</div>';
@@ -6017,17 +6066,17 @@ function buildReportShortage() {
     <table id="sfmsRptShortageTable">
       <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>Returned</th><th>Shortage</th><th>Reason</th><th>Mechanic</th></tr></thead>
       <tbody>
-        ${withShortage.map(({ c, step3, step6, taken, returned, shortage }) => {
-          const step4 = c.steps.find(s => s.n === 4);
+        ${withShortage.map(({ c, takeoutStep, step6, taken, returned, shortage }) => {
+          const assignStep = c.steps.find(s => s.n === 3);
           return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
             <td style="font-weight:600">${c.complainNo}</td>
             <td>${c.filledByName}</td>
-            <td>${step3.itemName || '—'}</td>
+            <td>${takeoutStep.itemName || '—'}</td>
             <td>${taken}</td>
             <td>${returned}</td>
             <td style="color:var(--color-danger);font-weight:700">${shortage}</td>
             <td>${step6.reasonIfShort || '—'}</td>
-            <td>${(step4 && step4.mechanic) || '—'}</td>
+            <td>${(assignStep && assignStep.mechanic) || '—'}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -6046,22 +6095,22 @@ let sfmsSpareEditTaken = new Set();
 let sfmsSpareEditReturned = new Set();
 
 function buildReportSpareTable() {
-  const relevant = sfmsData.filter(c => c.currentStep >= 3);
+  const relevant = sfmsData.filter(c => c.currentStep >= 4);
   if (!relevant.length) return '<div class="empty">No complaints have reached Takeout Spare yet.</div>';
-  return sfmsReportHeader('Edit Qty Taken / Qty Returned directly here — saving updates the complaint’s Step 3 / Step 6 records.', 'sfmsRptSpareTable') + `
+  return sfmsReportHeader('Edit Qty Taken / Qty Returned directly here — saving updates the complaint’s Step 4 / Step 6 records.', 'sfmsRptSpareTable') + `
     <div class="mis-table-wrap" style="overflow-x:auto;border:1px solid var(--gray-200);border-radius:10px">
     <table id="sfmsRptSpareTable">
       <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Qty Taken</th><th>Qty Returned</th><th>Reason (if Short)</th><th>Action</th></tr></thead>
       <tbody>
         ${relevant.map(c => {
-          const step3 = c.steps.find(s => s.n === 3);
+          const takeoutStep = c.steps.find(s => s.n === 4);
           const step6 = c.steps.find(s => s.n === 6);
           const canEditReturn = c.currentStep >= 5;
-          const takenLocked = step3.spareTaken !== '' && step3.spareTaken != null && !sfmsSpareEditTaken.has(c.row);
+          const takenLocked = takeoutStep.spareTaken !== '' && takeoutStep.spareTaken != null && !sfmsSpareEditTaken.has(c.row);
           const returnedLocked = step6.qtyReturned !== '' && step6.qtyReturned != null && !sfmsSpareEditReturned.has(c.row);
           const takenCell = takenLocked
-            ? `<span>${step3.spareTaken}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'taken')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
-            : `<input type="number" id="sfmsRptTaken_${c.row}" value="${step3.spareTaken || ''}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
+            ? `<span>${takeoutStep.spareTaken}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'taken')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
+            : `<input type="number" id="sfmsRptTaken_${c.row}" value="${takeoutStep.spareTaken || ''}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
           const returnedCell = returnedLocked
             ? `<span>${step6.qtyReturned}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'returned')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
             : `<input type="number" id="sfmsRptReturned_${c.row}" value="${step6.qtyReturned || ''}" ${canEditReturn ? '' : 'disabled title="Complete Step 5 (OTP) first"'} style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;${canEditReturn ? '' : 'background:var(--gray-50);color:var(--gray-400)'}"/>`;
@@ -6071,7 +6120,7 @@ function buildReportSpareTable() {
           return `<tr>
             <td style="font-weight:600">${c.complainNo}</td>
             <td>${c.filledByName}</td>
-            <td>${step3.itemName || '—'}</td>
+            <td>${takeoutStep.itemName || '—'}</td>
             <td>${takenCell}</td>
             <td>${returnedCell}</td>
             <td>${reasonCell}</td>
@@ -6091,12 +6140,12 @@ function toggleSfmsSpareEdit(row, field) {
 
 async function saveSfmsReportSpareRow(row, canEditReturn) {
   const c = sfmsData.find(x => x.row === row);
-  const step3 = c.steps.find(s => s.n === 3);
+  const takeoutStep = c.steps.find(s => s.n === 4);
   const takenEl = document.getElementById(`sfmsRptTaken_${row}`);
   const taken = takenEl ? takenEl.value : '';
   const results = [];
   if (taken !== '') {
-    results.push(await api(`/api/service-fms/${row}/step/3`, 'PUT', { spareTaken: taken, itemName: step3.itemName || '' }));
+    results.push(await api(`/api/service-fms/${row}/step/4`, 'PUT', { spareTaken: taken, itemName: takeoutStep.itemName || '' }));
   }
   if (canEditReturn) {
     const returnedEl = document.getElementById(`sfmsRptReturned_${row}`);
@@ -6151,12 +6200,12 @@ function buildReportPC() {
 function buildReportItemWise() {
   const items = {};
   sfmsData.forEach(c => {
-    const step3 = c.steps.find(s => s.n === 3);
+    const takeoutStep = c.steps.find(s => s.n === 4);
     const step6 = c.steps.find(s => s.n === 6);
-    if (!step3.itemName) return;
-    const key = step3.itemName;
+    if (!takeoutStep.itemName) return;
+    const key = takeoutStep.itemName;
     if (!items[key]) items[key] = { taken: 0, returned: 0, complaints: 0 };
-    items[key].taken += Number(step3.spareTaken) || 0;
+    items[key].taken += Number(takeoutStep.spareTaken) || 0;
     items[key].returned += Number(step6.qtyReturned) || 0;
     items[key].complaints += 1;
   });
@@ -6540,20 +6589,20 @@ function buildSfmsNextActionHtml(c, compact) {
         ${wrapClose}`;
     }
   } else if (nextStepDef) {
-    // Step 3 (Takeout Spare): only ask how many were taken here — "Spares Returned"
+    // Step 4 (Takeout Spare): only ask how many were taken here — "Spares Returned"
     // can only be logged after the takeout has actually happened, via the Spare
     // In/Out tab's "Return Pending" section, not upfront alongside the takeout.
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
-    const fieldsToShow = nextStepDef.n === 3 ? nextStepDef.extraFields.filter(f => f.key !== 'spareReturned') : nextStepDef.extraFields;
+    const fieldsToShow = nextStepDef.n === 4 ? nextStepDef.extraFields.filter(f => f.key !== 'spareReturned') : nextStepDef.extraFields;
     const statusSelectHtml = nextStepDef.statusOptions ? renderSfmsStatusSelect(nextStepDef, c.row, compact) : '';
-    // Step 6 (Spare In/Out): show what was taken in Step 3 for comparison, and
+    // Step 6 (Spare In/Out): show what was taken in Step 4 for comparison, and
     // only reveal "Reason (if Short)" once the returned qty is actually short.
     let extraInputsHtml, takenSummaryHtml = '';
     if (nextStepDef.n === 6) {
-      const step3 = c.steps.find(s => s.n === 3);
-      const takenQty = Number(step3.spareTaken) || 0;
+      const takeoutStep = c.steps.find(s => s.n === 4);
+      const takenQty = Number(takeoutStep.spareTaken) || 0;
       takenSummaryHtml = compact ? '' : `<div style="font-size:13px;color:var(--gray-700);margin-bottom:12px;background:var(--surface);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
-        <b>Taken in Step 3:</b> ${step3.itemName || '—'} × ${takenQty}
+        <b>Taken in Step 4:</b> ${takeoutStep.itemName || '—'} × ${takenQty}
       </div>`;
       const qtyField = fieldsToShow.find(f => f.key === 'qtyReturned');
       const reasonField = fieldsToShow.find(f => f.key === 'reasonIfShort');
@@ -6706,8 +6755,8 @@ async function advanceSfmsStep(row, step, stage) {
   // Step 6: require a reason whenever the returned qty is short of what was taken.
   if (step === 6) {
     const c = sfmsData.find(x => x.row === row);
-    const step3 = c ? c.steps.find(s => s.n === 3) : null;
-    const takenQty = step3 ? (Number(step3.spareTaken) || 0) : 0;
+    const takeoutStep = c ? c.steps.find(s => s.n === 4) : null;
+    const takenQty = takeoutStep ? (Number(takeoutStep.spareTaken) || 0) : 0;
     const returnedQty = Number(body.qtyReturned);
     if (!isNaN(returnedQty) && returnedQty < takenQty && !body.reasonIfShort) {
       showToast('Enter a reason for the shortage', 'error');

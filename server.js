@@ -2484,18 +2484,21 @@ const SFMS_WARRANTY_CHARGES_AGREED_COL = 'BF';
 const SFMS_STEPS = [
   { n: 1, label: 'Check Product in Warranty', planned: 'O', actual: 'P', status: 'Q', timeDelay: 'R', extra: [] },
   { n: 2, label: 'Spare Available?', planned: 'S', actual: 'T', status: 'U', timeDelay: 'V', extra: [] },
-  { n: 3, label: 'Takeout Spare', planned: 'W', actual: 'X', status: 'Y',
+  // Reordered (was step 4) — mechanic gets assigned zone-wise before the
+  // spare is taken out, per the field-batching workflow.
+  { n: 3, label: 'Assign Complaint to Mechanic After Batching', planned: 'AC', actual: 'AD', status: 'AE',
+    extra: [
+      { key: 'zone', col: SFMS_ZONE_COL, label: 'Zone' },
+      { key: 'mechanic', col: 'AF', label: 'Mechanic Name' }
+    ], timeDelay: 'AG' },
+  // Reordered (was step 3) — now comes after Assign.
+  { n: 4, label: 'Takeout Spare', planned: 'W', actual: 'X', status: 'Y',
     extra: [
       { key: 'itemName', col: 'BE', label: 'Item Name' },
       { key: 'spareTaken', col: 'Z', label: 'Qty' },
       { key: 'spareReturned', col: 'AA', label: 'Spares Returned' }
     ],
     timeDelay: 'AB' },
-  { n: 4, label: 'Assign Complaint to Mechanic After Batching', planned: 'AC', actual: 'AD', status: 'AE',
-    extra: [
-      { key: 'zone', col: SFMS_ZONE_COL, label: 'Zone' },
-      { key: 'mechanic', col: 'AF', label: 'Mechanic Name' }
-    ], timeDelay: 'AG' },
   // Mechanic reaching the customer's location — OTP-gated, plus a repair-status answer.
   { n: 5, label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
     extra: [{ key: 'repairStatus', col: 'AK', label: 'Repair Status' }],
@@ -2851,6 +2854,23 @@ app.post('/api/service-fms/areas', requireAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Area name is required' });
     await sfmsAddToList(SFMS_AREA_TAB, name);
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Area -> Zone map (column B of the Area tab, seeded from the "Area
+// Details" zone grid) — lets the Assign step's list be filtered by Zone
+// even though a complaint only ever records its Area, not a zone, at
+// creation time. Areas added later via "+ Add New" simply have no zone
+// here until someone fills column B in the sheet directly.
+app.get('/api/service-fms/area-zone-map', requireAuth, async (req, res) => {
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const result = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_AREA_TAB}'!A2:B`
+    });
+    const map = {};
+    (result.data.values || []).forEach(r => { if (r[0] && r[1]) map[r[0]] = r[1]; });
+    res.json(map);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
