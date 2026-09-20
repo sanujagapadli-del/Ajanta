@@ -1,5 +1,5 @@
 -- ══════════════════════════════════════════════════════════════════
--- Ajanta Electronics Task Manager — MySQL schema
+-- Ajanta Appliances Task Manager — MySQL schema
 -- Mirrors the table/column layout in sheets-db.js's SCHEMA constant,
 -- so server.js's existing SQL (written for a real MySQL pool) runs
 -- unchanged against this.
