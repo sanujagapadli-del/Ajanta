@@ -5624,13 +5624,16 @@ let sfmsMechanicPhones = {};
 let sfmsMechanicZones = {}; // mechanic name -> zone, for filtering step 4's Mechanic dropdown by Zone
 let sfmsZoneList = [];
 let sfmsAreaZoneMap = {}; // area name -> zone, so the Assign tab can filter complaints by zone (a complaint only ever records its Area)
+let sfmsProductWarrantyMonths = {}; // product name (lowercased) -> warranty months, for the Warranty tab's auto status
 let sfmsMasterListsLoaded = false;
 async function ensureSfmsMasterLists() {
   if (sfmsMasterListsLoaded) return;
-  const [spareParts, items, mechanics, zones, areaZoneMap] = await Promise.all([
+  const [spareParts, items, mechanics, zones, areaZoneMap, productNames] = await Promise.all([
     api('/api/service-fms/spare-parts'), api('/api/service-fms/items'), api('/api/service-fms/mechanics'),
-    api('/api/service-fms/zones'), api('/api/service-fms/area-zone-map')
+    api('/api/service-fms/zones'), api('/api/service-fms/area-zone-map'), api('/api/o2d-fms/product-names')
   ]);
+  const products = (productNames && productNames.products) || [];
+  sfmsProductWarrantyMonths = Object.fromEntries(products.filter(p => p.warrantyMonths).map(p => [p.name.trim().toLowerCase(), p.warrantyMonths]));
   // Item Name dropdown = the real Spare Parts Master catalog (396 items),
   // plus any ad-hoc items added via "+ Add New" that aren't already in it.
   const spareNames = Array.isArray(spareParts) ? spareParts.map(p => p.name) : [];
@@ -5764,6 +5767,29 @@ function switchSfmsView(view, el) {
   renderServiceFmsList();
 }
 
+// Auto warranty status (Warranty tab only) — Purchase Date + the product's
+// Warranty (Months) from Product Master, same computation as the New
+// Complaint form's out-of-warranty banner, just shown here as a read-only
+// aid instead of a submit-blocking check.
+function sfmsComputeWarrantyStatus(c) {
+  const months = sfmsProductWarrantyMonths[(c.productName || '').trim().toLowerCase()];
+  const purchaseDateOnly = (c.purchaseDate || '').split(' ')[0];
+  if (!months || !purchaseDateOnly) return null;
+  const expiry = new Date(purchaseDateOnly + 'T00:00:00');
+  expiry.setMonth(expiry.getMonth() + months);
+  const daysLeft = Math.round((expiry - new Date()) / 86400000);
+  return { inWarranty: daysLeft >= 0, months, expiryDate: expiry.toISOString().slice(0, 10), daysLeft };
+}
+function sfmsWarrantyStatusHtml(c) {
+  const w = sfmsComputeWarrantyStatus(c);
+  if (!w) return `<span style="color:var(--gray-400);font-size:12px">No warranty data</span>`;
+  return w.inWarranty
+    ? `<div style="color:var(--color-success-text);font-weight:700;font-size:12px">✅ In Warranty</div>
+       <div style="font-size:11px;color:var(--gray-500)">${w.months}mo, expires ${w.expiryDate} (${w.daysLeft}d left)</div>`
+    : `<div style="color:var(--color-danger);font-weight:700;font-size:12px">⚠️ Out of Warranty</div>
+       <div style="font-size:11px;color:var(--gray-500)">expired ${w.expiryDate} (${Math.abs(w.daysLeft)}d ago)</div>`;
+}
+
 // One tab per step: a table of everything currently pending right there,
 // with the exact same "Next Action" form used in the detail modal (via
 // buildSfmsNextActionHtml) sitting inline in its own column — mark a step
@@ -5810,11 +5836,13 @@ function renderSfmsStepView(n) {
   // needing a full scroll to the far right just to see the submit button.
   const stickyTh = 'position:sticky;right:0;background:var(--surface-alt);box-shadow:-2px 0 4px rgba(0,0,0,.06)';
   const stickyTd = 'position:sticky;right:0;background:#fff;box-shadow:-2px 0 4px rgba(0,0,0,.06)';
+  const isWarrantyTab = n === 1;
   wrap.innerHTML = zoneFilterHtml + `<div class="mis-table-wrap" style="overflow-x:auto;margin-top:${isAssignTab ? '12px' : '0'}">
   <table>
     <thead><tr>
       <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
       <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Photos</th><th>Pending</th>
+      ${isWarrantyTab ? '<th>Warranty Status</th>' : ''}
       <th style="${stickyTh}">${n}. ${stepDef.label}</th>
     </tr></thead>
     <tbody>
@@ -5837,6 +5865,7 @@ function renderSfmsStepView(n) {
           <td style="white-space:nowrap">${c.area || '—'}</td>
           <td style="white-space:nowrap;font-size:16px">${photosHtml || '—'}</td>
           <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
+          ${isWarrantyTab ? `<td style="white-space:nowrap">${sfmsWarrantyStatusHtml(c)}</td>` : ''}
           <td id="sfmsStepAction_${c.row}" style="${stickyTd};padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
         </tr>`;
       }).join('')}
@@ -5852,6 +5881,15 @@ function renderSfmsStepView(n) {
     rows.forEach(c => {
       const zoneSel = document.getElementById(`sfmsExtra_${c.row}_zone`);
       if (zoneSel) { zoneSel.value = sfmsAssignZoneFilter; onSfmsZoneChange(c.row); }
+    });
+  }
+  // Pre-fill each row's Warranty Yes/No with the auto-computed status — still
+  // just a suggestion, staff review and hit Submit same as always.
+  if (isWarrantyTab) {
+    rows.forEach(c => {
+      const w = sfmsComputeWarrantyStatus(c);
+      const statusSel = document.getElementById(`sfmsStatusSelect_${c.row}`);
+      if (w && statusSel) statusSel.value = w.inWarranty ? 'Yes' : 'No';
     });
   }
 }
