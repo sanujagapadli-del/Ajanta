@@ -3396,6 +3396,104 @@ app.post('/api/o2d-fms/dealers/:name/payments', requireAuth, async (req, res) =>
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ══════════════════════════════════════════════════════
+// O2D PRICE LIST / CATALOGUE — an editable-in-app product price list,
+// seeded once from the read-only Product Master workbook (name/category/
+// UOM/HSN/GST — no real prices in that workbook, just a sample). Viewing
+// is open to anyone with O2D access; editing (price, photo, add/remove
+// products) is restricted to Ajay and admins per their request.
+// ══════════════════════════════════════════════════════
+async function ensurePriceListTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_price_list (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_name VARCHAR(255) NOT NULL UNIQUE,
+      category VARCHAR(255),
+      uom VARCHAR(50),
+      hsn_code VARCHAR(50),
+      gst_percent VARCHAR(20),
+      price DECIMAL(12,2),
+      image_url VARCHAR(1000),
+      remarks VARCHAR(500),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+}
+async function withPriceListTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensurePriceListTable(); return await fn(); }
+}
+
+// Ajay (ajaykumarparwani@gmail.com, user id 9) + admins, per their request —
+// not a generic page_access permission since it's just these two for now.
+function canEditPriceList(req) {
+  return req.session.role === 'admin' || req.session.userId === 9;
+}
+
+app.get('/api/o2d-fms/price-list', requireAuth, async (req, res) => {
+  try {
+    let [rows] = await withPriceListTable(() => db.query('SELECT * FROM o2d_price_list ORDER BY category, product_name'));
+    if (!rows.length) {
+      // First-ever load — seed names/category/UOM/HSN/GST from the Product
+      // Master workbook so there's something to start pricing, instead of
+      // an empty table nobody knows how to populate.
+      const { products: masterProducts } = await getMasterWorkbookData();
+      if (masterProducts.length) {
+        const values = masterProducts.map(p => [p.name, p.category]);
+        const placeholders = values.map(() => '(?,?)').join(',');
+        await db.query(
+          `INSERT IGNORE INTO o2d_price_list (product_name, category) VALUES ${placeholders}`,
+          values.flat()
+        );
+        [rows] = await db.query('SELECT * FROM o2d_price_list ORDER BY category, product_name');
+      }
+    }
+    res.json({ items: rows, canEdit: canEditPriceList(req) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/o2d-fms/price-list', requireAuth, async (req, res) => {
+  try {
+    if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can edit the price list' });
+    const { productName, category, uom, hsnCode, gstPercent, price, remarks } = req.body;
+    if (!productName || !productName.trim()) return res.status(400).json({ error: 'Product name is required' });
+    await withPriceListTable(() => db.query(
+      `INSERT INTO o2d_price_list (product_name, category, uom, hsn_code, gst_percent, price, remarks) VALUES (?,?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE category=VALUES(category), uom=VALUES(uom), hsn_code=VALUES(hsn_code), gst_percent=VALUES(gst_percent), price=VALUES(price), remarks=VALUES(remarks)`,
+      [productName.trim(), category || null, uom || null, hsnCode || null, gstPercent || null,
+       (price === '' || price === undefined || price === null) ? null : Number(price), remarks || null]
+    ));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
+  try {
+    if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can edit the price list' });
+    const id = parseInt(req.params.id, 10);
+    const { category, uom, hsnCode, gstPercent, price, imageUrl, remarks } = req.body;
+    await withPriceListTable(() => db.query(
+      `UPDATE o2d_price_list SET
+         category = COALESCE(?, category), uom = COALESCE(?, uom), hsn_code = COALESCE(?, hsn_code),
+         gst_percent = COALESCE(?, gst_percent), price = ?, image_url = COALESCE(?, image_url), remarks = COALESCE(?, remarks)
+       WHERE id = ?`,
+      [category ?? null, uom ?? null, hsnCode ?? null, gstPercent ?? null,
+       (price === '' || price === undefined || price === null) ? null : Number(price),
+       imageUrl ?? null, remarks ?? null, id]
+    ));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
+  try {
+    if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can edit the price list' });
+    await withPriceListTable(() => db.query('DELETE FROM o2d_price_list WHERE id = ?', [parseInt(req.params.id, 10)]));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   try {
     const {

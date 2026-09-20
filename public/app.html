@@ -1204,6 +1204,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab" id="o2dViewPC" onclick="switchO2dView('pc',this)">PC View</div>
         <div class="tab" id="o2dViewReports" onclick="switchO2dView('reports',this)">📊 Reports</div>
         <div class="tab" id="o2dViewDealers" onclick="switchO2dView('dealers',this)">🏪 Dealers</div>
+        <div class="tab" id="o2dViewPriceList" onclick="switchO2dView('pricelist',this)">💰 Price List</div>
       </div>
     </div>
 
@@ -2380,6 +2381,34 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div class="form-group"><label>Credit Limit (₹)</label><input type="number" id="clAmount" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <button class="btn btn-primary" style="width:100%" onclick="submitCreditLimit()">Save</button>
+  </div>
+</div>
+
+<!-- ── O2D: PRICE LIST ADD/EDIT MODAL ── -->
+<div class="modal-overlay" id="priceListModal">
+  <div class="modal" style="max-width:440px;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0" id="plModalTitle">+ Add Product</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('priceListModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="overflow-y:auto;flex:1;padding-right:2px">
+      <input type="hidden" id="plItemId"/>
+      <input type="hidden" id="plImageUrl"/>
+      <div class="form-group"><label>Product Name <span style="color:var(--color-danger)">*</span></label><input type="text" id="plProductName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-group"><label>Category</label><input type="text" id="plCategory" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+        <div class="form-group"><label>UOM</label><input type="text" id="plUom" placeholder="e.g. Pcs" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+        <div class="form-group"><label>HSN Code</label><input type="text" id="plHsn" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+        <div class="form-group"><label>GST %</label><input type="text" id="plGst" placeholder="e.g. 18%" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+      </div>
+      <div class="form-group"><label>Price (₹)</label><input type="number" id="plPrice" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+      <div class="form-group"><label>Catalogue Photo</label>
+        <input type="file" accept="image/*" onchange="onPriceListPhotoSelected(event)" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <div id="plPhotoStatus" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+      </div>
+      <div class="form-group"><label>Remarks</label><input type="text" id="plRemarks" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="submitPriceListItem()">Save</button>
   </div>
 </div>
 
@@ -6500,7 +6529,7 @@ function switchO2dView(view, el) {
   o2dPage = 1;
   document.querySelectorAll('#page-o2d-fms .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  document.getElementById('o2dSearchWrap').style.display = (view === 'reports' || view === 'dealers') ? 'none' : '';
+  document.getElementById('o2dSearchWrap').style.display = (view === 'reports' || view === 'dealers' || view === 'pricelist') ? 'none' : '';
   renderO2dActiveView();
 }
 
@@ -6508,6 +6537,7 @@ function renderO2dActiveView() {
   if (o2dView === 'fms') return renderO2dFmsView();
   if (o2dView === 'pc') return renderO2dPCView();
   if (o2dView === 'dealers') return renderO2dDealersView();
+  if (o2dView === 'pricelist') return renderO2dPriceListView();
   return renderO2dReportsView();
 }
 
@@ -6988,6 +7018,151 @@ async function submitCreditLimit() {
   closeModal('creditLimitModal');
   await loadO2dDealers(true);
   refreshDealerViews();
+}
+
+// ══════════════════════════════════════════════════════
+// O2D PRICE LIST / CATALOGUE — viewing is open to anyone with O2D access;
+// editing (price, photo, add/remove products) is restricted server-side
+// to Ajay + admins, so the buttons below only render for them (server
+// checks it too, this is just to avoid showing controls that would 403).
+// ══════════════════════════════════════════════════════
+let o2dPriceList = [];
+let o2dPriceListCanEdit = false;
+let o2dPriceListLoaded = false;
+let o2dPriceListSearchQ = '';
+
+async function loadO2dPriceList(force) {
+  if (o2dPriceListLoaded && !force) return;
+  const r = await api('/api/o2d-fms/price-list');
+  o2dPriceList = (r && r.items) || [];
+  o2dPriceListCanEdit = !!(r && r.canEdit);
+  o2dPriceListLoaded = true;
+}
+
+async function renderO2dPriceListView() {
+  const wrap = document.getElementById('o2dListWrap');
+  wrap.innerHTML = `<div class="empty">Loading price list…</div>`;
+  await loadO2dPriceList(false);
+  renderPriceListGrid();
+}
+
+function onPriceListSearchInput(v) { o2dPriceListSearchQ = v; renderPriceListGrid(); }
+
+function priceListRowHtml(item) {
+  const editBtns = o2dPriceListCanEdit ? `
+    <div style="display:flex;gap:4px">
+      <button class="btn btn-outline btn-sm" onclick="openEditPriceModal(${item.id})">✎ Edit</button>
+      <button class="btn btn-outline btn-sm" onclick="deletePriceListItem(${item.id},'${item.product_name.replace(/'/g,"\\'")}')" title="Remove">🗑</button>
+    </div>` : '';
+  const photoHtml = item.image_url
+    ? `<img src="${item.image_url}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--gray-200)"/>`
+    : `<div style="width:36px;height:36px;border-radius:6px;background:var(--gray-100);display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:16px">📦</div>`;
+  return `<tr>
+    <td>${photoHtml}</td>
+    <td><div style="font-weight:600">${item.product_name}</div>${item.remarks ? `<div style="font-size:11px;color:var(--gray-500)">${item.remarks}</div>` : ''}</td>
+    <td>${item.category || '—'}</td>
+    <td>${item.uom || '—'}</td>
+    <td>${item.hsn_code || '—'}</td>
+    <td>${item.gst_percent || '—'}</td>
+    <td style="white-space:nowrap;font-weight:700">${item.price !== null ? inr(item.price) : '<span style="color:var(--gray-400);font-weight:400">Not set</span>'}</td>
+    <td style="white-space:nowrap">${editBtns}</td>
+  </tr>`;
+}
+
+function renderPriceListGrid() {
+  const wrap = document.getElementById('o2dListWrap');
+  const q = o2dPriceListSearchQ.trim().toLowerCase();
+  const filtered = q ? o2dPriceList.filter(p => p.product_name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q)) : o2dPriceList;
+
+  wrap.innerHTML = `
+    <div style="padding:16px">
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <input type="text" placeholder="🔍 Search product or category…" value="${o2dPriceListSearchQ.replace(/"/g,'&quot;')}" oninput="onPriceListSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <button class="btn btn-outline" onclick="loadO2dPriceList(true).then(renderPriceListGrid)">🔄 Refresh</button>
+        ${o2dPriceListCanEdit ? `<button class="btn btn-primary" onclick="openAddPriceModal()">+ Add Product</button>` : ''}
+      </div>
+      <table>
+        <thead><tr><th></th><th>Product</th><th>Category</th><th>UOM</th><th>HSN</th><th>GST</th><th>Price</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${filtered.map(priceListRowHtml).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--gray-400)">No products found</td></tr>`}
+        </tbody>
+      </table>
+      <div style="font-size:12px;color:var(--gray-400);padding:12px 4px">${filtered.length} product${filtered.length===1?'':'s'}</div>
+    </div>`;
+}
+
+function openAddPriceModal() {
+  document.getElementById('plModalTitle').textContent = '+ Add Product';
+  document.getElementById('plItemId').value = '';
+  ['plProductName','plCategory','plUom','plHsn','plGst','plPrice','plRemarks'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('plProductName').disabled = false;
+  document.getElementById('plPhotoStatus').textContent = '';
+  document.getElementById('priceListModal').classList.add('open');
+}
+
+function openEditPriceModal(id) {
+  const item = o2dPriceList.find(p => p.id === id);
+  if (!item) { showToast('Product not found — please refresh', 'error'); return; }
+  document.getElementById('plModalTitle').textContent = '✎ Edit Product';
+  document.getElementById('plItemId').value = item.id;
+  document.getElementById('plProductName').value = item.product_name;
+  document.getElementById('plProductName').disabled = true; // renaming would break the seed-uniqueness match — remove & re-add instead
+  document.getElementById('plCategory').value = item.category || '';
+  document.getElementById('plUom').value = item.uom || '';
+  document.getElementById('plHsn').value = item.hsn_code || '';
+  document.getElementById('plGst').value = item.gst_percent || '';
+  document.getElementById('plPrice').value = item.price !== null ? item.price : '';
+  document.getElementById('plRemarks').value = item.remarks || '';
+  document.getElementById('plPhotoStatus').textContent = item.image_url ? '✅ Photo already set — pick a file to replace it' : '';
+  document.getElementById('priceListModal').classList.add('open');
+}
+
+async function onPriceListPhotoSelected(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('plPhotoStatus');
+  statusEl.textContent = '⏳ Uploading...';
+  statusEl.style.color = 'var(--gray-500)';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const res = await api('/api/upload-photo', 'POST', { image: reader.result, filename: `price-list-${Date.now()}.jpg` });
+    if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
+    document.getElementById('plImageUrl').value = res.url;
+    statusEl.textContent = '✅ Uploaded';
+    statusEl.style.color = 'var(--color-success-text)';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitPriceListItem() {
+  const id = document.getElementById('plItemId').value;
+  const body = {
+    productName: document.getElementById('plProductName').value.trim(),
+    category: document.getElementById('plCategory').value.trim(),
+    uom: document.getElementById('plUom').value.trim(),
+    hsnCode: document.getElementById('plHsn').value.trim(),
+    gstPercent: document.getElementById('plGst').value.trim(),
+    price: document.getElementById('plPrice').value.trim(),
+    remarks: document.getElementById('plRemarks').value.trim(),
+    imageUrl: document.getElementById('plImageUrl').value.trim()
+  };
+  const res = id
+    ? await api(`/api/o2d-fms/price-list/${id}`, 'PUT', body)
+    : await api('/api/o2d-fms/price-list', 'POST', body);
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(id ? '✅ Product updated!' : '✅ Product added!');
+  closeModal('priceListModal');
+  await loadO2dPriceList(true);
+  renderPriceListGrid();
+}
+
+async function deletePriceListItem(id, name) {
+  if (!confirm(`Remove "${name}" from the price list?`)) return;
+  const res = await api(`/api/o2d-fms/price-list/${id}`, 'DELETE');
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('Removed');
+  await loadO2dPriceList(true);
+  renderPriceListGrid();
 }
 
 // Real assigned doer(s) win over the step's static role label — same
