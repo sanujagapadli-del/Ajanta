@@ -1227,8 +1227,13 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="empty">Loading…</div>
     </div>
 
-    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Catalogue PDFs</div>
-    <div id="cataloguePdfWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">💰 Price List PDF</div>
+    <div id="cataloguePdfWrap_price_list" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
+      <div class="empty">Loading…</div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📖 Catalogue PDF</div>
+    <div id="cataloguePdfWrap_catalogue" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty">Loading…</div>
     </div>
   </div>
@@ -7185,15 +7190,23 @@ async function deletePriceListItem(id, name) {
   renderPriceListGrid();
 }
 
-// ── Catalogue PDFs — full upload history, newest first ──
+// ── Catalogue PDFs — two separate histories: Price List PDF and Catalogue
+// PDF, each with its own upload slot and full history (newest first).
 let o2dCataloguePdfs = [];
 let o2dCataloguePdfsCanEdit = false;
 let o2dCataloguePdfsLoaded = false;
+const CATALOGUE_PDF_TYPES = [
+  { type: 'price_list', wrapId: 'cataloguePdfWrap_price_list', emptyLabel: 'No price list PDF uploaded yet' },
+  { type: 'catalogue', wrapId: 'cataloguePdfWrap_catalogue', emptyLabel: 'No catalogue PDF uploaded yet' }
+];
 
 async function loadCataloguePdfs(force) {
   if (o2dCataloguePdfsLoaded && !force) return;
   const r = await api('/api/o2d-fms/catalogue-pdfs');
-  if (r && r.error) { document.getElementById('cataloguePdfWrap').innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; return; }
+  if (r && r.error) {
+    CATALOGUE_PDF_TYPES.forEach(t => { const el = document.getElementById(t.wrapId); if (el) el.innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; });
+    return;
+  }
   o2dCataloguePdfs = (r && r.items) || [];
   o2dCataloguePdfsCanEdit = !!(r && r.canEdit);
   o2dCataloguePdfsLoaded = true;
@@ -7212,33 +7225,36 @@ function cataloguePdfRowHtml(item) {
 }
 
 function renderCataloguePdfList() {
-  const wrap = document.getElementById('cataloguePdfWrap');
-  if (!wrap) return;
-  wrap.innerHTML = `
-    <div style="padding:16px">
-      ${o2dCataloguePdfsCanEdit ? `
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-        <input type="file" accept="application/pdf" id="cataloguePdfFile" onchange="onCataloguePdfSelected(event)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-        <span id="cataloguePdfUploadStatus" style="font-size:12px;color:var(--gray-500)"></span>
-      </div>` : ''}
-      <table>
-        <thead><tr><th></th><th>File</th><th>Uploaded By</th><th>Date</th><th>Actions</th></tr></thead>
-        <tbody>
-          ${o2dCataloguePdfs.map(cataloguePdfRowHtml).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--gray-400)">No catalogue PDFs uploaded yet</td></tr>`}
-        </tbody>
-      </table>
-    </div>`;
+  CATALOGUE_PDF_TYPES.forEach(t => {
+    const wrap = document.getElementById(t.wrapId);
+    if (!wrap) return;
+    const items = o2dCataloguePdfs.filter(p => (p.doc_type || 'catalogue') === t.type);
+    wrap.innerHTML = `
+      <div style="padding:16px">
+        ${o2dCataloguePdfsCanEdit ? `
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <input type="file" accept="application/pdf" id="cataloguePdfFile_${t.type}" onchange="onCataloguePdfSelected(event,'${t.type}')" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <span id="cataloguePdfUploadStatus_${t.type}" style="font-size:12px;color:var(--gray-500)"></span>
+        </div>` : ''}
+        <table>
+          <thead><tr><th></th><th>File</th><th>Uploaded By</th><th>Date</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${items.map(cataloguePdfRowHtml).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--gray-400)">${t.emptyLabel}</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  });
 }
 
-async function onCataloguePdfSelected(event) {
+async function onCataloguePdfSelected(event, docType) {
   const file = event.target.files[0];
   if (!file) return;
-  const statusEl = document.getElementById('cataloguePdfUploadStatus');
+  const statusEl = document.getElementById(`cataloguePdfUploadStatus_${docType}`);
   statusEl.textContent = '⏳ Uploading...';
   statusEl.style.color = 'var(--gray-500)';
   const reader = new FileReader();
   reader.onload = async () => {
-    const res = await api('/api/o2d-fms/catalogue-pdfs', 'POST', { filename: file.name, pdfData: reader.result });
+    const res = await api('/api/o2d-fms/catalogue-pdfs', 'POST', { filename: file.name, pdfData: reader.result, docType });
     if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
     statusEl.textContent = '✅ Uploaded';
     statusEl.style.color = 'var(--color-success-text)';

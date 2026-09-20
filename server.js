@@ -3431,6 +3431,7 @@ async function ensureCataloguePdfsTable() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS o2d_catalogue_pdfs (
       id INT AUTO_INCREMENT PRIMARY KEY,
+      doc_type VARCHAR(20) NOT NULL DEFAULT 'catalogue',
       filename VARCHAR(500) NOT NULL,
       url VARCHAR(1000) NOT NULL,
       drive_file_id VARCHAR(255),
@@ -3442,7 +3443,12 @@ async function ensureCataloguePdfsTable() {
 }
 async function withCataloguePdfsTable(fn) {
   try { return await fn(); }
-  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureCataloguePdfsTable(); return await fn(); }
+  catch (e) {
+    if (e.code === 'ER_NO_SUCH_TABLE') { await ensureCataloguePdfsTable(); return await fn(); }
+    // Table already existed from before doc_type was added — add it now.
+    if (e.code === 'ER_BAD_FIELD_ERROR') { await db.query(`ALTER TABLE o2d_catalogue_pdfs ADD COLUMN doc_type VARCHAR(20) NOT NULL DEFAULT 'catalogue'`); return await fn(); }
+    throw e;
+  }
 }
 
 // Ajay (ajaykumarparwani@gmail.com, user id 9) + admins, per their request —
@@ -3538,13 +3544,14 @@ app.get('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
 app.post('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
   try {
     if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can upload catalogue PDFs' });
-    const { filename, pdfData } = req.body;
+    const { filename, pdfData, docType } = req.body;
     if (!filename || !pdfData) return res.status(400).json({ error: 'filename and pdfData are required' });
+    const type = docType === 'price_list' ? 'price_list' : 'catalogue';
     const link = await uploadPhotoToDrive(pdfData, filename);
     const driveFileId = (link.match(/[?&]id=([^&]+)/) || [])[1] || null;
     await withCataloguePdfsTable(() => db.query(
-      'INSERT INTO o2d_catalogue_pdfs (filename, url, drive_file_id, uploaded_by_id, uploaded_by_name) VALUES (?,?,?,?,?)',
-      [filename, link, driveFileId, req.session.userId, req.session.name || '']
+      'INSERT INTO o2d_catalogue_pdfs (doc_type, filename, url, drive_file_id, uploaded_by_id, uploaded_by_name) VALUES (?,?,?,?,?,?)',
+      [type, filename, link, driveFileId, req.session.userId, req.session.name || '']
     ));
     res.json({ success: true, url: link });
   } catch (err) {
