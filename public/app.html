@@ -2165,30 +2165,18 @@ tbody tr:last-child td{border-bottom:none;}
         <input type="text" id="scDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       </div>
       <div class="form-group">
-        <label>Product Name / Model <span style="color:var(--color-danger)">*</span></label>
-        <input type="text" id="scProductName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-      </div>
-      <div class="form-group">
-        <label>Date of Purchase</label>
-        <input type="date" id="scPurchaseDate" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-      </div>
-      <div class="form-group">
-        <label>Description of the Problem <span style="color:var(--color-danger)">*</span></label>
-        <textarea id="scProblemDescription" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
-      </div>
-      <div class="form-group">
         <label>Bill Photo</label>
         <input type="file" id="scBillPhoto" accept="image/*" onchange="onScPhotoSelected(this,'scBillPhotoPreview')"/>
         <div id="scBillPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
       </div>
       <div class="form-group">
-        <label>Product Photo</label>
-        <input type="file" id="scProductPhoto" accept="image/*" onchange="onScPhotoSelected(this,'scProductPhotoPreview')"/>
-        <div id="scProductPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
-      </div>
-      <div class="form-group">
         <label>Where is the Product Currently?</label>
-        <input type="text" id="scProductLocation" placeholder="e.g. Home / Shop / Service Center" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <select id="scProductLocation" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
+          <option value="">Select…</option>
+          <option value="Customer Home">Customer Home</option>
+          <option value="Dealer Shop">Dealer Shop</option>
+          <option value="Customer's Product at Dealer Shop">Customer's Product at Dealer Shop</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Full Address Where Product is Lying</label>
@@ -2196,8 +2184,19 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="form-group">
         <label>Location / Area</label>
-        <input type="text" id="scArea" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="scArea" style="flex:1;min-width:0;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box" onchange="onScAreaSelectChange()"></select>
+        </div>
+        <div id="scAreaAddNewWrap" style="display:none;gap:6px;margin-top:6px">
+          <input type="text" id="scAreaAddNewInput" placeholder="New area name" style="flex:1;min-width:0;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <button type="button" class="btn btn-outline btn-sm" onclick="scAddNewArea()">Add</button>
+        </div>
       </div>
+
+      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px">Products <span style="color:var(--color-danger)">*</span></div>
+      <datalist id="scProductNameList"></datalist>
+      <div id="scProductRows"></div>
+      <button type="button" class="btn btn-outline btn-sm" onclick="addScProductRow()">+ Add Product</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
       <button class="btn btn-primary" id="scSubmitBtn" onclick="submitNewComplaint()">Save Complaint</button>
@@ -5598,6 +5597,7 @@ const SFMS_STEP_DEFS = [
       { key: 'spareTaken', label: 'Qty', type: 'number' }
     ] },
   { n: 4, label: 'Assign Complaint to Mechanic After Batching', extraFields: [
+      { key: 'zone', label: 'Zone', masterList: 'zone' },
       { key: 'mechanic', label: 'Mechanic Name', masterList: 'mechanics' }
     ] },
   { n: 5, label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
@@ -5618,17 +5618,27 @@ const SFMS_STEP_DEFS = [
 let sfmsItemsList = [];
 let sfmsMechanicsList = [];
 let sfmsMechanicPhones = {};
+let sfmsMechanicZones = {}; // mechanic name -> zone, for filtering step 4's Mechanic dropdown by Zone
+let sfmsZoneList = [];
 let sfmsMasterListsLoaded = false;
 async function ensureSfmsMasterLists() {
   if (sfmsMasterListsLoaded) return;
-  const [items, mechanics] = await Promise.all([api('/api/service-fms/items'), api('/api/service-fms/mechanics')]);
+  const [items, mechanics, zones] = await Promise.all([
+    api('/api/service-fms/items'), api('/api/service-fms/mechanics'), api('/api/service-fms/zones')
+  ]);
   sfmsItemsList = Array.isArray(items) ? items : [];
   const mechList = Array.isArray(mechanics) ? mechanics : [];
   sfmsMechanicsList = mechList.map(m => m.name);
   sfmsMechanicPhones = Object.fromEntries(mechList.map(m => [m.name, m.mobile || '']));
+  sfmsMechanicZones = Object.fromEntries(mechList.map(m => [m.name, m.zone || '']));
+  sfmsZoneList = Array.isArray(zones) ? zones : [];
   sfmsMasterListsLoaded = true;
 }
-function sfmsMasterListFor(name) { return name === 'items' ? sfmsItemsList : sfmsMechanicsList; }
+function sfmsMasterListFor(name) {
+  if (name === 'items') return sfmsItemsList;
+  if (name === 'zone') return sfmsZoneList;
+  return sfmsMechanicsList;
+}
 
 // Field ids are scoped by row (not just field key) because several complaint
 // cards with the same field keys can be on screen at once (e.g. the Spare
@@ -5638,14 +5648,25 @@ function renderSfmsField(f, row) {
   if (f.masterList) {
     const list = sfmsMasterListFor(f.masterList);
     const options = list.map(v => `<option value="${v.replace(/"/g, '&quot;')}">${v}</option>`).join('');
+    // Step 4's Zone field re-filters the Mechanic dropdown on the same card
+    // (point 8: zone-wise assignment) — a small tweak layered on the generic
+    // masterList path, same pattern as the other per-step tweaks below.
+    const extraOnchange = f.key === 'zone' ? `onSfmsZoneChange('${row}');` : '';
+    const zoneAddNewField = f.masterList === 'mechanics'
+      ? `<select id="sfmsAddNewZone_${row}_${f.key}" style="flex:1;padding:10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;box-sizing:border-box">
+           <option value="">-- Zone (optional) --</option>
+           ${sfmsZoneList.map(z => `<option value="${z.replace(/"/g, '&quot;')}">${z}</option>`).join('')}
+         </select>`
+      : '';
     return `
-      <select id="${id}" onchange="onSfmsMasterSelectChange('${row}','${f.key}')" style="${SFMS_INPUT_STYLE}">
+      <select id="${id}" onchange="onSfmsMasterSelectChange('${row}','${f.key}'); ${extraOnchange}" style="${SFMS_INPUT_STYLE}">
         <option value="">-- ${f.label} --</option>
         ${options}
         <option value="__add_new__">+ Add New</option>
       </select>
       <div id="sfmsAddNewWrap_${row}_${f.key}" style="display:none;gap:6px;margin-bottom:10px">
         <input type="text" id="sfmsAddNewInput_${row}_${f.key}" placeholder="New ${f.label}" style="flex:1;padding:10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;box-sizing:border-box"/>
+        ${zoneAddNewField}
         <button type="button" onclick="sfmsAddNewMasterItem('${row}','${f.key}','${f.masterList}')" class="btn btn-primary btn-sm">Add</button>
       </div>`;
   }
@@ -5668,14 +5689,32 @@ function onSfmsMasterSelectChange(row, key) {
   const wrap = document.getElementById(`sfmsAddNewWrap_${row}_${key}`);
   wrap.style.display = sel.value === '__add_new__' ? 'flex' : 'none';
 }
+// Zone-wise assignment (point 8) — narrows the Mechanic dropdown on this same
+// card to whichever mechanics belong to the chosen zone; empty zone shows all.
+function onSfmsZoneChange(row) {
+  const zone = document.getElementById(`sfmsExtra_${row}_zone`).value;
+  const mechSel = document.getElementById(`sfmsExtra_${row}_mechanic`);
+  if (!mechSel || zone === '__add_new__') return;
+  const filtered = zone ? sfmsMechanicsList.filter(m => sfmsMechanicZones[m] === zone) : sfmsMechanicsList;
+  mechSel.innerHTML = `<option value="">-- Mechanic Name --</option>` +
+    filtered.map(v => `<option value="${v.replace(/"/g, '&quot;')}">${v}</option>`).join('') +
+    `<option value="__add_new__">+ Add New</option>`;
+}
 async function sfmsAddNewMasterItem(row, key, listName) {
   const input = document.getElementById(`sfmsAddNewInput_${row}_${key}`);
   const name = input.value.trim();
   if (!name) { showToast('Enter a name first', 'error'); return; }
-  const endpoint = listName === 'items' ? '/api/service-fms/items' : '/api/service-fms/mechanics';
-  const res = await api(endpoint, 'POST', { name });
+  const endpoints = { items: '/api/service-fms/items', mechanics: '/api/service-fms/mechanics', zone: '/api/service-fms/zones' };
+  const body = { name };
+  if (listName === 'mechanics') {
+    const zoneSel = document.getElementById(`sfmsAddNewZone_${row}_${key}`);
+    if (zoneSel) body.zone = zoneSel.value;
+  }
+  const res = await api(endpoints[listName], 'POST', body);
   if (res.error) { showToast(res.error, 'error'); return; }
-  if (listName === 'items') sfmsItemsList.push(name); else sfmsMechanicsList.push(name);
+  if (listName === 'items') sfmsItemsList.push(name);
+  else if (listName === 'zone') sfmsZoneList.push(name);
+  else { sfmsMechanicsList.push(name); sfmsMechanicZones[name] = body.zone || ''; }
   const sel = document.getElementById(`sfmsExtra_${row}_${key}`);
   const list = sfmsMasterListFor(listName);
   sel.innerHTML = `<option value="">-- Select --</option>` +
@@ -6122,20 +6161,131 @@ function openNewComplaintModal() {
   document.querySelector('input[name="scCustomerType"][value="Customer"]').checked = true;
   document.getElementById('scDealerName').value = '';
   document.getElementById('scDealerNameWrap').style.display = 'none';
-  document.getElementById('scProductName').value = '';
-  document.getElementById('scPurchaseDate').value = '';
-  document.getElementById('scProblemDescription').value = '';
   document.getElementById('scBillPhoto').value = '';
   document.getElementById('scBillPhotoPreview').textContent = '';
   document.getElementById('scBillPhoto').dataset.compressed = '';
-  document.getElementById('scProductPhoto').value = '';
-  document.getElementById('scProductPhotoPreview').textContent = '';
-  document.getElementById('scProductPhoto').dataset.compressed = '';
   document.getElementById('scProductLocation').value = '';
   document.getElementById('scAddress').value = '';
-  document.getElementById('scArea').value = '';
   document.getElementById('newComplaintErr').style.display = 'none';
+  document.getElementById('scProductRows').innerHTML = '';
+  scProductRowCount = 0;
+  addScProductRow();
+  loadScProductNames();
+  ensureScAreaList().then(populateScAreaSelect);
   document.getElementById('newComplaintModal').classList.add('open');
+}
+
+// ── Multi-product complaint table (point 2) ──────────────────────────
+let scProductRowCount = 0;
+function addScProductRow() {
+  const id = scProductRowCount++;
+  const wrap = document.getElementById('scProductRows');
+  const row = document.createElement('div');
+  row.id = `scProductRow_${id}`;
+  row.style.cssText = 'border:1px solid var(--gray-200);border-radius:8px;padding:10px;margin-bottom:10px';
+  row.innerHTML = `
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) 20px;gap:6px;align-items:start">
+      <div style="min-width:0">
+        <input type="text" placeholder="Product Name / Model *" id="scProdName_${id}" list="scProductNameList" oninput="onScProductLineChanged(${id})" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+        <input type="date" id="scProdPurchaseDate_${id}" onchange="onScProductLineChanged(${id})" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+        <textarea placeholder="Problem Description *" id="scProdProblem_${id}" rows="2" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif;margin-bottom:6px"></textarea>
+        <input type="file" accept="image/*" id="scProdPhoto_${id}" onchange="onScProdPhotoSelected(${id})"/>
+        <div id="scProdPhotoPreview_${id}" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+        <div id="scProdWarrantyBanner_${id}" style="display:none;margin-top:6px;padding:8px 10px;background:#fff3cd;border:1px solid #ffe08a;border-radius:6px;font-size:12px;color:#8a6100">
+          ⚠ Out of Warranty
+          <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:600;cursor:pointer">
+            <input type="checkbox" id="scProdWarrantyAgree_${id}"/> Customer agrees to pay service charges
+          </label>
+        </div>
+      </div>
+      <button type="button" onclick="removeScProductRow(${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0;flex-shrink:0">✕</button>
+    </div>`;
+  wrap.appendChild(row);
+}
+function removeScProductRow(id) {
+  const row = document.getElementById(`scProductRow_${id}`);
+  if (row) row.remove();
+}
+
+let _scProductNames = null; // cached — shared Product Master workbook, same source as O2D
+async function loadScProductNames() {
+  if (!_scProductNames) {
+    const r = await api('/api/o2d-fms/product-names');
+    _scProductNames = (r && r.products) || [];
+  }
+  document.getElementById('scProductNameList').innerHTML = _scProductNames.map(p => `<option value="${p.name.replace(/"/g,'&quot;')}">`).join('');
+}
+
+// Warranty auto-check (point 5) — Purchase Date + Product Master's Warranty
+// (Months) column, computed the moment both are on the form; lets the
+// customer still file the complaint out-of-warranty if they agree to pay.
+function onScProductLineChanged(id) {
+  const banner = document.getElementById(`scProdWarrantyBanner_${id}`);
+  if (!banner) return;
+  const name = document.getElementById(`scProdName_${id}`).value.trim().toLowerCase();
+  const purchaseDate = document.getElementById(`scProdPurchaseDate_${id}`).value;
+  const product = (_scProductNames || []).find(p => p.name.trim().toLowerCase() === name);
+  if (!product || !product.warrantyMonths || !purchaseDate) { banner.style.display = 'none'; return; }
+  const expiry = new Date(purchaseDate + 'T00:00:00');
+  expiry.setMonth(expiry.getMonth() + product.warrantyMonths);
+  const outOfWarranty = new Date() > expiry;
+  banner.style.display = outOfWarranty ? 'block' : 'none';
+  if (!outOfWarranty) document.getElementById(`scProdWarrantyAgree_${id}`).checked = false;
+}
+
+async function onScProdPhotoSelected(id) {
+  const input = document.getElementById(`scProdPhoto_${id}`);
+  const preview = document.getElementById(`scProdPhotoPreview_${id}`);
+  const file = input.files[0];
+  if (!file) { input.dataset.compressed = ''; preview.textContent = ''; return; }
+  preview.textContent = 'Compressing…';
+  try {
+    let dataUrl = await compressImageToDataURL(file, 900, 0.6);
+    if (dataUrl.length > 38000) dataUrl = await compressImageToDataURL(file, 600, 0.45);
+    if (dataUrl.length > 38000) {
+      preview.textContent = '⚠️ Image still too large after compression — try a smaller photo';
+      input.dataset.compressed = '';
+      return;
+    }
+    input.dataset.compressed = dataUrl;
+    preview.textContent = `✅ Attached (${Math.round(dataUrl.length/1024)}KB)`;
+  } catch (e) {
+    preview.textContent = '⚠️ Could not read image';
+    input.dataset.compressed = '';
+  }
+}
+
+// ── Area dropdown + "Add More" (point 4) — same self-serve master-list
+// pattern as Items/Mechanics (server.js sfmsGetList/sfmsAddToList). ──
+let scAreaList = [];
+let scAreaListLoaded = false;
+async function ensureScAreaList() {
+  if (scAreaListLoaded) return;
+  scAreaList = await api('/api/service-fms/areas');
+  if (!Array.isArray(scAreaList)) scAreaList = [];
+  scAreaListLoaded = true;
+}
+function populateScAreaSelect() {
+  const sel = document.getElementById('scArea');
+  sel.innerHTML = '<option value="">Select…</option>' +
+    scAreaList.map(a => `<option value="${a.replace(/"/g,'&quot;')}">${a}</option>`).join('') +
+    '<option value="__add_new__">+ Add New</option>';
+}
+function onScAreaSelectChange() {
+  const isNew = document.getElementById('scArea').value === '__add_new__';
+  document.getElementById('scAreaAddNewWrap').style.display = isNew ? 'flex' : 'none';
+}
+async function scAddNewArea() {
+  const input = document.getElementById('scAreaAddNewInput');
+  const name = input.value.trim();
+  if (!name) return;
+  const res = await api('/api/service-fms/areas', 'POST', { name });
+  if (res && res.error) { showToast(res.error, 'error'); return; }
+  scAreaList.push(name);
+  populateScAreaSelect();
+  document.getElementById('scArea').value = name;
+  document.getElementById('scAreaAddNewWrap').style.display = 'none';
+  input.value = '';
 }
 
 function onScCustomerTypeChange() {
@@ -6189,17 +6339,46 @@ async function submitNewComplaint() {
   const mobile = document.getElementById('scMobile').value.trim();
   const customerType = document.querySelector('input[name="scCustomerType"]:checked').value;
   const dealerName = document.getElementById('scDealerName').value.trim();
-  const productName = document.getElementById('scProductName').value.trim();
-  const purchaseDate = document.getElementById('scPurchaseDate').value;
-  const problemDescription = document.getElementById('scProblemDescription').value.trim();
   const billPhoto = document.getElementById('scBillPhoto').dataset.compressed || '';
-  const productPhoto = document.getElementById('scProductPhoto').dataset.compressed || '';
-  const productLocation = document.getElementById('scProductLocation').value.trim();
+  const productLocation = document.getElementById('scProductLocation').value;
   const address = document.getElementById('scAddress').value.trim();
-  const area = document.getElementById('scArea').value.trim();
+  const area = document.getElementById('scArea').value === '__add_new__' ? '' : document.getElementById('scArea').value;
 
-  if (!filledByName || !mobile || !productName || !problemDescription) {
-    err.textContent = 'Name, mobile, product name and problem description are required';
+  if (!filledByName || !mobile) {
+    err.textContent = 'Name and mobile are required';
+    err.style.display = 'block';
+    return;
+  }
+
+  const products = [];
+  for (const row of document.getElementById('scProductRows').children) {
+    const id = row.id.split('_')[1];
+    const productName = document.getElementById(`scProdName_${id}`).value.trim();
+    const problemDescription = document.getElementById(`scProdProblem_${id}`).value.trim();
+    if (!productName && !problemDescription) continue; // an untouched extra row — skip rather than error
+    if (!productName || !problemDescription) {
+      err.textContent = 'Every product needs a product name and problem description';
+      err.style.display = 'block';
+      return;
+    }
+    const warrantyBanner = document.getElementById(`scProdWarrantyBanner_${id}`);
+    const outOfWarranty = warrantyBanner && warrantyBanner.style.display !== 'none';
+    const warrantyAgree = document.getElementById(`scProdWarrantyAgree_${id}`).checked;
+    if (outOfWarranty && !warrantyAgree) {
+      err.textContent = `"${productName}" is out of warranty — please confirm the customer agrees to pay service charges to proceed`;
+      err.style.display = 'block';
+      return;
+    }
+    products.push({
+      productName,
+      purchaseDate: document.getElementById(`scProdPurchaseDate_${id}`).value,
+      problemDescription,
+      productPhoto: document.getElementById(`scProdPhoto_${id}`).dataset.compressed || '',
+      warrantyChargesAgreed: outOfWarranty && warrantyAgree ? 'Yes' : ''
+    });
+  }
+  if (products.length === 0) {
+    err.textContent = 'At least one product is required';
     err.style.display = 'block';
     return;
   }
@@ -6207,14 +6386,14 @@ async function submitNewComplaint() {
   const btn = document.getElementById('scSubmitBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   const res = await api('/api/service-fms', 'POST', {
-    filledByName, mobile, customerType, dealerName, productName, purchaseDate,
-    problemDescription, billPhoto, productPhoto, productLocation, address, area
+    filledByName, mobile, customerType, dealerName,
+    productLocation, address, area, billPhoto, products
   });
   btn.disabled = false; btn.textContent = 'Save Complaint';
 
   if (res.error) { err.textContent = res.error; err.style.display = 'block'; return; }
   closeModal('newComplaintModal');
-  showToast(`✅ Complaint ${res.complainNo} created!`);
+  showToast(`✅ Complaint ${res.groupNo} created!`);
   loadServiceFmsList();
 }
 
@@ -6226,6 +6405,25 @@ async function openComplaintDetail(row) {
   document.getElementById('complaintDetailModal').classList.add('open');
   await ensureSfmsMasterLists();
   renderComplaintDetailBody(c);
+}
+
+// A multi-product complaint (point 2) shares one groupNo across sibling
+// rows — shows every product line as a table so switching between them
+// (each tracked through its own step pipeline) stays inside one modal.
+function renderSfmsSiblingProductsTable(c) {
+  const siblings = sfmsData.filter(x => x.groupNo === c.groupNo);
+  if (siblings.length < 2) return '';
+  const rowsHtml = siblings.map(s => `
+    <tr style="cursor:pointer;${s.row === c.row ? 'background:var(--color-purple-bg)' : ''}" onclick="openComplaintDetail(${s.row})">
+      <td style="padding:6px 8px;font-size:12px">${s.complainNo}</td>
+      <td style="padding:6px 8px;font-size:12px">${s.productName}</td>
+      <td style="padding:6px 8px;font-size:12px">${s.closed ? '✅ Closed' : `Step ${s.currentStep + 1}: ${(SFMS_STEP_DEFS.find(d => d.n === s.currentStep + 1) || {}).label || ''}`}</td>
+    </tr>`).join('');
+  return `
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Products in this Complaint</div>
+    <div class="mis-table-wrap" style="overflow-x:auto;margin-bottom:16px">
+      <table><thead><tr><th>No.</th><th>Product</th><th>Status</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    </div>`;
 }
 
 // Dashboard "Fill Details"/row-click links here — opens the complaint detail
@@ -6352,6 +6550,7 @@ function buildSfmsNextActionHtml(c, compact) {
 function renderComplaintDetailBody(c) {
   const body = document.getElementById('cdBody');
 
+  const siblingsTableHtml = renderSfmsSiblingProductsTable(c);
   const showDealer = c.dealerName && c.dealerName !== c.filledByName;
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
@@ -6425,7 +6624,7 @@ function renderComplaintDetailBody(c) {
       </div>
     </details>` : '';
 
-  body.innerHTML = infoHtml + actionHtml + checklistHtml;
+  body.innerHTML = siblingsTableHtml + infoHtml + actionHtml + checklistHtml;
 }
 
 // Reveals "Reason (if Short)" only once the entered return qty is actually

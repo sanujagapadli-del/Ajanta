@@ -1,3 +1,47 @@
+# Ajanta Appliances - Task Manager (v21)
+
+## 🆕 What's New in v21 — Service FMS: Multi-Product Complaints, Masters, Warranty & Zone
+
+1. **Ek complaint me multiple products, table format** — Naya Complaint form ab ek hi
+   form se kai products ki complaint le sakta hai. Har product apne aap alag "line"
+   (jaise `C-15-1`, `C-15-2`) ban jaata hai, aur har ek apne warranty/spare/mechanic/
+   solve status ko independently track karta hai. Complaint detail modal me sab
+   sibling products ek table me dikhte hain, kisi bhi ek par click karke uska status
+   dekha ja sakta hai.
+
+2. **Product Name ab Product Master se dropdown** — Complaint form ka "Product Name"
+   field ab free-text nahi, Product Master workbook se aane wala searchable dropdown
+   hai (O2D New Order jis Product Master se leta hai, wahi shared source).
+
+3. **"Product Currently Kahan Hai" ab fixed dropdown** — Customer Home / Dealer Shop /
+   Customer's Product at Dealer Shop — teen fixed options, free-text nahi.
+
+4. **Area dropdown + "+ Add New"** — Naya self-serve "Area" master list (Items/
+   Mechanics jaisa hi pattern) — shuru me khaali, app ke andar hi "+ Add New" se
+   apni Area list bana sakte ho.
+
+5. **Warranty auto-check + charge-and-proceed option** — Product Master sheet me
+   khud ek "Warranty (Months)" column add karo — app Purchase Date + Warranty Months
+   se auto-check karega aur out-of-warranty hone par turant "⚠ Out of Warranty"
+   dikha dega. Customer paisa deke service lena chahta hai to ek checkbox se
+   ("Customer agrees to pay service charges") complaint phir bhi daal sakte ho.
+
+6. **Zone-wise Mechanic assignment** — Naya self-serve "Zone" master list. Mechanics
+   ab apne Zone ke saath add hote hain, aur Step 4 (Assign Mechanic) par Zone select
+   karne se sirf usi zone ke mechanics dikhte hain.
+
+7. Spare-part dropdown (Takeout Spare / Assign Mechanic) aur Spare In/Out ka table
+   view (Reports → 📋 Spare In/Out Table, 📦 Item-Wise) already the app me maujood
+   the — verify kiya, koi change nahi lagi.
+
+### Files changed (vs v20)
+| File | Change |
+|---|---|
+| `server.js` | 🆕 `Area`/`Zone` master-list tabs + routes (`/api/service-fms/areas`, `/zones`)<br>🔧 Mechanics tab extended to 3 columns (name, mobile, zone)<br>🔧 `POST /api/service-fms` now takes a `products: []` array, writes one sheet row per product (shared `groupNo`, per-line `complainNo`)<br>🔧 `getMasterWorkbookData()` now also reads a `Warranty (Months)` column (by header text) from the Product Master sheet<br>🆕 Zone + out-of-warranty-charges-agreed reuse two previously-unused sheet columns (`BC`, `BF`) |
+| `public/app.html` | 🔧 New Complaint modal rebuilt as a multi-product table (`addScProductRow`/`removeScProductRow`), Product Name dropdown, Product Location dropdown, Area dropdown + Add New, per-line warranty banner<br>🆕 Step 4's Mechanic dropdown filters by a new Zone field (`onSfmsZoneChange`)<br>🆕 Complaint detail modal shows a sibling-products table for multi-product complaints |
+
+---
+
 # Ajanta Appliances - Task Manager (v20)
 
 ## 🆕 What's New in v20 — Employee Records (Plan vs Done)

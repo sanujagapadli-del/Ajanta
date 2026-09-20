@@ -560,9 +560,18 @@ async function getMasterWorkbookData() {
   const productSheet = wb.Sheets['2. Product Master'];
   const productRows = productSheet ? XLSX.utils.sheet_to_json(productSheet, { header: 1, raw: false, defval: '' }) : [];
   // Row 0 is a title banner, row 1 is the real header, data starts row 2.
+  // Warranty (Months) is looked up by header text rather than a hardcoded
+  // column index, since it's a column the user adds themselves (point 5) —
+  // this way it's picked up wherever they put it, no code change needed.
+  const headerRow = productRows[1] || [];
+  const warrantyColIdx = headerRow.findIndex(h => /warranty/i.test(String(h || '')));
   const products = productRows.slice(2)
     .filter(r => (r[1] || '').trim() && (r[12] || '').trim().toLowerCase() !== 'discontinued')
-    .map(r => ({ name: (r[1] || '').trim(), category: (r[3] || '').trim() }));
+    .map(r => ({
+      name: (r[1] || '').trim(),
+      category: (r[3] || '').trim(),
+      warrantyMonths: warrantyColIdx >= 0 ? (parseFloat(r[warrantyColIdx]) || null) : null
+    }));
 
   const dealerSheet = wb.Sheets['5. Dealer Master'];
   const dealerRows = dealerSheet ? XLSX.utils.sheet_to_json(dealerSheet, { header: 1, raw: false, defval: '' }) : [];
@@ -2413,6 +2422,17 @@ const SFMS_OTP_SENT_COL = 'AO';
 const SFMS_OTP_TTL_MS = 30 * 60 * 1000; // OTP valid for 30 minutes after send
 const SFMS_ITEMS_TAB = 'Items';
 const SFMS_MECHANICS_TAB = 'Mechanics';
+const SFMS_AREA_TAB = 'Area';
+const SFMS_ZONE_TAB = 'Zone';
+// Reusing two of the confirmed-unused columns noted above (BC = old "Final
+// Status", BF = unused half of the old two-stage step 6) instead of appending
+// new columns, so the sheet's existing column layout/formulas aren't disturbed.
+// NOTE: verify these two are still blank/unused against the live sheet's row-6
+// header before relying on this in production — this file's own convention
+// (see the 2026-07-20 note above) is to check headers directly rather than
+// assume, and this was written without live access to confirm.
+const SFMS_ZONE_COL = 'BC';
+const SFMS_WARRANTY_CHARGES_AGREED_COL = 'BF';
 
 // NOTE: 2026-07-20 — reordered so the OTP/location-confirmation step now comes
 // right after the mechanic is assigned (step 5), and the field spare in/out
@@ -2438,7 +2458,10 @@ const SFMS_STEPS = [
     ],
     timeDelay: 'AB' },
   { n: 4, label: 'Assign Complaint to Mechanic After Batching', planned: 'AC', actual: 'AD', status: 'AE',
-    extra: [{ key: 'mechanic', col: 'AF', label: 'Mechanic Name' }], timeDelay: 'AG' },
+    extra: [
+      { key: 'zone', col: SFMS_ZONE_COL, label: 'Zone' },
+      { key: 'mechanic', col: 'AF', label: 'Mechanic Name' }
+    ], timeDelay: 'AG' },
   // Mechanic reaching the customer's location — OTP-gated, plus a repair-status answer.
   { n: 5, label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
     extra: [{ key: 'repairStatus', col: 'AK', label: 'Repair Status' }],
@@ -2513,8 +2536,7 @@ async function sendWhatsApp(mobile, text) {
   return data;
 }
 
-app.get('/api/service-fms', requireAuth, async (req, res) => {
-  try {
+async function sfmsFetchComplaints() {
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const result = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: SFMS_SHEET_ID,
@@ -2530,6 +2552,11 @@ app.get('/api/service-fms', requireAuth, async (req, res) => {
         row: rowNum,
         timestamp: sfmsSerialToDate(get('A')),
         complainNo: get('B') || '',
+        // A multi-product complaint shares one "C-N" group across sibling rows
+        // ("C-N-1", "C-N-2", ...) — groupNo is that shared prefix, used by the
+        // frontend to fold sibling product-lines into one card. Single-product
+        // complaints (no "-line" suffix) are their own group of one.
+        groupNo: (String(get('B') || '').match(/^(C-\d+)/) || [null, get('B') || ''])[1],
         filledByName: get('C') || '',
         mobile: get('D') || '',
         customerType: get('E') || '',
@@ -2541,7 +2568,9 @@ app.get('/api/service-fms', requireAuth, async (req, res) => {
         productPhoto: get('K') || '',
         productLocation: get('L') || '',
         address: get('M') || '',
-        area: get('N') || ''
+        area: get('N') || '',
+        zone: get(SFMS_ZONE_COL) || '',
+        warrantyChargesAgreed: get(SFMS_WARRANTY_CHARGES_AGREED_COL) || ''
       };
       c.steps = SFMS_STEPS.map(sd => {
         const step = {
@@ -2570,24 +2599,43 @@ app.get('/api/service-fms', requireAuth, async (req, res) => {
     }).filter(Boolean);
 
     complaints.reverse(); // newest first
-    res.json(complaints);
+    return complaints;
+}
+
+app.get('/api/service-fms', requireAuth, async (req, res) => {
+  try {
+    res.json(await sfmsFetchComplaints());
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     res.status(500).json({ error: err.message });
   }
 });
 
+// NOTE (point 7): a "Spare In/Out Table" + "Item-Wise" report already exist
+// in the frontend Reports tab (public/app.html, buildReportSpareTable /
+// buildReportItemWise), built the same way — reshaping Step 3/Step 6 data
+// already returned by GET /api/service-fms — so no separate endpoint is
+// needed here.
+
 app.post('/api/service-fms', requireAuth, async (req, res) => {
   try {
     const {
-      filledByName, mobile, customerType, dealerName, productName, purchaseDate,
-      problemDescription, billPhoto, productPhoto, productLocation, address, area
+      filledByName, mobile, customerType, dealerName,
+      productLocation, address, area, billPhoto, products
     } = req.body;
-    if (!filledByName || !mobile || !productName || !problemDescription) {
-      return res.status(400).json({ error: 'Name, mobile, product name and problem description are required' });
+    if (!filledByName || !mobile) {
+      return res.status(400).json({ error: 'Name and mobile are required' });
+    }
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'At least one product is required' });
+    }
+    for (const p of products) {
+      if (!p || !p.productName || !p.problemDescription) {
+        return res.status(400).json({ error: 'Every product needs a product name and problem description' });
+      }
+      if (p.productPhoto && p.productPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'A product photo is too large — try a smaller/compressed image' });
     }
     if (billPhoto && billPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Bill photo is too large — try a smaller/compressed image' });
-    if (productPhoto && productPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Product photo is too large — try a smaller/compressed image' });
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
 
@@ -2597,15 +2645,31 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
     const bRows = colB.data.values || [];
     let maxNum = 0;
     bRows.forEach(r => { const m = String(r[0] || '').match(/C-(\d+)/); if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10)); });
-    const complainNo = `C-${maxNum + 1}`;
+    const groupNo = `C-${maxNum + 1}`;
     const timestamp = sfmsDateToSerial(new Date());
-    const purchaseDateSerial = purchaseDate ? sfmsDateToSerial(new Date(purchaseDate + 'T00:00:00Z')) : '';
 
     // Photos are uploaded to Drive (never stored as raw base64 in the sheet) —
-    // the sheet cell only ever holds the resulting share link.
-    let billPhotoLink = '', productPhotoLink = '';
-    if (billPhoto) billPhotoLink = await uploadPhotoToDrive(billPhoto, `${complainNo}-bill.jpg`);
-    if (productPhoto) productPhotoLink = await uploadPhotoToDrive(productPhoto, `${complainNo}-product.jpg`);
+    // the sheet cell only ever holds the resulting share link. The bill photo
+    // is shared across every product line in this complaint (one customer,
+    // one bill); each product line can have its own product photo.
+    let billPhotoLink = '';
+    if (billPhoto) billPhotoLink = await uploadPhotoToDrive(billPhoto, `${groupNo}-bill.jpg`);
+
+    // Each product becomes its own sheet row — "C-N-1", "C-N-2", ... — sharing
+    // groupNo so every product is tracked through the full 8-step pipeline
+    // independently (own warranty/spare/mechanic/solve status), per point 2.
+    const complainNos = products.map((p, i) => products.length > 1 ? `${groupNo}-${i + 1}` : groupNo);
+    const rows = [];
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      const purchaseDateSerial = p.purchaseDate ? sfmsDateToSerial(new Date(p.purchaseDate + 'T00:00:00Z')) : '';
+      const productPhotoLink = p.productPhoto ? await uploadPhotoToDrive(p.productPhoto, `${complainNos[i]}-product.jpg`) : '';
+      rows.push([
+        timestamp, complainNos[i], filledByName, mobile, customerType || '', dealerName || '',
+        p.productName, purchaseDateSerial, p.problemDescription, billPhotoLink, productPhotoLink,
+        productLocation || '', address || '', area || ''
+      ]);
+    }
 
     // append (not a computed-row update) so a stale/short bRows read can never
     // overwrite an existing row — Sheets itself finds the true last row.
@@ -2614,38 +2678,42 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
       range: `'${SFMS_TAB}'!A${SFMS_DATA_START_ROW}:N`,
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [[
-        timestamp, complainNo, filledByName, mobile, customerType || '', dealerName || '',
-        productName, purchaseDateSerial, problemDescription, billPhotoLink, productPhotoLink,
-        productLocation || '', address || '', area || ''
-      ]] }
+      requestBody: { values: rows }
     });
-    const writtenRange = appendRes.data.updates.updatedRange; // e.g. "'Complain FMS'!A195:N195"
-    const nextRow = parseInt(writtenRange.match(/![A-Z]+(\d+)/)[1], 10);
+    const writtenRange = appendRes.data.updates.updatedRange; // e.g. "'Complain FMS'!A195:N196"
+    const firstRow = parseInt(writtenRange.match(/![A-Z]+(\d+)/)[1], 10);
 
     // The sheet's own row-creation flow only ever copied down the "Planned" date
     // formulas for the first 3 steps (O/S/W) — every complaint made through this
     // app was silently missing them for steps 4/5/6/8 (AC/AH/AP/AV). Write the
     // exact same per-row formula pattern every older row already has, so newly
-    // created complaints behave identically.
-    const r = nextRow;
+    // created complaints behave identically — once per product row.
+    const formulaData = [];
+    for (let i = 0; i < products.length; i++) {
+      const r = firstRow + i;
+      const p = products[i];
+      formulaData.push(
+        { range: `'${SFMS_TAB}'!O${r}`, values: [[`=IF(A${r}<>"",IFS(HOUR(A${r}+O$5)>$D$1,workday.intl(A${r},1,"0000001")+$C$1/24+O$5,HOUR(A${r}+O$5)<$C$1,Datevalue(A${r})+$C$1/24+O$5,and(hour(A${r}+O$5)>=$C$1,hour(A${r}+O$5)<=$D$1),A${r}+O$5),"")`]] },
+        { range: `'${SFMS_TAB}'!S${r}`, values: [[`=IF(P${r}<>"",IFS(HOUR(P${r}+S$5)>$D$1,workday.intl(P${r},1,"0000001")+$C$1/24+S$5,HOUR(P${r}+S$5)<$C$1,Datevalue(P${r})+$C$1/24+S$5,and(hour(P${r}+S$5)>=$C$1,hour(P${r}+S$5)<=$D$1),P${r}+S$5),"")`]] },
+        { range: `'${SFMS_TAB}'!W${r}`, values: [[`=if(T${r},workday.intl(int(T${r}),0,"0000001",Holidays!A:A)+"17:00","")`]] },
+        { range: `'${SFMS_TAB}'!AC${r}`, values: [[`=if(X${r},workday.intl(int(X${r}),0,"0000001",Holidays!A:A)+"18:00","")`]] },
+        { range: `'${SFMS_TAB}'!AH${r}`, values: [[`=if(AD${r},workday.intl(int(AD${r}),0,"0000001",Holidays!A:A)+"18:00","")`]] },
+        { range: `'${SFMS_TAB}'!AP${r}`, values: [[`=if(AI${r},WORKDAY.INTL(AI${r},AN$5,"0000001",Holidays!A:A)+hour(AI${r})/24+MINUTE(AI${r})/1440,"")`]] },
+        { range: `'${SFMS_TAB}'!AV${r}`, values: [[`=if(AO${r},workday.intl(int(AO${r}),0,"0000001",Holidays!A:A)+"19:30","")`]] }
+      );
+      // Out-of-warranty-but-customer-agreed-to-pay flag (point 5) — written only
+      // when the frontend determined the product was out of warranty and the
+      // customer explicitly agreed to be charged.
+      if (p.warrantyChargesAgreed) {
+        formulaData.push({ range: `'${SFMS_TAB}'!${SFMS_WARRANTY_CHARGES_AGREED_COL}${r}`, values: [['Yes']] });
+      }
+    }
     await sheetsApi.spreadsheets.values.batchUpdate({
       spreadsheetId: SFMS_SHEET_ID,
-      requestBody: {
-        valueInputOption: 'USER_ENTERED',
-        data: [
-          { range: `'${SFMS_TAB}'!O${r}`, values: [[`=IF(A${r}<>"",IFS(HOUR(A${r}+O$5)>$D$1,workday.intl(A${r},1,"0000001")+$C$1/24+O$5,HOUR(A${r}+O$5)<$C$1,Datevalue(A${r})+$C$1/24+O$5,and(hour(A${r}+O$5)>=$C$1,hour(A${r}+O$5)<=$D$1),A${r}+O$5),"")`]] },
-          { range: `'${SFMS_TAB}'!S${r}`, values: [[`=IF(P${r}<>"",IFS(HOUR(P${r}+S$5)>$D$1,workday.intl(P${r},1,"0000001")+$C$1/24+S$5,HOUR(P${r}+S$5)<$C$1,Datevalue(P${r})+$C$1/24+S$5,and(hour(P${r}+S$5)>=$C$1,hour(P${r}+S$5)<=$D$1),P${r}+S$5),"")`]] },
-          { range: `'${SFMS_TAB}'!W${r}`, values: [[`=if(T${r},workday.intl(int(T${r}),0,"0000001",Holidays!A:A)+"17:00","")`]] },
-          { range: `'${SFMS_TAB}'!AC${r}`, values: [[`=if(X${r},workday.intl(int(X${r}),0,"0000001",Holidays!A:A)+"18:00","")`]] },
-          { range: `'${SFMS_TAB}'!AH${r}`, values: [[`=if(AD${r},workday.intl(int(AD${r}),0,"0000001",Holidays!A:A)+"18:00","")`]] },
-          { range: `'${SFMS_TAB}'!AP${r}`, values: [[`=if(AI${r},WORKDAY.INTL(AI${r},AN$5,"0000001",Holidays!A:A)+hour(AI${r})/24+MINUTE(AI${r})/1440,"")`]] },
-          { range: `'${SFMS_TAB}'!AV${r}`, values: [[`=if(AO${r},workday.intl(int(AO${r}),0,"0000001",Holidays!A:A)+"19:30","")`]] }
-        ]
-      }
+      requestBody: { valueInputOption: 'USER_ENTERED', data: formulaData }
     });
 
-    res.json({ success: true, row: nextRow, complainNo });
+    res.json({ success: true, groupNo, complainNos, firstRow });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     res.status(500).json({ error: err.message });
@@ -2726,17 +2794,47 @@ app.post('/api/service-fms/items', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Area — free-text "Where is the product / Location" field turned into a
+// self-serve dropdown (point 4). Same single-column tab pattern as Items.
+app.get('/api/service-fms/areas', requireAuth, async (req, res) => {
+  try { res.json(await sfmsGetList(SFMS_AREA_TAB)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/service-fms/areas', requireAuth, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Area name is required' });
+    await sfmsAddToList(SFMS_AREA_TAB, name);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Zone — groups mechanics for zone-wise assignment (point 8). Same pattern.
+app.get('/api/service-fms/zones', requireAuth, async (req, res) => {
+  try { res.json(await sfmsGetList(SFMS_ZONE_TAB)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/service-fms/zones', requireAuth, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Zone name is required' });
+    await sfmsAddToList(SFMS_ZONE_TAB, name);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Mechanics tab has a second column (B = Mobile) so the Mechanic-Wise report
-// can WhatsApp a mechanic directly via the WhatsApp API instead of opening wa.me.
+// can WhatsApp a mechanic directly via the WhatsApp API instead of opening wa.me,
+// and a third column (C = Zone) for zone-wise assignment filtering (point 8).
 async function sfmsGetMechanics() {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   const result = await sheetsApi.spreadsheets.values.get({
     spreadsheetId: SFMS_SHEET_ID,
-    range: `'${SFMS_MECHANICS_TAB}'!A2:B`
+    range: `'${SFMS_MECHANICS_TAB}'!A2:C`
   });
   return (result.data.values || [])
     .filter(r => r[0])
-    .map(r => ({ name: r[0], mobile: r[1] || '' }));
+    .map(r => ({ name: r[0], mobile: r[1] || '', zone: r[2] || '' }));
 }
 async function sfmsSetMechanicMobile(name, mobile) {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
@@ -2763,14 +2861,15 @@ app.post('/api/service-fms/mechanics', requireAuth, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     const mobile = String(req.body.mobile || '').trim();
+    const zone = String(req.body.zone || '').trim();
     if (!name) return res.status(400).json({ error: 'Mechanic name is required' });
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     await sheetsApi.spreadsheets.values.append({
       spreadsheetId: SFMS_SHEET_ID,
-      range: `'${SFMS_MECHANICS_TAB}'!A:B`,
+      range: `'${SFMS_MECHANICS_TAB}'!A:C`,
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [[name, mobile]] }
+      requestBody: { values: [[name, mobile, zone]] }
     });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
