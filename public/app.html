@@ -5677,7 +5677,10 @@ function renderSfmsField(f, row, compact) {
     const opts = f.options.map(o => `<option value="${o}">${o}</option>`).join('');
     return `<select id="${id}" style="${inputStyle}"><option value="">-- ${f.label} --</option>${opts}</select>`;
   }
-  return `<input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${inputStyle}"/>`;
+  // A number/qty box doesn't need the same 150px min-width as a name field —
+  // narrower here leaves more room for the button to stay on the same line.
+  const finalStyle = (compact && f.type === 'number') ? inputStyle.replace('min-width:150px', 'width:70px;min-width:0') : inputStyle;
+  return `<input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${finalStyle}"/>`;
 }
 function readSfmsField(f, row) {
   const el = document.getElementById(`sfmsExtra_${row}_${f.key}`);
@@ -6503,7 +6506,7 @@ function buildSfmsNextActionHtml(c, compact) {
     if (!sfmsOtpSentFor[c.row]) {
       const sendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-primary" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">Send OTP to Customer</button>`;
       actionHtml = compact
-        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${sendBtn}</div>`
+        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:nowrap">${sendBtn}</div>`
         : `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
@@ -6515,7 +6518,7 @@ function buildSfmsNextActionHtml(c, compact) {
       const verifyBtn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px;margin-bottom:8px'}">Verify &amp; Complete</button>`;
       const resendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-outline btn-sm" style="${compact ? 'padding:8px 12px;font-size:12px;white-space:nowrap' : 'width:100%;justify-content:center'}">Resend</button>`;
       actionHtml = compact
-        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${otpInput}${extraInputsHtml}${verifyBtn}${resendBtn}</div>`
+        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:nowrap">${otpInput}${extraInputsHtml}${verifyBtn}${resendBtn}</div>`
         : `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
@@ -6560,7 +6563,7 @@ function buildSfmsNextActionHtml(c, compact) {
     // Compact (step-tab table cell): field(s) + submit button on one line,
     // instead of the modal's roomier stacked layout.
     actionHtml = compact
-      ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${statusSelectHtml}${extraInputsHtml}${btn}</div>`
+      ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:nowrap">${statusSelectHtml}${extraInputsHtml}${btn}</div>`
       : `
       ${nextActionWrapOpen}
         <div style="${titleStyle}">${nextStepDef.label}</div>
