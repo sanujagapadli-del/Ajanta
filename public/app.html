@@ -6443,8 +6443,8 @@ async function sendSfmsOtp(row, step) {
 // lists — just mark-done + a couple of steps with extra fields.
 // ══════════════════════════════════════════════════════
 const O2D_STEP_DEFS = [
-  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', tat: '10 min', extraFields: [
-      { key: 'reason', label: 'Reason (if Not Available)' }
+  { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', tat: '10 min', statusOptions: ['Yes', 'No'], extraFields: [
+      { key: 'reason', label: 'Reason (if not ok)' }
     ] },
   { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [], perItemStatus: true },
   { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', extraFields: [], allowAddOrder: true },
@@ -7292,6 +7292,15 @@ async function advanceO2dStep(orderNo, step) {
   body.perRowStatus = perRowStatus;
   body.status = 'Yes'; // default for every pending row when this step has no per-item choice
 
+  // Order-level Yes/No (e.g. "Accounts is ok or not") — one status for the
+  // whole order, distinct from Good Check's per-item choice above.
+  if (stepDef.statusOptions) {
+    const sel = document.getElementById(`o2dStepStatus_${orderNo}`);
+    const val = sel ? sel.value : '';
+    if (!val) { showToast('Select a status', 'error'); return; }
+    body.status = val;
+  }
+
   for (const f of stepDef.extraFields) body[f.key] = readO2dField(f, orderNo);
   for (const f of stepDef.extraFields) {
     if (f.required && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
@@ -7326,7 +7335,7 @@ async function advanceO2dStep(orderNo, step) {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
     o.steps[stepIdx].actual = allDone ? `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}` : '';
-    o.steps[stepIdx].status = allDone ? 'Yes' : '';
+    o.steps[stepIdx].status = allDone ? (body.status || 'Yes') : '';
     stepDef.extraFields.forEach(f => { o.steps[stepIdx][f.key] = body[f.key] || ''; });
     let currentStep = 0;
     for (const s of o.steps) { if (s.status) currentStep = s.n; else break; }
@@ -7513,6 +7522,12 @@ function renderO2dDetailBody(o, hideProgress) {
         ${showItemsInAction ? `
         <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length}) — pick Available/Not Available per item</div>
         <div style="margin-bottom:14px;background:var(--surface);border-radius:10px;padding:2px 10px">${productsActionListHtml || '—'}</div>` : ''}
+        ${nextStepDef.statusOptions ? `
+        <div style="${O2D_FIELD_LABEL_STYLE}">Status <span style="color:var(--color-danger)">*</span></div>
+        <select id="o2dStepStatus_${o.orderNo}" style="${O2D_INPUT_STYLE};background:var(--surface)">
+          <option value="">-- Select --</option>
+          ${nextStepDef.statusOptions.map(s => `<option>${s}</option>`).join('')}
+        </select>` : ''}
         ${extraInputsHtml}
         <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${o.orderNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
         ${nextStepDef.allowAddOrder ? `

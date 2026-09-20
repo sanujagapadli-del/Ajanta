@@ -475,6 +475,7 @@ async function getSheetsClient(scopes) {
   } catch(e) { console.log('  ⚠️ Google Auth pre-warm failed:', e.message); }
 })();
 
+
 // ══════════════════════════════════════════════════════
 // GOOGLE DRIVE — photo uploads (Service FMS bill/product photos)
 // Service accounts have no storage quota of their own, so uploads only work
@@ -543,13 +544,17 @@ app.post('/api/upload-photo', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 const MASTER_WORKBOOK_FILE_ID = '1zAcazPtIhM3MsPBLKy0m8f_P3D9JoZeH';
 let _masterWorkbookCache = null; // { products, dealerNames, ts }
-const MASTER_WORKBOOK_CACHE_TTL_MS = 30 * 60 * 1000;
+// Downloading this file is the slow part (~5s, mostly Drive API network
+// time, not parsing) — cache long since it's a manually re-uploaded
+// reference workbook, and pre-warm below so most requests never pay that
+// cost at all.
+const MASTER_WORKBOOK_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 async function getMasterWorkbookData() {
   if (_masterWorkbookCache && (Date.now() - _masterWorkbookCache.ts) < MASTER_WORKBOOK_CACHE_TTL_MS) return _masterWorkbookCache;
   const drive = await getDriveClient();
   const resp = await drive.files.get({ fileId: MASTER_WORKBOOK_FILE_ID, alt: 'media' }, { responseType: 'arraybuffer' });
-  const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer' });
+  const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer', sheets: ['2. Product Master', '5. Dealer Master'] });
 
   const productSheet = wb.Sheets['2. Product Master'];
   const productRows = productSheet ? XLSX.utils.sheet_to_json(productSheet, { header: 1, raw: false, defval: '' }) : [];
@@ -567,6 +572,16 @@ async function getMasterWorkbookData() {
   _masterWorkbookCache = { products, dealerNames, ts: Date.now() };
   return _masterWorkbookCache;
 }
+
+// Pre-warm — downloading this file is the slowest single thing in the app
+// (~5s, Drive API), so pay that cost once at startup instead of on
+// whichever request happens to hit a cold cache (e.g. someone opening New Order).
+(async () => {
+  try {
+    await getMasterWorkbookData();
+    console.log('  ✅ Master workbook pre-warmed');
+  } catch(e) { console.log('  ⚠️ Master workbook pre-warm failed:', e.message); }
+})();
 
 app.get('/api/o2d-fms/product-names', requireAuth, async (req, res) => {
   try {
