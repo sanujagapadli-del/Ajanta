@@ -5642,9 +5642,12 @@ function sfmsMasterListFor(name) {
 
 // Field ids are scoped by row (not just field key) because several complaint
 // cards with the same field keys can be on screen at once (e.g. the Spare
-// In/Out tab lists many "Item Name" fields simultaneously).
-function renderSfmsField(f, row) {
+// In/Out tab lists many "Item Name" fields simultaneously). `compact` swaps
+// the modal's full-width stacked style for a narrow inline one, so a step
+// tab's field(s) + submit button can sit on one line instead of stacking.
+function renderSfmsField(f, row, compact) {
   const id = `sfmsExtra_${row}_${f.key}`;
+  const inputStyle = compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE;
   if (f.masterList) {
     const list = sfmsMasterListFor(f.masterList);
     const options = list.map(v => `<option value="${v.replace(/"/g, '&quot;')}">${v}</option>`).join('');
@@ -5659,7 +5662,7 @@ function renderSfmsField(f, row) {
          </select>`
       : '';
     return `
-      <select id="${id}" onchange="onSfmsMasterSelectChange('${row}','${f.key}'); ${extraOnchange}" style="${SFMS_INPUT_STYLE}">
+      <select id="${id}" onchange="onSfmsMasterSelectChange('${row}','${f.key}'); ${extraOnchange}" style="${inputStyle}">
         <option value="">-- ${f.label} --</option>
         ${options}
         <option value="__add_new__">+ Add New</option>
@@ -5672,17 +5675,17 @@ function renderSfmsField(f, row) {
   }
   if (f.options) {
     const opts = f.options.map(o => `<option value="${o}">${o}</option>`).join('');
-    return `<select id="${id}" style="${SFMS_INPUT_STYLE}"><option value="">-- ${f.label} --</option>${opts}</select>`;
+    return `<select id="${id}" style="${inputStyle}"><option value="">-- ${f.label} --</option>${opts}</select>`;
   }
-  return `<input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${SFMS_INPUT_STYLE}"/>`;
+  return `<input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${inputStyle}"/>`;
 }
 function readSfmsField(f, row) {
   const el = document.getElementById(`sfmsExtra_${row}_${f.key}`);
   return el ? el.value.trim() : '';
 }
-function renderSfmsStatusSelect(stepDef, row) {
+function renderSfmsStatusSelect(stepDef, row, compact) {
   const opts = stepDef.statusOptions.map(o => `<option value="${o}">${o}</option>`).join('');
-  return `<select id="sfmsStatusSelect_${row}" style="${SFMS_INPUT_STYLE}"><option value="">-- Select --</option>${opts}</select>`;
+  return `<select id="sfmsStatusSelect_${row}" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE}"><option value="">-- Select --</option>${opts}</select>`;
 }
 function onSfmsMasterSelectChange(row, key) {
   const sel = document.getElementById(`sfmsExtra_${row}_${key}`);
@@ -5760,26 +5763,30 @@ function renderSfmsStepView(n) {
   <table>
     <thead><tr>
       <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
-      <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Pending</th>
-      <th style="min-width:300px">${n}. ${stepDef.label}</th>
+      <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Photos</th><th>Pending</th>
+      <th>${n}. ${stepDef.label}</th>
     </tr></thead>
     <tbody>
       ${rows.map(c => {
         const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
         const isLate = daysPending >= 2;
+        const purchaseDateOnly = (c.purchaseDate || '').split(' ')[0] || '—'; // strip the time — purchase is date-only
+        const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
+          (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:6px">📷</a>` : '');
         return `<tr>
           <td style="font-weight:600;cursor:pointer;white-space:nowrap" onclick="openComplaintDetail(${c.row})">${c.complainNo}</td>
           <td style="white-space:nowrap">${c.filledByName}</td>
           <td style="white-space:nowrap"><a href="tel:${c.mobile}">${c.mobile}</a></td>
           <td style="white-space:nowrap">${c.dealerName || '—'}</td>
           <td style="white-space:nowrap">${c.productName}</td>
-          <td style="white-space:nowrap">${c.purchaseDate || '—'}</td>
-          <td style="max-width:200px;white-space:normal">${c.problemDescription || '—'}</td>
+          <td style="white-space:nowrap">${purchaseDateOnly}</td>
+          <td style="max-width:160px;white-space:normal">${c.problemDescription || '—'}</td>
           <td style="white-space:nowrap">${c.productLocation || '—'}</td>
-          <td style="max-width:180px;white-space:normal">${c.address || '—'}</td>
+          <td style="max-width:140px;white-space:normal">${c.address || '—'}</td>
           <td style="white-space:nowrap">${c.area || '—'}</td>
-          <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending} day${daysPending === 1 ? '' : 's'}${isLate ? ' ⚠️' : ''}</td>
-          <td id="sfmsStepAction_${c.row}" style="min-width:300px;padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
+          <td style="white-space:nowrap;font-size:16px">${photosHtml || '—'}</td>
+          <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
+          <td id="sfmsStepAction_${c.row}" style="padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -6450,6 +6457,10 @@ function openO2dQuickAction(orderNo) {
 }
 
 const SFMS_INPUT_STYLE = "width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
+// Used inside a step tab's inline action cell instead of SFMS_INPUT_STYLE —
+// no width:100%/margin-bottom, so a field can sit on the same line as its
+// submit button rather than stacking above it.
+const SFMS_INPUT_STYLE_COMPACT = "padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif;min-width:150px";
 const SFMS_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
 
 // Builds the "what to do next" form for a complaint's current step — OTP
@@ -6488,23 +6499,31 @@ function buildSfmsNextActionHtml(c, compact) {
         ${wrapClose}`;
     }
   } else if (nextStepDef && nextStepDef.otpRequired) {
-    const extraInputsHtml = nextStepDef.extraFields.map(f => renderSfmsField(f, c.row)).join('');
+    const extraInputsHtml = nextStepDef.extraFields.map(f => renderSfmsField(f, c.row, compact)).join('');
     if (!sfmsOtpSentFor[c.row]) {
-      actionHtml = `
+      const sendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-primary" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">Send OTP to Customer</button>`;
+      actionHtml = compact
+        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${sendBtn}</div>`
+        : `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
           <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Send a verification code to the customer's WhatsApp, then ask them for it to confirm the visit.</div>
-          <button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px">Send OTP to Customer</button>
+          ${sendBtn}
         ${wrapClose}`;
     } else {
-      actionHtml = `
+      const otpInput = `<input type="text" inputmode="numeric" id="sfmsOtpInput_${c.row}" placeholder="Enter OTP" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE};text-align:center;letter-spacing:${compact ? '3px' : '6px'};font-weight:700;font-size:${compact ? '14px' : '18px'}"/>`;
+      const verifyBtn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px;margin-bottom:8px'}">Verify &amp; Complete</button>`;
+      const resendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-outline btn-sm" style="${compact ? 'padding:8px 12px;font-size:12px;white-space:nowrap' : 'width:100%;justify-content:center'}">Resend</button>`;
+      actionHtml = compact
+        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${otpInput}${extraInputsHtml}${verifyBtn}${resendBtn}</div>`
+        : `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
           <div style="font-size:13px;color:var(--color-success-text);font-weight:600;margin-bottom:14px">OTP sent — ask the customer for the code</div>
-          <input type="text" inputmode="numeric" id="sfmsOtpInput_${c.row}" placeholder="Enter OTP" style="${SFMS_INPUT_STYLE};text-align:center;letter-spacing:6px;font-weight:700;font-size:18px"/>
+          ${otpInput}
           ${extraInputsHtml}
-          <button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px;margin-bottom:8px">Verify &amp; Mark Complete</button>
-          <button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-outline btn-sm" style="width:100%;justify-content:center">Resend OTP</button>
+          ${verifyBtn}
+          ${resendBtn}
         ${wrapClose}`;
     }
   } else if (nextStepDef) {
@@ -6513,31 +6532,36 @@ function buildSfmsNextActionHtml(c, compact) {
     // In/Out tab's "Return Pending" section, not upfront alongside the takeout.
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
     const fieldsToShow = nextStepDef.n === 3 ? nextStepDef.extraFields.filter(f => f.key !== 'spareReturned') : nextStepDef.extraFields;
-    const statusSelectHtml = nextStepDef.statusOptions ? renderSfmsStatusSelect(nextStepDef, c.row) : '';
+    const statusSelectHtml = nextStepDef.statusOptions ? renderSfmsStatusSelect(nextStepDef, c.row, compact) : '';
     // Step 6 (Spare In/Out): show what was taken in Step 3 for comparison, and
     // only reveal "Reason (if Short)" once the returned qty is actually short.
     let extraInputsHtml, takenSummaryHtml = '';
     if (nextStepDef.n === 6) {
       const step3 = c.steps.find(s => s.n === 3);
       const takenQty = Number(step3.spareTaken) || 0;
-      takenSummaryHtml = `<div style="font-size:13px;color:var(--gray-700);margin-bottom:12px;background:var(--surface);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+      takenSummaryHtml = compact ? '' : `<div style="font-size:13px;color:var(--gray-700);margin-bottom:12px;background:var(--surface);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
         <b>Taken in Step 3:</b> ${step3.itemName || '—'} × ${takenQty}
       </div>`;
       const qtyField = fieldsToShow.find(f => f.key === 'qtyReturned');
       const reasonField = fieldsToShow.find(f => f.key === 'reasonIfShort');
       extraInputsHtml = `
-        <input type="number" id="sfmsExtra_${c.row}_qtyReturned" placeholder="${qtyField.label}" oninput="checkSfmsSpareShortage(${c.row},${takenQty})" style="${SFMS_INPUT_STYLE}"/>
-        <div id="sfmsReasonWrap_${c.row}" style="display:none">${renderSfmsField(reasonField, c.row)}</div>
+        <input type="number" id="sfmsExtra_${c.row}_qtyReturned" placeholder="${qtyField.label}${compact ? ` (took ${takenQty})` : ''}" oninput="checkSfmsSpareShortage(${c.row},${takenQty})" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE}"/>
+        <div id="sfmsReasonWrap_${c.row}" style="display:none">${renderSfmsField(reasonField, c.row, compact)}</div>
       `;
     } else {
-      extraInputsHtml = fieldsToShow.map(f => renderSfmsField(f, c.row)).join('');
+      extraInputsHtml = fieldsToShow.map(f => renderSfmsField(f, c.row, compact)).join('');
     }
     // Step 7 ("Complaint Solved?") repeats until answered Yes — show when it was
     // last checked so it's obvious this isn't the first time being asked.
-    const lastCheckedHtml = (nextStepDef.n === 7 && stepData.actual)
+    const lastCheckedHtml = (nextStepDef.n === 7 && stepData.actual && !compact)
       ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:10px">Last checked: ${stepData.actual}</div>` : '';
     const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
-    actionHtml = `
+    const btn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">${btnLabel}</button>`;
+    // Compact (step-tab table cell): field(s) + submit button on one line,
+    // instead of the modal's roomier stacked layout.
+    actionHtml = compact
+      ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${statusSelectHtml}${extraInputsHtml}${btn}</div>`
+      : `
       ${nextActionWrapOpen}
         <div style="${titleStyle}">${nextStepDef.label}</div>
         ${lastCheckedHtml}
@@ -6545,7 +6569,7 @@ function buildSfmsNextActionHtml(c, compact) {
         ${statusSelectHtml}
         ${takenSummaryHtml}
         ${extraInputsHtml}
-        <button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">${btnLabel}</button>
+        ${btn}
       ${wrapClose}`;
   } else {
     actionHtml = compact
