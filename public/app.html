@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Ajanta Electronics Task Manager</title>
+<title>Ajanta Appliances Task Manager</title>
 <link rel="icon" type="image/png" href="/logo-mark.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -680,10 +680,10 @@ tbody tr:last-child td{border-bottom:none;}
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo" style="position:relative">
     <div class="logo-icon-only" style="background:#fff;border-radius:9px;padding:4px;width:40px;height:40px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:opacity .22s;box-shadow:var(--shadow-sm)">
-      <img src="/logo-mark.png" alt="Ajanta Electronics" style="width:100%;height:100%;object-fit:contain"/>
+      <img src="/logo-mark.png" alt="Ajanta Appliances" style="width:100%;height:100%;object-fit:contain"/>
     </div>
     <div class="logo-full-lockup" style="position:absolute;left:13px;top:50%;transform:translateY(-50%);background:#fff;border-radius:9px;padding:5px 10px;opacity:0;transition:opacity .22s;box-shadow:var(--shadow-sm)">
-      <img src="/logo-horizontal.png" alt="Ajanta Electronics" style="height:26px;width:auto;display:block"/>
+      <img src="/logo-horizontal.png" alt="Ajanta Appliances" style="height:26px;width:auto;display:block"/>
     </div>
   </div>
   <nav class="nav">
@@ -2268,7 +2268,16 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
         <div class="form-group">
           <label>Order By</label>
-          <input type="text" id="noOrderBy" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <select id="noOrderBy" onchange="onNoOrderByChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface)">
+            <option value="">-- Select --</option>
+            <option>Rohit</option>
+            <option>Giridhari</option>
+            <option>Krishna</option>
+            <option>SC CRR</option>
+            <option>SC NBD</option>
+            <option value="__other__">+ Add New Sales Person</option>
+          </select>
+          <input type="text" id="noOrderByOther" placeholder="Enter sales person name" style="display:none;width:100%;padding:9px 12px;margin-top:6px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         </div>
         <div class="form-group">
           <label>Payment Terms</label>
@@ -7414,11 +7423,39 @@ function addO2dProductRow() {
   row.id = `noProductRow_${id}`;
   row.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
   row.innerHTML = `
-    <input type="text" placeholder="Product Name *" id="noProdName_${id}" list="noProductNameList" style="min-width:0;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="text" placeholder="Product Name *" id="noProdName_${id}" list="noProductNameList" oninput="onO2dProductNameChanged(${id})" style="min-width:0;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     <input type="number" placeholder="Rate" id="noProdRate_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     <input type="number" placeholder="Qty *" id="noProdQty_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     <button type="button" onclick="removeO2dProductRow(${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0;flex-shrink:0">✕</button>`;
   wrap.appendChild(row);
+}
+
+// Auto-fills Rate with whatever this dealer was last charged for this exact
+// product (searched across their whole order history, newest first) — stays
+// a normal editable number input, this is just a starting point.
+let _o2dOrderHistoryForRates = null;
+async function loadO2dOrderHistoryForRates(force) {
+  if (_o2dOrderHistoryForRates && !force) return;
+  const r = await api('/api/o2d-fms');
+  _o2dOrderHistoryForRates = Array.isArray(r) ? r : [];
+}
+function findLastRateForDealerProduct(dealerName, productName) {
+  if (!dealerName || !productName || !_o2dOrderHistoryForRates) return null;
+  const dName = dealerName.trim().toLowerCase();
+  const pName = productName.trim().toLowerCase();
+  if (!dName || !pName) return null;
+  for (const o of _o2dOrderHistoryForRates) { // getO2dOrders() already returns newest-first
+    if ((o.counterName || '').trim().toLowerCase() !== dName) continue;
+    const match = (o.products || []).find(p => (p.productName || '').trim().toLowerCase() === pName);
+    if (match && match.rate) return match.rate;
+  }
+  return null;
+}
+function onO2dProductNameChanged(id) {
+  const dealerName = document.getElementById('noCounterName').value;
+  const productName = document.getElementById(`noProdName_${id}`).value;
+  const rate = findLastRateForDealerProduct(dealerName, productName);
+  if (rate !== null) document.getElementById(`noProdRate_${id}`).value = rate;
 }
 function removeO2dProductRow(id) {
   const wrap = document.getElementById('noProductRows');
@@ -7431,6 +7468,12 @@ function onNoChannelChange() {
   other.style.display = isOther ? 'block' : 'none';
   if (isOther) other.focus(); else other.value = '';
 }
+function onNoOrderByChange() {
+  const isOther = document.getElementById('noOrderBy').value === '__other__';
+  const other = document.getElementById('noOrderByOther');
+  other.style.display = isOther ? 'block' : 'none';
+  if (isOther) other.focus(); else other.value = '';
+}
 
 function openNewO2dOrderModal() {
   document.getElementById('newO2dOrderErr').style.display = 'none';
@@ -7439,6 +7482,8 @@ function openNewO2dOrderModal() {
   document.getElementById('noChannel').value = '';
   document.getElementById('noChannelOther').value = '';
   document.getElementById('noChannelOther').style.display = 'none';
+  document.getElementById('noOrderByOther').value = '';
+  document.getElementById('noOrderByOther').style.display = 'none';
   document.getElementById('noCounterType').value = 'Old Counter';
   document.getElementById('noDeliverByTransport').value = 'No';
   document.getElementById('noMakePI').value = 'No';
@@ -7451,6 +7496,7 @@ function openNewO2dOrderModal() {
   loadO2dCounterNames();
   loadO2dProductNames();
   loadO2dDealers(false); // cached — instant if the Dealers tab's already been opened this session
+  loadO2dOrderHistoryForRates(false);
 }
 
 function goToO2dOrderStep1() {
@@ -7511,6 +7557,9 @@ function onO2dCounterNameInput() {
   box.innerHTML = d
     ? dealerCardHtml(d)
     : `<div style="padding:10px 14px;border-radius:8px;font-size:13px;background:var(--gray-100);border:1px solid var(--gray-200);color:var(--gray-500)">🆕 New dealer — abhi koi record nahi hai. Order ke baad profile apne aap ban jayega.</div>`;
+  // Area/Location repeats order after order for the same dealer — carry
+  // over whatever their last order used instead of retyping it.
+  if (d && d.lastOrder && d.lastOrder.area) document.getElementById('noArea').value = d.lastOrder.area;
 }
 
 async function submitNewO2dOrder() {
@@ -7535,7 +7584,7 @@ async function submitNewO2dOrder() {
     counterType: document.getElementById('noCounterType').value,
     counterName,
     area: document.getElementById('noArea').value.trim(),
-    orderBy: document.getElementById('noOrderBy').value.trim(),
+    orderBy: document.getElementById('noOrderBy').value === '__other__' ? document.getElementById('noOrderByOther').value.trim() : document.getElementById('noOrderBy').value,
     paymentTerms: document.getElementById('noPaymentTerms').value.trim(),
     channel: document.getElementById('noChannel').value === '__other__' ? document.getElementById('noChannelOther').value.trim() : document.getElementById('noChannel').value,
     deliverByTransport: document.getElementById('noDeliverByTransport').value,

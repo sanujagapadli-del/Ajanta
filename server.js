@@ -190,7 +190,7 @@ function delegationEmailHtml({ assigneeName, assignerName, desc, dueDate, priori
         ${remarks ? `<tr><td style="padding:8px;background:#f0f4f8;"><b>Remarks</b></td><td style="padding:8px;">${remarks}</td></tr>` : ''}
       </table>
       <a href="${appUrl}" style="display:inline-block;background:#1976d2;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;">Open Task Manager</a>
-      <p style="color:#777;font-size:12px;margin-top:30px;">This is an automated email from Ajanta Electronics Task Manager.</p>
+      <p style="color:#777;font-size:12px;margin-top:30px;">This is an automated email from Ajanta Appliances Task Manager.</p>
     </div>
   </div>`;
 }
@@ -2672,7 +2672,7 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp', requireAuth, async (req
     const otp = String(crypto.randomInt(100000, 1000000));
     const sentAtIso = new Date().toISOString();
 
-    await sendWhatsApp(mobile, `Ajanta Electronics Service: Your OTP to confirm the technician's visit is ${otp}. Please share this with the technician. Valid for 30 minutes.`);
+    await sendWhatsApp(mobile, `Ajanta Appliances Service: Your OTP to confirm the technician's visit is ${otp}. Please share this with the technician. Valid for 30 minutes.`);
 
     await sheetsApi.spreadsheets.values.batchUpdate({
       spreadsheetId: SFMS_SHEET_ID,
@@ -3310,7 +3310,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       const d = ensure(o.counterName);
       if (!d) return;
       if (!d.lastOrder || o.timestamp > d.lastOrder.timestamp) {
-        d.lastOrder = { timestamp: o.timestamp, orderNo: o.orderNo, qty: o.qty, amount: o.amount };
+        d.lastOrder = { timestamp: o.timestamp, orderNo: o.orderNo, qty: o.qty, amount: o.amount, area: o.area };
       }
     });
 
@@ -3882,7 +3882,7 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
         if (phone) {
           const billNo = req.body.billNo ? ` (Bill No: ${req.body.billNo})` : '';
           const amount = req.body.billAmount ? `, Amount: ₹${req.body.billAmount}` : '';
-          await sendWhatsApp(phone, `Ajanta Electronics: Your bill for order ${orderNo}${billNo}${amount} is ready.\nInvoice: ${req.body.photoLink}`);
+          await sendWhatsApp(phone, `Ajanta Appliances: Your bill for order ${orderNo}${billNo}${amount} is ready.\nInvoice: ${req.body.photoLink}`);
           whatsappSent = true;
         } else {
           whatsappSkippedReason = 'Dealer phone number not set — add it from the Dealers tab to enable WhatsApp bill alerts.';
