@@ -6648,6 +6648,16 @@ function buildSfmsNextActionHtml(c, compact) {
         <input type="number" id="sfmsExtra_${c.row}_qtyReturned" placeholder="${qtyField.label}${compact ? ` (took ${takenQty})` : ''}" oninput="checkSfmsSpareShortage(${c.row},${takenQty})" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE}"/>
         <div id="sfmsReasonWrap_${c.row}" style="display:none">${renderSfmsField(reasonField, c.row, compact)}</div>
       `;
+    } else if (nextStepDef.n === 3 && compact) {
+      // Assign tab (compact): Zone is now set once at the top of the whole
+      // table (the "Filter by Zone" bar), not re-picked per row — so here it's
+      // just a hidden field carrying that value (still submitted with the
+      // row) plus a small read-only label, and only Mechanic stays a picker.
+      extraInputsHtml = fieldsToShow.map(f => f.key === 'zone'
+        ? `<input type="hidden" id="sfmsExtra_${c.row}_zone" value="${sfmsAssignZoneFilter.replace(/"/g, '&quot;')}"/>
+           <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">Zone: ${sfmsAssignZoneFilter || '—'}</span>`
+        : renderSfmsField(f, c.row, compact)
+      ).join('');
     } else {
       extraInputsHtml = fieldsToShow.map(f => renderSfmsField(f, c.row, compact)).join('');
     }
