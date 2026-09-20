@@ -2909,7 +2909,7 @@ const O2D_STEPS = [
       { key: 'billNo', col: 'BJ', label: 'Bill No' },
       { key: 'billAmount', col: 'BK', label: 'Bill Amount' },
       { key: 'photoLink', col: 'BL', label: 'Invoice Photo' },
-      { key: 'billDate', col: 'BM', label: 'Bill Date' }
+      { key: 'billDate', col: 'BM', label: 'Bill Date', isDate: true }
     ] },
   { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', planned: 'AJ', actual: 'AK', status: 'AL', timeDelay: 'AO',
     extra: [
@@ -3035,7 +3035,10 @@ async function getO2dOrders() {
           actual: sd.actual ? sfmsSerialToDate(get(sd.actual)) : '',
           status: get(sd.status) || ''
         };
-        sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
+        sd.extra.forEach(e => {
+          const val = get(e.col);
+          step[e.key] = e.isDate && typeof val === 'number' ? sfmsSerialToDate(val).split(' ')[0] : (val || '');
+        });
         return step;
       });
       let lineCurrentStep = 0;
