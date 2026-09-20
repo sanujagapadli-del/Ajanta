@@ -5756,9 +5756,11 @@ function renderSfmsStepView(n) {
   const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
   const rows = sfmsData.filter(c => !c.closed && c.currentStep + 1 === n);
   if (!rows.length) { wrap.innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`; return; }
-  wrap.innerHTML = `<table>
+  wrap.innerHTML = `<div class="mis-table-wrap" style="overflow-x:auto">
+  <table>
     <thead><tr>
-      <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Product</th><th>Problem</th><th>Pending</th>
+      <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
+      <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Pending</th>
       <th style="min-width:300px">${n}. ${stepDef.label}</th>
     </tr></thead>
     <tbody>
@@ -5766,17 +5768,23 @@ function renderSfmsStepView(n) {
         const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
         const isLate = daysPending >= 2;
         return `<tr>
-          <td style="font-weight:600;cursor:pointer" onclick="openComplaintDetail(${c.row})">${c.complainNo}</td>
-          <td>${c.filledByName}</td>
-          <td><a href="tel:${c.mobile}">${c.mobile}</a></td>
-          <td>${c.productName}</td>
-          <td style="max-width:220px;white-space:normal">${c.problemDescription || '—'}</td>
+          <td style="font-weight:600;cursor:pointer;white-space:nowrap" onclick="openComplaintDetail(${c.row})">${c.complainNo}</td>
+          <td style="white-space:nowrap">${c.filledByName}</td>
+          <td style="white-space:nowrap"><a href="tel:${c.mobile}">${c.mobile}</a></td>
+          <td style="white-space:nowrap">${c.dealerName || '—'}</td>
+          <td style="white-space:nowrap">${c.productName}</td>
+          <td style="white-space:nowrap">${c.purchaseDate || '—'}</td>
+          <td style="max-width:200px;white-space:normal">${c.problemDescription || '—'}</td>
+          <td style="white-space:nowrap">${c.productLocation || '—'}</td>
+          <td style="max-width:180px;white-space:normal">${c.address || '—'}</td>
+          <td style="white-space:nowrap">${c.area || '—'}</td>
           <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending} day${daysPending === 1 ? '' : 's'}${isLate ? ' ⚠️' : ''}</td>
           <td id="sfmsStepAction_${c.row}" style="min-width:300px;padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
         </tr>`;
       }).join('')}
     </tbody>
-  </table>`;
+  </table>
+  </div>`;
 }
 
 // Patches just one row's action cell in the per-step table (instead of a full
@@ -6678,8 +6686,42 @@ async function advanceSfmsStep(row, step, stage) {
   if (res.error) { showToast(res.error, 'error'); return; }
   delete sfmsOtpSentFor[row];
   showToast('✅ Step updated!');
-  await loadServiceFmsList();
   closeModal('complaintDetailModal');
+  // Refresh the data quietly (no "Loading…" blank-out) and move only this one
+  // complaint — a full loadServiceFmsList() re-render would wipe out whatever
+  // any OTHER pending row on this same step tab has half-typed into its form.
+  await refreshSfmsDataQuietly();
+  patchSfmsRowAfterUpdate(row);
+}
+
+// Re-fetches sfmsData without touching the DOM — used after a single-row
+// update so the rest of the currently-rendered list stays untouched.
+async function refreshSfmsDataQuietly() {
+  const [data] = await Promise.all([api('/api/service-fms'), ensureSfmsMasterLists()]);
+  if (Array.isArray(data)) sfmsData = data;
+}
+
+// After one complaint's step is updated: if it's no longer pending at the
+// step tab currently on screen, just remove its row (it "moves forward"
+// without the rest of the table reloading); if it's still here (e.g. a
+// two-stage step's "out" half just done), refresh only its action cell.
+function patchSfmsRowAfterUpdate(row) {
+  const c = sfmsData.find(x => x.row === row);
+  if (sfmsView.startsWith('step')) {
+    const stepNum = Number(sfmsView.slice(4));
+    const stillPendingHere = c && !c.closed && c.currentStep + 1 === stepNum;
+    if (stillPendingHere) { refreshSfmsStepActionCell(row); return; }
+    const actionCell = document.getElementById(`sfmsStepAction_${row}`);
+    const tr = actionCell ? actionCell.closest('tr') : null;
+    if (tr) tr.remove();
+    const tbody = document.querySelector('#sfmsListWrap table tbody');
+    if (tbody && !tbody.children.length) {
+      const stepDef = SFMS_STEP_DEFS.find(d => d.n === stepNum);
+      document.getElementById('sfmsListWrap').innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`;
+    }
+  } else if (sfmsView === 'all') {
+    renderServiceFmsList(); // card grid — no per-row typed state to preserve here
+  }
 }
 
 async function sendSfmsOtp(row, step) {
