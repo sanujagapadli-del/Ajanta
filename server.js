@@ -3104,7 +3104,12 @@ async function getO2dOrders() {
           n: sd.n, label: sd.label, doer: sd.doer, tat: sd.tat, doers: stepDoersMap[sd.n] || [],
           planned: lineSteps[0].planned,
           actual: allDone ? (actuals[actuals.length - 1] || '') : '',
-          status: allDone ? 'Yes' : ''
+          // Order-level steps (e.g. Accounts Yes/No) write the SAME status to
+          // every line, so this preserves the real answer. Per-item steps
+          // (Good Check) can legitimately have lines that disagree — those
+          // fall back to a generic "Yes" meaning just "done"; the real
+          // per-product answer lives in each product's own `availability`.
+          status: allDone ? (lineSteps.every(s => s.status === lineSteps[0].status) ? lineSteps[0].status : 'Yes') : ''
         };
         sd.extra.forEach(e => {
           const withVal = lineSteps.find(s => s[e.key]);
