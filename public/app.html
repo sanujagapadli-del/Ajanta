@@ -2297,6 +2297,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
 
       <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px">Products</div>
+      <datalist id="noProductNameList"></datalist>
       <div id="noProductRows"></div>
       <button type="button" class="btn btn-outline btn-sm" onclick="addO2dProductRow()">+ Add Product</button>
     </div>
@@ -6450,23 +6451,24 @@ const O2D_STEP_DEFS = [
   { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', extraFields: [
       { key: 'billNo', label: 'Bill No' },
       { key: 'billAmount', label: 'Bill Amount', type: 'number' },
-      { key: 'photoLink', label: 'Invoice', type: 'photo' },
+      { key: 'photoLink', label: 'Invoice', type: 'photo', required: true },
       { key: 'billDate', label: 'Bill Date', type: 'date' }
     ] },
   { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', extraFields: [
-      { key: 'doerName', label: 'Doer Name' },
-      { key: 'photo', label: 'Photo (link)' }
+      { key: 'doerName', label: 'Doer Name', type: 'doerSelect' },
+      { key: 'photo', label: 'Photo', type: 'photo', required: true }
     ] },
   { n: 6, label: 'Check physical stock with bill', doer: 'Aziz', tat: '10 min', extraFields: [
-      { key: 'doerName', label: 'Doer Name' }
+      { key: 'doerName', label: 'Doer Name', type: 'doerSelect' }
     ] },
   { n: 7, label: 'Arrange Loader', doer: 'Kavita', tat: '10 min', extraFields: [] },
   { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', tat: '10 min', extraFields: [] },
   { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', extraFields: [
-      { key: 'doerName', label: 'Doer Name' },
+      { key: 'loaderName', label: 'Doer Name', type: 'doerSelect' },
       { key: 'deliveryBy', label: 'Delivery By' }
     ] }
 ];
+const O2D_DOER_OPTIONS = ['Rizwan', 'Govind'];
 const O2D_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
 const O2D_INPUT_STYLE = "width:100%;padding:10px 12px;border:1.5px solid var(--border-base);border-radius:var(--radius-sm);font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
 
@@ -6785,8 +6787,11 @@ function dealerCardHtml(d) {
   const nameEsc = d.name.replace(/'/g, "\\'");
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
-  const outstandingStr = d.outstanding !== null ? `<strong>${inr(d.outstanding)}</strong>` : '<span style="color:var(--gray-400)">—</span>';
-  const creditStr = d.creditLimit !== null ? inr(d.creditLimit) : `<span style="color:var(--gray-400)">credit limit set nahi</span>`;
+  const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '—';
+  const creditStr = d.creditLimit !== null ? inr(d.creditLimit) : 'set nahi';
+  const hasBoth = d.outstanding !== null && d.creditLimit !== null;
+  const available = hasBoth ? d.creditLimit - d.outstanding : null;
+  const overLimit = available !== null && available < 0;
   const ratingHtml = d.rating.total > 0
     ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span> ${d.rating.label} · ${d.rating.total} payment${d.rating.total===1?'':'s'}, ${d.rating.late} late · avg ${d.rating.avgLateDays} din`
     : `<span style="color:var(--gray-400)">No payment history yet</span>`;
@@ -6797,6 +6802,12 @@ function dealerCardHtml(d) {
     ? `<a href="https://maps.google.com/?q=${d.locationLat},${d.locationLng}" target="_blank" style="font-size:11px;color:var(--color-primary)">📍 View saved location</a>`
     : '';
 
+  const statTile = (label, value, color) => `
+    <div style="flex:1;min-width:90px;background:var(--surface);border-radius:8px;padding:8px 10px">
+      <div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+      <div style="font-size:14.5px;font-weight:700;color:${color}">${value}</div>
+    </div>`;
+
   return `
     <div style="background:var(--color-primary-light);border:1.5px solid var(--color-primary-ring);border-radius:12px;padding:14px 16px">
       <div style="font-weight:700;font-size:14px;color:var(--gray-900)">${d.name}${d.city ? ' · ' + d.city : ''}${d.phone ? ' · ' + d.phone : ''}</div>
@@ -6805,10 +6816,13 @@ function dealerCardHtml(d) {
         <button class="btn btn-outline btn-sm" onclick="openKycModal('${nameEsc}')">Upload KYC</button>
         <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
       </div>
-      <div style="font-size:12.5px;color:var(--gray-600);margin-top:8px">
-        Outstanding: ${outstandingStr} · <span style="cursor:pointer;text-decoration:underline dotted" onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})">${creditStr}</span>
+      <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">💳 Payment Overview</div>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        ${statTile('Total Dues', outstandingStr, 'var(--gray-800)')}
+        <div onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})" style="cursor:pointer;flex:1;min-width:90px">${statTile('Credit Limit', creditStr, 'var(--gray-800)')}</div>
+        ${available !== null ? statTile('Available', inr(available), overLimit ? 'var(--color-danger-text)' : 'var(--color-success-text)') : ''}
       </div>
-      <div style="font-size:12.5px;color:var(--gray-600);margin-top:4px">${ratingHtml} · <span style="cursor:pointer;color:var(--color-primary);text-decoration:underline dotted" onclick="openLogPaymentModal('${nameEsc}')">+ Log Payment</span></div>
+      <div style="font-size:12.5px;color:var(--gray-600);margin-top:8px">${ratingHtml} · <span style="cursor:pointer;color:var(--color-primary);text-decoration:underline dotted" onclick="openLogPaymentModal('${nameEsc}')">+ Log Payment</span></div>
       <div style="font-size:12.5px;color:var(--gray-600);margin-top:4px">${lastOrderHtml}</div>
       ${locHtml ? `<div style="margin-top:4px">${locHtml}</div>` : ''}
     </div>`;
@@ -7040,7 +7054,7 @@ function addO2dProductRow() {
   row.id = `noProductRow_${id}`;
   row.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
   row.innerHTML = `
-    <input type="text" placeholder="Product Name *" id="noProdName_${id}" style="min-width:0;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="text" placeholder="Product Name *" id="noProdName_${id}" list="noProductNameList" style="min-width:0;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     <input type="number" placeholder="Rate" id="noProdRate_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     <input type="number" placeholder="Qty *" id="noProdQty_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     <button type="button" onclick="removeO2dProductRow(${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0;flex-shrink:0">✕</button>`;
@@ -7075,6 +7089,7 @@ function openNewO2dOrderModal() {
   document.getElementById('newO2dOrderModal').classList.add('open');
   goToO2dOrderStep1();
   loadO2dCounterNames();
+  loadO2dProductNames();
   loadO2dDealers(false); // cached — instant if the Dealers tab's already been opened this session
 }
 
@@ -7107,6 +7122,15 @@ async function loadO2dCounterNames() {
     _o2dCounterNames = (r && r.names) || [];
   }
   document.getElementById('noCounterNameList').innerHTML = _o2dCounterNames.map(n => `<option value="${n.replace(/"/g,'&quot;')}">`).join('');
+}
+
+let _o2dProductNames = null; // cached across modal opens — Product Master workbook rarely changes
+async function loadO2dProductNames() {
+  if (!_o2dProductNames) {
+    const r = await api('/api/o2d-fms/product-names');
+    _o2dProductNames = (r && r.products) || [];
+  }
+  document.getElementById('noProductNameList').innerHTML = _o2dProductNames.map(p => `<option value="${p.name.replace(/"/g,'&quot;')}">`).join('');
 }
 
 // Case-insensitive exact match first, else the closest partial match — same
@@ -7188,13 +7212,33 @@ async function openO2dDetail(orderNo, hideProgress) {
 
 function renderO2dField(f, orderNo) {
   const id = `o2dExtra_${orderNo}_${f.key}`;
+  const reqMark = f.required ? ` <span style="color:var(--color-danger)">*</span>` : '';
   if (f.type === 'photo') {
-    return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}</div>
-      <input type="file" accept="image/*" id="${id}_file" onchange="onO2dPhotoSelected('${orderNo}','${f.key}',event)" style="${O2D_INPUT_STYLE}"/>
+    // capture="environment" makes phones open the camera directly; desktop
+    // browsers ignore it and just show the normal file picker.
+    return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
+      <input type="file" accept="image/*" capture="environment" id="${id}_file" onchange="onO2dPhotoSelected('${orderNo}','${f.key}',event)" style="${O2D_INPUT_STYLE}"/>
       <input type="hidden" id="${id}"/>
       <div id="${id}_status" style="font-size:11px;color:var(--gray-500);margin-top:-6px;margin-bottom:10px"></div>`;
   }
-  return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${O2D_INPUT_STYLE}"/>`;
+  if (f.type === 'doerSelect') {
+    const optionsHtml = O2D_DOER_OPTIONS.map(n => `<option>${n}</option>`).join('');
+    return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
+      <select id="${id}" onchange="onO2dDoerSelectChange('${orderNo}','${f.key}')" style="${O2D_INPUT_STYLE};background:var(--surface)">
+        <option value="">-- Select --</option>
+        ${optionsHtml}
+        <option value="__other__">+ Add Other</option>
+      </select>
+      <input type="text" id="${id}_other" placeholder="Enter name" style="display:none;${O2D_INPUT_STYLE}"/>`;
+  }
+  return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${O2D_INPUT_STYLE}"/>`;
+}
+function onO2dDoerSelectChange(orderNo, key) {
+  const sel = document.getElementById(`o2dExtra_${orderNo}_${key}`);
+  const other = document.getElementById(`o2dExtra_${orderNo}_${key}_other`);
+  const isOther = sel.value === '__other__';
+  other.style.display = isOther ? 'block' : 'none';
+  if (isOther) other.focus(); else other.value = '';
 }
 async function onO2dPhotoSelected(orderNo, key, event) {
   const file = event.target.files[0];
@@ -7214,7 +7258,12 @@ async function onO2dPhotoSelected(orderNo, key, event) {
 }
 function readO2dField(f, orderNo) {
   const el = document.getElementById(`o2dExtra_${orderNo}_${f.key}`);
-  return el ? el.value.trim() : '';
+  if (!el) return '';
+  if (f.type === 'doerSelect' && el.value === '__other__') {
+    const other = document.getElementById(`o2dExtra_${orderNo}_${f.key}_other`);
+    return other ? other.value.trim() : '';
+  }
+  return el.value.trim();
 }
 
 // Marking a step done applies to the WHOLE order (every product line under
@@ -7244,6 +7293,9 @@ async function advanceO2dStep(orderNo, step) {
   body.status = 'Yes'; // default for every pending row when this step has no per-item choice
 
   for (const f of stepDef.extraFields) body[f.key] = readO2dField(f, orderNo);
+  for (const f of stepDef.extraFields) {
+    if (f.required && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
+  }
 
   const btn = document.getElementById(`o2dMarkDoneBtn_${orderNo}`);
   const originalBtnText = btn ? btn.textContent : '';
@@ -7264,7 +7316,12 @@ async function advanceO2dStep(orderNo, step) {
   // manual refresh) still self-corrects once the cache catches up.
   const stepIdx = o.steps.findIndex(s => s.n === step);
   if (stepIdx >= 0) {
-    (o.products || []).forEach(p => { if (p.currentStep < step && (stepDef.perItemStatus ? perRowStatus[p.row] !== undefined : true)) p.currentStep = step; });
+    (o.products || []).forEach(p => {
+      if (p.currentStep < step && (stepDef.perItemStatus ? perRowStatus[p.row] !== undefined : true)) {
+        p.currentStep = step;
+        if (stepDef.perItemStatus && perRowStatus[p.row]) p.availability = perRowStatus[p.row];
+      }
+    });
     const allDone = (o.products || []).every(p => p.currentStep >= step);
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
@@ -7372,31 +7429,56 @@ function renderO2dDetailBody(o, hideProgress) {
   // which don't, instead of just one combined order-level status.
   const nextStepN = o.currentStep + 1;
   const nextStepDefForItems = O2D_STEP_DEFS.find(d => d.n === nextStepN);
-  // Available/Not Available is only meaningful on steps where stock genuinely
-  // varies per item (e.g. Good Check) — other steps (CRM call, billing,
-  // loader, entry) act on the whole order at once, so those just show a
-  // plain status per item instead of asking for a per-item choice.
-  const askPerItemStatus = !!(nextStepDefForItems && nextStepDefForItems.perItemStatus);
-  const productsListHtml = (o.products || []).map(p => {
-    const itemDone = nextStepN > 9 || p.currentStep >= nextStepN;
+  // Available/Not Available is only meaningful on Good Check (stock genuinely
+  // varies per item there) — that's the ONLY step whose action box shows the
+  // item list at all. Every other step shows the items read-only, up in the
+  // info card, carrying whatever availability was picked at Good Check.
+  const showItemsInAction = !!(nextStepDefForItems && nextStepDefForItems.perItemStatus);
+
+  function o2dAvailabilityBadge(p) {
+    if (p.availability === 'Yes') return `<span style="font-size:10px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">Available</span>`;
+    if (p.availability === 'No') return `<span style="font-size:10px;background:var(--color-danger-bg);color:var(--color-danger-text);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">Not Available</span>`;
+    return `<span style="font-size:10px;background:var(--gray-100);color:var(--gray-400);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">Pending</span>`;
+  }
+
+  // Interactive version — only rendered inside the action box, only for Good Check.
+  const productsActionListHtml = (o.products || []).map(p => {
+    const itemDone = p.currentStep >= nextStepN;
     const control = itemDone
-      ? `<span style="font-size:10px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">Yes</span>`
-      : askPerItemStatus
-      ? `<select id="o2dItemStatus_${o.orderNo}_${p.row}" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)">
+      ? o2dAvailabilityBadge(p)
+      : `<select id="o2dItemStatus_${o.orderNo}_${p.row}" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)">
           <option value="">-- Select --</option>
           <option value="Available">Available</option>
           <option value="Not Available">Not Available</option>
-        </select>`
-      : `<span style="font-size:10px;background:var(--gray-100);color:var(--gray-400);padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap">Pending</span>`;
+        </select>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
       <span>${p.productName} <span style="color:var(--gray-500)">— ${p.qty}${p.rate ? ' @ ₹' + p.rate : ''}</span></span>
       ${control}
     </div>`;
   }).join('');
 
+  // Read-only version — shown up top for every step except Good Check, plus
+  // a totals row so the whole order's qty/amount is visible at a glance.
+  const totalQty = (o.products || []).reduce((s, p) => s + (Number(p.qty) || 0), 0);
+  const totalAmount = (o.products || []).reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.rate) || 0), 0);
+  const productsInfoListHtml = (o.products || []).map(p => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
+      <span>${p.productName} <span style="color:var(--gray-500)">— ${p.qty}${p.rate ? ' @ ₹' + p.rate : ''}</span></span>
+      ${o2dAvailabilityBadge(p)}
+    </div>`).join('')
+    + `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:7px 0 0;color:var(--gray-700)">
+      <span>Total — ${totalQty} pcs</span>
+      <span>${totalAmount ? inr(totalAmount) : '—'}</span>
+    </div>`;
+
+  const itemsBlockHtml = showItemsInAction ? '' : `
+      <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
+      <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>`;
+
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${o.counterName || '—'}${o.area ? ' · ' + o.area : ''}</div>
+      ${itemsBlockHtml}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Order By</div>
@@ -7428,8 +7510,9 @@ function renderO2dDetailBody(o, hideProgress) {
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole order</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)} · TAT: ${nextStepDef.tat || '—'}</div>
-        <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})${askPerItemStatus ? ' — pick Available/Not Available per item' : ''}</div>
-        <div style="margin-bottom:14px;background:var(--surface);border-radius:10px;padding:2px 10px">${productsListHtml || '—'}</div>
+        ${showItemsInAction ? `
+        <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length}) — pick Available/Not Available per item</div>
+        <div style="margin-bottom:14px;background:var(--surface);border-radius:10px;padding:2px 10px">${productsActionListHtml || '—'}</div>` : ''}
         ${extraInputsHtml}
         <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${o.orderNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
         ${nextStepDef.allowAddOrder ? `

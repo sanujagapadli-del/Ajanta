@@ -65,6 +65,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const XLSX = require('xlsx');
 
 // Plain text password storage + legacy bcrypt migration.
 // Passwords are stored as plain text so admins can see them in the sheet.
@@ -531,6 +532,47 @@ app.post('/api/upload-photo', requireAuth, async (req, res) => {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     res.status(500).json({ error: err.message });
   }
+});
+
+// ══════════════════════════════════════════════════════
+// MASTER DATA WORKBOOK — a manually-maintained .xlsx (Product Master, Dealer
+// Master, etc.), uploaded to Drive rather than a native Google Sheet, so the
+// Sheets API can't read it directly — downloaded as bytes and parsed with
+// the xlsx library instead. Cached since it only changes when someone
+// re-uploads it.
+// ══════════════════════════════════════════════════════
+const MASTER_WORKBOOK_FILE_ID = '1zAcazPtIhM3MsPBLKy0m8f_P3D9JoZeH';
+let _masterWorkbookCache = null; // { products, dealerNames, ts }
+const MASTER_WORKBOOK_CACHE_TTL_MS = 30 * 60 * 1000;
+
+async function getMasterWorkbookData() {
+  if (_masterWorkbookCache && (Date.now() - _masterWorkbookCache.ts) < MASTER_WORKBOOK_CACHE_TTL_MS) return _masterWorkbookCache;
+  const drive = await getDriveClient();
+  const resp = await drive.files.get({ fileId: MASTER_WORKBOOK_FILE_ID, alt: 'media' }, { responseType: 'arraybuffer' });
+  const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer' });
+
+  const productSheet = wb.Sheets['2. Product Master'];
+  const productRows = productSheet ? XLSX.utils.sheet_to_json(productSheet, { header: 1, raw: false, defval: '' }) : [];
+  // Row 0 is a title banner, row 1 is the real header, data starts row 2.
+  const products = productRows.slice(2)
+    .filter(r => (r[1] || '').trim() && (r[12] || '').trim().toLowerCase() !== 'discontinued')
+    .map(r => ({ name: (r[1] || '').trim(), category: (r[3] || '').trim() }));
+
+  const dealerSheet = wb.Sheets['5. Dealer Master'];
+  const dealerRows = dealerSheet ? XLSX.utils.sheet_to_json(dealerSheet, { header: 1, raw: false, defval: '' }) : [];
+  const dealerNames = dealerRows.slice(2)
+    .map(r => (r[1] || '').trim())
+    .filter(Boolean);
+
+  _masterWorkbookCache = { products, dealerNames, ts: Date.now() };
+  return _masterWorkbookCache;
+}
+
+app.get('/api/o2d-fms/product-names', requireAuth, async (req, res) => {
+  try {
+    const { products } = await getMasterWorkbookData();
+    res.json({ products });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 function extractSpreadsheetId(raw) {
@@ -2859,7 +2901,16 @@ const O2D_STEPS = [
     extra: [ { key: 'reason', col: 'W', label: 'Reason' } ] },
   { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', planned: 'X', actual: 'Y', status: 'Z', timeDelay: 'AA', extra: [] },
   { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', planned: 'AB', actual: 'AC', status: 'AD', timeDelay: 'AE', extra: [] },
-  { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', planned: 'AF', actual: 'AG', status: 'AH', timeDelay: 'AI', extra: [] },
+  { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', planned: 'AF', actual: 'AG', status: 'AH', timeDelay: 'AI',
+    // Bill detail columns live far from this step's own Planned/Actual/Status
+    // block, at the very end of the sheet (BJ:BM) — everything else here
+    // reads BJ/BK for display already; this is what actually WRITES them.
+    extra: [
+      { key: 'billNo', col: 'BJ', label: 'Bill No' },
+      { key: 'billAmount', col: 'BK', label: 'Bill Amount' },
+      { key: 'photoLink', col: 'BL', label: 'Invoice Photo' },
+      { key: 'billDate', col: 'BM', label: 'Bill Date' }
+    ] },
   { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', planned: 'AJ', actual: 'AK', status: 'AL', timeDelay: 'AO',
     extra: [
       { key: 'doerName', col: 'AM', label: 'Doer Name' },
@@ -2869,8 +2920,11 @@ const O2D_STEPS = [
     extra: [ { key: 'doerName', col: 'AS', label: 'Doer Name' } ] },
   { n: 7, label: 'Arrange Loader', doer: 'Kavita', tat: '10 min', planned: 'AU', actual: 'AV', status: 'AW', timeDelay: 'AX', extra: [] },
   { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', tat: '10 min', planned: 'AY', actual: 'AZ', status: 'BA', timeDelay: 'BB', extra: [] },
-  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', planned: 'BC', actual: 'BD', status: 'BF', timeDelay: 'BG',
-    extra: [ { key: 'loaderName', col: 'BE', label: 'Loader Name' } ] }
+  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', planned: 'BC', actual: 'BD', status: 'BE', timeDelay: 'BG',
+    extra: [
+      { key: 'loaderName', col: 'BF', label: 'Doer Name' },
+      { key: 'deliveryBy', col: 'BI', label: 'Delivery By' }
+    ] }
 ];
 
 // ── O2D step doers — who's actually assigned to each of the 9 fixed steps.
@@ -3019,7 +3073,10 @@ async function getO2dOrders() {
         amount: group.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
         productName: group.length > 1 ? `${first.productName} +${group.length - 1} more` : first.productName,
         qty: group.reduce((sum, l) => sum + (Number(l.qty) || 0), 0),
-        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample, currentStep: l.currentStep }))
+        // availability = the raw Good Check (step 2) status for this line —
+        // 'Yes'/'No'/'' — kept per product so other steps can show what was
+        // picked instead of asking the per-item question again.
+        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample, currentStep: l.currentStep, availability: (l.steps[1] && l.steps[1].status) || '' }))
       };
       o.steps = O2D_STEPS.map((sd, idx) => {
         const lineSteps = group.map(l => l.steps[idx]);
