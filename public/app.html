@@ -6650,8 +6650,14 @@ function buildSfmsNextActionHtml(c, compact) {
       </div>`;
       const qtyField = fieldsToShow.find(f => f.key === 'qtyReturned');
       const reasonField = fieldsToShow.find(f => f.key === 'reasonIfShort');
+      // Compact: "Taken: N" as its own visible label instead of buried in the
+      // placeholder text (which was getting cut off and disappears once typed into).
+      const takenLabelHtml = compact
+        ? `<span style="font-size:12px;color:var(--gray-600);white-space:nowrap"><b>${takeoutStep.itemName || 'Item'} taken:</b> ${takenQty}</span>`
+        : '';
       extraInputsHtml = `
-        <input type="number" id="sfmsExtra_${c.row}_qtyReturned" placeholder="${qtyField.label}${compact ? ` (took ${takenQty})` : ''}" oninput="checkSfmsSpareShortage(${c.row},${takenQty})" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE}"/>
+        ${takenLabelHtml}
+        <input type="number" id="sfmsExtra_${c.row}_qtyReturned" placeholder="${qtyField.label}" oninput="checkSfmsSpareShortage(${c.row},${takenQty})" style="${compact ? SFMS_INPUT_STYLE_COMPACT.replace('min-width:150px', 'width:90px;min-width:0') : SFMS_INPUT_STYLE}"/>
         <div id="sfmsReasonWrap_${c.row}" style="display:none">${renderSfmsField(reasonField, c.row, compact)}</div>
       `;
     } else if (nextStepDef.n === 3 && compact) {
