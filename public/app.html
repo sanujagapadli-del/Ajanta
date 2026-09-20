@@ -5623,10 +5623,15 @@ let sfmsZoneList = [];
 let sfmsMasterListsLoaded = false;
 async function ensureSfmsMasterLists() {
   if (sfmsMasterListsLoaded) return;
-  const [items, mechanics, zones] = await Promise.all([
-    api('/api/service-fms/items'), api('/api/service-fms/mechanics'), api('/api/service-fms/zones')
+  const [spareParts, items, mechanics, zones] = await Promise.all([
+    api('/api/service-fms/spare-parts'), api('/api/service-fms/items'), api('/api/service-fms/mechanics'), api('/api/service-fms/zones')
   ]);
-  sfmsItemsList = Array.isArray(items) ? items : [];
+  // Item Name dropdown = the real Spare Parts Master catalog (396 items),
+  // plus any ad-hoc items added via "+ Add New" that aren't already in it.
+  const spareNames = Array.isArray(spareParts) ? spareParts.map(p => p.name) : [];
+  const adHocItems = Array.isArray(items) ? items : [];
+  const spareNamesLower = new Set(spareNames.map(n => n.toLowerCase()));
+  sfmsItemsList = spareNames.concat(adHocItems.filter(n => !spareNamesLower.has(n.toLowerCase())));
   const mechList = Array.isArray(mechanics) ? mechanics : [];
   sfmsMechanicsList = mechList.map(m => m.name);
   sfmsMechanicPhones = Object.fromEntries(mechList.map(m => [m.name, m.mobile || '']));
@@ -5762,12 +5767,17 @@ function renderSfmsStepView(n) {
   const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
   const rows = sfmsData.filter(c => !c.closed && c.currentStep + 1 === n);
   if (!rows.length) { wrap.innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`; return; }
+  // The action column is pinned to the right edge (position:sticky) so it
+  // stays visible while scrolling through the detail columns, instead of
+  // needing a full scroll to the far right just to see the submit button.
+  const stickyTh = 'position:sticky;right:0;background:var(--surface-alt);box-shadow:-2px 0 4px rgba(0,0,0,.06)';
+  const stickyTd = 'position:sticky;right:0;background:#fff;box-shadow:-2px 0 4px rgba(0,0,0,.06)';
   wrap.innerHTML = `<div class="mis-table-wrap" style="overflow-x:auto">
   <table>
     <thead><tr>
       <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
       <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Photos</th><th>Pending</th>
-      <th>${n}. ${stepDef.label}</th>
+      <th style="${stickyTh}">${n}. ${stepDef.label}</th>
     </tr></thead>
     <tbody>
       ${rows.map(c => {
@@ -5789,7 +5799,7 @@ function renderSfmsStepView(n) {
           <td style="white-space:nowrap">${c.area || '—'}</td>
           <td style="white-space:nowrap;font-size:16px">${photosHtml || '—'}</td>
           <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
-          <td id="sfmsStepAction_${c.row}" style="padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
+          <td id="sfmsStepAction_${c.row}" style="${stickyTd};padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
         </tr>`;
       }).join('')}
     </tbody>

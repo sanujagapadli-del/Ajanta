@@ -581,7 +581,7 @@ async function getMasterWorkbookData() {
   const XLSX = require('xlsx'); // lazy — a fairly heavy lib, no reason to pay its load cost on every cold start
   const [drive, warrantyMap] = [await getDriveClient(), await getWarrantyMonthsMap()];
   const resp = await drive.files.get({ fileId: MASTER_WORKBOOK_FILE_ID, alt: 'media' }, { responseType: 'arraybuffer' });
-  const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer', sheets: ['2. Product Master', '5. Dealer Master'] });
+  const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer', sheets: ['2. Product Master', '5. Dealer Master', '8. Spare Parts Master'] });
 
   const productSheet = wb.Sheets['2. Product Master'];
   const productRows = productSheet ? XLSX.utils.sheet_to_json(productSheet, { header: 1, raw: false, defval: '' }) : [];
@@ -601,7 +601,19 @@ async function getMasterWorkbookData() {
     .map(r => (r[1] || '').trim())
     .filter(Boolean);
 
-  _masterWorkbookCache = { products, dealerNames, ts: Date.now() };
+  // Spare Parts Master (point 6) — the real 396-item spare-parts catalog,
+  // separate from the small ad-hoc "Items" tab in the Service FMS sheet
+  // (which stays for one-off items not in this master list, added via
+  // "+ Add New"). Row 0 is a title banner, row 1 is the header, data
+  // starts row 2; column L (index 11) is Status, filtered the same way
+  // Product Master's discontinued flag is.
+  const spareSheet = wb.Sheets['8. Spare Parts Master'];
+  const spareRows = spareSheet ? XLSX.utils.sheet_to_json(spareSheet, { header: 1, raw: false, defval: '' }) : [];
+  const spareParts = spareRows.slice(2)
+    .filter(r => (r[1] || '').trim() && (r[11] || '').trim().toLowerCase() !== 'discontinued')
+    .map(r => ({ code: (r[0] || '').trim(), name: (r[1] || '').trim(), category: (r[4] || '').trim() }));
+
+  _masterWorkbookCache = { products, dealerNames, spareParts, ts: Date.now() };
   return _masterWorkbookCache;
 }
 
@@ -2802,6 +2814,17 @@ async function sfmsAddToList(tab, name) {
     requestBody: { values: [[name]] }
   });
 }
+
+// Real spare-parts catalog (396 items, "8. Spare Parts Master" in the same
+// workbook as Product Master) — read-only, merged with the small ad-hoc
+// "Items" list below on the frontend so "+ Add New" still works for
+// anything not in this master catalog.
+app.get('/api/service-fms/spare-parts', requireAuth, async (req, res) => {
+  try {
+    const { spareParts } = await getMasterWorkbookData();
+    res.json(spareParts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 app.get('/api/service-fms/items', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_ITEMS_TAB)); }
