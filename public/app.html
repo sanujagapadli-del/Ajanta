@@ -5715,7 +5715,11 @@ function onSfmsZoneChange(row) {
   const zone = document.getElementById(`sfmsExtra_${row}_zone`).value;
   const mechSel = document.getElementById(`sfmsExtra_${row}_mechanic`);
   if (!mechSel || zone === '__add_new__') return;
-  const filtered = zone ? sfmsMechanicsList.filter(m => sfmsMechanicZones[m] === zone) : sfmsMechanicsList;
+  // A mechanic with no zone recorded yet (the Mechanics sheet's Zone column
+  // is blank for most existing entries) stays selectable for every zone,
+  // instead of disappearing entirely just because zone data hasn't been
+  // filled in for them yet — only a mechanic with a DIFFERENT zone set is excluded.
+  const filtered = zone ? sfmsMechanicsList.filter(m => !sfmsMechanicZones[m] || sfmsMechanicZones[m] === zone) : sfmsMechanicsList;
   mechSel.innerHTML = `<option value="">-- Mechanic Name --</option>` +
     filtered.map(v => `<option value="${v.replace(/"/g, '&quot;')}">${v}</option>`).join('') +
     `<option value="__add_new__">+ Add New</option>`;
