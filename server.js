@@ -550,27 +550,49 @@ let _masterWorkbookCache = null; // { products, dealerNames, ts }
 // touch this data at all, which made things worse, not better.
 const MASTER_WORKBOOK_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
+// Warranty (point 5) — lives in a separate "Data By Ajay" Google Sheet, tab
+// "Warranty Sheet" (Product Code / Product Name / Warranty text like "2
+// years"), keyed by the same Product Code used in the Product Master
+// workbook above (verified: identical codes/names for every row checked).
+// Matched by Product Code rather than name — exact and immune to any
+// wording drift between the two sources.
+const WARRANTY_SHEET_ID = '18osb6xZEXktc1_tG_Y1SzE4Rg6QnlLoQj05if2DYUeo';
+const WARRANTY_TAB = 'Warranty Sheet';
+let _warrantyMapCache = null; // { code: months }, ts
+async function getWarrantyMonthsMap() {
+  if (_warrantyMapCache && (Date.now() - _warrantyMapCache.ts) < MASTER_WORKBOOK_CACHE_TTL_MS) return _warrantyMapCache.map;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  // Row 1 is a title banner, row 2 is the header, data starts row 3.
+  const result = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: WARRANTY_SHEET_ID, range: `'${WARRANTY_TAB}'!A3:C`
+  });
+  const map = {};
+  (result.data.values || []).forEach(r => {
+    const code = (r[0] || '').trim();
+    const m = String(r[2] || '').match(/(\d+(?:\.\d+)?)\s*year/i);
+    if (code && m) map[code] = parseFloat(m[1]) * 12;
+  });
+  _warrantyMapCache = { map, ts: Date.now() };
+  return map;
+}
+
 async function getMasterWorkbookData() {
   if (_masterWorkbookCache && (Date.now() - _masterWorkbookCache.ts) < MASTER_WORKBOOK_CACHE_TTL_MS) return _masterWorkbookCache;
   const XLSX = require('xlsx'); // lazy — a fairly heavy lib, no reason to pay its load cost on every cold start
-  const drive = await getDriveClient();
+  const [drive, warrantyMap] = [await getDriveClient(), await getWarrantyMonthsMap()];
   const resp = await drive.files.get({ fileId: MASTER_WORKBOOK_FILE_ID, alt: 'media' }, { responseType: 'arraybuffer' });
   const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer', sheets: ['2. Product Master', '5. Dealer Master'] });
 
   const productSheet = wb.Sheets['2. Product Master'];
   const productRows = productSheet ? XLSX.utils.sheet_to_json(productSheet, { header: 1, raw: false, defval: '' }) : [];
   // Row 0 is a title banner, row 1 is the real header, data starts row 2.
-  // Warranty (Months) is looked up by header text rather than a hardcoded
-  // column index, since it's a column the user adds themselves (point 5) —
-  // this way it's picked up wherever they put it, no code change needed.
-  const headerRow = productRows[1] || [];
-  const warrantyColIdx = headerRow.findIndex(h => /warranty/i.test(String(h || '')));
   const products = productRows.slice(2)
     .filter(r => (r[1] || '').trim() && (r[12] || '').trim().toLowerCase() !== 'discontinued')
     .map(r => ({
+      code: (r[0] || '').trim(),
       name: (r[1] || '').trim(),
       category: (r[3] || '').trim(),
-      warrantyMonths: warrantyColIdx >= 0 ? (parseFloat(r[warrantyColIdx]) || null) : null
+      warrantyMonths: warrantyMap[(r[0] || '').trim()] || null
     }));
 
   const dealerSheet = wb.Sheets['5. Dealer Master'];
