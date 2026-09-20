@@ -5873,15 +5873,11 @@ function renderSfmsStepView(n) {
   </table>
   </div>`;
 
-  // Pre-fill each visible row's own Zone picker to match the active filter
-  // (and cascade-filter its Mechanic list) so staff only need to pick a
-  // Mechanic per row, not re-select Zone every time — the whole point of
-  // filtering by zone first.
-  if (isAssignTab && sfmsAssignZoneFilter) {
-    rows.forEach(c => {
-      const zoneSel = document.getElementById(`sfmsExtra_${c.row}_zone`);
-      if (zoneSel) { zoneSel.value = sfmsAssignZoneFilter; onSfmsZoneChange(c.row); }
-    });
+  // Each row's hidden Zone field already carries its own Area-derived zone
+  // (set at render time above) — just cascade-filter that row's Mechanic
+  // list to match, so staff only need to pick a Mechanic per row.
+  if (isAssignTab) {
+    rows.forEach(c => onSfmsZoneChange(c.row));
   }
   // Pre-fill each row's Warranty Yes/No with the auto-computed status — still
   // just a suggestion, staff review and hit Submit same as always.
@@ -6649,13 +6645,15 @@ function buildSfmsNextActionHtml(c, compact) {
         <div id="sfmsReasonWrap_${c.row}" style="display:none">${renderSfmsField(reasonField, c.row, compact)}</div>
       `;
     } else if (nextStepDef.n === 3 && compact) {
-      // Assign tab (compact): Zone is now set once at the top of the whole
-      // table (the "Filter by Zone" bar), not re-picked per row — so here it's
-      // just a hidden field carrying that value (still submitted with the
-      // row) plus a small read-only label, and only Mechanic stays a picker.
+      // Assign tab (compact): Zone isn't re-picked per row anymore, but it's
+      // also not just whatever the top filter happens to be set to — the top
+      // control only filters the list. The zone actually reported/submitted
+      // per row comes from that complaint's own Area (via sfmsAreaZoneMap),
+      // same value shown whether "All Zones" or a specific zone is filtered.
+      const rowZone = sfmsAreaZoneMap[c.area] || '';
       extraInputsHtml = fieldsToShow.map(f => f.key === 'zone'
-        ? `<input type="hidden" id="sfmsExtra_${c.row}_zone" value="${sfmsAssignZoneFilter.replace(/"/g, '&quot;')}"/>
-           <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">Zone: ${sfmsAssignZoneFilter || '—'}</span>`
+        ? `<input type="hidden" id="sfmsExtra_${c.row}_zone" value="${rowZone.replace(/"/g, '&quot;')}"/>
+           <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">Zone: ${rowZone || '—'}</span>`
         : renderSfmsField(f, c.row, compact)
       ).join('');
     } else {
