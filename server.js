@@ -3451,6 +3451,29 @@ async function withCataloguePdfsTable(fn) {
   }
 }
 
+// Vercel serverless functions hard-cap the request body at ~4.5MB regardless
+// of Express's own json() limit, so large catalogue PDFs (base64-encoded,
+// ~33% bigger than the raw file) get rejected with a 413 before our code
+// even runs. The client splits the file into sub-4.5MB chunks and POSTs them
+// one at a time; we stash each chunk here (a serverless instance can't hold
+// state in memory between separate requests) and reassemble on the last one.
+async function ensureCataloguePdfChunksTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_catalogue_pdf_chunks (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      upload_id VARCHAR(64) NOT NULL,
+      chunk_index INT NOT NULL,
+      chunk_data LONGTEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_upload_chunk (upload_id, chunk_index)
+    )
+  `);
+}
+async function withCataloguePdfChunksTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureCataloguePdfChunksTable(); return await fn(); }
+}
+
 // Ajay (ajaykumarparwani@gmail.com, user id 9) + admins, per their request —
 // not the generic page_access permission below since it's just these two.
 function canEditPriceList(req) {
@@ -3554,6 +3577,56 @@ app.post('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
       [type, filename, link, driveFileId, req.session.userId, req.session.name || '']
     ));
     res.json({ success: true, url: link });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Chunked upload — same end result as the POST above (a row in
+// o2d_catalogue_pdfs + a Drive file), but works around Vercel's ~4.5MB
+// request body cap for larger catalogue PDFs. The client sends the file as
+// a sequence of small base64 chunks; we store each one, and on the final
+// chunk reassemble, upload to Drive, and clean up the temp rows.
+app.post('/api/o2d-fms/catalogue-pdfs/chunk', requireAuth, async (req, res) => {
+  try {
+    if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can upload catalogue PDFs' });
+    const { uploadId, chunkIndex, totalChunks, chunkData, filename, docType, mimeType } = req.body;
+    if (!uploadId || chunkIndex === undefined || chunkIndex === null || !totalChunks || !chunkData || !filename) {
+      return res.status(400).json({ error: 'uploadId, chunkIndex, totalChunks, chunkData and filename are required' });
+    }
+    // Best-effort prune of abandoned uploads (browser closed mid-upload etc).
+    db.query('DELETE FROM o2d_catalogue_pdf_chunks WHERE created_at < DATE_SUB(NOW(), INTERVAL 6 HOUR)').catch(() => {});
+
+    await withCataloguePdfChunksTable(() => db.query(
+      'INSERT INTO o2d_catalogue_pdf_chunks (upload_id, chunk_index, chunk_data) VALUES (?,?,?) ON DUPLICATE KEY UPDATE chunk_data=VALUES(chunk_data)',
+      [uploadId, chunkIndex, chunkData]
+    ));
+
+    if (Number(chunkIndex) < Number(totalChunks) - 1) {
+      return res.json({ success: true, done: false });
+    }
+
+    // Last chunk — reassemble in order, upload to Drive, record it, clean up.
+    const [rows] = await db.query(
+      'SELECT chunk_data FROM o2d_catalogue_pdf_chunks WHERE upload_id=? ORDER BY chunk_index ASC',
+      [uploadId]
+    );
+    if (rows.length !== Number(totalChunks)) {
+      return res.status(400).json({ error: `Upload incomplete — got ${rows.length} of ${totalChunks} chunks. Please retry.` });
+    }
+    const fullBase64 = rows.map(r => r.chunk_data).join('');
+    const dataUri = `data:${mimeType || 'application/pdf'};base64,${fullBase64}`;
+    const type = docType === 'price_list' ? 'price_list' : 'catalogue';
+    const link = await uploadPhotoToDrive(dataUri, filename);
+    const driveFileId = (link.match(/[?&]id=([^&]+)/) || [])[1] || null;
+    await withCataloguePdfsTable(() => db.query(
+      'INSERT INTO o2d_catalogue_pdfs (doc_type, filename, url, drive_file_id, uploaded_by_id, uploaded_by_name) VALUES (?,?,?,?,?,?)',
+      [type, filename, link, driveFileId, req.session.userId, req.session.name || '']
+    ));
+    await db.query('DELETE FROM o2d_catalogue_pdf_chunks WHERE upload_id=?', [uploadId]);
+
+    res.json({ success: true, done: true, url: link });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     res.status(500).json({ error: err.message });

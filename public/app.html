@@ -1222,11 +1222,6 @@ tbody tr:last-child td{border-bottom:none;}
 
   <!-- ── PRICE LIST & CATALOGUE ── -->
   <div id="page-price-catalogue" class="page">
-    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Price List</div>
-    <div id="priceListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
-      <div class="empty">Loading…</div>
-    </div>
-
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">💰 Price List PDF</div>
     <div id="cataloguePdfWrap_price_list" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
       <div class="empty">Loading…</div>
@@ -7056,8 +7051,7 @@ let o2dPriceListLoaded = false;
 let o2dPriceListSearchQ = '';
 
 async function loadPriceCataloguePage() {
-  await Promise.all([loadO2dPriceList(false), loadCataloguePdfs(false)]);
-  renderPriceListGrid();
+  await loadCataloguePdfs(false);
   renderCataloguePdfList();
 }
 
@@ -7233,7 +7227,7 @@ function renderCataloguePdfList() {
       <div style="padding:16px">
         ${o2dCataloguePdfsCanEdit ? `
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-          <input type="file" accept="application/pdf" id="cataloguePdfFile_${t.type}" onchange="onCataloguePdfSelected(event,'${t.type}')" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <input type="file" accept="application/pdf" multiple id="cataloguePdfFile_${t.type}" onchange="onCataloguePdfSelected(event,'${t.type}')" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
           <span id="cataloguePdfUploadStatus_${t.type}" style="font-size:12px;color:var(--gray-500)"></span>
         </div>` : ''}
         <table>
@@ -7246,23 +7240,73 @@ function renderCataloguePdfList() {
   });
 }
 
+// Reads one Blob (a slice of the PDF) as base64 — no data-URI header.
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      const commaIdx = result.indexOf(',');
+      resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Vercel caps the whole request body at ~4.5MB, so a base64-encoded PDF of
+// more than a few MB gets a 413 in one shot. We upload it in small chunks
+// instead — well under that cap even after base64's ~33% size bloat — and
+// the server reassembles + pushes it to Drive on the last chunk.
+async function uploadOnePdfChunked(file, docType, onProgress) {
+  const CHUNK_SIZE = 1.5 * 1024 * 1024; // raw bytes/chunk
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+  const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  for (let i = 0; i < totalChunks; i++) {
+    onProgress(i, totalChunks);
+    const start = i * CHUNK_SIZE;
+    const chunkData = await blobToBase64(file.slice(start, start + CHUNK_SIZE));
+    const res = await api('/api/o2d-fms/catalogue-pdfs/chunk', 'POST', {
+      uploadId, chunkIndex: i, totalChunks, chunkData, filename: file.name, docType, mimeType: file.type || 'application/pdf'
+    });
+    if (res.error) throw new Error(res.error);
+  }
+}
+
+// Handles one or many files picked at once (batch upload) — uploads them
+// one at a time (each itself chunked, see above) and reports per-file +
+// per-chunk progress, so one giant request never has to happen.
 async function onCataloguePdfSelected(event, docType) {
-  const file = event.target.files[0];
-  if (!file) return;
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
   const statusEl = document.getElementById(`cataloguePdfUploadStatus_${docType}`);
-  statusEl.textContent = '⏳ Uploading...';
   statusEl.style.color = 'var(--gray-500)';
-  const reader = new FileReader();
-  reader.onload = async () => {
-    const res = await api('/api/o2d-fms/catalogue-pdfs', 'POST', { filename: file.name, pdfData: reader.result, docType });
-    if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
-    statusEl.textContent = '✅ Uploaded';
+  let failed = 0;
+  for (let f = 0; f < files.length; f++) {
+    const file = files[f];
+    const fileLabel = files.length > 1 ? `File ${f + 1}/${files.length} (${file.name}): ` : '';
+    try {
+      await uploadOnePdfChunked(file, docType, (chunkIdx, totalChunks) => {
+        statusEl.textContent = totalChunks > 1
+          ? `⏳ ${fileLabel}Uploading... ${chunkIdx + 1}/${totalChunks}`
+          : `⏳ ${fileLabel}Uploading...`;
+      });
+    } catch (e) {
+      failed++;
+      statusEl.textContent = `❌ ${fileLabel}${e.message || 'Upload failed'}`;
+      statusEl.style.color = 'var(--color-danger)';
+    }
+  }
+  if (!failed) {
+    statusEl.textContent = files.length > 1 ? `✅ Uploaded ${files.length} files` : '✅ Uploaded';
     statusEl.style.color = 'var(--color-success-text)';
-    event.target.value = '';
-    await loadCataloguePdfs(true);
-    renderCataloguePdfList();
-  };
-  reader.readAsDataURL(file);
+  } else if (failed < files.length) {
+    statusEl.textContent = `⚠️ Uploaded ${files.length - failed}/${files.length} — ${failed} failed`;
+    statusEl.style.color = 'var(--color-danger)';
+  }
+  event.target.value = '';
+  await loadCataloguePdfs(true);
+  renderCataloguePdfList();
 }
 
 async function deleteCataloguePdf(id, filename) {
