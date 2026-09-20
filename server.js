@@ -409,7 +409,7 @@ function requireAdminOrPC(req, res, next) {
 
 // Per-user page access — only these pages are ever restrictable; everything
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order'];
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
 function parsePageAccess(raw, role) {
   if (role === 'admin') return RESTRICTABLE_PAGES.slice();

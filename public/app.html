@@ -2613,9 +2613,10 @@ async function init() {
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
     if (canSee('users')) document.getElementById('nav-users').style.display = 'flex';
     if (canSee('service-fms')) document.getElementById('nav-service-fms').style.display = 'flex';
-    if (canSee('o2d-fms')) { document.getElementById('nav-o2d-fms').style.display = 'flex'; document.getElementById('nav-o2d-new-order').style.display = 'flex'; }
+    if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
+    if (canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
-    if (canSee('service-fms') || canSee('o2d-fms')) document.getElementById('nav-section-fms').style.display = 'block';
+    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
@@ -4099,6 +4100,7 @@ const PAGE_ACCESS_GROUPS = [
   { label: 'FMS', locked: false, pages: [
     { key: 'service-fms', label: 'Service FMS' },
     { key: 'o2d-fms', label: 'O2D FMS' },
+    { key: 'o2d-new-order', label: 'New Order' },
   ]},
 ];
 
