@@ -7715,6 +7715,8 @@ async function advanceO2dStep(orderNo, step) {
     o.closed = currentStep === o.steps.length;
   }
   showToast('✅ Step recorded!');
+  if (res.whatsappSent) showToast('📲 WhatsApp bill alert sent to the dealer');
+  else if (res.whatsappSkippedReason) showToast(res.whatsappSkippedReason, 'error');
   closeModal('o2dDetailModal');
   refreshO2dAfterAction();
 }

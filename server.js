@@ -3751,22 +3751,27 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
 // doesn't exist or no line has this as its next step right now).
 async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
   const stepDef = O2D_STEPS.find(s => s.n === stepNum);
-  if (!stepDef) return -1;
+  if (!stepDef) return { rowsUpdated: -1 };
   const priorStatusCols = O2D_STEPS.filter(s => s.n < stepNum).map(s => s.status);
 
+  // Reads from C (Counter Name) instead of Q so the counter name is
+  // available for post-write side effects (e.g. WhatsApp-ing the dealer
+  // when the bill is uploaded) without a second round trip.
   const keyCols = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!Q${O2D_DATA_START_ROW}:${stepDef.status}`, valueRenderOption: 'UNFORMATTED_VALUE'
+    spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!C${O2D_DATA_START_ROW}:${stepDef.status}`, valueRenderOption: 'UNFORMATTED_VALUE'
   });
   const keyRows = keyCols.data.values || [];
-  const qOffset = colToIdx('Q');
+  const cOffset = colToIdx('C');
+  const qOffset = colToIdx('Q') - cOffset;
   const targetRows = [];
+  let counterName = '';
   keyRows.forEach((r, i) => {
-    if ((r[0] || '') !== orderNo) return;
-    if (r[colToIdx(stepDef.status) - qOffset]) return; // already has this step
-    const priorDone = priorStatusCols.every(col => r[colToIdx(col) - qOffset]);
-    if (priorDone) targetRows.push(O2D_DATA_START_ROW + i);
+    if ((r[qOffset] || '') !== orderNo) return;
+    if (r[colToIdx(stepDef.status) - cOffset]) return; // already has this step
+    const priorDone = priorStatusCols.every(col => r[colToIdx(col) - cOffset]);
+    if (priorDone) { targetRows.push(O2D_DATA_START_ROW + i); if (!counterName) counterName = r[0] || ''; }
   });
-  if (!targetRows.length) return 0;
+  if (!targetRows.length) return { rowsUpdated: 0 };
 
   const now = sfmsDateToSerial(new Date());
   const defaultStatus = body.status || 'Yes';
@@ -3786,7 +3791,7 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
     spreadsheetId: O2D_SHEET_ID,
     requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
   });
-  return targetRows.length;
+  return { rowsUpdated: targetRows.length, counterName };
 }
 
 // Step 3 ("Call Made By CRM When Add More Order") — CRM calls the dealer to
@@ -3846,7 +3851,7 @@ app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
 
     let rowsUpdated = 0;
     if (alsoCompleteStep && alsoCompleteStep.stepNum) {
-      rowsUpdated = await writeO2dStepForOrder(sheetsApi, orderNo, alsoCompleteStep.stepNum, alsoCompleteStep);
+      ({ rowsUpdated } = await writeO2dStepForOrder(sheetsApi, orderNo, alsoCompleteStep.stepNum, alsoCompleteStep));
     }
 
     res.json({ success: true, orderIds, rowsUpdated });
@@ -3861,10 +3866,31 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
     const orderNo = req.params.orderNo;
     const stepNum = parseInt(req.params.stepNum, 10);
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    const rowsUpdated = await writeO2dStepForOrder(sheetsApi, orderNo, stepNum, req.body);
+    const { rowsUpdated, counterName } = await writeO2dStepForOrder(sheetsApi, orderNo, stepNum, req.body);
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
     if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under order ${orderNo}` });
-    res.json({ success: true, rowsUpdated });
+
+    // Make Bill (step 4) — WhatsApp the dealer as soon as the invoice is
+    // uploaded. Only fires when there's actually a phone number on file
+    // (Dealers tab) and an invoice was attached; a missing phone shouldn't
+    // block the bill itself from being recorded.
+    let whatsappSent = false, whatsappSkippedReason = null;
+    if (stepNum === 4 && req.body.photoLink && counterName) {
+      try {
+        const [dealerRows] = await withDealerTables(() => db.query('SELECT phone FROM o2d_dealers WHERE counter_name = ?', [counterName]));
+        const phone = dealerRows[0] && dealerRows[0].phone;
+        if (phone) {
+          const billNo = req.body.billNo ? ` (Bill No: ${req.body.billNo})` : '';
+          const amount = req.body.billAmount ? `, Amount: ₹${req.body.billAmount}` : '';
+          await sendWhatsApp(phone, `Ajanta Electronics: Your bill for order ${orderNo}${billNo}${amount} is ready.\nInvoice: ${req.body.photoLink}`);
+          whatsappSent = true;
+        } else {
+          whatsappSkippedReason = 'Dealer phone number not set — add it from the Dealers tab to enable WhatsApp bill alerts.';
+        }
+      } catch (e) { whatsappSkippedReason = e.message; }
+    }
+
+    res.json({ success: true, rowsUpdated, whatsappSent, whatsappSkippedReason });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     res.status(500).json({ error: err.message });
