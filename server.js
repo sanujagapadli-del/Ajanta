@@ -3897,6 +3897,35 @@ app.delete('/api/o2d-fms/catalogue-pdfs/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ══════════════════════════════════════════════════════
+// BILLS RECEIVABLE — read-only view of whatever the local Tally-sync
+// script (tally-sync/) last wrote into its Google Sheet. This app can't
+// reach Tally directly (it's on a different, local-only network), so
+// this just displays the latest synced snapshot — same viewing
+// permission as Price List & Catalogue.
+// ══════════════════════════════════════════════════════
+const BILLS_RECEIVABLE_SHEET_ID = '1n3Dyw_srzmPybO1PtXT0JDVvx-Jo_3I4j9TKvzlsqoo';
+
+app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to this page' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const r = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'Sheet1'!A2:H10000`
+    });
+    const rows = (r.data.values || []).filter(row => row[0]);
+    const bills = rows.map(row => ({
+      party: row[0] || '', billRef: row[1] || '', billDate: row[2] || '', dueDate: row[3] || '',
+      amount: row[4] || '', daysOverdue: row[5] || '', bucket: row[6] || '', syncedAt: row[7] || ''
+    }));
+    const lastSynced = bills.reduce((max, b) => b.syncedAt > max ? b.syncedAt : max, '');
+    res.json({ bills, lastSynced });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Bills Receivable sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   try {
     const {
