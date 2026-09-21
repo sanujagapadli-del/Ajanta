@@ -548,13 +548,17 @@ tbody tr:last-child td{border-bottom:none;}
   display:none;position:fixed;bottom:0;left:0;right:0;
   height:62px;background:var(--surface);border-top:1.5px solid var(--color-primary-light);
   z-index:200;flex-direction:row;align-items:stretch;
-  justify-content:space-around;
+  /* Was justify-content:space-around, squeezing every item to fit one row —
+     with up to 9 items (Dashboard/Tasks/Service/O2D/Catalogue/Approvals/
+     Users/MIS/Profile) for an admin that's illegibly cramped on a phone
+     width. Scrolls horizontally instead, each item keeping a real size. */
+  overflow-x:auto;-webkit-overflow-scrolling:touch;
   box-shadow:0 -4px 24px rgba(1,80,170,.10);
   padding-bottom:env(safe-area-inset-bottom);
 }
 .bn-item{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:3px;cursor:pointer;padding:6px 4px;flex:1;
+  gap:3px;cursor:pointer;padding:6px 4px;flex:0 0 auto;min-width:64px;
   color:var(--gray-400);transition:color .18s;position:relative;
   -webkit-tap-highlight-color:transparent;
 }
@@ -803,6 +807,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="o2d-fms" onclick="navigate('o2d-fms',null)" id="bnO2d" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-1.5 5.5a2 2 0 01-1.94 1.5H7.44a2 2 0 01-1.94-1.5L4 13m16 0H4"/></svg>
     <span>O2D</span>
+  </div>
+  <div class="bn-item" data-page="price-catalogue" onclick="navigate('price-catalogue',null)" id="bnCatalogue" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+    <span>Catalogue</span>
   </div>
   <div class="bn-item" data-page="approvals" onclick="navigate('approvals',null)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -2840,9 +2848,12 @@ function setupBottomNav() {
   const bnFms = document.getElementById('bnFms');
   const bnO2d = document.getElementById('bnO2d');
   const bnUsers = document.getElementById('bnUsers');
+  const bnCatalogue = document.getElementById('bnCatalogue');
   if (bnFms && canSee('service-fms')) bnFms.style.display = '';
   if (bnO2d && canSee('o2d-fms')) bnO2d.style.display = '';
   if (bnUsers && canSee('users')) bnUsers.style.display = '';
+  if (bnCatalogue && canSee('price-catalogue')) bnCatalogue.style.display = '';
+  attachScrollHint(document.getElementById('bottomNav'));
 }
 
 // ══════════════════════════════════════════════════════
