@@ -3485,11 +3485,12 @@ function computeDealerRating(payments) {
 
 app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
-    const [debtorsMap, dealerRows, paymentRows, orders] = await Promise.all([
+    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty] = await Promise.all([
       getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
       withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
       withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
-      getO2dOrders().catch(() => []) // dealer directory shouldn't 500 just because the orders sheet hiccups
+      getO2dOrders().catch(() => []), // dealer directory shouldn't 500 just because the orders sheet hiccups
+      getBillsReceivableAgingByDealer().catch(() => ({})) // same — Tally sync sheet hiccup shouldn't break the whole page
     ]);
 
     const byKey = {}; // lowercased counter name -> merged dealer record
@@ -3527,6 +3528,15 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       if (!d.lastOrder || o.timestamp > d.lastOrder.timestamp) {
         d.lastOrder = { timestamp: o.timestamp, orderNo: o.orderNo, qty: o.qty, amount: o.amount, area: o.area };
       }
+    });
+
+    // Only attaches aging to dealers we already know about (via debtors/
+    // dealer profile/orders) — doesn't create new dealer rows just because
+    // Tally has a party by that name; most Tally parties aren't O2D dealers.
+    Object.values(billsAgingByParty).forEach(agg => {
+      const key = agg.name.trim().toLowerCase();
+      const d = byKey[key];
+      if (d) d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count };
     });
 
     const dealers = Object.values(byKey).map(d => {
@@ -3905,20 +3915,49 @@ app.delete('/api/o2d-fms/catalogue-pdfs/:id', requireAuth, async (req, res) => {
 // permission as Price List & Catalogue.
 // ══════════════════════════════════════════════════════
 const BILLS_RECEIVABLE_SHEET_ID = '1n3Dyw_srzmPybO1PtXT0JDVvx-Jo_3I4j9TKvzlsqoo';
+let _billsReceivableCache = null; // { bills, lastSynced, ts }
+const BILLS_RECEIVABLE_CACHE_TTL_MS = 5 * 60 * 1000; // the local sync only writes at most a few times a day
+
+async function getBillsReceivable() {
+  if (_billsReceivableCache && (Date.now() - _billsReceivableCache.ts) < BILLS_RECEIVABLE_CACHE_TTL_MS) return _billsReceivableCache;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const r = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'Sheet1'!A2:H10000`
+  });
+  const rows = (r.data.values || []).filter(row => row[0]);
+  const bills = rows.map(row => ({
+    party: row[0] || '', billRef: row[1] || '', billDate: row[2] || '', dueDate: row[3] || '',
+    amount: row[4] || '', daysOverdue: row[5] || '', bucket: row[6] || '', syncedAt: row[7] || ''
+  }));
+  const lastSynced = bills.reduce((max, b) => b.syncedAt > max ? b.syncedAt : max, '');
+  _billsReceivableCache = { bills, lastSynced, ts: Date.now() };
+  return _billsReceivableCache;
+}
+
+// Party names in Tally rarely match our counter names 100% — same
+// case-insensitive-then-fuzzy approach used everywhere else dealer names
+// get matched (debtors sheet, order history).
+const BILLS_BUCKET_KEYS = ['<30', '30-45', '45-60', '60-90', '90+', 'Unknown'];
+async function getBillsReceivableAgingByDealer() {
+  const { bills } = await getBillsReceivable();
+  const byParty = {}; // lowercased party name -> { buckets, total, count }
+  bills.forEach(b => {
+    const key = b.party.trim().toLowerCase();
+    if (!key) return;
+    if (!byParty[key]) byParty[key] = { name: b.party.trim(), buckets: {}, total: 0, count: 0 };
+    const bucket = BILLS_BUCKET_KEYS.includes(b.bucket) ? b.bucket : 'Unknown';
+    const amt = Number(b.amount) || 0;
+    byParty[key].buckets[bucket] = (byParty[key].buckets[bucket] || 0) + amt;
+    byParty[key].total += amt;
+    byParty[key].count += 1;
+  });
+  return byParty;
+}
 
 app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to this page' });
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-    const r = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'Sheet1'!A2:H10000`
-    });
-    const rows = (r.data.values || []).filter(row => row[0]);
-    const bills = rows.map(row => ({
-      party: row[0] || '', billRef: row[1] || '', billDate: row[2] || '', dueDate: row[3] || '',
-      amount: row[4] || '', daysOverdue: row[5] || '', bucket: row[6] || '', syncedAt: row[7] || ''
-    }));
-    const lastSynced = bills.reduce((max, b) => b.syncedAt > max ? b.syncedAt : max, '');
+    const { bills, lastSynced } = await getBillsReceivable();
     res.json({ bills, lastSynced });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Bills Receivable sheet with the service account.' });

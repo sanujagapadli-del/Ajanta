@@ -7369,6 +7369,19 @@ function dealerCardHtml(d) {
       <div style="font-size:14.5px;font-weight:700;color:${color}">${value}</div>
     </div>`;
 
+  // Aging buckets — from the local Tally sync (tally-sync/), matched to
+  // this dealer by name. Only shows up once that sync has actually run and
+  // found bills for this exact party name.
+  const agingHtml = d.aging ? `
+    <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">📅 Overdue Ageing (${d.aging.billCount} bill${d.aging.billCount===1?'':'s'})</div>
+    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+      ${BILLS_BUCKETS.map(b => `
+        <div style="flex:1;min-width:64px;background:var(--surface);border-radius:8px;padding:6px 8px">
+          <div style="font-size:9px;font-weight:700;color:var(--gray-400);text-transform:uppercase">${b}</div>
+          <div style="font-size:12.5px;font-weight:700;color:${b==='90+' && d.aging.buckets[b] ? 'var(--color-danger-text)' : 'var(--gray-800)'}">${d.aging.buckets[b] ? inr(d.aging.buckets[b]) : '—'}</div>
+        </div>`).join('')}
+    </div>` : '';
+
   return `
     <div style="background:var(--color-primary-light);border:1.5px solid var(--color-primary-ring);border-radius:12px;padding:14px 16px">
       <div style="font-weight:700;font-size:14px;color:var(--gray-900)">${d.name}${d.city ? ' · ' + d.city : ''}${d.phone ? ' · ' + d.phone : ''}</div>
@@ -7383,6 +7396,7 @@ function dealerCardHtml(d) {
         <div onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})" style="cursor:pointer;flex:1;min-width:90px">${statTile('Credit Limit', creditStr, 'var(--gray-800)')}</div>
         ${available !== null ? statTile('Available', inr(available), overLimit ? 'var(--color-danger-text)' : 'var(--color-success-text)') : ''}
       </div>
+      ${agingHtml}
       <div style="font-size:12.5px;color:var(--gray-600);margin-top:8px">${ratingHtml} · <span style="cursor:pointer;color:var(--color-primary);text-decoration:underline dotted" onclick="openLogPaymentModal('${nameEsc}')">+ Log Payment</span></div>
       <div style="font-size:12.5px;color:var(--gray-600);margin-top:4px">${lastOrderHtml}</div>
       ${locHtml ? `<div style="margin-top:4px">${locHtml}</div>` : ''}
