@@ -2542,17 +2542,19 @@ const SFMS_STEPS = [
       { key: 'spareReturned', col: 'AA', label: 'Spares Returned' }
     ],
     timeDelay: 'AB' },
-  // Mechanic reaching the customer's location — OTP-gated, plus a repair-status answer.
-  { n: 5, label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
-    extra: [{ key: 'repairStatus', col: 'AK', label: 'Repair Status' }],
-    timeDelay: 'AM', otpRequired: true },
-  // Spare in/out for the field visit — how many pieces came back, and why if short.
-  { n: 6, label: 'Spare In/Out Entry (in the field)', planned: 'AP', actual: 'AQ', status: 'AT',
+  // Reordered (was step 6) — spare in/out is now logged before the OTP
+  // solve step, not after.
+  { n: 5, label: 'Spare In/Out Entry (in the field)', planned: 'AP', actual: 'AQ', status: 'AT',
     extra: [
       { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
       { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' }
     ],
     timeDelay: 'AU' },
+  // Reordered (was step 5) — mechanic reaching the customer's location,
+  // OTP-gated, plus a repair-status answer. Now comes after In/Out.
+  { n: 6, label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
+    extra: [{ key: 'repairStatus', col: 'AK', label: 'Repair Status' }],
+    timeDelay: 'AM', otpRequired: true },
   // Repeats until answered "Yes" — a "No" is recorded (so there's a check-in trail) but
   // does not advance currentStep, so this stays the next action every time it's revisited.
   { n: 7, label: 'Complaint Solved?', actual: 'BJ', status: 'BI', extra: [], requireValue: 'Yes' },

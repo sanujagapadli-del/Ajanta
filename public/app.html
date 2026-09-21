@@ -1215,8 +1215,8 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab" id="sfmsViewStep2" onclick="switchSfmsView('step2',this)">2. Spare Check</div>
         <div class="tab" id="sfmsViewStep3" onclick="switchSfmsView('step3',this)">3. Assign</div>
         <div class="tab" id="sfmsViewStep4" onclick="switchSfmsView('step4',this)">4. Takeout</div>
-        <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. Solve</div>
-        <div class="tab" id="sfmsViewStep6" onclick="switchSfmsView('step6',this)">6. In/Out</div>
+        <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. In/Out</div>
+        <div class="tab" id="sfmsViewStep6" onclick="switchSfmsView('step6',this)">6. Solve</div>
         <div class="tab" id="sfmsViewStep7" onclick="switchSfmsView('step7',this)">7. Solved?</div>
         <div class="tab" id="sfmsViewStep8" onclick="switchSfmsView('step8',this)">8. Review</div>
         <div class="tab" id="sfmsViewReports" onclick="switchSfmsView('reports',this)">📊 Reports</div>
@@ -5656,12 +5656,14 @@ const SFMS_STEP_DEFS = [
       { key: 'itemName', label: 'Item Name', masterList: 'items' },
       { key: 'spareTaken', label: 'Qty', type: 'number' }
     ] },
-  { n: 5, label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
-      { key: 'repairStatus', label: 'Repair Status', options: ['Repaired at Location', 'Brought to Office'] }
-    ] },
-  { n: 6, label: 'Spare In/Out Entry (in the field)', extraFields: [
+  // Reordered (was step 6) — spare in/out logged before the OTP solve step.
+  { n: 5, label: 'Spare In/Out Entry (in the field)', extraFields: [
       { key: 'qtyReturned', label: 'Item Qty (Returned)', type: 'number' },
       { key: 'reasonIfShort', label: 'Reason (if Short)' }
+    ] },
+  // Reordered (was step 5) — now comes after In/Out.
+  { n: 6, label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
+      { key: 'repairStatus', label: 'Repair Status', options: ['Repaired at Location', 'Brought to Office'] }
     ] },
   { n: 7, label: 'Complaint Solved?', statusOptions: ['Yes', 'No'], requireValue: 'Yes', extraFields: [] },
   { n: 8, label: 'Evening Review', extraFields: [
@@ -6175,17 +6177,17 @@ function exportSfmsReportCsv(tableId) {
   URL.revokeObjectURL(url);
 }
 
-// Spare Shortage Report — Step 6 entries where returned qty fell short of taken.
+// Spare Shortage Report — Step 5 entries where returned qty fell short of taken.
 function buildReportShortage() {
   const withShortage = sfmsData.map(c => {
     const takeoutStep = c.steps.find(s => s.n === 4);
-    const step6 = c.steps.find(s => s.n === 6);
-    if (!step6.status || takeoutStep.spareTaken === '' || takeoutStep.spareTaken === undefined) return null;
+    const inOutStep = c.steps.find(s => s.n === 5);
+    if (!inOutStep.status || takeoutStep.spareTaken === '' || takeoutStep.spareTaken === undefined) return null;
     const taken = Number(takeoutStep.spareTaken) || 0;
-    const returned = Number(step6.qtyReturned) || 0;
+    const returned = Number(inOutStep.qtyReturned) || 0;
     const shortage = taken - returned;
     if (shortage <= 0) return null;
-    return { c, takeoutStep, step6, taken, returned, shortage };
+    return { c, takeoutStep, inOutStep, taken, returned, shortage };
   }).filter(Boolean).sort((a, b) => b.shortage - a.shortage);
 
   if (!withShortage.length) return '<div class="empty">No spare shortages recorded. 🎉</div>';
@@ -6194,7 +6196,7 @@ function buildReportShortage() {
     <table id="sfmsRptShortageTable">
       <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>Returned</th><th>Shortage</th><th>Reason</th><th>Mechanic</th></tr></thead>
       <tbody>
-        ${withShortage.map(({ c, takeoutStep, step6, taken, returned, shortage }) => {
+        ${withShortage.map(({ c, takeoutStep, inOutStep, taken, returned, shortage }) => {
           const assignStep = c.steps.find(s => s.n === 3);
           return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
             <td style="font-weight:600">${c.complainNo}</td>
@@ -6203,7 +6205,7 @@ function buildReportShortage() {
             <td>${taken}</td>
             <td>${returned}</td>
             <td style="color:var(--color-danger);font-weight:700">${shortage}</td>
-            <td>${step6.reasonIfShort || '—'}</td>
+            <td>${inOutStep.reasonIfShort || '—'}</td>
             <td>${(assignStep && assignStep.mechanic) || '—'}</td>
           </tr>`;
         }).join('')}
@@ -6213,9 +6215,9 @@ function buildReportShortage() {
 }
 
 // 3. Spare In/Out Table — bulk-editable Qty Taken / Qty Returned, saves straight
-// into the complaint's Step 3 / Step 6 records. Qty Returned stays disabled
-// until the complaint has actually passed OTP verification (Step 5), so this
-// table can't be used to skip that gate.
+// into the complaint's Step 4 / Step 5 records. Qty Returned is always
+// editable once Takeout (step 4) is done — In/Out (step 5) comes right
+// after it now, no later step needs to happen first.
 // Once Taken/Returned has a saved value, the cell locks to plain text with a
 // pencil icon — click it to re-open that cell for editing. Prevents an
 // already-recorded qty from being bumped by an accidental re-type + Save.
@@ -6225,26 +6227,31 @@ let sfmsSpareEditReturned = new Set();
 function buildReportSpareTable() {
   const relevant = sfmsData.filter(c => c.currentStep >= 4);
   if (!relevant.length) return '<div class="empty">No complaints have reached Takeout Spare yet.</div>';
-  return sfmsReportHeader('Edit Qty Taken / Qty Returned directly here — saving updates the complaint’s Step 4 / Step 6 records.', 'sfmsRptSpareTable') + `
+  return sfmsReportHeader('Edit Qty Taken / Qty Returned directly here — saving updates the complaint’s Step 4 / Step 5 records.', 'sfmsRptSpareTable') + `
     <div class="mis-table-wrap" style="overflow-x:auto;border:1px solid var(--gray-200);border-radius:10px">
     <table id="sfmsRptSpareTable">
       <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Qty Taken</th><th>Qty Returned</th><th>Reason (if Short)</th><th>Action</th></tr></thead>
       <tbody>
         ${relevant.map(c => {
           const takeoutStep = c.steps.find(s => s.n === 4);
-          const step6 = c.steps.find(s => s.n === 6);
-          const canEditReturn = c.currentStep >= 5;
+          const inOutStep = c.steps.find(s => s.n === 5);
+          // Qty Returned used to stay disabled until OTP (old step 5) was
+          // done, so this table couldn't be used to skip that gate. Now
+          // In/Out (step 5) comes right after Takeout (step 4) — and
+          // `relevant` already requires Takeout done — so it's always
+          // editable here; nothing else needs to happen first anymore.
+          const canEditReturn = true;
           const takenLocked = takeoutStep.spareTaken !== '' && takeoutStep.spareTaken != null && !sfmsSpareEditTaken.has(c.row);
-          const returnedLocked = step6.qtyReturned !== '' && step6.qtyReturned != null && !sfmsSpareEditReturned.has(c.row);
+          const returnedLocked = inOutStep.qtyReturned !== '' && inOutStep.qtyReturned != null && !sfmsSpareEditReturned.has(c.row);
           const takenCell = takenLocked
             ? `<span>${takeoutStep.spareTaken}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'taken')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
             : `<input type="number" id="sfmsRptTaken_${c.row}" value="${takeoutStep.spareTaken || ''}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
           const returnedCell = returnedLocked
-            ? `<span>${step6.qtyReturned}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'returned')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
-            : `<input type="number" id="sfmsRptReturned_${c.row}" value="${step6.qtyReturned || ''}" ${canEditReturn ? '' : 'disabled title="Complete Step 5 (OTP) first"'} style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;${canEditReturn ? '' : 'background:var(--gray-50);color:var(--gray-400)'}"/>`;
+            ? `<span>${inOutStep.qtyReturned}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'returned')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
+            : `<input type="number" id="sfmsRptReturned_${c.row}" value="${inOutStep.qtyReturned || ''}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
           const reasonCell = returnedLocked
-            ? `<span>${step6.reasonIfShort || '—'}</span>`
-            : `<input type="text" id="sfmsRptReason_${c.row}" value="${step6.reasonIfShort || ''}" ${canEditReturn ? '' : 'disabled'} style="width:140px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;${canEditReturn ? '' : 'background:var(--gray-50);color:var(--gray-400)'}"/>`;
+            ? `<span>${inOutStep.reasonIfShort || '—'}</span>`
+            : `<input type="text" id="sfmsRptReason_${c.row}" value="${inOutStep.reasonIfShort || ''}" style="width:140px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
           return `<tr>
             <td style="font-weight:600">${c.complainNo}</td>
             <td>${c.filledByName}</td>
@@ -6281,7 +6288,7 @@ async function saveSfmsReportSpareRow(row, canEditReturn) {
     const returned = returnedEl ? returnedEl.value : '';
     const reason = reasonEl ? reasonEl.value : '';
     if (returned !== '') {
-      results.push(await api(`/api/service-fms/${row}/step/6`, 'PUT', { qtyReturned: returned, reasonIfShort: reason }));
+      results.push(await api(`/api/service-fms/${row}/step/5`, 'PUT', { qtyReturned: returned, reasonIfShort: reason }));
     }
   }
   const err = results.find(r => r && r.error);
@@ -6329,12 +6336,12 @@ function buildReportItemWise() {
   const items = {};
   sfmsData.forEach(c => {
     const takeoutStep = c.steps.find(s => s.n === 4);
-    const step6 = c.steps.find(s => s.n === 6);
+    const inOutStep = c.steps.find(s => s.n === 5);
     if (!takeoutStep.itemName) return;
     const key = takeoutStep.itemName;
     if (!items[key]) items[key] = { taken: 0, returned: 0, complaints: 0 };
     items[key].taken += Number(takeoutStep.spareTaken) || 0;
-    items[key].returned += Number(step6.qtyReturned) || 0;
+    items[key].returned += Number(inOutStep.qtyReturned) || 0;
     items[key].complaints += 1;
   });
   const names = Object.keys(items).sort();
@@ -6723,10 +6730,10 @@ function buildSfmsNextActionHtml(c, compact) {
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
     const fieldsToShow = nextStepDef.n === 4 ? nextStepDef.extraFields.filter(f => f.key !== 'spareReturned') : nextStepDef.extraFields;
     const statusSelectHtml = nextStepDef.statusOptions ? renderSfmsStatusSelect(nextStepDef, c.row, compact) : '';
-    // Step 6 (Spare In/Out): show what was taken in Step 4 for comparison, and
+    // Step 5 (Spare In/Out): show what was taken in Step 4 for comparison, and
     // only reveal "Reason (if Short)" once the returned qty is actually short.
     let extraInputsHtml, takenSummaryHtml = '';
-    if (nextStepDef.n === 6) {
+    if (nextStepDef.n === 5) {
       const takeoutStep = c.steps.find(s => s.n === 4);
       const takenQty = Number(takeoutStep.spareTaken) || 0;
       takenSummaryHtml = compact ? '' : `<div style="font-size:13px;color:var(--gray-700);margin-bottom:12px;background:var(--surface);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
@@ -6899,8 +6906,8 @@ async function advanceSfmsStep(row, step, stage) {
     body[f.key] = value;
   }
 
-  // Step 6: require a reason whenever the returned qty is short of what was taken.
-  if (step === 6) {
+  // Step 5 (Spare In/Out): require a reason whenever the returned qty is short of what was taken.
+  if (step === 5) {
     const c = sfmsData.find(x => x.row === row);
     const takeoutStep = c ? c.steps.find(s => s.n === 4) : null;
     const takenQty = takeoutStep ? (Number(takeoutStep.spareTaken) || 0) : 0;
