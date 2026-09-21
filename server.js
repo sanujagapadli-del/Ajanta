@@ -3485,12 +3485,13 @@ function computeDealerRating(payments) {
 
 app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
-    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty] = await Promise.all([
+    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty] = await Promise.all([
       getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
       withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
       withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
       getO2dOrders().catch(() => []), // dealer directory shouldn't 500 just because the orders sheet hiccups
-      getBillsReceivableAgingByDealer().catch(() => ({})) // same — Tally sync sheet hiccup shouldn't break the whole page
+      getBillsReceivableAgingByDealer().catch(() => ({})), // same — Tally sync sheet hiccup shouldn't break the whole page
+      getTallyPaymentsByDealer().catch(() => ({}))
     ]);
 
     const byKey = {}; // lowercased counter name -> merged dealer record
@@ -3533,10 +3534,18 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     // Only attaches aging to dealers we already know about (via debtors/
     // dealer profile/orders) — doesn't create new dealer rows just because
     // Tally has a party by that name; most Tally parties aren't O2D dealers.
+    // Outstanding now prefers this (bill-wise, synced daily) over the older
+    // Group Summary debtors sheet, since it's the fresher/more granular source.
     Object.values(billsAgingByParty).forEach(agg => {
       const key = agg.name.trim().toLowerCase();
       const d = byKey[key];
-      if (d) d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count };
+      if (d) { d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count }; d.outstanding = agg.total; }
+    });
+
+    // Same matching rule — only for dealers we already know, most recent 5.
+    Object.entries(tallyPaymentsByParty).forEach(([key, list]) => {
+      const d = byKey[key];
+      if (d) d.tallyPayments = list.slice(-5).reverse();
     });
 
     const dealers = Object.values(byKey).map(d => {
@@ -3964,6 +3973,31 @@ app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Payment history — from the same Tally sync's "Payments" tab (Receipt
+// vouchers). No due-date is available for already-settled bills (Bills
+// Receivable only tracks what's still outstanding), so this is shown as a
+// activity log rather than an on-time/late rating — that rating stays
+// driven by the manual "+ Log Payment" feature, which has both dates.
+let _tallyPaymentsCache = null; // { byParty, ts }
+const TALLY_PAYMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
+async function getTallyPaymentsByDealer() {
+  if (_tallyPaymentsCache && (Date.now() - _tallyPaymentsCache.ts) < TALLY_PAYMENTS_CACHE_TTL_MS) return _tallyPaymentsCache.byParty;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const r = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'Payments'!A2:E20000`
+  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const rows = (r.data.values || []).filter(row => row[0]);
+  const byParty = {};
+  rows.forEach(row => {
+    const key = (row[0] || '').trim().toLowerCase();
+    if (!key) return;
+    if (!byParty[key]) byParty[key] = [];
+    byParty[key].push({ paidDate: row[1] || '', billRef: row[2] || '', amount: Number(row[3]) || 0 });
+  });
+  _tallyPaymentsCache = { byParty, ts: Date.now() };
+  return byParty;
+}
 
 app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   try {

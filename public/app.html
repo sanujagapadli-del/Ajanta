@@ -7356,6 +7356,13 @@ function dealerCardHtml(d) {
   const ratingHtml = d.rating.total > 0
     ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span> ${d.rating.label} · ${d.rating.total} payment${d.rating.total===1?'':'s'}, ${d.rating.late} late · avg ${d.rating.avgLateDays} din`
     : `<span style="color:var(--gray-400)">No payment history yet</span>`;
+  // Real payment activity from the Tally sync (tally-sync/) — shown as a
+  // log, not a rating (a settled bill's due date isn't in what we sync,
+  // only still-outstanding bills are, so on-time/late can't be computed
+  // from this — the star rating above stays driven by manual Log Payment).
+  const tallyPaymentsHtml = (d.tallyPayments && d.tallyPayments.length)
+    ? `<div style="font-size:11.5px;color:var(--gray-600);margin-top:4px">Recent payments (Tally): ${d.tallyPayments.map(p => `${p.paidDate}${p.amount ? ' ₹' + p.amount.toLocaleString('en-IN') : ''}`).join(', ')}</div>`
+    : '';
   const lastOrderHtml = d.lastOrder
     ? `Last order: ${fmtDate((d.lastOrder.timestamp || '').split(' ')[0])} — ${d.lastOrder.qty} pcs${d.lastOrder.amount ? ', ' + inr(d.lastOrder.amount) : ''}`
     : `<span style="color:var(--gray-400)">No orders yet</span>`;
@@ -7398,6 +7405,7 @@ function dealerCardHtml(d) {
       </div>
       ${agingHtml}
       <div style="font-size:12.5px;color:var(--gray-600);margin-top:8px">${ratingHtml} · <span style="cursor:pointer;color:var(--color-primary);text-decoration:underline dotted" onclick="openLogPaymentModal('${nameEsc}')">+ Log Payment</span></div>
+      ${tallyPaymentsHtml}
       <div style="font-size:12.5px;color:var(--gray-600);margin-top:4px">${lastOrderHtml}</div>
       ${locHtml ? `<div style="margin-top:4px">${locHtml}</div>` : ''}
     </div>`;
