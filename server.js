@@ -3539,7 +3539,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     Object.values(billsAgingByParty).forEach(agg => {
       const key = agg.name.trim().toLowerCase();
       const d = byKey[key];
-      if (d) { d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count }; d.outstanding = agg.total; }
+      if (d) { d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count }; d.outstanding = agg.total; d.creditTier = agg.creditTier; }
     });
 
     // Same matching rule — only for dealers we already know, most recent 5.
@@ -3947,6 +3947,20 @@ async function getBillsReceivable() {
 // case-insensitive-then-fuzzy approach used everywhere else dealer names
 // get matched (debtors sheet, order history).
 const BILLS_BUCKET_KEYS = ['<30', '30-45', '45-60', '60-90', '90+', 'Unknown'];
+
+// Credit tier — real Tally data (how much of their CURRENT outstanding is
+// badly aged), not the on-time/late rating that would need due dates for
+// bills that are already settled (which Bills Receivable doesn't carry —
+// it only lists what's still open).
+function computeCreditTier(buckets, total) {
+  if (!total) return null;
+  const badShare = ((buckets['90+'] || 0) + (buckets['60-90'] || 0)) / total;
+  if (badShare === 0) return { tier: 'Diamond', icon: '💎', color: '#2563eb' };
+  if (badShare < 0.2) return { tier: 'Gold', icon: '🥇', color: '#d97706' };
+  if (badShare < 0.5) return { tier: 'Silver', icon: '🥈', color: '#6b7280' };
+  return { tier: 'At Risk', icon: '⚠️', color: '#dc2626' };
+}
+
 async function getBillsReceivableAgingByDealer() {
   const { bills } = await getBillsReceivable();
   const byParty = {}; // lowercased party name -> { buckets, total, count }
@@ -3960,6 +3974,7 @@ async function getBillsReceivableAgingByDealer() {
     byParty[key].total += amt;
     byParty[key].count += 1;
   });
+  Object.values(byParty).forEach(agg => { agg.creditTier = computeCreditTier(agg.buckets, agg.total); });
   return byParty;
 }
 

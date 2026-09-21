@@ -7292,10 +7292,10 @@ function renderDealerGridResults() {
   resultsEl.innerHTML = `
     <table>
       <thead><tr>
-        <th>Dealer</th><th>KYC</th><th>Outstanding</th><th>Credit Limit</th><th>Rating</th><th>Last Order</th><th>Actions</th>
+        <th>Dealer</th><th>Tier</th><th>KYC</th><th>Outstanding</th><th>Credit Limit</th><th>Rating</th><th>Last Order</th><th>Actions</th>
       </tr></thead>
       <tbody>
-        ${pageRows.map(dealerRowHtml).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">No dealers found</td></tr>`}
+        ${pageRows.map(dealerRowHtml).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--gray-400)">No dealers found</td></tr>`}
       </tbody>
     </table>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 4px">
@@ -7323,11 +7323,16 @@ function dealerRowHtml(d) {
     ? `<a href="https://maps.google.com/?q=${d.locationLat},${d.locationLng}" target="_blank" title="View saved location">📍</a>`
     : '';
 
+  const tierCellHtml = d.creditTier
+    ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${d.creditTier.color}1a;color:${d.creditTier.color};white-space:nowrap">${d.creditTier.icon} ${d.creditTier.tier}</span>`
+    : `<span style="color:var(--gray-400);font-size:11px">—</span>`;
+
   return `<tr>
     <td>
       <div style="font-weight:600">${d.name}</div>
       <div style="font-size:11px;color:var(--gray-500)">${[d.city, d.phone].filter(Boolean).join(' · ') || '—'}</div>
     </td>
+    <td>${tierCellHtml}</td>
     <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor};white-space:nowrap">${d.kycCount}/4</span></td>
     <td style="white-space:nowrap">${outstandingStr}</td>
     <td style="white-space:nowrap;cursor:pointer;text-decoration:underline dotted" onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})">${creditStr}</td>
@@ -7389,9 +7394,16 @@ function dealerCardHtml(d) {
         </div>`).join('')}
     </div>` : '';
 
+  const tierBadgeHtml = d.creditTier
+    ? `<span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:8px;background:${d.creditTier.color}1a;color:${d.creditTier.color};white-space:nowrap">${d.creditTier.icon} ${d.creditTier.tier}</span>`
+    : '';
+
   return `
     <div style="background:var(--color-primary-light);border:1.5px solid var(--color-primary-ring);border-radius:12px;padding:14px 16px">
-      <div style="font-weight:700;font-size:14px;color:var(--gray-900)">${d.name}${d.city ? ' · ' + d.city : ''}${d.phone ? ' · ' + d.phone : ''}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div style="font-weight:700;font-size:14px;color:var(--gray-900)">${d.name}${d.city ? ' · ' + d.city : ''}${d.phone ? ' · ' + d.phone : ''}</div>
+        ${tierBadgeHtml}
+      </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
         <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor}">KYC: ${d.kycCount}/4</span>
         <button class="btn btn-outline btn-sm" onclick="openKycModal('${nameEsc}')">Upload KYC</button>
