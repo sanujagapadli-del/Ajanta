@@ -3049,7 +3049,14 @@ async function loadDashboard() {
   // above it can't disagree with what's visibly listed.
   document.getElementById('dPending').textContent = allTodayPending.length;
   if (dashChartInst) dashChartInst.destroy();
-  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0);
+  // Completed previously only ever summed Delegation+Checklist (set early,
+  // before sfms/o2d even loaded) — Service FMS closed complaints and O2D
+  // closed orders never counted, even though their PENDING items already
+  // did above. Corrected here once sfms/o2d are actually in hand.
+  const sfmsCompleted = Array.isArray(sfms) ? sfms.filter(c => c.closed).length : 0;
+  const o2dCompleted = Array.isArray(o2d) ? o2d.filter(o => o.closed).length : 0;
+  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + sfmsCompleted + o2dCompleted;
+  document.getElementById('dCompleted').textContent = combinedCompleted;
   const combinedRevised   = dDel.revised||0;
   const chartLabels = ['Completed','Pending','Revised'];
   const chartData   = [combinedCompleted, allTodayPending.length, combinedRevised];
