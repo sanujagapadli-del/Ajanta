@@ -430,6 +430,14 @@ tbody tr:last-child td{border-bottom:none;}
 
 .mis-header{display:flex;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap;}
 .mis-table-wrap{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--border-light);overflow:hidden;box-shadow:var(--shadow-sm);}
+/* Mobile browsers mostly hide the native horizontal scrollbar (only a
+   fleeting overlay during an active touch-drag, if that), so a wide table
+   gives no visual cue there's more to see off-screen — this right-edge
+   fade is that cue instead, shown only while there's actually more to
+   scroll to (toggled by attachScrollHint() in JS). */
+.scroll-hint-wrap{position:relative}
+.scroll-hint-wrap::after{content:'';position:absolute;top:0;right:0;bottom:0;width:28px;pointer-events:none;background:linear-gradient(to right, transparent, rgba(0,0,0,.10));opacity:0;transition:opacity .15s}
+.scroll-hint-wrap.has-more-right::after{opacity:1}
 .mis-score-bar{height:8px;border-radius:4px;background:var(--color-primary-light);margin-top:5px;overflow:hidden;}
 .mis-summary-strip{display:flex;flex-wrap:wrap;gap:0;background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--border-light);box-shadow:var(--shadow-sm);margin-bottom:16px;overflow:hidden;}
 .mis-summary-item{flex:1 1 140px;padding:14px 18px;border-right:1px solid var(--border-light);}
@@ -5809,6 +5817,18 @@ function onSfmsAssignZoneFilterChange(value) {
   renderSfmsStepView(3);
 }
 
+// Shows a right-edge fade (see .scroll-hint-wrap CSS) only while a
+// horizontally-scrollable element actually has more content off-screen —
+// the visual substitute for a scrollbar that mobile browsers hide.
+function attachScrollHint(el) {
+  if (!el) return;
+  el.classList.add('scroll-hint-wrap');
+  const update = () => el.classList.toggle('has-more-right', el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
+  update();
+  el.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+}
+
 function renderSfmsStepView(n) {
   const wrap = document.getElementById('sfmsListWrap');
   const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
@@ -5898,6 +5918,7 @@ function renderSfmsStepView(n) {
       if (w && statusSel) statusSel.value = w.inWarranty ? 'Yes' : 'No';
     });
   }
+  wrap.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
 }
 
 // Patches just one row's action cell in the per-step table (instead of a full
@@ -6068,6 +6089,7 @@ function renderActiveSfmsReport() {
     'item-wise': buildReportItemWise
   };
   el.innerHTML = builders[sfmsReportView] ? builders[sfmsReportView]() : '';
+  el.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
 }
 
 function sfmsReportHeader(description, tableId) {
@@ -6781,6 +6803,7 @@ function renderComplaintDetailBody(c) {
     </details>` : '';
 
   body.innerHTML = siblingsTableHtml + infoHtml + actionHtml + checklistHtml;
+  body.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
 }
 
 // Reveals "Reason (if Short)" only once the entered return qty is actually
