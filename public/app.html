@@ -586,7 +586,13 @@ tbody tr:last-child td{border-bottom:none;}
 /* ═══════════════════════════════
    MOBILE RESPONSIVE
 ═══════════════════════════════ */
-.mobile-menu-btn{display:none}
+/* The bottom nav only has room for a handful of pages (Dashboard, Tasks,
+   Service, O2D, Approvals, Users, MIS, Profile) — anything else, like
+   Price List & Catalogue, has no bottom-nav entry at all, so this button
+   is the only way to reach it on mobile. Base (desktop) state stays
+   hidden; the mobile media query below turns it on. */
+.mobile-menu-btn{display:none;flex-direction:column;justify-content:center;gap:4px;width:34px;height:34px;background:none;border:none;cursor:pointer;padding:0;flex-shrink:0}
+.mobile-menu-btn span{display:block;width:100%;height:2px;background:var(--gray-700);border-radius:2px}
 #sidebarBackdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:150;backdrop-filter:blur(2px)}
 #sidebarBackdrop.active{display:block}
 
@@ -594,8 +600,20 @@ tbody tr:last-child td{border-bottom:none;}
   /* Bottom nav visible */
   .bottom-nav{display:flex}
 
-  /* Sidebar completely hidden */
+  /* Sidebar hidden by default — opened as a slide-in overlay via the
+     hamburger button below (see .sidebar.mobile-open), since the bottom
+     nav doesn't cover every page. */
   .sidebar{display:none !important}
+  .sidebar.mobile-open{
+    display:flex !important;width:var(--sidebar-w-expanded) !important;
+    z-index:200;box-shadow:var(--shadow-lg);
+  }
+  .sidebar.mobile-open:hover{width:var(--sidebar-w-expanded) !important}
+  /* .nav is flex:1 inside the sidebar's flex column, so it fills exactly
+     the remaining height and can scroll its own overflow independently —
+     the full nav list (Dashboard through Logout) doesn't fit a short phone
+     screen otherwise, with no way to reach whatever's clipped off the bottom. */
+  .sidebar.mobile-open .nav{overflow-y:auto}
 
   /* Main full width + room for bottom nav */
   .main{margin-left:0 !important;padding-bottom:66px}
@@ -603,7 +621,7 @@ tbody tr:last-child td{border-bottom:none;}
   /* Topbar */
   .topbar{padding:0 14px;gap:10px}
   .topbar-title{font-size:16px}
-  .mobile-menu-btn{display:none}
+  .mobile-menu-btn{display:flex}
 
   /* Page padding */
   .page{padding:14px 12px}
