@@ -7221,13 +7221,13 @@ function inr(n) { return '₹' + Math.round(n).toLocaleString('en-IN'); }
 function onDealerSearchInput(v) {
   o2dDealerSearchQ = v;
   o2dDealerPage = 1;
-  renderDealerGrid();
+  renderDealerGridResults();
 }
 
 let o2dDealerPage = 1;
 const O2D_DEALER_PAGE_SIZE = 50;
 
-function o2dDealerGoToPage(p) { o2dDealerPage = p; renderDealerGrid(); }
+function o2dDealerGoToPage(p) { o2dDealerPage = p; renderDealerGridResults(); }
 
 // Refreshes wherever dealer data is currently on screen — the Dealers tab
 // table, and/or the New Order modal's step-1 profile preview (both can be
@@ -7240,8 +7240,30 @@ function refreshDealerViews() {
   }
 }
 
+// Search bar (with #dealerSearchInput) is built ONCE here — typing calls
+// renderDealerGridResults() below, which only touches #dealerGridResults,
+// never the search bar itself. It used to rebuild via wrap.innerHTML on
+// every keystroke (onDealerSearchInput -> renderDealerGrid), which included
+// the very input being typed into — destroying and recreating that DOM
+// node on every character, kicking focus out and forcing a re-click just
+// to type the next letter.
 function renderDealerGrid() {
   const wrap = document.getElementById('o2dListWrap');
+  wrap.innerHTML = `
+    <div style="padding:16px">
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <input type="text" id="dealerSearchInput" placeholder="🔍 Search dealer or city…" value="${o2dDealerSearchQ.replace(/"/g,'&quot;')}" oninput="onDealerSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <button class="btn btn-outline" onclick="loadO2dDealers(true).then(renderDealerGridResults)">🔄 Refresh</button>
+        <button class="btn btn-primary" onclick="openAddDealerModal()">+ Naya Dealer Add Karo</button>
+      </div>
+      <div id="dealerGridResults"></div>
+    </div>`;
+  renderDealerGridResults();
+}
+
+function renderDealerGridResults() {
+  const resultsEl = document.getElementById('dealerGridResults');
+  if (!resultsEl) return; // dealers view isn't the one on screen (e.g. a stale timer/callback)
   const q = o2dDealerSearchQ.trim().toLowerCase();
   const filtered = q ? o2dDealers.filter(d => d.name.toLowerCase().includes(q) || (d.city || '').toLowerCase().includes(q)) : o2dDealers;
 
@@ -7250,27 +7272,20 @@ function renderDealerGrid() {
   const start = (o2dDealerPage - 1) * O2D_DEALER_PAGE_SIZE;
   const pageRows = filtered.slice(start, start + O2D_DEALER_PAGE_SIZE);
 
-  wrap.innerHTML = `
-    <div style="padding:16px">
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <input type="text" id="dealerSearchInput" placeholder="🔍 Search dealer or city…" value="${o2dDealerSearchQ.replace(/"/g,'&quot;')}" oninput="onDealerSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-        <button class="btn btn-outline" onclick="loadO2dDealers(true).then(renderDealerGrid)">🔄 Refresh</button>
-        <button class="btn btn-primary" onclick="openAddDealerModal()">+ Naya Dealer Add Karo</button>
-      </div>
-      <table>
-        <thead><tr>
-          <th>Dealer</th><th>KYC</th><th>Outstanding</th><th>Credit Limit</th><th>Rating</th><th>Last Order</th><th>Actions</th>
-        </tr></thead>
-        <tbody>
-          ${pageRows.map(dealerRowHtml).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">No dealers found</td></tr>`}
-        </tbody>
-      </table>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 4px">
-        <span style="font-size:12px;color:var(--gray-400)">${filtered.length} dealer${filtered.length===1?'':'s'} — page ${o2dDealerPage} of ${totalPages}</span>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-outline btn-sm" ${o2dDealerPage <= 1 ? 'disabled' : ''} onclick="o2dDealerGoToPage(${o2dDealerPage - 1})">← Prev</button>
-          <button class="btn btn-outline btn-sm" ${o2dDealerPage >= totalPages ? 'disabled' : ''} onclick="o2dDealerGoToPage(${o2dDealerPage + 1})">Next →</button>
-        </div>
+  resultsEl.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Dealer</th><th>KYC</th><th>Outstanding</th><th>Credit Limit</th><th>Rating</th><th>Last Order</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${pageRows.map(dealerRowHtml).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">No dealers found</td></tr>`}
+      </tbody>
+    </table>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 4px">
+      <span style="font-size:12px;color:var(--gray-400)">${filtered.length} dealer${filtered.length===1?'':'s'} — page ${o2dDealerPage} of ${totalPages}</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-outline btn-sm" ${o2dDealerPage <= 1 ? 'disabled' : ''} onclick="o2dDealerGoToPage(${o2dDealerPage - 1})">← Prev</button>
+        <button class="btn btn-outline btn-sm" ${o2dDealerPage >= totalPages ? 'disabled' : ''} onclick="o2dDealerGoToPage(${o2dDealerPage + 1})">Next →</button>
       </div>
     </div>`;
 }

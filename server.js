@@ -3270,7 +3270,13 @@ async function getO2dOrders() {
         orderBy: first.orderBy,
         paymentTerms: first.paymentTerms,
         billNo: first.billNo,
-        amount: group.reduce((sum, l) => sum + (Number(l.amount) || 0), 0),
+        // Bill Amount is an order-level value the Accountant enters once (see
+        // writeO2dStepForOrder) but gets written identically onto every
+        // product-line row sharing this Order No — summing it across the
+        // group was multiplying a 2-product order's real amount by 2x, a
+        // 3-product order by 3x, etc. Every row in the group has the same
+        // value, so just take one.
+        amount: Number(first.amount) || 0,
         productName: group.length > 1 ? `${first.productName} +${group.length - 1} more` : first.productName,
         qty: group.reduce((sum, l) => sum + (Number(l.qty) || 0), 0),
         // availability = the raw Good Check (step 2) status for this line —
