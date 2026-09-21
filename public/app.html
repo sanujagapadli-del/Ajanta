@@ -808,6 +808,10 @@ tbody tr:last-child td{border-bottom:none;}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-1.5 5.5a2 2 0 01-1.94 1.5H7.44a2 2 0 01-1.94-1.5L4 13m16 0H4"/></svg>
     <span>O2D</span>
   </div>
+  <div class="bn-item" id="bnNewOrder" style="display:none" onclick="openNewO2dOrderModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    <span>New Order</span>
+  </div>
   <div class="bn-item" data-page="price-catalogue" onclick="navigate('price-catalogue',null)" id="bnCatalogue" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
     <span>Catalogue</span>
@@ -2849,10 +2853,12 @@ function setupBottomNav() {
   const bnO2d = document.getElementById('bnO2d');
   const bnUsers = document.getElementById('bnUsers');
   const bnCatalogue = document.getElementById('bnCatalogue');
+  const bnNewOrder = document.getElementById('bnNewOrder');
   if (bnFms && canSee('service-fms')) bnFms.style.display = '';
   if (bnO2d && canSee('o2d-fms')) bnO2d.style.display = '';
   if (bnUsers && canSee('users')) bnUsers.style.display = '';
   if (bnCatalogue && canSee('price-catalogue')) bnCatalogue.style.display = '';
+  if (bnNewOrder && (canSee('o2d-fms') || canSee('o2d-new-order'))) bnNewOrder.style.display = '';
   attachScrollHint(document.getElementById('bottomNav'));
 }
 
