@@ -5819,15 +5819,32 @@ function onSfmsAssignZoneFilterChange(value) {
 
 // Shows a right-edge fade (see .scroll-hint-wrap CSS) only while a
 // horizontally-scrollable element actually has more content off-screen —
-// the visual substitute for a scrollbar that mobile browsers hide.
+// the visual substitute for a scrollbar that mobile browsers hide. Guarded
+// against double-attaching (safe to call again on an element already wired).
 function attachScrollHint(el) {
-  if (!el) return;
+  if (!el || el.dataset.scrollHintAttached) return;
+  el.dataset.scrollHintAttached = '1';
   el.classList.add('scroll-hint-wrap');
   const update = () => el.classList.toggle('has-more-right', el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
   update();
   el.addEventListener('scroll', update, { passive: true });
   window.addEventListener('resize', update);
 }
+// Auto-applies the scroll hint to every .mis-table-wrap anywhere in the app
+// (Catalogue/Price List, MIS, Reports, etc.), not just the Service FMS
+// tables that call attachScrollHint() directly — most tables in this app
+// re-render via innerHTML on a timer/action rather than a single SPA
+// router, so a MutationObserver catches all of them as they appear.
+(function() {
+  function scanForTableWraps(node) {
+    if (node.nodeType !== 1) return;
+    if (node.classList && node.classList.contains('mis-table-wrap')) attachScrollHint(node);
+    if (node.querySelectorAll) node.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
+  }
+  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(scanForTableWraps)))
+    .observe(document.body, { childList: true, subtree: true });
+  document.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
+})();
 
 function renderSfmsStepView(n) {
   const wrap = document.getElementById('sfmsListWrap');
