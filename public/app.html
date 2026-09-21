@@ -2976,7 +2976,7 @@ async function loadDashboard() {
       // Smart dropdown: sirf pending wale users
       await refreshPCEmployeeDropdown();
     } else if (empFilter.options.length <= 1) {
-      const users = await api('/api/users');
+      const users = await api('/api/users/roster');
       const filtered = isHod
         ? users.filter(u => u.department === ME.department)
         : users;
@@ -3748,7 +3748,7 @@ async function openDelegate() {
   document.getElementById('dStartDate').value=today;
   document.getElementById('dDate').value=today;
   document.getElementById('dDate').min=today;
-  const users = await api('/api/users');
+  const users = await api('/api/users/roster');
   const activeUsers = users.filter(u => u.is_active == null || +u.is_active === 1);
   const opts = activeUsers.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
   document.getElementById('dDoer').innerHTML='<option value="">Select Doer</option>'+opts;
@@ -3791,7 +3791,7 @@ async function openChecklist() {
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('cDate').value=today;
   document.getElementById('cDate').min=today;
-  const users = await api('/api/users');
+  const users = await api('/api/users/roster');
   const activeUsers = users.filter(u => u.is_active == null || +u.is_active === 1);
   document.getElementById('cDoer').innerHTML='<option value="">Select Employee</option>'+
     activeUsers.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
@@ -3898,7 +3898,7 @@ async function saveChecklist() {
   btn.disabled=true; btn.textContent='Generating…';
 
   // Get user's week_off to skip those days
-  const allUsers = await api('/api/users');
+  const allUsers = await api('/api/users/roster');
   const selUser = allUsers.find(u=>String(u.id)===String(doer));
   const weekOff = String(selUser?.week_off ?? '');
   const extraOff = String(selUser?.extra_off ?? '');
@@ -4021,7 +4021,7 @@ async function uploadCSV() {
   const lines = text.trim().split('\n').slice(1);
   if (!lines.length) { showToast('CSV is empty','error'); return; }
   // Fetch users once
-  const allUsers = await api('/api/users');
+  const allUsers = await api('/api/users/roster');
   let count = 0, skipped = 0;
   for (const line of lines) {
     if (!line.trim()) continue;
@@ -4049,7 +4049,7 @@ async function uploadCSVC() {
   const isNewFormat = header.includes('frequency') || header.includes('start_date');
 
   const dataLines = lines.slice(1);
-  const allUsers = await api('/api/users');
+  const allUsers = await api('/api/users/roster');
 
   let totalTasks = 0, skipped = 0;
   const validFreqs = ['daily','weekly','alternative_week','monthly','quarterly','yearly'];
@@ -4115,6 +4115,8 @@ let allUsersData = [];
 let MY_PAGES = new Set(); // pages the logged-in user may open (restrictable pages only); see init()
 
 async function loadUsers() {
+  // The only caller that needs full detail (phone/notification_email/
+  // page_access) — server-gated to admin or explicit 'users' page access.
   const res = await api('/api/users');
   allUsersData = Array.isArray(res) ? res : [];
   renderUsersTable(allUsersData);
@@ -4528,7 +4530,7 @@ async function openDeactivate(id) {
   document.getElementById('deactivateUserId').value = id;
   const [tasks, allUsers] = await Promise.all([
     api(`/api/users/${id}/pending-checklist`),
-    api('/api/users')
+    api('/api/users/roster')
   ]);
   const hasTasks = Array.isArray(tasks) && tasks.length > 0;
   document.getElementById('deactivateNoTasks').style.display = hasTasks ? 'none' : '';
@@ -4720,7 +4722,7 @@ async function openSetPlanModal(preEmpId, preWeek) {
   };
 
   // Load department employees. Admin/PC org-wide; HOD apne dept ka.
-  const allUsers = await api('/api/users');
+  const allUsers = await api('/api/users/roster');
   const deptUsers = (ME.role === 'admin' || ME.role === 'pc')
     ? allUsers.filter(u => u.role === 'user' || u.role === 'employee')
     : allUsers.filter(u => u.department === ME.department && u.id !== ME.id);
@@ -7835,7 +7837,7 @@ async function mergeO2dStepDoersIntoDefs() {
 
 async function openStepDoersModal() {
   const [usersRes, doersRes] = await Promise.all([
-    _o2dAllUsersForDoers ? Promise.resolve(_o2dAllUsersForDoers) : api('/api/users'),
+    _o2dAllUsersForDoers ? Promise.resolve(_o2dAllUsersForDoers) : api('/api/users/roster'),
     api('/api/o2d-fms/step-doers')
   ]);
   if (Array.isArray(usersRes)) _o2dAllUsersForDoers = usersRes;
@@ -8489,7 +8491,7 @@ let fmsAllUsers = [];
 let fmsSheetHeaders = [];
 
 async function loadFMSAdmin() {
-  const usersRes = await api('/api/users');
+  const usersRes = await api('/api/users/roster');
   fmsAllUsers = Array.isArray(usersRes) ? usersRes : [];
   const sheets = await api('/api/fms');
   fmsAllSheets = sheets;
@@ -8603,7 +8605,7 @@ async function deleteFMSSheet(id) {
 // ── Edit FMS ──
 async function openEditFMS() {
   if (!fmsActiveId) return;
-  const usersRes = await api('/api/users');
+  const usersRes = await api('/api/users/roster');
   fmsAllUsers = Array.isArray(usersRes) ? usersRes : [];
   const data = await api(`/api/fms/${fmsActiveId}`);
   const { sheet, steps } = data;
@@ -8824,7 +8826,7 @@ function copyFMSEmail() {
 
 async function proceedToStepsConfig() {
   closeModal('fmsShareModal');
-  if (!fmsAllUsers.length) { const ur = await api('/api/users'); fmsAllUsers = Array.isArray(ur) ? ur : []; }
+  if (!fmsAllUsers.length) { const ur = await api('/api/users/roster'); fmsAllUsers = Array.isArray(ur) ? ur : []; }
 
   // Build default steps
   fmsSteps = [];
@@ -9771,7 +9773,7 @@ async function openBulkDeleteModal() {
   const isHod = ME.role === 'hod';
 
   if (isAdmin || isHod) {
-    const allUsers = await api('/api/users');
+    const allUsers = await api('/api/users/roster');
     const eligible = isAdmin
       ? allUsers
       : allUsers.filter(u => u.department === ME.department);
@@ -9967,7 +9969,7 @@ async function openNewTransferModal() {
   const isHod = ME.role === 'hod';
 
   if (isAdmin || isHod) {
-    const allUsers = await api('/api/users');
+    const allUsers = await api('/api/users/roster');
     const eligible = isAdmin
       ? allUsers
       : allUsers.filter(u => u.department === ME.department && u.id !== ME.id);
@@ -10038,7 +10040,7 @@ async function onTransferDateChange() {
     }).join('');
   }
 
-  const allUsers = await api('/api/users');
+  const allUsers = await api('/api/users/roster');
   const eligible = (ME.role === 'hod')
     ? allUsers.filter(u => u.department === ME.department && u.id !== _transferFromUserId)
     : allUsers.filter(u => u.id !== _transferFromUserId);

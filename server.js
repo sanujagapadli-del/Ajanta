@@ -1930,8 +1930,35 @@ app.get('/api/users/with-pending-tasks', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 // USERS
 // ══════════════════════════════════════════════════════
+// Whole-page permission for the Users admin page (list/edit/deactivate/
+// delete + the Access-grant tab) — same pattern as canAccessPriceCatalogue.
+// Admins always have it; everyone else needs 'users' explicitly granted.
+async function canAccessUsersPage(req) {
+  if (req.session.role === 'admin') return true;
+  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
+  const pages = parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role);
+  return pages.includes('users');
+}
+
+// Every employee needs SOME list of colleagues for ordinary things — a
+// "Delegate to" dropdown, a checklist assignee, week-off lookups for date
+// generation, department-scoped pickers — none of which need email/phone/
+// notification settings/page access. That sensitive detail is reserved for
+// the actual Users admin page (GET /api/users below), gated by
+// canAccessUsersPage; this one is open to any logged-in user.
+app.get('/api/users/roster', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT id,name,email,department,role,week_off,extra_off,is_active FROM users ORDER BY role DESC,name ASC');
+    res.json(rows.map(r => ({
+      ...r,
+      is_active: (r.is_active === '' || r.is_active === null || r.is_active === undefined) ? 1 : +r.is_active
+    })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
+    if (!(await canAccessUsersPage(req))) return res.status(403).json({ error: 'You do not have access to the Users page' });
     const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,is_active FROM users ORDER BY role DESC,name ASC');
     // page_access fetch separately — safe if column not yet added
     let accessById = {};
