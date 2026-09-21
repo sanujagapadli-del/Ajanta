@@ -3555,7 +3555,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     Object.values(billsAgingByParty).forEach(agg => {
       const key = agg.name.trim().toLowerCase();
       const d = byKey[key];
-      if (d) { d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count }; d.outstanding = agg.total; d.creditTier = agg.creditTier; }
+      if (d) { d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count }; d.outstanding = agg.total; }
     });
 
     // Same matching rule — only for dealers we already know, most recent 5.
@@ -3572,9 +3572,10 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       const tallyRating = tallyRatingByParty[tallyKey];
       const manualRating = computeDealerRating(d.payments);
       const rating = (tallyRating && tallyRating.total > 0) ? { ...tallyRating, source: 'tally' } : { ...manualRating, source: 'manual' };
+      const creditTier = computeCreditTier(d.aging ? d.aging.buckets : {}, d.aging ? d.aging.total : 0, rating.source === 'tally' ? rating : null);
       const kycCount = Object.values(d.kyc).filter(Boolean).length;
       delete d.payments;
-      return { ...d, kycCount, rating };
+      return { ...d, kycCount, rating, creditTier };
     }).sort((a, b) => a.name.localeCompare(b.name));
 
     res.json({ dealers });
@@ -3970,11 +3971,18 @@ async function getBillsReceivable() {
 // get matched (debtors sheet, order history).
 const BILLS_BUCKET_KEYS = ['<30', '30-45', '45-60', '60-90', '90+', 'Unknown'];
 
-// Credit tier — real Tally data (how much of their CURRENT outstanding is
-// badly aged), not the on-time/late rating that would need due dates for
-// bills that are already settled (which Bills Receivable doesn't carry —
-// it only lists what's still open).
-function computeCreditTier(buckets, total) {
+// Credit tier — prefers real bill-by-bill payment performance (on-time
+// ratio, once there's enough of it) since that's a better trust signal
+// than just "how old is what they currently owe"; falls back to the
+// aging split (buckets/total) when there isn't enough payment history yet.
+function computeCreditTier(buckets, total, tallyRating) {
+  if (tallyRating && tallyRating.total >= 2) {
+    const onTimeRatio = (tallyRating.total - tallyRating.late) / tallyRating.total;
+    if (onTimeRatio === 1) return { tier: 'Diamond', icon: '💎', color: '#2563eb' };
+    if (onTimeRatio >= 0.8) return { tier: 'Gold', icon: '🥇', color: '#d97706' };
+    if (onTimeRatio >= 0.5) return { tier: 'Silver', icon: '🥈', color: '#6b7280' };
+    return { tier: 'At Risk', icon: '⚠️', color: '#dc2626' };
+  }
   if (!total) return null;
   const badShare = ((buckets['90+'] || 0) + (buckets['60-90'] || 0)) / total;
   if (badShare === 0) return { tier: 'Diamond', icon: '💎', color: '#2563eb' };
@@ -3996,7 +4004,6 @@ async function getBillsReceivableAgingByDealer() {
     byParty[key].total += amt;
     byParty[key].count += 1;
   });
-  Object.values(byParty).forEach(agg => { agg.creditTier = computeCreditTier(agg.buckets, agg.total); });
   return byParty;
 }
 
