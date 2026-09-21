@@ -3467,6 +3467,21 @@ async function withDealerTables(fn) {
   }
 }
 
+// Tally dates come back as "DD-Mon-YY" / "DD-Mon-YYYY" (e.g. "29-Mar-16") —
+// convert to a real Date so it can be compared/subtracted properly.
+const TALLY_MONTHS = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+function parseTallyDate(str) {
+  const m = String(str || '').trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+  if (!m) return null;
+  const month = TALLY_MONTHS[m[2].toLowerCase()];
+  if (month === undefined) return null;
+  let year = parseInt(m[3], 10);
+  if (year < 100) year += year < 50 ? 2000 : 1900;
+  const d = new Date(year, month, parseInt(m[1], 10));
+  return isNaN(d.getTime()) ? null : d;
+}
+function toIsoDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+
 function computeDealerRating(payments) {
   if (!payments.length) return { stars: 0, label: null, total: 0, late: 0, avgLateDays: 0 };
   let late = 0, lateDaysSum = 0;
@@ -3485,13 +3500,14 @@ function computeDealerRating(payments) {
 
 app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
-    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty] = await Promise.all([
+    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty, tallyRatingByParty] = await Promise.all([
       getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
       withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
       withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
       getO2dOrders().catch(() => []), // dealer directory shouldn't 500 just because the orders sheet hiccups
       getBillsReceivableAgingByDealer().catch(() => ({})), // same — Tally sync sheet hiccup shouldn't break the whole page
-      getTallyPaymentsByDealer().catch(() => ({}))
+      getTallyPaymentsByDealer().catch(() => ({})),
+      getTallyPaymentPerformanceByDealer().catch(() => ({}))
     ]);
 
     const byKey = {}; // lowercased counter name -> merged dealer record
@@ -3549,7 +3565,13 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     });
 
     const dealers = Object.values(byKey).map(d => {
-      const rating = computeDealerRating(d.payments);
+      // Real Tally-derived on-time/late (bill-by-bill payments joined
+      // against BillRegistry due dates) wins when there's enough of it to
+      // mean something; otherwise falls back to manually logged payments.
+      const tallyKey = d.name.trim().toLowerCase();
+      const tallyRating = tallyRatingByParty[tallyKey];
+      const manualRating = computeDealerRating(d.payments);
+      const rating = (tallyRating && tallyRating.total > 0) ? { ...tallyRating, source: 'tally' } : { ...manualRating, source: 'manual' };
       const kycCount = Object.values(d.kyc).filter(Boolean).length;
       delete d.payments;
       return { ...d, kycCount, rating };
@@ -3990,10 +4012,7 @@ app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
 });
 
 // Payment history — from the same Tally sync's "Payments" tab (Receipt
-// vouchers). No due-date is available for already-settled bills (Bills
-// Receivable only tracks what's still outstanding), so this is shown as a
-// activity log rather than an on-time/late rating — that rating stays
-// driven by the manual "+ Log Payment" feature, which has both dates.
+// vouchers, bill-wise allocated).
 let _tallyPaymentsCache = null; // { byParty, ts }
 const TALLY_PAYMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
 async function getTallyPaymentsByDealer() {
@@ -4011,6 +4030,47 @@ async function getTallyPaymentsByDealer() {
     byParty[key].push({ paidDate: row[1] || '', billRef: row[2] || '', amount: Number(row[3]) || 0 });
   });
   _tallyPaymentsCache = { byParty, ts: Date.now() };
+  return byParty;
+}
+
+// Real on-time/late rating from Tally — joins each payment (Payments tab,
+// bill-by-bill now that billing is done that way) against the bill's due
+// date (BillRegistry tab, which keeps remembering it even after the bill
+// is paid off and drops out of Bills Receivable). Reuses
+// computeDealerRating() with the same {due_date, paid_date} shape the
+// manual Log Payment feature already produces.
+let _tallyRatingCache = null; // { byParty, ts }
+async function getTallyPaymentPerformanceByDealer() {
+  if (_tallyRatingCache && (Date.now() - _tallyRatingCache.ts) < TALLY_PAYMENTS_CACHE_TTL_MS) return _tallyRatingCache.byParty;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const [registryResp, paymentsResp] = await Promise.all([
+    sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'BillRegistry'!A2:D100000` }).catch(() => ({ data: { values: [] } })),
+    sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'Payments'!A2:E100000` }).catch(() => ({ data: { values: [] } }))
+  ]);
+  const dueDateByBill = new Map(); // "party|||billref" -> due date string
+  (registryResp.data.values || []).forEach(row => {
+    if (!row[0] || !row[1]) return;
+    dueDateByBill.set(`${row[0].trim().toLowerCase()}|||${row[1].trim()}`, row[3] || '');
+  });
+
+  const paymentsByParty = {};
+  (paymentsResp.data.values || []).forEach(row => {
+    const party = (row[0] || '').trim();
+    const billRef = (row[2] || '').trim();
+    if (!party || !billRef) return;
+    const dueDateStr = dueDateByBill.get(`${party.toLowerCase()}|||${billRef}`);
+    if (!dueDateStr) return; // this bill was never seen in Bills Receivable — can't tell if it was late
+    const due = parseTallyDate(dueDateStr);
+    const paid = parseTallyDate(row[1]);
+    if (!due || !paid) return;
+    const key = party.toLowerCase();
+    if (!paymentsByParty[key]) paymentsByParty[key] = [];
+    paymentsByParty[key].push({ due_date: toIsoDate(due), paid_date: toIsoDate(paid) });
+  });
+
+  const byParty = {};
+  Object.entries(paymentsByParty).forEach(([key, payments]) => { byParty[key] = computeDealerRating(payments); });
+  _tallyRatingCache = { byParty, ts: Date.now() };
   return byParty;
 }
 

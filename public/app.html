@@ -7314,7 +7314,7 @@ function dealerRowHtml(d) {
   const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '<span style="color:var(--gray-400)">—</span>';
   const creditStr = d.creditLimit !== null ? inr(d.creditLimit) : `<span style="color:var(--gray-400);font-size:11px">set nahi</span>`;
   const ratingHtml = d.rating.total > 0
-    ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span><div style="font-size:11px;color:var(--gray-500)">${d.rating.label} · ${d.rating.total} pmt, ${d.rating.late} late, avg ${d.rating.avgLateDays}d</div>`
+    ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span><div style="font-size:11px;color:var(--gray-500)">${d.rating.label} · ${d.rating.total} pmt, ${d.rating.late} late, avg ${d.rating.avgLateDays}d${d.rating.source==='tally' ? ' <span style="color:var(--color-primary)">(Tally)</span>' : ''}</div>`
     : `<span style="color:var(--gray-400);font-size:11px">No history</span>`;
   const lastOrderHtml = d.lastOrder
     ? `${fmtDate((d.lastOrder.timestamp || '').split(' ')[0])}<div style="font-size:11px;color:var(--gray-500)">${d.lastOrder.qty} pcs${d.lastOrder.amount ? ', ' + inr(d.lastOrder.amount) : ''}</div>`
@@ -7359,7 +7359,7 @@ function dealerCardHtml(d) {
   const available = hasBoth ? d.creditLimit - d.outstanding : null;
   const overLimit = available !== null && available < 0;
   const ratingHtml = d.rating.total > 0
-    ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span> ${d.rating.label} · ${d.rating.total} payment${d.rating.total===1?'':'s'}, ${d.rating.late} late · avg ${d.rating.avgLateDays} din`
+    ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span> ${d.rating.label} · ${d.rating.total} payment${d.rating.total===1?'':'s'}, ${d.rating.late} late · avg ${d.rating.avgLateDays} din${d.rating.source==='tally' ? ' <span style="color:var(--color-primary)">(Tally)</span>' : ''}`
     : `<span style="color:var(--gray-400)">No payment history yet</span>`;
   // Real payment activity from the Tally sync (tally-sync/) — shown as a
   // log, not a rating (a settled bill's due date isn't in what we sync,
