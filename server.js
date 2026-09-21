@@ -3930,6 +3930,18 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       requestBody: { values: rows }
     });
 
+    // Any product name typed that isn't already in the catalogue gets
+    // registered there too (no price yet — just the name/category slot),
+    // so the Price List page stays a running list of every product that's
+    // actually been ordered instead of only the workbook's original seed.
+    const newNames = [...new Set(products.map(p => (p.productName || '').trim()).filter(Boolean))];
+    if (newNames.length) {
+      const placeholders = newNames.map(() => '(?)').join(',');
+      await withPriceListTable(() => db.query(
+        `INSERT IGNORE INTO o2d_price_list (product_name) VALUES ${placeholders}`, newNames
+      )).catch(() => {}); // catalogue bookkeeping shouldn't fail the order itself
+    }
+
     res.json({ success: true, orderNo, orderIds: rows.map(r => r[17]) });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
@@ -4044,6 +4056,14 @@ app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
         requestBody: { values: rows }
       });
       orderIds = rows.map(r => r[17]);
+
+      const newNames = [...new Set(products.map(p => (p.productName || '').trim()).filter(Boolean))];
+      if (newNames.length) {
+        const placeholders = newNames.map(() => '(?)').join(',');
+        await withPriceListTable(() => db.query(
+          `INSERT IGNORE INTO o2d_price_list (product_name) VALUES ${placeholders}`, newNames
+        )).catch(() => {});
+      }
     }
 
     let rowsUpdated = 0;
