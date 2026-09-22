@@ -3512,14 +3512,15 @@ function computeDealerRating(payments) {
 
 app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
-    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty, tallyRatingByParty] = await Promise.all([
+    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty, tallyRatingByParty, ledgerBalancesByParty] = await Promise.all([
       getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
       withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
       withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
       getO2dOrders().catch(() => []), // dealer directory shouldn't 500 just because the orders sheet hiccups
       getBillsReceivableAgingByDealer().catch(() => ({})), // same — Tally sync sheet hiccup shouldn't break the whole page
       getTallyPaymentsByDealer().catch(() => ({})),
-      getTallyPaymentPerformanceByDealer().catch(() => ({}))
+      getTallyPaymentPerformanceByDealer().catch(() => ({})),
+      getLedgerBalancesByDealer().catch(() => ({}))
     ]);
 
     const byKey = {}; // lowercased counter name -> merged dealer record
@@ -3562,12 +3563,27 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     // Only attaches aging to dealers we already know about (via debtors/
     // dealer profile/orders) — doesn't create new dealer rows just because
     // Tally has a party by that name; most Tally parties aren't O2D dealers.
-    // Outstanding now prefers this (bill-wise, synced daily) over the older
-    // Group Summary debtors sheet, since it's the fresher/more granular source.
+    // Outstanding provisionally takes this (bill-wise, synced daily) over
+    // the older Group Summary debtors sheet — but only provisionally: a
+    // dealer whose invoices aren't tracked bill-by-bill in Tally has real
+    // dues that never appear here at all, so the real Ledger Closing
+    // Balance below (when available) overrides this with the true total.
+    // The bucket breakdown itself stays as-is either way — it can only ever
+    // reflect whatever portion was bill-tracked.
     Object.values(billsAgingByParty).forEach(agg => {
       const key = agg.name.trim().toLowerCase();
       const d = byKey[key];
       if (d) { d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count }; d.outstanding = agg.total; }
+    });
+
+    // Real ledger balance — the source of truth for Outstanding whenever
+    // Tally has it, since it reflects the party's actual running account
+    // regardless of bill-wise tracking. Wins over both the bill-wise total
+    // above and the legacy debtors-sheet fallback.
+    Object.values(ledgerBalancesByParty).forEach(lb => {
+      const key = lb.name.trim().toLowerCase();
+      const d = byKey[key];
+      if (d) d.outstanding = lb.closingBalance;
     });
 
     // Same matching rule — only for dealers we already know, most recent 5.
@@ -4016,6 +4032,32 @@ async function getBillsReceivableAgingByDealer() {
     byParty[key].total += amt;
     byParty[key].count += 1;
   });
+  return byParty;
+}
+
+// Ledger Closing Balance — the party's real running account balance,
+// straight from Tally, independent of whether entries were ever tracked
+// bill-by-bill. Bills Receivable only lists bills that WERE entered
+// bill-wise; a dealer with older "on account" invoices has real dues that
+// never show up there, which used to leave Outstanding silently stuck on
+// a stale manual number for exactly those dealers. This is the source of
+// truth for the total; Bills Receivable is still used for the aging-bucket
+// breakdown (best-effort, only covers whatever portion was bill-tracked).
+let _ledgerBalancesCache = null; // { byParty, ts }
+const LEDGER_BALANCES_CACHE_TTL_MS = 5 * 60 * 1000;
+async function getLedgerBalancesByDealer() {
+  if (_ledgerBalancesCache && (Date.now() - _ledgerBalancesCache.ts) < LEDGER_BALANCES_CACHE_TTL_MS) return _ledgerBalancesCache.byParty;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const r = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerBalances'!A2:C10000`
+  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const byParty = {}; // lowercased party name -> { name, closingBalance, syncedAt }
+  (r.data.values || []).forEach(row => {
+    const name = (row[0] || '').trim();
+    if (!name) return;
+    byParty[name.toLowerCase()] = { name, closingBalance: Number(row[1]) || 0, syncedAt: row[2] || '' };
+  });
+  _ledgerBalancesCache = { byParty, ts: Date.now() };
   return byParty;
 }
 
