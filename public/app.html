@@ -877,16 +877,11 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="card-head" style="flex-wrap:wrap;gap:10px">
           <div class="card-head-title">All Pending Tasks</div>
           <div style="display:flex;align-items:center;gap:10px">
-            <select id="dashFmsSelect" onchange="renderDashTable(window._lastDashTasks||[], dashType)" style="display:none;padding:6px 10px;border:1.5px solid var(--border-base);border-radius:8px;font-size:12px;font-family:'Inter',sans-serif;background:var(--surface);color:var(--gray-700);cursor:pointer">
-              <option value="all">All FMS</option>
-              <option value="fms">Service FMS</option>
-              <option value="o2d">O2D FMS</option>
-            </select>
             <div class="tab-group" id="dashTypeTabGroup">
               <div class="tab active" id="dashTabAll"   onclick="dashTab('all',this)">All</div>
               <div class="tab"        id="dashTabDel"   onclick="dashTab('delegation',this)">Delegation</div>
               <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
-              <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">FMS</div>
+              <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">O2D FMS</div>
             </div>
           </div>
         </div>
@@ -3017,38 +3012,10 @@ async function loadDashboard() {
   // Combine both types for the unified pending table
   const allTodayPending = [...(dDel.todayPending||[]), ...(dChl.todayPending||[])];
 
-  // Service FMS + O2D FMS — open items, mapped into the same row shape
-  const [sfms, o2d] = await Promise.all([
-    api('/api/service-fms').catch(() => null),
-    api('/api/o2d-fms').catch(() => null)
-  ]);
-  window._lastSfmsData = Array.isArray(sfms) ? sfms : [];
-  if (Array.isArray(sfms)) {
-    sfms.filter(c => !c.closed).forEach(c => {
-      const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
-      const assignStep = c.steps.find(s => s.n === 3);
-      const mechanic = (assignStep && assignStep.mechanic) ? assignStep.mechanic : '—';
-      const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
-      const isLate = daysPending >= 2;
-      const description = `
-        <div style="font-weight:700;color:var(--gray-800);font-size:13px">${c.productName}</div>
-        <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${c.problemDescription}</div>
-        ${fmsFieldRow('MOBILE NO', c.mobile)}
-        ${fmsFieldRow('MECHANIC', mechanic)}
-        ${fmsFieldRow('NEXT STEP', nextStep ? nextStep.label : '—')}
-        ${fmsFieldRow('PENDING', `${daysPending} day${daysPending === 1 ? '' : 's'}${isLate ? ' — Late' : ''}`, isLate ? 'color:var(--color-danger);font-weight:700' : '')}
-      `;
-      allTodayPending.push({
-        id: c.row, type: 'fms', status: 'pending',
-        title: c.complainNo,
-        description,
-        assignedToName: mechanic,
-        assignedByName: mechanic,
-        assignedToDept: '',
-        start_date: c.timestamp
-      });
-    });
-  }
+  // O2D FMS — open items, mapped into the same row shape. Service FMS is
+  // deliberately NOT pulled in here — its tasks only show on the Service
+  // FMS page itself, not on the shared Dashboard.
+  const o2d = await api('/api/o2d-fms').catch(() => null);
 
   window._lastO2dData = Array.isArray(o2d) ? o2d : [];
   allTodayPending.push(...buildO2dDashboardTasks());
@@ -3059,12 +3026,10 @@ async function loadDashboard() {
   document.getElementById('dPending').textContent = allTodayPending.length;
   if (dashChartInst) dashChartInst.destroy();
   // Completed previously only ever summed Delegation+Checklist (set early,
-  // before sfms/o2d even loaded) — Service FMS closed complaints and O2D
-  // closed orders never counted, even though their PENDING items already
-  // did above. Corrected here once sfms/o2d are actually in hand.
-  const sfmsCompleted = Array.isArray(sfms) ? sfms.filter(c => c.closed).length : 0;
+  // before o2d even loaded) — O2D closed orders never counted, even though
+  // its PENDING items already did above. Corrected here once o2d is in hand.
   const o2dCompleted = Array.isArray(o2d) ? o2d.filter(o => o.closed).length : 0;
-  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + sfmsCompleted + o2dCompleted;
+  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + o2dCompleted;
   document.getElementById('dCompleted').textContent = combinedCompleted;
   const combinedRevised   = dDel.revised||0;
   const chartLabels = ['Completed','Pending','Revised'];
@@ -3125,12 +3090,6 @@ function dashTab(type, el) {
   dashType = type;
   document.querySelectorAll('#dashTypeTabGroup .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
-  // FMS sub-select (Service FMS / O2D FMS) only makes sense on the FMS tab
-  const fmsSelect = document.getElementById('dashFmsSelect');
-  if (fmsSelect) {
-    fmsSelect.style.display = type === 'fms' ? 'block' : 'none';
-    if (type !== 'fms') fmsSelect.value = 'all';
-  }
   // Re-render table without full API reload
   if (window._lastDashTasks) {
     renderDashTable(window._lastDashTasks, dashType);
@@ -3155,13 +3114,12 @@ function renderDashTable(tasks, type) {
   const isPC    = ME.role==='pc';
   document.getElementById('dashDoerHead').textContent = (isAdmin||isPC)?'Doer':'Assigned By';
   const tbody = document.getElementById('dashTbody');
-  // Filter by selected tab: all / delegation / checklist; include pending + revised
-  // "FMS" tab shows Service FMS + O2D FMS together by default; the
-  // dashFmsSelect dropdown (only visible on this tab) narrows to just one.
-  const fmsSelectVal = document.getElementById('dashFmsSelect')?.value || 'all';
+  // Filter by selected tab: all / delegation / checklist / O2D FMS ('fms' tab
+  // key kept as-is for compatibility, but only ever matches O2D FMS tasks now
+  // — Service FMS doesn't feed the Dashboard at all, see loadDashboard()).
   let allPending = tasks.filter(t => {
     const matchType = (!type || type === 'all') ? true
-      : type === 'fms' ? (fmsSelectVal === 'all' ? (t.type === 'fms' || t.type === 'o2d') : t.type === fmsSelectVal)
+      : type === 'fms' ? t.type === 'o2d'
       : t.type === type;
     return matchType && (t.status === 'pending' || t.status === 'revised' || !t.status);
   });
