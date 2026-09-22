@@ -3233,8 +3233,14 @@ async function getO2dOrders() {
         counterType: get('B') || '',
         counterName: get('C') || '',
         area: get('D') || '',
+        dateToSend: get('E') ? sfmsSerialToDate(get('E')).split(' ')[0] : '',
+        whenToSend: get('F') || '',
+        channel: get('G') || '',
+        deliverByTransport: get('H') || '',
+        makePerformaInvoice: get('I') || '',
         orderBy: get('J') || '',
         paymentTerms: get('K') || '',
+        remark: get('L') || '',
         productName: get('M') || '',
         rate: get('N') || '',
         qty: get('O') || '',
@@ -3285,8 +3291,14 @@ async function getO2dOrders() {
         counterType: first.counterType,
         counterName: first.counterName,
         area: first.area,
+        dateToSend: first.dateToSend,
+        whenToSend: first.whenToSend,
+        channel: first.channel,
+        deliverByTransport: first.deliverByTransport,
+        makePerformaInvoice: first.makePerformaInvoice,
         orderBy: first.orderBy,
         paymentTerms: first.paymentTerms,
+        remark: first.remark,
         billNo: first.billNo,
         // Bill Amount is an order-level value the Accountant enters once (see
         // writeO2dStepForOrder) but gets written identically onto every
@@ -4127,7 +4139,7 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
     await sheetsApi.spreadsheets.values.append({
       spreadsheetId: O2D_SHEET_ID,
       range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
-      valueInputOption: 'USER_ENTERED',
+      valueInputOption: 'RAW',
       insertDataOption: 'OVERWRITE',
       requestBody: { values: rows }
     });
@@ -4188,7 +4200,7 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
 
   await sheetsApi.spreadsheets.values.batchUpdate({
     spreadsheetId: O2D_SHEET_ID,
-    requestBody: { valueInputOption: 'USER_ENTERED', data: batchData }
+    requestBody: { valueInputOption: 'RAW', data: batchData }
   });
   return { rowsUpdated: targetRows.length, counterName };
 }
@@ -4241,7 +4253,7 @@ app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
       await sheetsApi.spreadsheets.values.append({
         spreadsheetId: O2D_SHEET_ID,
         range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
-        valueInputOption: 'USER_ENTERED',
+        valueInputOption: 'RAW',
         insertDataOption: 'OVERWRITE',
         requestBody: { values: rows }
       });

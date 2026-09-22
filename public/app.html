@@ -2900,10 +2900,17 @@ function buildO2dDashboardTasks() {
       ? ` <span style="font-size:10px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🔄 Reorder — new item added</span>`
       : '';
     const productsText = (o.products || []).map(p => `${p.productName}${p.qty ? ' × ' + p.qty : ''}`).join(', ');
+    // Whatever was filled in at New Order time (channel, transport, when
+    // to send, remark) needs to stay visible everywhere the order shows
+    // up, not just on the O2D FMS detail modal — this is the compact
+    // Dashboard-card version of the same info.
+    const extraBitsText = [o.channel, o.whenToSend, o.deliverByTransport === 'Yes' ? 'By Transport' : ''].filter(Boolean).join(' · ');
     const description = `
       <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${pendingStep.label}${reorderBadge}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.counterName || '—'}</div>
       <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
+      ${extraBitsText ? `<div style="font-size:11.5px;color:var(--gray-500)">${extraBitsText}</div>` : ''}
+      ${o.remark ? `<div style="font-size:11.5px;color:var(--gray-500);font-style:italic">"${o.remark}"</div>` : ''}
       ${fmsFieldRow('PLANNED', `${pendingStep.planned || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
     `;
     tasks.push({
@@ -8523,7 +8530,32 @@ function renderO2dDetailBody(o, hideProgress) {
           <div style="${O2D_FIELD_LABEL_STYLE}">Counter Type</div>
           <div style="font-size:14px;color:var(--gray-800)">${o.counterType || '—'}</div>
         </div>
+        <div>
+          <div style="${O2D_FIELD_LABEL_STYLE}">Channel (Freight / Rent)</div>
+          <div style="font-size:14px;color:var(--gray-800)">${o.channel || '—'}</div>
+        </div>
+        <div>
+          <div style="${O2D_FIELD_LABEL_STYLE}">Deliver by Transport?</div>
+          <div style="font-size:14px;color:var(--gray-800)">${o.deliverByTransport || '—'}</div>
+        </div>
+        <div>
+          <div style="${O2D_FIELD_LABEL_STYLE}">Make Performa Invoice?</div>
+          <div style="font-size:14px;color:var(--gray-800)">${o.makePerformaInvoice || '—'}</div>
+        </div>
+        <div>
+          <div style="${O2D_FIELD_LABEL_STYLE}">When to Send</div>
+          <div style="font-size:14px;color:var(--gray-800)">${o.whenToSend || '—'}</div>
+        </div>
+        <div>
+          <div style="${O2D_FIELD_LABEL_STYLE}">Date to Send</div>
+          <div style="font-size:14px;color:var(--gray-800)">${o.dateToSend ? fmtDate(o.dateToSend) : '—'}</div>
+        </div>
       </div>
+      ${o.remark ? `
+      <div style="margin-top:14px">
+        <div style="${O2D_FIELD_LABEL_STYLE}">Remark</div>
+        <div style="font-size:14px;color:var(--gray-800)">${o.remark}</div>
+      </div>` : ''}
     </div>`;
 
   // A step is only "done" for the order once every product line under it
