@@ -7581,14 +7581,27 @@ async function openDealerLedgerModal(name) {
     return;
   }
 
-  const rowsHtml = r.entries.map(e => {
+  const rowsHtml = r.entries.map((e, i) => {
     if (e.type === 'bill') {
       const lateColor = e.bucket === '90+' ? 'var(--color-danger-text)' : 'var(--gray-800)';
-      return `<tr>
+      const hasItems = e.items && e.items.length;
+      const itemsRowsHtml = hasItems
+        ? e.items.map(it => `<tr>
+            <td style="padding:5px 8px 5px 24px;font-size:12px;color:var(--gray-700)">${it.itemName}</td>
+            <td style="padding:5px 8px;font-size:12px;color:var(--gray-500);white-space:nowrap">${it.qty || '—'}${it.rate ? ' @ ' + it.rate : ''}</td>
+            <td style="padding:5px 8px;font-size:12px;font-weight:700;text-align:right;color:var(--gray-700)">${it.amount ? inr(it.amount) : '—'}</td>
+          </tr>`).join('')
+        : `<tr><td colspan="3" style="padding:6px 8px 6px 24px;font-size:11.5px;color:var(--gray-400)">Item details is bill ke liye sync nahi hue.</td></tr>`;
+      return `<tr onclick="toggleDlItems(${i})" style="cursor:pointer">
         <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap">${e.date || '—'}</td>
         <td style="padding:7px 8px"><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--color-danger-bg);color:var(--color-danger-text)">BILL</span></td>
         <td style="padding:7px 8px;font-size:12.5px">${e.ref || '—'}${e.dueDate ? `<div style="font-size:10.5px;color:var(--gray-500)">Due ${e.dueDate}</div>` : ''}</td>
-        <td style="padding:7px 8px;font-size:12.5px;font-weight:700;text-align:right;color:${lateColor}">${inr(e.amount)}</td>
+        <td style="padding:7px 8px;font-size:12.5px;font-weight:700;text-align:right;color:${lateColor}">${inr(e.amount)} <span id="dlChevron_${i}" style="display:inline-block;color:var(--gray-400);transition:transform .15s">▸</span></td>
+      </tr>
+      <tr id="dlItems_${i}" style="display:none;background:var(--gray-50)">
+        <td colspan="4" style="padding:2px 0">
+          <table style="width:100%;border-collapse:collapse">${itemsRowsHtml}</table>
+        </td>
       </tr>`;
     }
     return `<tr>
@@ -7608,7 +7621,17 @@ async function openDealerLedgerModal(name) {
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>
-    ${r.syncedAt ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:10px">Last synced: ${new Date(r.syncedAt).toLocaleString('en-IN')}</div>` : ''}`;
+    <div style="font-size:10.5px;color:var(--gray-400);margin-top:6px">Kisi BILL row par click karo uske items dekhne ke liye.</div>
+    ${r.syncedAt ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:4px">Last synced: ${new Date(r.syncedAt).toLocaleString('en-IN')}</div>` : ''}`;
+}
+
+function toggleDlItems(i) {
+  const row = document.getElementById(`dlItems_${i}`);
+  const chevron = document.getElementById(`dlChevron_${i}`);
+  if (!row) return;
+  const open = row.style.display !== 'none';
+  row.style.display = open ? 'none' : 'table-row';
+  if (chevron) chevron.style.transform = open ? '' : 'rotate(90deg)';
 }
 
 // ══════════════════════════════════════════════════════
