@@ -3735,6 +3735,27 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       if (d) d.outstanding = lb.closingBalance;
     });
 
+    // Bill-by-bill tracking only started recently (confirmed by the client)
+    // — a lot of older bills were settled through payments that were never
+    // matched back to their specific bill in Tally, so those bills never
+    // left "Bills Receivable" and still carry years-old overdue counts
+    // (some 8+ years). Real-world check on a full sync: 448 of 1069 synced
+    // bills were over 1000 days overdue. When a dealer's bill-wise total
+    // meaningfully exceeds their real Ledger Closing Balance, the aging
+    // buckets are built from some of those stale/already-settled bills and
+    // can't be trusted — better to hide them than show confidently wrong
+    // overdue amounts. Total Dues stays correct either way (it's from the
+    // ledger balance above, not this bucket total).
+    Object.values(byKey).forEach(d => {
+      if (!d.aging || !d.aging.total) return;
+      const ledger = ledgerBalancesByParty[d.name.trim().toLowerCase()];
+      if (!ledger) return; // no real balance to check against — leave aging as-is
+      const overstated = d.aging.total - ledger.closingBalance;
+      if (overstated > 1000 && d.aging.total > ledger.closingBalance * 1.5) {
+        d.aging = null;
+      }
+    });
+
     // Same matching rule — only for dealers we already know, most recent 5.
     Object.entries(tallyPaymentsByParty).forEach(([key, list]) => {
       const d = byKey[key];
