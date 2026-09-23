@@ -817,20 +817,38 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
 // ══════════════════════════════════════════════════════
 app.post('/api/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, name } = req.body;
 
     let [rows] = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
-    let user = rows[0];
 
-    // User not found in memory — resync from Sheet and retry
-    if (!user) {
+    // No user found in memory — resync from Sheet and retry
+    if (!rows.length) {
       try { await db.resync(); } catch(_) {}
       const [rows2] = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
-      user = rows2[0];
+      rows = rows2;
     }
 
-    const check = user ? checkPassword(password, user.password) : { ok: false };
-    if (!check.ok) return res.status(401).json({ error: 'Invalid email or password' });
+    // Multiple accounts can share one email address (see reminder-email grouping).
+    // Narrow to the accounts whose password actually matches before deciding.
+    let matches = rows.filter(r => checkPassword(password, r.password).ok);
+
+    if (!matches.length) return res.status(401).json({ error: 'Invalid email or password' });
+
+    if (matches.length > 1) {
+      if (name && name.trim()) {
+        const byName = matches.filter(r => r.name && r.name.trim().toLowerCase() === name.trim().toLowerCase());
+        if (byName.length === 1) {
+          matches = byName;
+        } else {
+          return res.json({ needsName: true, error: 'Could not find that name on this account. Please check the spelling and try again.' });
+        }
+      } else {
+        return res.json({ needsName: true, error: 'This email is shared by multiple accounts. Please enter your full name to continue.' });
+      }
+    }
+
+    const user = matches[0];
+    const check = checkPassword(password, user.password);
 
     // Legacy bcrypt hash → migrate to plain text (admin can now see in sheet)
     if (check.legacy) {
@@ -4073,6 +4091,33 @@ async function getLedgerBalancesByDealer() {
   return byParty;
 }
 
+// Item-wise breakup of each Sales invoice — synced alongside Payments (same
+// Day Book response, just the Sales vouchers instead of Receipts). Keyed by
+// party+billRef so the Statement modal can show what's actually in a bill
+// when it's clicked. Bill Ref here is the Sales voucher's own number, which
+// is what Bills Receivable's Bill Ref defaults to unless a bill was given a
+// separate manual reference — most won't be, but a bill with no matching
+// items just means that one wasn't found under this assumption.
+let _salesItemsCache = null; // { byKey, ts }
+const SALES_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000;
+async function getSalesItemsByBillKey() {
+  if (_salesItemsCache && (Date.now() - _salesItemsCache.ts) < SALES_ITEMS_CACHE_TTL_MS) return _salesItemsCache.byKey;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const r = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'SalesItems'!A2:H100000`
+  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const byKey = {}; // "party|||billref" (lowercased party) -> [{itemName, qty, rate, amount}]
+  (r.data.values || []).forEach(row => {
+    const party = (row[0] || '').trim(), billRef = (row[1] || '').trim();
+    if (!party || !billRef) return;
+    const key = `${party.toLowerCase()}|||${billRef}`;
+    if (!byKey[key]) byKey[key] = [];
+    byKey[key].push({ itemName: row[3] || '', qty: row[4] || '', rate: row[5] || '', amount: Number(row[6]) || 0 });
+  });
+  _salesItemsCache = { byKey, ts: Date.now() };
+  return byKey;
+}
+
 app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to this page' });
@@ -4117,17 +4162,18 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
     const name = (req.query.name || '').trim();
     if (!name) return res.status(400).json({ error: 'name is required' });
     const key = name.toLowerCase();
-    const [{ bills }, paymentsByParty, ledgerByParty] = await Promise.all([
+    const [{ bills }, paymentsByParty, ledgerByParty, itemsByKey] = await Promise.all([
       getBillsReceivable(),
       getTallyPaymentsByDealer(),
-      getLedgerBalancesByDealer()
+      getLedgerBalancesByDealer(),
+      getSalesItemsByBillKey()
     ]);
     const dealerBills = bills.filter(b => b.party.trim().toLowerCase() === key);
     const payments = paymentsByParty[key] || [];
     const ledger = ledgerByParty[key] || null;
 
     const entries = [
-      ...dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, dueDate: b.dueDate, daysOverdue: b.daysOverdue, bucket: b.bucket })),
+      ...dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, dueDate: b.dueDate, daysOverdue: b.daysOverdue, bucket: b.bucket, items: itemsByKey[`${key}|||${b.billRef}`] || null })),
       ...payments.map(p => ({ type: 'payment', date: p.paidDate, ref: p.billRef, amount: p.amount }))
     ];
     entries.sort((a, b) => {
