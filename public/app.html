@@ -402,6 +402,20 @@ tbody tr:last-child td{border-bottom:none;}
 .action-btn.edit{background:var(--color-primary-light);color:var(--color-primary);}.action-btn.edit:hover{background:var(--color-primary-ring);}
 .action-btn.delete{background:var(--color-danger-bg);color:var(--color-danger-text);}.action-btn.delete:hover{background:var(--color-danger-border);}
 
+.action-icons{display:inline-flex;align-items:center;gap:2px;}
+.icon-btn{width:29px;height:29px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--gray-400);cursor:pointer;transition:all .15s;flex:none;}
+.icon-btn svg{width:14px;height:14px;display:block;}
+.icon-btn:hover{background:var(--gray-100);color:var(--gray-700);}
+.icon-btn.ib-edit:hover{background:var(--color-primary-light);color:var(--color-primary);}
+.icon-btn.ib-signout:hover{background:var(--color-info-bg);color:var(--color-info-text);}
+.icon-btn.ib-warn:hover{background:var(--color-warning-bg);color:var(--color-warning-text);}
+.icon-btn.ib-success:hover{background:var(--color-success-bg);color:var(--color-success-text);}
+.icon-btn.ib-delete:hover{background:var(--color-danger-bg);color:var(--color-danger-text);}
+
+.btn-outline-danger{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;background:transparent;border:1.5px solid var(--color-danger-border);color:var(--color-danger-text);transition:all .15s;}
+.btn-outline-danger:hover{background:var(--color-danger-bg);border-color:var(--color-danger);}
+.btn-outline-danger svg{width:14px;height:14px;display:block;}
+
 .role-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;}
 .role-badge.admin{background:var(--color-primary-light);color:var(--color-primary);}
 .role-badge.pc{background:var(--color-purple-bg);color:var(--color-purple);}
@@ -993,8 +1007,11 @@ tbody tr:last-child td{border-bottom:none;}
               style="padding:8px 12px 8px 32px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:260px;background:var(--surface-alt);color:var(--gray-900)"/>
           </div>
           <button class="btn btn-primary" onclick="openAddUser()">+ Add User</button>
-          <button class="btn" style="background:var(--color-danger-bg);color:var(--color-danger-text);border:1px solid var(--color-danger-border)" onclick="signOutAllUsers()">🔒 Sign Out All</button>
         </div>
+        <button class="btn-outline-danger" onclick="signOutAllUsers()" title="Force sign out every user">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+          Sign Out All
+        </button>
       </div>
       <div class="users-grid">
         <div style="overflow-x:auto">
@@ -4234,8 +4251,8 @@ function renderUsersTable(users) {
       ? `<span style="background:var(--color-success-bg);color:var(--color-success-text);font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px">Active</span>`
       : `<span style="background:var(--color-danger-bg);color:var(--color-danger);font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px">Inactive</span>`;
     const toggleBtn = isActive
-      ? `<button class="action-btn" style="margin-left:6px;background:var(--color-warning-bg);color:var(--color-warning-text);border:1px solid var(--color-warning-border)" onclick="openDeactivate(${u.id})">Deactivate</button>`
-      : `<button class="action-btn" style="margin-left:6px;background:var(--color-success-bg);color:var(--color-success-text);border:1px solid var(--color-success-border)" onclick="activateUser(${u.id})">Activate</button>`;
+      ? `<button class="icon-btn ib-warn" title="Deactivate" onclick="openDeactivate(${u.id})"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg></button>`
+      : `<button class="icon-btn ib-success" title="Activate" onclick="activateUser(${u.id})"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>`;
     return `<tr style="${isActive?'':'opacity:.6;background:var(--gray-50)'}">
       <td style="font-weight:600">${u.name}</td>
       <td style="color:var(--gray-500)">${u.email}</td>
@@ -4244,10 +4261,12 @@ function renderUsersTable(users) {
       <td><span class="role-badge ${u.role}">${roleLabel(u.role)}</span></td>
       <td>${statusBadge}</td>
       <td style="white-space:nowrap">
-        <button class="action-btn edit" onclick="openEditUser(${u.id})">Edit</button>
-        ${toggleBtn}
-        <button class="action-btn" style="margin-left:6px;background:var(--color-info-bg);color:var(--color-info-text);border:1px solid var(--color-info-border)" onclick="signOutUser(${u.id})">Sign Out</button>
-        <button class="action-btn delete" style="margin-left:6px" onclick="deleteUser(${u.id})">Delete</button>
+        <div class="action-icons">
+          <button class="icon-btn ib-edit" title="Edit" onclick="openEditUser(${u.id})"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></button>
+          <button class="icon-btn ib-signout" title="Sign Out" onclick="signOutUser(${u.id})"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button>
+          ${toggleBtn}
+          <button class="icon-btn ib-delete" title="Delete" onclick="deleteUser(${u.id})"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+        </div>
       </td>
     </tr>`;
   }).join('');

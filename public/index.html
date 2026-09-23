@@ -76,14 +76,26 @@
   @keyframes pulseDot{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.5);}50%{box-shadow:0 0 0 5px rgba(34,197,94,0);}}
   @keyframes logoBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
   @keyframes blink{0%,92%,100%{transform:scaleY(1);}96%{transform:scaleY(.08);}}
-  @keyframes drawLine{0%{stroke-dashoffset:100;opacity:1;}65%{stroke-dashoffset:0;opacity:1;}92%{stroke-dashoffset:0;opacity:1;}100%{stroke-dashoffset:0;opacity:.35;}}
-  @keyframes dotPopIn{0%{opacity:0;transform:scale(0);}100%{opacity:1;transform:scale(1);}}
+  /* Line draws in (0-45%), holds fully visible (45-80%), then the whole line fades
+     out together (80-92%) rather than "unwinding" — simpler than an exact-position
+     retreat and guaranteed to stay visually connected with the dots below, since
+     both fade in the same window. Opacity and dashoffset both bottom out by 100%,
+     matching 0%'s start state, so the infinite loop has no visible snap at the seam. */
+  @keyframes drawLine{0%{stroke-dashoffset:100;opacity:1;}45%{stroke-dashoffset:0;opacity:1;}80%{stroke-dashoffset:0;opacity:1;}92%{stroke-dashoffset:0;opacity:0;}100%{stroke-dashoffset:0;opacity:0;}}
+  /* Each dot pops in as the draw sweeps past its position, then all fade out
+     together with the line at 80-92% — kept on the chart's own 3.6s infinite
+     timeline so they never drift out of sync with it. */
+  @keyframes dotShow1{0%,6%{opacity:0;transform:scale(.4);}9%{opacity:1;transform:scale(1.3);}13%{opacity:1;transform:scale(1);}80%{opacity:1;transform:scale(1);}92%{opacity:0;transform:scale(.6);}100%{opacity:0;}}
+  @keyframes dotShow2{0%,14%{opacity:0;transform:scale(.4);}17%{opacity:1;transform:scale(1.3);}21%{opacity:1;transform:scale(1);}80%{opacity:1;transform:scale(1);}92%{opacity:0;transform:scale(.6);}100%{opacity:0;}}
+  @keyframes dotShow3{0%,23%{opacity:0;transform:scale(.4);}26%{opacity:1;transform:scale(1.3);}30%{opacity:1;transform:scale(1);}80%{opacity:1;transform:scale(1);}92%{opacity:0;transform:scale(.6);}100%{opacity:0;}}
+  @keyframes dotShow4{0%,31%{opacity:0;transform:scale(.4);}35%{opacity:1;transform:scale(1.3);}39%{opacity:1;transform:scale(1);}80%{opacity:1;transform:scale(1);}92%{opacity:0;transform:scale(.6);}100%{opacity:0;}}
+  @keyframes dotShow5{0%,41%{opacity:0;transform:scale(.4);}45%{opacity:1;transform:scale(1.3);}49%{opacity:1;transform:scale(1);}80%{opacity:1;transform:scale(1);}92%{opacity:0;transform:scale(.6);}100%{opacity:0;}}
   @keyframes barPulse{0%,100%{transform:scaleY(.4);}50%{transform:scaleY(1);}}
   @keyframes chipCycle{0%{opacity:0;transform:translateY(6px);}8%{opacity:1;transform:translateY(0);}30%{opacity:1;transform:translateY(0);}38%{opacity:0;transform:translateY(-6px);}100%{opacity:0;}}
   @keyframes conveyorMove{to{background-position-x:-24px;}}
   @keyframes rideAcross{0%{left:-8%;}100%{left:104%;}}
   @keyframes stampIn{0%,55%{opacity:0;transform:scale(.4) rotate(-15deg);}68%{opacity:1;transform:scale(1.15) rotate(0deg);}80%{transform:scale(1) rotate(0deg);}100%{opacity:1;transform:scale(1) rotate(0deg);}}
-  @keyframes steamRise{0%{opacity:0;transform:translateY(0) scaleX(1);}30%{opacity:.65;}100%{opacity:0;transform:translateY(-11px) scaleX(1.3);}}
+  @keyframes steamRise{0%{opacity:0;transform:translate(0,0) scaleY(.6);}25%{opacity:.75;}60%{opacity:.55;transform:translate(2px,-9px) scaleY(1.1);}100%{opacity:0;transform:translate(-1px,-17px) scaleY(1.3);}}
   @keyframes quipCycle{0%{opacity:0;transform:translateY(4px);}4%{opacity:1;transform:translateY(0);}22%{opacity:1;transform:translateY(0);}28%{opacity:0;transform:translateY(-4px);}100%{opacity:0;}}
   @keyframes blob1{0%,100%{transform:translate(0,0) scale(1);}50%{transform:translate(40px,30px) scale(1.08);}}
   @keyframes blob2{0%,100%{transform:translate(0,0) scale(1);}50%{transform:translate(-35px,-30px) scale(1.1);}}
@@ -161,11 +173,13 @@
   .scene-title-bar{height:7px;width:58%;border-radius:4px;margin-bottom:11px;background:linear-gradient(90deg,rgba(255,255,255,.09),rgba(255,255,255,.28),rgba(255,255,255,.09));background-size:200% 100%;animation:shimmer 2.3s linear infinite;}
   .scene-chart{display:block;width:100%;height:46px;margin-bottom:8px;}
   .scene-chart path{stroke-dasharray:100;stroke-dashoffset:100;animation:drawLine 3.6s ease-in-out infinite;}
-  .scene-chart circle{opacity:0;animation:dotPopIn .3s ease forwards;}
-  .scene-chart circle:nth-child(2){animation-delay:1.1s;}
-  .scene-chart circle:nth-child(3){animation-delay:1.7s;}
-  .scene-chart circle:nth-child(4){animation-delay:2.3s;}
-  .scene-chart circle:nth-child(5){animation-delay:2.9s;}
+  /* nth-child counts the <defs> sibling too — the 5 circles are children 3-7, not 1-5 */
+  .scene-chart circle{opacity:0;transform-box:fill-box;transform-origin:center;animation-duration:3.6s;animation-timing-function:ease;animation-iteration-count:infinite;}
+  .scene-chart circle:nth-child(3){animation-name:dotShow1;}
+  .scene-chart circle:nth-child(4){animation-name:dotShow2;}
+  .scene-chart circle:nth-child(5){animation-name:dotShow3;}
+  .scene-chart circle:nth-child(6){animation-name:dotShow4;}
+  .scene-chart circle:nth-child(7){animation-name:dotShow5;}
   .scene-bars{display:flex;align-items:flex-end;gap:5px;height:26px;}
   .scene-bars span{flex:1;border-radius:2px;background:linear-gradient(180deg,#fbbf24,#f43f5e);transform-origin:bottom;animation:barPulse 2.4s ease-in-out infinite;}
   .scene-bars span:nth-child(1){animation-delay:0s;}
@@ -191,8 +205,8 @@
   .rider.r2{animation-delay:2s;}
   .rider.r2 .stamp{animation-delay:2s;}
   .rider.r3{animation-delay:4s;}
-  .rider.mug .steam{position:absolute;top:-6px;left:3px;font-size:8px;opacity:0;animation:steamRise 1.6s ease-in-out infinite;}
-  .rider.mug .steam.s2{left:8px;animation-delay:.5s;}
+  .rider.mug .steam{position:absolute;top:-9px;left:4px;width:3px;height:9px;border-radius:3px;background:rgba(255,255,255,.6);opacity:0;animation:steamRise 1.8s ease-in-out infinite;}
+  .rider.mug .steam.s2{left:9px;height:7px;animation-delay:.6s;}
 
   .quip-strip{position:relative;height:17px;font-size:12px;color:#a8b7cc;font-style:italic;animation-delay:.29s;}
   .quip{position:absolute;left:0;top:0;right:0;opacity:0;animation:quipCycle 14s ease infinite;}
@@ -377,7 +391,7 @@
         <div class="conveyor-line"></div>
         <span class="rider r1">📦<span class="stamp">✅</span></span>
         <span class="rider r2">📦<span class="stamp">✅</span></span>
-        <span class="rider r3 mug">☕<span class="steam">﹏</span><span class="steam s2">﹏</span></span>
+        <span class="rider r3 mug">☕<span class="steam"></span><span class="steam s2"></span></span>
       </div>
 
       <div class="quip-strip fade-up" aria-hidden="true">

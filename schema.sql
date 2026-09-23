@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS users (
   week_off VARCHAR(50),
   extra_off VARCHAR(50),
   is_active TINYINT DEFAULT 1,
-  page_access TEXT DEFAULT NULL
+  page_access TEXT DEFAULT NULL,
+  force_logout_at DATETIME DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS delegation_tasks (
