@@ -116,6 +116,9 @@ const _dbReady = db.init()
     if (_usingMysql) {
       try { await db.query('ALTER TABLE users ADD COLUMN page_access TEXT DEFAULT NULL'); }
       catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ page_access migration skipped:', e.message); }
+      // Migration: add force_logout_at column (admin-triggered remote sign-out)
+      try { await db.query('ALTER TABLE users ADD COLUMN force_logout_at DATETIME DEFAULT NULL'); }
+      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ force_logout_at migration skipped:', e.message); }
     }
   })
   .catch(err => {
@@ -385,12 +388,21 @@ setTimeout(() => {
 // ══════════════════════════════════════════════════════
 // MIDDLEWARE
 // ══════════════════════════════════════════════════════
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = req.cookies?.token || req.headers['authorization']?.replace('Bearer ','');
   if (!token) return res.status(401).json({ error: 'Not authenticated' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.session = { userId: decoded.userId, role: decoded.role, name: decoded.name };
+    // Admin-triggered remote sign-out: any token issued before the user's
+    // force_logout_at gets rejected, even though its own JWT signature is still valid.
+    try {
+      const [rows] = await db.query('SELECT force_logout_at FROM users WHERE id=?', [decoded.userId]);
+      const flAt = rows[0]?.force_logout_at;
+      if (flAt && decoded.iat && new Date(flAt).getTime() > decoded.iat * 1000) {
+        return res.status(401).json({ error: 'You were signed out remotely. Please sign in again.' });
+      }
+    } catch(e) {} // column not migrated yet / sheets-db — fail open rather than lock everyone out
     next();
   } catch(e) { res.status(401).json({ error: 'Invalid token' }); }
 }
@@ -2093,6 +2105,26 @@ app.put('/api/users/:id/activate', requireAuth, requireAdmin, async (req, res) =
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Force sign-out — invalidates this one user's current session(s) immediately,
+// without deactivating the account. They just get bounced to login on their next request.
+app.put('/api/users/:id/signout', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await db.query('UPDATE users SET force_logout_at=NOW() WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Force sign-out every user at once (including the admin issuing this)
+app.post('/api/users/signout-all', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT id FROM users');
+    for (const u of rows) {
+      await db.query('UPDATE users SET force_logout_at=NOW() WHERE id=?', [u.id]);
+    }
+    res.json({ success: true, count: rows.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // One-time migration: set is_active=1 for all users where it is null/empty
 app.post('/api/users/fix-active', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -2519,15 +2551,18 @@ const SFMS_ITEMS_TAB = 'Items';
 const SFMS_MECHANICS_TAB = 'Mechanics';
 const SFMS_AREA_TAB = 'Area';
 const SFMS_ZONE_TAB = 'Zone';
-// Reusing two of the confirmed-unused columns noted above (BC = old "Final
-// Status", BF = unused half of the old two-stage step 6) instead of appending
-// new columns, so the sheet's existing column layout/formulas aren't disturbed.
-// NOTE: verify these two are still blank/unused against the live sheet's row-6
-// header before relying on this in production — this file's own convention
-// (see the 2026-07-20 note above) is to check headers directly rather than
-// assume, and this was written without live access to confirm.
+// Reusing confirmed-unused columns (verified directly against the live
+// sheet's row-6 header: BC/BD/BF/BG/BH all read literally "(Unused)")
+// instead of appending new ones, so the sheet's existing column layout/
+// formulas aren't disturbed.
 const SFMS_ZONE_COL = 'BC';
+const SFMS_OWNERSHIP_COL = 'BD';
 const SFMS_WARRANTY_CHARGES_AGREED_COL = 'BF';
+// Point 2/3/8 of the complaint form corrections — whether the product is the
+// dealer's own stock or something a customer already purchased. Drives
+// whether Bill Upload is shown/required on the create form, and is shown
+// plainly on the Spare Check (step 2) tab per point 8.
+const SFMS_OWNERSHIP_VALUES = ['Dealer Stock Piece', 'Customer Purchased Piece'];
 
 // NOTE: 2026-07-20 — reordered so the OTP/location-confirmation step now comes
 // right after the mechanic is assigned (step 5), and the field spare in/out
@@ -2670,6 +2705,7 @@ async function sfmsFetchComplaints() {
         address: get('M') || '',
         area: get('N') || '',
         zone: get(SFMS_ZONE_COL) || '',
+        productOwnership: get(SFMS_OWNERSHIP_COL) || '',
         warrantyChargesAgreed: get(SFMS_WARRANTY_CHARGES_AGREED_COL) || ''
       };
       c.steps = SFMS_STEPS.map(sd => {
@@ -2721,10 +2757,19 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
   try {
     const {
       filledByName, mobile, customerType, dealerName,
-      productLocation, address, area, billPhoto, products
+      productLocation, address, area, productOwnership, billPhoto, products
     } = req.body;
     if (!filledByName || !mobile) {
       return res.status(400).json({ error: 'Name and mobile are required' });
+    }
+    if (!SFMS_OWNERSHIP_VALUES.includes(productOwnership)) {
+      return res.status(400).json({ error: 'Select whether this is a Dealer Stock Piece or a Customer Purchased Piece' });
+    }
+    // Bill upload is only relevant (and required) for a customer's own
+    // purchased piece — a dealer's stock piece was never billed to a
+    // customer, so there's no bill to attach.
+    if (productOwnership === 'Customer Purchased Piece' && !billPhoto) {
+      return res.status(400).json({ error: 'Bill photo is required for a Customer Purchased Piece' });
     }
     if (!Array.isArray(products) || products.length === 0) {
       return res.status(400).json({ error: 'At least one product is required' });
@@ -2799,7 +2844,8 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
         { range: `'${SFMS_TAB}'!AC${r}`, values: [[`=if(X${r},workday.intl(int(X${r}),0,"0000001",Holidays!A:A)+"18:00","")`]] },
         { range: `'${SFMS_TAB}'!AH${r}`, values: [[`=if(AD${r},workday.intl(int(AD${r}),0,"0000001",Holidays!A:A)+"18:00","")`]] },
         { range: `'${SFMS_TAB}'!AP${r}`, values: [[`=if(AI${r},WORKDAY.INTL(AI${r},AN$5,"0000001",Holidays!A:A)+hour(AI${r})/24+MINUTE(AI${r})/1440,"")`]] },
-        { range: `'${SFMS_TAB}'!AV${r}`, values: [[`=if(AO${r},workday.intl(int(AO${r}),0,"0000001",Holidays!A:A)+"19:30","")`]] }
+        { range: `'${SFMS_TAB}'!AV${r}`, values: [[`=if(AO${r},workday.intl(int(AO${r}),0,"0000001",Holidays!A:A)+"19:30","")`]] },
+        { range: `'${SFMS_TAB}'!${SFMS_OWNERSHIP_COL}${r}`, values: [[productOwnership]] }
       );
       // Out-of-warranty-but-customer-agreed-to-pay flag (point 5) — written only
       // when the frontend determined the product was out of warranty and the
@@ -2813,7 +2859,80 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
       requestBody: { valueInputOption: 'USER_ENTERED', data: formulaData }
     });
 
+    // Point 6 — confirmation to the customer once the complaint is actually
+    // registered. Never let a WhatsApp failure fail the complaint creation
+    // itself — the complaint is already saved at this point.
+    const productList = products.map(p => p.productName).join(', ');
+    sendWhatsApp(mobile, `Ajanta Appliances Service: Your complaint ${groupNo} for ${productList} has been registered. Our team will get back to you soon.`)
+      .catch(e => console.log('  ⚠️ Complaint confirmation WhatsApp failed:', e.message));
+
     res.json({ success: true, groupNo, complainNos, firstRow });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Edit Complaint (point 7) — updates one product-line row's own intake
+// fields after the complaint has already been saved. A multi-product
+// complaint's sibling rows are edited the same way, one row at a time.
+app.put('/api/service-fms/:row', requireAuth, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    if (!row) return res.status(400).json({ error: 'Invalid row' });
+    const {
+      filledByName, mobile, customerType, dealerName, productOwnership,
+      productName, purchaseDate, problemDescription,
+      productLocation, address, area, billPhoto, productPhoto
+    } = req.body;
+    if (!filledByName || !mobile) return res.status(400).json({ error: 'Name and mobile are required' });
+    if (!productName || !problemDescription) return res.status(400).json({ error: 'Product name and problem description are required' });
+    if (!SFMS_OWNERSHIP_VALUES.includes(productOwnership)) {
+      return res.status(400).json({ error: 'Select whether this is a Dealer Stock Piece or a Customer Purchased Piece' });
+    }
+    if (billPhoto && billPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Bill photo is too large — try a smaller/compressed image' });
+    if (productPhoto && productPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Product photo is too large — try a smaller/compressed image' });
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    // Bill photo is only required (client + here) for a Customer Purchased
+    // Piece, and only if there isn't already one on file — an edit doesn't
+    // force a re-upload of an existing bill.
+    if (productOwnership === 'Customer Purchased Piece' && !billPhoto) {
+      const existing = await sheetsApi.spreadsheets.values.get({
+        spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!J${row}:J${row}`
+      });
+      const hasExistingBill = !!(existing.data.values && existing.data.values[0] && existing.data.values[0][0]);
+      if (!hasExistingBill) return res.status(400).json({ error: 'Bill photo is required for a Customer Purchased Piece' });
+    }
+
+    const purchaseDateSerial = purchaseDate ? sfmsDateToSerial(new Date(purchaseDate + 'T00:00:00Z')) : '';
+    const data = [
+      { range: `'${SFMS_TAB}'!C${row}`, values: [[filledByName]] },
+      { range: `'${SFMS_TAB}'!D${row}`, values: [[mobile]] },
+      { range: `'${SFMS_TAB}'!E${row}`, values: [[customerType || '']] },
+      { range: `'${SFMS_TAB}'!F${row}`, values: [[dealerName || '']] },
+      { range: `'${SFMS_TAB}'!G${row}`, values: [[productName]] },
+      { range: `'${SFMS_TAB}'!H${row}`, values: [[purchaseDateSerial]] },
+      { range: `'${SFMS_TAB}'!I${row}`, values: [[problemDescription]] },
+      { range: `'${SFMS_TAB}'!L${row}`, values: [[productLocation || '']] },
+      { range: `'${SFMS_TAB}'!M${row}`, values: [[address || '']] },
+      { range: `'${SFMS_TAB}'!N${row}`, values: [[area || '']] },
+      { range: `'${SFMS_TAB}'!${SFMS_OWNERSHIP_COL}${row}`, values: [[productOwnership]] }
+    ];
+    if (billPhoto) {
+      const link = await uploadPhotoToDrive(billPhoto, `edit-${row}-bill.jpg`);
+      data.push({ range: `'${SFMS_TAB}'!J${row}`, values: [[link]] });
+    }
+    if (productPhoto) {
+      const link = await uploadPhotoToDrive(productPhoto, `edit-${row}-product.jpg`);
+      data.push({ range: `'${SFMS_TAB}'!K${row}`, values: [[link]] });
+    }
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID,
+      requestBody: { valueInputOption: 'USER_ENTERED', data }
+    });
+    res.json({ success: true });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     res.status(500).json({ error: err.message });

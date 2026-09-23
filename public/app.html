@@ -993,6 +993,7 @@ tbody tr:last-child td{border-bottom:none;}
               style="padding:8px 12px 8px 32px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:260px;background:var(--surface-alt);color:var(--gray-900)"/>
           </div>
           <button class="btn btn-primary" onclick="openAddUser()">+ Add User</button>
+          <button class="btn" style="background:var(--color-danger-bg);color:var(--color-danger-text);border:1px solid var(--color-danger-border)" onclick="signOutAllUsers()">🔒 Sign Out All</button>
         </div>
       </div>
       <div class="users-grid">
@@ -2180,6 +2181,10 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="alert error" id="newComplaintErr" style="display:none"></div>
     <div style="overflow-y:auto;flex:1">
       <div class="form-group">
+        <label>Complaint Date</label>
+        <div id="scComplaintDate" style="padding:9px 12px;background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-700)"></div>
+      </div>
+      <div class="form-group">
         <label>Name of Person Filling the Form <span style="color:var(--color-danger)">*</span></label>
         <input type="text" id="scFilledByName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       </div>
@@ -2199,7 +2204,15 @@ tbody tr:last-child td{border-bottom:none;}
         <input type="text" id="scDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       </div>
       <div class="form-group">
-        <label>Bill Photo</label>
+        <label>Product Ownership <span style="color:var(--color-danger)">*</span></label>
+        <select id="scProductOwnership" onchange="onScOwnershipChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
+          <option value="">Select…</option>
+          <option value="Dealer Stock Piece">Dealer Stock Piece</option>
+          <option value="Customer Purchased Piece">Customer Purchased Piece</option>
+        </select>
+      </div>
+      <div class="form-group" id="scBillPhotoWrap">
+        <label>Bill Photo <span id="scBillPhotoRequiredMark" style="color:var(--color-danger);display:none">*</span></label>
         <input type="file" id="scBillPhoto" accept="image/*" onchange="onScPhotoSelected(this,'scBillPhotoPreview')"/>
         <div id="scBillPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
       </div>
@@ -2247,6 +2260,87 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="modal-close-x modal-close" onclick="closeModal('complaintDetailModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div id="cdBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── SERVICE FMS: EDIT COMPLAINT MODAL (point 7) ── -->
+<div class="modal-overlay" id="editComplaintModal">
+  <div class="modal" style="max-width:560px;max-height:90vh;display:flex;flex-direction:column">
+    <h3 style="margin-bottom:18px">✏️ Edit Complaint</h3>
+    <div class="alert error" id="editComplaintErr" style="display:none"></div>
+    <input type="hidden" id="ecRow"/>
+    <div style="overflow-y:auto;flex:1">
+      <div class="form-group">
+        <label>Name of Person Filling the Form <span style="color:var(--color-danger)">*</span></label>
+        <input type="text" id="ecFilledByName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label>Mobile No. <span style="color:var(--color-danger)">*</span></label>
+        <input type="text" id="ecMobile" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label>Dealer or Customer?</label>
+        <div style="display:flex;gap:14px">
+          <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="radio" name="ecCustomerType" value="Customer" onchange="onEcCustomerTypeChange()"> Customer</label>
+          <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="radio" name="ecCustomerType" value="Dealer" onchange="onEcCustomerTypeChange()"> Dealer</label>
+        </div>
+      </div>
+      <div class="form-group" id="ecDealerNameWrap" style="display:none">
+        <label>Dealer Name</label>
+        <input type="text" id="ecDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label>Product Ownership <span style="color:var(--color-danger)">*</span></label>
+        <select id="ecProductOwnership" onchange="onEcOwnershipChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
+          <option value="">Select…</option>
+          <option value="Dealer Stock Piece">Dealer Stock Piece</option>
+          <option value="Customer Purchased Piece">Customer Purchased Piece</option>
+        </select>
+      </div>
+      <div class="form-group" id="ecBillPhotoWrap">
+        <label>Bill Photo <span id="ecBillPhotoRequiredMark" style="color:var(--color-danger);display:none">*</span></label>
+        <input type="file" id="ecBillPhoto" accept="image/*" onchange="onScPhotoSelected(this,'ecBillPhotoPreview')"/>
+        <div id="ecBillPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+      </div>
+      <div class="form-group">
+        <label>Product Name / Model <span style="color:var(--color-danger)">*</span></label>
+        <input type="text" id="ecProductName" list="scProductNameList" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label>Date of Purchase</label>
+        <input type="date" id="ecPurchaseDate" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label>Description of the Problem <span style="color:var(--color-danger)">*</span></label>
+        <textarea id="ecProblemDescription" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Product Photo</label>
+        <input type="file" id="ecProductPhoto" accept="image/*" onchange="onScPhotoSelected(this,'ecProductPhotoPreview')"/>
+        <div id="ecProductPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+      </div>
+      <div class="form-group">
+        <label>Where is the Product Currently?</label>
+        <select id="ecProductLocation" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
+          <option value="">Select…</option>
+          <option value="Customer Home">Customer Home</option>
+          <option value="Dealer Shop">Dealer Shop</option>
+          <option value="Customer's Product at Dealer Shop">Customer's Product at Dealer Shop</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Full Address Where Product is Lying</label>
+        <textarea id="ecAddress" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Location / Area</label>
+        <select id="ecArea" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"></select>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" id="ecSubmitBtn" onclick="submitEditComplaint()">Save Changes</button>
+      <button class="btn btn-outline" onclick="closeModal('editComplaintModal')">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -4152,6 +4246,7 @@ function renderUsersTable(users) {
       <td style="white-space:nowrap">
         <button class="action-btn edit" onclick="openEditUser(${u.id})">Edit</button>
         ${toggleBtn}
+        <button class="action-btn" style="margin-left:6px;background:var(--color-info-bg);color:var(--color-info-text);border:1px solid var(--color-info-border)" onclick="signOutUser(${u.id})">Sign Out</button>
         <button class="action-btn delete" style="margin-left:6px" onclick="deleteUser(${u.id})">Delete</button>
       </td>
     </tr>`;
@@ -4578,6 +4673,29 @@ async function activateUser(id) {
   loadUsers();
 }
 
+async function signOutUser(id) {
+  const name = _usersMap[id]?.name || 'this user';
+  showConfirm(
+    { icon: '🔒', title: `Sign out ${name}?`, msg: 'Their active session ends immediately — they\'ll be sent back to login on their next action.', okLabel: 'Sign Out', okColor: 'var(--color-warning)' },
+    async () => {
+      const r = await api(`/api/users/${id}/signout`, 'PUT', {});
+      if (r.error) { showToast('❌ ' + r.error); return; }
+      showToast(`✅ ${name} signed out`);
+    }
+  );
+}
+
+async function signOutAllUsers() {
+  showConfirm(
+    { icon: '🔒', title: 'Sign out everyone?', msg: 'Every user — including you — will be signed out immediately and need to log in again.', okLabel: 'Sign Out All', okColor: 'var(--color-danger)' },
+    async () => {
+      const r = await api('/api/users/signout-all', 'POST', {});
+      if (r.error) { showToast('❌ ' + r.error); return; }
+      showToast(`✅ Signed out ${r.count != null ? r.count : 'all'} users`);
+    }
+  );
+}
+
 async function deleteUser(id) {
   showConfirm(
     { icon: '👤', title: 'Delete this user?', msg: 'All their tasks will remain but the user will be removed.', okLabel: 'Delete', okColor: 'var(--color-danger)' },
@@ -4686,6 +4804,17 @@ function fmtDate(d) {
   const parts = d.split('-');
   if (parts.length !== 3) return d;
   return `${parts[2]}-${parts[1]}-${parts[0]}`;
+}
+// Service FMS dates — "DD/MM/YYYY" specifically (point 1 of the complaint
+// form corrections), distinct from fmtDate's "DD-MM-YYYY" used elsewhere.
+// Accepts either "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS" (sfmsSerialToDate's
+// output) and always strips the time — every other Service FMS date
+// display already shows date-only.
+function fmtDateDMY(d) {
+  if (!d) return '';
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return d;
+  return `${m[3]}/${m[2]}/${m[1]}`;
 }
 // ── SET WEEK PLAN ───────────────────────────────────
 // preEmpId / preWeek optional — Records tab se inline "Set Plan" ke liye.
@@ -5822,9 +5951,9 @@ function sfmsWarrantyStatusHtml(c) {
   if (!w) return `<span style="color:var(--gray-400);font-size:12px">No warranty data</span>`;
   return w.inWarranty
     ? `<div style="color:var(--color-success-text);font-weight:700;font-size:12px">✅ In Warranty</div>
-       <div style="font-size:11px;color:var(--gray-500)">${w.months}mo, expires ${w.expiryDate} (${w.daysLeft}d left)</div>`
+       <div style="font-size:11px;color:var(--gray-500)">${w.months}mo, expires ${fmtDateDMY(w.expiryDate)} (${w.daysLeft}d left)</div>`
     : `<div style="color:var(--color-danger);font-weight:700;font-size:12px">⚠️ Out of Warranty</div>
-       <div style="font-size:11px;color:var(--gray-500)">expired ${w.expiryDate} (${Math.abs(w.daysLeft)}d ago)</div>`;
+       <div style="font-size:11px;color:var(--gray-500)">expired ${fmtDateDMY(w.expiryDate)} (${Math.abs(w.daysLeft)}d ago)</div>`;
 }
 
 // One tab per step: a table of everything currently pending right there,
@@ -5909,19 +6038,21 @@ function renderSfmsStepView(n) {
   const stickyTh = 'position:sticky;right:0;background:var(--surface-alt);box-shadow:-2px 0 4px rgba(0,0,0,.06)';
   const stickyTd = 'position:sticky;right:0;background:#fff;box-shadow:-2px 0 4px rgba(0,0,0,.06)';
   const isWarrantyTab = n === 1;
+  const isSpareCheckTab = n === 2; // point 8 — ownership shown clearly here
   wrap.innerHTML = zoneFilterHtml + `<div class="mis-table-wrap" style="overflow-x:auto;margin-top:${isAssignTab ? '12px' : '0'}">
   <table>
     <thead><tr>
       <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
       <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Photos</th><th>Pending</th>
       ${isWarrantyTab ? '<th>Warranty Status</th>' : ''}
+      ${isSpareCheckTab ? '<th>Ownership</th>' : ''}
       <th style="${stickyTh}">${n}. ${stepDef.label}</th>
     </tr></thead>
     <tbody>
       ${rows.map(c => {
         const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
         const isLate = daysPending >= 2;
-        const purchaseDateOnly = (c.purchaseDate || '').split(' ')[0] || '—'; // strip the time — purchase is date-only
+        const purchaseDateOnly = fmtDateDMY(c.purchaseDate) || '—';
         const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
           (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:6px">📷</a>` : '');
         return `<tr>
@@ -5938,6 +6069,7 @@ function renderSfmsStepView(n) {
           <td style="white-space:nowrap;font-size:16px">${photosHtml || '—'}</td>
           <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
           ${isWarrantyTab ? `<td style="white-space:nowrap">${sfmsWarrantyStatusHtml(c)}</td>` : ''}
+          ${isSpareCheckTab ? `<td style="white-space:nowrap;font-weight:600;color:${c.productOwnership === 'Dealer Stock Piece' ? 'var(--color-primary)' : 'var(--color-purple)'}">${c.productOwnership || '—'}</td>` : ''}
           <td id="sfmsStepAction_${c.row}" style="${stickyTd};padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
         </tr>`;
       }).join('')}
@@ -6301,7 +6433,7 @@ function buildReportPC() {
           <td>${c.productName}</td>
           <td>${c.problemDescription}</td>
           <td style="font-weight:700;color:${needPurchase ? 'var(--color-danger-text)' : 'var(--color-primary)'}">${label}</td>
-          <td>${c.timestamp}</td>
+          <td>${fmtDateDMY(c.timestamp)}</td>
         </tr>`;
         }).join('')}
       </tbody>
@@ -6346,14 +6478,17 @@ function buildReportItemWise() {
 }
 
 function openNewComplaintModal() {
+  document.getElementById('scComplaintDate').textContent = fmtDateDMY(new Date().toISOString().slice(0, 10));
   document.getElementById('scFilledByName').value = '';
   document.getElementById('scMobile').value = '';
   document.querySelector('input[name="scCustomerType"][value="Customer"]').checked = true;
   document.getElementById('scDealerName').value = '';
   document.getElementById('scDealerNameWrap').style.display = 'none';
+  document.getElementById('scProductOwnership').value = '';
   document.getElementById('scBillPhoto').value = '';
   document.getElementById('scBillPhotoPreview').textContent = '';
   document.getElementById('scBillPhoto').dataset.compressed = '';
+  onScOwnershipChange();
   document.getElementById('scProductLocation').value = '';
   document.getElementById('scAddress').value = '';
   document.getElementById('newComplaintErr').style.display = 'none';
@@ -6363,6 +6498,20 @@ function openNewComplaintModal() {
   loadScProductNames();
   ensureScAreaList().then(populateScAreaSelect);
   document.getElementById('newComplaintModal').classList.add('open');
+}
+
+// Point 3 — Bill Upload only makes sense (and is only required) for a
+// customer's own purchased piece; a dealer's stock piece was never billed
+// to a customer.
+function onScOwnershipChange() {
+  const isCustomerPiece = document.getElementById('scProductOwnership').value === 'Customer Purchased Piece';
+  document.getElementById('scBillPhotoWrap').style.display = isCustomerPiece ? '' : 'none';
+  document.getElementById('scBillPhotoRequiredMark').style.display = isCustomerPiece ? '' : 'none';
+  if (!isCustomerPiece) {
+    document.getElementById('scBillPhoto').value = '';
+    document.getElementById('scBillPhotoPreview').textContent = '';
+    document.getElementById('scBillPhoto').dataset.compressed = '';
+  }
 }
 
 // ── Multi-product complaint table (point 2) ──────────────────────────
@@ -6381,6 +6530,7 @@ function addScProductRow() {
         <textarea placeholder="Problem Description *" id="scProdProblem_${id}" rows="2" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif;margin-bottom:6px"></textarea>
         <input type="file" accept="image/*" id="scProdPhoto_${id}" onchange="onScProdPhotoSelected(${id})"/>
         <div id="scProdPhotoPreview_${id}" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+        <div id="scProdWarrantyOk_${id}" style="display:none;margin-top:6px;padding:8px 10px;background:var(--color-success-bg);border:1px solid var(--color-success-border);border-radius:6px;font-size:12px;color:var(--color-success-text);font-weight:600"></div>
         <div id="scProdWarrantyBanner_${id}" style="display:none;margin-top:6px;padding:8px 10px;background:#fff3cd;border:1px solid #ffe08a;border-radius:6px;font-size:12px;color:#8a6100">
           ⚠ Out of Warranty
           <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:600;cursor:pointer">
@@ -6411,16 +6561,20 @@ async function loadScProductNames() {
 // customer still file the complaint out-of-warranty if they agree to pay.
 function onScProductLineChanged(id) {
   const banner = document.getElementById(`scProdWarrantyBanner_${id}`);
-  if (!banner) return;
+  const okEl = document.getElementById(`scProdWarrantyOk_${id}`);
+  if (!banner || !okEl) return;
   const name = document.getElementById(`scProdName_${id}`).value.trim().toLowerCase();
   const purchaseDate = document.getElementById(`scProdPurchaseDate_${id}`).value;
   const product = (_scProductNames || []).find(p => p.name.trim().toLowerCase() === name);
-  if (!product || !product.warrantyMonths || !purchaseDate) { banner.style.display = 'none'; return; }
+  if (!product || !product.warrantyMonths || !purchaseDate) { banner.style.display = 'none'; okEl.style.display = 'none'; return; }
   const expiry = new Date(purchaseDate + 'T00:00:00');
   expiry.setMonth(expiry.getMonth() + product.warrantyMonths);
   const outOfWarranty = new Date() > expiry;
   banner.style.display = outOfWarranty ? 'block' : 'none';
   if (!outOfWarranty) document.getElementById(`scProdWarrantyAgree_${id}`).checked = false;
+  // Point 4 — status shows either way, not just when out of warranty.
+  okEl.style.display = outOfWarranty ? 'none' : 'block';
+  if (!outOfWarranty) okEl.textContent = `✅ Under Warranty — expires ${fmtDateDMY(expiry.toISOString().slice(0, 10))}`;
 }
 
 async function onScProdPhotoSelected(id) {
@@ -6529,6 +6683,7 @@ async function submitNewComplaint() {
   const mobile = document.getElementById('scMobile').value.trim();
   const customerType = document.querySelector('input[name="scCustomerType"]:checked').value;
   const dealerName = document.getElementById('scDealerName').value.trim();
+  const productOwnership = document.getElementById('scProductOwnership').value;
   const billPhoto = document.getElementById('scBillPhoto').dataset.compressed || '';
   const productLocation = document.getElementById('scProductLocation').value;
   const address = document.getElementById('scAddress').value.trim();
@@ -6536,6 +6691,16 @@ async function submitNewComplaint() {
 
   if (!filledByName || !mobile) {
     err.textContent = 'Name and mobile are required';
+    err.style.display = 'block';
+    return;
+  }
+  if (!productOwnership) {
+    err.textContent = 'Select whether this is a Dealer Stock Piece or a Customer Purchased Piece';
+    err.style.display = 'block';
+    return;
+  }
+  if (productOwnership === 'Customer Purchased Piece' && !billPhoto) {
+    err.textContent = 'Bill photo is required for a Customer Purchased Piece';
     err.style.display = 'block';
     return;
   }
@@ -6576,7 +6741,7 @@ async function submitNewComplaint() {
   const btn = document.getElementById('scSubmitBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   const res = await api('/api/service-fms', 'POST', {
-    filledByName, mobile, customerType, dealerName,
+    filledByName, mobile, customerType, dealerName, productOwnership,
     productLocation, address, area, billPhoto, products
   });
   btn.disabled = false; btn.textContent = 'Save Complaint';
@@ -6585,6 +6750,96 @@ async function submitNewComplaint() {
   closeModal('newComplaintModal');
   showToast(`✅ Complaint ${res.groupNo} created!`);
   loadServiceFmsList();
+}
+
+// ── Edit Complaint (point 7) — edits one product-line row's own intake
+// fields (name/mobile/dealer/ownership/product/purchase date/problem/
+// photos/location/address/area). A multi-product complaint's other lines
+// are edited the same way, one at a time, via the sibling-products table.
+function onEcCustomerTypeChange() {
+  const type = document.querySelector('input[name="ecCustomerType"]:checked').value;
+  document.getElementById('ecDealerNameWrap').style.display = (type === 'Dealer') ? '' : 'none';
+}
+function onEcOwnershipChange() {
+  const isCustomerPiece = document.getElementById('ecProductOwnership').value === 'Customer Purchased Piece';
+  document.getElementById('ecBillPhotoWrap').style.display = isCustomerPiece ? '' : 'none';
+  document.getElementById('ecBillPhotoRequiredMark').style.display = isCustomerPiece ? '' : 'none';
+}
+
+async function openEditComplaintModal(row) {
+  const c = sfmsData.find(x => x.row === row);
+  if (!c) { showToast('Complaint not found — please refresh', 'error'); return; }
+  document.getElementById('editComplaintErr').style.display = 'none';
+  document.getElementById('ecRow').value = row;
+  document.getElementById('ecFilledByName').value = c.filledByName || '';
+  document.getElementById('ecMobile').value = c.mobile || '';
+  document.querySelector(`input[name="ecCustomerType"][value="${c.customerType === 'Dealer' ? 'Dealer' : 'Customer'}"]`).checked = true;
+  document.getElementById('ecDealerName').value = c.dealerName || '';
+  onEcCustomerTypeChange();
+  document.getElementById('ecProductOwnership').value = c.productOwnership || '';
+  document.getElementById('ecBillPhoto').value = '';
+  document.getElementById('ecBillPhotoPreview').textContent = c.billPhoto ? '✅ Existing bill photo on file (choose a file to replace it)' : '';
+  document.getElementById('ecBillPhoto').dataset.compressed = '';
+  onEcOwnershipChange();
+  document.getElementById('ecProductName').value = c.productName || '';
+  document.getElementById('ecPurchaseDate').value = (c.purchaseDate || '').split(' ')[0] || '';
+  document.getElementById('ecProblemDescription').value = c.problemDescription || '';
+  document.getElementById('ecProductPhoto').value = '';
+  document.getElementById('ecProductPhotoPreview').textContent = c.productPhoto ? '✅ Existing product photo on file (choose a file to replace it)' : '';
+  document.getElementById('ecProductPhoto').dataset.compressed = '';
+  document.getElementById('ecProductLocation').value = c.productLocation || '';
+  document.getElementById('ecAddress').value = c.address || '';
+  await ensureScAreaList();
+  populateScAreaSelect();
+  document.getElementById('ecArea').innerHTML = document.getElementById('scArea').innerHTML;
+  document.getElementById('ecArea').value = c.area || '';
+  loadScProductNames();
+  document.getElementById('editComplaintModal').classList.add('open');
+}
+
+async function submitEditComplaint() {
+  const err = document.getElementById('editComplaintErr');
+  err.style.display = 'none';
+  const row = document.getElementById('ecRow').value;
+  const filledByName = document.getElementById('ecFilledByName').value.trim();
+  const mobile = document.getElementById('ecMobile').value.trim();
+  const customerType = document.querySelector('input[name="ecCustomerType"]:checked').value;
+  const dealerName = document.getElementById('ecDealerName').value.trim();
+  const productOwnership = document.getElementById('ecProductOwnership').value;
+  const billPhoto = document.getElementById('ecBillPhoto').dataset.compressed || '';
+  const productName = document.getElementById('ecProductName').value.trim();
+  const purchaseDate = document.getElementById('ecPurchaseDate').value;
+  const problemDescription = document.getElementById('ecProblemDescription').value.trim();
+  const productPhoto = document.getElementById('ecProductPhoto').dataset.compressed || '';
+  const productLocation = document.getElementById('ecProductLocation').value;
+  const address = document.getElementById('ecAddress').value.trim();
+  const area = document.getElementById('ecArea').value === '__add_new__' ? '' : document.getElementById('ecArea').value;
+
+  if (!filledByName || !mobile) { err.textContent = 'Name and mobile are required'; err.style.display = 'block'; return; }
+  if (!productName || !problemDescription) { err.textContent = 'Product name and problem description are required'; err.style.display = 'block'; return; }
+  if (!productOwnership) { err.textContent = 'Select whether this is a Dealer Stock Piece or a Customer Purchased Piece'; err.style.display = 'block'; return; }
+  const existingBill = sfmsData.find(x => x.row == row)?.billPhoto;
+  if (productOwnership === 'Customer Purchased Piece' && !billPhoto && !existingBill) {
+    err.textContent = 'Bill photo is required for a Customer Purchased Piece';
+    err.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('ecSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const res = await api(`/api/service-fms/${row}`, 'PUT', {
+    filledByName, mobile, customerType, dealerName, productOwnership,
+    productName, purchaseDate, problemDescription,
+    productLocation, address, area, billPhoto, productPhoto
+  });
+  btn.disabled = false; btn.textContent = 'Save Changes';
+
+  if (res.error) { err.textContent = res.error; err.style.display = 'block'; return; }
+  closeModal('editComplaintModal');
+  showToast('✅ Complaint updated!');
+  await loadServiceFmsList();
+  const updated = sfmsData.find(x => x.row == row);
+  if (updated) { document.getElementById('cdTitle').textContent = `${updated.complainNo} — ${updated.productName}`; renderComplaintDetailBody(updated); }
 }
 
 async function openComplaintDetail(row) {
@@ -6747,7 +7002,7 @@ function buildSfmsNextActionHtml(c, compact) {
     // Step 7 ("Complaint Solved?") repeats until answered Yes — show when it was
     // last checked so it's obvious this isn't the first time being asked.
     const lastCheckedHtml = (nextStepDef.n === 7 && stepData.actual && !compact)
-      ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:10px">Last checked: ${stepData.actual}</div>` : '';
+      ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:10px">Last checked: ${fmtDateDMY(stepData.actual)}</div>` : '';
     const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     const btn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">${btnLabel}</button>`;
     // Compact (step-tab table cell): field(s) + submit button on one line,
@@ -6784,7 +7039,10 @@ function renderComplaintDetailBody(c) {
           <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${c.filledByName}</div>
           ${showDealer ? `<div style="font-size:13px;color:var(--gray-500);margin-top:2px">Dealer: ${c.dealerName}</div>` : ''}
         </div>
-        <a href="tel:${c.mobile}" class="btn btn-outline btn-sm" style="white-space:nowrap">${c.mobile}</a>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <a href="tel:${c.mobile}" class="btn btn-outline btn-sm" style="white-space:nowrap">${c.mobile}</a>
+          <button class="btn btn-outline btn-sm" onclick="openEditComplaintModal(${c.row})">✏️ Edit</button>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
         <div>
