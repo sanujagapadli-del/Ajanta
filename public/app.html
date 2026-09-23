@@ -6515,12 +6515,29 @@ function buildReportItemWise() {
   sfmsData.forEach(c => {
     const takeoutStep = c.steps.find(s => s.n === 4);
     const inOutStep = c.steps.find(s => s.n === 5);
-    if (!takeoutStep.itemName) return;
-    const key = takeoutStep.itemName;
-    if (!items[key]) items[key] = { taken: 0, returned: 0, complaints: 0 };
-    items[key].taken += Number(takeoutStep.spareTaken) || 0;
-    items[key].returned += Number(inOutStep.qtyReturned) || 0;
-    items[key].complaints += 1;
+    // Multi-spare (point 1): a complaint can have taken out several
+    // different items — count every one of them, not just the first, or
+    // inventory usage for any item beyond the first would go uncounted.
+    let outItems = [];
+    try { outItems = takeoutStep.spareOutJson ? JSON.parse(takeoutStep.spareOutJson) : []; } catch (e) {}
+    if (!outItems.length && takeoutStep.itemName) outItems = [{ item: takeoutStep.itemName, qty: takeoutStep.spareTaken }];
+    if (!outItems.length) return;
+    let inItems = [];
+    try { inItems = inOutStep.spareInJson ? JSON.parse(inOutStep.spareInJson) : []; } catch (e) {}
+    const returnedByItem = {};
+    inItems.forEach(r => { returnedByItem[r.item] = (returnedByItem[r.item] || 0) + (Number(r.newQty) || 0) + (Number(r.oldQty) || 0); });
+    // Old single-item complaints have qtyReturned but never got a spareInJson.
+    if (!inItems.length && outItems.length === 1 && inOutStep.qtyReturned !== '') {
+      returnedByItem[outItems[0].item] = Number(inOutStep.qtyReturned) || 0;
+    }
+    const countedForThisComplaint = new Set();
+    outItems.forEach(oi => {
+      if (!oi.item) return;
+      if (!items[oi.item]) items[oi.item] = { taken: 0, returned: 0, complaints: 0 };
+      items[oi.item].taken += Number(oi.qty) || 0;
+      items[oi.item].returned += returnedByItem[oi.item] || 0;
+      if (!countedForThisComplaint.has(oi.item)) { items[oi.item].complaints += 1; countedForThisComplaint.add(oi.item); }
+    });
   });
   const names = Object.keys(items).sort();
   if (!names.length) return '<div class="empty">No item data yet.</div>';
@@ -7035,7 +7052,7 @@ function buildSfmsNextActionHtml(c, compact) {
     // Step 4 (Takeout) / Step 5 (In/Out): custom multi-spare row UI (points
     // 1/2/3), not the generic one-field-per-line renderer — see
     // sfmsBuildSpareOutRowsHtml/sfmsBuildSpareInRowsHtml.
-    let extraInputsHtml, takenSummaryHtml = '', spareRowsHtml = '';
+    let extraInputsHtml, spareRowsHtml = '';
     if (nextStepDef.n === 4) {
       spareRowsHtml = sfmsBuildSpareOutRowsHtml(c);
       extraInputsHtml = '';
@@ -7094,7 +7111,6 @@ function buildSfmsNextActionHtml(c, compact) {
         ${lastCheckedHtml}
         <div style="${lastCheckedHtml ? '' : 'margin-bottom:14px'}"></div>
         ${statusSelectHtml}
-        ${takenSummaryHtml}
         ${extraInputsHtml}
         ${btn}
       ${wrapClose}`;
