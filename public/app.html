@@ -2443,6 +2443,18 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── O2D DEALERS: STATEMENT / LEDGER MODAL ── -->
+<div class="modal-overlay" id="dealerLedgerModal">
+  <div class="modal" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <h3 style="margin:0" id="dlModalTitle">📋 Statement</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('dealerLedgerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Bills abhi bhi outstanding ho unhi ka + saare synced payments — Tally se pichhle sync tak ka data.</div>
+    <div id="dlBody" style="overflow-y:auto;flex:1">Loading…</div>
+  </div>
+</div>
+
 <!-- ── O2D: PRICE LIST ADD/EDIT MODAL ── -->
 <div class="modal-overlay" id="priceListModal">
   <div class="modal" style="max-width:440px;max-height:88vh;display:flex;flex-direction:column">
@@ -7376,7 +7388,7 @@ function dealerCardHtml(d) {
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">💳 Payment Overview</div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
-        ${statTile('Total Dues', outstandingStr, 'var(--gray-800)')}
+        <div onclick="openDealerLedgerModal('${nameEsc}')" style="cursor:pointer;flex:1;min-width:90px" title="Poori statement dekho">${statTile('Total Dues', outstandingStr, 'var(--gray-800)')}</div>
         <div onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})" style="cursor:pointer;flex:1;min-width:90px">${statTile('Credit Limit', creditStr, 'var(--gray-800)')}</div>
         ${available !== null ? statTile('Available', inr(available), overLimit ? 'var(--color-danger-text)' : 'var(--color-success-text)') : ''}
       </div>
@@ -7542,6 +7554,61 @@ async function submitCreditLimit() {
   closeModal('creditLimitModal');
   await loadO2dDealers(true);
   refreshDealerViews();
+}
+
+// Dealer Statement — merged bills + payments from the Tally sync, opened
+// from the dealer card (New Order and the Dealers table both use the same
+// card shape, so one trigger covers both).
+async function openDealerLedgerModal(name) {
+  document.getElementById('dlModalTitle').textContent = `📋 Statement — ${name}`;
+  document.getElementById('dlBody').innerHTML = 'Loading…';
+  document.getElementById('dealerLedgerModal').classList.add('open');
+  const r = await api(`/api/o2d-fms/dealer-ledger?name=${encodeURIComponent(name)}`);
+  const body = document.getElementById('dlBody');
+  if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; return; }
+
+  const outstandingHtml = `
+    <div style="background:var(--gray-50);border-radius:10px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">Outstanding (Tally)</div>
+        <div style="font-size:18px;font-weight:700;color:var(--gray-900)">${r.outstanding !== null ? inr(r.outstanding) : '—'}</div>
+      </div>
+      <div style="font-size:11px;color:var(--gray-500);text-align:right">${r.billCount} open bill${r.billCount===1?'':'s'}<br/>${r.paymentCount} payment${r.paymentCount===1?'':'s'} synced</div>
+    </div>`;
+
+  if (!r.entries.length) {
+    body.innerHTML = outstandingHtml + `<div class="empty">Koi bill ya payment sync nahi hua abhi is dealer ke liye.</div>`;
+    return;
+  }
+
+  const rowsHtml = r.entries.map(e => {
+    if (e.type === 'bill') {
+      const lateColor = e.bucket === '90+' ? 'var(--color-danger-text)' : 'var(--gray-800)';
+      return `<tr>
+        <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap">${e.date || '—'}</td>
+        <td style="padding:7px 8px"><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--color-danger-bg);color:var(--color-danger-text)">BILL</span></td>
+        <td style="padding:7px 8px;font-size:12.5px">${e.ref || '—'}${e.dueDate ? `<div style="font-size:10.5px;color:var(--gray-500)">Due ${e.dueDate}</div>` : ''}</td>
+        <td style="padding:7px 8px;font-size:12.5px;font-weight:700;text-align:right;color:${lateColor}">${inr(e.amount)}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap">${e.date || '—'}</td>
+      <td style="padding:7px 8px"><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success-text)">PAID</span></td>
+      <td style="padding:7px 8px;font-size:12.5px">${e.ref || '—'}</td>
+      <td style="padding:7px 8px;font-size:12.5px;font-weight:700;text-align:right;color:var(--color-success-text)">${inr(e.amount)}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = outstandingHtml + `
+    <div class="mis-table-wrap" style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="text-align:left;font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">
+          <th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Type</th><th style="padding:6px 8px">Ref</th><th style="padding:6px 8px;text-align:right">Amount</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+    ${r.syncedAt ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:10px">Last synced: ${new Date(r.syncedAt).toLocaleString('en-IN')}</div>` : ''}`;
 }
 
 // ══════════════════════════════════════════════════════

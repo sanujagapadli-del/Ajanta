@@ -3493,6 +3493,18 @@ function parseTallyDate(str) {
   return isNaN(d.getTime()) ? null : d;
 }
 function toIsoDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+// A handful of older synced rows can still carry a plain "YYYY-MM-DD" date
+// instead of Tally's own "DD-Mon-YY" — leftover from before the sync
+// switched its sheet writes from USER_ENTERED to RAW (USER_ENTERED let
+// Sheets auto-convert some date-shaped strings but not others, inconsistently).
+function parseAnyDate(str) {
+  const tally = parseTallyDate(str);
+  if (tally) return tally;
+  const m = String(str || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  return isNaN(d.getTime()) ? null : d;
+}
 
 function computeDealerRating(payments) {
   if (!payments.length) return { stars: 0, label: null, total: 0, late: 0, avgLateDays: 0 };
@@ -4093,6 +4105,51 @@ async function getTallyPaymentsByDealer() {
   _tallyPaymentsCache = { byParty, ts: Date.now() };
   return byParty;
 }
+
+// Dealer statement — every currently-outstanding bill plus every synced
+// payment for one party, merged and date-sorted (most recent first), with
+// the real Ledger Closing Balance as the header total. Not a byte-for-byte
+// replica of Tally's own ledger screen (a bill that's already fully paid
+// off drops out of Bills Receivable and we don't keep its amount anywhere
+// once that happens) — it's everything the sync actually has on hand.
+app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
+  try {
+    const name = (req.query.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const key = name.toLowerCase();
+    const [{ bills }, paymentsByParty, ledgerByParty] = await Promise.all([
+      getBillsReceivable(),
+      getTallyPaymentsByDealer(),
+      getLedgerBalancesByDealer()
+    ]);
+    const dealerBills = bills.filter(b => b.party.trim().toLowerCase() === key);
+    const payments = paymentsByParty[key] || [];
+    const ledger = ledgerByParty[key] || null;
+
+    const entries = [
+      ...dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, dueDate: b.dueDate, daysOverdue: b.daysOverdue, bucket: b.bucket })),
+      ...payments.map(p => ({ type: 'payment', date: p.paidDate, ref: p.billRef, amount: p.amount }))
+    ];
+    entries.sort((a, b) => {
+      const da = parseAnyDate(a.date), db = parseAnyDate(b.date);
+      if (da && db) return db - da;
+      if (da) return -1;
+      if (db) return 1;
+      return 0;
+    });
+
+    res.json({
+      name,
+      outstanding: ledger ? ledger.closingBalance : null,
+      syncedAt: ledger ? ledger.syncedAt : (dealerBills[0] ? dealerBills[0].syncedAt : null),
+      billCount: dealerBills.length,
+      paymentCount: payments.length,
+      entries
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Real on-time/late rating from Tally — joins each payment (Payments tab,
 // bill-by-bill now that billing is done that way) against the bill's due
