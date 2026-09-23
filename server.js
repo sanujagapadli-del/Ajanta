@@ -421,7 +421,7 @@ function requireAdminOrPC(req, res, next) {
 
 // Per-user page access — only these pages are ever restrictable; everything
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock'];
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
 function parsePageAccess(raw, role) {
   if (role === 'admin') return RESTRICTABLE_PAGES.slice();
@@ -2558,6 +2558,15 @@ const SFMS_ZONE_TAB = 'Zone';
 const SFMS_ZONE_COL = 'BC';
 const SFMS_OWNERSHIP_COL = 'BD';
 const SFMS_WARRANTY_CHARGES_AGREED_COL = 'BF';
+// Multi-spare Takeout/In-Out (points 1/3) — a complaint can need more than
+// one different spare item, and In/Out now tracks new (unused, back to
+// stock) vs old (faulty, removed from the product) returned counts per
+// item. Stored as a JSON array string in these last two confirmed-unused
+// columns; itemName/spareTaken/qtyReturned stay populated too (first
+// item's values) so every existing report/list column keeps working
+// unchanged for the common single-item case.
+const SFMS_SPARE_OUT_COL = 'BG';
+const SFMS_SPARE_IN_COL = 'BH';
 // Point 2/3/8 of the complaint form corrections — whether the product is the
 // dealer's own stock or something a customer already purchased. Drives
 // whether Bill Upload is shown/required on the create form, and is shown
@@ -2592,6 +2601,7 @@ const SFMS_STEPS = [
     extra: [
       { key: 'itemName', col: 'BE', label: 'Item Name' },
       { key: 'spareTaken', col: 'Z', label: 'Qty' },
+      { key: 'spareOutJson', col: SFMS_SPARE_OUT_COL, label: 'Spares Taken (all items)' },
       { key: 'spareReturned', col: 'AA', label: 'Spares Returned' }
     ],
     timeDelay: 'AB' },
@@ -2600,7 +2610,8 @@ const SFMS_STEPS = [
   { n: 5, label: 'Spare In/Out Entry (in the field)', planned: 'AP', actual: 'AQ', status: 'AT',
     extra: [
       { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
-      { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' }
+      { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' },
+      { key: 'spareInJson', col: SFMS_SPARE_IN_COL, label: 'Spares In (all items, new/old)' }
     ],
     timeDelay: 'AU' },
   // Reordered (was step 5) — mechanic reaching the customer's location,
@@ -4023,6 +4034,101 @@ app.delete('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
   try {
     if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can edit the price list' });
     await withPriceListTable(() => db.query('DELETE FROM o2d_price_list WHERE id = ?', [parseInt(req.params.id, 10)]));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Stock (Ajanta appliance stock — fans, blenders etc.) ─────────────────
+// ajanta_stock_items already exists in production (seeded from the "Ajanta
+// Stock" Google Sheet); ensureStockTable/withStockTable only exist so a
+// fresh/dev database self-heals the same way price-list does above.
+function canEditStock(req) {
+  return req.session.role === 'admin';
+}
+async function canAccessStock(req) {
+  if (canEditStock(req)) return true;
+  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
+  const pages = parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role);
+  return pages.includes('stock');
+}
+async function ensureStockTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS ajanta_stock_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      item_code VARCHAR(32) NOT NULL UNIQUE,
+      description VARCHAR(255) NOT NULL,
+      std_pack DECIMAL(10,2) DEFAULT NULL,
+      uom VARCHAR(16) NOT NULL DEFAULT 'PCS',
+      current_stock DECIMAL(12,2) NOT NULL DEFAULT 0,
+      as_of_date DATE NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+async function withStockTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureStockTable(); return await fn(); }
+}
+
+app.get('/api/stock', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
+    const q = (req.query.q || '').trim();
+    let sql = 'SELECT * FROM ajanta_stock_items';
+    const params = [];
+    if (q) { sql += ' WHERE item_code LIKE ? OR description LIKE ?'; params.push(`%${q}%`, `%${q}%`); }
+    sql += ' ORDER BY description';
+    const [rows] = await withStockTable(() => db.query(sql, params));
+    res.json({ items: rows, canEdit: canEditStock(req) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/stock', requireAuth, async (req, res) => {
+  try {
+    if (!canEditStock(req)) return res.status(403).json({ error: 'Only admins can add stock items' });
+    const { itemCode, description, stdPack, uom, currentStock, asOfDate } = req.body;
+    if (!itemCode || !itemCode.trim()) return res.status(400).json({ error: 'Item code is required' });
+    if (!description || !description.trim()) return res.status(400).json({ error: 'Description is required' });
+    await withStockTable(() => db.query(
+      `INSERT INTO ajanta_stock_items (item_code, description, std_pack, uom, current_stock, as_of_date) VALUES (?,?,?,?,?,?)`,
+      [itemCode.trim(), description.trim(),
+       (stdPack === '' || stdPack === undefined || stdPack === null) ? null : Number(stdPack),
+       (uom && uom.trim()) || 'PCS',
+       (currentStock === '' || currentStock === undefined || currentStock === null) ? 0 : Number(currentStock),
+       asOfDate || new Date().toISOString().slice(0, 10)]
+    ));
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'This item code already exists' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/stock/:id', requireAuth, async (req, res) => {
+  try {
+    if (!canEditStock(req)) return res.status(403).json({ error: 'Only admins can edit stock items' });
+    const id = parseInt(req.params.id, 10);
+    const { description, stdPack, uom, currentStock, asOfDate } = req.body;
+    await withStockTable(() => db.query(
+      `UPDATE ajanta_stock_items SET
+         description = COALESCE(?, description), std_pack = ?, uom = COALESCE(?, uom),
+         current_stock = COALESCE(?, current_stock), as_of_date = COALESCE(?, as_of_date)
+       WHERE id = ?`,
+      [description ?? null,
+       (stdPack === '' || stdPack === undefined) ? null : Number(stdPack),
+       uom ?? null,
+       (currentStock === '' || currentStock === undefined) ? null : Number(currentStock),
+       asOfDate ?? null, id]
+    ));
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/stock/:id', requireAuth, async (req, res) => {
+  try {
+    if (!canEditStock(req)) return res.status(403).json({ error: 'Only admins can delete stock items' });
+    await withStockTable(() => db.query('DELETE FROM ajanta_stock_items WHERE id = ?', [parseInt(req.params.id, 10)]));
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

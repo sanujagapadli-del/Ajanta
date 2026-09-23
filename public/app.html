@@ -775,6 +775,10 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
       <span class="nav-label-text">Price List & Catalogue</span>
     </div>
+    <div class="nav-item" id="nav-stock" style="display:none" onclick="navigate('stock',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+      <span class="nav-label-text">Stock</span>
+    </div>
     <div class="nav-divider"></div>
     <div class="nav-item" onclick="navigate('profile',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
@@ -1281,6 +1285,13 @@ tbody tr:last-child td{border-bottom:none;}
 
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📖 Catalogue PDF</div>
     <div id="cataloguePdfWrap_catalogue" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── STOCK (Ajanta appliances) ── -->
+  <div id="page-stock" class="page">
+    <div id="stockWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty">Loading…</div>
     </div>
   </div>
@@ -2262,6 +2273,10 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="scProductRows"></div>
       <button type="button" class="btn btn-outline btn-sm" onclick="addScProductRow()">+ Add Product</button>
     </div>
+    <!-- Shared across the whole page (datalists work by id anywhere in the
+         document) — spare-item search for the Takeout/In-Out steps, point 2:
+         a real searchable list instead of the native <select>'s letter-jump. -->
+    <datalist id="sfmsItemNameList"></datalist>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
       <button class="btn btn-primary" id="scSubmitBtn" onclick="submitNewComplaint()">Save Complaint</button>
       <button class="btn btn-outline" onclick="closeModal('newComplaintModal')">Cancel</button>
@@ -2594,6 +2609,28 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── STOCK ADD/EDIT MODAL ── -->
+<div class="modal-overlay" id="stockModal">
+  <div class="modal" style="max-width:420px;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0" id="stkModalTitle">+ Add Item</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('stockModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="overflow-y:auto;flex:1;padding-right:2px">
+      <input type="hidden" id="stkItemId"/>
+      <div class="form-group"><label>Item Code <span style="color:var(--color-danger)">*</span></label><input type="text" id="stkItemCode" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+      <div class="form-group"><label>Description <span style="color:var(--color-danger)">*</span></label><input type="text" id="stkDescription" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-group"><label>Std. Pack</label><input type="number" id="stkStdPack" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+        <div class="form-group"><label>UOM</label><input type="text" id="stkUom" placeholder="PCS" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+        <div class="form-group"><label>Current Stock</label><input type="number" id="stkCurrentStock" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+        <div class="form-group"><label>As Of Date</label><input type="date" id="stkAsOfDate" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="submitStockItem()">Save</button>
+  </div>
+</div>
+
 <!-- ── O2D: STEP DOERS MODAL ── -->
 <div class="modal-overlay" id="stepDoersModal">
   <div class="modal" style="max-width:520px;max-height:88vh;display:flex;flex-direction:column">
@@ -2827,8 +2864,9 @@ async function init() {
     if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
     if (canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
+    if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
-    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('price-catalogue')) document.getElementById('nav-section-fms').style.display = 'block';
+    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
@@ -2841,7 +2879,7 @@ async function init() {
     // Refresh pe last visited page restore karo
     const savedPage = localStorage.getItem('lastPage');
     const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
-    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms'].includes(savedPage) && !MY_PAGES.has(savedPage);
+    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
     if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -2927,7 +2965,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','price-catalogue':'Price List & Catalogue'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -2939,7 +2977,7 @@ function closeMobileSidebar() {
 }
 
 function navigate(page, el) {
-  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','price-catalogue'].includes(page) && !MY_PAGES.has(page)) {
+  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
     showToast("You don't have access to this page", 'error');
     return;
   }
@@ -2963,6 +3001,7 @@ function navigate(page, el) {
   if (page==='service-fms') loadServiceFmsList();
   if (page==='o2d-fms') loadO2dFmsList();
   if (page==='price-catalogue') loadPriceCataloguePage();
+  if (page==='stock') loadStockPage();
   localStorage.setItem('lastPage', page);
   window.scrollTo(0,0);
 }
@@ -4302,6 +4341,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'o2d-fms', label: 'O2D FMS' },
     { key: 'o2d-new-order', label: 'New Order' },
     { key: 'price-catalogue', label: 'Price List & Catalogue' },
+    { key: 'stock', label: 'Stock' },
   ]},
 ];
 
@@ -5777,15 +5817,22 @@ const SFMS_STEP_DEFS = [
       { key: 'zone', label: 'Zone', masterList: 'zone' },
       { key: 'mechanic', label: 'Mechanic Name', masterList: 'mechanics' }
     ] },
-  // Reordered (was step 3) — now comes after Assign.
+  // Reordered (was step 3) — now comes after Assign. itemName/spareTaken
+  // still carry the FIRST item's values (every existing report reads these
+  // directly) alongside spareOutJson (the full multi-item list) — the
+  // compact UI is custom-built (point 1/2), not the generic field renderer.
   { n: 4, label: 'Takeout Spare', extraFields: [
       { key: 'itemName', label: 'Item Name', masterList: 'items' },
-      { key: 'spareTaken', label: 'Qty', type: 'number' }
+      { key: 'spareTaken', label: 'Qty', type: 'number' },
+      { key: 'spareOutJson', label: 'Spares Taken (all items)' }
     ] },
   // Reordered (was step 6) — spare in/out logged before the OTP solve step.
+  // spareInJson (point 3) carries per-item new/old returned counts; also
+  // custom-built rather than the generic renderer.
   { n: 5, label: 'Spare In/Out Entry (in the field)', extraFields: [
       { key: 'qtyReturned', label: 'Item Qty (Returned)', type: 'number' },
-      { key: 'reasonIfShort', label: 'Reason (if Short)' }
+      { key: 'reasonIfShort', label: 'Reason (if Short)' },
+      { key: 'spareInJson', label: 'Spares In (all items, new/old)' }
     ] },
   // Reordered (was step 5) — now comes after In/Out.
   { n: 6, label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
@@ -5828,6 +5875,8 @@ async function ensureSfmsMasterLists() {
   sfmsZoneList = Array.isArray(zones) ? zones : [];
   sfmsAreaZoneMap = (areaZoneMap && typeof areaZoneMap === 'object' && !areaZoneMap.error) ? areaZoneMap : {};
   sfmsMasterListsLoaded = true;
+  const itemListEl = document.getElementById('sfmsItemNameList');
+  if (itemListEl) itemListEl.innerHTML = sfmsItemsList.map(v => `<option value="${v.replace(/"/g, '&quot;')}">`).join('');
 }
 function sfmsMasterListFor(name) {
   if (name === 'items') return sfmsItemsList;
@@ -6983,27 +7032,17 @@ function buildSfmsNextActionHtml(c, compact) {
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
     const fieldsToShow = nextStepDef.n === 4 ? nextStepDef.extraFields.filter(f => f.key !== 'spareReturned') : nextStepDef.extraFields;
     const statusSelectHtml = nextStepDef.statusOptions ? renderSfmsStatusSelect(nextStepDef, c.row, compact) : '';
-    // Step 5 (Spare In/Out): show what was taken in Step 4 for comparison, and
-    // only reveal "Reason (if Short)" once the returned qty is actually short.
-    let extraInputsHtml, takenSummaryHtml = '';
-    if (nextStepDef.n === 5) {
-      const takeoutStep = c.steps.find(s => s.n === 4);
-      const takenQty = Number(takeoutStep.spareTaken) || 0;
-      takenSummaryHtml = compact ? '' : `<div style="font-size:13px;color:var(--gray-700);margin-bottom:12px;background:var(--surface);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
-        <b>Taken in Step 4:</b> ${takeoutStep.itemName || '—'} × ${takenQty}
-      </div>`;
-      const qtyField = fieldsToShow.find(f => f.key === 'qtyReturned');
+    // Step 4 (Takeout) / Step 5 (In/Out): custom multi-spare row UI (points
+    // 1/2/3), not the generic one-field-per-line renderer — see
+    // sfmsBuildSpareOutRowsHtml/sfmsBuildSpareInRowsHtml.
+    let extraInputsHtml, takenSummaryHtml = '', spareRowsHtml = '';
+    if (nextStepDef.n === 4) {
+      spareRowsHtml = sfmsBuildSpareOutRowsHtml(c);
+      extraInputsHtml = '';
+    } else if (nextStepDef.n === 5) {
       const reasonField = fieldsToShow.find(f => f.key === 'reasonIfShort');
-      // Compact: "Taken: N" as its own visible label instead of buried in the
-      // placeholder text (which was getting cut off and disappears once typed into).
-      const takenLabelHtml = compact
-        ? `<span style="font-size:12px;color:var(--gray-600);white-space:nowrap"><b>${takeoutStep.itemName || 'Item'} taken:</b> ${takenQty}</span>`
-        : '';
-      extraInputsHtml = `
-        ${takenLabelHtml}
-        <input type="number" id="sfmsExtra_${c.row}_qtyReturned" placeholder="${qtyField.label}" oninput="checkSfmsSpareShortage(${c.row},${takenQty})" style="${compact ? SFMS_INPUT_STYLE_COMPACT.replace('min-width:150px', 'width:90px;min-width:0') : SFMS_INPUT_STYLE}"/>
-        <div id="sfmsReasonWrap_${c.row}" style="display:none">${renderSfmsField(reasonField, c.row, compact)}</div>
-      `;
+      spareRowsHtml = sfmsBuildSpareInRowsHtml(c);
+      extraInputsHtml = `<div id="sfmsReasonWrap_${c.row}" style="display:none;margin-top:6px">${renderSfmsField(reasonField, c.row, compact)}</div>`;
     } else if (nextStepDef.n === 3 && compact) {
       // Assign tab (compact): Zone isn't re-picked per row anymore, but it's
       // also not just whatever the top filter happens to be set to — the top
@@ -7025,6 +7064,26 @@ function buildSfmsNextActionHtml(c, compact) {
       ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:10px">Last checked: ${fmtDateDMY(stepData.actual)}</div>` : '';
     const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     const btn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">${btnLabel}</button>`;
+    if (nextStepDef.n === 4) {
+      // Takeout: an editable, addable/removable list of item+qty rows
+      // (sfmsSpareOutRows_<row> is the container sfmsAddSpareOutRow/
+      // sfmsCollectSpareOutRows look up by id).
+      actionHtml = `<div style="${compact ? 'min-width:260px' : ''}">
+        ${compact ? '' : `<div style="${titleStyle}">${nextStepDef.label}</div>`}
+        <div id="sfmsSpareOutRows_${c.row}">${spareRowsHtml}</div>
+        <button type="button" onclick="sfmsAddSpareOutRow(${c.row})" class="btn btn-outline btn-sm" style="margin-bottom:8px">+ Add Spare</button>
+        ${btn}
+      </div>`;
+    } else if (nextStepDef.n === 5) {
+      // In/Out: a fixed set of rows (whatever was taken out in Step 4),
+      // each with its own New/Old returned counts.
+      actionHtml = `<div style="${compact ? 'min-width:260px' : ''}">
+        ${compact ? '' : `<div style="${titleStyle}">${nextStepDef.label}</div>`}
+        ${spareRowsHtml}
+        ${extraInputsHtml}
+        ${btn}
+      </div>`;
+    } else {
     // Compact (step-tab table cell): field(s) + submit button on one line,
     // instead of the modal's roomier stacked layout.
     actionHtml = compact
@@ -7039,6 +7098,7 @@ function buildSfmsNextActionHtml(c, compact) {
         ${extraInputsHtml}
         ${btn}
       ${wrapClose}`;
+    }
   } else {
     actionHtml = compact
       ? `<div style="color:var(--color-success-text);font-weight:700;font-size:12px">✓ Closed</div>`
@@ -7132,13 +7192,97 @@ function renderComplaintDetailBody(c) {
 }
 
 // Reveals "Reason (if Short)" only once the entered return qty is actually
-// below what Step 3 recorded as taken — no need to explain a full return.
+// below what Step 4 recorded as taken — no need to explain a full return.
 function checkSfmsSpareShortage(row, takenQty) {
   const qtyEl = document.getElementById(`sfmsExtra_${row}_qtyReturned`);
   const wrap = document.getElementById(`sfmsReasonWrap_${row}`);
   if (!qtyEl || !wrap) return;
   const val = parseFloat(qtyEl.value);
   wrap.style.display = (!isNaN(val) && val < takenQty) ? 'block' : 'none';
+}
+
+// ── Multi-spare Takeout (points 1/2) — more than one different spare item
+// can be needed for one complaint, "+ Add Spare" adds another row; item name
+// is a real searchable text+datalist input (sfmsItemNameList), not the
+// native <select>'s letter-jump search. ──────────────────────────────────
+let sfmsSpareOutRowSeq = 1000; // offset so dynamically-added rows never collide with the initial indices (0,1,2..) built below
+function sfmsSpareOutRowHtml(row, id, item, qty) {
+  return `<div id="sfmsSpareOutRow_${row}_${id}" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+    <input type="text" list="sfmsItemNameList" placeholder="Item Name" id="sfmsSpareOutItem_${row}_${id}" value="${(item || '').replace(/"/g, '&quot;')}" style="flex:1;min-width:110px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <input type="number" placeholder="Qty" id="sfmsSpareOutQty_${row}_${id}" value="${qty || ''}" style="width:55px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <button type="button" onclick="sfmsRemoveSpareOutRow(${row},${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:0;flex-shrink:0">✕</button>
+  </div>`;
+}
+function sfmsAddSpareOutRow(row) {
+  const wrap = document.getElementById(`sfmsSpareOutRows_${row}`);
+  if (!wrap) return;
+  wrap.insertAdjacentHTML('beforeend', sfmsSpareOutRowHtml(row, sfmsSpareOutRowSeq++, '', ''));
+}
+function sfmsRemoveSpareOutRow(row, id) {
+  const el = document.getElementById(`sfmsSpareOutRow_${row}_${id}`);
+  if (el) el.remove();
+}
+// Pre-fills from an already-started takeout (spareOutJson, or the old
+// single itemName/spareTaken for a row that started before this existed),
+// or just one empty row for a fresh one.
+function sfmsTakeoutItems(c) {
+  const stepData = c.steps.find(s => s.n === 4);
+  let items = [];
+  try { items = stepData.spareOutJson ? JSON.parse(stepData.spareOutJson) : []; } catch (e) {}
+  if (!items.length && stepData.itemName) items = [{ item: stepData.itemName, qty: stepData.spareTaken }];
+  return items;
+}
+function sfmsBuildSpareOutRowsHtml(c) {
+  const items = sfmsTakeoutItems(c);
+  return (items.length ? items : [{ item: '', qty: '' }]).map((it, i) => sfmsSpareOutRowHtml(c.row, i, it.item, it.qty)).join('');
+}
+function sfmsCollectSpareOutRows(row) {
+  const wrap = document.getElementById(`sfmsSpareOutRows_${row}`);
+  if (!wrap) return [];
+  const result = [];
+  for (const rowEl of wrap.children) {
+    const idSuffix = rowEl.id.split('_').pop();
+    const item = (document.getElementById(`sfmsSpareOutItem_${row}_${idSuffix}`)?.value || '').trim();
+    const qty = (document.getElementById(`sfmsSpareOutQty_${row}_${idSuffix}`)?.value || '').trim();
+    if (item || qty) result.push({ item, qty });
+  }
+  return result;
+}
+
+// ── Multi-spare In/Out (point 3) — for every item that was taken out,
+// separate New (unused, back to stock) and Old (faulty, removed from the
+// product) returned counts, instead of one combined "Qty Returned". ──────
+function sfmsSpareInRowHtml(row, id, item, takenQty) {
+  return `<div id="sfmsSpareInRow_${row}_${id}" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${item || '—'} <span style="color:var(--gray-400);font-weight:400">(took ${takenQty})</span></span>
+    <input type="number" placeholder="New" title="New (unused) returned" id="sfmsSpareInNew_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <input type="number" placeholder="Old" title="Old (removed from product) returned" id="sfmsSpareInOld_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+  </div>`;
+}
+function sfmsBuildSpareInRowsHtml(c) {
+  const items = sfmsTakeoutItems(c);
+  return items.map((it, i) => sfmsSpareInRowHtml(c.row, i, it.item, Number(it.qty) || 0)).join('');
+}
+function sfmsCollectSpareInRows(row, c) {
+  const items = sfmsTakeoutItems(c);
+  return items.map((it, i) => ({
+    item: it.item,
+    takenQty: Number(it.qty) || 0,
+    newQty: Number(document.getElementById(`sfmsSpareInNew_${row}_${i}`)?.value) || 0,
+    oldQty: Number(document.getElementById(`sfmsSpareInOld_${row}_${i}`)?.value) || 0
+  }));
+}
+// Reveals "Reason (if Short)" once total returned (new+old, across every
+// item) falls short of total taken — same trigger as before, just summed
+// across all items instead of a single one.
+function sfmsCheckSpareInShortage(row) {
+  const c = sfmsData.find(x => x.row === row);
+  const wrap = document.getElementById(`sfmsReasonWrap_${row}`);
+  if (!c || !wrap) return;
+  const rows = sfmsCollectSpareInRows(row, c);
+  const takenTotal = rows.reduce((s, r) => s + r.takenQty, 0);
+  const returnedTotal = rows.reduce((s, r) => s + r.newQty + r.oldQty, 0);
+  wrap.style.display = returnedTotal < takenTotal ? 'block' : 'none';
 }
 
 async function advanceSfmsStep(row, step, stage) {
@@ -7152,8 +7296,32 @@ async function advanceSfmsStep(row, step, stage) {
     if (!body.status) { showToast(`Select ${stepDef.label}`, 'error'); return; }
   }
 
+  // Step 4 (Takeout)/Step 5 (In/Out): multi-spare rows aren't simple
+  // sfmsExtra_<row>_<key> fields — collected separately (points 1/2/3),
+  // skipped in the generic field loop below.
+  const skipGenericKeys = new Set();
+  if (step === 4) {
+    const items = sfmsCollectSpareOutRows(row);
+    if (!items.length) { showToast('Add at least one spare item', 'error'); return; }
+    body.itemName = items[0].item;
+    body.spareTaken = items[0].qty;
+    body.spareOutJson = JSON.stringify(items);
+    ['itemName', 'spareTaken', 'spareOutJson'].forEach(k => skipGenericKeys.add(k));
+  }
+  let spareInReturnedTotal = 0, spareInTakenTotal = 0;
+  if (step === 5) {
+    const c = sfmsData.find(x => x.row === row);
+    const items = sfmsCollectSpareInRows(row, c);
+    spareInTakenTotal = items.reduce((s, r) => s + r.takenQty, 0);
+    spareInReturnedTotal = items.reduce((s, r) => s + r.newQty + r.oldQty, 0);
+    body.qtyReturned = spareInReturnedTotal;
+    body.spareInJson = JSON.stringify(items);
+    ['qtyReturned', 'spareInJson'].forEach(k => skipGenericKeys.add(k));
+  }
+
   const fieldsForStage = stage ? stepDef.extraFields.filter(f => f.stage === stage) : stepDef.extraFields;
   for (const f of fieldsForStage) {
+    if (skipGenericKeys.has(f.key)) continue;
     const value = readSfmsField(f, row);
     if (f.masterList && value === '__add_new__') {
       showToast(`Finish adding the new ${f.label.toLowerCase()} first`, 'error');
@@ -7162,16 +7330,11 @@ async function advanceSfmsStep(row, step, stage) {
     body[f.key] = value;
   }
 
-  // Step 5 (Spare In/Out): require a reason whenever the returned qty is short of what was taken.
-  if (step === 5) {
-    const c = sfmsData.find(x => x.row === row);
-    const takeoutStep = c ? c.steps.find(s => s.n === 4) : null;
-    const takenQty = takeoutStep ? (Number(takeoutStep.spareTaken) || 0) : 0;
-    const returnedQty = Number(body.qtyReturned);
-    if (!isNaN(returnedQty) && returnedQty < takenQty && !body.reasonIfShort) {
-      showToast('Enter a reason for the shortage', 'error');
-      return;
-    }
+  // Step 5 (Spare In/Out): require a reason whenever total returned
+  // (new + old, across every item) falls short of total taken.
+  if (step === 5 && spareInReturnedTotal < spareInTakenTotal && !body.reasonIfShort) {
+    showToast('Enter a reason for the shortage', 'error');
+    return;
   }
 
   if (stepDef.otpRequired) {
@@ -8056,6 +8219,128 @@ async function deletePriceListItem(id, name) {
   showToast('Removed');
   await loadO2dPriceList(true);
   renderPriceListGrid();
+}
+
+// ══════════════════════════════════════════════════════
+// STOCK — Ajanta-brand appliance stock (fans, blenders etc.), imported from
+// the "Ajanta Stock" Google Sheet into ajanta_stock_items. Access-gated by
+// 'stock'; editing (add/edit/delete) is admin-only (server checks it too,
+// this is just to avoid showing controls that'd 403).
+// ══════════════════════════════════════════════════════
+let stockItems = [];
+let stockCanEdit = false;
+let stockLoaded = false;
+let stockSearchQ = '';
+
+async function loadStockPage() {
+  await loadStock(false);
+  renderStockGrid();
+}
+
+async function loadStock(force) {
+  if (stockLoaded && !force) return;
+  const r = await api('/api/stock');
+  if (r && r.error) { document.getElementById('stockWrap').innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; return; }
+  stockItems = (r && r.items) || [];
+  stockCanEdit = !!(r && r.canEdit);
+  stockLoaded = true;
+}
+
+function onStockSearchInput(v) { stockSearchQ = v; renderStockGrid(); }
+
+function stockRowHtml(item) {
+  const editBtns = stockCanEdit ? `
+    <div style="display:flex;gap:4px">
+      <button class="btn btn-outline btn-sm" onclick="openEditStockModal(${item.id})">✎ Edit</button>
+      <button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${item.description.replace(/'/g,"\\'")}')" title="Remove">🗑</button>
+    </div>` : '';
+  const stock = Number(item.current_stock);
+  return `<tr>
+    <td style="font-weight:600">${item.item_code}</td>
+    <td>${item.description}</td>
+    <td>${item.std_pack !== null ? item.std_pack : '—'}</td>
+    <td>${item.uom || '—'}</td>
+    <td style="white-space:nowrap;font-weight:700${stock < 0 ? ';color:var(--color-danger)' : ''}">${stock.toLocaleString('en-IN')}</td>
+    <td>${item.as_of_date ? item.as_of_date.slice(0,10) : '—'}</td>
+    <td style="white-space:nowrap">${editBtns}</td>
+  </tr>`;
+}
+
+function renderStockGrid() {
+  const wrap = document.getElementById('stockWrap');
+  if (!wrap) return;
+  const q = stockSearchQ.trim().toLowerCase();
+  const filtered = q ? stockItems.filter(it => it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)) : stockItems;
+  const totalStock = filtered.reduce((s, it) => s + Number(it.current_stock), 0);
+
+  wrap.innerHTML = `
+    <div style="padding:16px">
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <input type="text" placeholder="🔍 Search item code or description…" value="${stockSearchQ.replace(/"/g,'&quot;')}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
+        ${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
+      </div>
+      <table>
+        <thead><tr><th>Item Code</th><th>Description</th><th>Std. Pack</th><th>UOM</th><th>Current Stock</th><th>As Of</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${filtered.map(stockRowHtml).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">No items found</td></tr>`}
+        </tbody>
+      </table>
+      <div style="font-size:12px;color:var(--gray-400);padding:12px 4px">${filtered.length} item${filtered.length===1?'':'s'} · total stock ${totalStock.toLocaleString('en-IN')}</div>
+    </div>`;
+}
+
+function openAddStockModal() {
+  document.getElementById('stkModalTitle').textContent = '+ Add Item';
+  document.getElementById('stkItemId').value = '';
+  ['stkItemCode','stkDescription','stkStdPack','stkUom','stkCurrentStock'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('stkItemCode').disabled = false;
+  document.getElementById('stkAsOfDate').value = new Date().toISOString().slice(0,10);
+  document.getElementById('stockModal').classList.add('open');
+}
+
+function openEditStockModal(id) {
+  const item = stockItems.find(it => it.id === id);
+  if (!item) { showToast('Item not found — please refresh', 'error'); return; }
+  document.getElementById('stkModalTitle').textContent = '✎ Edit Item';
+  document.getElementById('stkItemId').value = item.id;
+  document.getElementById('stkItemCode').value = item.item_code;
+  document.getElementById('stkItemCode').disabled = true; // item_code is the unique key — remove & re-add instead of renaming
+  document.getElementById('stkDescription').value = item.description;
+  document.getElementById('stkStdPack').value = item.std_pack !== null ? item.std_pack : '';
+  document.getElementById('stkUom').value = item.uom || '';
+  document.getElementById('stkCurrentStock').value = item.current_stock;
+  document.getElementById('stkAsOfDate').value = item.as_of_date ? item.as_of_date.slice(0,10) : '';
+  document.getElementById('stockModal').classList.add('open');
+}
+
+async function submitStockItem() {
+  const id = document.getElementById('stkItemId').value;
+  const body = {
+    itemCode: document.getElementById('stkItemCode').value.trim(),
+    description: document.getElementById('stkDescription').value.trim(),
+    stdPack: document.getElementById('stkStdPack').value.trim(),
+    uom: document.getElementById('stkUom').value.trim(),
+    currentStock: document.getElementById('stkCurrentStock').value.trim(),
+    asOfDate: document.getElementById('stkAsOfDate').value
+  };
+  const res = id
+    ? await api(`/api/stock/${id}`, 'PUT', body)
+    : await api('/api/stock', 'POST', body);
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(id ? '✅ Item updated!' : '✅ Item added!');
+  closeModal('stockModal');
+  await loadStock(true);
+  renderStockGrid();
+}
+
+async function deleteStockItem(id, name) {
+  if (!confirm(`Remove "${name}" from Stock?`)) return;
+  const res = await api(`/api/stock/${id}`, 'DELETE');
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('Removed');
+  await loadStock(true);
+  renderStockGrid();
 }
 
 // ── Catalogue PDFs — two separate histories: Price List PDF and Catalogue
