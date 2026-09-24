@@ -4335,7 +4335,7 @@ app.delete('/api/o2d-fms/catalogue-pdfs/:id', requireAuth, async (req, res) => {
 // this just displays the latest synced snapshot — same viewing
 // permission as Price List & Catalogue.
 // ══════════════════════════════════════════════════════
-const BILLS_RECEIVABLE_SHEET_ID = '1n3Dyw_srzmPybO1PtXT0JDVvx-Jo_3I4j9TKvzlsqoo';
+const BILLS_RECEIVABLE_SHEET_ID = '1uXHUmSzX7nAM2fYS3lf5NzIgfVDEbccgHXQuTODHS1Y'; // "O2D Bills Receivable (Tally Sync)" — switched here 24-Sep-2026
 let _billsReceivableCache = null; // { bills, lastSynced, ts }
 const BILLS_RECEIVABLE_CACHE_TTL_MS = 5 * 60 * 1000; // the local sync only writes at most a few times a day
 
