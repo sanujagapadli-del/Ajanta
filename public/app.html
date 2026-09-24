@@ -2571,12 +2571,12 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- ── O2D DEALERS: STATEMENT / LEDGER MODAL ── -->
 <div class="modal-overlay" id="dealerLedgerModal">
-  <div class="modal" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal" style="max-width:720px;max-height:88vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <h3 style="margin:0" id="dlModalTitle">📋 Statement</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('dealerLedgerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <div style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Bills abhi bhi outstanding ho unhi ka + saare synced payments — Tally se pichhle sync tak ka data.</div>
+    <div style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Is financial year ka poora ledger (Tally jaisa) + abhi outstanding bills — Tally se pichhle sync tak ka data.</div>
     <div id="dlBody" style="overflow-y:auto;flex:1">Loading…</div>
   </div>
 </div>
@@ -8033,15 +8033,17 @@ async function openDealerLedgerModal(name) {
       <div style="font-size:11px;color:var(--gray-500);text-align:right">${r.billCount} open bill${r.billCount===1?'':'s'}<br/>${r.paymentCount} payment${r.paymentCount===1?'':'s'} synced</div>
     </div>`;
 
-  if (!r.entries.length) {
+  const ledgerHtml = renderDlLedgerHtml(r.ledger);
+  const bills = r.entries.filter(e => e.type === 'bill');
+  if (!ledgerHtml && !bills.length) {
     const note = r.outstanding
-      ? `Outstanding upar Tally ke real ledger balance se hai (sahi hai) — lekin is dealer ke bills Tally mein bill-wise track nahi hain, isliye neeche list karne layak koi individual bill ya payment record nahi mila.`
+      ? `Outstanding upar Tally ke real ledger balance se hai (sahi hai) — lekin is financial year mein is dealer ka koi voucher sync nahi mila, aur bill-wise bills bhi nahi hain.`
       : `Koi bill ya payment sync nahi hua abhi is dealer ke liye.`;
     body.innerHTML = outstandingHtml + `<div class="empty">${note}</div>`;
     return;
   }
 
-  const rowsHtml = r.entries.map((e, i) => {
+  const rowsHtml = bills.map((e, i) => {
     if (e.type === 'bill') {
       const lateColor = e.bucket === '90+' ? 'var(--color-danger-text)' : 'var(--gray-800)';
       const hasItems = e.items && e.items.length;
@@ -8072,7 +8074,8 @@ async function openDealerLedgerModal(name) {
     </tr>`;
   }).join('');
 
-  body.innerHTML = outstandingHtml + `
+  const billsHtml = bills.length ? `
+    <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px">🧾 Open bills (bill-wise) — ${bills.length}</div>
     <div class="mis-table-wrap" style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse">
         <thead><tr style="text-align:left;font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">
@@ -8081,8 +8084,47 @@ async function openDealerLedgerModal(name) {
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>
-    <div style="font-size:10.5px;color:var(--gray-400);margin-top:6px">Kisi BILL row par click karo uske items dekhne ke liye.</div>
-    ${r.syncedAt ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:4px">Last synced: ${new Date(r.syncedAt).toLocaleString('en-IN')}</div>` : ''}`;
+    <div style="font-size:10.5px;color:var(--gray-400);margin-top:6px">Kisi BILL row par click karo uske items dekhne ke liye.</div>` : '';
+
+  body.innerHTML = outstandingHtml + ledgerHtml + billsHtml +
+    (r.syncedAt ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:8px">Last synced: ${new Date(r.syncedAt).toLocaleString('en-IN')}</div>` : '');
+}
+
+// Tally "Ledger Vouchers"-style table for the current FY: Opening → every
+// voucher the party appears in (Dr/Cr + running balance) → Closing.
+// Balance sign: positive = Dr (dealer owes us), negative = Cr (advance).
+function renderDlLedgerHtml(L) {
+  if (!L || !L.rows || !L.rows.length) return '';
+  const fmtBal = b => `${inr(Math.abs(b))} ${b < 0 ? 'Cr' : 'Dr'}`;
+  const cell = 'padding:6px 8px;font-size:12px';
+  return `
+    <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin:4px 0 6px">📒 Ledger — ${L.fyLabel}</div>
+    <div class="mis-table-wrap" style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="text-align:left;font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">
+          <th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Particulars</th><th style="padding:6px 8px;text-align:right">Debit</th><th style="padding:6px 8px;text-align:right">Credit</th><th style="padding:6px 8px;text-align:right">Balance</th>
+        </tr></thead>
+        <tbody>
+          <tr style="background:var(--gray-50)">
+            <td style="${cell};font-weight:700" colspan="4">Opening Balance${L.openingKnown ? '' : ' <span style="font-weight:400;color:var(--gray-400)">(Tally balance sync nahi — 0 se shuru)</span>'}</td>
+            <td style="${cell};text-align:right;font-weight:700">${fmtBal(L.opening)}</td>
+          </tr>
+          ${L.rows.map(x => `<tr>
+            <td style="${cell};white-space:nowrap">${x.date || '—'}</td>
+            <td style="${cell}">${x.particulars}<div style="font-size:10.5px;color:var(--gray-500)">${x.vchType}${x.vchNo ? ' · ' + x.vchNo : ''}</div></td>
+            <td style="${cell};text-align:right">${x.debit ? inr(x.debit) : ''}</td>
+            <td style="${cell};text-align:right;color:var(--color-success-text)">${x.credit ? inr(x.credit) : ''}</td>
+            <td style="${cell};text-align:right;font-weight:600">${fmtBal(x.balance)}</td>
+          </tr>`).join('')}
+          <tr style="background:var(--gray-50);font-weight:700">
+            <td style="${cell}" colspan="2">Closing Balance</td>
+            <td style="${cell};text-align:right">${inr(L.totalDebit)}</td>
+            <td style="${cell};text-align:right">${inr(L.totalCredit)}</td>
+            <td style="${cell};text-align:right">${L.closing !== null ? fmtBal(L.closing) : fmtBal(L.rows[L.rows.length - 1].balance)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function toggleDlItems(i) {

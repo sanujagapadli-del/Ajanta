@@ -4410,13 +4410,14 @@ async function getLedgerBalancesByDealer() {
   if (_ledgerBalancesCache && (Date.now() - _ledgerBalancesCache.ts) < LEDGER_BALANCES_CACHE_TTL_MS) return _ledgerBalancesCache.byParty;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   const r = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerBalances'!A2:C10000`
+    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerBalances'!A2:D10000`
   }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
-  const byParty = {}; // lowercased party name -> { name, closingBalance, syncedAt }
+  const byParty = {}; // lowercased party name -> { name, closingBalance, syncedAt, drCr }
   (r.data.values || []).forEach(row => {
     const name = (row[0] || '').trim();
     if (!name) return;
-    byParty[name.toLowerCase()] = { name, closingBalance: Number(row[1]) || 0, syncedAt: row[2] || '' };
+    // drCr is '' on syncs older than the column — treated as Dr (the normal case for a debtor)
+    byParty[name.toLowerCase()] = { name, closingBalance: Number(row[1]) || 0, syncedAt: row[2] || '', drCr: (row[3] || '').trim() };
   });
   _ledgerBalancesCache = { byParty, ts: Date.now() };
   return byParty;
@@ -4447,6 +4448,78 @@ async function getSalesItemsByBillKey() {
   });
   _salesItemsCache = { byKey, ts: Date.now() };
   return byKey;
+}
+
+// Every ledger leg of every voucher in the current financial year (the
+// sync's "LedgerVouchers" tab, from a date-bound Voucher Collection).
+// Grouped by voucher, plus an index from party name → the vouchers that
+// party appears in, so one dealer's ledger can be rebuilt Tally-style.
+let _ledgerVouchersCache = null; // { byKey, legIndex, ts }
+const LEDGER_VOUCHERS_CACHE_TTL_MS = 5 * 60 * 1000;
+async function getLedgerVouchers() {
+  if (_ledgerVouchersCache && (Date.now() - _ledgerVouchersCache.ts) < LEDGER_VOUCHERS_CACHE_TTL_MS) return _ledgerVouchersCache;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const r = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerVouchers'!A2:G200000`
+  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const byKey = {};    // voucher key -> { date, vchType, vchNo, legs: [{ ledgerName, ledgerKey, amount }] }
+  const legIndex = {}; // lowercased ledger name -> Set of voucher keys
+  (r.data.values || []).forEach(row => {
+    const key = (row[0] || '').trim(), ledgerName = (row[4] || '').trim();
+    const amount = Number(row[5]);
+    if (!key || !ledgerName || !amount) return;
+    if (!byKey[key]) byKey[key] = { date: row[1] || '', vchType: row[2] || '', vchNo: row[3] || '', legs: [] };
+    const ledgerKey = ledgerName.toLowerCase();
+    byKey[key].legs.push({ ledgerName, ledgerKey, amount });
+    if (!legIndex[ledgerKey]) legIndex[ledgerKey] = new Set();
+    legIndex[ledgerKey].add(key);
+  });
+  _ledgerVouchersCache = { byKey, legIndex, ts: Date.now() };
+  return _ledgerVouchersCache;
+}
+
+function financialYearStartLabel(today) {
+  const y = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+  return `1-Apr-${String(y).slice(2)}`;
+}
+
+// A party's FY ledger the way Tally's "Ledger Vouchers" screen shows it:
+// one line per voucher the party appears in, Debit/Credit from the party's
+// own leg (Tally export sign: negative = Dr, positive = Cr), Particulars =
+// the biggest opposite leg of the same voucher (Sales A/c, Cash, a bank…),
+// running balance from an opening balance derived as closing − FY net.
+function buildDealerFyLedger(dealerKey, vouchers, ledgerBalance) {
+  const keys = vouchers.legIndex[dealerKey] ? [...vouchers.legIndex[dealerKey]] : [];
+  const rows = [];
+  keys.forEach(k => {
+    const v = vouchers.byKey[k];
+    const partyLegs = v.legs.filter(l => l.ledgerKey === dealerKey);
+    const others = v.legs.filter(l => l.ledgerKey !== dealerKey).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    partyLegs.forEach(pl => {
+      rows.push({
+        date: v.date, vchType: v.vchType, vchNo: v.vchNo,
+        particulars: others[0] ? others[0].ledgerName : v.vchType,
+        debit: pl.amount < 0 ? -pl.amount : 0,
+        credit: pl.amount > 0 ? pl.amount : 0
+      });
+    });
+  });
+  rows.sort((a, b) => {
+    const da = parseAnyDate(a.date), db = parseAnyDate(b.date);
+    if (da && db && da - db !== 0) return da - db;
+    return (parseInt(a.vchNo, 10) || 0) - (parseInt(b.vchNo, 10) || 0);
+  });
+  const totalDebit = rows.reduce((s, r) => s + r.debit, 0);
+  const totalCredit = rows.reduce((s, r) => s + r.credit, 0);
+  // Our convention here: positive balance = Dr (dealer owes us), negative = Cr (advance).
+  const closing = ledgerBalance
+    ? (ledgerBalance.drCr === 'Cr' ? -ledgerBalance.closingBalance : ledgerBalance.closingBalance)
+    : null;
+  const openingKnown = closing !== null;
+  const opening = openingKnown ? closing - (totalDebit - totalCredit) : 0;
+  let bal = opening;
+  rows.forEach(r => { bal += r.debit - r.credit; r.balance = bal; });
+  return { fyLabel: `${financialYearStartLabel(new Date())} se aaj tak`, opening, openingKnown, closing, totalDebit, totalCredit, rows };
 }
 
 app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
@@ -4493,15 +4566,17 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
     const name = (req.query.name || '').trim();
     if (!name) return res.status(400).json({ error: 'name is required' });
     const key = name.toLowerCase();
-    const [{ bills }, paymentsByParty, ledgerByParty, itemsByKey] = await Promise.all([
+    const [{ bills }, paymentsByParty, ledgerByParty, itemsByKey, vouchers] = await Promise.all([
       getBillsReceivable(),
       getTallyPaymentsByDealer(),
       getLedgerBalancesByDealer(),
-      getSalesItemsByBillKey()
+      getSalesItemsByBillKey(),
+      getLedgerVouchers().catch(() => ({ byKey: {}, legIndex: {} }))
     ]);
     const dealerBills = bills.filter(b => b.party.trim().toLowerCase() === key);
     const payments = paymentsByParty[key] || [];
     const ledger = ledgerByParty[key] || null;
+    const fyLedger = buildDealerFyLedger(key, vouchers, ledger);
 
     const entries = [
       ...dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, dueDate: b.dueDate, daysOverdue: b.daysOverdue, bucket: b.bucket, items: itemsByKey[`${key}|||${b.billRef}`] || null })),
@@ -4521,7 +4596,8 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
       syncedAt: ledger ? ledger.syncedAt : (dealerBills[0] ? dealerBills[0].syncedAt : null),
       billCount: dealerBills.length,
       paymentCount: payments.length,
-      entries
+      entries,
+      ledger: fyLedger
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
