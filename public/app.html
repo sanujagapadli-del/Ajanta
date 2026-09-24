@@ -8240,9 +8240,10 @@ async function deletePriceListItem(id, name) {
 // ══════════════════════════════════════════════════════
 // STOCK — Ajanta-brand appliance stock (fans, blenders etc.), imported from
 // the "Ajanta Stock" Google Sheet into ajanta_stock_items. Access-gated by
-// 'stock'. Three tabs — Item List / Inward / Outward — mirror the reference
-// IMS Trading screen. Catalog add/edit/delete stays admin-only; logging an
-// Inward/Outward entry is open to anyone with 'stock' access (day-to-day
+// 'stock'. Top tabs — Inward / Outward / Report — mirror the reference IMS
+// Trading screen; Inward/Outward each have their own Log/List sub-tabs the
+// same way. Catalog add/edit/delete (under Report) stays admin-only; logging
+// an Inward/Outward entry is open to anyone with 'stock' access (day-to-day
 // store use), cancelling one is admin-only (server checks all of this too,
 // this is just to avoid showing controls that'd 403).
 // ══════════════════════════════════════════════════════
@@ -8250,16 +8251,18 @@ let stockItems = [];
 let stockCanEdit = false;
 let stockLoaded = false;
 let stockSearchQ = '';
-let stockTab = 'items'; // 'items' | 'inward' | 'outward'
+let stockTab = 'inward'; // 'inward' | 'outward' | 'report'
 let stockInwardRows = [];
 let stockInwardLoaded = false;
 let stockInwardCanEdit = false;
+let stockInwardSubTab = 'log'; // 'log' | 'list'
 let stockOutwardRows = [];
 let stockOutwardLoaded = false;
 let stockOutwardCanEdit = false;
+let stockOutwardSubTab = 'log';
 
 async function loadStockPage() {
-  await loadStock(false);
+  await Promise.all([loadStock(false), loadStockTxns('IN', false)]);
   renderStockPage();
 }
 
@@ -8286,15 +8289,15 @@ function renderStockPage() {
   wrap.innerHTML = `
     <div style="padding:16px">
       <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1.5px solid var(--gray-200)">
-        ${tabBtn('items','📦 Item List')}
         ${tabBtn('inward','⬇ Inward')}
         ${tabBtn('outward','⬆ Outward')}
+        ${tabBtn('report','📋 Report')}
       </div>
       <div id="stockTabBody"></div>
     </div>`;
-  if (stockTab === 'items') renderStockGrid();
-  else if (stockTab === 'inward') renderStockMovementTab('IN');
-  else renderStockMovementTab('OUT');
+  if (stockTab === 'inward') renderStockMovementTab('IN');
+  else if (stockTab === 'outward') renderStockMovementTab('OUT');
+  else renderStockGrid();
 }
 
 function onStockSearchInput(v) { stockSearchQ = v; renderStockGrid(); }
@@ -8374,15 +8377,39 @@ function stockMovementRowHtml(dir, row) {
   </tr>`;
 }
 
+function switchStockSubTab(dir, sub) {
+  if (dir === 'IN') stockInwardSubTab = sub; else stockOutwardSubTab = sub;
+  renderStockMovementSubBody(dir);
+}
+
 function renderStockMovementTab(dir) {
   const body = document.getElementById('stockTabBody');
   if (!body) return;
-  const rows = dir === 'IN' ? stockInwardRows : stockOutwardRows;
+  const sub = dir === 'IN' ? stockInwardSubTab : stockOutwardSubTab;
+  const label = dir === 'IN' ? 'Inward' : 'Outward';
+  const subBtn = (key, text) => `<button class="btn ${sub===key?'btn-primary':'btn-outline'} btn-sm" onclick="switchStockSubTab('${dir}','${key}')">${text}</button>`;
+  body.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      ${subBtn('log','Log ' + label)}
+      ${subBtn('list', label + ' List')}
+    </div>
+    <div id="stockMv${dir}Body"></div>`;
+  renderStockMovementSubBody(dir);
+}
+
+function renderStockMovementSubBody(dir) {
+  const body = document.getElementById(`stockMv${dir}Body`);
+  if (!body) return;
+  const sub = dir === 'IN' ? stockInwardSubTab : stockOutwardSubTab;
+  if (sub === 'log') renderStockMovementForm(dir, body);
+  else renderStockMovementList(dir, body);
+}
+
+function renderStockMovementForm(dir, body) {
   const label = dir === 'IN' ? 'Inward' : 'Outward';
   const today = new Date().toISOString().slice(0,10);
   body.innerHTML = `
-    <div style="background:var(--surface-alt,#f8fafc);border:1px solid var(--gray-200);border-radius:10px;padding:14px;margin-bottom:18px">
-      <div style="font-weight:700;margin-bottom:10px">Log ${label}</div>
+    <div style="background:var(--surface-alt,#f8fafc);border:1px solid var(--gray-200);border-radius:10px;padding:14px">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px">
         <div class="form-group"><label>Date</label><input type="date" id="stkMv${dir}Date" value="${today}" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
         <div class="form-group"><label>Item</label><select id="stkMv${dir}Item" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"><option value="">Select item…</option>${stockItemOptionsHtml()}</select></div>
@@ -8390,10 +8417,15 @@ function renderStockMovementTab(dir) {
         <div class="form-group"><label>Remarks</label><input type="text" id="stkMv${dir}Remarks" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
       </div>
       <button class="btn btn-primary" onclick="submitStockMovement('${dir}')">${dir==='IN' ? '⬇ Log Inward' : '⬆ Log Outward'}</button>
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-weight:700">${label} List</div>
-      <button class="btn btn-outline" onclick="loadStockTxns('${dir}',true).then(renderStockPage)">🔄 Refresh</button>
+    </div>`;
+}
+
+function renderStockMovementList(dir, body) {
+  const rows = dir === 'IN' ? stockInwardRows : stockOutwardRows;
+  const label = dir === 'IN' ? 'Inward' : 'Outward';
+  body.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <button class="btn btn-outline" onclick="loadStockTxns('${dir}',true).then(()=>renderStockMovementSubBody('${dir}'))">🔄 Refresh</button>
     </div>
     <table>
       <thead><tr><th>Date</th><th>Item Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Remarks</th><th>By</th><th>Actions</th></tr></thead>
@@ -8411,10 +8443,9 @@ async function submitStockMovement(dir) {
   const res = await api(url, 'POST', { itemCode, quantity, txnDate, remarks });
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast(dir === 'IN' ? '✅ Inward logged!' : '✅ Outward logged!');
-  document.getElementById(`stkMv${dir}Qty`).value = '';
-  document.getElementById(`stkMv${dir}Remarks`).value = '';
   await Promise.all([loadStock(true), loadStockTxns(dir, true)]);
-  renderStockPage();
+  if (dir === 'IN') stockInwardSubTab = 'list'; else stockOutwardSubTab = 'list';
+  renderStockMovementTab(dir); // switch to the List sub-tab so the new entry is visible
 }
 
 async function cancelStockTxn(dir, id) {
@@ -8423,7 +8454,7 @@ async function cancelStockTxn(dir, id) {
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast('Entry cancelled');
   await Promise.all([loadStock(true), loadStockTxns(dir, true)]);
-  renderStockPage();
+  renderStockMovementSubBody(dir);
 }
 
 function openAddStockModal() {
