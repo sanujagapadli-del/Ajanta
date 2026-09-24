@@ -3972,7 +3972,7 @@ function canEditDealers(req) {
 app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
-    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty, tallyRatingByParty, ledgerBalancesByParty] = await Promise.all([
+    const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty, tallyRatingByParty, ledgerBalancesByParty, vouchers] = await Promise.all([
       getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
       withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
       withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
@@ -3980,7 +3980,8 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       getBillsReceivableAgingByDealer().catch(() => ({})), // same — Tally sync sheet hiccup shouldn't break the whole page
       getTallyPaymentsByDealer().catch(() => ({})),
       getTallyPaymentPerformanceByDealer().catch(() => ({})),
-      getLedgerBalancesByDealer().catch(() => ({}))
+      getLedgerBalancesByDealer().catch(() => ({})),
+      getLedgerVouchers().catch(() => ({ byKey: {}, legIndex: {} }))
     ]);
 
     const byKey = {}; // lowercased counter name -> merged dealer record
@@ -4046,25 +4047,27 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       if (d) d.outstanding = lb.closingBalance;
     });
 
-    // Bill-by-bill tracking only started recently (confirmed by the client)
-    // — a lot of older bills were settled through payments that were never
-    // matched back to their specific bill in Tally, so those bills never
-    // left "Bills Receivable" and still carry years-old overdue counts
-    // (some 8+ years). Real-world check on a full sync: 448 of 1069 synced
-    // bills were over 1000 days overdue. When a dealer's bill-wise total
-    // meaningfully exceeds their real Ledger Closing Balance, the aging
-    // buckets are built from some of those stale/already-settled bills and
-    // can't be trusted — better to hide them than show confidently wrong
-    // overdue amounts. Total Dues stays correct either way (it's from the
-    // ledger balance above, not this bucket total).
+    // Tally's own "Bills Receivable" bill-wise matching turned out
+    // unreliable both ways — some dealers carry years-old invoices that
+    // were actually settled but never left the report (some 8+ years
+    // overdue on a real sync), while others have genuinely-unpaid older
+    // invoices that quietly drop OUT of the report even though the real
+    // Ledger Closing Balance is well above the bill-wise total (confirmed
+    // case: bill-wise showed one ₹17,500 invoice, real balance was
+    // ₹29,221 — ₹11,721 of real debt Bills Receivable just didn't list).
+    // Wherever this FY's actual vouchers are available for a dealer, our
+    // own FIFO aging (computeFifoAging) replaces the bill-wise buckets
+    // entirely instead of trying to patch or merely distrust them.
     Object.values(byKey).forEach(d => {
-      if (!d.aging || !d.aging.total) return;
-      const ledger = ledgerBalancesByParty[d.name.trim().toLowerCase()];
-      if (!ledger) return; // no real balance to check against — leave aging as-is
-      const overstated = d.aging.total - ledger.closingBalance;
-      if (overstated > 1000 && d.aging.total > ledger.closingBalance * 1.5) {
-        d.aging = null;
+      const key = d.name.trim().toLowerCase();
+      const ledger = ledgerBalancesByParty[key];
+      const fifo = vouchers.legIndex[key] ? computeFifoAging(key, vouchers, ledger || null) : null;
+      if (fifo && fifo.billCount) {
+        d.aging = fifo;
+      } else if (fifo) {
+        d.aging = null; // vouchers exist this FY but nothing's actually open — trust that over stale bill-wise data
       }
+      // else: no FY voucher data for this dealer at all — leave whatever bill-wise aging was set above as a fallback
     });
 
     // Same matching rule — only for dealers we already know, most recent 5.
@@ -4820,12 +4823,12 @@ function financialYearStartDate(today) {
   return new Date(y, 3, 1);
 }
 
-// A party's FY ledger the way Tally's "Ledger Vouchers" screen shows it:
-// one line per voucher the party appears in, Debit/Credit from the party's
-// own leg (Tally export sign: negative = Dr, positive = Cr), Particulars =
-// the biggest opposite leg of the same voucher (Sales A/c, Cash, a bank…),
-// running balance from an opening balance derived as closing − FY net.
-function buildDealerFyLedger(dealerKey, vouchers, ledgerBalance) {
+// One row per ledger leg of every voucher the party appears in this FY,
+// date-sorted — the shared basis for both the Statement's running ledger
+// and the FIFO aging below. Debit/Credit from the party's own leg (Tally
+// export sign: negative = Dr, positive = Cr); Particulars = the biggest
+// opposite leg of the same voucher (Sales A/c, Cash, a bank…).
+function buildDealerFyRows(dealerKey, vouchers) {
   const keys = vouchers.legIndex[dealerKey] ? [...vouchers.legIndex[dealerKey]] : [];
   const rows = [];
   keys.forEach(k => {
@@ -4846,6 +4849,13 @@ function buildDealerFyLedger(dealerKey, vouchers, ledgerBalance) {
     if (da && db && da - db !== 0) return da - db;
     return (parseInt(a.vchNo, 10) || 0) - (parseInt(b.vchNo, 10) || 0);
   });
+  return rows;
+}
+
+// A party's FY ledger the way Tally's "Ledger Vouchers" screen shows it:
+// running balance from an opening balance derived as closing − FY net.
+function buildDealerFyLedger(dealerKey, vouchers, ledgerBalance) {
+  const rows = buildDealerFyRows(dealerKey, vouchers);
   const totalDebit = rows.reduce((s, r) => s + r.debit, 0);
   const totalCredit = rows.reduce((s, r) => s + r.credit, 0);
   // Our convention here: positive balance = Dr (dealer owes us), negative = Cr (advance).
@@ -4857,6 +4867,69 @@ function buildDealerFyLedger(dealerKey, vouchers, ledgerBalance) {
   let bal = opening;
   rows.forEach(r => { bal += r.debit - r.credit; r.balance = bal; });
   return { fyLabel: `${financialYearStartLabel(new Date())} se aaj tak`, opening, openingKnown, closing, totalDebit, totalCredit, rows };
+}
+
+function bucketForDays(days) {
+  if (days < 30) return '<30';
+  if (days < 45) return '30-45';
+  if (days < 60) return '45-60';
+  if (days < 90) return '60-90';
+  return '90+';
+}
+
+// FIFO-based aging — replaces trusting Tally's own "Bills Receivable"
+// bill-wise matching, which turned out unreliable in a very concrete way:
+// a dealer's older Sales invoices can drop out of that report through
+// Tally's own internal allocation without actually being paid off, while
+// newer ones that ARE settled still show. Real example that surfaced this:
+// a dealer's Bills Receivable showed only their latest ₹17,500 invoice as
+// outstanding, but their real Ledger Closing Balance was ₹29,221 — ₹11,721
+// of genuinely unpaid older invoices were simply missing from that report.
+// This instead walks every Sales (debit) and Receipt (credit) for the
+// party this FY in date order and applies each payment against the
+// OLDEST still-open invoice first — the exact manual method used to
+// hand-verify that mismatch. The FY's derived opening balance (if
+// positive) is treated as the very first, oldest "bill" so it's the
+// first thing paid down, same as it would be in reality.
+function computeFifoAging(dealerKey, vouchers, ledgerBalance) {
+  const rows = buildDealerFyRows(dealerKey, vouchers);
+  const totalDebit = rows.reduce((s, r) => s + r.debit, 0);
+  const totalCredit = rows.reduce((s, r) => s + r.credit, 0);
+  const closing = ledgerBalance
+    ? (ledgerBalance.drCr === 'Cr' ? -ledgerBalance.closingBalance : ledgerBalance.closingBalance)
+    : null;
+  const opening = closing !== null ? closing - (totalDebit - totalCredit) : 0;
+
+  const openBills = [];
+  if (opening > 0.5) openBills.push({ date: financialYearStartDate(new Date()), remaining: opening });
+  rows.forEach(r => {
+    if (r.debit > 0.5) {
+      openBills.push({ date: parseAnyDate(r.date) || financialYearStartDate(new Date()), remaining: r.debit });
+    } else if (r.credit > 0.5) {
+      let toApply = r.credit;
+      for (const bill of openBills) {
+        if (toApply <= 0.5) break;
+        if (bill.remaining <= 0.5) continue;
+        const applied = Math.min(bill.remaining, toApply);
+        bill.remaining -= applied;
+        toApply -= applied;
+      }
+      // leftover toApply beyond any open bill = an advance/overpayment — not represented here
+    }
+  });
+
+  const today = new Date();
+  const buckets = {};
+  let total = 0, billCount = 0;
+  openBills.forEach(b => {
+    if (b.remaining <= 0.5) return;
+    const days = Math.max(0, Math.floor((today - b.date) / 86400000));
+    const bucket = bucketForDays(days);
+    buckets[bucket] = (buckets[bucket] || 0) + b.remaining;
+    total += b.remaining;
+    billCount++;
+  });
+  return { buckets, total, billCount };
 }
 
 app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {

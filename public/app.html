@@ -7903,7 +7903,7 @@ function dealerRowHtml(d) {
       <div style="display:flex;gap:4px;align-items:center">
         <button class="btn btn-outline btn-sm" title="Upload KYC" onclick="openKycModal('${nameEsc}')">📎</button>
         <button class="btn btn-outline btn-sm" title="Location set karo" onclick="openLocationModal('${nameEsc}')">📍</button>
-        <button class="btn btn-outline btn-sm" title="Log Payment" onclick="openLogPaymentModal('${nameEsc}')">💵</button>
+        <button class="btn btn-outline btn-sm" title="View Statement" onclick="openDealerLedgerModal('${nameEsc}')">📋</button>
         ${locHtml}
       </div>
     </td>
@@ -7919,8 +7919,14 @@ function dealerCardHtml(d) {
   const hasBoth = d.outstanding !== null && d.creditLimit !== null;
   const available = hasBoth ? d.creditLimit - d.outstanding : null;
   const overLimit = available !== null && available < 0;
+  // When there's no bill-matched on-time/late data yet but Tally payments
+  // do exist (shown below), "No payment history yet" reads as a flat
+  // contradiction right above that list — only say that when there's
+  // truly nothing, otherwise just note a rating isn't computable yet.
   const ratingHtml = d.rating.total > 0
     ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span> ${d.rating.label} · ${d.rating.total} payment${d.rating.total===1?'':'s'}, ${d.rating.late} late · avg ${d.rating.avgLateDays} din${d.rating.source==='tally' ? ' <span style="color:var(--color-primary)">(Tally)</span>' : ''}`
+    : (d.tallyPayments && d.tallyPayments.length)
+    ? `<span style="color:var(--gray-400)">Rating ke liye bill-matched due dates nahi mile</span>`
     : `<span style="color:var(--gray-400)">No payment history yet</span>`;
   // Real payment activity from the Tally sync (tally-sync/) — shown as a
   // log, not a rating (a settled bill's due date isn't in what we sync,
@@ -7969,6 +7975,7 @@ function dealerCardHtml(d) {
         <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor}">KYC: ${d.kycCount}/4</span>
         <button class="btn btn-outline btn-sm" onclick="openKycModal('${nameEsc}')">Upload KYC</button>
         <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
+        <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}')">📋 View Statement</button>
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">💳 Payment Overview</div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
@@ -7977,7 +7984,7 @@ function dealerCardHtml(d) {
         ${available !== null ? statTile('Available', inr(available), overLimit ? 'var(--color-danger-text)' : 'var(--color-success-text)') : ''}
       </div>
       ${agingHtml}
-      <div style="font-size:12.5px;color:var(--gray-600);margin-top:8px">${ratingHtml} · <span style="cursor:pointer;color:var(--color-primary);text-decoration:underline dotted" onclick="openLogPaymentModal('${nameEsc}')">+ Log Payment</span></div>
+      <div style="font-size:12.5px;color:var(--gray-600);margin-top:8px">${ratingHtml}</div>
       ${tallyPaymentsHtml}
       <div style="font-size:12.5px;color:var(--gray-600);margin-top:4px">${lastOrderHtml}</div>
       ${locHtml ? `<div style="margin-top:4px">${locHtml}</div>` : ''}
