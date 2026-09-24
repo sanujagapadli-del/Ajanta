@@ -8288,10 +8288,10 @@ function switchStockTab(tab) {
 function renderStockPage() {
   const wrap = document.getElementById('stockWrap');
   if (!wrap) return;
-  const tabBtn = (key, label) => `<button class="btn ${stockTab===key?'btn-primary':'btn-outline'}" style="border-radius:8px 8px 0 0" onclick="switchStockTab('${key}')">${label}</button>`;
+  const tabBtn = (key, label) => `<div class="tab ${stockTab===key?'active':''}" onclick="switchStockTab('${key}')">${label}</div>`;
   wrap.innerHTML = `
     <div style="padding:16px">
-      <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1.5px solid var(--gray-200)">
+      <div class="tab-group" style="margin-bottom:18px;display:inline-flex">
         ${tabBtn('inward','⬇ Inward')}
         ${tabBtn('outward','⬆ Outward')}
         ${tabBtn('report','📋 Report')}
@@ -8390,9 +8390,9 @@ function renderStockMovementTab(dir) {
   if (!body) return;
   const sub = dir === 'IN' ? stockInwardSubTab : stockOutwardSubTab;
   const label = dir === 'IN' ? 'Inward' : 'Outward';
-  const subBtn = (key, text) => `<button class="btn ${sub===key?'btn-primary':'btn-outline'} btn-sm" onclick="switchStockSubTab('${dir}','${key}')">${text}</button>`;
+  const subBtn = (key, text) => `<div class="tab ${sub===key?'active':''}" onclick="switchStockSubTab('${dir}','${key}')">${text}</div>`;
   body.innerHTML = `
-    <div style="display:flex;gap:8px;margin-bottom:16px">
+    <div class="tab-group" style="margin-bottom:18px;display:inline-flex">
       ${subBtn('log','Log ' + label)}
       ${subBtn('list', label + ' List')}
     </div>
