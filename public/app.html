@@ -3429,7 +3429,12 @@ function renderDashTable(tasks, type) {
     const rs = t.revision_status || '';
     const isRevised = t.status === 'revised';
     const linkBtn = t.link ? `<a href="${esc(t.link)}" target="_blank" style="font-size:11px;color:var(--color-primary);font-weight:600;text-decoration:none;margin-left:4px">🔗</a>` : '';
-    const descCell = `${esc(t.description||t.desc)}${linkBtn}`;
+    // O2D/FMS descriptions are app-built HTML (styled divs/spans from
+    // buildO2dDashboardTasks etc.) — escaping those just shows the tags
+    // literally instead of rendering them. Delegation/Checklist descriptions
+    // are raw user-typed text straight from the DB and still need escaping.
+    const rawDesc = t.description || t.desc || '';
+    const descCell = `${(t.type === 'o2d' || t.type === 'fms') ? rawDesc : esc(rawDesc)}${linkBtn}`;
     let actions = '';
     let rowStyle = '';
     if (t.type === 'fms') {
