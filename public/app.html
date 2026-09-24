@@ -8285,16 +8285,25 @@ function switchStockTab(tab) {
   if (tab === 'outward') loadStockTxns('OUT', false).then(renderStockPage);
 }
 
+// Underline-style tabs (bold colored text + bottom border when active, plain
+// gray text otherwise), matching the reference IMS Trading screen's
+// Inward/Outward/Report row exactly — not the app's pill-style .tab-group,
+// which looked wrong here per user feedback.
+function _underlineTabHtml(active, label, onclick) {
+  return `<div onclick="${onclick}" style="cursor:pointer;padding-bottom:10px;margin-bottom:-1.5px;font-size:14px;white-space:nowrap;${active
+    ? 'font-weight:700;color:var(--color-primary);border-bottom:2px solid var(--color-primary)'
+    : 'font-weight:600;color:var(--gray-400);border-bottom:2px solid transparent'}">${label}</div>`;
+}
+
 function renderStockPage() {
   const wrap = document.getElementById('stockWrap');
   if (!wrap) return;
-  const tabBtn = (key, label) => `<div class="tab ${stockTab===key?'active':''}" onclick="switchStockTab('${key}')">${label}</div>`;
   wrap.innerHTML = `
     <div style="padding:16px">
-      <div class="tab-group" style="margin-bottom:18px;display:inline-flex">
-        ${tabBtn('inward','⬇ Inward')}
-        ${tabBtn('outward','⬆ Outward')}
-        ${tabBtn('report','📋 Report')}
+      <div style="display:flex;gap:28px;border-bottom:1.5px solid var(--gray-200);margin-bottom:20px">
+        ${_underlineTabHtml(stockTab==='inward','Inward',"switchStockTab('inward')")}
+        ${_underlineTabHtml(stockTab==='outward','Outward',"switchStockTab('outward')")}
+        ${_underlineTabHtml(stockTab==='report','Report',"switchStockTab('report')")}
       </div>
       <div id="stockTabBody"></div>
     </div>`;
@@ -8390,11 +8399,10 @@ function renderStockMovementTab(dir) {
   if (!body) return;
   const sub = dir === 'IN' ? stockInwardSubTab : stockOutwardSubTab;
   const label = dir === 'IN' ? 'Inward' : 'Outward';
-  const subBtn = (key, text) => `<div class="tab ${sub===key?'active':''}" onclick="switchStockSubTab('${dir}','${key}')">${text}</div>`;
   body.innerHTML = `
-    <div class="tab-group" style="margin-bottom:18px;display:inline-flex">
-      ${subBtn('log','Log ' + label)}
-      ${subBtn('list', label + ' List')}
+    <div style="display:flex;gap:24px;border-bottom:1.5px solid var(--gray-200);margin-bottom:18px">
+      ${_underlineTabHtml(sub==='log','Log ' + label, `switchStockSubTab('${dir}','log')`)}
+      ${_underlineTabHtml(sub==='list', label + ' List', `switchStockSubTab('${dir}','list')`)}
     </div>
     <div id="stockMv${dir}Body"></div>`;
   renderStockMovementSubBody(dir);
