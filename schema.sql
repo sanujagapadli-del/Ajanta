@@ -184,6 +184,12 @@ CREATE TABLE IF NOT EXISTS o2d_step_doers (
   PRIMARY KEY (step_n, user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS purchase_step_doers (
+  step_n INT NOT NULL,
+  user_id INT NOT NULL,
+  PRIMARY KEY (step_n, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS o2d_dealer_payments (
   id INT AUTO_INCREMENT PRIMARY KEY,
   counter_name VARCHAR(255) NOT NULL,

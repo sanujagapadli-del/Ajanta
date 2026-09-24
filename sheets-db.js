@@ -10,13 +10,14 @@
 // • Set the Sheet ID in `.env` as `GOOGLE_SHEET_ID` — on first run
 //   with a blank sheet, all tabs (users, tasks, etc.) are auto-created
 //   with headers, and a default admin user is seeded
-//   (Vishal@gmail.com / pass123).
+//   (admin@ajantaelectronics.com / Ajanta@2024 — change this on first login).
 // ══════════════════════════════════════════════════════════════════
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const alasql = require('alasql');
+const bcrypt = require('bcryptjs');
 const { google } = require('googleapis');
 
 // ── Config ─────────────────────────────────────────────────────────
@@ -124,18 +125,33 @@ function _serialToDatetime(n) {
 function isoDate() { return new Date().toISOString().slice(0,10); }
 function isoDateTime() { return new Date().toISOString().slice(0,19).replace('T',' '); }
 
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 alasql.fn.DATE_FORMAT = function (d, fmt) {
   if (d == null || d === '') return null;
   let s = String(d);
-  // already YYYY-MM-DD or similar — slice
+  // already YYYY-MM-DD or similar — slice (fast path for the only format
+  // this app actually issues today)
   if (fmt === '%Y-%m-%d') return s.length >= 10 ? s.slice(0,10) : s;
-  // fallback generic
+  // Generic fallback — covers every %-token MySQL's DATE_FORMAT commonly
+  // takes, not just %Y/%m/%d, so an unanticipated format string doesn't
+  // silently come back with unreplaced literal tokens in it.
   const dt = new Date(s);
   if (isNaN(dt.getTime())) return s.slice(0,10);
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth()+1).padStart(2,'0');
-  const day = String(dt.getDate()).padStart(2,'0');
-  return String(fmt).replace('%Y',y).replace('%m',m).replace('%d',day);
+  const pad2 = n => String(n).padStart(2, '0');
+  const tokens = {
+    '%Y': dt.getFullYear(),
+    '%y': pad2(dt.getFullYear() % 100),
+    '%m': pad2(dt.getMonth() + 1),
+    '%c': dt.getMonth() + 1,
+    '%d': pad2(dt.getDate()),
+    '%e': dt.getDate(),
+    '%H': pad2(dt.getHours()),
+    '%i': pad2(dt.getMinutes()),
+    '%s': pad2(dt.getSeconds()),
+    '%M': MONTH_NAMES[dt.getMonth()],
+    '%b': MONTH_NAMES[dt.getMonth()].slice(0, 3),
+  };
+  return String(fmt).replace(/%[A-Za-z]/g, tok => tok in tokens ? String(tokens[tok]) : tok);
 };
 alasql.fn.CURDATE = isoDate;
 alasql.fn.NOW = isoDateTime;
@@ -423,12 +439,14 @@ async function init() {
       }
       console.log(`  ✅ Sheets DB loaded: ${totalRows} rows across ${TABLE_NAMES.length} tables`);
 
-      // 6. Seed default admin if users table is empty (PLAIN TEXT password)
+      // 6. Seed default admin if users table is empty (password stored hashed;
+      // the plaintext below is only ever printed once, to tell the operator
+      // what to log in with — change it after first login).
       const userCount = alasql('SELECT COUNT(*) AS c FROM users')[0].c;
       if (userCount === 0) {
         alasql(
           'INSERT INTO users (id,name,email,notification_email,password,role,phone,profile_image,department,week_off,extra_off) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-          [1, 'Admin', 'admin@ajantaelectronics.com', '', 'Ajanta@2024', 'admin', '', '', '', '', '']
+          [1, 'Admin', 'admin@ajantaelectronics.com', '', bcrypt.hashSync('Ajanta@2024', 10), 'admin', '', '', '', '', '']
         );
         _nextId.users = 2;
         markDirty('users');
@@ -548,7 +566,10 @@ function applyInsertDefaults(table, sql, params) {
   for (const [col, kind] of Object.entries(defaults)) {
     if (newCols.includes(col)) continue;
     newCols.push(col);
-    const v = kind === 'NOW' ? isoDateTime() : null;
+    // 'NOW' is a sentinel meaning "fill with the current timestamp"; any
+    // other configured value (e.g. `is_active: 1`) IS the actual default and
+    // must be used as-is, not replaced with null.
+    const v = kind === 'NOW' ? isoDateTime() : kind;
     extraValsSql += ',?';
     extraParams.push(v);
   }
@@ -611,8 +632,23 @@ async function query(sql, params = []) {
   params = coerceParams(params);
 
   const sqlTrim = sql.trim();
-  // No-ops — schema management calls (CREATE TABLE / ALTER TABLE / DROP)
-  if (/^\s*(ALTER|CREATE\s+TABLE|DROP|CREATE\s+INDEX)/i.test(sqlTrim)) {
+  // CREATE TABLE IF NOT EXISTS for an ad-hoc table (Stock, Dealers,
+  // catalogue-PDF chunking, sequential-id claims, etc.) needs to actually
+  // create a real alasql table — these aren't part of the fixed SCHEMA
+  // synced to a specific Sheet tab, they're just plain in-memory tables,
+  // exactly like a real MySQL CREATE TABLE IF NOT EXISTS would be. This used
+  // to be a total no-op, so any feature built against one of these tables
+  // threw ER_NO_SUCH_TABLE forever under the Sheets-backed adapter — alasql
+  // parses this MySQL-flavored DDL (AUTO_INCREMENT, ENGINE=, composite
+  // PRIMARY KEY, UNIQUE KEY, ON UPDATE CURRENT_TIMESTAMP, etc.) natively, and
+  // re-running IF NOT EXISTS against an already-created table is a no-op
+  // that leaves existing rows untouched.
+  if (/^\s*CREATE\s+TABLE/i.test(sqlTrim)) {
+    try { alasql(sqlTrim); } catch (e) { /* already exists under a name alasql sees as a conflict — benign */ }
+    return [[], []];
+  }
+  // No-ops — other schema management calls (ALTER TABLE / DROP / CREATE INDEX).
+  if (/^\s*(ALTER|DROP|CREATE\s+INDEX)/i.test(sqlTrim)) {
     return [[], []];
   }
   // Health check
@@ -725,18 +761,17 @@ function injectAutoId(table, sql, params) {
   const startId = _nextId[table] || 1;
   const newColsList = ['id', ...colsList];
 
-  // Build new VALUES with id prepended in each tuple
+  // Build new VALUES with id prepended in each tuple. Splice at the exact
+  // offsets already found above (tupleStarts) instead of a blind global
+  // regex replace on every "(" — a naive replace would also match any "("
+  // that happens to appear inside a quoted string value (e.g. a task title
+  // like "Fix door (kitchen)"), corrupting the row.
   let newValues = valuesPart;
-  let idAdded = 0;
-  newValues = newValues.replace(/\(/g, () => {
-    if (depth >= 0) {
-      const thisId = startId + idAdded;
-      idAdded++;
-      return `(${thisId},`;
-    }
-    return '(';
-  });
-  // Reset depth (just used for replace closure — fine)
+  for (let t = tupleStarts.length - 1; t >= 0; t--) {
+    const idx = tupleStarts[t];
+    const thisId = startId + t;
+    newValues = newValues.slice(0, idx + 1) + `${thisId},` + newValues.slice(idx + 1);
+  }
 
   _nextId[table] = startId + tuples;
   const newSql = `${m[1].replace(/\(\s*$/, '(')}${newColsList.join(',')}${m[3]}${newValues}`;
@@ -931,6 +966,11 @@ async function _testInit() {
 }
 
 async function resync() {
+  // Flush any pending writes to the Sheet BEFORE wiping in-memory data —
+  // otherwise anything written in roughly the last 1.5s (the debounce
+  // window), or still in flight, is silently discarded: resync would reload
+  // from the Sheet without ever having sent those rows to it.
+  await flushNow();
   _initialized = false;
   _initPromise = null;
   TABLE_NAMES.forEach(t => { alasql.tables[t].data = []; });

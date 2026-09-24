@@ -661,7 +661,9 @@ async function handleSubmit(e){
       return;
     }
 
-    if (d.token) localStorage.setItem('authToken', d.token);
+    // Auth is via the httpOnly session cookie the server already set on this
+    // response — deliberately not also stashing the token in localStorage,
+    // which any injected script could read (defeats the httpOnly protection).
     setLoading(false);
     triggerMascotHappy();
     setTimeout(function(){ window.location.replace('/app'); }, 1100);
