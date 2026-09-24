@@ -4133,6 +4133,91 @@ app.delete('/api/stock/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Stock Inward/Outward ledger ───────────────────────────────────────────
+// Logging a movement is open to anyone with 'stock' access (that's the whole
+// point of the page for day-to-day store staff); only admins can cancel one,
+// same split as canAccessStock/canEditStock above.
+async function ensureStockTxnTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS ajanta_stock_transactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      txn_date DATE NOT NULL,
+      direction VARCHAR(3) NOT NULL,
+      item_code VARCHAR(32) NOT NULL,
+      item_name VARCHAR(255) DEFAULT '',
+      quantity DECIMAL(12,2) NOT NULL,
+      uom VARCHAR(16) DEFAULT '',
+      remarks VARCHAR(500) DEFAULT '',
+      status VARCHAR(16) NOT NULL DEFAULT 'Active',
+      created_by VARCHAR(120) DEFAULT '',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+async function withStockTxnTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureStockTxnTable(); return await fn(); }
+}
+
+app.get('/api/stock/transactions', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
+    const direction = req.query.direction === 'OUT' ? 'OUT' : 'IN';
+    const [rows] = await withStockTxnTable(() => db.query(
+      'SELECT * FROM ajanta_stock_transactions WHERE direction = ? ORDER BY txn_date DESC, id DESC LIMIT 500',
+      [direction]
+    ));
+    res.json({ items: rows, canEdit: canEditStock(req) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+async function _logStockMovement(req, res, direction) {
+  if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
+  const { itemCode, quantity, txnDate, remarks } = req.body;
+  const qty = Number(quantity);
+  if (!itemCode || !itemCode.trim()) return res.status(400).json({ error: 'Item code is required' });
+  if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'Quantity must be a positive number' });
+  const [items] = await withStockTable(() => db.query('SELECT * FROM ajanta_stock_items WHERE item_code = ?', [itemCode.trim()]));
+  const item = items[0];
+  if (!item) return res.status(400).json({ error: 'Item code not found in Stock catalog' });
+  const date = txnDate || new Date().toISOString().slice(0, 10);
+  const delta = direction === 'IN' ? qty : -qty;
+  await withStockTxnTable(() => db.query(
+    `INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)`,
+    [date, direction, item.item_code, item.description, qty, item.uom, (remarks || '').trim(), req.session.name || '']
+  ));
+  await db.query(
+    'UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?',
+    [delta, date, item.item_code]
+  );
+  res.json({ success: true });
+}
+app.post('/api/stock/inward', requireAuth, async (req, res) => {
+  try { await _logStockMovement(req, res, 'IN'); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/stock/outward', requireAuth, async (req, res) => {
+  try { await _logStockMovement(req, res, 'OUT'); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/stock/transactions/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    if (!canEditStock(req)) return res.status(403).json({ error: 'Only admins can cancel a stock entry' });
+    const id = parseInt(req.params.id, 10);
+    const [rows] = await withStockTxnTable(() => db.query('SELECT * FROM ajanta_stock_transactions WHERE id = ?', [id]));
+    const txn = rows[0];
+    if (!txn) return res.status(404).json({ error: 'Entry not found' });
+    if (txn.status === 'Cancelled') return res.status(400).json({ error: 'Already cancelled' });
+    // Reverse this entry's effect on current_stock — an IN being cancelled
+    // subtracts back out, an OUT being cancelled adds back in.
+    const reverseDelta = txn.direction === 'IN' ? -Number(txn.quantity) : Number(txn.quantity);
+    await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?', [reverseDelta, txn.item_code]);
+    await db.query('UPDATE ajanta_stock_transactions SET status = ? WHERE id = ?', ['Cancelled', id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Catalogue PDFs — full upload history kept (not just the latest), same
 // viewing permission as the price list above.
 app.get('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {

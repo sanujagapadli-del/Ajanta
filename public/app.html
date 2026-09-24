@@ -8240,17 +8240,27 @@ async function deletePriceListItem(id, name) {
 // ══════════════════════════════════════════════════════
 // STOCK — Ajanta-brand appliance stock (fans, blenders etc.), imported from
 // the "Ajanta Stock" Google Sheet into ajanta_stock_items. Access-gated by
-// 'stock'; editing (add/edit/delete) is admin-only (server checks it too,
+// 'stock'. Three tabs — Item List / Inward / Outward — mirror the reference
+// IMS Trading screen. Catalog add/edit/delete stays admin-only; logging an
+// Inward/Outward entry is open to anyone with 'stock' access (day-to-day
+// store use), cancelling one is admin-only (server checks all of this too,
 // this is just to avoid showing controls that'd 403).
 // ══════════════════════════════════════════════════════
 let stockItems = [];
 let stockCanEdit = false;
 let stockLoaded = false;
 let stockSearchQ = '';
+let stockTab = 'items'; // 'items' | 'inward' | 'outward'
+let stockInwardRows = [];
+let stockInwardLoaded = false;
+let stockInwardCanEdit = false;
+let stockOutwardRows = [];
+let stockOutwardLoaded = false;
+let stockOutwardCanEdit = false;
 
 async function loadStockPage() {
   await loadStock(false);
-  renderStockGrid();
+  renderStockPage();
 }
 
 async function loadStock(force) {
@@ -8260,6 +8270,31 @@ async function loadStock(force) {
   stockItems = (r && r.items) || [];
   stockCanEdit = !!(r && r.canEdit);
   stockLoaded = true;
+}
+
+function switchStockTab(tab) {
+  stockTab = tab;
+  renderStockPage();
+  if (tab === 'inward') loadStockTxns('IN', false).then(renderStockPage);
+  if (tab === 'outward') loadStockTxns('OUT', false).then(renderStockPage);
+}
+
+function renderStockPage() {
+  const wrap = document.getElementById('stockWrap');
+  if (!wrap) return;
+  const tabBtn = (key, label) => `<button class="btn ${stockTab===key?'btn-primary':'btn-outline'}" style="border-radius:8px 8px 0 0" onclick="switchStockTab('${key}')">${label}</button>`;
+  wrap.innerHTML = `
+    <div style="padding:16px">
+      <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1.5px solid var(--gray-200)">
+        ${tabBtn('items','📦 Item List')}
+        ${tabBtn('inward','⬇ Inward')}
+        ${tabBtn('outward','⬆ Outward')}
+      </div>
+      <div id="stockTabBody"></div>
+    </div>`;
+  if (stockTab === 'items') renderStockGrid();
+  else if (stockTab === 'inward') renderStockMovementTab('IN');
+  else renderStockMovementTab('OUT');
 }
 
 function onStockSearchInput(v) { stockSearchQ = v; renderStockGrid(); }
@@ -8283,27 +8318,112 @@ function stockRowHtml(item) {
 }
 
 function renderStockGrid() {
-  const wrap = document.getElementById('stockWrap');
-  if (!wrap) return;
+  const body = document.getElementById('stockTabBody');
+  if (!body) return;
   const q = stockSearchQ.trim().toLowerCase();
   const filtered = q ? stockItems.filter(it => it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)) : stockItems;
   const totalStock = filtered.reduce((s, it) => s + Number(it.current_stock), 0);
 
-  wrap.innerHTML = `
-    <div style="padding:16px">
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <input type="text" placeholder="🔍 Search item code or description…" value="${stockSearchQ.replace(/"/g,'&quot;')}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-        <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
-        ${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
+  body.innerHTML = `
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <input type="text" placeholder="🔍 Search item code or description…" value="${stockSearchQ.replace(/"/g,'&quot;')}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
+      ${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
+    </div>
+    <table>
+      <thead><tr><th>Item Code</th><th>Description</th><th>Std. Pack</th><th>UOM</th><th>Current Stock</th><th>As Of</th><th>Actions</th></tr></thead>
+      <tbody>
+        ${filtered.map(stockRowHtml).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">No items found</td></tr>`}
+      </tbody>
+    </table>
+    <div style="font-size:12px;color:var(--gray-400);padding:12px 4px">${filtered.length} item${filtered.length===1?'':'s'} · total stock ${totalStock.toLocaleString('en-IN')}</div>`;
+}
+
+// ── Inward / Outward — shared rendering for both directions (dir: 'IN'|'OUT') ──
+async function loadStockTxns(dir, force) {
+  const loaded = dir === 'IN' ? stockInwardLoaded : stockOutwardLoaded;
+  if (loaded && !force) return;
+  const r = await api('/api/stock/transactions?direction=' + dir);
+  if (r && r.error) { showToast(r.error, 'error'); return; }
+  const rows = (r && r.items) || [];
+  const canEdit = !!(r && r.canEdit);
+  if (dir === 'IN') { stockInwardRows = rows; stockInwardLoaded = true; stockInwardCanEdit = canEdit; }
+  else { stockOutwardRows = rows; stockOutwardLoaded = true; stockOutwardCanEdit = canEdit; }
+}
+
+function stockItemOptionsHtml() {
+  return stockItems.slice().sort((a,b)=>a.description.localeCompare(b.description))
+    .map(it => `<option value="${it.item_code}">${it.item_code} — ${it.description}</option>`).join('');
+}
+
+function stockMovementRowHtml(dir, row) {
+  const canEdit = dir === 'IN' ? stockInwardCanEdit : stockOutwardCanEdit;
+  const cancelled = row.status === 'Cancelled';
+  const action = cancelled
+    ? `<span style="color:var(--gray-400);font-size:11px">Cancelled</span>`
+    : (canEdit ? `<button class="btn btn-outline btn-sm" onclick="cancelStockTxn('${dir}',${row.id})">Cancel</button>` : '—');
+  return `<tr${cancelled ? ' style="opacity:.5;text-decoration:line-through"' : ''}>
+    <td>${row.txn_date ? row.txn_date.slice(0,10) : '—'}</td>
+    <td style="font-weight:600">${row.item_code}</td>
+    <td>${row.item_name || '—'}</td>
+    <td style="text-align:right;font-weight:700">${Number(row.quantity).toLocaleString('en-IN')}</td>
+    <td>${row.uom || '—'}</td>
+    <td>${row.remarks || '—'}</td>
+    <td>${row.created_by || '—'}</td>
+    <td style="white-space:nowrap">${action}</td>
+  </tr>`;
+}
+
+function renderStockMovementTab(dir) {
+  const body = document.getElementById('stockTabBody');
+  if (!body) return;
+  const rows = dir === 'IN' ? stockInwardRows : stockOutwardRows;
+  const label = dir === 'IN' ? 'Inward' : 'Outward';
+  const today = new Date().toISOString().slice(0,10);
+  body.innerHTML = `
+    <div style="background:var(--surface-alt,#f8fafc);border:1px solid var(--gray-200);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="font-weight:700;margin-bottom:10px">Log ${label}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px">
+        <div class="form-group"><label>Date</label><input type="date" id="stkMv${dir}Date" value="${today}" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+        <div class="form-group"><label>Item</label><select id="stkMv${dir}Item" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"><option value="">Select item…</option>${stockItemOptionsHtml()}</select></div>
+        <div class="form-group"><label>Quantity</label><input type="number" id="stkMv${dir}Qty" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+        <div class="form-group"><label>Remarks</label><input type="text" id="stkMv${dir}Remarks" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
       </div>
-      <table>
-        <thead><tr><th>Item Code</th><th>Description</th><th>Std. Pack</th><th>UOM</th><th>Current Stock</th><th>As Of</th><th>Actions</th></tr></thead>
-        <tbody>
-          ${filtered.map(stockRowHtml).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">No items found</td></tr>`}
-        </tbody>
-      </table>
-      <div style="font-size:12px;color:var(--gray-400);padding:12px 4px">${filtered.length} item${filtered.length===1?'':'s'} · total stock ${totalStock.toLocaleString('en-IN')}</div>
-    </div>`;
+      <button class="btn btn-primary" onclick="submitStockMovement('${dir}')">${dir==='IN' ? '⬇ Log Inward' : '⬆ Log Outward'}</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-weight:700">${label} List</div>
+      <button class="btn btn-outline" onclick="loadStockTxns('${dir}',true).then(renderStockPage)">🔄 Refresh</button>
+    </div>
+    <table>
+      <thead><tr><th>Date</th><th>Item Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Remarks</th><th>By</th><th>Actions</th></tr></thead>
+      <tbody>${rows.map(r => stockMovementRowHtml(dir, r)).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--gray-400)">No ${label.toLowerCase()} entries yet</td></tr>`}</tbody>
+    </table>`;
+}
+
+async function submitStockMovement(dir) {
+  const itemCode = document.getElementById(`stkMv${dir}Item`).value;
+  const quantity = document.getElementById(`stkMv${dir}Qty`).value.trim();
+  const txnDate = document.getElementById(`stkMv${dir}Date`).value;
+  const remarks = document.getElementById(`stkMv${dir}Remarks`).value.trim();
+  if (!itemCode) { showToast('Select an item', 'error'); return; }
+  const url = dir === 'IN' ? '/api/stock/inward' : '/api/stock/outward';
+  const res = await api(url, 'POST', { itemCode, quantity, txnDate, remarks });
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(dir === 'IN' ? '✅ Inward logged!' : '✅ Outward logged!');
+  document.getElementById(`stkMv${dir}Qty`).value = '';
+  document.getElementById(`stkMv${dir}Remarks`).value = '';
+  await Promise.all([loadStock(true), loadStockTxns(dir, true)]);
+  renderStockPage();
+}
+
+async function cancelStockTxn(dir, id) {
+  if (!confirm('Cancel this entry? Its effect on current stock will be reversed.')) return;
+  const res = await api(`/api/stock/transactions/${id}/cancel`, 'PUT');
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('Entry cancelled');
+  await Promise.all([loadStock(true), loadStockTxns(dir, true)]);
+  renderStockPage();
 }
 
 function openAddStockModal() {
