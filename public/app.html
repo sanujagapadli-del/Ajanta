@@ -7702,7 +7702,7 @@ function renderO2dPCView() {
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending orders — everything is dispatched 🎉</div>'; return; }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
   wrap.innerHTML = `<table>
-    <thead><tr><th>Order No</th><th>Counter Name</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
+    <thead><tr><th>Order No</th><th>Date</th><th>Counter Name</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
     <tbody>
       ${pageRows.map(o => {
         const pendingStep = o.steps[o.currentStep]; // 0-indexed: next step after currentStep
@@ -7712,6 +7712,7 @@ function renderO2dPCView() {
         return `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer;${rowStyle}">
           <td style="font-weight:600">${esc(o.orderNo || '—')}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
+          <td style="white-space:nowrap;color:var(--gray-500)">${fmtDate((o.timestamp||'').slice(0,10)) || '—'}</td>
           <td>${esc(o.counterName || '—')}</td>
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
@@ -9497,6 +9498,10 @@ function renderO2dDetailBody(o, hideProgress) {
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.counterName || '—')}${o.area ? ' · ' + esc(o.area) : ''}</div>
       ${itemsBlockHtml}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div style="${O2D_FIELD_LABEL_STYLE}">Order Date</div>
+          <div style="font-size:14px;color:var(--gray-800)">${fmtDate((o.timestamp||'').slice(0,10)) || '—'}</div>
+        </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Order By</div>
           <div style="font-size:14px;color:var(--gray-800)">${esc(o.orderBy || '—')}</div>
