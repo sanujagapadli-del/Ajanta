@@ -8034,7 +8034,10 @@ async function openDealerLedgerModal(name) {
     </div>`;
 
   if (!r.entries.length) {
-    body.innerHTML = outstandingHtml + `<div class="empty">Koi bill ya payment sync nahi hua abhi is dealer ke liye.</div>`;
+    const note = r.outstanding
+      ? `Outstanding upar Tally ke real ledger balance se hai (sahi hai) — lekin is dealer ke bills Tally mein bill-wise track nahi hain, isliye neeche list karne layak koi individual bill ya payment record nahi mila.`
+      : `Koi bill ya payment sync nahi hua abhi is dealer ke liye.`;
+    body.innerHTML = outstandingHtml + `<div class="empty">${note}</div>`;
     return;
   }
 
