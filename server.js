@@ -471,7 +471,7 @@ function requireAdminOrPC(req, res, next) {
 
 // Per-user page access — only these pages are ever restrictable; everything
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'purchase-new-indent'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms'];
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
 function parsePageAccess(raw, role) {
   if (role === 'admin') return RESTRICTABLE_PAGES.slice();
@@ -5218,70 +5218,53 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
 });
 
 // ══════════════════════════════════════════════════════
-// PURCHASE FMS — live-connected to the "Purchase Fms" Google Sheet: material
-// Indent → Check Stock in Store → Provide from Store → Finalise Rate →
-// Approval → Generate PO → Goods Receipt. One row per product line under an
-// Indent No, grouped into indents the same way O2D groups order lines under
-// an Order No (see getO2dOrders comment above for the "bottlenecked by the
-// furthest-behind line" reasoning — identical here).
+// PURCHASE FMS — live-connected to the "Purchase Fms" Google Sheet. Tracks
+// an already-placed PO through two follow-up stages: Follow (chasing the
+// vendor) and Material Received (closing it out once goods arrive). One row
+// per product line under a PO Number, grouped into POs the same
+// "bottlenecked by the furthest-behind line" way O2D groups order lines
+// under an Order No.
 //
-// Approval (step 4) is the one conditional step: when Finalise Rate's
-// "Approval Needed" column (AC) is "No" for a line, that line skips straight
-// from step 3 to step 5 — confirmed from real sheet data (rows with
-// Approval Needed=No have their step-4 Planned/Actual blank while step 5's
-// are already filled). `skipCol`/`skipValue` on a step definition encodes
-// this; purchaseStepIsSkipped/purchaseStepIsDone are the shared helpers so
-// both the read path (getPurchaseIndents) and the write path
-// (writePurchaseStepForIndent) treat a skipped step as satisfied.
-//
-// PO generation itself happens in a separate Google Apps Script tool
-// ("Ajay Marketing - Purchase Order System") the user already has — it's a
-// google.script.run-driven HTML UI, not a callable JSON API, so it isn't
-// invoked from here. The Generate PO step just links out to it; PO
-// Number/Link/Qty stay manual-entry fields the user pastes back in.
+// IMPORTANT — re-verified live on 2026-09-24: this sheet's own column
+// layout had been restructured since this module was first built (it used
+// to run Indent → Check Stock → Provide from Store → Finalise Rate →
+// Approval → Generate PO — a 6-step, AQ-wide sheet). The sheet's owner has
+// since moved all of that upstream of this tab: by the time a row appears
+// here it already carries a real PO Number, Indent No, Vendor and Final
+// Rate as INPUT data, and the sheet is only A:V wide now. The old 6-step
+// config was reading columns that no longer mean what they used to (e.g.
+// its "Indent No" column B is now "PO Number"), which is what produced
+// garbage in the UI — wrong row labels, ~1900 dates from small unrelated
+// numbers being fed through the serial-date formatter. New-Indent creation
+// and PO-PDF generation were removed for the same reason: writing a new row
+// with the old 9-column shape would have clobbered the live PO Number
+// column. If raising new indents/POs from inside this app is still wanted,
+// it needs to target wherever they actually originate upstream of this tab
+// (unconfirmed — the workbook has several other tabs: "Indent FMS",
+// "Step 1/3/5 Updation", etc. — needs the user to point at the right one).
 // ══════════════════════════════════════════════════════
 const PURCHASE_SHEET_ID = '1ME8gPAN92EyxmX9YUYkq4Ag2E2lUlM9MCZYED7FPLho';
 const PURCHASE_TAB = 'Purchase Fms';
 const PURCHASE_HEADER_ROW = 6;
 const PURCHASE_DATA_START_ROW = 7;
-const PURCHASE_LAST_COL = 'AQ';
-const PURCHASE_PO_GENERATOR_URL = 'https://script.google.com/macros/s/AKfycbxpcAYsLFoz1EUxU3NposqHfhg6eS-U9UgSAcR1te_AO3PHFLcWj7i2zWaUfOIIY89U/exec';
+const PURCHASE_LAST_COL = 'V';
 
 const PURCHASE_STEPS = [
-  { n: 1, label: 'Check Stock in Store', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', planned: 'J', actual: 'K', status: 'L',
-    extra: [ { key: 'qtyAvailable', col: 'M', label: 'Qty Available' } ] },
-  { n: 2, label: 'Provide from Store', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', planned: 'O', actual: 'P', status: 'Q',
-    extra: [ { key: 'qtyToPurchase', col: 'R', label: 'Qty to Purchase' } ] },
-  { n: 3, label: 'Finalise Rate', doer: 'Accountant (Narender)', tat: '10 min', planned: 'T', actual: 'U', status: 'Y',
+  { n: 1, label: 'Follow', doer: 'Priyanka (SCCRR)', tat: 'Every alternate day', planned: 'L', actual: 'M', status: 'N',
     extra: [
-      { key: 'finalRate', col: 'V', label: 'Final Current Rate' },
-      { key: 'oldRate', col: 'W', label: 'Old Rate' },
-      { key: 'rateType', col: 'X', label: 'Rate Type' },
-      { key: 'leadTime', col: 'AA', label: 'Lead Time' },
-      { key: 'approvalNeeded', col: 'AC', label: 'Approval Needed' }
+      { key: 'remark', col: 'O', label: 'Remark' },
+      { key: 'nextFollowup', col: 'P', label: 'Next Followup', isDate: true }
     ] },
-  { n: 4, label: 'Approval', doer: 'Ajay', tat: '—', planned: 'AD', actual: 'AE', status: 'AF', extra: [],
-    skipCol: 'AC', skipValue: 'no' },
-  { n: 5, label: 'Generate PO', doer: 'Priyanka (SCCRR)', tat: '30 min', planned: 'AG', actual: 'AH', status: 'AH',
+  { n: 2, label: 'Material Received', doer: 'Priyanka (SCCRR)', tat: '—', planned: 'Q', actual: 'R', status: 'U',
     extra: [
-      { key: 'poNumber', col: 'AI', label: 'PO Number' },
-      { key: 'poLink', col: 'AJ', label: 'PO Link' },
-      { key: 'poQty', col: 'AK', label: 'Po Qty.' }
-    ] },
-  { n: 6, label: 'Goods Receipt & Closure', doer: 'Priyanka (SCCRR)', tat: '—', planned: '', actual: '', status: 'AO',
-    extra: [
-      { key: 'totalReceived', col: 'AM', label: 'Total Received' },
-      { key: 'docsComplete', col: 'AP', label: 'Docs Complete' },
-      { key: 'remark', col: 'AQ', label: 'Remark' }
+      { key: 'receivedQty', col: 'S', label: 'Received Qty' },
+      { key: 'pendingQty', col: 'T', label: 'Pending Qty', readOnly: true },
+      { key: 'forceFullClosed', col: 'V', label: 'Force Full Closed PO' }
     ] }
 ];
 
-function purchaseStepIsSkipped(stepDef, get) {
-  if (!stepDef.skipCol) return false;
-  return String(get(stepDef.skipCol) || '').trim().toLowerCase() === stepDef.skipValue;
-}
 function purchaseStepIsDone(stepDef, get) {
-  return !!(stepDef.status && get(stepDef.status)) || purchaseStepIsSkipped(stepDef, get);
+  return !!(stepDef.status && get(stepDef.status));
 }
 
 // ── Purchase step doers — same shape/pattern as o2d_step_doers above. ──
@@ -5339,7 +5322,7 @@ app.put('/api/purchase-fms/step-doers', requireAuth, requireAdmin, async (req, r
 // No caching on the sheet read itself — same reasoning as getO2dOrders
 // above (multi-instance serverless deploys make a TTL cache show stale
 // "Mark Done" results).
-async function getPurchaseIndents() {
+async function getPurchasePOs() {
   const stepDoersMap = await getPurchaseStepDoersMap();
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   let result;
@@ -5361,29 +5344,32 @@ async function getPurchaseIndents() {
   const lines = sheetRows.map((r, i) => {
     const rowNum = PURCHASE_DATA_START_ROW + i;
     const get = col => r[colToIdx(col)];
-    if (!get('B')) return null; // skip blank rows (Indent No is the unique key column)
+    if (!get('B')) return null; // skip blank rows (PO Number is the unique key column)
     const line = {
       row: rowNum,
       timestamp: sfmsSerialToDate(get('A')),
-      indentNo: get('B') || '',
-      indentType: get('C') || '',
+      poNumber: get('B') || '',
+      indentNo: get('C') || '',
       itemId: get('D') || '',
       productName: get('E') || '',
       uom: get('F') || '',
       qty: Number(get('G')) || 0,
-      vendorName: get('H') || '',
-      raisedBy: get('I') || ''
+      finalRate: get('H') || '',
+      vendorName: get('I') || '',
+      raisedBy: get('J') || '',
+      leadTime: get('K') || ''
     };
     line.steps = PURCHASE_STEPS.map(sd => {
-      const skipped = purchaseStepIsSkipped(sd, get);
       const step = {
         planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
         actual: sd.actual ? sfmsSerialToDate(get(sd.actual)) : '',
         status: sd.status ? (get(sd.status) || '') : '',
-        skipped,
-        done: !!(sd.status && get(sd.status)) || skipped
+        done: !!(sd.status && get(sd.status))
       };
-      sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
+      sd.extra.forEach(e => {
+        const val = get(e.col);
+        step[e.key] = e.isDate && typeof val === 'number' ? sfmsSerialToDate(val).split(' ')[0] : (val || '');
+      });
       return step;
     });
     let lineCurrentStep = 0;
@@ -5392,48 +5378,40 @@ async function getPurchaseIndents() {
     return line;
   }).filter(Boolean);
 
-  const indentNos = [];
-  const byIndentNo = {};
+  const poNos = [];
+  const byPoNo = {};
   lines.forEach(line => {
-    if (!byIndentNo[line.indentNo]) { byIndentNo[line.indentNo] = []; indentNos.push(line.indentNo); }
-    byIndentNo[line.indentNo].push(line);
+    if (!byPoNo[line.poNumber]) { byPoNo[line.poNumber] = []; poNos.push(line.poNumber); }
+    byPoNo[line.poNumber].push(line);
   });
 
-  const indents = indentNos.map(indentNo => {
-    const group = byIndentNo[indentNo];
+  const pos = poNos.map(poNumber => {
+    const group = byPoNo[poNumber];
     const first = group[0];
     const o = {
-      indentNo,
+      poNumber,
       rows: group.map(l => l.row),
       timestamp: group.map(l => l.timestamp).sort()[0],
-      indentType: first.indentType,
+      indentNo: first.indentNo,
+      vendorName: first.vendorName,
       raisedBy: first.raisedBy,
-      productName: group.length > 1 ? `${first.productName} +${group.length - 1} more` : first.productName,
+      leadTime: first.leadTime,
       qty: group.reduce((sum, l) => sum + l.qty, 0),
-      // PO fields are per LINE, not per indent — different lines under one
-      // indent can have different vendors (confirmed in real data) and each
-      // gets its own PO Number/Link from generatePurchasePo, so these ride
-      // along per product rather than being rolled up onto o.steps[4] like
-      // every other step's fields are.
+      amount: group.reduce((sum, l) => sum + l.qty * (Number(l.finalRate) || 0), 0),
       products: group.map(l => ({
-        row: l.row, itemId: l.itemId, productName: l.productName, uom: l.uom, qty: l.qty,
-        vendorName: l.vendorName, currentStep: l.currentStep,
-        finalRate: l.steps[2].finalRate || '',
-        poNumber: l.steps[4].poNumber || '', poLink: l.steps[4].poLink || ''
+        row: l.row, itemId: l.itemId, productName: l.productName, uom: l.uom, qty: l.qty, finalRate: l.finalRate
       }))
     };
     o.steps = PURCHASE_STEPS.map((sd, idx) => {
       const lineSteps = group.map(l => l.steps[idx]);
       const allDone = lineSteps.every(s => s.done);
-      const allSkipped = lineSteps.every(s => s.skipped);
       const actuals = lineSteps.map(s => s.actual).filter(Boolean).sort();
       const step = {
         n: sd.n, label: sd.label, doer: sd.doer, tat: sd.tat, doers: stepDoersMap[sd.n] || [],
         planned: lineSteps[0].planned,
         actual: allDone ? (actuals[actuals.length - 1] || '') : '',
         done: allDone,
-        skipped: allSkipped,
-        status: allDone ? (allSkipped ? 'Skipped' : (lineSteps.every(s => s.status === lineSteps[0].status) ? lineSteps[0].status : 'Yes')) : ''
+        status: allDone ? (lineSteps.every(s => s.status === lineSteps[0].status) ? lineSteps[0].status : 'Yes') : ''
       };
       sd.extra.forEach(e => {
         const withVal = lineSteps.find(s => s[e.key]);
@@ -5451,73 +5429,23 @@ async function getPurchaseIndents() {
     return o;
   });
 
-  indents.reverse(); // newest first
-  return indents;
+  pos.reverse(); // newest first
+  return pos;
 }
 
 app.get('/api/purchase-fms', requireAuth, async (req, res) => {
   try {
-    res.json(await getPurchaseIndents());
+    res.json(await getPurchasePOs());
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
     sendServerError(res, err);
   }
 });
 
-// ── New Indent ── appends straight into the Purchase Fms sheet. OVERWRITE
-// (not INSERT_ROWS), same reasoning as O2D's new-order route: inserting rows
-// would shift row dimensions and could corrupt any ARRAYFORMULA-driven
-// column (e.g. Indent Value, Z, which is formula-derived — verified against
-// real data as Final Current Rate × Qty and never written by this app).
-app.post('/api/purchase-fms/new-indent', requireAuth, async (req, res) => {
-  try {
-    const { indentType, raisedBy, products } = req.body;
-    if (!raisedBy) return res.status(400).json({ error: 'Raised By is required' });
-    if (!Array.isArray(products) || !products.length) return res.status(400).json({ error: 'At least one product is required' });
-    for (const p of products) {
-      if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
-      if (!(Number(p.qty) > 0)) return res.status(400).json({ error: 'Quantity must be a positive number' });
-      if (p.rate !== undefined && p.rate !== null && p.rate !== '' && !(Number(p.rate) >= 0)) return res.status(400).json({ error: 'Rate must be a non-negative number' });
-    }
-
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-
-    const keyCol = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!B${PURCHASE_DATA_START_ROW}:B`, valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-    let maxIndentNo = 0;
-    (keyCol.data.values || []).forEach(r => {
-      const m = String(r[0] || '').match(/IND-(\d+)/);
-      if (m) maxIndentNo = Math.max(maxIndentNo, parseInt(m[1], 10));
-    });
-    const indentNo = `IND-${String(await claimNextSeqValue('purchase_indent_no', maxIndentNo + 1)).padStart(6, '0')}`;
-
-    const nowSerial = sfmsDateToSerial(new Date());
-    const rows = products.map((p, i) => [
-      nowSerial, indentNo, indentType || '', i + 1, p.productName, p.uom || 'PCS', p.qty, p.vendorName || '', raisedBy
-    ]);
-
-    await sheetsApi.spreadsheets.values.append({
-      spreadsheetId: PURCHASE_SHEET_ID,
-      range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`,
-      valueInputOption: 'RAW',
-      insertDataOption: 'OVERWRITE',
-      requestBody: { values: rows }
-    });
-
-    res.json({ success: true, indentNo });
-  } catch (err) {
-    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
-    sendServerError(res, err);
-  }
-});
-
-// Marks a step done for every product row under an Indent No whose next
+// Marks a step done for every product row under a PO Number whose next
 // pending step genuinely IS this one — same "furthest-behind line" logic as
-// writeO2dStepForOrder above, plus: a row currently sitting on a skipped
-// step (Approval, when not needed) is treated as already past it rather
-// than pending, both for "already has this step" and for gating later steps.
-async function writePurchaseStepForIndent(sheetsApi, indentNo, stepNum, body) {
+// writeO2dStepForOrder above.
+async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
   const stepDef = PURCHASE_STEPS.find(s => s.n === stepNum);
   if (!stepDef) return { rowsUpdated: -1 };
   const priorSteps = PURCHASE_STEPS.filter(s => s.n < stepNum);
@@ -5531,8 +5459,7 @@ async function writePurchaseStepForIndent(sheetsApi, indentNo, stepNum, body) {
   const targetRows = [];
   keyRows.forEach((r, i) => {
     const get = col => r[colToIdx(col) - bOffset];
-    if ((get('B') || '') !== indentNo) return;
-    if (purchaseStepIsSkipped(stepDef, get)) return; // this step doesn't apply to this row
+    if ((get('B') || '') !== poNumber) return;
     if (stepDef.status && get(stepDef.status)) return; // already has this step
     const priorDone = priorSteps.every(s => purchaseStepIsDone(s, get));
     if (priorDone) targetRows.push(PURCHASE_DATA_START_ROW + i);
@@ -5546,8 +5473,11 @@ async function writePurchaseStepForIndent(sheetsApi, indentNo, stepNum, body) {
     if (stepDef.actual) batchData.push({ range: `'${PURCHASE_TAB}'!${stepDef.actual}${rowNum}`, values: [[now]] });
     if (stepDef.status && stepDef.status !== stepDef.actual) batchData.push({ range: `'${PURCHASE_TAB}'!${stepDef.status}${rowNum}`, values: [[defaultStatus]] });
     stepDef.extra.forEach(f => {
+      if (f.readOnly) return; // e.g. Pending Qty — display-only, may be formula-driven
       const val = body[f.key];
-      if (val !== undefined && val !== '') batchData.push({ range: `'${PURCHASE_TAB}'!${f.col}${rowNum}`, values: [[val]] });
+      if (val === undefined || val === '') return;
+      const writeVal = f.isDate ? sfmsDateToSerial(new Date(val + 'T00:00:00')) : val;
+      batchData.push({ range: `'${PURCHASE_TAB}'!${f.col}${rowNum}`, values: [[writeVal]] });
     });
   });
 
@@ -5558,171 +5488,16 @@ async function writePurchaseStepForIndent(sheetsApi, indentNo, stepNum, body) {
   return { rowsUpdated: targetRows.length };
 }
 
-app.put('/api/purchase-fms/indent/:indentNo/step/:stepNum', requireAuth, async (req, res) => {
+app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req, res) => {
   try {
-    const indentNo = req.params.indentNo;
+    const poNumber = req.params.poNumber;
     const stepNum = parseInt(req.params.stepNum, 10);
     if (!(await assertIsStepDoer(res, 'purchase_step_doers', stepNum, req.session.userId, req.session.role))) return;
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    const { rowsUpdated } = await writePurchaseStepForIndent(sheetsApi, indentNo, stepNum, req.body);
+    const { rowsUpdated } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, req.body);
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
-    if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under indent ${indentNo}` });
+    if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under PO ${poNumber}` });
     res.json({ success: true, rowsUpdated });
-  } catch (err) {
-    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
-    sendServerError(res, err);
-  }
-});
-
-// Product suggestions = shared Product Master (same source O2D/Service FMS
-// use) plus any product names already typed into real indents.
-app.get('/api/purchase-fms/product-names', requireAuth, async (req, res) => {
-  try {
-    const [{ products }, indents] = await Promise.all([
-      getMasterWorkbookData(),
-      getPurchaseIndents().catch(() => [])
-    ]);
-    const seen = new Set(products.map(p => p.name.toLowerCase()));
-    const merged = products.slice();
-    indents.forEach(o => (o.products || []).forEach(p => {
-      const name = (p.productName || '').trim();
-      if (!name || seen.has(name.toLowerCase())) return;
-      seen.add(name.toLowerCase());
-      merged.push({ name, category: '' });
-    }));
-    res.json({ products: merged });
-  } catch (err) { sendServerError(res, err); }
-});
-
-// No Vendor Master workbook exists (unlike Product/Dealer Master) — vendor
-// suggestions are just the distinct vendor names already used in real indents.
-app.get('/api/purchase-fms/vendor-names', requireAuth, async (req, res) => {
-  try {
-    const indents = await getPurchaseIndents().catch(() => []);
-    const seen = new Set();
-    const vendors = [];
-    indents.forEach(o => (o.products || []).forEach(p => {
-      const name = (p.vendorName || '').trim();
-      if (!name || seen.has(name.toLowerCase())) return;
-      seen.add(name.toLowerCase());
-      vendors.push(name);
-    }));
-    res.json({ vendors });
-  } catch (err) { sendServerError(res, err); }
-});
-
-// ── PO generation ── builds an actual PO PDF and uploads it, instead of
-// relying on the user's separate Apps Script tool (that one's a
-// google.script.run browser UI, not callable from here). "Rs." instead of
-// "₹" — pdfkit's base Helvetica font has no rupee glyph.
-function buildPurchaseOrderPdf(data) {
-  const PDFDocument = require('pdfkit'); // lazy — only needed when a PO is actually generated
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
-    const chunks = [];
-    doc.on('data', c => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-
-    doc.fontSize(18).font('Helvetica-Bold').text('Ajanta Appliances');
-    doc.fontSize(9).font('Helvetica').fillColor('#666').text('Purchase Order');
-    doc.moveDown(1.5);
-
-    doc.fillColor('#000').fontSize(14).font('Helvetica-Bold').text(`PO Number: ${data.poNumber}`);
-    doc.fontSize(10).font('Helvetica');
-    doc.text(`Date: ${data.date.toLocaleDateString('en-IN')}`);
-    doc.text(`Indent No: ${data.indentNo}${data.indentType ? ' (' + data.indentType + ')' : ''}`);
-    doc.moveDown(1);
-
-    doc.font('Helvetica-Bold').text('Vendor');
-    doc.font('Helvetica').text(data.vendorName || '—');
-    doc.moveDown(1);
-
-    const tableTop = doc.y + 10;
-    const cols = [
-      { label: 'Product', x: 50, w: 200 },
-      { label: 'UOM', x: 250, w: 60 },
-      { label: 'Qty', x: 310, w: 60 },
-      { label: 'Rate', x: 370, w: 70 },
-      { label: 'Amount', x: 440, w: 90 }
-    ];
-    doc.font('Helvetica-Bold').fontSize(10);
-    cols.forEach(c => doc.text(c.label, c.x, tableTop, { width: c.w }));
-    doc.moveTo(50, tableTop + 15).lineTo(530, tableTop + 15).strokeColor('#ccc').stroke();
-
-    const rowY = tableTop + 22;
-    doc.font('Helvetica').fontSize(10).fillColor('#000');
-    doc.text(data.productName, cols[0].x, rowY, { width: cols[0].w });
-    doc.text(data.uom || '—', cols[1].x, rowY, { width: cols[1].w });
-    doc.text(String(data.qty), cols[2].x, rowY, { width: cols[2].w });
-    doc.text(data.rate ? `Rs. ${data.rate}` : '—', cols[3].x, rowY, { width: cols[3].w });
-    doc.text(data.amount ? `Rs. ${data.amount.toLocaleString('en-IN')}` : '—', cols[4].x, rowY, { width: cols[4].w });
-
-    doc.moveTo(50, rowY + 25).lineTo(530, rowY + 25).strokeColor('#ccc').stroke();
-    doc.font('Helvetica-Bold').text(`Total: Rs. ${(data.amount || 0).toLocaleString('en-IN')}`, 370, rowY + 35, { width: 160, align: 'right' });
-
-    doc.fontSize(8).fillColor('#999').text('Generated automatically by the Ajanta Appliances Purchase FMS.', 50, 750);
-
-    doc.end();
-  });
-}
-
-// Generates the PO for ONE product line (not the whole indent — vendors, and
-// so POs, differ per line within the same indent) and writes it straight to
-// that row's Planned/Actual/PO Number/PO Link/Po Qty. (AG-AK), completing
-// step 5 for that line in the same call. PO numbers are sequential across
-// the whole sheet, matching the real historical PO-0001/0002/... numbering.
-app.post('/api/purchase-fms/generate-po', requireAuth, async (req, res) => {
-  try {
-    const rowNum = parseInt(req.body.row, 10);
-    if (!rowNum) return res.status(400).json({ error: 'row is required' });
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-
-    const rowRes = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${rowNum}:${PURCHASE_LAST_COL}${rowNum}`, valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-    const row = (rowRes.data.values && rowRes.data.values[0]) || [];
-    const get = col => row[colToIdx(col)];
-    const indentNo = get('B') || '';
-    if (!indentNo) return res.status(404).json({ error: 'Row not found' });
-    if (get('AI')) return res.status(400).json({ error: `This item already has PO ${get('AI')}` });
-
-    const priorSteps = PURCHASE_STEPS.filter(s => s.n < 5);
-    if (!priorSteps.every(s => purchaseStepIsDone(s, get))) {
-      return res.status(400).json({ error: 'This item has not finished the earlier steps yet' });
-    }
-
-    const poColRes = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!AI${PURCHASE_DATA_START_ROW}:AI`, valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-    let maxPo = 0;
-    (poColRes.data.values || []).forEach(r => {
-      const m = String(r[0] || '').match(/PO-(\d+)/);
-      if (m) maxPo = Math.max(maxPo, parseInt(m[1], 10));
-    });
-    const poNumber = `PO-${String(maxPo + 1).padStart(4, '0')}`;
-
-    const qty = Number(get('G')) || 0;
-    const rate = Number(get('V')) || 0;
-    const pdfBuffer = await buildPurchaseOrderPdf({
-      poNumber, indentNo, indentType: get('C') || '', productName: get('E') || '',
-      uom: get('F') || '', qty, vendorName: get('H') || '', rate, amount: qty * rate, date: new Date()
-    });
-    const poLink = await uploadBufferToDrive(pdfBuffer, `${poNumber}.pdf`, 'application/pdf');
-
-    const now = sfmsDateToSerial(new Date());
-    await sheetsApi.spreadsheets.values.batchUpdate({
-      spreadsheetId: PURCHASE_SHEET_ID,
-      requestBody: { valueInputOption: 'RAW', data: [
-        { range: `'${PURCHASE_TAB}'!AG${rowNum}`, values: [[now]] },
-        { range: `'${PURCHASE_TAB}'!AH${rowNum}`, values: [[now]] },
-        { range: `'${PURCHASE_TAB}'!AI${rowNum}`, values: [[poNumber]] },
-        { range: `'${PURCHASE_TAB}'!AJ${rowNum}`, values: [[poLink]] },
-        { range: `'${PURCHASE_TAB}'!AK${rowNum}`, values: [[qty]] }
-      ] }
-    });
-
-    res.json({ success: true, poNumber, poLink });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
     sendServerError(res, err);

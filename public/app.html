@@ -775,10 +775,6 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 11H4L5 9z"/></svg>
       <span class="nav-label-text">Purchase FMS</span>
     </div>
-    <div class="nav-item" id="nav-purchase-new-indent" style="display:none" onclick="openNewPurchaseIndentModal()">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-      <span class="nav-label-text">New Indent</span>
-    </div>
     <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
       <span class="nav-label-text">Price List & Catalogue</span>
@@ -841,10 +837,6 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="purchase-fms" onclick="navigate('purchase-fms',null)" id="bnPurchase" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 11H4L5 9z"/></svg>
     <span>Purchase</span>
-  </div>
-  <div class="bn-item" id="bnNewIndent" style="display:none" onclick="openNewPurchaseIndentModal()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-    <span>New Indent</span>
   </div>
   <div class="bn-item" data-page="price-catalogue" onclick="navigate('price-catalogue',null)" id="bnCatalogue" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -1295,7 +1287,6 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── PURCHASE FMS (Indent → PO) ── -->
   <div id="page-purchase-fms" class="page">
     <div class="page-header">
-      <button class="btn btn-primary" onclick="openNewPurchaseIndentModal()">+ New Indent</button>
       <button class="btn btn-outline" onclick="loadPurchaseFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="purchaseStepDoersBtn" style="display:none" onclick="openPurchaseStepDoersModal()">⚙ Step Doers</button>
     </div>
@@ -1309,7 +1300,7 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;" id="pfmsSearchWrap">
-      <input type="text" id="pfmsSearch" oninput="pfmsSearchChanged()" placeholder="🔍 Search by Indent No, Product, Vendor…" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      <input type="text" id="pfmsSearch" oninput="pfmsSearchChanged()" placeholder="🔍 Search by PO Number, Indent No, Product, Vendor…" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
     </div>
 
     <div id="pfmsListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
@@ -2535,50 +2526,14 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
-<!-- ── PURCHASE FMS: INDENT DETAIL MODAL ── -->
+<!-- ── PURCHASE FMS: PO DETAIL MODAL ── -->
 <div class="modal-overlay" id="purchaseDetailModal">
   <div class="modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <h3 id="pfmsTitle" style="margin:0">Indent</h3>
+      <h3 id="pfmsTitle" style="margin:0">PO</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('purchaseDetailModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div id="pfmsBody" style="overflow-y:auto;flex:1"></div>
-  </div>
-</div>
-
-<!-- ── PURCHASE FMS: NEW INDENT MODAL ── -->
-<div class="modal-overlay" id="newPurchaseIndentModal">
-  <div class="modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <h3 style="margin:0">📝 New Indent</h3>
-      <button class="modal-close-x modal-close" onclick="closeModal('newPurchaseIndentModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-    </div>
-    <div class="alert error" id="newPfmsIndentErr" style="display:none"></div>
-
-    <div style="overflow-y:auto;overflow-x:hidden;flex:1;padding-right:2px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group">
-          <label>Indent Type</label>
-          <input type="text" id="niIndentType" list="niIndentTypeList" value="Finished Goods For Indent" placeholder="e.g. Finished Goods For Indent" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-          <datalist id="niIndentTypeList"></datalist>
-        </div>
-        <div class="form-group">
-          <label>Raised By <span style="color:var(--color-danger)">*</span></label>
-          <input type="text" id="niRaisedBy" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-        </div>
-      </div>
-
-      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 4px">Products</div>
-      <div style="font-size:11.5px;color:var(--gray-400);margin-bottom:8px">List mein nahi hai? Naya product/vendor naam yahin type kar do.</div>
-      <datalist id="niProductNameList"></datalist>
-      <datalist id="niVendorNameList"></datalist>
-      <div id="niProductRows"></div>
-      <button type="button" class="btn btn-outline btn-sm" onclick="addPurchaseProductRow()">+ Add Product</button>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
-      <button class="btn btn-primary" id="niSubmitBtn" onclick="submitNewPurchaseIndent()">Save Indent</button>
-      <button class="btn btn-outline" onclick="closeModal('newPurchaseIndentModal')">Cancel</button>
-    </div>
   </div>
 </div>
 
@@ -2981,11 +2936,10 @@ async function init() {
     if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
     if (canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
     if (canSee('purchase-fms')) document.getElementById('nav-purchase-fms').style.display = 'flex';
-    if (canSee('purchase-fms') || canSee('purchase-new-indent')) document.getElementById('nav-purchase-new-indent').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
-    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('purchase-fms') || canSee('purchase-new-indent') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
+    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('purchase-fms') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
@@ -3135,14 +3089,12 @@ function setupBottomNav() {
   const bnCatalogue = document.getElementById('bnCatalogue');
   const bnNewOrder = document.getElementById('bnNewOrder');
   const bnPurchase = document.getElementById('bnPurchase');
-  const bnNewIndent = document.getElementById('bnNewIndent');
   if (bnFms && canSee('service-fms')) bnFms.style.display = '';
   if (bnO2d && canSee('o2d-fms')) bnO2d.style.display = '';
   if (bnUsers && canSee('users')) bnUsers.style.display = '';
   if (bnCatalogue && canSee('price-catalogue')) bnCatalogue.style.display = '';
   if (bnNewOrder && (canSee('o2d-fms') || canSee('o2d-new-order'))) bnNewOrder.style.display = '';
   if (bnPurchase && canSee('purchase-fms')) bnPurchase.style.display = '';
-  if (bnNewIndent && (canSee('purchase-fms') || canSee('purchase-new-indent'))) bnNewIndent.style.display = '';
   attachScrollHint(document.getElementById('bottomNav'));
 }
 
@@ -4474,7 +4426,6 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'o2d-fms', label: 'O2D FMS' },
     { key: 'o2d-new-order', label: 'New Order' },
     { key: 'purchase-fms', label: 'Purchase FMS' },
-    { key: 'purchase-new-indent', label: 'New Indent' },
     { key: 'price-catalogue', label: 'Price List & Catalogue' },
     { key: 'stock', label: 'Stock' },
   ]},
@@ -9647,48 +9598,32 @@ function renderO2dDetailBody(o, hideProgress) {
 }
 
 // ══════════════════════════════════════════════════════
-// PURCHASE FMS (Indent → Stock Check → Provide from Store → Finalise Rate →
-// Approval → Generate PO → Goods Receipt). Same structural pattern as O2D
-// FMS above (STEP_DEFS array, list/detail/reports views, step-doers admin,
-// generic extra-field render/read pair) — kept as its own independent copy
-// (state vars, style constants) rather than sharing O2D's, same convention
-// Service FMS already follows.
+// PURCHASE FMS — tracks an already-placed PO through two follow-up stages:
+// Follow (chasing the vendor) and Material Received (closing it out once
+// goods arrive). Same structural pattern as O2D FMS above (STEP_DEFS array,
+// list/detail/reports views, step-doers admin, generic extra-field
+// render/read pair) — kept as its own independent copy (state vars, style
+// constants) rather than sharing O2D's, same convention Service FMS follows.
 //
-// Step 4 (Approval) is conditional — getPurchaseIndents() on the server
-// already folds "skipped because Approval Needed = No" into each step's
-// `done`/`skipped` flags and into `currentStep`, so the UI here just reads
-// those flags; no separate skip logic needed client-side.
+// IMPORTANT — re-verified live on 2026-09-24: the "Purchase Fms" sheet's
+// column layout had changed since this module was first built (see the
+// matching comment above PURCHASE_STEPS in server.js for the full story —
+// it used to be a 6-step Indent→PO sheet, now it's a 2-step post-PO
+// tracker keyed by PO Number). New-Indent creation and the per-line
+// Generate-PO flow were removed to match — a PO already exists as input
+// data by the time a row appears here.
 // ══════════════════════════════════════════════════════
 const PURCHASE_STEP_DEFS = [
-  { n: 1, label: 'Check Stock in Store', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [
-      { key: 'qtyAvailable', label: 'Qty Available', type: 'number' }
+  { n: 1, label: 'Follow', doer: 'Priyanka (SCCRR)', tat: 'Every alternate day', extraFields: [
+      { key: 'remark', label: 'Remark' },
+      { key: 'nextFollowup', label: 'Next Followup', type: 'date' }
     ] },
-  { n: 2, label: 'Provide from Store', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [
-      { key: 'qtyToPurchase', label: 'Qty to Purchase', type: 'number' }
-    ] },
-  { n: 3, label: 'Finalise Rate', doer: 'Accountant (Narender)', tat: '10 min', extraFields: [
-      { key: 'finalRate', label: 'Final Current Rate', type: 'number', required: true },
-      { key: 'oldRate', label: 'Old Rate', type: 'number' },
-      { key: 'rateType', label: 'Rate Type' },
-      { key: 'leadTime', label: 'Lead Time (days)', type: 'number' },
-      { key: 'approvalNeeded', label: 'Approval Needed', type: 'select', options: ['Yes', 'No'], required: true }
-    ] },
-  { n: 4, label: 'Approval', doer: 'Ajay', tat: '—', statusOptions: ['Approved', 'Rejected'], extraFields: [] },
-  { n: 5, label: 'Generate PO', doer: 'Priyanka (SCCRR)', tat: '30 min', extraFields: [
-      { key: 'poNumber', label: 'PO Number', required: true },
-      { key: 'poLink', label: 'PO Link' },
-      { key: 'poQty', label: 'Po Qty.', type: 'number' }
-    ] },
-  { n: 6, label: 'Goods Receipt & Closure', doer: 'Priyanka (SCCRR)', tat: '—', statusOptions: ['Closed', 'Partial'], extraFields: [
-      { key: 'totalReceived', label: 'Total Received', type: 'number', required: true },
-      { key: 'docsComplete', label: 'Docs Complete', type: 'select', options: ['Yes', 'No'] },
-      { key: 'remark', label: 'Remark' }
+  { n: 2, label: 'Material Received', doer: 'Priyanka (SCCRR)', tat: '—', extraFields: [
+      { key: 'receivedQty', label: 'Received Qty', type: 'number', required: true },
+      { key: 'pendingQty', label: 'Pending Qty', readOnly: true },
+      { key: 'forceFullClosed', label: 'Force Full Closed PO', type: 'select', options: ['Yes', 'No'] }
     ] }
 ];
-// PO generation itself happens in a separate Apps Script tool the user
-// already has (google.script.run UI, not a callable API) — the Generate PO
-// step just links out to it; PO Number/Link/Qty stay manual-entry fields.
-const PURCHASE_PO_GENERATOR_URL = 'https://script.google.com/macros/s/AKfycbxpcAYsLFoz1EUxU3NposqHfhg6eS-U9UgSAcR1te_AO3PHFLcWj7i2zWaUfOIIY89U/exec';
 const PFMS_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
 const PFMS_INPUT_STYLE = "width:100%;padding:10px 12px;border:1.5px solid var(--border-base);border-radius:var(--radius-sm);font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
 
@@ -9745,8 +9680,10 @@ function pfmsFilteredRows() {
   const q = (document.getElementById('pfmsSearch').value || '').trim().toLowerCase();
   if (!q) return pfmsData;
   return pfmsData.filter(o =>
+    (o.poNumber || '').toLowerCase().includes(q) ||
     (o.indentNo || '').toLowerCase().includes(q) ||
-    (o.products || []).some(p => (p.productName || '').toLowerCase().includes(q) || (p.vendorName || '').toLowerCase().includes(q))
+    (o.vendorName || '').toLowerCase().includes(q) ||
+    (o.products || []).some(p => (p.productName || '').toLowerCase().includes(q))
   );
 }
 
@@ -9756,9 +9693,8 @@ function pfmsIsOverdue(plannedStr) {
   return d && d.getTime() < Date.now();
 }
 
-// ── FMS View: the full grid, one row per indent, Planned/Actual/Status per
-// step side by side — a skipped step (Approval, when not needed) shows a
-// grey "Skipped" badge instead of a blank cell. ──
+// ── FMS View: the full grid, one row per PO, Planned/Actual/Status per
+// step side by side. ──
 let pfmsFmsSubView = 'pending';
 function switchPfmsFmsSubView(sub) { pfmsFmsSubView = sub; pfmsPage = 1; renderPurchaseFmsView(); }
 
@@ -9771,7 +9707,7 @@ function renderPurchaseFmsView() {
 
   const rows = pfmsFilteredRows().filter(o => pfmsFmsSubView === 'pending' ? !o.closed : o.closed);
   if (!rows.length) {
-    wrap.innerHTML = subTabsHtml + `<div class="empty">${pfmsFmsSubView === 'pending' ? 'No pending indents.' : 'No completed indents yet.'}</div>`;
+    wrap.innerHTML = subTabsHtml + `<div class="empty">${pfmsFmsSubView === 'pending' ? 'No pending POs.' : 'No completed POs yet.'}</div>`;
     return;
   }
   const { pageRows, totalPages, total } = pfmsPaginate(rows);
@@ -9779,19 +9715,21 @@ function renderPurchaseFmsView() {
   const stepHeadSub = PURCHASE_STEP_DEFS.map(() => `<th style="border-left:2px solid var(--gray-200)">Planned</th><th>Actual</th><th>Status</th>`).join('');
   wrap.innerHTML = subTabsHtml + `<table style="font-size:12px;white-space:nowrap">
     <thead>
-      <tr><th rowspan="2">Indent No</th><th rowspan="2">Items</th><th rowspan="2">Qty</th>${stepHeadTop}</tr>
+      <tr><th rowspan="2">PO Number</th><th rowspan="2">Indent No</th><th rowspan="2">Vendor</th><th rowspan="2">Items</th><th rowspan="2">Qty</th>${stepHeadTop}</tr>
       <tr>${stepHeadSub}</tr>
     </thead>
     <tbody>
       ${pageRows.map(o => `
-        <tr onclick="openPurchaseDetail('${o.indentNo}')" style="cursor:pointer">
-          <td style="font-weight:600">${esc(o.indentNo || '—')}</td>
+        <tr onclick="openPurchaseDetail('${o.poNumber}')" style="cursor:pointer">
+          <td style="font-weight:600">${esc(o.poNumber || '—')}</td>
+          <td>${esc(o.indentNo || '—')}</td>
+          <td>${esc(o.vendorName || '—')}</td>
           <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
           ${o.steps.map(s => `
             <td style="border-left:2px solid var(--gray-200)">${esc(s.planned || '—')}</td>
             <td>${esc(s.actual || '—')}</td>
-            <td>${s.skipped ? `<span class="status-badge" style="background:var(--gray-100);color:var(--gray-400)">Skipped</span>` : (s.status ? `<span class="status-badge" style="background:${(s.status==='No'||s.status==='Rejected')?'var(--color-danger-bg)':'var(--color-success-bg)'};color:${(s.status==='No'||s.status==='Rejected')?'var(--color-danger-text)':'var(--color-success-text)'}">${esc(s.status)}</span>` : '—')}</td>
+            <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${esc(s.status)}</span>` : '—'}</td>
           `).join('')}
         </tr>`).join('')}
     </tbody>
@@ -9799,14 +9737,14 @@ function renderPurchaseFmsView() {
   ${pfmsPaginationHtml(totalPages, total)}`;
 }
 
-// ── PC View: pending indents only — where each is stuck, planned time, doer. ──
+// ── PC View: pending POs only — where each is stuck, planned time, doer. ──
 function renderPurchasePCView() {
   const wrap = document.getElementById('pfmsListWrap');
   const rows = pfmsFilteredRows().filter(o => !o.closed);
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending indents — sab clear hai 🎉</div>'; return; }
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending POs — sab clear hai 🎉</div>'; return; }
   const { pageRows, totalPages, total } = pfmsPaginate(rows);
   wrap.innerHTML = `<table>
-    <thead><tr><th>Indent No</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
+    <thead><tr><th>PO Number</th><th>Indent No</th><th>Vendor</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
     <tbody>
       ${pageRows.map(o => {
         const pendingStep = o.steps[o.currentStep];
@@ -9814,8 +9752,10 @@ function renderPurchasePCView() {
         const rowStyle = overdue ? 'background:var(--color-danger-bg)' : '';
         const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
         return `
-        <tr onclick="openPurchaseDetail('${o.indentNo}')" style="cursor:pointer;${rowStyle}">
-          <td style="font-weight:600">${esc(o.indentNo || '—')}</td>
+        <tr onclick="openPurchaseDetail('${o.poNumber}')" style="cursor:pointer;${rowStyle}">
+          <td style="font-weight:600">${esc(o.poNumber || '—')}</td>
+          <td>${esc(o.indentNo || '—')}</td>
+          <td>${esc(o.vendorName || '—')}</td>
           <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
           <td style="font-weight:600">${pendingStep.n}. ${esc(pendingStep.label)}</td>
@@ -9851,12 +9791,12 @@ function renderPurchaseReportsView() {
   wrap.innerHTML = `
     <div style="padding:16px">
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px">
-        ${statCard('Total Indents', total, 'var(--gray-800)')}
+        ${statCard('Total POs', total, 'var(--gray-800)')}
         ${statCard('Closed', closed, 'var(--color-success-text)')}
         ${statCard('Pending', pending, 'var(--color-warning-text)')}
         ${statCard('Overdue', overdueCount, 'var(--color-danger)')}
       </div>
-      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Pending Indents By Step</div>
+      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Pending POs By Step</div>
       <table>
         <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Pending Count</th></tr></thead>
         <tbody>
@@ -9918,110 +9858,16 @@ async function submitPurchaseStepDoers() {
   if (document.getElementById('page-purchase-fms').classList.contains('active')) loadPurchaseFmsList();
 }
 
-// ── New Indent ── appends straight into the Purchase Fms sheet.
-let pfmsProductRowCount = 0;
-function addPurchaseProductRow() {
-  const id = pfmsProductRowCount++;
-  const wrap = document.getElementById('niProductRows');
-  const row = document.createElement('div');
-  row.id = `niProductRow_${id}`;
-  row.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,0.7fr) minmax(0,0.7fr) minmax(0,1.3fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
-  row.innerHTML = `
-    <input type="text" placeholder="Product Name *" id="niProdName_${id}" list="niProductNameList" style="min-width:0;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-    <input type="text" placeholder="UOM" id="niProdUom_${id}" value="PCS" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-    <input type="number" placeholder="Qty *" id="niProdQty_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-    <input type="text" placeholder="Vendor Name" id="niProdVendor_${id}" list="niVendorNameList" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-    <button type="button" onclick="removePurchaseProductRow(${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0;flex-shrink:0">✕</button>`;
-  wrap.appendChild(row);
-}
-function removePurchaseProductRow(id) {
-  const wrap = document.getElementById('niProductRows');
-  if (wrap.children.length <= 1) { showToast('At least one product is required', 'error'); return; }
-  document.getElementById(`niProductRow_${id}`).remove();
-}
-
-let _pfmsProductNames = null; // cached across modal opens — Product Master workbook rarely changes
-async function loadPurchaseProductNames() {
-  if (!_pfmsProductNames) {
-    const r = await api('/api/purchase-fms/product-names');
-    _pfmsProductNames = (r && r.products) || [];
-  }
-  document.getElementById('niProductNameList').innerHTML = _pfmsProductNames.map(p => `<option value="${p.name.replace(/"/g,'&quot;')}">`).join('');
-}
-let _pfmsVendorNames = null;
-async function loadPurchaseVendorNames() {
-  if (!_pfmsVendorNames) {
-    const r = await api('/api/purchase-fms/vendor-names');
-    _pfmsVendorNames = (r && r.vendors) || [];
-  }
-  document.getElementById('niVendorNameList').innerHTML = _pfmsVendorNames.map(v => `<option value="${v.replace(/"/g,'&quot;')}">`).join('');
-}
-// No Indent Type master exists — just suggest whatever's already been used.
-function populatePurchaseIndentTypeList() {
-  const types = new Set(['Finished Goods For Indent']);
-  pfmsData.forEach(o => { if (o.indentType) types.add(o.indentType); });
-  document.getElementById('niIndentTypeList').innerHTML = [...types].map(t => `<option value="${t.replace(/"/g,'&quot;')}">`).join('');
-}
-
-function openNewPurchaseIndentModal() {
-  document.getElementById('newPfmsIndentErr').style.display = 'none';
-  document.getElementById('niIndentType').value = 'Finished Goods For Indent';
-  document.getElementById('niRaisedBy').value = (ME && ME.name) || '';
-  document.getElementById('niProductRows').innerHTML = '';
-  pfmsProductRowCount = 0;
-  addPurchaseProductRow();
-  document.getElementById('newPurchaseIndentModal').classList.add('open');
-  populatePurchaseIndentTypeList();
-  loadPurchaseProductNames();
-  loadPurchaseVendorNames();
-}
-
-async function submitNewPurchaseIndent() {
-  const errEl = document.getElementById('newPfmsIndentErr');
-  errEl.style.display = 'none';
-  const raisedBy = document.getElementById('niRaisedBy').value.trim();
-  if (!raisedBy) { errEl.textContent = 'Raised By is required'; errEl.style.display = 'block'; return; }
-  const indentType = document.getElementById('niIndentType').value.trim();
-
-  const products = [];
-  for (const row of document.getElementById('niProductRows').children) {
-    const id = row.id.split('_')[1];
-    const productName = document.getElementById(`niProdName_${id}`).value.trim();
-    const qty = document.getElementById(`niProdQty_${id}`).value.trim();
-    if (!productName || !qty) { errEl.textContent = 'Every product needs a name and quantity'; errEl.style.display = 'block'; return; }
-    products.push({
-      productName, qty,
-      uom: document.getElementById(`niProdUom_${id}`).value.trim() || 'PCS',
-      vendorName: document.getElementById(`niProdVendor_${id}`).value.trim()
-    });
-  }
-
-  const submitBtn = document.getElementById('niSubmitBtn');
-  const originalBtnText = submitBtn.textContent;
-  submitBtn.textContent = '⏳ Saving...';
-  submitBtn.disabled = true;
-
-  const res = await api('/api/purchase-fms/new-indent', 'POST', { indentType, raisedBy, products });
-
-  submitBtn.textContent = originalBtnText;
-  submitBtn.disabled = false;
-
-  if (res.error) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
-  showToast(`✅ Indent ${res.indentNo} created!`);
-  closeModal('newPurchaseIndentModal');
-  loadPurchaseFmsList();
-}
-
-async function openPurchaseDetail(indentNo) {
-  const o = pfmsData.find(x => x.indentNo === indentNo);
-  if (!o) { showToast('Indent not found — please refresh', 'error'); return; }
-  document.getElementById('pfmsTitle').textContent = o.indentNo;
+async function openPurchaseDetail(poNumber) {
+  const o = pfmsData.find(x => x.poNumber === poNumber);
+  if (!o) { showToast('PO not found — please refresh', 'error'); return; }
+  document.getElementById('pfmsTitle').textContent = o.poNumber;
   document.getElementById('purchaseDetailModal').classList.add('open');
   renderPurchaseDetailBody(o);
 }
 
-function renderPurchaseField(f, indentNo) {
-  const id = `pfmsExtra_${indentNo}_${f.key}`;
+function renderPurchaseField(f, poNumber) {
+  const id = `pfmsExtra_${poNumber}_${f.key}`;
   const reqMark = f.required ? ` <span style="color:var(--color-danger)">*</span>` : '';
   if (f.type === 'select') {
     return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
@@ -10032,40 +9878,31 @@ function renderPurchaseField(f, indentNo) {
   }
   return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${PFMS_INPUT_STYLE}"/>`;
 }
-function readPurchaseField(f, indentNo) {
-  const el = document.getElementById(`pfmsExtra_${indentNo}_${f.key}`);
+function readPurchaseField(f, poNumber) {
+  const el = document.getElementById(`pfmsExtra_${poNumber}_${f.key}`);
   return el ? el.value.trim() : '';
 }
 
-// Marking a step done applies to the WHOLE indent (every product line under
-// this Indent No.) in one call, same "only touch lines still pending this
-// step" server logic as O2D. Simple re-fetch after a successful write rather
-// than O2D's optimistic local patch — getPurchaseIndents() isn't cached
-// either way, and the conditional Approval-skip makes re-deriving currentStep
-// client-side more error-prone than just trusting the server's answer.
-async function advancePurchaseStep(indentNo, step) {
-  const o = pfmsData.find(x => x.indentNo === indentNo);
-  if (!o) { showToast('Indent not found — please refresh', 'error'); return; }
+// Marking a step done applies to every product row under this PO Number in
+// one call — server only touches rows still pending this step. Simple
+// re-fetch after a successful write, not an optimistic local patch —
+// getPurchasePOs() isn't cached either way.
+async function advancePurchaseStep(poNumber, step) {
+  const o = pfmsData.find(x => x.poNumber === poNumber);
+  if (!o) { showToast('PO not found — please refresh', 'error'); return; }
   const stepDef = PURCHASE_STEP_DEFS.find(d => d.n === step);
   const body = { status: 'Yes' };
 
-  if (stepDef.statusOptions) {
-    const sel = document.getElementById(`pfmsStepStatus_${indentNo}`);
-    const val = sel ? sel.value : '';
-    if (!val) { showToast('Select a status', 'error'); return; }
-    body.status = val;
-  }
-
-  for (const f of stepDef.extraFields) body[f.key] = readPurchaseField(f, indentNo);
+  for (const f of stepDef.extraFields) { if (!f.readOnly) body[f.key] = readPurchaseField(f, poNumber); }
   for (const f of stepDef.extraFields) {
-    if (f.required && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
+    if (f.required && !f.readOnly && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
   }
 
-  const btn = document.getElementById(`pfmsMarkDoneBtn_${indentNo}`);
+  const btn = document.getElementById(`pfmsMarkDoneBtn_${poNumber}`);
   const originalBtnText = btn ? btn.textContent : '';
   if (btn) { btn.textContent = '⏳ Saving...'; btn.disabled = true; }
 
-  const res = await api(`/api/purchase-fms/indent/${encodeURIComponent(indentNo)}/step/${step}`, 'PUT', body);
+  const res = await api(`/api/purchase-fms/po/${encodeURIComponent(poNumber)}/step/${step}`, 'PUT', body);
 
   if (res.error) {
     if (/No pending rows/i.test(res.error)) {
@@ -10084,96 +9921,54 @@ async function advancePurchaseStep(indentNo, step) {
   loadPurchaseFmsList();
 }
 
-// Generates + writes the PO for one product line and re-opens the same
-// indent's detail view refreshed, so generating several lines' POs one
-// after another (multi-vendor indent) doesn't require re-navigating.
-async function generatePurchasePo(row, indentNo) {
-  const btn = document.getElementById(`pfmsGenPoBtn_${row}`);
-  const originalBtnText = btn ? btn.textContent : '';
-  if (btn) { btn.textContent = '⏳ Generating...'; btn.disabled = true; }
-
-  const res = await api('/api/purchase-fms/generate-po', 'POST', { row });
-
-  if (res.error) {
-    if (btn) { btn.textContent = originalBtnText; btn.disabled = false; }
-    showToast(res.error, 'error');
-    return;
-  }
-
-  showToast(`✅ ${res.poNumber} generated!`);
-  await loadPurchaseFmsList();
-  if (document.getElementById('purchaseDetailModal').classList.contains('open')) openPurchaseDetail(indentNo);
-}
-
 function renderPurchaseDetailBody(o) {
   const body = document.getElementById('pfmsBody');
 
   const productsInfoListHtml = (o.products || []).map(p => `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
       <span>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)} ${esc(p.uom||'')}</span></span>
-      <span style="display:flex;align-items:center;gap:6px">
-        <span style="font-size:12px;color:var(--gray-500)">${esc(p.vendorName || '—')}</span>
-        ${p.poNumber ? `<a href="${esc(p.poLink||'#')}" target="_blank" rel="noopener" class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text);text-decoration:none">🧾 ${esc(p.poNumber)}</a>` : ''}
-      </span>
+      <span style="font-size:12px;color:var(--gray-500)">${p.finalRate ? 'Rs. ' + esc(p.finalRate) : '—'}</span>
     </div>`).join('');
 
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
-      <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.indentNo)}${o.indentType ? ' · ' + esc(o.indentType) : ''}</div>
+      <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.poNumber)} · ${esc(o.indentNo || '—')}</div>
       <div style="${PFMS_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
       <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div style="${PFMS_FIELD_LABEL_STYLE}">Vendor</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.vendorName || '—')}</div>
+        </div>
+        <div>
+          <div style="${PFMS_FIELD_LABEL_STYLE}">Amount</div>
+          <div style="font-size:14px;color:var(--gray-800)">${o.amount ? inr(o.amount) : '—'}</div>
+        </div>
         <div>
           <div style="${PFMS_FIELD_LABEL_STYLE}">Raised By</div>
           <div style="font-size:14px;color:var(--gray-800)">${esc(o.raisedBy || '—')}</div>
         </div>
         <div>
-          <div style="${PFMS_FIELD_LABEL_STYLE}">Raised On</div>
-          <div style="font-size:14px;color:var(--gray-800)">${o.timestamp ? fmtDate(o.timestamp) : '—'}</div>
+          <div style="${PFMS_FIELD_LABEL_STYLE}">Lead Time</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.leadTime || '—')}</div>
         </div>
       </div>
     </div>`;
 
   const nextStepDef = PURCHASE_STEP_DEFS.find(d => d.n === o.currentStep + 1);
   let actionHtml;
-  if (nextStepDef && nextStepDef.n === 5) {
-    // Generate PO is per PRODUCT LINE, not per whole indent — different
-    // lines under one indent can have different vendors (real data confirms
-    // this), so each gets its own PO generated + written independently.
-    const pendingPoLines = (o.products || []).filter(p => p.currentStep < 5);
+  if (nextStepDef) {
+    const extraInputsHtml = nextStepDef.extraFields.filter(f => !f.readOnly).map(f => renderPurchaseField(f, o.poNumber)).join('');
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — per item</div>
-        <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">Generate PO</div>
-        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')} — har item/vendor ka apna PO banega</div>
-        ${pendingPoLines.map(p => `
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:8px">
-            <div>
-              <div style="font-size:13px;font-weight:600">${esc(p.productName)}</div>
-              <div style="font-size:11.5px;color:var(--gray-500)">${esc(p.vendorName || '—')} · ${esc(p.qty)} ${esc(p.uom||'')}${p.finalRate ? ' @ Rs.' + esc(p.finalRate) : ''}</div>
-            </div>
-            <button id="pfmsGenPoBtn_${p.row}" class="btn btn-green btn-sm" onclick="generatePurchasePo(${p.row},'${o.indentNo}')">🧾 Generate PO</button>
-          </div>`).join('') || '<div style="color:var(--gray-400);font-size:13px">No pending items</div>'}
-        <div style="margin-top:6px"><a href="${PURCHASE_PO_GENERATOR_URL}" target="_blank" rel="noopener" style="font-size:11px;color:var(--gray-400)">or use the old external PO tool ↗</a></div>
-      </div>`;
-  } else if (nextStepDef) {
-    const extraInputsHtml = nextStepDef.extraFields.map(f => renderPurchaseField(f, o.indentNo)).join('');
-    actionHtml = `
-      <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole indent</div>
+        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${esc(nextStepDef.label)}</div>
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')}</div>
-        ${nextStepDef.statusOptions ? `
-        <div style="${PFMS_FIELD_LABEL_STYLE}">Status <span style="color:var(--color-danger)">*</span></div>
-        <select id="pfmsStepStatus_${o.indentNo}" style="${PFMS_INPUT_STYLE};background:var(--surface)">
-          <option value="">-- Select --</option>
-          ${nextStepDef.statusOptions.map(s => `<option>${s}</option>`).join('')}
-        </select>` : ''}
         ${extraInputsHtml}
-        <button id="pfmsMarkDoneBtn_${o.indentNo}" onclick="advancePurchaseStep('${o.indentNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
+        <button id="pfmsMarkDoneBtn_${o.poNumber}" onclick="advancePurchaseStep('${o.poNumber}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
       </div>`;
   } else {
-    actionHtml = `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All steps complete — indent closed</div>`;
+    actionHtml = `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All steps complete — PO closed</div>`;
   }
 
   const checklistHtml = `
@@ -10181,15 +9976,12 @@ function renderPurchaseDetailBody(o) {
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
       ${o.steps.map(s => {
         const isCurrent = s.n === o.currentStep + 1;
-        const dot = s.skipped
-          ? `<span style="width:20px;height:20px;border-radius:50%;background:var(--gray-300);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">—</span>`
-          : s.done
+        const dot = s.done
           ? `<span style="width:20px;height:20px;border-radius:50%;background:var(--color-success-text);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">✓</span>`
           : `<span style="width:20px;height:20px;border-radius:50%;border:2px solid ${isCurrent ? 'var(--color-primary)' : 'var(--gray-200)'};flex-shrink:0"></span>`;
-        const label = s.skipped ? `${s.n}. ${esc(s.label)} (skipped)` : `${s.n}. ${esc(s.label)}`;
-        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:${s.skipped ? 'var(--gray-50)' : s.done ? 'var(--color-success-bg)' : isCurrent ? 'var(--color-purple-bg)' : 'var(--gray-50)'}">
+        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:${s.done ? 'var(--color-success-bg)' : isCurrent ? 'var(--color-purple-bg)' : 'var(--gray-50)'}">
           ${dot}
-          <span style="font-size:14px;font-weight:${s.done || isCurrent ? '600' : '400'};color:${s.skipped ? 'var(--gray-400)' : s.done ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${label}</span>
+          <span style="font-size:14px;font-weight:${s.done || isCurrent ? '600' : '400'};color:${s.done ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${s.n}. ${esc(s.label)}</span>
         </div>`;
       }).join('')}
     </div>
@@ -10208,7 +10000,7 @@ function renderPurchaseDetailBody(o) {
             <td style="color:var(--gray-500)">${esc(s.tat || '—')}</td>
             <td>${esc(s.planned || '—')}</td>
             <td>${esc(s.actual || '—')}</td>
-            <td>${s.skipped ? `<span class="status-badge" style="background:var(--gray-100);color:var(--gray-400)">Skipped</span>` : (s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${esc(s.status)}</span>` : '—')}</td>
+            <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${esc(s.status)}</span>` : '—'}</td>
             <td>${extraText}</td>
           </tr>`;
           }).join('')}
