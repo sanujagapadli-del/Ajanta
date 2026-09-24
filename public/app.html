@@ -330,6 +330,15 @@ tbody tr:last-child td{border-bottom:none;}
 .modal{background:var(--surface);border-radius:var(--radius-2xl);padding:26px;width:500px;max-width:95vw;max-height:92vh;overflow-y:auto;box-shadow:var(--shadow-xl);animation:pop-in 200ms cubic-bezier(0.16,1,0.3,1);}
 .modal h3{font-size:17px;font-weight:800;margin-bottom:20px;letter-spacing:-.2px;color:var(--gray-900);}
 .modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid var(--border-light);}
+.dl-print-only{display:none;}
+@media print{
+  body *{visibility:hidden;}
+  .dl-print-modal,.dl-print-modal *{visibility:visible;}
+  .dl-print-modal{position:absolute;inset:0;width:100%;max-width:100%;max-height:none;overflow:visible;box-shadow:none;border-radius:0;padding:16px;}
+  #dlBody{overflow:visible;max-height:none;}
+  .dl-no-print{display:none !important;}
+  .dl-print-only{display:block !important;font-size:16px;font-weight:800;margin-bottom:10px;}
+}
 
 .form-group{margin-bottom:16px;}
 .form-group label{font-size:10px;font-weight:800;color:var(--gray-600);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:.6px;}
@@ -2623,12 +2632,16 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- ── O2D DEALERS: STATEMENT / LEDGER MODAL ── -->
 <div class="modal-overlay" id="dealerLedgerModal">
-  <div class="modal" style="max-width:720px;max-height:88vh;display:flex;flex-direction:column">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+  <div class="modal dl-print-modal" style="max-width:720px;max-height:88vh;display:flex;flex-direction:column">
+    <div class="dl-no-print" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:10px">
       <h3 style="margin:0" id="dlModalTitle">📋 Statement</h3>
-      <button class="modal-close-x modal-close" onclick="closeModal('dealerLedgerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button class="btn btn-outline btn-sm" onclick="printDealerLedger()">🖨️ PDF / Print</button>
+        <button class="modal-close-x modal-close" onclick="closeModal('dealerLedgerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
     </div>
-    <div style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Is financial year ka poora ledger (Tally jaisa) + abhi outstanding bills — Tally se pichhle sync tak ka data.</div>
+    <div class="dl-no-print" style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Is financial year ka poora ledger (Tally jaisa) + abhi outstanding bills — Tally se pichhle sync tak ka data.</div>
+    <div id="dlPrintHeading" class="dl-print-only" style="display:none"></div>
     <div id="dlBody" style="overflow-y:auto;flex:1">Loading…</div>
   </div>
 </div>
@@ -8137,6 +8150,7 @@ async function submitCreditLimit() {
 // card shape, so one trigger covers both).
 async function openDealerLedgerModal(name) {
   document.getElementById('dlModalTitle').textContent = `📋 Statement — ${name}`;
+  document.getElementById('dlPrintHeading').textContent = `Statement — ${name} — ${new Date().toLocaleDateString('en-IN')}`;
   document.getElementById('dlBody').innerHTML = 'Loading…';
   document.getElementById('dealerLedgerModal').classList.add('open');
   const r = await api(`/api/o2d-fms/dealer-ledger?name=${encodeURIComponent(name)}`);
@@ -8253,6 +8267,14 @@ function toggleDlItems(i) {
   const open = row.style.display !== 'none';
   row.style.display = open ? 'none' : 'table-row';
   if (chevron) chevron.style.transform = open ? '' : 'rotate(90deg)';
+}
+
+// Browser's own print dialog, scoped to just the Statement modal via
+// @media print (everything else on the page hides) — "Save as PDF" is a
+// built-in destination in that dialog on every OS, so no PDF library
+// needed. window.print() blocks until the dialog closes.
+function printDealerLedger() {
+  window.print();
 }
 
 // ══════════════════════════════════════════════════════

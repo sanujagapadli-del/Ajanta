@@ -4815,6 +4815,10 @@ function financialYearStartLabel(today) {
   const y = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
   return `1-Apr-${String(y).slice(2)}`;
 }
+function financialYearStartDate(today) {
+  const y = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+  return new Date(y, 3, 1);
+}
 
 // A party's FY ledger the way Tally's "Ledger Vouchers" screen shows it:
 // one line per voucher the party appears in, Debit/Credit from the party's
@@ -4907,7 +4911,21 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
       getSalesItemsByBillKey(),
       getLedgerVouchers().catch(() => ({ byKey: {}, legIndex: {} }))
     ]);
-    const dealerBills = bills.filter(b => b.party.trim().toLowerCase() === key);
+    // Bills Receivable is a running list of everything Tally still calls
+    // "outstanding" — including invoices from before bill-by-bill tracking
+    // started, which were settled without ever being matched back to a
+    // specific bill in Tally and so never actually left the report (some
+    // sit there 8+ years overdue, confirmed on a real sync). Those also
+    // predate the current-FY Voucher Collection, so they never have item
+    // data either. Scoping "open bills" to the current financial year
+    // keeps this list to invoices the sync can actually back up, and lines
+    // it up with the Ledger section above (same FY window).
+    const fyStart = financialYearStartDate(new Date());
+    const dealerBills = bills.filter(b => {
+      if (b.party.trim().toLowerCase() !== key) return false;
+      const d = parseAnyDate(b.billDate);
+      return d && d >= fyStart;
+    });
     const payments = paymentsByParty[key] || [];
     const ledger = ledgerByParty[key] || null;
     const fyLedger = buildDealerFyLedger(key, vouchers, ledger);
