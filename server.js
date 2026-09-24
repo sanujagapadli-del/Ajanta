@@ -66,32 +66,82 @@ const path = require('path');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 
-// Plain text password storage + legacy bcrypt migration.
-// Passwords are stored as plain text so admins can see them in the sheet.
-// Trade-off: only share the sheet with trusted users.
+// Passwords are stored as bcrypt hashes. Some rows may still hold a plaintext
+// value left over from before hashing was added — a successful plaintext
+// match is auto-migrated to a hash on login (see /api/login) so every
+// account converges to a hash over time without a forced reset.
 function checkPassword(plain, stored) {
-  if (!stored || plain == null) return false;
-  if (plain === stored) return { ok: true, legacy: false };
+  if (!stored || plain == null) return { ok: false };
   if (/^\$2[aby]\$/.test(stored)) {
-    try {
-      if (bcrypt.compareSync(plain, stored)) return { ok: true, legacy: true };
-    } catch(_) {}
+    try { return { ok: bcrypt.compareSync(plain, stored), legacy: false }; }
+    catch(_) { return { ok: false }; }
   }
+  if (plain === stored) return { ok: true, legacy: true };
   return { ok: false };
+}
+function hashPassword(plain) {
+  return bcrypt.hashSync(plain, 10);
 }
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-if (!process.env.SESSION_SECRET) {
-  console.warn('  ⚠️  SESSION_SECRET is not set — falling back to a hardcoded secret that is visible in the source. Set SESSION_SECRET in the environment so JWTs (including admin logins) can\'t be forged by anyone with repo access.');
+let JWT_SECRET = process.env.SESSION_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    // Refuse to boot rather than silently sign JWTs (including admin logins)
+    // with a secret anyone with repo access could read and forge tokens with.
+    console.error('  ❌ SESSION_SECRET is not set. Refusing to start in production — set it in your environment.');
+    process.exit(1);
+  }
+  console.warn('  ⚠️  SESSION_SECRET is not set — using an insecure development-only fallback. Set SESSION_SECRET before deploying.');
+  JWT_SECRET = 'dev_only_insecure_secret_do_not_use_in_production';
 }
-const JWT_SECRET = process.env.SESSION_SECRET || 'taskmanager_secret_2026';
 
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ══════════════════════════════════════════════════════
+// LIGHTWEIGHT RATE LIMITING — in-memory per-process sliding window, used on
+// login and OTP verification (previously unprotected against brute force).
+// On a single always-on instance (the traditional/Hostinger deploy target)
+// this is a real limiter; on multi-instance serverless it's best-effort
+// only, since each instance keeps its own counters — the same inherent
+// limitation already documented for sheets-db.js's in-memory state.
+// ══════════════════════════════════════════════════════
+const _rateLimitHits = new Map(); // key -> [timestamps]
+function rateLimit(keyFn, max, windowMs) {
+  return (req, res, next) => {
+    const key = keyFn(req);
+    const now = Date.now();
+    const hits = (_rateLimitHits.get(key) || []).filter(t => now - t < windowMs);
+    if (hits.length >= max) {
+      return res.status(429).json({ error: 'Too many attempts — please wait a bit and try again.' });
+    }
+    hits.push(now);
+    _rateLimitHits.set(key, hits);
+    next();
+  };
+}
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  for (const [key, hits] of _rateLimitHits) {
+    const fresh = hits.filter(t => t > cutoff);
+    if (fresh.length) _rateLimitHits.set(key, fresh); else _rateLimitHits.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+// Non-middleware variant — for rate-limiting a specific branch inside a
+// handler (e.g. only the OTP-check code path of a multi-purpose route)
+// rather than the whole route.
+function isRateLimited(key, max, windowMs) {
+  const now = Date.now();
+  const hits = (_rateLimitHits.get(key) || []).filter(t => now - t < windowMs);
+  hits.push(now);
+  _rateLimitHits.set(key, hits);
+  return hits.length > max;
+}
 
 // ══════════════════════════════════════════════════════
 // DATABASE — real MySQL when DB_HOST is set, else the Google Sheets
@@ -421,7 +471,7 @@ function requireAdminOrPC(req, res, next) {
 
 // Per-user page access — only these pages are ever restrictable; everything
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'purchase-new-indent'];
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
 function parsePageAccess(raw, role) {
   if (role === 'admin') return RESTRICTABLE_PAGES.slice();
@@ -433,6 +483,68 @@ function parsePageAccess(raw, role) {
 }
 function getTable(type) {
   return type === 'delegation' ? 'delegation_tasks' : 'checklist_tasks';
+}
+
+// Unexpected-error responder — logs the real error server-side (so it's
+// still debuggable) but never forwards internal exception text (SQL
+// fragments, column names, driver-specific messages) to the client, unlike
+// a raw `sendServerError(res, err)`.
+function sendServerError(res, err) {
+  console.error(err);
+  res.status(500).json({ error: 'Something went wrong. Please try again.' });
+}
+
+// Enforce that only an assigned "doer" for this step (or an admin) can act
+// on it. A step with no doers configured at all stays open to anyone with
+// route access — treated as "not yet restricted", the same way the UI's own
+// isMyStep flag treats an empty doer list — so this only closes the gap for
+// steps that actually have doers assigned, without breaking sheets nobody's
+// configured yet. `table` is always one of the two fixed literals below,
+// never user input.
+async function assertIsStepDoer(res, table, stepN, userId, role) {
+  if (role === 'admin') return true;
+  const [rows] = await db.query(`SELECT 1 FROM ${table} WHERE step_n=? AND user_id=?`, [stepN, userId]);
+  if (rows.length) return true;
+  const [any] = await db.query(`SELECT 1 FROM ${table} WHERE step_n=? LIMIT 1`, [stepN]);
+  if (!any.length) return true;
+  res.status(403).json({ error: 'You are not assigned to this step' });
+  return false;
+}
+
+// ── Sequential id generation (service-fms groupNo, O2D orderNo, Purchase
+// indentNo) ──────────────────────────────────────────────────────────────
+// These ids are computed as "max existing + 1" from a live Sheet read, with
+// no locking — two near-simultaneous submissions can compute the same
+// candidate number, and since downstream code groups sheet rows purely by
+// that id string, two unrelated complaints/orders/indents would be silently
+// merged into one record. This claims the candidate atomically via a small
+// DB-backed table with a composite primary key: INSERT IGNORE either wins
+// outright (row inserted, affectedRows=1) or loses to a concurrent claim of
+// the same number (primary-key collision, affectedRows=0), in which case we
+// just try the next number.
+async function ensureIdSequenceClaimsTable() {
+  await db.query(`CREATE TABLE IF NOT EXISTS id_sequence_claims (
+    seq_name VARCHAR(50) NOT NULL,
+    seq_value INT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (seq_name, seq_value)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+}
+async function claimNextSeqValue(seqName, startCandidate, maxAttempts = 50) {
+  let candidate = startCandidate;
+  for (let i = 0; i < maxAttempts; i++) {
+    let result;
+    try {
+      [result] = await db.query('INSERT IGNORE INTO id_sequence_claims (seq_name, seq_value) VALUES (?, ?)', [seqName, candidate]);
+    } catch (e) {
+      if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+      await ensureIdSequenceClaimsTable();
+      [result] = await db.query('INSERT IGNORE INTO id_sequence_claims (seq_name, seq_value) VALUES (?, ?)', [seqName, candidate]);
+    }
+    if (result.affectedRows) return candidate;
+    candidate++;
+  }
+  throw new Error(`Could not claim a sequential id for ${seqName} after ${maxAttempts} attempts`);
 }
 
 // ══════════════════════════════════════════════════════
@@ -503,15 +615,15 @@ async function getDriveClient() {
   return _driveClient;
 }
 
-// Uploads a data-URI (e.g. "data:image/jpeg;base64,...") to the Shared Drive,
-// makes it viewable by anyone with the link, and returns that link — same
-// format already used by older complaints' Drive-based photo links.
-async function uploadPhotoToDrive(dataUri, filename) {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUri);
-  if (!match) throw new Error('Invalid image data');
-  const [, mimeType, base64Data] = match;
-  const buffer = Buffer.from(base64Data, 'base64');
-
+// Uploads any buffer to the Shared Drive. By default the file is left
+// private to the service account — NOT shared "anyone with the link" — and
+// this returns our own authenticated proxy path for it (see GET
+// /api/drive-file/:fileId below), so only logged-in app users can view it.
+// This is the right default since uploads include sensitive KYC documents
+// (Aadhaar/PAN/GST). Pass `{ public: true }` for the specific cases that
+// genuinely need an unauthenticated link — e.g. an invoice photo sent
+// straight to a dealer over WhatsApp, who has no app login at all.
+async function uploadBufferToDrive(buffer, filename, mimeType, { public: isPublic = false } = {}) {
   const { Readable } = require('stream');
   const drive = await getDriveClient();
   const created = await drive.files.create({
@@ -521,28 +633,69 @@ async function uploadPhotoToDrive(dataUri, filename) {
     fields: 'id'
   });
   const fileId = created.data.id;
+  if (isPublic) {
+    await drive.permissions.create({
+      fileId, supportsAllDrives: true, requestBody: { role: 'reader', type: 'anyone' }
+    });
+    return `https://drive.google.com/uc?export=view&id=${fileId}`;
+  }
+  // Absolute when APP_URL is configured (e.g. so a link pasted into the
+  // underlying Sheet, or sent in a notification, still resolves outside
+  // the app) — falls back to a same-origin relative path otherwise.
+  return `${process.env.APP_URL || ''}/api/drive-file/${fileId}`;
+}
 
-  await drive.permissions.create({
-    fileId,
-    supportsAllDrives: true,
-    requestBody: { role: 'reader', type: 'anyone' }
-  });
+// Streams a previously-uploaded file back to an authenticated app user.
+// This is the only way to view an uploaded file now that uploadBufferToDrive
+// no longer makes files public — the service account itself always retains
+// access (it created/owns the file), so it can fetch and re-stream it here.
+app.get('/api/drive-file/:fileId', requireAuth, async (req, res) => {
+  try {
+    const drive = await getDriveClient();
+    const meta = await drive.files.get({ fileId: req.params.fileId, fields: 'name,mimeType', supportsAllDrives: true });
+    const resp = await drive.files.get(
+      { fileId: req.params.fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'stream' }
+    );
+    res.setHeader('Content-Type', meta.data.mimeType || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    // ?download=1 forces a Save-As instead of the browser's inline
+    // preview — replaces the old direct `drive.google.com/uc?export=
+    // download` link, which relied on the file being publicly shared.
+    if (req.query.download) {
+      res.setHeader('Content-Disposition', `attachment; filename="${(meta.data.name || 'download').replace(/"/g, '')}"`);
+    }
+    resp.data.pipe(res);
+  } catch (err) {
+    if (err.code === 404) return res.status(404).json({ error: 'File not found' });
+    res.status(500).json({ error: 'Could not load file' });
+  }
+});
 
-  return `https://drive.google.com/open?id=${fileId}`;
+// Uploads a data-URI (e.g. "data:image/jpeg;base64,...") — same format
+// already used by older complaints' Drive-based photo links.
+async function uploadPhotoToDrive(dataUri, filename, opts) {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUri);
+  if (!match) throw new Error('Invalid image data');
+  const [, mimeType, base64Data] = match;
+  return uploadBufferToDrive(Buffer.from(base64Data, 'base64'), filename, mimeType, opts);
 }
 
 // Generic upload — any "photo" extra field (O2D's invoice photo, etc.) can
 // upload straight away and just carry the resulting link like any other
 // text field, instead of needing its own bespoke endpoint per feature.
+// Public: this is the endpoint behind O2D's invoice-photo field, whose link
+// gets sent straight to a dealer over WhatsApp (see the Make Bill step) —
+// someone with no app login at all, so it needs an unauthenticated link.
 app.post('/api/upload-photo', requireAuth, async (req, res) => {
   try {
     const { image, filename } = req.body;
     if (!image) return res.status(400).json({ error: 'image is required' });
-    const link = await uploadPhotoToDrive(image, filename || `upload-${Date.now()}.jpg`);
+    const link = await uploadPhotoToDrive(image, filename || `upload-${Date.now()}.jpg`, { public: true });
     res.json({ success: true, url: link });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -649,7 +802,7 @@ app.get('/api/o2d-fms/product-names', requireAuth, async (req, res) => {
       merged.push({ name, category: '' });
     }));
     res.json({ products: merged });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 function extractSpreadsheetId(raw) {
@@ -827,7 +980,10 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
 // ══════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════
-app.post('/api/login', async (req, res) => {
+app.post('/api/login',
+  rateLimit(req => `login:${req.ip}`, 20, 5 * 60 * 1000),
+  rateLimit(req => `login:${(req.body?.email || '').toLowerCase()}`, 10, 5 * 60 * 1000),
+  async (req, res) => {
   try {
     const { email, password, name } = req.body;
 
@@ -862,9 +1018,9 @@ app.post('/api/login', async (req, res) => {
     const user = matches[0];
     const check = checkPassword(password, user.password);
 
-    // Legacy bcrypt hash → migrate to plain text (admin can now see in sheet)
+    // Legacy plaintext row → migrate to a bcrypt hash now that we know the real password.
     if (check.legacy) {
-      try { await db.query('UPDATE users SET password=? WHERE id=?', [password, user.id]); } catch(_) {}
+      try { await db.query('UPDATE users SET password=? WHERE id=?', [hashPassword(password), user.id]); } catch(_) {}
     }
 
     // Issue JWT token
@@ -881,7 +1037,7 @@ app.post('/api/login', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
     res.json({ id: user.id, name: user.name, email: user.email, role: user.role, token });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/logout', (req, res) => {
@@ -897,7 +1053,7 @@ app.post('/api/sync-db', requireAuth, async (req, res) => {
     await db.resync();
     res.json({ success: true, message: 'Database resynced from Google Sheets' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -918,7 +1074,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
     } catch(e) {}
     rows[0].page_access = parsePageAccess(rawAccess, rows[0].role);
     res.json(rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -944,31 +1100,30 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
     } else if (isAdmin) {
       userFilter = ''; params = [];
     } else if (isHod) {
+      // Fetch HOD's department + department-scoped user ids from DB — do not rely on query param
+      let resolvedDept = hodDept;
+      if (!resolvedDept) {
+        const [meRow] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
+        resolvedDept = meRow[0]?.department || '';
+      }
+      let deptUserIds = [uid];
+      if (resolvedDept) {
+        const [deptUsers] = await db.query('SELECT id FROM users WHERE department=? AND role NOT IN (?,?)', [resolvedDept, 'admin','hod']);
+        deptUserIds = deptUsers.map(u => u.id);
+        if (!deptUserIds.includes(uid)) deptUserIds.push(uid); // also include the HOD themselves
+      }
       if (filterEmployee && filterEmployee !== 'all') {
-        userFilter = 'AND t.assigned_to = ?'; params = [filterEmployee];
-      } else {
-        // Fetch HOD's department from DB — do not rely on query param
-        let resolvedDept = hodDept;
-        if (!resolvedDept) {
-          const [meRow] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
-          resolvedDept = meRow[0]?.department || '';
-        }
-        if (!resolvedDept) {
-          // No department set — show only own tasks
-          userFilter = 'AND t.assigned_to = ?'; params = [uid];
+        // Only honor an explicit employee filter if that employee is actually in this
+        // HOD's own department — otherwise fall back to the full dept view, so an HOD
+        // can't view another department's data just by passing a different id.
+        const fid = parseInt(filterEmployee, 10);
+        if (deptUserIds.includes(fid)) {
+          userFilter = 'AND t.assigned_to = ?'; params = [fid];
         } else {
-          const [deptUsers] = await db.query('SELECT id FROM users WHERE department=? AND role NOT IN (?,?)', [resolvedDept, 'admin','hod']);
-          if (!deptUsers.length) {
-            // No users in department — show only own tasks
-            userFilter = 'AND t.assigned_to = ?'; params = [uid];
-          } else {
-            const ids = deptUsers.map(u=>u.id);
-            // Also include the HOD themselves
-            if (!ids.includes(uid)) ids.push(uid);
-            userFilter = `AND t.assigned_to IN (${ids.map(()=>'?').join(',')})`;
-            params = ids;
-          }
+          userFilter = `AND t.assigned_to IN (${deptUserIds.map(()=>'?').join(',')})`; params = deptUserIds;
         }
+      } else {
+        userFilter = `AND t.assigned_to IN (${deptUserIds.map(()=>'?').join(',')})`; params = deptUserIds;
       }
     } else {
       userFilter = 'AND t.assigned_to = ?'; params = [uid];
@@ -976,19 +1131,21 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 
     // PC: date range filter applied to both types
     // Regular users: delegation = no date filter (revised-to-future tasks show); checklist = today & past only
-    const pcDateClause = isPC && dateFrom && dateTo ? `AND t.due_date BETWEEN '${dateFrom}' AND '${dateTo}'` : '';
+    // NOTE: dateFrom/dateTo are user-supplied query params — always bound as ? placeholders below, never string-interpolated into SQL.
+    const pcDateClause = isPC && dateFrom && dateTo ? `AND t.due_date BETWEEN ? AND ?` : '';
     const delDateClause = pcDateClause; // delegation: no date cap for non-PC
     const chkDateClause = pcDateClause || `AND t.due_date <= CURDATE()`; // checklist: always cap at today
+    const dateClauseParams = pcDateClause ? [dateFrom, dateTo] : []; // shared: delDateClause/chkDateClause are either both pcDateClause (same params) or chkDateClause falls back to CURDATE() (no params)
 
     const taskType = req.query.taskType || 'both';
     let pending = 0, revised = 0, completed = 0;
 
     if (taskType === 'delegation' || taskType === 'both') {
-      const [d] = await db.query(`SELECT SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed FROM delegation_tasks t WHERE 1=1 ${userFilter} ${delDateClause}`, params);
+      const [d] = await db.query(`SELECT SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed FROM delegation_tasks t WHERE 1=1 ${userFilter} ${delDateClause}`, [...params, ...dateClauseParams]);
       pending += parseInt(d[0].pending)||0; revised += parseInt(d[0].revised)||0; completed += parseInt(d[0].completed)||0;
     }
     if (taskType === 'checklist' || taskType === 'both') {
-      const [d] = await db.query(`SELECT SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed FROM checklist_tasks t WHERE 1=1 ${userFilter} ${chkDateClause}`, params);
+      const [d] = await db.query(`SELECT SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed FROM checklist_tasks t WHERE 1=1 ${userFilter} ${chkDateClause}`, [...params, ...dateClauseParams]);
       pending += parseInt(d[0].pending)||0; revised += parseInt(d[0].revised)||0; completed += parseInt(d[0].completed)||0;
     }
 
@@ -999,15 +1156,15 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 
     let delegationPending = [], checklistPending = [];
     if (taskType === 'delegation' || taskType === 'both') {
-      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${delDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, params);
+      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${delDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
       delegationPending = rows.map(t => ({ ...t, type: 'delegation', frequency: '', assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
     }
     if (taskType === 'checklist' || taskType === 'both') {
-      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.frequency,'') AS frequency,t.remarks,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM checklist_tasks t WHERE t.status IN ('pending','revised') ${chkDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, params);
+      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.frequency,'') AS frequency,t.remarks,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM checklist_tasks t WHERE t.status IN ('pending','revised') ${chkDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
       checklistPending = rows.map(t => ({ ...t, type: 'checklist', approval: 'no', waiting_approval: 0, assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
     }
     res.json({ pending, revised, completed, todayPending: [...delegationPending, ...checklistPending] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -1063,7 +1220,10 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
     allUsers.forEach(u => { uMap[u.id] = { name: u.name||'', dept: u.department||'' }; });
 
     const freqCol = isDeleg ? "'' AS frequency" : "COALESCE(t.frequency,'') AS frequency";
-    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,":"'no' AS approval,0 AS waiting_approval,t.remarks,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC`, params);
+    // LIMIT is a safety ceiling (matches /api/dashboard's own cap), not a
+    // real pagination UX — this endpoint's grouped-by-user response isn't
+    // set up for paging without also changing the frontend's "All Tasks" view.
+    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,":"'no' AS approval,0 AS waiting_approval,t.remarks,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
     const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]?.name||'', assignedToDept: uMap[t.assigned_to]?.dept||'', assignedByName: uMap[t.assigned_by]?.name||'' }));
 
     // mine=1 mode always returns flat tasks (not grouped)
@@ -1079,7 +1239,7 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
       return res.json({ grouped: Object.values(grouped) });
     }
     res.json({ tasks });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/tasks', requireAuth, async (req, res) => {
@@ -1091,6 +1251,11 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     // Admin, HOD and regular users can all assign to others; fallback to self if not specified
     const targetUser = (isAdmin || isHod || isUser) && assignedTo ? parseInt(assignedTo) : req.session.userId;
     if (!desc || !date) return res.status(400).json({ error: 'Description and date required' });
+    if (!Number.isFinite(targetUser)) return res.status(400).json({ error: 'Invalid assignee' });
+    if (targetUser !== req.session.userId) {
+      const [targetRows] = await db.query('SELECT id FROM users WHERE id=?', [targetUser]);
+      if (!targetRows.length) return res.status(400).json({ error: 'Assignee not found' });
+    }
     if ((type||'checklist') === 'delegation') {
       // Approver: if approverEmail is provided look up that user, otherwise use logged-in user
       let assignedBy = req.session.userId;
@@ -1099,36 +1264,44 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
         if (aprRows.length) assignedBy = aprRows[0].id;
       }
       await db.query(`INSERT INTO delegation_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,approval,remarks,link) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, assignedBy, startDate||'', date, 'pending', priority||'low', approval||'no', remarks||'', link||'']);
-      // 📧 Send delegation email (non-blocking — fire and forget)
+      // 📧 Send delegation email (non-blocking — fire and forget). Wrapped in
+      // its own try/catch so a failure here (DB hiccup, mail error) can't
+      // become an unhandled rejection — task creation itself already succeeded.
       (async () => {
-        const target = await getNotifyTarget(targetUser);
-        if (!target) return;
-        const [aprRows] = await db.query('SELECT name FROM users WHERE id=? LIMIT 1', [assignedBy]);
-        const assignerName = aprRows[0]?.name || 'Admin';
-        await sendMail(
-          target.email,
-          `📋 New Task Assigned: ${(desc||'').slice(0,60)}`,
-          delegationEmailHtml({
-            assigneeName: target.name,
-            assignerName,
-            desc, dueDate: date,
-            priority: priority||'low',
-            approval: approval||'no',
-            remarks: remarks||''
-          })
-        );
+        try {
+          const target = await getNotifyTarget(targetUser);
+          if (!target) return;
+          const [aprRows] = await db.query('SELECT name FROM users WHERE id=? LIMIT 1', [assignedBy]);
+          const assignerName = aprRows[0]?.name || 'Admin';
+          await sendMail(
+            target.email,
+            `📋 New Task Assigned: ${(desc||'').slice(0,60)}`,
+            delegationEmailHtml({
+              assigneeName: target.name,
+              assignerName,
+              desc, dueDate: date,
+              priority: priority||'low',
+              approval: approval||'no',
+              remarks: remarks||''
+            })
+          );
+        } catch (e) { console.error('  ⚠️ Delegation email failed:', e.message); }
       })();
     } else {
       await db.query(`INSERT INTO checklist_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,remarks) VALUES (?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, req.session.userId, startDate||'', date, 'pending', priority||'low', remarks||'']);
     }
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/tasks/bulk-checklist', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { title, desc, assignedTo, priority, remarks, dates, frequency, startDate } = req.body;
     if (!desc || !assignedTo || !dates || !dates.length) return res.status(400).json({ error: 'Missing fields' });
+    const assignedToId = parseInt(assignedTo, 10);
+    if (!Number.isFinite(assignedToId)) return res.status(400).json({ error: 'Invalid assignee' });
+    const [assigneeRows] = await db.query('SELECT id FROM users WHERE id=?', [assignedToId]);
+    if (!assigneeRows.length) return res.status(400).json({ error: 'Assignee not found' });
     const freq = (frequency || '').toLowerCase().trim();
     // Normalize & validate dates: accept YYYY-MM-DD and DD/MM/YYYY; reject NaN/invalid
     const normalizeDates = (dates || []).map(d => {
@@ -1141,10 +1314,10 @@ app.post('/api/tasks/bulk-checklist', requireAuth, requireAdmin, async (req, res
       return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
     }).filter(Boolean);
     if (!normalizeDates.length) return res.status(400).json({ error: 'No valid dates generated — check start_date format (use DD/MM/YYYY or YYYY-MM-DD)' });
-    const values = normalizeDates.map((date, i) => [title||'', desc, parseInt(assignedTo), req.session.userId, i===0 ? (startDate||date) : date, date, 'pending', priority||'low', remarks||'', freq]);
+    const values = normalizeDates.map((date, i) => [title||'', desc, assignedToId, req.session.userId, i===0 ? (startDate||date) : date, date, 'pending', priority||'low', remarks||'', freq]);
     await db.query(`INSERT INTO checklist_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,remarks,frequency) VALUES ?`, [values]);
     res.json({ success: true, count: normalizeDates.length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
@@ -1175,7 +1348,16 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
     if (needsApproval) {
       const [existing] = await db.query(`SELECT id FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending'`, [taskId, type]);
       if (existing[0]) return res.status(400).json({ error: 'Approval already pending' });
-      await db.query(`INSERT INTO task_approvals (task_id,task_type,requested_by,requested_to,action_type,status,note) VALUES (?,?,?,?,?,'pending',?)`, [taskId, type, uid, task.assigned_by, status, reason||'']);
+      const [insertResult] = await db.query(`INSERT INTO task_approvals (task_id,task_type,requested_by,requested_to,action_type,status,note) VALUES (?,?,?,?,?,'pending',?)`, [taskId, type, uid, task.assigned_by, status, reason||'']);
+      // Close the race: two near-simultaneous requests can both pass the
+      // check above before either inserts. Re-check right after inserting —
+      // if more than one pending row now exists, only the earliest (lowest
+      // id) wins; this request backs out instead of leaving a duplicate.
+      const [dupCheck] = await db.query(`SELECT id FROM task_approvals WHERE task_id=? AND task_type=? AND status='pending' ORDER BY id ASC`, [taskId, type]);
+      if (dupCheck.length > 1 && dupCheck[0].id !== insertResult.insertId) {
+        await db.query(`DELETE FROM task_approvals WHERE id=?`, [insertResult.insertId]);
+        return res.status(400).json({ error: 'Approval already pending' });
+      }
       if (newDate && status === 'revised') await db.query(`UPDATE ${table} SET waiting_approval=1,revision_status='pending',due_date=? WHERE id=?`, [newDate, taskId]);
       else await db.query(`UPDATE ${table} SET waiting_approval=1,revision_status='pending' WHERE id=?`, [taskId]);
       return res.json({ success: true, needsApproval: true });
@@ -1187,7 +1369,7 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
       else await db.query(`UPDATE ${table} SET status=?,waiting_approval=0,revision_status='',completed_at=? WHERE id=?`, [status, completedAt, taskId]);
     }
     res.json({ success: true, needsApproval: false });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.get('/api/tasks/:id/detail', requireAuth, requireAdmin, async (req, res) => {
@@ -1197,7 +1379,7 @@ app.get('/api/tasks/:id/detail', requireAuth, requireAdmin, async (req, res) => 
     const [rows] = await db.query(`SELECT t.*,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM ${table} t WHERE t.id=?`, [parseInt(req.params.id, 10)]);
     if (!rows[0]) return res.status(404).json({ error: 'Task not found' });
     res.json({ task: rows[0] });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/tasks/:id/edit', requireAuth, requireAdmin, async (req, res) => {
@@ -1208,7 +1390,7 @@ app.put('/api/tasks/:id/edit', requireAuth, requireAdmin, async (req, res) => {
     if (type === 'delegation') await db.query(`UPDATE ${table} SET title=?,description=?,start_date=?,due_date=?,priority=?,approval=?,remarks=? WHERE id=?`, [title||'', desc, startDate||'', date, priority||'low', approval||'no', remarks||'', taskId]);
     else await db.query(`UPDATE ${table} SET title=?,description=?,start_date=?,due_date=?,remarks=? WHERE id=?`, [title||'', desc, startDate||'', date, remarks||'', taskId]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.delete('/api/tasks/:id', requireAuth, requireAdmin, async (req, res) => {
@@ -1226,7 +1408,7 @@ app.delete('/api/tasks/:id', requireAuth, requireAdmin, async (req, res) => {
     }
     await db.query(`DELETE FROM ${table} WHERE id=?`, [taskId]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Bulk delete by user — v16: completed tasks excluded
@@ -1236,7 +1418,7 @@ app.delete('/api/tasks/user/:userId', requireAuth, requireAdmin, async (req, res
     const table = getTable(type || 'delegation');
     await db.query(`DELETE FROM ${table} WHERE assigned_to = ? AND status != 'completed'`, [req.params.userId]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Transfer pending tasks to today
@@ -1248,7 +1430,7 @@ app.put('/api/tasks/user/:userId/transfer-today', requireAuth, requireAdmin, asy
     await db.query(`UPDATE ${table} SET due_date=? WHERE assigned_to=? AND status='pending'`,
       [today, req.params.userId]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -1270,36 +1452,41 @@ app.get('/api/holidays', requireAuth, async (req, res) => {
   try {
     const [rows] = await db.query('SELECT id,date,name FROM holidays ORDER BY date ASC');
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/holidays', requireAuth, requireAdmin, async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const { date, name } = req.body;
-    if (!date || !name) return res.status(400).json({ error: 'Date and name required' });
+    if (!date || !name) { conn.release(); return res.status(400).json({ error: 'Date and name required' }); }
 
+    await conn.beginTransaction();
     // Save holiday
-    await db.query('INSERT INTO holidays (date,name) VALUES (?,?)', [date, name]);
+    await conn.query('INSERT INTO holidays (date,name) VALUES (?,?)', [date, name]);
 
     // Build full holiday set for next-working-day calculation
-    const [allH] = await db.query('SELECT date FROM holidays');
+    const [allH] = await conn.query('SELECT date FROM holidays');
     const holidaySet = new Set(allH.map(h => h.date));
 
     const target = nextWorkingDay(date, holidaySet);
 
-    // Shift ALL pending/revised tasks (delegation + checklist) on this date
-    const [dr] = await db.query(
+    // Shift ALL pending/revised tasks (delegation + checklist) on this date —
+    // both updates (and the holiday insert above) commit or roll back together,
+    // so a failure partway through can't leave only one task table shifted.
+    const [dr] = await conn.query(
       "UPDATE delegation_tasks SET due_date=? WHERE due_date=? AND status IN ('pending','revised')",
       [target, date]
     );
-    const [cr] = await db.query(
+    const [cr] = await conn.query(
       "UPDATE checklist_tasks SET due_date=? WHERE due_date=? AND status IN ('pending','revised')",
       [target, date]
     );
     const shifted = (dr.affectedRows || 0) + (cr.affectedRows || 0);
+    await conn.commit();
 
     res.json({ success: true, shifted, shiftedTo: target });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { await conn.rollback(); sendServerError(res, err); } finally { conn.release(); }
 });
 
 app.delete('/api/holidays/:id', requireAuth, requireAdmin, async (req, res) => {
@@ -1308,7 +1495,7 @@ app.delete('/api/holidays/:id', requireAuth, requireAdmin, async (req, res) => {
     if (!id) return res.status(400).json({ error: 'Invalid id' });
     await db.query('DELETE FROM holidays WHERE id=?', [id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // kept for backward compat — now a no-op (tasks shift instead of delete)
@@ -1329,7 +1516,7 @@ app.get('/api/tasks/checklist-year-count', requireAuth, requireAdmin, async (req
     const [rows] = await db.query(
       `SELECT COUNT(*) AS count FROM checklist_tasks WHERE ${where.join(' AND ')}`, params);
     res.json({ count: rows[0].count });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Delete checklist tasks for a user — optionally filtered by frequency.
@@ -1344,7 +1531,7 @@ app.post('/api/tasks/checklist-year-delete', requireAuth, requireAdmin, async (r
     const [result] = await db.query(
       `DELETE FROM checklist_tasks WHERE ${where.join(' AND ')}`, params);
     res.json({ success: true, deleted: result.affectedRows });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -1366,7 +1553,7 @@ app.get('/api/approvals', requireAuth, async (req, res) => {
     const [rawRows] = await db.query(`SELECT ta.*,dt.description,dt.approval AS taskApproval,DATE_FORMAT(dt.due_date,'%Y-%m-%d') AS new_due_date FROM task_approvals ta LEFT JOIN delegation_tasks dt ON ta.task_id=dt.id AND ta.task_type='delegation' ${whereClause} ORDER BY ta.created_at DESC`, params);
     const rows = rawRows.map(r => ({ ...r, requestedByName: uMapA[r.requested_by]||'', requestedToName: uMapA[r.requested_to]||'' }));
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.get('/api/approvals/count', requireAuth, async (req, res) => {
@@ -1377,7 +1564,7 @@ app.get('/api/approvals/count', requireAuth, async (req, res) => {
       ? await db.query(`SELECT COUNT(*) AS count FROM task_approvals WHERE status='pending'`)
       : await db.query(`SELECT COUNT(*) AS count FROM task_approvals WHERE requested_to=? AND status='pending'`, [req.session.userId]);
     res.json({ count: rows[0].count });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/approvals/:id', requireAuth, async (req, res) => {
@@ -1391,7 +1578,12 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
     // PC and admin can approve any; others only their own
     const canApprove = role === 'admin' || role === 'pc' || appr.requested_to === req.session.userId;
     if (!canApprove) return res.status(403).json({ error: 'Not allowed' });
-    await db.query('UPDATE task_approvals SET status=?,note=? WHERE id=?', [action, note||'', approvalId]);
+    // Guard against double-processing (two rapid clicks, or a retried
+    // request): only actually transition a row that's still 'pending' —
+    // the WHERE clause is re-checked atomically by the UPDATE itself, not
+    // against the possibly-stale `appr` read above.
+    const [updateResult] = await db.query(`UPDATE task_approvals SET status=?,note=? WHERE id=? AND status='pending'`, [action, note||'', approvalId]);
+    if (!updateResult.affectedRows) return res.status(400).json({ error: 'This approval has already been processed' });
     const table = getTable(appr.task_type);
     if (action === 'approved') {
       const completedAt = appr.action_type === 'completed' ? new Date().toISOString().slice(0,19).replace('T',' ') : null;
@@ -1410,7 +1602,7 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
       }
     }
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -1448,7 +1640,7 @@ app.get('/api/mis', requireAuth, async (req, res) => {
     const [delRows] = await db.query(`SELECT u.id AS userId,u.name,u.department,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,SUM(CASE WHEN t.status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM delegation_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${userFilter} GROUP BY u.id,u.name,u.department ORDER BY u.name`, deptParams);
     const [chlRows] = await db.query(`SELECT u.id AS userId,u.name,u.department,COUNT(*) AS total,SUM(CASE WHEN t.status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS completed,0 AS revised,SUM(CASE WHEN t.status='pending' AND t.due_date<CURDATE() THEN 1 ELSE 0 END) AS overdue FROM checklist_tasks t JOIN users u ON t.assigned_to=u.id WHERE t.due_date BETWEEN ? AND ? ${userFilter} GROUP BY u.id,u.name,u.department ORDER BY u.name`, deptParams);
     res.json({ delegation: calc(delRows), checklist: calc(chlRows) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ── FMS Dashboard — row-level pending tasks (like delegation/checklist) ──
@@ -1469,13 +1661,17 @@ app.get('/api/fms-dashboard', requireAuth, async (req, res) => {
     } else if (isHod) {
       const [me] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
       const dept = me[0]?.department || '';
+      const [deptUsers] = await db.query('SELECT id FROM users WHERE department=? AND role NOT IN (?,?)', [dept, 'admin', 'hod']);
+      const deptUserIds = deptUsers.map(u => u.id);
       if (filterEmployee && filterEmployee !== 'all') {
-        targetUserIds = [parseInt(filterEmployee)];
+        // Only honor the filter if that employee is actually in this HOD's own
+        // department — otherwise an HOD could view another department's FMS data.
+        const fid = parseInt(filterEmployee);
+        targetUserIds = deptUserIds.includes(fid) ? [fid] : deptUserIds;
       } else {
-        const [deptUsers] = await db.query('SELECT id FROM users WHERE department=? AND role NOT IN (?,?)', [dept, 'admin', 'hod']);
-        targetUserIds = deptUsers.map(u => u.id);
-        if (!targetUserIds.length) return res.json({ rows: [], pendingCount: 0 });
+        targetUserIds = deptUserIds;
       }
+      if (!targetUserIds.length) return res.json({ rows: [], pendingCount: 0 });
     } else {
       // Regular employee — only their own steps
       targetUserIds = [uid];
@@ -1587,7 +1783,7 @@ app.get('/api/fms-dashboard', requireAuth, async (req, res) => {
     }
 
     res.json({ rows: allRows, pendingCount: allRows.length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.get('/api/mis/detail', requireAuth, async (req, res) => {
@@ -1598,6 +1794,17 @@ app.get('/api/mis/detail', requireAuth, async (req, res) => {
     if (req.session.role === 'user' && parseInt(userId) !== req.session.userId) {
       return res.status(403).json({ error: 'Access denied' });
     }
+    // HODs are department-scoped everywhere else in MIS — enforce the same here
+    // rather than letting them pull any employee's detail company-wide.
+    if (req.session.role === 'hod' && parseInt(userId) !== req.session.userId) {
+      const [[me], [target]] = await Promise.all([
+        db.query('SELECT department FROM users WHERE id=?', [req.session.userId]),
+        db.query('SELECT department FROM users WHERE id=?', [userId])
+      ]);
+      const myDept = me[0]?.department || '';
+      const targetDept = target[0]?.department || '';
+      if (!myDept || myDept !== targetDept) return res.status(403).json({ error: 'Access denied' });
+    }
     const table = type === 'delegation' ? 'delegation_tasks' : 'checklist_tasks';
     const [allUC] = await db.query('SELECT id,name FROM users');
     const uMapC = {};
@@ -1605,7 +1812,7 @@ app.get('/api/mis/detail', requireAuth, async (req, res) => {
     const [rawCal] = await db.query(`SELECT t.id,t.description,t.status,t.assigned_by,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date FROM ${table} t WHERE t.assigned_to=? AND t.due_date BETWEEN ? AND ? ORDER BY t.due_date ASC`, [userId, start, end]);
     const tasks = rawCal.map(t => ({ ...t, assigned_by_name: uMapC[t.assigned_by]||'' }));
     res.json({ tasks });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ── All MIS — per employee combined score ──
@@ -1749,7 +1956,7 @@ app.get('/api/mis/all', requireAuth, requireAdminOrHod, async (req, res) => {
     // On error, return an object so the frontend can show a warning.
     if (fmsErrors.length) return res.json({ rows, fmsErrors });
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ── FMS MIS ──
@@ -1770,7 +1977,7 @@ app.get('/api/mis/fms', requireAuth, requireAdminOrHod, async (req, res) => {
     // Same shared engine as /api/mis/all => numbers always match
     const fmsStats = await computeFmsStats(hodDept);
     res.json(fmsStats.perFms);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -1952,15 +2159,17 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
       .sort((a,b) => a.name.localeCompare(b.name));
 
     res.json({ rows, fmsErrors });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ── PC: Users with pending tasks (for smart dropdown) ──
-app.get('/api/users/with-pending-tasks', requireAuth, async (req, res) => {
+app.get('/api/users/with-pending-tasks', requireAuth, requireAdminOrPC, async (req, res) => {
   try {
     const { dateFrom, dateTo } = req.query;
+    // dateFrom/dateTo are user-supplied query params — always bound as ? placeholders, never string-interpolated into SQL.
     let dateFilter = 'AND t.due_date <= CURDATE()';
-    if (dateFrom && dateTo) dateFilter = `AND t.due_date BETWEEN '${dateFrom}' AND '${dateTo}'`;
+    let dateParams = [];
+    if (dateFrom && dateTo) { dateFilter = `AND t.due_date BETWEEN ? AND ?`; dateParams = [dateFrom, dateTo]; }
     const [rows] = await db.query(`
       SELECT DISTINCT u.id, u.name FROM users u
       WHERE u.id IN (
@@ -1968,9 +2177,9 @@ app.get('/api/users/with-pending-tasks', requireAuth, async (req, res) => {
         UNION
         SELECT DISTINCT assigned_to FROM checklist_tasks t WHERE status='pending' ${dateFilter}
       ) AND u.role NOT IN ('admin','pc')
-      ORDER BY u.name ASC`);
+      ORDER BY u.name ASC`, [...dateParams, ...dateParams]);
     res.json(rows);
-  } catch(err) { res.status(500).json({ error: err.message }); }
+  } catch(err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -1999,7 +2208,7 @@ app.get('/api/users/roster', requireAuth, async (req, res) => {
       ...r,
       is_active: (r.is_active === '' || r.is_active === null || r.is_active === undefined) ? 1 : +r.is_active
     })));
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.get('/api/users', requireAuth, async (req, res) => {
@@ -2018,7 +2227,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
       is_active: (r.is_active === '' || r.is_active === null || r.is_active === undefined) ? 1 : +r.is_active,
       page_access: parsePageAccess(accessById[r.id], r.role)
     })));
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Update a user's per-page access (admin only; admins always keep full access)
@@ -2032,7 +2241,7 @@ app.put('/api/users/:id/access', requireAuth, requireAdmin, async (req, res) => 
     const cleaned = pages.filter(p => RESTRICTABLE_PAGES.includes(p));
     await db.query('UPDATE users SET page_access=? WHERE id=?', [JSON.stringify(cleaned), req.params.id]);
     res.json({ success: true, page_access: cleaned });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
@@ -2042,20 +2251,20 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
     const [ex] = await db.query('SELECT id FROM users WHERE email=?', [email]);
     if (ex[0]) return res.status(400).json({ error: 'Email already exists' });
     await db.query('INSERT INTO users (name,email,notification_email,password,role,phone,department,week_off,extra_off) VALUES (?,?,?,?,?,?,?,?,?)',
-      [name, email, notification_email||'', password, role||'user', phone||null, department||'', week_off||'', extra_off||'']);
+      [name, email, notification_email||'', hashPassword(password), role||'user', phone||null, department||'', week_off||'', extra_off||'']);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { name, email, notification_email, role, password, phone, department, week_off, extra_off } = req.body;
     if (password) await db.query('UPDATE users SET name=?,email=?,notification_email=?,role=?,password=?,phone=?,department=?,week_off=?,extra_off=? WHERE id=?',
-      [name,email,notification_email||'',role,password,phone||null,department||'',week_off||'',extra_off||'',req.params.id]);
+      [name,email,notification_email||'',role,hashPassword(password),phone||null,department||'',week_off||'',extra_off||'',req.params.id]);
     else await db.query('UPDATE users SET name=?,email=?,notification_email=?,role=?,phone=?,department=?,week_off=?,extra_off=? WHERE id=?',
       [name,email,notification_email||'',role,phone||null,department||'',week_off||'',extra_off||'',req.params.id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
@@ -2063,7 +2272,7 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
     if (parseInt(req.params.id) === req.session.userId) return res.status(400).json({ error: 'Cannot delete yourself' });
     await db.query('DELETE FROM users WHERE id=?', [req.params.id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Check pending checklist tasks before deactivating
@@ -2074,27 +2283,31 @@ app.get('/api/users/:id/pending-checklist', requireAuth, requireAdmin, async (re
       [req.params.id]
     );
     res.json(tasks);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Deactivate user (with per-task checklist reassignment)
 app.put('/api/users/:id/deactivate', requireAuth, requireAdmin, async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const uid = req.params.id;
-    if (parseInt(uid) === req.session.userId) return res.status(400).json({ error: 'Cannot deactivate yourself' });
+    if (parseInt(uid) === req.session.userId) { conn.release(); return res.status(400).json({ error: 'Cannot deactivate yourself' }); }
     const { taskAssignments } = req.body;
+    await conn.beginTransaction();
+    // Reassignment + deactivation commit together — a failure partway
+    // through shouldn't leave some tasks reassigned but the user still active
+    // (or vice versa).
     if (Array.isArray(taskAssignments) && taskAssignments.length) {
       for (const { taskIds, assignTo } of taskAssignments) {
-        if (Array.isArray(taskIds) && assignTo) {
-          for (const tid of taskIds) {
-            await db.query('UPDATE checklist_tasks SET assigned_to=? WHERE id=?', [assignTo, tid]);
-          }
+        if (Array.isArray(taskIds) && taskIds.length && assignTo) {
+          await conn.query(`UPDATE checklist_tasks SET assigned_to=? WHERE id IN (${taskIds.map(()=>'?').join(',')})`, [assignTo, ...taskIds]);
         }
       }
     }
-    await db.query('UPDATE users SET is_active=0 WHERE id=?', [uid]);
+    await conn.query('UPDATE users SET is_active=0 WHERE id=?', [uid]);
+    await conn.commit();
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { await conn.rollback(); sendServerError(res, err); } finally { conn.release(); }
 });
 
 // Reactivate user
@@ -2102,7 +2315,7 @@ app.put('/api/users/:id/activate', requireAuth, requireAdmin, async (req, res) =
   try {
     await db.query('UPDATE users SET is_active=1 WHERE id=?', [req.params.id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Force sign-out — invalidates this one user's current session(s) immediately,
@@ -2111,33 +2324,23 @@ app.put('/api/users/:id/signout', requireAuth, requireAdmin, async (req, res) =>
   try {
     await db.query('UPDATE users SET force_logout_at=NOW() WHERE id=?', [req.params.id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Force sign-out every user at once (including the admin issuing this)
 app.post('/api/users/signout-all', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT id FROM users');
-    for (const u of rows) {
-      await db.query('UPDATE users SET force_logout_at=NOW() WHERE id=?', [u.id]);
-    }
-    res.json({ success: true, count: rows.length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const [result] = await db.query('UPDATE users SET force_logout_at=NOW()');
+    res.json({ success: true, count: result.affectedRows });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // One-time migration: set is_active=1 for all users where it is null/empty
 app.post('/api/users/fix-active', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT id, is_active FROM users');
-    let fixed = 0;
-    for (const u of rows) {
-      if (u.is_active === '' || u.is_active === null || u.is_active === undefined) {
-        await db.query('UPDATE users SET is_active=1 WHERE id=?', [u.id]);
-        fixed++;
-      }
-    }
-    res.json({ success: true, fixed });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const [result] = await db.query(`UPDATE users SET is_active=1 WHERE is_active='' OR is_active IS NULL`);
+    res.json({ success: true, fixed: result.affectedRows });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Bulk add users via CSV
@@ -2151,11 +2354,11 @@ app.post('/api/users/bulk', requireAuth, requireAdmin, async (req, res) => {
       const [ex] = await db.query('SELECT id FROM users WHERE email=?', [u.email]);
       if (ex[0]) { skipped++; continue; }
       await db.query('INSERT INTO users (name,email,password,role,phone,department,week_off,extra_off) VALUES (?,?,?,?,?,?,?,?)',
-        [u.name, u.email, u.password, u.role||'user', u.phone||null, u.department||'', u.week_off||'', u.extra_off||'']);
+        [u.name, u.email, hashPassword(u.password), u.role||'user', u.phone||null, u.department||'', u.week_off||'', u.extra_off||'']);
       added++;
     }
     res.json({ success: true, added, skipped, errors });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -2169,7 +2372,7 @@ app.put('/api/profile', requireAuth, async (req, res) => {
       const [rows] = await db.query('SELECT password FROM users WHERE id=?', [uid]);
       const check = rows[0] ? checkPassword(currentPassword, rows[0].password) : { ok: false };
       if (!check.ok) return res.status(400).json({ error: 'Current password is incorrect' });
-      if (newPassword) await db.query('UPDATE users SET name=?,email=?,notification_email=?,phone=?,password=? WHERE id=?', [name,email,notification_email||'',phone||null,newPassword,uid]);
+      if (newPassword) await db.query('UPDATE users SET name=?,email=?,notification_email=?,phone=?,password=? WHERE id=?', [name,email,notification_email||'',phone||null,hashPassword(newPassword),uid]);
       else await db.query('UPDATE users SET name=?,email=?,notification_email=?,phone=? WHERE id=?', [name,email,notification_email||'',phone||null,uid]);
     } else {
       await db.query('UPDATE users SET name=?,email=?,notification_email=?,phone=? WHERE id=?', [name,email,notification_email||'',phone||null,uid]);
@@ -2177,33 +2380,61 @@ app.put('/api/profile', requireAuth, async (req, res) => {
     if (profileImage !== undefined) await db.query('UPDATE users SET profile_image=? WHERE id=?', [profileImage||null, uid]);
     req.session.name = name;
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/profile/image', requireAuth, async (req, res) => {
   try {
     await db.query('UPDATE users SET profile_image=? WHERE id=?', [req.body.image||null, req.session.userId]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
 // COMMENTS
 // ══════════════════════════════════════════════════════
+// A user may read/post comments on a task only if they're the assignee, the
+// assigner, an admin/PC (already broadly-visible roles elsewhere in the
+// app), or an HOD over the assignee's own department — not just any
+// logged-in employee guessing/incrementing a task id.
+async function canAccessTaskComments(req, taskId, taskType) {
+  if (req.session.role === 'admin' || req.session.role === 'pc') return true;
+  const table = getTable(taskType);
+  const [rows] = await db.query(`SELECT assigned_to, assigned_by FROM ${table} WHERE id=?`, [taskId]);
+  const task = rows[0];
+  if (!task) return false;
+  if (task.assigned_to === req.session.userId || task.assigned_by === req.session.userId) return true;
+  if (req.session.role === 'hod') {
+    const [[me], [assignee]] = await Promise.all([
+      db.query('SELECT department FROM users WHERE id=?', [req.session.userId]),
+      db.query('SELECT department FROM users WHERE id=?', [task.assigned_to])
+    ]);
+    const myDept = me[0]?.department || '';
+    if (myDept && myDept === (assignee[0]?.department || '')) return true;
+  }
+  return false;
+}
+
 app.get('/api/comments/:type/:taskId', requireAuth, async (req, res) => {
   try {
+    if (!(await canAccessTaskComments(req, req.params.taskId, req.params.type))) {
+      return res.status(403).json({ error: 'You do not have access to this task' });
+    }
     const [rows] = await db.query(`SELECT tc.id,tc.comment,tc.created_at,u.name AS userName FROM task_comments tc JOIN users u ON tc.user_id=u.id WHERE tc.task_id=? AND tc.task_type=? ORDER BY tc.created_at ASC`, [req.params.taskId, req.params.type]);
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/comments', requireAuth, async (req, res) => {
   try {
     const { taskId, taskType, comment } = req.body;
     if (!comment || !taskId || !taskType) return res.status(400).json({ error: 'All fields required' });
+    if (!(await canAccessTaskComments(req, taskId, taskType))) {
+      return res.status(403).json({ error: 'You do not have access to this task' });
+    }
     await db.query('INSERT INTO task_comments (task_id,task_type,user_id,comment) VALUES (?,?,?,?)', [taskId, taskType, req.session.userId, comment]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.delete('/api/comments/:id', requireAuth, async (req, res) => {
@@ -2213,7 +2444,7 @@ app.delete('/api/comments/:id', requireAuth, async (req, res) => {
     if (rows[0].user_id !== req.session.userId && req.session.role !== 'admin') return res.status(403).json({ error: 'Not allowed' });
     await db.query('DELETE FROM task_comments WHERE id=?', [req.params.id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -2224,7 +2455,7 @@ app.get('/api/fms', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [sheets] = await db.query(`SELECT f.*,u.name AS createdByName FROM fms_sheets f JOIN users u ON f.created_by=u.id ORDER BY f.created_at DESC`);
     res.json(sheets);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.get('/api/fms/:id', requireAuth, requireAdmin, async (req, res) => {
@@ -2240,7 +2471,7 @@ app.get('/api/fms/:id', requireAuth, requireAdmin, async (req, res) => {
       try { step.show_cols_parsed = JSON.parse(step.show_cols || '[]'); } catch(e) { step.show_cols_parsed = []; }
     }
     res.json({ sheet: sheets[0], steps });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/fms', requireAuth, requireAdmin, async (req, res) => {
@@ -2265,7 +2496,7 @@ app.post('/api/fms', requireAuth, requireAdmin, async (req, res) => {
     }
     await conn.commit();
     res.json({ success: true, id: fmsId });
-  } catch (err) { await conn.rollback(); res.status(500).json({ error: err.message }); } finally { conn.release(); }
+  } catch (err) { await conn.rollback(); sendServerError(res, err); } finally { conn.release(); }
 });
 
 app.put('/api/fms/:id', requireAuth, requireAdmin, async (req, res) => {
@@ -2292,14 +2523,14 @@ app.put('/api/fms/:id', requireAuth, requireAdmin, async (req, res) => {
     }
     await conn.commit();
     res.json({ success: true });
-  } catch (err) { await conn.rollback(); res.status(500).json({ error: err.message }); } finally { conn.release(); }
+  } catch (err) { await conn.rollback(); sendServerError(res, err); } finally { conn.release(); }
 });
 
 app.delete('/api/fms/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     await db.query('DELETE FROM fms_sheets WHERE id=?', [req.params.id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ── Fetch headers ONLY (fast — just one row from sheet) ──
@@ -2329,7 +2560,7 @@ app.post('/api/fms/fetch-headers', requireAuth, async (req, res) => {
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied. Share sheet with service account.' });
     if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Check Sheet ID.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -2357,7 +2588,7 @@ app.get('/api/fms/:id/sync', requireAuth, requireAdmin, async (req, res) => {
     if (err.message?.includes('ENOENT') || err.message?.includes('credentials')) return res.status(500).json({ error: 'credentials.json not found.' });
     if (err.code === 403) return res.status(400).json({ error: 'Access denied. Share sheet with service account.' });
     if (err.code === 404) return res.status(400).json({ error: 'Sheet not found. Check Sheet ID.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -2377,7 +2608,7 @@ app.get('/api/fms-tasks', requireAuth, async (req, res) => {
       [list] = await db.query(`SELECT DISTINCT fs.* FROM fms_sheets fs JOIN fms_steps fst ON fst.fms_id=fs.id JOIN fms_step_doers fsd ON fsd.step_id=fst.id WHERE fsd.user_id=? ORDER BY fs.created_at DESC`, [uid]);
     }
     res.json(list);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Get FMS steps for tasks view
@@ -2397,7 +2628,7 @@ app.get('/api/fms-tasks/:id', requireAuth, async (req, res) => {
       step.extraRows = extraRows;
     }
     res.json({ sheet: sheets[0], steps });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Get pending rows for a step (plan filled, actual empty)
@@ -2409,6 +2640,17 @@ app.get('/api/fms-tasks/:fmsId/steps/:stepId/rows', requireAuth, async (req, res
     const [steps] = await db.query('SELECT * FROM fms_steps WHERE id=? AND fms_id=?', [req.params.stepId, req.params.fmsId]);
     if (!steps[0]) return res.status(404).json({ error: 'Step not found' });
     const step = steps[0];
+
+    // Same doer restriction as marking a step done — don't expose another
+    // step's pending rows (which can contain customer/dealer data) to
+    // employees who aren't assigned to it.
+    if (req.session.role !== 'admin') {
+      const [doerRows] = await db.query('SELECT 1 FROM fms_step_doers WHERE step_id=? AND user_id=?', [step.id, req.session.userId]);
+      if (!doerRows.length) {
+        const [anyDoer] = await db.query('SELECT 1 FROM fms_step_doers WHERE step_id=? LIMIT 1', [step.id]);
+        if (anyDoer.length) return res.status(403).json({ error: 'You are not assigned to this step' });
+      }
+    }
 
     const planIdx = colToIdx(step.plan_col);
     const actualIdx = colToIdx(step.actual_col);
@@ -2458,7 +2700,7 @@ app.get('/api/fms-tasks/:fmsId/steps/:stepId/rows', requireAuth, async (req, res
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied.' });
     if (err.code === 404) return res.status(400).json({ error: 'Sheet not found.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -2476,6 +2718,16 @@ app.post('/api/fms-tasks/:fmsId/steps/:stepId/done', requireAuth, async (req, re
     const [steps] = await db.query('SELECT * FROM fms_steps WHERE id=? AND fms_id=?', [req.params.stepId, req.params.fmsId]);
     if (!steps[0]) return res.status(404).json({ error: 'Step not found' });
     const step = steps[0];
+
+    // Only an assigned doer for this step (or an admin) can mark it done —
+    // steps with nobody assigned yet stay open, same rule as assertIsStepDoer.
+    if (req.session.role !== 'admin') {
+      const [doerRows] = await db.query('SELECT 1 FROM fms_step_doers WHERE step_id=? AND user_id=?', [step.id, req.session.userId]);
+      if (!doerRows.length) {
+        const [anyDoer] = await db.query('SELECT 1 FROM fms_step_doers WHERE step_id=? LIMIT 1', [step.id]);
+        if (anyDoer.length) return res.status(403).json({ error: 'You are not assigned to this step' });
+      }
+    }
 
     const actualCol = (step.actual_col||'').toUpperCase();
     if (!actualCol) return res.status(400).json({ error: 'Actual column not configured for this step' });
@@ -2529,7 +2781,7 @@ app.post('/api/fms-tasks/:fmsId/steps/:stepId/done', requireAuth, async (req, re
     res.json({ success: true });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied. Sheet write permission needed.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -2606,8 +2858,9 @@ const SFMS_STEPS = [
     ],
     timeDelay: 'AB' },
   // Reordered (was step 6) — spare in/out is now logged before the OTP
-  // solve step, not after.
-  { n: 5, label: 'Spare In/Out Entry (in the field)', planned: 'AP', actual: 'AQ', status: 'AT',
+  // solve step, not after. Point 6: dropped "Out" from the label — Takeout
+  // (step 4) is the "out" side, this step only asks what came back in.
+  { n: 5, label: 'Spare In Entry (in the field)', planned: 'AP', actual: 'AQ', status: 'AT',
     extra: [
       { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
       { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' },
@@ -2754,7 +3007,7 @@ app.get('/api/service-fms', requireAuth, async (req, res) => {
     res.json(await sfmsFetchComplaints());
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -2801,7 +3054,7 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
     const bRows = colB.data.values || [];
     let maxNum = 0;
     bRows.forEach(r => { const m = String(r[0] || '').match(/C-(\d+)/); if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10)); });
-    const groupNo = `C-${maxNum + 1}`;
+    const groupNo = `C-${await claimNextSeqValue('service_fms_group', maxNum + 1)}`;
     const timestamp = sfmsDateToSerial(new Date());
 
     // Photos are uploaded to Drive (never stored as raw base64 in the sheet) —
@@ -2844,10 +3097,30 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
     // app was silently missing them for steps 4/5/6/8 (AC/AH/AP/AV). Write the
     // exact same per-row formula pattern every older row already has, so newly
     // created complaints behave identically — once per product row.
+    // Point 4 — warranty was already computed on the create form itself
+    // (Purchase Date + Product Master's Warranty Months), so asking staff
+    // to manually re-confirm "Check Product in Warranty" as Step 1 is pure
+    // duplication. Auto-mark it done here with the same computed answer,
+    // wherever it's determinable — otherwise Step 1 is left as a normal
+    // manual step (e.g. a product name not found in Product Master).
+    const { products: masterProducts } = await getMasterWorkbookData();
+    const warrantyMonthsByName = Object.fromEntries(
+      masterProducts.filter(mp => mp.warrantyMonths).map(mp => [mp.name.trim().toLowerCase(), mp.warrantyMonths])
+    );
+
     const formulaData = [];
     for (let i = 0; i < products.length; i++) {
       const r = firstRow + i;
       const p = products[i];
+      const warrantyMonths = warrantyMonthsByName[(p.productName || '').trim().toLowerCase()];
+      if (warrantyMonths && p.purchaseDate) {
+        const expiry = new Date(p.purchaseDate + 'T00:00:00Z');
+        expiry.setMonth(expiry.getMonth() + warrantyMonths);
+        formulaData.push(
+          { range: `'${SFMS_TAB}'!P${r}`, values: [[timestamp]] },
+          { range: `'${SFMS_TAB}'!Q${r}`, values: [[new Date() <= expiry ? 'Yes' : 'No']] }
+        );
+      }
       formulaData.push(
         { range: `'${SFMS_TAB}'!O${r}`, values: [[`=IF(A${r}<>"",IFS(HOUR(A${r}+O$5)>$D$1,workday.intl(A${r},1,"0000001")+$C$1/24+O$5,HOUR(A${r}+O$5)<$C$1,Datevalue(A${r})+$C$1/24+O$5,and(hour(A${r}+O$5)>=$C$1,hour(A${r}+O$5)<=$D$1),A${r}+O$5),"")`]] },
         { range: `'${SFMS_TAB}'!S${r}`, values: [[`=IF(P${r}<>"",IFS(HOUR(P${r}+S$5)>$D$1,workday.intl(P${r},1,"0000001")+$C$1/24+S$5,HOUR(P${r}+S$5)<$C$1,Datevalue(P${r})+$C$1/24+S$5,and(hour(P${r}+S$5)>=$C$1,hour(P${r}+S$5)<=$D$1),P${r}+S$5),"")`]] },
@@ -2880,7 +3153,7 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
     res.json({ success: true, groupNo, complainNos, firstRow });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -2946,13 +3219,16 @@ app.put('/api/service-fms/:row', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
 // Sends a 6-digit OTP to the customer's WhatsApp; the mechanic must read it
 // from the customer and enter it to mark Step 6 (Complaint Solve) done.
-app.post('/api/service-fms/:row/step/:stepNum/send-otp', requireAuth, async (req, res) => {
+app.post('/api/service-fms/:row/step/:stepNum/send-otp',
+  requireAuth,
+  rateLimit(req => `sfms-send-otp:${req.params.row}`, 3, 15 * 60 * 1000),
+  async (req, res) => {
   try {
     const row = parseInt(req.params.row, 10);
     const stepNum = parseInt(req.params.stepNum, 10);
@@ -2986,7 +3262,7 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp', requireAuth, async (req
     res.json({ success: true, otp: req.session.role === 'admin' ? otp : undefined });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -3019,12 +3295,12 @@ app.get('/api/service-fms/spare-parts', requireAuth, async (req, res) => {
   try {
     const { spareParts } = await getMasterWorkbookData();
     res.json(spareParts);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.get('/api/service-fms/items', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_ITEMS_TAB)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { sendServerError(res, err); }
 });
 app.post('/api/service-fms/items', requireAuth, async (req, res) => {
   try {
@@ -3032,14 +3308,14 @@ app.post('/api/service-fms/items', requireAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Item name is required' });
     await sfmsAddToList(SFMS_ITEMS_TAB, name);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Area — free-text "Where is the product / Location" field turned into a
 // self-serve dropdown (point 4). Same single-column tab pattern as Items.
 app.get('/api/service-fms/areas', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_AREA_TAB)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { sendServerError(res, err); }
 });
 app.post('/api/service-fms/areas', requireAuth, async (req, res) => {
   try {
@@ -3047,7 +3323,7 @@ app.post('/api/service-fms/areas', requireAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Area name is required' });
     await sfmsAddToList(SFMS_AREA_TAB, name);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Area -> Zone map (column B of the Area tab, seeded from the "Area
@@ -3064,13 +3340,13 @@ app.get('/api/service-fms/area-zone-map', requireAuth, async (req, res) => {
     const map = {};
     (result.data.values || []).forEach(r => { if (r[0] && r[1]) map[r[0]] = r[1]; });
     res.json(map);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Zone — groups mechanics for zone-wise assignment (point 8). Same pattern.
 app.get('/api/service-fms/zones', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_ZONE_TAB)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { sendServerError(res, err); }
 });
 app.post('/api/service-fms/zones', requireAuth, async (req, res) => {
   try {
@@ -3078,7 +3354,7 @@ app.post('/api/service-fms/zones', requireAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Zone name is required' });
     await sfmsAddToList(SFMS_ZONE_TAB, name);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Mechanics tab has a second column (B = Mobile) so the Mechanic-Wise report
@@ -3113,7 +3389,7 @@ async function sfmsSetMechanicMobile(name, mobile) {
 
 app.get('/api/service-fms/mechanics', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetMechanics()); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { sendServerError(res, err); }
 });
 app.post('/api/service-fms/mechanics', requireAuth, async (req, res) => {
   try {
@@ -3130,7 +3406,7 @@ app.post('/api/service-fms/mechanics', requireAuth, async (req, res) => {
       requestBody: { values: [[name, mobile, zone]] }
     });
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/service-fms/mechanics/mobile', requireAuth, async (req, res) => {
   try {
@@ -3139,7 +3415,7 @@ app.post('/api/service-fms/mechanics/mobile', requireAuth, async (req, res) => {
     if (!name || !mobile) return res.status(400).json({ error: 'Mechanic name and mobile are required' });
     await sfmsSetMechanicMobile(name, mobile);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Generic WhatsApp send used by the Mechanic-Wise report's "Send via WhatsApp"
@@ -3151,7 +3427,7 @@ app.post('/api/service-fms/send-whatsapp', requireAuth, async (req, res) => {
     if (!mobile || !message) return res.status(400).json({ error: 'Mobile and message are required' });
     await sendWhatsApp(mobile, message);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
@@ -3166,6 +3442,11 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
     let batchData;
 
     if (stepDef.otpRequired) {
+      // A 6-digit code is guessable given enough attempts — cap attempts per
+      // row rather than relying on the TTL alone.
+      if (isRateLimited(`sfms-otp-verify:${row}`, 8, 15 * 60 * 1000)) {
+        return res.status(429).json({ error: 'Too many incorrect attempts — please wait a bit and try again.' });
+      }
       const otpRes = await sheetsApi.spreadsheets.values.get({
         spreadsheetId: SFMS_SHEET_ID,
         range: `'${SFMS_TAB}'!${SFMS_OTP_CODE_COL}${row}:${SFMS_OTP_SENT_COL}${row}`
@@ -3227,7 +3508,7 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
     res.json({ success: true });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -3327,7 +3608,7 @@ app.get('/api/o2d-fms/step-doers', requireAuth, async (req, res) => {
     const assignments = {};
     O2D_STEPS.forEach(s => { assignments[s.n] = map[s.n] || []; });
     res.json({ assignments });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/o2d-fms/step-doers', requireAuth, requireAdmin, async (req, res) => {
@@ -3342,7 +3623,7 @@ app.put('/api/o2d-fms/step-doers', requireAuth, requireAdmin, async (req, res) =
     if (rows.length) await db.query('INSERT INTO o2d_step_doers (step_n, user_id) VALUES ?', [rows]);
     _o2dStepDoersCache = null;
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // No caching here — Vercel runs this across multiple serverless instances,
@@ -3503,7 +3784,7 @@ app.get('/api/o2d-fms', requireAuth, async (req, res) => {
     res.json(await getO2dOrders());
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -3568,7 +3849,7 @@ app.get('/api/o2d-fms/customer-lookup', requireAuth, async (req, res) => {
     const match = Object.values(map).find(v => v.name.toLowerCase().includes(q) || q.includes(v.name.toLowerCase()));
     if (match) return res.json({ found: true, ...match, fuzzy: true });
     res.json({ found: false });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.get('/api/o2d-fms/customer-names', requireAuth, async (req, res) => {
@@ -3576,7 +3857,7 @@ app.get('/api/o2d-fms/customer-names', requireAuth, async (req, res) => {
     const map = await getDebtorsMap();
     const names = Object.values(map).map(v => v.name).sort((a, b) => a.localeCompare(b));
     res.json({ names });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -3670,8 +3951,27 @@ function computeDealerRating(payments) {
   return { stars, label, total, late, avgLateDays: late > 0 ? Math.round(lateDaysSum / late) : 0 };
 }
 
+// Dealer directory lives under the same page as O2D FMS in the UI — admins
+// always have it, everyone else needs 'o2d-fms' explicitly granted, same
+// gate the Dealers tab itself lives behind. Previously these routes only
+// checked the caller was logged in at all, exposing every dealer's credit
+// limit, payment ledger and KYC document links to any employee.
+async function canAccessDealers(req) {
+  if (req.session.role === 'admin') return true;
+  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
+  const pages = parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role);
+  return pages.includes('o2d-fms');
+}
+// Credit limit and payment history directly feed the automated credit-tier
+// rating (computeCreditTier/computeDealerRating) — restrict those to admin
+// only, distinct from the more permissive view/KYC/location actions above.
+function canEditDealers(req) {
+  return req.session.role === 'admin';
+}
+
 app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty, tallyRatingByParty, ledgerBalancesByParty] = await Promise.all([
       getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
       withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
@@ -3788,11 +4088,12 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     }).sort((a, b) => a.name.localeCompare(b.name));
 
     res.json({ dealers });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const { name, city, phone } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Dealer name is required' });
     await withDealerTables(() => db.query(
@@ -3800,13 +4101,17 @@ app.post('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       [name.trim(), city || null, phone || null]
     ));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
   try {
+    if (!canEditDealers(req)) return res.status(403).json({ error: 'Only admins can set a dealer\'s credit limit' });
     const name = req.params.name.trim();
     const { city, phone, creditLimit } = req.body;
+    if (creditLimit !== '' && creditLimit !== undefined && creditLimit !== null && !(Number(creditLimit) >= 0)) {
+      return res.status(400).json({ error: 'Credit limit must be a non-negative number' });
+    }
     await withDealerTables(() => db.query(
       `INSERT INTO o2d_dealers (counter_name, city, phone, credit_limit) VALUES (?,?,?,?)
        ON DUPLICATE KEY UPDATE
@@ -3816,11 +4121,12 @@ app.put('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
       [name, city || null, phone || null, (creditLimit === '' || creditLimit === undefined || creditLimit === null) ? null : Number(creditLimit)]
     ));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/o2d-fms/dealers/:name/kyc', requireAuth, async (req, res) => {
   try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const name = req.params.name.trim();
     const { docType, image } = req.body;
     const colMap = { aadhar: 'kyc_aadhar_url', pan: 'kyc_pan_url', gst: 'kyc_gst_url', shop: 'kyc_shop_url' };
@@ -3833,11 +4139,12 @@ app.post('/api/o2d-fms/dealers/:name/kyc', requireAuth, async (req, res) => {
       [name, link]
     ));
     res.json({ success: true, link });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/o2d-fms/dealers/:name/location', requireAuth, async (req, res) => {
   try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const name = req.params.name.trim();
     const { lat, lng, address } = req.body;
     await withDealerTables(() => db.query(
@@ -3846,20 +4153,24 @@ app.post('/api/o2d-fms/dealers/:name/location', requireAuth, async (req, res) =>
       [name, lat ?? null, lng ?? null, address || null]
     ));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/o2d-fms/dealers/:name/payments', requireAuth, async (req, res) => {
   try {
+    if (!canEditDealers(req)) return res.status(403).json({ error: 'Only admins can log a dealer payment' });
     const name = req.params.name.trim();
     const { amount, dueDate, paidDate } = req.body;
     if (!dueDate || !paidDate) return res.status(400).json({ error: 'Due date and paid date are required' });
+    if (amount !== undefined && amount !== null && amount !== '' && !(Number(amount) >= 0)) {
+      return res.status(400).json({ error: 'Amount must be a non-negative number' });
+    }
     await withDealerTables(() => db.query(
       'INSERT INTO o2d_dealer_payments (counter_name, amount, due_date, paid_date) VALUES (?,?,?,?)',
       [name, amount || null, dueDate, paidDate]
     ));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -3994,7 +4305,7 @@ app.get('/api/o2d-fms/price-list', requireAuth, async (req, res) => {
       }
     }
     res.json({ items: rows, canEdit: canEditPriceList(req) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/o2d-fms/price-list', requireAuth, async (req, res) => {
@@ -4009,7 +4320,7 @@ app.post('/api/o2d-fms/price-list', requireAuth, async (req, res) => {
        (price === '' || price === undefined || price === null) ? null : Number(price), remarks || null]
     ));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
@@ -4027,7 +4338,7 @@ app.put('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
        imageUrl ?? null, remarks ?? null, id]
     ));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.delete('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
@@ -4035,7 +4346,7 @@ app.delete('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
     if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can edit the price list' });
     await withPriceListTable(() => db.query('DELETE FROM o2d_price_list WHERE id = ?', [parseInt(req.params.id, 10)]));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ── Stock (Ajanta appliance stock — fans, blenders etc.) ─────────────────
@@ -4081,7 +4392,7 @@ app.get('/api/stock', requireAuth, async (req, res) => {
     sql += ' ORDER BY description';
     const [rows] = await withStockTable(() => db.query(sql, params));
     res.json({ items: rows, canEdit: canEditStock(req) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/stock', requireAuth, async (req, res) => {
@@ -4101,7 +4412,7 @@ app.post('/api/stock', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'This item code already exists' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -4122,7 +4433,7 @@ app.put('/api/stock/:id', requireAuth, async (req, res) => {
        asOfDate ?? null, id]
     ));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.delete('/api/stock/:id', requireAuth, async (req, res) => {
@@ -4130,7 +4441,7 @@ app.delete('/api/stock/:id', requireAuth, async (req, res) => {
     if (!canEditStock(req)) return res.status(403).json({ error: 'Only admins can delete stock items' });
     await withStockTable(() => db.query('DELETE FROM ajanta_stock_items WHERE id = ?', [parseInt(req.params.id, 10)]));
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ── Stock Inward/Outward ledger ───────────────────────────────────────────
@@ -4168,7 +4479,7 @@ app.get('/api/stock/transactions', requireAuth, async (req, res) => {
       [direction]
     ));
     res.json({ items: rows, canEdit: canEditStock(req) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 async function _logStockMovement(req, res, direction) {
@@ -4181,24 +4492,34 @@ async function _logStockMovement(req, res, direction) {
   const item = items[0];
   if (!item) return res.status(400).json({ error: 'Item code not found in Stock catalog' });
   const date = txnDate || new Date().toISOString().slice(0, 10);
-  const delta = direction === 'IN' ? qty : -qty;
+  if (direction === 'OUT') {
+    // Atomic guard: the WHERE clause is re-checked by the UPDATE itself
+    // against the live value, so this can't be driven negative by a stale
+    // read, and it doubles as the "enough stock?" validation.
+    const [claim] = await db.query(
+      'UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ? AND current_stock >= ?',
+      [qty, date, item.item_code, qty]
+    );
+    if (!claim.affectedRows) return res.status(400).json({ error: `Not enough stock — only ${item.current_stock} ${item.uom} available` });
+  } else {
+    await db.query(
+      'UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?',
+      [qty, date, item.item_code]
+    );
+  }
   await withStockTxnTable(() => db.query(
     `INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)`,
     [date, direction, item.item_code, item.description, qty, item.uom, (remarks || '').trim(), req.session.name || '']
   ));
-  await db.query(
-    'UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?',
-    [delta, date, item.item_code]
-  );
   res.json({ success: true });
 }
 app.post('/api/stock/inward', requireAuth, async (req, res) => {
   try { await _logStockMovement(req, res, 'IN'); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { sendServerError(res, err); }
 });
 app.post('/api/stock/outward', requireAuth, async (req, res) => {
   try { await _logStockMovement(req, res, 'OUT'); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/stock/transactions/:id/cancel', requireAuth, async (req, res) => {
@@ -4209,13 +4530,17 @@ app.put('/api/stock/transactions/:id/cancel', requireAuth, async (req, res) => {
     const txn = rows[0];
     if (!txn) return res.status(404).json({ error: 'Entry not found' });
     if (txn.status === 'Cancelled') return res.status(400).json({ error: 'Already cancelled' });
+    // Claim the cancel atomically first — WHERE status<>'Cancelled' is
+    // re-checked by the UPDATE itself, so two near-simultaneous cancel
+    // requests can't both pass and double-reverse the stock delta.
+    const [claim] = await db.query(`UPDATE ajanta_stock_transactions SET status = 'Cancelled' WHERE id = ? AND status <> 'Cancelled'`, [id]);
+    if (!claim.affectedRows) return res.status(400).json({ error: 'Already cancelled' });
     // Reverse this entry's effect on current_stock — an IN being cancelled
     // subtracts back out, an OUT being cancelled adds back in.
     const reverseDelta = txn.direction === 'IN' ? -Number(txn.quantity) : Number(txn.quantity);
     await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?', [reverseDelta, txn.item_code]);
-    await db.query('UPDATE ajanta_stock_transactions SET status = ? WHERE id = ?', ['Cancelled', id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Catalogue PDFs — full upload history kept (not just the latest), same
@@ -4225,7 +4550,7 @@ app.get('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
     if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to the catalogue' });
     const [rows] = await withCataloguePdfsTable(() => db.query('SELECT * FROM o2d_catalogue_pdfs ORDER BY created_at DESC'));
     res.json({ items: rows, canEdit: canEditPriceList(req) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
@@ -4235,7 +4560,7 @@ app.post('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
     if (!filename || !pdfData) return res.status(400).json({ error: 'filename and pdfData are required' });
     const type = docType === 'price_list' ? 'price_list' : 'catalogue';
     const link = await uploadPhotoToDrive(pdfData, filename);
-    const driveFileId = (link.match(/[?&]id=([^&]+)/) || [])[1] || null;
+    const driveFileId = (link.match(/\/api\/drive-file\/([^/?]+)/) || [])[1] || null;
     await withCataloguePdfsTable(() => db.query(
       'INSERT INTO o2d_catalogue_pdfs (doc_type, filename, url, drive_file_id, uploaded_by_id, uploaded_by_name) VALUES (?,?,?,?,?,?)',
       [type, filename, link, driveFileId, req.session.userId, req.session.name || '']
@@ -4243,7 +4568,7 @@ app.post('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
     res.json({ success: true, url: link });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -4255,10 +4580,18 @@ app.post('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
 app.post('/api/o2d-fms/catalogue-pdfs/chunk', requireAuth, async (req, res) => {
   try {
     if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can upload catalogue PDFs' });
-    const { uploadId, chunkIndex, totalChunks, chunkData, filename, docType, mimeType } = req.body;
-    if (!uploadId || chunkIndex === undefined || chunkIndex === null || !totalChunks || !chunkData || !filename) {
+    const { chunkIndex, totalChunks, chunkData, filename, docType, mimeType } = req.body;
+    if (!req.body.uploadId || chunkIndex === undefined || chunkIndex === null || !totalChunks || !chunkData || !filename) {
       return res.status(400).json({ error: 'uploadId, chunkIndex, totalChunks, chunkData and filename are required' });
     }
+    // Scope the client-supplied uploadId to this session so one user's
+    // in-progress upload can't collide with or be interfered with by another.
+    const uploadId = `${req.session.userId}:${req.body.uploadId}`;
+    // Sanity caps — this is a chunked-upload workaround for Vercel's request
+    // size limit, not an unbounded storage endpoint.
+    const MAX_CHUNKS = 200, MAX_CHUNK_CHARS = 2_000_000; // ~200 x 1.5MB decoded ≈ 300MB reconstructed, ceiling
+    if (Number(totalChunks) > MAX_CHUNKS) return res.status(400).json({ error: 'File is too large to upload' });
+    if (String(chunkData).length > MAX_CHUNK_CHARS) return res.status(400).json({ error: 'Chunk too large' });
     // Best-effort prune of abandoned uploads (browser closed mid-upload etc).
     db.query('DELETE FROM o2d_catalogue_pdf_chunks WHERE created_at < DATE_SUB(NOW(), INTERVAL 6 HOUR)').catch(() => {});
     db.query('DELETE FROM o2d_catalogue_pdf_upload_locks WHERE created_at < DATE_SUB(NOW(), INTERVAL 6 HOUR)').catch(() => {});
@@ -4297,7 +4630,7 @@ app.post('/api/o2d-fms/catalogue-pdfs/chunk', requireAuth, async (req, res) => {
     const dataUri = `data:${mimeType || 'application/pdf'};base64,${fullBase64}`;
     const type = docType === 'price_list' ? 'price_list' : 'catalogue';
     const link = await uploadPhotoToDrive(dataUri, filename);
-    const driveFileId = (link.match(/[?&]id=([^&]+)/) || [])[1] || null;
+    const driveFileId = (link.match(/\/api\/drive-file\/([^/?]+)/) || [])[1] || null;
     await withCataloguePdfsTable(() => db.query(
       'INSERT INTO o2d_catalogue_pdfs (doc_type, filename, url, drive_file_id, uploaded_by_id, uploaded_by_name) VALUES (?,?,?,?,?,?)',
       [type, filename, link, driveFileId, req.session.userId, req.session.name || '']
@@ -4308,7 +4641,7 @@ app.post('/api/o2d-fms/catalogue-pdfs/chunk', requireAuth, async (req, res) => {
     res.json({ success: true, done: true, url: link });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -4325,7 +4658,7 @@ app.delete('/api/o2d-fms/catalogue-pdfs/:id', requireAuth, async (req, res) => {
     }
     await db.query('DELETE FROM o2d_catalogue_pdfs WHERE id=?', [id]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -4335,7 +4668,7 @@ app.delete('/api/o2d-fms/catalogue-pdfs/:id', requireAuth, async (req, res) => {
 // this just displays the latest synced snapshot — same viewing
 // permission as Price List & Catalogue.
 // ══════════════════════════════════════════════════════
-const BILLS_RECEIVABLE_SHEET_ID = '1n3Dyw_srzmPybO1PtXT0JDVvx-Jo_3I4j9TKvzlsqoo';
+const BILLS_RECEIVABLE_SHEET_ID = '1uXHUmSzX7nAM2fYS3lf5NzIgfVDEbccgHXQuTODHS1Y'; // "O2D Bills Receivable (Tally Sync)" — switched here 24-Sep-2026
 let _billsReceivableCache = null; // { bills, lastSynced, ts }
 const BILLS_RECEIVABLE_CACHE_TTL_MS = 5 * 60 * 1000; // the local sync only writes at most a few times a day
 
@@ -4410,13 +4743,14 @@ async function getLedgerBalancesByDealer() {
   if (_ledgerBalancesCache && (Date.now() - _ledgerBalancesCache.ts) < LEDGER_BALANCES_CACHE_TTL_MS) return _ledgerBalancesCache.byParty;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   const r = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerBalances'!A2:C10000`
+    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerBalances'!A2:D10000`
   }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
-  const byParty = {}; // lowercased party name -> { name, closingBalance, syncedAt }
+  const byParty = {}; // lowercased party name -> { name, closingBalance, syncedAt, drCr }
   (r.data.values || []).forEach(row => {
     const name = (row[0] || '').trim();
     if (!name) return;
-    byParty[name.toLowerCase()] = { name, closingBalance: Number(row[1]) || 0, syncedAt: row[2] || '' };
+    // drCr is '' on syncs older than the column — treated as Dr (the normal case for a debtor)
+    byParty[name.toLowerCase()] = { name, closingBalance: Number(row[1]) || 0, syncedAt: row[2] || '', drCr: (row[3] || '').trim() };
   });
   _ledgerBalancesCache = { byParty, ts: Date.now() };
   return byParty;
@@ -4449,6 +4783,78 @@ async function getSalesItemsByBillKey() {
   return byKey;
 }
 
+// Every ledger leg of every voucher in the current financial year (the
+// sync's "LedgerVouchers" tab, from a date-bound Voucher Collection).
+// Grouped by voucher, plus an index from party name → the vouchers that
+// party appears in, so one dealer's ledger can be rebuilt Tally-style.
+let _ledgerVouchersCache = null; // { byKey, legIndex, ts }
+const LEDGER_VOUCHERS_CACHE_TTL_MS = 5 * 60 * 1000;
+async function getLedgerVouchers() {
+  if (_ledgerVouchersCache && (Date.now() - _ledgerVouchersCache.ts) < LEDGER_VOUCHERS_CACHE_TTL_MS) return _ledgerVouchersCache;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const r = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerVouchers'!A2:G200000`
+  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const byKey = {};    // voucher key -> { date, vchType, vchNo, legs: [{ ledgerName, ledgerKey, amount }] }
+  const legIndex = {}; // lowercased ledger name -> Set of voucher keys
+  (r.data.values || []).forEach(row => {
+    const key = (row[0] || '').trim(), ledgerName = (row[4] || '').trim();
+    const amount = Number(row[5]);
+    if (!key || !ledgerName || !amount) return;
+    if (!byKey[key]) byKey[key] = { date: row[1] || '', vchType: row[2] || '', vchNo: row[3] || '', legs: [] };
+    const ledgerKey = ledgerName.toLowerCase();
+    byKey[key].legs.push({ ledgerName, ledgerKey, amount });
+    if (!legIndex[ledgerKey]) legIndex[ledgerKey] = new Set();
+    legIndex[ledgerKey].add(key);
+  });
+  _ledgerVouchersCache = { byKey, legIndex, ts: Date.now() };
+  return _ledgerVouchersCache;
+}
+
+function financialYearStartLabel(today) {
+  const y = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+  return `1-Apr-${String(y).slice(2)}`;
+}
+
+// A party's FY ledger the way Tally's "Ledger Vouchers" screen shows it:
+// one line per voucher the party appears in, Debit/Credit from the party's
+// own leg (Tally export sign: negative = Dr, positive = Cr), Particulars =
+// the biggest opposite leg of the same voucher (Sales A/c, Cash, a bank…),
+// running balance from an opening balance derived as closing − FY net.
+function buildDealerFyLedger(dealerKey, vouchers, ledgerBalance) {
+  const keys = vouchers.legIndex[dealerKey] ? [...vouchers.legIndex[dealerKey]] : [];
+  const rows = [];
+  keys.forEach(k => {
+    const v = vouchers.byKey[k];
+    const partyLegs = v.legs.filter(l => l.ledgerKey === dealerKey);
+    const others = v.legs.filter(l => l.ledgerKey !== dealerKey).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    partyLegs.forEach(pl => {
+      rows.push({
+        date: v.date, vchType: v.vchType, vchNo: v.vchNo,
+        particulars: others[0] ? others[0].ledgerName : v.vchType,
+        debit: pl.amount < 0 ? -pl.amount : 0,
+        credit: pl.amount > 0 ? pl.amount : 0
+      });
+    });
+  });
+  rows.sort((a, b) => {
+    const da = parseAnyDate(a.date), db = parseAnyDate(b.date);
+    if (da && db && da - db !== 0) return da - db;
+    return (parseInt(a.vchNo, 10) || 0) - (parseInt(b.vchNo, 10) || 0);
+  });
+  const totalDebit = rows.reduce((s, r) => s + r.debit, 0);
+  const totalCredit = rows.reduce((s, r) => s + r.credit, 0);
+  // Our convention here: positive balance = Dr (dealer owes us), negative = Cr (advance).
+  const closing = ledgerBalance
+    ? (ledgerBalance.drCr === 'Cr' ? -ledgerBalance.closingBalance : ledgerBalance.closingBalance)
+    : null;
+  const openingKnown = closing !== null;
+  const opening = openingKnown ? closing - (totalDebit - totalCredit) : 0;
+  let bal = opening;
+  rows.forEach(r => { bal += r.debit - r.credit; r.balance = bal; });
+  return { fyLabel: `${financialYearStartLabel(new Date())} se aaj tak`, opening, openingKnown, closing, totalDebit, totalCredit, rows };
+}
+
 app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to this page' });
@@ -4456,7 +4862,7 @@ app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
     res.json({ bills, lastSynced });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Bills Receivable sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -4490,18 +4896,21 @@ async function getTallyPaymentsByDealer() {
 // once that happens) — it's everything the sync actually has on hand.
 app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
   try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const name = (req.query.name || '').trim();
     if (!name) return res.status(400).json({ error: 'name is required' });
     const key = name.toLowerCase();
-    const [{ bills }, paymentsByParty, ledgerByParty, itemsByKey] = await Promise.all([
+    const [{ bills }, paymentsByParty, ledgerByParty, itemsByKey, vouchers] = await Promise.all([
       getBillsReceivable(),
       getTallyPaymentsByDealer(),
       getLedgerBalancesByDealer(),
-      getSalesItemsByBillKey()
+      getSalesItemsByBillKey(),
+      getLedgerVouchers().catch(() => ({ byKey: {}, legIndex: {} }))
     ]);
     const dealerBills = bills.filter(b => b.party.trim().toLowerCase() === key);
     const payments = paymentsByParty[key] || [];
     const ledger = ledgerByParty[key] || null;
+    const fyLedger = buildDealerFyLedger(key, vouchers, ledger);
 
     const entries = [
       ...dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, dueDate: b.dueDate, daysOverdue: b.daysOverdue, bucket: b.bucket, items: itemsByKey[`${key}|||${b.billRef}`] || null })),
@@ -4521,10 +4930,11 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
       syncedAt: ledger ? ledger.syncedAt : (dealerBills[0] ? dealerBills[0].syncedAt : null),
       billCount: dealerBills.length,
       paymentCount: payments.length,
-      entries
+      entries,
+      ledger: fyLedger
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -4580,6 +4990,8 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
     }
     for (const p of products) {
       if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
+      if (!(Number(p.qty) > 0)) return res.status(400).json({ error: 'Quantity must be a positive number' });
+      if (p.rate !== undefined && p.rate !== null && p.rate !== '' && !(Number(p.rate) >= 0)) return res.status(400).json({ error: 'Rate must be a non-negative number' });
     }
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
@@ -4597,7 +5009,16 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       if (mNo) maxOrderNo = Math.max(maxOrderNo, parseInt(mNo[1], 10));
       if (mId) maxOrderId = Math.max(maxOrderId, parseInt(mId[1], 10));
     });
-    const orderNo = `Ord-${String(maxOrderNo + 1).padStart(4, '0')}`;
+    const orderNo = `Ord-${String(await claimNextSeqValue('o2d_order_no', maxOrderNo + 1)).padStart(4, '0')}`;
+    // Each product line needs its own unique "Order-N" id — claim one
+    // sequential value per line rather than assuming maxOrderId+1+i is free.
+    const orderIds = [];
+    let nextOrderIdCandidate = maxOrderId + 1;
+    for (let i = 0; i < products.length; i++) {
+      const claimed = await claimNextSeqValue('o2d_order_id', nextOrderIdCandidate);
+      orderIds.push(claimed);
+      nextOrderIdCandidate = claimed + 1;
+    }
 
     const nowSerial = sfmsDateToSerial(new Date());
     const dateToSendSerial = dateToSend ? sfmsDateToSerial(new Date(dateToSend + 'T00:00:00')) : '';
@@ -4606,7 +5027,7 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       nowSerial, counterType || '', counterName, area || '', dateToSendSerial, whenToSend || '',
       channel || '', deliverByTransport || 'No', makePerformaInvoice || 'No', orderBy || '',
       paymentTerms || '', remark || '', p.productName, p.rate || '', p.qty,
-      p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`
+      p.isSample || 'No', orderNo, `Order-${orderIds[i]}`
     ]);
 
     // OVERWRITE, not INSERT_ROWS — inserting rows shifts the sheet's row
@@ -4623,7 +5044,7 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
     res.json({ success: true, orderNo, orderIds: rows.map(r => r[17]) });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -4698,6 +5119,8 @@ app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
     if (hasProducts) {
       for (const p of products) {
         if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
+      if (!(Number(p.qty) > 0)) return res.status(400).json({ error: 'Quantity must be a positive number' });
+      if (p.rate !== undefined && p.rate !== null && p.rate !== '' && !(Number(p.rate) >= 0)) return res.status(400).json({ error: 'Rate must be a non-negative number' });
       }
     }
 
@@ -4717,13 +5140,22 @@ app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
         const m = String(r[17] || '').match(/Order-(\d+)/);
         if (m) maxOrderId = Math.max(maxOrderId, parseInt(m[1], 10));
       });
+      // Claim one sequential value per new line — same collision risk/fix as
+      // the new-order route above.
+      const newOrderIds = [];
+      let nextOrderIdCandidate = maxOrderId + 1;
+      for (let i = 0; i < products.length; i++) {
+        const claimed = await claimNextSeqValue('o2d_order_id', nextOrderIdCandidate);
+        newOrderIds.push(claimed);
+        nextOrderIdCandidate = claimed + 1;
+      }
 
       const nowSerial = sfmsDateToSerial(new Date());
       const rows = products.map((p, i) => [
         nowSerial, template[1] || '', template[2] || '', template[3] || '', template[4] || '', template[5] || '',
         template[6] || '', template[7] || 'No', template[8] || 'No', template[9] || '',
         template[10] || '', template[11] || '', p.productName, p.rate || '', p.qty,
-        p.isSample || 'No', orderNo, `Order-${maxOrderId + 1 + i}`
+        p.isSample || 'No', orderNo, `Order-${newOrderIds[i]}`
       ]);
 
       await sheetsApi.spreadsheets.values.append({
@@ -4744,7 +5176,7 @@ app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
     res.json({ success: true, orderIds, rowsUpdated });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -4752,6 +5184,7 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
   try {
     const orderNo = req.params.orderNo;
     const stepNum = parseInt(req.params.stepNum, 10);
+    if (!(await assertIsStepDoer(res, 'o2d_step_doers', stepNum, req.session.userId, req.session.role))) return;
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     const { rowsUpdated, counterName } = await writeO2dStepForOrder(sheetsApi, orderNo, stepNum, req.body);
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
@@ -4780,7 +5213,519 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
     res.json({ success: true, rowsUpdated, whatsappSent, whatsappSkippedReason });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// PURCHASE FMS — live-connected to the "Purchase Fms" Google Sheet: material
+// Indent → Check Stock in Store → Provide from Store → Finalise Rate →
+// Approval → Generate PO → Goods Receipt. One row per product line under an
+// Indent No, grouped into indents the same way O2D groups order lines under
+// an Order No (see getO2dOrders comment above for the "bottlenecked by the
+// furthest-behind line" reasoning — identical here).
+//
+// Approval (step 4) is the one conditional step: when Finalise Rate's
+// "Approval Needed" column (AC) is "No" for a line, that line skips straight
+// from step 3 to step 5 — confirmed from real sheet data (rows with
+// Approval Needed=No have their step-4 Planned/Actual blank while step 5's
+// are already filled). `skipCol`/`skipValue` on a step definition encodes
+// this; purchaseStepIsSkipped/purchaseStepIsDone are the shared helpers so
+// both the read path (getPurchaseIndents) and the write path
+// (writePurchaseStepForIndent) treat a skipped step as satisfied.
+//
+// PO generation itself happens in a separate Google Apps Script tool
+// ("Ajay Marketing - Purchase Order System") the user already has — it's a
+// google.script.run-driven HTML UI, not a callable JSON API, so it isn't
+// invoked from here. The Generate PO step just links out to it; PO
+// Number/Link/Qty stay manual-entry fields the user pastes back in.
+// ══════════════════════════════════════════════════════
+const PURCHASE_SHEET_ID = '1ME8gPAN92EyxmX9YUYkq4Ag2E2lUlM9MCZYED7FPLho';
+const PURCHASE_TAB = 'Purchase Fms';
+const PURCHASE_HEADER_ROW = 6;
+const PURCHASE_DATA_START_ROW = 7;
+const PURCHASE_LAST_COL = 'AQ';
+const PURCHASE_PO_GENERATOR_URL = 'https://script.google.com/macros/s/AKfycbxpcAYsLFoz1EUxU3NposqHfhg6eS-U9UgSAcR1te_AO3PHFLcWj7i2zWaUfOIIY89U/exec';
+
+const PURCHASE_STEPS = [
+  { n: 1, label: 'Check Stock in Store', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', planned: 'J', actual: 'K', status: 'L',
+    extra: [ { key: 'qtyAvailable', col: 'M', label: 'Qty Available' } ] },
+  { n: 2, label: 'Provide from Store', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', planned: 'O', actual: 'P', status: 'Q',
+    extra: [ { key: 'qtyToPurchase', col: 'R', label: 'Qty to Purchase' } ] },
+  { n: 3, label: 'Finalise Rate', doer: 'Accountant (Narender)', tat: '10 min', planned: 'T', actual: 'U', status: 'Y',
+    extra: [
+      { key: 'finalRate', col: 'V', label: 'Final Current Rate' },
+      { key: 'oldRate', col: 'W', label: 'Old Rate' },
+      { key: 'rateType', col: 'X', label: 'Rate Type' },
+      { key: 'leadTime', col: 'AA', label: 'Lead Time' },
+      { key: 'approvalNeeded', col: 'AC', label: 'Approval Needed' }
+    ] },
+  { n: 4, label: 'Approval', doer: 'Ajay', tat: '—', planned: 'AD', actual: 'AE', status: 'AF', extra: [],
+    skipCol: 'AC', skipValue: 'no' },
+  { n: 5, label: 'Generate PO', doer: 'Priyanka (SCCRR)', tat: '30 min', planned: 'AG', actual: 'AH', status: 'AH',
+    extra: [
+      { key: 'poNumber', col: 'AI', label: 'PO Number' },
+      { key: 'poLink', col: 'AJ', label: 'PO Link' },
+      { key: 'poQty', col: 'AK', label: 'Po Qty.' }
+    ] },
+  { n: 6, label: 'Goods Receipt & Closure', doer: 'Priyanka (SCCRR)', tat: '—', planned: '', actual: '', status: 'AO',
+    extra: [
+      { key: 'totalReceived', col: 'AM', label: 'Total Received' },
+      { key: 'docsComplete', col: 'AP', label: 'Docs Complete' },
+      { key: 'remark', col: 'AQ', label: 'Remark' }
+    ] }
+];
+
+function purchaseStepIsSkipped(stepDef, get) {
+  if (!stepDef.skipCol) return false;
+  return String(get(stepDef.skipCol) || '').trim().toLowerCase() === stepDef.skipValue;
+}
+function purchaseStepIsDone(stepDef, get) {
+  return !!(stepDef.status && get(stepDef.status)) || purchaseStepIsSkipped(stepDef, get);
+}
+
+// ── Purchase step doers — same shape/pattern as o2d_step_doers above. ──
+async function ensurePurchaseStepDoersTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS purchase_step_doers (
+      step_n INT NOT NULL,
+      user_id INT NOT NULL,
+      PRIMARY KEY (step_n, user_id)
+    )
+  `);
+}
+async function withPurchaseStepDoersTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensurePurchaseStepDoersTable(); return await fn(); }
+}
+
+let _purchaseStepDoersCache = null; // { map, ts } — step_n -> [{id,name}]
+const PURCHASE_STEP_DOERS_CACHE_TTL_MS = 60 * 1000;
+async function getPurchaseStepDoersMap() {
+  if (_purchaseStepDoersCache && (Date.now() - _purchaseStepDoersCache.ts) < PURCHASE_STEP_DOERS_CACHE_TTL_MS) return _purchaseStepDoersCache.map;
+  const [rows] = await withPurchaseStepDoersTable(() => db.query(
+    `SELECT psd.step_n, u.id, u.name FROM purchase_step_doers psd JOIN users u ON psd.user_id=u.id ORDER BY u.name`
+  ));
+  const map = {};
+  rows.forEach(r => { (map[r.step_n] = map[r.step_n] || []).push({ id: r.id, name: r.name }); });
+  _purchaseStepDoersCache = { map, ts: Date.now() };
+  return map;
+}
+
+app.get('/api/purchase-fms/step-doers', requireAuth, async (req, res) => {
+  try {
+    const map = await getPurchaseStepDoersMap();
+    const assignments = {};
+    PURCHASE_STEPS.forEach(s => { assignments[s.n] = map[s.n] || []; });
+    res.json({ assignments });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.put('/api/purchase-fms/step-doers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { assignments } = req.body; // { "1": [userId,...], ... }
+    await ensurePurchaseStepDoersTable();
+    await db.query('DELETE FROM purchase_step_doers');
+    const rows = [];
+    Object.entries(assignments || {}).forEach(([stepN, userIds]) => {
+      (userIds || []).forEach(uid => rows.push([Number(stepN), Number(uid)]));
+    });
+    if (rows.length) await db.query('INSERT INTO purchase_step_doers (step_n, user_id) VALUES ?', [rows]);
+    _purchaseStepDoersCache = null;
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// No caching on the sheet read itself — same reasoning as getO2dOrders
+// above (multi-instance serverless deploys make a TTL cache show stale
+// "Mark Done" results).
+async function getPurchaseIndents() {
+  const stepDoersMap = await getPurchaseStepDoersMap();
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  let result;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      result = await sheetsApi.spreadsheets.values.get({
+        spreadsheetId: PURCHASE_SHEET_ID,
+        range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:${PURCHASE_LAST_COL}`,
+        valueRenderOption: 'UNFORMATTED_VALUE'
+      });
+      break;
+    } catch (e) {
+      const isRateLimit = e.code === 429 || (e.message || '').includes('Quota exceeded');
+      if (!isRateLimit || attempt >= 2) throw e;
+      await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+    }
+  }
+  const sheetRows = result.data.values || [];
+  const lines = sheetRows.map((r, i) => {
+    const rowNum = PURCHASE_DATA_START_ROW + i;
+    const get = col => r[colToIdx(col)];
+    if (!get('B')) return null; // skip blank rows (Indent No is the unique key column)
+    const line = {
+      row: rowNum,
+      timestamp: sfmsSerialToDate(get('A')),
+      indentNo: get('B') || '',
+      indentType: get('C') || '',
+      itemId: get('D') || '',
+      productName: get('E') || '',
+      uom: get('F') || '',
+      qty: Number(get('G')) || 0,
+      vendorName: get('H') || '',
+      raisedBy: get('I') || ''
+    };
+    line.steps = PURCHASE_STEPS.map(sd => {
+      const skipped = purchaseStepIsSkipped(sd, get);
+      const step = {
+        planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
+        actual: sd.actual ? sfmsSerialToDate(get(sd.actual)) : '',
+        status: sd.status ? (get(sd.status) || '') : '',
+        skipped,
+        done: !!(sd.status && get(sd.status)) || skipped
+      };
+      sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
+      return step;
+    });
+    let lineCurrentStep = 0;
+    for (const s of line.steps) { if (s.done) lineCurrentStep++; else break; }
+    line.currentStep = lineCurrentStep;
+    return line;
+  }).filter(Boolean);
+
+  const indentNos = [];
+  const byIndentNo = {};
+  lines.forEach(line => {
+    if (!byIndentNo[line.indentNo]) { byIndentNo[line.indentNo] = []; indentNos.push(line.indentNo); }
+    byIndentNo[line.indentNo].push(line);
+  });
+
+  const indents = indentNos.map(indentNo => {
+    const group = byIndentNo[indentNo];
+    const first = group[0];
+    const o = {
+      indentNo,
+      rows: group.map(l => l.row),
+      timestamp: group.map(l => l.timestamp).sort()[0],
+      indentType: first.indentType,
+      raisedBy: first.raisedBy,
+      productName: group.length > 1 ? `${first.productName} +${group.length - 1} more` : first.productName,
+      qty: group.reduce((sum, l) => sum + l.qty, 0),
+      // PO fields are per LINE, not per indent — different lines under one
+      // indent can have different vendors (confirmed in real data) and each
+      // gets its own PO Number/Link from generatePurchasePo, so these ride
+      // along per product rather than being rolled up onto o.steps[4] like
+      // every other step's fields are.
+      products: group.map(l => ({
+        row: l.row, itemId: l.itemId, productName: l.productName, uom: l.uom, qty: l.qty,
+        vendorName: l.vendorName, currentStep: l.currentStep,
+        finalRate: l.steps[2].finalRate || '',
+        poNumber: l.steps[4].poNumber || '', poLink: l.steps[4].poLink || ''
+      }))
+    };
+    o.steps = PURCHASE_STEPS.map((sd, idx) => {
+      const lineSteps = group.map(l => l.steps[idx]);
+      const allDone = lineSteps.every(s => s.done);
+      const allSkipped = lineSteps.every(s => s.skipped);
+      const actuals = lineSteps.map(s => s.actual).filter(Boolean).sort();
+      const step = {
+        n: sd.n, label: sd.label, doer: sd.doer, tat: sd.tat, doers: stepDoersMap[sd.n] || [],
+        planned: lineSteps[0].planned,
+        actual: allDone ? (actuals[actuals.length - 1] || '') : '',
+        done: allDone,
+        skipped: allSkipped,
+        status: allDone ? (allSkipped ? 'Skipped' : (lineSteps.every(s => s.status === lineSteps[0].status) ? lineSteps[0].status : 'Yes')) : ''
+      };
+      sd.extra.forEach(e => {
+        const withVal = lineSteps.find(s => s[e.key]);
+        step[e.key] = withVal ? withVal[e.key] : '';
+      });
+      return step;
+    });
+    let currentStep = 0;
+    for (let i = 0; i < PURCHASE_STEPS.length; i++) {
+      if (o.steps[i].done) currentStep = i + 1;
+      else break;
+    }
+    o.currentStep = currentStep;
+    o.closed = currentStep === PURCHASE_STEPS.length;
+    return o;
+  });
+
+  indents.reverse(); // newest first
+  return indents;
+}
+
+app.get('/api/purchase-fms', requireAuth, async (req, res) => {
+  try {
+    res.json(await getPurchaseIndents());
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// ── New Indent ── appends straight into the Purchase Fms sheet. OVERWRITE
+// (not INSERT_ROWS), same reasoning as O2D's new-order route: inserting rows
+// would shift row dimensions and could corrupt any ARRAYFORMULA-driven
+// column (e.g. Indent Value, Z, which is formula-derived — verified against
+// real data as Final Current Rate × Qty and never written by this app).
+app.post('/api/purchase-fms/new-indent', requireAuth, async (req, res) => {
+  try {
+    const { indentType, raisedBy, products } = req.body;
+    if (!raisedBy) return res.status(400).json({ error: 'Raised By is required' });
+    if (!Array.isArray(products) || !products.length) return res.status(400).json({ error: 'At least one product is required' });
+    for (const p of products) {
+      if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
+      if (!(Number(p.qty) > 0)) return res.status(400).json({ error: 'Quantity must be a positive number' });
+      if (p.rate !== undefined && p.rate !== null && p.rate !== '' && !(Number(p.rate) >= 0)) return res.status(400).json({ error: 'Rate must be a non-negative number' });
+    }
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    const keyCol = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!B${PURCHASE_DATA_START_ROW}:B`, valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    let maxIndentNo = 0;
+    (keyCol.data.values || []).forEach(r => {
+      const m = String(r[0] || '').match(/IND-(\d+)/);
+      if (m) maxIndentNo = Math.max(maxIndentNo, parseInt(m[1], 10));
+    });
+    const indentNo = `IND-${String(await claimNextSeqValue('purchase_indent_no', maxIndentNo + 1)).padStart(6, '0')}`;
+
+    const nowSerial = sfmsDateToSerial(new Date());
+    const rows = products.map((p, i) => [
+      nowSerial, indentNo, indentType || '', i + 1, p.productName, p.uom || 'PCS', p.qty, p.vendorName || '', raisedBy
+    ]);
+
+    await sheetsApi.spreadsheets.values.append({
+      spreadsheetId: PURCHASE_SHEET_ID,
+      range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'OVERWRITE',
+      requestBody: { values: rows }
+    });
+
+    res.json({ success: true, indentNo });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Marks a step done for every product row under an Indent No whose next
+// pending step genuinely IS this one — same "furthest-behind line" logic as
+// writeO2dStepForOrder above, plus: a row currently sitting on a skipped
+// step (Approval, when not needed) is treated as already past it rather
+// than pending, both for "already has this step" and for gating later steps.
+async function writePurchaseStepForIndent(sheetsApi, indentNo, stepNum, body) {
+  const stepDef = PURCHASE_STEPS.find(s => s.n === stepNum);
+  if (!stepDef) return { rowsUpdated: -1 };
+  const priorSteps = PURCHASE_STEPS.filter(s => s.n < stepNum);
+  const lastCol = stepDef.status || stepDef.actual;
+
+  const keyCols = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!B${PURCHASE_DATA_START_ROW}:${lastCol}`, valueRenderOption: 'UNFORMATTED_VALUE'
+  });
+  const keyRows = keyCols.data.values || [];
+  const bOffset = colToIdx('B');
+  const targetRows = [];
+  keyRows.forEach((r, i) => {
+    const get = col => r[colToIdx(col) - bOffset];
+    if ((get('B') || '') !== indentNo) return;
+    if (purchaseStepIsSkipped(stepDef, get)) return; // this step doesn't apply to this row
+    if (stepDef.status && get(stepDef.status)) return; // already has this step
+    const priorDone = priorSteps.every(s => purchaseStepIsDone(s, get));
+    if (priorDone) targetRows.push(PURCHASE_DATA_START_ROW + i);
+  });
+  if (!targetRows.length) return { rowsUpdated: 0 };
+
+  const now = sfmsDateToSerial(new Date());
+  const defaultStatus = body.status || 'Yes';
+  const batchData = [];
+  targetRows.forEach(rowNum => {
+    if (stepDef.actual) batchData.push({ range: `'${PURCHASE_TAB}'!${stepDef.actual}${rowNum}`, values: [[now]] });
+    if (stepDef.status && stepDef.status !== stepDef.actual) batchData.push({ range: `'${PURCHASE_TAB}'!${stepDef.status}${rowNum}`, values: [[defaultStatus]] });
+    stepDef.extra.forEach(f => {
+      const val = body[f.key];
+      if (val !== undefined && val !== '') batchData.push({ range: `'${PURCHASE_TAB}'!${f.col}${rowNum}`, values: [[val]] });
+    });
+  });
+
+  await sheetsApi.spreadsheets.values.batchUpdate({
+    spreadsheetId: PURCHASE_SHEET_ID,
+    requestBody: { valueInputOption: 'RAW', data: batchData }
+  });
+  return { rowsUpdated: targetRows.length };
+}
+
+app.put('/api/purchase-fms/indent/:indentNo/step/:stepNum', requireAuth, async (req, res) => {
+  try {
+    const indentNo = req.params.indentNo;
+    const stepNum = parseInt(req.params.stepNum, 10);
+    if (!(await assertIsStepDoer(res, 'purchase_step_doers', stepNum, req.session.userId, req.session.role))) return;
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const { rowsUpdated } = await writePurchaseStepForIndent(sheetsApi, indentNo, stepNum, req.body);
+    if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
+    if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under indent ${indentNo}` });
+    res.json({ success: true, rowsUpdated });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Product suggestions = shared Product Master (same source O2D/Service FMS
+// use) plus any product names already typed into real indents.
+app.get('/api/purchase-fms/product-names', requireAuth, async (req, res) => {
+  try {
+    const [{ products }, indents] = await Promise.all([
+      getMasterWorkbookData(),
+      getPurchaseIndents().catch(() => [])
+    ]);
+    const seen = new Set(products.map(p => p.name.toLowerCase()));
+    const merged = products.slice();
+    indents.forEach(o => (o.products || []).forEach(p => {
+      const name = (p.productName || '').trim();
+      if (!name || seen.has(name.toLowerCase())) return;
+      seen.add(name.toLowerCase());
+      merged.push({ name, category: '' });
+    }));
+    res.json({ products: merged });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// No Vendor Master workbook exists (unlike Product/Dealer Master) — vendor
+// suggestions are just the distinct vendor names already used in real indents.
+app.get('/api/purchase-fms/vendor-names', requireAuth, async (req, res) => {
+  try {
+    const indents = await getPurchaseIndents().catch(() => []);
+    const seen = new Set();
+    const vendors = [];
+    indents.forEach(o => (o.products || []).forEach(p => {
+      const name = (p.vendorName || '').trim();
+      if (!name || seen.has(name.toLowerCase())) return;
+      seen.add(name.toLowerCase());
+      vendors.push(name);
+    }));
+    res.json({ vendors });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ── PO generation ── builds an actual PO PDF and uploads it, instead of
+// relying on the user's separate Apps Script tool (that one's a
+// google.script.run browser UI, not callable from here). "Rs." instead of
+// "₹" — pdfkit's base Helvetica font has no rupee glyph.
+function buildPurchaseOrderPdf(data) {
+  const PDFDocument = require('pdfkit'); // lazy — only needed when a PO is actually generated
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const chunks = [];
+    doc.on('data', c => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    doc.fontSize(18).font('Helvetica-Bold').text('Ajanta Appliances');
+    doc.fontSize(9).font('Helvetica').fillColor('#666').text('Purchase Order');
+    doc.moveDown(1.5);
+
+    doc.fillColor('#000').fontSize(14).font('Helvetica-Bold').text(`PO Number: ${data.poNumber}`);
+    doc.fontSize(10).font('Helvetica');
+    doc.text(`Date: ${data.date.toLocaleDateString('en-IN')}`);
+    doc.text(`Indent No: ${data.indentNo}${data.indentType ? ' (' + data.indentType + ')' : ''}`);
+    doc.moveDown(1);
+
+    doc.font('Helvetica-Bold').text('Vendor');
+    doc.font('Helvetica').text(data.vendorName || '—');
+    doc.moveDown(1);
+
+    const tableTop = doc.y + 10;
+    const cols = [
+      { label: 'Product', x: 50, w: 200 },
+      { label: 'UOM', x: 250, w: 60 },
+      { label: 'Qty', x: 310, w: 60 },
+      { label: 'Rate', x: 370, w: 70 },
+      { label: 'Amount', x: 440, w: 90 }
+    ];
+    doc.font('Helvetica-Bold').fontSize(10);
+    cols.forEach(c => doc.text(c.label, c.x, tableTop, { width: c.w }));
+    doc.moveTo(50, tableTop + 15).lineTo(530, tableTop + 15).strokeColor('#ccc').stroke();
+
+    const rowY = tableTop + 22;
+    doc.font('Helvetica').fontSize(10).fillColor('#000');
+    doc.text(data.productName, cols[0].x, rowY, { width: cols[0].w });
+    doc.text(data.uom || '—', cols[1].x, rowY, { width: cols[1].w });
+    doc.text(String(data.qty), cols[2].x, rowY, { width: cols[2].w });
+    doc.text(data.rate ? `Rs. ${data.rate}` : '—', cols[3].x, rowY, { width: cols[3].w });
+    doc.text(data.amount ? `Rs. ${data.amount.toLocaleString('en-IN')}` : '—', cols[4].x, rowY, { width: cols[4].w });
+
+    doc.moveTo(50, rowY + 25).lineTo(530, rowY + 25).strokeColor('#ccc').stroke();
+    doc.font('Helvetica-Bold').text(`Total: Rs. ${(data.amount || 0).toLocaleString('en-IN')}`, 370, rowY + 35, { width: 160, align: 'right' });
+
+    doc.fontSize(8).fillColor('#999').text('Generated automatically by the Ajanta Appliances Purchase FMS.', 50, 750);
+
+    doc.end();
+  });
+}
+
+// Generates the PO for ONE product line (not the whole indent — vendors, and
+// so POs, differ per line within the same indent) and writes it straight to
+// that row's Planned/Actual/PO Number/PO Link/Po Qty. (AG-AK), completing
+// step 5 for that line in the same call. PO numbers are sequential across
+// the whole sheet, matching the real historical PO-0001/0002/... numbering.
+app.post('/api/purchase-fms/generate-po', requireAuth, async (req, res) => {
+  try {
+    const rowNum = parseInt(req.body.row, 10);
+    if (!rowNum) return res.status(400).json({ error: 'row is required' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+
+    const rowRes = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${rowNum}:${PURCHASE_LAST_COL}${rowNum}`, valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    const row = (rowRes.data.values && rowRes.data.values[0]) || [];
+    const get = col => row[colToIdx(col)];
+    const indentNo = get('B') || '';
+    if (!indentNo) return res.status(404).json({ error: 'Row not found' });
+    if (get('AI')) return res.status(400).json({ error: `This item already has PO ${get('AI')}` });
+
+    const priorSteps = PURCHASE_STEPS.filter(s => s.n < 5);
+    if (!priorSteps.every(s => purchaseStepIsDone(s, get))) {
+      return res.status(400).json({ error: 'This item has not finished the earlier steps yet' });
+    }
+
+    const poColRes = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!AI${PURCHASE_DATA_START_ROW}:AI`, valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    let maxPo = 0;
+    (poColRes.data.values || []).forEach(r => {
+      const m = String(r[0] || '').match(/PO-(\d+)/);
+      if (m) maxPo = Math.max(maxPo, parseInt(m[1], 10));
+    });
+    const poNumber = `PO-${String(maxPo + 1).padStart(4, '0')}`;
+
+    const qty = Number(get('G')) || 0;
+    const rate = Number(get('V')) || 0;
+    const pdfBuffer = await buildPurchaseOrderPdf({
+      poNumber, indentNo, indentType: get('C') || '', productName: get('E') || '',
+      uom: get('F') || '', qty, vendorName: get('H') || '', rate, amount: qty * rate, date: new Date()
+    });
+    const poLink = await uploadBufferToDrive(pdfBuffer, `${poNumber}.pdf`, 'application/pdf');
+
+    const now = sfmsDateToSerial(new Date());
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: PURCHASE_SHEET_ID,
+      requestBody: { valueInputOption: 'RAW', data: [
+        { range: `'${PURCHASE_TAB}'!AG${rowNum}`, values: [[now]] },
+        { range: `'${PURCHASE_TAB}'!AH${rowNum}`, values: [[now]] },
+        { range: `'${PURCHASE_TAB}'!AI${rowNum}`, values: [[poNumber]] },
+        { range: `'${PURCHASE_TAB}'!AJ${rowNum}`, values: [[poLink]] },
+        { range: `'${PURCHASE_TAB}'!AK${rowNum}`, values: [[qty]] }
+      ] }
+    });
+
+    res.json({ success: true, poNumber, poLink });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
+    sendServerError(res, err);
   }
 });
 
@@ -4836,7 +5781,7 @@ app.post('/api/transfers', requireAuth, async (req, res) => {
     }
 
     res.json({ success: true, count: inserted, skipped });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // GET — Task IDs that already have a pending transfer (for current user's tasks)
@@ -4847,7 +5792,7 @@ app.get('/api/transfers/pending-tasks', requireAuth, async (req, res) => {
       [req.session.userId]
     );
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // GET — Pending transfers for approval (admin sees all, HOD sees dept)
@@ -4891,7 +5836,7 @@ app.get('/api/transfers', requireAuth, requireAdminOrHod, async (req, res) => {
     }
 
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // GET — Transfer count for badge
@@ -4914,7 +5859,7 @@ app.get('/api/transfers/count', requireAuth, requireAdminOrHod, async (req, res)
       }
     }
     res.json({ count });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // PUT — Approve or reject transfer
@@ -4944,7 +5889,7 @@ app.put('/api/transfers/:id', requireAuth, requireAdminOrHod, async (req, res) =
       await db.query(`UPDATE ${table} SET assigned_to=? WHERE id=?`, [tr.to_user, tr.task_id]);
     }
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // GET — My sent transfer requests (for users to track)
@@ -4962,7 +5907,7 @@ app.get('/api/transfers/my', requireAuth, async (req, res) => {
       r.description = t[0]?.description || '—';
     }
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════

@@ -771,6 +771,14 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
       <span class="nav-label-text">New Order</span>
     </div>
+    <div class="nav-item" id="nav-purchase-fms" style="display:none" onclick="navigate('purchase-fms',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 11H4L5 9z"/></svg>
+      <span class="nav-label-text">Purchase FMS</span>
+    </div>
+    <div class="nav-item" id="nav-purchase-new-indent" style="display:none" onclick="openNewPurchaseIndentModal()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      <span class="nav-label-text">New Indent</span>
+    </div>
     <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
       <span class="nav-label-text">Price List & Catalogue</span>
@@ -829,6 +837,14 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" id="bnNewOrder" style="display:none" onclick="openNewO2dOrderModal()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     <span>New Order</span>
+  </div>
+  <div class="bn-item" data-page="purchase-fms" onclick="navigate('purchase-fms',null)" id="bnPurchase" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 11H4L5 9z"/></svg>
+    <span>Purchase</span>
+  </div>
+  <div class="bn-item" id="bnNewIndent" style="display:none" onclick="openNewPurchaseIndentModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    <span>New Indent</span>
   </div>
   <div class="bn-item" data-page="price-catalogue" onclick="navigate('price-catalogue',null)" id="bnCatalogue" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -1232,7 +1248,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab" id="sfmsViewStep2" onclick="switchSfmsView('step2',this)">2. Spare Check</div>
         <div class="tab" id="sfmsViewStep3" onclick="switchSfmsView('step3',this)">3. Assign</div>
         <div class="tab" id="sfmsViewStep4" onclick="switchSfmsView('step4',this)">4. Takeout</div>
-        <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. In/Out</div>
+        <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. Spare In</div>
         <div class="tab" id="sfmsViewStep6" onclick="switchSfmsView('step6',this)">6. Solve</div>
         <div class="tab" id="sfmsViewStep7" onclick="switchSfmsView('step7',this)">7. Solved?</div>
         <div class="tab" id="sfmsViewStep8" onclick="switchSfmsView('step8',this)">8. Review</div>
@@ -1272,6 +1288,31 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div id="o2dListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── PURCHASE FMS (Indent → PO) ── -->
+  <div id="page-purchase-fms" class="page">
+    <div class="page-header">
+      <button class="btn btn-primary" onclick="openNewPurchaseIndentModal()">+ New Indent</button>
+      <button class="btn btn-outline" onclick="loadPurchaseFmsList()">🔄 Refresh</button>
+      <button class="btn btn-outline" id="purchaseStepDoersBtn" style="display:none" onclick="openPurchaseStepDoersModal()">⚙ Step Doers</button>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:16px;">
+      <div class="tab-group">
+        <div class="tab active" id="pfmsViewFms" onclick="switchPurchaseFmsView('fms',this)">FMS View</div>
+        <div class="tab" id="pfmsViewPC" onclick="switchPurchaseFmsView('pc',this)">PC View</div>
+        <div class="tab" id="pfmsViewReports" onclick="switchPurchaseFmsView('reports',this)">📊 Reports</div>
+      </div>
+    </div>
+
+    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;" id="pfmsSearchWrap">
+      <input type="text" id="pfmsSearch" oninput="pfmsSearchChanged()" placeholder="🔍 Search by Indent No, Product, Vendor…" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    </div>
+
+    <div id="pfmsListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty">Loading…</div>
     </div>
   </div>
@@ -2229,9 +2270,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="form-group" id="scDealerNameWrap" style="display:none">
         <label>Dealer Name</label>
-        <input type="text" id="scDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-      </div>
-      <div class="form-group">
+        <input type="text" id="scDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>
         <label>Product Ownership <span style="color:var(--color-danger)">*</span></label>
         <select id="scProductOwnership" onchange="onScOwnershipChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
           <option value="">Select…</option>
@@ -2319,9 +2358,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="form-group" id="ecDealerNameWrap" style="display:none">
         <label>Dealer Name</label>
-        <input type="text" id="ecDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-      </div>
-      <div class="form-group">
+        <input type="text" id="ecDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>
         <label>Product Ownership <span style="color:var(--color-danger)">*</span></label>
         <select id="ecProductOwnership" onchange="onEcOwnershipChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
           <option value="">Select…</option>
@@ -2498,6 +2535,66 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── PURCHASE FMS: INDENT DETAIL MODAL ── -->
+<div class="modal-overlay" id="purchaseDetailModal">
+  <div class="modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 id="pfmsTitle" style="margin:0">Indent</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('purchaseDetailModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="pfmsBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── PURCHASE FMS: NEW INDENT MODAL ── -->
+<div class="modal-overlay" id="newPurchaseIndentModal">
+  <div class="modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0">📝 New Indent</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('newPurchaseIndentModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="alert error" id="newPfmsIndentErr" style="display:none"></div>
+
+    <div style="overflow-y:auto;overflow-x:hidden;flex:1;padding-right:2px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Indent Type</label>
+          <input type="text" id="niIndentType" list="niIndentTypeList" value="Finished Goods For Indent" placeholder="e.g. Finished Goods For Indent" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <datalist id="niIndentTypeList"></datalist>
+        </div>
+        <div class="form-group">
+          <label>Raised By <span style="color:var(--color-danger)">*</span></label>
+          <input type="text" id="niRaisedBy" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 4px">Products</div>
+      <div style="font-size:11.5px;color:var(--gray-400);margin-bottom:8px">List mein nahi hai? Naya product/vendor naam yahin type kar do.</div>
+      <datalist id="niProductNameList"></datalist>
+      <datalist id="niVendorNameList"></datalist>
+      <div id="niProductRows"></div>
+      <button type="button" class="btn btn-outline btn-sm" onclick="addPurchaseProductRow()">+ Add Product</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" id="niSubmitBtn" onclick="submitNewPurchaseIndent()">Save Indent</button>
+      <button class="btn btn-outline" onclick="closeModal('newPurchaseIndentModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── PURCHASE FMS: STEP DOERS MODAL ── -->
+<div class="modal-overlay" id="purchaseStepDoersModal">
+  <div class="modal" style="max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 style="margin:0">⚙ Step Doers</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('purchaseStepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">Har step ke liye ek ya zyada log assign karo — unka naam step ke default label ki jagah pe dikhega.</div>
+    <div id="purchaseStepDoersRows" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="submitPurchaseStepDoers()">Save</button>
+  </div>
+</div>
+
 <!-- ── O2D DEALERS: ADD DEALER MODAL ── -->
 <div class="modal-overlay" id="addDealerModal">
   <div class="modal" style="max-width:420px">
@@ -2571,12 +2668,12 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- ── O2D DEALERS: STATEMENT / LEDGER MODAL ── -->
 <div class="modal-overlay" id="dealerLedgerModal">
-  <div class="modal" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal" style="max-width:720px;max-height:88vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <h3 style="margin:0" id="dlModalTitle">📋 Statement</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('dealerLedgerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <div style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Bills abhi bhi outstanding ho unhi ka + saare synced payments — Tally se pichhle sync tak ka data.</div>
+    <div style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Is financial year ka poora ledger (Tally jaisa) + abhi outstanding bills — Tally se pichhle sync tak ka data.</div>
     <div id="dlBody" style="overflow-y:auto;flex:1">Loading…</div>
   </div>
 </div>
@@ -2762,12 +2859,12 @@ function renderDbmTable() {
   const rows = filtered.map(t => {
     const isOverdue = t.status === 'pending' && t.due_date && t.due_date < today;
     return `<tr>
-      <td style="font-size:13px">${t.description||'—'}</td>
-      <td style="white-space:nowrap;font-size:13px">${t.assignedToName||'—'}</td>
+      <td style="font-size:13px">${esc(t.description||'—')}</td>
+      <td style="white-space:nowrap;font-size:13px">${esc(t.assignedToName||'—')}</td>
       <td style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate(t.assigned_on||'')||'—'}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}${isOverdue?' <span style="color:var(--color-danger);font-weight:600;font-size:10px">⏰ Overdue</span>':''}</td>
-      <td style="font-size:12px;color:var(--gray-500)">${t.remarks||'—'}</td>
-      <td><span class="status-badge ${t.status}">${t.status==='revised'?'Revision':t.status.charAt(0).toUpperCase()+t.status.slice(1)}</span></td>
+      <td style="font-size:12px;color:var(--gray-500)">${esc(t.remarks||'—')}</td>
+      <td><span class="status-badge ${t.status}">${esc(t.status==='revised'?'Revision':t.status.charAt(0).toUpperCase()+t.status.slice(1))}</span></td>
     </tr>`;
   }).join('');
 
@@ -2791,6 +2888,25 @@ function renderDbmTable() {
 </script>
 <script>
 // ══════════════════════════════════════════════════════
+// SAFETY — escape any non-constant value before it goes into innerHTML.
+// Comments, names, complaint/task/dealer text etc. all come from other
+// users; without this, one user's text can run script in another user's
+// (including an admin's) browser riding their live session (stored XSS).
+// Use esc(x) for text going into element content, escAttr(x) for text
+// going inside an HTML attribute value (e.g. title="...", value="...").
+// ══════════════════════════════════════════════════════
+function esc(v) {
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function escAttr(v) { return esc(v); }
+
+// ══════════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════════
 let ME = null;
@@ -2808,9 +2924,10 @@ let _dashDateSortState = 0;
 // ══════════════════════════════════════════════════════
 async function init() {
   try {
-    const token = localStorage.getItem('authToken');
+    // Cleanup: earlier versions stashed the JWT in localStorage too; remove
+    // any leftover copy — auth is via the httpOnly session cookie only now.
+    try { localStorage.removeItem('authToken'); } catch(e) {}
     const headers = {'Content-Type': 'application/json'};
-    if (token) headers['Authorization'] = 'Bearer ' + token;
 
     // 12s timeout — if Vercel cold-start hangs, show error instead of blank forever
     const controller = new AbortController();
@@ -2863,13 +2980,16 @@ async function init() {
     if (canSee('service-fms')) document.getElementById('nav-service-fms').style.display = 'flex';
     if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
     if (canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
+    if (canSee('purchase-fms')) document.getElementById('nav-purchase-fms').style.display = 'flex';
+    if (canSee('purchase-fms') || canSee('purchase-new-indent')) document.getElementById('nav-purchase-new-indent').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
-    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
+    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('purchase-fms') || canSee('purchase-new-indent') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
+      document.getElementById('purchaseStepDoersBtn').style.display = 'inline-flex';
     }
     // hod/pc nav blocks — re-enable when ROLE FEATURE FLAGS above are removed
     // if (ME.role === 'hod') { nav-fms-tasks, nav-records, setPlanBtn }
@@ -2879,7 +2999,7 @@ async function init() {
     // Refresh pe last visited page restore karo
     const savedPage = localStorage.getItem('lastPage');
     const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
-    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
+    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
     if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -2965,7 +3085,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -2977,7 +3097,7 @@ function closeMobileSidebar() {
 }
 
 function navigate(page, el) {
-  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
+  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
     showToast("You don't have access to this page", 'error');
     return;
   }
@@ -3000,6 +3120,7 @@ function navigate(page, el) {
   if (page==='records') loadRecords();
   if (page==='service-fms') loadServiceFmsList();
   if (page==='o2d-fms') loadO2dFmsList();
+  if (page==='purchase-fms') loadPurchaseFmsList();
   if (page==='price-catalogue') loadPriceCataloguePage();
   if (page==='stock') loadStockPage();
   localStorage.setItem('lastPage', page);
@@ -3013,11 +3134,15 @@ function setupBottomNav() {
   const bnUsers = document.getElementById('bnUsers');
   const bnCatalogue = document.getElementById('bnCatalogue');
   const bnNewOrder = document.getElementById('bnNewOrder');
+  const bnPurchase = document.getElementById('bnPurchase');
+  const bnNewIndent = document.getElementById('bnNewIndent');
   if (bnFms && canSee('service-fms')) bnFms.style.display = '';
   if (bnO2d && canSee('o2d-fms')) bnO2d.style.display = '';
   if (bnUsers && canSee('users')) bnUsers.style.display = '';
   if (bnCatalogue && canSee('price-catalogue')) bnCatalogue.style.display = '';
   if (bnNewOrder && (canSee('o2d-fms') || canSee('o2d-new-order'))) bnNewOrder.style.display = '';
+  if (bnPurchase && canSee('purchase-fms')) bnPurchase.style.display = '';
+  if (bnNewIndent && (canSee('purchase-fms') || canSee('purchase-new-indent'))) bnNewIndent.style.display = '';
   attachScrollHint(document.getElementById('bottomNav'));
 }
 
@@ -3056,19 +3181,19 @@ function buildO2dDashboardTasks() {
     const reorderBadge = isReorder
       ? ` <span style="font-size:10px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🔄 Reorder — new item added</span>`
       : '';
-    const productsText = (o.products || []).map(p => `${p.productName}${p.qty ? ' × ' + p.qty : ''}`).join(', ');
+    const productsText = (o.products || []).map(p => `${esc(p.productName)}${p.qty ? ' × ' + esc(p.qty) : ''}`).join(', ');
     // Whatever was filled in at New Order time (channel, transport, when
     // to send, remark) needs to stay visible everywhere the order shows
     // up, not just on the O2D FMS detail modal — this is the compact
     // Dashboard-card version of the same info.
-    const extraBitsText = [o.channel, o.whenToSend, o.deliverByTransport === 'Yes' ? 'By Transport' : ''].filter(Boolean).join(' · ');
+    const extraBitsText = [o.channel, o.whenToSend, o.deliverByTransport === 'Yes' ? 'By Transport' : ''].filter(Boolean).map(esc).join(' · ');
     const description = `
-      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${pendingStep.label}${reorderBadge}</div>
-      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${o.counterName || '—'}</div>
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${esc(pendingStep.label)}${reorderBadge}</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(o.counterName) || '—'}</div>
       <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
       ${extraBitsText ? `<div style="font-size:11.5px;color:var(--gray-500)">${extraBitsText}</div>` : ''}
-      ${o.remark ? `<div style="font-size:11.5px;color:var(--gray-500);font-style:italic">"${o.remark}"</div>` : ''}
-      ${fmsFieldRow('PLANNED', `${pendingStep.planned || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
+      ${o.remark ? `<div style="font-size:11.5px;color:var(--gray-500);font-style:italic">"${esc(o.remark)}"</div>` : ''}
+      ${fmsFieldRow('PLANNED', `${esc(pendingStep.planned) || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
     `;
     tasks.push({
       id: o.orderNo, type: 'o2d', status: 'pending',
@@ -3303,8 +3428,8 @@ function renderDashTable(tasks, type) {
   tbody.innerHTML = allPending.map(t => {
     const rs = t.revision_status || '';
     const isRevised = t.status === 'revised';
-    const linkBtn = t.link ? `<a href="${t.link}" target="_blank" style="font-size:11px;color:var(--color-primary);font-weight:600;text-decoration:none;margin-left:4px">🔗</a>` : '';
-    const descCell = `${t.description||t.desc}${linkBtn}`;
+    const linkBtn = t.link ? `<a href="${esc(t.link)}" target="_blank" style="font-size:11px;color:var(--color-primary);font-weight:600;text-decoration:none;margin-left:4px">🔗</a>` : '';
+    const descCell = `${esc(t.description||t.desc)}${linkBtn}`;
     let actions = '';
     let rowStyle = '';
     if (t.type === 'fms') {
@@ -3334,12 +3459,12 @@ function renderDashTable(tasks, type) {
       if (!isPC && t.type!=='checklist') actions += ` <button class="action-btn revise" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
     }
     return `<tr style="${rowStyle}">
-      <td class="dt-type" style="white-space:nowrap">${typeBadge(t)}<span class="dt-dept-in-type" style="font-size:11px;color:var(--gray-500);font-weight:600">${t.assignedToDept||''}</span></td>
-      <td data-label="Dept" style="font-size:10px;color:var(--gray-500);max-width:120px;word-break:break-word;line-height:1.3">${t.assignedToDept||'—'}</td>
-      <td data-label="Title" style="font-size:11px;font-weight:600;color:var(--gray-800);max-width:130px;word-break:break-word;line-height:1.3">${t.title||'—'}</td>
+      <td class="dt-type" style="white-space:nowrap">${typeBadge(t)}<span class="dt-dept-in-type" style="font-size:11px;color:var(--gray-500);font-weight:600">${esc(t.assignedToDept||'')}</span></td>
+      <td data-label="Dept" style="font-size:10px;color:var(--gray-500);max-width:120px;word-break:break-word;line-height:1.3">${esc(t.assignedToDept||'—')}</td>
+      <td data-label="Title" style="font-size:11px;font-weight:600;color:var(--gray-800);max-width:130px;word-break:break-word;line-height:1.3">${esc(t.title||'—')}</td>
       <td data-label="Desc">${descCell}</td>
-      <td data-label="${doerLabel}" style="white-space:nowrap;font-size:12px;font-weight:600">${(isAdmin||isPC)?t.assignedToName:t.assignedByName}</td>
-      <td data-label="Freq" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${t.frequency||'—'}</td>
+      <td data-label="${doerLabel}" style="white-space:nowrap;font-size:12px;font-weight:600">${esc((isAdmin||isPC)?t.assignedToName:t.assignedByName)}</td>
+      <td data-label="Freq" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>
       <td data-label="Start" style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate((t.start_date||'').slice(0,10))||'—'}</td>
       <td data-label="Due" style="white-space:nowrap;font-size:12px">${(t.type==='fms'||t.type==='o2d') ? '—' : fmtDate(t.due_date||t.date)}</td>
       <td data-label="Priority">${(t.type!=='checklist' && t.type!=='fms' && t.type!=='o2d') ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
@@ -3550,15 +3675,15 @@ function renderTasksTable() {
       const initials = g.name.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
       const tc = g.tasks.length;
       const rows = g.tasks.map(t => {
-        const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${t.frequency||'—'}</td>` : '';
+        const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>` : '';
         const statusLabel = t.status==='revised'?'Revision Req':t.status.charAt(0).toUpperCase()+t.status.slice(1);
         return `<tr>
-          <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${t.assignedToDept||'—'}</td>
-          <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${t.title||'—'}</td>
-          <td style="max-width:240px;font-size:12px;color:var(--gray-600)">${t.description||''}</td>
-          <td><span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span></td>
+          <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(t.assignedToDept||'—')}</td>
+          <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${esc(t.title||'—')}</td>
+          <td style="max-width:240px;font-size:12px;color:var(--gray-600)">${esc(t.description||'')}</td>
+          <td><span class="priority-badge ${esc(t.priority||'low')}">${esc(t.priority||'low')}</span></td>
           ${freqTd}
-          <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${t.assignedToName||'—'}</td>
+          <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
           <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}</td>
           <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}</td>
           <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
@@ -3569,10 +3694,10 @@ function renderTasksTable() {
       _empGroupOpen[uid] = isSelf;
       return `<div class="emp-group" style="background:var(--surface);border:1.5px solid ${isSelf?'var(--color-primary-ring)':'#e8ecf4'};border-radius:14px;margin-bottom:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.04)">
         <div onclick="toggleEmpGroup('${uid}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;background:linear-gradient(90deg,${isSelf?'var(--color-primary-light)':'var(--surface-alt)'},#fff);border-bottom:1px solid var(--color-primary-light)">
-          <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),#818cf8);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${initials}</div>
+          <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),#818cf8);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${esc(initials)}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:14px;color:var(--gray-800)">${g.name}${isSelf?' <span style="font-size:10px;font-weight:600;color:var(--color-primary);background:var(--color-primary-light);padding:2px 6px;border-radius:8px;margin-left:6px">Me</span>':''}</div>
-            <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${g.dept||'—'}</div>
+            <div style="font-weight:700;font-size:14px;color:var(--gray-800)">${esc(g.name)}${isSelf?' <span style="font-size:10px;font-weight:600;color:var(--color-primary);background:var(--color-primary-light);padding:2px 6px;border-radius:8px;margin-left:6px">Me</span>':''}</div>
+            <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${esc(g.dept||'—')}</div>
           </div>
           <span style="background:var(--color-primary-light);color:var(--color-primary);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">${tc} task${tc===1?'':'s'}</span>
           <span id="empArrow_${uid}" style="color:var(--gray-400);font-size:12px;margin-left:4px">${isSelf?'▼':'▶'}</span>
@@ -3597,16 +3722,16 @@ function renderTasksTable() {
   const pageTasks = tasks.slice((allTasksPage-1)*ALL_TASKS_PAGE_SIZE, allTasksPage*ALL_TASKS_PAGE_SIZE);
   const freqTh = isChecklist ? `<th>Frequency</th>` : '';
   const pageRows = pageTasks.map(t => {
-    const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600">${t.frequency||'—'}</td>` : '';
+    const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600">${esc(t.frequency||'—')}</td>` : '';
     const statusLabel = t.status==='revised'?'Revision Requested':t.status.charAt(0).toUpperCase()+t.status.slice(1);
     return `<tr>
       <td style="white-space:nowrap">${_taskActionBtns(t, false, isChecklist)}</td>
-      <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${t.assignedToDept||'—'}</td>
-      <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${t.title||'—'}</td>
-      <td style="font-size:12px;color:var(--gray-600)">${t.description||''}</td>
-      <td><span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span></td>
+      <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(t.assignedToDept||'—')}</td>
+      <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${esc(t.title||'—')}</td>
+      <td style="font-size:12px;color:var(--gray-600)">${esc(t.description||'')}</td>
+      <td><span class="priority-badge ${esc(t.priority||'low')}">${esc(t.priority||'low')}</span></td>
       ${freqTd}
-      <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${t.assignedToName||'—'}</td>
+      <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}</td>
       <td style="white-space:nowrap">${fmtDate(t.due_date||'')||'—'}</td>
       <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
@@ -3839,13 +3964,13 @@ async function loadComments(taskId, taskType) {
   container.innerHTML = comments.map(c => `
     <div class="comment-item">
       <div class="comment-header">
-        <span class="comment-author">👤 ${c.userName}</span>
+        <span class="comment-author">👤 ${esc(c.userName)}</span>
         <div style="display:flex;align-items:center;gap:8px">
-          <span class="comment-time">${new Date(c.created_at).toLocaleString('en-IN')}</span>
+          <span class="comment-time">${esc(new Date(c.created_at).toLocaleString('en-IN'))}</span>
           <button class="action-btn delete" style="padding:2px 7px;font-size:10px" onclick="deleteComment(${c.id})">✕</button>
         </div>
       </div>
-      <div class="comment-text">${c.comment}</div>
+      <div class="comment-text">${esc(c.comment)}</div>
     </div>`).join('');
   container.scrollTop = container.scrollHeight;
 }
@@ -3886,7 +4011,7 @@ async function openDelegate() {
   document.getElementById('dDate').min=today;
   const users = await api('/api/users/roster');
   const activeUsers = users.filter(u => u.is_active == null || +u.is_active === 1);
-  const opts = activeUsers.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
+  const opts = activeUsers.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('');
   document.getElementById('dDoer').innerHTML='<option value="">Select Doer</option>'+opts;
   document.getElementById('delegateModal').classList.add('open');
 }
@@ -3906,7 +4031,10 @@ async function saveDelegate() {
   if (!doer) { err.textContent='Please select a doer'; err.style.display='block'; return; }
   if (!date) { err.textContent='Please select a due date'; err.style.display='block'; return; }
   if (!desc) { err.textContent='Description is required'; err.style.display='block'; return; }
+  const btn = document.querySelector('[onclick="saveDelegate()"]');
+  if (btn) btn.disabled = true;
   await api('/api/tasks','POST',{type:'delegation',title,desc,assignedTo:doer,startDate,date,priority,approval,remarks,link});
+  if (btn) btn.disabled = false;
   closeModal('delegateModal');
   showToast('Task delegated successfully!');
   scheduleDashboardRefresh();
@@ -3930,7 +4058,7 @@ async function openChecklist() {
   const users = await api('/api/users/roster');
   const activeUsers = users.filter(u => u.is_active == null || +u.is_active === 1);
   document.getElementById('cDoer').innerHTML='<option value="">Select Employee</option>'+
-    activeUsers.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
+    activeUsers.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('');
 
   ['cFrequency','cDate','cDesc'].forEach(id=>{
     document.getElementById(id).onchange = updateChecklistPreview;
@@ -3976,7 +4104,7 @@ function generateDates(startDate, freq, weekOffStr, extraOffStr) {
   const count = counts[freq];
   const weekOff = String(weekOffStr ?? '').split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
   let extraOff = [];
-  try { extraOff = extraOffStr ? JSON.parse(extraOffStr) : []; } catch(e) {}
+  try { extraOff = extraOffStr ? JSON.parse(extraOffStr) : []; } catch(e) { console.warn('JSON parse failed:', e); }
 
   // Helper: get occurrence number of a weekday in its month (1=1st, 2=2nd...)
   function getNthWeekday(date) {
@@ -4112,7 +4240,7 @@ function renderHolidayList() {
   if (!holidays.length) { container.innerHTML='<div class="empty" style="padding:16px">No holidays added yet</div>'; return; }
   container.innerHTML = holidays.map(h=>`
     <div class="holiday-item">
-      <span><strong>${formatDate(h.date)}</strong> — ${h.name}</span>
+      <span><strong>${formatDate(h.date)}</strong> — ${esc(h.name)}</span>
       <button class="action-btn delete" onclick="deleteHoliday(${h.id})">Remove</button>
     </div>`).join('');
 }
@@ -4293,10 +4421,10 @@ function renderUsersTable(users) {
       ? `<button class="icon-btn ib-warn" title="Deactivate" onclick="openDeactivate(${u.id})"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg></button>`
       : `<button class="icon-btn ib-success" title="Activate" onclick="activateUser(${u.id})"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>`;
     return `<tr style="${isActive?'':'opacity:.6;background:var(--gray-50)'}">
-      <td style="font-weight:600">${u.name}</td>
-      <td style="color:var(--gray-500)">${u.email}</td>
-      <td style="color:var(--gray-500)">${u.phone||'—'}</td>
-      <td style="color:var(--gray-500)">${u.department||'—'}</td>
+      <td style="font-weight:600">${esc(u.name)}</td>
+      <td style="color:var(--gray-500)">${esc(u.email)}</td>
+      <td style="color:var(--gray-500)">${esc(u.phone||'—')}</td>
+      <td style="color:var(--gray-500)">${esc(u.department||'—')}</td>
       <td><span class="role-badge ${u.role}">${roleLabel(u.role)}</span></td>
       <td>${statusBadge}</td>
       <td style="white-space:nowrap">
@@ -4340,6 +4468,8 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'service-fms', label: 'Service FMS' },
     { key: 'o2d-fms', label: 'O2D FMS' },
     { key: 'o2d-new-order', label: 'New Order' },
+    { key: 'purchase-fms', label: 'Purchase FMS' },
+    { key: 'purchase-new-indent', label: 'New Indent' },
     { key: 'price-catalogue', label: 'Price List & Catalogue' },
     { key: 'stock', label: 'Stock' },
   ]},
@@ -4389,7 +4519,7 @@ function renderAccessTable(users) {
     }).join('')).join('');
     return `<tr>
       <td class="access-user-cell">
-        ${u.name}<span class="access-email">${u.email}</span>
+        ${esc(u.name)}<span class="access-email">${esc(u.email)}</span>
         <span class="role-badge ${u.role}" style="margin-left:6px">${roleLabel(u.role)}</span>
         ${isAdmin ? `<span class="access-tag" style="margin-left:4px">default (all)</span>` : ''}
       </td>
@@ -4517,7 +4647,10 @@ async function saveUser() {
   if (!id&&!password) { err.textContent='Password required for new user'; err.style.display='block'; return; }
   const body={name,email,notification_email,role,phone,department,week_off,extra_off};
   if (password) body.password=password;
+  const btn = document.querySelector('[onclick="saveUser()"]');
+  if (btn) btn.disabled = true;
   const r = id ? await api(`/api/users/${id}`,'PUT',body) : await api('/api/users','POST',body);
+  if (btn) btn.disabled = false;
   if (r.error) { err.textContent=r.error; err.style.display='block'; return; }
   closeModal('userModal');
   loadUsers();
@@ -4599,9 +4732,9 @@ async function loadApprovals() {
           <tbody>
             ${approvals.map(a => `
               <tr>
-                <td style="font-weight:600">${a.requestedByName}</td>
-                ${isAdminOrPC ? `<td style="color:var(--gray-500);font-size:12px">${a.requestedToName}</td>` : ''}
-                <td>${a.description||'—'}</td>
+                <td style="font-weight:600">${esc(a.requestedByName)}</td>
+                ${isAdminOrPC ? `<td style="color:var(--gray-500);font-size:12px">${esc(a.requestedToName)}</td>` : ''}
+                <td>${esc(a.description||'—')}</td>
                 <td><span class="status-badge ${a.action_type}">${a.action_type==='completed'?'✅ Mark Complete':'🔄 Revision'}</span></td>
                 <td style="color:var(--gray-500);font-size:12px">${new Date(a.created_at).toLocaleDateString('en-IN')}</td>
                 <td>
@@ -4688,15 +4821,15 @@ async function openDeactivate(id) {
     document.getElementById('deactivateTaskCount').textContent = tasks.length;
     const activeOpts = allUsers
       .filter(u => u.id != id && (+u.is_active === 1 || u.is_active == null))
-      .map(u => `<option value="${u.id}">${u.name}${u.department ? ' — ' + u.department : ''}</option>`)
+      .map(u => `<option value="${u.id}">${esc(u.name)}${u.department ? ' — ' + esc(u.department) : ''}</option>`)
       .join('');
     document.getElementById('deactivateTaskList').innerHTML = uniqueTasks.map((t, i) => `
       <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:12px 14px">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:2px">
-          <div style="font-size:13px;font-weight:600;color:var(--gray-800)">${t.title || t.description || '(no title)'}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--gray-800)">${esc(t.title || t.description || '(no title)')}</div>
           ${t.count > 1 ? `<span style="background:var(--color-primary-ring);color:#4338ca;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap">${t.count} occurrences</span>` : ''}
         </div>
-        ${t.title && t.description ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">${t.description}</div>` : ''}
+        ${t.title && t.description ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">${esc(t.description)}</div>` : ''}
         <select data-task-ids="${t.ids.join(',')}" style="width:100%;padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12px;outline:none;color:var(--gray-800);margin-top:8px">
           <option value="">— Assign to —</option>
           ${activeOpts}
@@ -4800,9 +4933,7 @@ async function saveProfile() {
 // HELPERS
 // ══════════════════════════════════════════════════════
 async function api(url,method='GET',body=null) {
-  const token = localStorage.getItem('authToken');
   const opts={method, headers:{'Content-Type':'application/json'}, credentials:'include'};
-  if (token) opts.headers['Authorization'] = 'Bearer ' + token;
   if (body) opts.body=JSON.stringify(body);
   let r;
   try {
@@ -4970,7 +5101,7 @@ function populateMISDeptDropdown(data) {
     .filter(Boolean)
   )].sort();
   sel.innerHTML = '<option value="">All Departments</option>' +
-    depts.map(d => `<option value="${d}"${d===currentVal?' selected':''}>${d}</option>`).join('');
+    depts.map(d => `<option value="${esc(d)}"${d===currentVal?' selected':''}>${esc(d)}</option>`).join('');
 }
 
 function filterMISDept() {
@@ -5125,9 +5256,9 @@ function renderMIS(data) {
     const barColor = score === 0 ? 'var(--gray-400)' : score < 0 ? 'var(--color-danger)' : 'var(--color-success)';
     const scoreLabel = score === 0 ? '✅ Perfect' : score < 0 ? '⚠️ Needs Improvement' : '✅ Good';
 
-    return `<tr style="cursor:pointer" onclick="openMISDetail('${r.userId||r.id}','${r.name}')" title="Click to see task details">
+    return `<tr style="cursor:pointer" onclick="openMISDetail('${r.userId||r.id}','${String(r.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Click to see task details">
       <td>
-        <span style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${r.name}</span>
+        <span style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${esc(r.name)}</span>
       </td>
       <td style="font-weight:700">${r.total}</td>
       <td style="color:var(--color-danger);font-weight:600">${r.pending}</td>
@@ -5201,8 +5332,8 @@ async function openMISDetail(userId, userName) {
 
   const taskRows = (data.tasks||[]).map(t => `
     <tr>
-      <td>${t.description}</td>
-      <td style="color:var(--gray-500);font-size:12px">${t.assigned_by_name||'—'}</td>
+      <td>${esc(t.description)}</td>
+      <td style="color:var(--gray-500);font-size:12px">${esc(t.assigned_by_name||'—')}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date)}</td>
       <td><span class="status-badge ${t.status}">${t.status==='revised'?'Revision Requested':t.status.charAt(0).toUpperCase()+t.status.slice(1)}</span></td>
       ${t.status==='pending' && t.due_date < new Date().toISOString().split('T')[0]
@@ -5312,8 +5443,8 @@ function renderFMSMIS(data) {
     const hasError = fms.error;
     const stepRows = (fms.steps||[]).map(s => `
       <tr>
-        <td style="padding-left:24px;color:var(--gray-500);font-size:12px">Step ${s.stepOrder}: ${s.stepName}</td>
-        <td style="font-size:12px;color:var(--gray-500)">${s.doers}</td>
+        <td style="padding-left:24px;color:var(--gray-500);font-size:12px">Step ${s.stepOrder}: ${esc(s.stepName)}</td>
+        <td style="font-size:12px;color:var(--gray-500)">${esc(s.doers)}</td>
         <td style="font-weight:600;color:var(--color-primary)">${s.total}</td>
         <td style="color:var(--color-danger);font-weight:600">${s.pending}</td>
         <td style="color:var(--color-success);font-weight:600">${s.done}</td>
@@ -5329,12 +5460,12 @@ function renderFMSMIS(data) {
     return `
       <div class="mis-table-wrap" style="margin-bottom:16px">
         <div style="background:var(--gray-50);padding:12px 16px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between">
-          <div style="font-size:14px;font-weight:700;color:var(--gray-800)">📊 ${fms.fmsName}</div>
+          <div style="font-size:14px;font-weight:700;color:var(--gray-800)">📊 ${esc(fms.fmsName)}</div>
           <div style="display:flex;gap:16px;font-size:13px">
             <span>Total: <strong style="color:var(--color-primary)">${fms.total}</strong></span>
             <span>Pending: <strong style="color:var(--color-danger)">${fms.pending}</strong></span>
             <span>Done: <strong style="color:var(--color-success)">${fms.done}</strong></span>
-            ${hasError ? `<span style="color:var(--color-danger);font-size:11px">⚠️ ${fms.error}</span>` : ''}
+            ${hasError ? `<span style="color:var(--color-danger);font-size:11px">⚠️ ${esc(fms.error)}</span>` : ''}
           </div>
         </div>
         <table>
@@ -5409,10 +5540,10 @@ function renderAllMIS(data, fmsData) {
         <div>${improvBadge}</div>`;
     }
 
-    return `<tr style="cursor:pointer" onclick="openAllMISDetail('${emp.userId}','${emp.name.replace(/'/g,"\\'")}')">
+    return `<tr style="cursor:pointer" onclick="openAllMISDetail('${emp.userId}','${String(emp.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
       <td>
-        <div style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${emp.name}</div>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:2px">${emp.department||'—'}</div>
+        <div style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${esc(emp.name)}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(emp.department||'—')}</div>
       </td>
       <td style="font-weight:700">${emp.totalAll}</td>
       <td style="color:var(--color-danger);font-weight:600">${emp.pendingAll}</td>
@@ -5467,7 +5598,7 @@ function renderAllMIS(data, fmsData) {
       const pct = f.total > 0 ? Math.round((f.done/f.total)*100) : 0;
       const barColor = pct >= 80 ? 'var(--color-success)' : pct >= 50 ? 'var(--color-warning)' : 'var(--color-danger)';
       return `<tr>
-        <td style="font-weight:600;color:var(--gray-700)">${f.fmsName}</td>
+        <td style="font-weight:600;color:var(--gray-700)">${esc(f.fmsName)}</td>
         <td style="font-weight:700">${f.total}</td>
         <td style="color:var(--color-danger);font-weight:600">${f.pending}</td>
         <td style="color:var(--color-success);font-weight:600">${f.done}</td>
@@ -5513,7 +5644,7 @@ async function openAllMISDetail(userId, userName) {
 
   const makeTaskRows = (tasks, showRevised) => tasks.map(t => `
     <tr>
-      <td style="font-size:12px">${t.description}</td>
+      <td style="font-size:12px">${esc(t.description)}</td>
       <td style="color:var(--gray-500);font-size:11px;white-space:nowrap">${fmtDate(t.due_date)}</td>
       <td><span class="status-badge ${t.status}">${t.status === 'revised' ? 'Revision' : t.status.charAt(0).toUpperCase()+t.status.slice(1)}</span></td>
       <td>${t.status==='pending' && t.due_date < today ? '<span style="font-size:10px;color:var(--color-danger);font-weight:600">⏰ Overdue</span>' : ''}</td>
@@ -5623,7 +5754,7 @@ async function generateRecords() {
     const sel = document.getElementById('recDeptFilter');
     const prev = sel.value;
     const depts = [...new Set(recordsData.map(r => (r.department||'').trim()).filter(Boolean))].sort();
-    sel.innerHTML = '<option value="">All Departments</option>' + depts.map(d => `<option value="${d}">${d}</option>`).join('');
+    sel.innerHTML = '<option value="">All Departments</option>' + depts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
     if (depts.includes(prev)) sel.value = prev;
   }
 
@@ -5650,7 +5781,7 @@ function renderRecords(fmsErrors) {
 
   const fmsWarn = (Array.isArray(fmsErrors) && fmsErrors.length)
     ? `<div style="background:var(--color-warning-bg);border:1px solid var(--color-warning-border);color:var(--color-warning-text);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px">
-         ⚠️ Some FMS sheets could not be read (${fmsErrors.join(', ')}). FMS counts thode kam ho sakte hain — please refresh and try again.
+         ⚠️ Some FMS sheets could not be read (${esc(fmsErrors.join(', '))}). FMS counts thode kam ho sakte hain — please refresh and try again.
        </div>` : '';
 
   const tableRows = rows.map(r => {
@@ -5672,11 +5803,10 @@ function renderRecords(fmsErrors) {
       committedHtml = `<div style="font-size:11px;color:var(--gray-500);margin-bottom:3px">📅 ${fmtDate(r.committed.start_date)}</div>${badge}`;
     }
 
-    const nameEsc = r.name.replace(/'/g,"\\'");
     return `<tr>
       <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer">
-        <div style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${r.name}</div>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:2px">${r.department||'—'}</div>
+        <div style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${esc(r.name)}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(r.department||'—')}</div>
       </td>
       <td>${committedHtml}</td>
       <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer;font-weight:700">${r.total}</td>
@@ -5732,10 +5862,10 @@ async function openRecordDetail(userId) {
     </tr>`;
 
   const delRows = (r.pendingTasks.delegation || []).map(t =>
-    taskRow(t.description, t.due_date, t.status==='revised'?'<span style="font-size:10px;color:var(--color-warning);font-weight:700">🔄 Revision</span>':'')).join('');
-  const chlRows = (r.pendingTasks.checklist || []).map(t => taskRow(t.description, t.due_date, '')).join('');
+    taskRow(esc(t.description), t.due_date, t.status==='revised'?'<span style="font-size:10px;color:var(--color-warning);font-weight:700">🔄 Revision</span>':'')).join('');
+  const chlRows = (r.pendingTasks.checklist || []).map(t => taskRow(esc(t.description), t.due_date, '')).join('');
   const fmsRows = (r.pendingTasks.fms || []).map(t =>
-    taskRow(`<strong>${t.fmsName}</strong> — ${t.stepName}` + (t.planValue?` <span style="color:var(--gray-400)">(${t.planValue})</span>`:''), t.planDate, t.isLate?'<span style="font-size:10px;color:var(--color-danger);font-weight:700">⏰ Late</span>':'')).join('');
+    taskRow(`<strong>${esc(t.fmsName)}</strong> — ${esc(t.stepName)}` + (t.planValue?` <span style="color:var(--gray-400)">(${esc(t.planValue)})</span>`:''), t.planDate, t.isLate?'<span style="font-size:10px;color:var(--color-danger);font-weight:700">⏰ Late</span>':'')).join('');
 
   const section = (title, color, count, bodyRows) => count === 0 ? '' : `
     <div style="margin-top:16px;border-top:1px solid var(--gray-100);padding-top:12px">
@@ -5829,7 +5959,9 @@ const SFMS_STEP_DEFS = [
   // Reordered (was step 6) — spare in/out logged before the OTP solve step.
   // spareInJson (point 3) carries per-item new/old returned counts; also
   // custom-built rather than the generic renderer.
-  { n: 5, label: 'Spare In/Out Entry (in the field)', extraFields: [
+  // Point 6: dropped "Out" from the label — Takeout (step 4) already is the
+  // "out" side, this step only ever asks about what came back in.
+  { n: 5, label: 'Spare In Entry (in the field)', extraFields: [
       { key: 'qtyReturned', label: 'Item Qty (Returned)', type: 'number' },
       { key: 'reasonIfShort', label: 'Reason (if Short)' },
       { key: 'spareInJson', label: 'Spares In (all items, new/old)' }
@@ -5894,7 +6026,7 @@ function renderSfmsField(f, row, compact) {
   const inputStyle = compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE;
   if (f.masterList) {
     const list = sfmsMasterListFor(f.masterList);
-    const options = list.map(v => `<option value="${v.replace(/"/g, '&quot;')}">${v}</option>`).join('');
+    const options = list.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
     // Step 4's Zone field re-filters the Mechanic dropdown on the same card
     // (point 8: zone-wise assignment) — a small tweak layered on the generic
     // masterList path, same pattern as the other per-step tweaks below.
@@ -5902,7 +6034,7 @@ function renderSfmsField(f, row, compact) {
     const zoneAddNewField = f.masterList === 'mechanics'
       ? `<select id="sfmsAddNewZone_${row}_${f.key}" style="flex:1;padding:10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;box-sizing:border-box">
            <option value="">-- Zone (optional) --</option>
-           ${sfmsZoneList.map(z => `<option value="${z.replace(/"/g, '&quot;')}">${z}</option>`).join('')}
+           ${sfmsZoneList.map(z => `<option value="${esc(z)}">${esc(z)}</option>`).join('')}
          </select>`
       : '';
     return `
@@ -5951,7 +6083,7 @@ function onSfmsZoneChange(row) {
   // filled in for them yet — only a mechanic with a DIFFERENT zone set is excluded.
   const filtered = zone ? sfmsMechanicsList.filter(m => !sfmsMechanicZones[m] || sfmsMechanicZones[m] === zone) : sfmsMechanicsList;
   mechSel.innerHTML = `<option value="">-- Mechanic Name --</option>` +
-    filtered.map(v => `<option value="${v.replace(/"/g, '&quot;')}">${v}</option>`).join('') +
+    filtered.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('') +
     `<option value="__add_new__">+ Add New</option>`;
 }
 async function sfmsAddNewMasterItem(row, key, listName) {
@@ -5972,7 +6104,7 @@ async function sfmsAddNewMasterItem(row, key, listName) {
   const sel = document.getElementById(`sfmsExtra_${row}_${key}`);
   const list = sfmsMasterListFor(listName);
   sel.innerHTML = `<option value="">-- Select --</option>` +
-    list.map(v => `<option value="${v.replace(/"/g, '&quot;')}" ${v === name ? 'selected' : ''}>${v}</option>`).join('') +
+    list.map(v => `<option value="${esc(v)}" ${v === name ? 'selected' : ''}>${esc(v)}</option>`).join('') +
     `<option value="__add_new__">+ Add New</option>`;
   document.getElementById(`sfmsAddNewWrap_${row}_${key}`).style.display = 'none';
   input.value = '';
@@ -6089,10 +6221,10 @@ function renderSfmsStepView(n) {
       <label style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">Filter by Zone</label>
       <select onchange="onSfmsAssignZoneFilterChange(this.value)" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px">
         <option value="">-- All Zones --</option>
-        ${sfmsZoneList.map(z => `<option value="${z.replace(/"/g, '&quot;')}" ${z === sfmsAssignZoneFilter ? 'selected' : ''}>${z}</option>`).join('')}
+        ${sfmsZoneList.map(z => `<option value="${esc(z)}" ${z === sfmsAssignZoneFilter ? 'selected' : ''}>${esc(z)}</option>`).join('')}
       </select>
       <span style="font-size:12px;color:var(--gray-400)">${rows.length} of ${allRows.length} complaint${allRows.length === 1 ? '' : 's'}</span>
-      ${zoneAreas.length ? `<span style="font-size:12px;color:var(--gray-500)"><b>Areas:</b> ${zoneAreas.join(', ')}</span>` : ''}
+      ${zoneAreas.length ? `<span style="font-size:12px;color:var(--gray-500)"><b>Areas:</b> ${esc(zoneAreas.join(', '))}</span>` : ''}
     </div>` : '';
 
   if (isAssignTab && !rows.length) {
@@ -6124,16 +6256,16 @@ function renderSfmsStepView(n) {
         const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
           (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:6px">📷</a>` : '');
         return `<tr>
-          <td style="font-weight:600;cursor:pointer;white-space:nowrap" onclick="openComplaintDetail(${c.row})">${c.complainNo}</td>
-          <td style="white-space:nowrap">${c.filledByName}</td>
-          <td style="white-space:nowrap"><a href="tel:${c.mobile}">${c.mobile}</a></td>
-          <td style="white-space:nowrap">${c.dealerName || '—'}</td>
-          <td style="white-space:nowrap">${c.productName}</td>
+          <td style="font-weight:600;cursor:pointer;white-space:nowrap" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}</td>
+          <td style="white-space:nowrap">${esc(c.filledByName)}</td>
+          <td style="white-space:nowrap"><a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a></td>
+          <td style="white-space:nowrap">${esc(c.dealerName || '—')}</td>
+          <td style="white-space:nowrap">${esc(c.productName)}</td>
           <td style="white-space:nowrap">${purchaseDateOnly}</td>
-          <td style="max-width:160px;white-space:normal">${c.problemDescription || '—'}</td>
-          <td style="white-space:nowrap">${c.productLocation || '—'}</td>
-          <td style="max-width:140px;white-space:normal">${c.address || '—'}</td>
-          <td style="white-space:nowrap">${c.area || '—'}</td>
+          <td style="max-width:160px;white-space:normal">${esc(c.problemDescription || '—')}</td>
+          <td style="white-space:nowrap">${esc(c.productLocation || '—')}</td>
+          <td style="max-width:140px;white-space:normal">${esc(c.address || '—')}</td>
+          <td style="white-space:nowrap">${esc(c.area || '—')}</td>
           <td style="white-space:nowrap;font-size:16px">${photosHtml || '—'}</td>
           <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
           ${isWarrantyTab ? `<td style="white-space:nowrap">${sfmsWarrantyStatusHtml(c)}</td>` : ''}
@@ -6192,12 +6324,12 @@ function renderServiceFmsList() {
     return `
     <div onclick="openComplaintDetail(${c.row})" style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span style="font-size:19px;font-weight:800;color:var(--gray-800)">${c.complainNo}</span>
+        <span style="font-size:19px;font-weight:800;color:var(--gray-800)">${esc(c.complainNo)}</span>
         <span class="status-badge" style="background:${c.closed ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${c.closed ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${c.closed ? '✅ Closed' : 'Step ' + c.currentStep + '/7'}</span>
       </div>
-      <div style="font-size:16px;font-weight:700;color:var(--gray-700);margin-bottom:4px">👤 ${c.filledByName}</div>
-      <div style="font-size:15px;color:var(--gray-500);margin-bottom:10px">📦 ${c.productName}</div>
-      ${nextStep ? `<div style="background:var(--color-purple-bg);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:700;color:var(--color-primary)">👉 ${nextStep.label}</div>` : ''}
+      <div style="font-size:16px;font-weight:700;color:var(--gray-700);margin-bottom:4px">👤 ${esc(c.filledByName)}</div>
+      <div style="font-size:15px;color:var(--gray-500);margin-bottom:10px">📦 ${esc(c.productName)}</div>
+      ${nextStep ? `<div style="background:var(--color-purple-bg);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:700;color:var(--color-primary)">👉 ${esc(nextStep.label)}</div>` : ''}
     </div>`;
   }).join('')}
   </div>`;
@@ -6226,20 +6358,20 @@ function renderMechanicWiseView() {
       return `
       <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div style="font-size:18px;font-weight:800;color:var(--gray-800)">🔧 ${mech}</div>
+          <div style="font-size:18px;font-weight:800;color:var(--gray-800)">🔧 ${esc(mech)}</div>
           <span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">${list.length} pending</span>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
           ${list.map(c => `
             <div onclick="openComplaintDetail(${c.row})" style="cursor:pointer;background:var(--gray-50);border-radius:10px;padding:10px 12px">
-              <div style="font-weight:700;font-size:14px;color:var(--gray-800)">${c.complainNo} — ${c.filledByName}</div>
-              <div style="font-size:13px;color:var(--gray-500)">📍 ${[c.address, c.area].filter(Boolean).join(', ') || c.productLocation || '—'}</div>
-              <div style="font-size:13px;color:var(--gray-500)">📦 ${c.productName}</div>
+              <div style="font-weight:700;font-size:14px;color:var(--gray-800)">${esc(c.complainNo)} — ${esc(c.filledByName)}</div>
+              <div style="font-size:13px;color:var(--gray-500)">📍 ${esc([c.address, c.area].filter(Boolean).join(', ') || c.productLocation || '—')}</div>
+              <div style="font-size:13px;color:var(--gray-500)">📦 ${esc(c.productName)}</div>
             </div>`).join('')}
         </div>
         <div style="display:flex;gap:8px">
-          <button onclick="copyMechanicList('${mech.replace(/'/g, "\\'")}')" style="flex:1;padding:13px;background:var(--surface);color:var(--color-success-text);border:1.5px solid var(--color-success-text);border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📋 Copy</button>
-          <button onclick="sendMechanicListWhatsApp('${mech.replace(/'/g, "\\'")}')" style="flex:1;padding:13px;background:var(--color-success-text);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📤 Send via WhatsApp</button>
+          <button onclick="copyMechanicList('${mech.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;')}')" style="flex:1;padding:13px;background:var(--surface);color:var(--color-success-text);border:1.5px solid var(--color-success-text);border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📋 Copy</button>
+          <button onclick="sendMechanicListWhatsApp('${mech.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;')}')" style="flex:1;padding:13px;background:var(--color-success-text);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📤 Send via WhatsApp</button>
         </div>
       </div>`;
     }).join('')}
@@ -6377,14 +6509,14 @@ function buildReportShortage() {
         ${withShortage.map(({ c, takeoutStep, inOutStep, taken, returned, shortage }) => {
           const assignStep = c.steps.find(s => s.n === 3);
           return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
-            <td style="font-weight:600">${c.complainNo}</td>
-            <td>${c.filledByName}</td>
-            <td>${takeoutStep.itemName || '—'}</td>
+            <td style="font-weight:600">${esc(c.complainNo)}</td>
+            <td>${esc(c.filledByName)}</td>
+            <td>${esc(takeoutStep.itemName || '—')}</td>
             <td>${taken}</td>
             <td>${returned}</td>
             <td style="color:var(--color-danger);font-weight:700">${shortage}</td>
-            <td>${inOutStep.reasonIfShort || '—'}</td>
-            <td>${(assignStep && assignStep.mechanic) || '—'}</td>
+            <td>${esc(inOutStep.reasonIfShort || '—')}</td>
+            <td>${esc((assignStep && assignStep.mechanic) || '—')}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -6422,18 +6554,18 @@ function buildReportSpareTable() {
           const takenLocked = takeoutStep.spareTaken !== '' && takeoutStep.spareTaken != null && !sfmsSpareEditTaken.has(c.row);
           const returnedLocked = inOutStep.qtyReturned !== '' && inOutStep.qtyReturned != null && !sfmsSpareEditReturned.has(c.row);
           const takenCell = takenLocked
-            ? `<span>${takeoutStep.spareTaken}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'taken')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
-            : `<input type="number" id="sfmsRptTaken_${c.row}" value="${takeoutStep.spareTaken || ''}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
+            ? `<span>${esc(takeoutStep.spareTaken)}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'taken')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
+            : `<input type="number" id="sfmsRptTaken_${c.row}" value="${esc(takeoutStep.spareTaken || '')}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
           const returnedCell = returnedLocked
-            ? `<span>${inOutStep.qtyReturned}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'returned')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
-            : `<input type="number" id="sfmsRptReturned_${c.row}" value="${inOutStep.qtyReturned || ''}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
+            ? `<span>${esc(inOutStep.qtyReturned)}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'returned')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
+            : `<input type="number" id="sfmsRptReturned_${c.row}" value="${esc(inOutStep.qtyReturned || '')}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
           const reasonCell = returnedLocked
-            ? `<span>${inOutStep.reasonIfShort || '—'}</span>`
-            : `<input type="text" id="sfmsRptReason_${c.row}" value="${inOutStep.reasonIfShort || ''}" style="width:140px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
+            ? `<span>${esc(inOutStep.reasonIfShort || '—')}</span>`
+            : `<input type="text" id="sfmsRptReason_${c.row}" value="${esc(inOutStep.reasonIfShort || '')}" style="width:140px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
           return `<tr>
-            <td style="font-weight:600">${c.complainNo}</td>
-            <td>${c.filledByName}</td>
-            <td>${takeoutStep.itemName || '—'}</td>
+            <td style="font-weight:600">${esc(c.complainNo)}</td>
+            <td>${esc(c.filledByName)}</td>
+            <td>${esc(takeoutStep.itemName || '—')}</td>
             <td>${takenCell}</td>
             <td>${returnedCell}</td>
             <td>${reasonCell}</td>
@@ -6496,11 +6628,11 @@ function buildReportPC() {
           const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
           const label = needPurchase ? '🛒 Need to Purchase' : (nextStep ? nextStep.label : '—');
           return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
-          <td style="font-weight:600">${c.complainNo}</td>
-          <td>${c.filledByName}</td>
-          <td>${c.productName}</td>
-          <td>${c.problemDescription}</td>
-          <td style="font-weight:700;color:${needPurchase ? 'var(--color-danger-text)' : 'var(--color-primary)'}">${label}</td>
+          <td style="font-weight:600">${esc(c.complainNo)}</td>
+          <td>${esc(c.filledByName)}</td>
+          <td>${esc(c.productName)}</td>
+          <td>${esc(c.problemDescription)}</td>
+          <td style="font-weight:700;color:${needPurchase ? 'var(--color-danger-text)' : 'var(--color-primary)'}">${esc(label)}</td>
           <td>${fmtDateDMY(c.timestamp)}</td>
         </tr>`;
         }).join('')}
@@ -6519,11 +6651,11 @@ function buildReportItemWise() {
     // different items — count every one of them, not just the first, or
     // inventory usage for any item beyond the first would go uncounted.
     let outItems = [];
-    try { outItems = takeoutStep.spareOutJson ? JSON.parse(takeoutStep.spareOutJson) : []; } catch (e) {}
+    try { outItems = takeoutStep.spareOutJson ? JSON.parse(takeoutStep.spareOutJson) : []; } catch (e) { console.warn('JSON parse failed:', e); }
     if (!outItems.length && takeoutStep.itemName) outItems = [{ item: takeoutStep.itemName, qty: takeoutStep.spareTaken }];
     if (!outItems.length) return;
     let inItems = [];
-    try { inItems = inOutStep.spareInJson ? JSON.parse(inOutStep.spareInJson) : []; } catch (e) {}
+    try { inItems = inOutStep.spareInJson ? JSON.parse(inOutStep.spareInJson) : []; } catch (e) { console.warn('JSON parse failed:', e); }
     const returnedByItem = {};
     inItems.forEach(r => { returnedByItem[r.item] = (returnedByItem[r.item] || 0) + (Number(r.newQty) || 0) + (Number(r.oldQty) || 0); });
     // Old single-item complaints have qtyReturned but never got a spareInJson.
@@ -6550,7 +6682,7 @@ function buildReportItemWise() {
           const it = items[name];
           const net = it.taken - it.returned;
           return `<tr>
-            <td style="font-weight:600">${name}</td>
+            <td style="font-weight:600">${esc(name)}</td>
             <td>${it.complaints}</td>
             <td>${it.taken}</td>
             <td>${it.returned}</td>
@@ -6568,12 +6700,10 @@ function openNewComplaintModal() {
   document.getElementById('scMobile').value = '';
   document.querySelector('input[name="scCustomerType"][value="Customer"]').checked = true;
   document.getElementById('scDealerName').value = '';
-  document.getElementById('scDealerNameWrap').style.display = 'none';
-  document.getElementById('scProductOwnership').value = '';
   document.getElementById('scBillPhoto').value = '';
   document.getElementById('scBillPhotoPreview').textContent = '';
   document.getElementById('scBillPhoto').dataset.compressed = '';
-  onScOwnershipChange();
+  onScCustomerTypeChange(); // resets Dealer wrap visibility + auto-sets Product Ownership
   document.getElementById('scProductLocation').value = '';
   document.getElementById('scAddress').value = '';
   document.getElementById('newComplaintErr').style.display = 'none';
@@ -6698,7 +6828,7 @@ async function ensureScAreaList() {
 function populateScAreaSelect() {
   const sel = document.getElementById('scArea');
   sel.innerHTML = '<option value="">Select…</option>' +
-    scAreaList.map(a => `<option value="${a.replace(/"/g,'&quot;')}">${a}</option>`).join('') +
+    scAreaList.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('') +
     '<option value="__add_new__">+ Add New</option>';
 }
 function onScAreaSelectChange() {
@@ -6721,6 +6851,16 @@ async function scAddNewArea() {
 function onScCustomerTypeChange() {
   const type = document.querySelector('input[name="scCustomerType"]:checked').value;
   document.getElementById('scDealerNameWrap').style.display = (type === 'Dealer') ? '' : 'none';
+  // Product Ownership (point 1) only needs asking when a Dealer is filing —
+  // it's their call whether it's their own stock or a customer's piece
+  // sitting at their shop. A Customer filing their own complaint is always
+  // about something they bought, so it's set automatically, no need to ask.
+  if (type === 'Customer') {
+    document.getElementById('scProductOwnership').value = 'Customer Purchased Piece';
+  } else {
+    document.getElementById('scProductOwnership').value = '';
+  }
+  onScOwnershipChange();
 }
 
 function compressImageToDataURL(file, maxDim, quality) {
@@ -6845,6 +6985,15 @@ async function submitNewComplaint() {
 function onEcCustomerTypeChange() {
   const type = document.querySelector('input[name="ecCustomerType"]:checked').value;
   document.getElementById('ecDealerNameWrap').style.display = (type === 'Dealer') ? '' : 'none';
+  // Same auto-set as the create form (point 1) — openEditComplaintModal calls
+  // this BEFORE loading the complaint's actual saved ownership value, so this
+  // never overwrites real data on initial load, only on an actual toggle.
+  if (type === 'Customer') {
+    document.getElementById('ecProductOwnership').value = 'Customer Purchased Piece';
+  } else {
+    document.getElementById('ecProductOwnership').value = '';
+  }
+  onEcOwnershipChange();
 }
 function onEcOwnershipChange() {
   const isCustomerPiece = document.getElementById('ecProductOwnership').value === 'Customer Purchased Piece';
@@ -6946,9 +7095,9 @@ function renderSfmsSiblingProductsTable(c) {
   if (siblings.length < 2) return '';
   const rowsHtml = siblings.map(s => `
     <tr style="cursor:pointer;${s.row === c.row ? 'background:var(--color-purple-bg)' : ''}" onclick="openComplaintDetail(${s.row})">
-      <td style="padding:6px 8px;font-size:12px">${s.complainNo}</td>
-      <td style="padding:6px 8px;font-size:12px">${s.productName}</td>
-      <td style="padding:6px 8px;font-size:12px">${s.closed ? '✅ Closed' : `Step ${s.currentStep + 1}: ${(SFMS_STEP_DEFS.find(d => d.n === s.currentStep + 1) || {}).label || ''}`}</td>
+      <td style="padding:6px 8px;font-size:12px">${esc(s.complainNo)}</td>
+      <td style="padding:6px 8px;font-size:12px">${esc(s.productName)}</td>
+      <td style="padding:6px 8px;font-size:12px">${s.closed ? '✅ Closed' : `Step ${s.currentStep + 1}: ${esc((SFMS_STEP_DEFS.find(d => d.n === s.currentStep + 1) || {}).label || '')}`}</td>
     </tr>`).join('');
   return `
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Products in this Complaint</div>
@@ -7009,7 +7158,7 @@ function buildSfmsNextActionHtml(c, compact) {
       actionHtml = `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
-          <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Taken out ${stepData.out} — currently in the field</div>
+          <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Taken out ${esc(stepData.out)} — currently in the field</div>
           ${inInputsHtml}
           <button onclick="advanceSfmsStep(${c.row},${nextStepDef.n},'in')" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Spare Returned</button>
         ${wrapClose}`;
@@ -7068,8 +7217,8 @@ function buildSfmsNextActionHtml(c, compact) {
       // same value shown whether "All Zones" or a specific zone is filtered.
       const rowZone = sfmsAreaZoneMap[c.area] || '';
       extraInputsHtml = fieldsToShow.map(f => f.key === 'zone'
-        ? `<input type="hidden" id="sfmsExtra_${c.row}_zone" value="${rowZone.replace(/"/g, '&quot;')}"/>
-           <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">Zone: ${rowZone || '—'}</span>`
+        ? `<input type="hidden" id="sfmsExtra_${c.row}_zone" value="${esc(rowZone)}"/>
+           <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">Zone: ${esc(rowZone || '—')}</span>`
         : renderSfmsField(f, c.row, compact)
       ).join('');
     } else {
@@ -7132,31 +7281,39 @@ function renderComplaintDetailBody(c) {
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px">
         <div>
-          <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${c.filledByName}</div>
-          ${showDealer ? `<div style="font-size:13px;color:var(--gray-500);margin-top:2px">Dealer: ${c.dealerName}</div>` : ''}
+          <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${esc(c.filledByName)}</div>
+          ${showDealer ? `<div style="font-size:13px;color:var(--gray-500);margin-top:2px">Dealer: ${esc(c.dealerName)}</div>` : ''}
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
-          <a href="tel:${c.mobile}" class="btn btn-outline btn-sm" style="white-space:nowrap">${c.mobile}</a>
+          <a href="tel:${esc(c.mobile)}" class="btn btn-outline btn-sm" style="white-space:nowrap">${esc(c.mobile)}</a>
           <button class="btn btn-outline btn-sm" onclick="openEditComplaintModal(${c.row})">✏️ Edit</button>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
         <div>
           <div style="${SFMS_FIELD_LABEL_STYLE}">Product</div>
-          <div style="font-size:14px;color:var(--gray-800);font-weight:600">${c.productName}</div>
+          <div style="font-size:14px;color:var(--gray-800);font-weight:600">${esc(c.productName)}</div>
         </div>
+        <div>
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Ownership</div>
+          <div style="font-size:13px;font-weight:700;color:${c.productOwnership === 'Dealer Stock Piece' ? 'var(--color-primary)' : 'var(--color-purple)'}">${esc(c.productOwnership) || '—'}</div>
+        </div>
+        ${c.purchaseDate ? `<div>
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Purchase Date</div>
+          <div style="font-size:14px;color:var(--gray-800)">${fmtDateDMY(c.purchaseDate)}</div>
+        </div>` : ''}
         ${c.productLocation ? `<div>
           <div style="${SFMS_FIELD_LABEL_STYLE}">Location</div>
-          <div style="font-size:14px;color:var(--gray-800)">${c.productLocation}${c.area ? ', ' + c.area : ''}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(c.productLocation)}${c.area ? ', ' + esc(c.area) : ''}</div>
         </div>` : ''}
       </div>
       <div style="${(c.billPhoto || c.productPhoto) ? 'margin-bottom:14px' : ''}">
         <div style="${SFMS_FIELD_LABEL_STYLE}">Problem Reported</div>
-        <div style="font-size:14px;color:var(--gray-800);line-height:1.5">${c.problemDescription}</div>
+        <div style="font-size:14px;color:var(--gray-800);line-height:1.5">${esc(c.problemDescription)}</div>
       </div>
       ${(c.billPhoto || c.productPhoto) ? `<div style="display:flex;gap:8px">
-        ${c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" class="btn btn-outline btn-sm">Bill Photo</a>` : ''}
-        ${c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" class="btn btn-outline btn-sm">Product Photo</a>` : ''}
+        ${c.billPhoto ? `<a href="${esc(c.billPhoto)}" target="_blank" class="btn btn-outline btn-sm">Bill Photo</a>` : ''}
+        ${c.productPhoto ? `<a href="${esc(c.productPhoto)}" target="_blank" class="btn btn-outline btn-sm">Product Photo</a>` : ''}
       </div>` : ''}
     </div>`;
 
@@ -7176,7 +7333,7 @@ function renderComplaintDetailBody(c) {
           : `<span style="width:20px;height:20px;border-radius:50%;border:2px solid ${isCurrent ? 'var(--color-primary)' : 'var(--gray-200)'};flex-shrink:0"></span>`;
         return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:${isDone ? 'var(--color-success-bg)' : isCurrent ? 'var(--color-purple-bg)' : 'var(--gray-50)'}">
           ${dot}
-          <span style="font-size:14px;font-weight:${isDone || isCurrent ? '600' : '400'};color:${isDone ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${s.n}. ${s.label}</span>
+          <span style="font-size:14px;font-weight:${isDone || isCurrent ? '600' : '400'};color:${isDone ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${s.n}. ${esc(s.label)}</span>
         </div>`;
       }).join('')}
     </div>
@@ -7188,13 +7345,13 @@ function renderComplaintDetailBody(c) {
         <tbody>
           ${c.steps.map(s => {
             const def = SFMS_STEP_DEFS.find(d => d.n === s.n);
-            const extraText = def.extraFields.map(f => s[f.key] ? `${f.label}: ${s[f.key]}` : '').filter(Boolean).join(', ') || '—';
-            const actualDisplay = def.twoStage ? `Out: ${s.out || '—'}<br/>In: ${s.in || '—'}` : (s.actual || '—');
+            const extraText = def.extraFields.map(f => s[f.key] ? `${esc(f.label)}: ${esc(s[f.key])}` : '').filter(Boolean).join(', ') || '—';
+            const actualDisplay = def.twoStage ? `Out: ${esc(s.out) || '—'}<br/>In: ${esc(s.in) || '—'}` : esc(s.actual || '—');
             return `<tr>
-            <td style="font-weight:600">${s.n}. ${s.label}</td>
-            <td>${s.planned || '—'}</td>
+            <td style="font-weight:600">${s.n}. ${esc(s.label)}</td>
+            <td>${esc(s.planned || '—')}</td>
             <td>${actualDisplay}</td>
-            <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${s.status}</span>` : '—'}</td>
+            <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${esc(s.status)}</span>` : '—'}</td>
             <td>${extraText}</td>
           </tr>`;
           }).join('')}
@@ -7244,7 +7401,7 @@ function sfmsRemoveSpareOutRow(row, id) {
 function sfmsTakeoutItems(c) {
   const stepData = c.steps.find(s => s.n === 4);
   let items = [];
-  try { items = stepData.spareOutJson ? JSON.parse(stepData.spareOutJson) : []; } catch (e) {}
+  try { items = stepData.spareOutJson ? JSON.parse(stepData.spareOutJson) : []; } catch (e) { console.warn('JSON parse failed:', e); }
   if (!items.length && stepData.itemName) items = [{ item: stepData.itemName, qty: stepData.spareTaken }];
   return items;
 }
@@ -7270,7 +7427,7 @@ function sfmsCollectSpareOutRows(row) {
 // product) returned counts, instead of one combined "Qty Returned". ──────
 function sfmsSpareInRowHtml(row, id, item, takenQty) {
   return `<div id="sfmsSpareInRow_${row}_${id}" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
-    <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${item || '—'} <span style="color:var(--gray-400);font-weight:400">(took ${takenQty})</span></span>
+    <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(item || '—')} <span style="color:var(--gray-400);font-weight:400">(took ${takenQty})</span></span>
     <input type="number" placeholder="New" title="New (unused) returned" id="sfmsSpareInNew_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
     <input type="number" placeholder="Old" title="Old (removed from product) returned" id="sfmsSpareInOld_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
   </div>`;
@@ -7550,17 +7707,17 @@ function renderO2dFmsView() {
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer">
-          <td style="font-weight:600">${o.orderNo || '—'}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
-          <td>${o.counterName || '—'}</td>
-          <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${p.productName} × ${p.qty}</div>`).join('') || '—'}</td>
-          <td>${o.qty || '—'}</td>
+          <td style="font-weight:600">${esc(o.orderNo || '—')}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
+          <td>${esc(o.counterName || '—')}</td>
+          <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
+          <td>${esc(o.qty || '—')}</td>
           ${o.steps.map(s => `
-            <td style="border-left:2px solid var(--gray-200)">${s.planned || '—'}</td>
-            <td>${s.actual || '—'}</td>
-            <td>${s.status ? `<span class="status-badge" style="background:${s.status==='No'?'var(--color-danger-bg)':'var(--color-success-bg)'};color:${s.status==='No'?'var(--color-danger-text)':'var(--color-success-text)'}">${s.status}</span>` : '—'}</td>
+            <td style="border-left:2px solid var(--gray-200)">${esc(s.planned || '—')}</td>
+            <td>${esc(s.actual || '—')}</td>
+            <td>${s.status ? `<span class="status-badge" style="background:${s.status==='No'?'var(--color-danger-bg)':'var(--color-success-bg)'};color:${s.status==='No'?'var(--color-danger-text)':'var(--color-success-text)'}">${esc(s.status)}</span>` : '—'}</td>
           `).join('')}
-          <td style="border-left:2px solid var(--gray-200)">${o.billNo || '—'}</td>
-          <td>${o.amount || '—'}</td>
+          <td style="border-left:2px solid var(--gray-200)">${esc(o.billNo || '—')}</td>
+          <td>${esc(o.amount || '—')}</td>
         </tr>`).join('')}
     </tbody>
   </table>
@@ -7585,14 +7742,14 @@ function renderO2dPCView() {
         const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
         return `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer;${rowStyle}">
-          <td style="font-weight:600">${o.orderNo || '—'}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
-          <td>${o.counterName || '—'}</td>
-          <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${p.productName} × ${p.qty}</div>`).join('') || '—'}</td>
-          <td>${o.qty || '—'}</td>
-          <td style="font-weight:600">${pendingStep.n}. ${pendingStep.label}</td>
-          <td style="${plannedStyle}">${pendingStep.planned || '—'}${overdue ? ' ⚠️' : ''}</td>
-          <td>${stepDoerLabel(pendingStep)}</td>
-          <td style="color:var(--gray-500)">${pendingStep.tat || '—'}</td>
+          <td style="font-weight:600">${esc(o.orderNo || '—')}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
+          <td>${esc(o.counterName || '—')}</td>
+          <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
+          <td>${esc(o.qty || '—')}</td>
+          <td style="font-weight:600">${pendingStep.n}. ${esc(pendingStep.label)}</td>
+          <td style="${plannedStyle}">${esc(pendingStep.planned || '—')}${overdue ? ' ⚠️' : ''}</td>
+          <td>${esc(stepDoerLabel(pendingStep))}</td>
+          <td style="color:var(--gray-500)">${esc(pendingStep.tat || '—')}</td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -7632,7 +7789,7 @@ function renderO2dReportsView() {
       <table>
         <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Pending Count</th></tr></thead>
         <tbody>
-          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${p.step.label}</td><td>${stepDoerLabel(p.step)}</td><td style="color:var(--gray-500)">${p.step.tat || '—'}</td><td>${p.count}</td></tr>`).join('')}
+          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${esc(p.step.label)}</td><td>${esc(stepDoerLabel(p.step))}</td><td style="color:var(--gray-500)">${esc(p.step.tat || '—')}</td><td>${p.count}</td></tr>`).join('')}
         </tbody>
       </table>
     </div>`;
@@ -7703,7 +7860,7 @@ function renderDealerGrid() {
   wrap.innerHTML = `
     <div style="padding:16px">
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <input type="text" id="dealerSearchInput" placeholder="🔍 Search dealer or city…" value="${o2dDealerSearchQ.replace(/"/g,'&quot;')}" oninput="onDealerSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <input type="text" id="dealerSearchInput" placeholder="🔍 Search dealer or city…" value="${esc(o2dDealerSearchQ)}" oninput="onDealerSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <button class="btn btn-outline" onclick="loadO2dDealers(true).then(renderDealerGridResults)">🔄 Refresh</button>
         <button class="btn btn-primary" onclick="openAddDealerModal()">+ Naya Dealer Add Karo</button>
       </div>
@@ -7742,7 +7899,7 @@ function renderDealerGridResults() {
 }
 
 function dealerRowHtml(d) {
-  const nameEsc = d.name.replace(/'/g, "\\'");
+  const nameEsc = String(d.name||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
   const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '<span style="color:var(--gray-400)">—</span>';
@@ -7763,8 +7920,8 @@ function dealerRowHtml(d) {
 
   return `<tr>
     <td>
-      <div style="font-weight:600">${d.name}</div>
-      <div style="font-size:11px;color:var(--gray-500)">${[d.city, d.phone].filter(Boolean).join(' · ') || '—'}</div>
+      <div style="font-weight:600">${esc(d.name)}</div>
+      <div style="font-size:11px;color:var(--gray-500)">${esc([d.city, d.phone].filter(Boolean).join(' · ') || '—')}</div>
     </td>
     <td>${tierCellHtml}</td>
     <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor};white-space:nowrap">${d.kycCount}/4</span></td>
@@ -7784,7 +7941,7 @@ function dealerRowHtml(d) {
 }
 
 function dealerCardHtml(d) {
-  const nameEsc = d.name.replace(/'/g, "\\'");
+  const nameEsc = String(d.name||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
   const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '—';
@@ -7800,7 +7957,7 @@ function dealerCardHtml(d) {
   // only still-outstanding bills are, so on-time/late can't be computed
   // from this — the star rating above stays driven by manual Log Payment).
   const tallyPaymentsHtml = (d.tallyPayments && d.tallyPayments.length)
-    ? `<div style="font-size:11.5px;color:var(--gray-600);margin-top:4px">Recent payments (Tally): ${d.tallyPayments.map(p => `${p.paidDate}${p.amount ? ' ₹' + p.amount.toLocaleString('en-IN') : ''}`).join(', ')}</div>`
+    ? `<div style="font-size:11.5px;color:var(--gray-600);margin-top:4px">Recent payments (Tally): ${d.tallyPayments.map(p => `${esc(p.paidDate)}${p.amount ? ' ₹' + p.amount.toLocaleString('en-IN') : ''}`).join(', ')}</div>`
     : '';
   const lastOrderHtml = d.lastOrder
     ? `Last order: ${fmtDate((d.lastOrder.timestamp || '').split(' ')[0])} — ${d.lastOrder.qty} pcs${d.lastOrder.amount ? ', ' + inr(d.lastOrder.amount) : ''}`
@@ -7835,7 +7992,7 @@ function dealerCardHtml(d) {
   return `
     <div style="background:var(--color-primary-light);border:1.5px solid var(--color-primary-ring);border-radius:12px;padding:14px 16px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div style="font-weight:700;font-size:14px;color:var(--gray-900)">${d.name}${d.city ? ' · ' + d.city : ''}${d.phone ? ' · ' + d.phone : ''}</div>
+        <div style="font-weight:700;font-size:14px;color:var(--gray-900)">${esc(d.name)}${d.city ? ' · ' + esc(d.city) : ''}${d.phone ? ' · ' + esc(d.phone) : ''}</div>
         ${tierBadgeHtml}
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
@@ -7903,7 +8060,7 @@ function renderKycRows() {
           <div style="font-size:11px;color:${url ? 'var(--color-success-text)' : 'var(--gray-400)'}">${url ? '✅ Uploaded' : 'Not uploaded'}</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
-          ${url ? `<a href="${url}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">View</a>` : ''}
+          ${url ? `<a href="${esc(url)}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">View</a>` : ''}
           <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('kycFile_${t.key}').click()">${url ? 'Replace' : 'Upload'}</button>
           <input type="file" id="kycFile_${t.key}" accept="image/*" style="display:none" onchange="handleKycFile('${t.key}', event)"/>
         </div>
@@ -7989,7 +8146,10 @@ async function submitLogPayment() {
   const paidDate = document.getElementById('lpPaidDate').value;
   const errEl = document.getElementById('logPaymentErr');
   if (!dueDate || !paidDate) { errEl.textContent = 'Due date aur paid date dono chahiye'; errEl.style.display = 'block'; return; }
+  const btn = document.querySelector('[onclick="submitLogPayment()"]');
+  if (btn) btn.disabled = true;
   const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_lpCurrentDealer)}/payments`, 'POST', { amount: amount || null, dueDate, paidDate });
+  if (btn) btn.disabled = false;
   if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
   showToast('Payment logged!');
   closeModal('logPaymentModal');
@@ -8005,7 +8165,10 @@ function openCreditLimitModal(name, current) {
 }
 async function submitCreditLimit() {
   const val = document.getElementById('clAmount').value;
+  const btn = document.querySelector('[onclick="submitCreditLimit()"]');
+  if (btn) btn.disabled = true;
   const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_clCurrentDealer)}`, 'PUT', { creditLimit: val });
+  if (btn) btn.disabled = false;
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast('Credit limit updated!');
   closeModal('creditLimitModal');
@@ -8033,29 +8196,31 @@ async function openDealerLedgerModal(name) {
       <div style="font-size:11px;color:var(--gray-500);text-align:right">${r.billCount} open bill${r.billCount===1?'':'s'}<br/>${r.paymentCount} payment${r.paymentCount===1?'':'s'} synced</div>
     </div>`;
 
-  if (!r.entries.length) {
+  const ledgerHtml = renderDlLedgerHtml(r.ledger);
+  const bills = r.entries.filter(e => e.type === 'bill');
+  if (!ledgerHtml && !bills.length) {
     const note = r.outstanding
-      ? `Outstanding upar Tally ke real ledger balance se hai (sahi hai) — lekin is dealer ke bills Tally mein bill-wise track nahi hain, isliye neeche list karne layak koi individual bill ya payment record nahi mila.`
+      ? `Outstanding upar Tally ke real ledger balance se hai (sahi hai) — lekin is financial year mein is dealer ka koi voucher sync nahi mila, aur bill-wise bills bhi nahi hain.`
       : `Koi bill ya payment sync nahi hua abhi is dealer ke liye.`;
     body.innerHTML = outstandingHtml + `<div class="empty">${note}</div>`;
     return;
   }
 
-  const rowsHtml = r.entries.map((e, i) => {
+  const rowsHtml = bills.map((e, i) => {
     if (e.type === 'bill') {
       const lateColor = e.bucket === '90+' ? 'var(--color-danger-text)' : 'var(--gray-800)';
       const hasItems = e.items && e.items.length;
       const itemsRowsHtml = hasItems
         ? e.items.map(it => `<tr>
-            <td style="padding:5px 8px 5px 24px;font-size:12px;color:var(--gray-700)">${it.itemName}</td>
-            <td style="padding:5px 8px;font-size:12px;color:var(--gray-500);white-space:nowrap">${it.qty || '—'}${it.rate ? ' @ ' + it.rate : ''}</td>
+            <td style="padding:5px 8px 5px 24px;font-size:12px;color:var(--gray-700)">${esc(it.itemName)}</td>
+            <td style="padding:5px 8px;font-size:12px;color:var(--gray-500);white-space:nowrap">${esc(it.qty || '—')}${it.rate ? ' @ ' + esc(it.rate) : ''}</td>
             <td style="padding:5px 8px;font-size:12px;font-weight:700;text-align:right;color:var(--gray-700)">${it.amount ? inr(it.amount) : '—'}</td>
           </tr>`).join('')
         : `<tr><td colspan="3" style="padding:6px 8px 6px 24px;font-size:11.5px;color:var(--gray-400)">Item details is bill ke liye sync nahi hue.</td></tr>`;
       return `<tr onclick="toggleDlItems(${i})" style="cursor:pointer">
-        <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap">${e.date || '—'}</td>
+        <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap">${esc(e.date || '—')}</td>
         <td style="padding:7px 8px"><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--color-danger-bg);color:var(--color-danger-text)">BILL</span></td>
-        <td style="padding:7px 8px;font-size:12.5px">${e.ref || '—'}${e.dueDate ? `<div style="font-size:10.5px;color:var(--gray-500)">Due ${e.dueDate}</div>` : ''}</td>
+        <td style="padding:7px 8px;font-size:12.5px">${esc(e.ref || '—')}${e.dueDate ? `<div style="font-size:10.5px;color:var(--gray-500)">Due ${esc(e.dueDate)}</div>` : ''}</td>
         <td style="padding:7px 8px;font-size:12.5px;font-weight:700;text-align:right;color:${lateColor}">${inr(e.amount)} <span id="dlChevron_${i}" style="display:inline-block;color:var(--gray-400);transition:transform .15s">▸</span></td>
       </tr>
       <tr id="dlItems_${i}" style="display:none;background:var(--gray-50)">
@@ -8065,14 +8230,15 @@ async function openDealerLedgerModal(name) {
       </tr>`;
     }
     return `<tr>
-      <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap">${e.date || '—'}</td>
+      <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap">${esc(e.date || '—')}</td>
       <td style="padding:7px 8px"><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success-text)">PAID</span></td>
-      <td style="padding:7px 8px;font-size:12.5px">${e.ref || '—'}</td>
+      <td style="padding:7px 8px;font-size:12.5px">${esc(e.ref || '—')}</td>
       <td style="padding:7px 8px;font-size:12.5px;font-weight:700;text-align:right;color:var(--color-success-text)">${inr(e.amount)}</td>
     </tr>`;
   }).join('');
 
-  body.innerHTML = outstandingHtml + `
+  const billsHtml = bills.length ? `
+    <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px">🧾 Open bills (bill-wise) — ${bills.length}</div>
     <div class="mis-table-wrap" style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse">
         <thead><tr style="text-align:left;font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">
@@ -8081,8 +8247,47 @@ async function openDealerLedgerModal(name) {
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>
-    <div style="font-size:10.5px;color:var(--gray-400);margin-top:6px">Kisi BILL row par click karo uske items dekhne ke liye.</div>
-    ${r.syncedAt ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:4px">Last synced: ${new Date(r.syncedAt).toLocaleString('en-IN')}</div>` : ''}`;
+    <div style="font-size:10.5px;color:var(--gray-400);margin-top:6px">Kisi BILL row par click karo uske items dekhne ke liye.</div>` : '';
+
+  body.innerHTML = outstandingHtml + ledgerHtml + billsHtml +
+    (r.syncedAt ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:8px">Last synced: ${new Date(r.syncedAt).toLocaleString('en-IN')}</div>` : '');
+}
+
+// Tally "Ledger Vouchers"-style table for the current FY: Opening → every
+// voucher the party appears in (Dr/Cr + running balance) → Closing.
+// Balance sign: positive = Dr (dealer owes us), negative = Cr (advance).
+function renderDlLedgerHtml(L) {
+  if (!L || !L.rows || !L.rows.length) return '';
+  const fmtBal = b => `${inr(Math.abs(b))} ${b < 0 ? 'Cr' : 'Dr'}`;
+  const cell = 'padding:6px 8px;font-size:12px';
+  return `
+    <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin:4px 0 6px">📒 Ledger — ${L.fyLabel}</div>
+    <div class="mis-table-wrap" style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="text-align:left;font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">
+          <th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Particulars</th><th style="padding:6px 8px;text-align:right">Debit</th><th style="padding:6px 8px;text-align:right">Credit</th><th style="padding:6px 8px;text-align:right">Balance</th>
+        </tr></thead>
+        <tbody>
+          <tr style="background:var(--gray-50)">
+            <td style="${cell};font-weight:700" colspan="4">Opening Balance${L.openingKnown ? '' : ' <span style="font-weight:400;color:var(--gray-400)">(Tally balance sync nahi — 0 se shuru)</span>'}</td>
+            <td style="${cell};text-align:right;font-weight:700">${fmtBal(L.opening)}</td>
+          </tr>
+          ${L.rows.map(x => `<tr>
+            <td style="${cell};white-space:nowrap">${esc(x.date || '—')}</td>
+            <td style="${cell}">${esc(x.particulars)}<div style="font-size:10.5px;color:var(--gray-500)">${esc(x.vchType)}${x.vchNo ? ' · ' + esc(x.vchNo) : ''}</div></td>
+            <td style="${cell};text-align:right">${x.debit ? inr(x.debit) : ''}</td>
+            <td style="${cell};text-align:right;color:var(--color-success-text)">${x.credit ? inr(x.credit) : ''}</td>
+            <td style="${cell};text-align:right;font-weight:600">${fmtBal(x.balance)}</td>
+          </tr>`).join('')}
+          <tr style="background:var(--gray-50);font-weight:700">
+            <td style="${cell}" colspan="2">Closing Balance</td>
+            <td style="${cell};text-align:right">${inr(L.totalDebit)}</td>
+            <td style="${cell};text-align:right">${inr(L.totalCredit)}</td>
+            <td style="${cell};text-align:right">${L.closing !== null ? fmtBal(L.closing) : fmtBal(L.rows[L.rows.length - 1].balance)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function toggleDlItems(i) {
@@ -8126,18 +8331,18 @@ function priceListRowHtml(item) {
   const editBtns = o2dPriceListCanEdit ? `
     <div style="display:flex;gap:4px">
       <button class="btn btn-outline btn-sm" onclick="openEditPriceModal(${item.id})">✎ Edit</button>
-      <button class="btn btn-outline btn-sm" onclick="deletePriceListItem(${item.id},'${item.product_name.replace(/'/g,"\\'")}')" title="Remove">🗑</button>
+      <button class="btn btn-outline btn-sm" onclick="deletePriceListItem(${item.id},'${String(item.product_name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Remove">🗑</button>
     </div>` : '';
   const photoHtml = item.image_url
-    ? `<img src="${item.image_url}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--gray-200)"/>`
+    ? `<img src="${esc(item.image_url)}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--gray-200)"/>`
     : `<div style="width:36px;height:36px;border-radius:6px;background:var(--gray-100);display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:16px">📦</div>`;
   return `<tr>
     <td>${photoHtml}</td>
-    <td><div style="font-weight:600">${item.product_name}</div>${item.remarks ? `<div style="font-size:11px;color:var(--gray-500)">${item.remarks}</div>` : ''}</td>
-    <td>${item.category || '—'}</td>
-    <td>${item.uom || '—'}</td>
-    <td>${item.hsn_code || '—'}</td>
-    <td>${item.gst_percent || '—'}</td>
+    <td><div style="font-weight:600">${esc(item.product_name)}</div>${item.remarks ? `<div style="font-size:11px;color:var(--gray-500)">${esc(item.remarks)}</div>` : ''}</td>
+    <td>${esc(item.category || '—')}</td>
+    <td>${esc(item.uom || '—')}</td>
+    <td>${esc(item.hsn_code || '—')}</td>
+    <td>${esc(item.gst_percent || '—')}</td>
     <td style="white-space:nowrap;font-weight:700">${item.price !== null ? inr(item.price) : '<span style="color:var(--gray-400);font-weight:400">Not set</span>'}</td>
     <td style="white-space:nowrap">${editBtns}</td>
   </tr>`;
@@ -8152,7 +8357,7 @@ function renderPriceListGrid() {
   wrap.innerHTML = `
     <div style="padding:16px">
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <input type="text" placeholder="🔍 Search product or category…" value="${o2dPriceListSearchQ.replace(/"/g,'&quot;')}" oninput="onPriceListSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <input type="text" placeholder="🔍 Search product or category…" value="${esc(o2dPriceListSearchQ)}" oninput="onPriceListSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <button class="btn btn-outline" onclick="loadO2dPriceList(true).then(renderPriceListGrid)">🔄 Refresh</button>
         ${o2dPriceListCanEdit ? `<button class="btn btn-primary" onclick="openAddPriceModal()">+ Add Product</button>` : ''}
       </div>
@@ -8318,16 +8523,16 @@ function stockRowHtml(item) {
   const editBtns = stockCanEdit ? `
     <div style="display:flex;gap:4px">
       <button class="btn btn-outline btn-sm" onclick="openEditStockModal(${item.id})">✎ Edit</button>
-      <button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${item.description.replace(/'/g,"\\'")}')" title="Remove">🗑</button>
+      <button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${String(item.description||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Remove">🗑</button>
     </div>` : '';
   const stock = Number(item.current_stock);
   return `<tr>
-    <td style="font-weight:600">${item.item_code}</td>
-    <td>${item.description}</td>
-    <td>${item.std_pack !== null ? item.std_pack : '—'}</td>
-    <td>${item.uom || '—'}</td>
+    <td style="font-weight:600">${esc(item.item_code)}</td>
+    <td>${esc(item.description)}</td>
+    <td>${item.std_pack !== null ? esc(item.std_pack) : '—'}</td>
+    <td>${esc(item.uom || '—')}</td>
     <td style="white-space:nowrap;font-weight:700${stock < 0 ? ';color:var(--color-danger)' : ''}">${stock.toLocaleString('en-IN')}</td>
-    <td>${item.as_of_date ? item.as_of_date.slice(0,10) : '—'}</td>
+    <td>${item.as_of_date ? esc(item.as_of_date.slice(0,10)) : '—'}</td>
     <td style="white-space:nowrap">${editBtns}</td>
   </tr>`;
 }
@@ -8341,7 +8546,7 @@ function renderStockGrid() {
 
   body.innerHTML = `
     <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <input type="text" placeholder="🔍 Search item code or description…" value="${stockSearchQ.replace(/"/g,'&quot;')}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      <input type="text" placeholder="🔍 Search item code or description…" value="${esc(stockSearchQ)}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
       ${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
     </div>
@@ -8368,7 +8573,7 @@ async function loadStockTxns(dir, force) {
 
 function stockItemOptionsHtml() {
   return stockItems.slice().sort((a,b)=>a.description.localeCompare(b.description))
-    .map(it => `<option value="${it.item_code}">${it.item_code} — ${it.description}</option>`).join('');
+    .map(it => `<option value="${esc(it.item_code)}">${esc(it.item_code)} — ${esc(it.description)}</option>`).join('');
 }
 
 function stockMovementRowHtml(dir, row) {
@@ -8378,13 +8583,13 @@ function stockMovementRowHtml(dir, row) {
     ? `<span style="color:var(--gray-400);font-size:11px">Cancelled</span>`
     : (canEdit ? `<button class="btn btn-outline btn-sm" onclick="cancelStockTxn('${dir}',${row.id})">Cancel</button>` : '—');
   return `<tr${cancelled ? ' style="opacity:.5;text-decoration:line-through"' : ''}>
-    <td>${row.txn_date ? row.txn_date.slice(0,10) : '—'}</td>
-    <td style="font-weight:600">${row.item_code}</td>
-    <td>${row.item_name || '—'}</td>
+    <td>${row.txn_date ? esc(row.txn_date.slice(0,10)) : '—'}</td>
+    <td style="font-weight:600">${esc(row.item_code)}</td>
+    <td>${esc(row.item_name || '—')}</td>
     <td style="text-align:right;font-weight:700">${Number(row.quantity).toLocaleString('en-IN')}</td>
-    <td>${row.uom || '—'}</td>
-    <td>${row.remarks || '—'}</td>
-    <td>${row.created_by || '—'}</td>
+    <td>${esc(row.uom || '—')}</td>
+    <td>${esc(row.remarks || '—')}</td>
+    <td>${esc(row.created_by || '—')}</td>
     <td style="white-space:nowrap">${action}</td>
   </tr>`;
 }
@@ -8451,7 +8656,10 @@ async function submitStockMovement(dir) {
   const remarks = document.getElementById(`stkMv${dir}Remarks`).value.trim();
   if (!itemCode) { showToast('Select an item', 'error'); return; }
   const url = dir === 'IN' ? '/api/stock/inward' : '/api/stock/outward';
+  const btn = document.querySelector(`[onclick="submitStockMovement('${dir}')"]`);
+  if (btn) btn.disabled = true;
   const res = await api(url, 'POST', { itemCode, quantity, txnDate, remarks });
+  if (btn) btn.disabled = false;
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast(dir === 'IN' ? '✅ Inward logged!' : '✅ Outward logged!');
   await Promise.all([loadStock(true), loadStockTxns(dir, true)]);
@@ -8502,9 +8710,12 @@ async function submitStockItem() {
     currentStock: document.getElementById('stkCurrentStock').value.trim(),
     asOfDate: document.getElementById('stkAsOfDate').value
   };
+  const btn = document.querySelector('[onclick="submitStockItem()"]');
+  if (btn) btn.disabled = true;
   const res = id
     ? await api(`/api/stock/${id}`, 'PUT', body)
     : await api('/api/stock', 'POST', body);
+  if (btn) btn.disabled = false;
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast(id ? '✅ Item updated!' : '✅ Item added!');
   closeModal('stockModal');
@@ -8545,19 +8756,20 @@ async function loadCataloguePdfs(force) {
 
 function cataloguePdfRowHtml(item) {
   const deleteBtn = o2dCataloguePdfsCanEdit
-    ? `<button class="btn btn-outline btn-sm" onclick="deleteCataloguePdf(${item.id},'${item.filename.replace(/'/g,"\\'")}')" title="Remove">🗑</button>` : '';
-  // Drive's normal "open" link just previews the file — export=download makes
-  // the browser actually save it, so sales staff can grab it and share with dealers.
+    ? `<button class="btn btn-outline btn-sm" onclick="deleteCataloguePdf(${item.id},'${String(item.filename||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Remove">🗑</button>` : '';
+  // Files are no longer publicly shared on Drive (see server.js), so a raw
+  // drive.google.com link would 403 — go through our own authenticated
+  // proxy instead, with ?download=1 to force a Save-As.
   const downloadUrl = item.drive_file_id
-    ? `https://drive.google.com/uc?export=download&id=${item.drive_file_id}`
+    ? `/api/drive-file/${item.drive_file_id}?download=1`
     : item.url;
   return `<tr>
     <td>📄</td>
-    <td><a href="${item.url}" target="_blank" style="font-weight:600;color:var(--color-primary)">${item.filename}</a></td>
-    <td>${item.uploaded_by_name || '—'}</td>
-    <td style="white-space:nowrap;color:var(--gray-500)">${item.created_at || '—'}</td>
+    <td><a href="${esc(item.url)}" target="_blank" style="font-weight:600;color:var(--color-primary)">${esc(item.filename)}</a></td>
+    <td>${esc(item.uploaded_by_name || '—')}</td>
+    <td style="white-space:nowrap;color:var(--gray-500)">${esc(item.created_at || '—')}</td>
     <td style="white-space:nowrap;display:flex;gap:4px">
-      <a class="btn btn-outline btn-sm" href="${downloadUrl}" target="_blank" title="Download">⬇ Download</a>
+      <a class="btn btn-outline btn-sm" href="${esc(downloadUrl)}" target="_blank" title="Download">⬇ Download</a>
       ${deleteBtn}
     </td>
   </tr>`;
@@ -8711,7 +8923,7 @@ function renderBillsReceivableGrid() {
   filtered.forEach(b => { bucketTotals[b.bucket || 'Unknown'] = (bucketTotals[b.bucket || 'Unknown'] || 0) + (Number(b.amount) || 0); });
 
   const syncedNote = o2dBillsReceivableLastSynced
-    ? `Last synced: ${o2dBillsReceivableLastSynced}`
+    ? `Last synced: ${esc(o2dBillsReceivableLastSynced)}`
     : `<span style="color:var(--color-danger-text)">Kabhi sync nahi hui — Tally computer pe RUN.bat chalao (tally-sync folder)</span>`;
 
   wrap.innerHTML = `
@@ -8724,7 +8936,7 @@ function renderBillsReceivableGrid() {
           </div>`).join('')}
       </div>
       <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-        <input type="text" placeholder="🔍 Search party name…" value="${o2dBillsSearchQ.replace(/"/g,'&quot;')}" oninput="onBillsSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <input type="text" placeholder="🔍 Search party name…" value="${esc(o2dBillsSearchQ)}" oninput="onBillsSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <button class="btn btn-outline" onclick="renderBillsReceivableView()">🔄 Refresh</button>
         <span style="font-size:11.5px;color:var(--gray-400)">${syncedNote}</span>
       </div>
@@ -8732,13 +8944,13 @@ function renderBillsReceivableGrid() {
         <thead><tr><th>Party</th><th>Bill Ref</th><th>Bill Date</th><th>Due Date</th><th>Amount</th><th>Days Overdue</th><th>Bucket</th></tr></thead>
         <tbody>
           ${filtered.map(b => `<tr>
-            <td style="font-weight:600">${b.party}</td>
-            <td>${b.billRef || '—'}</td>
-            <td>${b.billDate || '—'}</td>
-            <td>${b.dueDate || '—'}</td>
+            <td style="font-weight:600">${esc(b.party)}</td>
+            <td>${esc(b.billRef || '—')}</td>
+            <td>${esc(b.billDate || '—')}</td>
+            <td>${esc(b.dueDate || '—')}</td>
             <td style="white-space:nowrap;font-weight:700">${b.amount ? inr(b.amount) : '—'}</td>
-            <td>${b.daysOverdue !== '' ? b.daysOverdue : '—'}</td>
-            <td><span class="status-badge" style="background:var(--gray-100);color:var(--gray-700)">${b.bucket || '—'}</span></td>
+            <td>${b.daysOverdue !== '' ? esc(b.daysOverdue) : '—'}</td>
+            <td><span class="status-badge" style="background:var(--gray-100);color:var(--gray-700)">${esc(b.bucket || '—')}</span></td>
           </tr>`).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">Koi data nahi — Tally sync abhi tak nahi hui</td></tr>`}
         </tbody>
       </table>
@@ -8776,12 +8988,12 @@ async function openStepDoersModal() {
     const checkboxes = users.map(u => `
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer">
         <input type="checkbox" class="stepDoerCheck_${sd.n}" value="${u.id}" ${assignedIds.has(u.id) ? 'checked' : ''}/>
-        ${u.name}
+        ${esc(u.name)}
       </label>`).join('');
     return `
       <div style="border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px">
-        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${sd.label}</div>
-        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${sd.doer || '—'} · TAT: ${sd.tat || '—'}</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${esc(sd.label)}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${esc(sd.doer || '—')} · TAT: ${esc(sd.tat || '—')}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:140px;overflow-y:auto">${checkboxes || '<span style="color:var(--gray-400);font-size:12px">No users found</span>'}</div>
       </div>`;
   }).join('');
@@ -9279,7 +9491,7 @@ function renderO2dDetailBody(o, hideProgress) {
           <option value="Not Available">Not Available</option>
         </select>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
-      <span>${p.productName} <span style="color:var(--gray-500)">— ${p.qty}${p.rate ? ' @ ₹' + p.rate : ''}</span></span>
+      <span>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span></span>
       ${control}
     </div>`;
   }).join('');
@@ -9290,7 +9502,7 @@ function renderO2dDetailBody(o, hideProgress) {
   const totalAmount = (o.products || []).reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.rate) || 0), 0);
   const productsInfoListHtml = (o.products || []).map(p => `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
-      <span>${p.productName} <span style="color:var(--gray-500)">— ${p.qty}${p.rate ? ' @ ₹' + p.rate : ''}</span></span>
+      <span>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span></span>
       ${o2dAvailabilityBadge(p)}
     </div>`).join('')
     + `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:7px 0 0;color:var(--gray-700)">
@@ -9304,36 +9516,36 @@ function renderO2dDetailBody(o, hideProgress) {
 
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
-      <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${o.counterName || '—'}${o.area ? ' · ' + o.area : ''}</div>
+      <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.counterName || '—')}${o.area ? ' · ' + esc(o.area) : ''}</div>
       ${itemsBlockHtml}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Order By</div>
-          <div style="font-size:14px;color:var(--gray-800)">${o.orderBy || '—'}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.orderBy || '—')}</div>
         </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Payment Terms</div>
-          <div style="font-size:14px;color:var(--gray-800)">${o.paymentTerms || '—'}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.paymentTerms || '—')}</div>
         </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Counter Type</div>
-          <div style="font-size:14px;color:var(--gray-800)">${o.counterType || '—'}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.counterType || '—')}</div>
         </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Channel (Freight / Rent)</div>
-          <div style="font-size:14px;color:var(--gray-800)">${o.channel || '—'}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.channel || '—')}</div>
         </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Deliver by Transport?</div>
-          <div style="font-size:14px;color:var(--gray-800)">${o.deliverByTransport || '—'}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.deliverByTransport || '—')}</div>
         </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Make Performa Invoice?</div>
-          <div style="font-size:14px;color:var(--gray-800)">${o.makePerformaInvoice || '—'}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.makePerformaInvoice || '—')}</div>
         </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">When to Send</div>
-          <div style="font-size:14px;color:var(--gray-800)">${o.whenToSend || '—'}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.whenToSend || '—')}</div>
         </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Date to Send</div>
@@ -9343,7 +9555,7 @@ function renderO2dDetailBody(o, hideProgress) {
       ${o.remark ? `
       <div style="margin-top:14px">
         <div style="${O2D_FIELD_LABEL_STYLE}">Remark</div>
-        <div style="font-size:14px;color:var(--gray-800)">${o.remark}</div>
+        <div style="font-size:14px;color:var(--gray-800)">${esc(o.remark)}</div>
       </div>` : ''}
     </div>`;
 
@@ -9360,8 +9572,8 @@ function renderO2dDetailBody(o, hideProgress) {
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole order</div>
-        <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${nextStepDef.label}</div>
-        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${stepDoerLabel(nextStepDef)} · TAT: ${nextStepDef.tat || '—'}</div>
+        <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${esc(nextStepDef.label)}</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')}</div>
         ${showItemsInAction ? `
         <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length}) — pick Available/Not Available per item</div>
         <div style="margin-bottom:14px;background:var(--surface);border-radius:10px;padding:2px 10px">${productsActionListHtml || '—'}</div>` : ''}
@@ -9398,7 +9610,7 @@ function renderO2dDetailBody(o, hideProgress) {
           : `<span style="width:20px;height:20px;border-radius:50%;border:2px solid ${isCurrent ? 'var(--color-primary)' : 'var(--gray-200)'};flex-shrink:0"></span>`;
         return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:${isDone ? 'var(--color-success-bg)' : isCurrent ? 'var(--color-purple-bg)' : 'var(--gray-50)'}">
           ${dot}
-          <span style="font-size:14px;font-weight:${isDone || isCurrent ? '600' : '400'};color:${isDone ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${s.n}. ${s.label}</span>
+          <span style="font-size:14px;font-weight:${isDone || isCurrent ? '600' : '400'};color:${isDone ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${s.n}. ${esc(s.label)}</span>
         </div>`;
       }).join('')}
     </div>
@@ -9410,14 +9622,14 @@ function renderO2dDetailBody(o, hideProgress) {
         <tbody>
           ${o.steps.map(s => {
             const def = O2D_STEP_DEFS.find(d => d.n === s.n);
-            const extraText = def.extraFields.map(f => s[f.key] ? `${f.label}: ${s[f.key]}` : '').filter(Boolean).join(', ') || '—';
+            const extraText = def.extraFields.map(f => s[f.key] ? `${esc(f.label)}: ${esc(s[f.key])}` : '').filter(Boolean).join(', ') || '—';
             return `<tr>
-            <td style="font-weight:600">${s.n}. ${s.label}</td>
-            <td>${stepDoerLabel(s)}</td>
-            <td style="color:var(--gray-500)">${s.tat || '—'}</td>
-            <td>${s.planned || '—'}</td>
-            <td>${s.actual || '—'}</td>
-            <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${s.status}</span>` : '—'}</td>
+            <td style="font-weight:600">${s.n}. ${esc(s.label)}</td>
+            <td>${esc(stepDoerLabel(s))}</td>
+            <td style="color:var(--gray-500)">${esc(s.tat || '—')}</td>
+            <td>${esc(s.planned || '—')}</td>
+            <td>${esc(s.actual || '—')}</td>
+            <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${esc(s.status)}</span>` : '—'}</td>
             <td>${extraText}</td>
           </tr>`;
           }).join('')}
@@ -9427,6 +9639,580 @@ function renderO2dDetailBody(o, hideProgress) {
     </details>`;
 
   body.innerHTML = infoHtml + actionHtml + (hideProgress ? '' : checklistHtml);
+}
+
+// ══════════════════════════════════════════════════════
+// PURCHASE FMS (Indent → Stock Check → Provide from Store → Finalise Rate →
+// Approval → Generate PO → Goods Receipt). Same structural pattern as O2D
+// FMS above (STEP_DEFS array, list/detail/reports views, step-doers admin,
+// generic extra-field render/read pair) — kept as its own independent copy
+// (state vars, style constants) rather than sharing O2D's, same convention
+// Service FMS already follows.
+//
+// Step 4 (Approval) is conditional — getPurchaseIndents() on the server
+// already folds "skipped because Approval Needed = No" into each step's
+// `done`/`skipped` flags and into `currentStep`, so the UI here just reads
+// those flags; no separate skip logic needed client-side.
+// ══════════════════════════════════════════════════════
+const PURCHASE_STEP_DEFS = [
+  { n: 1, label: 'Check Stock in Store', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [
+      { key: 'qtyAvailable', label: 'Qty Available', type: 'number' }
+    ] },
+  { n: 2, label: 'Provide from Store', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [
+      { key: 'qtyToPurchase', label: 'Qty to Purchase', type: 'number' }
+    ] },
+  { n: 3, label: 'Finalise Rate', doer: 'Accountant (Narender)', tat: '10 min', extraFields: [
+      { key: 'finalRate', label: 'Final Current Rate', type: 'number', required: true },
+      { key: 'oldRate', label: 'Old Rate', type: 'number' },
+      { key: 'rateType', label: 'Rate Type' },
+      { key: 'leadTime', label: 'Lead Time (days)', type: 'number' },
+      { key: 'approvalNeeded', label: 'Approval Needed', type: 'select', options: ['Yes', 'No'], required: true }
+    ] },
+  { n: 4, label: 'Approval', doer: 'Ajay', tat: '—', statusOptions: ['Approved', 'Rejected'], extraFields: [] },
+  { n: 5, label: 'Generate PO', doer: 'Priyanka (SCCRR)', tat: '30 min', extraFields: [
+      { key: 'poNumber', label: 'PO Number', required: true },
+      { key: 'poLink', label: 'PO Link' },
+      { key: 'poQty', label: 'Po Qty.', type: 'number' }
+    ] },
+  { n: 6, label: 'Goods Receipt & Closure', doer: 'Priyanka (SCCRR)', tat: '—', statusOptions: ['Closed', 'Partial'], extraFields: [
+      { key: 'totalReceived', label: 'Total Received', type: 'number', required: true },
+      { key: 'docsComplete', label: 'Docs Complete', type: 'select', options: ['Yes', 'No'] },
+      { key: 'remark', label: 'Remark' }
+    ] }
+];
+// PO generation itself happens in a separate Apps Script tool the user
+// already has (google.script.run UI, not a callable API) — the Generate PO
+// step just links out to it; PO Number/Link/Qty stay manual-entry fields.
+const PURCHASE_PO_GENERATOR_URL = 'https://script.google.com/macros/s/AKfycbxpcAYsLFoz1EUxU3NposqHfhg6eS-U9UgSAcR1te_AO3PHFLcWj7i2zWaUfOIIY89U/exec';
+const PFMS_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
+const PFMS_INPUT_STYLE = "width:100%;padding:10px 12px;border:1.5px solid var(--border-base);border-radius:var(--radius-sm);font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
+
+let pfmsData = [];
+let pfmsView = 'fms';
+let pfmsPage = 1;
+const PFMS_PAGE_SIZE = 50;
+
+async function loadPurchaseFmsList() {
+  const wrap = document.getElementById('pfmsListWrap');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (!_pfmsStepDoersMerged) await mergePurchaseStepDoersIntoDefs();
+  const data = await api('/api/purchase-fms');
+  if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
+  pfmsData = data;
+  renderPurchaseFmsActiveView();
+}
+
+function pfmsSearchChanged() { pfmsPage = 1; renderPurchaseFmsActiveView(); }
+
+function switchPurchaseFmsView(view, el) {
+  pfmsView = view;
+  pfmsPage = 1;
+  document.querySelectorAll('#page-purchase-fms .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('pfmsSearchWrap').style.display = (view === 'reports') ? 'none' : '';
+  renderPurchaseFmsActiveView();
+}
+
+function renderPurchaseFmsActiveView() {
+  if (pfmsView === 'fms') return renderPurchaseFmsView();
+  if (pfmsView === 'pc') return renderPurchasePCView();
+  return renderPurchaseReportsView();
+}
+
+function pfmsPaginate(rows) {
+  const totalPages = Math.max(1, Math.ceil(rows.length / PFMS_PAGE_SIZE));
+  if (pfmsPage > totalPages) pfmsPage = totalPages;
+  const start = (pfmsPage - 1) * PFMS_PAGE_SIZE;
+  return { pageRows: rows.slice(start, start + PFMS_PAGE_SIZE), totalPages, total: rows.length };
+}
+function pfmsPaginationHtml(totalPages, total) {
+  return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--gray-200)">
+    <span style="font-size:12px;color:var(--gray-400)">${total} indents — page ${pfmsPage} of ${totalPages}</span>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-outline btn-sm" ${pfmsPage <= 1 ? 'disabled' : ''} onclick="pfmsGoToPage(${pfmsPage - 1})">← Prev</button>
+      <button class="btn btn-outline btn-sm" ${pfmsPage >= totalPages ? 'disabled' : ''} onclick="pfmsGoToPage(${pfmsPage + 1})">Next →</button>
+    </div>
+  </div>`;
+}
+function pfmsGoToPage(p) { pfmsPage = p; renderPurchaseFmsActiveView(); }
+
+function pfmsFilteredRows() {
+  const q = (document.getElementById('pfmsSearch').value || '').trim().toLowerCase();
+  if (!q) return pfmsData;
+  return pfmsData.filter(o =>
+    (o.indentNo || '').toLowerCase().includes(q) ||
+    (o.products || []).some(p => (p.productName || '').toLowerCase().includes(q) || (p.vendorName || '').toLowerCase().includes(q))
+  );
+}
+
+function pfmsParseDate(s) { return s ? new Date(s.replace(' ', 'T')) : null; }
+function pfmsIsOverdue(plannedStr) {
+  const d = pfmsParseDate(plannedStr);
+  return d && d.getTime() < Date.now();
+}
+
+// ── FMS View: the full grid, one row per indent, Planned/Actual/Status per
+// step side by side — a skipped step (Approval, when not needed) shows a
+// grey "Skipped" badge instead of a blank cell. ──
+let pfmsFmsSubView = 'pending';
+function switchPfmsFmsSubView(sub) { pfmsFmsSubView = sub; pfmsPage = 1; renderPurchaseFmsView(); }
+
+function renderPurchaseFmsView() {
+  const wrap = document.getElementById('pfmsListWrap');
+  const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200)">
+    <button onclick="switchPfmsFmsSubView('pending')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${pfmsFmsSubView==='pending'?'var(--color-primary)':'var(--gray-200)'};background:${pfmsFmsSubView==='pending'?'var(--color-primary-light)':'#fff'};color:${pfmsFmsSubView==='pending'?'var(--color-primary)':'var(--gray-600)'}">Pending</button>
+    <button onclick="switchPfmsFmsSubView('completed')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${pfmsFmsSubView==='completed'?'var(--color-primary)':'var(--gray-200)'};background:${pfmsFmsSubView==='completed'?'var(--color-primary-light)':'#fff'};color:${pfmsFmsSubView==='completed'?'var(--color-primary)':'var(--gray-600)'}">Completed (All Steps)</button>
+  </div>`;
+
+  const rows = pfmsFilteredRows().filter(o => pfmsFmsSubView === 'pending' ? !o.closed : o.closed);
+  if (!rows.length) {
+    wrap.innerHTML = subTabsHtml + `<div class="empty">${pfmsFmsSubView === 'pending' ? 'No pending indents.' : 'No completed indents yet.'}</div>`;
+    return;
+  }
+  const { pageRows, totalPages, total } = pfmsPaginate(rows);
+  const stepHeadTop = PURCHASE_STEP_DEFS.map(sd => `<th colspan="3" style="text-align:center;border-left:2px solid var(--gray-200)">${sd.n}. ${sd.label}</th>`).join('');
+  const stepHeadSub = PURCHASE_STEP_DEFS.map(() => `<th style="border-left:2px solid var(--gray-200)">Planned</th><th>Actual</th><th>Status</th>`).join('');
+  wrap.innerHTML = subTabsHtml + `<table style="font-size:12px;white-space:nowrap">
+    <thead>
+      <tr><th rowspan="2">Indent No</th><th rowspan="2">Items</th><th rowspan="2">Qty</th>${stepHeadTop}</tr>
+      <tr>${stepHeadSub}</tr>
+    </thead>
+    <tbody>
+      ${pageRows.map(o => `
+        <tr onclick="openPurchaseDetail('${o.indentNo}')" style="cursor:pointer">
+          <td style="font-weight:600">${esc(o.indentNo || '—')}</td>
+          <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}</div>`).join('') || '—'}</td>
+          <td>${esc(o.qty || '—')}</td>
+          ${o.steps.map(s => `
+            <td style="border-left:2px solid var(--gray-200)">${esc(s.planned || '—')}</td>
+            <td>${esc(s.actual || '—')}</td>
+            <td>${s.skipped ? `<span class="status-badge" style="background:var(--gray-100);color:var(--gray-400)">Skipped</span>` : (s.status ? `<span class="status-badge" style="background:${(s.status==='No'||s.status==='Rejected')?'var(--color-danger-bg)':'var(--color-success-bg)'};color:${(s.status==='No'||s.status==='Rejected')?'var(--color-danger-text)':'var(--color-success-text)'}">${esc(s.status)}</span>` : '—')}</td>
+          `).join('')}
+        </tr>`).join('')}
+    </tbody>
+  </table>
+  ${pfmsPaginationHtml(totalPages, total)}`;
+}
+
+// ── PC View: pending indents only — where each is stuck, planned time, doer. ──
+function renderPurchasePCView() {
+  const wrap = document.getElementById('pfmsListWrap');
+  const rows = pfmsFilteredRows().filter(o => !o.closed);
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending indents — sab clear hai 🎉</div>'; return; }
+  const { pageRows, totalPages, total } = pfmsPaginate(rows);
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Indent No</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
+    <tbody>
+      ${pageRows.map(o => {
+        const pendingStep = o.steps[o.currentStep];
+        const overdue = pfmsIsOverdue(pendingStep.planned);
+        const rowStyle = overdue ? 'background:var(--color-danger-bg)' : '';
+        const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
+        return `
+        <tr onclick="openPurchaseDetail('${o.indentNo}')" style="cursor:pointer;${rowStyle}">
+          <td style="font-weight:600">${esc(o.indentNo || '—')}</td>
+          <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}</div>`).join('') || '—'}</td>
+          <td>${esc(o.qty || '—')}</td>
+          <td style="font-weight:600">${pendingStep.n}. ${esc(pendingStep.label)}</td>
+          <td style="${plannedStyle}">${esc(pendingStep.planned || '—')}${overdue ? ' ⚠️' : ''}</td>
+          <td>${esc(stepDoerLabel(pendingStep))}</td>
+          <td style="color:var(--gray-500)">${esc(pendingStep.tat || '—')}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+  ${pfmsPaginationHtml(totalPages, total)}`;
+}
+
+// ── Reports: summary counts + per-step pending breakdown. ──
+function renderPurchaseReportsView() {
+  const wrap = document.getElementById('pfmsListWrap');
+  const total = pfmsData.length;
+  const closed = pfmsData.filter(o => o.closed).length;
+  const pending = total - closed;
+  const overdueCount = pfmsData.filter(o => !o.closed && pfmsIsOverdue(o.steps[o.currentStep].planned)).length;
+
+  const perStep = PURCHASE_STEP_DEFS.map(sd => ({
+    step: sd,
+    count: pfmsData.filter(o => !o.closed && o.currentStep === sd.n - 1).length
+  }));
+
+  const statCard = (label, value, color) => `
+    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px;flex:1;min-width:140px">
+      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">${label}</div>
+      <div style="font-size:28px;font-weight:800;color:${color}">${value}</div>
+    </div>`;
+
+  wrap.innerHTML = `
+    <div style="padding:16px">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+        ${statCard('Total Indents', total, 'var(--gray-800)')}
+        ${statCard('Closed', closed, 'var(--color-success-text)')}
+        ${statCard('Pending', pending, 'var(--color-warning-text)')}
+        ${statCard('Overdue', overdueCount, 'var(--color-danger)')}
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Pending Indents By Step</div>
+      <table>
+        <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Pending Count</th></tr></thead>
+        <tbody>
+          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${esc(p.step.label)}</td><td>${esc(stepDoerLabel(p.step))}</td><td style="color:var(--gray-500)">${esc(p.step.tat || '—')}</td><td>${p.count}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// ── Step doers admin (mirrors O2D's stepDoerLabel/mergeO2dStepDoersIntoDefs/
+// openStepDoersModal/submitStepDoers exactly, reuses the shared stepDoerLabel
+// helper defined above). ──
+let _pfmsAllUsersForDoers = null;
+let _pfmsStepDoersMerged = false;
+async function mergePurchaseStepDoersIntoDefs() {
+  const r = await api('/api/purchase-fms/step-doers');
+  const assignments = (r && r.assignments) || {};
+  PURCHASE_STEP_DEFS.forEach(sd => { sd.doers = assignments[sd.n] || []; });
+  _pfmsStepDoersMerged = true;
+}
+
+async function openPurchaseStepDoersModal() {
+  const [usersRes, doersRes] = await Promise.all([
+    _pfmsAllUsersForDoers ? Promise.resolve(_pfmsAllUsersForDoers) : api('/api/users/roster'),
+    api('/api/purchase-fms/step-doers')
+  ]);
+  if (Array.isArray(usersRes)) _pfmsAllUsersForDoers = usersRes;
+  const users = _pfmsAllUsersForDoers || [];
+  const assignments = (doersRes && doersRes.assignments) || {};
+
+  document.getElementById('purchaseStepDoersRows').innerHTML = PURCHASE_STEP_DEFS.map(sd => {
+    const assignedIds = new Set((assignments[sd.n] || []).map(u => u.id));
+    const checkboxes = users.map(u => `
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer">
+        <input type="checkbox" class="pfmsStepDoerCheck_${sd.n}" value="${u.id}" ${assignedIds.has(u.id) ? 'checked' : ''}/>
+        ${esc(u.name)}
+      </label>`).join('');
+    return `
+      <div style="border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${esc(sd.label)}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${esc(sd.doer || '—')} · TAT: ${esc(sd.tat || '—')}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:140px;overflow-y:auto">${checkboxes || '<span style="color:var(--gray-400);font-size:12px">No users found</span>'}</div>
+      </div>`;
+  }).join('');
+  document.getElementById('purchaseStepDoersModal').classList.add('open');
+}
+
+async function submitPurchaseStepDoers() {
+  const assignments = {};
+  PURCHASE_STEP_DEFS.forEach(sd => {
+    const checked = [...document.querySelectorAll(`.pfmsStepDoerCheck_${sd.n}:checked`)].map(el => Number(el.value));
+    assignments[sd.n] = checked;
+  });
+  const r = await api('/api/purchase-fms/step-doers', 'PUT', { assignments });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Step doers updated!');
+  closeModal('purchaseStepDoersModal');
+  await mergePurchaseStepDoersIntoDefs();
+  if (document.getElementById('page-purchase-fms').classList.contains('active')) loadPurchaseFmsList();
+}
+
+// ── New Indent ── appends straight into the Purchase Fms sheet.
+let pfmsProductRowCount = 0;
+function addPurchaseProductRow() {
+  const id = pfmsProductRowCount++;
+  const wrap = document.getElementById('niProductRows');
+  const row = document.createElement('div');
+  row.id = `niProductRow_${id}`;
+  row.style.cssText = 'display:grid;grid-template-columns:minmax(0,2fr) minmax(0,0.7fr) minmax(0,0.7fr) minmax(0,1.3fr) 20px;gap:6px;margin-bottom:8px;align-items:center';
+  row.innerHTML = `
+    <input type="text" placeholder="Product Name *" id="niProdName_${id}" list="niProductNameList" style="min-width:0;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="text" placeholder="UOM" id="niProdUom_${id}" value="PCS" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="number" placeholder="Qty *" id="niProdQty_${id}" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <input type="text" placeholder="Vendor Name" id="niProdVendor_${id}" list="niVendorNameList" style="min-width:0;padding:9px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <button type="button" onclick="removePurchaseProductRow(${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:16px;padding:0;flex-shrink:0">✕</button>`;
+  wrap.appendChild(row);
+}
+function removePurchaseProductRow(id) {
+  const wrap = document.getElementById('niProductRows');
+  if (wrap.children.length <= 1) { showToast('At least one product is required', 'error'); return; }
+  document.getElementById(`niProductRow_${id}`).remove();
+}
+
+let _pfmsProductNames = null; // cached across modal opens — Product Master workbook rarely changes
+async function loadPurchaseProductNames() {
+  if (!_pfmsProductNames) {
+    const r = await api('/api/purchase-fms/product-names');
+    _pfmsProductNames = (r && r.products) || [];
+  }
+  document.getElementById('niProductNameList').innerHTML = _pfmsProductNames.map(p => `<option value="${p.name.replace(/"/g,'&quot;')}">`).join('');
+}
+let _pfmsVendorNames = null;
+async function loadPurchaseVendorNames() {
+  if (!_pfmsVendorNames) {
+    const r = await api('/api/purchase-fms/vendor-names');
+    _pfmsVendorNames = (r && r.vendors) || [];
+  }
+  document.getElementById('niVendorNameList').innerHTML = _pfmsVendorNames.map(v => `<option value="${v.replace(/"/g,'&quot;')}">`).join('');
+}
+// No Indent Type master exists — just suggest whatever's already been used.
+function populatePurchaseIndentTypeList() {
+  const types = new Set(['Finished Goods For Indent']);
+  pfmsData.forEach(o => { if (o.indentType) types.add(o.indentType); });
+  document.getElementById('niIndentTypeList').innerHTML = [...types].map(t => `<option value="${t.replace(/"/g,'&quot;')}">`).join('');
+}
+
+function openNewPurchaseIndentModal() {
+  document.getElementById('newPfmsIndentErr').style.display = 'none';
+  document.getElementById('niIndentType').value = 'Finished Goods For Indent';
+  document.getElementById('niRaisedBy').value = (ME && ME.name) || '';
+  document.getElementById('niProductRows').innerHTML = '';
+  pfmsProductRowCount = 0;
+  addPurchaseProductRow();
+  document.getElementById('newPurchaseIndentModal').classList.add('open');
+  populatePurchaseIndentTypeList();
+  loadPurchaseProductNames();
+  loadPurchaseVendorNames();
+}
+
+async function submitNewPurchaseIndent() {
+  const errEl = document.getElementById('newPfmsIndentErr');
+  errEl.style.display = 'none';
+  const raisedBy = document.getElementById('niRaisedBy').value.trim();
+  if (!raisedBy) { errEl.textContent = 'Raised By is required'; errEl.style.display = 'block'; return; }
+  const indentType = document.getElementById('niIndentType').value.trim();
+
+  const products = [];
+  for (const row of document.getElementById('niProductRows').children) {
+    const id = row.id.split('_')[1];
+    const productName = document.getElementById(`niProdName_${id}`).value.trim();
+    const qty = document.getElementById(`niProdQty_${id}`).value.trim();
+    if (!productName || !qty) { errEl.textContent = 'Every product needs a name and quantity'; errEl.style.display = 'block'; return; }
+    products.push({
+      productName, qty,
+      uom: document.getElementById(`niProdUom_${id}`).value.trim() || 'PCS',
+      vendorName: document.getElementById(`niProdVendor_${id}`).value.trim()
+    });
+  }
+
+  const submitBtn = document.getElementById('niSubmitBtn');
+  const originalBtnText = submitBtn.textContent;
+  submitBtn.textContent = '⏳ Saving...';
+  submitBtn.disabled = true;
+
+  const res = await api('/api/purchase-fms/new-indent', 'POST', { indentType, raisedBy, products });
+
+  submitBtn.textContent = originalBtnText;
+  submitBtn.disabled = false;
+
+  if (res.error) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
+  showToast(`✅ Indent ${res.indentNo} created!`);
+  closeModal('newPurchaseIndentModal');
+  loadPurchaseFmsList();
+}
+
+async function openPurchaseDetail(indentNo) {
+  const o = pfmsData.find(x => x.indentNo === indentNo);
+  if (!o) { showToast('Indent not found — please refresh', 'error'); return; }
+  document.getElementById('pfmsTitle').textContent = o.indentNo;
+  document.getElementById('purchaseDetailModal').classList.add('open');
+  renderPurchaseDetailBody(o);
+}
+
+function renderPurchaseField(f, indentNo) {
+  const id = `pfmsExtra_${indentNo}_${f.key}`;
+  const reqMark = f.required ? ` <span style="color:var(--color-danger)">*</span>` : '';
+  if (f.type === 'select') {
+    return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
+      <select id="${id}" style="${PFMS_INPUT_STYLE};background:var(--surface)">
+        <option value="">-- Select --</option>
+        ${(f.options||[]).map(o => `<option>${o}</option>`).join('')}
+      </select>`;
+  }
+  return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${PFMS_INPUT_STYLE}"/>`;
+}
+function readPurchaseField(f, indentNo) {
+  const el = document.getElementById(`pfmsExtra_${indentNo}_${f.key}`);
+  return el ? el.value.trim() : '';
+}
+
+// Marking a step done applies to the WHOLE indent (every product line under
+// this Indent No.) in one call, same "only touch lines still pending this
+// step" server logic as O2D. Simple re-fetch after a successful write rather
+// than O2D's optimistic local patch — getPurchaseIndents() isn't cached
+// either way, and the conditional Approval-skip makes re-deriving currentStep
+// client-side more error-prone than just trusting the server's answer.
+async function advancePurchaseStep(indentNo, step) {
+  const o = pfmsData.find(x => x.indentNo === indentNo);
+  if (!o) { showToast('Indent not found — please refresh', 'error'); return; }
+  const stepDef = PURCHASE_STEP_DEFS.find(d => d.n === step);
+  const body = { status: 'Yes' };
+
+  if (stepDef.statusOptions) {
+    const sel = document.getElementById(`pfmsStepStatus_${indentNo}`);
+    const val = sel ? sel.value : '';
+    if (!val) { showToast('Select a status', 'error'); return; }
+    body.status = val;
+  }
+
+  for (const f of stepDef.extraFields) body[f.key] = readPurchaseField(f, indentNo);
+  for (const f of stepDef.extraFields) {
+    if (f.required && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
+  }
+
+  const btn = document.getElementById(`pfmsMarkDoneBtn_${indentNo}`);
+  const originalBtnText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Saving...'; btn.disabled = true; }
+
+  const res = await api(`/api/purchase-fms/indent/${encodeURIComponent(indentNo)}/step/${step}`, 'PUT', body);
+
+  if (res.error) {
+    if (/No pending rows/i.test(res.error)) {
+      showToast('This step was already marked done.');
+      closeModal('purchaseDetailModal');
+      loadPurchaseFmsList();
+      return;
+    }
+    if (btn) { btn.textContent = originalBtnText; btn.disabled = false; }
+    showToast(res.error, 'error');
+    return;
+  }
+
+  showToast('✅ Step recorded!');
+  closeModal('purchaseDetailModal');
+  loadPurchaseFmsList();
+}
+
+// Generates + writes the PO for one product line and re-opens the same
+// indent's detail view refreshed, so generating several lines' POs one
+// after another (multi-vendor indent) doesn't require re-navigating.
+async function generatePurchasePo(row, indentNo) {
+  const btn = document.getElementById(`pfmsGenPoBtn_${row}`);
+  const originalBtnText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Generating...'; btn.disabled = true; }
+
+  const res = await api('/api/purchase-fms/generate-po', 'POST', { row });
+
+  if (res.error) {
+    if (btn) { btn.textContent = originalBtnText; btn.disabled = false; }
+    showToast(res.error, 'error');
+    return;
+  }
+
+  showToast(`✅ ${res.poNumber} generated!`);
+  await loadPurchaseFmsList();
+  if (document.getElementById('purchaseDetailModal').classList.contains('open')) openPurchaseDetail(indentNo);
+}
+
+function renderPurchaseDetailBody(o) {
+  const body = document.getElementById('pfmsBody');
+
+  const productsInfoListHtml = (o.products || []).map(p => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
+      <span>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)} ${esc(p.uom||'')}</span></span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:12px;color:var(--gray-500)">${esc(p.vendorName || '—')}</span>
+        ${p.poNumber ? `<a href="${esc(p.poLink||'#')}" target="_blank" rel="noopener" class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text);text-decoration:none">🧾 ${esc(p.poNumber)}</a>` : ''}
+      </span>
+    </div>`).join('');
+
+  const infoHtml = `
+    <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
+      <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.indentNo)}${o.indentType ? ' · ' + esc(o.indentType) : ''}</div>
+      <div style="${PFMS_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
+      <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div style="${PFMS_FIELD_LABEL_STYLE}">Raised By</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(o.raisedBy || '—')}</div>
+        </div>
+        <div>
+          <div style="${PFMS_FIELD_LABEL_STYLE}">Raised On</div>
+          <div style="font-size:14px;color:var(--gray-800)">${o.timestamp ? fmtDate(o.timestamp) : '—'}</div>
+        </div>
+      </div>
+    </div>`;
+
+  const nextStepDef = PURCHASE_STEP_DEFS.find(d => d.n === o.currentStep + 1);
+  let actionHtml;
+  if (nextStepDef && nextStepDef.n === 5) {
+    // Generate PO is per PRODUCT LINE, not per whole indent — different
+    // lines under one indent can have different vendors (real data confirms
+    // this), so each gets its own PO generated + written independently.
+    const pendingPoLines = (o.products || []).filter(p => p.currentStep < 5);
+    actionHtml = `
+      <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — per item</div>
+        <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">Generate PO</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')} — har item/vendor ka apna PO banega</div>
+        ${pendingPoLines.map(p => `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+            <div>
+              <div style="font-size:13px;font-weight:600">${esc(p.productName)}</div>
+              <div style="font-size:11.5px;color:var(--gray-500)">${esc(p.vendorName || '—')} · ${esc(p.qty)} ${esc(p.uom||'')}${p.finalRate ? ' @ Rs.' + esc(p.finalRate) : ''}</div>
+            </div>
+            <button id="pfmsGenPoBtn_${p.row}" class="btn btn-green btn-sm" onclick="generatePurchasePo(${p.row},'${o.indentNo}')">🧾 Generate PO</button>
+          </div>`).join('') || '<div style="color:var(--gray-400);font-size:13px">No pending items</div>'}
+        <div style="margin-top:6px"><a href="${PURCHASE_PO_GENERATOR_URL}" target="_blank" rel="noopener" style="font-size:11px;color:var(--gray-400)">or use the old external PO tool ↗</a></div>
+      </div>`;
+  } else if (nextStepDef) {
+    const extraInputsHtml = nextStepDef.extraFields.map(f => renderPurchaseField(f, o.indentNo)).join('');
+    actionHtml = `
+      <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole indent</div>
+        <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${esc(nextStepDef.label)}</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')}</div>
+        ${nextStepDef.statusOptions ? `
+        <div style="${PFMS_FIELD_LABEL_STYLE}">Status <span style="color:var(--color-danger)">*</span></div>
+        <select id="pfmsStepStatus_${o.indentNo}" style="${PFMS_INPUT_STYLE};background:var(--surface)">
+          <option value="">-- Select --</option>
+          ${nextStepDef.statusOptions.map(s => `<option>${s}</option>`).join('')}
+        </select>` : ''}
+        ${extraInputsHtml}
+        <button id="pfmsMarkDoneBtn_${o.indentNo}" onclick="advancePurchaseStep('${o.indentNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
+      </div>`;
+  } else {
+    actionHtml = `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All steps complete — indent closed</div>`;
+  }
+
+  const checklistHtml = `
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Progress (${o.currentStep}/${PURCHASE_STEP_DEFS.length})</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      ${o.steps.map(s => {
+        const isCurrent = s.n === o.currentStep + 1;
+        const dot = s.skipped
+          ? `<span style="width:20px;height:20px;border-radius:50%;background:var(--gray-300);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">—</span>`
+          : s.done
+          ? `<span style="width:20px;height:20px;border-radius:50%;background:var(--color-success-text);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">✓</span>`
+          : `<span style="width:20px;height:20px;border-radius:50%;border:2px solid ${isCurrent ? 'var(--color-primary)' : 'var(--gray-200)'};flex-shrink:0"></span>`;
+        const label = s.skipped ? `${s.n}. ${esc(s.label)} (skipped)` : `${s.n}. ${esc(s.label)}`;
+        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:${s.skipped ? 'var(--gray-50)' : s.done ? 'var(--color-success-bg)' : isCurrent ? 'var(--color-purple-bg)' : 'var(--gray-50)'}">
+          ${dot}
+          <span style="font-size:14px;font-weight:${s.done || isCurrent ? '600' : '400'};color:${s.skipped ? 'var(--gray-400)' : s.done ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${label}</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <details>
+      <summary style="cursor:pointer;font-size:12px;color:var(--gray-400);font-weight:600">View full record (dates, details)</summary>
+      <div class="mis-table-wrap" style="margin-top:8px;overflow-x:auto">
+      <table>
+        <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Planned</th><th>Actual</th><th>Status</th><th>Extra</th></tr></thead>
+        <tbody>
+          ${o.steps.map(s => {
+            const def = PURCHASE_STEP_DEFS.find(d => d.n === s.n);
+            const extraText = def.extraFields.map(f => s[f.key] ? `${esc(f.label)}: ${esc(s[f.key])}` : '').filter(Boolean).join(', ') || '—';
+            return `<tr>
+            <td style="font-weight:600">${s.n}. ${esc(s.label)}</td>
+            <td>${esc(stepDoerLabel(s))}</td>
+            <td style="color:var(--gray-500)">${esc(s.tat || '—')}</td>
+            <td>${esc(s.planned || '—')}</td>
+            <td>${esc(s.actual || '—')}</td>
+            <td>${s.skipped ? `<span class="status-badge" style="background:var(--gray-100);color:var(--gray-400)">Skipped</span>` : (s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${esc(s.status)}</span>` : '—')}</td>
+            <td>${extraText}</td>
+          </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </details>`;
+
+  body.innerHTML = infoHtml + actionHtml + checklistHtml;
 }
 
 // ══════════════════════════════════════════════════════
@@ -9462,7 +10248,7 @@ async function loadFMSAdmin() {
   emptyEl.style.display = 'none';
   // ✅ Use fms_name if available, else sheet_name
   tabsEl.innerHTML = sheets.map(s => `
-    <div class="fms-name-tab ${fmsActiveId===s.id?'active':''}" onclick="loadFMSDetail(${s.id})">${s.fms_name||s.sheet_name}</div>
+    <div class="fms-name-tab ${fmsActiveId===s.id?'active':''}" onclick="loadFMSDetail(${s.id})">${esc(s.fms_name||s.sheet_name)}</div>
   `).join('');
 
   if (!fmsActiveId && sheets.length) loadFMSDetail(sheets[0].id);
@@ -9483,12 +10269,12 @@ async function loadFMSDetail(id) {
 
   // Sheet info bar
   document.getElementById('fmsSheetInfoText').innerHTML =
-    `<strong>${sheet.sheet_name}</strong> &nbsp;·&nbsp; Sheet ID: <code style="background:var(--gray-100);padding:1px 6px;border-radius:4px;font-size:12px">${sheet.sheet_id}</code> &nbsp;·&nbsp; Header Row: ${sheet.header_row}`;
+    `<strong>${esc(sheet.sheet_name)}</strong> &nbsp;·&nbsp; Sheet ID: <code style="background:var(--gray-100);padding:1px 6px;border-radius:4px;font-size:12px">${esc(sheet.sheet_id)}</code> &nbsp;·&nbsp; Header Row: ${esc(sheet.header_row)}`;
 
   // Step tabs
   const stepTabsEl = document.getElementById('fmsStepTabs');
   stepTabsEl.innerHTML = steps.map((s,i) => `
-    <div class="fms-step-tab ${i===0?'active':''}" onclick="showFMSStep(${i})" id="fmsStepTab${i}">${s.step_name}</div>
+    <div class="fms-step-tab ${i===0?'active':''}" onclick="showFMSStep(${i})" id="fmsStepTab${i}">${esc(s.step_name)}</div>
   `).join('');
 
   fmsActiveStep = 0;
@@ -9511,30 +10297,30 @@ function showFMSStepData(steps, idx) {
   const extraRowsHtml = s.extraInput==='yes' ? `
     <div style="margin-top:12px">
       <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:6px">Extra Input Rows:</div>
-      ${(s.extraRows||[]).map(r=>`<div style="font-size:13px;padding:4px 0;color:var(--gray-700)">• ${r.row_label||'(unnamed)'}</div>`).join('')}
+      ${(s.extraRows||[]).map(r=>`<div style="font-size:13px;padding:4px 0;color:var(--gray-700)">• ${esc(r.row_label||'(unnamed)')}</div>`).join('')}
     </div>` : '';
 
   document.getElementById('fmsStepContent').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div>
         <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">Step Name</div>
-        <div style="font-size:15px;font-weight:600;color:var(--gray-800);margin-top:4px">${s.step_name}</div>
+        <div style="font-size:15px;font-weight:600;color:var(--gray-800);margin-top:4px">${esc(s.step_name)}</div>
       </div>
       <div>
         <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">Step Doer(s)</div>
-        <div style="font-size:14px;color:var(--gray-700);margin-top:4px">${doerNames}</div>
+        <div style="font-size:14px;color:var(--gray-700);margin-top:4px">${esc(doerNames)}</div>
       </div>
       <div>
         <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">Plan Column</div>
-        <div style="font-size:14px;color:var(--gray-700);margin-top:4px">${s.plan_col||'—'} <span style="color:var(--gray-400);font-size:12px">(Plan ${idx+1})</span></div>
+        <div style="font-size:14px;color:var(--gray-700);margin-top:4px">${esc(s.plan_col||'—')} <span style="color:var(--gray-400);font-size:12px">(Plan ${idx+1})</span></div>
       </div>
       <div>
         <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">Actual Column</div>
-        <div style="font-size:14px;color:var(--gray-700);margin-top:4px">${s.actual_col||'—'} <span style="color:var(--gray-400);font-size:12px">(Actual ${idx+1})</span></div>
+        <div style="font-size:14px;color:var(--gray-700);margin-top:4px">${esc(s.actual_col||'—')} <span style="color:var(--gray-400);font-size:12px">(Actual ${idx+1})</span></div>
       </div>
       <div>
         <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">Extra Input</div>
-        <div style="font-size:14px;color:var(--gray-700);margin-top:4px">${s.extra_input==='yes'?'Yes (Col: '+s.extra_col+')':'No'}</div>
+        <div style="font-size:14px;color:var(--gray-700);margin-top:4px">${s.extra_input==='yes'?'Yes (Col: '+esc(s.extra_col)+')':'No'}</div>
       </div>
     </div>
     ${extraRowsHtml}
@@ -9618,7 +10404,7 @@ function updateEditStepNav() {
   const nav = document.getElementById('editFmsStepNav');
   if (!nav) return;
   nav.innerHTML = fmsSteps.map((s,i)=>`
-    <div class="fms-step-tab active" onclick="scrollToStep(${i})" style="font-size:11px;padding:4px 10px">${s.stepName||'Step '+(i+1)}</div>
+    <div class="fms-step-tab active" onclick="scrollToStep(${i})" style="font-size:11px;padding:4px 10px">${esc(s.stepName||'Step '+(i+1))}</div>
   `).join('');
 }
 
@@ -9684,7 +10470,7 @@ async function syncFMSData() {
   }
 
   const headerBadges = r.headers.map(h=>
-    `<span style="background:var(--color-primary-light);color:var(--color-primary);padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600">${h}</span>`
+    `<span style="background:var(--color-primary-light);color:var(--color-primary);padding:3px 10px;border-radius:10px;font-size:12px;font-weight:600">${esc(h)}</span>`
   ).join(' ');
 
   syncEl.style.cssText='display:block;background:var(--color-success-bg);border:1px solid var(--color-success-border);border-radius:12px;padding:16px;margin-top:14px';
@@ -9703,8 +10489,8 @@ async function syncFMSData() {
     <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:6px;margin-top:8px;text-transform:uppercase;letter-spacing:.4px">All Data (${r.sample.length} rows):</div>
     <div style="overflow-x:auto;max-height:300px;overflow-y:auto">
       <table style="font-size:12px;border-collapse:collapse;width:100%">
-        <thead><tr>${r.headers.map(h=>`<th style="padding:4px 8px;background:#e8f5e9;border:1px solid var(--color-success-border);text-align:left;font-weight:600;white-space:nowrap">${h}</th>`).join('')}</tr></thead>
-        <tbody>${r.sample.map(row=>`<tr>${r.headers.map((_,ci)=>`<td style="padding:4px 8px;border:1px solid var(--gray-200);color:var(--gray-700);white-space:nowrap">${row[ci]||'—'}</td>`).join('')}</tr>`).join('')}</tbody>
+        <thead><tr>${r.headers.map(h=>`<th style="padding:4px 8px;background:#e8f5e9;border:1px solid var(--color-success-border);text-align:left;font-weight:600;white-space:nowrap">${esc(h)}</th>`).join('')}</tr></thead>
+        <tbody>${r.sample.map(row=>`<tr>${r.headers.map((_,ci)=>`<td style="padding:4px 8px;border:1px solid var(--gray-200);color:var(--gray-700);white-space:nowrap">${esc(row[ci]||'—')}</td>`).join('')}</tr>`).join('')}</tbody>
       </table>
     </div>` : ''}
   `;
@@ -9835,7 +10621,7 @@ function buildStepBoxHTML(idx) {
   const s = fmsSteps[idx];
   const userOptions = fmsAllUsers.map(u=>`
     <div class="multi-select-item" data-uid="${u.id}" onclick="toggleFMSDoer(event,${idx},${u.id})">
-      <input type="checkbox" ${(s.doers||[]).map(d=>parseInt(d)).includes(parseInt(u.id))?'checked':''}/> ${u.name}
+      <input type="checkbox" ${(s.doers||[]).map(d=>parseInt(d)).includes(parseInt(u.id))?'checked':''}/> ${esc(u.name)}
     </div>`).join('');
 
   // Build header options for selects — MUST be declared BEFORE extraRowsHTML
@@ -9846,7 +10632,7 @@ function buildStepBoxHTML(idx) {
       <select onchange="onFMSExtraColChange(${idx},${ri},this)"
         style="width:100%;padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12px;font-family:'Inter',sans-serif;outline:none;background:var(--surface)">
         <option value="">-- Select Column --</option>
-        ${headers.map(h=>`<option value="${h.col}" data-name="${h.name}" ${(r.col_letter)===h.col?'selected':''}>` + h.name + ` (COL ${h.col})</option>`).join('')}
+        ${headers.map(h=>`<option value="${esc(h.col)}" data-name="${esc(h.name)}" ${(r.col_letter)===h.col?'selected':''}>` + esc(h.name) + ` (COL ${esc(h.col)})</option>`).join('')}
       </select>` : `
       <input type="text" value="${r.col_letter||''}" placeholder="Col e.g. AS"
         oninput="fmsSteps[${idx}].extraRows[${ri}].col_letter=this.value"
@@ -9886,7 +10672,7 @@ function buildStepBoxHTML(idx) {
     </div>`;
   }).join('');
   const blankOpt = `<option value="">-- Select Column --</option>`;
-  const hdrOpts = headers.map(h=>`<option value="${h.col}" title="${h.name}">${h.name} (COL ${h.col})</option>`).join('');
+  const hdrOpts = headers.map(h=>`<option value="${esc(h.col)}" title="${esc(h.name)}">${esc(h.name)} (COL ${esc(h.col)})</option>`).join('');
 
   // Show cols — multi-select badges
   const showColsSelected = s.showCols || [];
@@ -9901,7 +10687,7 @@ function buildStepBoxHTML(idx) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group" style="margin:0">
         <label>Step Name</label>
-        <input type="text" value="${s.stepName||''}" placeholder="Step Name"
+        <input type="text" value="${esc(s.stepName||'')}" placeholder="Step Name"
           oninput="fmsSteps[${idx}].stepName=this.value;updateStepNum(${idx},this.value)"
           style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
       </div>
@@ -9918,9 +10704,9 @@ function buildStepBoxHTML(idx) {
         <label>Plan <span style="color:var(--gray-400);font-weight:400;font-size:11px">(Plan ${idx+1})</span></label>
         ${headers.length ? `
         <select class="header-select" onchange="fmsSteps[${idx}].planCol=this.value">
-          ${blankOpt}${headers.map(h=>`<option value="${h.col}" ${s.planCol===h.col?'selected':''}>${h.name} (COL ${h.col})</option>`).join('')}
+          ${blankOpt}${headers.map(h=>`<option value="${esc(h.col)}" ${s.planCol===h.col?'selected':''}>${esc(h.name)} (COL ${esc(h.col)})</option>`).join('')}
         </select>` : `
-        <input type="text" value="${s.planCol||''}" placeholder="Column e.g. I"
+        <input type="text" value="${esc(s.planCol||'')}" placeholder="Column e.g. I"
           oninput="fmsSteps[${idx}].planCol=this.value"
           style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>`}
       </div>
@@ -9928,9 +10714,9 @@ function buildStepBoxHTML(idx) {
         <label>Actual <span style="color:var(--gray-400);font-weight:400;font-size:11px">(Actual ${idx+1})</span></label>
         ${headers.length ? `
         <select class="header-select" onchange="fmsSteps[${idx}].actualCol=this.value">
-          ${blankOpt}${headers.map(h=>`<option value="${h.col}" ${s.actualCol===h.col?'selected':''}>${h.name} (COL ${h.col})</option>`).join('')}
+          ${blankOpt}${headers.map(h=>`<option value="${esc(h.col)}" ${s.actualCol===h.col?'selected':''}>${esc(h.name)} (COL ${esc(h.col)})</option>`).join('')}
         </select>` : `
-        <input type="text" value="${s.actualCol||''}" placeholder="Column e.g. J"
+        <input type="text" value="${esc(s.actualCol||'')}" placeholder="Column e.g. J"
           oninput="fmsSteps[${idx}].actualCol=this.value"
           style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>`}
       </div>
@@ -9946,7 +10732,7 @@ function buildStepBoxHTML(idx) {
             <input type="checkbox" ${showColsSelected.includes(h.index)?'checked':''}
               onchange="if(this.checked){if(!fmsSteps[${idx}].showCols.includes(${h.index}))fmsSteps[${idx}].showCols.push(${h.index})}else{fmsSteps[${idx}].showCols=fmsSteps[${idx}].showCols.filter(x=>x!==${h.index})}"
               style="accent-color:var(--color-primary);width:12px;height:12px"/>
-            ${h.name}
+            ${esc(h.name)}
           </label>`).join('')}
       </div>` : '<span style="color:var(--gray-400);font-size:12px">Will appear after headers are loaded</span>'}
     </div>
@@ -9957,9 +10743,9 @@ function buildStepBoxHTML(idx) {
       ${headers.length ? `
       <select class="header-select" onchange="fmsSteps[${idx}].delayReasonCol=this.value">
         <option value="">-- None (don't save delay reason) --</option>
-        ${headers.map(h=>`<option value="${h.col}" ${s.delayReasonCol===h.col?'selected':''}>${h.name} (COL ${h.col})</option>`).join('')}
+        ${headers.map(h=>`<option value="${esc(h.col)}" ${s.delayReasonCol===h.col?'selected':''}>${esc(h.name)} (COL ${esc(h.col)})</option>`).join('')}
       </select>` : `
-      <input type="text" value="${s.delayReasonCol||''}" placeholder="e.g. K"
+      <input type="text" value="${esc(s.delayReasonCol||'')}" placeholder="e.g. K"
         oninput="fmsSteps[${idx}].delayReasonCol=this.value"
         style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>`}
     </div>
@@ -9969,9 +10755,9 @@ function buildStepBoxHTML(idx) {
       ${headers.length ? `
       <select class="header-select" onchange="fmsSteps[${idx}].doerNameCol=this.value">
         <option value="">-- None (don't save doer name) --</option>
-        ${headers.map(h=>`<option value="${h.col}" ${(s.doerNameCol||s.doer_name_col||'')===h.col?'selected':''}>${h.name} (COL ${h.col})</option>`).join('')}
+        ${headers.map(h=>`<option value="${esc(h.col)}" ${(s.doerNameCol||s.doer_name_col||'')===h.col?'selected':''}>${esc(h.name)} (COL ${esc(h.col)})</option>`).join('')}
       </select>` : `
-      <input type="text" value="${s.doerNameCol||s.doer_name_col||''}" placeholder="e.g. L"
+      <input type="text" value="${esc(s.doerNameCol||s.doer_name_col||'')}" placeholder="e.g. L"
         oninput="fmsSteps[${idx}].doerNameCol=this.value"
         style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>`}
     </div>
@@ -10090,7 +10876,7 @@ function updateFMSDoerTags(idx) {
   const doers = fmsSteps[idx].doers||[];
   if (!doers.length) { tags.innerHTML=`<span style="color:var(--gray-400);font-size:12px">Select users...</span>`; return; }
   const names = doers.map(uid=>{ const u=fmsAllUsers.find(u=>parseInt(u.id)===parseInt(uid)); return u?u.name:''; }).filter(Boolean);
-  tags.innerHTML = names.map(n=>`<span class="tag-badge">${n}</span>`).join('');
+  tags.innerHTML = names.map(n=>`<span class="tag-badge">${esc(n)}</span>`).join('');
 }
 
 function setupMultiSelect(idx) {
@@ -10302,7 +11088,7 @@ async function loadFMSTasks() {
   }
 
   sel.innerHTML = '<option value="">-- Select an FMS --</option>' +
-    list.map(f => `<option value="${f.id}">${f.fms_name || f.sheet_name}</option>`).join('');
+    list.map(f => `<option value="${f.id}">${esc(f.fms_name || f.sheet_name)}</option>`).join('');
 
   // Auto-select first
   if (list.length === 1) {
@@ -10351,13 +11137,15 @@ function buildFMSTrain(steps, sheet) {
   const buildCoaches = () => steps.map((s, i) => {
     const isMine = isAdmin || s.isMyStep;
     const doerNames = (s.doers || []).map(d => d.name).join(', ') || '—';
+    const stepNameJs = String(s.step_name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    const doerNamesJs = String(doerNames||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     return `
-      <div class="fms-coach ${isMine ? 'mine' : 'not-mine'}" 
-           onclick="${isMine ? `selectFMSStep(${s.id},'${s.step_name.replace(/'/g,"\\'")}','${doerNames.replace(/'/g,"\\'")}')` : ''}"
+      <div class="fms-coach ${isMine ? 'mine' : 'not-mine'}"
+           onclick="${isMine ? `selectFMSStep(${s.id},'${stepNameJs}','${doerNamesJs}')` : ''}"
            title="${isMine ? 'Click to view tasks' : 'Not your step'}">
         <div class="fms-coach-num">Step ${s.step_order}</div>
-        <div class="fms-coach-name">${s.step_name}</div>
-        <div class="fms-coach-doers">👤 ${doerNames}</div>
+        <div class="fms-coach-name">${esc(s.step_name)}</div>
+        <div class="fms-coach-doers">👤 ${esc(doerNames)}</div>
         ${isMine ? '<div style="font-size:9px;margin-top:4px;opacity:.7">▶ Click to open</div>' : '<div style="font-size:9px;margin-top:4px;opacity:.5">🔒 Not assigned</div>'}
       </div>
       ${i < steps.length - 1 ? '<div class="fms-coach-connector"></div>' : ''}`;
@@ -10366,7 +11154,7 @@ function buildFMSTrain(steps, sheet) {
   const engine = `
     <div class="fms-train-engine">
       🚂
-      <div style="font-size:9px;margin-top:4px;opacity:.7;max-width:70px;text-align:center;word-break:break-word">${(document.getElementById('fmsTasksSelect').selectedOptions[0]?.text || '').substring(0,12)}</div>
+      <div style="font-size:9px;margin-top:4px;opacity:.7;max-width:70px;text-align:center;word-break:break-word">${esc((document.getElementById('fmsTasksSelect').selectedOptions[0]?.text || '').substring(0,12))}</div>
     </div>
     <div class="fms-coach-connector"></div>`;
 
@@ -10443,7 +11231,7 @@ async function loadFMSTaskRows() {
         <table>
           <thead><tr>
             <th>Action</th>
-            ${colKeys.map(k => `<th>${k}</th>`).join('')}
+            ${colKeys.map(k => `<th>${esc(k)}</th>`).join('')}
             <th>Status</th>
           </tr></thead>
           <tbody id="fmsRowsTbody"></tbody>
@@ -10469,7 +11257,7 @@ function renderFMSTaskRows(rowsToShow) {
     const origIdx = allRows.indexOf(row);
     return `<tr>
       <td><button class="fms-done-btn" onclick="openFMSDoneModal(${origIdx})">✅ Done</button></td>
-      ${colKeys.map(k => `<td>${row.data[k] || '—'}</td>`).join('')}
+      ${colKeys.map(k => `<td>${esc(row.data[k] || '—')}</td>`).join('')}
       <td><span class="fms-status-badge">⏳ Pending</span></td>
     </tr>`;
   }).join('');
@@ -10525,7 +11313,7 @@ function openFMSDoneModal(rowIdx) {
   } else {
     rowPreviewEl.style.display = 'block';
     rowPreviewEl.innerHTML = colKeys.map(k =>
-      `<div style="display:flex;gap:8px;margin-bottom:4px"><span style="font-size:11px;font-weight:600;color:var(--gray-500);min-width:120px;flex-shrink:0">${k}</span><span style="color:var(--gray-800)">${row.data[k]||'—'}</span></div>`
+      `<div style="display:flex;gap:8px;margin-bottom:4px"><span style="font-size:11px;font-weight:600;color:var(--gray-500);min-width:120px;flex-shrink:0">${esc(k)}</span><span style="color:var(--gray-800)">${esc(row.data[k]||'—')}</span></div>`
     ).join('');
   }
 
@@ -10581,7 +11369,7 @@ function openFMSDoneModal(rowIdx) {
         case 'dropdown': {
           const rawOpts = (r.dropdown_options || '').split(',').map(o => o.trim()).filter(Boolean);
           const optionsList = rawOpts.length
-            ? rawOpts.map(o => `<option value="${o}">${o}</option>`).join('')
+            ? rawOpts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')
             : '<option value="">-- No options configured --</option>';
           inputHtml = `<select id="fmsExtra_${i}" style="${inputStyle};background:var(--surface)"><option value="">-- Select --</option>${optionsList}</select>`;
           break;
@@ -10590,7 +11378,7 @@ function openFMSDoneModal(rowIdx) {
           inputHtml = `<input type="text" id="fmsExtra_${i}" placeholder="Enter value..." style="${inputStyle}"/>`;
       }
       return `<div style="margin-bottom:12px">
-        <label style="font-size:12px;font-weight:600;color:var(--gray-500);display:block;margin-bottom:4px">${label} <span style="color:var(--color-danger)">*</span> <span style="color:var(--gray-400);font-weight:400">(COL ${r.col_letter})</span></label>
+        <label style="font-size:12px;font-weight:600;color:var(--gray-500);display:block;margin-bottom:4px">${esc(label)} <span style="color:var(--color-danger)">*</span> <span style="color:var(--gray-400);font-weight:400">(COL ${esc(r.col_letter)})</span></label>
         ${inputHtml}
       </div>`;
     }).join('');
@@ -10731,7 +11519,7 @@ async function openBulkDeleteModal() {
       : allUsers.filter(u => u.department === ME.department);
     document.getElementById('bdFromUser').innerHTML =
       '<option value="">-- Select user --</option>' +
-      eligible.map(u=>`<option value="${u.id}">${u.name} — ${u.email} (${u.department||u.role})</option>`).join('');
+      eligible.map(u=>`<option value="${u.id}">${esc(u.name)} — ${esc(u.email)} (${esc(u.department||u.role)})</option>`).join('');
     document.getElementById('bdStep1').style.display = 'block';
 
     // 12-month section: admin only
@@ -10745,7 +11533,7 @@ async function openBulkDeleteModal() {
       // Populate user dropdown
       document.getElementById('bdYearUser').innerHTML =
         '<option value="">-- Select Employee --</option>' +
-        eligible.filter(u => u.role !== 'admin').map(u=>`<option value="${u.id}" data-email="${u.email}">${u.name}</option>`).join('');
+        eligible.filter(u => u.role !== 'admin').map(u=>`<option value="${u.id}" data-email="${esc(u.email)}">${esc(u.name)}</option>`).join('');
       document.getElementById('bdYearUserEmail').style.display = 'none';
     } else {
       document.getElementById('bdYearSection').style.display = 'none';
@@ -10803,15 +11591,15 @@ async function onBdDateChange() {
 
   document.getElementById('bdTasksList').innerHTML = allTasks.map((t,i) => {
     const freqBadge = t.frequency
-      ? `<span style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:8px;font-weight:600;border:1px solid var(--color-warning-border)">${t.frequency}</span>`
+      ? `<span style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:8px;font-weight:600;border:1px solid var(--color-warning-border)">${esc(t.frequency)}</span>`
       : '';
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--gray-100)">
       <input type="checkbox" class="bd-cb" data-idx="${i}" checked
         style="width:15px;height:15px;accent-color:var(--color-danger);cursor:pointer;flex-shrink:0"/>
-      <span style="font-size:13px;flex:1">${t.description||'—'}</span>
+      <span style="font-size:13px;flex:1">${esc(t.description||'—')}</span>
       ${freqBadge}
-      <span style="font-size:11px;background:${t.status==='pending'?'var(--color-danger-bg)':'var(--color-warning-bg)'};color:${t.status==='pending'?'var(--color-danger)':'#854d0e'};padding:2px 7px;border-radius:8px;font-weight:600">${t.status}</span>
-      <span style="font-size:11px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 7px;border-radius:8px;font-weight:600">${t.taskType}</span>
+      <span style="font-size:11px;background:${t.status==='pending'?'var(--color-danger-bg)':'var(--color-warning-bg)'};color:${t.status==='pending'?'var(--color-danger)':'#854d0e'};padding:2px 7px;border-radius:8px;font-weight:600">${esc(t.status)}</span>
+      <span style="font-size:11px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 7px;border-radius:8px;font-weight:600">${esc(t.taskType)}</span>
     </div>`;
   }).join('');
 }
@@ -10927,7 +11715,7 @@ async function openNewTransferModal() {
       : allUsers.filter(u => u.department === ME.department && u.id !== ME.id);
     document.getElementById('transferFromUser').innerHTML =
       '<option value="">-- Select user --</option>' +
-      eligible.map(u=>`<option value="${u.id}">${u.name} (${u.department||u.role})</option>`).join('');
+      eligible.map(u=>`<option value="${u.id}">${esc(u.name)} (${esc(u.department||u.role)})</option>`).join('');
     document.getElementById('transferStep1').style.display = 'block';
   } else {
     _transferFromUserId = ME.id;
@@ -10986,8 +11774,8 @@ async function onTransferDateChange() {
           ? `<span style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:10px;font-weight:600;border:1px solid var(--color-warning-border);white-space:nowrap">⏳ Sent</span>`
           : `<input type="checkbox" class="tr-date-cb" data-idx="${i}" checked
               style="width:15px;height:15px;accent-color:var(--color-purple);cursor:pointer;flex-shrink:0"/>`}
-        <span style="font-size:13px;flex:1">${t.description||'—'}</span>
-        <span style="font-size:11px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 7px;border-radius:8px;font-weight:600">${t.taskType}</span>
+        <span style="font-size:13px;flex:1">${esc(t.description||'—')}</span>
+        <span style="font-size:11px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 7px;border-radius:8px;font-weight:600">${esc(t.taskType)}</span>
       </div>`;
     }).join('');
   }
@@ -10998,7 +11786,7 @@ async function onTransferDateChange() {
     : allUsers.filter(u => u.id !== _transferFromUserId);
   document.getElementById('transferToUser').innerHTML =
     '<option value="">-- Select user --</option>' +
-    eligible.map(u=>`<option value="${u.id}">${u.name} (${u.department||u.role})</option>`).join('');
+    eligible.map(u=>`<option value="${u.id}">${esc(u.name)} (${esc(u.department||u.role)})</option>`).join('');
 }
 
 async function _doTransfer(tasks) {
@@ -11043,11 +11831,11 @@ async function loadTransferApprovals() {
       <thead><tr><th>Task</th><th>Type</th><th>From</th><th>To</th><th>Requested By</th><th>Date</th><th>Action</th></tr></thead>
       <tbody>
         ${transfers.map(t=>`<tr>
-          <td style="font-size:12px;max-width:180px">${t.description}</td>
-          <td><span class="status-badge pending" style="font-size:10px">${t.task_type}</span></td>
-          <td style="font-weight:600">${t.fromUserName}</td>
-          <td style="color:var(--color-purple);font-weight:600">${t.toUserName}</td>
-          <td style="color:var(--gray-500);font-size:12px">${t.requestedByName}</td>
+          <td style="font-size:12px;max-width:180px">${esc(t.description)}</td>
+          <td><span class="status-badge pending" style="font-size:10px">${esc(t.task_type)}</span></td>
+          <td style="font-weight:600">${esc(t.fromUserName)}</td>
+          <td style="color:var(--color-purple);font-weight:600">${esc(t.toUserName)}</td>
+          <td style="color:var(--gray-500);font-size:12px">${esc(t.requestedByName)}</td>
           <td style="color:var(--gray-500);font-size:12px">${new Date(t.created_at).toLocaleDateString('en-IN')}</td>
           <td>
             <button class="action-btn done" onclick="handleTransfer(${t.id},'approved')">✅ Approve</button>
