@@ -411,7 +411,7 @@ tbody tr:last-child td{border-bottom:none;}
 .action-btn.edit{background:var(--color-primary-light);color:var(--color-primary);}.action-btn.edit:hover{background:var(--color-primary-ring);}
 .action-btn.delete{background:var(--color-danger-bg);color:var(--color-danger-text);}.action-btn.delete:hover{background:var(--color-danger-border);}
 
-/* Pill action buttons for Attendance/Leave/Rides rows — bordered, icon+label,
+/* Pill action buttons for Attendance/Leave/Kilometer rows — bordered, icon+label,
    lift-and-fill on hover instead of the flatter .action-btn look. */
 .row-action-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 13px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;border:1.5px solid transparent;transition:all .15s;}
 .row-action-btn.approve{background:var(--color-success-bg);color:var(--color-success-text);border-color:var(--color-success-border);}
@@ -925,7 +925,7 @@ tbody tr:last-child td{border-bottom:none;}
         <span id="dashAttnErr" style="display:none;color:var(--color-danger);font-size:12px;max-width:220px"></span>
         <div class="dash-topbar-btns" id="dashBtns"></div>
         <button class="btn btn-pill btn-purple" onclick="openApplyLeaveModal()">🌴 Apply Leave</button>
-        <button class="btn btn-pill btn-danger" id="dashRideBtn" style="display:none" onclick="openRideModal()">🏍️ Start Ride</button>
+        <button class="btn btn-pill btn-danger" id="dashKmBtn" style="display:none" onclick="openKmModal()">🌅 Morning KM</button>
         <button class="btn btn-pill btn-primary" id="dashAttnPunchBtn" onclick="doAttendancePunch()">Punch In</button>
         <div style="display:flex;flex-direction:column;gap:3px;padding:6px 14px;border-radius:10px;background:var(--color-primary-light)">
           <span style="font-size:11px;color:var(--gray-600);display:flex;align-items:center;gap:6px;white-space:nowrap">
@@ -1177,7 +1177,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div id="attnTabsWrap" style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px;flex-wrap:wrap">
       <div class="tab active" id="attnTabAttendance" onclick="switchAttendanceTab('attendance',this)">🕒 Attendance</div>
       <div class="tab" id="attnTabLeave" onclick="switchAttendanceTab('leave',this)" style="position:relative">🌴 Leave<span id="attnLeaveTabBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:var(--color-danger);color:#fff;border-radius:50%;min-width:16px;height:16px;padding:0 3px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span></div>
-      <div class="tab" id="attnTabRides" onclick="switchAttendanceTab('rides',this)">🛣️ Rides</div>
+      <div class="tab" id="attnTabKm" onclick="switchAttendanceTab('km',this)">🛣️ Kilometer</div>
     </div>
 
     <!-- Attendance panel — self sees only own rows; Admin gets an employee dropdown (default All) -->
@@ -1229,27 +1229,30 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
     </div>
 
-    <!-- Rides panel — self sees/starts only own; Admin gets an employee dropdown and can delete -->
-    <div id="attnRidesPanel" style="display:none">
+    <!-- Kilometer panel — Morning/Evening odometer (photo + reading), daily
+         total = evening - morning, plus a weekly roll-up. Self sees own only;
+         Admin gets an employee dropdown and can delete. -->
+    <div id="attnKmPanel" style="display:none">
       <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         <div>
           <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div>
-          <input type="date" id="attnRideFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+          <input type="date" id="attnKmFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
         </div>
         <div>
           <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div>
-          <input type="date" id="attnRideTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+          <input type="date" id="attnKmTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
         </div>
-        <div id="attnRideEmpWrap" style="display:none">
+        <div id="attnKmEmpWrap" style="display:none">
           <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Employee</div>
-          <select id="attnRideEmpFilter" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:170px;background:var(--surface);color:var(--gray-800)">
+          <select id="attnKmEmpFilter" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:170px;background:var(--surface);color:var(--gray-800)">
             <option value="all">All Employees</option>
           </select>
         </div>
-        <div><button class="btn btn-primary" onclick="loadRidesHistory()">Show</button></div>
-        <div style="margin-left:auto"><button class="btn btn-outline" id="attnRideActionBtn" style="display:none" onclick="openRideModal()">🏍️ Start Ride</button></div>
+        <div><button class="btn btn-primary" onclick="loadKmHistory()">Show</button></div>
+        <div style="margin-left:auto"><button class="btn btn-outline" id="attnKmActionBtn" style="display:none" onclick="openKmModal()">🌅 Morning KM</button></div>
       </div>
-      <div id="attnRidesResults">
+      <div id="attnKmWeekly" style="margin-bottom:16px"></div>
+      <div id="attnKmResults">
         <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
     </div>
@@ -1371,16 +1374,19 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab" id="sfmsViewStep2" onclick="switchSfmsView('step2',this)">2. Spare Check</div>
         <div class="tab" id="sfmsViewStep3" onclick="switchSfmsView('step3',this)">3. Assign</div>
         <div class="tab" id="sfmsViewStep4" onclick="switchSfmsView('step4',this)">4. Takeout</div>
-        <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. Spare In</div>
+        <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. Spare Used</div>
         <div class="tab" id="sfmsViewStep6" onclick="switchSfmsView('step6',this)">6. Solve</div>
         <div class="tab" id="sfmsViewStep7" onclick="switchSfmsView('step7',this)">7. Solved?</div>
         <div class="tab" id="sfmsViewStep8" onclick="switchSfmsView('step8',this)">8. Review</div>
+        <div class="tab" id="sfmsViewStep9" onclick="switchSfmsView('step9',this)">9. Deposit</div>
+        <div class="tab" id="sfmsViewBalance" onclick="switchSfmsView('balance',this)">🧰 Spare Balance</div>
         <div class="tab" id="sfmsViewReports" onclick="switchSfmsView('reports',this)">📊 Reports</div>
       </div>
     </div>
 
-    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;" id="sfmsSearchWrap">
-      <input type="text" id="sfmsSearch" oninput="renderServiceFmsList()" placeholder="🔍 Search by Complain No, Name, Mobile, Product…" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:10px;align-items:center" id="sfmsSearchWrap">
+      <input type="text" id="sfmsSearch" oninput="renderServiceFmsList()" placeholder="🔍 Search by Complain No, Name, Mobile, Product…" style="flex:1;min-width:0;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      <a class="btn btn-outline" href="/api/service-fms/export.xlsx" download style="white-space:nowrap;text-decoration:none" title="All complaints with every detail, as an Excel sheet">⬇ Export Excel</a>
     </div>
 
     <div id="sfmsListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
@@ -1394,6 +1400,7 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="btn btn-primary" onclick="openNewO2dOrderModal()">+ New Order</button>
       <button class="btn btn-outline" onclick="loadO2dFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="o2dStepDoersBtn" style="display:none" onclick="openStepDoersModal()">⚙ Step Doers</button>
+      <button class="btn btn-outline" id="o2dTeamGroupBtn" style="display:none" onclick="openTeamGroupModal()">💬 WhatsApp Group</button>
     </div>
 
     <div style="display:flex;gap:6px;margin-bottom:16px;">
@@ -1609,23 +1616,30 @@ tbody tr:last-child td{border-bottom:none;}
 </div>
 
 <!-- ══════════════════════════════════════
-     RIDE START/END MODAL — reused for both, mode toggled in JS
+     KM MODAL — Morning / Evening reading, mode toggled in JS
 ══════════════════════════════════════ -->
-<div class="modal-overlay" id="rideModal">
-  <div class="modal" style="max-width:380px">
+<div class="modal-overlay" id="kmModal">
+  <div class="modal" style="max-width:400px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-      <h3 style="margin:0" id="rideModalTitle">🏍️ Start Ride</h3>
-      <button class="modal-close-x modal-close" onclick="closeModal('rideModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <h3 style="margin:0" id="kmModalTitle">🌅 Morning Kilometer</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('kmModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <div class="alert error" id="rideModalErr"></div>
+    <div class="alert error" id="kmModalErr"></div>
+    <div id="kmModalMorningInfo" style="display:none;font-size:12px;color:var(--gray-600);background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:8px 12px;margin-bottom:12px"></div>
     <div class="form-group">
-      <label id="rideModalKmLabel">KM Start (odometer reading)</label>
-      <input type="number" step="0.1" id="rideModalKmInput" placeholder="e.g. 12450" style="width:100%;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:15px;font-weight:600;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
+      <label>Kilometer Meter Photo <span style="color:var(--color-danger)">*</span></label>
+      <input type="file" accept="image/*" capture="environment" id="kmModalPhoto" onchange="onKmPhotoSelected()"/>
+      <div id="kmModalPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+    </div>
+    <div class="form-group">
+      <label>Kilometer Reading <span style="color:var(--color-danger)">*</span></label>
+      <input type="number" step="0.1" min="0" inputmode="decimal" id="kmModalKmInput" placeholder="e.g. 12450" oninput="updateKmModalPreview()" style="width:100%;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:15px;font-weight:600;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
+      <div id="kmModalDayPreview" style="font-size:12px;font-weight:700;color:var(--color-success-text);margin-top:6px"></div>
     </div>
     <div style="font-size:11px;color:var(--gray-400)">📍 Location is captured automatically when you submit.</div>
     <div style="margin-top:18px;text-align:right;display:flex;gap:10px;justify-content:flex-end">
-      <button class="btn btn-outline" onclick="closeModal('rideModal')">Cancel</button>
-      <button class="btn btn-primary" id="rideModalSubmitBtn" onclick="submitRideModal()">Start Ride</button>
+      <button class="btn btn-outline" onclick="closeModal('kmModal')">Cancel</button>
+      <button class="btn btn-primary" id="kmModalSubmitBtn" onclick="submitKmModal()">Save</button>
     </div>
   </div>
 </div>
@@ -2195,7 +2209,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="form-group">
         <label>Attendance</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0;padding:8px 0">
-          <input type="checkbox" id="uTrackKm" style="accent-color:var(--color-primary)"/> Track KM Start/End (Sales &amp; Delivery staff only)
+          <input type="checkbox" id="uTrackKm" style="accent-color:var(--color-primary)"/> Track Kilometer — Morning/Evening reading (Sales &amp; Delivery staff only)
         </label>
       </div>
     </div>
@@ -2437,7 +2451,8 @@ tbody tr:last-child td{border-bottom:none;}
 <!-- ── SERVICE FMS: NEW COMPLAINT MODAL ── -->
 <div class="modal-overlay" id="newComplaintModal">
   <div class="modal" style="max-width:560px;max-height:90vh;display:flex;flex-direction:column">
-    <h3 style="margin-bottom:18px">🛠️ New Service Complaint</h3>
+    <h3 style="margin-bottom:4px">🛠️ New Service Complaint</h3>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">👤 Doer: Service Mail</div>
     <div class="alert error" id="newComplaintErr" style="display:none"></div>
     <div style="overflow-y:auto;flex:1">
       <div class="form-group">
@@ -2464,9 +2479,7 @@ tbody tr:last-child td{border-bottom:none;}
         <input type="text" id="scDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>
         <label>Product Ownership <span style="color:var(--color-danger)">*</span></label>
         <select id="scProductOwnership" onchange="onScOwnershipChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
-          <option value="">Select…</option>
           <option value="Dealer Stock Piece">Dealer Stock Piece</option>
-          <option value="Customer Purchased Piece">Customer Purchased Piece</option>
         </select>
       </div>
       <div class="form-group" id="scBillPhotoWrap">
@@ -2476,12 +2489,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="form-group">
         <label>Where is the Product Currently?</label>
-        <select id="scProductLocation" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
-          <option value="">Select…</option>
-          <option value="Customer Home">Customer Home</option>
-          <option value="Dealer Shop">Dealer Shop</option>
-          <option value="Customer's Product at Dealer Shop">Customer's Product at Dealer Shop</option>
-        </select>
+        <select id="scProductLocation" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"></select>
       </div>
       <div class="form-group">
         <label>Full Address Where Product is Lying</label>
@@ -2552,9 +2560,7 @@ tbody tr:last-child td{border-bottom:none;}
         <input type="text" id="ecDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>
         <label>Product Ownership <span style="color:var(--color-danger)">*</span></label>
         <select id="ecProductOwnership" onchange="onEcOwnershipChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
-          <option value="">Select…</option>
           <option value="Dealer Stock Piece">Dealer Stock Piece</option>
-          <option value="Customer Purchased Piece">Customer Purchased Piece</option>
         </select>
       </div>
       <div class="form-group" id="ecBillPhotoWrap">
@@ -2568,7 +2574,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="form-group">
         <label>Product Purchase Date</label>
-        <input type="date" id="ecPurchaseDate" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <div id="ecPurchaseDateWrap"></div>
       </div>
       <div class="form-group">
         <label>Description of the Problem <span style="color:var(--color-danger)">*</span></label>
@@ -2581,12 +2587,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="form-group">
         <label>Where is the Product Currently?</label>
-        <select id="ecProductLocation" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
-          <option value="">Select…</option>
-          <option value="Customer Home">Customer Home</option>
-          <option value="Dealer Shop">Dealer Shop</option>
-          <option value="Customer's Product at Dealer Shop">Customer's Product at Dealer Shop</option>
-        </select>
+        <select id="ecProductLocation" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"></select>
       </div>
       <div class="form-group">
         <label>Full Address Where Product is Lying</label>
@@ -2901,6 +2902,26 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── O2D: TEAM WHATSAPP GROUP MODAL (admin) — where "new order" alerts go ── -->
+<div class="modal-overlay" id="teamGroupModal">
+  <div class="modal" style="max-width:460px;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 style="margin:0">💬 Team WhatsApp Group</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('teamGroupModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Har naye order par is group mein message jayega: “एक नया order प्राप्त हुआ है। कृपया order की जाँच करें।”</div>
+    <div id="teamGroupStatus" style="font-size:12px;margin-bottom:10px"></div>
+    <div class="form-group">
+      <label>Group</label>
+      <select id="teamGroupSelect" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"></select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-outline" style="flex:1" onclick="testTeamGroup()">Send Test</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveTeamGroup()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── SET PLAN MODAL ── -->
 <div class="modal-overlay" id="setPlanModal">
   <div class="modal" style="max-width:440px">
@@ -3148,6 +3169,7 @@ async function init() {
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
+      document.getElementById('o2dTeamGroupBtn').style.display = 'inline-flex';
       document.getElementById('purchaseStepDoersBtn').style.display = 'inline-flex';
     }
     // hod/pc nav blocks — re-enable when ROLE FEATURE FLAGS above are removed
@@ -3383,7 +3405,7 @@ function refreshDashboardO2dLocally() {
 
 async function loadDashboard() {
   loadAttendanceToday();
-  loadRideState();
+  loadKmState();
   const empFilter = document.getElementById('dashEmployeeFilter');
   const empVal = empFilter ? empFilter.value : 'all';
   const isAdmin = ME.role === 'admin';
@@ -4974,8 +4996,8 @@ function confirmRevisionReject() {
 }
 
 // ══════════════════════════════════════════════════════
-// ATTENDANCE, LEAVE & RIDES
-// 3 tabs only: Attendance / Leave / Rides. Admin gets an employee dropdown
+// ATTENDANCE, LEAVE & KILOMETER
+// 3 tabs only: Attendance / Leave / Kilometer. Admin gets an employee dropdown
 // on each (default "All Employees") and sees everyone; everyone else just
 // sees their own — enforced server-side too, the dropdowns are hidden
 // client-side for non-admins as a UX shortcut, not the actual guard.
@@ -4984,8 +5006,8 @@ let attnView = 'attendance';
 let attnKmTracked = false;
 let attnTodayRow = null;
 let _attnRosterCache = null;
-let _rideActive = null;
-let _rideKmTracked = false;
+let _kmToday = null;     // today's daily_km row (or null)
+let _kmTracked = false;  // users.track_km for the logged-in user
 
 function fmtTime(dt) {
   if (!dt) return '—';
@@ -4999,7 +5021,7 @@ function fmtTime(dt) {
 
 // GPS is best-effort — captured silently in the background (no separate
 // button/permission-prompt UI); if the browser denies/lacks it, the
-// punch/ride still goes through with no lat/lng.
+// punch/KM entry still goes through with no lat/lng.
 function getPunchGps() {
   return new Promise(resolve => {
     if (!navigator.geolocation) return resolve(null);
@@ -5019,14 +5041,6 @@ function gpsLinkHtml(lat, lng, address) {
   if (!address) return pin;
   return `${pin}<div style="font-size:10px;color:var(--gray-400);margin-top:1px;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${title}">${esc(address)}</div>`;
 }
-// A small "trip distance" chip — used in the Rides table.
-function kmSummaryHtml(start, end, compact) {
-  if (start == null || end == null) return '';
-  const dist = (parseFloat(end) - parseFloat(start)).toFixed(1);
-  const pad = compact ? '3px 9px' : '4px 10px';
-  return `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--color-success-bg);color:var(--color-success-text);padding:${pad};border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap">🛣️ ${dist} km <span style="font-weight:500;opacity:.75">(${start} → ${end})</span></span>`;
-}
-
 async function populateEmployeeDropdown(selectId) {
   if (!_attnRosterCache) _attnRosterCache = await api('/api/users/roster');
   const users = Array.isArray(_attnRosterCache) ? _attnRosterCache : [];
@@ -5040,14 +5054,14 @@ async function populateEmployeeDropdown(selectId) {
 
 function loadAttendancePage() {
   const isAdmin = ME.role === 'admin';
-  ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnRideEmpWrap'].forEach(id => {
+  ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnKmEmpWrap'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isAdmin ? '' : 'none';
   });
   if (isAdmin) {
     populateEmployeeDropdown('attnEmpFilter');
     populateEmployeeDropdown('attnLeaveEmpFilter');
-    populateEmployeeDropdown('attnRideEmpFilter');
+    populateEmployeeDropdown('attnKmEmpFilter');
   }
   switchAttendanceTab(attnView, document.getElementById('attnTab' + attnView[0].toUpperCase() + attnView.slice(1)));
 }
@@ -5056,12 +5070,12 @@ function switchAttendanceTab(view, el) {
   attnView = view;
   document.querySelectorAll('#attnTabsWrap .tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
-  ['Attendance', 'Leave', 'Rides'].forEach(v => {
+  ['Attendance', 'Leave', 'Km'].forEach(v => {
     document.getElementById('attn' + v + 'Panel').style.display = (v.toLowerCase() === view) ? '' : 'none';
   });
   if (view === 'attendance') { setAttnHistoryDefaultDates(); loadAttendanceHistory(); }
   if (view === 'leave') loadLeaveList();
-  if (view === 'rides') { setAttnRideDefaultDates(); loadRidesHistory(); loadRideState(); }
+  if (view === 'km') { setAttnKmDefaultDates(); loadKmHistory(); loadKmState(); }
 }
 
 // ── Punch (lives on the Dashboard only — see #dashAttn* in the topbar) ──
@@ -5098,11 +5112,24 @@ function renderAttendanceWidget() {
   else { btn.textContent = '✅ Done for Today'; btn.disabled = true; }
 }
 
-async function doAttendancePunch() {
+// Punch Out asks first — right after Punch In the same button becomes
+// Punch Out in the same spot, and an accidental second tap was being
+// recorded as an "automatic" punch-out seconds later (the server also
+// refuses a punch-out within 2 minutes of punching in).
+function doAttendancePunch() {
+  const isPunchIn = !attnTodayRow || !attnTodayRow.time_in;
+  if (isPunchIn) { performAttendancePunch(true); return; }
+  showConfirm({
+    icon: '🕒', title: 'Punch Out now?',
+    msg: `You punched in at ${fmtTime(attnTodayRow.time_in)}. Punch Out ends your attendance for today.`,
+    okLabel: 'Punch Out', okColor: 'var(--color-danger)'
+  }, () => performAttendancePunch(false));
+}
+
+async function performAttendancePunch(isPunchIn) {
   const errEl = document.getElementById('dashAttnErr');
   errEl.style.display = 'none';
   const btn = document.getElementById('dashAttnPunchBtn');
-  const isPunchIn = !attnTodayRow || !attnTodayRow.time_in;
   const prevBtnText = btn.textContent;
   btn.disabled = true;
   if (navigator.geolocation) btn.textContent = 'Getting location…';
@@ -5133,7 +5160,7 @@ function renderAttendanceCards(rows) {
     const d = new Date(r.date + 'T00:00:00');
     const hasIn = !!r.time_in, hasOut = !!r.time_out;
     const delBtn = ME.role === 'admin'
-      ? `<button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button>` : '';
+      ? `<div style="display:flex;gap:6px">${hasOut ? `<button class="row-action-btn cancel" onclick="clearAttendanceOut(${r.id})" title="Undo a mistaken punch-out">↺ Undo Out</button>` : ''}<button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button></div>` : '';
     return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
       <div style="display:flex;align-items:center;gap:14px">
         <div style="width:46px;height:46px;border-radius:10px;background:var(--color-primary-light);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">
@@ -5162,9 +5189,19 @@ function renderAttendanceTable(rows) {
       <td>${fmtDate(r.date)}</td>
       <td>${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in, r.address_in)}</td>
       <td>${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out, r.address_out)}</td>
-      <td><button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button></td>
+      <td style="white-space:nowrap">${r.time_out ? `<button class="row-action-btn cancel" onclick="clearAttendanceOut(${r.id})" title="Undo a mistaken punch-out">↺ Undo Out</button> ` : ''}<button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button></td>
     </tr>`).join('')}</tbody>
   </table></div>`;
+}
+
+function clearAttendanceOut(id) {
+  showConfirm({ icon: '↺', title: 'Undo Punch Out?', msg: "Clears this day's Out time (In stays) so the employee can punch out properly later today.", okLabel: 'Undo Out', okColor: 'var(--color-warning)' }, async () => {
+    const r = await api(`/api/attendance/${id}/clear-out`, 'PUT', {});
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Punch-out cleared');
+    loadAttendanceHistory();
+    loadAttendanceToday();
+  });
 }
 
 function deleteAttendanceEntry(id) {
@@ -5313,115 +5350,211 @@ async function loadLeaveBadge() {
   } catch(e) {}
 }
 
-// ── Rides tab — Start/End trips (KM-tracked staff only), unified self/admin ──
-function setAttnRideDefaultDates() {
-  const from = document.getElementById('attnRideFrom');
-  const to = document.getElementById('attnRideTo');
-  if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 6); from.value = d.toISOString().slice(0, 10); }
-  if (!to.value) to.value = new Date().toISOString().slice(0, 10);
+// ── Kilometer tab — Morning / Evening odometer (KM-tracked staff only),
+// unified self/admin. Day KM = evening - morning (computed server-side as
+// day_km so the Dashboard, the daily table and the weekly report agree). ──
+function setAttnKmDefaultDates() {
+  const from = document.getElementById('attnKmFrom');
+  const to = document.getElementById('attnKmTo');
+  // Default = this week so far (Mon → today), so the weekly report opens on the current week.
+  if (!from.value) { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); from.value = localIsoDate(d); }
+  if (!to.value) to.value = localIsoDate(new Date());
+}
+function localIsoDate(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function fmtKm(v) {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+function kmReadingCell(km, time, photo, lat, lng, address) {
+  if (km == null) return '<span style="color:var(--gray-400)">—</span>';
+  const photoLink = photo ? ` <a href="${esc(photo)}" target="_blank" title="Meter photo" style="text-decoration:none">📷</a>` : '';
+  return `<div style="font-weight:700;color:var(--gray-800)">${fmtKm(km)}${photoLink}</div>
+    <div style="font-size:11px;color:var(--gray-400)">${fmtTime(time)}</div>${gpsLinkHtml(lat, lng, address)}`;
+}
+function dayKmChip(dayKm) {
+  if (dayKm == null) return '<span style="font-size:11px;color:var(--color-warning-text);font-weight:600">Evening pending</span>';
+  return `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--color-success-bg);color:var(--color-success-text);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap">🛣️ ${fmtKm(dayKm)} km</span>`;
 }
 
-function renderRidesTable(rows, isAdmin) {
-  return `<div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:${isAdmin ? 860 : 680}px">
+function renderKmTable(rows, isAdmin) {
+  return `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Daily Kilometer</div>
+  <div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:${isAdmin ? 820 : 620}px">
     <thead><tr>
       ${isAdmin ? '<th>Employee</th>' : ''}
-      <th>Start</th><th>End</th><th>Distance</th><th></th>
+      <th>Date</th><th>Morning</th><th>Evening</th><th>Day Total</th><th></th>
     </tr></thead>
-    <tbody>${rows.map(r => {
-      const started = r.start_time ? `${fmtDate(r.start_time.split(' ')[0])} ${fmtTime(r.start_time)}` : '—';
-      const ended = r.end_time ? `${fmtDate(r.end_time.split(' ')[0])} ${fmtTime(r.end_time)}` : `<span style="color:var(--color-warning-text);font-weight:600">In progress</span>`;
-      const dist = kmSummaryHtml(r.km_start, r.km_end, true) || (r.km_start != null ? `<span style="font-size:11px;color:var(--gray-500)">KM Start: ${r.km_start}</span>` : '—');
-      return `<tr>
+    <tbody>${rows.map(r => `<tr>
       ${isAdmin ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
-      <td>${started}${gpsLinkHtml(r.lat_start, r.lng_start, r.address_start)}</td>
-      <td>${ended}${gpsLinkHtml(r.lat_end, r.lng_end, r.address_end)}</td>
-      <td>${dist}</td>
-      <td>${isAdmin ? `<button class="row-action-btn del" onclick="deleteRideEntry(${r.id})" title="Delete">🗑</button>` : ''}</td>
-    </tr>`;
-    }).join('')}</tbody>
+      <td style="white-space:nowrap">${fmtDate(r.date)}</td>
+      <td>${kmReadingCell(r.morning_km, r.morning_time, r.morning_photo, r.morning_lat, r.morning_lng, r.morning_address)}</td>
+      <td>${kmReadingCell(r.evening_km, r.evening_time, r.evening_photo, r.evening_lat, r.evening_lng, r.evening_address)}</td>
+      <td>${dayKmChip(r.day_km)}</td>
+      <td>${isAdmin ? `<button class="row-action-btn del" onclick="deleteKmEntry(${r.id})" title="Delete">🗑</button>` : ''}</td>
+    </tr>`).join('')}</tbody>
   </table></div>`;
 }
 
-function deleteRideEntry(id) {
-  showConfirm({ icon: '🗑️', title: 'Delete Ride?', msg: 'This permanently removes this ride record. This cannot be undone.', okLabel: 'Delete', okColor: 'var(--color-danger)' }, async () => {
-    const r = await api(`/api/rides/${id}`, 'DELETE');
+// Weekly report — one row per employee per Mon–Sun week: each day's KM
+// plus the week total, built from the same day_km values as the daily table.
+function renderKmWeekly(rows) {
+  const weekStartOf = iso => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return localIsoDate(d); };
+  const groups = {};
+  rows.forEach(r => {
+    const wk = weekStartOf(r.date);
+    const key = `${wk}|${r.user_id}`;
+    const g = groups[key] || (groups[key] = { wk, name: r.name, days: {}, total: 0, logged: 0 });
+    const dow = (new Date(r.date + 'T00:00:00').getDay() + 6) % 7; // 0 = Mon
+    if (r.day_km != null) { g.days[dow] = Number(r.day_km); g.total += Number(r.day_km); g.logged++; }
+    else g.days[dow] = null;
+  });
+  const list = Object.values(groups).sort((a, b) => b.wk.localeCompare(a.wk) || a.name.localeCompare(b.name));
+  if (!list.length) return '';
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const weekLabel = wk => { const s = new Date(wk + 'T00:00:00'); const e = new Date(s); e.setDate(e.getDate() + 6); const f = d => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); return `${f(s)} – ${f(e)}`; };
+  return `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Weekly Kilometer Report</div>
+  <div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:760px">
+    <thead><tr><th>Week</th><th>Employee</th>${dayNames.map(d => `<th style="text-align:right">${d}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Avg / Day</th></tr></thead>
+    <tbody>${list.map(g => `<tr>
+      <td style="white-space:nowrap">${weekLabel(g.wk)}</td>
+      <td style="font-weight:600;white-space:nowrap">${esc(g.name)}</td>
+      ${dayNames.map((_, i) => `<td style="text-align:right">${i in g.days ? (g.days[i] == null ? '<span style="color:var(--color-warning-text)" title="Evening reading pending">…</span>' : fmtKm(g.days[i])) : '<span style="color:var(--gray-300)">—</span>'}</td>`).join('')}
+      <td style="text-align:right;font-weight:800;color:var(--color-success-text)">${fmtKm(g.total)} km</td>
+      <td style="text-align:right;color:var(--gray-500)">${g.logged ? fmtKm(Math.round(g.total / g.logged * 10) / 10) : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function deleteKmEntry(id) {
+  showConfirm({ icon: '🗑️', title: 'Delete KM Entry?', msg: "This removes that day's morning and evening kilometer readings. This cannot be undone.", okLabel: 'Delete', okColor: 'var(--color-danger)' }, async () => {
+    const r = await api(`/api/km/${id}`, 'DELETE');
     if (r.error) { showToast(r.error, 'error'); return; }
-    showToast('Ride deleted');
-    loadRidesHistory();
+    showToast('KM entry deleted');
+    loadKmHistory();
+    loadKmState();
   });
 }
 
-async function loadRidesHistory() {
+async function loadKmHistory() {
   const isAdmin = ME.role === 'admin';
-  const from = document.getElementById('attnRideFrom').value;
-  const to = document.getElementById('attnRideTo').value;
-  const employee = isAdmin ? (document.getElementById('attnRideEmpFilter').value || 'all') : 'all';
-  const wrap = document.getElementById('attnRidesResults');
+  const from = document.getElementById('attnKmFrom').value;
+  const to = document.getElementById('attnKmTo').value;
+  const employee = isAdmin ? (document.getElementById('attnKmEmpFilter').value || 'all') : 'all';
+  const wrap = document.getElementById('attnKmResults');
+  const weeklyWrap = document.getElementById('attnKmWeekly');
   const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
   wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
-  const rows = await api(`/api/rides/history?from=${from}&to=${to}&employee=${employee}`);
+  weeklyWrap.innerHTML = '';
+  const rows = await api(`/api/km/history?from=${from}&to=${to}&employee=${employee}`);
   if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
-  if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No rides in this range.</div>`; return; }
-  wrap.innerHTML = renderRidesTable(rows, isAdmin);
+  if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No kilometer entries in this range.</div>`; return; }
+  weeklyWrap.innerHTML = renderKmWeekly(rows);
+  wrap.innerHTML = renderKmTable(rows, isAdmin);
 }
 
-// Start/End Ride button — shown on both the Dashboard and the Rides tab,
-// only for track_km users, driven by the same active-ride state.
-async function loadRideState() {
-  const r = await api('/api/rides/active');
+// Morning/Evening KM button — on both the Dashboard and the Kilometer tab,
+// only for track_km users (Admin always sees it, to be able to test it).
+async function loadKmState() {
+  const r = await api('/api/km/today');
   if (r.error) return;
-  _rideActive = r.ride;
-  _rideKmTracked = !!r.kmTracked;
-  updateRideButtons();
+  _kmToday = r.km;
+  _kmTracked = !!r.kmTracked;
+  updateKmButtons();
 }
 
-function updateRideButtons() {
-  // Track KM gates it for regular employees, but Admin always sees it — an
-  // admin account usually isn't itself Sales/Delivery, and still needs to be
-  // able to see/test the button rather than it just vanishing for them.
-  const show = _rideKmTracked || ME.role === 'admin';
-  ['dashRideBtn', 'attnRideActionBtn'].forEach(id => {
+function updateKmButtons() {
+  const show = _kmTracked || ME.role === 'admin';
+  const hasMorning = _kmToday && _kmToday.morning_km != null;
+  const hasEvening = _kmToday && _kmToday.evening_km != null;
+  ['dashKmBtn', 'attnKmActionBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (!btn) return;
     if (!show) { btn.style.display = 'none'; return; }
     btn.style.display = '';
-    btn.textContent = _rideActive ? '🏁 End Ride' : '🏍️ Start Ride';
+    if (hasEvening) {
+      // Day done — the button becomes the day's total (the Dashboard's daily KM readout).
+      btn.textContent = `🛣️ ${fmtKm(Number(_kmToday.evening_km) - Number(_kmToday.morning_km))} km today`;
+      btn.disabled = true;
+      btn.title = `Morning ${fmtKm(_kmToday.morning_km)} → Evening ${fmtKm(_kmToday.evening_km)}`;
+    } else {
+      btn.textContent = hasMorning ? '🌆 Evening KM' : '🌅 Morning KM';
+      btn.disabled = false;
+      btn.title = hasMorning ? `Morning reading: ${fmtKm(_kmToday.morning_km)}` : '';
+    }
   });
 }
 
-function openRideModal() {
-  document.getElementById('rideModalErr').style.display = 'none';
-  document.getElementById('rideModalKmInput').value = '';
-  const isEnd = !!_rideActive;
-  document.getElementById('rideModalTitle').textContent = isEnd ? '🏁 End Ride' : '🏍️ Start Ride';
-  document.getElementById('rideModalKmLabel').textContent = isEnd ? 'KM End (odometer reading)' : 'KM Start (odometer reading)';
-  document.getElementById('rideModalSubmitBtn').textContent = isEnd ? 'End Ride' : 'Start Ride';
-  document.getElementById('rideModal').classList.add('open');
+function openKmModal() {
+  const isEvening = !!(_kmToday && _kmToday.morning_km != null);
+  document.getElementById('kmModalErr').style.display = 'none';
+  document.getElementById('kmModalKmInput').value = '';
+  const photo = document.getElementById('kmModalPhoto');
+  photo.value = ''; photo.dataset.compressed = '';
+  document.getElementById('kmModalPhotoPreview').textContent = '';
+  document.getElementById('kmModalDayPreview').textContent = '';
+  document.getElementById('kmModalTitle').textContent = isEvening ? '🌆 Evening Kilometer' : '🌅 Morning Kilometer';
+  const info = document.getElementById('kmModalMorningInfo');
+  info.style.display = isEvening ? '' : 'none';
+  if (isEvening) info.innerHTML = `Morning reading: <b>${fmtKm(_kmToday.morning_km)}</b> at ${fmtTime(_kmToday.morning_time)}`;
+  document.getElementById('kmModalSubmitBtn').textContent = isEvening ? 'Save Evening KM' : 'Save Morning KM';
+  document.getElementById('kmModal').classList.add('open');
 }
 
-async function submitRideModal() {
-  const errEl = document.getElementById('rideModalErr');
+function updateKmModalPreview() {
+  const el = document.getElementById('kmModalDayPreview');
+  const val = parseFloat(document.getElementById('kmModalKmInput').value);
+  if (!(_kmToday && _kmToday.morning_km != null) || isNaN(val)) { el.textContent = ''; return; }
+  const diff = val - Number(_kmToday.morning_km);
+  el.style.color = diff < 0 ? 'var(--color-danger)' : 'var(--color-success-text)';
+  el.textContent = diff < 0 ? 'Evening reading is less than the morning reading' : `Today: ${fmtKm(Math.round(diff * 10) / 10)} km`;
+}
+
+async function onKmPhotoSelected() {
+  const input = document.getElementById('kmModalPhoto');
+  const preview = document.getElementById('kmModalPhotoPreview');
+  const file = input.files[0];
+  input.dataset.compressed = '';
+  if (!file) { preview.textContent = ''; return; }
+  preview.textContent = 'Compressing…';
+  try {
+    // Meter digits need to stay readable — larger than the complaint-form photos.
+    let dataUrl = await compressImageToDataURL(file, 1400, 0.7);
+    if (dataUrl.length > 1400000) dataUrl = await compressImageToDataURL(file, 1000, 0.6);
+    input.dataset.compressed = dataUrl;
+    preview.textContent = `✅ Photo attached (${Math.round(dataUrl.length / 1024)}KB)`;
+  } catch (e) {
+    preview.textContent = '⚠️ Could not read image';
+  }
+}
+
+async function submitKmModal() {
+  const errEl = document.getElementById('kmModalErr');
   errEl.style.display = 'none';
-  const km = document.getElementById('rideModalKmInput').value;
-  const btn = document.getElementById('rideModalSubmitBtn');
-  const isEnd = !!_rideActive;
+  const isEvening = !!(_kmToday && _kmToday.morning_km != null);
+  const km = document.getElementById('kmModalKmInput').value;
+  const photo = document.getElementById('kmModalPhoto').dataset.compressed || '';
+  if (!photo) { errEl.textContent = 'Kilometer meter ki photo upload karo'; errEl.style.display = 'block'; return; }
+  if (km === '') { errEl.textContent = 'Kilometer reading bharo'; errEl.style.display = 'block'; return; }
+  const btn = document.getElementById('kmModalSubmitBtn');
   const prevText = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Getting location…';
   const gps = await getPunchGps();
-  btn.textContent = prevText;
-  const body = isEnd ? { kmEnd: km || null } : { kmStart: km || null };
+  btn.textContent = 'Saving…';
+  const body = { km, photo };
   if (gps) { body.lat = gps.lat; body.lng = gps.lng; }
-  const r = isEnd
-    ? await api(`/api/rides/${_rideActive.id}/end`, 'POST', body)
-    : await api('/api/rides/start', 'POST', body);
+  const r = await api(`/api/km/${isEvening ? 'evening' : 'morning'}`, 'POST', body);
   btn.disabled = false;
+  btn.textContent = prevText;
   if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
-  showToast(isEnd ? '🏁 Ride ended!' : '🏍️ Ride started!');
-  closeModal('rideModal');
-  await loadRideState();
+  showToast(isEvening ? `🌆 Evening KM saved — ${fmtKm(r.dayKm)} km today` : '🌅 Morning KM saved!');
+  closeModal('kmModal');
+  await loadKmState();
   const attnPage = document.getElementById('page-attendance');
-  if (attnView === 'rides' && attnPage && attnPage.classList.contains('active')) loadRidesHistory();
+  if (attnView === 'km' && attnPage && attnPage.classList.contains('active')) loadKmHistory();
 }
 
 async function openDeactivate(id) {
@@ -5620,16 +5753,67 @@ function fmtDate(d) {
   if (parts.length !== 3) return d;
   return `${parts[2]}-${parts[1]}-${parts[0]}`;
 }
-// Service FMS dates — "DD/MM/YYYY" specifically (point 1 of the complaint
-// form corrections), distinct from fmtDate's "DD-MM-YYYY" used elsewhere.
-// Accepts either "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS" (sfmsSerialToDate's
-// output) and always strips the time — every other Service FMS date
-// display already shows date-only.
-function fmtDateDMY(d) {
+// Service FMS dates — "DD/MM/YY" (client asked for DD MM YY, corrections
+// round 2026-09-25; was DD/MM/YYYY), distinct from fmtDate's "DD-MM-YYYY"
+// used elsewhere. Accepts either "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+// (sfmsSerialToDate's output); withTime appends HH:MM when there is one.
+function fmtDateDMY(d, withTime) {
   if (!d) return '';
-  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
   if (!m) return d;
-  return `${m[3]}/${m[2]}/${m[1]}`;
+  const date = `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+  return withTime && m[4] ? `${date} ${m[4]}:${m[5]}` : date;
+}
+
+// DD/MM/YY date entry — a native <input type="date"> shows in whatever
+// order the phone's locale uses (often MM/DD/YYYY), which is what kept the
+// complaint form's dates looking "wrong". This is a typed DD/MM/YY text box
+// plus a 📅 button for the native calendar; the real ISO value lives in a
+// hidden <input type="date" id="{id}">, so existing code reading
+// document.getElementById(id).value keeps getting "YYYY-MM-DD".
+// `onchangeJs` runs whenever that ISO value changes (typed or picked).
+function dmyDateFieldHtml(id, onchangeJs, inputStyle) {
+  return `<div style="display:flex;gap:6px;align-items:center;position:relative">
+    <input type="text" id="${id}_dmy" inputmode="numeric" placeholder="DD/MM/YY" maxlength="10" autocomplete="off" oninput="onDmyTyped('${id}')" style="${inputStyle};flex:1;min-width:0;margin-bottom:0"/>
+    <button type="button" class="btn btn-outline btn-sm" onclick="openDmyPicker('${id}')" title="Pick from calendar" style="flex-shrink:0">📅</button>
+    <input type="date" id="${id}" tabindex="-1" aria-hidden="true" onchange="onDmyPicked('${id}');${onchangeJs || ''}" style="position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;pointer-events:none"/>
+  </div>`;
+}
+function onDmyTyped(id) {
+  const txt = document.getElementById(`${id}_dmy`);
+  const hidden = document.getElementById(id);
+  // Auto-insert the slashes while typing digits: 250926 → 25/09/26
+  const digits = txt.value.replace(/\D/g, '').slice(0, 8);
+  let v = digits;
+  if (digits.length > 4) v = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  else if (digits.length > 2) v = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  if (txt.value !== v) txt.value = v;
+  let iso = '';
+  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{2}|\d{4})$/);
+  if (m) {
+    const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+    const d = new Date(y, Number(m[2]) - 1, Number(m[1]));
+    if (d.getFullYear() === y && d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[1])) {
+      iso = `${y}-${m[2]}-${m[1]}`;
+    }
+  }
+  txt.style.borderColor = (v.length >= 8 && !iso) ? 'var(--color-danger)' : '';
+  if (hidden.value !== iso) { hidden.value = iso; hidden.dispatchEvent(new Event('change')); }
+}
+function onDmyPicked(id) {
+  const hidden = document.getElementById(id);
+  const txt = document.getElementById(`${id}_dmy`);
+  if (hidden.value && txt) { txt.value = fmtDateDMY(hidden.value); txt.style.borderColor = ''; }
+}
+function openDmyPicker(id) {
+  const hidden = document.getElementById(id);
+  try { hidden.showPicker(); } catch (e) { hidden.focus(); hidden.click(); }
+}
+function setDmyDate(id, iso) {
+  const hidden = document.getElementById(id);
+  const txt = document.getElementById(`${id}_dmy`);
+  hidden.value = iso || '';
+  if (txt) { txt.value = iso ? fmtDateDMY(iso) : ''; txt.style.borderColor = ''; }
 }
 // ── SET WEEK PLAN ───────────────────────────────────
 // preEmpId / preWeek optional — Records tab se inline "Set Plan" ke liye.
@@ -6563,12 +6747,16 @@ function exportRecords() {
 // ══════════════════════════════════════════════════════
 // SERVICE FMS — live view of the real "Complain FMS" Google Sheet
 // ══════════════════════════════════════════════════════
+// `doer` = who does each stage (client list, 2026-09-25) — display labels,
+// mirrored in server.js SFMS_STEPS; New Complaint itself is "Service Mail".
 const SFMS_STEP_DEFS = [
-  { n: 1, label: 'Check Product in Warranty', statusOptions: ['Yes', 'No'], extraFields: [] },
-  { n: 2, label: 'Spare Available?', statusOptions: ['Available', 'Need to be Purchased'], extraFields: [] },
+  { n: 1, label: 'Check Product in Warranty', doer: 'Service Mail', statusOptions: ['Yes', 'No'], extraFields: [] },
+  // requireValue: "Need to be Purchased" keeps the complaint on hold here —
+  // no Assign option — until someone re-answers "Available".
+  { n: 2, label: 'Spare Available?', doer: 'Niranjan', statusOptions: ['Available', 'Need to be Purchased'], requireValue: 'Available', extraFields: [] },
   // Reordered (was step 4) — mechanic gets assigned zone-wise before the
   // spare is taken out.
-  { n: 3, label: 'Assign Complaint to Mechanic After Batching', extraFields: [
+  { n: 3, label: 'Assign Complaint to Mechanic After Batching', doer: 'Ajiz Ji', extraFields: [
       { key: 'zone', label: 'Zone', masterList: 'zone' },
       { key: 'mechanic', label: 'Mechanic Name', masterList: 'mechanics' }
     ] },
@@ -6576,20 +6764,20 @@ const SFMS_STEP_DEFS = [
   // still carry the FIRST item's values (every existing report reads these
   // directly) alongside spareOutJson (the full multi-item list) — the
   // compact UI is custom-built (point 1/2), not the generic field renderer.
-  { n: 4, label: 'Takeout Spare', extraFields: [
+  { n: 4, label: 'Takeout Spare', doer: 'Niranjan', extraFields: [
       { key: 'itemName', label: 'Item Name', masterList: 'items' },
       { key: 'spareTaken', label: 'Qty', type: 'number' },
       { key: 'spareOutJson', label: 'Spares Taken (all items)' }
     ] },
-  // Reordered (was step 6) — spare in/out logged before the OTP solve step.
-  // spareInJson (point 3) carries per-item new/old returned counts; also
-  // custom-built rather than the generic renderer.
-  // Point 6: dropped "Out" from the label — Takeout (step 4) already is the
-  // "out" side, this step only ever asks about what came back in.
-  { n: 5, label: 'Spare In Entry (in the field)', extraFields: [
+  // Was "Spare In Entry" — renamed "Spare Used" per client. The mechanic
+  // enters, per item taken out, how many he used + how many old (faulty)
+  // parts he's bringing back, and picks his own name. spareInJson keeps
+  // newQty (= taken − used) / oldQty so every existing report still works.
+  { n: 5, label: 'Spare Used (in the field)', doer: 'Mechanic (self)', extraFields: [
       { key: 'qtyReturned', label: 'Item Qty (Returned)', type: 'number' },
       { key: 'reasonIfShort', label: 'Reason (if Short)' },
-      { key: 'spareInJson', label: 'Spares In (all items, new/old)' }
+      { key: 'spareInJson', label: 'Spares Used (all items)' },
+      { key: 'usedBy', label: 'Filled By (Mechanic)' }
     ] },
   // Reordered (was step 5) — now comes after In/Out.
   { n: 6, label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
@@ -6600,6 +6788,13 @@ const SFMS_STEP_DEFS = [
       { key: 'distanceChargesAgree', label: 'Distance Charges Agreed', options: ['Yes', 'No'] },
       { key: 'amount', label: 'Amount', type: 'number' },
       { key: 'remark', label: 'Remark' }
+    ] },
+  // After Review — the mechanic hands the office the unused new spares and
+  // old faulty parts he still holds for this complaint. Custom-built rows
+  // (sfmsBuildDepositRowsHtml), pre-filled with what he should be holding.
+  { n: 9, label: 'Spare Deposited in Office', doer: 'Niranjan', extraFields: [
+      { key: 'depositJson', label: 'Spares Deposited (all items)' },
+      { key: 'receivedBy', label: 'Received By' }
     ] }
 ];
 
@@ -6758,27 +6953,76 @@ function switchSfmsView(view, el) {
   renderServiceFmsList();
 }
 
-// Auto warranty status (Warranty tab only) — Purchase Date + the product's
-// Warranty (Months) from Product Master, same computation as the New
-// Complaint form's out-of-warranty banner, just shown here as a read-only
-// aid instead of a submit-blocking check.
-function sfmsComputeWarrantyStatus(c) {
-  const months = sfmsProductWarrantyMonths[(c.productName || '').trim().toLowerCase()];
-  const purchaseDateOnly = (c.purchaseDate || '').split(' ')[0];
-  if (!months || !purchaseDateOnly) return null;
+// Seasonal-warranty products (client request 2026-09-25) — not in Product
+// Master, and covered till 31 December of the purchase year whatever month
+// they were bought in (November purchase → still till 31 Dec). Mirrored in
+// server.js SFMS_SEASONAL_PRODUCTS.
+const SFMS_SEASONAL_PRODUCTS = ['Cooler Water Pump', 'Cooler Swing Motor'];
+function sfmsIsSeasonalProduct(name) {
+  const key = String(name || '').trim().toLowerCase();
+  return SFMS_SEASONAL_PRODUCTS.some(p => p.toLowerCase() === key);
+}
+// { expiry: Date, expiryIso, seasonal, months } or null when undeterminable.
+// `months` override lets the create form pass the Product Master value it
+// already has in hand.
+function sfmsWarrantyInfo(productName, purchaseDate, months) {
+  const purchaseDateOnly = String(purchaseDate || '').split(' ')[0];
+  if (!purchaseDateOnly) return null;
+  if (sfmsIsSeasonalProduct(productName)) {
+    const expiryIso = `${purchaseDateOnly.slice(0, 4)}-12-31`;
+    return { expiry: new Date(expiryIso + 'T23:59:59'), expiryIso, seasonal: true, months: null };
+  }
+  const m = months || sfmsProductWarrantyMonths[String(productName || '').trim().toLowerCase()];
+  if (!m) return null;
   const expiry = new Date(purchaseDateOnly + 'T00:00:00');
-  expiry.setMonth(expiry.getMonth() + months);
-  const daysLeft = Math.round((expiry - new Date()) / 86400000);
-  return { inWarranty: daysLeft >= 0, months, expiryDate: expiry.toISOString().slice(0, 10), daysLeft };
+  expiry.setMonth(expiry.getMonth() + m);
+  return { expiry, expiryIso: localIsoDate(expiry), seasonal: false, months: m };
+}
+
+// Auto warranty status — Purchase Date + the product's Warranty (Months)
+// from Product Master (or the seasonal rule), same computation as the New
+// Complaint form's banner; shown as a read-only aid on the Warranty tab
+// and in the complaint detail window.
+function sfmsComputeWarrantyStatus(c) {
+  const w = sfmsWarrantyInfo(c.productName, c.purchaseDate);
+  if (!w) return null;
+  const daysLeft = Math.round((w.expiry - new Date()) / 86400000);
+  return { inWarranty: w.expiry >= new Date(), months: w.months, seasonal: w.seasonal, expiryDate: w.expiryIso, daysLeft };
 }
 function sfmsWarrantyStatusHtml(c) {
   const w = sfmsComputeWarrantyStatus(c);
   if (!w) return `<span style="color:var(--gray-400);font-size:12px">No warranty data</span>`;
+  const term = w.seasonal ? 'Seasonal (till Dec)' : `${w.months}mo`;
   return w.inWarranty
     ? `<div style="color:var(--color-success-text);font-weight:700;font-size:12px">✅ In Warranty</div>
-       <div style="font-size:11px;color:var(--gray-500)">${w.months}mo, expires ${fmtDateDMY(w.expiryDate)} (${w.daysLeft}d left)</div>`
+       <div style="font-size:11px;color:var(--gray-500)">${term}, expires ${fmtDateDMY(w.expiryDate)} (${w.daysLeft}d left)</div>`
     : `<div style="color:var(--color-danger);font-weight:700;font-size:12px">⚠️ Out of Warranty</div>
-       <div style="font-size:11px;color:var(--gray-500)">expired ${fmtDateDMY(w.expiryDate)} (${Math.abs(w.daysLeft)}d ago)</div>`;
+       <div style="font-size:11px;color:var(--gray-500)">${term}, expired ${fmtDateDMY(w.expiryDate)} (${Math.abs(w.daysLeft)}d ago)</div>`;
+}
+// Detail window version — falls back to the Warranty step's recorded answer
+// when there's no Product Master data to compute from, and notes a customer
+// who agreed to pay for out-of-warranty service.
+function sfmsWarrantyDetailHtml(c) {
+  const checked = (c.steps.find(s => s.n === 1) || {}).status;
+  let html = sfmsComputeWarrantyStatus(c)
+    ? sfmsWarrantyStatusHtml(c)
+    : checked === 'Yes' ? `<div style="color:var(--color-success-text);font-weight:700;font-size:12px">✅ In Warranty</div>`
+    : checked === 'No' ? `<div style="color:var(--color-danger);font-weight:700;font-size:12px">⚠️ Out of Warranty</div>`
+    : `<span style="color:var(--gray-400);font-size:12px">Not checked yet</span>`;
+  if (checked) html += `<div style="font-size:11px;color:var(--gray-400)">Warranty step: ${esc(checked)}</div>`;
+  if (c.warrantyChargesAgreed === 'Yes') html += `<div style="font-size:11px;color:var(--color-warning-text);font-weight:600">Customer agreed to pay charges</div>`;
+  return html;
+}
+
+// Spare Check answered "Need to be Purchased" — held at step 2 (see requireValue).
+function sfmsIsOnSpareHold(c) {
+  const s2 = c.steps.find(s => s.n === 2);
+  return !c.closed && c.currentStep === 1 && s2 && s2.status === 'Need to be Purchased';
+}
+function sfmsPrefillSpareHold(c) {
+  if (!sfmsIsOnSpareHold(c)) return;
+  const sel = document.getElementById(`sfmsStatusSelect_${c.row}`);
+  if (sel && !sel.value) sel.value = 'Available';
 }
 
 // One tab per step: a table of everything currently pending right there,
@@ -6871,7 +7115,7 @@ function renderSfmsStepView(n) {
       <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Photos</th><th>Pending</th>
       ${isWarrantyTab ? '<th>Warranty Status</th>' : ''}
       ${isSpareCheckTab ? '<th>Ownership</th>' : ''}
-      <th style="${stickyTh}">${n}. ${stepDef.label}</th>
+      <th style="${stickyTh}">${n}. ${stepDef.label}${stepDef.doer ? `<div style="font-size:10px;font-weight:600;color:var(--gray-400);text-transform:none;letter-spacing:0">👤 ${esc(stepDef.doer)}</div>` : ''}</th>
     </tr></thead>
     <tbody>
       ${rows.map(c => {
@@ -6910,6 +7154,7 @@ function renderSfmsStepView(n) {
   }
   // Pre-fill each row's Warranty Yes/No with the auto-computed status — still
   // just a suggestion, staff review and hit Submit same as always.
+  if (n === 2) rows.forEach(sfmsPrefillSpareHold);
   if (isWarrantyTab) {
     rows.forEach(c => {
       const w = sfmsComputeWarrantyStatus(c);
@@ -6932,6 +7177,7 @@ function refreshSfmsStepActionCell(row) {
 
 function renderServiceFmsList() {
   if (sfmsView === 'reports') { renderSfmsReportsView(); return; }
+  if (sfmsView === 'balance') { renderSfmsSpareBalanceView(); return; }
   if (sfmsView.startsWith('step')) { renderSfmsStepView(Number(sfmsView.slice(4))); return; }
   const wrap = document.getElementById('sfmsListWrap');
   const q = (document.getElementById('sfmsSearch').value || '').trim().toLowerCase();
@@ -6946,15 +7192,17 @@ function renderServiceFmsList() {
   wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:4px">
   ${rows.map(c => {
     const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
+    const onHold = sfmsIsOnSpareHold(c);
     return `
     <div onclick="openComplaintDetail(${c.row})" style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span style="font-size:19px;font-weight:800;color:var(--gray-800)">${esc(c.complainNo)}</span>
-        <span class="status-badge" style="background:${c.closed ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${c.closed ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${c.closed ? '✅ Closed' : 'Step ' + c.currentStep + '/7'}</span>
+        <span class="status-badge" style="background:${c.closed ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${c.closed ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${c.closed ? '✅ Closed' : 'Step ' + c.currentStep + '/' + SFMS_STEP_DEFS.length}</span>
       </div>
       <div style="font-size:16px;font-weight:700;color:var(--gray-700);margin-bottom:4px">👤 ${esc(c.filledByName)}</div>
       <div style="font-size:15px;color:var(--gray-500);margin-bottom:10px">📦 ${esc(c.productName)}</div>
-      ${nextStep ? `<div style="background:var(--color-purple-bg);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:700;color:var(--color-primary)">👉 ${esc(nextStep.label)}</div>` : ''}
+      ${onHold ? `<div style="background:var(--color-danger-bg);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:700;color:var(--color-danger-text)">⏸ On Hold — spare to be purchased</div>`
+        : nextStep ? `<div style="background:var(--color-purple-bg);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:700;color:var(--color-primary)">👉 ${esc(nextStep.label)}</div>` : ''}
     </div>`;
   }).join('')}
   </div>`;
@@ -7046,6 +7294,95 @@ async function sendMechanicListWhatsApp(mech) {
   const res = await api('/api/service-fms/send-whatsapp', 'POST', { mobile, message: text });
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast('✅ Sent via WhatsApp!');
+}
+
+// ══════════════════════════════════════════════════════
+// SPARE BALANCE TO MECHANIC — the last stage: pick a mechanic, see every
+// spare he currently holds that hasn't been deposited in the office yet
+// (unused new pieces + old faulty parts), per item and per complaint.
+// Built from the same Takeout / Spare Used / Deposit data as the steps.
+// ══════════════════════════════════════════════════════
+let sfmsBalanceMech = '';
+function sfmsMechanicBalances() {
+  const byMech = {};
+  sfmsData.forEach(c => {
+    if (c.currentStep < 4) return; // nothing taken out yet
+    const s3 = c.steps.find(s => s.n === 3) || {};
+    const s5 = c.steps.find(s => s.n === 5) || {};
+    const mech = (s3.mechanic || s5.usedBy || '').trim();
+    if (!mech) return;
+    const items = sfmsPendingWithMechanic(c);
+    if (!items.length) return;
+    const b = byMech[mech] || (byMech[mech] = { complaints: [], totals: {}, newTotal: 0, oldTotal: 0 });
+    b.complaints.push({ c, items });
+    items.forEach(it => {
+      const t = b.totals[it.item] || (b.totals[it.item] = { newQty: 0, oldQty: 0 });
+      t.newQty += it.newQty; t.oldQty += it.oldQty;
+      b.newTotal += it.newQty; b.oldTotal += it.oldQty;
+    });
+  });
+  return byMech;
+}
+function onSfmsBalanceMechChange(value) {
+  sfmsBalanceMech = value;
+  renderSfmsSpareBalanceView();
+}
+function renderSfmsSpareBalanceView() {
+  const wrap = document.getElementById('sfmsListWrap');
+  const balances = sfmsMechanicBalances();
+  const allMechs = [...new Set([...sfmsMechanicsList, ...Object.keys(balances)])].sort((a, b) => a.localeCompare(b));
+  const picker = `<div style="padding:14px 16px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <label style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">Mechanic</label>
+      <select onchange="onSfmsBalanceMechChange(this.value)" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;min-width:200px">
+        <option value="">-- All Mechanics (summary) --</option>
+        ${allMechs.map(m => `<option value="${esc(m)}" ${m === sfmsBalanceMech ? 'selected' : ''}>${esc(m)}${balances[m] ? ` (${balances[m].newTotal + balances[m].oldTotal})` : ''}</option>`).join('')}
+      </select>
+      <span style="font-size:12px;color:var(--gray-400)">Spares with the mechanic, not yet deposited in office</span>
+    </div>`;
+  const tableWrap = inner => `<div class="mis-table-wrap" style="overflow-x:auto;margin:12px 16px 16px;border:1px solid var(--gray-200);border-radius:10px">${inner}</div>`;
+
+  if (!sfmsBalanceMech) {
+    const names = Object.keys(balances).sort((a, b) => a.localeCompare(b));
+    wrap.innerHTML = picker + (names.length ? tableWrap(`<table>
+      <thead><tr><th>Mechanic</th><th>Complaints</th><th style="text-align:right">New (unused)</th><th style="text-align:right">Old (faulty)</th><th style="text-align:right">Total Pending</th></tr></thead>
+      <tbody>${names.map(m => `<tr style="cursor:pointer" onclick="onSfmsBalanceMechChange('${esc(m).replace(/'/g, "\\'")}')">
+        <td style="font-weight:600">🔧 ${esc(m)}</td>
+        <td>${balances[m].complaints.length}</td>
+        <td style="text-align:right">${balances[m].newTotal}</td>
+        <td style="text-align:right">${balances[m].oldTotal}</td>
+        <td style="text-align:right;font-weight:800;color:var(--color-danger-text)">${balances[m].newTotal + balances[m].oldTotal}</td>
+      </tr>`).join('')}</tbody></table>`) : `<div class="empty">No mechanic is holding any spare right now. 🎉</div>`);
+    wrap.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
+    return;
+  }
+
+  const b = balances[sfmsBalanceMech];
+  if (!b) { wrap.innerHTML = picker + `<div class="empty">${esc(sfmsBalanceMech)} has no spare pending — everything is deposited in office.</div>`; return; }
+  const itemNames = Object.keys(b.totals).sort();
+  wrap.innerHTML = picker + `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 16px 0">
+      <div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:10px;padding:10px 14px;font-weight:700">Total pending: ${b.newTotal + b.oldTotal}</div>
+      <div style="background:var(--gray-50);border-radius:10px;padding:10px 14px;font-size:13px">New (unused): <b>${b.newTotal}</b></div>
+      <div style="background:var(--gray-50);border-radius:10px;padding:10px 14px;font-size:13px">Old (faulty): <b>${b.oldTotal}</b></div>
+      <div style="background:var(--gray-50);border-radius:10px;padding:10px 14px;font-size:13px">Complaints: <b>${b.complaints.length}</b></div>
+    </div>` +
+    tableWrap(`<table>
+      <thead><tr><th>Spare Item</th><th style="text-align:right">New (unused)</th><th style="text-align:right">Old (faulty)</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>${itemNames.map(n => `<tr><td style="font-weight:600">${esc(n)}</td><td style="text-align:right">${b.totals[n].newQty}</td><td style="text-align:right">${b.totals[n].oldQty}</td><td style="text-align:right;font-weight:700">${b.totals[n].newQty + b.totals[n].oldQty}</td></tr>`).join('')}</tbody>
+    </table>`) +
+    tableWrap(`<table>
+      <thead><tr><th>Complain No</th><th>Customer</th><th>Spares Held</th><th>Stage</th></tr></thead>
+      <tbody>${b.complaints.map(({ c, items }) => {
+        const next = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
+        return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
+          <td style="font-weight:600;white-space:nowrap">${esc(c.complainNo)}</td>
+          <td>${esc(c.filledByName)}</td>
+          <td style="font-size:12px">${items.map(it => `${esc(it.item)}: ${it.newQty ? `${it.newQty} new` : ''}${it.newQty && it.oldQty ? ', ' : ''}${it.oldQty ? `${it.oldQty} old` : ''}`).join('<br/>')}</td>
+          <td style="font-size:12px">${c.closed ? 'Closed (short deposit)' : esc(next ? next.label : '—')}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`);
+  wrap.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
 }
 
 // ══════════════════════════════════════════════════════
@@ -7329,7 +7666,6 @@ function openNewComplaintModal() {
   document.getElementById('scBillPhotoPreview').textContent = '';
   document.getElementById('scBillPhoto').dataset.compressed = '';
   onScCustomerTypeChange(); // resets Dealer wrap visibility + auto-sets Product Ownership
-  document.getElementById('scProductLocation').value = '';
   document.getElementById('scAddress').value = '';
   document.getElementById('newComplaintErr').style.display = 'none';
   document.getElementById('scProductRows').innerHTML = '';
@@ -7366,8 +7702,8 @@ function addScProductRow() {
     <div style="display:grid;grid-template-columns:minmax(0,1fr) 20px;gap:6px;align-items:start">
       <div style="min-width:0">
         <input type="text" placeholder="Product Name / Model *" id="scProdName_${id}" list="scProductNameList" oninput="onScProductLineChanged(${id})" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
-        <label style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:4px">Product Purchase Date</label>
-        <input type="date" id="scProdPurchaseDate_${id}" onchange="onScProductLineChanged(${id})" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+        <label style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:4px">Product Purchase Date (DD/MM/YY)</label>
+        <div style="margin-bottom:6px">${dmyDateFieldHtml(`scProdPurchaseDate_${id}`, `onScProductLineChanged(${id})`, 'padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box')}</div>
         <textarea placeholder="Problem Description *" id="scProdProblem_${id}" rows="2" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif;margin-bottom:6px"></textarea>
         <input type="file" accept="image/*" id="scProdPhoto_${id}" onchange="onScProdPhotoSelected(${id})"/>
         <div id="scProdPhotoPreview_${id}" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
@@ -7393,6 +7729,10 @@ async function loadScProductNames() {
   if (!_scProductNames) {
     const r = await api('/api/o2d-fms/product-names');
     _scProductNames = (r && r.products) || [];
+    // Seasonal-warranty products aren't in Product Master — add them for Service only.
+    SFMS_SEASONAL_PRODUCTS.forEach(name => {
+      if (!_scProductNames.some(p => p.name.trim().toLowerCase() === name.toLowerCase())) _scProductNames.push({ name, category: 'Cooler Spare', seasonal: true });
+    });
   }
   document.getElementById('scProductNameList').innerHTML = _scProductNames.map(p => `<option value="${p.name.replace(/"/g,'&quot;')}">`).join('');
 }
@@ -7407,15 +7747,15 @@ function onScProductLineChanged(id) {
   const name = document.getElementById(`scProdName_${id}`).value.trim().toLowerCase();
   const purchaseDate = document.getElementById(`scProdPurchaseDate_${id}`).value;
   const product = (_scProductNames || []).find(p => p.name.trim().toLowerCase() === name);
-  if (!product || !product.warrantyMonths || !purchaseDate) { banner.style.display = 'none'; okEl.style.display = 'none'; return; }
-  const expiry = new Date(purchaseDate + 'T00:00:00');
-  expiry.setMonth(expiry.getMonth() + product.warrantyMonths);
+  const w = product ? sfmsWarrantyInfo(product.name, purchaseDate, product.warrantyMonths) : null;
+  if (!w) { banner.style.display = 'none'; okEl.style.display = 'none'; return; }
+  const expiry = w.expiry;
   const outOfWarranty = new Date() > expiry;
   banner.style.display = outOfWarranty ? 'block' : 'none';
   if (!outOfWarranty) document.getElementById(`scProdWarrantyAgree_${id}`).checked = false;
   // Point 4 — status shows either way, not just when out of warranty.
   okEl.style.display = outOfWarranty ? 'none' : 'block';
-  if (!outOfWarranty) okEl.textContent = `✅ Under Warranty — expires ${fmtDateDMY(expiry.toISOString().slice(0, 10))}`;
+  if (!outOfWarranty) okEl.textContent = `✅ Under Warranty — expires ${fmtDateDMY(w.expiryIso)}${w.seasonal ? ' (seasonal warranty, till December)' : ''}`;
 }
 
 async function onScProdPhotoSelected(id) {
@@ -7473,18 +7813,42 @@ async function scAddNewArea() {
   input.value = '';
 }
 
+// What the form offers depends on who is filing (client corrections
+// 2026-09-25):
+// - Customer: ownership is always their own purchased piece (set, not
+//   asked); product is either at home or lying at a dealer's shop — plain
+//   "Dealer Shop" was removed as a duplicate of the latter.
+// - Dealer: ownership is only ever "Dealer Stock Piece" (the "Customer
+//   Purchased Piece" choice was removed), and it's at the dealer's shop.
+const SFMS_FORM_OPTIONS = {
+  Customer: { ownership: ['Customer Purchased Piece'], location: ['Customer Home', "Customer's Product at Dealer Shop"] },
+  Dealer: { ownership: ['Dealer Stock Piece'], location: ['Dealer Shop'] }
+};
+function sfmsApplyCustomerTypeOptions(type, ownershipSelId, locationSelId) {
+  const opts = SFMS_FORM_OPTIONS[type] || SFMS_FORM_OPTIONS.Customer;
+  const own = document.getElementById(ownershipSelId);
+  own.innerHTML = opts.ownership.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+  own.value = opts.ownership[0];
+  const loc = document.getElementById(locationSelId);
+  loc.innerHTML = (opts.location.length > 1 ? '<option value="">Select…</option>' : '') +
+    opts.location.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+  loc.value = opts.location.length > 1 ? '' : opts.location[0];
+}
+// Edit form: a complaint saved before these rules may hold a value that's
+// no longer offered — keep it selectable rather than silently blanking it.
+function sfmsSetSelectKeepingLegacy(selId, value) {
+  const sel = document.getElementById(selId);
+  if (!value) return;
+  if (![...sel.options].some(o => o.value === value)) {
+    sel.insertAdjacentHTML('beforeend', `<option value="${esc(value)}">${esc(value)} (old)</option>`);
+  }
+  sel.value = value;
+}
+
 function onScCustomerTypeChange() {
   const type = document.querySelector('input[name="scCustomerType"]:checked').value;
   document.getElementById('scDealerNameWrap').style.display = (type === 'Dealer') ? '' : 'none';
-  // Product Ownership (point 1) only needs asking when a Dealer is filing —
-  // it's their call whether it's their own stock or a customer's piece
-  // sitting at their shop. A Customer filing their own complaint is always
-  // about something they bought, so it's set automatically, no need to ask.
-  if (type === 'Customer') {
-    document.getElementById('scProductOwnership').value = 'Customer Purchased Piece';
-  } else {
-    document.getElementById('scProductOwnership').value = '';
-  }
+  sfmsApplyCustomerTypeOptions(type, 'scProductOwnership', 'scProductLocation');
   onScOwnershipChange();
 }
 
@@ -7610,14 +7974,10 @@ async function submitNewComplaint() {
 function onEcCustomerTypeChange() {
   const type = document.querySelector('input[name="ecCustomerType"]:checked').value;
   document.getElementById('ecDealerNameWrap').style.display = (type === 'Dealer') ? '' : 'none';
-  // Same auto-set as the create form (point 1) — openEditComplaintModal calls
-  // this BEFORE loading the complaint's actual saved ownership value, so this
-  // never overwrites real data on initial load, only on an actual toggle.
-  if (type === 'Customer') {
-    document.getElementById('ecProductOwnership').value = 'Customer Purchased Piece';
-  } else {
-    document.getElementById('ecProductOwnership').value = '';
-  }
+  // Same rules as the create form — openEditComplaintModal calls this BEFORE
+  // loading the complaint's saved values, so this never overwrites real data
+  // on initial load, only on an actual toggle.
+  sfmsApplyCustomerTypeOptions(type, 'ecProductOwnership', 'ecProductLocation');
   onEcOwnershipChange();
 }
 function onEcOwnershipChange() {
@@ -7636,18 +7996,19 @@ async function openEditComplaintModal(row) {
   document.querySelector(`input[name="ecCustomerType"][value="${c.customerType === 'Dealer' ? 'Dealer' : 'Customer'}"]`).checked = true;
   document.getElementById('ecDealerName').value = c.dealerName || '';
   onEcCustomerTypeChange();
-  document.getElementById('ecProductOwnership').value = c.productOwnership || '';
+  sfmsSetSelectKeepingLegacy('ecProductOwnership', c.productOwnership);
   document.getElementById('ecBillPhoto').value = '';
   document.getElementById('ecBillPhotoPreview').textContent = c.billPhoto ? '✅ Existing bill photo on file (choose a file to replace it)' : '';
   document.getElementById('ecBillPhoto').dataset.compressed = '';
   onEcOwnershipChange();
   document.getElementById('ecProductName').value = c.productName || '';
-  document.getElementById('ecPurchaseDate').value = (c.purchaseDate || '').split(' ')[0] || '';
+  document.getElementById('ecPurchaseDateWrap').innerHTML = dmyDateFieldHtml('ecPurchaseDate', '', 'width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box');
+  setDmyDate('ecPurchaseDate', (c.purchaseDate || '').split(' ')[0] || '');
   document.getElementById('ecProblemDescription').value = c.problemDescription || '';
   document.getElementById('ecProductPhoto').value = '';
   document.getElementById('ecProductPhotoPreview').textContent = c.productPhoto ? '✅ Existing product photo on file (choose a file to replace it)' : '';
   document.getElementById('ecProductPhoto').dataset.compressed = '';
-  document.getElementById('ecProductLocation').value = c.productLocation || '';
+  sfmsSetSelectKeepingLegacy('ecProductLocation', c.productLocation);
   document.getElementById('ecAddress').value = c.address || '';
   await ensureScAreaList();
   populateScAreaSelect();
@@ -7767,6 +8128,8 @@ function buildSfmsNextActionHtml(c, compact) {
   const titleStyle = compact ? 'font-weight:700;font-size:13px;margin-bottom:6px;color:var(--gray-800)' : 'font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)';
 
   const nextStepDef = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
+  const doerHtml = (!compact && nextStepDef && nextStepDef.doer)
+    ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">👤 Doer: <b>${esc(nextStepDef.doer)}</b></div>` : '';
   let actionHtml;
   if (nextStepDef && nextStepDef.twoStage) {
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
@@ -7797,6 +8160,7 @@ function buildSfmsNextActionHtml(c, compact) {
         : `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
+          ${doerHtml}
           <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Send a verification code to the customer's WhatsApp, then ask them for it to confirm the visit.</div>
           ${sendBtn}
         ${wrapClose}`;
@@ -7809,6 +8173,7 @@ function buildSfmsNextActionHtml(c, compact) {
         : `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
+          ${doerHtml}
           <div style="font-size:13px;color:var(--color-success-text);font-weight:600;margin-bottom:14px">OTP sent — ask the customer for the code</div>
           ${otpInput}
           ${extraInputsHtml}
@@ -7833,7 +8198,15 @@ function buildSfmsNextActionHtml(c, compact) {
     } else if (nextStepDef.n === 5) {
       const reasonField = fieldsToShow.find(f => f.key === 'reasonIfShort');
       spareRowsHtml = sfmsBuildSpareInRowsHtml(c);
-      extraInputsHtml = `<div id="sfmsReasonWrap_${c.row}" style="display:none;margin-top:6px">${renderSfmsField(reasonField, c.row, compact)}</div>`;
+      // The mechanic picks his own name (no "+ Add New" here — that's the Assign step's job).
+      const usedByHtml = `<select id="sfmsExtra_${c.row}_usedBy" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE};${compact ? 'margin-bottom:6px' : ''}">
+          <option value="">-- Your Name (Mechanic) --</option>
+          ${sfmsMechanicsList.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}
+        </select>`;
+      extraInputsHtml = `<div id="sfmsReasonWrap_${c.row}" style="display:none;margin-top:6px">${renderSfmsField(reasonField, c.row, compact)}</div>${usedByHtml}`;
+    } else if (nextStepDef.n === 9) {
+      spareRowsHtml = sfmsBuildDepositRowsHtml(c);
+      extraInputsHtml = '';
     } else if (nextStepDef.n === 3 && compact) {
       // Assign tab (compact): Zone isn't re-picked per row anymore, but it's
       // also not just whatever the top filter happens to be set to — the top
@@ -7853,7 +8226,15 @@ function buildSfmsNextActionHtml(c, compact) {
     // last checked so it's obvious this isn't the first time being asked.
     const lastCheckedHtml = (nextStepDef.n === 7 && stepData.actual && !compact)
       ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:10px">Last checked: ${fmtDateDMY(stepData.actual)}</div>` : '';
-    const btnLabel = nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
+    // Step 2 answered "Need to be Purchased" stays here (requireValue) —
+    // say so plainly, and pre-pick "Available" for when the spare arrives.
+    const onHold = nextStepDef.n === 2 && sfmsIsOnSpareHold(c);
+    const holdHtml = onHold
+      ? (compact
+        ? `<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text);white-space:nowrap" title="Marked Need to be Purchased ${esc(fmtDateDMY(stepData.actual))}">⏸ On Hold</span>`
+        : `<div style="background:var(--color-danger-bg);border:1px solid var(--color-danger-border);color:var(--color-danger-text);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:12px">⏸ On Hold — spare stock mein nahi hai (marked “Need to be Purchased” on ${esc(fmtDateDMY(stepData.actual))}). Mechanic assign tabhi hoga jab spare purchase/add hoke yahan “Available” mark ho.</div>`)
+      : '';
+    const btnLabel = onHold ? 'Spare Arrived — Submit' : nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     const btn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">${btnLabel}</button>`;
     if (nextStepDef.n === 4) {
       // Takeout: an editable, addable/removable list of item+qty rows
@@ -7861,15 +8242,18 @@ function buildSfmsNextActionHtml(c, compact) {
       // sfmsCollectSpareOutRows look up by id).
       actionHtml = `<div style="${compact ? 'min-width:260px' : ''}">
         ${compact ? '' : `<div style="${titleStyle}">${nextStepDef.label}</div>`}
+        ${doerHtml}
         <div id="sfmsSpareOutRows_${c.row}">${spareRowsHtml}</div>
         <button type="button" onclick="sfmsAddSpareOutRow(${c.row})" class="btn btn-outline btn-sm" style="margin-bottom:8px">+ Add Spare</button>
         ${btn}
       </div>`;
-    } else if (nextStepDef.n === 5) {
-      // In/Out: a fixed set of rows (whatever was taken out in Step 4),
-      // each with its own New/Old returned counts.
+    } else if (nextStepDef.n === 5 || nextStepDef.n === 9) {
+      // Spare Used: a fixed set of rows (whatever was taken out in Step 4),
+      // each with its own Used / Old-part-back counts. Deposit: whatever the
+      // mechanic still holds for this complaint, pre-filled.
       actionHtml = `<div style="${compact ? 'min-width:260px' : ''}">
         ${compact ? '' : `<div style="${titleStyle}">${nextStepDef.label}</div>`}
+        ${doerHtml}
         ${spareRowsHtml}
         ${extraInputsHtml}
         ${btn}
@@ -7878,10 +8262,12 @@ function buildSfmsNextActionHtml(c, compact) {
     // Compact (step-tab table cell): field(s) + submit button on one line,
     // instead of the modal's roomier stacked layout.
     actionHtml = compact
-      ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:nowrap">${statusSelectHtml}${extraInputsHtml}${btn}</div>`
+      ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:nowrap">${holdHtml}${statusSelectHtml}${extraInputsHtml}${btn}</div>`
       : `
       ${nextActionWrapOpen}
         <div style="${titleStyle}">${nextStepDef.label}</div>
+        ${doerHtml}
+        ${holdHtml}
         ${lastCheckedHtml}
         <div style="${lastCheckedHtml ? '' : 'margin-bottom:14px'}"></div>
         ${statusSelectHtml}
@@ -7927,6 +8313,10 @@ function renderComplaintDetailBody(c) {
           <div style="${SFMS_FIELD_LABEL_STYLE}">Purchase Date</div>
           <div style="font-size:14px;color:var(--gray-800)">${fmtDateDMY(c.purchaseDate)}</div>
         </div>` : ''}
+        ${!c.closed ? `<div>
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Warranty</div>
+          <div>${sfmsWarrantyDetailHtml(c)}</div>
+        </div>` : ''}
         ${c.productLocation ? `<div>
           <div style="${SFMS_FIELD_LABEL_STYLE}">Location</div>
           <div style="font-size:14px;color:var(--gray-800)">${esc(c.productLocation)}${c.area ? ', ' + esc(c.area) : ''}</div>
@@ -7970,11 +8360,11 @@ function renderComplaintDetailBody(c) {
         <tbody>
           ${c.steps.map(s => {
             const def = SFMS_STEP_DEFS.find(d => d.n === s.n);
-            const extraText = def.extraFields.map(f => s[f.key] ? `${esc(f.label)}: ${esc(s[f.key])}` : '').filter(Boolean).join(', ') || '—';
-            const actualDisplay = def.twoStage ? `Out: ${esc(s.out) || '—'}<br/>In: ${esc(s.in) || '—'}` : esc(s.actual || '—');
+            const extraText = def.extraFields.filter(f => !/Json$/.test(f.key)).map(f => s[f.key] ? `${esc(f.label)}: ${esc(s[f.key])}` : '').filter(Boolean).join(', ') || '—';
+            const actualDisplay = def.twoStage ? `Out: ${esc(fmtDateDMY(s.out, true)) || '—'}<br/>In: ${esc(fmtDateDMY(s.in, true)) || '—'}` : esc(fmtDateDMY(s.actual, true) || '—');
             return `<tr>
             <td style="font-weight:600">${s.n}. ${esc(s.label)}</td>
-            <td>${esc(s.planned || '—')}</td>
+            <td>${esc(fmtDateDMY(s.planned, true) || '—')}</td>
             <td>${actualDisplay}</td>
             <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${esc(s.status)}</span>` : '—'}</td>
             <td>${extraText}</td>
@@ -7987,6 +8377,7 @@ function renderComplaintDetailBody(c) {
 
   body.innerHTML = siblingsTableHtml + infoHtml + actionHtml + checklistHtml;
   body.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
+  sfmsPrefillSpareHold(c);
 }
 
 // Reveals "Reason (if Short)" only once the entered return qty is actually
@@ -8047,32 +8438,42 @@ function sfmsCollectSpareOutRows(row) {
   return result;
 }
 
-// ── Multi-spare In/Out (point 3) — for every item that was taken out,
-// separate New (unused, back to stock) and Old (faulty, removed from the
-// product) returned counts, instead of one combined "Qty Returned". ──────
+// ── Spare Used (step 5) — for every item taken out at Takeout, the
+// mechanic enters how many he USED (fitted) and how many OLD (faulty)
+// parts he's bringing back. Stored per item as usedQty plus the older
+// newQty (= taken − used, unused pieces coming back) / oldQty shape, so the
+// shortage/item-wise reports that sum newQty + oldQty keep working. ──────
 function sfmsSpareInRowHtml(row, id, item, takenQty) {
   return `<div id="sfmsSpareInRow_${row}_${id}" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
     <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(item || '—')} <span style="color:var(--gray-400);font-weight:400">(took ${takenQty})</span></span>
-    <input type="number" placeholder="New" title="New (unused) returned" id="sfmsSpareInNew_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
-    <input type="number" placeholder="Old" title="Old (removed from product) returned" id="sfmsSpareInOld_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <input type="number" min="0" max="${takenQty}" placeholder="Used" title="How many were used / fitted" id="sfmsSpareInUsed_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <input type="number" min="0" placeholder="Old" title="Old (faulty) parts removed from the product, being brought back" id="sfmsSpareInOld_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
   </div>`;
 }
 function sfmsBuildSpareInRowsHtml(c) {
   const items = sfmsTakeoutItems(c);
-  return items.map((it, i) => sfmsSpareInRowHtml(c.row, i, it.item, Number(it.qty) || 0)).join('');
+  return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Per spare: <b>Used</b> (fitted) · <b>Old</b> (faulty part brought back)</div>` +
+    items.map((it, i) => sfmsSpareInRowHtml(c.row, i, it.item, Number(it.qty) || 0)).join('');
 }
 function sfmsCollectSpareInRows(row, c) {
   const items = sfmsTakeoutItems(c);
-  return items.map((it, i) => ({
-    item: it.item,
-    takenQty: Number(it.qty) || 0,
-    newQty: Number(document.getElementById(`sfmsSpareInNew_${row}_${i}`)?.value) || 0,
-    oldQty: Number(document.getElementById(`sfmsSpareInOld_${row}_${i}`)?.value) || 0
-  }));
+  return items.map((it, i) => {
+    const takenQty = Number(it.qty) || 0;
+    const usedRaw = Math.max(0, Number(document.getElementById(`sfmsSpareInUsed_${row}_${i}`)?.value) || 0);
+    const usedQty = Math.min(usedRaw, takenQty);
+    return {
+      item: it.item,
+      takenQty,
+      usedQty,
+      usedRaw, // only for the over-taken check in advanceSfmsStep; stripped before saving
+      newQty: takenQty - usedQty,
+      oldQty: Math.max(0, Number(document.getElementById(`sfmsSpareInOld_${row}_${i}`)?.value) || 0)
+    };
+  });
 }
-// Reveals "Reason (if Short)" once total returned (new+old, across every
-// item) falls short of total taken — same trigger as before, just summed
-// across all items instead of a single one.
+// Reveals "Reason (if Short)" once what's coming back (unused new + old
+// parts) falls short of what was taken — i.e. fewer old parts returned than
+// spares used.
 function sfmsCheckSpareInShortage(row) {
   const c = sfmsData.find(x => x.row === row);
   const wrap = document.getElementById(`sfmsReasonWrap_${row}`);
@@ -8081,6 +8482,52 @@ function sfmsCheckSpareInShortage(row) {
   const takenTotal = rows.reduce((s, r) => s + r.takenQty, 0);
   const returnedTotal = rows.reduce((s, r) => s + r.newQty + r.oldQty, 0);
   wrap.style.display = returnedTotal < takenTotal ? 'block' : 'none';
+}
+
+// ── What a mechanic is holding for one complaint (before any deposit):
+// after Spare Used, the unused new pieces + old parts recorded there;
+// before it, everything taken out (all still new, nothing used yet). ──
+function sfmsParseJson(v) { try { return v ? JSON.parse(v) : []; } catch (e) { return []; } }
+function sfmsHeldItems(c) {
+  const s5 = c.steps.find(s => s.n === 5) || {};
+  const used = sfmsParseJson(s5.spareInJson);
+  if (s5.status && used.length) return used.map(u => ({ item: u.item, newQty: Number(u.newQty) || 0, oldQty: Number(u.oldQty) || 0 }));
+  return sfmsTakeoutItems(c).map(it => ({ item: it.item, newQty: Number(it.qty) || 0, oldQty: 0 }));
+}
+// Still with the mechanic = held − whatever step 9 recorded as deposited.
+function sfmsPendingWithMechanic(c) {
+  const held = sfmsHeldItems(c);
+  const s9 = c.steps.find(s => s.n === 9) || {};
+  if (s9.status) {
+    const dep = sfmsParseJson(s9.depositJson);
+    held.forEach(h => {
+      const d = dep.find(x => x.item === h.item);
+      if (d) { h.newQty = Math.max(0, h.newQty - (Number(d.newQty) || 0)); h.oldQty = Math.max(0, h.oldQty - (Number(d.oldQty) || 0)); }
+    });
+  }
+  return held.filter(h => h.newQty > 0 || h.oldQty > 0);
+}
+
+// ── Spare Deposited in Office (step 9) — one row per item the mechanic
+// holds, pre-filled with the expected New/Old counts; the office corrects
+// them if fewer actually came back. ──────────────────────────────────────
+function sfmsBuildDepositRowsHtml(c) {
+  const held = sfmsHeldItems(c).filter(h => h.newQty > 0 || h.oldQty > 0);
+  if (!held.length) return `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Nothing to deposit for this complaint.</div>`;
+  const inp = 'width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box';
+  return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Received in office: <b>New</b> (unused) · <b>Old</b> (faulty part)</div>` +
+    held.map((h, i) => `<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(h.item || '—')} <span style="color:var(--gray-400);font-weight:400">(new ${h.newQty}, old ${h.oldQty})</span></span>
+      <input type="number" min="0" max="${h.newQty}" value="${h.newQty}" title="New (unused) received" id="sfmsDepNew_${c.row}_${i}" style="${inp}"/>
+      <input type="number" min="0" max="${h.oldQty}" value="${h.oldQty}" title="Old parts received" id="sfmsDepOld_${c.row}_${i}" style="${inp}"/>
+    </div>`).join('');
+}
+function sfmsCollectDepositRows(row, c) {
+  return sfmsHeldItems(c).filter(h => h.newQty > 0 || h.oldQty > 0).map((h, i) => ({
+    item: h.item,
+    newQty: Math.min(h.newQty, Math.max(0, Number(document.getElementById(`sfmsDepNew_${row}_${i}`)?.value) || 0)),
+    oldQty: Math.min(h.oldQty, Math.max(0, Number(document.getElementById(`sfmsDepOld_${row}_${i}`)?.value) || 0))
+  }));
 }
 
 async function advanceSfmsStep(row, step, stage) {
@@ -8110,11 +8557,19 @@ async function advanceSfmsStep(row, step, stage) {
   if (step === 5) {
     const c = sfmsData.find(x => x.row === row);
     const items = sfmsCollectSpareInRows(row, c);
+    const over = items.find(r => r.usedRaw > r.takenQty);
+    if (over) { showToast(`${over.item}: used (${over.usedRaw}) can't be more than taken (${over.takenQty})`, 'error'); return; }
+    items.forEach(r => delete r.usedRaw);
     spareInTakenTotal = items.reduce((s, r) => s + r.takenQty, 0);
     spareInReturnedTotal = items.reduce((s, r) => s + r.newQty + r.oldQty, 0);
     body.qtyReturned = spareInReturnedTotal;
     body.spareInJson = JSON.stringify(items);
     ['qtyReturned', 'spareInJson'].forEach(k => skipGenericKeys.add(k));
+  }
+  if (step === 9) {
+    const c = sfmsData.find(x => x.row === row);
+    body.depositJson = JSON.stringify(sfmsCollectDepositRows(row, c));
+    ['depositJson', 'receivedBy'].forEach(k => skipGenericKeys.add(k));
   }
 
   const fieldsForStage = stage ? stepDef.extraFields.filter(f => f.stage === stage) : stepDef.extraFields;
@@ -8128,7 +8583,9 @@ async function advanceSfmsStep(row, step, stage) {
     body[f.key] = value;
   }
 
-  // Step 5 (Spare In/Out): require a reason whenever total returned
+  if (step === 5 && !body.usedBy) { showToast('Select your name (mechanic) first', 'error'); return; }
+
+  // Step 5 (Spare Used): require a reason whenever total returned
   // (new + old, across every item) falls short of total taken.
   if (step === 5 && spareInReturnedTotal < spareInTakenTotal && !body.reasonIfShort) {
     showToast('Enter a reason for the shortage', 'error');
@@ -8207,7 +8664,7 @@ const O2D_STEP_DEFS = [
   { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', tat: '10 min', statusOptions: ['Yes', 'No'], extraFields: [
       { key: 'reason', label: 'Reason (if not ok)' }
     ] },
-  { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', extraFields: [], perItemStatus: true },
+  { n: 2, label: 'Good Check', doer: 'Niranjan (Warehouse Manager)', tat: '10 min', extraFields: [], perItemStatus: true },
   { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', extraFields: [], allowAddOrder: true },
   { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', extraFields: [
       { key: 'billNo', label: 'Bill No' },
@@ -8215,7 +8672,7 @@ const O2D_STEP_DEFS = [
       { key: 'photoLink', label: 'Invoice', type: 'photo', required: true },
       { key: 'billDate', label: 'Bill Date', type: 'date' }
     ] },
-  { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', extraFields: [
+  { n: 5, label: 'Goods Takeout and Photo', doer: 'Niranjan (Warehouse Manager)', tat: '30 min', extraFields: [
       { key: 'doerName', label: 'Doer Name', type: 'doerSelect' },
       { key: 'photo', label: 'Photo', type: 'photo', required: true }
     ] },
@@ -8224,7 +8681,7 @@ const O2D_STEP_DEFS = [
     ] },
   { n: 7, label: 'Arrange Loader', doer: 'Kavita', tat: '10 min', extraFields: [] },
   { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', tat: '10 min', extraFields: [] },
-  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', extraFields: [
+  { n: 9, label: 'Load Goods', doer: 'Niranjan (Warehouse Manager)', tat: '30 min', extraFields: [
       { key: 'loaderName', label: 'Doer Name', type: 'doerSelect' },
       { key: 'deliveryBy', label: 'Delivery By' }
     ] }
@@ -8946,27 +9403,47 @@ function printDealerLedger() {
   window.print();
 }
 
-// Sends a plain-text summary (Outstanding + open bills) through the app's
-// existing WhatsApp gateway — reuses Service FMS's generic send endpoint,
-// which just takes a mobile number and message, nothing FMS-specific
-// about it. A full table doesn't read well as a WhatsApp message, so this
-// is a summary a dealer can act on, not the whole ledger.
+// Sends the dealer's COMPLETE current-FY statement through the app's
+// WhatsApp gateway (Service FMS's generic send endpoint — nothing
+// FMS-specific about it): Opening → every Tally voucher with Dr/Cr and
+// running balance → Closing, then the open bills and Outstanding. Laid out
+// line-by-line since a table doesn't render in a WhatsApp message.
 function buildDealerLedgerWhatsappText() {
   const { name, data } = _dlCurrent;
   if (!data) return '';
   const bills = (data.entries || []).filter(e => e.type === 'bill');
-  const lines = [`*Statement — ${name}*`, new Date().toLocaleDateString('en-IN'), ''];
-  lines.push(`*Outstanding: ${inr(data.outstanding)}*`);
-  if (bills.length) {
-    lines.push('', 'Open Bills:');
-    bills.forEach((b, i) => lines.push(`${i + 1}. Bill ${b.ref || '—'} (${b.date || '—'}) — ${inr(b.amount)}${b.dueDate ? `, due ${b.dueDate}` : ''}`));
+  const L = data.ledger;
+  const bal = b => `${inr(Math.abs(b))} ${b < 0 ? 'Cr' : 'Dr'}`;
+  const lines = [`*Ajanta Appliances — Statement of Account*`, `*${name}*`, `Date: ${new Date().toLocaleDateString('en-GB')}`, ''];
+  if (L && L.rows && L.rows.length) {
+    lines.push(`📒 *Ledger — ${L.fyLabel}*`);
+    lines.push(`Opening Balance: ${bal(L.opening)}`, '');
+    L.rows.forEach(x => {
+      const amt = x.debit ? `Dr ${inr(x.debit)}` : `Cr ${inr(x.credit)}`;
+      lines.push(`${x.date || '—'} | ${x.vchType || ''}${x.vchNo ? ' ' + x.vchNo : ''} | ${amt} | Bal ${bal(x.balance)}`);
+    });
+    lines.push('', `Total Debit: ${inr(L.totalDebit)}`, `Total Credit: ${inr(L.totalCredit)}`);
+    lines.push(`*Closing Balance: ${bal(L.closing !== null ? L.closing : L.rows[L.rows.length - 1].balance)}*`, '');
   }
-  if (data.syncedAt) lines.push('', `_Tally se sync: ${new Date(data.syncedAt).toLocaleString('en-IN')}_`);
+  if (bills.length) {
+    lines.push(`🧾 *Open Bills (${bills.length})*`);
+    bills.forEach((b, i) => lines.push(`${i + 1}. ${b.date || '—'} | Bill ${b.ref || '—'} | ${inr(b.amount)}${b.dueDate ? ` | Due ${b.dueDate}` : ''}`));
+    lines.push('');
+  }
+  if (data.outstanding !== null && data.outstanding !== undefined) lines.push(`*Total Outstanding: ${inr(data.outstanding)}*`);
+  if (data.syncedAt) lines.push('', `_Tally sync: ${new Date(data.syncedAt).toLocaleString('en-IN')}_`);
   return lines.join('\n');
 }
 async function sendDealerLedgerWhatsapp() {
   if (!_dlCurrent.data) { showToast('Pehle Statement load hone do', 'error'); return; }
-  if (!_dlCurrent.phone) { showToast('Is dealer ka phone number save nahi hai', 'error'); return; }
+  if (!_dlCurrent.phone) {
+    // Ask once and save it to the dealer's profile, so future sends are one click.
+    const phone = (prompt(`${_dlCurrent.name} ka WhatsApp number daalo (save ho jayega):`) || '').trim();
+    if (!phone) return;
+    // Saving needs dealer-edit rights — without them, still send this once.
+    await api(`/api/o2d-fms/dealers/${encodeURIComponent(_dlCurrent.name)}`, 'PUT', { phone });
+    _dlCurrent.phone = phone;
+  }
   const btn = document.getElementById('dlWhatsappBtn');
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = 'Sending…';
@@ -8975,7 +9452,7 @@ async function sendDealerLedgerWhatsapp() {
   });
   btn.disabled = false; btn.textContent = original;
   if (r.error) { showToast(r.error, 'error'); return; }
-  showToast('Statement WhatsApp pe bhej diya!');
+  showToast('Poora Statement WhatsApp pe bhej diya!');
 }
 
 // ══════════════════════════════════════════════════════
@@ -9694,6 +10171,48 @@ async function submitStepDoers() {
   if (document.getElementById('page-o2d-fms').classList.contains('active')) loadO2dFmsList();
 }
 
+// ── Team WhatsApp group (admin) — picks which group the new-order alert
+// goes to, from the groups the linked Ajanta WhatsApp number is in. ──
+let _teamGroupCurrent = { id: '', name: '' };
+async function openTeamGroupModal() {
+  const statusEl = document.getElementById('teamGroupStatus');
+  const sel = document.getElementById('teamGroupSelect');
+  statusEl.innerHTML = 'Loading…';
+  sel.innerHTML = '';
+  document.getElementById('teamGroupModal').classList.add('open');
+  const [cur, groups, wa] = await Promise.all([api('/api/o2d-fms/team-group'), api('/api/whatsapp/groups'), api('/api/whatsapp/status')]);
+  _teamGroupCurrent = (cur && !cur.error) ? cur : { id: '', name: '' };
+  const connected = wa && wa.status && !/offline|disconnected|not/i.test(wa.status);
+  statusEl.innerHTML = connected
+    ? `<span style="color:var(--color-success-text);font-weight:600">● WhatsApp connected</span>`
+    : `<span style="color:var(--color-danger);font-weight:600">● WhatsApp disconnected</span> — MYAPI mein QR scan karke Ajanta number dobara connect karo, tabhi messages jayenge.`;
+  const list = Array.isArray(groups) ? groups : [];
+  const opts = list.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`);
+  if (_teamGroupCurrent.id && !list.some(g => g.id === _teamGroupCurrent.id)) {
+    opts.unshift(`<option value="${esc(_teamGroupCurrent.id)}">${esc(_teamGroupCurrent.name || _teamGroupCurrent.id)} (saved)</option>`);
+  }
+  sel.innerHTML = `<option value="">-- No group (alerts off) --</option>` + opts.join('');
+  sel.value = _teamGroupCurrent.id || '';
+  if (connected && groups && groups.error) statusEl.innerHTML += `<div style="color:var(--gray-500);margin-top:4px">${esc(groups.error)}</div>`;
+}
+async function saveTeamGroup() {
+  const sel = document.getElementById('teamGroupSelect');
+  const id = sel.value;
+  const name = id ? sel.options[sel.selectedIndex].textContent.replace(/ \(saved\)$/, '') : '';
+  const r = await api('/api/o2d-fms/team-group', 'PUT', { id, name });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  _teamGroupCurrent = { id, name };
+  showToast(id ? `✅ New-order alerts → ${name}` : 'New-order group alerts turned off');
+  closeModal('teamGroupModal');
+}
+async function testTeamGroup() {
+  const sel = document.getElementById('teamGroupSelect');
+  if (sel.value !== (_teamGroupCurrent.id || '')) { showToast('Pehle Save karo, phir test', 'error'); return; }
+  const r = await api('/api/o2d-fms/team-group/test', 'POST', {});
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Test message group mein bhej diya');
+}
+
 // ── New Order ──
 // Orders don't originate in Master. (that whole tab is a computed view) —
 // they're created in the separate "O2D Response" intake sheet, one row per
@@ -9890,7 +10409,8 @@ async function submitNewO2dOrder() {
   submitBtn.disabled = false;
 
   if (res.error) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
-  showToast(`✅ Order ${res.orderNo} created!`);
+  showToast(`✅ Order ${res.orderNo} created!${res.teamNotified ? ' Team group notified.' : ''}`);
+  if (!res.teamNotified && res.teamNotifySkippedReason && ME.role === 'admin') setTimeout(() => showToast(res.teamNotifySkippedReason, 'error'), 1800);
   closeModal('newO2dOrderModal');
   loadO2dFmsList();
 }

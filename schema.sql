@@ -201,9 +201,8 @@ CREATE TABLE IF NOT EXISTS o2d_dealer_payments (
   INDEX idx_counter (counter_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- km_start/km_end intentionally absent — KM tracking moved to the `rides`
--- table below (2026-09-25) so a field employee can log several trips a day
--- instead of one KM pair tied to the attendance punch.
+-- km_start/km_end intentionally absent — KM tracking lives in `daily_km`
+-- below, kept separate from the punch.
 CREATE TABLE IF NOT EXISTS attendance (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
@@ -238,20 +237,27 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS rides (
+-- Daily KM (replaced the short-lived per-trip `rides` table, 2026-09-25):
+-- one row per KM-tracked employee per day — a Morning odometer reading and
+-- an Evening one, each with a photo of the odometer; the day's distance is
+-- simply evening_km - morning_km.
+CREATE TABLE IF NOT EXISTS daily_km (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
-  start_time DATETIME NOT NULL,
-  km_start DECIMAL(10,2),
-  lat_start DECIMAL(10,7),
-  lng_start DECIMAL(10,7),
-  address_start VARCHAR(500),
-  end_time DATETIME,
-  km_end DECIMAL(10,2),
-  lat_end DECIMAL(10,7),
-  lng_end DECIMAL(10,7),
-  address_end VARCHAR(500),
+  date DATE NOT NULL,
+  morning_km DECIMAL(10,1),
+  morning_photo VARCHAR(1000),
+  morning_time DATETIME,
+  morning_lat DECIMAL(10,7),
+  morning_lng DECIMAL(10,7),
+  morning_address VARCHAR(500),
+  evening_km DECIMAL(10,1),
+  evening_photo VARCHAR(1000),
+  evening_time DATETIME,
+  evening_lat DECIMAL(10,7),
+  evening_lng DECIMAL(10,7),
+  evening_address VARCHAR(500),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_user (user_id),
-  INDEX idx_start (start_time)
+  UNIQUE KEY uniq_user_date (user_id, date),
+  INDEX idx_date (date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

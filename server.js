@@ -182,7 +182,7 @@ const _dbReady = db.init()
         catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attendance GPS migration skipped:', e.message); }
       }
       // Migration: add reverse-geocoded address text columns to attendance.
-      // KM moved off this table onto the new `rides` table the same day —
+      // KM lives in its own `daily_km` table, not on attendance —
       // the old km_start/km_end columns are left in place, just unused.
       for (const col of ['address_in VARCHAR(500)', 'address_out VARCHAR(500)']) {
         try { await db.query(`ALTER TABLE attendance ADD COLUMN ${col}`); }
@@ -1628,12 +1628,13 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
 // ATTENDANCE, LEAVE & RIDES
 // - Attendance: daily time-in/time-out punch for every employee.
 // - Leave: apply/approve/reject.
-// - Rides: separate KM-tracked trips (Start/End, GPS both ends) for field
-//   staff — decoupled from the attendance punch so someone can log several
-//   trips in a day, not just one KM pair. All three tables are lazily
-//   created on first write (mirrors the o2d_dealers self-healing pattern).
+// - Daily KM: a Morning and an Evening odometer reading per day, each with
+//   a photo of the odometer + the typed number; the day's distance is the
+//   difference (replaced the earlier per-trip Start/End "Rides", which had
+//   no data yet, per client spec). All three tables are lazily created on
+//   first write (mirrors the o2d_dealers self-healing pattern).
 //
-// Who gets Rides is its own per-user `users.track_km` flag (set from the
+// Who gets KM tracking is its own per-user `users.track_km` flag (set from the
 // Users page), kept deliberately separate from the free-text `department`
 // column — a mechanic's department text can drift/typo without silently
 // turning KM tracking on or off for them.
@@ -1676,22 +1677,25 @@ async function ensureAttendanceTables() {
     )
   `);
   await db.query(`
-    CREATE TABLE IF NOT EXISTS rides (
+    CREATE TABLE IF NOT EXISTS daily_km (
       id INT AUTO_INCREMENT PRIMARY KEY,
       user_id INT NOT NULL,
-      start_time DATETIME NOT NULL,
-      km_start DECIMAL(10,2),
-      lat_start DECIMAL(10,7),
-      lng_start DECIMAL(10,7),
-      address_start VARCHAR(500),
-      end_time DATETIME,
-      km_end DECIMAL(10,2),
-      lat_end DECIMAL(10,7),
-      lng_end DECIMAL(10,7),
-      address_end VARCHAR(500),
+      date DATE NOT NULL,
+      morning_km DECIMAL(10,1),
+      morning_photo VARCHAR(1000),
+      morning_time DATETIME,
+      morning_lat DECIMAL(10,7),
+      morning_lng DECIMAL(10,7),
+      morning_address VARCHAR(500),
+      evening_km DECIMAL(10,1),
+      evening_photo VARCHAR(1000),
+      evening_time DATETIME,
+      evening_lat DECIMAL(10,7),
+      evening_lng DECIMAL(10,7),
+      evening_address VARCHAR(500),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_user (user_id),
-      INDEX idx_start (start_time)
+      UNIQUE KEY uniq_user_date (user_id, date),
+      INDEX idx_date (date)
     )
   `);
 }
@@ -1704,6 +1708,8 @@ async function withAttendanceTables(fn) {
     return await fn();
   }
 }
+
+const ATTENDANCE_MIN_SECS_BEFORE_OUT = 120;
 
 // GPS is best-effort — a punch/ride must never fail just because the
 // browser denied/lacks location, so lat/lng (and the address text below)
@@ -1777,20 +1783,38 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
     const lng = parseCoord(req.body?.lng);
     const address = await reverseGeocode(lat, lng);
     await withAttendanceTables(async () => {
-      const [existing] = await db.query('SELECT id,time_in,time_out FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
+      const [existing] = await db.query('SELECT id,time_in,time_out,TIMESTAMPDIFF(SECOND,time_in,NOW()) AS secs_since_in FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
       if (!existing[0] || !existing[0].time_in) {
         const err = new Error("You haven't punched in yet today"); err.code = 'NOT_IN'; throw err;
       }
       if (existing[0].time_out) {
         const err = new Error('Already punched out today'); err.code = 'ALREADY_OUT'; throw err;
       }
+      // The "automatic punch out" reports were really a second tap: right
+      // after Punch In the same button turns into Punch Out in the same
+      // spot, and live data had punch-outs 7-9s after the punch-in. A real
+      // punch-out a couple of minutes after punching in doesn't happen.
+      if (Number(existing[0].secs_since_in) < ATTENDANCE_MIN_SECS_BEFORE_OUT) {
+        const err = new Error('You just punched in — Punch Out opens after 2 minutes.'); err.code = 'TOO_SOON'; throw err;
+      }
       await db.query('UPDATE attendance SET time_out=NOW(), lat_out=?, lng_out=?, address_out=? WHERE id=?', [lat, lng, address, existing[0].id]);
     });
     res.json({ success: true });
   } catch (err) {
-    if (err.code === 'NOT_IN' || err.code === 'ALREADY_OUT') return res.status(400).json({ error: err.message });
+    if (err.code === 'NOT_IN' || err.code === 'ALREADY_OUT' || err.code === 'TOO_SOON') return res.status(400).json({ error: err.message });
     sendServerError(res, err);
   }
+});
+
+// Admin-only: undo a mistaken punch-out (clears Out, keeps In) so the
+// employee can punch out properly later the same day.
+app.put('/api/attendance/:id/clear-out', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const [result] = await db.query('UPDATE attendance SET time_out=NULL, lat_out=NULL, lng_out=NULL, address_out=NULL WHERE id=?', [id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // History — self sees own rows; admin-only can pass ?employee=<userId> or
@@ -1829,82 +1853,98 @@ app.delete('/api/attendance/:id', requireAuth, requireAdmin, async (req, res) =>
   } catch (err) { sendServerError(res, err); }
 });
 
-// ── Rides — Start/End trips for KM-tracked (track_km) staff. One active
-// (unfinished) ride per user at a time; any number of rides per day. ──
-app.get('/api/rides/active', requireAuth, async (req, res) => {
+// ── Daily KM — Morning / Evening odometer reading (photo + typed number)
+// for KM-tracked (track_km) staff; the day's KM = evening - morning. ──
+const KM_PHOTO_MAX_CHARS = 1500000; // ~1MB image after client-side compression
+
+function parseKm(v) {
+  if (v == null || v === '') return null;
+  const n = parseFloat(v);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null;
+}
+
+app.get('/api/km/today', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
     const [urows] = await db.query('SELECT track_km FROM users WHERE id=?', [uid]);
     const kmTracked = !!(urows[0] && +urows[0].track_km);
-    const ride = await withAttendanceTables(async () => {
-      const [rows] = await db.query('SELECT * FROM rides WHERE user_id=? AND end_time IS NULL ORDER BY start_time DESC LIMIT 1', [uid]);
+    const row = await withAttendanceTables(async () => {
+      const [rows] = await db.query('SELECT * FROM daily_km WHERE user_id=? AND date=CURDATE()', [uid]);
       return rows[0] || null;
     });
-    res.json({ ride, kmTracked });
+    res.json({ km: row, kmTracked });
   } catch (err) { sendServerError(res, err); }
 });
 
-app.post('/api/rides/start', requireAuth, async (req, res) => {
+// :slot is 'morning' or 'evening' — both need the reading AND an odometer photo.
+app.post('/api/km/:slot', requireAuth, async (req, res) => {
   try {
+    const slot = req.params.slot;
+    if (slot !== 'morning' && slot !== 'evening') return res.status(400).json({ error: 'Invalid slot' });
     const uid = req.session.userId;
-    const kmStart = req.body?.kmStart != null && req.body.kmStart !== '' ? parseFloat(req.body.kmStart) : null;
+    const km = parseKm(req.body?.km);
+    const photo = String(req.body?.photo || '');
+    if (km === null) return res.status(400).json({ error: 'Enter the kilometer reading' });
+    if (!photo) return res.status(400).json({ error: 'Upload a photo of the kilometer meter' });
+    if (photo.length > KM_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Photo is too large — try again' });
+
+    const existing = await withAttendanceTables(async () => {
+      const [rows] = await db.query('SELECT * FROM daily_km WHERE user_id=? AND date=CURDATE()', [uid]);
+      return rows[0] || null;
+    });
+    if (slot === 'morning' && existing && existing.morning_km != null) return res.status(400).json({ error: 'Morning kilometer already saved today' });
+    if (slot === 'evening') {
+      if (!existing || existing.morning_km == null) return res.status(400).json({ error: 'Save the Morning kilometer first' });
+      if (existing.evening_km != null) return res.status(400).json({ error: 'Evening kilometer already saved today' });
+      if (km < Number(existing.morning_km)) return res.status(400).json({ error: `Evening reading can't be less than the morning reading (${existing.morning_km})` });
+    }
+
     const lat = parseCoord(req.body?.lat);
     const lng = parseCoord(req.body?.lng);
-    const address = await reverseGeocode(lat, lng);
-    const rideId = await withAttendanceTables(async () => {
-      const [active] = await db.query('SELECT id FROM rides WHERE user_id=? AND end_time IS NULL', [uid]);
-      if (active[0]) {
-        const err = new Error('A ride is already in progress — end it before starting a new one'); err.code = 'RIDE_ACTIVE'; throw err;
-      }
-      const [result] = await db.query(
-        'INSERT INTO rides (user_id,start_time,km_start,lat_start,lng_start,address_start) VALUES (?,NOW(),?,?,?,?)',
-        [uid, kmStart, lat, lng, address]
+    const [photoLink, address] = await Promise.all([
+      uploadPhotoToDrive(photo, `km-${uid}-${new Date().toISOString().slice(0, 10)}-${slot}.jpg`),
+      reverseGeocode(lat, lng)
+    ]);
+    if (slot === 'morning') {
+      await db.query(
+        `INSERT INTO daily_km (user_id,date,morning_km,morning_photo,morning_time,morning_lat,morning_lng,morning_address)
+         VALUES (?,CURDATE(),?,?,NOW(),?,?,?)
+         ON DUPLICATE KEY UPDATE morning_km=VALUES(morning_km), morning_photo=VALUES(morning_photo), morning_time=VALUES(morning_time),
+           morning_lat=VALUES(morning_lat), morning_lng=VALUES(morning_lng), morning_address=VALUES(morning_address)`,
+        [uid, km, photoLink, lat, lng, address]
       );
-      return result.insertId;
-    });
-    res.json({ success: true, id: rideId });
+    } else {
+      await db.query(
+        'UPDATE daily_km SET evening_km=?, evening_photo=?, evening_time=NOW(), evening_lat=?, evening_lng=?, evening_address=? WHERE id=?',
+        [km, photoLink, lat, lng, address, existing.id]
+      );
+    }
+    res.json({ success: true, dayKm: slot === 'evening' ? Math.round((km - Number(existing.morning_km)) * 10) / 10 : null });
   } catch (err) {
-    if (err.code === 'RIDE_ACTIVE') return res.status(400).json({ error: err.message });
+    if (err.code === 403) return res.status(400).json({ error: 'Photo upload failed — the photos Drive is not shared with the service account.' });
     sendServerError(res, err);
   }
 });
 
-app.post('/api/rides/:id/end', requireAuth, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const uid = req.session.userId;
-    const kmEnd = req.body?.kmEnd != null && req.body.kmEnd !== '' ? parseFloat(req.body.kmEnd) : null;
-    const lat = parseCoord(req.body?.lat);
-    const lng = parseCoord(req.body?.lng);
-    const address = await reverseGeocode(lat, lng);
-    await withAttendanceTables(async () => {
-      const [rows] = await db.query('SELECT id FROM rides WHERE id=? AND user_id=? AND end_time IS NULL', [id, uid]);
-      if (!rows[0]) {
-        const err = new Error('Ride not found or already ended'); err.code = 'RIDE_NOT_FOUND'; throw err;
-      }
-      await db.query('UPDATE rides SET end_time=NOW(), km_end=?, lat_end=?, lng_end=?, address_end=? WHERE id=?', [kmEnd, lat, lng, address, id]);
-    });
-    res.json({ success: true });
-  } catch (err) {
-    if (err.code === 'RIDE_NOT_FOUND') return res.status(400).json({ error: err.message });
-    sendServerError(res, err);
-  }
-});
-
-app.get('/api/rides/history', requireAuth, async (req, res) => {
+// Self sees own rows; admin can pass ?employee=<userId> or omit for all.
+// day_km is computed here once so the Dashboard, the daily table and the
+// weekly report all agree on the same number.
+app.get('/api/km/history', requireAuth, async (req, res) => {
   try {
     const isAdmin = req.session.role === 'admin';
     const { from, to, employee } = req.query;
-    const where = ['r.start_time BETWEEN ? AND ?'];
-    const params = [`${from || '1970-01-01'} 00:00:00`, `${to || '2999-12-31'} 23:59:59`];
+    const where = ['k.date BETWEEN ? AND ?'];
+    const params = [from || '1970-01-01', to || '2999-12-31'];
     if (!isAdmin) {
-      where.push('r.user_id=?'); params.push(req.session.userId);
+      where.push('k.user_id=?'); params.push(req.session.userId);
     } else if (employee && employee !== 'all') {
-      where.push('r.user_id=?'); params.push(parseInt(employee, 10));
+      where.push('k.user_id=?'); params.push(parseInt(employee, 10));
     }
     const rows = await withAttendanceTables(async () => {
       const [r] = await db.query(
-        `SELECT r.*, u.name, u.department FROM rides r JOIN users u ON r.user_id=u.id WHERE ${where.join(' AND ')} ORDER BY r.start_time DESC`,
+        `SELECT k.*, u.name, u.department,
+           CASE WHEN k.morning_km IS NOT NULL AND k.evening_km IS NOT NULL THEN k.evening_km - k.morning_km END AS day_km
+         FROM daily_km k JOIN users u ON k.user_id=u.id WHERE ${where.join(' AND ')} ORDER BY k.date DESC, u.name ASC`,
         params
       );
       return r;
@@ -1913,10 +1953,10 @@ app.get('/api/rides/history', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
-app.delete('/api/rides/:id', requireAuth, requireAdmin, async (req, res) => {
+app.delete('/api/km/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const [result] = await db.query('DELETE FROM rides WHERE id=?', [id]);
+    const [result] = await db.query('DELETE FROM daily_km WHERE id=?', [id]);
     if (!result.affectedRows) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
@@ -3180,7 +3220,7 @@ const SFMS_SHEET_ID = '1sim5xXi7uKiUdLh_O1NjWbB9b047p9VVW-Z8oAG1gSE';
 const SFMS_TAB = 'Complain FMS';
 const SFMS_HEADER_ROW = 6;
 const SFMS_DATA_START_ROW = 7;
-const SFMS_LAST_COL = 'BJ';
+const SFMS_LAST_COL = 'BO';
 const SFMS_PHOTO_MAX_CHARS = 40000; // stays under the 45k Sheets cell limit
 const SFMS_OTP_CODE_COL = 'AN';
 const SFMS_OTP_SENT_COL = 'AO';
@@ -3224,18 +3264,28 @@ const SFMS_OWNERSHIP_VALUES = ['Dealer Stock Piece', 'Customer Purchased Piece']
 // (BE-BJ) for Step 3's item name and the new Step 7. BC/BD (old Final
 // Status/Holidays) and BF/BH (unused now that Step 6 isn't two-stage) are
 // left in place, just no longer read or written.
+//
+// 2026-09-25 (client corrections round): step 2 now uses requireValue —
+// "Need to be Purchased" holds the complaint at Spare Check (no Assign
+// option) until someone re-answers "Available" once the spare is bought.
+// Step 5 renamed "Spare Used" + records which mechanic filled it (BK), and
+// a new step 9 "Spare Deposited in Office" (BL-BO) closes the complaint
+// once the mechanic hands back unused/old spares. The sheet was only 63
+// columns wide (A:BK) at that point — sfmsEnsureColumns() widens it on the
+// first write that needs BL+.
+const SFMS_SPARE_USED_BY_COL = 'BK';
 const SFMS_STEPS = [
-  { n: 1, label: 'Check Product in Warranty', planned: 'O', actual: 'P', status: 'Q', timeDelay: 'R', extra: [] },
-  { n: 2, label: 'Spare Available?', planned: 'S', actual: 'T', status: 'U', timeDelay: 'V', extra: [] },
+  { n: 1, label: 'Check Product in Warranty', doer: 'Service Mail', planned: 'O', actual: 'P', status: 'Q', timeDelay: 'R', extra: [] },
+  { n: 2, label: 'Spare Available?', doer: 'Niranjan', planned: 'S', actual: 'T', status: 'U', timeDelay: 'V', extra: [], requireValue: 'Available' },
   // Reordered (was step 4) — mechanic gets assigned zone-wise before the
   // spare is taken out, per the field-batching workflow.
-  { n: 3, label: 'Assign Complaint to Mechanic After Batching', planned: 'AC', actual: 'AD', status: 'AE',
+  { n: 3, label: 'Assign Complaint to Mechanic After Batching', doer: 'Ajiz Ji', planned: 'AC', actual: 'AD', status: 'AE',
     extra: [
       { key: 'zone', col: SFMS_ZONE_COL, label: 'Zone' },
       { key: 'mechanic', col: 'AF', label: 'Mechanic Name' }
     ], timeDelay: 'AG' },
   // Reordered (was step 3) — now comes after Assign.
-  { n: 4, label: 'Takeout Spare', planned: 'W', actual: 'X', status: 'Y',
+  { n: 4, label: 'Takeout Spare', doer: 'Niranjan', planned: 'W', actual: 'X', status: 'Y',
     extra: [
       { key: 'itemName', col: 'BE', label: 'Item Name' },
       { key: 'spareTaken', col: 'Z', label: 'Qty' },
@@ -3246,11 +3296,15 @@ const SFMS_STEPS = [
   // Reordered (was step 6) — spare in/out is now logged before the OTP
   // solve step, not after. Point 6: dropped "Out" from the label — Takeout
   // (step 4) is the "out" side, this step only asks what came back in.
-  { n: 5, label: 'Spare In Entry (in the field)', planned: 'AP', actual: 'AQ', status: 'AT',
+  // 2026-09-25: renamed "Spare Used" per client. Same columns — qtyReturned
+  // is still new-unused + old-faulty pieces coming back, so every report
+  // reading it keeps working; spareInJson items now also carry usedQty.
+  { n: 5, label: 'Spare Used (in the field)', doer: 'Mechanic (self)', planned: 'AP', actual: 'AQ', status: 'AT',
     extra: [
       { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
       { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' },
-      { key: 'spareInJson', col: SFMS_SPARE_IN_COL, label: 'Spares In (all items, new/old)' }
+      { key: 'spareInJson', col: SFMS_SPARE_IN_COL, label: 'Spares Used (all items, used/new/old)' },
+      { key: 'usedBy', col: SFMS_SPARE_USED_BY_COL, label: 'Filled By (Mechanic)' }
     ],
     timeDelay: 'AU' },
   // Reordered (was step 5) — mechanic reaching the customer's location,
@@ -3266,8 +3320,71 @@ const SFMS_STEPS = [
       { key: 'distanceChargesAgree', col: 'AZ', label: 'Distance Charges Agreed by Customer' },
       { key: 'amount', col: 'BA', label: 'Amount' },
       { key: 'remark', col: 'BB', label: 'Remark' }
+    ] },
+  // After Review: the mechanic hands the office whatever spares he still
+  // holds for this complaint (unused new pieces + old faulty parts).
+  // depositJson = [{ item, newQty, oldQty }] actually received.
+  { n: 9, label: 'Spare Deposited in Office', doer: 'Niranjan', actual: 'BL', status: 'BM',
+    extra: [
+      { key: 'depositJson', col: 'BN', label: 'Spares Deposited (all items, new/old)' },
+      { key: 'receivedBy', col: 'BO', label: 'Received By' }
     ] }
 ];
+const SFMS_NEW_COLUMN_HEADERS = {
+  BK: 'Spare Used - Filled By (Mechanic)',
+  BL: 'Spare Deposited in Office - Actual',
+  BM: 'Spare Deposited in Office - Status',
+  BN: 'Spares Deposited (JSON)',
+  BO: 'Spare Received By'
+};
+
+// Writes past the sheet's last column fail ("exceeds grid limits"), and
+// the Complain FMS tab ended at BK when step 9 was added — widen it (and
+// label the new header cells) the first time a write needs to go further.
+// Cached per serverless instance once confirmed wide enough.
+let _sfmsGridWideEnough = false;
+async function sfmsEnsureColumns(sheetsApi) {
+  if (_sfmsGridWideEnough) return;
+  const needed = colToIdx(SFMS_LAST_COL) + 1;
+  const meta = await sheetsApi.spreadsheets.get({
+    spreadsheetId: SFMS_SHEET_ID, fields: 'sheets(properties(sheetId,title,gridProperties(columnCount)))'
+  });
+  const tab = meta.data.sheets.find(s => s.properties.title === SFMS_TAB);
+  if (!tab) throw new Error(`Tab "${SFMS_TAB}" not found`);
+  const have = tab.properties.gridProperties.columnCount;
+  if (have < needed) {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID,
+      requestBody: { requests: [{ appendDimension: { sheetId: tab.properties.sheetId, dimension: 'COLUMNS', length: needed - have } }] }
+    });
+    const labelData = Object.entries(SFMS_NEW_COLUMN_HEADERS).map(([col, label]) => ({ range: `'${SFMS_TAB}'!${col}${SFMS_HEADER_ROW}`, values: [[label]] }));
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID, requestBody: { valueInputOption: 'RAW', data: labelData }
+    });
+  }
+  _sfmsGridWideEnough = true;
+}
+
+// Seasonal-warranty products (client request 2026-09-25): not in Product
+// Master, and their warranty isn't N months — it runs to the end of that
+// season, i.e. 31 December of the purchase year, whatever month they were
+// bought in (bought in November → still covered till 31 Dec). Mirrored in
+// app.html's SFMS_SEASONAL_PRODUCTS.
+const SFMS_SEASONAL_PRODUCTS = ['Cooler Water Pump', 'Cooler Swing Motor'];
+const SFMS_SEASONAL_LOWER = new Set(SFMS_SEASONAL_PRODUCTS.map(n => n.toLowerCase()));
+
+// Warranty expiry Date for a product line, or null when it can't be
+// determined (no purchase date / product not in Product Master).
+function sfmsWarrantyExpiry(productName, purchaseDate, warrantyMonthsByName) {
+  const key = String(productName || '').trim().toLowerCase();
+  if (!purchaseDate) return null;
+  if (SFMS_SEASONAL_LOWER.has(key)) return new Date(`${purchaseDate.slice(0, 4)}-12-31T23:59:59Z`);
+  const months = warrantyMonthsByName[key];
+  if (!months) return null;
+  const expiry = new Date(purchaseDate + 'T00:00:00Z');
+  expiry.setMonth(expiry.getMonth() + months);
+  return expiry;
+}
 
 function sfmsSerialToDate(n) {
   if (n === '' || n === null || n === undefined) return '';
@@ -3303,23 +3420,143 @@ function sfmsNormalizeMobile(mobile) {
   return last10.length === 10 ? `91${last10}` : null;
 }
 
-async function sendWhatsApp(mobile, text) {
+function myapiConfig() {
   const baseUrl = process.env.MYAPI_BASE_URL;
   const apiKey = process.env.MYAPI_API_KEY;
   const sessionId = process.env.MYAPI_SESSION_ID;
   if (!baseUrl || !apiKey || !sessionId) throw new Error('WhatsApp (MYAPI) is not configured (missing base URL, API key or session ID)');
-  const to = sfmsNormalizeMobile(mobile);
+  return { base: `${baseUrl.replace(/\/$/, '')}/api/sessions/${encodeURIComponent(sessionId)}`, apiKey };
+}
+
+// `mobile` can also be a WhatsApp group id ("1203...@g.us") — MYAPI's
+// /send passes those straight through to the group. `media` (optional) is
+// MYAPI's own shape: { type: 'image'|'document', url, mimetype?, fileName? }
+// — the url must be publicly fetchable by the gateway (e.g. a public Drive
+// uc?export=view link from uploadPhotoToDrive(..., { public: true })).
+async function sendWhatsApp(mobile, text, media) {
+  const { base, apiKey } = myapiConfig();
+  const raw = String(mobile || '').trim();
+  const to = raw.endsWith('@g.us') ? raw : sfmsNormalizeMobile(raw);
   if (!to) throw new Error('Invalid mobile number on file');
 
-  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+  const body = { to, message: text };
+  if (media) body.media = media;
+  const res = await fetch(`${base}/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    body: JSON.stringify({ to, message: text })
+    body: JSON.stringify(body)
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.status === 'error') throw new Error((data.message || data.error) || `WhatsApp send failed (HTTP ${res.status})`);
+  if (!res.ok || data.status === 'error') {
+    const msg = (data.message || data.error) || `WhatsApp send failed (HTTP ${res.status})`;
+    // The gateway's own wording for a dropped linked-device session is
+    // cryptic ("Session ... not connected") — say what actually fixes it.
+    const err = new Error(/not connected|not active|offline/i.test(msg)
+      ? 'WhatsApp is disconnected — re-scan the QR code in MYAPI to reconnect the Ajanta number.'
+      : `WhatsApp: ${msg}`);
+    err.isWhatsApp = true; // safe to show the user as-is (see sendWhatsAppError)
+    throw err;
+  }
   return data;
 }
+
+// Like sendServerError, but a failed WhatsApp send's own message is shown
+// (it's our own wording, not an internal exception) so staff know to
+// reconnect the gateway instead of seeing a generic "Something went wrong".
+function sendWhatsAppError(res, err) {
+  if (err && (err.isWhatsApp || /MYAPI|mobile number/i.test(err.message || ''))) {
+    console.error(err.message);
+    return res.status(502).json({ error: err.message });
+  }
+  sendServerError(res, err);
+}
+
+// Best guess at a WhatsApp media type for an uploaded file link — O2D's
+// invoice field accepts either a photo or a PDF.
+function whatsappMediaFor(url, fileName) {
+  const isPdf = /\.pdf$/i.test(fileName || '');
+  return isPdf
+    ? { type: 'document', url, mimetype: 'application/pdf', fileName }
+    : { type: 'image', url };
+}
+
+// ── App-wide key/value settings (e.g. the O2D team WhatsApp group id).
+// Lazily created on first use, same self-healing pattern as o2d_dealers. ──
+async function ensureAppSettingsTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      setting_key VARCHAR(100) PRIMARY KEY,
+      setting_value TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+}
+async function getAppSetting(key) {
+  try {
+    const [rows] = await db.query('SELECT setting_value FROM app_settings WHERE setting_key=?', [key]);
+    return rows[0] ? rows[0].setting_value : null;
+  } catch (e) {
+    if (e.code === 'ER_NO_SUCH_TABLE') return null;
+    throw e;
+  }
+}
+async function setAppSetting(key, value) {
+  await ensureAppSettingsTable();
+  await db.query(
+    'INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)',
+    [key, value]
+  );
+}
+
+// WhatsApp gateway status + the groups the linked number is in — backs the
+// admin "Team WhatsApp Group" picker on the O2D page.
+app.get('/api/whatsapp/status', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { base, apiKey } = myapiConfig();
+    const r = await fetch(base, { headers: { 'X-API-Key': apiKey } });
+    const data = await r.json().catch(() => ({}));
+    res.json({ status: data.status || 'unknown', message: data.message || '' });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/whatsapp/groups', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { base, apiKey } = myapiConfig();
+    const r = await fetch(`${base}/groups`, { headers: { 'X-API-Key': apiKey } });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const msg = data.error || `HTTP ${r.status}`;
+      return res.status(400).json({ error: /not connected/i.test(msg) ? 'WhatsApp is disconnected — re-scan the QR code in MYAPI first, then pick the group.' : msg });
+    }
+    const list = Array.isArray(data) ? data : (data.groups || []);
+    res.json(list.map(g => ({ id: g.id || g.jid, name: g.subject || g.name || g.id })).filter(g => g.id));
+  } catch (err) { sendServerError(res, err); }
+});
+
+const O2D_TEAM_GROUP_SETTING = 'o2d_team_whatsapp_group';
+app.get('/api/o2d-fms/team-group', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
+    res.json(raw ? JSON.parse(raw) : { id: '', name: '' });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/o2d-fms/team-group', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.body.id || '').trim();
+    const name = String(req.body.name || '').trim();
+    if (id && !id.endsWith('@g.us')) return res.status(400).json({ error: 'That is not a WhatsApp group id' });
+    await setAppSetting(O2D_TEAM_GROUP_SETTING, JSON.stringify({ id, name }));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/o2d-fms/team-group/test', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
+    const group = raw ? JSON.parse(raw) : null;
+    if (!group || !group.id) return res.status(400).json({ error: 'No team group selected yet' });
+    await sendWhatsApp(group.id, '✅ Ajanta Task Manager: new-order alerts will be posted in this group.');
+    res.json({ success: true });
+  } catch (err) { sendWhatsAppError(res, err); }
+});
 
 async function sfmsFetchComplaints() {
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
@@ -3360,7 +3597,7 @@ async function sfmsFetchComplaints() {
       };
       c.steps = SFMS_STEPS.map(sd => {
         const step = {
-          n: sd.n, label: sd.label,
+          n: sd.n, label: sd.label, doer: sd.doer || '',
           planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
           status: get(sd.status) || ''
         };
@@ -3391,6 +3628,86 @@ async function sfmsFetchComplaints() {
 app.get('/api/service-fms', requireAuth, async (req, res) => {
   try {
     res.json(await sfmsFetchComplaints());
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// All Complaints → Excel: one row per complaint product-line, every field
+// captured on the form plus where it currently stands in the pipeline.
+// Plain GET so the browser can download it straight from a link (auth
+// rides along on the cookie).
+function sfmsDmy(serialStr, withTime) {
+  const m = String(serialStr || '').match(/^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?/);
+  if (!m) return serialStr || '';
+  const d = `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+  return withTime && m[4] ? `${d} ${m[4]}:${m[5]}` : d;
+}
+app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
+  try {
+    const XLSX = require('xlsx');
+    const [complaints, { products: masterProducts }] = await Promise.all([sfmsFetchComplaints(), getMasterWorkbookData()]);
+    const warrantyMonthsByName = Object.fromEntries(
+      masterProducts.filter(mp => mp.warrantyMonths).map(mp => [mp.name.trim().toLowerCase(), mp.warrantyMonths])
+    );
+    const parseJson = v => { try { return v ? JSON.parse(v) : []; } catch (e) { return []; } };
+    const rows = complaints.slice().reverse().map(c => { // oldest first reads more naturally in a sheet
+      const st = n => c.steps.find(s => s.n === n) || {};
+      const next = SFMS_STEPS.find(sd => sd.n === c.currentStep + 1);
+      const purchaseIso = (c.purchaseDate || '').split(' ')[0];
+      const expiry = sfmsWarrantyExpiry(c.productName, purchaseIso, warrantyMonthsByName);
+      const spares = parseJson(st(4).spareOutJson);
+      const sparesText = (spares.length ? spares : (st(4).itemName ? [{ item: st(4).itemName, qty: st(4).spareTaken }] : []))
+        .map(x => `${x.item} × ${x.qty}`).join(', ');
+      const used = parseJson(st(5).spareInJson).map(x => `${x.item}: used ${x.usedQty ?? '-'}, new back ${x.newQty || 0}, old back ${x.oldQty || 0}`).join('; ');
+      return {
+        'Complaint No': c.complainNo,
+        'Complaint Date': sfmsDmy(c.timestamp, true),
+        'Customer Name': c.filledByName,
+        'Mobile Number': c.mobile,
+        'Customer / Dealer': c.customerType,
+        'Dealer Name': c.dealerName,
+        'Product': c.productName,
+        'Purchase Date': sfmsDmy(c.purchaseDate),
+        'Warranty': expiry ? (new Date() <= expiry ? 'In Warranty' : 'Out of Warranty') : '',
+        'Warranty Till': expiry ? sfmsDmy(expiry.toISOString().slice(0, 10)) : '',
+        'Customer Agreed to Pay Charges': c.warrantyChargesAgreed,
+        'Problem': c.problemDescription,
+        'Product Ownership': c.productOwnership,
+        'Product Location': c.productLocation,
+        'Address': c.address,
+        'Area': c.area,
+        'Zone': c.zone,
+        'Bill Photo': c.billPhoto,
+        'Product Photo': c.productPhoto,
+        'Status': c.closed ? 'Closed' : `Pending: ${next ? next.label : ''}`,
+        'Warranty Checked': st(1).status,
+        'Spare Available': st(2).status,
+        'Mechanic': st(3).mechanic,
+        'Spares Taken Out': sparesText,
+        'Spare Used': used,
+        'Spare Used - Filled By': st(5).usedBy,
+        'Reason (if Short)': st(5).reasonIfShort,
+        'Repair Status': st(6).repairStatus,
+        'Complaint Solved': st(7).status,
+        'Distance Charges Agreed': st(8).distanceChargesAgree,
+        'Amount': st(8).amount,
+        'Review Remark': st(8).remark,
+        'Spare Deposited in Office': st(9).status,
+        'Deposited On': sfmsDmy(st(9).actual, true),
+        'Spare Received By': st(9).receivedBy
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = Object.keys(rows[0] || { a: 1 }).map(k => ({ wch: Math.min(40, Math.max(12, k.length + 2)) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'All Complaints');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const stamp = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="All-Complaints-${stamp}.xlsx"`);
+    res.send(buf);
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     sendServerError(res, err);
@@ -3498,10 +3815,8 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
     for (let i = 0; i < products.length; i++) {
       const r = firstRow + i;
       const p = products[i];
-      const warrantyMonths = warrantyMonthsByName[(p.productName || '').trim().toLowerCase()];
-      if (warrantyMonths && p.purchaseDate) {
-        const expiry = new Date(p.purchaseDate + 'T00:00:00Z');
-        expiry.setMonth(expiry.getMonth() + warrantyMonths);
+      const expiry = sfmsWarrantyExpiry(p.productName, p.purchaseDate, warrantyMonthsByName);
+      if (expiry) {
         formulaData.push(
           { range: `'${SFMS_TAB}'!P${r}`, values: [[timestamp]] },
           { range: `'${SFMS_TAB}'!Q${r}`, values: [[new Date() <= expiry ? 'Yes' : 'No']] }
@@ -3648,7 +3963,7 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
     res.json({ success: true, otp: req.session.role === 'admin' ? otp : undefined });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
-    sendServerError(res, err);
+    sendWhatsAppError(res, err);
   }
 });
 
@@ -3813,7 +4128,7 @@ app.post('/api/service-fms/send-whatsapp', requireAuth, async (req, res) => {
     if (!mobile || !message) return res.status(400).json({ error: 'Mobile and message are required' });
     await sendWhatsApp(mobile, message);
     res.json({ success: true });
-  } catch (err) { sendServerError(res, err); }
+  } catch (err) { sendWhatsAppError(res, err); }
 });
 
 app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
@@ -3826,6 +4141,27 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
     const nowVal = sfmsDateToSerial(new Date());
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     let batchData;
+
+    // Spare Check answered "Need to be Purchased" holds the complaint there
+    // — no mechanic assignment until the spare is actually in stock.
+    if (stepNum === 3) {
+      const s2 = await sheetsApi.spreadsheets.values.get({
+        spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!U${row}:U${row}`
+      });
+      const spareStatus = (s2.data.values && s2.data.values[0] && s2.data.values[0][0]) || '';
+      if (spareStatus !== 'Available') {
+        return res.status(400).json({ error: 'Spare is not available yet — mark it "Available" at Spare Check once it has been purchased/added.' });
+      }
+    }
+    // (The Spare In/Out report's quick qty edit also PUTs step 5, without
+    // spareInJson — only the real step form has to say who filled it.)
+    if (stepNum === 5 && req.body.spareInJson !== undefined && !String(req.body.usedBy || '').trim()) {
+      return res.status(400).json({ error: 'Select your name (mechanic) first' });
+    }
+    if (stepNum === 9 && !req.body.receivedBy) req.body.receivedBy = req.session.name || '';
+    if (stepDef.extra.some(e => colToIdx(e.col) > colToIdx('BK')) || colToIdx(stepDef.status) > colToIdx('BK')) {
+      await sfmsEnsureColumns(sheetsApi);
+    }
 
     if (stepDef.otpRequired) {
       // A 6-digit code is guessable given enough attempts — cap attempts per
@@ -3929,7 +4265,7 @@ const O2D_LAST_COL = 'BM';
 const O2D_STEPS = [
   { n: 1, label: 'Accounts is ok or not', doer: 'Accountant', tat: '10 min', planned: 'T', actual: 'U', status: 'V',
     extra: [ { key: 'reason', col: 'W', label: 'Reason' } ] },
-  { n: 2, label: 'Good Check', doer: 'Rajesh (Warehouse Manager)', tat: '10 min', planned: 'X', actual: 'Y', status: 'Z', timeDelay: 'AA', extra: [] },
+  { n: 2, label: 'Good Check', doer: 'Niranjan (Warehouse Manager)', tat: '10 min', planned: 'X', actual: 'Y', status: 'Z', timeDelay: 'AA', extra: [] },
   { n: 3, label: 'Call Made By CRM When Add More Order', doer: 'Kavita', tat: '10 min', planned: 'AB', actual: 'AC', status: 'AD', timeDelay: 'AE', extra: [] },
   { n: 4, label: 'Make Bill', doer: 'Accountant', tat: '10 min', planned: 'AF', actual: 'AG', status: 'AH', timeDelay: 'AI',
     // Bill detail columns live far from this step's own Planned/Actual/Status
@@ -3941,7 +4277,7 @@ const O2D_STEPS = [
       { key: 'photoLink', col: 'BL', label: 'Invoice Photo' },
       { key: 'billDate', col: 'BM', label: 'Bill Date', isDate: true }
     ] },
-  { n: 5, label: 'Goods Takeout and Photo', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', planned: 'AJ', actual: 'AK', status: 'AL', timeDelay: 'AO',
+  { n: 5, label: 'Goods Takeout and Photo', doer: 'Niranjan (Warehouse Manager)', tat: '30 min', planned: 'AJ', actual: 'AK', status: 'AL', timeDelay: 'AO',
     extra: [
       { key: 'doerName', col: 'AM', label: 'Doer Name' },
       { key: 'photo', col: 'AN', label: 'Photo (link)' }
@@ -3950,7 +4286,7 @@ const O2D_STEPS = [
     extra: [ { key: 'doerName', col: 'AS', label: 'Doer Name' } ] },
   { n: 7, label: 'Arrange Loader', doer: 'Kavita', tat: '10 min', planned: 'AU', actual: 'AV', status: 'AW', timeDelay: 'AX', extra: [] },
   { n: 8, label: 'In/ Out Entry', doer: 'Priyanka (SCCRR)', tat: '10 min', planned: 'AY', actual: 'AZ', status: 'BA', timeDelay: 'BB', extra: [] },
-  { n: 9, label: 'Load Goods', doer: 'Rajesh (Warehouse Manager)', tat: '30 min', planned: 'BC', actual: 'BD', status: 'BE', timeDelay: 'BG',
+  { n: 9, label: 'Load Goods', doer: 'Niranjan (Warehouse Manager)', tat: '30 min', planned: 'BC', actual: 'BD', status: 'BE', timeDelay: 'BG',
     extra: [
       { key: 'loaderName', col: 'BF', label: 'Doer Name' },
       { key: 'deliveryBy', col: 'BI', label: 'Delivery By' }
@@ -4506,8 +4842,10 @@ app.put('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
        ON DUPLICATE KEY UPDATE
          city = COALESCE(VALUES(city), city),
          phone = COALESCE(VALUES(phone), phone),
-         credit_limit = VALUES(credit_limit)`,
-      [name, city || null, phone || null, (creditLimit === '' || creditLimit === undefined || creditLimit === null) ? null : Number(creditLimit)]
+         credit_limit = IF(?, VALUES(credit_limit), credit_limit)`,
+      // creditLimit omitted entirely (e.g. the Statement's phone-only save)
+      // keeps the existing limit; an explicit '' / null still clears it.
+      [name, city || null, phone || null, (creditLimit === '' || creditLimit === undefined || creditLimit === null) ? null : Number(creditLimit), creditLimit !== undefined ? 1 : 0]
     ));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
@@ -5518,7 +5856,25 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       requestBody: { values: rows }
     });
 
-    res.json({ success: true, orderNo, orderIds: rows.map(r => r[17]) });
+    // Team-group heads-up so everyone knows to check the dashboard. Never
+    // fails the order itself — it's already saved at this point.
+    let teamNotified = false, teamNotifySkippedReason = null;
+    try {
+      const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
+      const group = raw ? JSON.parse(raw) : null;
+      if (group && group.id) {
+        const productLines = products.map(p => `• ${p.productName} × ${p.qty}`).join('\n');
+        await sendWhatsApp(group.id,
+          `🆕 एक नया order प्राप्त हुआ है। कृपया order की जाँच करें।\n\n` +
+          `Order: ${orderNo}\nDealer: ${counterName}${area ? ` (${area})` : ''}\n${productLines}` +
+          (req.session.name ? `\n\nBy: ${req.session.name}` : ''));
+        teamNotified = true;
+      } else {
+        teamNotifySkippedReason = 'Team WhatsApp group not set — pick it from O2D FMS → ⚙ WhatsApp Group.';
+      }
+    } catch (e) { teamNotifySkippedReason = e.message; }
+
+    res.json({ success: true, orderNo, orderIds: rows.map(r => r[17]), teamNotified, teamNotifySkippedReason });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
     sendServerError(res, err);
@@ -5677,9 +6033,13 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
         const [dealerRows] = await withDealerTables(() => db.query('SELECT phone FROM o2d_dealers WHERE counter_name = ?', [counterName]));
         const phone = dealerRows[0] && dealerRows[0].phone;
         if (phone) {
-          const billNo = req.body.billNo ? ` (Bill No: ${req.body.billNo})` : '';
-          const amount = req.body.billAmount ? `, Amount: ₹${req.body.billAmount}` : '';
-          await sendWhatsApp(phone, `Ajanta Appliances: Your bill for order ${orderNo}${billNo}${amount} is ready.\nInvoice: ${req.body.photoLink}`);
+          const billNo = req.body.billNo ? `\nBill No: ${req.body.billNo}` : '';
+          const amount = req.body.billAmount ? `\nAmount: ₹${req.body.billAmount}` : '';
+          const text = `Ajanta Appliances द्वारा आपका bill बना दिया गया है। कुछ ही समय में आपका order dispatch कर दिया जाएगा।\n\nOrder: ${orderNo}${billNo}${amount}`;
+          // Invoice goes as an actual attachment (photo/PDF), with the link
+          // kept in the caption too as a fallback if the preview fails.
+          await sendWhatsApp(phone, `${text}\n\nInvoice: ${req.body.photoLink}`,
+            whatsappMediaFor(req.body.photoLink, req.body.photoFileName || `Invoice-${orderNo}${/\.pdf$/i.test(req.body.photoFileName || '') ? '.pdf' : '.jpg'}`));
           whatsappSent = true;
         } else {
           whatsappSkippedReason = 'Dealer phone number not set — add it from the Dealers tab to enable WhatsApp bill alerts.';
