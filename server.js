@@ -1612,9 +1612,9 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
 
 // ══════════════════════════════════════════════════════
 // ATTENDANCE & LEAVE — daily time-in/time-out punch for every employee,
-// plus a KM Start/KM End odometer pair for field staff (Sales, Mechanic,
-// Delivery) who go out to the market. Both tables are lazily created on
-// first write (mirrors the o2d_dealers self-healing pattern).
+// plus a KM Start/KM End odometer pair for field staff (Sales & Delivery)
+// who go out to the market. Both tables are lazily created on first write
+// (mirrors the o2d_dealers self-healing pattern).
 //
 // Who gets the KM fields is its own per-user `users.track_km` flag (set
 // from the Users page), kept deliberately separate from the free-text
