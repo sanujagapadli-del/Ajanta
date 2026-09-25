@@ -1770,6 +1770,17 @@ app.get('/api/attendance/history', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Delete a whole day's attendance row (time in/out + KM) — admin-only, e.g.
+// to correct a wrong punch or a mistyped KM reading.
+app.delete('/api/attendance/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const [result] = await db.query('DELETE FROM attendance WHERE id=?', [id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // ── Leave requests — admin-only sees everyone's; HOD/PC see only their own ──
 app.get('/api/leave', requireAuth, async (req, res) => {
   try {

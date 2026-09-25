@@ -912,29 +912,43 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="dash-topbar-btns" id="dashBtns"></div>
     </div>
 
-    <div class="task-table-card" style="margin-bottom:18px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
-      <div style="display:flex;align-items:center;gap:26px;flex-wrap:wrap">
+    <div class="task-table-card" style="margin-bottom:18px;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;background:linear-gradient(135deg, var(--surface) 55%, var(--color-primary-light))">
+      <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
         <div>
-          <div style="font-size:11px;color:var(--gray-400);text-transform:uppercase;font-weight:600;letter-spacing:.4px">Today's Attendance</div>
+          <div style="font-size:11px;color:var(--gray-400);text-transform:uppercase;font-weight:700;letter-spacing:.5px">📅 Today's Attendance</div>
           <div style="font-size:12px;color:var(--gray-500);margin-top:2px" id="dashAttnTodayDate"></div>
         </div>
-        <div>
-          <div style="font-size:11px;color:var(--gray-400)">Time In</div>
-          <div style="font-size:16px;font-weight:700;color:var(--gray-800)" id="dashAttnTimeIn">—</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="dashAttnInDot" style="width:8px;height:8px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
+          <div>
+            <div style="font-size:10px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Time In</div>
+            <div style="font-size:16px;font-weight:800;color:var(--gray-800)" id="dashAttnTimeIn">—</div>
+          </div>
         </div>
-        <div>
-          <div style="font-size:11px;color:var(--gray-400)">Time Out</div>
-          <div style="font-size:16px;font-weight:700;color:var(--gray-800)" id="dashAttnTimeOut">—</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="dashAttnOutDot" style="width:8px;height:8px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
+          <div>
+            <div style="font-size:10px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Time Out</div>
+            <div style="font-size:16px;font-weight:800;color:var(--gray-800)" id="dashAttnTimeOut">—</div>
+          </div>
         </div>
-        <div id="dashAttnKmWrap" style="display:none">
-          <div style="font-size:11px;color:var(--gray-400)" id="dashAttnKmLabel">KM Start</div>
-          <input type="number" step="0.1" id="dashAttnKmInput" placeholder="Odometer…"
-            style="width:120px;padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
-          <div style="font-size:10px;color:var(--gray-400);margin-top:2px" id="dashAttnKmRecorded"></div>
+        <div id="dashAttnKmWrap" style="display:none;padding:8px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--color-primary-ring)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:14px">🛵</span>
+            <span id="dashAttnKmLabel" style="font-size:10px;font-weight:700;color:var(--color-primary);text-transform:uppercase;letter-spacing:.4px">KM Start</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:4px;margin-top:3px">
+            <input type="number" step="0.1" id="dashAttnKmInput" placeholder="0"
+              style="width:80px;padding:2px 0;border:none;border-bottom:1.5px solid var(--gray-200);font-size:15px;font-weight:700;font-family:'Inter',sans-serif;outline:none;background:transparent"/>
+            <span style="font-size:11px;color:var(--gray-400);font-weight:600">km</span>
+          </div>
+          <div style="font-size:10px;color:var(--gray-500);margin-top:3px" id="dashAttnKmRecorded"></div>
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span id="dashAttnErr" style="display:none;color:var(--color-danger);font-size:12px;max-width:220px"></span>
+        <button class="btn btn-outline btn-sm" onclick="openApplyLeaveModal()">🌴 Apply Leave</button>
+        <button class="btn btn-outline btn-sm" onclick="goToAttendanceHistory()">🛣️ KM &amp; History</button>
         <button class="btn btn-primary" id="dashAttnPunchBtn" onclick="doAttendancePunch('dashAttn')">Punch In</button>
       </div>
     </div>
@@ -1182,25 +1196,35 @@ tbody tr:last-child td{border-bottom:none;}
 
     <!-- Punch panel -->
     <div id="attnPunchPanel">
-      <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:24px;max-width:420px">
-        <div style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">Today — <span id="attnTodayDate"></span></div>
-        <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div style="font-size:11px;color:var(--gray-400)">Time In</div>
-            <div id="attnTimeIn" style="font-size:18px;font-weight:700;color:var(--gray-800)">—</div>
+      <div style="background:linear-gradient(135deg, var(--surface) 55%, var(--color-primary-light));border-radius:14px;border:1px solid var(--gray-200);padding:26px;max-width:440px">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">📅 Today — <span id="attnTodayDate"></span></div>
+        <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="attnInDot" style="width:9px;height:9px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
+            <div>
+              <div style="font-size:10px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Time In</div>
+              <div id="attnTimeIn" style="font-size:19px;font-weight:800;color:var(--gray-800)">—</div>
+            </div>
           </div>
-          <div>
-            <div style="font-size:11px;color:var(--gray-400)">Time Out</div>
-            <div id="attnTimeOut" style="font-size:18px;font-weight:700;color:var(--gray-800)">—</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="attnOutDot" style="width:9px;height:9px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
+            <div>
+              <div style="font-size:10px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Time Out</div>
+              <div id="attnTimeOut" style="font-size:19px;font-weight:800;color:var(--gray-800)">—</div>
+            </div>
           </div>
         </div>
-        <div id="attnKmWrap" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--gray-100)">
-          <div class="form-group">
-            <label id="attnKmLabel">KM Start (Morning)</label>
-            <input type="number" step="0.1" id="attnKmInput" placeholder="Odometer reading…"
-              style="width:100%;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
+        <div id="attnKmWrap" style="display:none;margin-top:16px;padding:12px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--color-primary-ring)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:15px">🛵</span>
+            <span id="attnKmLabel" style="font-size:11px;font-weight:700;color:var(--color-primary);text-transform:uppercase;letter-spacing:.4px">KM Start (Morning)</span>
           </div>
-          <div style="font-size:11px;color:var(--gray-400)" id="attnKmRecorded"></div>
+          <div style="display:flex;align-items:baseline;gap:6px;margin-top:6px">
+            <input type="number" step="0.1" id="attnKmInput" placeholder="0"
+              style="width:100%;max-width:140px;padding:4px 0;border:none;border-bottom:1.5px solid var(--gray-200);font-size:18px;font-weight:700;font-family:'Inter',sans-serif;outline:none;background:transparent"/>
+            <span style="font-size:12px;color:var(--gray-400);font-weight:600">km</span>
+          </div>
+          <div style="font-size:11px;color:var(--gray-500);margin-top:6px" id="attnKmRecorded"></div>
         </div>
         <div class="alert error" id="attnErr" style="margin-top:12px"></div>
         <button class="btn btn-primary" id="attnPunchBtn" style="width:100%;margin-top:16px" onclick="doAttendancePunch('attn')">Punch In</button>
@@ -1220,8 +1244,8 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
         <div><button class="btn btn-primary" onclick="loadAttendanceHistory()">Show</button></div>
       </div>
-      <div id="attnHistoryResults" class="mis-table-wrap" style="overflow-x:auto">
-        <div class="empty">Loading…</div>
+      <div id="attnHistoryResults">
+        <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
     </div>
 
@@ -4981,6 +5005,11 @@ function fmtTime(dt) {
   return `${h}:${m[2]} ${ampm}`;
 }
 
+function goToAttendanceHistory() {
+  attnView = 'history';
+  navigate('attendance', document.getElementById('nav-attendance'));
+}
+
 function loadAttendancePage() {
   // Team tab is admin-only — HOD/PC see just their own attendance/leave, same as a regular user.
   document.getElementById('attnTabTeam').style.display = (ME.role === 'admin') ? '' : 'none';
@@ -5052,10 +5081,21 @@ function getPunchGps() {
   });
 }
 
+// A small "trip summary" chip once both KM readings exist for the day —
+// used both in the punch widgets and (via renderAttendanceCards) in My History.
+function kmSummaryHtml(start, end, compact) {
+  if (start == null || end == null) return '';
+  const dist = (parseFloat(end) - parseFloat(start)).toFixed(1);
+  const pad = compact ? '3px 9px' : '4px 10px';
+  return `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--color-success-bg);color:var(--color-success-text);padding:${pad};border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap">🛣️ ${dist} km <span style="font-weight:500;opacity:.75">(${start} → ${end})</span></span>`;
+}
+
 function renderAttendanceWidget(prefix) {
   const timeInEl = document.getElementById(prefix + 'TimeIn');
   if (!timeInEl) return;
   const timeOutEl = document.getElementById(prefix + 'TimeOut');
+  const inDot = document.getElementById(prefix + 'InDot');
+  const outDot = document.getElementById(prefix + 'OutDot');
   const kmWrap = document.getElementById(prefix + 'KmWrap');
   const kmInput = document.getElementById(prefix + 'KmInput');
   const kmLabel = document.getElementById(prefix + 'KmLabel');
@@ -5065,11 +5105,13 @@ function renderAttendanceWidget(prefix) {
   timeInEl.innerHTML = (attnTodayRow?.time_in ? fmtTime(attnTodayRow.time_in) : '—') + gpsLinkHtml(attnTodayRow?.lat_in, attnTodayRow?.lng_in);
   timeOutEl.innerHTML = (attnTodayRow?.time_out ? fmtTime(attnTodayRow.time_out) : '—') + gpsLinkHtml(attnTodayRow?.lat_out, attnTodayRow?.lng_out);
 
-  if (kmRecorded) kmRecorded.textContent = '';
+  if (kmRecorded) kmRecorded.innerHTML = '';
   if (kmWrap) kmWrap.style.display = attnKmTracked ? '' : 'none';
 
   const hasIn = !!attnTodayRow?.time_in;
   const hasOut = !!attnTodayRow?.time_out;
+  if (inDot) inDot.style.background = hasIn ? 'var(--color-success)' : 'var(--gray-300)';
+  if (outDot) outDot.style.background = hasOut ? 'var(--color-danger)' : 'var(--gray-300)';
 
   if (!hasIn) {
     btn.textContent = 'Punch In'; btn.disabled = false;
@@ -5083,9 +5125,7 @@ function renderAttendanceWidget(prefix) {
   } else {
     btn.textContent = '✅ Done for Today'; btn.disabled = true;
     if (kmInput) kmInput.disabled = true;
-    if (kmRecorded && (attnTodayRow.km_start != null || attnTodayRow.km_end != null)) {
-      kmRecorded.textContent = `KM Start: ${attnTodayRow.km_start ?? '—'}  ·  KM End: ${attnTodayRow.km_end ?? '—'}`;
-    }
+    if (kmRecorded) kmRecorded.innerHTML = kmSummaryHtml(attnTodayRow.km_start, attnTodayRow.km_end, true);
   }
 }
 
@@ -5130,33 +5170,43 @@ function setAttnHistoryDefaultDates() {
   if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 29); from.value = d.toISOString().slice(0, 10); }
 }
 
-function renderAttendanceRows(rows, showEmployee) {
-  return `<table style="min-width:${showEmployee ? 760 : 560}px">
-    <thead><tr>
-      ${showEmployee ? '<th>Employee</th>' : ''}
-      <th>Date</th><th>Time In</th><th>Time Out</th><th>KM Start</th><th>KM End</th><th>KM Run</th>
-    </tr></thead>
-    <tbody>${rows.map(r => `<tr>
-      ${showEmployee ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
-      <td>${fmtDate(r.date)}</td>
-      <td>${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in)}</td>
-      <td>${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out)}</td>
-      <td>${r.km_start ?? '—'}</td>
-      <td>${r.km_end ?? '—'}</td>
-      <td>${(r.km_start != null && r.km_end != null) ? (r.km_end - r.km_start).toFixed(1) : '—'}</td>
-    </tr>`).join('')}</tbody>
-  </table>`;
+// My History — a day-card timeline instead of a plain table (self view only,
+// usually a handful of rows so cards stay easy to scan).
+function renderAttendanceCards(rows) {
+  return rows.map(r => {
+    const d = new Date(r.date + 'T00:00:00');
+    const hasIn = !!r.time_in, hasOut = !!r.time_out;
+    const kmChip = kmSummaryHtml(r.km_start, r.km_end)
+      || (r.km_start != null ? `<span style="font-size:11px;color:var(--gray-500)">KM Start: ${r.km_start}</span>` : '');
+    return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:46px;height:46px;border-radius:10px;background:var(--color-primary-light);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">
+          <div style="font-size:10px;font-weight:700;color:var(--color-primary);text-transform:uppercase">${d.toLocaleDateString('en-IN',{month:'short'})}</div>
+          <div style="font-size:17px;font-weight:800;color:var(--color-primary);line-height:1.1">${d.getDate()}</div>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--gray-800)">${d.toLocaleDateString('en-IN',{weekday:'long'})}</div>
+          <div style="font-size:12px;color:var(--gray-500);display:flex;gap:16px;margin-top:3px;flex-wrap:wrap">
+            <span><span style="color:${hasIn?'var(--color-success)':'var(--gray-300)'}">●</span> In: ${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in)}</span>
+            <span><span style="color:${hasOut?'var(--color-danger)':'var(--gray-300)'}">●</span> Out: ${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out)}</span>
+          </div>
+        </div>
+      </div>
+      ${kmChip}
+    </div>`;
+  }).join('');
 }
 
 async function loadAttendanceHistory() {
   const from = document.getElementById('attnHistFrom').value;
   const to = document.getElementById('attnHistTo').value;
   const wrap = document.getElementById('attnHistoryResults');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
+  wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
   const rows = await api(`/api/attendance/history?from=${from}&to=${to}`);
-  if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No attendance records in this range.</div>'; return; }
-  wrap.innerHTML = renderAttendanceRows(rows, false);
+  if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
+  if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No attendance records in this range.</div>`; return; }
+  wrap.innerHTML = renderAttendanceCards(rows);
 }
 
 // ── Leave (self) ──
@@ -5237,6 +5287,35 @@ async function populateAttnTeamEmployeeDropdown() {
   sel.value = current;
 }
 
+// Team report table — Admin only, so it's safe to always include the Delete
+// column (backend also re-checks admin on the DELETE call itself).
+function renderAttendanceTeamTable(rows) {
+  return `<table style="min-width:840px">
+    <thead><tr>
+      <th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>KM Start</th><th>KM End</th><th>KM Run</th><th></th>
+    </tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>
+      <td>${fmtDate(r.date)}</td>
+      <td>${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in)}</td>
+      <td>${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out)}</td>
+      <td>${r.km_start ?? '—'}</td>
+      <td>${r.km_end ?? '—'}</td>
+      <td>${(r.km_start != null && r.km_end != null) ? (r.km_end - r.km_start).toFixed(1) : '—'}</td>
+      <td><button class="action-btn delete" onclick="deleteAttendanceEntry(${r.id})" title="Delete this entry">🗑</button></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function deleteAttendanceEntry(id) {
+  showConfirm({ icon: '🗑️', title: 'Delete Attendance Entry?', msg: "This removes that day's punch times and KM data. This cannot be undone.", okLabel: 'Delete', okColor: 'var(--color-danger)' }, async () => {
+    const r = await api(`/api/attendance/${id}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Attendance entry deleted');
+    loadAttendanceTeamReport();
+  });
+}
+
 async function loadAttendanceTeamReport() {
   const from = document.getElementById('attnTeamFrom').value;
   const to = document.getElementById('attnTeamTo').value;
@@ -5246,7 +5325,7 @@ async function loadAttendanceTeamReport() {
   const rows = await api(`/api/attendance/history?from=${from}&to=${to}&employee=${employee}`);
   if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No attendance records in this range.</div>'; return; }
-  wrap.innerHTML = renderAttendanceRows(rows, true);
+  wrap.innerHTML = renderAttendanceTeamTable(rows);
 }
 
 async function loadTeamLeaveApprovals() {
@@ -5255,8 +5334,8 @@ async function loadTeamLeaveApprovals() {
   const rows = await api('/api/leave');
   if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No leave requests.</div>'; return; }
-  wrap.innerHTML = `<table style="min-width:760px">
-    <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th>Approve / Reject</th></tr></thead>
+  wrap.innerHTML = `<table style="min-width:800px">
+    <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th></th></tr></thead>
     <tbody>${rows.map(r => `<tr>
       <td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>
       <td>${esc(r.leave_type||'—')}</td>
@@ -5265,12 +5344,24 @@ async function loadTeamLeaveApprovals() {
       <td>${r.days ?? '—'}</td>
       <td style="max-width:200px">${esc(r.reason||'—')}</td>
       <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${r.approvedByName ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">by ${esc(r.approvedByName)}</div>` : ''}</td>
-      <td>${r.status === 'pending' ? `
+      <td style="white-space:nowrap">${r.status === 'pending' ? `
           <button class="action-btn done" onclick="processLeave(${r.id},'approved')">Approve</button>
           <button class="action-btn delete" style="margin-left:6px" onclick="processLeave(${r.id},'rejected')">Reject</button>
-        ` : '—'}</td>
+        ` : ''}
+        <button class="action-btn delete" style="margin-left:6px" onclick="deleteLeaveEntry(${r.id})" title="Delete this leave record">🗑</button>
+      </td>
     </tr>`).join('')}</tbody>
   </table>`;
+}
+
+function deleteLeaveEntry(id) {
+  showConfirm({ icon: '🗑️', title: 'Delete Leave Record?', msg: 'This permanently removes this leave request/record. This cannot be undone.', okLabel: 'Delete', okColor: 'var(--color-danger)' }, async () => {
+    const r = await api(`/api/leave/${id}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Leave record deleted');
+    loadTeamLeaveApprovals();
+    loadLeaveBadge();
+  });
 }
 
 async function processLeave(id, action) {
