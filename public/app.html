@@ -5033,6 +5033,24 @@ async function loadAttendanceToday() {
   ATTN_WIDGET_PREFIXES.forEach(renderAttendanceWidget);
 }
 
+// Punch GPS is best-effort — location is captured silently in the background
+// (no separate button/permission prompt UI); if the browser denies/lacks it,
+// the punch still goes through with no lat/lng.
+function gpsLinkHtml(lat, lng) {
+  if (lat == null || lng == null) return '';
+  return ` <a href="https://maps.google.com/?q=${lat},${lng}" target="_blank" style="font-size:11px;text-decoration:none" title="View location on map">📍</a>`;
+}
+function getPunchGps() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  });
+}
+
 function renderAttendanceWidget(prefix) {
   const timeInEl = document.getElementById(prefix + 'TimeIn');
   if (!timeInEl) return;
@@ -5043,8 +5061,8 @@ function renderAttendanceWidget(prefix) {
   const kmRecorded = document.getElementById(prefix + 'KmRecorded');
   const btn = document.getElementById(prefix + 'PunchBtn');
 
-  timeInEl.textContent = attnTodayRow?.time_in ? fmtTime(attnTodayRow.time_in) : '—';
-  timeOutEl.textContent = attnTodayRow?.time_out ? fmtTime(attnTodayRow.time_out) : '—';
+  timeInEl.innerHTML = (attnTodayRow?.time_in ? fmtTime(attnTodayRow.time_in) : '—') + gpsLinkHtml(attnTodayRow?.lat_in, attnTodayRow?.lng_in);
+  timeOutEl.innerHTML = (attnTodayRow?.time_out ? fmtTime(attnTodayRow.time_out) : '—') + gpsLinkHtml(attnTodayRow?.lat_out, attnTodayRow?.lng_out);
 
   if (kmRecorded) kmRecorded.textContent = '';
   if (kmWrap) kmWrap.style.display = attnKmTracked ? '' : 'none';
@@ -5078,10 +5096,15 @@ async function doAttendancePunch(prefix) {
   const km = kmInput ? kmInput.value : '';
   const btn = document.getElementById(prefix + 'PunchBtn');
   const isPunchIn = !attnTodayRow || !attnTodayRow.time_in;
-  if (btn) btn.disabled = true;
+  const prevBtnText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; if (navigator.geolocation) btn.textContent = 'Getting location…'; }
+  const gps = await getPunchGps();
+  if (btn) btn.textContent = prevBtnText;
+  const body = isPunchIn ? { kmStart: km || null } : { kmEnd: km || null };
+  if (gps) { body.lat = gps.lat; body.lng = gps.lng; }
   const r = isPunchIn
-    ? await api('/api/attendance/punch-in', 'POST', { kmStart: km || null })
-    : await api('/api/attendance/punch-out', 'POST', { kmEnd: km || null });
+    ? await api('/api/attendance/punch-in', 'POST', body)
+    : await api('/api/attendance/punch-out', 'POST', body);
   if (r.error) {
     if (errEl) { errEl.textContent = r.error; errEl.style.display = 'block'; }
     else showToast(r.error, 'error');
@@ -5115,8 +5138,8 @@ function renderAttendanceRows(rows, showEmployee) {
     <tbody>${rows.map(r => `<tr>
       ${showEmployee ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
       <td>${fmtDate(r.date)}</td>
-      <td>${fmtTime(r.time_in)}</td>
-      <td>${fmtTime(r.time_out)}</td>
+      <td>${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in)}</td>
+      <td>${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out)}</td>
       <td>${r.km_start ?? '—'}</td>
       <td>${r.km_end ?? '—'}</td>
       <td>${(r.km_start != null && r.km_end != null) ? (r.km_end - r.km_start).toFixed(1) : '—'}</td>

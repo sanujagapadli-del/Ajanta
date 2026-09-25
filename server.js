@@ -174,6 +174,13 @@ const _dbReady = db.init()
       // kept separate from the free-text department column on purpose.
       try { await db.query('ALTER TABLE users ADD COLUMN track_km TINYINT DEFAULT 0'); }
       catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ track_km migration skipped:', e.message); }
+      // Migration: add GPS columns to an already-created attendance table
+      // (a brand new install instead gets them straight from CREATE TABLE
+      // in ensureAttendanceTables — ER_NO_SUCH_TABLE here is expected then).
+      for (const col of ['lat_in DECIMAL(10,7)', 'lng_in DECIMAL(10,7)', 'lat_out DECIMAL(10,7)', 'lng_out DECIMAL(10,7)']) {
+        try { await db.query(`ALTER TABLE attendance ADD COLUMN ${col}`); }
+        catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attendance GPS migration skipped:', e.message); }
+      }
     }
   })
   .catch(err => {
@@ -1631,6 +1638,10 @@ async function ensureAttendanceTables() {
       time_out DATETIME,
       km_start DECIMAL(10,2),
       km_end DECIMAL(10,2),
+      lat_in DECIMAL(10,7),
+      lng_in DECIMAL(10,7),
+      lat_out DECIMAL(10,7),
+      lng_out DECIMAL(10,7),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_user_date (user_id, date),
       INDEX idx_date (date)
@@ -1678,19 +1689,29 @@ app.get('/api/attendance/today', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// GPS is best-effort — a punch must never fail just because the browser
+// denied/lacks location, so lat/lng are simply left null when absent.
+function parseCoord(v) {
+  if (v == null || v === '') return null;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
     const kmStart = req.body?.kmStart != null && req.body.kmStart !== '' ? parseFloat(req.body.kmStart) : null;
+    const lat = parseCoord(req.body?.lat);
+    const lng = parseCoord(req.body?.lng);
     await withAttendanceTables(async () => {
       const [existing] = await db.query('SELECT id,time_in FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
       if (existing[0] && existing[0].time_in) {
         const err = new Error('Already punched in today'); err.code = 'ALREADY_IN'; throw err;
       }
       if (existing[0]) {
-        await db.query('UPDATE attendance SET time_in=NOW(), km_start=? WHERE id=?', [kmStart, existing[0].id]);
+        await db.query('UPDATE attendance SET time_in=NOW(), km_start=?, lat_in=?, lng_in=? WHERE id=?', [kmStart, lat, lng, existing[0].id]);
       } else {
-        await db.query('INSERT INTO attendance (user_id,date,time_in,km_start) VALUES (?,CURDATE(),NOW(),?)', [uid, kmStart]);
+        await db.query('INSERT INTO attendance (user_id,date,time_in,km_start,lat_in,lng_in) VALUES (?,CURDATE(),NOW(),?,?,?)', [uid, kmStart, lat, lng]);
       }
     });
     res.json({ success: true });
@@ -1704,6 +1725,8 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
     const kmEnd = req.body?.kmEnd != null && req.body.kmEnd !== '' ? parseFloat(req.body.kmEnd) : null;
+    const lat = parseCoord(req.body?.lat);
+    const lng = parseCoord(req.body?.lng);
     await withAttendanceTables(async () => {
       const [existing] = await db.query('SELECT id,time_in,time_out FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
       if (!existing[0] || !existing[0].time_in) {
@@ -1712,7 +1735,7 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       if (existing[0].time_out) {
         const err = new Error('Already punched out today'); err.code = 'ALREADY_OUT'; throw err;
       }
-      await db.query('UPDATE attendance SET time_out=NOW(), km_end=? WHERE id=?', [kmEnd, existing[0].id]);
+      await db.query('UPDATE attendance SET time_out=NOW(), km_end=?, lat_out=?, lng_out=? WHERE id=?', [kmEnd, lat, lng, existing[0].id]);
     });
     res.json({ success: true });
   } catch (err) {

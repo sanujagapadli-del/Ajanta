@@ -209,6 +209,10 @@ CREATE TABLE IF NOT EXISTS attendance (
   time_out DATETIME,
   km_start DECIMAL(10,2),
   km_end DECIMAL(10,2),
+  lat_in DECIMAL(10,7),
+  lng_in DECIMAL(10,7),
+  lat_out DECIMAL(10,7),
+  lng_out DECIMAL(10,7),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_user_date (user_id, date),
   INDEX idx_date (date)
