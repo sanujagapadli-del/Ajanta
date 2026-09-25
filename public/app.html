@@ -2637,6 +2637,7 @@ tbody tr:last-child td{border-bottom:none;}
       <h3 style="margin:0" id="dlModalTitle">📋 Statement</h3>
       <div style="display:flex;align-items:center;gap:6px">
         <button class="btn btn-outline btn-sm" onclick="printDealerLedger()">🖨️ PDF / Print</button>
+        <button class="btn btn-outline btn-sm" id="dlWhatsappBtn" onclick="sendDealerLedgerWhatsapp()">📲 WhatsApp</button>
         <button class="modal-close-x modal-close" onclick="closeModal('dealerLedgerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </div>
@@ -7870,6 +7871,7 @@ function renderDealerGridResults() {
 
 function dealerRowHtml(d) {
   const nameEsc = String(d.name||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
+  const phoneEsc = String(d.phone||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
   const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '<span style="color:var(--gray-400)">—</span>';
@@ -7903,7 +7905,7 @@ function dealerRowHtml(d) {
       <div style="display:flex;gap:4px;align-items:center">
         <button class="btn btn-outline btn-sm" title="Upload KYC" onclick="openKycModal('${nameEsc}')">📎</button>
         <button class="btn btn-outline btn-sm" title="Location set karo" onclick="openLocationModal('${nameEsc}')">📍</button>
-        <button class="btn btn-outline btn-sm" title="View Statement" onclick="openDealerLedgerModal('${nameEsc}')">📋</button>
+        <button class="btn btn-outline btn-sm" title="View Statement" onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')">📋</button>
         ${locHtml}
       </div>
     </td>
@@ -7912,6 +7914,7 @@ function dealerRowHtml(d) {
 
 function dealerCardHtml(d) {
   const nameEsc = String(d.name||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
+  const phoneEsc = String(d.phone||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
   const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '—';
@@ -7975,11 +7978,11 @@ function dealerCardHtml(d) {
         <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor}">KYC: ${d.kycCount}/4</span>
         <button class="btn btn-outline btn-sm" onclick="openKycModal('${nameEsc}')">Upload KYC</button>
         <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
-        <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}')">📋 View Statement</button>
+        <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')">📋 View Statement</button>
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">💳 Payment Overview</div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
-        <div onclick="openDealerLedgerModal('${nameEsc}')" style="cursor:pointer;flex:1;min-width:90px" title="Poori statement dekho">${statTile('Total Dues', outstandingStr, 'var(--gray-800)')}</div>
+        <div onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')" style="cursor:pointer;flex:1;min-width:90px" title="Poori statement dekho">${statTile('Total Dues', outstandingStr, 'var(--gray-800)')}</div>
         <div onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})" style="cursor:pointer;flex:1;min-width:90px">${statTile('Credit Limit', creditStr, 'var(--gray-800)')}</div>
         ${available !== null ? statTile('Available', inr(available), overLimit ? 'var(--color-danger-text)' : 'var(--color-success-text)') : ''}
       </div>
@@ -8156,7 +8159,9 @@ async function submitCreditLimit() {
 // Dealer Statement — merged bills + payments from the Tally sync, opened
 // from the dealer card (New Order and the Dealers table both use the same
 // card shape, so one trigger covers both).
-async function openDealerLedgerModal(name) {
+let _dlCurrent = { name: '', phone: '', data: null }; // last-loaded Statement — reused by the WhatsApp send
+async function openDealerLedgerModal(name, phone) {
+  _dlCurrent = { name, phone: phone || '', data: null };
   document.getElementById('dlModalTitle').textContent = `📋 Statement — ${name}`;
   document.getElementById('dlPrintHeading').textContent = `Statement — ${name} — ${new Date().toLocaleDateString('en-IN')}`;
   document.getElementById('dlBody').innerHTML = 'Loading…';
@@ -8164,6 +8169,7 @@ async function openDealerLedgerModal(name) {
   const r = await api(`/api/o2d-fms/dealer-ledger?name=${encodeURIComponent(name)}`);
   const body = document.getElementById('dlBody');
   if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; return; }
+  _dlCurrent.data = r;
 
   const outstandingHtml = `
     <div style="background:var(--gray-50);border-radius:10px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
@@ -8283,6 +8289,38 @@ function toggleDlItems(i) {
 // needed. window.print() blocks until the dialog closes.
 function printDealerLedger() {
   window.print();
+}
+
+// Sends a plain-text summary (Outstanding + open bills) through the app's
+// existing WhatsApp gateway — reuses Service FMS's generic send endpoint,
+// which just takes a mobile number and message, nothing FMS-specific
+// about it. A full table doesn't read well as a WhatsApp message, so this
+// is a summary a dealer can act on, not the whole ledger.
+function buildDealerLedgerWhatsappText() {
+  const { name, data } = _dlCurrent;
+  if (!data) return '';
+  const bills = (data.entries || []).filter(e => e.type === 'bill');
+  const lines = [`*Statement — ${name}*`, new Date().toLocaleDateString('en-IN'), ''];
+  lines.push(`*Outstanding: ${inr(data.outstanding)}*`);
+  if (bills.length) {
+    lines.push('', 'Open Bills:');
+    bills.forEach((b, i) => lines.push(`${i + 1}. Bill ${b.ref || '—'} (${b.date || '—'}) — ${inr(b.amount)}${b.dueDate ? `, due ${b.dueDate}` : ''}`));
+  }
+  if (data.syncedAt) lines.push('', `_Tally se sync: ${new Date(data.syncedAt).toLocaleString('en-IN')}_`);
+  return lines.join('\n');
+}
+async function sendDealerLedgerWhatsapp() {
+  if (!_dlCurrent.data) { showToast('Pehle Statement load hone do', 'error'); return; }
+  if (!_dlCurrent.phone) { showToast('Is dealer ka phone number save nahi hai', 'error'); return; }
+  const btn = document.getElementById('dlWhatsappBtn');
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const r = await api('/api/service-fms/send-whatsapp', 'POST', {
+    mobile: _dlCurrent.phone, message: buildDealerLedgerWhatsappText()
+  });
+  btn.disabled = false; btn.textContent = original;
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Statement WhatsApp pe bhej diya!');
 }
 
 // ══════════════════════════════════════════════════════
