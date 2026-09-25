@@ -892,7 +892,7 @@ tbody tr:last-child td{border-bottom:none;}
 
   <!-- ── DASHBOARD ── -->
   <div id="page-dashboard" class="page active">
-    <div class="dash-topbar">
+    <div class="dash-topbar" style="flex-wrap:wrap;row-gap:10px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <select id="dashEmployeeFilter" onchange="onPCFilterChange()"
           style="padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt);display:none">
@@ -909,47 +909,18 @@ tbody tr:last-child td{border-bottom:none;}
           <button onclick="clearPCDateFilter()" style="padding:6px 10px;border:1.5px solid var(--border-base);border-radius:10px;font-size:12px;background:var(--surface);cursor:pointer;color:var(--gray-500)">✕ Clear</button>
         </div>
       </div>
-      <div class="dash-topbar-btns" id="dashBtns"></div>
-    </div>
-
-    <div class="task-table-card" style="margin-bottom:18px;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;background:linear-gradient(135deg, var(--surface) 55%, var(--color-primary-light))">
-      <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
-        <div>
-          <div style="font-size:11px;color:var(--gray-400);text-transform:uppercase;font-weight:700;letter-spacing:.5px">📅 Today's Attendance</div>
-          <div style="font-size:12px;color:var(--gray-500);margin-top:2px" id="dashAttnTodayDate"></div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:12px;padding:6px 12px;border-radius:10px;background:var(--color-primary-light)">
+          <span id="dashAttnInDot" style="width:7px;height:7px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
+          <span style="font-size:12px;color:var(--gray-600)">In <strong id="dashAttnTimeIn" style="color:var(--gray-800)">—</strong></span>
+          <span id="dashAttnOutDot" style="width:7px;height:7px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
+          <span style="font-size:12px;color:var(--gray-600)">Out <strong id="dashAttnTimeOut" style="color:var(--gray-800)">—</strong></span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span id="dashAttnInDot" style="width:8px;height:8px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
-          <div>
-            <div style="font-size:10px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Time In</div>
-            <div style="font-size:16px;font-weight:800;color:var(--gray-800)" id="dashAttnTimeIn">—</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span id="dashAttnOutDot" style="width:8px;height:8px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
-          <div>
-            <div style="font-size:10px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Time Out</div>
-            <div style="font-size:16px;font-weight:800;color:var(--gray-800)" id="dashAttnTimeOut">—</div>
-          </div>
-        </div>
-        <div id="dashAttnKmWrap" style="display:none;padding:8px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--color-primary-ring)">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:14px">🛵</span>
-            <span id="dashAttnKmLabel" style="font-size:10px;font-weight:700;color:var(--color-primary);text-transform:uppercase;letter-spacing:.4px">KM Start</span>
-          </div>
-          <div style="display:flex;align-items:baseline;gap:4px;margin-top:3px">
-            <input type="number" step="0.1" id="dashAttnKmInput" placeholder="0"
-              style="width:80px;padding:2px 0;border:none;border-bottom:1.5px solid var(--gray-200);font-size:15px;font-weight:700;font-family:'Inter',sans-serif;outline:none;background:transparent"/>
-            <span style="font-size:11px;color:var(--gray-400);font-weight:600">km</span>
-          </div>
-          <div style="font-size:10px;color:var(--gray-500);margin-top:3px" id="dashAttnKmRecorded"></div>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span id="dashAttnErr" style="display:none;color:var(--color-danger);font-size:12px;max-width:220px"></span>
+        <div class="dash-topbar-btns" id="dashBtns"></div>
         <button class="btn btn-outline btn-sm" onclick="openApplyLeaveModal()">🌴 Apply Leave</button>
-        <button class="btn btn-outline btn-sm" onclick="goToAttendanceHistory()">🛣️ KM &amp; History</button>
-        <button class="btn btn-primary" id="dashAttnPunchBtn" onclick="doAttendancePunch('dashAttn')">Punch In</button>
+        <button class="btn btn-outline btn-sm" id="dashRideBtn" style="display:none" onclick="openRideModal()">🏍️ Start Ride</button>
+        <button class="btn btn-primary" id="dashAttnPunchBtn" onclick="doAttendancePunch()">Punch In</button>
       </div>
     </div>
 
@@ -1188,51 +1159,13 @@ tbody tr:last-child td{border-bottom:none;}
   <div id="page-attendance" class="page">
 
     <div id="attnTabsWrap" style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px;flex-wrap:wrap">
-      <div class="tab active" id="attnTabPunch" onclick="switchAttendanceTab('punch',this)">🕒 Punch</div>
-      <div class="tab" id="attnTabHistory" onclick="switchAttendanceTab('history',this)">📅 My History</div>
+      <div class="tab active" id="attnTabAttendance" onclick="switchAttendanceTab('attendance',this)">🕒 Attendance</div>
       <div class="tab" id="attnTabLeave" onclick="switchAttendanceTab('leave',this)">🌴 Leave</div>
-      <div class="tab" id="attnTabTeam" style="display:none" onclick="switchAttendanceTab('team',this)">👥 Team</div>
+      <div class="tab" id="attnTabRides" onclick="switchAttendanceTab('rides',this)">🛣️ Rides</div>
     </div>
 
-    <!-- Punch panel -->
-    <div id="attnPunchPanel">
-      <div style="background:linear-gradient(135deg, var(--surface) 55%, var(--color-primary-light));border-radius:14px;border:1px solid var(--gray-200);padding:26px;max-width:440px">
-        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">📅 Today — <span id="attnTodayDate"></span></div>
-        <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="attnInDot" style="width:9px;height:9px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
-            <div>
-              <div style="font-size:10px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Time In</div>
-              <div id="attnTimeIn" style="font-size:19px;font-weight:800;color:var(--gray-800)">—</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="attnOutDot" style="width:9px;height:9px;border-radius:50%;background:var(--gray-300);flex-shrink:0"></span>
-            <div>
-              <div style="font-size:10px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.3px">Time Out</div>
-              <div id="attnTimeOut" style="font-size:19px;font-weight:800;color:var(--gray-800)">—</div>
-            </div>
-          </div>
-        </div>
-        <div id="attnKmWrap" style="display:none;margin-top:16px;padding:12px 14px;border-radius:10px;background:var(--surface);border:1px solid var(--color-primary-ring)">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:15px">🛵</span>
-            <span id="attnKmLabel" style="font-size:11px;font-weight:700;color:var(--color-primary);text-transform:uppercase;letter-spacing:.4px">KM Start (Morning)</span>
-          </div>
-          <div style="display:flex;align-items:baseline;gap:6px;margin-top:6px">
-            <input type="number" step="0.1" id="attnKmInput" placeholder="0"
-              style="width:100%;max-width:140px;padding:4px 0;border:none;border-bottom:1.5px solid var(--gray-200);font-size:18px;font-weight:700;font-family:'Inter',sans-serif;outline:none;background:transparent"/>
-            <span style="font-size:12px;color:var(--gray-400);font-weight:600">km</span>
-          </div>
-          <div style="font-size:11px;color:var(--gray-500);margin-top:6px" id="attnKmRecorded"></div>
-        </div>
-        <div class="alert error" id="attnErr" style="margin-top:12px"></div>
-        <button class="btn btn-primary" id="attnPunchBtn" style="width:100%;margin-top:16px" onclick="doAttendancePunch('attn')">Punch In</button>
-      </div>
-    </div>
-
-    <!-- My History panel -->
-    <div id="attnHistoryPanel" style="display:none">
+    <!-- Attendance panel — self sees only own rows; Admin gets an employee dropdown (default All) -->
+    <div id="attnAttendancePanel">
       <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         <div>
           <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div>
@@ -1242,6 +1175,12 @@ tbody tr:last-child td{border-bottom:none;}
           <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div>
           <input type="date" id="attnHistTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
         </div>
+        <div id="attnEmpWrap" style="display:none">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Employee</div>
+          <select id="attnEmpFilter" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:170px;background:var(--surface);color:var(--gray-800)">
+            <option value="all">All Employees</option>
+          </select>
+        </div>
         <div><button class="btn btn-primary" onclick="loadAttendanceHistory()">Show</button></div>
       </div>
       <div id="attnHistoryResults">
@@ -1249,50 +1188,53 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
     </div>
 
-    <!-- Leave panel (self) -->
+    <!-- Leave panel — self sees/applies only own; Admin gets employee + status filters and can approve/reject/delete -->
     <div id="attnLeavePanel" style="display:none">
-      <div class="page-header">
-        <button class="btn btn-primary" onclick="openApplyLeaveModal()">+ Apply for Leave</button>
+      <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div id="attnLeaveEmpWrap" style="display:none">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Employee</div>
+          <select id="attnLeaveEmpFilter" onchange="loadLeaveList()" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:170px;background:var(--surface);color:var(--gray-800)">
+            <option value="all">All Employees</option>
+          </select>
+        </div>
+        <div id="attnLeaveStatusWrap" style="display:none">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Status</div>
+          <select id="attnLeaveStatusFilter" onchange="loadLeaveList()" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)">
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+        <div style="margin-left:auto"><button class="btn btn-primary" onclick="openApplyLeaveModal()">+ Apply for Leave</button></div>
       </div>
-      <div id="attnLeaveResults" class="mis-table-wrap" style="overflow-x:auto">
-        <div class="empty">Loading…</div>
+      <div id="attnLeaveResults">
+        <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
     </div>
 
-    <!-- Team panel (Admin only) -->
-    <div id="attnTeamPanel" style="display:none">
-      <div style="display:flex;gap:4px;margin-bottom:14px">
-        <div class="tab active" id="attnTeamSubAttendance" onclick="switchAttendanceTeamSub('attendance',this)">Attendance</div>
-        <div class="tab" id="attnTeamSubLeave" onclick="switchAttendanceTeamSub('leave',this)">Leave Approvals</div>
+    <!-- Rides panel — self sees/starts only own; Admin gets an employee dropdown and can delete -->
+    <div id="attnRidesPanel" style="display:none">
+      <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div>
+          <input type="date" id="attnRideFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div>
+          <input type="date" id="attnRideTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+        </div>
+        <div id="attnRideEmpWrap" style="display:none">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Employee</div>
+          <select id="attnRideEmpFilter" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:170px;background:var(--surface);color:var(--gray-800)">
+            <option value="all">All Employees</option>
+          </select>
+        </div>
+        <div><button class="btn btn-primary" onclick="loadRidesHistory()">Show</button></div>
+        <div style="margin-left:auto"><button class="btn btn-outline" id="attnRideActionBtn" style="display:none" onclick="openRideModal()">🏍️ Start Ride</button></div>
       </div>
-
-      <div id="attnTeamAttendancePanel">
-        <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-          <div>
-            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div>
-            <input type="date" id="attnTeamFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
-          </div>
-          <div>
-            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div>
-            <input type="date" id="attnTeamTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
-          </div>
-          <div>
-            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Employee</div>
-            <select id="attnTeamEmployee" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:170px;background:var(--surface);color:var(--gray-800)">
-              <option value="all">All Employees</option>
-            </select>
-          </div>
-          <div><button class="btn btn-primary" onclick="loadAttendanceTeamReport()">Show</button></div>
-        </div>
-        <div id="attnTeamResults" class="mis-table-wrap" style="overflow-x:auto">
-          <div class="empty">Date range select karke Show dabayein</div>
-        </div>
-      </div>
-
-      <div id="attnTeamLeavePanel" style="display:none">
-        <div id="attnTeamLeaveResults" class="mis-table-wrap" style="overflow-x:auto">
-          <div class="empty">Loading…</div>
-        </div>
+      <div id="attnRidesResults">
+        <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
     </div>
   </div>
@@ -1646,6 +1588,28 @@ tbody tr:last-child td{border-bottom:none;}
     <div style="margin-top:18px;text-align:right;display:flex;gap:10px;justify-content:flex-end">
       <button class="btn btn-outline" onclick="closeModal('applyLeaveModal')">Cancel</button>
       <button class="btn btn-primary" onclick="submitApplyLeave()">Submit Request</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     RIDE START/END MODAL — reused for both, mode toggled in JS
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="rideModal">
+  <div class="modal" style="max-width:380px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 style="margin:0" id="rideModalTitle">🏍️ Start Ride</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('rideModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="alert error" id="rideModalErr"></div>
+    <div class="form-group">
+      <label id="rideModalKmLabel">KM Start (odometer reading)</label>
+      <input type="number" step="0.1" id="rideModalKmInput" placeholder="e.g. 12450" style="width:100%;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:15px;font-weight:600;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
+    </div>
+    <div style="font-size:11px;color:var(--gray-400)">📍 Location is captured automatically when you submit.</div>
+    <div style="margin-top:18px;text-align:right;display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal('rideModal')">Cancel</button>
+      <button class="btn btn-primary" id="rideModalSubmitBtn" onclick="submitRideModal()">Start Ride</button>
     </div>
   </div>
 </div>
@@ -3403,6 +3367,7 @@ function refreshDashboardO2dLocally() {
 
 async function loadDashboard() {
   loadAttendanceToday();
+  loadRideState();
   const empFilter = document.getElementById('dashEmployeeFilter');
   const empVal = empFilter ? empFilter.value : 'all';
   const isAdmin = ME.role === 'admin';
@@ -4988,12 +4953,18 @@ function confirmRevisionReject() {
 }
 
 // ══════════════════════════════════════════════════════
-// ATTENDANCE & LEAVE
+// ATTENDANCE, LEAVE & RIDES
+// 3 tabs only: Attendance / Leave / Rides. Admin gets an employee dropdown
+// on each (default "All Employees") and sees everyone; everyone else just
+// sees their own — enforced server-side too, the dropdowns are hidden
+// client-side for non-admins as a UX shortcut, not the actual guard.
 // ══════════════════════════════════════════════════════
-let attnView = 'punch';
-let attnTeamSub = 'attendance';
+let attnView = 'attendance';
 let attnKmTracked = false;
 let attnTodayRow = null;
+let _attnRosterCache = null;
+let _rideActive = null;
+let _rideKmTracked = false;
 
 function fmtTime(dt) {
   if (!dt) return '—';
@@ -5005,71 +4976,9 @@ function fmtTime(dt) {
   return `${h}:${m[2]} ${ampm}`;
 }
 
-function goToAttendanceHistory() {
-  attnView = 'history';
-  navigate('attendance', document.getElementById('nav-attendance'));
-}
-
-function loadAttendancePage() {
-  // Team tab is admin-only — HOD/PC see just their own attendance/leave, same as a regular user.
-  document.getElementById('attnTabTeam').style.display = (ME.role === 'admin') ? '' : 'none';
-  if (attnView === 'team' && ME.role !== 'admin') attnView = 'punch';
-  switchAttendanceTab(attnView, document.getElementById('attnTab' + attnView[0].toUpperCase() + attnView.slice(1)));
-}
-
-function switchAttendanceTab(view, el) {
-  attnView = view;
-  document.querySelectorAll('#attnTabsWrap .tab').forEach(t => t.classList.remove('active'));
-  if (el) el.classList.add('active');
-  ['Punch','History','Leave','Team'].forEach(v => {
-    document.getElementById('attn' + v + 'Panel').style.display = (v.toLowerCase() === view) ? '' : 'none';
-  });
-  if (view === 'punch') loadAttendanceToday();
-  if (view === 'history') { setAttnHistoryDefaultDates(); loadAttendanceHistory(); }
-  if (view === 'leave') loadLeaveList();
-  if (view === 'team') {
-    populateAttnTeamEmployeeDropdown();
-    setAttnTeamDefaultDates();
-    switchAttendanceTeamSub(attnTeamSub, document.getElementById('attnTeamSub' + attnTeamSub[0].toUpperCase() + attnTeamSub.slice(1)));
-  }
-}
-
-function switchAttendanceTeamSub(sub, el) {
-  attnTeamSub = sub;
-  document.querySelectorAll('#attnTeamPanel .tab').forEach(t => t.classList.remove('active'));
-  if (el) el.classList.add('active');
-  document.getElementById('attnTeamAttendancePanel').style.display = sub === 'attendance' ? '' : 'none';
-  document.getElementById('attnTeamLeavePanel').style.display = sub === 'leave' ? '' : 'none';
-  if (sub === 'attendance') loadAttendanceTeamReport();
-  if (sub === 'leave') loadTeamLeaveApprovals();
-}
-
-// ── Punch — rendered in two places (the dashboard widget, prefix
-// "dashAttn", and the full Attendance page's Punch tab, prefix "attn").
-// Both read/write the same attnTodayRow/attnKmTracked state so punching
-// from either one keeps the other in sync next time it's shown. ──
-const ATTN_WIDGET_PREFIXES = ['attn', 'dashAttn'];
-
-async function loadAttendanceToday() {
-  const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-  ATTN_WIDGET_PREFIXES.forEach(p => {
-    const dEl = document.getElementById(p + 'TodayDate'); if (dEl) dEl.textContent = dateStr;
-    const eEl = document.getElementById(p + 'Err'); if (eEl) eEl.style.display = 'none';
-  });
-  const r = await api('/api/attendance/today');
-  if (r.error) { showToast(r.error, 'error'); return; }
-  attnTodayRow = r.attendance;
-  attnKmTracked = !!r.kmTracked;
-  ATTN_WIDGET_PREFIXES.forEach(renderAttendanceWidget);
-}
-
-// Punch GPS is best-effort — location is captured silently in the background
-// (no separate button/permission prompt UI); if the browser denies/lacks it,
-// the punch still goes through with no lat/lng.
-function gpsLinkHtml(lat, lng) {
-  if (lat == null || lng == null) return '';
-  return ` <a href="https://maps.google.com/?q=${lat},${lng}" target="_blank" style="font-size:11px;text-decoration:none" title="View location on map">📍</a>`;
-}
+// GPS is best-effort — captured silently in the background (no separate
+// button/permission-prompt UI); if the browser denies/lacks it, the
+// punch/ride still goes through with no lat/lng.
 function getPunchGps() {
   return new Promise(resolve => {
     if (!navigator.geolocation) return resolve(null);
@@ -5080,9 +4989,16 @@ function getPunchGps() {
     );
   });
 }
-
-// A small "trip summary" chip once both KM readings exist for the day —
-// used both in the punch widgets and (via renderAttendanceCards) in My History.
+// A map-pin link, plus — when the server managed to reverse-geocode it —
+// the address as short readable text underneath (not just a coordinates link).
+function gpsLinkHtml(lat, lng, address) {
+  if (lat == null || lng == null) return '';
+  const title = address ? esc(address) : 'View location on map';
+  const pin = ` <a href="https://maps.google.com/?q=${lat},${lng}" target="_blank" style="font-size:11px;text-decoration:none" title="${title}">📍</a>`;
+  if (!address) return pin;
+  return `${pin}<div style="font-size:10px;color:var(--gray-400);margin-top:1px;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${title}">${esc(address)}</div>`;
+}
+// A small "trip distance" chip — used in the Rides table.
 function kmSummaryHtml(start, end, compact) {
   if (start == null || end == null) return '';
   const dist = (parseFloat(end) - parseFloat(start)).toFixed(1);
@@ -5090,79 +5006,98 @@ function kmSummaryHtml(start, end, compact) {
   return `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--color-success-bg);color:var(--color-success-text);padding:${pad};border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap">🛣️ ${dist} km <span style="font-weight:500;opacity:.75">(${start} → ${end})</span></span>`;
 }
 
-function renderAttendanceWidget(prefix) {
-  const timeInEl = document.getElementById(prefix + 'TimeIn');
+async function populateEmployeeDropdown(selectId) {
+  if (!_attnRosterCache) _attnRosterCache = await api('/api/users/roster');
+  const users = Array.isArray(_attnRosterCache) ? _attnRosterCache : [];
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const current = sel.value || 'all';
+  sel.innerHTML = '<option value="all">All Employees</option>' +
+    users.map(u => `<option value="${u.id}">${esc(u.name)}${u.department ? ' — ' + esc(u.department) : ''}</option>`).join('');
+  sel.value = current;
+}
+
+function loadAttendancePage() {
+  const isAdmin = ME.role === 'admin';
+  ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnRideEmpWrap'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isAdmin ? '' : 'none';
+  });
+  if (isAdmin) {
+    populateEmployeeDropdown('attnEmpFilter');
+    populateEmployeeDropdown('attnLeaveEmpFilter');
+    populateEmployeeDropdown('attnRideEmpFilter');
+  }
+  switchAttendanceTab(attnView, document.getElementById('attnTab' + attnView[0].toUpperCase() + attnView.slice(1)));
+}
+
+function switchAttendanceTab(view, el) {
+  attnView = view;
+  document.querySelectorAll('#attnTabsWrap .tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  ['Attendance', 'Leave', 'Rides'].forEach(v => {
+    document.getElementById('attn' + v + 'Panel').style.display = (v.toLowerCase() === view) ? '' : 'none';
+  });
+  if (view === 'attendance') { setAttnHistoryDefaultDates(); loadAttendanceHistory(); }
+  if (view === 'leave') loadLeaveList();
+  if (view === 'rides') { setAttnRideDefaultDates(); loadRidesHistory(); loadRideState(); }
+}
+
+// ── Punch (lives on the Dashboard only — see #dashAttn* in the topbar) ──
+async function loadAttendanceToday() {
+  const errEl = document.getElementById('dashAttnErr');
+  if (errEl) errEl.style.display = 'none';
+  const r = await api('/api/attendance/today');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  attnTodayRow = r.attendance;
+  attnKmTracked = !!r.kmTracked;
+  renderAttendanceWidget();
+}
+
+function renderAttendanceWidget() {
+  const timeInEl = document.getElementById('dashAttnTimeIn');
   if (!timeInEl) return;
-  const timeOutEl = document.getElementById(prefix + 'TimeOut');
-  const inDot = document.getElementById(prefix + 'InDot');
-  const outDot = document.getElementById(prefix + 'OutDot');
-  const kmWrap = document.getElementById(prefix + 'KmWrap');
-  const kmInput = document.getElementById(prefix + 'KmInput');
-  const kmLabel = document.getElementById(prefix + 'KmLabel');
-  const kmRecorded = document.getElementById(prefix + 'KmRecorded');
-  const btn = document.getElementById(prefix + 'PunchBtn');
+  const timeOutEl = document.getElementById('dashAttnTimeOut');
+  const inDot = document.getElementById('dashAttnInDot');
+  const outDot = document.getElementById('dashAttnOutDot');
+  const btn = document.getElementById('dashAttnPunchBtn');
 
-  timeInEl.innerHTML = (attnTodayRow?.time_in ? fmtTime(attnTodayRow.time_in) : '—') + gpsLinkHtml(attnTodayRow?.lat_in, attnTodayRow?.lng_in);
-  timeOutEl.innerHTML = (attnTodayRow?.time_out ? fmtTime(attnTodayRow.time_out) : '—') + gpsLinkHtml(attnTodayRow?.lat_out, attnTodayRow?.lng_out);
-
-  if (kmRecorded) kmRecorded.innerHTML = '';
-  if (kmWrap) kmWrap.style.display = attnKmTracked ? '' : 'none';
+  timeInEl.textContent = attnTodayRow?.time_in ? fmtTime(attnTodayRow.time_in) : '—';
+  timeOutEl.textContent = attnTodayRow?.time_out ? fmtTime(attnTodayRow.time_out) : '—';
+  timeInEl.title = attnTodayRow?.address_in || '';
+  timeOutEl.title = attnTodayRow?.address_out || '';
 
   const hasIn = !!attnTodayRow?.time_in;
   const hasOut = !!attnTodayRow?.time_out;
   if (inDot) inDot.style.background = hasIn ? 'var(--color-success)' : 'var(--gray-300)';
   if (outDot) outDot.style.background = hasOut ? 'var(--color-danger)' : 'var(--gray-300)';
 
-  if (!hasIn) {
-    btn.textContent = 'Punch In'; btn.disabled = false;
-    if (kmLabel) kmLabel.textContent = 'KM Start (Morning)';
-    if (kmInput) kmInput.disabled = false;
-  } else if (!hasOut) {
-    btn.textContent = 'Punch Out'; btn.disabled = false;
-    if (kmLabel) kmLabel.textContent = 'KM End (Evening)';
-    if (kmInput) kmInput.disabled = false;
-    if (kmRecorded && attnTodayRow.km_start != null) kmRecorded.textContent = 'KM Start recorded: ' + attnTodayRow.km_start;
-  } else {
-    btn.textContent = '✅ Done for Today'; btn.disabled = true;
-    if (kmInput) kmInput.disabled = true;
-    if (kmRecorded) kmRecorded.innerHTML = kmSummaryHtml(attnTodayRow.km_start, attnTodayRow.km_end, true);
-  }
+  if (!hasIn) { btn.textContent = 'Punch In'; btn.disabled = false; }
+  else if (!hasOut) { btn.textContent = 'Punch Out'; btn.disabled = false; }
+  else { btn.textContent = '✅ Done for Today'; btn.disabled = true; }
 }
 
-async function doAttendancePunch(prefix) {
-  prefix = prefix || 'attn';
-  const errEl = document.getElementById(prefix + 'Err');
-  if (errEl) errEl.style.display = 'none';
-  const kmInput = document.getElementById(prefix + 'KmInput');
-  const km = kmInput ? kmInput.value : '';
-  const btn = document.getElementById(prefix + 'PunchBtn');
+async function doAttendancePunch() {
+  const errEl = document.getElementById('dashAttnErr');
+  errEl.style.display = 'none';
+  const btn = document.getElementById('dashAttnPunchBtn');
   const isPunchIn = !attnTodayRow || !attnTodayRow.time_in;
-  const prevBtnText = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; if (navigator.geolocation) btn.textContent = 'Getting location…'; }
+  const prevBtnText = btn.textContent;
+  btn.disabled = true;
+  if (navigator.geolocation) btn.textContent = 'Getting location…';
   const gps = await getPunchGps();
-  if (btn) btn.textContent = prevBtnText;
-  const body = isPunchIn ? { kmStart: km || null } : { kmEnd: km || null };
+  btn.textContent = prevBtnText;
+  const body = {};
   if (gps) { body.lat = gps.lat; body.lng = gps.lng; }
   const r = isPunchIn
     ? await api('/api/attendance/punch-in', 'POST', body)
     : await api('/api/attendance/punch-out', 'POST', body);
-  if (r.error) {
-    if (errEl) { errEl.textContent = r.error; errEl.style.display = 'block'; }
-    else showToast(r.error, 'error');
-    if (btn) btn.disabled = false;
-    return;
-  }
+  if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; btn.disabled = false; return; }
   showToast(isPunchIn ? '✅ Punched in!' : '✅ Punched out!');
-  // Clear both widgets' KM inputs — the value just submitted belonged to the
-  // stage that just ended; the next stage (if any) starts from blank.
-  ATTN_WIDGET_PREFIXES.forEach(p => {
-    const kmEl = document.getElementById(p + 'KmInput');
-    if (kmEl) kmEl.value = '';
-  });
   await loadAttendanceToday();
 }
 
-// ── My History ──
+// ── Attendance tab (history / team report, unified) ──
 function setAttnHistoryDefaultDates() {
   const to = document.getElementById('attnHistTo');
   const from = document.getElementById('attnHistFrom');
@@ -5170,14 +5105,14 @@ function setAttnHistoryDefaultDates() {
   if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 29); from.value = d.toISOString().slice(0, 10); }
 }
 
-// My History — a day-card timeline instead of a plain table (self view only,
-// usually a handful of rows so cards stay easy to scan).
+// One employee's rows (self, or Admin viewing one specific employee) — a
+// day-card timeline, easy to scan.
 function renderAttendanceCards(rows) {
   return rows.map(r => {
     const d = new Date(r.date + 'T00:00:00');
     const hasIn = !!r.time_in, hasOut = !!r.time_out;
-    const kmChip = kmSummaryHtml(r.km_start, r.km_end)
-      || (r.km_start != null ? `<span style="font-size:11px;color:var(--gray-500)">KM Start: ${r.km_start}</span>` : '');
+    const delBtn = ME.role === 'admin'
+      ? `<button class="action-btn delete" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button>` : '';
     return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
       <div style="display:flex;align-items:center;gap:14px">
         <div style="width:46px;height:46px;border-radius:10px;background:var(--color-primary-light);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">
@@ -5186,30 +5121,55 @@ function renderAttendanceCards(rows) {
         </div>
         <div>
           <div style="font-size:13px;font-weight:700;color:var(--gray-800)">${d.toLocaleDateString('en-IN',{weekday:'long'})}</div>
-          <div style="font-size:12px;color:var(--gray-500);display:flex;gap:16px;margin-top:3px;flex-wrap:wrap">
-            <span><span style="color:${hasIn?'var(--color-success)':'var(--gray-300)'}">●</span> In: ${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in)}</span>
-            <span><span style="color:${hasOut?'var(--color-danger)':'var(--gray-300)'}">●</span> Out: ${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out)}</span>
+          <div style="font-size:12px;color:var(--gray-500);display:flex;gap:18px;margin-top:3px;flex-wrap:wrap">
+            <span><span style="color:${hasIn?'var(--color-success)':'var(--gray-300)'}">●</span> In: ${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in, r.address_in)}</span>
+            <span><span style="color:${hasOut?'var(--color-danger)':'var(--gray-300)'}">●</span> Out: ${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out, r.address_out)}</span>
           </div>
         </div>
       </div>
-      ${kmChip}
+      ${delBtn}
     </div>`;
   }).join('');
 }
 
+// Admin viewing "All Employees" — a table (too many rows across people for cards).
+function renderAttendanceTable(rows) {
+  return `<div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:820px">
+    <thead><tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th></th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>
+      <td>${fmtDate(r.date)}</td>
+      <td>${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in, r.address_in)}</td>
+      <td>${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out, r.address_out)}</td>
+      <td><button class="action-btn delete" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button></td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function deleteAttendanceEntry(id) {
+  showConfirm({ icon: '🗑️', title: 'Delete Attendance Entry?', msg: "This removes that day's punch record. This cannot be undone.", okLabel: 'Delete', okColor: 'var(--color-danger)' }, async () => {
+    const r = await api(`/api/attendance/${id}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Attendance entry deleted');
+    loadAttendanceHistory();
+  });
+}
+
 async function loadAttendanceHistory() {
+  const isAdmin = ME.role === 'admin';
   const from = document.getElementById('attnHistFrom').value;
   const to = document.getElementById('attnHistTo').value;
+  const employee = isAdmin ? (document.getElementById('attnEmpFilter').value || 'all') : 'all';
   const wrap = document.getElementById('attnHistoryResults');
   const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
   wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
-  const rows = await api(`/api/attendance/history?from=${from}&to=${to}`);
+  const rows = await api(`/api/attendance/history?from=${from}&to=${to}&employee=${employee}`);
   if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
   if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No attendance records in this range.</div>`; return; }
-  wrap.innerHTML = renderAttendanceCards(rows);
+  wrap.innerHTML = (isAdmin && employee === 'all') ? renderAttendanceTable(rows) : renderAttendanceCards(rows);
 }
 
-// ── Leave (self) ──
+// ── Leave tab (apply + list, unified self/admin) ──
 function openApplyLeaveModal() {
   document.getElementById('applyLeaveErr').style.display = 'none';
   document.getElementById('alType').value = 'Casual';
@@ -5238,24 +5198,40 @@ function leaveStatusClass(status) {
   return status === 'approved' ? 'completed' : status === 'rejected' ? 'pending' : 'revised';
 }
 
-async function loadLeaveList() {
-  const wrap = document.getElementById('attnLeaveResults');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
-  const rows = await api('/api/leave');
-  if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No leave requests yet.</div>'; return; }
-  wrap.innerHTML = `<table style="min-width:640px">
-    <thead><tr><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+function renderLeaveTable(rows, isAdmin) {
+  return `<div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:${isAdmin ? 800 : 640}px">
+    <thead><tr>
+      ${isAdmin ? '<th>Employee</th>' : ''}
+      <th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th></th>
+    </tr></thead>
     <tbody>${rows.map(r => `<tr>
+      ${isAdmin ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
       <td>${esc(r.leave_type||'—')}</td>
       <td>${fmtDate(r.start_date)}</td>
       <td>${fmtDate(r.end_date)}</td>
       <td>${r.days ?? '—'}</td>
-      <td style="max-width:220px">${esc(r.reason||'—')}</td>
-      <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${r.remarks ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(r.remarks)}</div>` : ''}</td>
-      <td>${r.status === 'pending' ? `<button class="action-btn delete" onclick="cancelLeave(${r.id})">Cancel</button>` : '—'}</td>
+      <td style="max-width:200px">${esc(r.reason||'—')}</td>
+      <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${r.remarks ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(r.remarks)}</div>` : ''}${isAdmin && r.approvedByName ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">by ${esc(r.approvedByName)}</div>` : ''}</td>
+      <td style="white-space:nowrap">
+        ${isAdmin && r.status === 'pending' ? `<button class="action-btn done" onclick="processLeave(${r.id},'approved')">Approve</button><button class="action-btn delete" style="margin-left:6px" onclick="processLeave(${r.id},'rejected')">Reject</button>` : ''}
+        ${!isAdmin && r.status === 'pending' ? `<button class="action-btn delete" onclick="cancelLeave(${r.id})">Cancel</button>` : ''}
+        ${isAdmin ? `<button class="action-btn delete" style="margin-left:6px" onclick="deleteLeaveEntry(${r.id})" title="Delete">🗑</button>` : ''}
+      </td>
     </tr>`).join('')}</tbody>
-  </table>`;
+  </table></div>`;
+}
+
+async function loadLeaveList() {
+  const isAdmin = ME.role === 'admin';
+  const employee = isAdmin ? (document.getElementById('attnLeaveEmpFilter').value || 'all') : 'all';
+  const status = isAdmin ? (document.getElementById('attnLeaveStatusFilter').value || 'all') : 'all';
+  const wrap = document.getElementById('attnLeaveResults');
+  const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
+  wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
+  const rows = await api(`/api/leave?employee=${employee}&status=${status}`);
+  if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
+  if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No leave requests.</div>`; return; }
+  wrap.innerHTML = renderLeaveTable(rows, isAdmin);
 }
 
 function cancelLeave(id) {
@@ -5268,98 +5244,12 @@ function cancelLeave(id) {
   });
 }
 
-// ── Team (Admin only) ──
-function setAttnTeamDefaultDates() {
-  const from = document.getElementById('attnTeamFrom');
-  const to = document.getElementById('attnTeamTo');
-  if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 6); from.value = d.toISOString().slice(0, 10); }
-  if (!to.value) to.value = new Date().toISOString().slice(0, 10);
-}
-
-let _attnRosterCache = null;
-async function populateAttnTeamEmployeeDropdown() {
-  if (!_attnRosterCache) _attnRosterCache = await api('/api/users/roster');
-  const users = Array.isArray(_attnRosterCache) ? _attnRosterCache : [];
-  const sel = document.getElementById('attnTeamEmployee');
-  const current = sel.value || 'all';
-  sel.innerHTML = '<option value="all">All Employees</option>' +
-    users.map(u => `<option value="${u.id}">${esc(u.name)}${u.department ? ' — ' + esc(u.department) : ''}</option>`).join('');
-  sel.value = current;
-}
-
-// Team report table — Admin only, so it's safe to always include the Delete
-// column (backend also re-checks admin on the DELETE call itself).
-function renderAttendanceTeamTable(rows) {
-  return `<table style="min-width:840px">
-    <thead><tr>
-      <th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>KM Start</th><th>KM End</th><th>KM Run</th><th></th>
-    </tr></thead>
-    <tbody>${rows.map(r => `<tr>
-      <td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>
-      <td>${fmtDate(r.date)}</td>
-      <td>${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in)}</td>
-      <td>${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out)}</td>
-      <td>${r.km_start ?? '—'}</td>
-      <td>${r.km_end ?? '—'}</td>
-      <td>${(r.km_start != null && r.km_end != null) ? (r.km_end - r.km_start).toFixed(1) : '—'}</td>
-      <td><button class="action-btn delete" onclick="deleteAttendanceEntry(${r.id})" title="Delete this entry">🗑</button></td>
-    </tr>`).join('')}</tbody>
-  </table>`;
-}
-
-function deleteAttendanceEntry(id) {
-  showConfirm({ icon: '🗑️', title: 'Delete Attendance Entry?', msg: "This removes that day's punch times and KM data. This cannot be undone.", okLabel: 'Delete', okColor: 'var(--color-danger)' }, async () => {
-    const r = await api(`/api/attendance/${id}`, 'DELETE');
-    if (r.error) { showToast(r.error, 'error'); return; }
-    showToast('Attendance entry deleted');
-    loadAttendanceTeamReport();
-  });
-}
-
-async function loadAttendanceTeamReport() {
-  const from = document.getElementById('attnTeamFrom').value;
-  const to = document.getElementById('attnTeamTo').value;
-  const employee = document.getElementById('attnTeamEmployee').value;
-  const wrap = document.getElementById('attnTeamResults');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
-  const rows = await api(`/api/attendance/history?from=${from}&to=${to}&employee=${employee}`);
-  if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No attendance records in this range.</div>'; return; }
-  wrap.innerHTML = renderAttendanceTeamTable(rows);
-}
-
-async function loadTeamLeaveApprovals() {
-  const wrap = document.getElementById('attnTeamLeaveResults');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
-  const rows = await api('/api/leave');
-  if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No leave requests.</div>'; return; }
-  wrap.innerHTML = `<table style="min-width:800px">
-    <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th></th></tr></thead>
-    <tbody>${rows.map(r => `<tr>
-      <td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>
-      <td>${esc(r.leave_type||'—')}</td>
-      <td>${fmtDate(r.start_date)}</td>
-      <td>${fmtDate(r.end_date)}</td>
-      <td>${r.days ?? '—'}</td>
-      <td style="max-width:200px">${esc(r.reason||'—')}</td>
-      <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${r.approvedByName ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">by ${esc(r.approvedByName)}</div>` : ''}</td>
-      <td style="white-space:nowrap">${r.status === 'pending' ? `
-          <button class="action-btn done" onclick="processLeave(${r.id},'approved')">Approve</button>
-          <button class="action-btn delete" style="margin-left:6px" onclick="processLeave(${r.id},'rejected')">Reject</button>
-        ` : ''}
-        <button class="action-btn delete" style="margin-left:6px" onclick="deleteLeaveEntry(${r.id})" title="Delete this leave record">🗑</button>
-      </td>
-    </tr>`).join('')}</tbody>
-  </table>`;
-}
-
 function deleteLeaveEntry(id) {
   showConfirm({ icon: '🗑️', title: 'Delete Leave Record?', msg: 'This permanently removes this leave request/record. This cannot be undone.', okLabel: 'Delete', okColor: 'var(--color-danger)' }, async () => {
     const r = await api(`/api/leave/${id}`, 'DELETE');
     if (r.error) { showToast(r.error, 'error'); return; }
     showToast('Leave record deleted');
-    loadTeamLeaveApprovals();
+    loadLeaveList();
     loadLeaveBadge();
   });
 }
@@ -5370,14 +5260,14 @@ async function processLeave(id, action) {
       const r = await api(`/api/leave/${id}`, 'PUT', { action, remarks: note || '' });
       if (r.error) { showToast(r.error, 'error'); return; }
       showToast('❌ Leave rejected');
-      loadTeamLeaveApprovals();
+      loadLeaveList();
       loadLeaveBadge();
     });
   } else {
     const r = await api(`/api/leave/${id}`, 'PUT', { action, remarks: '' });
     if (r.error) { showToast(r.error, 'error'); return; }
     showToast('✅ Leave approved');
-    loadTeamLeaveApprovals();
+    loadLeaveList();
     loadLeaveBadge();
   }
 }
@@ -5392,6 +5282,113 @@ async function loadLeaveBadge() {
     if (count > 0) { badge.textContent = count; badge.style.display = 'flex'; }
     else badge.style.display = 'none';
   } catch(e) {}
+}
+
+// ── Rides tab — Start/End trips (KM-tracked staff only), unified self/admin ──
+function setAttnRideDefaultDates() {
+  const from = document.getElementById('attnRideFrom');
+  const to = document.getElementById('attnRideTo');
+  if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 6); from.value = d.toISOString().slice(0, 10); }
+  if (!to.value) to.value = new Date().toISOString().slice(0, 10);
+}
+
+function renderRidesTable(rows, isAdmin) {
+  return `<div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:${isAdmin ? 860 : 680}px">
+    <thead><tr>
+      ${isAdmin ? '<th>Employee</th>' : ''}
+      <th>Start</th><th>End</th><th>Distance</th><th></th>
+    </tr></thead>
+    <tbody>${rows.map(r => {
+      const started = r.start_time ? `${fmtDate(r.start_time.split(' ')[0])} ${fmtTime(r.start_time)}` : '—';
+      const ended = r.end_time ? `${fmtDate(r.end_time.split(' ')[0])} ${fmtTime(r.end_time)}` : `<span style="color:var(--color-warning-text);font-weight:600">In progress</span>`;
+      const dist = kmSummaryHtml(r.km_start, r.km_end, true) || (r.km_start != null ? `<span style="font-size:11px;color:var(--gray-500)">KM Start: ${r.km_start}</span>` : '—');
+      return `<tr>
+      ${isAdmin ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
+      <td>${started}${gpsLinkHtml(r.lat_start, r.lng_start, r.address_start)}</td>
+      <td>${ended}${gpsLinkHtml(r.lat_end, r.lng_end, r.address_end)}</td>
+      <td>${dist}</td>
+      <td>${isAdmin ? `<button class="action-btn delete" onclick="deleteRideEntry(${r.id})" title="Delete">🗑</button>` : ''}</td>
+    </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+function deleteRideEntry(id) {
+  showConfirm({ icon: '🗑️', title: 'Delete Ride?', msg: 'This permanently removes this ride record. This cannot be undone.', okLabel: 'Delete', okColor: 'var(--color-danger)' }, async () => {
+    const r = await api(`/api/rides/${id}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Ride deleted');
+    loadRidesHistory();
+  });
+}
+
+async function loadRidesHistory() {
+  const isAdmin = ME.role === 'admin';
+  const from = document.getElementById('attnRideFrom').value;
+  const to = document.getElementById('attnRideTo').value;
+  const employee = isAdmin ? (document.getElementById('attnRideEmpFilter').value || 'all') : 'all';
+  const wrap = document.getElementById('attnRidesResults');
+  const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
+  wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
+  const rows = await api(`/api/rides/history?from=${from}&to=${to}&employee=${employee}`);
+  if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
+  if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No rides in this range.</div>`; return; }
+  wrap.innerHTML = renderRidesTable(rows, isAdmin);
+}
+
+// Start/End Ride button — shown on both the Dashboard and the Rides tab,
+// only for track_km users, driven by the same active-ride state.
+async function loadRideState() {
+  const r = await api('/api/rides/active');
+  if (r.error) return;
+  _rideActive = r.ride;
+  _rideKmTracked = !!r.kmTracked;
+  updateRideButtons();
+}
+
+function updateRideButtons() {
+  ['dashRideBtn', 'attnRideActionBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (!_rideKmTracked) { btn.style.display = 'none'; return; }
+    btn.style.display = '';
+    btn.textContent = _rideActive ? '🏁 End Ride' : '🏍️ Start Ride';
+  });
+}
+
+function openRideModal() {
+  document.getElementById('rideModalErr').style.display = 'none';
+  document.getElementById('rideModalKmInput').value = '';
+  const isEnd = !!_rideActive;
+  document.getElementById('rideModalTitle').textContent = isEnd ? '🏁 End Ride' : '🏍️ Start Ride';
+  document.getElementById('rideModalKmLabel').textContent = isEnd ? 'KM End (odometer reading)' : 'KM Start (odometer reading)';
+  document.getElementById('rideModalSubmitBtn').textContent = isEnd ? 'End Ride' : 'Start Ride';
+  document.getElementById('rideModal').classList.add('open');
+}
+
+async function submitRideModal() {
+  const errEl = document.getElementById('rideModalErr');
+  errEl.style.display = 'none';
+  const km = document.getElementById('rideModalKmInput').value;
+  const btn = document.getElementById('rideModalSubmitBtn');
+  const isEnd = !!_rideActive;
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Getting location…';
+  const gps = await getPunchGps();
+  btn.textContent = prevText;
+  const body = isEnd ? { kmEnd: km || null } : { kmStart: km || null };
+  if (gps) { body.lat = gps.lat; body.lng = gps.lng; }
+  const r = isEnd
+    ? await api(`/api/rides/${_rideActive.id}/end`, 'POST', body)
+    : await api('/api/rides/start', 'POST', body);
+  btn.disabled = false;
+  if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
+  showToast(isEnd ? '🏁 Ride ended!' : '🏍️ Ride started!');
+  closeModal('rideModal');
+  await loadRideState();
+  const attnPage = document.getElementById('page-attendance');
+  if (attnView === 'rides' && attnPage && attnPage.classList.contains('active')) loadRidesHistory();
 }
 
 async function openDeactivate(id) {

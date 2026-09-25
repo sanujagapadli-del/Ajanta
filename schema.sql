@@ -201,18 +201,21 @@ CREATE TABLE IF NOT EXISTS o2d_dealer_payments (
   INDEX idx_counter (counter_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- km_start/km_end intentionally absent — KM tracking moved to the `rides`
+-- table below (2026-09-25) so a field employee can log several trips a day
+-- instead of one KM pair tied to the attendance punch.
 CREATE TABLE IF NOT EXISTS attendance (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
   date DATE NOT NULL,
   time_in DATETIME,
   time_out DATETIME,
-  km_start DECIMAL(10,2),
-  km_end DECIMAL(10,2),
   lat_in DECIMAL(10,7),
   lng_in DECIMAL(10,7),
+  address_in VARCHAR(500),
   lat_out DECIMAL(10,7),
   lng_out DECIMAL(10,7),
+  address_out VARCHAR(500),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_user_date (user_id, date),
   INDEX idx_date (date)
@@ -233,4 +236,22 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_user (user_id),
   INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS rides (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  start_time DATETIME NOT NULL,
+  km_start DECIMAL(10,2),
+  lat_start DECIMAL(10,7),
+  lng_start DECIMAL(10,7),
+  address_start VARCHAR(500),
+  end_time DATETIME,
+  km_end DECIMAL(10,2),
+  lat_end DECIMAL(10,7),
+  lng_end DECIMAL(10,7),
+  address_end VARCHAR(500),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_user (user_id),
+  INDEX idx_start (start_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

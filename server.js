@@ -181,6 +181,13 @@ const _dbReady = db.init()
         try { await db.query(`ALTER TABLE attendance ADD COLUMN ${col}`); }
         catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attendance GPS migration skipped:', e.message); }
       }
+      // Migration: add reverse-geocoded address text columns to attendance.
+      // KM moved off this table onto the new `rides` table the same day —
+      // the old km_start/km_end columns are left in place, just unused.
+      for (const col of ['address_in VARCHAR(500)', 'address_out VARCHAR(500)']) {
+        try { await db.query(`ALTER TABLE attendance ADD COLUMN ${col}`); }
+        catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attendance address migration skipped:', e.message); }
+      }
     }
   })
   .catch(err => {
@@ -1618,15 +1625,18 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════
-// ATTENDANCE & LEAVE — daily time-in/time-out punch for every employee,
-// plus a KM Start/KM End odometer pair for field staff (Sales & Delivery)
-// who go out to the market. Both tables are lazily created on first write
-// (mirrors the o2d_dealers self-healing pattern).
+// ATTENDANCE, LEAVE & RIDES
+// - Attendance: daily time-in/time-out punch for every employee.
+// - Leave: apply/approve/reject.
+// - Rides: separate KM-tracked trips (Start/End, GPS both ends) for field
+//   staff — decoupled from the attendance punch so someone can log several
+//   trips in a day, not just one KM pair. All three tables are lazily
+//   created on first write (mirrors the o2d_dealers self-healing pattern).
 //
-// Who gets the KM fields is its own per-user `users.track_km` flag (set
-// from the Users page), kept deliberately separate from the free-text
-// `department` column — a mechanic's department text can drift/typo
-// without silently turning KM tracking on or off for them.
+// Who gets Rides is its own per-user `users.track_km` flag (set from the
+// Users page), kept deliberately separate from the free-text `department`
+// column — a mechanic's department text can drift/typo without silently
+// turning KM tracking on or off for them.
 // ══════════════════════════════════════════════════════
 async function ensureAttendanceTables() {
   await db.query(`
@@ -1636,12 +1646,12 @@ async function ensureAttendanceTables() {
       date DATE NOT NULL,
       time_in DATETIME,
       time_out DATETIME,
-      km_start DECIMAL(10,2),
-      km_end DECIMAL(10,2),
       lat_in DECIMAL(10,7),
       lng_in DECIMAL(10,7),
+      address_in VARCHAR(500),
       lat_out DECIMAL(10,7),
       lng_out DECIMAL(10,7),
+      address_out VARCHAR(500),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_user_date (user_id, date),
       INDEX idx_date (date)
@@ -1665,6 +1675,25 @@ async function ensureAttendanceTables() {
       INDEX idx_status (status)
     )
   `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS rides (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      start_time DATETIME NOT NULL,
+      km_start DECIMAL(10,2),
+      lat_start DECIMAL(10,7),
+      lng_start DECIMAL(10,7),
+      address_start VARCHAR(500),
+      end_time DATETIME,
+      km_end DECIMAL(10,2),
+      lat_end DECIMAL(10,7),
+      lng_end DECIMAL(10,7),
+      address_end VARCHAR(500),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_user (user_id),
+      INDEX idx_start (start_time)
+    )
+  `);
 }
 async function withAttendanceTables(fn) {
   try {
@@ -1674,6 +1703,34 @@ async function withAttendanceTables(fn) {
     await ensureAttendanceTables();
     return await fn();
   }
+}
+
+// GPS is best-effort — a punch/ride must never fail just because the
+// browser denied/lacks location, so lat/lng (and the address text below)
+// are simply left null when absent.
+function parseCoord(v) {
+  if (v == null || v === '') return null;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Turns lat/lng into a human-readable address (OpenStreetMap Nominatim —
+// free, no API key). Best-effort: a slow/failed lookup just means the row
+// keeps its coordinates but no address text; it never blocks the punch/ride.
+async function reverseGeocode(lat, lng) {
+  if (lat == null || lng == null) return null;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16`,
+      { headers: { 'User-Agent': 'AjantaTaskManager/1.0 (attendance geocoding)' }, signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.display_name ? String(data.display_name).slice(0, 500) : null;
+  } catch (e) { return null; }
 }
 
 app.get('/api/attendance/today', requireAuth, async (req, res) => {
@@ -1689,29 +1746,21 @@ app.get('/api/attendance/today', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
-// GPS is best-effort — a punch must never fail just because the browser
-// denied/lacks location, so lat/lng are simply left null when absent.
-function parseCoord(v) {
-  if (v == null || v === '') return null;
-  const n = parseFloat(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
-    const kmStart = req.body?.kmStart != null && req.body.kmStart !== '' ? parseFloat(req.body.kmStart) : null;
     const lat = parseCoord(req.body?.lat);
     const lng = parseCoord(req.body?.lng);
+    const address = await reverseGeocode(lat, lng);
     await withAttendanceTables(async () => {
       const [existing] = await db.query('SELECT id,time_in FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
       if (existing[0] && existing[0].time_in) {
         const err = new Error('Already punched in today'); err.code = 'ALREADY_IN'; throw err;
       }
       if (existing[0]) {
-        await db.query('UPDATE attendance SET time_in=NOW(), km_start=?, lat_in=?, lng_in=? WHERE id=?', [kmStart, lat, lng, existing[0].id]);
+        await db.query('UPDATE attendance SET time_in=NOW(), lat_in=?, lng_in=?, address_in=? WHERE id=?', [lat, lng, address, existing[0].id]);
       } else {
-        await db.query('INSERT INTO attendance (user_id,date,time_in,km_start,lat_in,lng_in) VALUES (?,CURDATE(),NOW(),?,?,?)', [uid, kmStart, lat, lng]);
+        await db.query('INSERT INTO attendance (user_id,date,time_in,lat_in,lng_in,address_in) VALUES (?,CURDATE(),NOW(),?,?,?)', [uid, lat, lng, address]);
       }
     });
     res.json({ success: true });
@@ -1724,9 +1773,9 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
 app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
-    const kmEnd = req.body?.kmEnd != null && req.body.kmEnd !== '' ? parseFloat(req.body.kmEnd) : null;
     const lat = parseCoord(req.body?.lat);
     const lng = parseCoord(req.body?.lng);
+    const address = await reverseGeocode(lat, lng);
     await withAttendanceTables(async () => {
       const [existing] = await db.query('SELECT id,time_in,time_out FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
       if (!existing[0] || !existing[0].time_in) {
@@ -1735,7 +1784,7 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       if (existing[0].time_out) {
         const err = new Error('Already punched out today'); err.code = 'ALREADY_OUT'; throw err;
       }
-      await db.query('UPDATE attendance SET time_out=NOW(), km_end=?, lat_out=?, lng_out=? WHERE id=?', [kmEnd, lat, lng, existing[0].id]);
+      await db.query('UPDATE attendance SET time_out=NOW(), lat_out=?, lng_out=?, address_out=? WHERE id=?', [lat, lng, address, existing[0].id]);
     });
     res.json({ success: true });
   } catch (err) {
@@ -1770,12 +1819,104 @@ app.get('/api/attendance/history', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
-// Delete a whole day's attendance row (time in/out + KM) — admin-only, e.g.
-// to correct a wrong punch or a mistyped KM reading.
+// Delete a whole day's attendance row — admin-only, e.g. to correct a wrong punch.
 app.delete('/api/attendance/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const [result] = await db.query('DELETE FROM attendance WHERE id=?', [id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ── Rides — Start/End trips for KM-tracked (track_km) staff. One active
+// (unfinished) ride per user at a time; any number of rides per day. ──
+app.get('/api/rides/active', requireAuth, async (req, res) => {
+  try {
+    const uid = req.session.userId;
+    const [urows] = await db.query('SELECT track_km FROM users WHERE id=?', [uid]);
+    const kmTracked = !!(urows[0] && +urows[0].track_km);
+    const ride = await withAttendanceTables(async () => {
+      const [rows] = await db.query('SELECT * FROM rides WHERE user_id=? AND end_time IS NULL ORDER BY start_time DESC LIMIT 1', [uid]);
+      return rows[0] || null;
+    });
+    res.json({ ride, kmTracked });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.post('/api/rides/start', requireAuth, async (req, res) => {
+  try {
+    const uid = req.session.userId;
+    const kmStart = req.body?.kmStart != null && req.body.kmStart !== '' ? parseFloat(req.body.kmStart) : null;
+    const lat = parseCoord(req.body?.lat);
+    const lng = parseCoord(req.body?.lng);
+    const address = await reverseGeocode(lat, lng);
+    const rideId = await withAttendanceTables(async () => {
+      const [active] = await db.query('SELECT id FROM rides WHERE user_id=? AND end_time IS NULL', [uid]);
+      if (active[0]) {
+        const err = new Error('A ride is already in progress — end it before starting a new one'); err.code = 'RIDE_ACTIVE'; throw err;
+      }
+      const [result] = await db.query(
+        'INSERT INTO rides (user_id,start_time,km_start,lat_start,lng_start,address_start) VALUES (?,NOW(),?,?,?,?)',
+        [uid, kmStart, lat, lng, address]
+      );
+      return result.insertId;
+    });
+    res.json({ success: true, id: rideId });
+  } catch (err) {
+    if (err.code === 'RIDE_ACTIVE') return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+
+app.post('/api/rides/:id/end', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const uid = req.session.userId;
+    const kmEnd = req.body?.kmEnd != null && req.body.kmEnd !== '' ? parseFloat(req.body.kmEnd) : null;
+    const lat = parseCoord(req.body?.lat);
+    const lng = parseCoord(req.body?.lng);
+    const address = await reverseGeocode(lat, lng);
+    await withAttendanceTables(async () => {
+      const [rows] = await db.query('SELECT id FROM rides WHERE id=? AND user_id=? AND end_time IS NULL', [id, uid]);
+      if (!rows[0]) {
+        const err = new Error('Ride not found or already ended'); err.code = 'RIDE_NOT_FOUND'; throw err;
+      }
+      await db.query('UPDATE rides SET end_time=NOW(), km_end=?, lat_end=?, lng_end=?, address_end=? WHERE id=?', [kmEnd, lat, lng, address, id]);
+    });
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'RIDE_NOT_FOUND') return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+
+app.get('/api/rides/history', requireAuth, async (req, res) => {
+  try {
+    const isAdmin = req.session.role === 'admin';
+    const { from, to, employee } = req.query;
+    const where = ['r.start_time BETWEEN ? AND ?'];
+    const params = [`${from || '1970-01-01'} 00:00:00`, `${to || '2999-12-31'} 23:59:59`];
+    if (!isAdmin) {
+      where.push('r.user_id=?'); params.push(req.session.userId);
+    } else if (employee && employee !== 'all') {
+      where.push('r.user_id=?'); params.push(parseInt(employee, 10));
+    }
+    const rows = await withAttendanceTables(async () => {
+      const [r] = await db.query(
+        `SELECT r.*, u.name, u.department FROM rides r JOIN users u ON r.user_id=u.id WHERE ${where.join(' AND ')} ORDER BY r.start_time DESC`,
+        params
+      );
+      return r;
+    });
+    res.json(rows);
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.delete('/api/rides/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const [result] = await db.query('DELETE FROM rides WHERE id=?', [id]);
     if (!result.affectedRows) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
