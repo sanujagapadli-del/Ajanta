@@ -2188,6 +2188,12 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div class="form-row">
       <div class="form-group"><label>Department</label><input type="text" id="uDepartment" placeholder="e.g. Sales, Production"/></div>
+      <div class="form-group">
+        <label>Attendance</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0;padding:8px 0">
+          <input type="checkbox" id="uTrackKm" style="accent-color:var(--color-primary)"/> Track KM Start/End (Sales, Mechanic, Delivery)
+        </label>
+      </div>
     </div>
     <div class="form-group">
       <label>Password <span id="pwdOptional" style="color:var(--gray-400);font-weight:400;text-transform:none">(leave blank to keep current)</span></label>
@@ -4756,6 +4762,7 @@ function openAddUser() {
   document.getElementById('userModalTitle').textContent='Add User';
   ['editUserId','uName','uEmail','uNotifEmail','uPhone','uDepartment','uPassword'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('uRole').value='user';
+  document.getElementById('uTrackKm').checked=false;
   document.getElementById('pwdOptional').style.display='none';
   document.getElementById('userErr').style.display='none';
   document.getElementById('userSuccess').style.display='none';
@@ -4775,6 +4782,7 @@ function openEditUser(id) {
   document.getElementById('uNotifEmail').value=u.notification_email||'';
   document.getElementById('uPhone').value=u.phone||'';
   document.getElementById('uDepartment').value=u.department||'';
+  document.getElementById('uTrackKm').checked=!!(+u.track_km);
   document.getElementById('uPassword').value='';
   document.getElementById('uRole').value=u.role||'user';
   document.getElementById('pwdOptional').style.display='inline';
@@ -4794,13 +4802,14 @@ async function saveUser() {
   const notification_email=document.getElementById('uNotifEmail').value.trim();
   const phone=document.getElementById('uPhone').value.trim();
   const department=document.getElementById('uDepartment').value.trim();
+  const track_km=document.getElementById('uTrackKm').checked;
   const password=document.getElementById('uPassword').value;
   const role=document.getElementById('uRole').value;
   const week_off=_getWeekOff();
   const extra_off=_getExtraOff();
   if (!name||!email) { err.textContent='Name and email required'; err.style.display='block'; return; }
   if (!id&&!password) { err.textContent='Password required for new user'; err.style.display='block'; return; }
-  const body={name,email,notification_email,role,phone,department,week_off,extra_off};
+  const body={name,email,notification_email,role,phone,department,week_off,extra_off,track_km};
   if (password) body.password=password;
   const btn = document.querySelector('[onclick="saveUser()"]');
   if (btn) btn.disabled = true;

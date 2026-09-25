@@ -169,6 +169,11 @@ const _dbReady = db.init()
       // Migration: add force_logout_at column (admin-triggered remote sign-out)
       try { await db.query('ALTER TABLE users ADD COLUMN force_logout_at DATETIME DEFAULT NULL'); }
       catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ force_logout_at migration skipped:', e.message); }
+      // Migration: add track_km column — a dedicated per-user flag (set from
+      // the Users page) for whether Attendance shows the KM Start/End fields,
+      // kept separate from the free-text department column on purpose.
+      try { await db.query('ALTER TABLE users ADD COLUMN track_km TINYINT DEFAULT 0'); }
+      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ track_km migration skipped:', e.message); }
     }
   })
   .catch(err => {
@@ -1610,13 +1615,12 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
 // plus a KM Start/KM End odometer pair for field staff (Sales, Mechanic,
 // Delivery) who go out to the market. Both tables are lazily created on
 // first write (mirrors the o2d_dealers self-healing pattern).
+//
+// Who gets the KM fields is its own per-user `users.track_km` flag (set
+// from the Users page), kept deliberately separate from the free-text
+// `department` column — a mechanic's department text can drift/typo
+// without silently turning KM tracking on or off for them.
 // ══════════════════════════════════════════════════════
-const KM_TRACKED_DEPARTMENTS = ['sales', 'mechanic', 'delivery'];
-function isKmTrackedDept(department) {
-  const d = (department || '').toLowerCase();
-  return KM_TRACKED_DEPARTMENTS.some(k => d.includes(k));
-}
-
 async function ensureAttendanceTables() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS attendance (
@@ -1664,8 +1668,8 @@ async function withAttendanceTables(fn) {
 app.get('/api/attendance/today', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
-    const [urows] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
-    const kmTracked = isKmTrackedDept(urows[0]?.department);
+    const [urows] = await db.query('SELECT track_km FROM users WHERE id=?', [uid]);
+    const kmTracked = !!(urows[0] && +urows[0].track_km);
     const row = await withAttendanceTables(async () => {
       const [rows] = await db.query('SELECT * FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
       return rows[0] || null;
@@ -2421,7 +2425,7 @@ app.get('/api/users/roster', requireAuth, async (req, res) => {
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessUsersPage(req))) return res.status(403).json({ error: 'You do not have access to the Users page' });
-    const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,is_active FROM users ORDER BY role DESC,name ASC');
+    const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,is_active,track_km FROM users ORDER BY role DESC,name ASC');
     // page_access fetch separately — safe if column not yet added
     let accessById = {};
     try {
@@ -2453,23 +2457,23 @@ app.put('/api/users/:id/access', requireAuth, requireAdmin, async (req, res) => 
 
 app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { name, email, notification_email, password, role, phone, department, week_off, extra_off } = req.body;
+    const { name, email, notification_email, password, role, phone, department, week_off, extra_off, track_km } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: 'All fields required' });
     const [ex] = await db.query('SELECT id FROM users WHERE email=?', [email]);
     if (ex[0]) return res.status(400).json({ error: 'Email already exists' });
-    await db.query('INSERT INTO users (name,email,notification_email,password,role,phone,department,week_off,extra_off) VALUES (?,?,?,?,?,?,?,?,?)',
-      [name, email, notification_email||'', hashPassword(password), role||'user', phone||null, department||'', week_off||'', extra_off||'']);
+    await db.query('INSERT INTO users (name,email,notification_email,password,role,phone,department,week_off,extra_off,track_km) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [name, email, notification_email||'', hashPassword(password), role||'user', phone||null, department||'', week_off||'', extra_off||'', track_km ? 1 : 0]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 
 app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { name, email, notification_email, role, password, phone, department, week_off, extra_off } = req.body;
-    if (password) await db.query('UPDATE users SET name=?,email=?,notification_email=?,role=?,password=?,phone=?,department=?,week_off=?,extra_off=? WHERE id=?',
-      [name,email,notification_email||'',role,hashPassword(password),phone||null,department||'',week_off||'',extra_off||'',req.params.id]);
-    else await db.query('UPDATE users SET name=?,email=?,notification_email=?,role=?,phone=?,department=?,week_off=?,extra_off=? WHERE id=?',
-      [name,email,notification_email||'',role,phone||null,department||'',week_off||'',extra_off||'',req.params.id]);
+    const { name, email, notification_email, role, password, phone, department, week_off, extra_off, track_km } = req.body;
+    if (password) await db.query('UPDATE users SET name=?,email=?,notification_email=?,role=?,password=?,phone=?,department=?,week_off=?,extra_off=?,track_km=? WHERE id=?',
+      [name,email,notification_email||'',role,hashPassword(password),phone||null,department||'',week_off||'',extra_off||'',track_km?1:0,req.params.id]);
+    else await db.query('UPDATE users SET name=?,email=?,notification_email=?,role=?,phone=?,department=?,week_off=?,extra_off=?,track_km=? WHERE id=?',
+      [name,email,notification_email||'',role,phone||null,department||'',week_off||'',extra_off||'',track_km?1:0,req.params.id]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
