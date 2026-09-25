@@ -1606,6 +1606,213 @@ app.put('/api/approvals/:id', requireAuth, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════
+// ATTENDANCE & LEAVE — daily time-in/time-out punch for every employee,
+// plus a KM Start/KM End odometer pair for field staff (Sales, Mechanic,
+// Delivery) who go out to the market. Both tables are lazily created on
+// first write (mirrors the o2d_dealers self-healing pattern).
+// ══════════════════════════════════════════════════════
+const KM_TRACKED_DEPARTMENTS = ['sales', 'mechanic', 'delivery'];
+function isKmTrackedDept(department) {
+  const d = (department || '').toLowerCase();
+  return KM_TRACKED_DEPARTMENTS.some(k => d.includes(k));
+}
+
+async function ensureAttendanceTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS attendance (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      date DATE NOT NULL,
+      time_in DATETIME,
+      time_out DATETIME,
+      km_start DECIMAL(10,2),
+      km_end DECIMAL(10,2),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_user_date (user_id, date),
+      INDEX idx_date (date)
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS leave_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      leave_type VARCHAR(50),
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      days DECIMAL(4,1),
+      reason TEXT,
+      status VARCHAR(20) DEFAULT 'pending',
+      approved_by INT,
+      approved_at DATETIME,
+      remarks TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_user (user_id),
+      INDEX idx_status (status)
+    )
+  `);
+}
+async function withAttendanceTables(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+    await ensureAttendanceTables();
+    return await fn();
+  }
+}
+
+app.get('/api/attendance/today', requireAuth, async (req, res) => {
+  try {
+    const uid = req.session.userId;
+    const [urows] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
+    const kmTracked = isKmTrackedDept(urows[0]?.department);
+    const row = await withAttendanceTables(async () => {
+      const [rows] = await db.query('SELECT * FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
+      return rows[0] || null;
+    });
+    res.json({ attendance: row, kmTracked });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
+  try {
+    const uid = req.session.userId;
+    const kmStart = req.body?.kmStart != null && req.body.kmStart !== '' ? parseFloat(req.body.kmStart) : null;
+    await withAttendanceTables(async () => {
+      const [existing] = await db.query('SELECT id,time_in FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
+      if (existing[0] && existing[0].time_in) {
+        const err = new Error('Already punched in today'); err.code = 'ALREADY_IN'; throw err;
+      }
+      if (existing[0]) {
+        await db.query('UPDATE attendance SET time_in=NOW(), km_start=? WHERE id=?', [kmStart, existing[0].id]);
+      } else {
+        await db.query('INSERT INTO attendance (user_id,date,time_in,km_start) VALUES (?,CURDATE(),NOW(),?)', [uid, kmStart]);
+      }
+    });
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'ALREADY_IN') return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+
+app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
+  try {
+    const uid = req.session.userId;
+    const kmEnd = req.body?.kmEnd != null && req.body.kmEnd !== '' ? parseFloat(req.body.kmEnd) : null;
+    await withAttendanceTables(async () => {
+      const [existing] = await db.query('SELECT id,time_in,time_out FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
+      if (!existing[0] || !existing[0].time_in) {
+        const err = new Error("You haven't punched in yet today"); err.code = 'NOT_IN'; throw err;
+      }
+      if (existing[0].time_out) {
+        const err = new Error('Already punched out today'); err.code = 'ALREADY_OUT'; throw err;
+      }
+      await db.query('UPDATE attendance SET time_out=NOW(), km_end=? WHERE id=?', [kmEnd, existing[0].id]);
+    });
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'NOT_IN' || err.code === 'ALREADY_OUT') return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+
+// History — self sees own rows; admin/HOD/PC can pass ?employee=<userId> or
+// omit it to see everyone's rows in range (team report).
+app.get('/api/attendance/history', requireAuth, async (req, res) => {
+  try {
+    const role = req.session.role;
+    const isAdminOrHod = role === 'admin' || role === 'hod' || role === 'pc';
+    const { from, to, employee } = req.query;
+    const where = ['a.date BETWEEN ? AND ?'];
+    const params = [from || '1970-01-01', to || '2999-12-31'];
+    if (!isAdminOrHod) {
+      where.push('a.user_id=?'); params.push(req.session.userId);
+    } else if (employee && employee !== 'all') {
+      where.push('a.user_id=?'); params.push(parseInt(employee, 10));
+    }
+    const rows = await withAttendanceTables(async () => {
+      const [r] = await db.query(
+        `SELECT a.*, u.name, u.department FROM attendance a JOIN users u ON a.user_id=u.id WHERE ${where.join(' AND ')} ORDER BY a.date DESC, u.name ASC`,
+        params
+      );
+      return r;
+    });
+    res.json(rows);
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ── Leave requests ──
+app.get('/api/leave', requireAuth, async (req, res) => {
+  try {
+    const role = req.session.role;
+    const isAdminOrHod = role === 'admin' || role === 'hod' || role === 'pc';
+    const { status, employee } = req.query;
+    const where = [];
+    const params = [];
+    if (!isAdminOrHod) {
+      where.push('l.user_id=?'); params.push(req.session.userId);
+    } else if (employee && employee !== 'all') {
+      where.push('l.user_id=?'); params.push(parseInt(employee, 10));
+    }
+    if (status && status !== 'all') { where.push('l.status=?'); params.push(status); }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const rows = await withAttendanceTables(async () => {
+      const [r] = await db.query(
+        `SELECT l.*, u.name, u.department, ab.name AS approvedByName FROM leave_requests l JOIN users u ON l.user_id=u.id LEFT JOIN users ab ON l.approved_by=ab.id ${whereSql} ORDER BY l.created_at DESC`,
+        params
+      );
+      return r;
+    });
+    res.json(rows);
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.post('/api/leave', requireAuth, async (req, res) => {
+  try {
+    const { leaveType, startDate, endDate, reason } = req.body;
+    if (!leaveType || !startDate || !endDate) return res.status(400).json({ error: 'Leave type, start date and end date are required' });
+    if (new Date(endDate) < new Date(startDate)) return res.status(400).json({ error: 'End date cannot be before start date' });
+    const days = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
+    await withAttendanceTables(async () => {
+      await db.query(
+        'INSERT INTO leave_requests (user_id,leave_type,start_date,end_date,days,reason,status) VALUES (?,?,?,?,?,?,\'pending\')',
+        [req.session.userId, leaveType, startDate, endDate, days, reason || '']
+      );
+    });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.put('/api/leave/:id', requireAuth, requireAdminOrHod, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { action, remarks } = req.body;
+    if (!['approved', 'rejected'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+    const [result] = await db.query(
+      `UPDATE leave_requests SET status=?,approved_by=?,approved_at=NOW(),remarks=? WHERE id=? AND status='pending'`,
+      [action, req.session.userId, remarks || '', id]
+    );
+    if (!result.affectedRows) return res.status(400).json({ error: 'This request has already been processed' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.delete('/api/leave/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const role = req.session.role;
+    const isAdmin = role === 'admin' || role === 'pc';
+    const [rows] = await db.query('SELECT user_id,status FROM leave_requests WHERE id=?', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    if (!isAdmin && rows[0].user_id !== req.session.userId) return res.status(403).json({ error: 'Not allowed' });
+    if (!isAdmin && rows[0].status !== 'pending') return res.status(400).json({ error: 'Only a pending request can be cancelled' });
+    await db.query('DELETE FROM leave_requests WHERE id=?', [id]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
 // MIS
 // ══════════════════════════════════════════════════════
 app.get('/api/mis', requireAuth, async (req, res) => {

@@ -199,3 +199,33 @@ CREATE TABLE IF NOT EXISTS o2d_dealer_payments (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_counter (counter_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS attendance (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  date DATE NOT NULL,
+  time_in DATETIME,
+  time_out DATETIME,
+  km_start DECIMAL(10,2),
+  km_end DECIMAL(10,2),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_user_date (user_id, date),
+  INDEX idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS leave_requests (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  leave_type VARCHAR(50),
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  days DECIMAL(4,1),
+  reason TEXT,
+  status VARCHAR(20) DEFAULT 'pending',
+  approved_by INT,
+  approved_at DATETIME,
+  remarks TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_user (user_id),
+  INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

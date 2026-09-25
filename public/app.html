@@ -754,6 +754,11 @@ tbody tr:last-child td{border-bottom:none;}
       <span id="approvalBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
       <span id="transferBadge" style="display:none;position:absolute;top:6px;right:26px;background:var(--color-purple);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
     </div>
+    <div class="nav-item" id="nav-attendance" onclick="navigate('attendance',this)" style="position:relative">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 7v5l3 3"/></svg>
+      <span class="nav-label-text">Attendance</span>
+      <span id="leaveBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
+    </div>
     <div class="nav-section-label">Management</div>
     <div class="nav-item" id="nav-users" style="display:none" onclick="navigate('users',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
@@ -855,6 +860,10 @@ tbody tr:last-child td{border-bottom:none;}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
     <div class="bn-badge" id="bnApprovalBadge"></div>
     <span>Approvals</span>
+  </div>
+  <div class="bn-item" data-page="attendance" onclick="navigate('attendance',null)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+    <span>Attendance</span>
   </div>
   <div class="bn-item" data-page="users" onclick="navigate('users',null)" id="bnUsers" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1129,6 +1138,109 @@ tbody tr:last-child td{border-bottom:none;}
     <div id="transferApprovalsPanel" style="display:none">
       <div id="transferApprovalsContent" class="flat-tasks-table" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow:hidden">
         <div class="empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ATTENDANCE & LEAVE ── -->
+  <div id="page-attendance" class="page">
+
+    <div id="attnTabsWrap" style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px;flex-wrap:wrap">
+      <div class="tab active" id="attnTabPunch" onclick="switchAttendanceTab('punch',this)">🕒 Punch</div>
+      <div class="tab" id="attnTabHistory" onclick="switchAttendanceTab('history',this)">📅 My History</div>
+      <div class="tab" id="attnTabLeave" onclick="switchAttendanceTab('leave',this)">🌴 Leave</div>
+      <div class="tab" id="attnTabTeam" style="display:none" onclick="switchAttendanceTab('team',this)">👥 Team</div>
+    </div>
+
+    <!-- Punch panel -->
+    <div id="attnPunchPanel">
+      <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:24px;max-width:420px">
+        <div style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">Today — <span id="attnTodayDate"></span></div>
+        <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:11px;color:var(--gray-400)">Time In</div>
+            <div id="attnTimeIn" style="font-size:18px;font-weight:700;color:var(--gray-800)">—</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--gray-400)">Time Out</div>
+            <div id="attnTimeOut" style="font-size:18px;font-weight:700;color:var(--gray-800)">—</div>
+          </div>
+        </div>
+        <div id="attnKmWrap" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--gray-100)">
+          <div class="form-group">
+            <label id="attnKmLabel">KM Start (Morning)</label>
+            <input type="number" step="0.1" id="attnKmInput" placeholder="Odometer reading…"
+              style="width:100%;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;box-sizing:border-box"/>
+          </div>
+          <div style="font-size:11px;color:var(--gray-400)" id="attnKmRecorded"></div>
+        </div>
+        <div class="alert error" id="attnErr" style="margin-top:12px"></div>
+        <button class="btn btn-primary" id="attnPunchBtn" style="width:100%;margin-top:16px" onclick="doAttendancePunch()">Punch In</button>
+      </div>
+    </div>
+
+    <!-- My History panel -->
+    <div id="attnHistoryPanel" style="display:none">
+      <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div>
+          <input type="date" id="attnHistFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div>
+          <input type="date" id="attnHistTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+        </div>
+        <div><button class="btn btn-primary" onclick="loadAttendanceHistory()">Show</button></div>
+      </div>
+      <div id="attnHistoryResults" class="mis-table-wrap" style="overflow-x:auto">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Leave panel (self) -->
+    <div id="attnLeavePanel" style="display:none">
+      <div class="page-header">
+        <button class="btn btn-primary" onclick="openApplyLeaveModal()">+ Apply for Leave</button>
+      </div>
+      <div id="attnLeaveResults" class="mis-table-wrap" style="overflow-x:auto">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Team panel (admin/HOD/PC only) -->
+    <div id="attnTeamPanel" style="display:none">
+      <div style="display:flex;gap:4px;margin-bottom:14px">
+        <div class="tab active" id="attnTeamSubAttendance" onclick="switchAttendanceTeamSub('attendance',this)">Attendance</div>
+        <div class="tab" id="attnTeamSubLeave" onclick="switchAttendanceTeamSub('leave',this)">Leave Approvals</div>
+      </div>
+
+      <div id="attnTeamAttendancePanel">
+        <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div>
+            <input type="date" id="attnTeamFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div>
+            <input type="date" id="attnTeamTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Employee</div>
+            <select id="attnTeamEmployee" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:170px;background:var(--surface);color:var(--gray-800)">
+              <option value="all">All Employees</option>
+            </select>
+          </div>
+          <div><button class="btn btn-primary" onclick="loadAttendanceTeamReport()">Show</button></div>
+        </div>
+        <div id="attnTeamResults" class="mis-table-wrap" style="overflow-x:auto">
+          <div class="empty">Date range select karke Show dabayein</div>
+        </div>
+      </div>
+
+      <div id="attnTeamLeavePanel" style="display:none">
+        <div id="attnTeamLeaveResults" class="mis-table-wrap" style="overflow-x:auto">
+          <div class="empty">Loading…</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1441,6 +1553,47 @@ tbody tr:last-child td{border-bottom:none;}
     <div id="recDetailBody" style="margin-top:12px"></div>
     <div style="margin-top:18px;text-align:right">
       <button class="btn btn-outline" onclick="closeModal('recordDetailModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     APPLY LEAVE MODAL
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="applyLeaveModal">
+  <div class="modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 style="margin:0">🌴 Apply for Leave</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('applyLeaveModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="alert error" id="applyLeaveErr"></div>
+    <div class="form-group">
+      <label>Leave Type</label>
+      <select id="alType">
+        <option value="Casual">Casual Leave</option>
+        <option value="Sick">Sick Leave</option>
+        <option value="Earned">Earned Leave</option>
+        <option value="Unpaid">Unpaid Leave</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Start Date</label>
+        <input type="date" id="alStartDate"/>
+      </div>
+      <div class="form-group">
+        <label>End Date</label>
+        <input type="date" id="alEndDate"/>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Reason</label>
+      <textarea id="alReason" rows="3" placeholder="Reason for leave…" style="width:100%;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:vertical;box-sizing:border-box"></textarea>
+    </div>
+    <div style="margin-top:18px;text-align:right;display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModal('applyLeaveModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitApplyLeave()">Submit Request</button>
     </div>
   </div>
 </div>
@@ -2975,9 +3128,11 @@ async function init() {
     }
     loadApprovalBadge();
     loadTransferBadge();
+    loadLeaveBadge();
     // Refresh badges every 30 seconds
     setInterval(loadApprovalBadge, 30000);
     setInterval(loadTransferBadge, 30000);
+    setInterval(loadLeaveBadge, 30000);
     // Auto-refresh dashboard stats every 30 seconds while it's the visible page
     setInterval(() => {
       const dashPage = document.getElementById('page-dashboard');
@@ -3053,7 +3208,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance & Leave',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -3082,6 +3237,7 @@ function navigate(page, el) {
   if (page==='alltasks') loadAllTasks();
   if (page==='users') loadUsers();
   if (page==='approvals') loadApprovals();
+  if (page==='attendance') loadAttendancePage();
   if (page==='fms') loadFMSAdmin();
   if (page==='fms-tasks') loadFMSTasks();
   if (page==='mis') initMISDeptFilter();
@@ -4767,6 +4923,295 @@ function confirmRevisionReject() {
     loadApprovals();
     loadApprovalBadge();
   });
+}
+
+// ══════════════════════════════════════════════════════
+// ATTENDANCE & LEAVE
+// ══════════════════════════════════════════════════════
+let attnView = 'punch';
+let attnTeamSub = 'attendance';
+let attnKmTracked = false;
+let attnTodayRow = null;
+
+function fmtTime(dt) {
+  if (!dt) return '—';
+  const m = String(dt).match(/(\d{2}):(\d{2}):\d{2}/);
+  if (!m) return dt;
+  let h = parseInt(m[1], 10);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${m[2]} ${ampm}`;
+}
+
+function loadAttendancePage() {
+  const isAdminOrHod = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
+  document.getElementById('attnTabTeam').style.display = isAdminOrHod ? '' : 'none';
+  switchAttendanceTab(attnView, document.getElementById('attnTab' + attnView[0].toUpperCase() + attnView.slice(1)));
+}
+
+function switchAttendanceTab(view, el) {
+  attnView = view;
+  document.querySelectorAll('#attnTabsWrap .tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  ['Punch','History','Leave','Team'].forEach(v => {
+    document.getElementById('attn' + v + 'Panel').style.display = (v.toLowerCase() === view) ? '' : 'none';
+  });
+  if (view === 'punch') loadAttendanceToday();
+  if (view === 'history') { setAttnHistoryDefaultDates(); loadAttendanceHistory(); }
+  if (view === 'leave') loadLeaveList();
+  if (view === 'team') {
+    populateAttnTeamEmployeeDropdown();
+    setAttnTeamDefaultDates();
+    switchAttendanceTeamSub(attnTeamSub, document.getElementById('attnTeamSub' + attnTeamSub[0].toUpperCase() + attnTeamSub.slice(1)));
+  }
+}
+
+function switchAttendanceTeamSub(sub, el) {
+  attnTeamSub = sub;
+  document.querySelectorAll('#attnTeamPanel .tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('attnTeamAttendancePanel').style.display = sub === 'attendance' ? '' : 'none';
+  document.getElementById('attnTeamLeavePanel').style.display = sub === 'leave' ? '' : 'none';
+  if (sub === 'attendance') loadAttendanceTeamReport();
+  if (sub === 'leave') loadTeamLeaveApprovals();
+}
+
+// ── Punch ──
+async function loadAttendanceToday() {
+  document.getElementById('attnTodayDate').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  document.getElementById('attnErr').style.display = 'none';
+  const r = await api('/api/attendance/today');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  attnTodayRow = r.attendance;
+  attnKmTracked = !!r.kmTracked;
+
+  document.getElementById('attnTimeIn').textContent = attnTodayRow?.time_in ? fmtTime(attnTodayRow.time_in) : '—';
+  document.getElementById('attnTimeOut').textContent = attnTodayRow?.time_out ? fmtTime(attnTodayRow.time_out) : '—';
+
+  const kmWrap = document.getElementById('attnKmWrap');
+  const kmInput = document.getElementById('attnKmInput');
+  const kmLabel = document.getElementById('attnKmLabel');
+  const kmRecorded = document.getElementById('attnKmRecorded');
+  kmInput.value = '';
+  kmRecorded.textContent = '';
+  kmWrap.style.display = attnKmTracked ? '' : 'none';
+
+  const btn = document.getElementById('attnPunchBtn');
+  const hasIn = !!attnTodayRow?.time_in;
+  const hasOut = !!attnTodayRow?.time_out;
+
+  if (!hasIn) {
+    btn.textContent = 'Punch In'; btn.disabled = false;
+    kmLabel.textContent = 'KM Start (Morning)';
+    kmInput.disabled = false;
+  } else if (!hasOut) {
+    btn.textContent = 'Punch Out'; btn.disabled = false;
+    kmLabel.textContent = 'KM End (Evening)';
+    kmInput.disabled = false;
+    if (attnTodayRow.km_start != null) kmRecorded.textContent = 'KM Start recorded: ' + attnTodayRow.km_start;
+  } else {
+    btn.textContent = '✅ Done for Today'; btn.disabled = true;
+    kmInput.disabled = true;
+    if (attnTodayRow.km_start != null || attnTodayRow.km_end != null) {
+      kmRecorded.textContent = `KM Start: ${attnTodayRow.km_start ?? '—'}  ·  KM End: ${attnTodayRow.km_end ?? '—'}`;
+    }
+  }
+}
+
+async function doAttendancePunch() {
+  const errEl = document.getElementById('attnErr');
+  errEl.style.display = 'none';
+  const km = document.getElementById('attnKmInput').value;
+  const btn = document.getElementById('attnPunchBtn');
+  const isPunchIn = !attnTodayRow || !attnTodayRow.time_in;
+  btn.disabled = true;
+  const r = isPunchIn
+    ? await api('/api/attendance/punch-in', 'POST', { kmStart: km || null })
+    : await api('/api/attendance/punch-out', 'POST', { kmEnd: km || null });
+  if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; btn.disabled = false; return; }
+  showToast(isPunchIn ? '✅ Punched in!' : '✅ Punched out!');
+  await loadAttendanceToday();
+}
+
+// ── My History ──
+function setAttnHistoryDefaultDates() {
+  const to = document.getElementById('attnHistTo');
+  const from = document.getElementById('attnHistFrom');
+  if (!to.value) to.value = new Date().toISOString().slice(0, 10);
+  if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 29); from.value = d.toISOString().slice(0, 10); }
+}
+
+function renderAttendanceRows(rows, showEmployee) {
+  return `<table style="min-width:${showEmployee ? 760 : 560}px">
+    <thead><tr>
+      ${showEmployee ? '<th>Employee</th>' : ''}
+      <th>Date</th><th>Time In</th><th>Time Out</th><th>KM Start</th><th>KM End</th><th>KM Run</th>
+    </tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      ${showEmployee ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
+      <td>${fmtDate(r.date)}</td>
+      <td>${fmtTime(r.time_in)}</td>
+      <td>${fmtTime(r.time_out)}</td>
+      <td>${r.km_start ?? '—'}</td>
+      <td>${r.km_end ?? '—'}</td>
+      <td>${(r.km_start != null && r.km_end != null) ? (r.km_end - r.km_start).toFixed(1) : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function loadAttendanceHistory() {
+  const from = document.getElementById('attnHistFrom').value;
+  const to = document.getElementById('attnHistTo').value;
+  const wrap = document.getElementById('attnHistoryResults');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const rows = await api(`/api/attendance/history?from=${from}&to=${to}`);
+  if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No attendance records in this range.</div>'; return; }
+  wrap.innerHTML = renderAttendanceRows(rows, false);
+}
+
+// ── Leave (self) ──
+function openApplyLeaveModal() {
+  document.getElementById('applyLeaveErr').style.display = 'none';
+  document.getElementById('alType').value = 'Casual';
+  document.getElementById('alStartDate').value = '';
+  document.getElementById('alEndDate').value = '';
+  document.getElementById('alReason').value = '';
+  document.getElementById('applyLeaveModal').classList.add('open');
+}
+
+async function submitApplyLeave() {
+  const leaveType = document.getElementById('alType').value;
+  const startDate = document.getElementById('alStartDate').value;
+  const endDate = document.getElementById('alEndDate').value;
+  const reason = document.getElementById('alReason').value.trim();
+  const errEl = document.getElementById('applyLeaveErr');
+  if (!startDate || !endDate) { errEl.textContent = 'Start date aur end date dono chahiye'; errEl.style.display = 'block'; return; }
+  const r = await api('/api/leave', 'POST', { leaveType, startDate, endDate, reason });
+  if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
+  showToast('Leave request submitted!');
+  closeModal('applyLeaveModal');
+  loadLeaveList();
+  loadLeaveBadge();
+}
+
+function leaveStatusClass(status) {
+  return status === 'approved' ? 'completed' : status === 'rejected' ? 'pending' : 'revised';
+}
+
+async function loadLeaveList() {
+  const wrap = document.getElementById('attnLeaveResults');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const rows = await api('/api/leave');
+  if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No leave requests yet.</div>'; return; }
+  wrap.innerHTML = `<table style="min-width:640px">
+    <thead><tr><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td>${esc(r.leave_type||'—')}</td>
+      <td>${fmtDate(r.start_date)}</td>
+      <td>${fmtDate(r.end_date)}</td>
+      <td>${r.days ?? '—'}</td>
+      <td style="max-width:220px">${esc(r.reason||'—')}</td>
+      <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${r.remarks ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(r.remarks)}</div>` : ''}</td>
+      <td>${r.status === 'pending' ? `<button class="action-btn delete" onclick="cancelLeave(${r.id})">Cancel</button>` : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function cancelLeave(id) {
+  showConfirm({ icon: '🗑️', title: 'Cancel Leave Request?', msg: 'This cannot be undone.', okLabel: 'Cancel Request', okColor: 'var(--color-danger)' }, async () => {
+    const r = await api(`/api/leave/${id}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Leave request cancelled');
+    loadLeaveList();
+    loadLeaveBadge();
+  });
+}
+
+// ── Team (admin/HOD/PC) ──
+function setAttnTeamDefaultDates() {
+  const from = document.getElementById('attnTeamFrom');
+  const to = document.getElementById('attnTeamTo');
+  if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 6); from.value = d.toISOString().slice(0, 10); }
+  if (!to.value) to.value = new Date().toISOString().slice(0, 10);
+}
+
+let _attnRosterCache = null;
+async function populateAttnTeamEmployeeDropdown() {
+  if (!_attnRosterCache) _attnRosterCache = await api('/api/users/roster');
+  const users = Array.isArray(_attnRosterCache) ? _attnRosterCache : [];
+  const sel = document.getElementById('attnTeamEmployee');
+  const current = sel.value || 'all';
+  sel.innerHTML = '<option value="all">All Employees</option>' +
+    users.map(u => `<option value="${u.id}">${esc(u.name)}${u.department ? ' — ' + esc(u.department) : ''}</option>`).join('');
+  sel.value = current;
+}
+
+async function loadAttendanceTeamReport() {
+  const from = document.getElementById('attnTeamFrom').value;
+  const to = document.getElementById('attnTeamTo').value;
+  const employee = document.getElementById('attnTeamEmployee').value;
+  const wrap = document.getElementById('attnTeamResults');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const rows = await api(`/api/attendance/history?from=${from}&to=${to}&employee=${employee}`);
+  if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No attendance records in this range.</div>'; return; }
+  wrap.innerHTML = renderAttendanceRows(rows, true);
+}
+
+async function loadTeamLeaveApprovals() {
+  const wrap = document.getElementById('attnTeamLeaveResults');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const rows = await api('/api/leave');
+  if (rows.error) { wrap.innerHTML = `<div class="empty">${esc(rows.error)}</div>`; return; }
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No leave requests.</div>'; return; }
+  wrap.innerHTML = `<table style="min-width:760px">
+    <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th>Approve / Reject</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>
+      <td>${esc(r.leave_type||'—')}</td>
+      <td>${fmtDate(r.start_date)}</td>
+      <td>${fmtDate(r.end_date)}</td>
+      <td>${r.days ?? '—'}</td>
+      <td style="max-width:200px">${esc(r.reason||'—')}</td>
+      <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${r.approvedByName ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">by ${esc(r.approvedByName)}</div>` : ''}</td>
+      <td>${r.status === 'pending' ? `
+          <button class="action-btn done" onclick="processLeave(${r.id},'approved')">Approve</button>
+          <button class="action-btn delete" style="margin-left:6px" onclick="processLeave(${r.id},'rejected')">Reject</button>
+        ` : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function processLeave(id, action) {
+  if (action === 'rejected') {
+    showPrompt({ icon: '❌', title: 'Reason for Rejection', placeholder: 'Optional reason…' }, async (note) => {
+      const r = await api(`/api/leave/${id}`, 'PUT', { action, remarks: note || '' });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      showToast('❌ Leave rejected');
+      loadTeamLeaveApprovals();
+      loadLeaveBadge();
+    });
+  } else {
+    const r = await api(`/api/leave/${id}`, 'PUT', { action, remarks: '' });
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('✅ Leave approved');
+    loadTeamLeaveApprovals();
+    loadLeaveBadge();
+  }
+}
+
+async function loadLeaveBadge() {
+  const badge = document.getElementById('leaveBadge');
+  if (!badge) return;
+  if (ME.role !== 'admin' && ME.role !== 'hod' && ME.role !== 'pc') { badge.style.display = 'none'; return; }
+  try {
+    const rows = await api('/api/leave?status=pending');
+    const count = Array.isArray(rows) ? rows.length : 0;
+    if (count > 0) { badge.textContent = count; badge.style.display = 'flex'; }
+    else badge.style.display = 'none';
+  } catch(e) {}
 }
 
 async function openDeactivate(id) {
