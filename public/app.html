@@ -411,6 +411,18 @@ tbody tr:last-child td{border-bottom:none;}
 .action-btn.edit{background:var(--color-primary-light);color:var(--color-primary);}.action-btn.edit:hover{background:var(--color-primary-ring);}
 .action-btn.delete{background:var(--color-danger-bg);color:var(--color-danger-text);}.action-btn.delete:hover{background:var(--color-danger-border);}
 
+/* Pill action buttons for Attendance/Leave/Rides rows — bordered, icon+label,
+   lift-and-fill on hover instead of the flatter .action-btn look. */
+.row-action-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 13px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;border:1.5px solid transparent;transition:all .15s;}
+.row-action-btn.approve{background:var(--color-success-bg);color:var(--color-success-text);border-color:var(--color-success-border);}
+.row-action-btn.approve:hover{background:var(--color-success-text);color:#fff;border-color:var(--color-success-text);transform:translateY(-1px);box-shadow:0 3px 10px rgba(5,150,105,.25);}
+.row-action-btn.reject{background:var(--color-danger-bg);color:var(--color-danger-text);border-color:var(--color-danger-border);}
+.row-action-btn.reject:hover{background:var(--color-danger-text);color:#fff;border-color:var(--color-danger-text);transform:translateY(-1px);box-shadow:0 3px 10px rgba(220,38,38,.25);}
+.row-action-btn.del{padding:6px 9px;background:var(--gray-50);color:var(--gray-400);border-color:var(--gray-200);}
+.row-action-btn.del:hover{background:var(--color-danger-bg);color:var(--color-danger-text);border-color:var(--color-danger-border);transform:translateY(-1px);}
+.row-action-btn.cancel{background:var(--gray-50);color:var(--gray-500);border-color:var(--gray-200);}
+.row-action-btn.cancel:hover{background:var(--color-danger-bg);color:var(--color-danger-text);border-color:var(--color-danger-border);}
+
 .action-icons{display:inline-flex;align-items:center;gap:2px;}
 .icon-btn{width:29px;height:29px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--gray-400);cursor:pointer;transition:all .15s;flex:none;}
 .icon-btn svg{width:14px;height:14px;display:block;}
@@ -1160,7 +1172,7 @@ tbody tr:last-child td{border-bottom:none;}
 
     <div id="attnTabsWrap" style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px;flex-wrap:wrap">
       <div class="tab active" id="attnTabAttendance" onclick="switchAttendanceTab('attendance',this)">🕒 Attendance</div>
-      <div class="tab" id="attnTabLeave" onclick="switchAttendanceTab('leave',this)">🌴 Leave</div>
+      <div class="tab" id="attnTabLeave" onclick="switchAttendanceTab('leave',this)" style="position:relative">🌴 Leave<span id="attnLeaveTabBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:var(--color-danger);color:#fff;border-radius:50%;min-width:16px;height:16px;padding:0 3px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span></div>
       <div class="tab" id="attnTabRides" onclick="switchAttendanceTab('rides',this)">🛣️ Rides</div>
     </div>
 
@@ -3467,7 +3479,12 @@ async function loadDashboard() {
   const combinedRevised   = dDel.revised||0;
   const chartLabels = ['Completed','Pending','Revised'];
   const chartData   = [combinedCompleted, allTodayPending.length, combinedRevised];
-  const chartColors = ['var(--color-success)','var(--color-danger)','var(--color-warning)'];
+  // Canvas fillStyle can't resolve CSS var() references (unlike a DOM element's
+  // style) — passing 'var(--color-success)' straight to Chart.js silently
+  // fails and every slice paints black. Resolve to the actual computed color first.
+  const rootStyle = getComputedStyle(document.documentElement);
+  const cssVar = name => rootStyle.getPropertyValue(name).trim();
+  const chartColors = [cssVar('--color-success'), cssVar('--color-danger'), cssVar('--color-warning')];
   dashChartInst = new Chart(document.getElementById('dashChart').getContext('2d'), {
     type:'pie',
     data:{labels:chartLabels,datasets:[{data:chartData,backgroundColor:chartColors,borderWidth:3,borderColor:'#fff',hoverOffset:6}]},
@@ -5112,7 +5129,7 @@ function renderAttendanceCards(rows) {
     const d = new Date(r.date + 'T00:00:00');
     const hasIn = !!r.time_in, hasOut = !!r.time_out;
     const delBtn = ME.role === 'admin'
-      ? `<button class="action-btn delete" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button>` : '';
+      ? `<button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button>` : '';
     return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
       <div style="display:flex;align-items:center;gap:14px">
         <div style="width:46px;height:46px;border-radius:10px;background:var(--color-primary-light);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">
@@ -5141,7 +5158,7 @@ function renderAttendanceTable(rows) {
       <td>${fmtDate(r.date)}</td>
       <td>${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in, r.address_in)}</td>
       <td>${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out, r.address_out)}</td>
-      <td><button class="action-btn delete" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button></td>
+      <td><button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button></td>
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
@@ -5213,9 +5230,9 @@ function renderLeaveTable(rows, isAdmin) {
       <td style="max-width:200px">${esc(r.reason||'—')}</td>
       <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${r.remarks ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(r.remarks)}</div>` : ''}${isAdmin && r.approvedByName ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">by ${esc(r.approvedByName)}</div>` : ''}</td>
       <td style="white-space:nowrap">
-        ${isAdmin && r.status === 'pending' ? `<button class="action-btn done" onclick="processLeave(${r.id},'approved')">Approve</button><button class="action-btn delete" style="margin-left:6px" onclick="processLeave(${r.id},'rejected')">Reject</button>` : ''}
-        ${!isAdmin && r.status === 'pending' ? `<button class="action-btn delete" onclick="cancelLeave(${r.id})">Cancel</button>` : ''}
-        ${isAdmin ? `<button class="action-btn delete" style="margin-left:6px" onclick="deleteLeaveEntry(${r.id})" title="Delete">🗑</button>` : ''}
+        ${isAdmin && r.status === 'pending' ? `<button class="row-action-btn approve" onclick="processLeave(${r.id},'approved')">✓ Approve</button><button class="row-action-btn reject" style="margin-left:6px" onclick="processLeave(${r.id},'rejected')">✕ Reject</button>` : ''}
+        ${!isAdmin && r.status === 'pending' ? `<button class="row-action-btn cancel" onclick="cancelLeave(${r.id})">Cancel</button>` : ''}
+        ${isAdmin ? `<button class="row-action-btn del" style="margin-left:6px" onclick="deleteLeaveEntry(${r.id})" title="Delete">🗑</button>` : ''}
       </td>
     </tr>`).join('')}</tbody>
   </table></div>`;
@@ -5274,13 +5291,21 @@ async function processLeave(id, action) {
 
 async function loadLeaveBadge() {
   const badge = document.getElementById('leaveBadge');
-  if (!badge) return;
-  if (ME.role !== 'admin') { badge.style.display = 'none'; return; }
+  const tabBadge = document.getElementById('attnLeaveTabBadge');
+  if (!badge && !tabBadge) return;
+  if (ME.role !== 'admin') {
+    if (badge) badge.style.display = 'none';
+    if (tabBadge) tabBadge.style.display = 'none';
+    return;
+  }
   try {
     const rows = await api('/api/leave?status=pending');
     const count = Array.isArray(rows) ? rows.length : 0;
-    if (count > 0) { badge.textContent = count; badge.style.display = 'flex'; }
-    else badge.style.display = 'none';
+    [badge, tabBadge].forEach(el => {
+      if (!el) return;
+      if (count > 0) { el.textContent = count; el.style.display = 'flex'; }
+      else el.style.display = 'none';
+    });
   } catch(e) {}
 }
 
@@ -5307,7 +5332,7 @@ function renderRidesTable(rows, isAdmin) {
       <td>${started}${gpsLinkHtml(r.lat_start, r.lng_start, r.address_start)}</td>
       <td>${ended}${gpsLinkHtml(r.lat_end, r.lng_end, r.address_end)}</td>
       <td>${dist}</td>
-      <td>${isAdmin ? `<button class="action-btn delete" onclick="deleteRideEntry(${r.id})" title="Delete">🗑</button>` : ''}</td>
+      <td>${isAdmin ? `<button class="row-action-btn del" onclick="deleteRideEntry(${r.id})" title="Delete">🗑</button>` : ''}</td>
     </tr>`;
     }).join('')}</tbody>
   </table></div>`;
@@ -5347,10 +5372,14 @@ async function loadRideState() {
 }
 
 function updateRideButtons() {
+  // Track KM gates it for regular employees, but Admin always sees it — an
+  // admin account usually isn't itself Sales/Delivery, and still needs to be
+  // able to see/test the button rather than it just vanishing for them.
+  const show = _rideKmTracked || ME.role === 'admin';
   ['dashRideBtn', 'attnRideActionBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (!btn) return;
-    if (!_rideKmTracked) { btn.style.display = 'none'; return; }
+    if (!show) { btn.style.display = 'none'; return; }
     btn.style.display = '';
     btn.textContent = _rideActive ? '🏁 End Ride' : '🏍️ Start Ride';
   });
