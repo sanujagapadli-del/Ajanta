@@ -911,6 +911,34 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="dash-topbar-btns" id="dashBtns"></div>
     </div>
+
+    <div class="task-table-card" style="margin-bottom:18px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
+      <div style="display:flex;align-items:center;gap:26px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;color:var(--gray-400);text-transform:uppercase;font-weight:600;letter-spacing:.4px">Today's Attendance</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px" id="dashAttnTodayDate"></div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--gray-400)">Time In</div>
+          <div style="font-size:16px;font-weight:700;color:var(--gray-800)" id="dashAttnTimeIn">—</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--gray-400)">Time Out</div>
+          <div style="font-size:16px;font-weight:700;color:var(--gray-800)" id="dashAttnTimeOut">—</div>
+        </div>
+        <div id="dashAttnKmWrap" style="display:none">
+          <div style="font-size:11px;color:var(--gray-400)" id="dashAttnKmLabel">KM Start</div>
+          <input type="number" step="0.1" id="dashAttnKmInput" placeholder="Odometer…"
+            style="width:120px;padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+          <div style="font-size:10px;color:var(--gray-400);margin-top:2px" id="dashAttnKmRecorded"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span id="dashAttnErr" style="display:none;color:var(--color-danger);font-size:12px;max-width:220px"></span>
+        <button class="btn btn-primary" id="dashAttnPunchBtn" onclick="doAttendancePunch('dashAttn')">Punch In</button>
+      </div>
+    </div>
+
     <div class="overview-cards">
       <div class="ov-card pending"><div class="label">Pending</div><div class="number" id="dPending">—</div></div>
       <div class="ov-card revised"><div class="label">Revised</div><div class="number" id="dRevised">—</div></div>
@@ -1175,7 +1203,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div style="font-size:11px;color:var(--gray-400)" id="attnKmRecorded"></div>
         </div>
         <div class="alert error" id="attnErr" style="margin-top:12px"></div>
-        <button class="btn btn-primary" id="attnPunchBtn" style="width:100%;margin-top:16px" onclick="doAttendancePunch()">Punch In</button>
+        <button class="btn btn-primary" id="attnPunchBtn" style="width:100%;margin-top:16px" onclick="doAttendancePunch('attn')">Punch In</button>
       </div>
     </div>
 
@@ -3344,6 +3372,7 @@ function refreshDashboardO2dLocally() {
 }
 
 async function loadDashboard() {
+  loadAttendanceToday();
   const empFilter = document.getElementById('dashEmployeeFilter');
   const empVal = empFilter ? empFilter.value : 'all';
   const isAdmin = ME.role === 'admin';
@@ -4976,60 +5005,87 @@ function switchAttendanceTeamSub(sub, el) {
   if (sub === 'leave') loadTeamLeaveApprovals();
 }
 
-// ── Punch ──
+// ── Punch — rendered in two places (the dashboard widget, prefix
+// "dashAttn", and the full Attendance page's Punch tab, prefix "attn").
+// Both read/write the same attnTodayRow/attnKmTracked state so punching
+// from either one keeps the other in sync next time it's shown. ──
+const ATTN_WIDGET_PREFIXES = ['attn', 'dashAttn'];
+
 async function loadAttendanceToday() {
-  document.getElementById('attnTodayDate').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-  document.getElementById('attnErr').style.display = 'none';
+  const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  ATTN_WIDGET_PREFIXES.forEach(p => {
+    const dEl = document.getElementById(p + 'TodayDate'); if (dEl) dEl.textContent = dateStr;
+    const eEl = document.getElementById(p + 'Err'); if (eEl) eEl.style.display = 'none';
+  });
   const r = await api('/api/attendance/today');
   if (r.error) { showToast(r.error, 'error'); return; }
   attnTodayRow = r.attendance;
   attnKmTracked = !!r.kmTracked;
+  ATTN_WIDGET_PREFIXES.forEach(renderAttendanceWidget);
+}
 
-  document.getElementById('attnTimeIn').textContent = attnTodayRow?.time_in ? fmtTime(attnTodayRow.time_in) : '—';
-  document.getElementById('attnTimeOut').textContent = attnTodayRow?.time_out ? fmtTime(attnTodayRow.time_out) : '—';
+function renderAttendanceWidget(prefix) {
+  const timeInEl = document.getElementById(prefix + 'TimeIn');
+  if (!timeInEl) return;
+  const timeOutEl = document.getElementById(prefix + 'TimeOut');
+  const kmWrap = document.getElementById(prefix + 'KmWrap');
+  const kmInput = document.getElementById(prefix + 'KmInput');
+  const kmLabel = document.getElementById(prefix + 'KmLabel');
+  const kmRecorded = document.getElementById(prefix + 'KmRecorded');
+  const btn = document.getElementById(prefix + 'PunchBtn');
 
-  const kmWrap = document.getElementById('attnKmWrap');
-  const kmInput = document.getElementById('attnKmInput');
-  const kmLabel = document.getElementById('attnKmLabel');
-  const kmRecorded = document.getElementById('attnKmRecorded');
-  kmInput.value = '';
-  kmRecorded.textContent = '';
-  kmWrap.style.display = attnKmTracked ? '' : 'none';
+  timeInEl.textContent = attnTodayRow?.time_in ? fmtTime(attnTodayRow.time_in) : '—';
+  timeOutEl.textContent = attnTodayRow?.time_out ? fmtTime(attnTodayRow.time_out) : '—';
 
-  const btn = document.getElementById('attnPunchBtn');
+  if (kmRecorded) kmRecorded.textContent = '';
+  if (kmWrap) kmWrap.style.display = attnKmTracked ? '' : 'none';
+
   const hasIn = !!attnTodayRow?.time_in;
   const hasOut = !!attnTodayRow?.time_out;
 
   if (!hasIn) {
     btn.textContent = 'Punch In'; btn.disabled = false;
-    kmLabel.textContent = 'KM Start (Morning)';
-    kmInput.disabled = false;
+    if (kmLabel) kmLabel.textContent = 'KM Start (Morning)';
+    if (kmInput) kmInput.disabled = false;
   } else if (!hasOut) {
     btn.textContent = 'Punch Out'; btn.disabled = false;
-    kmLabel.textContent = 'KM End (Evening)';
-    kmInput.disabled = false;
-    if (attnTodayRow.km_start != null) kmRecorded.textContent = 'KM Start recorded: ' + attnTodayRow.km_start;
+    if (kmLabel) kmLabel.textContent = 'KM End (Evening)';
+    if (kmInput) kmInput.disabled = false;
+    if (kmRecorded && attnTodayRow.km_start != null) kmRecorded.textContent = 'KM Start recorded: ' + attnTodayRow.km_start;
   } else {
     btn.textContent = '✅ Done for Today'; btn.disabled = true;
-    kmInput.disabled = true;
-    if (attnTodayRow.km_start != null || attnTodayRow.km_end != null) {
+    if (kmInput) kmInput.disabled = true;
+    if (kmRecorded && (attnTodayRow.km_start != null || attnTodayRow.km_end != null)) {
       kmRecorded.textContent = `KM Start: ${attnTodayRow.km_start ?? '—'}  ·  KM End: ${attnTodayRow.km_end ?? '—'}`;
     }
   }
 }
 
-async function doAttendancePunch() {
-  const errEl = document.getElementById('attnErr');
-  errEl.style.display = 'none';
-  const km = document.getElementById('attnKmInput').value;
-  const btn = document.getElementById('attnPunchBtn');
+async function doAttendancePunch(prefix) {
+  prefix = prefix || 'attn';
+  const errEl = document.getElementById(prefix + 'Err');
+  if (errEl) errEl.style.display = 'none';
+  const kmInput = document.getElementById(prefix + 'KmInput');
+  const km = kmInput ? kmInput.value : '';
+  const btn = document.getElementById(prefix + 'PunchBtn');
   const isPunchIn = !attnTodayRow || !attnTodayRow.time_in;
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
   const r = isPunchIn
     ? await api('/api/attendance/punch-in', 'POST', { kmStart: km || null })
     : await api('/api/attendance/punch-out', 'POST', { kmEnd: km || null });
-  if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; btn.disabled = false; return; }
+  if (r.error) {
+    if (errEl) { errEl.textContent = r.error; errEl.style.display = 'block'; }
+    else showToast(r.error, 'error');
+    if (btn) btn.disabled = false;
+    return;
+  }
   showToast(isPunchIn ? '✅ Punched in!' : '✅ Punched out!');
+  // Clear both widgets' KM inputs — the value just submitted belonged to the
+  // stage that just ended; the next stage (if any) starts from blank.
+  ATTN_WIDGET_PREFIXES.forEach(p => {
+    const kmEl = document.getElementById(p + 'KmInput');
+    if (kmEl) kmEl.value = '';
+  });
   await loadAttendanceToday();
 }
 
