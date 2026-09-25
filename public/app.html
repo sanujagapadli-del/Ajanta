@@ -1235,7 +1235,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
     </div>
 
-    <!-- Team panel (admin/HOD/PC only) -->
+    <!-- Team panel (Admin only) -->
     <div id="attnTeamPanel" style="display:none">
       <div style="display:flex;gap:4px;margin-bottom:14px">
         <div class="tab active" id="attnTeamSubAttendance" onclick="switchAttendanceTeamSub('attendance',this)">Attendance</div>
@@ -4982,8 +4982,9 @@ function fmtTime(dt) {
 }
 
 function loadAttendancePage() {
-  const isAdminOrHod = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
-  document.getElementById('attnTabTeam').style.display = isAdminOrHod ? '' : 'none';
+  // Team tab is admin-only — HOD/PC see just their own attendance/leave, same as a regular user.
+  document.getElementById('attnTabTeam').style.display = (ME.role === 'admin') ? '' : 'none';
+  if (attnView === 'team' && ME.role !== 'admin') attnView = 'punch';
   switchAttendanceTab(attnView, document.getElementById('attnTab' + attnView[0].toUpperCase() + attnView.slice(1)));
 }
 
@@ -5217,7 +5218,7 @@ function cancelLeave(id) {
   });
 }
 
-// ── Team (admin/HOD/PC) ──
+// ── Team (Admin only) ──
 function setAttnTeamDefaultDates() {
   const from = document.getElementById('attnTeamFrom');
   const to = document.getElementById('attnTeamTo');
@@ -5293,7 +5294,7 @@ async function processLeave(id, action) {
 async function loadLeaveBadge() {
   const badge = document.getElementById('leaveBadge');
   if (!badge) return;
-  if (ME.role !== 'admin' && ME.role !== 'hod' && ME.role !== 'pc') { badge.style.display = 'none'; return; }
+  if (ME.role !== 'admin') { badge.style.display = 'none'; return; }
   try {
     const rows = await api('/api/leave?status=pending');
     const count = Array.isArray(rows) ? rows.length : 0;

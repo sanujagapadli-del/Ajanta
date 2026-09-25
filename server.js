@@ -1744,16 +1744,17 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
   }
 });
 
-// History — self sees own rows; admin/HOD/PC can pass ?employee=<userId> or
-// omit it to see everyone's rows in range (team report).
+// History — self sees own rows; admin-only can pass ?employee=<userId> or
+// omit it to see everyone's rows in range (team report) — HOD/PC see only
+// their own, same as a regular user, per client instruction.
 app.get('/api/attendance/history', requireAuth, async (req, res) => {
   try {
     const role = req.session.role;
-    const isAdminOrHod = role === 'admin' || role === 'hod' || role === 'pc';
+    const isAdmin = role === 'admin';
     const { from, to, employee } = req.query;
     const where = ['a.date BETWEEN ? AND ?'];
     const params = [from || '1970-01-01', to || '2999-12-31'];
-    if (!isAdminOrHod) {
+    if (!isAdmin) {
       where.push('a.user_id=?'); params.push(req.session.userId);
     } else if (employee && employee !== 'all') {
       where.push('a.user_id=?'); params.push(parseInt(employee, 10));
@@ -1769,15 +1770,15 @@ app.get('/api/attendance/history', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
-// ── Leave requests ──
+// ── Leave requests — admin-only sees everyone's; HOD/PC see only their own ──
 app.get('/api/leave', requireAuth, async (req, res) => {
   try {
     const role = req.session.role;
-    const isAdminOrHod = role === 'admin' || role === 'hod' || role === 'pc';
+    const isAdmin = role === 'admin';
     const { status, employee } = req.query;
     const where = [];
     const params = [];
-    if (!isAdminOrHod) {
+    if (!isAdmin) {
       where.push('l.user_id=?'); params.push(req.session.userId);
     } else if (employee && employee !== 'all') {
       where.push('l.user_id=?'); params.push(parseInt(employee, 10));
@@ -1811,7 +1812,7 @@ app.post('/api/leave', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
-app.put('/api/leave/:id', requireAuth, requireAdminOrHod, async (req, res) => {
+app.put('/api/leave/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { action, remarks } = req.body;
@@ -1828,8 +1829,7 @@ app.put('/api/leave/:id', requireAuth, requireAdminOrHod, async (req, res) => {
 app.delete('/api/leave/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const role = req.session.role;
-    const isAdmin = role === 'admin' || role === 'pc';
+    const isAdmin = req.session.role === 'admin';
     const [rows] = await db.query('SELECT user_id,status FROM leave_requests WHERE id=?', [id]);
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
     if (!isAdmin && rows[0].user_id !== req.session.userId) return res.status(403).json({ error: 'Not allowed' });
