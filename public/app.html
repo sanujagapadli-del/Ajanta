@@ -2707,9 +2707,10 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
         <div class="form-group">
           <label>When to Send</label>
-          <select id="noWhenToSend" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface)">
+          <select id="noWhenToSend" onchange="onNoWhenToSendChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface)">
             <option value="">-- Select --</option>
             <option>Today</option>
+            <option>Tomorrow</option>
             <option>Most Urgent</option>
             <option>Talk to Salesman</option>
           </select>
@@ -10372,6 +10373,17 @@ function openNewO2dOrderModal() {
   loadO2dProductNames();
   loadO2dDealers(false); // cached — instant if the Dealers tab's already been opened this session
   loadO2dOrderHistoryForRates(false);
+}
+
+// "Today"/"Tomorrow" imply an obvious Date to Send — fill it in instead of
+// making the user pick the same date again by hand. "Most Urgent"/"Talk to
+// Salesman" don't map to a specific date, so those leave it untouched.
+function onNoWhenToSendChange() {
+  const when = document.getElementById('noWhenToSend').value;
+  if (when !== 'Today' && when !== 'Tomorrow') return;
+  const d = new Date();
+  if (when === 'Tomorrow') d.setDate(d.getDate() + 1);
+  document.getElementById('noDateToSend').value = d.toISOString().split('T')[0];
 }
 
 function goToO2dOrderStep1() {
