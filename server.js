@@ -3220,7 +3220,7 @@ const SFMS_SHEET_ID = '1sim5xXi7uKiUdLh_O1NjWbB9b047p9VVW-Z8oAG1gSE';
 const SFMS_TAB = 'Complain FMS';
 const SFMS_HEADER_ROW = 6;
 const SFMS_DATA_START_ROW = 7;
-const SFMS_LAST_COL = 'BO';
+const SFMS_LAST_COL = 'BP';
 const SFMS_PHOTO_MAX_CHARS = 40000; // stays under the 45k Sheets cell limit
 const SFMS_OTP_CODE_COL = 'AN';
 const SFMS_OTP_SENT_COL = 'AO';
@@ -3274,6 +3274,9 @@ const SFMS_OWNERSHIP_VALUES = ['Dealer Stock Piece', 'Customer Purchased Piece']
 // columns wide (A:BK) at that point — sfmsEnsureColumns() widens it on the
 // first write that needs BL+.
 const SFMS_SPARE_USED_BY_COL = 'BK';
+// Point 3 — free-text Remarks/Notes captured on the intake form itself
+// (distinct from step 8's own per-visit "Remark", col BB).
+const SFMS_REMARKS_COL = 'BP';
 const SFMS_STEPS = [
   { n: 1, label: 'Check Product in Warranty', doer: 'Service Mail', planned: 'O', actual: 'P', status: 'Q', timeDelay: 'R', extra: [] },
   { n: 2, label: 'Spare Available?', doer: 'Niranjan', planned: 'S', actual: 'T', status: 'U', timeDelay: 'V', extra: [], requireValue: 'Available' },
@@ -3335,7 +3338,8 @@ const SFMS_NEW_COLUMN_HEADERS = {
   BL: 'Spare Deposited in Office - Actual',
   BM: 'Spare Deposited in Office - Status',
   BN: 'Spares Deposited (JSON)',
-  BO: 'Spare Received By'
+  BO: 'Spare Received By',
+  BP: 'Remarks/Notes (Intake)'
 };
 
 // Writes past the sheet's last column fail ("exceeds grid limits"), and
@@ -3593,7 +3597,8 @@ async function sfmsFetchComplaints() {
         area: get('N') || '',
         zone: get(SFMS_ZONE_COL) || '',
         productOwnership: get(SFMS_OWNERSHIP_COL) || '',
-        warrantyChargesAgreed: get(SFMS_WARRANTY_CHARGES_AGREED_COL) || ''
+        warrantyChargesAgreed: get(SFMS_WARRANTY_CHARGES_AGREED_COL) || '',
+        remarks: get(SFMS_REMARKS_COL) || ''
       };
       c.steps = SFMS_STEPS.map(sd => {
         const step = {
@@ -3674,6 +3679,7 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
         'Warranty Till': expiry ? sfmsDmy(expiry.toISOString().slice(0, 10)) : '',
         'Customer Agreed to Pay Charges': c.warrantyChargesAgreed,
         'Problem': c.problemDescription,
+        'Remarks/Notes': c.remarks,
         'Product Ownership': c.productOwnership,
         'Product Location': c.productLocation,
         'Address': c.address,
@@ -3724,7 +3730,7 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
   try {
     const {
       filledByName, mobile, customerType, dealerName,
-      productLocation, address, area, productOwnership, billPhoto, products
+      productLocation, address, area, productOwnership, billPhoto, remarks, products
     } = req.body;
     if (!filledByName || !mobile) {
       return res.status(400).json({ error: 'Name and mobile are required' });
@@ -3732,12 +3738,10 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
     if (!SFMS_OWNERSHIP_VALUES.includes(productOwnership)) {
       return res.status(400).json({ error: 'Select whether this is a Dealer Stock Piece or a Customer Purchased Piece' });
     }
-    // Bill upload is only relevant (and required) for a customer's own
-    // purchased piece — a dealer's stock piece was never billed to a
-    // customer, so there's no bill to attach.
-    if (productOwnership === 'Customer Purchased Piece' && !billPhoto) {
-      return res.status(400).json({ error: 'Bill photo is required for a Customer Purchased Piece' });
-    }
+    // Bill upload is optional at intake (point 2) — many customers send the
+    // bill after the complaint is already filed. It's only actually
+    // required by Take Out Spare (step 4), enforced in the step-advance
+    // route below.
     if (!Array.isArray(products) || products.length === 0) {
       return res.status(400).json({ error: 'At least one product is required' });
     }
@@ -3750,6 +3754,7 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
     if (billPhoto && billPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Bill photo is too large — try a smaller/compressed image' });
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (remarks) await sfmsEnsureColumns(sheetsApi);
 
     const colB = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${SFMS_DATA_START_ROW}:B`, valueRenderOption: 'UNFORMATTED_VALUE'
@@ -3832,6 +3837,9 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
         { range: `'${SFMS_TAB}'!AV${r}`, values: [[`=if(AO${r},workday.intl(int(AO${r}),0,"0000001",Holidays!A:A)+"19:30","")`]] },
         { range: `'${SFMS_TAB}'!${SFMS_OWNERSHIP_COL}${r}`, values: [[productOwnership]] }
       );
+      // Point 3 — Remarks/Notes captured at intake, shared across every
+      // product line the same way the bill photo is (one customer, one note).
+      if (remarks) formulaData.push({ range: `'${SFMS_TAB}'!${SFMS_REMARKS_COL}${r}`, values: [[remarks]] });
       // Out-of-warranty-but-customer-agreed-to-pay flag (point 5) — written only
       // when the frontend determined the product was out of warranty and the
       // customer explicitly agreed to be charged.
@@ -3868,7 +3876,7 @@ app.put('/api/service-fms/:row', requireAuth, async (req, res) => {
     const {
       filledByName, mobile, customerType, dealerName, productOwnership,
       productName, purchaseDate, problemDescription,
-      productLocation, address, area, billPhoto, productPhoto
+      productLocation, address, area, billPhoto, productPhoto, remarks
     } = req.body;
     if (!filledByName || !mobile) return res.status(400).json({ error: 'Name and mobile are required' });
     if (!productName || !problemDescription) return res.status(400).json({ error: 'Product name and problem description are required' });
@@ -3879,17 +3887,10 @@ app.put('/api/service-fms/:row', requireAuth, async (req, res) => {
     if (productPhoto && productPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Product photo is too large — try a smaller/compressed image' });
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (remarks !== undefined) await sfmsEnsureColumns(sheetsApi);
 
-    // Bill photo is only required (client + here) for a Customer Purchased
-    // Piece, and only if there isn't already one on file — an edit doesn't
-    // force a re-upload of an existing bill.
-    if (productOwnership === 'Customer Purchased Piece' && !billPhoto) {
-      const existing = await sheetsApi.spreadsheets.values.get({
-        spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!J${row}:J${row}`
-      });
-      const hasExistingBill = !!(existing.data.values && existing.data.values[0] && existing.data.values[0][0]);
-      if (!hasExistingBill) return res.status(400).json({ error: 'Bill photo is required for a Customer Purchased Piece' });
-    }
+    // Bill photo stays optional here too (point 2) — it's only required by
+    // Take Out Spare (step 4), enforced in the step-advance route.
 
     const purchaseDateSerial = purchaseDate ? sfmsDateToSerial(new Date(purchaseDate + 'T00:00:00Z')) : '';
     const data = [
@@ -3905,6 +3906,7 @@ app.put('/api/service-fms/:row', requireAuth, async (req, res) => {
       { range: `'${SFMS_TAB}'!N${row}`, values: [[area || '']] },
       { range: `'${SFMS_TAB}'!${SFMS_OWNERSHIP_COL}${row}`, values: [[productOwnership]] }
     ];
+    if (remarks !== undefined) data.push({ range: `'${SFMS_TAB}'!${SFMS_REMARKS_COL}${row}`, values: [[remarks]] });
     if (billPhoto) {
       const link = await uploadPhotoToDrive(billPhoto, `edit-${row}-bill.jpg`);
       data.push({ range: `'${SFMS_TAB}'!J${row}`, values: [[link]] });
@@ -4151,6 +4153,22 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
       const spareStatus = (s2.data.values && s2.data.values[0] && s2.data.values[0][0]) || '';
       if (spareStatus !== 'Available') {
         return res.status(400).json({ error: 'Spare is not available yet — mark it "Available" at Spare Check once it has been purchased/added.' });
+      }
+    }
+    // Point 2 — bill photo is optional at intake, but must be on file by
+    // Take Out Spare (step 4): the whole point of not forcing it earlier is
+    // that customers often send the bill after registering the complaint,
+    // but the spare shouldn't leave the office for an unbilled piece.
+    if (stepNum === 4) {
+      const ownAndBill = await sheetsApi.spreadsheets.values.batchGet({
+        spreadsheetId: SFMS_SHEET_ID,
+        ranges: [`'${SFMS_TAB}'!J${row}:J${row}`, `'${SFMS_TAB}'!${SFMS_OWNERSHIP_COL}${row}:${SFMS_OWNERSHIP_COL}${row}`]
+      });
+      const [billRange, ownRange] = ownAndBill.data.valueRanges;
+      const hasBill = !!(billRange.values && billRange.values[0] && billRange.values[0][0]);
+      const ownership = (ownRange.values && ownRange.values[0] && ownRange.values[0][0]) || '';
+      if (ownership === 'Customer Purchased Piece' && !hasBill) {
+        return res.status(400).json({ error: 'Bill photo is required before Take Out Spare — upload it via Edit Complaint first.' });
       }
     }
     // (The Spare In/Out report's quick qty edit also PUTs step 5, without
@@ -5917,7 +5935,9 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
   const now = sfmsDateToSerial(new Date());
   const defaultStatus = body.status || 'Yes';
   const perRowStatus = body.perRowStatus || {}; // { rowNum: 'Yes'|'No' } — per-item Available/Not Available
+  const partialQty = body.partialQty || {}; // { rowNum: availableQty } — Good Check only, point 1: partial dispatch
   const batchData = [];
+  const splitRows = [];
   targetRows.forEach(rowNum => {
     const status = perRowStatus[rowNum] || defaultStatus;
     batchData.push({ range: `'${O2D_TAB}'!${stepDef.actual}${rowNum}`, values: [[now]] });
@@ -5926,12 +5946,86 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
       const val = body[f.key];
       if (val !== undefined && val !== '') batchData.push({ range: `'${O2D_TAB}'!${f.col}${rowNum}`, values: [[val]] });
     });
+    if (stepNum === 2 && status === 'Yes' && partialQty[rowNum] !== undefined) {
+      splitRows.push({ origRow: rowNum, availableQty: Number(partialQty[rowNum]) });
+    }
   });
 
   await sheetsApi.spreadsheets.values.batchUpdate({
     spreadsheetId: O2D_SHEET_ID,
     requestBody: { valueInputOption: 'RAW', data: batchData }
   });
+
+  // Point 1 — partial dispatch: fewer pieces were available than ordered.
+  // Shrink this row's own qty to what's actually available (it proceeds
+  // through the remaining steps normally) and clone the shortfall into a
+  // brand-new Order No. — order-wide progress is bottlenecked by its
+  // worst-off line (see getO2dOrders), so leaving a still-pending line under
+  // the SAME Order No. would freeze the part that's ready to ship. The
+  // clone starts fresh at step 1 like any newly added order line, and its
+  // Remark points back at the original order so the split is traceable.
+  if (splitRows.length) {
+    const rowNums = splitRows.map(s => s.origRow);
+    const minRow = Math.min(...rowNums), maxRow = Math.max(...rowNums);
+    const wide = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!B${minRow}:R${maxRow}`, valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    const wideRows = wide.data.values || [];
+    const bOffset = colToIdx('B');
+    const cloneRows = [];
+    const shrinkData = [];
+    for (const { origRow, availableQty } of splitRows) {
+      const wr = wideRows[origRow - minRow] || [];
+      const g = col => wr[colToIdx(col) - bOffset];
+      const orderedQty = Number(g('O')) || 0;
+      if (!(availableQty > 0) || availableQty >= orderedQty) continue; // nothing short — normal full availability
+      const shortfall = orderedQty - availableQty;
+      shrinkData.push({ range: `'${O2D_TAB}'!O${origRow}`, values: [[availableQty]] });
+      cloneRows.push([
+        now, g('B') || '', g('C') || '', g('D') || '', g('E') || '', g('F') || '',
+        g('G') || '', g('H') || 'No', g('I') || 'No', g('J') || '', g('K') || '',
+        `Pending stock — split from ${orderNo} (${shortfall} short)`,
+        g('M') || '', g('N') || '', shortfall, g('P') || 'No', '', '' // Q/R (orderNo/orderId) filled below
+      ]);
+    }
+    if (cloneRows.length) {
+      if (shrinkData.length) {
+        await sheetsApi.spreadsheets.values.batchUpdate({
+          spreadsheetId: O2D_SHEET_ID, requestBody: { valueInputOption: 'RAW', data: shrinkData }
+        });
+      }
+      // Next unused "-P{n}" suffix for this Order No. (more than one product
+      // on the same order can each fall short, each getting its own suffix)
+      // and the next Order Id, same claiming scheme as add-order-items.
+      const existing = await sheetsApi.spreadsheets.values.get({
+        spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!Q${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE'
+      });
+      const existingRows = existing.data.values || [];
+      const splitPrefix = `${orderNo}-P`;
+      let maxSplitN = 0, maxOrderId = 0;
+      existingRows.forEach(r => {
+        const on = String(r[0] || '');
+        if (on.startsWith(splitPrefix)) { const n = parseInt(on.slice(splitPrefix.length), 10); if (n) maxSplitN = Math.max(maxSplitN, n); }
+        const m = String(r[1] || '').match(/Order-(\d+)/);
+        if (m) maxOrderId = Math.max(maxOrderId, parseInt(m[1], 10));
+      });
+      let nextSplitN = maxSplitN + 1, nextOrderIdCandidate = maxOrderId + 1;
+      for (const row of cloneRows) {
+        row[16] = `${splitPrefix}${nextSplitN++}`;
+        const claimedId = await claimNextSeqValue('o2d_order_id', nextOrderIdCandidate);
+        nextOrderIdCandidate = claimedId + 1;
+        row[17] = `Order-${claimedId}`;
+      }
+      await sheetsApi.spreadsheets.values.append({
+        spreadsheetId: O2D_SHEET_ID,
+        range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
+        valueInputOption: 'RAW',
+        insertDataOption: 'OVERWRITE',
+        requestBody: { values: cloneRows }
+      });
+    }
+  }
+
   return { rowsUpdated: targetRows.length, counterName };
 }
 

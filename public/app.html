@@ -1384,8 +1384,9 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
     </div>
 
-    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:10px;align-items:center" id="sfmsSearchWrap">
-      <input type="text" id="sfmsSearch" oninput="renderServiceFmsList()" placeholder="🔍 Search by Complain No, Name, Mobile, Product…" style="flex:1;min-width:0;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap" id="sfmsSearchWrap">
+      <input type="text" id="sfmsSearch" oninput="renderServiceFmsList()" placeholder="🔍 Search by Complain No, Name, Mobile, Product…" style="flex:1;min-width:160px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      <button class="btn btn-outline" id="sfmsExportSelectedBtn" onclick="exportSelectedComplaintsCsv()" disabled style="white-space:nowrap" title="Tick complaints below, then export just those">⬇ Export Selected (0) CSV</button>
       <a class="btn btn-outline" href="/api/service-fms/export.xlsx" download style="white-space:nowrap;text-decoration:none" title="All complaints with every detail, as an Excel sheet">⬇ Export Excel</a>
     </div>
 
@@ -2510,6 +2511,11 @@ tbody tr:last-child td{border-bottom:none;}
       <datalist id="scProductNameList"></datalist>
       <div id="scProductRows"></div>
       <button type="button" class="btn btn-outline btn-sm" onclick="addScProductRow()">+ Add Product</button>
+
+      <div class="form-group" style="margin-top:16px">
+        <label>Remarks / Notes</label>
+        <textarea id="scRemarks" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+      </div>
     </div>
     <!-- Shared across the whole page (datalists work by id anywhere in the
          document) — spare-item search for the Takeout/In-Out steps, point 2:
@@ -2596,6 +2602,10 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="form-group">
         <label>Location / Area</label>
         <select id="ecArea" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"></select>
+      </div>
+      <div class="form-group">
+        <label>Remarks / Notes</label>
+        <textarea id="ecRemarks" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
@@ -7189,13 +7199,22 @@ function renderServiceFmsList() {
     (c.productName || '').toLowerCase().includes(q)
   );
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No complaints found.</div>'; return; }
-  wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:4px">
+  // Point 7 — CSV export of a hand-picked subset. Selection is kept in
+  // sfmsSelectedRows across re-renders (search typing, tab switches) so
+  // ticking a few complaints then refining the search doesn't lose them.
+  wrap.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:2px 4px 10px;font-size:13px;color:var(--gray-500)">
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" id="sfmsSelectAllBox" onchange="toggleSelectAllComplaints(this.checked)"/> Select all shown (${rows.length})
+    </label>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:4px">
   ${rows.map(c => {
     const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
     const onHold = sfmsIsOnSpareHold(c);
     return `
-    <div onclick="openComplaintDetail(${c.row})" style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;cursor:pointer">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div onclick="openComplaintDetail(${c.row})" style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;cursor:pointer;position:relative">
+      <input type="checkbox" class="sfmsRowCheckbox" data-row="${c.row}" onclick="event.stopPropagation()" onchange="toggleComplaintSelected(${c.row}, this.checked)" ${sfmsSelectedRows.has(c.row) ? 'checked' : ''} style="position:absolute;top:14px;right:14px;width:18px;height:18px;cursor:pointer"/>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-right:24px">
         <span style="font-size:19px;font-weight:800;color:var(--gray-800)">${esc(c.complainNo)}</span>
         <span class="status-badge" style="background:${c.closed ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${c.closed ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${c.closed ? '✅ Closed' : 'Step ' + c.currentStep + '/' + SFMS_STEP_DEFS.length}</span>
       </div>
@@ -7206,6 +7225,54 @@ function renderServiceFmsList() {
     </div>`;
   }).join('')}
   </div>`;
+  updateSfmsExportSelectedBtn();
+}
+
+let sfmsSelectedRows = new Set();
+function toggleComplaintSelected(row, checked) {
+  if (checked) sfmsSelectedRows.add(row); else sfmsSelectedRows.delete(row);
+  updateSfmsExportSelectedBtn();
+}
+function toggleSelectAllComplaints(checked) {
+  document.querySelectorAll('.sfmsRowCheckbox').forEach(box => {
+    const row = Number(box.dataset.row);
+    box.checked = checked;
+    if (checked) sfmsSelectedRows.add(row); else sfmsSelectedRows.delete(row);
+  });
+  updateSfmsExportSelectedBtn();
+}
+function updateSfmsExportSelectedBtn() {
+  const btn = document.getElementById('sfmsExportSelectedBtn');
+  if (!btn) return;
+  btn.textContent = `⬇ Export Selected (${sfmsSelectedRows.size}) CSV`;
+  btn.disabled = sfmsSelectedRows.size === 0;
+}
+
+// Same column set as the server's export.xlsx, built from already-loaded
+// sfmsData so no extra request is needed for a hand-picked subset.
+function exportSelectedComplaintsCsv() {
+  const selected = sfmsData.filter(c => sfmsSelectedRows.has(c.row));
+  if (!selected.length) { showToast('Tick at least one complaint first', 'error'); return; }
+  const cols = ['Complaint No', 'Complaint Date', 'Customer Name', 'Mobile Number', 'Customer / Dealer',
+    'Dealer Name', 'Product', 'Purchase Date', 'Problem', 'Remarks/Notes', 'Product Ownership',
+    'Product Location', 'Address', 'Area', 'Status'];
+  const csvEsc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [cols.map(csvEsc).join(',')];
+  selected.forEach(c => {
+    const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
+    lines.push([
+      c.complainNo, c.timestamp, c.filledByName, c.mobile, c.customerType, c.dealerName,
+      c.productName, c.purchaseDate, c.problemDescription, c.remarks, c.productOwnership,
+      c.productLocation, c.address, c.area, c.closed ? 'Closed' : `Pending: ${nextStep ? nextStep.label : ''}`
+    ].map(csvEsc).join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url; a.download = `Selected-Complaints-${stamp}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // Groups open complaints by the mechanic assigned at Step 4, dropping any
@@ -7667,6 +7734,7 @@ function openNewComplaintModal() {
   document.getElementById('scBillPhoto').dataset.compressed = '';
   onScCustomerTypeChange(); // resets Dealer wrap visibility + auto-sets Product Ownership
   document.getElementById('scAddress').value = '';
+  document.getElementById('scRemarks').value = '';
   document.getElementById('newComplaintErr').style.display = 'none';
   document.getElementById('scProductRows').innerHTML = '';
   scProductRowCount = 0;
@@ -7676,13 +7744,14 @@ function openNewComplaintModal() {
   document.getElementById('newComplaintModal').classList.add('open');
 }
 
-// Point 3 — Bill Upload only makes sense (and is only required) for a
-// customer's own purchased piece; a dealer's stock piece was never billed
-// to a customer.
+// Point 3 — Bill Upload only makes sense for a customer's own purchased
+// piece; a dealer's stock piece was never billed to a customer. It's
+// optional at intake either way (point 2) — the bill can come later, up
+// until Take Out Spare (step 4), which is where it's actually required.
 function onScOwnershipChange() {
   const isCustomerPiece = document.getElementById('scProductOwnership').value === 'Customer Purchased Piece';
   document.getElementById('scBillPhotoWrap').style.display = isCustomerPiece ? '' : 'none';
-  document.getElementById('scBillPhotoRequiredMark').style.display = isCustomerPiece ? '' : 'none';
+  document.getElementById('scBillPhotoRequiredMark').style.display = 'none';
   if (!isCustomerPiece) {
     document.getElementById('scBillPhoto').value = '';
     document.getElementById('scBillPhotoPreview').textContent = '';
@@ -7903,6 +7972,7 @@ async function submitNewComplaint() {
   const productLocation = document.getElementById('scProductLocation').value;
   const address = document.getElementById('scAddress').value.trim();
   const area = document.getElementById('scArea').value === '__add_new__' ? '' : document.getElementById('scArea').value;
+  const remarks = document.getElementById('scRemarks').value.trim();
 
   if (!filledByName || !mobile) {
     err.textContent = 'Name and mobile are required';
@@ -7914,11 +7984,9 @@ async function submitNewComplaint() {
     err.style.display = 'block';
     return;
   }
-  if (productOwnership === 'Customer Purchased Piece' && !billPhoto) {
-    err.textContent = 'Bill photo is required for a Customer Purchased Piece';
-    err.style.display = 'block';
-    return;
-  }
+  // Point 2 — bill photo is optional at intake; it's only required later,
+  // at Take Out Spare (step 4), by which point it can be added via Edit
+  // Complaint. Many customers send the bill after the complaint is filed.
 
   const products = [];
   for (const row of document.getElementById('scProductRows').children) {
@@ -7957,7 +8025,7 @@ async function submitNewComplaint() {
   btn.disabled = true; btn.textContent = 'Saving…';
   const res = await api('/api/service-fms', 'POST', {
     filledByName, mobile, customerType, dealerName, productOwnership,
-    productLocation, address, area, billPhoto, products
+    productLocation, address, area, billPhoto, remarks, products
   });
   btn.disabled = false; btn.textContent = 'Save Complaint';
 
@@ -7983,7 +8051,7 @@ function onEcCustomerTypeChange() {
 function onEcOwnershipChange() {
   const isCustomerPiece = document.getElementById('ecProductOwnership').value === 'Customer Purchased Piece';
   document.getElementById('ecBillPhotoWrap').style.display = isCustomerPiece ? '' : 'none';
-  document.getElementById('ecBillPhotoRequiredMark').style.display = isCustomerPiece ? '' : 'none';
+  document.getElementById('ecBillPhotoRequiredMark').style.display = 'none';
 }
 
 async function openEditComplaintModal(row) {
@@ -8014,6 +8082,7 @@ async function openEditComplaintModal(row) {
   populateScAreaSelect();
   document.getElementById('ecArea').innerHTML = document.getElementById('scArea').innerHTML;
   document.getElementById('ecArea').value = c.area || '';
+  document.getElementById('ecRemarks').value = c.remarks || '';
   loadScProductNames();
   document.getElementById('editComplaintModal').classList.add('open');
 }
@@ -8035,23 +8104,20 @@ async function submitEditComplaint() {
   const productLocation = document.getElementById('ecProductLocation').value;
   const address = document.getElementById('ecAddress').value.trim();
   const area = document.getElementById('ecArea').value === '__add_new__' ? '' : document.getElementById('ecArea').value;
+  const remarks = document.getElementById('ecRemarks').value.trim();
 
   if (!filledByName || !mobile) { err.textContent = 'Name and mobile are required'; err.style.display = 'block'; return; }
   if (!productName || !problemDescription) { err.textContent = 'Product name and problem description are required'; err.style.display = 'block'; return; }
   if (!productOwnership) { err.textContent = 'Select whether this is a Dealer Stock Piece or a Customer Purchased Piece'; err.style.display = 'block'; return; }
-  const existingBill = sfmsData.find(x => x.row == row)?.billPhoto;
-  if (productOwnership === 'Customer Purchased Piece' && !billPhoto && !existingBill) {
-    err.textContent = 'Bill photo is required for a Customer Purchased Piece';
-    err.style.display = 'block';
-    return;
-  }
+  // Point 2 — bill photo stays optional here too; it's only enforced at
+  // Take Out Spare (step 4).
 
   const btn = document.getElementById('ecSubmitBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   const res = await api(`/api/service-fms/${row}`, 'PUT', {
     filledByName, mobile, customerType, dealerName, productOwnership,
     productName, purchaseDate, problemDescription,
-    productLocation, address, area, billPhoto, productPhoto
+    productLocation, address, area, billPhoto, productPhoto, remarks
   });
   btn.disabled = false; btn.textContent = 'Save Changes';
 
@@ -8322,10 +8388,14 @@ function renderComplaintDetailBody(c) {
           <div style="font-size:14px;color:var(--gray-800)">${esc(c.productLocation)}${c.area ? ', ' + esc(c.area) : ''}</div>
         </div>` : ''}
       </div>
-      <div style="${(c.billPhoto || c.productPhoto) ? 'margin-bottom:14px' : ''}">
+      <div style="margin-bottom:14px">
         <div style="${SFMS_FIELD_LABEL_STYLE}">Problem Reported</div>
         <div style="font-size:14px;color:var(--gray-800);line-height:1.5">${esc(c.problemDescription)}</div>
       </div>
+      ${c.remarks ? `<div style="${(c.billPhoto || c.productPhoto) ? 'margin-bottom:14px' : ''}">
+        <div style="${SFMS_FIELD_LABEL_STYLE}">Remarks / Notes</div>
+        <div style="font-size:14px;color:var(--gray-800);line-height:1.5">${esc(c.remarks)}</div>
+      </div>` : ''}
       ${(c.billPhoto || c.productPhoto) ? `<div style="display:flex;gap:8px">
         ${c.billPhoto ? `<a href="${esc(c.billPhoto)}" target="_blank" class="btn btn-outline btn-sm">Bill Photo</a>` : ''}
         ${c.productPhoto ? `<a href="${esc(c.productPhoto)}" target="_blank" class="btn btn-outline btn-sm">Product Photo</a>` : ''}
@@ -10493,6 +10563,8 @@ async function advanceO2dStep(orderNo, step) {
   // for an Available/Not Available choice per row — other steps act on the
   // whole order at once and just get marked done for every pending row.
   const perRowStatus = {};
+  const partialQty = {}; // point 1: partial dispatch — { row: availableQty }, only when reduced below ordered qty
+  let hasPartial = false;
   if (stepDef.perItemStatus) {
     const pendingProducts = (o.products || []).filter(p => p.currentStep < step);
     for (const p of pendingProducts) {
@@ -10500,9 +10572,17 @@ async function advanceO2dStep(orderNo, step) {
       const val = sel ? sel.value : '';
       if (!val) { showToast(`Select Available/Not Available for "${p.productName}"`, 'error'); return; }
       perRowStatus[p.row] = val === 'Available' ? 'Yes' : 'No';
+      const qtyInput = document.getElementById(`o2dItemQty_${orderNo}_${p.row}`);
+      const availQty = qtyInput ? Number(qtyInput.value) : NaN;
+      if (val === 'Available' && qtyInput && !Number.isNaN(availQty) && availQty < Number(p.qty)) {
+        if (!(availQty > 0)) { showToast(`Available qty for "${p.productName}" must be more than 0`, 'error'); return; }
+        partialQty[p.row] = availQty;
+        hasPartial = true;
+      }
     }
   }
   body.perRowStatus = perRowStatus;
+  if (hasPartial) body.partialQty = partialQty;
   body.status = 'Yes'; // default for every pending row when this step has no per-item choice
 
   // Order-level Yes/No (e.g. "Accounts is ok or not") — one status for the
@@ -10539,6 +10619,18 @@ async function advanceO2dStep(orderNo, step) {
     }
     if (btn) { btn.textContent = originalBtnText; btn.disabled = false; }
     showToast(res.error, 'error');
+    return;
+  }
+
+  // A partial split appended a brand-new Order No. server-side (point 1) —
+  // that can't be faked into the in-memory o2dData the way a plain step
+  // update below can, so just re-fetch for real this once.
+  if (hasPartial) {
+    showToast('✅ Step recorded — shortfall split into a new pending order!');
+    const fresh = await api('/api/o2d-fms');
+    if (Array.isArray(fresh)) { o2dData = fresh; window._lastO2dData = fresh; }
+    closeModal('o2dDetailModal');
+    refreshO2dAfterAction();
     return;
   }
 
@@ -10682,9 +10774,15 @@ function renderO2dDetailBody(o, hideProgress) {
   // Interactive version — only rendered inside the action box, only for Good Check.
   const productsActionListHtml = (o.products || []).map(p => {
     const itemDone = p.currentStep >= nextStepN;
+    // Point 1 — partial dispatch: an editable "Available Qty" next to the
+    // Available/Not Available choice. Left at the full ordered qty (the
+    // default), a plain Available/Not Available applies as before. Reduced
+    // below the ordered qty while marked Available, the shortfall is split
+    // off into a new pending order on save (see writeO2dStepForOrder).
     const control = itemDone
       ? o2dAvailabilityBadge(p)
-      : `<select id="o2dItemStatus_${o.orderNo}_${p.row}" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)">
+      : `<input type="number" id="o2dItemQty_${o.orderNo}_${p.row}" value="${esc(p.qty)}" min="0" max="${esc(p.qty)}" step="1" style="width:52px;font-size:12px;padding:4px 6px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)" title="Available qty — reduce if fewer are in stock; the rest becomes a new pending order"/>
+        <select id="o2dItemStatus_${o.orderNo}_${p.row}" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)">
           <option value="">-- Select --</option>
           <option value="Available">Available</option>
           <option value="Not Available">Not Available</option>
