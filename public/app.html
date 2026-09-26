@@ -10499,10 +10499,12 @@ function renderO2dField(f, orderNo) {
   const id = `o2dExtra_${orderNo}_${f.key}`;
   const reqMark = f.required ? ` <span style="color:var(--color-danger)">*</span>` : '';
   if (f.type === 'photo') {
-    // capture="environment" makes phones open the camera directly; desktop
-    // browsers ignore it and just show the normal file picker.
+    // No capture="environment" — that forces the camera open directly on
+    // phones with no way to pick an existing photo instead. Without it the
+    // OS shows its normal chooser (Camera / Gallery / Files), so an older
+    // photo already on the phone can be picked too, not just a fresh one.
     return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
-      <input type="file" accept="image/*" capture="environment" id="${id}_file" onchange="onO2dPhotoSelected('${orderNo}','${f.key}',event)" style="${O2D_INPUT_STYLE}"/>
+      <input type="file" accept="image/*,.pdf,application/pdf" id="${id}_file" onchange="onO2dPhotoSelected('${orderNo}','${f.key}',event)" style="${O2D_INPUT_STYLE}"/>
       <input type="hidden" id="${id}"/>
       <div id="${id}_status" style="font-size:11px;color:var(--gray-500);margin-top:-6px;margin-bottom:10px"></div>`;
   }
