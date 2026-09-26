@@ -4431,12 +4431,16 @@ async function getO2dOrders() {
         });
         return step;
       });
-      // A "No" answer (e.g. Accounts not ok, item Not Available) doesn't
-      // count as clearing the step — it should stay the pending action
-      // until someone resolves it, not silently wave the order past it.
-      let lineCurrentStep = 0;
-      for (const s of line.steps) { if (s.status && s.status !== 'No') lineCurrentStep++; else break; }
+      // A "No" answer (e.g. Accounts not ok, item Not Available) ends the
+      // line right there — it doesn't count as clearing the step, and
+      // nothing past it is expected to happen (see o.cancelled below).
+      let lineCurrentStep = 0, lineCancelled = false;
+      for (const s of line.steps) {
+        if (s.status === 'No') { lineCancelled = true; break; }
+        if (s.status) lineCurrentStep++; else break;
+      }
       line.currentStep = lineCurrentStep;
+      line.cancelled = lineCancelled;
       return line;
     }).filter(Boolean);
 
@@ -4510,14 +4514,20 @@ async function getO2dOrders() {
         });
         return step;
       });
-      // Same rule at the order level: a "No" doesn't clear the step.
-      let currentStep = 0;
+      // Same rule at the order level: a "No" ends the order right there —
+      // it counts as closed (so it drops out of pending views the same way
+      // a dispatched order does), just flagged `cancelled` so the UI can
+      // tell the two apart instead of implying it was actually dispatched.
+      let currentStep = 0, cancelled = false, cancelledStepLabel = '';
       for (let i = 0; i < O2D_STEPS.length; i++) {
-        if (o.steps[i].status && o.steps[i].status !== 'No') currentStep = i + 1;
+        if (o.steps[i].status === 'No') { cancelled = true; cancelledStepLabel = o.steps[i].label; break; }
+        if (o.steps[i].status) currentStep = i + 1;
         else break;
       }
       o.currentStep = currentStep;
-      o.closed = currentStep === O2D_STEPS.length;
+      o.cancelled = cancelled;
+      o.cancelledStepLabel = cancelledStepLabel;
+      o.closed = cancelled || currentStep === O2D_STEPS.length;
       return o;
     });
 
@@ -5933,12 +5943,9 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
   let counterName = '';
   keyRows.forEach((r, i) => {
     if ((r[qOffset] || '') !== orderNo) return;
-    // A "No" on this step itself isn't a real answer yet (it blocks
-    // progress rather than clearing it, see getO2dOrders) — leave the row
-    // eligible so it can be re-submitted once resolved, instead of treating
-    // "No" as permanently "already has this step".
-    const existing = r[colToIdx(stepDef.status) - cOffset];
-    if (existing && existing !== 'No') return;
+    if (r[colToIdx(stepDef.status) - cOffset]) return; // already has this step
+    // A "No" on any prior step already ended the order (see getO2dOrders) —
+    // never let a later step get written for a row that's really cancelled.
     const priorDone = priorStatusCols.every(col => {
       const v = r[colToIdx(col) - cOffset];
       return v && v !== 'No';

@@ -8859,7 +8859,7 @@ function renderO2dFmsView() {
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer">
-          <td style="font-weight:600">${esc(o.orderNo || '—')}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
+          <td style="font-weight:600">${esc(o.orderNo || '—')}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelledStepLabel)} was marked No">❌ Cancelled</span>` : ''}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td>${esc(o.counterName || '—')}</td>
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
@@ -8915,8 +8915,9 @@ function renderO2dPCView() {
 function renderO2dReportsView() {
   const wrap = document.getElementById('o2dListWrap');
   const total = o2dData.length;
-  const closed = o2dData.filter(o => o.closed).length;
-  const pending = total - closed;
+  const cancelled = o2dData.filter(o => o.cancelled).length;
+  const dispatched = o2dData.filter(o => o.closed && !o.cancelled).length;
+  const pending = total - dispatched - cancelled;
   const overdueCount = o2dData.filter(o => !o.closed && o2dIsOverdue(o.steps[o.currentStep].planned)).length;
 
   const perStep = O2D_STEP_DEFS.map(sd => ({
@@ -8934,7 +8935,8 @@ function renderO2dReportsView() {
     <div style="padding:16px">
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px">
         ${statCard('Total Orders', total, 'var(--gray-800)')}
-        ${statCard('Dispatched (Closed)', closed, 'var(--color-success-text)')}
+        ${statCard('Dispatched', dispatched, 'var(--color-success-text)')}
+        ${statCard('Cancelled', cancelled, 'var(--color-danger)')}
         ${statCard('Pending', pending, 'var(--color-warning-text)')}
         ${statCard('Overdue', overdueCount, 'var(--color-danger)')}
       </div>
@@ -10661,10 +10663,15 @@ async function advanceO2dStep(orderNo, step) {
     o.steps[stepIdx].actual = allDone ? `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}` : '';
     o.steps[stepIdx].status = allDone ? (body.status || 'Yes') : '';
     stepDef.extraFields.forEach(f => { o.steps[stepIdx][f.key] = body[f.key] || ''; });
-    let currentStep = 0;
-    for (const s of o.steps) { if (s.status) currentStep = s.n; else break; }
+    let currentStep = 0, cancelled = false, cancelledStepLabel = '';
+    for (const s of o.steps) {
+      if (s.status === 'No') { cancelled = true; cancelledStepLabel = s.label; break; }
+      if (s.status) currentStep = s.n; else break;
+    }
     o.currentStep = currentStep;
-    o.closed = currentStep === o.steps.length;
+    o.cancelled = cancelled;
+    o.cancelledStepLabel = cancelledStepLabel;
+    o.closed = cancelled || currentStep === o.steps.length;
   }
   showToast('✅ Step recorded!');
   if (res.whatsappSent) showToast('📲 WhatsApp bill alert sent to the dealer');
@@ -10873,19 +10880,17 @@ function renderO2dDetailBody(o, hideProgress) {
   // step 3) starts with nothing filled, so it correctly drags the order
   // back to whichever step it hasn't cleared yet, while older lines keep
   // showing their own already-completed data.
-  const nextStepDef = O2D_STEP_DEFS.find(d => d.n === o.currentStep + 1);
-  // A "No" here means this exact step was already answered but blocked the
-  // order instead of clearing it (see getO2dOrders/writeO2dStepForOrder) —
-  // it's showing again because it needs to be resolved, not because
-  // nothing happened yet.
-  const blockedByNo = o.steps[o.currentStep] && o.steps[o.currentStep].status === 'No';
+  const nextStepDef = o.cancelled ? null : O2D_STEP_DEFS.find(d => d.n === o.currentStep + 1);
   let actionHtml;
-  if (nextStepDef) {
+  if (o.cancelled) {
+    // A "No" ends the order right there (client's call) — no further step
+    // is expected, so no action form, just a clear reason it stopped here.
+    actionHtml = `<div style="text-align:center;color:var(--color-danger);font-weight:700;font-size:15px;padding:18px;background:var(--color-danger-bg);border:1.5px solid var(--color-danger-border);border-radius:14px;margin-bottom:16px">❌ Order Cancelled — "${esc(o.cancelledStepLabel)}" was marked No</div>`;
+  } else if (nextStepDef) {
     const extraInputsHtml = nextStepDef.extraFields.map(f => renderO2dField(f, o.orderNo)).join('');
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole order</div>
-        ${blockedByNo ? `<div style="font-size:12px;font-weight:700;color:var(--color-danger);background:var(--color-danger-bg);border-radius:8px;padding:6px 10px;margin-bottom:10px">⚠️ Pichhli baar "No" mila tha is step par — order aage nahi badhega jab tak dobara sahi update na ho.</div>` : ''}
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${esc(nextStepDef.label)}</div>
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')}</div>
         ${showItemsInAction ? `
@@ -10917,14 +10922,17 @@ function renderO2dDetailBody(o, hideProgress) {
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Progress (${o.currentStep}/9)</div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
       ${o.steps.map(s => {
-        const isDone = !!s.status;
+        const isNo = s.status === 'No';
+        const isDone = !!s.status && !isNo;
         const isCurrent = s.n === o.currentStep + 1;
-        const dot = isDone
+        const dot = isNo
+          ? `<span style="width:20px;height:20px;border-radius:50%;background:var(--color-danger);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">✗</span>`
+          : isDone
           ? `<span style="width:20px;height:20px;border-radius:50%;background:var(--color-success-text);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">✓</span>`
           : `<span style="width:20px;height:20px;border-radius:50%;border:2px solid ${isCurrent ? 'var(--color-primary)' : 'var(--gray-200)'};flex-shrink:0"></span>`;
-        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:${isDone ? 'var(--color-success-bg)' : isCurrent ? 'var(--color-purple-bg)' : 'var(--gray-50)'}">
+        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:${isNo ? 'var(--color-danger-bg)' : isDone ? 'var(--color-success-bg)' : isCurrent ? 'var(--color-purple-bg)' : 'var(--gray-50)'}">
           ${dot}
-          <span style="font-size:14px;font-weight:${isDone || isCurrent ? '600' : '400'};color:${isDone ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${s.n}. ${esc(s.label)}</span>
+          <span style="font-size:14px;font-weight:${isDone || isCurrent || isNo ? '600' : '400'};color:${isNo ? 'var(--color-danger)' : isDone ? 'var(--color-success-text)' : isCurrent ? 'var(--color-primary)' : 'var(--gray-400)'}">${s.n}. ${esc(s.label)}</span>
         </div>`;
       }).join('')}
     </div>
@@ -10943,7 +10951,7 @@ function renderO2dDetailBody(o, hideProgress) {
             <td style="color:var(--gray-500)">${esc(s.tat || '—')}</td>
             <td>${esc(s.planned || '—')}</td>
             <td>${esc(s.actual || '—')}</td>
-            <td>${s.status ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">${esc(s.status)}</span>` : '—'}</td>
+            <td>${s.status ? `<span class="status-badge" style="background:${s.status==='No'?'var(--color-danger-bg)':'var(--color-success-bg)'};color:${s.status==='No'?'var(--color-danger-text)':'var(--color-success-text)'}">${esc(s.status)}</span>` : '—'}</td>
             <td>${extraText}</td>
           </tr>`;
           }).join('')}
