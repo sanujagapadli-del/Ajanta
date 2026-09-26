@@ -10529,22 +10529,40 @@ async function onO2dPhotoSelected(orderNo, key, event) {
   const file = event.target.files[0];
   if (!file) return;
   const statusEl = document.getElementById(`o2dExtra_${orderNo}_${key}_status`);
-  statusEl.textContent = 'Compressing…';
+  const isImage = file.type.startsWith('image/');
+  statusEl.textContent = isImage ? 'Compressing…' : 'Reading file…';
   statusEl.style.color = 'var(--gray-500)';
   try {
-    // A raw phone camera photo (often several MB) hit HTTP 413 uploaded as-is
-    // — compress it client-side first, same as every other photo upload in
-    // the app (KM, Service FMS bill/product photos).
-    let dataUrl = await compressImageToDataURL(file, 1400, 0.7);
-    if (dataUrl.length > 1400000) dataUrl = await compressImageToDataURL(file, 1000, 0.6);
+    let dataUrl, filename;
+    if (isImage) {
+      // A raw phone camera photo (often several MB) hit HTTP 413 uploaded
+      // as-is — compress it client-side first, same as every other photo
+      // upload in the app (KM, Service FMS bill/product photos).
+      dataUrl = await compressImageToDataURL(file, 1400, 0.7);
+      if (dataUrl.length > 1400000) dataUrl = await compressImageToDataURL(file, 1000, 0.6);
+      filename = `${orderNo}-${key}-${Date.now()}.jpg`;
+    } else {
+      // Some of these fields (e.g. Make Bill's Invoice) are just as often a
+      // PDF as a photo — compressImageToDataURL only understands images
+      // (it decodes via <img>), so a non-image file goes through as-is,
+      // same as before compression was added for the image case.
+      dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const ext = (file.name.match(/\.[a-zA-Z0-9]+$/) || ['.pdf'])[0];
+      filename = `${orderNo}-${key}-${Date.now()}${ext}`;
+    }
     statusEl.textContent = '⏳ Uploading...';
-    const res = await api('/api/upload-photo', 'POST', { image: dataUrl, filename: `${orderNo}-${key}-${Date.now()}.jpg` });
+    const res = await api('/api/upload-photo', 'POST', { image: dataUrl, filename });
     if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
     document.getElementById(`o2dExtra_${orderNo}_${key}`).value = res.url;
     statusEl.textContent = '✅ Uploaded';
     statusEl.style.color = 'var(--color-success-text)';
   } catch (e) {
-    statusEl.textContent = '⚠️ Could not read image';
+    statusEl.textContent = isImage ? '⚠️ Could not read image' : '⚠️ Could not read file';
     statusEl.style.color = 'var(--color-danger)';
   }
 }
