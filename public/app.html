@@ -10527,17 +10527,24 @@ async function onO2dPhotoSelected(orderNo, key, event) {
   const file = event.target.files[0];
   if (!file) return;
   const statusEl = document.getElementById(`o2dExtra_${orderNo}_${key}_status`);
-  statusEl.textContent = '⏳ Uploading...';
+  statusEl.textContent = 'Compressing…';
   statusEl.style.color = 'var(--gray-500)';
-  const reader = new FileReader();
-  reader.onload = async () => {
-    const res = await api('/api/upload-photo', 'POST', { image: reader.result, filename: `${orderNo}-${key}-${Date.now()}.jpg` });
+  try {
+    // A raw phone camera photo (often several MB) hit HTTP 413 uploaded as-is
+    // — compress it client-side first, same as every other photo upload in
+    // the app (KM, Service FMS bill/product photos).
+    let dataUrl = await compressImageToDataURL(file, 1400, 0.7);
+    if (dataUrl.length > 1400000) dataUrl = await compressImageToDataURL(file, 1000, 0.6);
+    statusEl.textContent = '⏳ Uploading...';
+    const res = await api('/api/upload-photo', 'POST', { image: dataUrl, filename: `${orderNo}-${key}-${Date.now()}.jpg` });
     if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
     document.getElementById(`o2dExtra_${orderNo}_${key}`).value = res.url;
     statusEl.textContent = '✅ Uploaded';
     statusEl.style.color = 'var(--color-success-text)';
-  };
-  reader.readAsDataURL(file);
+  } catch (e) {
+    statusEl.textContent = '⚠️ Could not read image';
+    statusEl.style.color = 'var(--color-danger)';
+  }
 }
 function readO2dField(f, orderNo) {
   const el = document.getElementById(`o2dExtra_${orderNo}_${f.key}`);
@@ -10867,12 +10874,18 @@ function renderO2dDetailBody(o, hideProgress) {
   // back to whichever step it hasn't cleared yet, while older lines keep
   // showing their own already-completed data.
   const nextStepDef = O2D_STEP_DEFS.find(d => d.n === o.currentStep + 1);
+  // A "No" here means this exact step was already answered but blocked the
+  // order instead of clearing it (see getO2dOrders/writeO2dStepForOrder) —
+  // it's showing again because it needs to be resolved, not because
+  // nothing happened yet.
+  const blockedByNo = o.steps[o.currentStep] && o.steps[o.currentStep].status === 'No';
   let actionHtml;
   if (nextStepDef) {
     const extraInputsHtml = nextStepDef.extraFields.map(f => renderO2dField(f, o.orderNo)).join('');
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole order</div>
+        ${blockedByNo ? `<div style="font-size:12px;font-weight:700;color:var(--color-danger);background:var(--color-danger-bg);border-radius:8px;padding:6px 10px;margin-bottom:10px">⚠️ Pichhli baar "No" mila tha is step par — order aage nahi badhega jab tak dobara sahi update na ho.</div>` : ''}
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${esc(nextStepDef.label)}</div>
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')}</div>
         ${showItemsInAction ? `

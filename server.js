@@ -4431,8 +4431,11 @@ async function getO2dOrders() {
         });
         return step;
       });
+      // A "No" answer (e.g. Accounts not ok, item Not Available) doesn't
+      // count as clearing the step — it should stay the pending action
+      // until someone resolves it, not silently wave the order past it.
       let lineCurrentStep = 0;
-      for (const s of line.steps) { if (s.status) lineCurrentStep++; else break; }
+      for (const s of line.steps) { if (s.status && s.status !== 'No') lineCurrentStep++; else break; }
       line.currentStep = lineCurrentStep;
       return line;
     }).filter(Boolean);
@@ -4493,10 +4496,13 @@ async function getO2dOrders() {
           actual: allDone ? (actuals[actuals.length - 1] || '') : '',
           // Order-level steps (e.g. Accounts Yes/No) write the SAME status to
           // every line, so this preserves the real answer. Per-item steps
-          // (Good Check) can legitimately have lines that disagree — those
-          // fall back to a generic "Yes" meaning just "done"; the real
-          // per-product answer lives in each product's own `availability`.
-          status: allDone ? (lineSteps.every(s => s.status === lineSteps[0].status) ? lineSteps[0].status : 'Yes') : ''
+          // (Good Check) can legitimately have lines that disagree — a mix
+          // always includes at least one "No" (the only two values are
+          // Yes/No), and that line's own currentStep is already stuck there
+          // (see line.currentStep above), so the order-level status agrees
+          // and stays "No" too instead of rolling up to a "Yes" that would
+          // let the order move on while one product is still blocked.
+          status: allDone ? (lineSteps.every(s => s.status === lineSteps[0].status) ? lineSteps[0].status : 'No') : ''
         };
         sd.extra.forEach(e => {
           const withVal = lineSteps.find(s => s[e.key]);
@@ -4504,9 +4510,10 @@ async function getO2dOrders() {
         });
         return step;
       });
+      // Same rule at the order level: a "No" doesn't clear the step.
       let currentStep = 0;
       for (let i = 0; i < O2D_STEPS.length; i++) {
-        if (o.steps[i].status) currentStep = i + 1;
+        if (o.steps[i].status && o.steps[i].status !== 'No') currentStep = i + 1;
         else break;
       }
       o.currentStep = currentStep;
@@ -5926,8 +5933,16 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
   let counterName = '';
   keyRows.forEach((r, i) => {
     if ((r[qOffset] || '') !== orderNo) return;
-    if (r[colToIdx(stepDef.status) - cOffset]) return; // already has this step
-    const priorDone = priorStatusCols.every(col => r[colToIdx(col) - cOffset]);
+    // A "No" on this step itself isn't a real answer yet (it blocks
+    // progress rather than clearing it, see getO2dOrders) — leave the row
+    // eligible so it can be re-submitted once resolved, instead of treating
+    // "No" as permanently "already has this step".
+    const existing = r[colToIdx(stepDef.status) - cOffset];
+    if (existing && existing !== 'No') return;
+    const priorDone = priorStatusCols.every(col => {
+      const v = r[colToIdx(col) - cOffset];
+      return v && v !== 'No';
+    });
     if (priorDone) { targetRows.push(O2D_DATA_START_ROW + i); if (!counterName) counterName = r[0] || ''; }
   });
   if (!targetRows.length) return { rowsUpdated: 0 };
