@@ -4487,8 +4487,10 @@ async function getO2dOrders() {
         qty: group.reduce((sum, l) => sum + (Number(l.qty) || 0), 0),
         // availability = the raw Good Check (step 2) status for this line —
         // 'Yes'/'No'/'' — kept per product so other steps can show what was
-        // picked instead of asking the per-item question again.
-        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample, currentStep: l.currentStep, availability: (l.steps[1] && l.steps[1].status) || '' }))
+        // picked instead of asking the per-item question again. cancelled
+        // mirrors line.cancelled — this ONE item is done/excluded, not the
+        // whole order (see the order-level cancel logic below).
+        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample, currentStep: l.currentStep, cancelled: l.cancelled, availability: (l.steps[1] && l.steps[1].status) || '' }))
       };
       o.steps = O2D_STEPS.map((sd, idx) => {
         const lineSteps = group.map(l => l.steps[idx]);
@@ -4498,15 +4500,15 @@ async function getO2dOrders() {
           n: sd.n, label: sd.label, doer: sd.doer, tat: sd.tat, doers: stepDoersMap[sd.n] || [],
           planned: lineSteps[0].planned,
           actual: allDone ? (actuals[actuals.length - 1] || '') : '',
-          // Order-level steps (e.g. Accounts Yes/No) write the SAME status to
-          // every line, so this preserves the real answer. Per-item steps
-          // (Good Check) can legitimately have lines that disagree — a mix
-          // always includes at least one "No" (the only two values are
-          // Yes/No), and that line's own currentStep is already stuck there
-          // (see line.currentStep above), so the order-level status agrees
-          // and stays "No" too instead of rolling up to a "Yes" that would
-          // let the order move on while one product is still blocked.
-          status: allDone ? (lineSteps.every(s => s.status === lineSteps[0].status) ? lineSteps[0].status : 'No') : ''
+          // Order-level steps (e.g. Accounts Yes/No) write the SAME status
+          // to every line, so this preserves the real answer. Only Good
+          // Check (per-item) can legitimately have lines that disagree —
+          // some items available, some not, which is normal, not a whole-
+          // order "No" — so a mix there just shows "Yes" (done); the real
+          // per-item picture lives in each product's own `availability`,
+          // and the cancel/continue decision below is made from each
+          // line's own data, not this aggregate.
+          status: allDone ? (lineSteps.every(s => s.status === lineSteps[0].status) ? lineSteps[0].status : 'Yes') : ''
         };
         sd.extra.forEach(e => {
           const withVal = lineSteps.find(s => s[e.key]);
@@ -4514,15 +4516,29 @@ async function getO2dOrders() {
         });
         return step;
       });
-      // Same rule at the order level: a "No" ends the order right there —
-      // it counts as closed (so it drops out of pending views the same way
-      // a dispatched order does), just flagged `cancelled` so the UI can
-      // tell the two apart instead of implying it was actually dispatched.
-      let currentStep = 0, cancelled = false, cancelledStepLabel = '';
-      for (let i = 0; i < O2D_STEPS.length; i++) {
-        if (o.steps[i].status === 'No') { cancelled = true; cancelledStepLabel = o.steps[i].label; break; }
-        if (o.steps[i].status) currentStep = i + 1;
-        else break;
+      // The order's progress is bottlenecked by whichever of its STILL-
+      // ACTIVE lines is furthest behind — a line "Not Available" at Good
+      // Check (per-item, step index 1) is finished on its own and
+      // shouldn't hold back other items that ARE available. Only when
+      // every line ends up cancelled (nothing left to deliver at all)
+      // does the whole order count as cancelled. A "No" on any OTHER step
+      // still ends the whole order immediately — those write one shared
+      // answer for every line (not a per-item one), so if any line
+      // stopped there, they all did.
+      const GOOD_CHECK_IDX = 1;
+      const activeLines = group.filter(l => !l.cancelled);
+      const orderLevelCancel = group.find(l => l.cancelled && l.currentStep !== GOOD_CHECK_IDX);
+      let currentStep, cancelled = false, cancelledStepLabel = '';
+      if (orderLevelCancel) {
+        cancelled = true;
+        currentStep = orderLevelCancel.currentStep;
+        cancelledStepLabel = O2D_STEPS[currentStep].label;
+      } else if (!activeLines.length) {
+        cancelled = true;
+        currentStep = GOOD_CHECK_IDX;
+        cancelledStepLabel = O2D_STEPS[GOOD_CHECK_IDX].label;
+      } else {
+        currentStep = Math.min(...activeLines.map(l => l.currentStep));
       }
       o.currentStep = currentStep;
       o.cancelled = cancelled;
