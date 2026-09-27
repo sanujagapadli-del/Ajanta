@@ -522,12 +522,19 @@ function sendServerError(res, err) {
 // never user input.
 async function assertIsStepDoer(res, table, stepN, userId, role) {
   if (role === 'admin') return true;
-  const [rows] = await db.query(`SELECT 1 FROM ${table} WHERE step_n=? AND user_id=?`, [stepN, userId]);
-  if (rows.length) return true;
-  const [any] = await db.query(`SELECT 1 FROM ${table} WHERE step_n=? LIMIT 1`, [stepN]);
-  if (!any.length) return true;
-  res.status(403).json({ error: 'You are not assigned to this step' });
-  return false;
+  try {
+    const [rows] = await db.query(`SELECT 1 FROM ${table} WHERE step_n=? AND user_id=?`, [stepN, userId]);
+    if (rows.length) return true;
+    const [any] = await db.query(`SELECT 1 FROM ${table} WHERE step_n=? LIMIT 1`, [stepN]);
+    if (!any.length) return true;
+    res.status(403).json({ error: 'You are not assigned to this step' });
+    return false;
+  } catch (e) {
+    // Table not created yet (nobody's ever saved a doer assignment for this
+    // FMS) — same as "not yet restricted", not a real error.
+    if (e.code === 'ER_NO_SUCH_TABLE') return true;
+    throw e;
+  }
 }
 
 // ── Sequential id generation (service-fms groupNo, O2D orderNo, Purchase
@@ -3342,6 +3349,61 @@ const SFMS_NEW_COLUMN_HEADERS = {
   BP: 'Remarks/Notes (Intake)'
 };
 
+// ── Service FMS step doers — who's actually assigned to each of the 9
+// fixed steps. SFMS_STEPS' own `doer` field is just a static role label
+// ("Niranjan", "Ajiz Ji"...); this layers real user assignments on top,
+// same shape/pattern as o2d_step_doers.
+async function ensureSfmsStepDoersTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS sfms_step_doers (
+      step_n INT NOT NULL,
+      user_id INT NOT NULL,
+      PRIMARY KEY (step_n, user_id)
+    )
+  `);
+}
+async function withSfmsStepDoersTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureSfmsStepDoersTable(); return await fn(); }
+}
+
+let _sfmsStepDoersCache = null; // { map, ts } — step_n -> [{id,name}]
+const SFMS_STEP_DOERS_CACHE_TTL_MS = 60 * 1000;
+async function getSfmsStepDoersMap() {
+  if (_sfmsStepDoersCache && (Date.now() - _sfmsStepDoersCache.ts) < SFMS_STEP_DOERS_CACHE_TTL_MS) return _sfmsStepDoersCache.map;
+  const [rows] = await withSfmsStepDoersTable(() => db.query(
+    `SELECT ssd.step_n, u.id, u.name FROM sfms_step_doers ssd JOIN users u ON ssd.user_id=u.id ORDER BY u.name`
+  ));
+  const map = {};
+  rows.forEach(r => { (map[r.step_n] = map[r.step_n] || []).push({ id: r.id, name: r.name }); });
+  _sfmsStepDoersCache = { map, ts: Date.now() };
+  return map;
+}
+
+app.get('/api/service-fms/step-doers', requireAuth, async (req, res) => {
+  try {
+    const map = await getSfmsStepDoersMap();
+    const assignments = {};
+    SFMS_STEPS.forEach(s => { assignments[s.n] = map[s.n] || []; });
+    res.json({ assignments });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.put('/api/service-fms/step-doers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { assignments } = req.body; // { "1": [userId,...], "2": [...], ... }
+    await ensureSfmsStepDoersTable();
+    await db.query('DELETE FROM sfms_step_doers');
+    const rows = [];
+    Object.entries(assignments || {}).forEach(([stepN, userIds]) => {
+      (userIds || []).forEach(uid => rows.push([Number(stepN), Number(uid)]));
+    });
+    if (rows.length) await db.query('INSERT INTO sfms_step_doers (step_n, user_id) VALUES ?', [rows]);
+    _sfmsStepDoersCache = null;
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Writes past the sheet's last column fail ("exceeds grid limits"), and
 // the Complain FMS tab ended at BK when step 9 was added — widen it (and
 // label the new header cells) the first time a write needs to go further.
@@ -3563,6 +3625,7 @@ app.post('/api/o2d-fms/team-group/test', requireAuth, requireAdmin, async (req, 
 });
 
 async function sfmsFetchComplaints() {
+    const stepDoersMap = await getSfmsStepDoersMap();
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const result = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: SFMS_SHEET_ID,
@@ -3602,7 +3665,7 @@ async function sfmsFetchComplaints() {
       };
       c.steps = SFMS_STEPS.map(sd => {
         const step = {
-          n: sd.n, label: sd.label, doer: sd.doer || '',
+          n: sd.n, label: sd.label, doer: sd.doer || '', doers: stepDoersMap[sd.n] || [],
           planned: sd.planned ? sfmsSerialToDate(get(sd.planned)) : '',
           status: get(sd.status) || ''
         };
@@ -4139,6 +4202,7 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
     const stepNum = parseInt(req.params.stepNum, 10);
     const stepDef = SFMS_STEPS.find(s => s.n === stepNum);
     if (!row || !stepDef) return res.status(400).json({ error: 'Invalid row or step number' });
+    if (!(await assertIsStepDoer(res, 'sfms_step_doers', stepNum, req.session.userId, req.session.role))) return;
 
     const nowVal = sfmsDateToSerial(new Date());
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);

@@ -1365,6 +1365,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="page-header">
       <button class="btn btn-primary" onclick="openNewComplaintModal()">+ New Complaint</button>
       <button class="btn btn-outline" onclick="loadServiceFmsList()">🔄 Refresh</button>
+      <button class="btn btn-outline" id="sfmsStepDoersBtn" style="display:none" onclick="openSfmsStepDoersModal()">⚙ Step Doers</button>
     </div>
 
     <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto">
@@ -2913,6 +2914,19 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── SERVICE FMS: STEP DOERS MODAL ── -->
+<div class="modal-overlay" id="sfmsStepDoersModal">
+  <div class="modal" style="max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 style="margin:0">⚙ Step Doers</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('sfmsStepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">Har step ke liye ek ya zyada log assign karo — sirf wahi (ya admin) us step ko complete kar payenge.</div>
+    <div id="sfmsStepDoersRows" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="submitSfmsStepDoers()">Save</button>
+  </div>
+</div>
+
 <!-- ── O2D: TEAM WHATSAPP GROUP MODAL (admin) — where "new order" alerts go ── -->
 <div class="modal-overlay" id="teamGroupModal">
   <div class="modal" style="max-width:460px;max-height:88vh;display:flex;flex-direction:column">
@@ -3182,6 +3196,7 @@ async function init() {
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
       document.getElementById('o2dTeamGroupBtn').style.display = 'inline-flex';
       document.getElementById('purchaseStepDoersBtn').style.display = 'inline-flex';
+      document.getElementById('sfmsStepDoersBtn').style.display = 'inline-flex';
     }
     // hod/pc nav blocks — re-enable when ROLE FEATURE FLAGS above are removed
     // if (ME.role === 'hod') { nav-fms-tasks, nav-records, setPlanBtn }
@@ -6950,6 +6965,7 @@ let sfmsOtpSentFor = {}; // row -> true once an OTP has been sent this session
 async function loadServiceFmsList() {
   const wrap = document.getElementById('sfmsListWrap');
   wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (!_sfmsStepDoersMerged) await mergeSfmsStepDoersIntoDefs();
   const [data] = await Promise.all([api('/api/service-fms'), ensureSfmsMasterLists()]);
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   sfmsData = data;
@@ -8196,7 +8212,7 @@ function buildSfmsNextActionHtml(c, compact) {
 
   const nextStepDef = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
   const doerHtml = (!compact && nextStepDef && nextStepDef.doer)
-    ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">👤 Doer: <b>${esc(nextStepDef.doer)}</b></div>` : '';
+    ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">👤 Doer: <b>${esc(stepDoerLabel(nextStepDef))}</b></div>` : '';
   let actionHtml;
   if (nextStepDef && nextStepDef.twoStage) {
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
@@ -8304,15 +8320,25 @@ function buildSfmsNextActionHtml(c, compact) {
     const btnLabel = onHold ? 'Spare Arrived — Submit' : nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     const btn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">${btnLabel}</button>`;
     if (nextStepDef.n === 4) {
+      // Point 1 — a "Customer Purchased Piece" can't leave with the spare
+      // until its bill is on file (server enforces this too, see the
+      // step-4 PUT route); show the block plainly here instead of letting
+      // the mechanic fill the whole takeout form and only find out on
+      // submit.
+      const billMissing = c.productOwnership === 'Customer Purchased Piece' && !c.billPhoto;
+      const billWarningHtml = billMissing
+        ? `<div style="background:var(--color-danger-bg);border:1px solid var(--color-danger-border);color:var(--color-danger-text);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:12px">⛔ Bill upload zaroori hai — Take Out Spare se pehle bill photo upload karo. <button type="button" onclick="openEditComplaintModal(${c.row})" class="btn btn-outline btn-sm" style="margin-top:8px">✏️ Edit Complaint — Upload Bill</button></div>`
+        : '';
       // Takeout: an editable, addable/removable list of item+qty rows
       // (sfmsSpareOutRows_<row> is the container sfmsAddSpareOutRow/
       // sfmsCollectSpareOutRows look up by id).
       actionHtml = `<div style="${compact ? 'min-width:260px' : ''}">
         ${compact ? '' : `<div style="${titleStyle}">${nextStepDef.label}</div>`}
         ${doerHtml}
-        <div id="sfmsSpareOutRows_${c.row}">${spareRowsHtml}</div>
+        ${billWarningHtml}
+        ${billMissing ? '' : `<div id="sfmsSpareOutRows_${c.row}">${spareRowsHtml}</div>
         <button type="button" onclick="sfmsAddSpareOutRow(${c.row})" class="btn btn-outline btn-sm" style="margin-bottom:8px">+ Add Spare</button>
-        ${btn}
+        ${btn}`}
       </div>`;
     } else if (nextStepDef.n === 5 || nextStepDef.n === 9) {
       // Spare Used: a fixed set of rows (whatever was taken out in Step 4),
@@ -10242,6 +10268,55 @@ async function submitStepDoers() {
   await mergeO2dStepDoersIntoDefs();
   // server-side order cache was invalidated too, so this re-fetch picks up the new assignments
   if (document.getElementById('page-o2d-fms').classList.contains('active')) loadO2dFmsList();
+}
+
+let _sfmsAllUsersForDoers = null;
+let _sfmsStepDoersMerged = false;
+async function mergeSfmsStepDoersIntoDefs() {
+  const r = await api('/api/service-fms/step-doers');
+  const assignments = (r && r.assignments) || {};
+  SFMS_STEP_DEFS.forEach(sd => { sd.doers = assignments[sd.n] || []; });
+  _sfmsStepDoersMerged = true;
+}
+
+async function openSfmsStepDoersModal() {
+  const [usersRes, doersRes] = await Promise.all([
+    _sfmsAllUsersForDoers ? Promise.resolve(_sfmsAllUsersForDoers) : api('/api/users/roster'),
+    api('/api/service-fms/step-doers')
+  ]);
+  if (Array.isArray(usersRes)) _sfmsAllUsersForDoers = usersRes;
+  const users = _sfmsAllUsersForDoers || [];
+  const assignments = (doersRes && doersRes.assignments) || {};
+
+  document.getElementById('sfmsStepDoersRows').innerHTML = SFMS_STEP_DEFS.map(sd => {
+    const assignedIds = new Set((assignments[sd.n] || []).map(u => u.id));
+    const checkboxes = users.map(u => `
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer">
+        <input type="checkbox" class="sfmsStepDoerCheck_${sd.n}" value="${u.id}" ${assignedIds.has(u.id) ? 'checked' : ''}/>
+        ${esc(u.name)}
+      </label>`).join('');
+    return `
+      <div style="border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${esc(sd.label)}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${esc(sd.doer || '—')}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:140px;overflow-y:auto">${checkboxes || '<span style="color:var(--gray-400);font-size:12px">No users found</span>'}</div>
+      </div>`;
+  }).join('');
+  document.getElementById('sfmsStepDoersModal').classList.add('open');
+}
+
+async function submitSfmsStepDoers() {
+  const assignments = {};
+  SFMS_STEP_DEFS.forEach(sd => {
+    const checked = [...document.querySelectorAll(`.sfmsStepDoerCheck_${sd.n}:checked`)].map(el => Number(el.value));
+    assignments[sd.n] = checked;
+  });
+  const r = await api('/api/service-fms/step-doers', 'PUT', { assignments });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Step doers updated!');
+  closeModal('sfmsStepDoersModal');
+  await mergeSfmsStepDoersIntoDefs();
+  if (document.getElementById('page-service-fms').classList.contains('active')) loadServiceFmsList();
 }
 
 // ── Team WhatsApp group (admin) — picks which group the new-order alert
