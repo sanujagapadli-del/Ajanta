@@ -3495,13 +3495,24 @@ function sfmsNormalizeMobile(mobile) {
 // every single message.
 let _myapiSessionCache = null; // { id, ts }
 const MYAPI_SESSION_CACHE_TTL_MS = 60 * 1000;
+// A hard ceiling on every MYAPI call — a plain fetch() has no default
+// timeout, and a slow/overloaded gateway (e.g. rate-limited) hanging here
+// used to hang the WHOLE request it was called from, including things like
+// "Save Order" that only send a WhatsApp alert as a best-effort side
+// effect. That surfaced as an HTTP 504 on New Order, not a WhatsApp error.
+const MYAPI_TIMEOUT_MS = 10000;
 async function myapiConfig() {
   const baseUrl = process.env.MYAPI_BASE_URL;
   const apiKey = process.env.MYAPI_API_KEY;
   if (!baseUrl || !apiKey) throw new Error('WhatsApp (MYAPI) is not configured (missing base URL or API key)');
   const base = baseUrl.replace(/\/$/, '');
   if (!_myapiSessionCache || (Date.now() - _myapiSessionCache.ts) > MYAPI_SESSION_CACHE_TTL_MS) {
-    const r = await fetch(`${base}/api/sessions`, { headers: { 'X-API-Key': apiKey } });
+    let r;
+    try {
+      r = await fetch(`${base}/api/sessions`, { headers: { 'X-API-Key': apiKey }, signal: AbortSignal.timeout(MYAPI_TIMEOUT_MS) });
+    } catch (e) {
+      throw new Error(e.name === 'TimeoutError' || e.name === 'AbortError' ? 'WhatsApp (MYAPI) did not respond in time — the gateway may be overloaded or rate-limited.' : `WhatsApp (MYAPI) unreachable: ${e.message}`);
+    }
     const list = await r.json().catch(() => []);
     const sessions = Array.isArray(list) ? list : [];
     const connected = sessions.find(s => s.status === 'connected') || sessions[0];
@@ -3524,11 +3535,22 @@ async function sendWhatsApp(mobile, text, media) {
 
   const body = { to, message: text };
   if (media) body.media = media;
-  const res = await fetch(`${base}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    body: JSON.stringify(body)
-  });
+  let res;
+  try {
+    res = await fetch(`${base}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(MYAPI_TIMEOUT_MS)
+    });
+  } catch (e) {
+    _myapiSessionCache = null;
+    const err = new Error(e.name === 'TimeoutError' || e.name === 'AbortError'
+      ? 'WhatsApp (MYAPI) did not respond in time — the gateway may be overloaded or rate-limited.'
+      : `WhatsApp (MYAPI) unreachable: ${e.message}`);
+    err.isWhatsApp = true;
+    throw err;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.status === 'error') {
     // Cached session id may just have gone stale (a reconnect since the
@@ -3600,7 +3622,7 @@ async function setAppSetting(key, value) {
 app.get('/api/whatsapp/status', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { base, apiKey } = await myapiConfig();
-    const r = await fetch(base, { headers: { 'X-API-Key': apiKey } });
+    const r = await fetch(base, { headers: { 'X-API-Key': apiKey }, signal: AbortSignal.timeout(MYAPI_TIMEOUT_MS) });
     const data = await r.json().catch(() => ({}));
     res.json({ status: data.status || 'unknown', message: data.message || '' });
   } catch (err) { sendServerError(res, err); }
@@ -3608,7 +3630,7 @@ app.get('/api/whatsapp/status', requireAuth, requireAdmin, async (req, res) => {
 app.get('/api/whatsapp/groups', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { base, apiKey } = await myapiConfig();
-    const r = await fetch(`${base}/groups`, { headers: { 'X-API-Key': apiKey } });
+    const r = await fetch(`${base}/groups`, { headers: { 'X-API-Key': apiKey }, signal: AbortSignal.timeout(MYAPI_TIMEOUT_MS) });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       const msg = data.error || `HTTP ${r.status}`;
@@ -6009,18 +6031,25 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       requestBody: { values: rows }
     });
 
-    // Team-group heads-up so everyone knows to check the dashboard. Never
-    // fails the order itself — it's already saved at this point.
+    // Team-group heads-up so everyone knows to check the dashboard. Fire-
+    // and-forget: the order is already safely saved by this point, and
+    // MYAPI (the WhatsApp gateway) can be slow enough — a plain network
+    // hiccup, or its own rate-limit check — to blow past the platform's
+    // request timeout if awaited here, turning a routine Save Order into
+    // an HTTP 504 for something that's genuinely optional. `teamNotified`
+    // below means "an attempt was started", not "confirmed delivered" —
+    // any actual send failure is only logged server-side now.
     let teamNotified = false, teamNotifySkippedReason = null;
     try {
       const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
       const group = raw ? JSON.parse(raw) : null;
       if (group && group.id) {
         const productLines = products.map(p => `• ${p.productName} × ${p.qty}`).join('\n');
-        await sendWhatsApp(group.id,
+        sendWhatsApp(group.id,
           `🆕 एक नया order प्राप्त हुआ है। कृपया order की जाँच करें।\n\n` +
           `Order: ${orderNo}\nDealer: ${counterName}${area ? ` (${area})` : ''}\n${productLines}` +
-          (req.session.name ? `\n\nBy: ${req.session.name}` : ''));
+          (req.session.name ? `\n\nBy: ${req.session.name}` : ''))
+          .catch(e => console.error(`Team-group WhatsApp notify failed for ${orderNo}:`, e.message));
         teamNotified = true;
       } else {
         teamNotifySkippedReason = 'Team WhatsApp group not set — pick it from O2D FMS → ⚙ WhatsApp Group.';
@@ -6260,7 +6289,12 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
     // Make Bill (step 4) — WhatsApp the dealer as soon as the invoice is
     // uploaded. Only fires when there's actually a phone number on file
     // (Dealers tab) and an invoice was attached; a missing phone shouldn't
-    // block the bill itself from being recorded.
+    // block the bill itself from being recorded. Fire-and-forget, same
+    // reasoning as the new-order team-group alert above — the bill is
+    // already saved by this point, so a slow/rate-limited WhatsApp gateway
+    // must never turn this into an HTTP 504 on the step submit itself.
+    // `whatsappSent` means "an attempt was started"; a real send failure is
+    // only logged server-side now.
     let whatsappSent = false, whatsappSkippedReason = null;
     if (stepNum === 4 && req.body.photoLink && counterName) {
       try {
@@ -6272,8 +6306,9 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
           const text = `Ajanta Appliances द्वारा आपका bill बना दिया गया है। कुछ ही समय में आपका order dispatch कर दिया जाएगा।\n\nOrder: ${orderNo}${billNo}${amount}`;
           // Invoice goes as an actual attachment (photo/PDF), with the link
           // kept in the caption too as a fallback if the preview fails.
-          await sendWhatsApp(phone, `${text}\n\nInvoice: ${req.body.photoLink}`,
-            whatsappMediaFor(req.body.photoLink, req.body.photoFileName || `Invoice-${orderNo}${/\.pdf$/i.test(req.body.photoFileName || '') ? '.pdf' : '.jpg'}`));
+          sendWhatsApp(phone, `${text}\n\nInvoice: ${req.body.photoLink}`,
+            whatsappMediaFor(req.body.photoLink, req.body.photoFileName || `Invoice-${orderNo}${/\.pdf$/i.test(req.body.photoFileName || '') ? '.pdf' : '.jpg'}`))
+            .catch(e => console.error(`Invoice WhatsApp notify failed for ${orderNo}:`, e.message));
           whatsappSent = true;
         } else {
           whatsappSkippedReason = 'Dealer phone number not set — add it from the Dealers tab to enable WhatsApp bill alerts.';
