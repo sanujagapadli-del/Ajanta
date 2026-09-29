@@ -3486,12 +3486,29 @@ function sfmsNormalizeMobile(mobile) {
   return last10.length === 10 ? `91${last10}` : null;
 }
 
-function myapiConfig() {
+// The gateway's session id is NOT stable — it gets a brand-new id every
+// time the linked phone reconnects (confirmed live: the same "Ajanta"
+// number came back as a different session id after a routine disconnect/
+// reconnect). A fixed MYAPI_SESSION_ID env var would silently go stale and
+// break every send until someone noticed, so the connected session is
+// looked up live instead, cached briefly to avoid hitting /api/sessions on
+// every single message.
+let _myapiSessionCache = null; // { id, ts }
+const MYAPI_SESSION_CACHE_TTL_MS = 60 * 1000;
+async function myapiConfig() {
   const baseUrl = process.env.MYAPI_BASE_URL;
   const apiKey = process.env.MYAPI_API_KEY;
-  const sessionId = process.env.MYAPI_SESSION_ID;
-  if (!baseUrl || !apiKey || !sessionId) throw new Error('WhatsApp (MYAPI) is not configured (missing base URL, API key or session ID)');
-  return { base: `${baseUrl.replace(/\/$/, '')}/api/sessions/${encodeURIComponent(sessionId)}`, apiKey };
+  if (!baseUrl || !apiKey) throw new Error('WhatsApp (MYAPI) is not configured (missing base URL or API key)');
+  const base = baseUrl.replace(/\/$/, '');
+  if (!_myapiSessionCache || (Date.now() - _myapiSessionCache.ts) > MYAPI_SESSION_CACHE_TTL_MS) {
+    const r = await fetch(`${base}/api/sessions`, { headers: { 'X-API-Key': apiKey } });
+    const list = await r.json().catch(() => []);
+    const sessions = Array.isArray(list) ? list : [];
+    const connected = sessions.find(s => s.status === 'connected') || sessions[0];
+    if (!connected) throw new Error('WhatsApp (MYAPI) has no session — connect a number in MYAPI first.');
+    _myapiSessionCache = { id: connected.id, ts: Date.now() };
+  }
+  return { base: `${base}/api/sessions/${encodeURIComponent(_myapiSessionCache.id)}`, apiKey };
 }
 
 // `mobile` can also be a WhatsApp group id ("1203...@g.us") — MYAPI's
@@ -3500,7 +3517,7 @@ function myapiConfig() {
 // — the url must be publicly fetchable by the gateway (e.g. a public Drive
 // uc?export=view link from uploadPhotoToDrive(..., { public: true })).
 async function sendWhatsApp(mobile, text, media) {
-  const { base, apiKey } = myapiConfig();
+  const { base, apiKey } = await myapiConfig();
   const raw = String(mobile || '').trim();
   const to = raw.endsWith('@g.us') ? raw : sfmsNormalizeMobile(raw);
   if (!to) throw new Error('Invalid mobile number on file');
@@ -3514,6 +3531,10 @@ async function sendWhatsApp(mobile, text, media) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.status === 'error') {
+    // Cached session id may just have gone stale (a reconnect since the
+    // last lookup) — drop it so the very next send re-resolves fresh
+    // instead of failing for up to a minute.
+    _myapiSessionCache = null;
     const msg = (data.message || data.error) || `WhatsApp send failed (HTTP ${res.status})`;
     // The gateway's own wording for a dropped linked-device session is
     // cryptic ("Session ... not connected") — say what actually fixes it.
@@ -3578,7 +3599,7 @@ async function setAppSetting(key, value) {
 // admin "Team WhatsApp Group" picker on the O2D page.
 app.get('/api/whatsapp/status', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { base, apiKey } = myapiConfig();
+    const { base, apiKey } = await myapiConfig();
     const r = await fetch(base, { headers: { 'X-API-Key': apiKey } });
     const data = await r.json().catch(() => ({}));
     res.json({ status: data.status || 'unknown', message: data.message || '' });
@@ -3586,7 +3607,7 @@ app.get('/api/whatsapp/status', requireAuth, requireAdmin, async (req, res) => {
 });
 app.get('/api/whatsapp/groups', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { base, apiKey } = myapiConfig();
+    const { base, apiKey } = await myapiConfig();
     const r = await fetch(`${base}/groups`, { headers: { 'X-API-Key': apiKey } });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
