@@ -5739,11 +5739,16 @@ function computeFifoAging(dealerKey, vouchers, ledgerBalance) {
     : null;
   const opening = closing !== null ? closing - (totalDebit - totalCredit) : 0;
 
+  // rawDate/vchNo/vchType kept alongside the parsed Date so the caller can
+  // show WHICH bill is still open (Statement's "Open Bills" list), not just
+  // the aggregate bucket totals.
   const openBills = [];
-  if (opening > 0.5) openBills.push({ date: financialYearStartDate(new Date()), remaining: opening });
+  if (opening > 0.5) {
+    openBills.push({ date: financialYearStartDate(new Date()), rawDate: financialYearStartLabel(new Date()), remaining: opening, vchNo: '', vchType: 'Opening Balance' });
+  }
   rows.forEach(r => {
     if (r.debit > 0.5) {
-      openBills.push({ date: parseAnyDate(r.date) || financialYearStartDate(new Date()), remaining: r.debit });
+      openBills.push({ date: parseAnyDate(r.date) || financialYearStartDate(new Date()), rawDate: r.date, remaining: r.debit, vchNo: r.vchNo, vchType: r.vchType });
     } else if (r.credit > 0.5) {
       let toApply = r.credit;
       for (const bill of openBills) {
@@ -5760,6 +5765,7 @@ function computeFifoAging(dealerKey, vouchers, ledgerBalance) {
   const today = new Date();
   const buckets = {};
   let total = 0, billCount = 0;
+  const openBillsList = [];
   openBills.forEach(b => {
     if (b.remaining <= 0.5) return;
     const days = Math.max(0, Math.floor((today - b.date) / 86400000));
@@ -5767,8 +5773,9 @@ function computeFifoAging(dealerKey, vouchers, ledgerBalance) {
     buckets[bucket] = (buckets[bucket] || 0) + b.remaining;
     total += b.remaining;
     billCount++;
+    openBillsList.push({ date: b.rawDate, vchNo: b.vchNo, vchType: b.vchType, remaining: b.remaining, daysOverdue: days, bucket });
   });
-  return { buckets, total, billCount };
+  return { buckets, total, billCount, openBills: openBillsList };
 }
 
 app.get('/api/o2d-fms/bills-receivable', requireAuth, async (req, res) => {
@@ -5842,8 +5849,18 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
     const ledger = ledgerByParty[key] || null;
     const fyLedger = buildDealerFyLedger(key, vouchers, ledger);
 
+    // Open Bills: FIFO-derived (same engine as the dealers-list aging), not
+    // Tally's own Bills Receivable — that report has proven unreliable bill-
+    // wise (see computeFifoAging's comment: real invoices silently drop out
+    // of it without actually being paid). Falls back to Bills Receivable only
+    // when this dealer has no FY voucher data synced yet at all.
+    const fifo = vouchers.legIndex[key] ? computeFifoAging(key, vouchers, ledger) : null;
+    const openBillEntries = fifo
+      ? fifo.openBills.map(b => ({ type: 'bill', date: b.date, ref: b.vchNo, amount: b.remaining, dueDate: b.date, daysOverdue: b.daysOverdue, bucket: b.bucket, items: itemsByKey[`${key}|||${b.vchNo}`] || null }))
+      : dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, dueDate: b.dueDate, daysOverdue: b.daysOverdue, bucket: b.bucket, items: itemsByKey[`${key}|||${b.billRef}`] || null }));
+
     const entries = [
-      ...dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, dueDate: b.dueDate, daysOverdue: b.daysOverdue, bucket: b.bucket, items: itemsByKey[`${key}|||${b.billRef}`] || null })),
+      ...openBillEntries,
       ...payments.map(p => ({ type: 'payment', date: p.paidDate, ref: p.billRef, amount: p.amount }))
     ];
     entries.sort((a, b) => {
@@ -5858,7 +5875,7 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
       name,
       outstanding: ledger ? ledger.closingBalance : null,
       syncedAt: ledger ? ledger.syncedAt : (dealerBills[0] ? dealerBills[0].syncedAt : null),
-      billCount: dealerBills.length,
+      billCount: openBillEntries.length,
       paymentCount: payments.length,
       entries,
       ledger: fyLedger
