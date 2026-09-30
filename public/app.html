@@ -305,12 +305,12 @@ tbody tr:last-child td{border-bottom:none;}
 .o2d-report-filterbar label{font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;display:block;}
 .o2d-report-filterbar input[type=date]{padding:8px 12px;border:1.5px solid var(--color-primary-light);border-radius:var(--radius-md);font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800);}
 .o2d-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
-.o2d-stat-card{background:var(--surface);border-radius:var(--radius-xl);padding:18px 20px;border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden;min-width:0;}
+.o2d-stat-card{background:var(--surface);border-radius:var(--radius-lg);padding:12px 14px;border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden;min-width:0;}
 .o2d-stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);}
 .o2d-stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--color-primary));}
-.o2d-stat-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:12px;background:var(--accent-bg,var(--gray-100));}
-.o2d-stat-label{font-size:10.5px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.o2d-stat-value{font-size:24px;font-weight:800;letter-spacing:-.5px;color:var(--accent,var(--gray-800));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.o2d-stat-icon{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;margin-bottom:7px;background:var(--accent-bg,var(--gray-100));}
+.o2d-stat-label{font-size:9.5px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.o2d-stat-value{font-size:18px;font-weight:800;letter-spacing:-.3px;color:var(--accent,var(--gray-800));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .o2d-report-grid-2{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;}
 .o2d-report-grid-2-even{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 @media (max-width:1100px){.o2d-stat-grid{grid-template-columns:repeat(2,1fr);}}
@@ -2910,6 +2910,19 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="dl-no-print" style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Is financial year ka poora ledger (Tally jaisa) + abhi outstanding bills — Tally se pichhle sync tak ka data.</div>
     <div id="dlPrintHeading" class="dl-print-only" style="display:none"></div>
     <div id="dlBody" style="overflow-y:auto;flex:1">Loading…</div>
+  </div>
+</div>
+
+<!-- ── O2D REPORTS: STAT CARD DRILL-DOWN MODAL — stays on the Reports
+     screen; opens the underlying order/dealer list right here instead of
+     navigating away to FMS View. ── -->
+<div class="modal-overlay" id="o2dReportsDrillModal">
+  <div class="modal" style="max-width:820px;max-height:85vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin:0" id="o2dReportsDrillTitle">Orders</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('o2dReportsDrillModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="o2dReportsDrillBody" style="overflow-y:auto;flex:1"></div>
   </div>
 </div>
 
@@ -8983,40 +8996,16 @@ function o2dIsOverdue(plannedStr) {
 // ── FMS View: the full grid, one row per order, laid out exactly like the
 // sheet — Planned/Actual/Status per step, side by side. ──
 let o2dFmsSubView = 'pending';
-// Set only by a Reports stat-card click (o2dReportsGoToOrders) — narrows
-// whichever sub-view is showing to just that one slice, on top of the
-// normal pending/completed split. Cleared by picking a sub-tab by hand so
-// it never lingers as a confusing, invisible filter.
-let o2dDrillFilter = null;
-function switchO2dFmsSubView(sub) { o2dFmsSubView = sub; o2dDrillFilter = null; o2dPage = 1; renderO2dFmsView(); }
-function o2dClearDrillFilter() { o2dDrillFilter = null; renderO2dFmsView(); }
-
-// Reports stat cards jump here — same order data, just pre-filtered to
-// the slice that card was showing a count/total of.
-const O2D_DRILL_LABELS = { cancelled: 'Cancelled', dispatched: 'Dispatched', overdue: 'Overdue' };
-function o2dReportsGoToOrders(subView, drillFilter) {
-  document.getElementById('o2dSearch').value = '';
-  o2dFmsSubView = subView;
-  o2dDrillFilter = drillFilter || null;
-  o2dPage = 1;
-  switchO2dView('fms', document.getElementById('o2dViewFms'));
-}
-function o2dReportsGoToDealers() {
-  switchO2dView('dealers', document.getElementById('o2dViewDealers'));
-}
+function switchO2dFmsSubView(sub) { o2dFmsSubView = sub; o2dPage = 1; renderO2dFmsView(); }
 
 function renderO2dFmsView() {
   const wrap = document.getElementById('o2dListWrap');
-  const subTabsHtml = `<div style="display:flex;gap:6px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--gray-200);flex-wrap:wrap">
+  const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200)">
     <button onclick="switchO2dFmsSubView('pending')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='pending'?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView==='pending'?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView==='pending'?'var(--color-primary)':'var(--gray-600)'}">Pending</button>
     <button onclick="switchO2dFmsSubView('completed')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='completed'?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView==='completed'?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView==='completed'?'var(--color-primary)':'var(--gray-600)'}">Completed (All Steps)</button>
-    ${o2dDrillFilter ? `<span class="status-badge" style="background:var(--color-primary-light);color:var(--color-primary);cursor:pointer" onclick="o2dClearDrillFilter()" title="Clear filter">Filtered: ${esc(O2D_DRILL_LABELS[o2dDrillFilter] || o2dDrillFilter)} ✕</span>` : ''}
   </div>`;
 
-  let rows = o2dFilteredRows().filter(o => o2dFmsSubView === 'pending' ? !o.closed : o.closed);
-  if (o2dDrillFilter === 'cancelled') rows = rows.filter(o => o.cancelled);
-  else if (o2dDrillFilter === 'dispatched') rows = rows.filter(o => !o.cancelled);
-  else if (o2dDrillFilter === 'overdue') rows = rows.filter(o => !o.closed && o2dIsOverdue(o.steps[o.currentStep].planned));
+  const rows = o2dFilteredRows().filter(o => o2dFmsSubView === 'pending' ? !o.closed : o.closed);
   if (!rows.length) {
     wrap.innerHTML = subTabsHtml + `<div class="empty">${o2dFmsSubView === 'pending' ? 'No pending orders.' : 'No completed orders yet.'}</div>`;
     return;
@@ -9094,6 +9083,49 @@ let o2dSalesChartInst = null, o2dDeliveryChartInst = null, o2dAgingChartInst = n
 let o2dReportsFrom = '', o2dReportsTo = '';
 
 function o2dReportsFmtDate(d) { return d.toISOString().split('T')[0]; }
+
+// Stat-card drill-down — opens right here on the Reports screen instead of
+// navigating away to FMS View or Dealers. Populated fresh by
+// renderO2dReportsBody() on every render/range change, keyed by the same
+// name each card's onclick references.
+let _o2dReportsDrillData = {};
+
+function o2dOrderStatusBadge(o) {
+  if (o.cancelled) return `<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)">❌ Cancelled</span>`;
+  if (o.closed) return `<span class="status-badge completed">✅ Dispatched</span>`;
+  return `<span class="status-badge pending">Step ${o.currentStep + 1}/${O2D_STEP_DEFS.length}</span>`;
+}
+
+function o2dReportsShowDrill(title, key) {
+  const list = _o2dReportsDrillData[key] || [];
+  document.getElementById('o2dReportsDrillTitle').textContent = title;
+  const body = document.getElementById('o2dReportsDrillBody');
+  body.innerHTML = list.length ? `<table><thead><tr><th>Order No</th><th>Dealer</th><th>Items</th><th>Qty</th><th>Status</th></tr></thead><tbody>
+    ${list.map(o => `<tr class="o2d-clickable-row" onclick="closeModal('o2dReportsDrillModal');openO2dDetail('${o.orderNo}')" title="Click to open this order">
+      <td style="font-weight:600">${esc(o.orderNo || '—')}</td>
+      <td>${esc(o.counterName || '—')}</td>
+      <td style="max-width:220px;white-space:normal">${(o.products || []).map(p => esc(p.productName) + ' × ' + esc(p.qty)).join(', ') || '—'}</td>
+      <td>${esc(o.qty || '—')}</td>
+      <td>${o2dOrderStatusBadge(o)}</td>
+      <td class="o2d-row-arrow">›</td>
+    </tr>`).join('')}</tbody></table>` : '<div class="empty">No orders in this range</div>';
+  document.getElementById('o2dReportsDrillModal').classList.add('open');
+}
+
+function o2dReportsShowOutstandingDrill() {
+  const list = _o2dReportsDrillData.outstanding || [];
+  document.getElementById('o2dReportsDrillTitle').textContent = 'Dealers With Outstanding Dues';
+  const body = document.getElementById('o2dReportsDrillBody');
+  const jsEsc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  body.innerHTML = list.length ? `<table><thead><tr><th>Dealer</th><th>Outstanding</th><th>90+ Days</th></tr></thead><tbody>
+    ${list.map(d => `<tr class="o2d-clickable-row" onclick="closeModal('o2dReportsDrillModal');openDealerLedgerModal('${jsEsc(d.name)}','${jsEsc(d.phone)}')" title="Click to view Statement">
+      <td>${esc(d.name)}</td>
+      <td style="font-weight:700;color:var(--color-danger)">${inr(d.outstanding)}</td>
+      <td>${d.aging && d.aging.buckets['90+'] ? inr(d.aging.buckets['90+']) : '—'}</td>
+      <td class="o2d-row-arrow">›</td>
+    </tr>`).join('')}</tbody></table>` : '<div class="empty">No outstanding dues</div>';
+  document.getElementById('o2dReportsDrillModal').classList.add('open');
+}
 
 async function renderO2dReportsView() {
   const wrap = document.getElementById('o2dListWrap');
@@ -9226,7 +9258,11 @@ function renderO2dReportsBody() {
     if (d.outstanding) totalOutstanding += d.outstanding;
     if (d.aging) bucketOrder.forEach(b => { bucketTotals[b] += d.aging.buckets[b] || 0; });
   });
-  const topOutstanding = o2dDealers.filter(d => d.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding).slice(0, 8);
+  const allOutstanding = o2dDealers.filter(d => d.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding);
+  const topOutstanding = allOutstanding.slice(0, 8);
+
+  const overdueOrders = orders.filter(o => !o.closed && o2dIsOverdue(o.steps[o.currentStep].planned));
+  _o2dReportsDrillData = { all: orders, dispatched, cancelled, pending: pendingOrders, overdue: overdueOrders, outstanding: allOutstanding };
 
   const statCard = (label, value, accent, accentBg, icon, exact, onclick) => `
     <div class="o2d-stat-card${onclick ? ' o2d-clickable-row' : ''}" style="--accent:${accent};--accent-bg:${accentBg}"${exact ? ` title="${esc(exact)}"` : ''}${onclick ? ` onclick="${onclick}"` : ''}>
@@ -9243,14 +9279,14 @@ function renderO2dReportsBody() {
 
   body.innerHTML = `
     <div class="o2d-stat-grid">
-      ${statCard('Total Orders', orders.length, 'var(--gray-800)', 'var(--gray-100)', '🧾', null, `o2dReportsGoToOrders('pending',null)`)}
-      ${statCard('Total Sales', inrShort(totalSales), 'var(--color-success-text)', 'var(--color-success-bg)', '💰', inr(totalSales), `o2dReportsGoToOrders('completed','dispatched')`)}
-      ${statCard('Sales Lost', inrShort(lostSales), 'var(--color-danger)', 'var(--color-danger-bg)', '📉', inr(lostSales), `o2dReportsGoToOrders('completed','cancelled')`)}
-      ${statCard('Dispatched', dispatched.length, 'var(--color-success-text)', 'var(--color-success-bg)', '✅', null, `o2dReportsGoToOrders('completed','dispatched')`)}
-      ${statCard('Pending', pendingOrders.length, 'var(--color-warning-text)', 'var(--color-warning-bg)', '⏳', null, `o2dReportsGoToOrders('pending',null)`)}
-      ${statCard('Cancelled', cancelled.length, 'var(--color-danger)', 'var(--color-danger-bg)', '❌', null, `o2dReportsGoToOrders('completed','cancelled')`)}
-      ${statCard('Overdue', overdueCount, 'var(--color-danger)', 'var(--color-danger-bg)', '⚠️', null, `o2dReportsGoToOrders('pending','overdue')`)}
-      ${statCard('Total Outstanding', inrShort(totalOutstanding), 'var(--color-primary)', 'var(--color-primary-light)', '🏦', inr(totalOutstanding), `o2dReportsGoToDealers()`)}
+      ${statCard('Total Orders', orders.length, 'var(--gray-800)', 'var(--gray-100)', '🧾', null, `o2dReportsShowDrill('All Orders','all')`)}
+      ${statCard('Total Sales', inrShort(totalSales), 'var(--color-success-text)', 'var(--color-success-bg)', '💰', inr(totalSales), `o2dReportsShowDrill('Dispatched Orders (Billed)','dispatched')`)}
+      ${statCard('Sales Lost', inrShort(lostSales), 'var(--color-danger)', 'var(--color-danger-bg)', '📉', inr(lostSales), `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
+      ${statCard('Dispatched', dispatched.length, 'var(--color-success-text)', 'var(--color-success-bg)', '✅', null, `o2dReportsShowDrill('Dispatched Orders','dispatched')`)}
+      ${statCard('Pending', pendingOrders.length, 'var(--color-warning-text)', 'var(--color-warning-bg)', '⏳', null, `o2dReportsShowDrill('Pending Orders','pending')`)}
+      ${statCard('Cancelled', cancelled.length, 'var(--color-danger)', 'var(--color-danger-bg)', '❌', null, `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
+      ${statCard('Overdue', overdueCount, 'var(--color-danger)', 'var(--color-danger-bg)', '⚠️', null, `o2dReportsShowDrill('Overdue Orders','overdue')`)}
+      ${statCard('Total Outstanding', inrShort(totalOutstanding), 'var(--color-primary)', 'var(--color-primary-light)', '🏦', inr(totalOutstanding), `o2dReportsShowOutstandingDrill()`)}
     </div>
 
     <div class="o2d-report-grid-2">
