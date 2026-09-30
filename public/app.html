@@ -1426,7 +1426,7 @@ tbody tr:last-child td{border-bottom:none;}
 
   <!-- ── O2D FMS (Order to Dispatch) ── -->
   <div id="page-o2d-fms" class="page">
-    <div class="page-header">
+    <div class="page-header" id="o2dPageHeader">
       <button class="btn btn-primary" onclick="openNewO2dOrderModal()">+ New Order</button>
       <button class="btn btn-outline" onclick="loadO2dFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="o2dStepDoersBtn" style="display:none" onclick="openStepDoersModal()">⚙ Step Doers</button>
@@ -8928,6 +8928,10 @@ function switchO2dView(view, el) {
   document.querySelectorAll('#page-o2d-fms .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('o2dSearchWrap').style.display = (view === 'reports' || view === 'dealers' || view === 'bills') ? 'none' : '';
+  // New Order / Refresh / Step Doers / WhatsApp Group only make sense while
+  // actually working the FMS grid — everywhere else (PC View, Reports,
+  // Dealers, Bills Receivable) they're just clutter above the tabs.
+  document.getElementById('o2dPageHeader').style.display = view === 'fms' ? '' : 'none';
   renderO2dActiveView();
 }
 
@@ -8979,16 +8983,40 @@ function o2dIsOverdue(plannedStr) {
 // ── FMS View: the full grid, one row per order, laid out exactly like the
 // sheet — Planned/Actual/Status per step, side by side. ──
 let o2dFmsSubView = 'pending';
-function switchO2dFmsSubView(sub) { o2dFmsSubView = sub; o2dPage = 1; renderO2dFmsView(); }
+// Set only by a Reports stat-card click (o2dReportsGoToOrders) — narrows
+// whichever sub-view is showing to just that one slice, on top of the
+// normal pending/completed split. Cleared by picking a sub-tab by hand so
+// it never lingers as a confusing, invisible filter.
+let o2dDrillFilter = null;
+function switchO2dFmsSubView(sub) { o2dFmsSubView = sub; o2dDrillFilter = null; o2dPage = 1; renderO2dFmsView(); }
+function o2dClearDrillFilter() { o2dDrillFilter = null; renderO2dFmsView(); }
+
+// Reports stat cards jump here — same order data, just pre-filtered to
+// the slice that card was showing a count/total of.
+const O2D_DRILL_LABELS = { cancelled: 'Cancelled', dispatched: 'Dispatched', overdue: 'Overdue' };
+function o2dReportsGoToOrders(subView, drillFilter) {
+  document.getElementById('o2dSearch').value = '';
+  o2dFmsSubView = subView;
+  o2dDrillFilter = drillFilter || null;
+  o2dPage = 1;
+  switchO2dView('fms', document.getElementById('o2dViewFms'));
+}
+function o2dReportsGoToDealers() {
+  switchO2dView('dealers', document.getElementById('o2dViewDealers'));
+}
 
 function renderO2dFmsView() {
   const wrap = document.getElementById('o2dListWrap');
-  const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200)">
+  const subTabsHtml = `<div style="display:flex;gap:6px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--gray-200);flex-wrap:wrap">
     <button onclick="switchO2dFmsSubView('pending')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='pending'?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView==='pending'?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView==='pending'?'var(--color-primary)':'var(--gray-600)'}">Pending</button>
     <button onclick="switchO2dFmsSubView('completed')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='completed'?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView==='completed'?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView==='completed'?'var(--color-primary)':'var(--gray-600)'}">Completed (All Steps)</button>
+    ${o2dDrillFilter ? `<span class="status-badge" style="background:var(--color-primary-light);color:var(--color-primary);cursor:pointer" onclick="o2dClearDrillFilter()" title="Clear filter">Filtered: ${esc(O2D_DRILL_LABELS[o2dDrillFilter] || o2dDrillFilter)} ✕</span>` : ''}
   </div>`;
 
-  const rows = o2dFilteredRows().filter(o => o2dFmsSubView === 'pending' ? !o.closed : o.closed);
+  let rows = o2dFilteredRows().filter(o => o2dFmsSubView === 'pending' ? !o.closed : o.closed);
+  if (o2dDrillFilter === 'cancelled') rows = rows.filter(o => o.cancelled);
+  else if (o2dDrillFilter === 'dispatched') rows = rows.filter(o => !o.cancelled);
+  else if (o2dDrillFilter === 'overdue') rows = rows.filter(o => !o.closed && o2dIsOverdue(o.steps[o.currentStep].planned));
   if (!rows.length) {
     wrap.innerHTML = subTabsHtml + `<div class="empty">${o2dFmsSubView === 'pending' ? 'No pending orders.' : 'No completed orders yet.'}</div>`;
     return;
@@ -9200,8 +9228,8 @@ function renderO2dReportsBody() {
   });
   const topOutstanding = o2dDealers.filter(d => d.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding).slice(0, 8);
 
-  const statCard = (label, value, accent, accentBg, icon, exact) => `
-    <div class="o2d-stat-card" style="--accent:${accent};--accent-bg:${accentBg}"${exact ? ` title="${esc(exact)}"` : ''}>
+  const statCard = (label, value, accent, accentBg, icon, exact, onclick) => `
+    <div class="o2d-stat-card${onclick ? ' o2d-clickable-row' : ''}" style="--accent:${accent};--accent-bg:${accentBg}"${exact ? ` title="${esc(exact)}"` : ''}${onclick ? ` onclick="${onclick}"` : ''}>
       <div class="o2d-stat-icon">${icon}</div>
       <div class="o2d-stat-label">${label}</div>
       <div class="o2d-stat-value">${value}</div>
@@ -9215,14 +9243,14 @@ function renderO2dReportsBody() {
 
   body.innerHTML = `
     <div class="o2d-stat-grid">
-      ${statCard('Total Orders', orders.length, 'var(--gray-800)', 'var(--gray-100)', '🧾')}
-      ${statCard('Total Sales', inrShort(totalSales), 'var(--color-success-text)', 'var(--color-success-bg)', '💰', inr(totalSales))}
-      ${statCard('Sales Lost', inrShort(lostSales), 'var(--color-danger)', 'var(--color-danger-bg)', '📉', inr(lostSales))}
-      ${statCard('Dispatched', dispatched.length, 'var(--color-success-text)', 'var(--color-success-bg)', '✅')}
-      ${statCard('Pending', pendingOrders.length, 'var(--color-warning-text)', 'var(--color-warning-bg)', '⏳')}
-      ${statCard('Cancelled', cancelled.length, 'var(--color-danger)', 'var(--color-danger-bg)', '❌')}
-      ${statCard('Overdue', overdueCount, 'var(--color-danger)', 'var(--color-danger-bg)', '⚠️')}
-      ${statCard('Total Outstanding', inrShort(totalOutstanding), 'var(--color-primary)', 'var(--color-primary-light)', '🏦', inr(totalOutstanding))}
+      ${statCard('Total Orders', orders.length, 'var(--gray-800)', 'var(--gray-100)', '🧾', null, `o2dReportsGoToOrders('pending',null)`)}
+      ${statCard('Total Sales', inrShort(totalSales), 'var(--color-success-text)', 'var(--color-success-bg)', '💰', inr(totalSales), `o2dReportsGoToOrders('completed','dispatched')`)}
+      ${statCard('Sales Lost', inrShort(lostSales), 'var(--color-danger)', 'var(--color-danger-bg)', '📉', inr(lostSales), `o2dReportsGoToOrders('completed','cancelled')`)}
+      ${statCard('Dispatched', dispatched.length, 'var(--color-success-text)', 'var(--color-success-bg)', '✅', null, `o2dReportsGoToOrders('completed','dispatched')`)}
+      ${statCard('Pending', pendingOrders.length, 'var(--color-warning-text)', 'var(--color-warning-bg)', '⏳', null, `o2dReportsGoToOrders('pending',null)`)}
+      ${statCard('Cancelled', cancelled.length, 'var(--color-danger)', 'var(--color-danger-bg)', '❌', null, `o2dReportsGoToOrders('completed','cancelled')`)}
+      ${statCard('Overdue', overdueCount, 'var(--color-danger)', 'var(--color-danger-bg)', '⚠️', null, `o2dReportsGoToOrders('pending','overdue')`)}
+      ${statCard('Total Outstanding', inrShort(totalOutstanding), 'var(--color-primary)', 'var(--color-primary-light)', '🏦', inr(totalOutstanding), `o2dReportsGoToDealers()`)}
     </div>
 
     <div class="o2d-report-grid-2">
