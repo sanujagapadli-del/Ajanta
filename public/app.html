@@ -298,6 +298,32 @@ tbody tr:last-child td{border-bottom:none;}
 .chart-wrap{position:relative;height:200px;}
 
 /* ═══════════════════════════════
+   O2D OWNER REPORTS
+═══════════════════════════════ */
+.o2d-report-wrap{max-width:1300px;}
+.o2d-report-filterbar{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);padding:16px 20px;margin-bottom:20px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;}
+.o2d-report-filterbar label{font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;display:block;}
+.o2d-report-filterbar input[type=date]{padding:8px 12px;border:1.5px solid var(--color-primary-light);border-radius:var(--radius-md);font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800);}
+.o2d-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px;}
+.o2d-stat-card{background:var(--surface);border-radius:var(--radius-xl);padding:18px 20px;border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden;}
+.o2d-stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);}
+.o2d-stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--color-primary));}
+.o2d-stat-icon{font-size:17px;margin-bottom:8px;line-height:1;}
+.o2d-stat-label{font-size:10.5px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;}
+.o2d-stat-value{font-size:26px;font-weight:800;letter-spacing:-.5px;color:var(--accent,var(--gray-800));}
+.o2d-report-grid-2{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;}
+.o2d-report-grid-2-even{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+@media (max-width:900px){.o2d-report-grid-2,.o2d-report-grid-2-even{grid-template-columns:1fr;}}
+.o2d-report-card{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);padding:20px;margin-bottom:16px;}
+.o2d-report-card h3{font-size:13px;font-weight:700;color:var(--gray-900);margin:0 0 14px 0;display:flex;align-items:center;gap:8px;}
+.o2d-report-card h3 .hint{font-size:11px;font-weight:500;color:var(--gray-400);margin-left:auto;text-transform:none;}
+.o2d-report-card table{margin-top:2px;}
+.o2d-clickable-row{cursor:pointer;}
+.o2d-clickable-row:hover td{background:var(--color-primary-light);}
+.o2d-row-arrow{color:var(--gray-300);text-align:right !important;width:18px;font-weight:700;}
+.o2d-clickable-row:hover .o2d-row-arrow{color:var(--color-primary);}
+
+/* ═══════════════════════════════
    ALL TASKS
 ═══════════════════════════════ */
 .user-task-block{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);margin-bottom:10px;overflow:hidden;box-shadow:0 1px 8px rgba(1,80,170,.06);transition:box-shadow .18s;}
@@ -9051,15 +9077,15 @@ async function renderO2dReportsView() {
   }
 
   wrap.innerHTML = `
-    <div style="padding:16px">
-      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+    <div class="o2d-report-wrap" style="padding:16px">
+      <div class="o2d-report-filterbar">
         <div>
-          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div>
-          <input type="date" id="o2dReportsFromInput" value="${o2dReportsFrom}" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+          <label>From</label>
+          <input type="date" id="o2dReportsFromInput" value="${o2dReportsFrom}"/>
         </div>
         <div>
-          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div>
-          <input type="date" id="o2dReportsToInput" value="${o2dReportsTo}" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+          <label>To</label>
+          <input type="date" id="o2dReportsToInput" value="${o2dReportsTo}"/>
         </div>
         <button class="btn btn-primary" onclick="applyO2dReportsRange()">Generate</button>
         <div class="tab-group" id="o2dReportsQuickTabs" style="margin-left:auto">
@@ -9172,21 +9198,21 @@ function renderO2dReportsBody() {
   });
   const topOutstanding = o2dDealers.filter(d => d.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding).slice(0, 8);
 
-  const statCard = (label, value, color, icon) => `
-    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px;flex:1;min-width:160px">
-      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">${icon} ${label}</div>
-      <div style="font-size:26px;font-weight:800;color:${color}">${value}</div>
+  const statCard = (label, value, accent, icon) => `
+    <div class="o2d-stat-card" style="--accent:${accent}">
+      <div class="o2d-stat-icon">${icon}</div>
+      <div class="o2d-stat-label">${label}</div>
+      <div class="o2d-stat-value">${value}</div>
     </div>`;
 
   // Row-name → onclick-safe string (same escaping used everywhere else a
   // name goes inside a single-quoted onclick attribute, e.g. dealerCardHtml).
   const jsEsc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
   const dealerPhone = name => { const d = o2dDealers.find(x => x.name === name); return d ? d.phone : ''; };
-  const dealerRow = (name, phone, cells) => `<tr style="cursor:pointer" onclick="openDealerLedgerModal('${jsEsc(name)}','${jsEsc(phone)}')" title="Click to view Statement">${cells}</tr>`;
+  const dealerRow = (name, phone, cells) => `<tr class="o2d-clickable-row" onclick="openDealerLedgerModal('${jsEsc(name)}','${jsEsc(phone)}')" title="Click to view Statement">${cells}<td class="o2d-row-arrow">›</td></tr>`;
 
   body.innerHTML = `
-    <div style="max-width:1300px">
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+    <div class="o2d-stat-grid">
       ${statCard('Total Orders', orders.length, 'var(--gray-800)', '🧾')}
       ${statCard('Total Sales', inr(totalSales), 'var(--color-success-text)', '💰')}
       ${statCard('Sales Lost (Cancelled)', inr(lostSales), 'var(--color-danger)', '📉')}
@@ -9197,57 +9223,61 @@ function renderO2dReportsBody() {
       ${statCard('Total Outstanding', inr(totalOutstanding), 'var(--color-primary)', '🏦')}
     </div>
 
-    <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:16px">
-      <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px">
-        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:8px">📈 Sales Trend</div>
+    <div class="o2d-report-grid-2">
+      <div class="o2d-report-card">
+        <h3>📈 Sales Trend</h3>
         <div style="height:160px">${trendDays.length ? '<canvas id="o2dSalesChart"></canvas>' : '<div class="empty">No dispatched sales in this range</div>'}</div>
       </div>
-      <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px">
-        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:8px">🚚 Delivery Speed</div>
+      <div class="o2d-report-card">
+        <h3>🚚 Delivery Speed</h3>
         <div style="height:135px">${speedKnown ? '<canvas id="o2dDeliveryChart"></canvas>' : '<div class="empty">No dispatched orders in this range</div>'}</div>
         ${speedKnown ? `<div style="text-align:center;margin-top:6px;font-size:11px;color:var(--gray-500)">${samePct}% orders dispatched same-day</div>` : ''}
       </div>
     </div>
 
-    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;margin-bottom:16px">
-      <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:8px">💳 Outstanding by Age — all dealers, as of today</div>
+    <div class="o2d-report-card">
+      <h3>💳 Outstanding by Age <span class="hint">all dealers, as of today</span></h3>
       <div style="height:140px"><canvas id="o2dAgingChart"></canvas></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
-      <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px">
-        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:8px">🏆 Top Dealers by Sales <span style="font-weight:400;text-transform:none;color:var(--gray-400)">(click for Statement)</span></div>
-        ${topDealers.length ? `<table><thead><tr><th>Dealer</th><th>Sales</th></tr></thead><tbody>${topDealers.map(([name, val]) => dealerRow(name, dealerPhone(name), `<td>${esc(name)}</td><td style="font-weight:700">${inr(val)}</td>`)).join('')}</tbody></table>` : '<div class="empty">No dispatched sales in this range</div>'}
+    <div class="o2d-report-grid-2-even">
+      <div class="o2d-report-card">
+        <h3>🏆 Top Dealers by Sales <span class="hint">click for Statement</span></h3>
+        ${topDealers.length ? `<table><thead><tr><th>Dealer</th><th>Sales</th><th></th></tr></thead><tbody>${topDealers.map(([name, val]) => dealerRow(name, dealerPhone(name), `<td>${esc(name)}</td><td style="font-weight:700">${inr(val)}</td>`)).join('')}</tbody></table>` : '<div class="empty">No dispatched sales in this range</div>'}
       </div>
-      <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px">
-        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:8px">📦 Top Products by Qty Ordered</div>
+      <div class="o2d-report-card">
+        <h3>📦 Top Products by Qty Ordered</h3>
         ${topProducts.length ? `<table><thead><tr><th>Product</th><th>Qty</th></tr></thead><tbody>${topProducts.map(([name, qty]) => `<tr><td>${esc(name)}</td><td style="font-weight:700">${qty}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No orders in this range</div>'}
       </div>
     </div>
 
-    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;margin-bottom:16px">
-      <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:8px">📞 Top Dealers to Follow Up — highest outstanding <span style="font-weight:400;text-transform:none;color:var(--gray-400)">(click for Statement)</span></div>
-      ${topOutstanding.length ? `<table><thead><tr><th>Dealer</th><th>Outstanding</th><th>90+ Days</th></tr></thead><tbody>${topOutstanding.map(d => dealerRow(d.name, d.phone, `<td>${esc(d.name)}</td><td style="font-weight:700;color:var(--color-danger)">${inr(d.outstanding)}</td><td>${d.aging && d.aging.buckets['90+'] ? inr(d.aging.buckets['90+']) : '—'}</td>`)).join('')}</tbody></table>` : '<div class="empty">No outstanding dues</div>'}
+    <div class="o2d-report-card">
+      <h3>📞 Top Dealers to Follow Up <span class="hint">highest outstanding · click for Statement</span></h3>
+      ${topOutstanding.length ? `<table><thead><tr><th>Dealer</th><th>Outstanding</th><th>90+ Days</th><th></th></tr></thead><tbody>${topOutstanding.map(d => dealerRow(d.name, d.phone, `<td>${esc(d.name)}</td><td style="font-weight:700;color:var(--color-danger)">${inr(d.outstanding)}</td><td>${d.aging && d.aging.buckets['90+'] ? inr(d.aging.buckets['90+']) : '—'}</td>`)).join('')}</tbody></table>` : '<div class="empty">No outstanding dues</div>'}
     </div>
 
-    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Pending Orders By Step</div>
-    <table>
-      <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Pending Count</th></tr></thead>
-      <tbody>
-        ${O2D_STEP_DEFS.map(sd => `<tr><td style="font-weight:600">${sd.n}. ${esc(sd.label)}</td><td>${esc(stepDoerLabel(sd))}</td><td style="color:var(--gray-500)">${esc(sd.tat || '—')}</td><td>${o2dData.filter(o => !o.closed && o.currentStep === sd.n - 1).length}</td></tr>`).join('')}
-      </tbody>
-    </table>
+    <div class="o2d-report-card">
+      <h3>🪜 Pending Orders By Step</h3>
+      <table>
+        <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Pending Count</th></tr></thead>
+        <tbody>
+          ${O2D_STEP_DEFS.map(sd => `<tr><td style="font-weight:600">${sd.n}. ${esc(sd.label)}</td><td>${esc(stepDoerLabel(sd))}</td><td style="color:var(--gray-500)">${esc(sd.tat || '—')}</td><td>${o2dData.filter(o => !o.closed && o.currentStep === sd.n - 1).length}</td></tr>`).join('')}
+        </tbody>
+      </table>
     </div>`;
 
   const rootStyle = getComputedStyle(document.documentElement);
   const cssVar = name => rootStyle.getPropertyValue(name).trim();
+  const gridColor = cssVar('--gray-200') || 'rgba(148,163,184,.25)';
+  Chart.defaults.font.family = "'Inter',sans-serif";
+  Chart.defaults.color = cssVar('--gray-500') || '#64748b';
 
   if (o2dSalesChartInst) { o2dSalesChartInst.destroy(); o2dSalesChartInst = null; }
   if (trendDays.length) {
     o2dSalesChartInst = new Chart(document.getElementById('o2dSalesChart').getContext('2d'), {
       type: 'line',
-      data: { labels: trendDays.map(d => d.slice(5)), datasets: [{ label: 'Sales (₹)', data: trendDays.map(d => byDay[d] || 0), borderColor: cssVar('--color-primary'), backgroundColor: cssVar('--color-primary-light'), fill: true, tension: 0.3, pointRadius: 2 }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ₹${Number(c.raw).toLocaleString('en-IN')}` } } }, scales: { y: { beginAtZero: true } } }
+      data: { labels: trendDays.map(d => d.slice(5)), datasets: [{ label: 'Sales (₹)', data: trendDays.map(d => byDay[d] || 0), borderColor: cssVar('--color-primary'), backgroundColor: cssVar('--color-primary-light'), borderWidth: 2.5, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: cssVar('--color-primary'), pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { intersect: false, mode: 'index' }, plugins: { legend: { display: false }, tooltip: { padding: 10, cornerRadius: 8, displayColors: false, callbacks: { label: c => ` ₹${Number(c.raw).toLocaleString('en-IN')}` } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 10 }, callback: v => v >= 1000 ? `₹${v/1000}k` : `₹${v}` } } } }
     });
   }
 
@@ -9255,15 +9285,15 @@ function renderO2dReportsBody() {
   if (speedKnown) {
     o2dDeliveryChartInst = new Chart(document.getElementById('o2dDeliveryChart').getContext('2d'), {
       type: 'doughnut',
-      data: { labels: ['Same Day', 'Next Day', '2+ Days'], datasets: [{ data: [sameDay, nextDay, later], backgroundColor: [cssVar('--color-success'), cssVar('--color-warning'), cssVar('--color-danger')], borderWidth: 3, borderColor: cssVar('--surface') }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw}` } } } }
+      data: { labels: ['Same Day', 'Next Day', '2+ Days'], datasets: [{ data: [sameDay, nextDay, later], backgroundColor: [cssVar('--color-success'), cssVar('--color-warning'), cssVar('--color-danger')], borderWidth: 3, borderColor: cssVar('--surface'), hoverOffset: 6 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 12, font: { size: 11 } } }, tooltip: { padding: 10, cornerRadius: 8, callbacks: { label: c => ` ${c.label}: ${c.raw}` } } } }
     });
   }
 
   if (o2dAgingChartInst) { o2dAgingChartInst.destroy(); o2dAgingChartInst = null; }
   o2dAgingChartInst = new Chart(document.getElementById('o2dAgingChart').getContext('2d'), {
     type: 'bar',
-    data: { labels: bucketOrder, datasets: [{ label: 'Outstanding', data: bucketOrder.map(b => bucketTotals[b]), backgroundColor: [cssVar('--color-success'), cssVar('--color-warning'), cssVar('--color-warning'), cssVar('--color-danger'), cssVar('--color-danger')] }] },
+    data: { labels: bucketOrder, datasets: [{ label: 'Outstanding', data: bucketOrder.map(b => bucketTotals[b]), backgroundColor: [cssVar('--color-success'), cssVar('--color-warning'), cssVar('--color-warning'), cssVar('--color-danger'), cssVar('--color-danger')], borderRadius: 6, maxBarThickness: 56 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ₹${Number(c.raw).toLocaleString('en-IN')}` } } }, scales: { y: { beginAtZero: true } } }
   });
 }
