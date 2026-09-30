@@ -249,6 +249,14 @@ body{font-family:'Inter',sans-serif;background:var(--app-bg);color:var(--gray-90
 .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
 .page-header h2{font-size:21px;font-weight:800;letter-spacing:-.4px;}
 
+/* Service FMS — compact chrome (12 tabs + search + button row all above the
+   list) so the list itself gets most of the viewport instead of the page
+   needing a long scroll just to reach it. */
+#page-service-fms.page{padding-top:14px}
+#page-service-fms .page-header{margin-bottom:10px}
+#page-service-fms .tab-group .tab{padding:4px 10px;font-size:11px}
+#page-service-fms td,#page-service-fms th{padding:8px 10px}
+
 /* ═══════════════════════════════
    DASHBOARD
 ═══════════════════════════════ */
@@ -705,6 +713,12 @@ tbody tr:last-child td{border-bottom:none;}
 
   /* Page padding */
   .page{padding:14px 12px}
+
+  /* Service FMS — tabs/search/header shrink further so the complaint list
+     starts higher up on a short phone screen. */
+  #page-service-fms .page-header{margin-bottom:6px}
+  #page-service-fms .page-header .btn{padding:7px 10px;font-size:12px}
+  #page-service-fms .tab-group .tab{padding:3px 8px;font-size:10.5px}
 
   /* Overview cards */
   .overview-cards{grid-template-columns:repeat(3,1fr);gap:8px}
@@ -1409,7 +1423,7 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="btn btn-outline" id="sfmsStepDoersBtn" style="display:none" onclick="openSfmsStepDoersModal()">⚙ Step Doers</button>
     </div>
 
-    <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto">
+    <div style="display:flex;gap:6px;margin-bottom:8px;overflow-x:auto">
       <div class="tab-group">
         <div class="tab active" id="sfmsViewAll" onclick="switchSfmsView('all',this)">All Complaints</div>
         <div class="tab" id="sfmsViewStep1" onclick="switchSfmsView('step1',this)">1. Warranty</div>
@@ -1426,8 +1440,8 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
     </div>
 
-    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap" id="sfmsSearchWrap">
-      <input type="text" id="sfmsSearch" oninput="renderServiceFmsList()" placeholder="🔍 Search by Complain No, Name, Mobile, Product…" style="flex:1;min-width:160px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:9px 12px;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap" id="sfmsSearchWrap">
+      <input type="text" id="sfmsSearch" oninput="renderServiceFmsList()" placeholder="🔍 Search by Complain No, Name, Mobile, Product…" style="flex:1;min-width:160px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       <button class="btn btn-outline" id="sfmsExportSelectedBtn" onclick="exportSelectedComplaintsCsv()" disabled style="white-space:nowrap" title="Tick complaints below, then export just those">⬇ Export Selected (0) CSV</button>
       <a class="btn btn-outline" href="/api/service-fms/export.xlsx" download style="white-space:nowrap;text-decoration:none" title="All complaints with every detail, as an Excel sheet">⬇ Export Excel</a>
     </div>
@@ -7363,26 +7377,26 @@ function renderServiceFmsList() {
   // Point 7 — CSV export of a hand-picked subset. Selection is kept in
   // sfmsSelectedRows across re-renders (search typing, tab switches) so
   // ticking a few complaints then refining the search doesn't lose them.
-  wrap.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:2px 4px 10px;font-size:13px;color:var(--gray-500)">
+  wrap.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:2px 4px 6px;font-size:12px;color:var(--gray-500)">
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
       <input type="checkbox" id="sfmsSelectAllBox" onchange="toggleSelectAllComplaints(this.checked)"/> Select all shown (${rows.length})
     </label>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:4px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;padding:4px">
   ${rows.map(c => {
     const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
     const onHold = sfmsIsOnSpareHold(c);
     return `
-    <div onclick="openComplaintDetail(${c.row})" style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;cursor:pointer;position:relative">
-      <input type="checkbox" class="sfmsRowCheckbox" data-row="${c.row}" onclick="event.stopPropagation()" onchange="toggleComplaintSelected(${c.row}, this.checked)" ${sfmsSelectedRows.has(c.row) ? 'checked' : ''} style="position:absolute;top:14px;right:14px;width:18px;height:18px;cursor:pointer"/>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-right:24px">
-        <span style="font-size:19px;font-weight:800;color:var(--gray-800)">${esc(c.complainNo)}</span>
+    <div onclick="openComplaintDetail(${c.row})" style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:12px;padding:12px;cursor:pointer;position:relative">
+      <input type="checkbox" class="sfmsRowCheckbox" data-row="${c.row}" onclick="event.stopPropagation()" onchange="toggleComplaintSelected(${c.row}, this.checked)" ${sfmsSelectedRows.has(c.row) ? 'checked' : ''} style="position:absolute;top:11px;right:11px;width:16px;height:16px;cursor:pointer"/>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding-right:22px">
+        <span style="font-size:16px;font-weight:800;color:var(--gray-800)">${esc(c.complainNo)}</span>
         <span class="status-badge" style="background:${c.closed ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${c.closed ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${c.closed ? '✅ Closed' : 'Step ' + c.currentStep + '/' + SFMS_STEP_DEFS.length}</span>
       </div>
-      <div style="font-size:16px;font-weight:700;color:var(--gray-700);margin-bottom:4px">👤 ${esc(c.filledByName)}</div>
-      <div style="font-size:15px;color:var(--gray-500);margin-bottom:10px">📦 ${esc(c.productName)}</div>
-      ${onHold ? `<div style="background:var(--color-danger-bg);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:700;color:var(--color-danger-text)">⏸ On Hold — spare to be purchased</div>`
-        : nextStep ? `<div style="background:var(--color-purple-bg);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:700;color:var(--color-primary)">👉 ${esc(nextStep.label)}</div>` : ''}
+      <div style="font-size:14px;font-weight:700;color:var(--gray-700);margin-bottom:3px">👤 ${esc(c.filledByName)}</div>
+      <div style="font-size:13px;color:var(--gray-500);margin-bottom:7px">📦 ${esc(c.productName)}</div>
+      ${onHold ? `<div style="background:var(--color-danger-bg);border-radius:8px;padding:7px 9px;font-size:12.5px;font-weight:700;color:var(--color-danger-text)">⏸ On Hold — spare to be purchased</div>`
+        : nextStep ? `<div style="background:var(--color-purple-bg);border-radius:8px;padding:7px 9px;font-size:12.5px;font-weight:700;color:var(--color-primary)">👉 ${esc(nextStep.label)}</div>` : ''}
     </div>`;
   }).join('')}
   </div>`;
