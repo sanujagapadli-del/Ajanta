@@ -307,15 +307,13 @@ tbody tr:last-child td{border-bottom:none;}
 .o2d-stat-grid{display:grid;grid-template-columns:repeat(9,1fr);gap:10px;margin-bottom:20px;}
 .o2d-stat-card{background:var(--surface);border-radius:var(--radius-lg);padding:12px 14px;border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden;min-width:0;}
 .o2d-stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);}
-.o2d-stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--color-primary));}
+.o2d-stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent-bar,transparent);}
 .o2d-stat-icon{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;margin-bottom:7px;background:var(--accent-bg,var(--gray-100));}
 .o2d-stat-label{font-size:9.5px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .o2d-stat-value{font-size:18px;font-weight:800;letter-spacing:-.3px;color:var(--accent,var(--gray-800));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .o2d-report-grid-2{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;}
 .o2d-report-grid-2-even{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
-@media (max-width:1500px){.o2d-stat-grid{grid-template-columns:repeat(5,1fr);}}
-@media (max-width:1100px){.o2d-stat-grid{grid-template-columns:repeat(3,1fr);}}
-@media (max-width:900px){.o2d-report-grid-2,.o2d-report-grid-2-even{grid-template-columns:1fr;}}
+@media (max-width:900px){.o2d-report-grid-2,.o2d-report-grid-2-even{grid-template-columns:1fr;}.o2d-stat-grid{grid-template-columns:repeat(3,1fr);}}
 @media (max-width:640px){.o2d-stat-grid{grid-template-columns:repeat(2,1fr);}}
 @media (max-width:400px){.o2d-stat-grid{grid-template-columns:1fr;}}
 .o2d-report-card{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);padding:20px;margin-bottom:16px;}
@@ -9288,8 +9286,19 @@ function renderO2dReportsBody() {
 
   _o2dReportsDrillData = { all: orders, dispatched, cancelled, pending: pendingOrders, overdue: overdueOrders, outstanding: allOutstanding, crm: crmOrders };
 
+  // A restrained palette on purpose — a different colour per card just
+  // because there are 9 of them reads as decoration, not information.
+  // Green is reserved for genuinely good outcomes (money actually
+  // collected), red only for cards that are ACTUALLY showing a problem
+  // right now (falls back to neutral the moment the number is 0), and
+  // everything else (plain counts, informational totals) stays neutral
+  // so the red/green that IS there actually stands out.
+  const NEUTRAL = 'var(--gray-900)', NEUTRAL_BG = 'var(--gray-100)';
+  const GOOD = 'var(--color-success-text)', GOOD_BG = 'var(--color-success-bg)';
+  const BAD = 'var(--color-danger)', BAD_BG = 'var(--color-danger-bg)';
+
   const statCard = (label, value, accent, accentBg, icon, exact, onclick) => `
-    <div class="o2d-stat-card${onclick ? ' o2d-clickable-row' : ''}" style="--accent:${accent};--accent-bg:${accentBg}"${exact ? ` title="${esc(exact)}"` : ''}${onclick ? ` onclick="${onclick}"` : ''}>
+    <div class="o2d-stat-card${onclick ? ' o2d-clickable-row' : ''}" style="--accent:${accent};--accent-bg:${accentBg};--accent-bar:${accent === NEUTRAL ? 'transparent' : accent}"${exact ? ` title="${esc(exact)}"` : ''}${onclick ? ` onclick="${onclick}"` : ''}>
       <div class="o2d-stat-icon">${icon}</div>
       <div class="o2d-stat-label">${label}</div>
       <div class="o2d-stat-value">${value}</div>
@@ -9303,15 +9312,15 @@ function renderO2dReportsBody() {
 
   body.innerHTML = `
     <div class="o2d-stat-grid">
-      ${statCard('Total Orders', orders.length, 'var(--gray-800)', 'var(--gray-100)', '🧾', null, `o2dReportsShowDrill('All Orders','all')`)}
-      ${statCard('Total Sales', inrShort(totalSales), 'var(--color-success-text)', 'var(--color-success-bg)', '💰', inr(totalSales), `o2dReportsShowDrill('Dispatched Orders (Billed)','dispatched')`)}
-      ${statCard('Sales Lost', inrShort(lostSales), 'var(--color-danger)', 'var(--color-danger-bg)', '📉', inr(lostSales), `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
-      ${statCard('Dispatched', dispatched.length, 'var(--color-success-text)', 'var(--color-success-bg)', '✅', null, `o2dReportsShowDrill('Dispatched Orders','dispatched')`)}
-      ${statCard('Pending', pendingOrders.length, 'var(--color-warning-text)', 'var(--color-warning-bg)', '⏳', null, `o2dReportsShowDrill('Pending Orders','pending')`)}
-      ${statCard('Cancelled', cancelled.length, 'var(--color-danger)', 'var(--color-danger-bg)', '❌', null, `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
-      ${statCard('Overdue', overdueCount, 'var(--color-danger)', 'var(--color-danger-bg)', '⚠️', null, `o2dReportsShowDrill('Overdue Orders','overdue')`)}
-      ${statCard('Total Outstanding', inrShort(totalOutstanding), 'var(--color-primary)', 'var(--color-primary-light)', '🏦', inr(totalOutstanding), `o2dReportsShowOutstandingDrill()`)}
-      ${statCard('Sale By CRM', inrShort(crmSales), 'var(--color-purple)', 'var(--color-purple-bg)', '📞', inr(crmSales), `o2dReportsShowDrill('Sale By CRM','crm')`)}
+      ${statCard('Total Orders', orders.length, NEUTRAL, NEUTRAL_BG, '🧾', null, `o2dReportsShowDrill('All Orders','all')`)}
+      ${statCard('Total Sales', inrShort(totalSales), GOOD, GOOD_BG, '💰', inr(totalSales), `o2dReportsShowDrill('Dispatched Orders (Billed)','dispatched')`)}
+      ${statCard('Sales Lost', inrShort(lostSales), lostSales > 0 ? BAD : NEUTRAL, lostSales > 0 ? BAD_BG : NEUTRAL_BG, '📉', inr(lostSales), `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
+      ${statCard('Dispatched', dispatched.length, GOOD, GOOD_BG, '✅', null, `o2dReportsShowDrill('Dispatched Orders','dispatched')`)}
+      ${statCard('Pending', pendingOrders.length, NEUTRAL, NEUTRAL_BG, '⏳', null, `o2dReportsShowDrill('Pending Orders','pending')`)}
+      ${statCard('Cancelled', cancelled.length, cancelled.length > 0 ? BAD : NEUTRAL, cancelled.length > 0 ? BAD_BG : NEUTRAL_BG, '❌', null, `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
+      ${statCard('Overdue', overdueCount, overdueCount > 0 ? BAD : NEUTRAL, overdueCount > 0 ? BAD_BG : NEUTRAL_BG, '⚠️', null, `o2dReportsShowDrill('Overdue Orders','overdue')`)}
+      ${statCard('Total Outstanding', inrShort(totalOutstanding), NEUTRAL, NEUTRAL_BG, '🏦', inr(totalOutstanding), `o2dReportsShowOutstandingDrill()`)}
+      ${statCard('Sale By CRM', inrShort(crmSales), NEUTRAL, NEUTRAL_BG, '📞', inr(crmSales), `o2dReportsShowDrill('Sale By CRM','crm')`)}
     </div>
 
     <div class="o2d-report-grid-2">
