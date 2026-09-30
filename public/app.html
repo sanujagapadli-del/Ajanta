@@ -304,16 +304,18 @@ tbody tr:last-child td{border-bottom:none;}
 .o2d-report-filterbar{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);padding:16px 20px;margin-bottom:20px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;}
 .o2d-report-filterbar label{font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;display:block;}
 .o2d-report-filterbar input[type=date]{padding:8px 12px;border:1.5px solid var(--color-primary-light);border-radius:var(--radius-md);font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800);}
-.o2d-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px;}
-.o2d-stat-card{background:var(--surface);border-radius:var(--radius-xl);padding:18px 20px;border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden;}
+.o2d-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
+.o2d-stat-card{background:var(--surface);border-radius:var(--radius-xl);padding:18px 20px;border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);transition:transform .18s,box-shadow .18s;position:relative;overflow:hidden;min-width:0;}
 .o2d-stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);}
 .o2d-stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--color-primary));}
-.o2d-stat-icon{font-size:17px;margin-bottom:8px;line-height:1;}
-.o2d-stat-label{font-size:10.5px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;}
-.o2d-stat-value{font-size:26px;font-weight:800;letter-spacing:-.5px;color:var(--accent,var(--gray-800));}
+.o2d-stat-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:12px;background:var(--accent-bg,var(--gray-100));}
+.o2d-stat-label{font-size:10.5px;color:var(--gray-400);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.o2d-stat-value{font-size:24px;font-weight:800;letter-spacing:-.5px;color:var(--accent,var(--gray-800));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .o2d-report-grid-2{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;}
 .o2d-report-grid-2-even{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+@media (max-width:1100px){.o2d-stat-grid{grid-template-columns:repeat(2,1fr);}}
 @media (max-width:900px){.o2d-report-grid-2,.o2d-report-grid-2-even{grid-template-columns:1fr;}}
+@media (max-width:520px){.o2d-stat-grid{grid-template-columns:1fr;}}
 .o2d-report-card{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);padding:20px;margin-bottom:16px;}
 .o2d-report-card h3{font-size:13px;font-weight:700;color:var(--gray-900);margin:0 0 14px 0;display:flex;align-items:center;gap:8px;}
 .o2d-report-card h3 .hint{font-size:11px;font-weight:500;color:var(--gray-400);margin-left:auto;text-transform:none;}
@@ -9198,8 +9200,8 @@ function renderO2dReportsBody() {
   });
   const topOutstanding = o2dDealers.filter(d => d.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding).slice(0, 8);
 
-  const statCard = (label, value, accent, icon) => `
-    <div class="o2d-stat-card" style="--accent:${accent}">
+  const statCard = (label, value, accent, accentBg, icon, exact) => `
+    <div class="o2d-stat-card" style="--accent:${accent};--accent-bg:${accentBg}"${exact ? ` title="${esc(exact)}"` : ''}>
       <div class="o2d-stat-icon">${icon}</div>
       <div class="o2d-stat-label">${label}</div>
       <div class="o2d-stat-value">${value}</div>
@@ -9213,14 +9215,14 @@ function renderO2dReportsBody() {
 
   body.innerHTML = `
     <div class="o2d-stat-grid">
-      ${statCard('Total Orders', orders.length, 'var(--gray-800)', '🧾')}
-      ${statCard('Total Sales', inr(totalSales), 'var(--color-success-text)', '💰')}
-      ${statCard('Sales Lost (Cancelled)', inr(lostSales), 'var(--color-danger)', '📉')}
-      ${statCard('Dispatched', dispatched.length, 'var(--color-success-text)', '✅')}
-      ${statCard('Pending', pendingOrders.length, 'var(--color-warning-text)', '⏳')}
-      ${statCard('Cancelled', cancelled.length, 'var(--color-danger)', '❌')}
-      ${statCard('Overdue', overdueCount, 'var(--color-danger)', '⚠️')}
-      ${statCard('Total Outstanding', inr(totalOutstanding), 'var(--color-primary)', '🏦')}
+      ${statCard('Total Orders', orders.length, 'var(--gray-800)', 'var(--gray-100)', '🧾')}
+      ${statCard('Total Sales', inrShort(totalSales), 'var(--color-success-text)', 'var(--color-success-bg)', '💰', inr(totalSales))}
+      ${statCard('Sales Lost', inrShort(lostSales), 'var(--color-danger)', 'var(--color-danger-bg)', '📉', inr(lostSales))}
+      ${statCard('Dispatched', dispatched.length, 'var(--color-success-text)', 'var(--color-success-bg)', '✅')}
+      ${statCard('Pending', pendingOrders.length, 'var(--color-warning-text)', 'var(--color-warning-bg)', '⏳')}
+      ${statCard('Cancelled', cancelled.length, 'var(--color-danger)', 'var(--color-danger-bg)', '❌')}
+      ${statCard('Overdue', overdueCount, 'var(--color-danger)', 'var(--color-danger-bg)', '⚠️')}
+      ${statCard('Total Outstanding', inrShort(totalOutstanding), 'var(--color-primary)', 'var(--color-primary-light)', '🏦', inr(totalOutstanding))}
     </div>
 
     <div class="o2d-report-grid-2">
@@ -9328,6 +9330,19 @@ function starsHtml(n) {
 }
 
 function inr(n) { return '₹' + Math.round(n).toLocaleString('en-IN'); }
+
+// Compact currency for glanceable stat cards — Lakhs/Crores instead of a
+// long comma-string that overflows a fixed-width card (e.g. ₹1.06 Cr
+// instead of ₹1,06,08,461). Full precision stays in tables/tooltips.
+function inrShort(n) {
+  const v = Math.round(n || 0);
+  const abs = Math.abs(v);
+  const trim = s => s.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  if (abs >= 1e7) return '₹' + trim((v / 1e7).toFixed(2)) + ' Cr';
+  if (abs >= 1e5) return '₹' + trim((v / 1e5).toFixed(2)) + ' L';
+  if (abs >= 1e3) return '₹' + trim((v / 1e3).toFixed(1)) + 'k';
+  return inr(v);
+}
 
 function onDealerSearchInput(v) {
   o2dDealerSearchQ = v;
