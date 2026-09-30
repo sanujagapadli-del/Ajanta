@@ -7289,14 +7289,19 @@ function renderSfmsStepView(n) {
   // The action column is pinned to the right edge (position:sticky) so it
   // stays visible while scrolling through the detail columns, instead of
   // needing a full scroll to the far right just to see the submit button.
+  // Complain No is pinned to the left edge the same way — otherwise, once
+  // scrolled right to reach the action column, staff had to scroll all the
+  // way back left just to see which complaint/customer they were on.
   const stickyTh = 'position:sticky;right:0;background:var(--surface-alt);box-shadow:-2px 0 4px rgba(0,0,0,.06)';
   const stickyTd = 'position:sticky;right:0;background:#fff;box-shadow:-2px 0 4px rgba(0,0,0,.06)';
+  const stickyLeftTh = 'position:sticky;left:0;z-index:1;background:var(--surface-alt);box-shadow:2px 0 4px rgba(0,0,0,.06)';
+  const stickyLeftTd = 'position:sticky;left:0;z-index:1;background:#fff;box-shadow:2px 0 4px rgba(0,0,0,.06)';
   const isWarrantyTab = n === 1;
   const isSpareCheckTab = n === 2; // point 8 — ownership shown clearly here
   wrap.innerHTML = zoneFilterHtml + `<div class="mis-table-wrap" style="overflow-x:auto;margin-top:${isAssignTab ? '12px' : '0'}">
   <table>
     <thead><tr>
-      <th>Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
+      <th style="${stickyLeftTh}">Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
       <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Photos</th><th>Pending</th>
       ${isWarrantyTab ? '<th>Warranty Status</th>' : ''}
       ${isSpareCheckTab ? '<th>Ownership</th>' : ''}
@@ -7310,7 +7315,7 @@ function renderSfmsStepView(n) {
         const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
           (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:6px">📷</a>` : '');
         return `<tr>
-          <td style="font-weight:600;cursor:pointer;white-space:nowrap" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}</td>
+          <td style="${stickyLeftTd};font-weight:600;cursor:pointer;white-space:nowrap" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}</td>
           <td style="white-space:nowrap">${esc(c.filledByName)}</td>
           <td style="white-space:nowrap"><a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a></td>
           <td style="white-space:nowrap">${esc(c.dealerName || '—')}</td>
