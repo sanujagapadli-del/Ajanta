@@ -1663,11 +1663,22 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="form-group">
         <label>Approval Required</label>
-        <select id="dApproval">
+        <select id="dApproval" onchange="toggleDApproverField()">
           <option value="no">No Approval</option>
           <option value="yes">Yes — Require Approval</option>
         </select>
       </div>
+    </div>
+    <div class="form-group" id="dApproverWrap" style="display:none">
+      <label>Approver</label>
+      <select id="dApprover"><option value="">Select Approver</option></select>
+    </div>
+    <div class="form-group">
+      <label>Attachment Required</label>
+      <select id="dAttachment">
+        <option value="no">No — photo not needed to mark done</option>
+        <option value="yes">Yes — require a photo to mark done</option>
+      </select>
     </div>
     <div class="form-group">
       <label>Title</label>
@@ -2069,6 +2080,21 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- TASK ATTACHMENT (PHOTO PROOF-OF-COMPLETION) MODAL -->
+<div class="modal-overlay" id="taskAttachmentModal">
+  <div class="modal" style="max-width:380px;padding:24px">
+    <div style="font-size:34px;margin-bottom:8px;text-align:center">📎</div>
+    <div style="font-size:15px;font-weight:700;color:var(--gray-800);margin-bottom:6px;text-align:center">Photo Required</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px;text-align:center">Is task ko "Done" mark karne se pehle proof photo upload karo.</div>
+    <input type="file" id="taskAttachmentFile" accept="image/*" style="width:100%;font-size:13px;margin-bottom:12px"/>
+    <div class="alert error" id="taskAttachmentErr" style="display:none"></div>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:8px">
+      <button onclick="closeModal('taskAttachmentModal')" style="padding:8px 22px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface);color:var(--gray-500);font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
+      <button id="taskAttachmentSubmitBtn" onclick="submitTaskAttachment()" style="padding:8px 22px;border:none;border-radius:8px;background:var(--color-primary);color:#fff;font-size:13px;font-weight:700;cursor:pointer">Upload &amp; Mark Done</button>
+    </div>
+  </div>
+</div>
+
 <!--
      REVISE DATE MODAL
 ══════════════════════════════════════ -->
@@ -2136,6 +2162,14 @@ tbody tr:last-child td{border-bottom:none;}
         <option value="no">No</option>
         <option value="yes">Yes</option>
       </select>
+    </div>
+    <div class="form-group" id="editTAttachmentWrap">
+      <label>Attachment Required</label>
+      <select id="editTAttachment">
+        <option value="no">No — photo not needed to mark done</option>
+        <option value="yes">Yes — require a photo to mark done</option>
+      </select>
+      <div id="editTAttachmentLinkWrap" style="display:none;margin-top:6px;font-size:12px"><a id="editTAttachmentLink" href="#" target="_blank" rel="noopener">📎 View uploaded proof photo</a></div>
     </div>
     <div class="form-group">
       <label>Remarks</label>
@@ -3662,20 +3696,20 @@ function renderDashTable(tasks, type) {
     } else if (rs === 'approved') {
       rowStyle = 'background:var(--color-success-bg)';
       actions = `<span style="font-size:11px;background:var(--color-success-bg);color:var(--color-success-text);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-success-border)">✅ Revision Granted</span>`;
-      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>`;
+      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
     } else if (rs === 'rejected') {
       rowStyle = 'background:var(--color-danger-bg)';
       actions = `<span style="font-size:11px;background:var(--color-danger-bg);color:var(--color-danger);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-danger-border)">❌ Revision Rejected</span>`;
       if (!isPC) {
-        actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>`;
+        actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
         actions += ` <button class="action-btn revise" style="margin-left:4px" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
       }
     } else if (isRevised) {
       rowStyle = 'background:#fffdf0';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">🔄 Revision Applied</span>`;
-      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>`;
+      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
     } else {
-      if (!isPC || t.type==='checklist') actions += `<button class="action-btn done" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}')">Done</button>`;
+      if (!isPC || t.type==='checklist') actions += `<button class="action-btn done" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
       if (!isPC && t.type!=='checklist') actions += ` <button class="action-btn revise" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
     }
     return `<tr style="${rowStyle}">
@@ -3820,17 +3854,17 @@ function _taskActionBtns(t, isAdmin, isChecklist) {
     <button class="action-btn edit" style="padding:4px 7px" onclick="openEditTask(${t.id},'${tasksType}')" title="Edit">✏️</button>
     <button class="action-btn delete" style="padding:4px 7px;margin-left:3px" onclick="deleteTask(${t.id},'${tasksType}')" title="Delete">🗑</button>
     <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px;margin-left:3px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
-    ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}')">Done</button>` : ''}
+    ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button>` : ''}
     ${!isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${tasksType}')">Revise</button>` : ''}
     ${isWaiting ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
   if (ME.role==='pc') return `
     <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
-    ${isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}')">Done</button>` : ''}
+    ${isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button>` : ''}
     ${isWaiting ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
   return `
     <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
-    ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}')">Done</button>${!isChecklist?`<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${tasksType}')">Revise</button>`:''}` : ''}
-    ${isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}')">Done</button><span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
+    ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button>${!isChecklist?`<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${tasksType}')">Revise</button>`:''}` : ''}
+    ${isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button><span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
 }
 
 const _empGroupOpen = {};
@@ -3979,13 +4013,50 @@ function tasksTab(type, el) {
 // ══════════════════════════════════════════════════════
 // TASK ACTIONS
 // ══════════════════════════════════════════════════════
-async function updateStatus(id, status, from, type) {
+async function updateStatus(id, status, from, type, requiresAttachment) {
+  if (status === 'completed' && requiresAttachment) { openAttachmentProofModal(id, from, type || dashType); return; }
   const r = await api(`/api/tasks/${id}/status`,'PUT',{status, type: type || dashType});
+  if (r.error) { showToast(r.error, 'error'); return; }
   if (r.needsApproval) {
     showToast('✅ Approval request sent to your manager!');
   }
   if (from==='dashboard') scheduleDashboardRefresh(); else loadAllTasks();
   loadApprovalBadge();
+}
+
+// Photo proof-of-completion — some delegated tasks require a photo before
+// they can be marked done at all (see the Delegate/Edit Task "Attachment
+// Required" toggle). Camera or gallery, same as every other photo field in
+// this app — no capture="environment" forcing the camera app directly.
+let _taskAttachmentCtx = null; // { id, from, type }
+function openAttachmentProofModal(id, from, type) {
+  _taskAttachmentCtx = { id, from, type };
+  document.getElementById('taskAttachmentFile').value = '';
+  document.getElementById('taskAttachmentErr').style.display = 'none';
+  document.getElementById('taskAttachmentModal').classList.add('open');
+}
+
+async function submitTaskAttachment() {
+  const err = document.getElementById('taskAttachmentErr');
+  err.style.display = 'none';
+  const file = document.getElementById('taskAttachmentFile').files[0];
+  if (!file) { err.textContent = 'Please choose a photo'; err.style.display = 'block'; return; }
+  const btn = document.getElementById('taskAttachmentSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    let dataUrl;
+    try { dataUrl = await compressImageToDataURL(file, 1400, 0.7); }
+    catch (e) { dataUrl = await compressImageToDataURL(file, 1000, 0.6); }
+    const { id, from, type } = _taskAttachmentCtx;
+    const r = await api(`/api/tasks/${id}/status`, 'PUT', { status: 'completed', type, attachmentPhoto: dataUrl });
+    if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+    closeModal('taskAttachmentModal');
+    if (from === 'dashboard') scheduleDashboardRefresh(); else loadAllTasks();
+    loadApprovalBadge();
+    showToast('✅ Task marked done!');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Upload & Mark Done';
+  }
 }
 
 let _confirmCb = null;
@@ -4127,9 +4198,13 @@ async function openEditTask(id, type) {
   const isDeleg = type === 'delegation';
   document.getElementById('editTPriorityWrap').style.display = isDeleg ? 'block' : 'none';
   document.getElementById('editTApprovalWrap').style.display = isDeleg ? 'block' : 'none';
+  document.getElementById('editTAttachmentWrap').style.display = isDeleg ? 'block' : 'none';
   if (isDeleg) {
     document.getElementById('editTPriority').value = t.priority || 'low';
     document.getElementById('editTApproval').value = t.approval || 'no';
+    document.getElementById('editTAttachment').value = t.attachment_required || 'no';
+    document.getElementById('editTAttachmentLinkWrap').style.display = t.attachment_link ? 'block' : 'none';
+    if (t.attachment_link) document.getElementById('editTAttachmentLink').href = t.attachment_link;
   }
 
   document.getElementById('editTaskModal').classList.add('open');
@@ -4153,6 +4228,7 @@ async function saveEditTask() {
   if (type === 'delegation') {
     body.priority = document.getElementById('editTPriority').value;
     body.approval = document.getElementById('editTApproval').value;
+    body.attachmentRequired = document.getElementById('editTAttachment').value;
   }
 
   const r = await api(`/api/tasks/${id}/edit`,'PUT', body);
@@ -4225,15 +4301,25 @@ async function openDelegate() {
   document.getElementById('dLink').value='';
   document.getElementById('dPriority').value='low';
   document.getElementById('dApproval').value='no';
+  document.getElementById('dApprover').value='';
+  document.getElementById('dApproverWrap').style.display='none';
+  document.getElementById('dAttachment').value='no';
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('dStartDate').value=today;
   document.getElementById('dDate').value=today;
   document.getElementById('dDate').min=today;
   const users = await api('/api/users/roster');
+  _delegateUsers = users;
   const activeUsers = users.filter(u => u.is_active == null || +u.is_active === 1);
   const opts = activeUsers.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('');
   document.getElementById('dDoer').innerHTML='<option value="">Select Doer</option>'+opts;
+  document.getElementById('dApprover').innerHTML='<option value="">Select Approver</option>'+opts;
   document.getElementById('delegateModal').classList.add('open');
+}
+
+let _delegateUsers = [];
+function toggleDApproverField() {
+  document.getElementById('dApproverWrap').style.display = document.getElementById('dApproval').value === 'yes' ? 'block' : 'none';
 }
 
 async function saveDelegate() {
@@ -4246,14 +4332,18 @@ async function saveDelegate() {
   const desc      = document.getElementById('dDesc').value.trim();
   const priority  = document.getElementById('dPriority').value;
   const approval  = document.getElementById('dApproval').value;
+  const approverId = document.getElementById('dApprover').value;
+  const attachmentRequired = document.getElementById('dAttachment').value;
   const remarks   = document.getElementById('dRemarks').value.trim();
   const link      = document.getElementById('dLink').value.trim();
   if (!doer) { err.textContent='Please select a doer'; err.style.display='block'; return; }
   if (!date) { err.textContent='Please select a due date'; err.style.display='block'; return; }
   if (!desc) { err.textContent='Description is required'; err.style.display='block'; return; }
+  if (approval === 'yes' && !approverId) { err.textContent='Please select an approver'; err.style.display='block'; return; }
+  const approverEmail = approverId ? (_delegateUsers.find(u => String(u.id) === String(approverId)) || {}).email : undefined;
   const btn = document.querySelector('[onclick="saveDelegate()"]');
   if (btn) btn.disabled = true;
-  await api('/api/tasks','POST',{type:'delegation',title,desc,assignedTo:doer,startDate,date,priority,approval,remarks,link});
+  await api('/api/tasks','POST',{type:'delegation',title,desc,assignedTo:doer,approverEmail,startDate,date,priority,approval,attachmentRequired,remarks,link});
   if (btn) btn.disabled = false;
   closeModal('delegateModal');
   showToast('Task delegated successfully!');

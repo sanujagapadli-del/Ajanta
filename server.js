@@ -174,6 +174,14 @@ const _dbReady = db.init()
       // kept separate from the free-text department column on purpose.
       try { await db.query('ALTER TABLE users ADD COLUMN track_km TINYINT DEFAULT 0'); }
       catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ track_km migration skipped:', e.message); }
+      // Migration: add photo-proof-of-completion columns to delegation_tasks
+      // — attachment_required (set from the Delegate/Edit Task modal) gates
+      // whether "Mark Done" first needs a photo upload; attachment_link is
+      // the resulting Drive link once one's been provided.
+      try { await db.query("ALTER TABLE delegation_tasks ADD COLUMN attachment_required VARCHAR(10) DEFAULT 'no'"); }
+      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attachment_required migration skipped:', e.message); }
+      try { await db.query('ALTER TABLE delegation_tasks ADD COLUMN attachment_link TEXT DEFAULT NULL'); }
+      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attachment_link migration skipped:', e.message); }
       // Migration: add GPS columns to an already-created attendance table
       // (a brand new install instead gets them straight from CREATE TABLE
       // in ensureAttendanceTables — ER_NO_SUCH_TABLE here is expected then).
@@ -1182,12 +1190,12 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 
     let delegationPending = [], checklistPending = [];
     if (taskType === 'delegation' || taskType === 'both') {
-      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${delDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
+      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${delDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
       delegationPending = rows.map(t => ({ ...t, type: 'delegation', frequency: '', assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
     }
     if (taskType === 'checklist' || taskType === 'both') {
       const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.frequency,'') AS frequency,t.remarks,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM checklist_tasks t WHERE t.status IN ('pending','revised') ${chkDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
-      checklistPending = rows.map(t => ({ ...t, type: 'checklist', approval: 'no', waiting_approval: 0, assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
+      checklistPending = rows.map(t => ({ ...t, type: 'checklist', approval: 'no', waiting_approval: 0, attachment_required: 'no', assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
     }
     res.json({ pending, revised, completed, todayPending: [...delegationPending, ...checklistPending] });
   } catch (err) { sendServerError(res, err); }
@@ -1249,7 +1257,7 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
     // LIMIT is a safety ceiling (matches /api/dashboard's own cap), not a
     // real pagination UX — this endpoint's grouped-by-user response isn't
     // set up for paging without also changing the frontend's "All Tasks" view.
-    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,":"'no' AS approval,0 AS waiting_approval,t.remarks,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
+    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,":"'no' AS approval,0 AS waiting_approval,t.remarks,'no' AS attachment_required,NULL AS attachment_link,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
     const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]?.name||'', assignedToDept: uMap[t.assigned_to]?.dept||'', assignedByName: uMap[t.assigned_by]?.name||'' }));
 
     // mine=1 mode always returns flat tasks (not grouped)
@@ -1270,7 +1278,7 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
 
 app.post('/api/tasks', requireAuth, async (req, res) => {
   try {
-    const { type, title, desc, assignedTo, approverEmail, startDate, date, priority, approval, remarks, link } = req.body;
+    const { type, title, desc, assignedTo, approverEmail, startDate, date, priority, approval, attachmentRequired, remarks, link } = req.body;
     const isAdmin = req.session.role === 'admin';
     const isHod   = req.session.role === 'hod';
     const isUser  = req.session.role === 'user';
@@ -1289,7 +1297,7 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
         const [aprRows] = await db.query('SELECT id FROM users WHERE email=? LIMIT 1', [approverEmail]);
         if (aprRows.length) assignedBy = aprRows[0].id;
       }
-      await db.query(`INSERT INTO delegation_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,approval,remarks,link) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, assignedBy, startDate||'', date, 'pending', priority||'low', approval||'no', remarks||'', link||'']);
+      await db.query(`INSERT INTO delegation_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,approval,attachment_required,remarks,link) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, assignedBy, startDate||'', date, 'pending', priority||'low', approval||'no', attachmentRequired||'no', remarks||'', link||'']);
       // 📧 Send delegation email (non-blocking — fire and forget). Wrapped in
       // its own try/catch so a failure here (DB hiccup, mail error) can't
       // become an unhandled rejection — task creation itself already succeeded.
@@ -1348,7 +1356,7 @@ app.post('/api/tasks/bulk-checklist', requireAuth, requireAdmin, async (req, res
 
 app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
   try {
-    const { status, type, newDate, reason } = req.body;
+    const { status, type, newDate, reason, attachmentPhoto } = req.body;
     const table = getTable(type||'delegation');
     const isAdmin = req.session.role === 'admin';
     const isPC = req.session.role === 'pc';
@@ -1358,6 +1366,17 @@ app.put('/api/tasks/:id/status', requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: 'Task not found' });
     const task = rows[0];
     if (!isAdmin && !isPC && task.assigned_to !== uid) return res.status(403).json({ error: 'Not allowed' });
+    // Photo proof-of-completion — some delegated tasks require one (set via
+    // the Delegate/Edit Task "Attachment Required" toggle). Checked before
+    // any of the approval routing below, so a task that ALSO needs approval
+    // still can't skip straight past this. Once uploaded it's on the row
+    // for good, so re-completing after an un-complete doesn't ask again.
+    if (status === 'completed' && type === 'delegation' && task.attachment_required === 'yes' && !task.attachment_link) {
+      if (!attachmentPhoto) return res.status(400).json({ error: 'A photo attachment is required to mark this task done.' });
+      const link = await uploadPhotoToDrive(attachmentPhoto, `task-${taskId}-proof.jpg`);
+      await db.query(`UPDATE ${table} SET attachment_link=? WHERE id=?`, [link, taskId]);
+      task.attachment_link = link;
+    }
     // Timestamp: set to NOW() on completed; otherwise NULL (cleared on un-complete).
     const nowTs = new Date().toISOString().slice(0,19).replace('T',' ');
     const completedAt = status === 'completed' ? nowTs : null;
@@ -1410,10 +1429,10 @@ app.get('/api/tasks/:id/detail', requireAuth, requireAdmin, async (req, res) => 
 
 app.put('/api/tasks/:id/edit', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { type, title, desc, startDate, date, priority, approval, remarks } = req.body;
+    const { type, title, desc, startDate, date, priority, approval, attachmentRequired, remarks } = req.body;
     const table = getTable(type||'delegation');
     const taskId = parseInt(req.params.id, 10);
-    if (type === 'delegation') await db.query(`UPDATE ${table} SET title=?,description=?,start_date=?,due_date=?,priority=?,approval=?,remarks=? WHERE id=?`, [title||'', desc, startDate||'', date, priority||'low', approval||'no', remarks||'', taskId]);
+    if (type === 'delegation') await db.query(`UPDATE ${table} SET title=?,description=?,start_date=?,due_date=?,priority=?,approval=?,attachment_required=?,remarks=? WHERE id=?`, [title||'', desc, startDate||'', date, priority||'low', approval||'no', attachmentRequired||'no', remarks||'', taskId]);
     else await db.query(`UPDATE ${table} SET title=?,description=?,start_date=?,due_date=?,remarks=? WHERE id=?`, [title||'', desc, startDate||'', date, remarks||'', taskId]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
