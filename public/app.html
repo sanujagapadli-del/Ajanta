@@ -9335,9 +9335,27 @@ function renderO2dReportsBody() {
       </div>
     </div>
 
-    <div class="o2d-report-card">
-      <h3>💳 Outstanding by Age <span class="hint">all dealers, as of today</span></h3>
-      <div style="height:140px"><canvas id="o2dAgingChart"></canvas></div>
+    <div class="o2d-report-grid-2-even">
+      <div class="o2d-report-card">
+        <h3>💳 Outstanding by Age <span class="hint">all dealers, as of today</span></h3>
+        <div style="height:200px"><canvas id="o2dAgingChart"></canvas></div>
+      </div>
+      <div class="o2d-report-card" style="max-height:280px;overflow-y:auto">
+        <h3>📞 Top Dealers to Follow Up <span class="hint">click for Statement</span></h3>
+        ${topOutstanding.length ? topOutstanding.map(d => {
+          const chips = bucketOrder.filter(b => d.aging && d.aging.buckets[b] > 0).map(b =>
+            `<span class="status-badge" style="background:${b === '90+' || b === '60-90' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${b === '90+' || b === '60-90' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'};margin-right:4px;margin-top:3px;display:inline-block">${b}: ${inr(d.aging.buckets[b])}</span>`
+          ).join('') || '<span style="color:var(--gray-400)">No aging breakdown</span>';
+          return `<div class="o2d-drill-row" onclick="openDealerLedgerModal('${jsEsc(d.name)}','${jsEsc(d.phone)}')" title="Click to view Statement">
+            <div class="o2d-drill-row-main">
+              <div class="o2d-drill-row-title">${esc(d.name)}${d.phone ? ` <span class="hint">📱 ${esc(d.phone)}</span>` : ''}</div>
+              <div class="o2d-drill-row-sub">${chips}</div>
+            </div>
+            <div class="o2d-drill-row-value" style="color:var(--color-danger)">${inr(d.outstanding)}</div>
+            <div class="o2d-drill-row-arrow">›</div>
+          </div>`;
+        }).join('') : '<div class="empty">No outstanding dues</div>'}
+      </div>
     </div>
 
     <div class="o2d-report-grid-2-even">
@@ -9349,11 +9367,6 @@ function renderO2dReportsBody() {
         <h3>📦 Top Products by Qty Ordered</h3>
         ${topProducts.length ? `<table><thead><tr><th>Product</th><th>Qty</th></tr></thead><tbody>${topProducts.map(([name, qty]) => `<tr><td>${esc(name)}</td><td style="font-weight:700">${qty}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No orders in this range</div>'}
       </div>
-    </div>
-
-    <div class="o2d-report-card">
-      <h3>📞 Top Dealers to Follow Up <span class="hint">highest outstanding · click for Statement</span></h3>
-      ${topOutstanding.length ? `<table><thead><tr><th>Dealer</th><th>Outstanding</th><th>90+ Days</th><th></th></tr></thead><tbody>${topOutstanding.map(d => dealerRow(d.name, d.phone, `<td>${esc(d.name)}</td><td style="font-weight:700;color:var(--color-danger)">${inr(d.outstanding)}</td><td>${d.aging && d.aging.buckets['90+'] ? inr(d.aging.buckets['90+']) : '—'}</td>`)).join('')}</tbody></table>` : '<div class="empty">No outstanding dues</div>'}
     </div>
 
     <div class="o2d-report-card">
