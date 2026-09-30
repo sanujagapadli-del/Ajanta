@@ -9163,6 +9163,14 @@ function o2dReportsShowDrill(title, key) {
 // string attribute) — shared so each drill function doesn't redeclare it.
 function o2dJsEsc(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
 
+// "Good Check" is the step's process name, not a reason anyone reading a
+// business report would recognise — what actually happened there is the
+// item came back "Not Available". Every other step's own label already
+// reads fine as a reason ("Accounts is ok or not") and is shown as-is.
+function o2dReportsLostReasonLabel(reason) {
+  return reason === 'Good Check' ? 'Item Not Available (Good Check)' : reason;
+}
+
 // Sales Lost — two-level drill: first WHY (grouped by which step actually
 // cancelled the item — an order-level "No", or a per-item Good Check
 // "Not Available"), then which specific order/items for that reason.
@@ -9173,7 +9181,7 @@ function o2dReportsShowLostSalesDrill() {
   const body = document.getElementById('o2dReportsDrillBody');
   body.innerHTML = entries.length ? entries.map(([reason, data]) => `<div class="o2d-drill-row" onclick="o2dReportsShowLostSalesItems('${o2dJsEsc(reason)}')" title="Click to see the affected items">
       <div class="o2d-drill-row-main">
-        <div class="o2d-drill-row-title">${esc(reason)}</div>
+        <div class="o2d-drill-row-title">${esc(o2dReportsLostReasonLabel(reason))}</div>
         <div class="o2d-drill-row-sub">${data.count} item${data.count > 1 ? 's' : ''}</div>
       </div>
       <div class="o2d-drill-row-value" style="color:var(--color-danger)">${inr(data.value)}</div>
@@ -9185,7 +9193,7 @@ function o2dReportsShowLostSalesDrill() {
 function o2dReportsShowLostSalesItems(reason) {
   const data = (_o2dReportsDrillData.lostByReason || {})[reason];
   const items = data ? data.items : [];
-  document.getElementById('o2dReportsDrillTitle').innerHTML = `<span style="cursor:pointer;color:var(--color-primary)" onclick="o2dReportsShowLostSalesDrill()" title="Back">‹</span> ${esc(reason)}`;
+  document.getElementById('o2dReportsDrillTitle').innerHTML = `<span style="cursor:pointer;color:var(--color-primary)" onclick="o2dReportsShowLostSalesDrill()" title="Back">‹</span> ${esc(o2dReportsLostReasonLabel(reason))}`;
   const body = document.getElementById('o2dReportsDrillBody');
   body.innerHTML = items.length ? items.map(it => `<div class="o2d-drill-row" onclick="closeModal('o2dReportsDrillModal');openO2dDetail('${it.orderNo}')" title="Click to open this order">
       <div class="o2d-drill-row-main">
