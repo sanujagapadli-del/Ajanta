@@ -4560,13 +4560,19 @@ async function getO2dOrders() {
       // A "No" answer (e.g. Accounts not ok, item Not Available) ends the
       // line right there — it doesn't count as clearing the step, and
       // nothing past it is expected to happen (see o.cancelled below).
-      let lineCurrentStep = 0, lineCancelled = false;
-      for (const s of line.steps) {
-        if (s.status === 'No') { lineCancelled = true; break; }
+      // cancelledStepLabel is exposed per-line (not just per-order) so
+      // reports can say WHY a specific item was lost — Good Check for a
+      // per-item "Not Available", or whichever order-level step actually
+      // failed.
+      let lineCurrentStep = 0, lineCancelled = false, lineCancelledStepLabel = '';
+      for (let i = 0; i < line.steps.length; i++) {
+        const s = line.steps[i];
+        if (s.status === 'No') { lineCancelled = true; lineCancelledStepLabel = O2D_STEPS[i].label; break; }
         if (s.status) lineCurrentStep++; else break;
       }
       line.currentStep = lineCurrentStep;
       line.cancelled = lineCancelled;
+      line.cancelledStepLabel = lineCancelledStepLabel;
       return line;
     }).filter(Boolean);
 
@@ -4616,7 +4622,7 @@ async function getO2dOrders() {
         // picked instead of asking the per-item question again. cancelled
         // mirrors line.cancelled — this ONE item is done/excluded, not the
         // whole order (see the order-level cancel logic below).
-        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample, currentStep: l.currentStep, cancelled: l.cancelled, availability: (l.steps[1] && l.steps[1].status) || '' }))
+        products: group.map(l => ({ row: l.row, orderId: l.orderId, productName: l.productName, rate: l.rate, qty: l.qty, isSample: l.isSample, currentStep: l.currentStep, cancelled: l.cancelled, cancelledStepLabel: l.cancelledStepLabel, availability: (l.steps[1] && l.steps[1].status) || '' }))
       };
       o.steps = O2D_STEPS.map((sd, idx) => {
         const lineSteps = group.map(l => l.steps[idx]);

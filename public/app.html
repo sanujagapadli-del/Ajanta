@@ -9095,7 +9095,40 @@ function renderO2dPCView() {
 let o2dSalesChartInst = null, o2dDeliveryChartInst = null, o2dAgingChartInst = null;
 let o2dReportsFrom = '', o2dReportsTo = '';
 
-function o2dReportsFmtDate(d) { return d.toISOString().split('T')[0]; }
+// Local-calendar-date formatting — NOT toISOString(), which converts to
+// UTC first and silently shifts to the previous day for anyone in a
+// timezone ahead of UTC (India included): a Date built at local midnight
+// is already the previous evening in UTC, so .toISOString() reports
+// yesterday's date. Confirmed this was already happening — "This Month"
+// was showing Aug 31 as its start instead of Sep 1.
+function o2dReportsFmtDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Sales Trend's grain follows how wide a slice the owner picked — a
+// week viewed a day at a time is plenty granular, but that same day-by-
+// day view over "All Time" would be hundreds of unreadable points, and a
+// month is most useful summed by week rather than by single day.
+function o2dReportsTrendGranularity(fromStr, toStr) {
+  if (!fromStr || !toStr) return 'month'; // All Time — no bound to measure a span from
+  const from = new Date(fromStr + 'T00:00:00'), to = new Date(toStr + 'T00:00:00');
+  const spanDays = Math.round((to - from) / 86400000) + 1;
+  if (spanDays <= 10) return 'day';
+  if (spanDays <= 62) return 'week';
+  return 'month';
+}
+function o2dReportsTrendBucket(dateStr, granularity) {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (granularity === 'day') return { key: dateStr, label: dateStr.slice(5) };
+  if (granularity === 'week') {
+    // Monday-starting week the date falls in.
+    const dow = d.getDay();
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+    return { key: o2dReportsFmtDate(monday), label: `Wk ${String(monday.getMonth() + 1).padStart(2, '0')}/${String(monday.getDate()).padStart(2, '0')}` };
+  }
+  return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }) };
+}
 
 // Stat-card drill-down — opens right here on the Reports screen instead of
 // navigating away to FMS View or Dealers. Populated fresh by
@@ -9124,6 +9157,44 @@ function o2dReportsShowDrill(title, key) {
     </div>`;
   }).join('') : '<div class="empty">No orders in this range</div>';
   document.getElementById('o2dReportsDrillModal').classList.add('open');
+}
+
+// Same escaping every onclick-embedded name/label needs (single-quoted JS
+// string attribute) — shared so each drill function doesn't redeclare it.
+function o2dJsEsc(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+// Sales Lost — two-level drill: first WHY (grouped by which step actually
+// cancelled the item — an order-level "No", or a per-item Good Check
+// "Not Available"), then which specific order/items for that reason.
+function o2dReportsShowLostSalesDrill() {
+  const reasons = _o2dReportsDrillData.lostByReason || {};
+  const entries = Object.entries(reasons).sort((a, b) => b[1].value - a[1].value);
+  document.getElementById('o2dReportsDrillTitle').textContent = 'Sales Lost — By Reason';
+  const body = document.getElementById('o2dReportsDrillBody');
+  body.innerHTML = entries.length ? entries.map(([reason, data]) => `<div class="o2d-drill-row" onclick="o2dReportsShowLostSalesItems('${o2dJsEsc(reason)}')" title="Click to see the affected items">
+      <div class="o2d-drill-row-main">
+        <div class="o2d-drill-row-title">${esc(reason)}</div>
+        <div class="o2d-drill-row-sub">${data.count} item${data.count > 1 ? 's' : ''}</div>
+      </div>
+      <div class="o2d-drill-row-value" style="color:var(--color-danger)">${inr(data.value)}</div>
+      <div class="o2d-drill-row-arrow">›</div>
+    </div>`).join('') : '<div class="empty">No lost sales in this range</div>';
+  document.getElementById('o2dReportsDrillModal').classList.add('open');
+}
+
+function o2dReportsShowLostSalesItems(reason) {
+  const data = (_o2dReportsDrillData.lostByReason || {})[reason];
+  const items = data ? data.items : [];
+  document.getElementById('o2dReportsDrillTitle').innerHTML = `<span style="cursor:pointer;color:var(--color-primary)" onclick="o2dReportsShowLostSalesDrill()" title="Back">‹</span> ${esc(reason)}`;
+  const body = document.getElementById('o2dReportsDrillBody');
+  body.innerHTML = items.length ? items.map(it => `<div class="o2d-drill-row" onclick="closeModal('o2dReportsDrillModal');openO2dDetail('${it.orderNo}')" title="Click to open this order">
+      <div class="o2d-drill-row-main">
+        <div class="o2d-drill-row-title">${esc(it.orderNo || '—')}</div>
+        <div class="o2d-drill-row-sub">${esc(it.counterName || '—')} · ${esc(it.productName)} × ${esc(it.qty)}</div>
+      </div>
+      <div class="o2d-drill-row-value" style="color:var(--color-danger)">${inr(it.value)}</div>
+      <div class="o2d-drill-row-arrow">›</div>
+    </div>`).join('') : '<div class="empty">No items</div>';
 }
 
 function o2dReportsShowOutstandingDrill() {
@@ -9206,15 +9277,10 @@ function o2dReportsInRange(dateStr) {
 }
 
 // Bill Amount only exists once Make Bill (step 4) is actually done — the
-// real, invoiced sale value. Ordered value (rate×qty) is used instead for
-// cancelled orders, which never reach that step, as the best estimate of
-// what was lost.
+// real, invoiced sale value.
 function o2dReportsBillAmount(o) {
   const s = (o.steps || []).find(s => s.n === 4);
   return s && s.billAmount ? Number(s.billAmount) || 0 : 0;
-}
-function o2dReportsOrderedValue(o) {
-  return (o.products || []).reduce((s, p) => s + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0);
 }
 
 function renderO2dReportsBody() {
@@ -9228,7 +9294,27 @@ function renderO2dReportsBody() {
   const overdueCount = orders.filter(o => !o.closed && o2dIsOverdue(o.steps[o.currentStep].planned)).length;
 
   const totalSales = dispatched.reduce((s, o) => s + o2dReportsBillAmount(o), 0);
-  const lostSales = cancelled.reduce((s, o) => s + o2dReportsOrderedValue(o), 0);
+
+  // Sales Lost — per ITEM, not per order. A whole order cancelled at an
+  // order-level step (Accounts, etc.) loses every line under it, but a
+  // "Not Available" at Good Check only loses THAT item — the rest of a
+  // multi-item order can still go on to be dispatched and billed. Both
+  // are real lost sales, so this walks every product line across every
+  // order in range and adds up just the ones actually marked cancelled,
+  // grouped by whichever step is the reason (for the drill-down modal).
+  const lostByReason = {};
+  orders.forEach(o => {
+    (o.products || []).forEach(p => {
+      if (!p.cancelled) return;
+      const value = (Number(p.rate) || 0) * (Number(p.qty) || 0);
+      const reason = p.cancelledStepLabel || 'Unknown';
+      if (!lostByReason[reason]) lostByReason[reason] = { count: 0, value: 0, items: [] };
+      lostByReason[reason].count++;
+      lostByReason[reason].value += value;
+      lostByReason[reason].items.push({ orderNo: o.orderNo, counterName: o.counterName, productName: p.productName, qty: p.qty, value });
+    });
+  });
+  const lostSales = Object.values(lostByReason).reduce((s, r) => s + r.value, 0);
 
   // Delivery speed: Order Date vs Load Goods (step 9) actual date.
   const parseD = s => s ? new Date(String(s).slice(0, 10) + 'T00:00:00') : null;
@@ -9252,16 +9338,23 @@ function renderO2dReportsBody() {
   orders.forEach(o => (o.products || []).forEach(p => { productQty[p.productName] = (productQty[p.productName] || 0) + (Number(p.qty) || 0); }));
   const topProducts = Object.entries(productQty).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
-  // Daily sales trend — billed on its actual Bill Date when known, else the
-  // order's own date; capped to the most recent 30 points so a long "All
-  // Time" range stays readable instead of squeezing hundreds of days in.
-  const byDay = {};
+  // Sales trend — bucketed by whichever grain actually fits the selected
+  // range: a week-long range as single days would be too coarse to be
+  // useful, a year as single days would be an unreadable wall of points.
+  // Billed on its actual Bill Date when known, else the order's own date.
+  const trendGranularity = o2dReportsTrendGranularity(o2dReportsFrom, o2dReportsTo);
+  const byBucket = {};
   dispatched.forEach(o => {
     const s4 = (o.steps || []).find(s => s.n === 4);
-    const d = (s4 && s4.billDate ? String(s4.billDate) : String(o.timestamp || '')).slice(0, 10);
-    if (d) byDay[d] = (byDay[d] || 0) + o2dReportsBillAmount(o);
+    const dStr = (s4 && s4.billDate ? String(s4.billDate) : String(o.timestamp || '')).slice(0, 10);
+    if (!dStr) return;
+    const { key, label } = o2dReportsTrendBucket(dStr, trendGranularity);
+    if (!byBucket[key]) byBucket[key] = { label, value: 0 };
+    byBucket[key].value += o2dReportsBillAmount(o);
   });
-  const trendDays = Object.keys(byDay).sort().slice(-30);
+  // Capped to the most recent 40 points so an unusually long range still
+  // stays readable instead of squeezing hundreds of bars/points in.
+  const trendKeys = Object.keys(byBucket).sort().slice(-40);
 
   // Outstanding & Aging — company-wide, from live dealer profiles. Not
   // date-ranged: a dealer's debt is a snapshot of right now, not something
@@ -9284,7 +9377,7 @@ function renderO2dReportsBody() {
   const crmOrders = orders.filter(o => (o.orderBy || '').trim().toUpperCase() === 'CRM');
   const crmSales = crmOrders.filter(o => o.closed && !o.cancelled).reduce((s, o) => s + o2dReportsBillAmount(o), 0);
 
-  _o2dReportsDrillData = { all: orders, dispatched, cancelled, pending: pendingOrders, overdue: overdueOrders, outstanding: allOutstanding, crm: crmOrders };
+  _o2dReportsDrillData = { all: orders, dispatched, cancelled, pending: pendingOrders, overdue: overdueOrders, outstanding: allOutstanding, crm: crmOrders, lostByReason };
 
   // A restrained palette on purpose — a different colour per card just
   // because there are 9 of them reads as decoration, not information.
@@ -9314,7 +9407,7 @@ function renderO2dReportsBody() {
     <div class="o2d-stat-grid">
       ${statCard('Total Orders', orders.length, NEUTRAL, NEUTRAL_BG, '🧾', null, `o2dReportsShowDrill('All Orders','all')`)}
       ${statCard('Total Sales', inrShort(totalSales), GOOD, GOOD_BG, '💰', inr(totalSales), `o2dReportsShowDrill('Dispatched Orders (Billed)','dispatched')`)}
-      ${statCard('Sales Lost', inrShort(lostSales), lostSales > 0 ? BAD : NEUTRAL, lostSales > 0 ? BAD_BG : NEUTRAL_BG, '📉', inr(lostSales), `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
+      ${statCard('Sales Lost', inrShort(lostSales), lostSales > 0 ? BAD : NEUTRAL, lostSales > 0 ? BAD_BG : NEUTRAL_BG, '📉', inr(lostSales), `o2dReportsShowLostSalesDrill()`)}
       ${statCard('Dispatched', dispatched.length, GOOD, GOOD_BG, '✅', null, `o2dReportsShowDrill('Dispatched Orders','dispatched')`)}
       ${statCard('Pending', pendingOrders.length, NEUTRAL, NEUTRAL_BG, '⏳', null, `o2dReportsShowDrill('Pending Orders','pending')`)}
       ${statCard('Cancelled', cancelled.length, cancelled.length > 0 ? BAD : NEUTRAL, cancelled.length > 0 ? BAD_BG : NEUTRAL_BG, '❌', null, `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
@@ -9326,7 +9419,7 @@ function renderO2dReportsBody() {
     <div class="o2d-report-grid-2">
       <div class="o2d-report-card">
         <h3>📈 Sales Trend</h3>
-        <div style="height:160px">${trendDays.length ? '<canvas id="o2dSalesChart"></canvas>' : '<div class="empty">No dispatched sales in this range</div>'}</div>
+        <div style="height:160px">${trendKeys.length ? '<canvas id="o2dSalesChart"></canvas>' : '<div class="empty">No dispatched sales in this range</div>'}</div>
       </div>
       <div class="o2d-report-card">
         <h3>🚚 Delivery Speed</h3>
@@ -9342,19 +9435,13 @@ function renderO2dReportsBody() {
       </div>
       <div class="o2d-report-card" style="max-height:280px;overflow-y:auto">
         <h3>📞 Top Dealers to Follow Up <span class="hint">click for Statement</span></h3>
-        ${topOutstanding.length ? topOutstanding.map(d => {
+        ${topOutstanding.length ? `<table><thead><tr><th>Dealer</th><th>Aging</th><th>Outstanding</th><th></th></tr></thead><tbody>${topOutstanding.map(d => {
           const chips = bucketOrder.filter(b => d.aging && d.aging.buckets[b] > 0).map(b =>
-            `<span class="status-badge" style="background:${b === '90+' || b === '60-90' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${b === '90+' || b === '60-90' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'};margin-right:4px;margin-top:3px;display:inline-block">${b}: ${inr(d.aging.buckets[b])}</span>`
-          ).join('') || '<span style="color:var(--gray-400)">No aging breakdown</span>';
-          return `<div class="o2d-drill-row" onclick="openDealerLedgerModal('${jsEsc(d.name)}','${jsEsc(d.phone)}')" title="Click to view Statement">
-            <div class="o2d-drill-row-main">
-              <div class="o2d-drill-row-title">${esc(d.name)}${d.phone ? ` <span class="hint">📱 ${esc(d.phone)}</span>` : ''}</div>
-              <div class="o2d-drill-row-sub">${chips}</div>
-            </div>
-            <div class="o2d-drill-row-value" style="color:var(--color-danger)">${inr(d.outstanding)}</div>
-            <div class="o2d-drill-row-arrow">›</div>
-          </div>`;
-        }).join('') : '<div class="empty">No outstanding dues</div>'}
+            `<span class="status-badge" style="background:${b === '90+' || b === '60-90' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${b === '90+' || b === '60-90' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'};margin:1px 3px 1px 0;display:inline-block">${b}: ${inr(d.aging.buckets[b])}</span>`
+          ).join('') || '<span style="color:var(--gray-400)">—</span>';
+          const cells = `<td><div style="font-weight:600">${esc(d.name)}</div>${d.phone ? `<div style="font-size:11px;color:var(--gray-400)">📱 ${esc(d.phone)}</div>` : ''}</td><td style="max-width:220px;white-space:normal">${chips}</td><td style="font-weight:700;color:var(--color-danger)">${inr(d.outstanding)}</td>`;
+          return dealerRow(d.name, d.phone, cells);
+        }).join('')}</tbody></table>` : '<div class="empty">No outstanding dues</div>'}
       </div>
     </div>
 
@@ -9386,10 +9473,10 @@ function renderO2dReportsBody() {
   Chart.defaults.color = cssVar('--gray-500') || '#64748b';
 
   if (o2dSalesChartInst) { o2dSalesChartInst.destroy(); o2dSalesChartInst = null; }
-  if (trendDays.length) {
+  if (trendKeys.length) {
     o2dSalesChartInst = new Chart(document.getElementById('o2dSalesChart').getContext('2d'), {
       type: 'line',
-      data: { labels: trendDays.map(d => d.slice(5)), datasets: [{ label: 'Sales (₹)', data: trendDays.map(d => byDay[d] || 0), borderColor: cssVar('--color-primary'), backgroundColor: cssVar('--color-primary-light'), borderWidth: 2.5, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: cssVar('--color-primary'), pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2 }] },
+      data: { labels: trendKeys.map(k => byBucket[k].label), datasets: [{ label: 'Sales (₹)', data: trendKeys.map(k => byBucket[k].value), borderColor: cssVar('--color-primary'), backgroundColor: cssVar('--color-primary-light'), borderWidth: 2.5, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: cssVar('--color-primary'), pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2 }] },
       options: { responsive: true, maintainAspectRatio: false, interaction: { intersect: false, mode: 'index' }, plugins: { legend: { display: false }, tooltip: { padding: 10, cornerRadius: 8, displayColors: false, callbacks: { label: c => ` ₹${Number(c.raw).toLocaleString('en-IN')}` } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { beginAtZero: true, grid: { color: gridColor }, ticks: { font: { size: 10 }, callback: v => v >= 1000 ? `₹${v/1000}k` : `₹${v}` } } } }
     });
   }
