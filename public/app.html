@@ -7286,54 +7286,40 @@ function renderSfmsStepView(n) {
     return;
   }
 
-  // The action column is pinned to the right edge (position:sticky) so it
-  // stays visible while scrolling through the detail columns, instead of
-  // needing a full scroll to the far right just to see the submit button.
-  // Complain No is pinned to the left edge the same way — otherwise, once
-  // scrolled right to reach the action column, staff had to scroll all the
-  // way back left just to see which complaint/customer they were on.
-  const stickyTh = 'position:sticky;right:0;background:var(--surface-alt);box-shadow:-2px 0 4px rgba(0,0,0,.06)';
-  const stickyTd = 'position:sticky;right:0;background:#fff;box-shadow:-2px 0 4px rgba(0,0,0,.06)';
-  const stickyLeftTh = 'position:sticky;left:0;z-index:1;background:var(--surface-alt);box-shadow:2px 0 4px rgba(0,0,0,.06)';
-  const stickyLeftTd = 'position:sticky;left:0;z-index:1;background:#fff;box-shadow:2px 0 4px rgba(0,0,0,.06)';
+  // A wide table here always needed horizontal scrolling — even pinning
+  // Complain No/Action to opposite edges still meant scrolling to reach
+  // one or the other. Cards in a wrapping grid instead: every field stacks
+  // or wraps within its own card, so the whole tab needs zero side-scroll
+  // on any screen size, same as the "All Complaints" tab already does.
   const isWarrantyTab = n === 1;
   const isSpareCheckTab = n === 2; // point 8 — ownership shown clearly here
-  wrap.innerHTML = zoneFilterHtml + `<div class="mis-table-wrap" style="overflow-x:auto;margin-top:${isAssignTab ? '12px' : '0'}">
-  <table>
-    <thead><tr>
-      <th style="${stickyLeftTh}">Complain No</th><th>Customer</th><th>Mobile</th><th>Dealer</th><th>Product</th><th>Purchase Date</th>
-      <th>Problem</th><th>Location</th><th>Address</th><th>Area</th><th>Photos</th><th>Pending</th>
-      ${isWarrantyTab ? '<th>Warranty Status</th>' : ''}
-      ${isSpareCheckTab ? '<th>Ownership</th>' : ''}
-      <th style="${stickyTh}">${n}. ${stepDef.label}${stepDef.doer ? `<div style="font-size:10px;font-weight:600;color:var(--gray-400);text-transform:none;letter-spacing:0">👤 ${esc(stepDef.doer)}</div>` : ''}</th>
-    </tr></thead>
-    <tbody>
-      ${rows.map(c => {
-        const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
-        const isLate = daysPending >= 2;
-        const purchaseDateOnly = fmtDateDMY(c.purchaseDate) || '—';
-        const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
-          (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:6px">📷</a>` : '');
-        return `<tr>
-          <td style="${stickyLeftTd};font-weight:600;cursor:pointer;white-space:nowrap" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}</td>
-          <td style="white-space:nowrap">${esc(c.filledByName)}</td>
-          <td style="white-space:nowrap"><a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a></td>
-          <td style="white-space:nowrap">${esc(c.dealerName || '—')}</td>
-          <td style="white-space:nowrap">${esc(c.productName)}</td>
-          <td style="white-space:nowrap">${purchaseDateOnly}</td>
-          <td style="max-width:160px;white-space:normal">${esc(c.problemDescription || '—')}</td>
-          <td style="white-space:nowrap">${esc(c.productLocation || '—')}</td>
-          <td style="max-width:140px;white-space:normal">${esc(c.address || '—')}</td>
-          <td style="white-space:nowrap">${esc(c.area || '—')}</td>
-          <td style="white-space:nowrap;font-size:16px">${photosHtml || '—'}</td>
-          <td style="white-space:nowrap;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
-          ${isWarrantyTab ? `<td style="white-space:nowrap">${sfmsWarrantyStatusHtml(c)}</td>` : ''}
-          ${isSpareCheckTab ? `<td style="white-space:nowrap;font-weight:600;color:${c.productOwnership === 'Dealer Stock Piece' ? 'var(--color-primary)' : 'var(--color-purple)'}">${c.productOwnership || '—'}</td>` : ''}
-          <td id="sfmsStepAction_${c.row}" style="${stickyTd};padding-top:10px;padding-bottom:10px">${buildSfmsNextActionHtml(c, true)}</td>
-        </tr>`;
-      }).join('')}
-    </tbody>
-  </table>
+  wrap.innerHTML = zoneFilterHtml + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;padding:4px;margin-top:${isAssignTab ? '10px' : '0'}">
+  ${rows.map(c => {
+    const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
+    const isLate = daysPending >= 2;
+    const purchaseDateOnly = fmtDateDMY(c.purchaseDate) || '—';
+    const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
+      (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:6px">📷</a>` : '');
+    const locationLine = [c.productLocation, c.address, c.area].filter(Boolean).join(' · ');
+    return `
+    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:12px;padding:13px 15px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap">
+        <span style="font-size:15px;font-weight:800;color:var(--gray-800);cursor:pointer" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}</span>
+        <span style="font-size:11.5px;font-weight:${isLate ? 700 : 400};color:${isLate ? 'var(--color-danger)' : 'var(--gray-400)'}">${daysPending}d pending${isLate ? ' ⚠️' : ''}</span>
+      </div>
+      <div style="font-size:13.5px;font-weight:700;color:var(--gray-700);margin-bottom:3px">👤 ${esc(c.filledByName)} · <a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a></div>
+      <div style="font-size:13px;color:var(--gray-600);margin-bottom:3px">📦 ${esc(c.productName)}${c.dealerName ? ` · 🏪 ${esc(c.dealerName)}` : ''}${purchaseDateOnly !== '—' ? ` · 🗓 ${purchaseDateOnly}` : ''}</div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:${locationLine ? '4px' : '8px'}">🛠 ${esc(c.problemDescription || '—')}</div>
+      ${locationLine ? `<div style="font-size:12.5px;color:var(--gray-500);margin-bottom:8px">📍 ${esc(locationLine)}</div>` : ''}
+      ${photosHtml ? `<div style="margin-bottom:8px;font-size:16px">${photosHtml}</div>` : ''}
+      ${isWarrantyTab ? `<div style="margin-bottom:8px">${sfmsWarrantyStatusHtml(c)}</div>` : ''}
+      ${isSpareCheckTab ? `<div style="font-size:12.5px;font-weight:600;color:${c.productOwnership === 'Dealer Stock Piece' ? 'var(--color-primary)' : 'var(--color-purple)'};margin-bottom:8px">${esc(c.productOwnership || '—')}</div>` : ''}
+      <div style="border-top:1px solid var(--gray-100);padding-top:10px;margin-top:2px">
+        <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">${n}. ${esc(stepDef.label)}${stepDef.doer ? ` · 👤 ${esc(stepDef.doer)}` : ''}</div>
+        <div id="sfmsStepAction_${c.row}">${buildSfmsNextActionHtml(c)}</div>
+      </div>
+    </div>`;
+  }).join('')}
   </div>`;
 
   // Each row's hidden Zone field already carries its own Area-derived zone
@@ -7352,17 +7338,16 @@ function renderSfmsStepView(n) {
       if (w && statusSel) statusSel.value = w.inWarranty ? 'Yes' : 'No';
     });
   }
-  wrap.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
 }
 
-// Patches just one row's action cell in the per-step table (instead of a full
+// Patches just one row's action area in the per-step card (instead of a full
 // renderSfmsStepView(), which would wipe whatever any OTHER row on screen has
 // half-typed into its own inline form) — used after an action that only
 // changes this one complaint's state, like sending its OTP.
 function refreshSfmsStepActionCell(row) {
   const cell = document.getElementById(`sfmsStepAction_${row}`);
   const c = sfmsData.find(x => x.row === row);
-  if (cell && c) cell.innerHTML = buildSfmsNextActionHtml(c, true);
+  if (cell && c) cell.innerHTML = buildSfmsNextActionHtml(c);
 }
 
 function renderServiceFmsList() {
