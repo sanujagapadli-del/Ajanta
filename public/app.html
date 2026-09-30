@@ -9029,42 +9029,235 @@ function renderO2dPCView() {
 
 // ── Reports: summary counts — total/closed/pending, and how many orders are
 // currently stuck at each step. ──
-function renderO2dReportsView() {
+// ── Owner-facing business report: sales, dispatch speed, outstanding &
+// aging, top dealers/products — replaces the old operational-only counts
+// view. Date range picks which ORDERS count (by Order Date); Outstanding &
+// Aging is always "as of today" (a debt doesn't belong to the day the
+// order was placed). ──
+let o2dSalesChartInst = null, o2dDeliveryChartInst = null, o2dAgingChartInst = null;
+let o2dReportsFrom = '', o2dReportsTo = '';
+
+function o2dReportsFmtDate(d) { return d.toISOString().split('T')[0]; }
+
+async function renderO2dReportsView() {
   const wrap = document.getElementById('o2dListWrap');
-  const total = o2dData.length;
-  const cancelled = o2dData.filter(o => o.cancelled).length;
-  const dispatched = o2dData.filter(o => o.closed && !o.cancelled).length;
-  const pending = total - dispatched - cancelled;
-  const overdueCount = o2dData.filter(o => !o.closed && o2dIsOverdue(o.steps[o.currentStep].planned)).length;
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  await loadO2dDealers(false);
 
-  const perStep = O2D_STEP_DEFS.map(sd => ({
-    step: sd,
-    count: o2dData.filter(o => !o.closed && o.currentStep === sd.n - 1).length
-  }));
-
-  const statCard = (label, value, color) => `
-    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px;flex:1;min-width:140px">
-      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">${label}</div>
-      <div style="font-size:28px;font-weight:800;color:${color}">${value}</div>
-    </div>`;
+  if (!o2dReportsFrom) {
+    const now = new Date();
+    o2dReportsFrom = o2dReportsFmtDate(new Date(now.getFullYear(), now.getMonth(), 1));
+    o2dReportsTo = o2dReportsFmtDate(now);
+  }
 
   wrap.innerHTML = `
     <div style="padding:16px">
-      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px">
-        ${statCard('Total Orders', total, 'var(--gray-800)')}
-        ${statCard('Dispatched', dispatched, 'var(--color-success-text)')}
-        ${statCard('Cancelled', cancelled, 'var(--color-danger)')}
-        ${statCard('Pending', pending, 'var(--color-warning-text)')}
-        ${statCard('Overdue', overdueCount, 'var(--color-danger)')}
+      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div>
+          <input type="date" id="o2dReportsFromInput" value="${o2dReportsFrom}" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div>
+          <input type="date" id="o2dReportsToInput" value="${o2dReportsTo}" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
+        </div>
+        <button class="btn btn-primary" onclick="applyO2dReportsRange()">Generate</button>
+        <div class="tab-group" id="o2dReportsQuickTabs" style="margin-left:auto">
+          <div class="tab" onclick="quickO2dReportsRange('today',this)">Today</div>
+          <div class="tab" onclick="quickO2dReportsRange('week',this)">This Week</div>
+          <div class="tab active" onclick="quickO2dReportsRange('month',this)">This Month</div>
+          <div class="tab" onclick="quickO2dReportsRange('all',this)">All Time</div>
+        </div>
       </div>
-      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Pending Orders By Step</div>
-      <table>
-        <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Pending Count</th></tr></thead>
-        <tbody>
-          ${perStep.map(p => `<tr><td style="font-weight:600">${p.step.n}. ${esc(p.step.label)}</td><td>${esc(stepDoerLabel(p.step))}</td><td style="color:var(--gray-500)">${esc(p.step.tat || '—')}</td><td>${p.count}</td></tr>`).join('')}
-        </tbody>
-      </table>
+      <div id="o2dReportsBody"></div>
     </div>`;
+  renderO2dReportsBody();
+}
+
+function applyO2dReportsRange() {
+  o2dReportsFrom = document.getElementById('o2dReportsFromInput').value;
+  o2dReportsTo = document.getElementById('o2dReportsToInput').value;
+  document.querySelectorAll('#o2dReportsQuickTabs .tab').forEach(t => t.classList.remove('active'));
+  renderO2dReportsBody();
+}
+
+function quickO2dReportsRange(kind, el) {
+  document.querySelectorAll('#o2dReportsQuickTabs .tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const now = new Date();
+  if (kind === 'today') { o2dReportsFrom = o2dReportsFmtDate(now); o2dReportsTo = o2dReportsFmtDate(now); }
+  else if (kind === 'week') { const d = new Date(now); d.setDate(d.getDate() - 6); o2dReportsFrom = o2dReportsFmtDate(d); o2dReportsTo = o2dReportsFmtDate(now); }
+  else if (kind === 'month') { o2dReportsFrom = o2dReportsFmtDate(new Date(now.getFullYear(), now.getMonth(), 1)); o2dReportsTo = o2dReportsFmtDate(now); }
+  else if (kind === 'all') { o2dReportsFrom = ''; o2dReportsTo = ''; }
+  document.getElementById('o2dReportsFromInput').value = o2dReportsFrom;
+  document.getElementById('o2dReportsToInput').value = o2dReportsTo;
+  renderO2dReportsBody();
+}
+
+function o2dReportsInRange(dateStr) {
+  if (!dateStr) return false;
+  const d = String(dateStr).slice(0, 10);
+  if (o2dReportsFrom && d < o2dReportsFrom) return false;
+  if (o2dReportsTo && d > o2dReportsTo) return false;
+  return true;
+}
+
+// Bill Amount only exists once Make Bill (step 4) is actually done — the
+// real, invoiced sale value. Ordered value (rate×qty) is used instead for
+// cancelled orders, which never reach that step, as the best estimate of
+// what was lost.
+function o2dReportsBillAmount(o) {
+  const s = (o.steps || []).find(s => s.n === 4);
+  return s && s.billAmount ? Number(s.billAmount) || 0 : 0;
+}
+function o2dReportsOrderedValue(o) {
+  return (o.products || []).reduce((s, p) => s + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0);
+}
+
+function renderO2dReportsBody() {
+  const body = document.getElementById('o2dReportsBody');
+  if (!body) return;
+
+  const orders = o2dData.filter(o => o2dReportsInRange(o.timestamp));
+  const cancelled = orders.filter(o => o.cancelled);
+  const dispatched = orders.filter(o => o.closed && !o.cancelled);
+  const pendingOrders = orders.filter(o => !o.closed);
+  const overdueCount = orders.filter(o => !o.closed && o2dIsOverdue(o.steps[o.currentStep].planned)).length;
+
+  const totalSales = dispatched.reduce((s, o) => s + o2dReportsBillAmount(o), 0);
+  const lostSales = cancelled.reduce((s, o) => s + o2dReportsOrderedValue(o), 0);
+
+  // Delivery speed: Order Date vs Load Goods (step 9) actual date.
+  const parseD = s => s ? new Date(String(s).slice(0, 10) + 'T00:00:00') : null;
+  let sameDay = 0, nextDay = 0, later = 0;
+  dispatched.forEach(o => {
+    const s9 = (o.steps || []).find(s => s.n === 9);
+    const orderDate = parseD(o.timestamp);
+    const dispatchDate = s9 && s9.actual ? parseD(s9.actual) : null;
+    if (!orderDate || !dispatchDate) return;
+    const diff = Math.round((dispatchDate - orderDate) / 86400000);
+    if (diff <= 0) sameDay++; else if (diff === 1) nextDay++; else later++;
+  });
+  const speedKnown = sameDay + nextDay + later;
+  const samePct = speedKnown ? Math.round(sameDay * 100 / speedKnown) : 0;
+
+  const dealerSales = {};
+  dispatched.forEach(o => { const v = o2dReportsBillAmount(o); if (v) dealerSales[o.counterName] = (dealerSales[o.counterName] || 0) + v; });
+  const topDealers = Object.entries(dealerSales).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  const productQty = {};
+  orders.forEach(o => (o.products || []).forEach(p => { productQty[p.productName] = (productQty[p.productName] || 0) + (Number(p.qty) || 0); }));
+  const topProducts = Object.entries(productQty).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // Daily sales trend — billed on its actual Bill Date when known, else the
+  // order's own date; capped to the most recent 30 points so a long "All
+  // Time" range stays readable instead of squeezing hundreds of days in.
+  const byDay = {};
+  dispatched.forEach(o => {
+    const s4 = (o.steps || []).find(s => s.n === 4);
+    const d = (s4 && s4.billDate ? String(s4.billDate) : String(o.timestamp || '')).slice(0, 10);
+    if (d) byDay[d] = (byDay[d] || 0) + o2dReportsBillAmount(o);
+  });
+  const trendDays = Object.keys(byDay).sort().slice(-30);
+
+  // Outstanding & Aging — company-wide, from live dealer profiles. Not
+  // date-ranged: a dealer's debt is a snapshot of right now, not something
+  // that belongs to the order-date window picked above.
+  const bucketOrder = ['<30', '30-45', '45-60', '60-90', '90+'];
+  const bucketTotals = {}; bucketOrder.forEach(b => bucketTotals[b] = 0);
+  let totalOutstanding = 0;
+  o2dDealers.forEach(d => {
+    if (d.outstanding) totalOutstanding += d.outstanding;
+    if (d.aging) bucketOrder.forEach(b => { bucketTotals[b] += d.aging.buckets[b] || 0; });
+  });
+  const topOutstanding = o2dDealers.filter(d => d.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding).slice(0, 8);
+
+  const statCard = (label, value, color, icon) => `
+    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px;flex:1;min-width:160px">
+      <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">${icon} ${label}</div>
+      <div style="font-size:26px;font-weight:800;color:${color}">${value}</div>
+    </div>`;
+
+  body.innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+      ${statCard('Total Orders', orders.length, 'var(--gray-800)', '🧾')}
+      ${statCard('Total Sales', inr(totalSales), 'var(--color-success-text)', '💰')}
+      ${statCard('Sales Lost (Cancelled)', inr(lostSales), 'var(--color-danger)', '📉')}
+      ${statCard('Dispatched', dispatched.length, 'var(--color-success-text)', '✅')}
+      ${statCard('Pending', pendingOrders.length, 'var(--color-warning-text)', '⏳')}
+      ${statCard('Cancelled', cancelled.length, 'var(--color-danger)', '❌')}
+      ${statCard('Overdue', overdueCount, 'var(--color-danger)', '⚠️')}
+      ${statCard('Total Outstanding', inr(totalOutstanding), 'var(--color-primary)', '🏦')}
+    </div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:20px">
+      <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:10px">📈 Sales Trend</div>
+        <div style="height:220px">${trendDays.length ? '<canvas id="o2dSalesChart"></canvas>' : '<div class="empty">No dispatched sales in this range</div>'}</div>
+      </div>
+      <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:10px">🚚 Delivery Speed</div>
+        <div style="height:220px">${speedKnown ? '<canvas id="o2dDeliveryChart"></canvas>' : '<div class="empty">No dispatched orders in this range</div>'}</div>
+        ${speedKnown ? `<div style="text-align:center;margin-top:8px;font-size:12px;color:var(--gray-500)">${samePct}% orders dispatched same-day</div>` : ''}
+      </div>
+    </div>
+
+    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px;margin-bottom:20px">
+      <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:10px">💳 Outstanding by Age — all dealers, as of today</div>
+      <div style="height:200px"><canvas id="o2dAgingChart"></canvas></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+      <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:10px">🏆 Top Dealers by Sales</div>
+        ${topDealers.length ? `<table><thead><tr><th>Dealer</th><th>Sales</th></tr></thead><tbody>${topDealers.map(([name, val]) => `<tr><td>${esc(name)}</td><td style="font-weight:700">${inr(val)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No dispatched sales in this range</div>'}
+      </div>
+      <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:10px">📦 Top Products by Qty Ordered</div>
+        ${topProducts.length ? `<table><thead><tr><th>Product</th><th>Qty</th></tr></thead><tbody>${topProducts.map(([name, qty]) => `<tr><td>${esc(name)}</td><td style="font-weight:700">${qty}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No orders in this range</div>'}
+      </div>
+    </div>
+
+    <div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:18px;margin-bottom:20px">
+      <div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:10px">📞 Top Dealers to Follow Up — highest outstanding</div>
+      ${topOutstanding.length ? `<table><thead><tr><th>Dealer</th><th>Outstanding</th><th>90+ Days</th></tr></thead><tbody>${topOutstanding.map(d => `<tr><td>${esc(d.name)}</td><td style="font-weight:700;color:var(--color-danger)">${inr(d.outstanding)}</td><td>${d.aging && d.aging.buckets['90+'] ? inr(d.aging.buckets['90+']) : '—'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No outstanding dues</div>'}
+    </div>
+
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Pending Orders By Step</div>
+    <table>
+      <thead><tr><th>Step</th><th>Doer</th><th>TAT</th><th>Pending Count</th></tr></thead>
+      <tbody>
+        ${O2D_STEP_DEFS.map(sd => `<tr><td style="font-weight:600">${sd.n}. ${esc(sd.label)}</td><td>${esc(stepDoerLabel(sd))}</td><td style="color:var(--gray-500)">${esc(sd.tat || '—')}</td><td>${o2dData.filter(o => !o.closed && o.currentStep === sd.n - 1).length}</td></tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  const rootStyle = getComputedStyle(document.documentElement);
+  const cssVar = name => rootStyle.getPropertyValue(name).trim();
+
+  if (o2dSalesChartInst) { o2dSalesChartInst.destroy(); o2dSalesChartInst = null; }
+  if (trendDays.length) {
+    o2dSalesChartInst = new Chart(document.getElementById('o2dSalesChart').getContext('2d'), {
+      type: 'line',
+      data: { labels: trendDays.map(d => d.slice(5)), datasets: [{ label: 'Sales (₹)', data: trendDays.map(d => byDay[d] || 0), borderColor: cssVar('--color-primary'), backgroundColor: cssVar('--color-primary-light'), fill: true, tension: 0.3, pointRadius: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ₹${Number(c.raw).toLocaleString('en-IN')}` } } }, scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  if (o2dDeliveryChartInst) { o2dDeliveryChartInst.destroy(); o2dDeliveryChartInst = null; }
+  if (speedKnown) {
+    o2dDeliveryChartInst = new Chart(document.getElementById('o2dDeliveryChart').getContext('2d'), {
+      type: 'doughnut',
+      data: { labels: ['Same Day', 'Next Day', '2+ Days'], datasets: [{ data: [sameDay, nextDay, later], backgroundColor: [cssVar('--color-success'), cssVar('--color-warning'), cssVar('--color-danger')], borderWidth: 3, borderColor: cssVar('--surface') }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw}` } } } }
+    });
+  }
+
+  if (o2dAgingChartInst) { o2dAgingChartInst.destroy(); o2dAgingChartInst = null; }
+  o2dAgingChartInst = new Chart(document.getElementById('o2dAgingChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: bucketOrder, datasets: [{ label: 'Outstanding', data: bucketOrder.map(b => bucketTotals[b]), backgroundColor: [cssVar('--color-success'), cssVar('--color-warning'), cssVar('--color-warning'), cssVar('--color-danger'), cssVar('--color-danger')] }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ₹${Number(c.raw).toLocaleString('en-IN')}` } } }, scales: { y: { beginAtZero: true } } }
+  });
 }
 
 // ── Dealers ──
