@@ -2018,6 +2018,7 @@ app.post('/api/leave', requireAuth, async (req, res) => {
   try {
     const { leaveType, startDate, endDate, reason } = req.body;
     if (!leaveType || !startDate || !endDate) return res.status(400).json({ error: 'Leave type, start date and end date are required' });
+    if (!String(reason || '').trim()) return res.status(400).json({ error: 'Reason is required' });
     if (new Date(endDate) < new Date(startDate)) return res.status(400).json({ error: 'End date cannot be before start date' });
     const days = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
     await withAttendanceTables(async () => {
@@ -6069,11 +6070,12 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
       const group = raw ? JSON.parse(raw) : null;
       if (group && group.id) {
-        const productLines = products.map(p => `• ${p.productName} × ${p.qty}`).join('\n');
+        const productLines = products.map((p, i) => `📦 Product ${i + 1}: ${p.productName} × ${p.qty}`).join('\n');
         sendWhatsApp(group.id,
-          `🆕 एक नया order प्राप्त हुआ है। कृपया order की जाँच करें।\n\n` +
-          `Order: ${orderNo}\nDealer: ${counterName}${area ? ` (${area})` : ''}\n${productLines}` +
-          (req.session.name ? `\n\nBy: ${req.session.name}` : ''))
+          `नया ऑर्डर प्राप्त हुआ\nकृपया ऑर्डर की जाँच करें।\n\n` +
+          `Order ID: ${orderNo}\nDealer / Customer Name: ${counterName}\n\n${productLines}\n\n` +
+          `Order By : ${orderBy || '—'}\nOrder Form Filled By: ${req.session.name || '—'}\n\n` +
+          `कृपया ऑर्डर की जाँच करके आगे की प्रक्रिया अभी तुरंत पूरी करें।`)
           .catch(e => console.error(`Team-group WhatsApp notify failed for ${orderNo}:`, e.message));
         teamNotified = true;
       } else {

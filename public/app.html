@@ -1011,6 +1011,7 @@ tbody tr:last-child td{border-bottom:none;}
               <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
               <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">O2D FMS</div>
             </div>
+            <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
           </div>
         </div>
         <div id="dashTableWrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;">
@@ -1067,6 +1068,7 @@ tbody tr:last-child td{border-bottom:none;}
             <option value="all">All Employees</option>
           </select>
         </div>
+        <select id="tasksFreqFilter" onchange="filterTasks()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
         <div style="position:relative">
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)">🔍</span>
           <input type="text" id="taskSearch" placeholder="Search by name, date, desc, status..." oninput="filterTasks()"
@@ -1654,15 +1656,15 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-row">
       <div class="form-group">
         <label>Start Date</label>
-        <input type="date" id="alStartDate"/>
+        <div data-dmy="alStartDate"></div>
       </div>
       <div class="form-group">
         <label>End Date</label>
-        <input type="date" id="alEndDate"/>
+        <div data-dmy="alEndDate"></div>
       </div>
     </div>
     <div class="form-group">
-      <label>Reason</label>
+      <label>Reason <span style="color:var(--color-danger)">*</span></label>
       <textarea id="alReason" rows="3" placeholder="Reason for leave…" style="width:100%;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:vertical;box-sizing:border-box"></textarea>
     </div>
     <div style="margin-top:18px;text-align:right;display:flex;gap:10px;justify-content:flex-end">
@@ -1742,11 +1744,11 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-row">
       <div class="form-group">
         <label>Start Date</label>
-        <input type="date" id="dStartDate"/>
+        <div data-dmy="dStartDate"></div>
       </div>
       <div class="form-group">
         <label>Due Date</label>
-        <input type="date" id="dDate"/>
+        <div data-dmy="dDate"></div>
       </div>
     </div>
     <div class="form-row">
@@ -2161,7 +2163,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="alert error" id="reviseErr"></div>
     <div class="form-group">
       <label>New Due Date</label>
-      <input type="date" id="reviseDate"/>
+      <div data-dmy="reviseDate"></div>
       <div style="font-size:12px;color:var(--gray-500);margin-top:4px">Cannot select a past date</div>
     </div>
     <div class="form-group">
@@ -2195,11 +2197,11 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-row">
       <div class="form-group">
         <label>Start Date</label>
-        <input type="date" id="editTStartDate"/>
+        <div data-dmy="editTStartDate"></div>
       </div>
       <div class="form-group">
         <label>Due Date</label>
-        <input type="date" id="editTDate"/>
+        <div data-dmy="editTDate"></div>
       </div>
       <div class="form-group" id="editTPriorityWrap">
         <label>Priority</label>
@@ -3712,7 +3714,15 @@ function toggleDashDateSort() {
   if (window._lastDashTasks) renderDashTable(window._lastDashTasks, dashType);
 }
 
+let dashFreq = 'all';
+function renderDashFreq() {
+  dashFreq = document.getElementById('dashFreqFilter').value;
+  if (window._lastDashTasks) renderDashTable(window._lastDashTasks, dashType);
+}
+
 function renderDashTable(tasks, type) {
+  const dashFreqEl = document.getElementById('dashFreqFilter');
+  if (dashFreqEl) dashFreqEl.style.display = type === 'checklist' ? '' : 'none';
   // Show ALL pending tasks (delegation + checklist) combined
   const isAdmin = ME.role==='admin' || ME.role==='hod';
   const isPC    = ME.role==='pc';
@@ -3725,7 +3735,8 @@ function renderDashTable(tasks, type) {
     const matchType = (!type || type === 'all') ? true
       : type === 'fms' ? t.type === 'o2d'
       : t.type === type;
-    return matchType && (t.status === 'pending' || t.status === 'revised' || !t.status);
+    const matchFreq = type !== 'checklist' || dashFreq === 'all' || (t.frequency || '') === dashFreq;
+    return matchType && matchFreq && (t.status === 'pending' || t.status === 'revised' || !t.status);
   });
   // Apply date sort
   if (_dashDateSortState === 1) {
@@ -3950,6 +3961,9 @@ function renderTasksTable() {
   const isChecklist = tasksType === 'checklist';
   const search = (document.getElementById('taskSearch')?.value||'').toLowerCase();
   const userFilterVal = document.getElementById('tasksUserFilter')?.value || 'all';
+  const freqEl = document.getElementById('tasksFreqFilter');
+  if (freqEl) freqEl.style.display = isChecklist ? '' : 'none';
+  const freqFilterVal = freqEl ? freqEl.value : 'all';
   const dateFrom = document.getElementById('tasksDateFrom')?.value || '';
   const dateTo = document.getElementById('tasksDateTo')?.value || '';
   const container = document.getElementById('tasksContent');
@@ -3968,14 +3982,15 @@ function renderTasksTable() {
     const matchUser = userFilterVal === 'all' || String(t.assigned_to) === String(userFilterVal);
     const matchDateFrom = !dateFrom || (t.due_date && t.due_date >= dateFrom);
     const matchDateTo = !dateTo || (t.due_date && t.due_date <= dateTo);
-    return matchStatus && matchSearch && matchUser && matchDateFrom && matchDateTo;
+    const matchFreq = !isChecklist || freqFilterVal === 'all' || (t.frequency || '') === freqFilterVal;
+    return matchStatus && matchSearch && matchUser && matchDateFrom && matchDateTo && matchFreq;
   });
 
   const _badge = document.getElementById('tasksCountBadge');
   if (_badge) { _badge.textContent = `${tasks.length} task${tasks.length===1?'':'s'}`; _badge.style.display = ''; }
 
   if (!tasks.length) {
-    const hasFilter = (dateFrom || dateTo || search || userFilterVal !== 'all');
+    const hasFilter = (dateFrom || dateTo || search || userFilterVal !== 'all' || (isChecklist && freqFilterVal !== 'all'));
     container.innerHTML = `<div class="tasks-empty">
       <div class="tasks-empty-icon">${hasFilter ? '🔍' : '📋'}</div>
       <div class="tasks-empty-title">${hasFilter ? 'No matching tasks' : 'No tasks yet'}</div>
@@ -5428,6 +5443,7 @@ async function submitApplyLeave() {
   const reason = document.getElementById('alReason').value.trim();
   const errEl = document.getElementById('applyLeaveErr');
   if (!startDate || !endDate) { errEl.textContent = 'Start date aur end date dono chahiye'; errEl.style.display = 'block'; return; }
+  if (!reason) { errEl.textContent = 'Reason likhna zaroori hai'; errEl.style.display = 'block'; return; }
   const r = await api('/api/leave', 'POST', { leaveType, startDate, endDate, reason });
   if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
   showToast('Leave request submitted!');
@@ -5993,6 +6009,26 @@ function openDmyPicker(id) {
   const hidden = document.getElementById(id);
   try { hidden.showPicker(); } catch (e) { hidden.focus(); hidden.click(); }
 }
+// Swaps every <div data-dmy="id"> placeholder for a DD/MM/YY field. The hidden
+// ISO input keeps the id, and its .value setter is wrapped so code that sets
+// `.value = 'YYYY-MM-DD'` (modal open / edit prefill) also refreshes the text.
+function initDmyPlaceholders() {
+  document.querySelectorAll('[data-dmy]').forEach(ph => {
+    const id = ph.getAttribute('data-dmy');
+    ph.outerHTML = dmyDateFieldHtml(id, '', 'width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box');
+    const hidden = document.getElementById(id);
+    const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    Object.defineProperty(hidden, 'value', {
+      get() { return native.get.call(this); },
+      set(v) {
+        native.set.call(this, v);
+        const txt = document.getElementById(`${id}_dmy`);
+        if (txt) { txt.value = v ? fmtDateDMY(v) : ''; txt.style.borderColor = ''; }
+      }
+    });
+  });
+}
+document.addEventListener('DOMContentLoaded', initDmyPlaceholders);
 function setDmyDate(id, iso) {
   const hidden = document.getElementById(id);
   const txt = document.getElementById(`${id}_dmy`);
