@@ -1656,11 +1656,11 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-row">
       <div class="form-group">
         <label>Start Date</label>
-        <div data-dmy="alStartDate"></div>
+        <input type="date" id="alStartDate"/>
       </div>
       <div class="form-group">
         <label>End Date</label>
-        <div data-dmy="alEndDate"></div>
+        <input type="date" id="alEndDate"/>
       </div>
     </div>
     <div class="form-group">
@@ -1744,11 +1744,11 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-row">
       <div class="form-group">
         <label>Start Date</label>
-        <div data-dmy="dStartDate"></div>
+        <input type="date" id="dStartDate"/>
       </div>
       <div class="form-group">
         <label>Due Date</label>
-        <div data-dmy="dDate"></div>
+        <input type="date" id="dDate"/>
       </div>
     </div>
     <div class="form-row">
@@ -2163,7 +2163,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="alert error" id="reviseErr"></div>
     <div class="form-group">
       <label>New Due Date</label>
-      <div data-dmy="reviseDate"></div>
+      <input type="date" id="reviseDate"/>
       <div style="font-size:12px;color:var(--gray-500);margin-top:4px">Cannot select a past date</div>
     </div>
     <div class="form-group">
@@ -2197,11 +2197,11 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-row">
       <div class="form-group">
         <label>Start Date</label>
-        <div data-dmy="editTStartDate"></div>
+        <input type="date" id="editTStartDate"/>
       </div>
       <div class="form-group">
         <label>Due Date</label>
-        <div data-dmy="editTDate"></div>
+        <input type="date" id="editTDate"/>
       </div>
       <div class="form-group" id="editTPriorityWrap">
         <label>Priority</label>
@@ -6009,26 +6009,67 @@ function openDmyPicker(id) {
   const hidden = document.getElementById(id);
   try { hidden.showPicker(); } catch (e) { hidden.focus(); hidden.click(); }
 }
-// Swaps every <div data-dmy="id"> placeholder for a DD/MM/YY field. The hidden
-// ISO input keeps the id, and its .value setter is wrapped so code that sets
-// `.value = 'YYYY-MM-DD'` (modal open / edit prefill) also refreshes the text.
-function initDmyPlaceholders() {
-  document.querySelectorAll('[data-dmy]').forEach(ph => {
-    const id = ph.getAttribute('data-dmy');
-    ph.outerHTML = dmyDateFieldHtml(id, '', 'width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box');
-    const hidden = document.getElementById(id);
-    const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-    Object.defineProperty(hidden, 'value', {
-      get() { return native.get.call(this); },
-      set(v) {
-        native.set.call(this, v);
-        const txt = document.getElementById(`${id}_dmy`);
-        if (txt) { txt.value = v ? fmtDateDMY(v) : ''; txt.style.borderColor = ''; }
-      }
-    });
-  });
+// App-wide DD-MM-YYYY date entry. A native <input type="date"> renders in the
+// browser's locale (MM/DD/YYYY on most PCs), so every one is upgraded in place:
+// the native input stays (hidden, same id/value/min/onchange) so existing code
+// keeps reading and writing "YYYY-MM-DD", and a typed DD-MM-YYYY box + 📅
+// button sits in front of it. Also catches inputs added later via innerHTML.
+// Service FMS's own DD/MM/YY fields (dmyDateFieldHtml) are left as they are.
+function fmtDateFull(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
 }
-document.addEventListener('DOMContentLoaded', initDmyPlaceholders);
+function upgradeDateInput(el) {
+  if (el.dataset.dmyDone || el.getAttribute('aria-hidden') === 'true') return;
+  el.dataset.dmyDone = '1';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;gap:6px;align-items:center;position:relative;min-width:0';
+  const txt = document.createElement('input');
+  txt.type = 'text'; txt.inputMode = 'numeric'; txt.placeholder = 'DD-MM-YYYY'; txt.maxLength = 10; txt.autocomplete = 'off';
+  txt.style.cssText = el.style.cssText;
+  txt.className = el.className;
+  txt.style.flex = '1'; txt.style.minWidth = '0'; txt.style.width = txt.style.width || '100%';
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.textContent = '📅'; btn.title = 'Pick from calendar';
+  btn.className = 'btn btn-outline btn-sm'; btn.style.flexShrink = '0';
+  el.parentNode.insertBefore(wrap, el);
+  wrap.append(txt, btn, el);
+  el.tabIndex = -1; el.setAttribute('aria-hidden', 'true');
+  el.style.cssText = 'position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;pointer-events:none';
+  const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  const sync = () => { txt.value = fmtDateFull(native.get.call(el)); txt.style.borderColor = ''; };
+  Object.defineProperty(el, 'value', { get() { return native.get.call(this); }, set(v) { native.set.call(this, v); sync(); } });
+  sync();
+  txt.addEventListener('input', () => {
+    const d = txt.value.replace(/\D/g, '').slice(0, 8);
+    let v = d;
+    if (d.length > 4) v = `${d.slice(0, 2)}-${d.slice(2, 4)}-${d.slice(4)}`;
+    else if (d.length > 2) v = `${d.slice(0, 2)}-${d.slice(2)}`;
+    if (txt.value !== v) txt.value = v;
+    let iso = '';
+    const m = v.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (m) {
+      const dt = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+      if (dt.getFullYear() === Number(m[3]) && dt.getMonth() === Number(m[2]) - 1 && dt.getDate() === Number(m[1])) iso = `${m[3]}-${m[2]}-${m[1]}`;
+    }
+    txt.style.borderColor = (v.length === 10 && !iso) ? 'var(--color-danger)' : '';
+    if (native.get.call(el) !== iso) { native.set.call(el, iso); el.dispatchEvent(new Event('change', { bubbles: true })); }
+  });
+  el.addEventListener('change', () => { txt.value = fmtDateFull(native.get.call(el)); txt.style.borderColor = ''; });
+  btn.addEventListener('click', () => { try { el.showPicker(); } catch (e) { el.focus(); el.click(); } });
+}
+function upgradeAllDateInputs(root) {
+  (root || document).querySelectorAll('input[type="date"]:not([data-dmy-done])').forEach(upgradeDateInput);
+}
+function startDateUpgrader() {
+  upgradeAllDateInputs();
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return; queued = true;
+    requestAnimationFrame(() => { queued = false; upgradeAllDateInputs(); });
+  }).observe(document.body, { childList: true, subtree: true });
+}
+document.addEventListener('DOMContentLoaded', startDateUpgrader);
 function setDmyDate(id, iso) {
   const hidden = document.getElementById(id);
   const txt = document.getElementById(`${id}_dmy`);
