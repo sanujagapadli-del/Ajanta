@@ -7838,7 +7838,7 @@ function renderMechanicWiseView() {
         </div>
         <div style="display:flex;gap:8px">
           <button onclick="copyMechanicList('${mech.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;')}')" style="flex:1;padding:13px;background:var(--surface);color:var(--color-success-text);border:1.5px solid var(--color-success-text);border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📋 Copy</button>
-          <button onclick="sendMechanicListWhatsApp('${mech.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;')}')" style="flex:1;padding:13px;background:var(--color-success-text);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📤 Send via WhatsApp</button>
+          <button onclick="sendMechanicListWhatsApp('${mech.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;')}', this)" style="flex:1;padding:13px;background:var(--color-success-text);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📤 Send via WhatsApp</button>
         </div>
       </div>`;
     }).join('')}
@@ -7870,7 +7870,7 @@ async function copyMechanicList(mech) {
 // Sends straight through the WhatsApp gateway (MYAPI) — no wa.me / manual "hit send" step. If the
 // mechanic has no stored mobile number yet, asks for it once and saves it to
 // the Mechanics master list so future sends are one-click.
-async function sendMechanicListWhatsApp(mech) {
+async function sendMechanicListWhatsApp(mech, btn) {
   const list = _sfmsMechanicGroups[mech] || [];
   if (!list.length) { showToast('No complaints found', 'error'); return; }
   const text = buildMechanicListText(mech, list);
@@ -7884,10 +7884,11 @@ async function sendMechanicListWhatsApp(mech) {
     sfmsMechanicPhones[mech] = mobile;
   }
 
-  showToast('Sending via WhatsApp…');
+  const restore = btnLoading(btn, 'Sending…');
   const res = await api('/api/service-fms/send-whatsapp', 'POST', { mobile, message: text });
+  restore();
   if (res.error) { showToast(res.error, 'error'); return; }
-  showToast('✅ Sent via WhatsApp!');
+  showToast(res.pending ? '⏳ List bheji ja rahi hai — 10-15 sec mein WhatsApp par pahunchegi' : '✅ Sent via WhatsApp!');
 }
 
 // ══════════════════════════════════════════════════════
@@ -8063,10 +8064,10 @@ function buildReportShortage() {
   sfmsData.forEach(c => sfmsInOutRows(c).forEach(r => { if (r.recorded && r.shortQty > 0) lines.push({ c, r }); }));
   lines.sort((a, b) => b.r.shortQty - a.r.shortQty);
   if (!lines.length) return '<div class="empty">No spare shortages recorded. 🎉</div>';
-  return sfmsReportHeader('Spares where fewer pieces came back (new + bad) than were taken out.', 'sfmsRptShortageTable') + `
+  return sfmsReportHeader('Spares where fewer pieces came back (new + old) than were taken out.', 'sfmsRptShortageTable') + `
     <div class="mis-table-wrap" style="overflow-x:auto;border:1px solid var(--gray-200);border-radius:10px">
     <table id="sfmsRptShortageTable">
-      <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>New Back</th><th>Bad Back</th><th>Short</th><th>Reason</th><th>Cash / Status</th><th>Mechanic</th></tr></thead>
+      <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>New Back</th><th>Old Back</th><th>Short</th><th>Reason</th><th>Cash / Status</th><th>Mechanic</th></tr></thead>
       <tbody>
         ${lines.map(({ c, r }) => {
           const inout = sfmsStep(c, 'inout');
@@ -8094,10 +8095,10 @@ function buildReportShortage() {
 function buildReportSpareTable() {
   const relevant = sfmsData.filter(c => c.currentStep >= SN.takeout);
   if (!relevant.length) return '<div class="empty">No complaints have reached Takeout Spare yet.</div>';
-  return sfmsReportHeader('Har spare: kitne liye, kitne New / Bad wapas aaye, kitne kam. (Entry Takeout / Check In/Out step se hoti hai.)', 'sfmsRptSpareTable') + `
+  return sfmsReportHeader('Har spare: kitne liye, kitne New / Old wapas aaye, kitne kam. (Entry Takeout / Check In/Out step se hoti hai.)', 'sfmsRptSpareTable') + `
     <div class="mis-table-wrap" style="overflow-x:auto;border:1px solid var(--gray-200);border-radius:10px">
     <table id="sfmsRptSpareTable">
-      <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>New Back</th><th>Bad Back</th><th>Short</th><th>In/Out Status</th></tr></thead>
+      <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>New Back</th><th>Old Back</th><th>Short</th><th>In/Out Status</th></tr></thead>
       <tbody>
         ${relevant.map(c => sfmsInOutRows(c).map((r, i) => `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
             <td style="font-weight:600">${i === 0 ? esc(c.complainNo) : ''}</td>
@@ -8691,7 +8692,7 @@ function buildSfmsNextActionHtml(c, compact) {
   } else if (nextStepDef && nextStepDef.otpRequired) {
     const extraInputsHtml = nextStepDef.extraFields.map(f => renderSfmsField(f, c.row, compact)).join('');
     if (!sfmsOtpSentFor[c.row]) {
-      const sendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-primary" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">Send OTP to Customer</button>`;
+      const sendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n},this)" class="btn btn-primary" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">Send OTP to Customer</button>`;
       actionHtml = compact
         ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${sendBtn}</div>`
         : `
@@ -8704,7 +8705,7 @@ function buildSfmsNextActionHtml(c, compact) {
     } else {
       const otpInput = `<input type="text" inputmode="numeric" id="sfmsOtpInput_${c.row}" placeholder="Enter OTP" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE};text-align:center;letter-spacing:${compact ? '3px' : '6px'};font-weight:700;font-size:${compact ? '14px' : '18px'}"/>`;
       const verifyBtn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px;margin-bottom:8px'}">Verify &amp; Complete</button>`;
-      const resendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n})" class="btn btn-outline btn-sm" style="${compact ? 'padding:8px 12px;font-size:12px;white-space:nowrap' : 'width:100%;justify-content:center'}">Resend</button>`;
+      const resendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n},this)" class="btn btn-outline btn-sm" style="${compact ? 'padding:8px 12px;font-size:12px;white-space:nowrap' : 'width:100%;justify-content:center'}">Resend</button>`;
       actionHtml = compact
         ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${otpInput}${extraInputsHtml}${verifyBtn}${resendBtn}</div>`
         : `
@@ -9017,7 +9018,7 @@ function sfmsBuildSpareInRowsHtml(c) {
     return `<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(it.item || '—')} <span style="color:var(--gray-400);font-weight:400">(liye ${taken})</span></span>
       <input type="number" min="0" max="${taken}" placeholder="New" title="New (unused) pieces returned" id="sfmsInNew_${c.row}_${i}" value="${sv.newQty ?? ''}" oninput="sfmsCheckSpareInShortage(${c.row})" style="${inp}"/>
-      <input type="number" min="0" max="${taken}" placeholder="Bad" title="Bad (kharab / old) pieces returned" id="sfmsInBad_${c.row}_${i}" value="${sv.oldQty ?? ''}" oninput="sfmsCheckSpareInShortage(${c.row})" style="${inp}"/>
+      <input type="number" min="0" max="${taken}" placeholder="Old" title="Old (purane / kharab) pieces returned" id="sfmsInBad_${c.row}_${i}" value="${sv.oldQty ?? ''}" oninput="sfmsCheckSpareInShortage(${c.row})" style="${inp}"/>
       <span id="sfmsInShort_${c.row}_${i}" style="font-size:11.5px;font-weight:700"></span>
     </div>`;
   }).join('');
@@ -9026,7 +9027,7 @@ function sfmsBuildSpareInRowsHtml(c) {
   // for the missing pieces, or settle the shortage in cash (→ approval).
   const radio = (value, label, checked) => `<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--gray-700);cursor:pointer;margin:0 0 4px;text-transform:none;letter-spacing:0">
       <input type="radio" name="sfmsInSettle_${c.row}" value="${value}" ${checked ? 'checked' : ''} onchange="sfmsCheckSpareInShortage(${c.row})"/> ${label}</label>`;
-  return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Per spare: <b>New</b> pieces wapas · <b>Bad</b> (kharab) pieces wapas</div>${rowsHtml}
+  return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Per spare: <b>New</b> pieces wapas · <b>Old</b> (purane / kharab) pieces wapas</div>${rowsHtml}
     <div id="sfmsInShortWrap_${c.row}" style="display:none;background:var(--color-warning-bg);border-radius:8px;padding:8px;margin-bottom:8px">
       <div id="sfmsInShortMsg_${c.row}" style="font-size:12px;font-weight:700;color:var(--color-warning-text);margin-bottom:6px"></div>
       ${radio('cash', '💰 Cash ke saath settle karo', !!cashPrefill)}
@@ -9129,9 +9130,9 @@ function sfmsCollectStepBody(row, step, stage) {
     const items = sfmsCollectSpareInRows(row, c);
     if (!items.length) return { error: 'Is complaint par koi spare takeout nahi hua' };
     const blank = items.find(r => !r.filled);
-    if (blank) return { error: `${blank.item}: New / Bad pieces bharo (0 bhi chalega)` };
+    if (blank) return { error: `${blank.item}: New / Old pieces bharo (0 bhi chalega)` };
     const over = items.find(r => r.shortQty < 0);
-    if (over) return { error: `${over.item}: new + bad (${over.newQty + over.oldQty}) liye gaye (${over.takenQty}) se zyada nahi ho sakte` };
+    if (over) return { error: `${over.item}: new + old (${over.newQty + over.oldQty}) liye gaye (${over.takenQty}) se zyada nahi ho sakte` };
     const totalShort = items.reduce((s, r) => s + r.shortQty, 0);
     const settleCash = totalShort > 0 && sfmsInSettleChoice(row) === 'cash';
     const cashEl = document.getElementById(`sfmsInCash_${row}`);
@@ -9213,11 +9214,25 @@ function patchSfmsRowAfterUpdate(row) {
   }
 }
 
-async function sendSfmsOtp(row, step) {
+// Spinner on whichever button was pressed while a request runs; returns a restore fn.
+function btnLoading(btn, label) {
+  if (!btn) return () => {};
+  const old = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span style="display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px"></span>${label}`;
+  return () => { btn.disabled = false; btn.innerHTML = old; };
+}
+
+async function sendSfmsOtp(row, step, btn) {
+  const restore = btnLoading(btn, 'Sending OTP…');
   const res = await api(`/api/service-fms/${row}/step/${step}/send-otp`, 'POST', {});
+  restore();
   if (res.error) { showToast(res.error, 'error'); return; }
   sfmsOtpSentFor[row] = true;
-  showToast(res.otp ? `✅ OTP sent to customer! (Admin fallback code: ${res.otp})` : '✅ OTP sent to customer via WhatsApp!');
+  // The gateway deliberately paces messages to new numbers, so delivery can
+  // lag ~10-15s — the OTP is already saved and the code box is ready now.
+  const sentMsg = res.pending ? '⏳ OTP bheja ja raha hai — customer ko 10-15 sec mein WhatsApp par milega' : '✅ OTP sent to customer via WhatsApp!';
+  showToast(res.otp ? `${sentMsg} (Admin code: ${res.otp})` : sentMsg);
   // Re-render whichever view is actually showing this — the detail modal
   // (if open) and/or a per-step tab table (both can reflect the same row).
   const updated = sfmsData.find(x => x.row === row);

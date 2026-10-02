@@ -3348,7 +3348,7 @@ const SFMS_STEPS = [
     extra: [
       { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
       { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' },
-      { key: 'spareInJson', col: SFMS_SPARE_IN_COL, label: 'Spares Returned (all items, new/bad/short)' },
+      { key: 'spareInJson', col: SFMS_SPARE_IN_COL, label: 'Spares Returned (all items, new/old/short)' },
       { key: 'usedBy', col: SFMS_SPARE_USED_BY_COL, label: 'Filled By (Mechanic)' },
       { key: 'cashAmount', col: 'BQ', label: 'Cash for Short Pieces' },
       { key: 'cashStatus', col: 'BR', label: 'Cash Approval' }
@@ -3643,7 +3643,11 @@ async function myapiConfig() {
 // MYAPI's own shape: { type: 'image'|'document', url, mimetype?, fileName? }
 // — the url must be publicly fetchable by the gateway (e.g. a public Drive
 // uc?export=view link from uploadPhotoToDrive(..., { public: true })).
-async function sendWhatsApp(mobile, text, media) {
+// MYAPI's anti-ban pacing holds a message to a number it hasn't messaged
+// before (i.e. almost every customer) for ~4-8s before sending — on purpose —
+// so the send itself gets a longer ceiling than the gateway's other calls.
+const MYAPI_SEND_TIMEOUT_MS = 30000;
+async function sendWhatsApp(mobile, text, media, timeoutMs = MYAPI_SEND_TIMEOUT_MS) {
   const { base, apiKey } = await myapiConfig();
   const raw = String(mobile || '').trim();
   const to = raw.endsWith('@g.us') ? raw : sfmsNormalizeMobile(raw);
@@ -3657,7 +3661,7 @@ async function sendWhatsApp(mobile, text, media) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(MYAPI_TIMEOUT_MS)
+      signal: AbortSignal.timeout(timeoutMs)
     });
   } catch (e) {
     _myapiSessionCache = null;
@@ -3691,13 +3695,30 @@ async function sendWhatsApp(mobile, text, media) {
 // the message. waitUntil keeps the function alive until it settles. This is
 // the same lookup @vercel/functions' waitUntil() does; outside Vercel the
 // promise simply runs as normal.
+function vercelWaitUntil(promise) {
+  const ctx = globalThis[Symbol.for('@vercel/request-context')];
+  const waitUntil = ctx && typeof ctx.get === 'function' && (ctx.get() || {}).waitUntil;
+  if (typeof waitUntil === 'function') waitUntil(promise);
+}
 function sendWhatsAppInBackground(mobile, text, media, label) {
   const p = sendWhatsApp(mobile, text, media)
     .catch(e => console.error(`WhatsApp (${label}) failed:`, e.message));
-  const ctx = globalThis[Symbol.for('@vercel/request-context')];
-  const waitUntil = ctx && typeof ctx.get === 'function' && (ctx.get() || {}).waitUntil;
-  if (typeof waitUntil === 'function') waitUntil(p);
+  vercelWaitUntil(p);
   return p;
+}
+
+// For sends a person is waiting on (Send OTP, mechanic list): wait only
+// briefly. Resolves 'sent' if the gateway finishes within ~3.5s, otherwise
+// 'pending' — the send keeps going in the background (waitUntil) instead of
+// a spinner sitting through MYAPI's deliberate new-number pacing. A failure
+// that comes back quickly (disconnected, bad number) is still thrown.
+async function sendWhatsAppQuick(mobile, text, media, label) {
+  const p = sendWhatsApp(mobile, text, media);
+  vercelWaitUntil(p.catch(e => console.error(`WhatsApp (${label}) failed:`, e.message)));
+  const sent = p.then(() => 'sent');
+  sent.catch(() => {}); // a failure after the cut-off is logged above, not an unhandled rejection
+  const pending = new Promise(resolve => setTimeout(() => resolve('pending'), 3500));
+  return Promise.race([sent, pending]);
 }
 
 // Like sendServerError, but a failed WhatsApp send's own message is shown
@@ -3912,7 +3933,7 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
       const spares = parseJson(takeout.spareOutJson);
       const sparesText = (spares.length ? spares : (takeout.itemName ? [{ item: takeout.itemName, qty: takeout.spareTaken }] : []))
         .map(x => `${x.item} × ${x.qty}`).join(', ');
-      const used = parseJson(inout.spareInJson).map(x => `${x.item}: new back ${x.newQty || 0}, bad back ${x.oldQty || 0}${x.shortQty ? `, short ${x.shortQty}` : ''}`).join('; ');
+      const used = parseJson(inout.spareInJson).map(x => `${x.item}: new back ${x.newQty || 0}, old back ${x.oldQty || 0}${x.shortQty ? `, short ${x.shortQty}` : ''}`).join('; ');
       return {
         'Complaint No': c.complainNo,
         'Complaint Date': sfmsDmy(c.timestamp, true),
@@ -4112,7 +4133,8 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
 // Edit Complaint (point 7) — updates one product-line row's own intake
 // fields after the complaint has already been saved. A multi-product
 // complaint's sibling rows are edited the same way, one row at a time.
-app.put('/api/service-fms/:row', requireAuth, requireSfmsEditor, async (req, res) => {
+// :row is numeric-only so it can't swallow named routes like PUT /api/service-fms/cash-approver.
+app.put('/api/service-fms/:row(\\d+)', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const row = parseInt(req.params.row, 10);
     if (!row) return res.status(400).json({ error: 'Invalid row' });
@@ -4181,20 +4203,20 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
     const stepDef = SFMS_STEPS.find(s => s.n === stepNum);
     if (!row || !stepDef || !stepDef.otpRequired) return res.status(400).json({ error: 'Invalid row or step number' });
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    if (!(await sfmsCanActOnRow(req, await sfmsUserAccess(req), stepNum, row, sheetsApi))) return res.status(403).json({ error: 'You are not assigned to this step' });
-
-    const rowRes = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: SFMS_SHEET_ID,
-      range: `'${SFMS_TAB}'!D${row}:D${row}`
-    });
+    const [allowed, rowRes] = await Promise.all([
+      sfmsUserAccess(req).then(acc => sfmsCanActOnRow(req, acc, stepNum, row, sheetsApi)),
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!D${row}:D${row}` })
+    ]);
+    if (!allowed) return res.status(403).json({ error: 'You are not assigned to this step' });
     const mobile = (rowRes.data.values && rowRes.data.values[0] && rowRes.data.values[0][0]) || '';
     if (!mobile) return res.status(400).json({ error: 'No customer mobile number on file for this complaint' });
 
     const otp = String(crypto.randomInt(100000, 1000000));
     const sentAtIso = new Date().toISOString();
 
-    await sendWhatsApp(mobile, `Ajanta Appliances Service: Your OTP to confirm the technician's visit is ${otp}. Please share this with the technician. Valid for 30 minutes.`);
-
+    // Saved BEFORE sending: the gateway can take ~10s+ to deliver (see
+    // sendWhatsAppQuick), and a customer who receives the code must always
+    // be able to verify it — even if this request had already returned.
     await sheetsApi.spreadsheets.values.batchUpdate({
       spreadsheetId: SFMS_SHEET_ID,
       requestBody: {
@@ -4206,7 +4228,11 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
       }
     });
 
-    res.json({ success: true, otp: req.session.role === 'admin' ? otp : undefined });
+    const delivery = await sendWhatsAppQuick(mobile,
+      `Ajanta Appliances Service: Your OTP to confirm the technician's visit is ${otp}. Please share this with the technician. Valid for 30 minutes.`,
+      undefined, `OTP row ${row}`);
+
+    res.json({ success: true, pending: delivery === 'pending', otp: req.session.role === 'admin' ? otp : undefined });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     sendWhatsAppError(res, err);
@@ -4372,8 +4398,8 @@ app.post('/api/service-fms/send-whatsapp', requireAuth, requireSfmsEditor, async
     const mobile = String(req.body.mobile || '').trim();
     const message = String(req.body.message || '').trim();
     if (!mobile || !message) return res.status(400).json({ error: 'Mobile and message are required' });
-    await sendWhatsApp(mobile, message);
-    res.json({ success: true });
+    const delivery = await sendWhatsAppQuick(mobile, message, undefined, 'mechanic list');
+    res.json({ success: true, pending: delivery === 'pending' });
   } catch (err) { sendWhatsAppError(res, err); }
 });
 
@@ -4430,7 +4456,7 @@ async function sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal) {
     const newQty = Math.max(0, Math.floor(Number(it.newQty) || 0));
     const oldQty = Math.max(0, Math.floor(Number(it.oldQty) || 0));
     if (newQty + oldQty > takenQty) {
-      return res.status(400).json({ error: `${it.item}: new + bad returned (${newQty + oldQty}) can't be more than taken (${takenQty})` });
+      return res.status(400).json({ error: `${it.item}: new + old returned (${newQty + oldQty}) can't be more than taken (${takenQty})` });
     }
     clean.push({ item: String(it.item || ''), takenQty, newQty, oldQty, usedQty: takenQty - newQty, shortQty: takenQty - newQty - oldQty });
   }
@@ -4468,7 +4494,7 @@ async function sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal) {
     const [complainNo = '', customer = ''] = (info.data.values && info.data.values[0]) || [];
     const approver = await sfmsCashApprover();
     approverName = approver ? approver.name : '';
-    const shortDetails = clean.filter(x => x.shortQty > 0).map(x => `${x.item}: ${x.shortQty} short (took ${x.takenQty}, new ${x.newQty}, bad ${x.oldQty})`).join('; ');
+    const shortDetails = clean.filter(x => x.shortQty > 0).map(x => `${x.item}: ${x.shortQty} short (took ${x.takenQty}, new ${x.newQty}, old ${x.oldQty})`).join('; ');
     await db.query(
       `INSERT INTO sfms_cash_approvals (sheet_row, complain_no, customer, mechanic, amount, short_details, requested_by, requested_to)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
