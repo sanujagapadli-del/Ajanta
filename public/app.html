@@ -8734,12 +8734,8 @@ function buildSfmsNextActionHtml(c, compact) {
       extraInputsHtml = '';
     } else if (nextStepDef.n === SN.inout) {
       spareRowsHtml = sfmsBuildSpareInRowsHtml(c, compact);
-      // The mechanic picks his own name (no "+ Add New" here — that's the Assign step's job).
-      const savedBy = stepData.usedBy || '';
-      extraInputsHtml = `<select id="sfmsExtra_${c.row}_usedBy" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE};${compact ? 'margin-bottom:6px' : ''}">
-          <option value="">-- Your Name (Mechanic) --</option>
-          ${sfmsMechanicsList.map(m => `<option value="${esc(m)}" ${m === savedBy ? 'selected' : ''}>${esc(m)}</option>`).join('')}
-        </select>`;
+      // No "your name" picker — the server records the mechanic from Assign.
+      extraInputsHtml = '';
     } else if (nextStepDef.n === SN.assign && compact) {
       // Assign tab (compact): Zone isn't re-picked per row anymore, but it's
       // also not just whatever the top filter happens to be set to — the top
@@ -9153,7 +9149,6 @@ function sfmsCollectStepBody(row, step, stage) {
     body[f.key] = value;
   }
 
-  if (step === SN.inout && !body.usedBy) return { error: 'Select your name (mechanic) first' };
   if (step === SN.assign && !body.mechanic) return { error: 'Mechanic select karo' };
   if (stepDef.otpRequired) {
     const otpEl = document.getElementById(`sfmsOtpInput_${row}`);

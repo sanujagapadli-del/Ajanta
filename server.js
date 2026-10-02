@@ -4445,8 +4445,14 @@ async function sfmsCashApprover() {
 
 async function sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal) {
   if (req.body.spareInJson === undefined) return res.status(400).json({ error: 'Fill the Check In/Out form — new and bad pieces returned per spare' });
-  const usedBy = String(req.body.usedBy || '').trim();
-  if (!usedBy) return res.status(400).json({ error: 'Select your name (mechanic) first' });
+  // "Filled By" is no longer asked on the form — it's the mechanic assigned
+  // at Assign (col AF), or whoever submitted if none is recorded.
+  let usedBy = String(req.body.usedBy || '').trim();
+  if (!usedBy) {
+    const mechCol = SFMS_STEPS.find(s => s.key === 'assign').extra.find(e => e.key === 'mechanic').col;
+    const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!${mechCol}${row}:${mechCol}${row}` });
+    usedBy = String((r.data.values && r.data.values[0] && r.data.values[0][0]) || req.session.name || '').trim();
+  }
   let items;
   try { items = JSON.parse(req.body.spareInJson); } catch (e) { items = null; }
   if (!Array.isArray(items)) return res.status(400).json({ error: 'Invalid spare return data' });
