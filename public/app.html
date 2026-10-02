@@ -616,6 +616,34 @@ tbody tr:last-child td{border-bottom:none;}
 .mis-table-wrap thead,.flat-tasks-table thead{position:sticky;top:0;z-index:3;}
 .mis-table-wrap thead th,.flat-tasks-table thead th{background:var(--surface-alt);}
 .modal .mis-table-wrap{max-height:none;}
+
+/* Step Doers matrix (renderStepDoerMatrix) — Service / O2D / Purchase FMS */
+/* min-width:0 — as a flex item of the overlay the modal would otherwise grow to the table's full width on a phone */
+.modal.sdm-modal{max-width:1000px;width:96vw;min-width:0;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;}
+.sdm-body{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;}
+.sdm-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;}
+.sdm-search{flex:1;min-width:150px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;}
+.sdm-only{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--gray-600);cursor:pointer;white-space:nowrap;text-transform:none;letter-spacing:0;font-weight:500;margin:0;}
+.sdm-wrap{flex:1;min-height:0;min-width:0;overflow:auto;border:1px solid var(--gray-200);border-radius:10px;}
+.sdm-table{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;}
+.sdm-table th,.sdm-table td{padding:6px 8px;border-bottom:1px solid var(--gray-100);text-align:center;vertical-align:middle;}
+.sdm-table thead th{position:sticky;top:0;z-index:2;background:var(--surface-alt);text-transform:none;letter-spacing:0;color:var(--gray-700);font-size:11.5px;font-weight:700;min-width:84px;max-width:120px;vertical-align:bottom;line-height:1.25;white-space:normal;}
+.sdm-doer{font-size:10px;font-weight:500;color:var(--gray-400);margin-top:2px;}
+.sdm-count{font-size:10px;font-weight:700;color:var(--color-success-text);margin-top:3px;}
+.sdm-count.none{color:var(--color-danger);}
+.sdm-table .sdm-user{position:sticky;left:0;z-index:1;background:var(--surface);text-align:left;font-weight:600;min-width:150px;white-space:nowrap;box-shadow:1px 0 0 var(--gray-200);}
+.sdm-table thead .sdm-user{z-index:3;background:var(--surface-alt);}
+.sdm-ucount{font-size:11px;color:var(--color-success-text);font-weight:700;}
+.sdm-table td.sdm-cell{padding:0;}
+.sdm-cell label{display:flex;align-items:center;justify-content:center;min-height:34px;cursor:pointer;margin:0;}
+.sdm-cell input{width:16px;height:16px;cursor:pointer;}
+.sdm-cell.on{background:var(--color-success-bg);}
+.sdm-table tbody tr:hover td.sdm-user{background:var(--gray-50);}
+@media(max-width:768px){
+  .sdm-table .sdm-user{min-width:108px;white-space:normal;}
+  .sdm-table thead th{min-width:62px;font-size:10.5px;}
+  .modal.sdm-modal{max-height:92dvh;}
+}
 .bulk-section{margin-top:20px;padding-top:16px;border-top:1px solid var(--color-primary-light);}
 .file-row{display:flex;align-items:center;gap:8px;margin-top:6px;}
 
@@ -2846,14 +2874,14 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- ── PURCHASE FMS: STEP DOERS MODAL ── -->
 <div class="modal-overlay" id="purchaseStepDoersModal">
-  <div class="modal" style="max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal sdm-modal">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h3 style="margin:0">⚙ Step Doers</h3>
+      <h3 style="margin:0">⚙ Purchase FMS — Step Doers</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('purchaseStepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">Har step ke liye ek ya zyada log assign karo — unka naam step ke default label ki jagah pe dikhega.</div>
-    <div id="purchaseStepDoersRows" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px"></div>
-    <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="submitPurchaseStepDoers()">Save</button>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = woh user us step ka doer. Ek step par ek se zyada log ho sakte hain.</div>
+    <div id="purchaseStepDoersRows" class="sdm-body"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="submitPurchaseStepDoers()">Save</button>
   </div>
 </div>
 
@@ -3010,33 +3038,32 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- ── O2D: STEP DOERS MODAL ── -->
 <div class="modal-overlay" id="stepDoersModal">
-  <div class="modal" style="max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal sdm-modal">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h3 style="margin:0">⚙ Step Doers</h3>
+      <h3 style="margin:0">⚙ O2D FMS — Step Doers</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('stepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">Har step ke liye ek ya zyada log assign karo — unka naam step ke default label ki jagah pe dikhega.</div>
-    <div id="stepDoersRows" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px"></div>
-    <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="submitStepDoers()">Save</button>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = woh user us step ka doer. Ek step par ek se zyada log ho sakte hain.</div>
+    <div id="stepDoersRows" class="sdm-body"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="submitStepDoers()">Save</button>
   </div>
 </div>
 
 <!-- ── SERVICE FMS: STEP DOERS MODAL ── -->
 <div class="modal-overlay" id="sfmsStepDoersModal">
-  <div class="modal" style="max-width:980px;width:96vw;max-height:90vh;display:flex;flex-direction:column">
+  <div class="modal sdm-modal">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
       <h3 style="margin:0">⚙ Service FMS — Step Doers</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('sfmsStepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = us user ko woh step dikhega aur wahi use complete kar payega. Jiska koi step tick nahi, use sirf All Complaints (view only) dikhega. Saare steps ke liye: Users page → "Service FMS PC View".</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = us user ko woh step dikhega aur wahi use complete karega. Jiska koi step tick nahi, use sirf All Complaints (view only). Saare steps: Users page → "Service FMS PC View".</div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:13px">
-      <label for="sfmsCashApproverSelect" style="font-weight:700">💰 Spare cash approver:</label>
-      <select id="sfmsCashApproverSelect" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;min-width:200px"></select>
-      <span style="font-size:11.5px;color:var(--gray-400)">Check In/Out mein kam pieces ka cash inke Approvals page par jayega</span>
+      <label for="sfmsCashApproverSelect" style="font-weight:700;margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--gray-800)">💰 Spare cash approver:</label>
+      <select id="sfmsCashApproverSelect" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;flex:1;min-width:160px;max-width:260px"></select>
+      <span style="font-size:11.5px;color:var(--gray-400);flex-basis:100%">Check In/Out mein kam pieces ka cash inke Approvals page par jayega.</span>
     </div>
-    <input type="text" id="sfmsStepDoersSearch" placeholder="🔍 Search user…" oninput="filterSfmsStepDoerRows(this.value)" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;margin-bottom:8px"/>
-    <div id="sfmsStepDoersRows" class="mis-table-wrap" style="overflow:auto;flex:1;min-height:0;border:1px solid var(--gray-200);border-radius:10px"></div>
-    <button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="submitSfmsStepDoers()">Save</button>
+    <div id="sfmsStepDoersRows" class="sdm-body"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="submitSfmsStepDoers()">Save</button>
   </div>
 </div>
 
@@ -11059,24 +11086,65 @@ async function openStepDoersModal() {
     api('/api/o2d-fms/step-doers')
   ]);
   if (Array.isArray(usersRes)) _o2dAllUsersForDoers = usersRes;
-  const users = _o2dAllUsersForDoers || [];
-  const assignments = (doersRes && doersRes.assignments) || {};
-
-  document.getElementById('stepDoersRows').innerHTML = O2D_STEP_DEFS.map(sd => {
-    const assignedIds = new Set((assignments[sd.n] || []).map(u => u.id));
-    const checkboxes = users.map(u => `
-      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer">
-        <input type="checkbox" class="stepDoerCheck_${sd.n}" value="${u.id}" ${assignedIds.has(u.id) ? 'checked' : ''}/>
-        ${esc(u.name)}
-      </label>`).join('');
-    return `
-      <div style="border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px">
-        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${esc(sd.label)}</div>
-        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${esc(sd.doer || '—')} · TAT: ${esc(sd.tat || '—')}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:140px;overflow-y:auto">${checkboxes || '<span style="color:var(--gray-400);font-size:12px">No users found</span>'}</div>
-      </div>`;
-  }).join('');
+  renderStepDoerMatrix('stepDoersRows', O2D_STEP_DEFS, _o2dAllUsersForDoers || [], (doersRes && doersRes.assignments) || {}, 'stepDoerCheck_');
   document.getElementById('stepDoersModal').classList.add('open');
+}
+
+// ── Shared "Step Doers" window body for Service / O2D / Purchase FMS: one
+// row per user, one tick column per step. The checkbox class `${prefix}${n}`
+// is what each module's submit function reads back. ──
+function renderStepDoerMatrix(containerId, stepDefs, users, assignments, prefix) {
+  const sorted = users.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const assigned = Object.fromEntries(stepDefs.map(sd => [sd.n, new Set((assignments[sd.n] || []).map(u => Number(u.id)))]));
+  const head = `<thead><tr><th class="sdm-user">User</th>${stepDefs.map(sd => `
+    <th title="${esc(sd.label)}">
+      <div>${sd.n}. ${esc(sd.tab || sd.label)}</div>
+      ${sd.doer ? `<div class="sdm-doer">${esc(sd.doer)}</div>` : ''}
+      <div class="sdm-count" data-count-step="${sd.n}"></div>
+    </th>`).join('')}</tr></thead>`;
+  const body = sorted.length ? sorted.map(u => `<tr data-name="${esc(String(u.name).toLowerCase())}">
+      <td class="sdm-user">${esc(u.name)} <span class="sdm-ucount"></span></td>
+      ${stepDefs.map(sd => {
+        const on = assigned[sd.n].has(Number(u.id));
+        return `<td class="sdm-cell${on ? ' on' : ''}"><label title="${esc(u.name)} → ${esc(sd.label)}"><input type="checkbox" class="${prefix}${sd.n}" data-step="${sd.n}" value="${u.id}" ${on ? 'checked' : ''} onchange="onStepDoerMatrixChange('${containerId}')"/></label></td>`;
+      }).join('')}
+    </tr>`).join('')
+    : `<tr><td colspan="${stepDefs.length + 1}" class="empty">No users found</td></tr>`;
+  document.getElementById(containerId).innerHTML = `
+    <div class="sdm-tools">
+      <input type="text" class="sdm-search" placeholder="🔍 Search user…" oninput="filterStepDoerMatrix('${containerId}')"/>
+      <label class="sdm-only"><input type="checkbox" onchange="filterStepDoerMatrix('${containerId}')"/> Sirf assigned users</label>
+    </div>
+    <div class="sdm-wrap"><table class="sdm-table">${head}<tbody>${body}</tbody></table></div>`;
+  attachScrollHint(document.querySelector(`#${containerId} .sdm-wrap`));
+  onStepDoerMatrixChange(containerId);
+}
+function onStepDoerMatrixChange(containerId) {
+  const el = document.getElementById(containerId);
+  const counts = {};
+  el.querySelectorAll('.sdm-cell').forEach(td => {
+    const box = td.querySelector('input');
+    td.classList.toggle('on', box.checked);
+    if (box.checked) counts[box.dataset.step] = (counts[box.dataset.step] || 0) + 1;
+  });
+  el.querySelectorAll('[data-count-step]').forEach(c => {
+    const k = counts[c.dataset.countStep] || 0;
+    c.textContent = k ? `${k} assigned` : 'koi nahi';
+    c.classList.toggle('none', !k);
+  });
+  el.querySelectorAll('tbody tr[data-name]').forEach(tr => {
+    const k = tr.querySelectorAll('.sdm-cell input:checked').length;
+    tr.querySelector('.sdm-ucount').textContent = k ? `· ${k}` : '';
+  });
+}
+function filterStepDoerMatrix(containerId) {
+  const el = document.getElementById(containerId);
+  const q = el.querySelector('.sdm-search').value.trim().toLowerCase();
+  const onlyAssigned = el.querySelector('.sdm-only input').checked;
+  el.querySelectorAll('tbody tr[data-name]').forEach(tr => {
+    const show = (!q || tr.dataset.name.includes(q)) && (!onlyAssigned || tr.querySelector('.sdm-cell input:checked'));
+    tr.style.display = show ? '' : 'none';
+  });
 }
 
 async function submitStepDoers() {
@@ -11109,35 +11177,14 @@ async function openSfmsStepDoersModal() {
     api('/api/service-fms/step-doers')
   ]);
   if (Array.isArray(usersRes)) _sfmsAllUsersForDoers = usersRes;
-  const users = (_sfmsAllUsersForDoers || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-  const assignments = (doersRes && doersRes.assignments) || {};
-  const assigned = Object.fromEntries(SFMS_STEP_DEFS.map(sd => [sd.n, new Set((assignments[sd.n] || []).map(u => u.id))]));
-
-  // One row per user, one column per step — reads like the Users access table.
-  const head = `<thead><tr>
-      <th style="position:sticky;left:0;z-index:4;background:var(--surface-alt);min-width:150px">User</th>
-      ${SFMS_STEP_DEFS.map(sd => `<th style="text-align:center;min-width:76px;white-space:normal;line-height:1.25" title="${esc(sd.label)}">${sd.n}. ${esc(sd.tab)}<div style="font-size:9.5px;font-weight:500;text-transform:none;color:var(--gray-400);letter-spacing:0">${esc(sd.doer || '')}</div>
-        <input type="checkbox" title="Sab users" onchange="document.querySelectorAll('.sfmsStepDoerCheck_${sd.n}').forEach(b => { if (b.closest('tr').style.display !== 'none') b.checked = this.checked; })"/></th>`).join('')}
-    </tr></thead>`;
-  const body = users.length ? users.map(u => `<tr data-name="${esc(u.name.toLowerCase())}">
-      <td style="position:sticky;left:0;background:var(--surface);font-weight:600;font-size:12.5px">${esc(u.name)}</td>
-      ${SFMS_STEP_DEFS.map(sd => `<td style="text-align:center"><input type="checkbox" class="sfmsStepDoerCheck_${sd.n}" value="${u.id}" ${assigned[sd.n].has(u.id) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer"/></td>`).join('')}
-    </tr>`).join('')
-    : `<tr><td colspan="${SFMS_STEP_DEFS.length + 1}" class="empty">No users found</td></tr>`;
-  document.getElementById('sfmsStepDoersRows').innerHTML = `<table style="font-size:12px">${head}<tbody>${body}</tbody></table>`;
-  document.getElementById('sfmsStepDoersSearch').value = '';
+  const users = (_sfmsAllUsersForDoers || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  renderStepDoerMatrix('sfmsStepDoersRows', SFMS_STEP_DEFS, users, (doersRes && doersRes.assignments) || {}, 'sfmsStepDoerCheck_');
 
   const approverRes = await api('/api/service-fms/cash-approver');
   const approverId = approverRes && approverRes.approver ? approverRes.approver.id : '';
   document.getElementById('sfmsCashApproverSelect').innerHTML = `<option value="">-- Select --</option>` +
     users.map(u => `<option value="${u.id}" ${u.id === approverId ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
   document.getElementById('sfmsStepDoersModal').classList.add('open');
-}
-function filterSfmsStepDoerRows(q) {
-  const needle = String(q || '').trim().toLowerCase();
-  document.querySelectorAll('#sfmsStepDoersRows tbody tr[data-name]').forEach(tr => {
-    tr.style.display = !needle || tr.dataset.name.includes(needle) ? '' : 'none';
-  });
 }
 
 async function submitSfmsStepDoers() {
@@ -12136,23 +12183,7 @@ async function openPurchaseStepDoersModal() {
     api('/api/purchase-fms/step-doers')
   ]);
   if (Array.isArray(usersRes)) _pfmsAllUsersForDoers = usersRes;
-  const users = _pfmsAllUsersForDoers || [];
-  const assignments = (doersRes && doersRes.assignments) || {};
-
-  document.getElementById('purchaseStepDoersRows').innerHTML = PURCHASE_STEP_DEFS.map(sd => {
-    const assignedIds = new Set((assignments[sd.n] || []).map(u => u.id));
-    const checkboxes = users.map(u => `
-      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer">
-        <input type="checkbox" class="pfmsStepDoerCheck_${sd.n}" value="${u.id}" ${assignedIds.has(u.id) ? 'checked' : ''}/>
-        ${esc(u.name)}
-      </label>`).join('');
-    return `
-      <div style="border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px">
-        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${esc(sd.label)}</div>
-        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${esc(sd.doer || '—')} · TAT: ${esc(sd.tat || '—')}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:140px;overflow-y:auto">${checkboxes || '<span style="color:var(--gray-400);font-size:12px">No users found</span>'}</div>
-      </div>`;
-  }).join('');
+  renderStepDoerMatrix('purchaseStepDoersRows', PURCHASE_STEP_DEFS, _pfmsAllUsersForDoers || [], (doersRes && doersRes.assignments) || {}, 'pfmsStepDoerCheck_');
   document.getElementById('purchaseStepDoersModal').classList.add('open');
 }
 
