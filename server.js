@@ -3454,21 +3454,60 @@ app.put('/api/service-fms/step-doers', requireAuth, requireAdmin, async (req, re
   } catch (err) { sendServerError(res, err); }
 });
 
+// Mechanic steps (Solve, Check In/Out): the doer is the mechanic named in
+// that complaint's Assign "Mechanic Name" column (AF), not a fixed Step
+// Doers person. Sheet names are matched to app logins by name, ignoring
+// "ji" and anything in brackets ("Vinod ji" → Vinod, "Buddhiram" →
+// "Buddhiram (Mechanic 3)"); a name matching no login (or two) maps to nobody.
+const SFMS_MECHANIC_STEP_NS = ['solve', 'inout'].map(k => SFMS_N[k]);
+function sfmsNameKey(name) {
+  return String(name || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/\bji\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+let _sfmsMechUserCache = null; // { byKey: Map(nameKey -> {id,name}), mechanicUserIds: Set, ts }
+async function sfmsMechanicUsers() {
+  if (_sfmsMechUserCache && Date.now() - _sfmsMechUserCache.ts < 60 * 1000) return _sfmsMechUserCache;
+  const [users] = await db.query('SELECT id, name FROM users');
+  const byKey = new Map(), dup = new Set();
+  users.forEach(u => {
+    const k = sfmsNameKey(u.name);
+    if (!k) return;
+    if (byKey.has(k)) dup.add(k); else byKey.set(k, { id: Number(u.id), name: u.name });
+  });
+  dup.forEach(k => byKey.delete(k));
+  const mechanics = await sfmsGetMechanics().catch(() => []);
+  const mechanicUserIds = new Set(mechanics.map(m => byKey.get(sfmsNameKey(m.name))).filter(Boolean).map(u => u.id));
+  _sfmsMechUserCache = { byKey, mechanicUserIds, ts: Date.now() };
+  return _sfmsMechUserCache;
+}
+
 // Who may do what in Service FMS: a user acts only on the steps they're a
-// doer of (Step Doers). "PC View" (Users page) or admin = every step. With
-// no step and no PC View the module is view-only — All Complaints, no edits.
+// doer of (Step Doers), plus — if they're a mechanic — Solve / Check In/Out
+// on the complaints assigned to them. "PC View" (Users page) or admin =
+// every step. Otherwise the module is view-only — All Complaints, no edits.
 // Unlike O2D/Purchase, an unassigned step is NOT open to everyone here.
 async function sfmsUserAccess(req) {
   const uid = Number(req.session.userId);
-  if (req.session.role === 'admin') return { pcView: true, steps: SFMS_STEPS.map(s => s.n) };
+  if (req.session.role === 'admin') return { pcView: true, steps: SFMS_STEPS.map(s => s.n), mechanic: false };
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [uid]);
   const pages = parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role);
   const map = await getSfmsStepDoersMap();
   const steps = SFMS_STEPS.filter(s => (map[s.n] || []).some(u => Number(u.id) === uid)).map(s => s.n);
-  return { pcView: pages.includes(SFMS_PC_VIEW_KEY), steps };
+  const { mechanicUserIds } = await sfmsMechanicUsers();
+  return { pcView: pages.includes(SFMS_PC_VIEW_KEY), steps, mechanic: mechanicUserIds.has(uid) };
 }
 function sfmsCanActOn(acc, stepN) { return acc.pcView || acc.steps.includes(stepN); }
-function sfmsCanEdit(acc) { return acc.pcView || acc.steps.length > 0; }
+function sfmsCanEdit(acc) { return acc.pcView || acc.steps.length > 0 || acc.mechanic; }
+// Step-level access, or — for a mechanic step — being that row's AF mechanic.
+async function sfmsCanActOnRow(req, acc, stepN, row, sheetsApi) {
+  if (sfmsCanActOn(acc, stepN)) return true;
+  if (!SFMS_MECHANIC_STEP_NS.includes(stepN) || !acc.mechanic) return false;
+  const assign = SFMS_STEPS.find(s => s.key === 'assign');
+  const mechCol = assign.extra.find(e => e.key === 'mechanic').col;
+  const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!${mechCol}${row}:${mechCol}${row}` });
+  const mech = (r.data.values && r.data.values[0] && r.data.values[0][0]) || '';
+  const u = (await sfmsMechanicUsers()).byKey.get(sfmsNameKey(mech));
+  return !!u && u.id === Number(req.session.userId);
+}
 async function requireSfmsEditor(req, res, next) {
   try {
     if (sfmsCanEdit(await sfmsUserAccess(req))) return next();
@@ -3760,7 +3799,7 @@ app.post('/api/o2d-fms/team-group/test', requireAuth, requireAdmin, async (req, 
 });
 
 async function sfmsFetchComplaints() {
-    const stepDoersMap = await getSfmsStepDoersMap();
+    const [stepDoersMap, mechUsers] = await Promise.all([getSfmsStepDoersMap(), sfmsMechanicUsers()]);
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const result = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: SFMS_SHEET_ID,
@@ -3812,6 +3851,15 @@ async function sfmsFetchComplaints() {
         }
         sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
         return step;
+      });
+      // Solve / Check In/Out belong to the mechanic assigned in AF (when
+      // that name maps to an app login) — see sfmsMechanicUsers.
+      const assignedMech = (c.steps.find(s => s.n === SFMS_N.assign) || {}).mechanic;
+      const mechUser = assignedMech ? mechUsers.byKey.get(sfmsNameKey(assignedMech)) : null;
+      c.steps.forEach(s => {
+        if (!SFMS_MECHANIC_STEP_NS.includes(s.n) || !assignedMech) return;
+        s.doer = assignedMech;
+        if (mechUser) s.doers = [mechUser];
       });
       let currentStep = 0;
       for (let i = 0; i < SFMS_STEPS.length; i++) {
@@ -4132,9 +4180,9 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
     const stepNum = parseInt(req.params.stepNum, 10);
     const stepDef = SFMS_STEPS.find(s => s.n === stepNum);
     if (!row || !stepDef || !stepDef.otpRequired) return res.status(400).json({ error: 'Invalid row or step number' });
-    if (!sfmsCanActOn(await sfmsUserAccess(req), stepNum)) return res.status(403).json({ error: 'You are not assigned to this step' });
-
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (!(await sfmsCanActOnRow(req, await sfmsUserAccess(req), stepNum, row, sheetsApi))) return res.status(403).json({ error: 'You are not assigned to this step' });
+
     const rowRes = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: SFMS_SHEET_ID,
       range: `'${SFMS_TAB}'!D${row}:D${row}`
@@ -4505,10 +4553,9 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
     const stepNum = parseInt(req.params.stepNum, 10);
     const stepDef = SFMS_STEPS.find(s => s.n === stepNum);
     if (!row || !stepDef) return res.status(400).json({ error: 'Invalid row or step number' });
-    if (!sfmsCanActOn(await sfmsUserAccess(req), stepNum)) return res.status(403).json({ error: 'You are not assigned to this step' });
-
     const nowVal = sfmsDateToSerial(new Date());
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (!(await sfmsCanActOnRow(req, await sfmsUserAccess(req), stepNum, row, sheetsApi))) return res.status(403).json({ error: 'You are not assigned to this step' });
     let batchData;
 
     // Spare Check answered "Need to be Purchased" holds the complaint there

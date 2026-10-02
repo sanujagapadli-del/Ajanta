@@ -7335,10 +7335,19 @@ async function ensureSfmsAccess(force) {
   if (r && Array.isArray(r.steps)) { sfmsAccess = r; _sfmsAccessLoaded = true; }
 }
 function sfmsCanAct(n) { return sfmsAccess.pcView || sfmsAccess.steps.includes(n); }
-function sfmsCanEdit() { return sfmsAccess.pcView || sfmsAccess.steps.length > 0; }
+function sfmsCanEdit() { return sfmsAccess.pcView || sfmsAccess.steps.length > 0 || sfmsAccess.mechanic; }
+// Solve / Check In/Out belong to the mechanic named at Assign (server puts
+// that login in the step's doers) — a mechanic gets these for his own complaints.
+function sfmsIsMechanicStep(n) { return n === SN.solve || n === SN.inout; }
+function sfmsCanActOnComplaint(c, n) {
+  if (sfmsCanAct(n)) return true;
+  if (!sfmsAccess.mechanic || !sfmsIsMechanicStep(n)) return false;
+  const step = (c.steps || []).find(s => s.n === n) || {};
+  return (step.doers || []).some(d => Number(d.id) === Number(ME.id));
+}
 
 function renderSfmsTabs() {
-  const visible = SFMS_STEP_DEFS.filter(d => sfmsCanAct(d.n));
+  const visible = SFMS_STEP_DEFS.filter(d => sfmsCanAct(d.n) || (sfmsAccess.mechanic && sfmsIsMechanicStep(d.n)));
   const extra = sfmsCanEdit() ? [['balance', '🧰 Spare Balance'], ['reports', '📊 Reports']] : [];
   const allowed = new Set(['all', ...visible.map(d => 'step' + d.n), ...extra.map(e => e[0])]);
   if (!allowed.has(sfmsView)) sfmsView = 'all';
@@ -7494,7 +7503,8 @@ function sfmsZoneCompare(a, b) {
 function renderSfmsStepView(n) {
   const wrap = document.getElementById('sfmsListWrap');
   const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
-  const allRows = sfmsData.filter(c => !c.closed && c.currentStep + 1 === n);
+  // A mechanic (not a Step Doers doer / PC View) sees only his own complaints here.
+  const allRows = sfmsData.filter(c => !c.closed && c.currentStep + 1 === n && (sfmsCanAct(n) || sfmsCanActOnComplaint(c, n)));
   if (!allRows.length) { wrap.innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`; return; }
 
   const isAssignTab = n === SN.assign;
@@ -7528,7 +7538,7 @@ function renderSfmsStepView(n) {
   const isWarrantyTab = n === SN.warranty;
   const isSpareCheckTab = n === SN.spareCheck; // ownership shown clearly here
   const colCount = 7 + (isWarrantyTab || isSpareCheckTab ? 1 : 0);
-  const canAct = sfmsCanAct(n);
+  const canAct = sfmsCanAct(n) || (sfmsAccess.mechanic && sfmsIsMechanicStep(n)); // mechanic: rows are already only his own
 
   // Master submit (one click for every ticked row). A row ticks itself as
   // soon as anything in its form is filled; "Set for selected" fills the
@@ -8646,9 +8656,10 @@ function buildSfmsNextActionHtml(c, compact) {
   const nextStepDef = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
   const doerHtml = (!compact && nextStepDef && nextStepDef.doer)
     ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">👤 Doer: <b>${esc(stepDoerLabel(nextStepDef))}</b></div>` : '';
-  // Only the step's doer (or PC View / admin) gets the form — everyone else
-  // just sees where the complaint is and who has it.
-  if (nextStepDef && !sfmsCanAct(nextStepDef.n)) {
+  // Only the step's doer (or PC View / admin, or the complaint's own
+  // mechanic for Solve / Check In/Out) gets the form — everyone else just
+  // sees where the complaint is and who has it.
+  if (nextStepDef && !sfmsCanActOnComplaint(c, nextStepDef.n)) {
     return compact
       ? `<span style="font-size:11px;color:var(--gray-400)">👁 View only</span>`
       : `<div style="border:1.5px solid var(--gray-200);background:var(--gray-50);border-radius:14px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:var(--gray-600)">
