@@ -1045,6 +1045,7 @@ tbody tr:last-child td{border-bottom:none;}
               <div class="tab"        id="dashTabDel"   onclick="dashTab('delegation',this)">Delegation</div>
               <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
               <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">O2D FMS</div>
+              <div class="tab"        id="dashTabSFMS"  onclick="dashTab('sfms',this)">Service FMS</div>
             </div>
             <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
           </div>
@@ -3556,6 +3557,56 @@ function buildO2dDashboardTasks() {
   return tasks;
 }
 
+// Service FMS rows of the Dashboard's pending list, from window._lastSfmsData
+// (no network call): each open complaint shows for the doer(s) of its next
+// step. Admin/HOD/PC see everyone's (or the picked employee's); a "PC View"
+// user sees all; everyone else only the steps they're a doer of.
+function buildSfmsDashboardTasks() {
+  const list = window._lastSfmsData || [];
+  const empFilter = document.getElementById('dashEmployeeFilter');
+  const empVal = empFilter ? empFilter.value : 'all';
+  const isManager = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
+  const seeAll = isManager ? empVal === 'all' : MY_PAGES.has('sfms-pc-view');
+  const doerId = isManager ? Number(empVal) : Number(ME.id);
+  const tasks = [];
+  list.filter(c => !c.closed).forEach(c => {
+    const step = (c.steps || []).find(s => s.n === c.currentStep + 1);
+    if (!step) return;
+    if (!seeAll && !(step.doers || []).some(d => Number(d.id) === doerId)) return;
+    const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
+    const late = daysPending >= 2;
+    const onHold = c.currentStep + 1 === SN.spareCheck && step.status === 'Need to be Purchased';
+    const cashWaiting = c.currentStep + 1 === SN.inout && step.cashStatus === 'Pending Approval';
+    const place = [c.area, (sfmsAreaZoneMap && sfmsAreaZoneMap[c.area]) || c.zone].filter(Boolean).map(esc).join(' · ');
+    const description = `
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${step.n}. ${esc(step.label)}${onHold ? ' <span style="font-size:10px;background:var(--color-danger-bg);color:var(--color-danger-text);padding:2px 7px;border-radius:8px">⏸ Spare to purchase</span>' : ''}${cashWaiting ? ' <span style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:8px">⏳ Cash approval</span>' : ''}</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(c.filledByName) || '—'} · ${esc(c.mobile) || '—'}</div>
+      <div style="font-size:12px;color:var(--gray-600)">${esc(c.productName) || '—'}${c.problemDescription ? ` — ${esc(c.problemDescription)}` : ''}</div>
+      ${place ? `<div style="font-size:11.5px;color:var(--gray-500)">📍 ${place}</div>` : ''}
+      ${fmsFieldRow('PENDING', `${daysPending} day${daysPending === 1 ? '' : 's'}${late ? ' — Late' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}
+    `;
+    tasks.push({
+      id: c.row, type: 'fms', status: 'pending',
+      title: c.complainNo,
+      description,
+      assignedToName: stepDoerLabel(step),
+      assignedByName: stepDoerLabel(step),
+      assignedToDept: 'Service',
+      start_date: c.timestamp
+    });
+  });
+  return tasks;
+}
+// After a Service FMS step is done from the Dashboard: rebuild just those rows.
+function refreshDashboardSfmsLocally() {
+  if (!window._lastDashTasks || !document.getElementById('page-dashboard').classList.contains('active')) return;
+  const merged = [...window._lastDashTasks.filter(t => t.type !== 'fms'), ...buildSfmsDashboardTasks()];
+  window._lastDashTasks = merged;
+  const pendingEl = document.getElementById('dPending');
+  if (pendingEl) pendingEl.textContent = merged.length;
+  renderDashTable(merged, dashType);
+}
+
 // Re-renders just the O2D portion of the Dashboard's pending list from the
 // already-optimistically-updated window._lastO2dData, instead of a full
 // loadDashboard() re-fetch (which was taking 5-10s and looked like nothing
@@ -3649,13 +3700,17 @@ async function loadDashboard() {
   // Combine both types for the unified pending table
   const allTodayPending = [...(dDel.todayPending||[]), ...(dChl.todayPending||[])];
 
-  // O2D FMS — open items, mapped into the same row shape. Service FMS is
-  // deliberately NOT pulled in here — its tasks only show on the Service
-  // FMS page itself, not on the shared Dashboard.
-  const o2d = await api('/api/o2d-fms').catch(() => null);
+  // O2D FMS + Service FMS — open items, mapped into the same row shape.
+  // Service FMS only for users who can open that page at all.
+  const canSeeSfms = ME.role === 'admin' || MY_PAGES.has('service-fms');
+  const [o2d, sfms] = await Promise.all([
+    api('/api/o2d-fms').catch(() => null),
+    canSeeSfms ? api('/api/service-fms').catch(() => null) : null
+  ]);
 
   window._lastO2dData = Array.isArray(o2d) ? o2d : [];
-  allTodayPending.push(...buildO2dDashboardTasks());
+  window._lastSfmsData = Array.isArray(sfms) ? sfms : [];
+  allTodayPending.push(...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks());
 
   // Pending count/chart use allTodayPending's actual length — it's the same
   // Delegation+Checklist+SFMS+O2D mix the table below renders, so the card
@@ -3666,7 +3721,8 @@ async function loadDashboard() {
   // before o2d even loaded) — O2D closed orders never counted, even though
   // its PENDING items already did above. Corrected here once o2d is in hand.
   const o2dCompleted = Array.isArray(o2d) ? o2d.filter(o => o.closed).length : 0;
-  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + o2dCompleted;
+  const sfmsCompleted = window._lastSfmsData.filter(c => c.closed).length;
+  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + o2dCompleted + sfmsCompleted;
   document.getElementById('dCompleted').textContent = combinedCompleted;
   const combinedRevised   = dDel.revised||0;
   const chartLabels = ['Completed','Pending','Revised'];
@@ -3764,12 +3820,13 @@ function renderDashTable(tasks, type) {
   const isPC    = ME.role==='pc';
   document.getElementById('dashDoerHead').textContent = (isAdmin||isPC)?'Doer':'Assigned By';
   const tbody = document.getElementById('dashTbody');
-  // Filter by selected tab: all / delegation / checklist / O2D FMS ('fms' tab
-  // key kept as-is for compatibility, but only ever matches O2D FMS tasks now
-  // — Service FMS doesn't feed the Dashboard at all, see loadDashboard()).
+  // Filter by selected tab: all / delegation / checklist / O2D FMS (tab key
+  // 'fms', kept for compatibility → t.type 'o2d') / Service FMS (tab key
+  // 'sfms' → t.type 'fms', the task type openFmsQuickAction handles).
   let allPending = tasks.filter(t => {
     const matchType = (!type || type === 'all') ? true
       : type === 'fms' ? t.type === 'o2d'
+      : type === 'sfms' ? t.type === 'fms'
       : t.type === type;
     const matchFreq = type !== 'checklist' || dashFreq === 'all' || (t.frequency || '') === dashFreq;
     return matchType && matchFreq && (t.status === 'pending' || t.status === 'revised' || !t.status);
@@ -3784,7 +3841,7 @@ function renderDashTable(tasks, type) {
   const typeBadge = t => t.type==='checklist'
     ? `<span style="font-size:9px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-success-border)">✅ Che</span>`
     : t.type==='fms'
-    ? `<span style="font-size:9px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-purple-border)">🛠️ FMS</span>`
+    ? `<span style="font-size:9px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-purple-border)">🛠️ Service</span>`
     : t.type==='o2d'
     ? `<span style="font-size:9px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-warning-border)">🚚 O2D</span>`
     : `<span style="font-size:9px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-primary-ring)">📋 Del</span>`;
@@ -9109,6 +9166,9 @@ async function advanceSfmsStep(row, step, stage) {
   // any OTHER pending row on this same step tab has half-typed into its form.
   await refreshSfmsDataQuietly();
   patchSfmsRowAfterUpdate(row);
+  // Opened from the Dashboard's "Fill Details" — move that row along there too.
+  window._lastSfmsData = sfmsData;
+  refreshDashboardSfmsLocally();
 }
 
 // Re-fetches sfmsData without touching the DOM — used after a single-row
