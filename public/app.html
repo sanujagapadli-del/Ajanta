@@ -8954,15 +8954,27 @@ function sfmsBuildSpareInRowsHtml(c) {
     </div>`;
   }).join('');
   const cashPrefill = s.cashStatus === 'Rejected' ? '' : (s.cashAmount || '');
+  // Short (new + bad back < taken): an explicit choice — keep it pending
+  // for the missing pieces, or settle the shortage in cash (→ approval).
+  const radio = (value, label, checked) => `<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--gray-700);cursor:pointer;margin:0 0 4px;text-transform:none;letter-spacing:0">
+      <input type="radio" name="sfmsInSettle_${c.row}" value="${value}" ${checked ? 'checked' : ''} onchange="sfmsCheckSpareInShortage(${c.row})"/> ${label}</label>`;
   return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Per spare: <b>New</b> pieces wapas · <b>Bad</b> (kharab) pieces wapas</div>${rowsHtml}
     <div id="sfmsInShortWrap_${c.row}" style="display:none;background:var(--color-warning-bg);border-radius:8px;padding:8px;margin-bottom:8px">
       <div id="sfmsInShortMsg_${c.row}" style="font-size:12px;font-weight:700;color:var(--color-warning-text);margin-bottom:6px"></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <input type="number" min="0" id="sfmsInCash_${c.row}" placeholder="Cash ₹" value="${esc(cashPrefill)}" title="Cash for the short pieces — goes for approval" style="width:90px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
-        <input type="text" id="sfmsInReason_${c.row}" placeholder="Reason (optional)" value="${esc(s.reasonIfShort || '')}" style="flex:1;min-width:110px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+      ${radio('cash', '💰 Cash ke saath settle karo', !!cashPrefill)}
+      ${radio('pending', '⏸ Pending rakho — baaki pieces baad mein aayenge', !cashPrefill)}
+      <div id="sfmsInCashWrap_${c.row}" style="display:none;margin-top:4px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input type="number" min="1" id="sfmsInCash_${c.row}" placeholder="Cash ₹ *" value="${esc(cashPrefill)}" title="Cash for the short pieces — goes for approval" style="width:100px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+          <input type="text" id="sfmsInReason_${c.row}" placeholder="Reason (optional)" value="${esc(s.reasonIfShort || '')}" style="flex:1;min-width:110px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+        </div>
+        <div style="font-size:10.5px;color:var(--gray-500);margin-top:4px">Submit karte hi ${esc(sfmsCashApproverName || 'approver')} ke paas approval jayega; approve hote hi complaint close.</div>
       </div>
-      <div style="font-size:10.5px;color:var(--gray-500);margin-top:4px">Cash bharoge to ${esc(sfmsCashApproverName || 'approver')} ke paas approval jayega. Khali chhodo to complaint yahin pending rahegi jab tak pieces wapas na aayein.</div>
     </div>`;
+}
+function sfmsInSettleChoice(row) {
+  const el = document.querySelector(`input[name="sfmsInSettle_${row}"]:checked`);
+  return el ? el.value : 'pending';
 }
 function sfmsCollectSpareInRows(row, c) {
   return sfmsTakeoutItems(c).map((it, i) => {
@@ -8989,7 +9001,9 @@ function sfmsCheckSpareInShortage(row) {
   const wrap = document.getElementById(`sfmsInShortWrap_${row}`);
   if (wrap) wrap.style.display = rows.some(r => r.filled) && totalShort > 0 ? 'block' : 'none';
   const msg = document.getElementById(`sfmsInShortMsg_${row}`);
-  if (msg) msg.textContent = `⚠ ${totalShort} piece${totalShort === 1 ? '' : 's'} kam hai`;
+  if (msg) msg.textContent = `⚠ ${totalShort} piece${totalShort === 1 ? '' : 's'} kam aaye (liye gaye se) — kya karna hai?`;
+  const cashWrap = document.getElementById(`sfmsInCashWrap_${row}`);
+  if (cashWrap) cashWrap.style.display = sfmsInSettleChoice(row) === 'cash' ? 'block' : 'none';
 }
 
 // ── Pieces still with the mechanic for one complaint: everything taken out
@@ -9051,11 +9065,14 @@ function sfmsCollectStepBody(row, step, stage) {
     const over = items.find(r => r.shortQty < 0);
     if (over) return { error: `${over.item}: new + bad (${over.newQty + over.oldQty}) liye gaye (${over.takenQty}) se zyada nahi ho sakte` };
     const totalShort = items.reduce((s, r) => s + r.shortQty, 0);
+    const settleCash = totalShort > 0 && sfmsInSettleChoice(row) === 'cash';
     const cashEl = document.getElementById(`sfmsInCash_${row}`);
     const reasonEl = document.getElementById(`sfmsInReason_${row}`);
+    const cash = settleCash && cashEl ? cashEl.value.trim() : '';
+    if (settleCash && !(Number(cash) > 0)) return { error: `${totalShort} piece kam hai — cash amount bharo (ya "Pending rakho" chuno)` };
     body.spareInJson = JSON.stringify(items.map(({ filled, ...r }) => r));
-    body.cashAmount = totalShort > 0 && cashEl ? cashEl.value.trim() : '';
-    body.reasonIfShort = totalShort > 0 && reasonEl ? reasonEl.value.trim() : '';
+    body.cashAmount = cash;
+    body.reasonIfShort = settleCash && reasonEl ? reasonEl.value.trim() : '';
     ['qtyReturned', 'spareInJson', 'cashAmount', 'cashStatus', 'reasonIfShort'].forEach(k => skipGenericKeys.add(k));
   }
 
