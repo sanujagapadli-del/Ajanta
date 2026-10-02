@@ -498,7 +498,8 @@ function requireAdminOrPC(req, res, next) {
 
 // Per-user page access — only these pages are ever restrictable; everything
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms'];
+// 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'sfms-pc-view'];
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
 function parsePageAccess(raw, role) {
   if (role === 'admin') return RESTRICTABLE_PAGES.slice();
@@ -1608,7 +1609,15 @@ app.get('/api/approvals/count', requireAuth, async (req, res) => {
     const [rows] = isAdminOrPC
       ? await db.query(`SELECT COUNT(*) AS count FROM task_approvals WHERE status='pending'`)
       : await db.query(`SELECT COUNT(*) AS count FROM task_approvals WHERE requested_to=? AND status='pending'`, [req.session.userId]);
-    res.json({ count: rows[0].count });
+    // Service FMS cash-for-short-pieces requests show up on the same page.
+    let sfmsCash = 0;
+    try {
+      const [c] = isAdminOrPC
+        ? await db.query(`SELECT COUNT(*) AS count FROM sfms_cash_approvals WHERE status='pending'`)
+        : await db.query(`SELECT COUNT(*) AS count FROM sfms_cash_approvals WHERE requested_to=? AND status='pending'`, [req.session.userId]);
+      sfmsCash = Number(c[0].count) || 0;
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    res.json({ count: Number(rows[0].count) + sfmsCash, sfmsCash });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -3247,7 +3256,7 @@ const SFMS_SHEET_ID = '1sim5xXi7uKiUdLh_O1NjWbB9b047p9VVW-Z8oAG1gSE';
 const SFMS_TAB = 'Complain FMS';
 const SFMS_HEADER_ROW = 6;
 const SFMS_DATA_START_ROW = 7;
-const SFMS_LAST_COL = 'BP';
+const SFMS_LAST_COL = 'BR';
 const SFMS_PHOTO_MAX_CHARS = 40000; // stays under the 45k Sheets cell limit
 const SFMS_OTP_CODE_COL = 'AN';
 const SFMS_OTP_SENT_COL = 'AO';
@@ -3304,18 +3313,20 @@ const SFMS_SPARE_USED_BY_COL = 'BK';
 // Point 3 — free-text Remarks/Notes captured on the intake form itself
 // (distinct from step 8's own per-visit "Remark", col BB).
 const SFMS_REMARKS_COL = 'BP';
+// 2026-10-02 (client batch): reordered again to Takeout → Solve → Solved? →
+// Check In/Out — the spare count is checked once the job is actually done.
+// Every step carries a stable `key`; code refers to steps via SFMS_N[key],
+// never a bare number, so a reorder only touches this array (plus the one-
+// time sfms_step_doers renumbering in sfmsMigrateStepOrderOnce).
 const SFMS_STEPS = [
-  { n: 1, label: 'Check Product in Warranty', doer: 'Service Mail', planned: 'O', actual: 'P', status: 'Q', timeDelay: 'R', extra: [] },
-  { n: 2, label: 'Spare Available?', doer: 'Niranjan', planned: 'S', actual: 'T', status: 'U', timeDelay: 'V', extra: [], requireValue: 'Available' },
-  // Reordered (was step 4) — mechanic gets assigned zone-wise before the
-  // spare is taken out, per the field-batching workflow.
-  { n: 3, label: 'Assign Complaint to Mechanic After Batching', doer: 'Ajiz Ji', planned: 'AC', actual: 'AD', status: 'AE',
+  { n: 1, key: 'warranty', label: 'Check Product in Warranty', doer: 'Service Mail', planned: 'O', actual: 'P', status: 'Q', timeDelay: 'R', extra: [] },
+  { n: 2, key: 'spareCheck', label: 'Spare Available?', doer: 'Niranjan', planned: 'S', actual: 'T', status: 'U', timeDelay: 'V', extra: [], requireValue: 'Available' },
+  { n: 3, key: 'assign', label: 'Assign Complaint to Mechanic After Batching', doer: 'Ajiz Ji', planned: 'AC', actual: 'AD', status: 'AE',
     extra: [
       { key: 'zone', col: SFMS_ZONE_COL, label: 'Zone' },
       { key: 'mechanic', col: 'AF', label: 'Mechanic Name' }
     ], timeDelay: 'AG' },
-  // Reordered (was step 3) — now comes after Assign.
-  { n: 4, label: 'Takeout Spare', doer: 'Niranjan', planned: 'W', actual: 'X', status: 'Y',
+  { n: 4, key: 'takeout', label: 'Takeout Spare', doer: 'Niranjan', planned: 'W', actual: 'X', status: 'Y',
     extra: [
       { key: 'itemName', col: 'BE', label: 'Item Name' },
       { key: 'spareTaken', col: 'Z', label: 'Qty' },
@@ -3323,29 +3334,28 @@ const SFMS_STEPS = [
       { key: 'spareReturned', col: 'AA', label: 'Spares Returned' }
     ],
     timeDelay: 'AB' },
-  // Reordered (was step 6) — spare in/out is now logged before the OTP
-  // solve step, not after. Point 6: dropped "Out" from the label — Takeout
-  // (step 4) is the "out" side, this step only asks what came back in.
-  // 2026-09-25: renamed "Spare Used" per client. Same columns — qtyReturned
-  // is still new-unused + old-faulty pieces coming back, so every report
-  // reading it keeps working; spareInJson items now also carry usedQty.
-  { n: 5, label: 'Spare Used (in the field)', doer: 'Mechanic (self)', planned: 'AP', actual: 'AQ', status: 'AT',
-    extra: [
-      { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
-      { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' },
-      { key: 'spareInJson', col: SFMS_SPARE_IN_COL, label: 'Spares Used (all items, used/new/old)' },
-      { key: 'usedBy', col: SFMS_SPARE_USED_BY_COL, label: 'Filled By (Mechanic)' }
-    ],
-    timeDelay: 'AU' },
-  // Reordered (was step 5) — mechanic reaching the customer's location,
-  // OTP-gated, plus a repair-status answer. Now comes after In/Out.
-  { n: 6, label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
+  // Mechanic reaching the customer's location, OTP-gated, plus a repair-status answer.
+  { n: 5, key: 'solve', label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
     extra: [{ key: 'repairStatus', col: 'AK', label: 'Repair Status' }],
     timeDelay: 'AM', otpRequired: true },
   // Repeats until answered "Yes" — a "No" is recorded (so there's a check-in trail) but
   // does not advance currentStep, so this stays the next action every time it's revisited.
-  { n: 7, label: 'Complaint Solved?', actual: 'BJ', status: 'BI', extra: [], requireValue: 'Yes' },
-  { n: 8, label: 'Evening Review', planned: 'AV', actual: 'AW', status: 'AX', timeDelay: 'AY',
+  { n: 6, key: 'solved', label: 'Complaint Solved?', actual: 'BJ', status: 'BI', extra: [], requireValue: 'Yes' },
+  // Check In/Out: per item taken out — new pieces returned + bad (old) pieces
+  // returned. A shortage either stays pending here, or is settled in cash,
+  // which needs the cash approver's OK (Approvals page) before this step
+  // completes. qtyReturned stays new + old returned so older reports work.
+  { n: 7, key: 'inout', label: 'Check In/Out (Spare Return)', doer: 'Mechanic (self)', planned: 'AP', actual: 'AQ', status: 'AT',
+    extra: [
+      { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
+      { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' },
+      { key: 'spareInJson', col: SFMS_SPARE_IN_COL, label: 'Spares Returned (all items, new/bad/short)' },
+      { key: 'usedBy', col: SFMS_SPARE_USED_BY_COL, label: 'Filled By (Mechanic)' },
+      { key: 'cashAmount', col: 'BQ', label: 'Cash for Short Pieces' },
+      { key: 'cashStatus', col: 'BR', label: 'Cash Approval' }
+    ],
+    timeDelay: 'AU' },
+  { n: 8, key: 'review', label: 'Evening Review', planned: 'AV', actual: 'AW', status: 'AX', timeDelay: 'AY',
     extra: [
       { key: 'distanceChargesAgree', col: 'AZ', label: 'Distance Charges Agreed by Customer' },
       { key: 'amount', col: 'BA', label: 'Amount' },
@@ -3354,20 +3364,26 @@ const SFMS_STEPS = [
   // After Review: the mechanic hands the office whatever spares he still
   // holds for this complaint (unused new pieces + old faulty parts).
   // depositJson = [{ item, newQty, oldQty }] actually received.
-  { n: 9, label: 'Spare Deposited in Office', doer: 'Niranjan', actual: 'BL', status: 'BM',
+  { n: 9, key: 'deposit', label: 'Spare Deposited in Office', doer: 'Niranjan', actual: 'BL', status: 'BM',
     extra: [
       { key: 'depositJson', col: 'BN', label: 'Spares Deposited (all items, new/old)' },
       { key: 'receivedBy', col: 'BO', label: 'Received By' }
     ] }
 ];
+const SFMS_N = Object.fromEntries(SFMS_STEPS.map(s => [s.key, s.n]));
 const SFMS_NEW_COLUMN_HEADERS = {
   BK: 'Spare Used - Filled By (Mechanic)',
   BL: 'Spare Deposited in Office - Actual',
   BM: 'Spare Deposited in Office - Status',
   BN: 'Spares Deposited (JSON)',
   BO: 'Spare Received By',
-  BP: 'Remarks/Notes (Intake)'
+  BP: 'Remarks/Notes (Intake)',
+  BQ: 'In/Out - Cash for Short Pieces',
+  BR: 'In/Out - Cash Approval Status'
 };
+// Users page toggle: sees and can act on every Service FMS step, not just
+// the ones they're assigned to in Step Doers.
+const SFMS_PC_VIEW_KEY = 'sfms-pc-view';
 
 // ── Service FMS step doers — who's actually assigned to each of the 9
 // fixed steps. SFMS_STEPS' own `doer` field is just a static role label
@@ -3387,9 +3403,30 @@ async function withSfmsStepDoersTable(fn) {
   catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureSfmsStepDoersTable(); return await fn(); }
 }
 
+// The 2026-10-02 reorder moved In/Out from 5 → 7, Solve 6 → 5, Solved? 7 → 6;
+// doer assignments are stored by step number, so renumber them exactly once.
+// The INSERT IGNORE on a fixed app_settings key is the cross-instance lock —
+// only the instance that actually inserts it runs the UPDATE.
+let _sfmsStepOrderMigrated = false;
+async function sfmsMigrateStepOrderOnce() {
+  if (_sfmsStepOrderMigrated) return;
+  await ensureAppSettingsTable();
+  const [ins] = await db.query(
+    `INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES ('sfms_step_order_2026_10_02', 'done')`
+  );
+  if (ins.affectedRows === 1) {
+    await withSfmsStepDoersTable(() => db.query(
+      `UPDATE sfms_step_doers SET step_n = CASE step_n WHEN 5 THEN 7 WHEN 6 THEN 5 WHEN 7 THEN 6 ELSE step_n END WHERE step_n IN (5, 6, 7)`
+    ));
+    _sfmsStepDoersCache = null;
+  }
+  _sfmsStepOrderMigrated = true;
+}
+
 let _sfmsStepDoersCache = null; // { map, ts } — step_n -> [{id,name}]
 const SFMS_STEP_DOERS_CACHE_TTL_MS = 60 * 1000;
 async function getSfmsStepDoersMap() {
+  await sfmsMigrateStepOrderOnce();
   if (_sfmsStepDoersCache && (Date.now() - _sfmsStepDoersCache.ts) < SFMS_STEP_DOERS_CACHE_TTL_MS) return _sfmsStepDoersCache.map;
   const [rows] = await withSfmsStepDoersTable(() => db.query(
     `SELECT ssd.step_n, u.id, u.name FROM sfms_step_doers ssd JOIN users u ON ssd.user_id=u.id ORDER BY u.name`
@@ -3413,6 +3450,7 @@ app.put('/api/service-fms/step-doers', requireAuth, requireAdmin, async (req, re
   try {
     const { assignments } = req.body; // { "1": [userId,...], "2": [...], ... }
     await ensureSfmsStepDoersTable();
+    await sfmsMigrateStepOrderOnce(); // must never run AFTER a save in the new numbering
     await db.query('DELETE FROM sfms_step_doers');
     const rows = [];
     Object.entries(assignments || {}).forEach(([stepN, userIds]) => {
@@ -3422,6 +3460,33 @@ app.put('/api/service-fms/step-doers', requireAuth, requireAdmin, async (req, re
     _sfmsStepDoersCache = null;
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
+});
+
+// Who may do what in Service FMS: a user acts only on the steps they're a
+// doer of (Step Doers). "PC View" (Users page) or admin = every step. With
+// no step and no PC View the module is view-only — All Complaints, no edits.
+// Unlike O2D/Purchase, an unassigned step is NOT open to everyone here.
+async function sfmsUserAccess(req) {
+  const uid = Number(req.session.userId);
+  if (req.session.role === 'admin') return { pcView: true, steps: SFMS_STEPS.map(s => s.n) };
+  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [uid]);
+  const pages = parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role);
+  const map = await getSfmsStepDoersMap();
+  const steps = SFMS_STEPS.filter(s => (map[s.n] || []).some(u => Number(u.id) === uid)).map(s => s.n);
+  return { pcView: pages.includes(SFMS_PC_VIEW_KEY), steps };
+}
+function sfmsCanActOn(acc, stepN) { return acc.pcView || acc.steps.includes(stepN); }
+function sfmsCanEdit(acc) { return acc.pcView || acc.steps.length > 0; }
+async function requireSfmsEditor(req, res, next) {
+  try {
+    if (sfmsCanEdit(await sfmsUserAccess(req))) return next();
+    res.status(403).json({ error: 'View only — you are not a doer of any Service FMS step' });
+  } catch (err) { sendServerError(res, err); }
+}
+
+app.get('/api/service-fms/my-access', requireAuth, async (req, res) => {
+  try { res.json(await sfmsUserAccess(req)); }
+  catch (err) { sendServerError(res, err); }
 });
 
 // Writes past the sheet's last column fail ("exceeds grid limits"), and
@@ -3788,10 +3853,11 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
       const next = SFMS_STEPS.find(sd => sd.n === c.currentStep + 1);
       const purchaseIso = (c.purchaseDate || '').split(' ')[0];
       const expiry = sfmsWarrantyExpiry(c.productName, purchaseIso, warrantyMonthsByName);
-      const spares = parseJson(st(4).spareOutJson);
-      const sparesText = (spares.length ? spares : (st(4).itemName ? [{ item: st(4).itemName, qty: st(4).spareTaken }] : []))
+      const takeout = st(SFMS_N.takeout), inout = st(SFMS_N.inout);
+      const spares = parseJson(takeout.spareOutJson);
+      const sparesText = (spares.length ? spares : (takeout.itemName ? [{ item: takeout.itemName, qty: takeout.spareTaken }] : []))
         .map(x => `${x.item} × ${x.qty}`).join(', ');
-      const used = parseJson(st(5).spareInJson).map(x => `${x.item}: used ${x.usedQty ?? '-'}, new back ${x.newQty || 0}, old back ${x.oldQty || 0}`).join('; ');
+      const used = parseJson(inout.spareInJson).map(x => `${x.item}: new back ${x.newQty || 0}, bad back ${x.oldQty || 0}${x.shortQty ? `, short ${x.shortQty}` : ''}`).join('; ');
       return {
         'Complaint No': c.complainNo,
         'Complaint Date': sfmsDmy(c.timestamp, true),
@@ -3814,21 +3880,23 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
         'Bill Photo': c.billPhoto,
         'Product Photo': c.productPhoto,
         'Status': c.closed ? 'Closed' : `Pending: ${next ? next.label : ''}`,
-        'Warranty Checked': st(1).status,
-        'Spare Available': st(2).status,
-        'Mechanic': st(3).mechanic,
+        'Warranty Checked': st(SFMS_N.warranty).status,
+        'Spare Available': st(SFMS_N.spareCheck).status,
+        'Mechanic': st(SFMS_N.assign).mechanic,
         'Spares Taken Out': sparesText,
-        'Spare Used': used,
-        'Spare Used - Filled By': st(5).usedBy,
-        'Reason (if Short)': st(5).reasonIfShort,
-        'Repair Status': st(6).repairStatus,
-        'Complaint Solved': st(7).status,
-        'Distance Charges Agreed': st(8).distanceChargesAgree,
-        'Amount': st(8).amount,
-        'Review Remark': st(8).remark,
-        'Spare Deposited in Office': st(9).status,
-        'Deposited On': sfmsDmy(st(9).actual, true),
-        'Spare Received By': st(9).receivedBy
+        'Repair Status': st(SFMS_N.solve).repairStatus,
+        'Complaint Solved': st(SFMS_N.solved).status,
+        'Check In/Out': used,
+        'In/Out - Filled By': inout.usedBy,
+        'Reason (if Short)': inout.reasonIfShort,
+        'Cash for Short Pieces': inout.cashAmount,
+        'Cash Approval': inout.cashStatus,
+        'Distance Charges Agreed': st(SFMS_N.review).distanceChargesAgree,
+        'Amount': st(SFMS_N.review).amount,
+        'Review Remark': st(SFMS_N.review).remark,
+        'Spare Deposited in Office': st(SFMS_N.deposit).status,
+        'Deposited On': sfmsDmy(st(SFMS_N.deposit).actual, true),
+        'Spare Received By': st(SFMS_N.deposit).receivedBy
       };
     });
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -3852,7 +3920,7 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
 // already returned by GET /api/service-fms — so no separate endpoint is
 // needed here.
 
-app.post('/api/service-fms', requireAuth, async (req, res) => {
+app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const {
       filledByName, mobile, customerType, dealerName,
@@ -3995,7 +4063,7 @@ app.post('/api/service-fms', requireAuth, async (req, res) => {
 // Edit Complaint (point 7) — updates one product-line row's own intake
 // fields after the complaint has already been saved. A multi-product
 // complaint's sibling rows are edited the same way, one row at a time.
-app.put('/api/service-fms/:row', requireAuth, async (req, res) => {
+app.put('/api/service-fms/:row', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const row = parseInt(req.params.row, 10);
     if (!row) return res.status(400).json({ error: 'Invalid row' });
@@ -4063,6 +4131,7 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
     const stepNum = parseInt(req.params.stepNum, 10);
     const stepDef = SFMS_STEPS.find(s => s.n === stepNum);
     if (!row || !stepDef || !stepDef.otpRequired) return res.status(400).json({ error: 'Invalid row or step number' });
+    if (!sfmsCanActOn(await sfmsUserAccess(req), stepNum)) return res.status(403).json({ error: 'You are not assigned to this step' });
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     const rowRes = await sheetsApi.spreadsheets.values.get({
@@ -4131,7 +4200,7 @@ app.get('/api/service-fms/items', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_ITEMS_TAB)); }
   catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/items', requireAuth, async (req, res) => {
+app.post('/api/service-fms/items', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Item name is required' });
@@ -4146,7 +4215,7 @@ app.get('/api/service-fms/areas', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_AREA_TAB)); }
   catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/areas', requireAuth, async (req, res) => {
+app.post('/api/service-fms/areas', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Area name is required' });
@@ -4177,7 +4246,7 @@ app.get('/api/service-fms/zones', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_ZONE_TAB)); }
   catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/zones', requireAuth, async (req, res) => {
+app.post('/api/service-fms/zones', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Zone name is required' });
@@ -4220,7 +4289,7 @@ app.get('/api/service-fms/mechanics', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetMechanics()); }
   catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/mechanics', requireAuth, async (req, res) => {
+app.post('/api/service-fms/mechanics', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     const mobile = String(req.body.mobile || '').trim();
@@ -4237,7 +4306,7 @@ app.post('/api/service-fms/mechanics', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/mechanics/mobile', requireAuth, async (req, res) => {
+app.post('/api/service-fms/mechanics/mobile', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     const mobile = String(req.body.mobile || '').trim();
@@ -4249,7 +4318,7 @@ app.post('/api/service-fms/mechanics/mobile', requireAuth, async (req, res) => {
 
 // Generic WhatsApp send used by the Mechanic-Wise report's "Send via WhatsApp"
 // button — sends straight through the WhatsApp API instead of opening wa.me.
-app.post('/api/service-fms/send-whatsapp', requireAuth, async (req, res) => {
+app.post('/api/service-fms/send-whatsapp', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const mobile = String(req.body.mobile || '').trim();
     const message = String(req.body.message || '').trim();
@@ -4259,13 +4328,183 @@ app.post('/api/service-fms/send-whatsapp', requireAuth, async (req, res) => {
   } catch (err) { sendWhatsAppError(res, err); }
 });
 
+// ── Check In/Out (step SFMS_N.inout) + cash approval for short pieces ──
+// Per spare taken out: new pieces returned + bad (old/faulty) pieces
+// returned; short = taken − new − bad. No shortage → step done. Shortage
+// with a cash amount → waits for the cash approver (Approvals page) and
+// completes on approval. Shortage without cash → counts are saved but the
+// step stays pending until the remaining pieces come back.
+async function ensureSfmsCashApprovalsTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS sfms_cash_approvals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      sheet_row INT NOT NULL,
+      complain_no VARCHAR(50),
+      customer VARCHAR(255),
+      mechanic VARCHAR(255),
+      amount DECIMAL(10,2),
+      short_details TEXT,
+      requested_by INT,
+      requested_to INT NULL,
+      status VARCHAR(20) DEFAULT 'pending',
+      note TEXT,
+      decided_by INT NULL,
+      decided_at DATETIME NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_status (status),
+      INDEX idx_to (requested_to),
+      INDEX idx_row (sheet_row)
+    )
+  `);
+}
+const SFMS_CASH_APPROVER_SETTING = 'sfms_cash_approver_user_id';
+// Admin picks the approver (Step Doers window); until then, the first user
+// named "Ajay" — the client named him as the one who approves.
+async function sfmsCashApprover() {
+  const saved = Number(await getAppSetting(SFMS_CASH_APPROVER_SETTING)) || 0;
+  const [rows] = saved
+    ? await db.query('SELECT id, name FROM users WHERE id=?', [saved])
+    : await db.query(`SELECT id, name FROM users WHERE LOWER(name) LIKE '%ajay%' ORDER BY id LIMIT 1`);
+  return rows[0] ? { id: rows[0].id, name: rows[0].name } : null;
+}
+
+async function sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal) {
+  if (req.body.spareInJson === undefined) return res.status(400).json({ error: 'Fill the Check In/Out form — new and bad pieces returned per spare' });
+  const usedBy = String(req.body.usedBy || '').trim();
+  if (!usedBy) return res.status(400).json({ error: 'Select your name (mechanic) first' });
+  let items;
+  try { items = JSON.parse(req.body.spareInJson); } catch (e) { items = null; }
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'Invalid spare return data' });
+  const clean = [];
+  for (const it of items) {
+    const takenQty = Math.max(0, Math.floor(Number(it.takenQty) || 0));
+    const newQty = Math.max(0, Math.floor(Number(it.newQty) || 0));
+    const oldQty = Math.max(0, Math.floor(Number(it.oldQty) || 0));
+    if (newQty + oldQty > takenQty) {
+      return res.status(400).json({ error: `${it.item}: new + bad returned (${newQty + oldQty}) can't be more than taken (${takenQty})` });
+    }
+    clean.push({ item: String(it.item || ''), takenQty, newQty, oldQty, usedQty: takenQty - newQty, shortQty: takenQty - newQty - oldQty });
+  }
+  const totalShort = clean.reduce((s, x) => s + x.shortQty, 0);
+  const cashAmount = Math.max(0, Number(req.body.cashAmount) || 0);
+  const col = key => stepDef.extra.find(e => e.key === key).col;
+  const cell = (c, v) => ({ range: `'${SFMS_TAB}'!${c}${row}`, values: [[v]] });
+  const data = [
+    cell(col('spareInJson'), JSON.stringify(clean)),
+    cell(col('qtyReturned'), clean.reduce((s, x) => s + x.newQty + x.oldQty, 0)),
+    cell(col('usedBy'), usedBy),
+    cell(col('reasonIfShort'), String(req.body.reasonIfShort || '').trim())
+  ];
+  let outcome;
+  if (totalShort === 0) {
+    data.push(cell(stepDef.actual, nowVal), cell(stepDef.status, 'Yes'), cell(col('cashAmount'), ''), cell(col('cashStatus'), ''));
+    outcome = 'completed';
+  } else if (cashAmount > 0) {
+    data.push(cell(col('cashAmount'), cashAmount), cell(col('cashStatus'), 'Pending Approval'));
+    outcome = 'pendingApproval';
+  } else {
+    data.push(cell(col('cashAmount'), ''), cell(col('cashStatus'), ''));
+    outcome = 'pendingPieces';
+  }
+  await sheetsApi.spreadsheets.values.batchUpdate({
+    spreadsheetId: SFMS_SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data }
+  });
+
+  await ensureSfmsCashApprovalsTable();
+  // Any earlier still-pending cash request for this complaint is moot now.
+  await db.query(`UPDATE sfms_cash_approvals SET status='superseded' WHERE sheet_row=? AND status='pending'`, [row]);
+  let approverName = '';
+  if (outcome === 'pendingApproval') {
+    const info = await sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${row}:C${row}` });
+    const [complainNo = '', customer = ''] = (info.data.values && info.data.values[0]) || [];
+    const approver = await sfmsCashApprover();
+    approverName = approver ? approver.name : '';
+    const shortDetails = clean.filter(x => x.shortQty > 0).map(x => `${x.item}: ${x.shortQty} short (took ${x.takenQty}, new ${x.newQty}, bad ${x.oldQty})`).join('; ');
+    await db.query(
+      `INSERT INTO sfms_cash_approvals (sheet_row, complain_no, customer, mechanic, amount, short_details, requested_by, requested_to)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row, complainNo, customer, usedBy, cashAmount, shortDetails, req.session.userId, approver ? approver.id : null]
+    );
+  }
+  res.json({ success: true, outcome, totalShort, approverName });
+}
+
+app.get('/api/service-fms/cash-approvals', requireAuth, async (req, res) => {
+  try {
+    await ensureSfmsCashApprovalsTable();
+    const seeAll = req.session.role === 'admin' || req.session.role === 'pc';
+    const [rows] = await db.query(
+      `SELECT a.*, rb.name AS requestedByName, rt.name AS requestedToName
+       FROM sfms_cash_approvals a
+       LEFT JOIN users rb ON rb.id = a.requested_by
+       LEFT JOIN users rt ON rt.id = a.requested_to
+       WHERE a.status='pending' ${seeAll ? '' : 'AND a.requested_to=?'}
+       ORDER BY a.created_at DESC`,
+      seeAll ? [] : [req.session.userId]
+    );
+    res.json(rows);
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.put('/api/service-fms/cash-approvals/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { action, note } = req.body;
+    if (!id || !['approved', 'rejected'].includes(action)) return res.status(400).json({ error: 'Invalid request' });
+    await ensureSfmsCashApprovalsTable();
+    const [rows] = await db.query('SELECT * FROM sfms_cash_approvals WHERE id=?', [id]);
+    const a = rows[0];
+    if (!a) return res.status(404).json({ error: 'Approval not found' });
+    const role = req.session.role;
+    if (!(role === 'admin' || role === 'pc' || Number(a.requested_to) === Number(req.session.userId))) {
+      return res.status(403).json({ error: 'Not allowed' });
+    }
+    // Sheet rows are addressed by number — make sure that row is still this
+    // complaint before touching it.
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const chk = await sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${a.sheet_row}:B${a.sheet_row}` });
+    const complainNoNow = (chk.data.values && chk.data.values[0] && chk.data.values[0][0]) || '';
+    if (String(complainNoNow) !== String(a.complain_no)) {
+      return res.status(409).json({ error: `Sheet row ${a.sheet_row} no longer holds ${a.complain_no} — update that complaint's In/Out manually` });
+    }
+    const [upd] = await db.query(
+      `UPDATE sfms_cash_approvals SET status=?, note=?, decided_by=?, decided_at=NOW() WHERE id=? AND status='pending'`,
+      [action, note || '', req.session.userId, id]
+    );
+    if (!upd.affectedRows) return res.status(400).json({ error: 'This approval has already been processed' });
+    const step = SFMS_STEPS.find(s => s.n === SFMS_N.inout);
+    const col = key => step.extra.find(e => e.key === key).col;
+    const cell = (c, v) => ({ range: `'${SFMS_TAB}'!${c}${a.sheet_row}`, values: [[v]] });
+    const data = action === 'approved'
+      ? [cell(step.actual, sfmsDateToSerial(new Date())), cell(step.status, 'Yes'), cell(col('cashStatus'), 'Approved')]
+      : [cell(col('cashStatus'), 'Rejected')];
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data }
+    });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.get('/api/service-fms/cash-approver', requireAuth, async (req, res) => {
+  try { res.json({ approver: await sfmsCashApprover() }); }
+  catch (err) { sendServerError(res, err); }
+});
+app.put('/api/service-fms/cash-approver', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const userId = Number(req.body.userId) || 0;
+    await ensureAppSettingsTable();
+    await setAppSetting(SFMS_CASH_APPROVER_SETTING, userId ? String(userId) : '');
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => {
   try {
     const row = parseInt(req.params.row, 10);
     const stepNum = parseInt(req.params.stepNum, 10);
     const stepDef = SFMS_STEPS.find(s => s.n === stepNum);
     if (!row || !stepDef) return res.status(400).json({ error: 'Invalid row or step number' });
-    if (!(await assertIsStepDoer(res, 'sfms_step_doers', stepNum, req.session.userId, req.session.role))) return;
+    if (!sfmsCanActOn(await sfmsUserAccess(req), stepNum)) return res.status(403).json({ error: 'You are not assigned to this step' });
 
     const nowVal = sfmsDateToSerial(new Date());
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
@@ -4273,7 +4512,7 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
 
     // Spare Check answered "Need to be Purchased" holds the complaint there
     // — no mechanic assignment until the spare is actually in stock.
-    if (stepNum === 3) {
+    if (stepNum === SFMS_N.assign) {
       const s2 = await sheetsApi.spreadsheets.values.get({
         spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!U${row}:U${row}`
       });
@@ -4282,11 +4521,11 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
         return res.status(400).json({ error: 'Spare is not available yet — mark it "Available" at Spare Check once it has been purchased/added.' });
       }
     }
-    // Point 2 — bill photo is optional at intake, but must be on file by
-    // Take Out Spare (step 4): the whole point of not forcing it earlier is
-    // that customers often send the bill after registering the complaint,
-    // but the spare shouldn't leave the office for an unbilled piece.
-    if (stepNum === 4) {
+    // Bill photo is optional at intake (customers often send it later), but
+    // a Customer Purchased Piece can't get past Spare Check without it
+    // (2026-10-02) — and Takeout keeps the same check for complaints that
+    // passed Spare Check before that rule existed.
+    if (stepNum === SFMS_N.spareCheck || stepNum === SFMS_N.takeout) {
       const ownAndBill = await sheetsApi.spreadsheets.values.batchGet({
         spreadsheetId: SFMS_SHEET_ID,
         ranges: [`'${SFMS_TAB}'!J${row}:J${row}`, `'${SFMS_TAB}'!${SFMS_OWNERSHIP_COL}${row}:${SFMS_OWNERSHIP_COL}${row}`]
@@ -4295,18 +4534,22 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
       const hasBill = !!(billRange.values && billRange.values[0] && billRange.values[0][0]);
       const ownership = (ownRange.values && ownRange.values[0] && ownRange.values[0][0]) || '';
       if (ownership === 'Customer Purchased Piece' && !hasBill) {
-        return res.status(400).json({ error: 'Bill photo is required before Take Out Spare — upload it via Edit Complaint first.' });
+        return res.status(400).json({ error: 'Bill photo is required for a Customer Purchased Piece before it can move past Spare Check — upload it via Edit Complaint first.' });
       }
     }
-    // (The Spare In/Out report's quick qty edit also PUTs step 5, without
-    // spareInJson — only the real step form has to say who filled it.)
-    if (stepNum === 5 && req.body.spareInJson !== undefined && !String(req.body.usedBy || '').trim()) {
-      return res.status(400).json({ error: 'Select your name (mechanic) first' });
+    if (stepNum === SFMS_N.takeout) {
+      let items;
+      try { items = JSON.parse(req.body.spareOutJson || '[]'); } catch (e) { items = null; }
+      if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Add at least one spare with its quantity' });
+      if (items.some(it => !String(it.item || '').trim() || !(Number(it.qty) > 0))) {
+        return res.status(400).json({ error: 'Every spare needs a spare name and a quantity of at least 1' });
+      }
     }
-    if (stepNum === 9 && !req.body.receivedBy) req.body.receivedBy = req.session.name || '';
+    if (stepNum === SFMS_N.deposit && !req.body.receivedBy) req.body.receivedBy = req.session.name || '';
     if (stepDef.extra.some(e => colToIdx(e.col) > colToIdx('BK')) || colToIdx(stepDef.status) > colToIdx('BK')) {
       await sfmsEnsureColumns(sheetsApi);
     }
+    if (stepNum === SFMS_N.inout) return await sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal);
 
     if (stepDef.otpRequired) {
       // A 6-digit code is guessable given enough attempts — cap attempts per

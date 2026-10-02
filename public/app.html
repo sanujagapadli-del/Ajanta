@@ -609,6 +609,13 @@ tbody tr:last-child td{border-bottom:none;}
 .multi-select-headers .hdr-tag .rm{color:var(--color-primary);font-size:10px;margin-left:2px;opacity:.6;}
 
 .flat-tasks-table{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--border-light);overflow-x:auto;box-shadow:var(--shadow-sm);}
+/* Frozen header row on every data table app-wide: a tall table scrolls
+   inside its own box, so the column headers stay in view. Sticky on the
+   whole <thead> (not each th) keeps two-row headers stacked correctly. */
+.mis-table-wrap,.flat-tasks-table{max-height:calc(100vh - 170px);overflow-y:auto;}
+.mis-table-wrap thead,.flat-tasks-table thead{position:sticky;top:0;z-index:3;}
+.mis-table-wrap thead th,.flat-tasks-table thead th{background:var(--surface-alt);}
+.modal .mis-table-wrap{max-height:none;}
 .bulk-section{margin-top:20px;padding-top:16px;border-top:1px solid var(--color-primary-light);}
 .file-row{display:flex;align-items:center;gap:8px;margin-top:6px;}
 
@@ -1211,6 +1218,12 @@ tbody tr:last-child td{border-bottom:none;}
     <div style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px">
       <div class="tab active" id="apprTabTask" onclick="switchApprovalTab('task',this)">📋 Task Approvals</div>
       <div class="tab" id="apprTabTransfer" onclick="switchApprovalTab('transfer',this)" style="display:none">🔀 Transfer Requests</div>
+      <div class="tab" id="apprTabSfmsCash" onclick="switchApprovalTab('cash',this)" style="display:none">💰 Spare Cash (Service FMS)</div>
+    </div>
+
+    <!-- Service FMS: cash taken for short spare pieces at Check In/Out -->
+    <div id="sfmsCashApprovalsPanel" style="display:none">
+      <div id="sfmsCashApprovalsContent"><div class="empty">Loading…</div></div>
     </div>
 
     <!-- Task approvals panel -->
@@ -1420,25 +1433,15 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── SERVICE FMS (live-connected to the real Complain FMS Google Sheet) ── -->
   <div id="page-service-fms" class="page">
     <div class="page-header">
-      <button class="btn btn-primary" onclick="openNewComplaintModal()">+ New Complaint</button>
+      <button class="btn btn-primary" id="sfmsNewComplaintBtn" style="display:none" onclick="openNewComplaintModal()">+ New Complaint</button>
       <button class="btn btn-outline" onclick="loadServiceFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="sfmsStepDoersBtn" style="display:none" onclick="openSfmsStepDoersModal()">⚙ Step Doers</button>
     </div>
 
     <div style="display:flex;gap:6px;margin-bottom:8px;overflow-x:auto">
-      <div class="tab-group">
-        <div class="tab active" id="sfmsViewAll" onclick="switchSfmsView('all',this)">All Complaints</div>
-        <div class="tab" id="sfmsViewStep1" onclick="switchSfmsView('step1',this)">1. Warranty</div>
-        <div class="tab" id="sfmsViewStep2" onclick="switchSfmsView('step2',this)">2. Spare Check</div>
-        <div class="tab" id="sfmsViewStep3" onclick="switchSfmsView('step3',this)">3. Assign</div>
-        <div class="tab" id="sfmsViewStep4" onclick="switchSfmsView('step4',this)">4. Takeout</div>
-        <div class="tab" id="sfmsViewStep5" onclick="switchSfmsView('step5',this)">5. Spare Used</div>
-        <div class="tab" id="sfmsViewStep6" onclick="switchSfmsView('step6',this)">6. Solve</div>
-        <div class="tab" id="sfmsViewStep7" onclick="switchSfmsView('step7',this)">7. Solved?</div>
-        <div class="tab" id="sfmsViewStep8" onclick="switchSfmsView('step8',this)">8. Review</div>
-        <div class="tab" id="sfmsViewStep9" onclick="switchSfmsView('step9',this)">9. Deposit</div>
-        <div class="tab" id="sfmsViewBalance" onclick="switchSfmsView('balance',this)">🧰 Spare Balance</div>
-        <div class="tab" id="sfmsViewReports" onclick="switchSfmsView('reports',this)">📊 Reports</div>
+      <!-- Built by renderSfmsTabs(): only the steps this user is a doer of (all for PC View / admin). -->
+      <div class="tab-group" id="sfmsTabGroup">
+        <div class="tab active" onclick="switchSfmsView('all',this)">All Complaints</div>
       </div>
     </div>
 
@@ -3020,14 +3023,20 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- ── SERVICE FMS: STEP DOERS MODAL ── -->
 <div class="modal-overlay" id="sfmsStepDoersModal">
-  <div class="modal" style="max-width:520px;max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal" style="max-width:980px;width:96vw;max-height:90vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h3 style="margin:0">⚙ Step Doers</h3>
+      <h3 style="margin:0">⚙ Service FMS — Step Doers</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('sfmsStepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
-    <div style="font-size:12px;color:var(--gray-500);margin-bottom:14px">Har step ke liye ek ya zyada log assign karo — sirf wahi (ya admin) us step ko complete kar payenge.</div>
-    <div id="sfmsStepDoersRows" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px"></div>
-    <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="submitSfmsStepDoers()">Save</button>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = us user ko woh step dikhega aur wahi use complete kar payega. Jiska koi step tick nahi, use sirf All Complaints (view only) dikhega. Saare steps ke liye: Users page → "Service FMS PC View".</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:13px">
+      <label for="sfmsCashApproverSelect" style="font-weight:700">💰 Spare cash approver:</label>
+      <select id="sfmsCashApproverSelect" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;min-width:200px"></select>
+      <span style="font-size:11.5px;color:var(--gray-400)">Check In/Out mein kam pieces ka cash inke Approvals page par jayega</span>
+    </div>
+    <input type="text" id="sfmsStepDoersSearch" placeholder="🔍 Search user…" oninput="filterSfmsStepDoerRows(this.value)" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;margin-bottom:8px"/>
+    <div id="sfmsStepDoersRows" class="mis-table-wrap" style="overflow:auto;flex:1;min-height:0;border:1px solid var(--gray-200);border-radius:10px"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="submitSfmsStepDoers()">Save</button>
   </div>
 </div>
 
@@ -4859,6 +4868,8 @@ const PAGE_ACCESS_GROUPS = [
   ]},
   { label: 'FMS', locked: false, pages: [
     { key: 'service-fms', label: 'Service FMS' },
+    // Not a page: sees + acts on every Service FMS step, not just their Step Doers ones.
+    { key: 'sfms-pc-view', label: 'Service FMS PC View (all steps)' },
     { key: 'o2d-fms', label: 'O2D FMS' },
     { key: 'o2d-new-order', label: 'New Order' },
     { key: 'purchase-fms', label: 'Purchase FMS' },
@@ -5100,7 +5111,48 @@ function switchApprovalTab(tab, el) {
   if (el) el.classList.add('active');
   document.getElementById('approvalsPanel').style.display = tab==='task' ? 'block' : 'none';
   document.getElementById('transferApprovalsPanel').style.display = tab==='transfer' ? 'block' : 'none';
+  document.getElementById('sfmsCashApprovalsPanel').style.display = tab==='cash' ? 'block' : 'none';
   if (tab==='transfer') loadTransferApprovals();
+  if (tab==='cash') loadSfmsCashApprovals();
+}
+
+// Service FMS Check In/Out — a mechanic short on pieces paid cash instead;
+// the cash approver (or admin/PC) approves it, which completes that step.
+async function loadSfmsCashApprovals() {
+  const list = await api('/api/service-fms/cash-approvals');
+  const el = document.getElementById('sfmsCashApprovalsContent');
+  const rows = Array.isArray(list) ? list : [];
+  const tab = document.getElementById('apprTabSfmsCash');
+  if (rows.length || ME.role === 'admin' || ME.role === 'pc') tab.style.display = 'block';
+  tab.textContent = `💰 Spare Cash (Service FMS)${rows.length ? ` · ${rows.length}` : ''}`;
+  if (!Array.isArray(list)) { el.innerHTML = `<div class="empty">⚠️ ${esc((list && list.error) || 'Failed to load')}</div>`; return rows; }
+  el.innerHTML = !rows.length
+    ? `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">✅ No pending spare-cash approvals!</div>`
+    : `<div class="flat-tasks-table mis-table-wrap"><table>
+        <thead><tr><th>Complain No</th><th>Customer</th><th>Mechanic</th><th>Short Pieces</th><th>Cash</th><th>Requested</th><th>Approve / Reject</th></tr></thead>
+        <tbody>${rows.map(a => `<tr>
+          <td style="font-weight:600;white-space:nowrap">${esc(a.complain_no)}</td>
+          <td>${esc(a.customer || '—')}</td>
+          <td>${esc(a.mechanic || '—')}<div style="font-size:11px;color:var(--gray-400)">by ${esc(a.requestedByName || '—')}</div></td>
+          <td style="font-size:12px">${esc(a.short_details || '—')}</td>
+          <td style="font-weight:800;white-space:nowrap">₹${esc(Number(a.amount).toLocaleString('en-IN'))}</td>
+          <td style="color:var(--gray-500);font-size:12px;white-space:nowrap">${new Date(a.created_at).toLocaleDateString('en-IN')}${a.requestedToName ? `<div>to ${esc(a.requestedToName)}</div>` : ''}</td>
+          <td style="white-space:nowrap">
+            <button class="action-btn done" onclick="handleSfmsCashApproval(${a.id},'approved')">Approve</button>
+            <button class="action-btn delete" style="margin-left:6px" onclick="handleSfmsCashApproval(${a.id},'rejected')">Reject</button>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+  return rows;
+}
+async function handleSfmsCashApproval(id, action) {
+  const note = action === 'rejected' ? (prompt('Reject ka reason (optional):') ?? null) : '';
+  if (note === null) return;
+  const r = await api(`/api/service-fms/cash-approvals/${id}`, 'PUT', { action, note });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(action === 'approved' ? '✅ Approved — Check In/Out complete ho gaya' : 'Rejected');
+  loadSfmsCashApprovals();
+  loadApprovalBadge();
 }
 
 async function loadApprovals() {
@@ -5108,6 +5160,7 @@ async function loadApprovals() {
   if (ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc') {
     document.getElementById('apprTabTransfer').style.display = 'block';
   }
+  loadSfmsCashApprovals(); // reveals its tab when there's something to approve
 
   const approvals = await api('/api/approvals');
   _approvalsMap = {};
@@ -7010,54 +7063,52 @@ function exportRecords() {
 // ══════════════════════════════════════════════════════
 // `doer` = who does each stage (client list, 2026-09-25) — display labels,
 // mirrored in server.js SFMS_STEPS; New Complaint itself is "Service Mail".
+// Steps are referenced by `key` via SN (never a bare number), so a reorder
+// only touches this array — 2026-10-02: Takeout → Solve → Solved? → Check In/Out.
 const SFMS_STEP_DEFS = [
-  { n: 1, label: 'Check Product in Warranty', doer: 'Service Mail', statusOptions: ['Yes', 'No'], extraFields: [] },
+  { n: 1, key: 'warranty', tab: 'Warranty', label: 'Check Product in Warranty', doer: 'Service Mail', statusOptions: ['Yes', 'No'], extraFields: [] },
   // requireValue: "Need to be Purchased" keeps the complaint on hold here —
   // no Assign option — until someone re-answers "Available".
-  { n: 2, label: 'Spare Available?', doer: 'Niranjan', statusOptions: ['Available', 'Need to be Purchased'], requireValue: 'Available', extraFields: [] },
-  // Reordered (was step 4) — mechanic gets assigned zone-wise before the
-  // spare is taken out.
-  { n: 3, label: 'Assign Complaint to Mechanic After Batching', doer: 'Ajiz Ji', extraFields: [
+  { n: 2, key: 'spareCheck', tab: 'Spare Check', label: 'Spare Available?', doer: 'Niranjan', statusOptions: ['Available', 'Need to be Purchased'], requireValue: 'Available', extraFields: [] },
+  { n: 3, key: 'assign', tab: 'Assign', label: 'Assign Complaint to Mechanic After Batching', doer: 'Ajiz Ji', extraFields: [
       { key: 'zone', label: 'Zone', masterList: 'zone' },
       { key: 'mechanic', label: 'Mechanic Name', masterList: 'mechanics' }
     ] },
-  // Reordered (was step 3) — now comes after Assign. itemName/spareTaken
-  // still carry the FIRST item's values (every existing report reads these
-  // directly) alongside spareOutJson (the full multi-item list) — the
-  // compact UI is custom-built (point 1/2), not the generic field renderer.
-  { n: 4, label: 'Takeout Spare', doer: 'Niranjan', extraFields: [
+  // itemName/spareTaken still carry the FIRST item's values (older reports
+  // read these) alongside spareOutJson (the full multi-item list).
+  { n: 4, key: 'takeout', tab: 'Takeout', label: 'Takeout Spare', doer: 'Niranjan', extraFields: [
       { key: 'itemName', label: 'Item Name', masterList: 'items' },
       { key: 'spareTaken', label: 'Qty', type: 'number' },
       { key: 'spareOutJson', label: 'Spares Taken (all items)' }
     ] },
-  // Was "Spare In Entry" — renamed "Spare Used" per client. The mechanic
-  // enters, per item taken out, how many he used + how many old (faulty)
-  // parts he's bringing back, and picks his own name. spareInJson keeps
-  // newQty (= taken − used) / oldQty so every existing report still works.
-  { n: 5, label: 'Spare Used (in the field)', doer: 'Mechanic (self)', extraFields: [
-      { key: 'qtyReturned', label: 'Item Qty (Returned)', type: 'number' },
-      { key: 'reasonIfShort', label: 'Reason (if Short)' },
-      { key: 'spareInJson', label: 'Spares Used (all items)' },
-      { key: 'usedBy', label: 'Filled By (Mechanic)' }
-    ] },
-  // Reordered (was step 5) — now comes after In/Out.
-  { n: 6, label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
+  { n: 5, key: 'solve', tab: 'Solve', label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
       { key: 'repairStatus', label: 'Repair Status', options: ['Repaired at Location', 'Brought to Office'] }
     ] },
-  { n: 7, label: 'Complaint Solved?', statusOptions: ['Yes', 'No'], requireValue: 'Yes', extraFields: [] },
-  { n: 8, label: 'Evening Review', extraFields: [
+  { n: 6, key: 'solved', tab: 'Solved?', label: 'Complaint Solved?', statusOptions: ['Yes', 'No'], requireValue: 'Yes', extraFields: [] },
+  // Per spare taken out: new pieces back + bad (old) pieces back; a shortage
+  // stays pending, or is settled in cash (approved on the Approvals page).
+  { n: 7, key: 'inout', tab: 'Check In/Out', label: 'Check In/Out (Spare Return)', doer: 'Mechanic (self)', extraFields: [
+      { key: 'qtyReturned', label: 'Item Qty (Returned)', type: 'number' },
+      { key: 'reasonIfShort', label: 'Reason (if Short)' },
+      { key: 'spareInJson', label: 'Spares Returned (all items)' },
+      { key: 'usedBy', label: 'Filled By (Mechanic)' },
+      { key: 'cashAmount', label: 'Cash for Short Pieces' },
+      { key: 'cashStatus', label: 'Cash Approval' }
+    ] },
+  { n: 8, key: 'review', tab: 'Review', label: 'Evening Review', extraFields: [
       { key: 'distanceChargesAgree', label: 'Distance Charges Agreed', options: ['Yes', 'No'] },
       { key: 'amount', label: 'Amount', type: 'number' },
       { key: 'remark', label: 'Remark' }
     ] },
-  // After Review — the mechanic hands the office the unused new spares and
-  // old faulty parts he still holds for this complaint. Custom-built rows
-  // (sfmsBuildDepositRowsHtml), pre-filled with what he should be holding.
-  { n: 9, label: 'Spare Deposited in Office', doer: 'Niranjan', extraFields: [
+  // The mechanic hands the office the unused new spares and old faulty
+  // parts he still holds for this complaint (sfmsBuildDepositRowsHtml).
+  { n: 9, key: 'deposit', tab: 'Deposit', label: 'Spare Deposited in Office', doer: 'Niranjan', extraFields: [
       { key: 'depositJson', label: 'Spares Deposited (all items)' },
       { key: 'receivedBy', label: 'Received By' }
     ] }
 ];
+const SN = Object.fromEntries(SFMS_STEP_DEFS.map(d => [d.key, d.n]));
+const sfmsStep = (c, key) => c.steps.find(s => s.n === SN[key]) || {};
 
 let sfmsItemsList = [];
 let sfmsMechanicsList = [];
@@ -7066,13 +7117,16 @@ let sfmsMechanicZones = {}; // mechanic name -> zone, for filtering step 4's Mec
 let sfmsZoneList = [];
 let sfmsAreaZoneMap = {}; // area name -> zone, so the Assign tab can filter complaints by zone (a complaint only ever records its Area)
 let sfmsProductWarrantyMonths = {}; // product name (lowercased) -> warranty months, for the Warranty tab's auto status
+let sfmsCashApproverName = ''; // who approves cash for short In/Out pieces
 let sfmsMasterListsLoaded = false;
 async function ensureSfmsMasterLists() {
   if (sfmsMasterListsLoaded) return;
-  const [spareParts, items, mechanics, zones, areaZoneMap, productNames] = await Promise.all([
+  const [spareParts, items, mechanics, zones, areaZoneMap, productNames, cashApprover] = await Promise.all([
     api('/api/service-fms/spare-parts'), api('/api/service-fms/items'), api('/api/service-fms/mechanics'),
-    api('/api/service-fms/zones'), api('/api/service-fms/area-zone-map'), api('/api/o2d-fms/product-names')
+    api('/api/service-fms/zones'), api('/api/service-fms/area-zone-map'), api('/api/o2d-fms/product-names'),
+    api('/api/service-fms/cash-approver')
   ]);
+  sfmsCashApproverName = (cashApprover && cashApprover.approver && cashApprover.approver.name) || '';
   const products = (productNames && productNames.products) || [];
   sfmsProductWarrantyMonths = Object.fromEntries(products.filter(p => p.warrantyMonths).map(p => [p.name.trim().toLowerCase(), p.warrantyMonths]));
   // Item Name dropdown = the real Spare Parts Master catalog (396 items),
@@ -7197,11 +7251,38 @@ let sfmsView = 'all';
 let _sfmsMechanicGroups = {};
 let sfmsOtpSentFor = {}; // row -> true once an OTP has been sent this session
 
+// From the server: { pcView, steps: [n…] }. A user sees/acts on only the
+// steps they're a doer of; PC View (Users page) or admin = every step; no
+// step at all = All Complaints only, view-only.
+let sfmsAccess = { pcView: false, steps: [] };
+let _sfmsAccessLoaded = false;
+async function ensureSfmsAccess(force) {
+  if (_sfmsAccessLoaded && !force) return;
+  const r = await api('/api/service-fms/my-access');
+  if (r && Array.isArray(r.steps)) { sfmsAccess = r; _sfmsAccessLoaded = true; }
+}
+function sfmsCanAct(n) { return sfmsAccess.pcView || sfmsAccess.steps.includes(n); }
+function sfmsCanEdit() { return sfmsAccess.pcView || sfmsAccess.steps.length > 0; }
+
+function renderSfmsTabs() {
+  const visible = SFMS_STEP_DEFS.filter(d => sfmsCanAct(d.n));
+  const extra = sfmsCanEdit() ? [['balance', '🧰 Spare Balance'], ['reports', '📊 Reports']] : [];
+  const allowed = new Set(['all', ...visible.map(d => 'step' + d.n), ...extra.map(e => e[0])]);
+  if (!allowed.has(sfmsView)) sfmsView = 'all';
+  const tab = (view, label) => `<div class="tab${sfmsView === view ? ' active' : ''}" onclick="switchSfmsView('${view}',this)">${label}</div>`;
+  document.getElementById('sfmsTabGroup').innerHTML = tab('all', 'All Complaints') +
+    visible.map(d => tab('step' + d.n, `${d.n}. ${esc(d.tab)}`)).join('') +
+    extra.map(([v, l]) => tab(v, l)).join('');
+  document.getElementById('sfmsNewComplaintBtn').style.display = sfmsCanEdit() ? '' : 'none';
+  document.getElementById('sfmsSearchWrap').style.display = sfmsView === 'all' ? '' : 'none';
+}
+
 async function loadServiceFmsList() {
   const wrap = document.getElementById('sfmsListWrap');
   wrap.innerHTML = '<div class="empty">Loading…</div>';
   if (!_sfmsStepDoersMerged) await mergeSfmsStepDoersIntoDefs();
-  const [data] = await Promise.all([api('/api/service-fms'), ensureSfmsMasterLists()]);
+  const [data] = await Promise.all([api('/api/service-fms'), ensureSfmsMasterLists(), ensureSfmsAccess(true)]);
+  renderSfmsTabs();
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   sfmsData = data;
   renderServiceFmsList();
@@ -7209,7 +7290,7 @@ async function loadServiceFmsList() {
 
 function switchSfmsView(view, el) {
   sfmsView = view;
-  document.querySelectorAll('#page-service-fms .tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#sfmsTabGroup .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('sfmsSearchWrap').style.display = view === 'all' ? '' : 'none';
   renderServiceFmsList();
@@ -7265,7 +7346,7 @@ function sfmsWarrantyStatusHtml(c) {
 // when there's no Product Master data to compute from, and notes a customer
 // who agreed to pay for out-of-warranty service.
 function sfmsWarrantyDetailHtml(c) {
-  const checked = (c.steps.find(s => s.n === 1) || {}).status;
+  const checked = sfmsStep(c, 'warranty').status;
   let html = sfmsComputeWarrantyStatus(c)
     ? sfmsWarrantyStatusHtml(c)
     : checked === 'Yes' ? `<div style="color:var(--color-success-text);font-weight:700;font-size:12px">✅ In Warranty</div>`
@@ -7276,10 +7357,9 @@ function sfmsWarrantyDetailHtml(c) {
   return html;
 }
 
-// Spare Check answered "Need to be Purchased" — held at step 2 (see requireValue).
+// Spare Check answered "Need to be Purchased" — held there (see requireValue).
 function sfmsIsOnSpareHold(c) {
-  const s2 = c.steps.find(s => s.n === 2);
-  return !c.closed && c.currentStep === 1 && s2 && s2.status === 'Need to be Purchased';
+  return !c.closed && c.currentStep === SN.spareCheck - 1 && sfmsStep(c, 'spareCheck').status === 'Need to be Purchased';
 }
 function sfmsPrefillSpareHold(c) {
   if (!sfmsIsOnSpareHold(c)) return;
@@ -7299,7 +7379,7 @@ function sfmsPrefillSpareHold(c) {
 let sfmsAssignZoneFilter = '';
 function onSfmsAssignZoneFilterChange(value) {
   sfmsAssignZoneFilter = value;
-  renderSfmsStepView(3);
+  renderSfmsStepView(SN.assign);
 }
 
 // Shows a right-edge fade (see .scroll-hint-wrap CSS) only while a
@@ -7331,16 +7411,25 @@ function attachScrollHint(el) {
   document.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
 })();
 
+function sfmsZoneOf(c) { return sfmsAreaZoneMap[c.area] || c.zone || ''; }
+// "Zone 2" before "Zone 10"; complaints with no zone go last.
+function sfmsZoneCompare(a, b) {
+  if (!a !== !b) return a ? -1 : 1;
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
 function renderSfmsStepView(n) {
   const wrap = document.getElementById('sfmsListWrap');
   const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
   const allRows = sfmsData.filter(c => !c.closed && c.currentStep + 1 === n);
   if (!allRows.length) { wrap.innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`; return; }
 
-  const isAssignTab = n === 3;
-  const rows = (isAssignTab && sfmsAssignZoneFilter)
-    ? allRows.filter(c => sfmsAreaZoneMap[c.area] === sfmsAssignZoneFilter)
+  const isAssignTab = n === SN.assign;
+  const filtered = (isAssignTab && sfmsAssignZoneFilter)
+    ? allRows.filter(c => sfmsZoneOf(c) === sfmsAssignZoneFilter)
     : allRows;
+  // Zone-wise, then oldest first within a zone.
+  const rows = filtered.slice().sort((a, b) => sfmsZoneCompare(sfmsZoneOf(a), sfmsZoneOf(b)) || a.row - b.row);
 
   // Areas belonging to the selected zone (reverse lookup over sfmsAreaZoneMap)
   // — shown as a reference so staff can see what "Zone 1" actually covers.
@@ -7348,9 +7437,9 @@ function renderSfmsStepView(n) {
     ? Object.keys(sfmsAreaZoneMap).filter(a => sfmsAreaZoneMap[a] === sfmsAssignZoneFilter).sort()
     : [];
   const zoneFilterHtml = isAssignTab ? `
-    <div style="padding:14px 16px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div style="padding:10px 12px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <label style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">Filter by Zone</label>
-      <select onchange="onSfmsAssignZoneFilterChange(this.value)" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px">
+      <select onchange="onSfmsAssignZoneFilterChange(this.value)" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px">
         <option value="">-- All Zones --</option>
         ${sfmsZoneList.map(z => `<option value="${esc(z)}" ${z === sfmsAssignZoneFilter ? 'selected' : ''}>${esc(z)}</option>`).join('')}
       </select>
@@ -7363,52 +7452,82 @@ function renderSfmsStepView(n) {
     return;
   }
 
-  // Table format, per your call — but far fewer columns than before (name/
-  // mobile/dealer/date merged into one cell, location/address/area merged
-  // into another) plus smaller text and wrapping instead of forced nowrap,
-  // so the row fits without needing a horizontal scroll on most screens.
-  const isWarrantyTab = n === 1;
-  const isSpareCheckTab = n === 2; // point 8 — ownership shown clearly here
-  wrap.innerHTML = zoneFilterHtml + `<div class="mis-table-wrap" style="overflow-x:auto;margin-top:${isAssignTab ? '12px' : '0'}">
+  const isWarrantyTab = n === SN.warranty;
+  const isSpareCheckTab = n === SN.spareCheck; // ownership shown clearly here
+  const colCount = 7 + (isWarrantyTab || isSpareCheckTab ? 1 : 0);
+  const canAct = sfmsCanAct(n);
+
+  // Master submit (one click for every ticked row). A row ticks itself as
+  // soon as anything in its form is filled; "Set for selected" fills the
+  // common answer (status / mechanic) into every ticked row at once.
+  const bulkStatusHtml = stepDef.statusOptions
+    ? `<select onchange="sfmsBulkSetStatus(this.value);this.value=''" style="padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px">
+        <option value="">Set answer for selected…</option>
+        ${stepDef.statusOptions.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
+      </select>` : '';
+  const bulkMechHtml = isAssignTab
+    ? `<select onchange="sfmsBulkSetMechanic(this.value);this.value=''" style="padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px">
+        <option value="">Mechanic for selected…</option>
+        ${sfmsMechanicsList.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}
+      </select>` : '';
+  const bulkBarHtml = canAct ? `
+    <div id="sfmsBulkBar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;margin:8px 0 6px;background:var(--color-primary-light);border-radius:10px;font-size:12px">
+      <b id="sfmsBulkCount" style="color:var(--color-primary)">0 selected</b>
+      ${bulkStatusHtml}${bulkMechHtml}
+      <button id="sfmsBulkSubmitBtn" class="btn btn-green btn-sm" onclick="sfmsBulkSubmit(${n})" disabled>✔ Submit Selected</button>
+      <span style="color:var(--gray-500)">Row fill karte hi tick ho jaati hai — phir ek baar Submit.</span>
+    </div>` : '';
+
+  let lastZone = null;
+  const bodyHtml = rows.map(c => {
+    const zone = sfmsZoneOf(c);
+    let zoneRow = '';
+    if (zone !== lastZone) {
+      lastZone = zone;
+      const inZone = rows.filter(x => sfmsZoneOf(x) === zone).length;
+      zoneRow = `<tr class="sfms-zone-row"><td colspan="${colCount}" style="background:var(--surface-alt);padding:6px 8px;font-weight:700;font-size:12px;color:var(--color-primary)">
+        ${canAct ? `<input type="checkbox" onchange="sfmsBulkToggleZone(this, '${esc(zone).replace(/'/g, "\\'")}')" title="Select this whole zone" style="margin-right:6px;vertical-align:middle"/>` : ''}📍 ${esc(zone || 'No Zone')} <span style="font-weight:500;color:var(--gray-500)">· ${inZone} complaint${inZone === 1 ? '' : 's'}</span>
+      </td></tr>`;
+    }
+    const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
+    const isLate = daysPending >= 2;
+    const purchaseDateOnly = fmtDateDMY(c.purchaseDate) || '—';
+    const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
+      (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:4px">📷</a>` : '');
+    const locationLine = [c.productLocation, c.address, c.area].filter(Boolean).join(' · ');
+    return zoneRow + `<tr data-row="${c.row}" data-zone="${esc(zone)}">
+      <td style="padding:8px 6px;width:24px">${canAct ? `<input type="checkbox" class="sfmsBulkChk" data-row="${c.row}" onchange="sfmsBulkUpdateCount()"/>` : ''}</td>
+      <td style="font-weight:600;cursor:pointer;white-space:nowrap;padding:8px 8px" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}</td>
+      <td style="max-width:120px;padding:8px 8px">${esc(c.filledByName)}<br/><a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a></td>
+      <td style="max-width:130px;padding:8px 8px">${esc(c.productName)}${c.dealerName ? `<br/><span style="color:var(--gray-500)">🏪 ${esc(c.dealerName)}</span>` : ''}${purchaseDateOnly !== '—' ? `<br/><span style="color:var(--gray-500)">🗓 ${purchaseDateOnly}</span>` : ''}${photosHtml ? `<br/>${photosHtml}` : ''}</td>
+      <td style="max-width:170px;padding:8px 8px">${esc(c.problemDescription || '—')}${locationLine ? `<br/><span style="color:var(--gray-500)">📍 ${esc(locationLine)}</span>` : ''}</td>
+      <td style="white-space:nowrap;padding:8px 8px;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
+      ${isWarrantyTab ? `<td style="padding:8px 8px">${sfmsWarrantyStatusHtml(c)}</td>` : ''}
+      ${isSpareCheckTab ? `<td style="white-space:nowrap;padding:8px 8px;font-weight:600;color:${c.productOwnership === 'Dealer Stock Piece' ? 'var(--color-primary)' : 'var(--color-purple)'}">${esc(c.productOwnership || '—')}</td>` : ''}
+      <td id="sfmsStepAction_${c.row}" style="padding:8px 8px">${buildSfmsNextActionHtml(c, true)}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = zoneFilterHtml + bulkBarHtml + `<div class="mis-table-wrap" style="overflow-x:auto">
   <table style="font-size:11.5px">
     <thead><tr>
+      <th style="width:24px;padding:8px 6px">${canAct ? `<input type="checkbox" title="Select all" onchange="sfmsBulkToggleAll(this.checked)"/>` : ''}</th>
       <th>Complain No</th><th>Customer</th><th>Product</th><th>Problem / Location</th><th>Pending</th>
       ${isWarrantyTab ? '<th>Warranty</th>' : ''}
       ${isSpareCheckTab ? '<th>Ownership</th>' : ''}
-      <th>${n}. ${stepDef.label}${stepDef.doer ? `<div style="font-size:9.5px;font-weight:600;color:var(--gray-400);text-transform:none;letter-spacing:0">👤 ${esc(stepDef.doer)}</div>` : ''}</th>
+      <th>${n}. ${esc(stepDef.label)}${stepDef.doer ? `<div style="font-size:9.5px;font-weight:600;color:var(--gray-400);text-transform:none;letter-spacing:0">👤 ${esc(stepDoerLabel(stepDef))}</div>` : ''}</th>
     </tr></thead>
-    <tbody>
-      ${rows.map(c => {
-        const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
-        const isLate = daysPending >= 2;
-        const purchaseDateOnly = fmtDateDMY(c.purchaseDate) || '—';
-        const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
-          (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:4px">📷</a>` : '');
-        const locationLine = [c.productLocation, c.address, c.area].filter(Boolean).join(' · ');
-        return `<tr>
-          <td style="font-weight:600;cursor:pointer;white-space:nowrap;padding:8px 8px" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}</td>
-          <td style="max-width:120px;padding:8px 8px">${esc(c.filledByName)}<br/><a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a></td>
-          <td style="max-width:130px;padding:8px 8px">${esc(c.productName)}${c.dealerName ? `<br/><span style="color:var(--gray-500)">🏪 ${esc(c.dealerName)}</span>` : ''}${purchaseDateOnly !== '—' ? `<br/><span style="color:var(--gray-500)">🗓 ${purchaseDateOnly}</span>` : ''}${photosHtml ? `<br/>${photosHtml}` : ''}</td>
-          <td style="max-width:170px;padding:8px 8px">${esc(c.problemDescription || '—')}${locationLine ? `<br/><span style="color:var(--gray-500)">📍 ${esc(locationLine)}</span>` : ''}</td>
-          <td style="white-space:nowrap;padding:8px 8px;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
-          ${isWarrantyTab ? `<td style="padding:8px 8px">${sfmsWarrantyStatusHtml(c)}</td>` : ''}
-          ${isSpareCheckTab ? `<td style="white-space:nowrap;padding:8px 8px;font-weight:600;color:${c.productOwnership === 'Dealer Stock Piece' ? 'var(--color-primary)' : 'var(--color-purple)'}">${c.productOwnership || '—'}</td>` : ''}
-          <td id="sfmsStepAction_${c.row}" style="padding:8px 8px">${buildSfmsNextActionHtml(c, true)}</td>
-        </tr>`;
-      }).join('')}
-    </tbody>
+    <tbody oninput="sfmsBulkAutoTick(event)" onchange="sfmsBulkAutoTick(event)">${bodyHtml}</tbody>
   </table>
   </div>`;
 
   // Each row's hidden Zone field already carries its own Area-derived zone
-  // (set at render time above) — just cascade-filter that row's Mechanic
-  // list to match, so staff only need to pick a Mechanic per row.
-  if (isAssignTab) {
-    rows.forEach(c => onSfmsZoneChange(c.row));
-  }
+  // (set at render time) — just cascade-filter that row's Mechanic list.
+  if (isAssignTab) rows.forEach(c => { if (document.getElementById(`sfmsExtra_${c.row}_zone`)) onSfmsZoneChange(c.row); });
+  if (isSpareCheckTab) rows.forEach(sfmsPrefillSpareHold);
+  if (n === SN.inout) rows.forEach(c => sfmsCheckSpareInShortage(c.row));
   // Pre-fill each row's Warranty Yes/No with the auto-computed status — still
-  // just a suggestion, staff review and hit Submit same as always.
-  if (n === 2) rows.forEach(sfmsPrefillSpareHold);
+  // just a suggestion (and doesn't tick the row), staff review and submit.
   if (isWarrantyTab) {
     rows.forEach(c => {
       const w = sfmsComputeWarrantyStatus(c);
@@ -7418,6 +7537,82 @@ function renderSfmsStepView(n) {
   }
 }
 
+// ── Master submit helpers ──
+function sfmsBulkChecked() { return [...document.querySelectorAll('.sfmsBulkChk:checked')].map(b => Number(b.dataset.row)); }
+function sfmsBulkUpdateCount() {
+  const k = sfmsBulkChecked().length;
+  const countEl = document.getElementById('sfmsBulkCount');
+  const btn = document.getElementById('sfmsBulkSubmitBtn');
+  if (countEl) countEl.textContent = `${k} selected`;
+  if (btn) { btn.disabled = k === 0; btn.textContent = k ? `✔ Submit Selected (${k})` : '✔ Submit Selected'; }
+}
+function sfmsBulkAutoTick(e) {
+  const t = e.target;
+  if (!t || t.classList.contains('sfmsBulkChk') || !t.closest('td[id^="sfmsStepAction_"]')) return;
+  const tr = t.closest('tr[data-row]');
+  const box = tr && tr.querySelector('.sfmsBulkChk');
+  if (box && !box.checked) { box.checked = true; sfmsBulkUpdateCount(); }
+}
+function sfmsBulkToggleAll(checked) {
+  document.querySelectorAll('.sfmsBulkChk').forEach(b => { b.checked = checked; });
+  sfmsBulkUpdateCount();
+}
+function sfmsBulkToggleZone(el, zone) {
+  document.querySelectorAll(`#sfmsListWrap tr[data-row]`).forEach(tr => {
+    if (tr.dataset.zone !== zone) return;
+    const box = tr.querySelector('.sfmsBulkChk');
+    if (box) box.checked = el.checked;
+  });
+  sfmsBulkUpdateCount();
+}
+function sfmsBulkSetStatus(value) {
+  if (!value) return;
+  const rows = sfmsBulkChecked();
+  if (!rows.length) { showToast('Pehle rows tick karo', 'error'); return; }
+  rows.forEach(r => { const sel = document.getElementById(`sfmsStatusSelect_${r}`); if (sel) sel.value = value; });
+}
+function sfmsBulkSetMechanic(value) {
+  if (!value) return;
+  const rows = sfmsBulkChecked();
+  if (!rows.length) { showToast('Pehle rows tick karo', 'error'); return; }
+  rows.forEach(r => {
+    const sel = document.getElementById(`sfmsExtra_${r}_mechanic`);
+    if (!sel) return;
+    // The row's list may be zone-filtered — add the pick if it isn't there.
+    if (![...sel.options].some(o => o.value === value)) sel.insertAdjacentHTML('afterbegin', `<option value="${esc(value)}">${esc(value)}</option>`);
+    sel.value = value;
+  });
+}
+async function sfmsBulkSubmit(n) {
+  const rows = sfmsBulkChecked();
+  if (!rows.length) return;
+  const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
+  // Validate every ticked row first, so nothing is half-submitted because
+  // row 5 of 7 was incomplete.
+  const prepared = [], problems = [];
+  rows.forEach(r => {
+    const c = sfmsData.find(x => x.row === r);
+    const { body, error } = sfmsCollectStepBody(r, n);
+    if (error) problems.push(`${c ? c.complainNo : r}: ${error}`);
+    else prepared.push({ r, c, body });
+  });
+  if (problems.length) { showToast(problems.slice(0, 3).join(' · ') + (problems.length > 3 ? ` (+${problems.length - 3} more)` : ''), 'error'); return; }
+  if (!confirm(`${prepared.length} complaint${prepared.length === 1 ? '' : 's'} ek saath submit karein — "${stepDef.label}"?`)) return;
+  const btn = document.getElementById('sfmsBulkSubmitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+  let ok = 0;
+  const failed = [], notes = [];
+  for (const { r, c, body } of prepared) {
+    const res = await api(`/api/service-fms/${r}/step/${n}`, 'PUT', body);
+    if (res.error) failed.push(`${c ? c.complainNo : r}: ${res.error}`);
+    else { ok++; delete sfmsOtpSentFor[r]; if (res.outcome && res.outcome !== 'completed') notes.push(c ? c.complainNo : r); }
+  }
+  await refreshSfmsDataQuietly();
+  renderServiceFmsList();
+  if (failed.length) showToast(`✅ ${ok} submitted · ❌ ${failed.length} failed — ${failed.slice(0, 2).join(' · ')}`, 'error');
+  else showToast(`✅ ${ok} complaint${ok === 1 ? '' : 's'} submitted${notes.length ? ` (${notes.length} still pending for short pieces/approval)` : ''}`);
+}
+
 // Patches just one row's action area in the per-step card (instead of a full
 // renderSfmsStepView(), which would wipe whatever any OTHER row on screen has
 // half-typed into its own inline form) — used after an action that only
@@ -7425,7 +7620,9 @@ function renderSfmsStepView(n) {
 function refreshSfmsStepActionCell(row) {
   const cell = document.getElementById(`sfmsStepAction_${row}`);
   const c = sfmsData.find(x => x.row === row);
-  if (cell && c) cell.innerHTML = buildSfmsNextActionHtml(c, true);
+  if (!cell || !c) return;
+  cell.innerHTML = buildSfmsNextActionHtml(c, true);
+  if (c.currentStep + 1 === SN.inout) sfmsCheckSpareInShortage(row);
 }
 
 function renderServiceFmsList() {
@@ -7445,28 +7642,34 @@ function renderServiceFmsList() {
   // Point 7 — CSV export of a hand-picked subset. Selection is kept in
   // sfmsSelectedRows across re-renders (search typing, tab switches) so
   // ticking a few complaints then refining the search doesn't lose them.
-  wrap.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:2px 4px 6px;font-size:12px;color:var(--gray-500)">
-    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-      <input type="checkbox" id="sfmsSelectAllBox" onchange="toggleSelectAllComplaints(this.checked)"/> Select all shown (${rows.length})
-    </label>
-  </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;padding:4px">
-  ${rows.map(c => {
-    const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
-    const onHold = sfmsIsOnSpareHold(c);
-    return `
-    <div onclick="openComplaintDetail(${c.row})" style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:12px;padding:12px;cursor:pointer;position:relative">
-      <input type="checkbox" class="sfmsRowCheckbox" data-row="${c.row}" onclick="event.stopPropagation()" onchange="toggleComplaintSelected(${c.row}, this.checked)" ${sfmsSelectedRows.has(c.row) ? 'checked' : ''} style="position:absolute;top:11px;right:11px;width:16px;height:16px;cursor:pointer"/>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding-right:22px">
-        <span style="font-size:16px;font-weight:800;color:var(--gray-800)">${esc(c.complainNo)}</span>
-        <span class="status-badge" style="background:${c.closed ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${c.closed ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${c.closed ? '✅ Closed' : 'Step ' + c.currentStep + '/' + SFMS_STEP_DEFS.length}</span>
-      </div>
-      <div style="font-size:14px;font-weight:700;color:var(--gray-700);margin-bottom:3px">👤 ${esc(c.filledByName)}</div>
-      <div style="font-size:13px;color:var(--gray-500);margin-bottom:7px">📦 ${esc(c.productName)}</div>
-      ${onHold ? `<div style="background:var(--color-danger-bg);border-radius:8px;padding:7px 9px;font-size:12.5px;font-weight:700;color:var(--color-danger-text)">⏸ On Hold — spare to be purchased</div>`
-        : nextStep ? `<div style="background:var(--color-purple-bg);border-radius:8px;padding:7px 9px;font-size:12.5px;font-weight:700;color:var(--color-primary)">👉 ${esc(nextStep.label)}</div>` : ''}
-    </div>`;
-  }).join('')}
+  wrap.innerHTML = `<div class="mis-table-wrap" style="overflow-x:auto">
+  <table style="font-size:11.5px">
+    <thead><tr>
+      <th style="width:24px;padding:8px 6px"><input type="checkbox" id="sfmsSelectAllBox" title="Select all shown" onchange="toggleSelectAllComplaints(this.checked)"/></th>
+      <th>Complain No</th><th>Date</th><th>Customer</th><th>Product</th><th>Area / Zone</th><th>Status</th><th>Pending At</th>
+    </tr></thead>
+    <tbody>
+    ${rows.map(c => {
+      const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
+      const onHold = sfmsIsOnSpareHold(c);
+      const inoutState = c.currentStep + 1 === SN.inout ? sfmsStep(c, 'inout').cashStatus : '';
+      const pendingAt = c.closed ? '—'
+        : onHold ? '<span style="color:var(--color-danger-text);font-weight:700">⏸ On Hold — spare to be purchased</span>'
+        : inoutState === 'Pending Approval' ? '<span style="color:var(--color-warning-text);font-weight:700">⏳ Cash approval pending</span>'
+        : nextStep ? `<span style="color:var(--color-primary);font-weight:600">👉 ${nextStep.n}. ${esc(nextStep.label)}</span><div style="font-size:10.5px;color:var(--gray-400)">👤 ${esc(stepDoerLabel(nextStep))}</div>` : '—';
+      return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
+        <td style="padding:8px 6px"><input type="checkbox" class="sfmsRowCheckbox" data-row="${c.row}" onclick="event.stopPropagation()" onchange="toggleComplaintSelected(${c.row}, this.checked)" ${sfmsSelectedRows.has(c.row) ? 'checked' : ''}/></td>
+        <td style="font-weight:700;white-space:nowrap;padding:8px">${esc(c.complainNo)}</td>
+        <td style="white-space:nowrap;padding:8px">${fmtDateDMY(c.timestamp)}</td>
+        <td style="max-width:130px;padding:8px">${esc(c.filledByName)}<br/><span style="color:var(--gray-500)">${esc(c.mobile)}</span></td>
+        <td style="max-width:150px;padding:8px">${esc(c.productName)}</td>
+        <td style="max-width:120px;padding:8px">${esc(c.area || '—')}${sfmsZoneOf(c) ? `<br/><span style="color:var(--gray-500)">${esc(sfmsZoneOf(c))}</span>` : ''}</td>
+        <td style="white-space:nowrap;padding:8px"><span class="status-badge" style="background:${c.closed ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${c.closed ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${c.closed ? '✅ Closed' : 'Step ' + c.currentStep + '/' + SFMS_STEP_DEFS.length}</span></td>
+        <td style="max-width:200px;padding:8px">${pendingAt}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>
   </div>`;
   updateSfmsExportSelectedBtn();
 }
@@ -7524,10 +7727,8 @@ function renderMechanicWiseView() {
   const wrap = document.getElementById('sfmsReportContent');
   const groups = {};
   sfmsData.filter(c => !c.closed).forEach(c => {
-    const assignStep = c.steps.find(s => s.n === 3);
-    const step7 = c.steps.find(s => s.n === 7);
-    const mech = (assignStep && assignStep.mechanic) ? assignStep.mechanic.trim() : '';
-    if (!mech || (step7 && step7.status === 'Yes')) return;
+    const mech = (sfmsStep(c, 'assign').mechanic || '').trim();
+    if (!mech || sfmsStep(c, 'solved').status === 'Yes') return;
     (groups[mech] = groups[mech] || []).push(c);
   });
   _sfmsMechanicGroups = groups;
@@ -7616,10 +7817,8 @@ let sfmsBalanceMech = '';
 function sfmsMechanicBalances() {
   const byMech = {};
   sfmsData.forEach(c => {
-    if (c.currentStep < 4) return; // nothing taken out yet
-    const s3 = c.steps.find(s => s.n === 3) || {};
-    const s5 = c.steps.find(s => s.n === 5) || {};
-    const mech = (s3.mechanic || s5.usedBy || '').trim();
+    if (c.currentStep < SN.takeout) return; // nothing taken out yet
+    const mech = (sfmsStep(c, 'assign').mechanic || sfmsStep(c, 'inout').usedBy || '').trim();
     if (!mech) return;
     const items = sfmsPendingWithMechanic(c);
     if (!items.length) return;
@@ -7759,36 +7958,56 @@ function exportSfmsReportCsv(tableId) {
   URL.revokeObjectURL(url);
 }
 
-// Spare Shortage Report — Step 5 entries where returned qty fell short of taken.
-function buildReportShortage() {
-  const withShortage = sfmsData.map(c => {
-    const takeoutStep = c.steps.find(s => s.n === 4);
-    const inOutStep = c.steps.find(s => s.n === 5);
-    if (!inOutStep.status || takeoutStep.spareTaken === '' || takeoutStep.spareTaken === undefined) return null;
-    const taken = Number(takeoutStep.spareTaken) || 0;
-    const returned = Number(inOutStep.qtyReturned) || 0;
-    const shortage = taken - returned;
-    if (shortage <= 0) return null;
-    return { c, takeoutStep, inOutStep, taken, returned, shortage };
-  }).filter(Boolean).sort((a, b) => b.shortage - a.shortage);
+// Per-item In/Out rows for one complaint: what was taken (Takeout) next to
+// what came back (Check In/Out). Older single-item complaints only have
+// spareTaken / qtyReturned, so those fall back to one combined row.
+function sfmsInOutRows(c) {
+  const taken = sfmsTakeoutItems(c);
+  const inout = sfmsStep(c, 'inout');
+  const back = Object.fromEntries(sfmsParseJson(inout.spareInJson).map(x => [x.item, x]));
+  const legacyReturned = (!Object.keys(back).length && taken.length === 1 && inout.qtyReturned !== '' && inout.qtyReturned != null)
+    ? Number(inout.qtyReturned) || 0 : null;
+  return taken.filter(t => t.item).map(t => {
+    const takenQty = Number(t.qty) || 0;
+    const b = back[t.item];
+    if (b) return { item: t.item, takenQty, newQty: Number(b.newQty) || 0, oldQty: Number(b.oldQty) || 0, shortQty: Math.max(0, takenQty - (Number(b.newQty) || 0) - (Number(b.oldQty) || 0)), recorded: true };
+    if (legacyReturned !== null) return { item: t.item, takenQty, newQty: null, oldQty: null, returnedQty: legacyReturned, shortQty: Math.max(0, takenQty - legacyReturned), recorded: true };
+    return { item: t.item, takenQty, newQty: null, oldQty: null, shortQty: null, recorded: false };
+  });
+}
+function sfmsInOutStateLabel(c) {
+  const s = sfmsStep(c, 'inout');
+  if (s.status) return s.cashStatus === 'Approved' ? `✅ Done (cash ₹${esc(s.cashAmount)} approved)` : '✅ Done';
+  if (s.cashStatus === 'Pending Approval') return `⏳ Cash ₹${esc(s.cashAmount)} — approval pending`;
+  if (s.cashStatus === 'Rejected') return `❌ Cash ₹${esc(s.cashAmount)} rejected`;
+  if (s.spareInJson) return '⏸ Pieces pending';
+  return '—';
+}
 
-  if (!withShortage.length) return '<div class="empty">No spare shortages recorded. 🎉</div>';
-  return sfmsReportHeader('Complaints where fewer spares came back than were taken out.', 'sfmsRptShortageTable') + `
+// Spare Shortage Report — Check In/Out entries where fewer pieces came back than were taken.
+function buildReportShortage() {
+  const lines = [];
+  sfmsData.forEach(c => sfmsInOutRows(c).forEach(r => { if (r.recorded && r.shortQty > 0) lines.push({ c, r }); }));
+  lines.sort((a, b) => b.r.shortQty - a.r.shortQty);
+  if (!lines.length) return '<div class="empty">No spare shortages recorded. 🎉</div>';
+  return sfmsReportHeader('Spares where fewer pieces came back (new + bad) than were taken out.', 'sfmsRptShortageTable') + `
     <div class="mis-table-wrap" style="overflow-x:auto;border:1px solid var(--gray-200);border-radius:10px">
     <table id="sfmsRptShortageTable">
-      <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>Returned</th><th>Shortage</th><th>Reason</th><th>Mechanic</th></tr></thead>
+      <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>New Back</th><th>Bad Back</th><th>Short</th><th>Reason</th><th>Cash / Status</th><th>Mechanic</th></tr></thead>
       <tbody>
-        ${withShortage.map(({ c, takeoutStep, inOutStep, taken, returned, shortage }) => {
-          const assignStep = c.steps.find(s => s.n === 3);
+        ${lines.map(({ c, r }) => {
+          const inout = sfmsStep(c, 'inout');
           return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
             <td style="font-weight:600">${esc(c.complainNo)}</td>
             <td>${esc(c.filledByName)}</td>
-            <td>${esc(takeoutStep.itemName || '—')}</td>
-            <td>${taken}</td>
-            <td>${returned}</td>
-            <td style="color:var(--color-danger);font-weight:700">${shortage}</td>
-            <td>${esc(inOutStep.reasonIfShort || '—')}</td>
-            <td>${esc((assignStep && assignStep.mechanic) || '—')}</td>
+            <td>${esc(r.item)}</td>
+            <td>${r.takenQty}</td>
+            <td>${r.newQty ?? '—'}</td>
+            <td>${r.oldQty ?? (r.returnedQty != null ? `${r.returnedQty} (total)` : '—')}</td>
+            <td style="color:var(--color-danger);font-weight:700">${r.shortQty}</td>
+            <td>${esc(inout.reasonIfShort || '—')}</td>
+            <td style="font-size:12px">${sfmsInOutStateLabel(c)}</td>
+            <td>${esc(sfmsStep(c, 'assign').mechanic || inout.usedBy || '—')}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -7796,98 +8015,38 @@ function buildReportShortage() {
     </div>`;
 }
 
-// 3. Spare In/Out Table — bulk-editable Qty Taken / Qty Returned, saves straight
-// into the complaint's Step 4 / Step 5 records. Qty Returned is always
-// editable once Takeout (step 4) is done — In/Out (step 5) comes right
-// after it now, no later step needs to happen first.
-// Once Taken/Returned has a saved value, the cell locks to plain text with a
-// pencil icon — click it to re-open that cell for editing. Prevents an
-// already-recorded qty from being bumped by an accidental re-type + Save.
-let sfmsSpareEditTaken = new Set();
-let sfmsSpareEditReturned = new Set();
-
+// Spare In/Out Table — read-only: taken (Takeout) vs back (Check In/Out),
+// per spare. Counts are entered only through those two steps' forms, so
+// the shortage / cash-approval rules can't be bypassed from here.
 function buildReportSpareTable() {
-  const relevant = sfmsData.filter(c => c.currentStep >= 4);
+  const relevant = sfmsData.filter(c => c.currentStep >= SN.takeout);
   if (!relevant.length) return '<div class="empty">No complaints have reached Takeout Spare yet.</div>';
-  return sfmsReportHeader('Edit Qty Taken / Qty Returned directly here — saving updates the complaint’s Step 4 / Step 5 records.', 'sfmsRptSpareTable') + `
+  return sfmsReportHeader('Har spare: kitne liye, kitne New / Bad wapas aaye, kitne kam. (Entry Takeout / Check In/Out step se hoti hai.)', 'sfmsRptSpareTable') + `
     <div class="mis-table-wrap" style="overflow-x:auto;border:1px solid var(--gray-200);border-radius:10px">
     <table id="sfmsRptSpareTable">
-      <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Qty Taken</th><th>Qty Returned</th><th>Reason (if Short)</th><th>Action</th></tr></thead>
+      <thead><tr><th>Complain No</th><th>Customer</th><th>Item</th><th>Taken</th><th>New Back</th><th>Bad Back</th><th>Short</th><th>In/Out Status</th></tr></thead>
       <tbody>
-        ${relevant.map(c => {
-          const takeoutStep = c.steps.find(s => s.n === 4);
-          const inOutStep = c.steps.find(s => s.n === 5);
-          // Qty Returned used to stay disabled until OTP (old step 5) was
-          // done, so this table couldn't be used to skip that gate. Now
-          // In/Out (step 5) comes right after Takeout (step 4) — and
-          // `relevant` already requires Takeout done — so it's always
-          // editable here; nothing else needs to happen first anymore.
-          const canEditReturn = true;
-          const takenLocked = takeoutStep.spareTaken !== '' && takeoutStep.spareTaken != null && !sfmsSpareEditTaken.has(c.row);
-          const returnedLocked = inOutStep.qtyReturned !== '' && inOutStep.qtyReturned != null && !sfmsSpareEditReturned.has(c.row);
-          const takenCell = takenLocked
-            ? `<span>${esc(takeoutStep.spareTaken)}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'taken')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
-            : `<input type="number" id="sfmsRptTaken_${c.row}" value="${esc(takeoutStep.spareTaken || '')}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
-          const returnedCell = returnedLocked
-            ? `<span>${esc(inOutStep.qtyReturned)}</span> <button type="button" onclick="toggleSfmsSpareEdit(${c.row},'returned')" title="Edit" style="border:none;background:none;cursor:pointer;font-size:13px">✏️</button>`
-            : `<input type="number" id="sfmsRptReturned_${c.row}" value="${esc(inOutStep.qtyReturned || '')}" style="width:70px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
-          const reasonCell = returnedLocked
-            ? `<span>${esc(inOutStep.reasonIfShort || '—')}</span>`
-            : `<input type="text" id="sfmsRptReason_${c.row}" value="${esc(inOutStep.reasonIfShort || '')}" style="width:140px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px"/>`;
-          return `<tr>
-            <td style="font-weight:600">${esc(c.complainNo)}</td>
-            <td>${esc(c.filledByName)}</td>
-            <td>${esc(takeoutStep.itemName || '—')}</td>
-            <td>${takenCell}</td>
-            <td>${returnedCell}</td>
-            <td>${reasonCell}</td>
-            <td>${(takenLocked && returnedLocked) ? '' : `<button onclick="saveSfmsReportSpareRow(${c.row},${canEditReturn})" class="btn btn-primary btn-sm">Save</button>`}</td>
-          </tr>`;
-        }).join('')}
+        ${relevant.map(c => sfmsInOutRows(c).map((r, i) => `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
+            <td style="font-weight:600">${i === 0 ? esc(c.complainNo) : ''}</td>
+            <td>${i === 0 ? esc(c.filledByName) : ''}</td>
+            <td>${esc(r.item)}</td>
+            <td>${r.takenQty}</td>
+            <td>${r.newQty ?? (r.returnedQty != null ? `${r.returnedQty} (total)` : '—')}</td>
+            <td>${r.oldQty ?? '—'}</td>
+            <td style="${r.shortQty ? 'color:var(--color-danger);font-weight:700' : ''}">${r.shortQty ?? '—'}</td>
+            <td style="font-size:12px">${i === 0 ? sfmsInOutStateLabel(c) : ''}</td>
+          </tr>`).join('')).join('')}
       </tbody>
     </table>
     </div>`;
 }
 
-function toggleSfmsSpareEdit(row, field) {
-  const set = field === 'taken' ? sfmsSpareEditTaken : sfmsSpareEditReturned;
-  set.add(row);
-  renderActiveSfmsReport();
-}
-
-async function saveSfmsReportSpareRow(row, canEditReturn) {
-  const c = sfmsData.find(x => x.row === row);
-  const takeoutStep = c.steps.find(s => s.n === 4);
-  const takenEl = document.getElementById(`sfmsRptTaken_${row}`);
-  const taken = takenEl ? takenEl.value : '';
-  const results = [];
-  if (taken !== '') {
-    results.push(await api(`/api/service-fms/${row}/step/4`, 'PUT', { spareTaken: taken, itemName: takeoutStep.itemName || '' }));
-  }
-  if (canEditReturn) {
-    const returnedEl = document.getElementById(`sfmsRptReturned_${row}`);
-    const reasonEl = document.getElementById(`sfmsRptReason_${row}`);
-    const returned = returnedEl ? returnedEl.value : '';
-    const reason = reasonEl ? reasonEl.value : '';
-    if (returned !== '') {
-      results.push(await api(`/api/service-fms/${row}/step/5`, 'PUT', { qtyReturned: returned, reasonIfShort: reason }));
-    }
-  }
-  const err = results.find(r => r && r.error);
-  if (err) { showToast(err.error, 'error'); return; }
-  sfmsSpareEditTaken.delete(row);
-  sfmsSpareEditReturned.delete(row);
-  showToast('✅ Saved!');
-  await loadServiceFmsList();
-}
-
-// 4. PC (Purchase Coordinator) Report — every complaint still pending, so PC can track the whole open pipeline.
+// PC (Purchase Coordinator) Report — every complaint still pending, so PC can track the whole open pipeline.
 function buildReportPC() {
+  const needsPurchase = c => sfmsStep(c, 'spareCheck').status === 'Need to be Purchased';
   const pending = sfmsData.filter(c => !c.closed).sort((a, b) => {
-    const aPurchase = a.steps.find(s => s.n === 2).status === 'Need to be Purchased' ? 0 : 1;
-    const bPurchase = b.steps.find(s => s.n === 2).status === 'Need to be Purchased' ? 0 : 1;
-    if (aPurchase !== bPurchase) return aPurchase - bPurchase;
-    return a.row - b.row;
+    const ap = needsPurchase(a) ? 0 : 1, bp = needsPurchase(b) ? 0 : 1;
+    return ap !== bp ? ap - bp : a.row - b.row;
   });
   if (!pending.length) return '<div class="empty">No pending complaints right now. 🎉</div>';
   return sfmsReportHeader('Every complaint that is still pending (not yet closed), with where it is stuck.', 'sfmsRptPcTable') + `
@@ -7896,7 +8055,7 @@ function buildReportPC() {
       <thead><tr><th>Complain No</th><th>Customer</th><th>Product</th><th>Problem</th><th>Pending At</th><th>Reported</th></tr></thead>
       <tbody>
         ${pending.map(c => {
-          const needPurchase = c.steps.find(s => s.n === 2).status === 'Need to be Purchased';
+          const needPurchase = needsPurchase(c) && c.currentStep === SN.spareCheck - 1;
           const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
           const label = needPurchase ? '🛒 Need to Purchase' : (nextStep ? nextStep.label : '—');
           return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
@@ -7913,34 +8072,19 @@ function buildReportPC() {
     </div>`;
 }
 
-// 5. Item-Wise Report — totals taken/returned per spare item across all complaints.
+// Item-Wise Report — totals taken / back / short per spare item across all complaints.
 function buildReportItemWise() {
   const items = {};
   sfmsData.forEach(c => {
-    const takeoutStep = c.steps.find(s => s.n === 4);
-    const inOutStep = c.steps.find(s => s.n === 5);
-    // Multi-spare (point 1): a complaint can have taken out several
-    // different items — count every one of them, not just the first, or
-    // inventory usage for any item beyond the first would go uncounted.
-    let outItems = [];
-    try { outItems = takeoutStep.spareOutJson ? JSON.parse(takeoutStep.spareOutJson) : []; } catch (e) { console.warn('JSON parse failed:', e); }
-    if (!outItems.length && takeoutStep.itemName) outItems = [{ item: takeoutStep.itemName, qty: takeoutStep.spareTaken }];
-    if (!outItems.length) return;
-    let inItems = [];
-    try { inItems = inOutStep.spareInJson ? JSON.parse(inOutStep.spareInJson) : []; } catch (e) { console.warn('JSON parse failed:', e); }
-    const returnedByItem = {};
-    inItems.forEach(r => { returnedByItem[r.item] = (returnedByItem[r.item] || 0) + (Number(r.newQty) || 0) + (Number(r.oldQty) || 0); });
-    // Old single-item complaints have qtyReturned but never got a spareInJson.
-    if (!inItems.length && outItems.length === 1 && inOutStep.qtyReturned !== '') {
-      returnedByItem[outItems[0].item] = Number(inOutStep.qtyReturned) || 0;
-    }
-    const countedForThisComplaint = new Set();
-    outItems.forEach(oi => {
-      if (!oi.item) return;
-      if (!items[oi.item]) items[oi.item] = { taken: 0, returned: 0, complaints: 0 };
-      items[oi.item].taken += Number(oi.qty) || 0;
-      items[oi.item].returned += returnedByItem[oi.item] || 0;
-      if (!countedForThisComplaint.has(oi.item)) { items[oi.item].complaints += 1; countedForThisComplaint.add(oi.item); }
+    const seen = new Set();
+    sfmsInOutRows(c).forEach(r => {
+      const it = items[r.item] || (items[r.item] = { taken: 0, back: 0, short: 0, complaints: 0 });
+      it.taken += r.takenQty;
+      if (r.recorded) {
+        it.back += r.returnedQty != null ? r.returnedQty : (r.newQty + r.oldQty);
+        it.short += r.shortQty;
+      }
+      if (!seen.has(r.item)) { it.complaints += 1; seen.add(r.item); }
     });
   });
   const names = Object.keys(items).sort();
@@ -7948,17 +8092,16 @@ function buildReportItemWise() {
   return sfmsReportHeader('Totals across all complaints, by spare item.', 'sfmsRptItemTable') + `
     <div class="mis-table-wrap" style="overflow-x:auto;border:1px solid var(--gray-200);border-radius:10px">
     <table id="sfmsRptItemTable">
-      <thead><tr><th>Item Name</th><th>Complaints</th><th>Total Taken</th><th>Total Returned</th><th>Net Used</th></tr></thead>
+      <thead><tr><th>Item Name</th><th>Complaints</th><th>Total Taken</th><th>Total Back (New + Bad)</th><th>Short</th></tr></thead>
       <tbody>
         ${names.map(name => {
           const it = items[name];
-          const net = it.taken - it.returned;
           return `<tr>
             <td style="font-weight:600">${esc(name)}</td>
             <td>${it.complaints}</td>
             <td>${it.taken}</td>
-            <td>${it.returned}</td>
-            <td style="font-weight:700">${net}</td>
+            <td>${it.back}</td>
+            <td style="${it.short ? 'color:var(--color-danger);font-weight:700' : ''}">${it.short}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -8378,7 +8521,8 @@ async function openComplaintDetail(row) {
   document.getElementById('cdTitle').textContent = `${c.complainNo} — ${c.productName}`;
   document.getElementById('cdBody').innerHTML = '<div class="empty">Loading…</div>';
   document.getElementById('complaintDetailModal').classList.add('open');
-  await ensureSfmsMasterLists();
+  // Also reached from the Dashboard, before the Service FMS page ever loaded.
+  await Promise.all([ensureSfmsMasterLists(), ensureSfmsAccess(), _sfmsStepDoersMerged ? null : mergeSfmsStepDoersIntoDefs()]);
   renderComplaintDetailBody(c);
 }
 
@@ -8439,6 +8583,16 @@ function buildSfmsNextActionHtml(c, compact) {
   const nextStepDef = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
   const doerHtml = (!compact && nextStepDef && nextStepDef.doer)
     ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">👤 Doer: <b>${esc(stepDoerLabel(nextStepDef))}</b></div>` : '';
+  // Only the step's doer (or PC View / admin) gets the form — everyone else
+  // just sees where the complaint is and who has it.
+  if (nextStepDef && !sfmsCanAct(nextStepDef.n)) {
+    return compact
+      ? `<span style="font-size:11px;color:var(--gray-400)">👁 View only</span>`
+      : `<div style="border:1.5px solid var(--gray-200);background:var(--gray-50);border-radius:14px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:var(--gray-600)">
+          👉 Next: <b>${esc(nextStepDef.label)}</b> — doer: <b>${esc(stepDoerLabel(nextStepDef))}</b><br/>
+          <span style="font-size:12px;color:var(--gray-400)">👁 View only — aap is step ke doer nahi ho.</span>
+        </div>`;
+  }
   let actionHtml;
   if (nextStepDef && nextStepDef.twoStage) {
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
@@ -8495,28 +8649,26 @@ function buildSfmsNextActionHtml(c, compact) {
     // can only be logged after the takeout has actually happened, via the Spare
     // In/Out tab's "Return Pending" section, not upfront alongside the takeout.
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
-    const fieldsToShow = nextStepDef.n === 4 ? nextStepDef.extraFields.filter(f => f.key !== 'spareReturned') : nextStepDef.extraFields;
+    const fieldsToShow = nextStepDef.n === SN.takeout ? nextStepDef.extraFields.filter(f => f.key !== 'spareReturned') : nextStepDef.extraFields;
     const statusSelectHtml = nextStepDef.statusOptions ? renderSfmsStatusSelect(nextStepDef, c.row, compact) : '';
-    // Step 4 (Takeout) / Step 5 (In/Out): custom multi-spare row UI (points
-    // 1/2/3), not the generic one-field-per-line renderer — see
-    // sfmsBuildSpareOutRowsHtml/sfmsBuildSpareInRowsHtml.
+    // Takeout / Check In/Out / Deposit: custom multi-spare row UIs, not the
+    // generic one-field-per-line renderer.
     let extraInputsHtml, spareRowsHtml = '';
-    if (nextStepDef.n === 4) {
+    if (nextStepDef.n === SN.takeout) {
       spareRowsHtml = sfmsBuildSpareOutRowsHtml(c);
       extraInputsHtml = '';
-    } else if (nextStepDef.n === 5) {
-      const reasonField = fieldsToShow.find(f => f.key === 'reasonIfShort');
-      spareRowsHtml = sfmsBuildSpareInRowsHtml(c);
+    } else if (nextStepDef.n === SN.inout) {
+      spareRowsHtml = sfmsBuildSpareInRowsHtml(c, compact);
       // The mechanic picks his own name (no "+ Add New" here — that's the Assign step's job).
-      const usedByHtml = `<select id="sfmsExtra_${c.row}_usedBy" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE};${compact ? 'margin-bottom:6px' : ''}">
+      const savedBy = stepData.usedBy || '';
+      extraInputsHtml = `<select id="sfmsExtra_${c.row}_usedBy" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE};${compact ? 'margin-bottom:6px' : ''}">
           <option value="">-- Your Name (Mechanic) --</option>
-          ${sfmsMechanicsList.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}
+          ${sfmsMechanicsList.map(m => `<option value="${esc(m)}" ${m === savedBy ? 'selected' : ''}>${esc(m)}</option>`).join('')}
         </select>`;
-      extraInputsHtml = `<div id="sfmsReasonWrap_${c.row}" style="display:none;margin-top:6px">${renderSfmsField(reasonField, c.row, compact)}</div>${usedByHtml}`;
-    } else if (nextStepDef.n === 9) {
+    } else if (nextStepDef.n === SN.deposit) {
       spareRowsHtml = sfmsBuildDepositRowsHtml(c);
       extraInputsHtml = '';
-    } else if (nextStepDef.n === 3 && compact) {
+    } else if (nextStepDef.n === SN.assign && compact) {
       // Assign tab (compact): Zone isn't re-picked per row anymore, but it's
       // also not just whatever the top filter happens to be set to — the top
       // control only filters the list. The zone actually reported/submitted
@@ -8531,13 +8683,13 @@ function buildSfmsNextActionHtml(c, compact) {
     } else {
       extraInputsHtml = fieldsToShow.map(f => renderSfmsField(f, c.row, compact)).join('');
     }
-    // Step 7 ("Complaint Solved?") repeats until answered Yes — show when it was
+    // "Complaint Solved?" repeats until answered Yes — show when it was
     // last checked so it's obvious this isn't the first time being asked.
-    const lastCheckedHtml = (nextStepDef.n === 7 && stepData.actual && !compact)
+    const lastCheckedHtml = (nextStepDef.n === SN.solved && stepData.actual && !compact)
       ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:10px">Last checked: ${fmtDateDMY(stepData.actual)}</div>` : '';
-    // Step 2 answered "Need to be Purchased" stays here (requireValue) —
+    // Spare Check answered "Need to be Purchased" stays here (requireValue) —
     // say so plainly, and pre-pick "Available" for when the spare arrives.
-    const onHold = nextStepDef.n === 2 && sfmsIsOnSpareHold(c);
+    const onHold = nextStepDef.n === SN.spareCheck && sfmsIsOnSpareHold(c);
     const holdHtml = onHold
       ? (compact
         ? `<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text);white-space:nowrap" title="Marked Need to be Purchased ${esc(fmtDateDMY(stepData.actual))}">⏸ On Hold</span>`
@@ -8545,16 +8697,17 @@ function buildSfmsNextActionHtml(c, compact) {
       : '';
     const btnLabel = onHold ? 'Spare Arrived — Submit' : nextStepDef.statusOptions ? 'Submit' : 'Mark Done';
     const btn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">${btnLabel}</button>`;
-    if (nextStepDef.n === 4) {
-      // Point 1 — a "Customer Purchased Piece" can't leave with the spare
-      // until its bill is on file (server enforces this too, see the
-      // step-4 PUT route); show the block plainly here instead of letting
-      // the mechanic fill the whole takeout form and only find out on
-      // submit.
-      const billMissing = c.productOwnership === 'Customer Purchased Piece' && !c.billPhoto;
-      const billWarningHtml = billMissing
-        ? `<div style="background:var(--color-danger-bg);border:1px solid var(--color-danger-border);color:var(--color-danger-text);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:12px">⛔ Bill upload zaroori hai — Take Out Spare se pehle bill photo upload karo. <button type="button" onclick="openEditComplaintModal(${c.row})" class="btn btn-outline btn-sm" style="margin-top:8px">✏️ Edit Complaint — Upload Bill</button></div>`
-        : '';
+    // A Customer Purchased Piece can't get past Spare Check (or out with a
+    // spare, for older complaints) until its bill is on file — the server
+    // enforces this too; shown plainly here instead of failing on submit.
+    const billMissing = (nextStepDef.n === SN.spareCheck || nextStepDef.n === SN.takeout)
+      && c.productOwnership === 'Customer Purchased Piece' && !c.billPhoto;
+    const billWarningHtml = billMissing
+      ? `<div style="background:var(--color-danger-bg);border:1px solid var(--color-danger-border);color:var(--color-danger-text);border-radius:10px;padding:${compact ? '6px 8px' : '10px 12px'};font-size:${compact ? '11.5px' : '13px'};font-weight:600;margin-bottom:${compact ? '0' : '12px'}">⛔ Bill upload zaroori hai — bill ke bina aage nahi jayega. <button type="button" onclick="openEditComplaintModal(${c.row})" class="btn btn-outline btn-sm" style="margin-top:6px">✏️ Upload Bill</button></div>`
+      : '';
+    if (billMissing && nextStepDef.n === SN.spareCheck) {
+      actionHtml = compact ? billWarningHtml : `${nextActionWrapOpen}<div style="${titleStyle}">${nextStepDef.label}</div>${doerHtml}${billWarningHtml}${wrapClose}`;
+    } else if (nextStepDef.n === SN.takeout) {
       // Takeout: an editable, addable/removable list of item+qty rows
       // (sfmsSpareOutRows_<row> is the container sfmsAddSpareOutRow/
       // sfmsCollectSpareOutRows look up by id).
@@ -8563,16 +8716,25 @@ function buildSfmsNextActionHtml(c, compact) {
         ${doerHtml}
         ${billWarningHtml}
         ${billMissing ? '' : `<div id="sfmsSpareOutRows_${c.row}">${spareRowsHtml}</div>
-        <button type="button" onclick="sfmsAddSpareOutRow(${c.row})" class="btn btn-outline btn-sm" style="margin-bottom:8px">+ Add Spare</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <button type="button" onclick="sfmsAddSpareOutRow(${c.row})" class="btn btn-outline btn-sm">+ Add Spare</button>
+          <button type="button" onclick="sfmsAddNewSpareItem(${c.row})" class="btn btn-outline btn-sm" title="Spare master mein naya spare item add karo">+ New Spare Item</button>
+        </div>
         ${btn}`}
       </div>`;
-    } else if (nextStepDef.n === 5 || nextStepDef.n === 9) {
-      // Spare Used: a fixed set of rows (whatever was taken out in Step 4),
-      // each with its own Used / Old-part-back counts. Deposit: whatever the
-      // mechanic still holds for this complaint, pre-filled.
+    } else if (nextStepDef.n === SN.inout && stepData.cashStatus === 'Pending Approval') {
+      // Shortage settled in cash — nothing to do here until it's approved.
+      actionHtml = `<div style="background:var(--color-warning-bg);color:var(--color-warning-text);border-radius:10px;padding:${compact ? '6px 8px' : '12px 14px'};font-size:${compact ? '11.5px' : '13px'};font-weight:600;margin-bottom:${compact ? '0' : '16px'}">
+        ⏳ Cash ₹${esc(stepData.cashAmount)} for short pieces — approval pending${sfmsCashApproverName ? ` (${esc(sfmsCashApproverName)})` : ''}</div>`;
+    } else if (nextStepDef.n === SN.inout || nextStepDef.n === SN.deposit) {
+      // Check In/Out: one row per spare taken out (new back / bad back).
+      // Deposit: whatever the mechanic still holds for this complaint, pre-filled.
+      const rejectedHtml = (nextStepDef.n === SN.inout && stepData.cashStatus === 'Rejected')
+        ? `<div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:8px;padding:6px 8px;font-size:12px;font-weight:600;margin-bottom:8px">Cash ₹${esc(stepData.cashAmount)} reject hua — pieces wapas lao ya dobara bharo.</div>` : '';
       actionHtml = `<div style="${compact ? 'min-width:260px' : ''}">
         ${compact ? '' : `<div style="${titleStyle}">${nextStepDef.label}</div>`}
         ${doerHtml}
+        ${rejectedHtml}
         ${spareRowsHtml}
         ${extraInputsHtml}
         ${btn}
@@ -8616,7 +8778,7 @@ function renderComplaintDetailBody(c) {
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
           <a href="tel:${esc(c.mobile)}" class="btn btn-outline btn-sm" style="white-space:nowrap">${esc(c.mobile)}</a>
-          <button class="btn btn-outline btn-sm" onclick="openEditComplaintModal(${c.row})">✏️ Edit</button>
+          ${sfmsCanEdit() ? `<button class="btn btn-outline btn-sm" onclick="openEditComplaintModal(${c.row})">✏️ Edit</button>` : ''}
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
@@ -8701,27 +8863,17 @@ function renderComplaintDetailBody(c) {
   body.innerHTML = siblingsTableHtml + infoHtml + actionHtml + checklistHtml;
   body.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
   sfmsPrefillSpareHold(c);
+  if (c.currentStep + 1 === SN.inout) sfmsCheckSpareInShortage(c.row);
 }
 
-// Reveals "Reason (if Short)" only once the entered return qty is actually
-// below what Step 4 recorded as taken — no need to explain a full return.
-function checkSfmsSpareShortage(row, takenQty) {
-  const qtyEl = document.getElementById(`sfmsExtra_${row}_qtyReturned`);
-  const wrap = document.getElementById(`sfmsReasonWrap_${row}`);
-  if (!qtyEl || !wrap) return;
-  const val = parseFloat(qtyEl.value);
-  wrap.style.display = (!isNaN(val) && val < takenQty) ? 'block' : 'none';
-}
-
-// ── Multi-spare Takeout (points 1/2) — more than one different spare item
-// can be needed for one complaint, "+ Add Spare" adds another row; item name
-// is a real searchable text+datalist input (sfmsItemNameList), not the
-// native <select>'s letter-jump search. ──────────────────────────────────
+// ── Multi-spare Takeout — "+ Add Spare" adds another row; the item name is
+// a searchable text+datalist input (sfmsItemNameList) and must be a spare
+// from the master list — "+ New Spare Item" adds a genuinely new one. ──
 let sfmsSpareOutRowSeq = 1000; // offset so dynamically-added rows never collide with the initial indices (0,1,2..) built below
 function sfmsSpareOutRowHtml(row, id, item, qty) {
   return `<div id="sfmsSpareOutRow_${row}_${id}" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
-    <input type="text" list="sfmsItemNameList" placeholder="Item Name" id="sfmsSpareOutItem_${row}_${id}" value="${(item || '').replace(/"/g, '&quot;')}" style="flex:1;min-width:110px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
-    <input type="number" placeholder="Qty" id="sfmsSpareOutQty_${row}_${id}" value="${qty || ''}" style="width:55px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <input type="text" list="sfmsItemNameList" placeholder="Spare Name *" id="sfmsSpareOutItem_${row}_${id}" value="${esc(item || '')}" style="flex:1;min-width:110px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <input type="number" min="1" step="1" placeholder="Qty *" id="sfmsSpareOutQty_${row}_${id}" value="${esc(qty || '')}" style="width:58px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
     <button type="button" onclick="sfmsRemoveSpareOutRow(${row},${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:0;flex-shrink:0">✕</button>
   </div>`;
 }
@@ -8734,13 +8886,36 @@ function sfmsRemoveSpareOutRow(row, id) {
   const el = document.getElementById(`sfmsSpareOutRow_${row}_${id}`);
   if (el) el.remove();
 }
+async function sfmsAddNewSpareItem(row) {
+  const name = (prompt('Naye spare item ka naam (spare master mein add hoga):') || '').trim();
+  if (!name) return;
+  let finalName = sfmsItemsList.find(n => n.toLowerCase() === name.toLowerCase());
+  if (!finalName) {
+    const res = await api('/api/service-fms/items', 'POST', { name });
+    if (res.error) { showToast(res.error, 'error'); return; }
+    sfmsItemsList.push(name);
+    const listEl = document.getElementById('sfmsItemNameList');
+    if (listEl) listEl.insertAdjacentHTML('beforeend', `<option value="${esc(name)}">`);
+    finalName = name;
+    showToast(`✅ "${name}" spare master mein add ho gaya`);
+  } else {
+    showToast(`"${finalName}" pehle se spare master mein hai`);
+  }
+  // Drop it into the first empty row (or a new one) so it's ready to use.
+  const wrap = document.getElementById(`sfmsSpareOutRows_${row}`);
+  if (!wrap) return;
+  let input = [...wrap.querySelectorAll('input[list="sfmsItemNameList"]')].find(i => !i.value.trim());
+  if (!input) { sfmsAddSpareOutRow(row); input = wrap.lastElementChild.querySelector('input[list="sfmsItemNameList"]'); }
+  input.value = finalName;
+  const qty = input.parentElement.querySelector('input[type="number"]');
+  if (qty) qty.focus();
+}
 // Pre-fills from an already-started takeout (spareOutJson, or the old
 // single itemName/spareTaken for a row that started before this existed),
 // or just one empty row for a fresh one.
 function sfmsTakeoutItems(c) {
-  const stepData = c.steps.find(s => s.n === 4);
-  let items = [];
-  try { items = stepData.spareOutJson ? JSON.parse(stepData.spareOutJson) : []; } catch (e) { console.warn('JSON parse failed:', e); }
+  const stepData = sfmsStep(c, 'takeout');
+  let items = sfmsParseJson(stepData.spareOutJson);
   if (!items.length && stepData.itemName) items = [{ item: stepData.itemName, qty: stepData.spareTaken }];
   return items;
 }
@@ -8761,66 +8936,78 @@ function sfmsCollectSpareOutRows(row) {
   return result;
 }
 
-// ── Spare Used (step 5) — for every item taken out at Takeout, the
-// mechanic enters how many he USED (fitted) and how many OLD (faulty)
-// parts he's bringing back. Stored per item as usedQty plus the older
-// newQty (= taken − used, unused pieces coming back) / oldQty shape, so the
-// shortage/item-wise reports that sum newQty + oldQty keep working. ──────
-function sfmsSpareInRowHtml(row, id, item, takenQty) {
-  return `<div id="sfmsSpareInRow_${row}_${id}" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
-    <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(item || '—')} <span style="color:var(--gray-400);font-weight:400">(took ${takenQty})</span></span>
-    <input type="number" min="0" max="${takenQty}" placeholder="Used" title="How many were used / fitted" id="sfmsSpareInUsed_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
-    <input type="number" min="0" placeholder="Old" title="Old (faulty) parts removed from the product, being brought back" id="sfmsSpareInOld_${row}_${id}" oninput="sfmsCheckSpareInShortage(${row})" style="width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
-  </div>`;
-}
+// ── Check In/Out — per spare taken out: New pieces back (unused) + Bad
+// pieces back (the old/faulty part). Short = taken − new − bad. A shortage
+// keeps the complaint pending here, unless cash is entered for it — that
+// goes to the cash approver (Approvals page) and completes on approval. ──
+function sfmsParseJson(v) { try { return v ? JSON.parse(v) : []; } catch (e) { return []; } }
 function sfmsBuildSpareInRowsHtml(c) {
-  const items = sfmsTakeoutItems(c);
-  return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Per spare: <b>Used</b> (fitted) · <b>Old</b> (faulty part brought back)</div>` +
-    items.map((it, i) => sfmsSpareInRowHtml(c.row, i, it.item, Number(it.qty) || 0)).join('');
+  const s = sfmsStep(c, 'inout');
+  // Counts saved by an earlier submit (pieces were short) are pre-filled.
+  const saved = Object.fromEntries(sfmsParseJson(s.spareInJson).map(x => [x.item, x]));
+  const inp = 'width:56px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box';
+  const rowsHtml = sfmsTakeoutItems(c).map((it, i) => {
+    const taken = Number(it.qty) || 0;
+    const sv = saved[it.item] || {};
+    return `<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(it.item || '—')} <span style="color:var(--gray-400);font-weight:400">(liye ${taken})</span></span>
+      <input type="number" min="0" max="${taken}" placeholder="New" title="New (unused) pieces returned" id="sfmsInNew_${c.row}_${i}" value="${sv.newQty ?? ''}" oninput="sfmsCheckSpareInShortage(${c.row})" style="${inp}"/>
+      <input type="number" min="0" max="${taken}" placeholder="Bad" title="Bad (kharab / old) pieces returned" id="sfmsInBad_${c.row}_${i}" value="${sv.oldQty ?? ''}" oninput="sfmsCheckSpareInShortage(${c.row})" style="${inp}"/>
+      <span id="sfmsInShort_${c.row}_${i}" style="font-size:11.5px;font-weight:700"></span>
+    </div>`;
+  }).join('');
+  const cashPrefill = s.cashStatus === 'Rejected' ? '' : (s.cashAmount || '');
+  return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Per spare: <b>New</b> pieces wapas · <b>Bad</b> (kharab) pieces wapas</div>${rowsHtml}
+    <div id="sfmsInShortWrap_${c.row}" style="display:none;background:var(--color-warning-bg);border-radius:8px;padding:8px;margin-bottom:8px">
+      <div id="sfmsInShortMsg_${c.row}" style="font-size:12px;font-weight:700;color:var(--color-warning-text);margin-bottom:6px"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <input type="number" min="0" id="sfmsInCash_${c.row}" placeholder="Cash ₹" value="${esc(cashPrefill)}" title="Cash for the short pieces — goes for approval" style="width:90px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+        <input type="text" id="sfmsInReason_${c.row}" placeholder="Reason (optional)" value="${esc(s.reasonIfShort || '')}" style="flex:1;min-width:110px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+      </div>
+      <div style="font-size:10.5px;color:var(--gray-500);margin-top:4px">Cash bharoge to ${esc(sfmsCashApproverName || 'approver')} ke paas approval jayega. Khali chhodo to complaint yahin pending rahegi jab tak pieces wapas na aayein.</div>
+    </div>`;
 }
 function sfmsCollectSpareInRows(row, c) {
-  const items = sfmsTakeoutItems(c);
-  return items.map((it, i) => {
+  return sfmsTakeoutItems(c).map((it, i) => {
     const takenQty = Number(it.qty) || 0;
-    const usedRaw = Math.max(0, Number(document.getElementById(`sfmsSpareInUsed_${row}_${i}`)?.value) || 0);
-    const usedQty = Math.min(usedRaw, takenQty);
-    return {
-      item: it.item,
-      takenQty,
-      usedQty,
-      usedRaw, // only for the over-taken check in advanceSfmsStep; stripped before saving
-      newQty: takenQty - usedQty,
-      oldQty: Math.max(0, Number(document.getElementById(`sfmsSpareInOld_${row}_${i}`)?.value) || 0)
-    };
+    const newEl = document.getElementById(`sfmsInNew_${row}_${i}`);
+    const badEl = document.getElementById(`sfmsInBad_${row}_${i}`);
+    const newQty = Math.max(0, Math.floor(Number(newEl && newEl.value) || 0));
+    const oldQty = Math.max(0, Math.floor(Number(badEl && badEl.value) || 0));
+    const filled = !!((newEl && newEl.value !== '') || (badEl && badEl.value !== ''));
+    return { item: it.item, takenQty, newQty, oldQty, shortQty: takenQty - newQty - oldQty, filled };
   });
 }
-// Reveals "Reason (if Short)" once what's coming back (unused new + old
-// parts) falls short of what was taken — i.e. fewer old parts returned than
-// spares used.
 function sfmsCheckSpareInShortage(row) {
   const c = sfmsData.find(x => x.row === row);
-  const wrap = document.getElementById(`sfmsReasonWrap_${row}`);
-  if (!c || !wrap) return;
+  if (!c) return;
   const rows = sfmsCollectSpareInRows(row, c);
-  const takenTotal = rows.reduce((s, r) => s + r.takenQty, 0);
-  const returnedTotal = rows.reduce((s, r) => s + r.newQty + r.oldQty, 0);
-  wrap.style.display = returnedTotal < takenTotal ? 'block' : 'none';
+  rows.forEach((r, i) => {
+    const el = document.getElementById(`sfmsInShort_${row}_${i}`);
+    if (!el) return;
+    el.textContent = !r.filled ? '' : r.shortQty > 0 ? `${r.shortQty} kam` : r.shortQty < 0 ? 'zyada!' : '✓';
+    el.style.color = r.shortQty === 0 ? 'var(--color-success-text)' : 'var(--color-danger)';
+  });
+  const totalShort = rows.reduce((s, r) => s + Math.max(0, r.shortQty), 0);
+  const wrap = document.getElementById(`sfmsInShortWrap_${row}`);
+  if (wrap) wrap.style.display = rows.some(r => r.filled) && totalShort > 0 ? 'block' : 'none';
+  const msg = document.getElementById(`sfmsInShortMsg_${row}`);
+  if (msg) msg.textContent = `⚠ ${totalShort} piece${totalShort === 1 ? '' : 's'} kam hai`;
 }
 
 // ── What a mechanic is holding for one complaint (before any deposit):
-// after Spare Used, the unused new pieces + old parts recorded there;
-// before it, everything taken out (all still new, nothing used yet). ──
-function sfmsParseJson(v) { try { return v ? JSON.parse(v) : []; } catch (e) { return []; } }
+// after Check In/Out, the new + bad pieces recorded there; before it,
+// everything taken out (all still new, nothing used yet). ──
 function sfmsHeldItems(c) {
-  const s5 = c.steps.find(s => s.n === 5) || {};
-  const used = sfmsParseJson(s5.spareInJson);
-  if (s5.status && used.length) return used.map(u => ({ item: u.item, newQty: Number(u.newQty) || 0, oldQty: Number(u.oldQty) || 0 }));
+  const s = sfmsStep(c, 'inout');
+  const back = sfmsParseJson(s.spareInJson);
+  if (s.status && back.length) return back.map(u => ({ item: u.item, newQty: Number(u.newQty) || 0, oldQty: Number(u.oldQty) || 0 }));
   return sfmsTakeoutItems(c).map(it => ({ item: it.item, newQty: Number(it.qty) || 0, oldQty: 0 }));
 }
-// Still with the mechanic = held − whatever step 9 recorded as deposited.
+// Still with the mechanic = held − whatever Deposit recorded as deposited.
 function sfmsPendingWithMechanic(c) {
   const held = sfmsHeldItems(c);
-  const s9 = c.steps.find(s => s.n === 9) || {};
+  const s9 = sfmsStep(c, 'deposit');
   if (s9.status) {
     const dep = sfmsParseJson(s9.depositJson);
     held.forEach(h => {
@@ -8831,9 +9018,9 @@ function sfmsPendingWithMechanic(c) {
   return held.filter(h => h.newQty > 0 || h.oldQty > 0);
 }
 
-// ── Spare Deposited in Office (step 9) — one row per item the mechanic
-// holds, pre-filled with the expected New/Old counts; the office corrects
-// them if fewer actually came back. ──────────────────────────────────────
+// ── Spare Deposited in Office — one row per item the mechanic holds,
+// pre-filled with the expected New/Old counts; the office corrects them
+// if fewer actually came back. ──
 function sfmsBuildDepositRowsHtml(c) {
   const held = sfmsHeldItems(c).filter(h => h.newQty > 0 || h.oldQty > 0);
   if (!held.length) return `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Nothing to deposit for this complaint.</div>`;
@@ -8853,44 +9040,57 @@ function sfmsCollectDepositRows(row, c) {
   }));
 }
 
-async function advanceSfmsStep(row, step, stage) {
+// Reads one row's step form into the PUT body — { body } or { error }.
+// Shared by the single Submit button and the master (bulk) submit.
+function sfmsCollectStepBody(row, step, stage) {
   const stepDef = SFMS_STEP_DEFS.find(d => d.n === step);
+  const c = sfmsData.find(x => x.row === row);
   const body = {};
   if (stage) body.stage = stage;
 
   if (stepDef.statusOptions) {
     const statusEl = document.getElementById(`sfmsStatusSelect_${row}`);
     body.status = statusEl ? statusEl.value : '';
-    if (!body.status) { showToast(`Select ${stepDef.label}`, 'error'); return; }
+    if (!body.status) return { error: `Select ${stepDef.label}` };
   }
 
-  // Step 4 (Takeout)/Step 5 (In/Out): multi-spare rows aren't simple
-  // sfmsExtra_<row>_<key> fields — collected separately (points 1/2/3),
-  // skipped in the generic field loop below.
+  // Takeout / Check In/Out / Deposit rows aren't simple sfmsExtra_<row>_<key>
+  // fields — collected here, skipped in the generic field loop below.
   const skipGenericKeys = new Set();
-  if (step === 4) {
+  if (step === SN.takeout) {
     const items = sfmsCollectSpareOutRows(row);
-    if (!items.length) { showToast('Add at least one spare item', 'error'); return; }
+    if (!items.length) return { error: 'Kam se kam ek spare (naam + qty) bharo' };
+    const known = new Map(sfmsItemsList.map(n => [n.toLowerCase(), n]));
+    for (const it of items) {
+      if (!it.item) return { error: 'Har row mein spare ka naam bharo' };
+      const qty = Number(it.qty);
+      if (!it.qty || !Number.isInteger(qty) || qty < 1) return { error: `${it.item}: qty bharo (1 ya zyada)` };
+      const canonical = known.get(it.item.toLowerCase());
+      if (!canonical) return { error: `"${it.item}" spare master mein nahi hai — list se chuno ya "+ New Spare Item" se add karo` };
+      it.item = canonical;
+      it.qty = String(qty);
+    }
     body.itemName = items[0].item;
     body.spareTaken = items[0].qty;
     body.spareOutJson = JSON.stringify(items);
     ['itemName', 'spareTaken', 'spareOutJson'].forEach(k => skipGenericKeys.add(k));
   }
-  let spareInReturnedTotal = 0, spareInTakenTotal = 0;
-  if (step === 5) {
-    const c = sfmsData.find(x => x.row === row);
+  if (step === SN.inout) {
     const items = sfmsCollectSpareInRows(row, c);
-    const over = items.find(r => r.usedRaw > r.takenQty);
-    if (over) { showToast(`${over.item}: used (${over.usedRaw}) can't be more than taken (${over.takenQty})`, 'error'); return; }
-    items.forEach(r => delete r.usedRaw);
-    spareInTakenTotal = items.reduce((s, r) => s + r.takenQty, 0);
-    spareInReturnedTotal = items.reduce((s, r) => s + r.newQty + r.oldQty, 0);
-    body.qtyReturned = spareInReturnedTotal;
-    body.spareInJson = JSON.stringify(items);
-    ['qtyReturned', 'spareInJson'].forEach(k => skipGenericKeys.add(k));
+    if (!items.length) return { error: 'Is complaint par koi spare takeout nahi hua' };
+    const blank = items.find(r => !r.filled);
+    if (blank) return { error: `${blank.item}: New / Bad pieces bharo (0 bhi chalega)` };
+    const over = items.find(r => r.shortQty < 0);
+    if (over) return { error: `${over.item}: new + bad (${over.newQty + over.oldQty}) liye gaye (${over.takenQty}) se zyada nahi ho sakte` };
+    const totalShort = items.reduce((s, r) => s + r.shortQty, 0);
+    const cashEl = document.getElementById(`sfmsInCash_${row}`);
+    const reasonEl = document.getElementById(`sfmsInReason_${row}`);
+    body.spareInJson = JSON.stringify(items.map(({ filled, ...r }) => r));
+    body.cashAmount = totalShort > 0 && cashEl ? cashEl.value.trim() : '';
+    body.reasonIfShort = totalShort > 0 && reasonEl ? reasonEl.value.trim() : '';
+    ['qtyReturned', 'spareInJson', 'cashAmount', 'cashStatus', 'reasonIfShort'].forEach(k => skipGenericKeys.add(k));
   }
-  if (step === 9) {
-    const c = sfmsData.find(x => x.row === row);
+  if (step === SN.deposit) {
     body.depositJson = JSON.stringify(sfmsCollectDepositRows(row, c));
     ['depositJson', 'receivedBy'].forEach(k => skipGenericKeys.add(k));
   }
@@ -8899,30 +9099,29 @@ async function advanceSfmsStep(row, step, stage) {
   for (const f of fieldsForStage) {
     if (skipGenericKeys.has(f.key)) continue;
     const value = readSfmsField(f, row);
-    if (f.masterList && value === '__add_new__') {
-      showToast(`Finish adding the new ${f.label.toLowerCase()} first`, 'error');
-      return;
-    }
+    if (f.masterList && value === '__add_new__') return { error: `Finish adding the new ${f.label.toLowerCase()} first` };
     body[f.key] = value;
   }
 
-  if (step === 5 && !body.usedBy) { showToast('Select your name (mechanic) first', 'error'); return; }
-
-  // Step 5 (Spare Used): require a reason whenever total returned
-  // (new + old, across every item) falls short of total taken.
-  if (step === 5 && spareInReturnedTotal < spareInTakenTotal && !body.reasonIfShort) {
-    showToast('Enter a reason for the shortage', 'error');
-    return;
-  }
-
+  if (step === SN.inout && !body.usedBy) return { error: 'Select your name (mechanic) first' };
+  if (step === SN.assign && !body.mechanic) return { error: 'Mechanic select karo' };
   if (stepDef.otpRequired) {
     const otpEl = document.getElementById(`sfmsOtpInput_${row}`);
     body.otp = otpEl ? otpEl.value.trim() : '';
+    if (!body.otp) return { error: 'Pehle OTP bhejo aur customer se OTP lekar bharo' };
   }
+  return { body };
+}
+
+async function advanceSfmsStep(row, step, stage) {
+  const { body, error } = sfmsCollectStepBody(row, step, stage);
+  if (error) { showToast(error, 'error'); return; }
   const res = await api(`/api/service-fms/${row}/step/${step}`, 'PUT', body);
   if (res.error) { showToast(res.error, 'error'); return; }
   delete sfmsOtpSentFor[row];
-  showToast('✅ Step updated!');
+  if (res.outcome === 'pendingApproval') showToast(`⏳ Saved — cash approval ke liye ${res.approverName || 'approver'} ke paas gaya`);
+  else if (res.outcome === 'pendingPieces') showToast(`Saved — ${res.totalShort} piece kam hai, complaint In/Out par pending rahegi`);
+  else showToast('✅ Step updated!');
   closeModal('complaintDetailModal');
   // Refresh the data quietly (no "Loading…" blank-out) and move only this one
   // complaint — a full loadServiceFmsList() re-render would wipe out whatever
@@ -8951,8 +9150,9 @@ function patchSfmsRowAfterUpdate(row) {
     const actionCell = document.getElementById(`sfmsStepAction_${row}`);
     const tr = actionCell ? actionCell.closest('tr') : null;
     if (tr) tr.remove();
+    sfmsBulkUpdateCount();
     const tbody = document.querySelector('#sfmsListWrap table tbody');
-    if (tbody && !tbody.children.length) {
+    if (tbody && !tbody.querySelector('tr[data-row]')) {
       const stepDef = SFMS_STEP_DEFS.find(d => d.n === stepNum);
       document.getElementById('sfmsListWrap').innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`;
     }
@@ -10909,24 +11109,35 @@ async function openSfmsStepDoersModal() {
     api('/api/service-fms/step-doers')
   ]);
   if (Array.isArray(usersRes)) _sfmsAllUsersForDoers = usersRes;
-  const users = _sfmsAllUsersForDoers || [];
+  const users = (_sfmsAllUsersForDoers || []).slice().sort((a, b) => a.name.localeCompare(b.name));
   const assignments = (doersRes && doersRes.assignments) || {};
+  const assigned = Object.fromEntries(SFMS_STEP_DEFS.map(sd => [sd.n, new Set((assignments[sd.n] || []).map(u => u.id))]));
 
-  document.getElementById('sfmsStepDoersRows').innerHTML = SFMS_STEP_DEFS.map(sd => {
-    const assignedIds = new Set((assignments[sd.n] || []).map(u => u.id));
-    const checkboxes = users.map(u => `
-      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer">
-        <input type="checkbox" class="sfmsStepDoerCheck_${sd.n}" value="${u.id}" ${assignedIds.has(u.id) ? 'checked' : ''}/>
-        ${esc(u.name)}
-      </label>`).join('');
-    return `
-      <div style="border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px">
-        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${sd.n}. ${esc(sd.label)}</div>
-        <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Default label: ${esc(sd.doer || '—')}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:140px;overflow-y:auto">${checkboxes || '<span style="color:var(--gray-400);font-size:12px">No users found</span>'}</div>
-      </div>`;
-  }).join('');
+  // One row per user, one column per step — reads like the Users access table.
+  const head = `<thead><tr>
+      <th style="position:sticky;left:0;z-index:4;background:var(--surface-alt);min-width:150px">User</th>
+      ${SFMS_STEP_DEFS.map(sd => `<th style="text-align:center;min-width:76px;white-space:normal;line-height:1.25" title="${esc(sd.label)}">${sd.n}. ${esc(sd.tab)}<div style="font-size:9.5px;font-weight:500;text-transform:none;color:var(--gray-400);letter-spacing:0">${esc(sd.doer || '')}</div>
+        <input type="checkbox" title="Sab users" onchange="document.querySelectorAll('.sfmsStepDoerCheck_${sd.n}').forEach(b => { if (b.closest('tr').style.display !== 'none') b.checked = this.checked; })"/></th>`).join('')}
+    </tr></thead>`;
+  const body = users.length ? users.map(u => `<tr data-name="${esc(u.name.toLowerCase())}">
+      <td style="position:sticky;left:0;background:var(--surface);font-weight:600;font-size:12.5px">${esc(u.name)}</td>
+      ${SFMS_STEP_DEFS.map(sd => `<td style="text-align:center"><input type="checkbox" class="sfmsStepDoerCheck_${sd.n}" value="${u.id}" ${assigned[sd.n].has(u.id) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer"/></td>`).join('')}
+    </tr>`).join('')
+    : `<tr><td colspan="${SFMS_STEP_DEFS.length + 1}" class="empty">No users found</td></tr>`;
+  document.getElementById('sfmsStepDoersRows').innerHTML = `<table style="font-size:12px">${head}<tbody>${body}</tbody></table>`;
+  document.getElementById('sfmsStepDoersSearch').value = '';
+
+  const approverRes = await api('/api/service-fms/cash-approver');
+  const approverId = approverRes && approverRes.approver ? approverRes.approver.id : '';
+  document.getElementById('sfmsCashApproverSelect').innerHTML = `<option value="">-- Select --</option>` +
+    users.map(u => `<option value="${u.id}" ${u.id === approverId ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
   document.getElementById('sfmsStepDoersModal').classList.add('open');
+}
+function filterSfmsStepDoerRows(q) {
+  const needle = String(q || '').trim().toLowerCase();
+  document.querySelectorAll('#sfmsStepDoersRows tbody tr[data-name]').forEach(tr => {
+    tr.style.display = !needle || tr.dataset.name.includes(needle) ? '' : 'none';
+  });
 }
 
 async function submitSfmsStepDoers() {
@@ -10935,10 +11146,14 @@ async function submitSfmsStepDoers() {
     const checked = [...document.querySelectorAll(`.sfmsStepDoerCheck_${sd.n}:checked`)].map(el => Number(el.value));
     assignments[sd.n] = checked;
   });
-  const r = await api('/api/service-fms/step-doers', 'PUT', { assignments });
-  if (r.error) { showToast(r.error, 'error'); return; }
+  const [r, r2] = await Promise.all([
+    api('/api/service-fms/step-doers', 'PUT', { assignments }),
+    api('/api/service-fms/cash-approver', 'PUT', { userId: document.getElementById('sfmsCashApproverSelect').value })
+  ]);
+  if (r.error || r2.error) { showToast(r.error || r2.error, 'error'); return; }
   showToast('Step doers updated!');
   closeModal('sfmsStepDoersModal');
+  sfmsMasterListsLoaded = false; // picks up the new cash approver name
   await mergeSfmsStepDoersIntoDefs();
   if (document.getElementById('page-service-fms').classList.contains('active')) loadServiceFmsList();
 }

@@ -261,3 +261,26 @@ CREATE TABLE IF NOT EXISTS daily_km (
   UNIQUE KEY uniq_user_date (user_id, date),
   INDEX idx_date (date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Service FMS Check In/Out: cash collected for short (unreturned) spare
+-- pieces, waiting on the cash approver's OK (Approvals page). Created
+-- lazily by server.js ensureSfmsCashApprovalsTable() as well.
+CREATE TABLE IF NOT EXISTS sfms_cash_approvals (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  sheet_row INT NOT NULL,
+  complain_no VARCHAR(50),
+  customer VARCHAR(255),
+  mechanic VARCHAR(255),
+  amount DECIMAL(10,2),
+  short_details TEXT,
+  requested_by INT,
+  requested_to INT NULL,
+  status VARCHAR(20) DEFAULT 'pending',
+  note TEXT,
+  decided_by INT NULL,
+  decided_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_status (status),
+  INDEX idx_to (requested_to),
+  INDEX idx_row (sheet_row)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
