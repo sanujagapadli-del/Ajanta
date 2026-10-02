@@ -3646,6 +3646,21 @@ async function sendWhatsApp(mobile, text, media) {
   return data;
 }
 
+// Best-effort WhatsApp alerts are deliberately not awaited (a slow gateway
+// mustn't turn Save Order into a 504) — but on Vercel, work still running
+// after the response is sent can be frozen mid-flight, silently dropping
+// the message. waitUntil keeps the function alive until it settles. This is
+// the same lookup @vercel/functions' waitUntil() does; outside Vercel the
+// promise simply runs as normal.
+function sendWhatsAppInBackground(mobile, text, media, label) {
+  const p = sendWhatsApp(mobile, text, media)
+    .catch(e => console.error(`WhatsApp (${label}) failed:`, e.message));
+  const ctx = globalThis[Symbol.for('@vercel/request-context')];
+  const waitUntil = ctx && typeof ctx.get === 'function' && (ctx.get() || {}).waitUntil;
+  if (typeof waitUntil === 'function') waitUntil(p);
+  return p;
+}
+
 // Like sendServerError, but a failed WhatsApp send's own message is shown
 // (it's our own wording, not an internal exception) so staff know to
 // reconnect the gateway instead of seeing a generic "Something went wrong".
@@ -4036,8 +4051,8 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
     // registered. Never let a WhatsApp failure fail the complaint creation
     // itself — the complaint is already saved at this point.
     const productList = products.map(p => p.productName).join(', ');
-    sendWhatsApp(mobile, `Ajanta Appliances Service: Your complaint ${groupNo} for ${productList} has been registered. Our team will get back to you soon.`)
-      .catch(e => console.log('  ⚠️ Complaint confirmation WhatsApp failed:', e.message));
+    sendWhatsAppInBackground(mobile, `Ajanta Appliances Service: Your complaint ${groupNo} for ${productList} has been registered. Our team will get back to you soon.`,
+      undefined, `complaint confirmation ${groupNo}`);
 
     res.json({ success: true, groupNo, complainNos, firstRow });
   } catch (err) {
@@ -6299,12 +6314,12 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       const group = raw ? JSON.parse(raw) : null;
       if (group && group.id) {
         const productLines = products.map((p, i) => `📦 Product ${i + 1}: ${p.productName} × ${p.qty}`).join('\n');
-        sendWhatsApp(group.id,
+        sendWhatsAppInBackground(group.id,
           `नया ऑर्डर प्राप्त हुआ\nकृपया ऑर्डर की जाँच करें।\n\n` +
           `Order ID: ${orderNo}\nDealer / Customer Name: ${counterName}\n\n${productLines}\n\n` +
           `Order By : ${orderBy || '—'}\nOrder Form Filled By: ${req.session.name || '—'}\n\n` +
-          `कृपया ऑर्डर की जाँच करके आगे की प्रक्रिया अभी तुरंत पूरी करें।`)
-          .catch(e => console.error(`Team-group WhatsApp notify failed for ${orderNo}:`, e.message));
+          `कृपया ऑर्डर की जाँच करके आगे की प्रक्रिया अभी तुरंत पूरी करें।`,
+          undefined, `team-group new order ${orderNo}`);
         teamNotified = true;
       } else {
         teamNotifySkippedReason = 'Team WhatsApp group not set — pick it from O2D FMS → ⚙ WhatsApp Group.';
@@ -6561,9 +6576,9 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
           const text = `Ajanta Appliances द्वारा आपका bill बना दिया गया है। कुछ ही समय में आपका order dispatch कर दिया जाएगा।\n\nOrder: ${orderNo}${billNo}${amount}`;
           // Invoice goes as an actual attachment (photo/PDF), with the link
           // kept in the caption too as a fallback if the preview fails.
-          sendWhatsApp(phone, `${text}\n\nInvoice: ${req.body.photoLink}`,
-            whatsappMediaFor(req.body.photoLink, req.body.photoFileName || `Invoice-${orderNo}${/\.pdf$/i.test(req.body.photoFileName || '') ? '.pdf' : '.jpg'}`))
-            .catch(e => console.error(`Invoice WhatsApp notify failed for ${orderNo}:`, e.message));
+          sendWhatsAppInBackground(phone, `${text}\n\nInvoice: ${req.body.photoLink}`,
+            whatsappMediaFor(req.body.photoLink, req.body.photoFileName || `Invoice-${orderNo}${/\.pdf$/i.test(req.body.photoFileName || '') ? '.pdf' : '.jpg'}`),
+            `invoice ${orderNo}`);
           whatsappSent = true;
         } else {
           whatsappSkippedReason = 'Dealer phone number not set — add it from the Dealers tab to enable WhatsApp bill alerts.';
