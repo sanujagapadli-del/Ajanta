@@ -3313,11 +3313,12 @@ const SFMS_SPARE_USED_BY_COL = 'BK';
 // Point 3 — free-text Remarks/Notes captured on the intake form itself
 // (distinct from step 8's own per-visit "Remark", col BB).
 const SFMS_REMARKS_COL = 'BP';
-// 2026-10-02 (client batch): reordered again to Takeout → Solve → Solved? →
-// Check In/Out — the spare count is checked once the job is actually done.
+// 2026-10-02 (client batch): Takeout → Solve → Check In/Out, and the
+// complaint closes there — Solved?, Evening Review and Spare Deposited were
+// dropped (their sheet columns BI/BJ, AV-BB, BL-BO are simply no longer used).
 // Every step carries a stable `key`; code refers to steps via SFMS_N[key],
-// never a bare number, so a reorder only touches this array (plus the one-
-// time sfms_step_doers renumbering in sfmsMigrateStepOrderOnce).
+// never a bare number, so a reorder only touches this array (plus a one-
+// time sfms_step_doers renumbering in SFMS_STEP_DOER_MIGRATIONS).
 const SFMS_STEPS = [
   { n: 1, key: 'warranty', label: 'Check Product in Warranty', doer: 'Service Mail', planned: 'O', actual: 'P', status: 'Q', timeDelay: 'R', extra: [] },
   { n: 2, key: 'spareCheck', label: 'Spare Available?', doer: 'Niranjan', planned: 'S', actual: 'T', status: 'U', timeDelay: 'V', extra: [], requireValue: 'Available' },
@@ -3338,14 +3339,12 @@ const SFMS_STEPS = [
   { n: 5, key: 'solve', label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
     extra: [{ key: 'repairStatus', col: 'AK', label: 'Repair Status' }],
     timeDelay: 'AM', otpRequired: true },
-  // Repeats until answered "Yes" — a "No" is recorded (so there's a check-in trail) but
-  // does not advance currentStep, so this stays the next action every time it's revisited.
-  { n: 6, key: 'solved', label: 'Complaint Solved?', actual: 'BJ', status: 'BI', extra: [], requireValue: 'Yes' },
   // Check In/Out: per item taken out — new pieces returned + bad (old) pieces
   // returned. A shortage either stays pending here, or is settled in cash,
   // which needs the cash approver's OK (Approvals page) before this step
   // completes. qtyReturned stays new + old returned so older reports work.
-  { n: 7, key: 'inout', label: 'Check In/Out (Spare Return)', doer: 'Mechanic (self)', planned: 'AP', actual: 'AQ', status: 'AT',
+  // Last step — completing it closes the complaint.
+  { n: 6, key: 'inout', label: 'Check In/Out (Spare Return)', doer: 'Mechanic (self)', planned: 'AP', actual: 'AQ', status: 'AT',
     extra: [
       { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
       { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' },
@@ -3354,21 +3353,7 @@ const SFMS_STEPS = [
       { key: 'cashAmount', col: 'BQ', label: 'Cash for Short Pieces' },
       { key: 'cashStatus', col: 'BR', label: 'Cash Approval' }
     ],
-    timeDelay: 'AU' },
-  { n: 8, key: 'review', label: 'Evening Review', planned: 'AV', actual: 'AW', status: 'AX', timeDelay: 'AY',
-    extra: [
-      { key: 'distanceChargesAgree', col: 'AZ', label: 'Distance Charges Agreed by Customer' },
-      { key: 'amount', col: 'BA', label: 'Amount' },
-      { key: 'remark', col: 'BB', label: 'Remark' }
-    ] },
-  // After Review: the mechanic hands the office whatever spares he still
-  // holds for this complaint (unused new pieces + old faulty parts).
-  // depositJson = [{ item, newQty, oldQty }] actually received.
-  { n: 9, key: 'deposit', label: 'Spare Deposited in Office', doer: 'Niranjan', actual: 'BL', status: 'BM',
-    extra: [
-      { key: 'depositJson', col: 'BN', label: 'Spares Deposited (all items, new/old)' },
-      { key: 'receivedBy', col: 'BO', label: 'Received By' }
-    ] }
+    timeDelay: 'AU' }
 ];
 const SFMS_N = Object.fromEntries(SFMS_STEPS.map(s => [s.key, s.n]));
 const SFMS_NEW_COLUMN_HEADERS = {
@@ -3385,8 +3370,7 @@ const SFMS_NEW_COLUMN_HEADERS = {
 // the ones they're assigned to in Step Doers.
 const SFMS_PC_VIEW_KEY = 'sfms-pc-view';
 
-// ── Service FMS step doers — who's actually assigned to each of the 9
-// fixed steps. SFMS_STEPS' own `doer` field is just a static role label
+// ── Service FMS step doers — who's actually assigned to each fixed step. SFMS_STEPS' own `doer` field is just a static role label
 // ("Niranjan", "Ajiz Ji"...); this layers real user assignments on top,
 // same shape/pattern as o2d_step_doers.
 async function ensureSfmsStepDoersTable() {
@@ -3403,21 +3387,29 @@ async function withSfmsStepDoersTable(fn) {
   catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureSfmsStepDoersTable(); return await fn(); }
 }
 
-// The 2026-10-02 reorder moved In/Out from 5 → 7, Solve 6 → 5, Solved? 7 → 6;
-// doer assignments are stored by step number, so renumber them exactly once.
-// The INSERT IGNORE on a fixed app_settings key is the cross-instance lock —
-// only the instance that actually inserts it runs the UPDATE.
+// Doer assignments are stored by step number, so every renumbering of
+// SFMS_STEPS runs exactly once here, in order. The INSERT IGNORE on each
+// migration's app_settings key is the cross-instance lock — only the
+// instance that actually inserts it runs that migration's SQL.
+const SFMS_STEP_DOER_MIGRATIONS = [
+  // Reorder: In/Out 5 → 7, Solve 6 → 5, Solved? 7 → 6.
+  ['sfms_step_order_2026_10_02', [
+    `UPDATE sfms_step_doers SET step_n = CASE step_n WHEN 5 THEN 7 WHEN 6 THEN 5 WHEN 7 THEN 6 ELSE step_n END WHERE step_n IN (5, 6, 7)`
+  ]],
+  // Solved? (6), Review (8), Deposit (9) removed; In/Out 7 → 6.
+  ['sfms_steps_removed_2026_10_02', [
+    `DELETE FROM sfms_step_doers WHERE step_n IN (6, 8, 9)`,
+    `UPDATE sfms_step_doers SET step_n = 6 WHERE step_n = 7`
+  ]]
+];
 let _sfmsStepOrderMigrated = false;
 async function sfmsMigrateStepOrderOnce() {
   if (_sfmsStepOrderMigrated) return;
   await ensureAppSettingsTable();
-  const [ins] = await db.query(
-    `INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES ('sfms_step_order_2026_10_02', 'done')`
-  );
-  if (ins.affectedRows === 1) {
-    await withSfmsStepDoersTable(() => db.query(
-      `UPDATE sfms_step_doers SET step_n = CASE step_n WHEN 5 THEN 7 WHEN 6 THEN 5 WHEN 7 THEN 6 ELSE step_n END WHERE step_n IN (5, 6, 7)`
-    ));
+  for (const [key, statements] of SFMS_STEP_DOER_MIGRATIONS) {
+    const [ins] = await db.query(`INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, 'done')`, [key]);
+    if (ins.affectedRows !== 1) continue;
+    for (const sql of statements) await withSfmsStepDoersTable(() => db.query(sql));
     _sfmsStepDoersCache = null;
   }
   _sfmsStepOrderMigrated = true;
@@ -3885,18 +3877,12 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
         'Mechanic': st(SFMS_N.assign).mechanic,
         'Spares Taken Out': sparesText,
         'Repair Status': st(SFMS_N.solve).repairStatus,
-        'Complaint Solved': st(SFMS_N.solved).status,
         'Check In/Out': used,
         'In/Out - Filled By': inout.usedBy,
         'Reason (if Short)': inout.reasonIfShort,
         'Cash for Short Pieces': inout.cashAmount,
         'Cash Approval': inout.cashStatus,
-        'Distance Charges Agreed': st(SFMS_N.review).distanceChargesAgree,
-        'Amount': st(SFMS_N.review).amount,
-        'Review Remark': st(SFMS_N.review).remark,
-        'Spare Deposited in Office': st(SFMS_N.deposit).status,
-        'Deposited On': sfmsDmy(st(SFMS_N.deposit).actual, true),
-        'Spare Received By': st(SFMS_N.deposit).receivedBy
+        'Closed On': c.closed ? sfmsDmy(inout.actual, true) : ''
       };
     });
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -4545,7 +4531,6 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
         return res.status(400).json({ error: 'Every spare needs a spare name and a quantity of at least 1' });
       }
     }
-    if (stepNum === SFMS_N.deposit && !req.body.receivedBy) req.body.receivedBy = req.session.name || '';
     if (stepDef.extra.some(e => colToIdx(e.col) > colToIdx('BK')) || colToIdx(stepDef.status) > colToIdx('BK')) {
       await sfmsEnsureColumns(sheetsApi);
     }

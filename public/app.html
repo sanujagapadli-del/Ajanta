@@ -7091,7 +7091,8 @@ function exportRecords() {
 // `doer` = who does each stage (client list, 2026-09-25) — display labels,
 // mirrored in server.js SFMS_STEPS; New Complaint itself is "Service Mail".
 // Steps are referenced by `key` via SN (never a bare number), so a reorder
-// only touches this array — 2026-10-02: Takeout → Solve → Solved? → Check In/Out.
+// only touches this array — 2026-10-02: Takeout → Solve → Check In/Out, which
+// closes the complaint (Solved? / Review / Deposit were dropped).
 const SFMS_STEP_DEFS = [
   { n: 1, key: 'warranty', tab: 'Warranty', label: 'Check Product in Warranty', doer: 'Service Mail', statusOptions: ['Yes', 'No'], extraFields: [] },
   // requireValue: "Need to be Purchased" keeps the complaint on hold here —
@@ -7111,27 +7112,15 @@ const SFMS_STEP_DEFS = [
   { n: 5, key: 'solve', tab: 'Solve', label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
       { key: 'repairStatus', label: 'Repair Status', options: ['Repaired at Location', 'Brought to Office'] }
     ] },
-  { n: 6, key: 'solved', tab: 'Solved?', label: 'Complaint Solved?', statusOptions: ['Yes', 'No'], requireValue: 'Yes', extraFields: [] },
   // Per spare taken out: new pieces back + bad (old) pieces back; a shortage
   // stays pending, or is settled in cash (approved on the Approvals page).
-  { n: 7, key: 'inout', tab: 'Check In/Out', label: 'Check In/Out (Spare Return)', doer: 'Mechanic (self)', extraFields: [
+  { n: 6, key: 'inout', tab: 'Check In/Out', label: 'Check In/Out (Spare Return)', doer: 'Mechanic (self)', extraFields: [
       { key: 'qtyReturned', label: 'Item Qty (Returned)', type: 'number' },
       { key: 'reasonIfShort', label: 'Reason (if Short)' },
       { key: 'spareInJson', label: 'Spares Returned (all items)' },
       { key: 'usedBy', label: 'Filled By (Mechanic)' },
       { key: 'cashAmount', label: 'Cash for Short Pieces' },
       { key: 'cashStatus', label: 'Cash Approval' }
-    ] },
-  { n: 8, key: 'review', tab: 'Review', label: 'Evening Review', extraFields: [
-      { key: 'distanceChargesAgree', label: 'Distance Charges Agreed', options: ['Yes', 'No'] },
-      { key: 'amount', label: 'Amount', type: 'number' },
-      { key: 'remark', label: 'Remark' }
-    ] },
-  // The mechanic hands the office the unused new spares and old faulty
-  // parts he still holds for this complaint (sfmsBuildDepositRowsHtml).
-  { n: 9, key: 'deposit', tab: 'Deposit', label: 'Spare Deposited in Office', doer: 'Niranjan', extraFields: [
-      { key: 'depositJson', label: 'Spares Deposited (all items)' },
-      { key: 'receivedBy', label: 'Received By' }
     ] }
 ];
 const SN = Object.fromEntries(SFMS_STEP_DEFS.map(d => [d.key, d.n]));
@@ -7748,14 +7737,14 @@ function exportSelectedComplaintsCsv() {
   URL.revokeObjectURL(url);
 }
 
-// Groups open complaints by the mechanic assigned at Step 4, dropping any
-// already solved at Step 7 — this is exactly "who still needs to visit where".
+// Groups open complaints by the mechanic assigned at Assign, dropping any
+// already solved (Solve step done) — exactly "who still needs to visit where".
 function renderMechanicWiseView() {
   const wrap = document.getElementById('sfmsReportContent');
   const groups = {};
   sfmsData.filter(c => !c.closed).forEach(c => {
     const mech = (sfmsStep(c, 'assign').mechanic || '').trim();
-    if (!mech || sfmsStep(c, 'solved').status === 'Yes') return;
+    if (!mech || sfmsStep(c, 'solve').status) return;
     (groups[mech] = groups[mech] || []).push(c);
   });
   _sfmsMechanicGroups = groups;
@@ -7835,27 +7824,21 @@ async function sendMechanicListWhatsApp(mech) {
 }
 
 // ══════════════════════════════════════════════════════
-// SPARE BALANCE TO MECHANIC — the last stage: pick a mechanic, see every
-// spare he currently holds that hasn't been deposited in the office yet
-// (unused new pieces + old faulty parts), per item and per complaint.
-// Built from the same Takeout / Spare Used / Deposit data as the steps.
+// SPARE BALANCE TO MECHANIC — pick a mechanic, see every spare piece he
+// took out at Takeout that hasn't come back at Check In/Out yet, per item
+// and per complaint. Check In/Out done = nothing pending for that complaint
+// (any short pieces were settled in cash and approved).
 // ══════════════════════════════════════════════════════
 let sfmsBalanceMech = '';
 function sfmsMechanicBalances() {
   const byMech = {};
   sfmsData.forEach(c => {
-    if (c.currentStep < SN.takeout) return; // nothing taken out yet
-    const mech = (sfmsStep(c, 'assign').mechanic || sfmsStep(c, 'inout').usedBy || '').trim();
-    if (!mech) return;
     const items = sfmsPendingWithMechanic(c);
     if (!items.length) return;
-    const b = byMech[mech] || (byMech[mech] = { complaints: [], totals: {}, newTotal: 0, oldTotal: 0 });
+    const mech = (sfmsStep(c, 'assign').mechanic || sfmsStep(c, 'inout').usedBy || '').trim() || '(No mechanic)';
+    const b = byMech[mech] || (byMech[mech] = { complaints: [], totals: {}, total: 0 });
     b.complaints.push({ c, items });
-    items.forEach(it => {
-      const t = b.totals[it.item] || (b.totals[it.item] = { newQty: 0, oldQty: 0 });
-      t.newQty += it.newQty; t.oldQty += it.oldQty;
-      b.newTotal += it.newQty; b.oldTotal += it.oldQty;
-    });
+    items.forEach(it => { b.totals[it.item] = (b.totals[it.item] || 0) + it.qty; b.total += it.qty; });
   });
   return byMech;
 }
@@ -7871,50 +7854,46 @@ function renderSfmsSpareBalanceView() {
       <label style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">Mechanic</label>
       <select onchange="onSfmsBalanceMechChange(this.value)" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;min-width:200px">
         <option value="">-- All Mechanics (summary) --</option>
-        ${allMechs.map(m => `<option value="${esc(m)}" ${m === sfmsBalanceMech ? 'selected' : ''}>${esc(m)}${balances[m] ? ` (${balances[m].newTotal + balances[m].oldTotal})` : ''}</option>`).join('')}
+        ${allMechs.map(m => `<option value="${esc(m)}" ${m === sfmsBalanceMech ? 'selected' : ''}>${esc(m)}${balances[m] ? ` (${balances[m].total})` : ''}</option>`).join('')}
       </select>
-      <span style="font-size:12px;color:var(--gray-400)">Spares with the mechanic, not yet deposited in office</span>
+      <span style="font-size:12px;color:var(--gray-400)">Takeout mein liye, Check In/Out mein abhi wapas nahi aaye</span>
     </div>`;
   const tableWrap = inner => `<div class="mis-table-wrap" style="overflow-x:auto;margin:12px 16px 16px;border:1px solid var(--gray-200);border-radius:10px">${inner}</div>`;
 
   if (!sfmsBalanceMech) {
     const names = Object.keys(balances).sort((a, b) => a.localeCompare(b));
     wrap.innerHTML = picker + (names.length ? tableWrap(`<table>
-      <thead><tr><th>Mechanic</th><th>Complaints</th><th style="text-align:right">New (unused)</th><th style="text-align:right">Old (faulty)</th><th style="text-align:right">Total Pending</th></tr></thead>
+      <thead><tr><th>Mechanic</th><th>Complaints</th><th style="text-align:right">Pieces Pending</th></tr></thead>
       <tbody>${names.map(m => `<tr style="cursor:pointer" onclick="onSfmsBalanceMechChange('${esc(m).replace(/'/g, "\\'")}')">
         <td style="font-weight:600">🔧 ${esc(m)}</td>
         <td>${balances[m].complaints.length}</td>
-        <td style="text-align:right">${balances[m].newTotal}</td>
-        <td style="text-align:right">${balances[m].oldTotal}</td>
-        <td style="text-align:right;font-weight:800;color:var(--color-danger-text)">${balances[m].newTotal + balances[m].oldTotal}</td>
+        <td style="text-align:right;font-weight:800;color:var(--color-danger-text)">${balances[m].total}</td>
       </tr>`).join('')}</tbody></table>`) : `<div class="empty">No mechanic is holding any spare right now. 🎉</div>`);
     wrap.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
     return;
   }
 
   const b = balances[sfmsBalanceMech];
-  if (!b) { wrap.innerHTML = picker + `<div class="empty">${esc(sfmsBalanceMech)} has no spare pending — everything is deposited in office.</div>`; return; }
+  if (!b) { wrap.innerHTML = picker + `<div class="empty">${esc(sfmsBalanceMech)} ke paas koi spare pending nahi hai.</div>`; return; }
   const itemNames = Object.keys(b.totals).sort();
   wrap.innerHTML = picker + `
     <div style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 16px 0">
-      <div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:10px;padding:10px 14px;font-weight:700">Total pending: ${b.newTotal + b.oldTotal}</div>
-      <div style="background:var(--gray-50);border-radius:10px;padding:10px 14px;font-size:13px">New (unused): <b>${b.newTotal}</b></div>
-      <div style="background:var(--gray-50);border-radius:10px;padding:10px 14px;font-size:13px">Old (faulty): <b>${b.oldTotal}</b></div>
+      <div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:10px;padding:10px 14px;font-weight:700">Pieces pending: ${b.total}</div>
       <div style="background:var(--gray-50);border-radius:10px;padding:10px 14px;font-size:13px">Complaints: <b>${b.complaints.length}</b></div>
     </div>` +
     tableWrap(`<table>
-      <thead><tr><th>Spare Item</th><th style="text-align:right">New (unused)</th><th style="text-align:right">Old (faulty)</th><th style="text-align:right">Total</th></tr></thead>
-      <tbody>${itemNames.map(n => `<tr><td style="font-weight:600">${esc(n)}</td><td style="text-align:right">${b.totals[n].newQty}</td><td style="text-align:right">${b.totals[n].oldQty}</td><td style="text-align:right;font-weight:700">${b.totals[n].newQty + b.totals[n].oldQty}</td></tr>`).join('')}</tbody>
+      <thead><tr><th>Spare Item</th><th style="text-align:right">Pieces Pending</th></tr></thead>
+      <tbody>${itemNames.map(n => `<tr><td style="font-weight:600">${esc(n)}</td><td style="text-align:right;font-weight:700">${b.totals[n]}</td></tr>`).join('')}</tbody>
     </table>`) +
     tableWrap(`<table>
-      <thead><tr><th>Complain No</th><th>Customer</th><th>Spares Held</th><th>Stage</th></tr></thead>
+      <thead><tr><th>Complain No</th><th>Customer</th><th>Spares Pending</th><th>Stage</th></tr></thead>
       <tbody>${b.complaints.map(({ c, items }) => {
         const next = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
         return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
           <td style="font-weight:600;white-space:nowrap">${esc(c.complainNo)}</td>
           <td>${esc(c.filledByName)}</td>
-          <td style="font-size:12px">${items.map(it => `${esc(it.item)}: ${it.newQty ? `${it.newQty} new` : ''}${it.newQty && it.oldQty ? ', ' : ''}${it.oldQty ? `${it.oldQty} old` : ''}`).join('<br/>')}</td>
-          <td style="font-size:12px">${c.closed ? 'Closed (short deposit)' : esc(next ? next.label : '—')}</td>
+          <td style="font-size:12px">${items.map(it => `${esc(it.item)}: ${it.qty}`).join('<br/>')}</td>
+          <td style="font-size:12px">${c.currentStep + 1 === SN.inout ? sfmsInOutStateLabel(c) === '—' ? esc(next.label) : sfmsInOutStateLabel(c) : esc(next ? next.label : '—')}</td>
         </tr>`;
       }).join('')}</tbody>
     </table>`);
@@ -8678,7 +8657,7 @@ function buildSfmsNextActionHtml(c, compact) {
     const stepData = c.steps.find(s => s.n === nextStepDef.n);
     const fieldsToShow = nextStepDef.n === SN.takeout ? nextStepDef.extraFields.filter(f => f.key !== 'spareReturned') : nextStepDef.extraFields;
     const statusSelectHtml = nextStepDef.statusOptions ? renderSfmsStatusSelect(nextStepDef, c.row, compact) : '';
-    // Takeout / Check In/Out / Deposit: custom multi-spare row UIs, not the
+    // Takeout / Check In/Out: custom multi-spare row UIs, not the
     // generic one-field-per-line renderer.
     let extraInputsHtml, spareRowsHtml = '';
     if (nextStepDef.n === SN.takeout) {
@@ -8692,9 +8671,6 @@ function buildSfmsNextActionHtml(c, compact) {
           <option value="">-- Your Name (Mechanic) --</option>
           ${sfmsMechanicsList.map(m => `<option value="${esc(m)}" ${m === savedBy ? 'selected' : ''}>${esc(m)}</option>`).join('')}
         </select>`;
-    } else if (nextStepDef.n === SN.deposit) {
-      spareRowsHtml = sfmsBuildDepositRowsHtml(c);
-      extraInputsHtml = '';
     } else if (nextStepDef.n === SN.assign && compact) {
       // Assign tab (compact): Zone isn't re-picked per row anymore, but it's
       // also not just whatever the top filter happens to be set to — the top
@@ -8710,10 +8686,6 @@ function buildSfmsNextActionHtml(c, compact) {
     } else {
       extraInputsHtml = fieldsToShow.map(f => renderSfmsField(f, c.row, compact)).join('');
     }
-    // "Complaint Solved?" repeats until answered Yes — show when it was
-    // last checked so it's obvious this isn't the first time being asked.
-    const lastCheckedHtml = (nextStepDef.n === SN.solved && stepData.actual && !compact)
-      ? `<div style="font-size:12px;color:var(--gray-400);margin-bottom:10px">Last checked: ${fmtDateDMY(stepData.actual)}</div>` : '';
     // Spare Check answered "Need to be Purchased" stays here (requireValue) —
     // say so plainly, and pre-pick "Available" for when the spare arrives.
     const onHold = nextStepDef.n === SN.spareCheck && sfmsIsOnSpareHold(c);
@@ -8753,9 +8725,8 @@ function buildSfmsNextActionHtml(c, compact) {
       // Shortage settled in cash — nothing to do here until it's approved.
       actionHtml = `<div style="background:var(--color-warning-bg);color:var(--color-warning-text);border-radius:10px;padding:${compact ? '6px 8px' : '12px 14px'};font-size:${compact ? '11.5px' : '13px'};font-weight:600;margin-bottom:${compact ? '0' : '16px'}">
         ⏳ Cash ₹${esc(stepData.cashAmount)} for short pieces — approval pending${sfmsCashApproverName ? ` (${esc(sfmsCashApproverName)})` : ''}</div>`;
-    } else if (nextStepDef.n === SN.inout || nextStepDef.n === SN.deposit) {
+    } else if (nextStepDef.n === SN.inout) {
       // Check In/Out: one row per spare taken out (new back / bad back).
-      // Deposit: whatever the mechanic still holds for this complaint, pre-filled.
       const rejectedHtml = (nextStepDef.n === SN.inout && stepData.cashStatus === 'Rejected')
         ? `<div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:8px;padding:6px 8px;font-size:12px;font-weight:600;margin-bottom:8px">Cash ₹${esc(stepData.cashAmount)} reject hua — pieces wapas lao ya dobara bharo.</div>` : '';
       actionHtml = `<div style="${compact ? 'min-width:260px' : ''}">
@@ -8776,8 +8747,7 @@ function buildSfmsNextActionHtml(c, compact) {
         <div style="${titleStyle}">${nextStepDef.label}</div>
         ${doerHtml}
         ${holdHtml}
-        ${lastCheckedHtml}
-        <div style="${lastCheckedHtml ? '' : 'margin-bottom:14px'}"></div>
+        <div style="margin-bottom:14px"></div>
         ${statusSelectHtml}
         ${extraInputsHtml}
         ${btn}
@@ -9022,49 +8992,20 @@ function sfmsCheckSpareInShortage(row) {
   if (msg) msg.textContent = `⚠ ${totalShort} piece${totalShort === 1 ? '' : 's'} kam hai`;
 }
 
-// ── What a mechanic is holding for one complaint (before any deposit):
-// after Check In/Out, the new + bad pieces recorded there; before it,
-// everything taken out (all still new, nothing used yet). ──
-function sfmsHeldItems(c) {
-  const s = sfmsStep(c, 'inout');
-  const back = sfmsParseJson(s.spareInJson);
-  if (s.status && back.length) return back.map(u => ({ item: u.item, newQty: Number(u.newQty) || 0, oldQty: Number(u.oldQty) || 0 }));
-  return sfmsTakeoutItems(c).map(it => ({ item: it.item, newQty: Number(it.qty) || 0, oldQty: 0 }));
-}
-// Still with the mechanic = held − whatever Deposit recorded as deposited.
+// ── Pieces still with the mechanic for one complaint: everything taken out
+// until Check In/Out is done; after a partial (short) In/Out entry, just
+// the short pieces. In/Out done (incl. cash approved) = nothing pending. ──
 function sfmsPendingWithMechanic(c) {
-  const held = sfmsHeldItems(c);
-  const s9 = sfmsStep(c, 'deposit');
-  if (s9.status) {
-    const dep = sfmsParseJson(s9.depositJson);
-    held.forEach(h => {
-      const d = dep.find(x => x.item === h.item);
-      if (d) { h.newQty = Math.max(0, h.newQty - (Number(d.newQty) || 0)); h.oldQty = Math.max(0, h.oldQty - (Number(d.oldQty) || 0)); }
-    });
-  }
-  return held.filter(h => h.newQty > 0 || h.oldQty > 0);
-}
-
-// ── Spare Deposited in Office — one row per item the mechanic holds,
-// pre-filled with the expected New/Old counts; the office corrects them
-// if fewer actually came back. ──
-function sfmsBuildDepositRowsHtml(c) {
-  const held = sfmsHeldItems(c).filter(h => h.newQty > 0 || h.oldQty > 0);
-  if (!held.length) return `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Nothing to deposit for this complaint.</div>`;
-  const inp = 'width:60px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box';
-  return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Received in office: <b>New</b> (unused) · <b>Old</b> (faulty part)</div>` +
-    held.map((h, i) => `<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(h.item || '—')} <span style="color:var(--gray-400);font-weight:400">(new ${h.newQty}, old ${h.oldQty})</span></span>
-      <input type="number" min="0" max="${h.newQty}" value="${h.newQty}" title="New (unused) received" id="sfmsDepNew_${c.row}_${i}" style="${inp}"/>
-      <input type="number" min="0" max="${h.oldQty}" value="${h.oldQty}" title="Old parts received" id="sfmsDepOld_${c.row}_${i}" style="${inp}"/>
-    </div>`).join('');
-}
-function sfmsCollectDepositRows(row, c) {
-  return sfmsHeldItems(c).filter(h => h.newQty > 0 || h.oldQty > 0).map((h, i) => ({
-    item: h.item,
-    newQty: Math.min(h.newQty, Math.max(0, Number(document.getElementById(`sfmsDepNew_${row}_${i}`)?.value) || 0)),
-    oldQty: Math.min(h.oldQty, Math.max(0, Number(document.getElementById(`sfmsDepOld_${row}_${i}`)?.value) || 0))
-  }));
+  if (c.currentStep < SN.takeout) return [];
+  const s = sfmsStep(c, 'inout');
+  if (s.status) return [];
+  const back = Object.fromEntries(sfmsParseJson(s.spareInJson).map(x => [x.item, x]));
+  return sfmsTakeoutItems(c).map(it => {
+    const taken = Number(it.qty) || 0;
+    const b = back[it.item];
+    const qty = b ? Math.max(0, taken - (Number(b.newQty) || 0) - (Number(b.oldQty) || 0)) : taken;
+    return { item: it.item, qty };
+  }).filter(x => x.item && x.qty > 0);
 }
 
 // Reads one row's step form into the PUT body — { body } or { error }.
@@ -9081,7 +9022,7 @@ function sfmsCollectStepBody(row, step, stage) {
     if (!body.status) return { error: `Select ${stepDef.label}` };
   }
 
-  // Takeout / Check In/Out / Deposit rows aren't simple sfmsExtra_<row>_<key>
+  // Takeout / Check In/Out rows aren't simple sfmsExtra_<row>_<key>
   // fields — collected here, skipped in the generic field loop below.
   const skipGenericKeys = new Set();
   if (step === SN.takeout) {
@@ -9116,10 +9057,6 @@ function sfmsCollectStepBody(row, step, stage) {
     body.cashAmount = totalShort > 0 && cashEl ? cashEl.value.trim() : '';
     body.reasonIfShort = totalShort > 0 && reasonEl ? reasonEl.value.trim() : '';
     ['qtyReturned', 'spareInJson', 'cashAmount', 'cashStatus', 'reasonIfShort'].forEach(k => skipGenericKeys.add(k));
-  }
-  if (step === SN.deposit) {
-    body.depositJson = JSON.stringify(sfmsCollectDepositRows(row, c));
-    ['depositJson', 'receivedBy'].forEach(k => skipGenericKeys.add(k));
   }
 
   const fieldsForStage = stage ? stepDef.extraFields.filter(f => f.stage === stage) : stepDef.extraFields;
