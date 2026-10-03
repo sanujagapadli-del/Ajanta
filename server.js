@@ -6235,23 +6235,16 @@ async function _syncStockFromFms() {
     events.push({ ref: `purchase|${get('B')}|${get('D') || ''}|${stockNameKey(get('E'))}`.slice(0, 191), direction: 'IN', source: 'purchase', date, qty,
       name: String(get('E') || ''), party: String(get('I') || ''), refNo: String(get('B') || '') });
   });
-  if (!events.length) { _stockSyncAt = Date.now(); return { added: 0 }; }
-
   const [existing] = await db.query('SELECT source_ref FROM ajanta_stock_transactions WHERE source_ref IS NOT NULL');
   const seen = new Set(existing.map(r => r.source_ref));
   const fresh = events.filter(e => !seen.has(e.ref));
-  if (!fresh.length) { _stockSyncAt = Date.now(); return { added: 0 }; }
+  const [waiting] = await db.query("SELECT * FROM ajanta_stock_transactions WHERE applied = 0 AND status <> 'Cancelled' AND source IN ('o2d','purchase')");
+  if (!fresh.length && !waiting.length) { _stockSyncAt = Date.now(); return { added: 0 }; }
 
-  const [items] = await withStockTable(() => db.query('SELECT item_code, description, uom FROM ajanta_stock_items'));
-  const [aliases] = await db.query('SELECT alias_key, item_code FROM ajanta_stock_aliases');
-  const byCode = Object.fromEntries(items.map(i => [i.item_code, i]));
-  const byKey = {};
-  items.forEach(i => { const k = stockNameKey(i.description); if (!byKey[k]) byKey[k] = i; });
-  aliases.forEach(a => { if (byCode[a.item_code]) byKey[a.alias_key] = byCode[a.item_code]; });
-
+  const resolve = await stockItemResolver();
   let added = 0;
   for (const e of fresh) {
-    const item = byKey[stockNameKey(e.name)] || null;
+    const item = await resolve(e.name);
     const [ins] = await db.query(
       `INSERT IGNORE INTO ajanta_stock_transactions
          (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, source_ref, source_item, party, ref_no, applied)
@@ -6265,8 +6258,109 @@ async function _syncStockFromFms() {
         [e.direction === 'IN' ? e.qty : -e.qty, item.item_code]);
     }
   }
+  // Entries booked before auto-linking existed (or whose item was missing)
+  // get linked now too.
+  for (const t of waiting) {
+    const item = await resolve(t.source_item || t.item_name);
+    if (!item) continue;
+    const [claim] = await db.query(
+      'UPDATE ajanta_stock_transactions SET item_code = ?, item_name = ?, uom = ?, applied = 1 WHERE id = ? AND applied = 0',
+      [item.item_code, item.description, item.uom, t.id]);
+    if (claim.affectedRows) {
+      await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?',
+        [t.direction === 'IN' ? Number(t.quantity) : -Number(t.quantity), item.item_code]);
+    }
+  }
   _stockSyncAt = Date.now();
   return { added };
+}
+
+// ── FMS product name → stock item, fully automatic (client, 2026-10-03:
+// "auto link hone chahiye"). Order: saved alias → exact normalised name →
+// fuzzy match → otherwise a NEW catalog item (code FMS-n, opening stock 0)
+// is created. Every decision is saved as an alias so the same name always
+// maps to the same item. The fuzzy match weights rare words (model names
+// like Roxx / Tornado / Gem) far above common ones (ceiling, white), needs
+// every size number to agree, and only accepts a clear winner — an
+// ambiguous name ("Air Max Oscillating": 9" or 12"?) gets its own item
+// rather than a guess.
+const STOCK_SYN = { oscillating: 'osc', oscill: 'osc', oscilating: 'osc', litre: 'ltr', liter: 'ltr', l: 'ltr', lt: 'ltr',
+  pedistal: 'pedestal', shatabadi: 'shatabdi', decora: 'deco', grey: 'gray', exaust: 'exhaust', celling: 'ceiling',
+  killar: 'killer', chaina: 'china', ventil: 'ventilair', standy: 'stand', glu: 'glue', mkiiler: 'killer' };
+const STOCK_STOP = new Set(['ajanta', 'fan', 'pcs', 'pc', 'the', 'with', 'and', 'of', 'inch', 'in', 'old', 'new']);
+const STOCK_MATCH_MIN = 0.75, STOCK_MATCH_MARGIN = 0.1;
+function stockTokens(name) {
+  return String(name || '').toLowerCase()
+    .replace(/(\d)(?=[a-z])/g, '$1 ').replace(/([a-z])(?=\d)/g, '$1 ')
+    .split(/[^a-z0-9]+/).filter(Boolean)
+    .map(t => STOCK_SYN[t] || t).filter(t => !STOCK_STOP.has(t));
+}
+// Tokens plus joined neighbours ("hot case" ≡ "hotcase", "glue pad" ≡ "gluepad").
+function stockTokenSet(toks) {
+  const set = new Set(toks);
+  for (let i = 0; i + 1 < toks.length; i++) {
+    if (!/^\d+$/.test(toks[i]) && !/^\d+$/.test(toks[i + 1])) set.add(toks[i] + toks[i + 1]);
+  }
+  return set;
+}
+function stockTokenHit(t, idx, toks, otherSet) {
+  if (otherSet.has(t)) return true;
+  if (idx > 0 && otherSet.has(toks[idx - 1] + t)) return true;
+  if (idx + 1 < toks.length && otherSet.has(t + toks[idx + 1])) return true;
+  if (t.length > 4) for (const x of otherSet) if (x.length > 4 && (x.includes(t) || t.includes(x))) return true;
+  return false;
+}
+function buildStockMatcher(items) {
+  const cat = items.map(i => { const toks = stockTokens(i.description); return { item: i, toks, set: stockTokenSet(toks) }; });
+  const df = {};
+  cat.forEach(c => new Set(c.toks).forEach(t => { df[t] = (df[t] || 0) + 1; }));
+  const w = t => Math.log((cat.length + 1) / ((df[t] || 0) + 1)) + 0.5;
+  const isNum = t => /^\d+$/.test(t);
+  return name => {
+    const toks = stockTokens(name);
+    if (!toks.length || !cat.length) return null;
+    const set = stockTokenSet(toks);
+    const nums = toks.filter(isNum);
+    const scored = cat.map(c => {
+      if (nums.some(n => !c.set.has(n))) return { c, s: 0 };
+      if (nums.length && c.toks.filter(isNum).some(n => !set.has(n))) return { c, s: 0 };
+      let hit = 0, tot = 0, hit2 = 0, tot2 = 0;
+      toks.forEach((t, i) => { tot += w(t); if (stockTokenHit(t, i, toks, c.set)) hit += w(t); });
+      c.toks.forEach((t, i) => { tot2 += w(t); if (stockTokenHit(t, i, c.toks, set)) hit2 += w(t); });
+      return { c, s: (hit / tot) * 0.6 + (hit2 / tot2) * 0.4 };
+    }).sort((x, y) => y.s - x.s);
+    const [best, second = { s: 0 }] = scored;
+    return best.s >= STOCK_MATCH_MIN && best.s - second.s >= STOCK_MATCH_MARGIN ? best.c.item : null;
+  };
+}
+async function stockItemResolver() {
+  const [items] = await withStockTable(() => db.query('SELECT item_code, description, uom FROM ajanta_stock_items'));
+  const [aliases] = await db.query('SELECT alias_key, item_code FROM ajanta_stock_aliases');
+  const byCode = Object.fromEntries(items.map(i => [i.item_code, i]));
+  const byKey = {};
+  items.forEach(i => { const k = stockNameKey(i.description); if (!byKey[k]) byKey[k] = i; });
+  aliases.forEach(a => { if (byCode[a.item_code]) byKey[a.alias_key] = byCode[a.item_code]; });
+  const fuzzy = buildStockMatcher(items);
+  return async name => {
+    const key = stockNameKey(name);
+    if (!key) return null;
+    if (byKey[key]) return byKey[key];
+    let item = fuzzy(name);
+    if (!item) {
+      // Not in the catalog at all (or ambiguous) → create it, opening stock 0.
+      const [[mx]] = await db.query("SELECT MAX(CAST(SUBSTRING(item_code, 5) AS UNSIGNED)) AS n FROM ajanta_stock_items WHERE item_code LIKE 'FMS-%'");
+      const code = `FMS-${(Number(mx && mx.n) || 0) + 1}`;
+      const description = String(name).replace(/^\s*ajanta\s+/i, '').trim().slice(0, 255);
+      await db.query('INSERT IGNORE INTO ajanta_stock_items (item_code, description, uom, current_stock, as_of_date) VALUES (?,?,?,0,CURDATE())',
+        [code, description, 'PCS']);
+      item = { item_code: code, description, uom: 'PCS' };
+      items.push(item); byCode[code] = item;
+    }
+    await db.query('INSERT IGNORE INTO ajanta_stock_aliases (alias_key, item_code) VALUES (?, ?)', [key, item.item_code]);
+    const [[saved]] = await db.query('SELECT item_code FROM ajanta_stock_aliases WHERE alias_key = ?', [key]);
+    byKey[key] = byCode[saved.item_code] || item; // another instance may have claimed this name first
+    return byKey[key];
+  };
 }
 
 // Daily Register — one date, Inward on one side, Outward on the other
