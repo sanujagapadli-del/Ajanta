@@ -1526,11 +1526,11 @@ tbody tr:last-child td{border-bottom:none;}
   <div id="page-purchase-fms" class="page">
     <div class="page-header">
       <!-- Indents are raised in the client's own Apps Script form (it writes
-           upstream of the Purchase Fms tab) — link-out only, opened in the SAME
-           tab (client, 2026-10-03; Back returns here). It can't be embedded in
-           an iframe: the script sends X-Frame-Options SAMEORIGIN unless its
-           doGet() sets XFrameOptionsMode.ALLOWALL. -->
-      <a class="btn btn-primary" href="https://script.google.com/a/macros/e-marketing.io/s/AKfycbx2BdRpx2H82Akm9uegkUz15GZLR-zOIUFJmdBu59TCz39iaQoYb6IOkDiwhOm_V_4/exec" style="text-decoration:none">+ New Indent</a>
+           upstream of the Purchase Fms tab). Opened in a small popup window
+           over the app (client, 2026-10-03: "same screen pe chhote view mai",
+           the app page must not change). Not an iframe: the form needs a
+           Google login, and Google's login/script pages refuse to be framed. -->
+      <button class="btn btn-primary" onclick="openNewIndentForm()">+ New Indent</button>
       <button class="btn btn-outline" onclick="loadPurchaseFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="purchaseVendorLoginsBtn" style="display:none" onclick="openVendorLoginsModal()">👤 Vendor Logins</button>
       <button class="btn btn-outline" id="purchaseStepDoersBtn" style="display:none" onclick="openPurchaseStepDoersModal()">⚙ Step Doers</button>
@@ -12591,6 +12591,28 @@ async function loadPurchaseFmsList() {
 }
 
 function pfmsSearchChanged() { pfmsPage = 1; renderPurchaseFmsActiveView(); }
+
+// "+ New Indent" — the client's Apps Script form in a small centred popup
+// window, so the app page underneath stays put. Re-clicking focuses the open
+// popup; closing it refreshes the list (the new indent may have landed).
+// Phones ignore popup sizes and open a new tab — the app tab still stays as is.
+const PFMS_INDENT_FORM_URL = 'https://script.google.com/a/macros/e-marketing.io/s/AKfycbx2BdRpx2H82Akm9uegkUz15GZLR-zOIUFJmdBu59TCz39iaQoYb6IOkDiwhOm_V_4/exec';
+let _pfmsIndentWin = null;
+function openNewIndentForm() {
+  if (_pfmsIndentWin && !_pfmsIndentWin.closed) { _pfmsIndentWin.focus(); return; }
+  const w = Math.min(560, screen.availWidth - 40), h = Math.min(760, screen.availHeight - 60);
+  const left = Math.round((window.screenX || 0) + (window.outerWidth - w) / 2);
+  const top = Math.round((window.screenY || 0) + Math.max(0, (window.outerHeight - h) / 2));
+  _pfmsIndentWin = window.open(PFMS_INDENT_FORM_URL, 'ajantaNewIndent', `popup=yes,width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+  if (!_pfmsIndentWin) { showToast('Popup blocked — browser me is site ke popups allow karein', 'error'); return; }
+  const timer = setInterval(() => {
+    if (!_pfmsIndentWin || _pfmsIndentWin.closed) {
+      clearInterval(timer);
+      _pfmsIndentWin = null;
+      if (document.getElementById('page-purchase-fms').classList.contains('active')) loadPurchaseFmsList();
+    }
+  }, 1000);
+}
 
 function switchPurchaseFmsView(view, el) {
   pfmsView = view;
