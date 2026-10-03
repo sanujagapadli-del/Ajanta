@@ -1014,7 +1014,6 @@ tbody tr:last-child td{border-bottom:none;}
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
         <span id="dashAttnErr" style="display:none;color:var(--color-danger);font-size:12px;max-width:220px"></span>
         <div class="dash-topbar-btns" id="dashBtns"></div>
-        <button class="btn btn-pill btn-purple" onclick="openApplyLeaveModal()">🌴 Apply Leave</button>
         <button class="btn btn-pill btn-danger" id="dashKmBtn" style="display:none" onclick="openKmModal()">🌅 Morning KM</button>
         <button class="btn btn-pill btn-primary" id="dashAttnPunchBtn" onclick="doAttendancePunch()">Punch In</button>
         <div style="display:flex;flex-direction:column;gap:3px;padding:6px 14px;border-radius:10px;background:var(--color-primary-light)">
@@ -1047,7 +1046,7 @@ tbody tr:last-child td{border-bottom:none;}
               <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">O2D FMS</div>
               <div class="tab"        id="dashTabSFMS"  onclick="dashTab('sfms',this)">Service FMS</div>
             </div>
-            <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
+            <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="every_10_days">Every 10 Days</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
           </div>
         </div>
         <div id="dashTableWrap" style="overflow-x:auto;max-height:340px;overflow-y:auto;">
@@ -1104,7 +1103,7 @@ tbody tr:last-child td{border-bottom:none;}
             <option value="all">All Employees</option>
           </select>
         </div>
-        <select id="tasksFreqFilter" onchange="filterTasks()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
+        <select id="tasksFreqFilter" onchange="filterTasks()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="every_10_days">Every 10 Days</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
         <div style="position:relative">
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)">🔍</span>
           <input type="text" id="taskSearch" placeholder="Search by name, date, desc, status..." oninput="filterTasks()"
@@ -1297,6 +1296,7 @@ tbody tr:last-child td{border-bottom:none;}
           </select>
         </div>
         <div><button class="btn btn-primary" onclick="loadAttendanceHistory()">Show</button></div>
+        <div id="attnAlertWrap" style="display:none;margin-left:auto"><button class="btn btn-outline" onclick="sendAbsentAlertNow()" title="Post the names of staff who haven't punched to the team WhatsApp group (also sent automatically at 11 AM and 8 PM)">📣 Send Not-Punched Alert</button></div>
       </div>
       <div id="attnHistoryResults">
         <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
@@ -1516,6 +1516,10 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── PURCHASE FMS (Indent → PO) ── -->
   <div id="page-purchase-fms" class="page">
     <div class="page-header">
+      <!-- Indents are raised in the client's own Apps Script form (it writes
+           upstream of the Purchase Fms tab) — link-out only, opened in a new
+           tab since Apps Script web apps don't reliably load inside an iframe. -->
+      <a class="btn btn-primary" href="https://script.google.com/a/macros/e-marketing.io/s/AKfycbx2BdRpx2H82Akm9uegkUz15GZLR-zOIUFJmdBu59TCz39iaQoYb6IOkDiwhOm_V_4/exec" target="_blank" rel="noopener" style="text-decoration:none">+ New Indent</a>
       <button class="btn btn-outline" onclick="loadPurchaseFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="purchaseStepDoersBtn" style="display:none" onclick="openPurchaseStepDoersModal()">⚙ Step Doers</button>
     </div>
@@ -1798,6 +1802,25 @@ tbody tr:last-child td{border-bottom:none;}
         <input type="url" id="dLink" placeholder="https://…" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none"/>
       </div>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>📷 Photo <span style="color:var(--gray-400);font-weight:400;font-size:11px">(optional)</span></label>
+        <input type="file" id="dPhoto" accept="image/*" style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label>📎 File for reference <span style="color:var(--gray-400);font-weight:400;font-size:11px">(PDF, Excel, Word… max 3 MB)</span></label>
+        <input type="file" id="dFile" style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>🎤 Voice Note <span style="color:var(--gray-400);font-weight:400;font-size:11px">(optional — record instructions instead of typing)</span></label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn btn-outline btn-sm" id="dRecBtn" onclick="toggleDelegateRecording()">🎤 Record</button>
+        <span id="dRecStatus" style="font-size:12px;color:var(--gray-500)"></span>
+        <audio id="dRecPreview" controls style="display:none;height:36px;max-width:100%"></audio>
+        <button type="button" class="btn btn-outline btn-sm" id="dRecDel" style="display:none" onclick="clearDelegateRecording()" title="Remove voice note">🗑</button>
+      </div>
+    </div>
     <div class="form-group">
       <label>Description</label>
       <textarea id="dDesc" placeholder="Enter task description…" style="min-height:140px;width:100%;padding:10px 13px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;font-family:'Inter',sans-serif;outline:none;resize:vertical"></textarea>
@@ -1850,6 +1873,7 @@ tbody tr:last-child td{border-bottom:none;}
         <option value="daily">Daily (365 tasks/year)</option>
         <option value="weekly">Weekly (52 tasks/year)</option>
         <option value="alternative_week">Alternative Week (26 tasks/year)</option>
+        <option value="every_10_days">Every 10 Days (37 tasks/year)</option>
         <option value="monthly">Monthly (12 tasks/year)</option>
         <option value="quarterly">Quarterly (4 tasks/year)</option>
         <option value="yearly">Yearly (1 task/year)</option>
@@ -2491,6 +2515,7 @@ tbody tr:last-child td{border-bottom:none;}
             <option value="daily">Daily only</option>
             <option value="weekly">Weekly only</option>
             <option value="alternative_week">Alternative Week only</option>
+            <option value="every_10_days">Every 10 Days only</option>
             <option value="monthly">Monthly only</option>
             <option value="quarterly">Quarterly only</option>
             <option value="yearly">Yearly only</option>
@@ -3260,6 +3285,7 @@ let ME = null;
 let dashType = 'all';
 let tasksType = 'delegation';
 let dashChartInst = null;
+let _dashLoadSeq = 0; // bumps per loadDashboard() so a slower, older load can't overwrite a newer one
 let holidays = []; // loaded from server
 let transferMode = false;
 let pendingTransferTaskIds = []; // task IDs that already have pending transfer
@@ -3639,10 +3665,21 @@ async function loadDashboard() {
   const baseUrl = (isAdmin || isHod || isPC)
     ? `/api/dashboard?employee=${empVal}${hodParam}${dateParams}&taskType=`
     : `/api/dashboard?taskType=`;
+  const loadSeq = ++_dashLoadSeq;
+  // O2D FMS + Service FMS are Google Sheets reads — the slow part — so start
+  // them now, alongside Delegation/Checklist, rather than only after those
+  // and the employee dropdown have finished. Service FMS only for users who
+  // can open that page at all.
+  const canSeeSfms = ME.role === 'admin' || MY_PAGES.has('service-fms');
+  const fmsPromise = Promise.all([
+    api('/api/o2d-fms').catch(() => null),
+    canSeeSfms ? api('/api/service-fms').catch(() => null) : null
+  ]);
   const [dDel, dChl] = await Promise.all([
     api(baseUrl + 'delegation'),
     api(baseUrl + 'checklist')
   ]);
+  if (loadSeq !== _dashLoadSeq) return;
 
   // Error check: agar DB ya API fail ho toh user ko dikhao
   if (dDel.error || dChl.error) {
@@ -3697,51 +3734,61 @@ async function loadDashboard() {
       <button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>`;
   }
 
+  if (loadSeq !== _dashLoadSeq) return; // a newer load (or a Done) happened during the dropdown fetch
+
   // Combine both types for the unified pending table
-  const allTodayPending = [...(dDel.todayPending||[]), ...(dChl.todayPending||[])];
+  const taskRows = [...(dDel.todayPending||[]), ...(dChl.todayPending||[])];
+  if (!canSeeSfms) window._lastSfmsData = [];
 
-  // O2D FMS + Service FMS — open items, mapped into the same row shape.
-  // Service FMS only for users who can open that page at all.
-  const canSeeSfms = ME.role === 'admin' || MY_PAGES.has('service-fms');
-  const [o2d, sfms] = await Promise.all([
-    api('/api/o2d-fms').catch(() => null),
-    canSeeSfms ? api('/api/service-fms').catch(() => null) : null
-  ]);
+  // Paints the table, cards and chart from taskRows plus whatever O2D/SFMS
+  // data is in hand (no network call).
+  const renderDash = () => {
+    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks()];
 
-  window._lastO2dData = Array.isArray(o2d) ? o2d : [];
-  window._lastSfmsData = Array.isArray(sfms) ? sfms : [];
-  allTodayPending.push(...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks());
 
-  // Pending count/chart use allTodayPending's actual length — it's the same
-  // Delegation+Checklist+SFMS+O2D mix the table below renders, so the card
-  // above it can't disagree with what's visibly listed.
-  document.getElementById('dPending').textContent = allTodayPending.length;
-  if (dashChartInst) dashChartInst.destroy();
-  // Completed previously only ever summed Delegation+Checklist (set early,
-  // before o2d even loaded) — O2D closed orders never counted, even though
-  // its PENDING items already did above. Corrected here once o2d is in hand.
-  const o2dCompleted = Array.isArray(o2d) ? o2d.filter(o => o.closed).length : 0;
-  const sfmsCompleted = window._lastSfmsData.filter(c => c.closed).length;
-  const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + o2dCompleted + sfmsCompleted;
-  document.getElementById('dCompleted').textContent = combinedCompleted;
-  const combinedRevised   = dDel.revised||0;
-  const chartLabels = ['Completed','Pending','Revised'];
-  const chartData   = [combinedCompleted, allTodayPending.length, combinedRevised];
-  // Canvas fillStyle can't resolve CSS var() references (unlike a DOM element's
-  // style) — passing 'var(--color-success)' straight to Chart.js silently
-  // fails and every slice paints black. Resolve to the actual computed color first.
-  const rootStyle = getComputedStyle(document.documentElement);
-  const cssVar = name => rootStyle.getPropertyValue(name).trim();
-  const chartColors = [cssVar('--color-success'), cssVar('--color-danger'), cssVar('--color-warning')];
-  dashChartInst = new Chart(document.getElementById('dashChart').getContext('2d'), {
-    type:'pie',
-    data:{labels:chartLabels,datasets:[{data:chartData,backgroundColor:chartColors,borderWidth:3,borderColor:'#fff',hoverOffset:6}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw}`}}}}
-  });
+    // Pending count/chart use allTodayPending's actual length — it's the same
+    // Delegation+Checklist+SFMS+O2D mix the table below renders, so the card
+    // above it can't disagree with what's visibly listed.
+    document.getElementById('dPending').textContent = allTodayPending.length;
+    if (dashChartInst) dashChartInst.destroy();
+    // Completed previously only ever summed Delegation+Checklist (set early,
+    // before o2d even loaded) — O2D closed orders never counted, even though
+    // its PENDING items already did above. Corrected here once o2d is in hand.
+    const o2dCompleted = (window._lastO2dData || []).filter(o => o.closed).length;
+    const sfmsCompleted = (window._lastSfmsData || []).filter(c => c.closed).length;
+    const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + o2dCompleted + sfmsCompleted;
+    document.getElementById('dCompleted').textContent = combinedCompleted;
+    const combinedRevised   = dDel.revised||0;
+    const chartLabels = ['Completed','Pending','Revised'];
+    const chartData   = [combinedCompleted, allTodayPending.length, combinedRevised];
+    // Canvas fillStyle can't resolve CSS var() references (unlike a DOM element's
+    // style) — passing 'var(--color-success)' straight to Chart.js silently
+    // fails and every slice paints black. Resolve to the actual computed color first.
+    const rootStyle = getComputedStyle(document.documentElement);
+    const cssVar = name => rootStyle.getPropertyValue(name).trim();
+    const chartColors = [cssVar('--color-success'), cssVar('--color-danger'), cssVar('--color-warning')];
+    dashChartInst = new Chart(document.getElementById('dashChart').getContext('2d'), {
+      type:'pie',
+      data:{labels:chartLabels,datasets:[{data:chartData,backgroundColor:chartColors,borderWidth:3,borderColor:'#fff',hoverOffset:6}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw}`}}}}
+    });
 
-  window._lastDashTasks = allTodayPending;
-  // Keep sort state across reloads (don't reset)
-  renderDashTable(allTodayPending, dashType);
+    window._lastDashTasks = allTodayPending;
+    // Keep sort state across reloads (don't reset)
+    renderDashTable(allTodayPending, dashType);
+  };
+
+  // Paint immediately with the FMS data already held — the O2D/Service FMS
+  // pages keep window._lastO2dData/_lastSfmsData current after every step
+  // update, so a step just done there shows here without waiting on the
+  // sheet re-read — then repaint once the fresh read lands.
+  renderDash();
+  const [o2d, sfms] = await fmsPromise;
+  if (loadSeq !== _dashLoadSeq) return;
+  // A failed read keeps the last good data instead of blanking the FMS rows.
+  if (Array.isArray(o2d)) window._lastO2dData = o2d;
+  if (canSeeSfms && Array.isArray(sfms)) window._lastSfmsData = sfms;
+  renderDash();
 }
 
 // PC: date range change → refresh dropdown then dashboard
@@ -3849,7 +3896,8 @@ function renderDashTable(tasks, type) {
   tbody.innerHTML = allPending.map(t => {
     const rs = t.revision_status || '';
     const isRevised = t.status === 'revised';
-    const linkBtn = t.link ? `<a href="${esc(t.link)}" target="_blank" style="font-size:11px;color:var(--color-primary);font-weight:600;text-decoration:none;margin-left:4px">🔗</a>` : '';
+    const linkBtn = (t.link ? `<a href="${esc(t.link)}" target="_blank" style="font-size:11px;color:var(--color-primary);font-weight:600;text-decoration:none;margin-left:4px">🔗</a>` : '')
+      + taskAttachmentsHtml(t);
     // O2D/FMS descriptions are app-built HTML (styled divs/spans from
     // buildO2dDashboardTasks etc.) — escaping those just shows the tags
     // literally instead of rendering them. Delegation/Checklist descriptions
@@ -4019,6 +4067,14 @@ function filterTaskStatus(status, el) {
   renderTasksTable();
 }
 
+// Photo / reference file / voice note attached when the task was delegated.
+function taskAttachmentsHtml(t) {
+  const a = 'font-size:11px;color:var(--color-primary);font-weight:600;text-decoration:none;margin-left:4px';
+  return (t.photo_link ? ` <a href="${esc(t.photo_link)}" target="_blank" title="View photo" style="${a}">📷 Photo</a>` : '')
+    + (t.ref_file_link ? ` <a href="${esc(t.ref_file_link)}" target="_blank" title="Open file" style="${a}">📎 ${esc(t.ref_file_name || 'File')}</a>` : '')
+    + (t.audio_link ? `<div style="margin-top:4px"><audio controls preload="none" src="${esc(t.audio_link)}" style="height:30px;max-width:230px"></audio></div>` : '');
+}
+
 function _taskActionBtns(t, isAdmin, isChecklist) {
   const isCompleted = t.status === 'completed';
   const isWaiting = t.waiting_approval == 1;
@@ -4029,6 +4085,9 @@ function _taskActionBtns(t, isAdmin, isChecklist) {
     ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button>` : ''}
     ${!isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${tasksType}')">Revise</button>` : ''}
     ${isWaiting ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
+  if (ME.role !== 'pc' && String(t.assigned_to) !== String(ME.id)) return `
+    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
+    ${t.waiting_approval == 1 ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
   if (ME.role==='pc') return `
     <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
     ${isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button>` : ''}
@@ -4110,7 +4169,7 @@ function renderTasksTable() {
         return `<tr>
           <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(t.assignedToDept||'—')}</td>
           <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${esc(t.title||'—')}</td>
-          <td style="max-width:240px;font-size:12px;color:var(--gray-600)">${esc(t.description||'')}</td>
+          <td style="max-width:240px;font-size:12px;color:var(--gray-600)">${esc(t.description||'')}${taskAttachmentsHtml(t)}</td>
           <td><span class="priority-badge ${esc(t.priority||'low')}">${esc(t.priority||'low')}</span></td>
           ${freqTd}
           <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
@@ -4158,7 +4217,7 @@ function renderTasksTable() {
       <td style="white-space:nowrap">${_taskActionBtns(t, false, isChecklist)}</td>
       <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(t.assignedToDept||'—')}</td>
       <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${esc(t.title||'—')}</td>
-      <td style="font-size:12px;color:var(--gray-600)">${esc(t.description||'')}</td>
+      <td style="font-size:12px;color:var(--gray-600)">${esc(t.description||'')}${taskAttachmentsHtml(t)}</td>
       <td><span class="priority-badge ${esc(t.priority||'low')}">${esc(t.priority||'low')}</span></td>
       ${freqTd}
       <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
@@ -4191,13 +4250,37 @@ function tasksTab(type, el) {
 // ══════════════════════════════════════════════════════
 async function updateStatus(id, status, from, type, requiresAttachment) {
   if (status === 'completed' && requiresAttachment) { openAttachmentProofModal(id, from, type || dashType); return; }
+  // Block a second tap while the first is still saving.
+  const btn = window.event && window.event.target && window.event.target.closest ? window.event.target.closest('button') : null;
+  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = '…'; }
   const r = await api(`/api/tasks/${id}/status`,'PUT',{status, type: type || dashType});
-  if (r.error) { showToast(r.error, 'error'); return; }
+  if (r.error) { if (btn) { btn.disabled = false; btn.textContent = 'Done'; } showToast(r.error, 'error'); return; }
   if (r.needsApproval) {
     showToast('✅ Approval request sent to your manager!');
   }
-  if (from==='dashboard') scheduleDashboardRefresh(); else loadAllTasks();
+  if (from==='dashboard') { applyDashTaskDone(id, type || dashType, !!r.needsApproval); scheduleDashboardRefresh(); }
+  else loadAllTasks();
   loadApprovalBadge();
+}
+
+// Reflects a Done on the Dashboard straight away instead of leaving the row
+// looking pending until the next reload (staff were tapping Done again, and
+// an auto-refresh that had started BEFORE the Done could repaint the old row
+// — "done tasks come back to pending"). Bumping _dashLoadSeq makes any such
+// in-flight load discard its now-stale result.
+function applyDashTaskDone(id, type, needsApproval) {
+  _dashLoadSeq++;
+  const list = window._lastDashTasks || [];
+  const t = list.find(x => String(x.id) === String(id) && x.type === type);
+  if (!t) return;
+  if (needsApproval) t.waiting_approval = 1;
+  else {
+    window._lastDashTasks = list.filter(x => x !== t);
+    const p = document.getElementById('dPending'), c = document.getElementById('dCompleted');
+    if (p) p.textContent = window._lastDashTasks.length;
+    if (c && /^\d+$/.test(c.textContent)) c.textContent = Number(c.textContent) + 1;
+  }
+  renderDashTable(window._lastDashTasks, dashType);
 }
 
 // Photo proof-of-completion — some delegated tasks require a photo before
@@ -4227,7 +4310,7 @@ async function submitTaskAttachment() {
     const r = await api(`/api/tasks/${id}/status`, 'PUT', { status: 'completed', type, attachmentPhoto: dataUrl });
     if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
     closeModal('taskAttachmentModal');
-    if (from === 'dashboard') scheduleDashboardRefresh(); else loadAllTasks();
+    if (from === 'dashboard') { applyDashTaskDone(id, type, !!r.needsApproval); scheduleDashboardRefresh(); } else loadAllTasks();
     loadApprovalBadge();
     showToast('✅ Task marked done!');
   } finally {
@@ -4475,14 +4558,17 @@ async function openDelegate() {
   document.getElementById('dDesc').value='';
   document.getElementById('dRemarks').value='';
   document.getElementById('dLink').value='';
+  document.getElementById('dPhoto').value='';
+  document.getElementById('dFile').value='';
+  clearDelegateRecording();
   document.getElementById('dPriority').value='low';
   document.getElementById('dApproval').value='no';
   document.getElementById('dApprover').value='';
   document.getElementById('dApproverWrap').style.display='none';
   document.getElementById('dAttachment').value='no';
-  const today = new Date().toISOString().split('T')[0];
-  document.getElementById('dStartDate').value=today;
-  document.getElementById('dDate').value=today;
+  const today = localTodayYmd();
+  setDateFieldValue('dStartDate', today);
+  setDateFieldValue('dDate', today);
   document.getElementById('dDate').min=today;
   const users = await api('/api/users/roster');
   _delegateUsers = users;
@@ -4491,6 +4577,76 @@ async function openDelegate() {
   document.getElementById('dDoer').innerHTML='<option value="">Select Doer</option>'+opts;
   document.getElementById('dApprover').innerHTML='<option value="">Select Approver</option>'+opts;
   document.getElementById('delegateModal').classList.add('open');
+  // Re-assert after the roster fetch/render, in case anything cleared them.
+  ['dStartDate','dDate'].forEach(id => { if (!document.getElementById(id).value) setDateFieldValue(id, today); });
+}
+
+function localTodayYmd() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// Sets a date input AND its typed DD-MM-YYYY box (see upgradeDateInput).
+function setDateFieldValue(id, ymd) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = ymd;
+  const txt = el.parentNode && el.parentNode.querySelector('input[type="text"]');
+  if (txt && el.getAttribute('aria-hidden') === 'true') txt.value = fmtDateFull(ymd);
+}
+
+// ── Voice note for a delegated task (MediaRecorder; max 3 minutes) ──
+let _dRec = null, _dRecChunks = [], _dRecBlob = null, _dRecTimer = null;
+async function toggleDelegateRecording() {
+  const btn = document.getElementById('dRecBtn'), status = document.getElementById('dRecStatus');
+  if (_dRec && _dRec.state === 'recording') { _dRec.stop(); return; }
+  if (!navigator.mediaDevices || !window.MediaRecorder) { status.textContent = 'Recording is not supported in this browser — attach an audio file under 📎 File instead.'; return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { status.textContent = '🎤 Microphone permission denied — allow it for this site and try again.'; return; }
+  _dRecChunks = [];
+  _dRec = new MediaRecorder(stream);
+  _dRec.ondataavailable = e => { if (e.data && e.data.size) _dRecChunks.push(e.data); };
+  _dRec.onstop = () => {
+    stream.getTracks().forEach(t => t.stop());
+    clearInterval(_dRecTimer);
+    _dRecBlob = new Blob(_dRecChunks, { type: _dRec.mimeType || 'audio/webm' });
+    const prev = document.getElementById('dRecPreview');
+    prev.src = URL.createObjectURL(_dRecBlob); prev.style.display = '';
+    document.getElementById('dRecDel').style.display = '';
+    btn.textContent = '🎤 Record again';
+    status.textContent = '';
+  };
+  _dRec.start();
+  const started = Date.now();
+  btn.textContent = '⏹ Stop';
+  status.textContent = '🔴 Recording 0:00';
+  _dRecTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - started) / 1000);
+    status.textContent = `🔴 Recording ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    if (sec >= 180 && _dRec.state === 'recording') _dRec.stop();
+  }, 500);
+}
+function clearDelegateRecording() {
+  if (_dRec && _dRec.state === 'recording') { _dRec.onstop = null; _dRec.stop(); _dRec.stream.getTracks().forEach(t => t.stop()); }
+  clearInterval(_dRecTimer);
+  _dRec = null; _dRecBlob = null; _dRecChunks = [];
+  const prev = document.getElementById('dRecPreview');
+  if (prev) { prev.removeAttribute('src'); prev.style.display = 'none'; }
+  const del = document.getElementById('dRecDel'); if (del) del.style.display = 'none';
+  const btn = document.getElementById('dRecBtn'); if (btn) btn.textContent = '🎤 Record';
+  const st = document.getElementById('dRecStatus'); if (st) st.textContent = '';
+}
+
+// Uploads one attachment (data URL) for a task; returns its link or throws.
+async function uploadTaskFile(dataUrl, filename) {
+  let last;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    last = await api('/api/task-files', 'POST', { data: dataUrl, filename });
+    if (!last.error) return last.url;
+    if (/too large|No file/i.test(last.error)) break;
+    await new Promise(r => setTimeout(r, 1200 * attempt));
+  }
+  throw new Error(last.error);
 }
 
 let _delegateUsers = [];
@@ -4519,8 +4675,35 @@ async function saveDelegate() {
   const approverEmail = approverId ? (_delegateUsers.find(u => String(u.id) === String(approverId)) || {}).email : undefined;
   const btn = document.querySelector('[onclick="saveDelegate()"]');
   if (btn) btn.disabled = true;
-  await api('/api/tasks','POST',{type:'delegation',title,desc,assignedTo:doer,approverEmail,startDate,date,priority,approval,attachmentRequired,remarks,link});
-  if (btn) btn.disabled = false;
+  const fail = msg => { if (btn) { btn.disabled = false; btn.textContent = 'Assign'; } err.textContent = msg; err.style.display = 'block'; };
+  if (_dRec && _dRec.state === 'recording') return fail('Stop the voice recording first');
+  const photoFile = document.getElementById('dPhoto').files[0];
+  const refFile = document.getElementById('dFile').files[0];
+  if (refFile && refFile.size > 3 * 1024 * 1024) return fail('File is too large — max 3 MB');
+  let photoLink, fileLink, fileName, audioLink;
+  try {
+    if (photoFile) {
+      if (btn) btn.textContent = 'Uploading photo…';
+      let dataUrl;
+      try { dataUrl = await compressImageToDataURL(photoFile, 1400, 0.7); }
+      catch (e) { return fail('Photo could not be read — try another photo'); }
+      photoLink = await uploadTaskFile(dataUrl, 'photo.jpg');
+    }
+    if (refFile) {
+      if (btn) btn.textContent = 'Uploading file…';
+      fileLink = await uploadTaskFile(await readFileAsDataUrl(refFile), refFile.name);
+      fileName = refFile.name;
+    }
+    if (_dRecBlob) {
+      if (btn) btn.textContent = 'Uploading voice note…';
+      const ext = /mp4|aac/.test(_dRecBlob.type) ? 'm4a' : /ogg/.test(_dRecBlob.type) ? 'ogg' : 'webm';
+      audioLink = await uploadTaskFile(await readFileAsDataUrl(_dRecBlob), `voice-note.${ext}`);
+    }
+  } catch (e) { return fail('Upload failed: ' + e.message); }
+  if (btn) btn.textContent = 'Saving…';
+  const r = await api('/api/tasks','POST',{type:'delegation',title,desc,assignedTo:doer,approverEmail,startDate,date,priority,approval,attachmentRequired,remarks,link,photoLink,fileLink,fileName,audioLink});
+  if (btn) { btn.disabled = false; btn.textContent = 'Assign'; }
+  if (r && r.error) { err.textContent=r.error; err.style.display='block'; return; }
   closeModal('delegateModal');
   showToast('Task delegated successfully!');
   scheduleDashboardRefresh();
@@ -4560,8 +4743,8 @@ function updateChecklistPreview() {
   const desc = document.getElementById('cDesc').value.trim();
   if (!date || !desc) { document.getElementById('cPreview').style.display='none'; return; }
 
-  const counts = {daily:365, weekly:52, alternative_week:26, monthly:12, quarterly:4, yearly:1};
-  const labels = {daily:'Daily', weekly:'Weekly', alternative_week:'Alternative Week', monthly:'Monthly', quarterly:'Quarterly', yearly:'Yearly'};
+  const counts = {daily:365, weekly:52, alternative_week:26, every_10_days:37, monthly:12, quarterly:4, yearly:1};
+  const labels = {daily:'Daily', weekly:'Weekly', alternative_week:'Alternative Week', every_10_days:'Every 10 Days', monthly:'Monthly', quarterly:'Quarterly', yearly:'Yearly'};
   const count = counts[freq];
   const endDate = getEndDate(date, freq, count);
 
@@ -4572,7 +4755,7 @@ function updateChecklistPreview() {
 
 function getEndDate(startDate, freq, count) {
   const d = new Date(startDate);
-  const intervals = {daily:1, weekly:7, alternative_week:14, monthly:30, quarterly:90, yearly:365};
+  const intervals = {daily:1, weekly:7, alternative_week:14, every_10_days:10, monthly:30, quarterly:90, yearly:365};
   d.setDate(d.getDate() + (intervals[freq] * (count-1)));
   return d.toISOString().split('T')[0];
 }
@@ -4586,7 +4769,7 @@ function generateDates(startDate, freq, weekOffStr, extraOffStr) {
     iso = `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
   }
   const d = new Date(iso+'T00:00:00');
-  const counts = {daily:365, weekly:52, alternative_week:26, monthly:12, quarterly:4, yearly:1};
+  const counts = {daily:365, weekly:52, alternative_week:26, every_10_days:37, monthly:12, quarterly:4, yearly:1};
   const count = counts[freq];
   const weekOff = String(weekOffStr ?? '').split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
   let extraOff = [];
@@ -4620,6 +4803,7 @@ function generateDates(startDate, freq, weekOffStr, extraOffStr) {
     if (freq==='daily')            d.setDate(d.getDate()+1);
     else if (freq==='weekly')      d.setDate(d.getDate()+7);
     else if (freq==='alternative_week') d.setDate(d.getDate()+14);
+    else if (freq==='every_10_days') d.setDate(d.getDate()+10);
     else if (freq==='monthly')     d.setMonth(d.getMonth()+1);
     else if (freq==='quarterly')   d.setMonth(d.getMonth()+3);
     else if (freq==='yearly')      d.setFullYear(d.getFullYear()+1);
@@ -4663,7 +4847,9 @@ async function saveChecklist() {
 
   if (result.error) { err.textContent=result.error; err.style.display='block'; return; }
 
-  suc.textContent = `✅ ${dates.length} tasks generated! (${weekOff ? 'Week off days skipped' : 'No week off set'})`;
+  const created = result.count ?? dates.length;
+  suc.textContent = `✅ ${created} tasks generated! (${weekOff ? 'Week off days skipped' : 'No week off set'})` +
+    (result.skipped ? ` — ${result.skipped} already existed, not duplicated` : '');
   suc.style.display='block';
 
   setTimeout(()=>{ closeModal('checklistModal'); }, 2000);
@@ -4802,7 +4988,7 @@ async function uploadCSVC() {
   const allUsers = await api('/api/users/roster');
 
   let totalTasks = 0, skipped = 0;
-  const validFreqs = ['daily','weekly','alternative_week','monthly','quarterly','yearly'];
+  const validFreqs = ['daily','weekly','alternative_week','every_10_days','monthly','quarterly','yearly'];
 
   showToast('⏳ Generating tasks, please wait…');
 
@@ -4949,6 +5135,8 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'mis', label: 'MIS Report' },
     { key: 'users', label: 'Users' },
     { key: 'records', label: 'Records' },
+    // Not a page: All Tasks → Delegation shows every employee's tasks (view + comment).
+    { key: 'all-delegations', label: 'All Delegations (view everyone)' },
   ]},
   { label: 'FMS', locked: false, pages: [
     { key: 'service-fms', label: 'Service FMS' },
@@ -5355,17 +5543,19 @@ function fmtTime(dt) {
   return `${h}:${m[2]} ${ampm}`;
 }
 
-// GPS is best-effort — captured silently in the background (no separate
-// button/permission-prompt UI); if the browser denies/lacks it, the
-// punch/KM entry still goes through with no lat/lng.
-function getPunchGps() {
+// GPS is captured silently in the background (no separate button). For KM
+// entries it's best-effort; Punch In/Out refuses to go through without it.
+function getPunchGps(timeoutMs) {
   return new Promise(resolve => {
     if (!navigator.geolocation) return resolve(null);
-    navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+    const ok = pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    // High-accuracy GPS often times out indoors — fall back to a coarser
+    // (network) fix before giving up.
+    navigator.geolocation.getCurrentPosition(ok, err => {
+      if (err && err.code === 1) return resolve(null); // permission denied
+      navigator.geolocation.getCurrentPosition(ok, () => resolve(null),
+        { enableHighAccuracy: false, timeout: timeoutMs || 8000, maximumAge: 5 * 60 * 1000 });
+    }, { enableHighAccuracy: true, timeout: timeoutMs || 8000 });
   });
 }
 // A map-pin link, plus — when the server managed to reverse-geocode it —
@@ -5390,7 +5580,7 @@ async function populateEmployeeDropdown(selectId) {
 
 function loadAttendancePage() {
   const isAdmin = ME.role === 'admin';
-  ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnKmEmpWrap'].forEach(id => {
+  ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnKmEmpWrap', 'attnAlertWrap'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isAdmin ? '' : 'none';
   });
@@ -5468,11 +5658,17 @@ async function performAttendancePunch(isPunchIn) {
   const btn = document.getElementById('dashAttnPunchBtn');
   const prevBtnText = btn.textContent;
   btn.disabled = true;
-  if (navigator.geolocation) btn.textContent = 'Getting location…';
-  const gps = await getPunchGps();
+  btn.textContent = 'Getting location…';
+  // Location is mandatory for a punch (server refuses one without it too).
+  const gps = await getPunchGps(15000);
   btn.textContent = prevBtnText;
-  const body = {};
-  if (gps) { body.lat = gps.lat; body.lng = gps.lng; }
+  if (!gps) {
+    errEl.textContent = navigator.geolocation
+      ? '📍 Location nahi mili — phone ka GPS/Location ON karein aur browser mein is site ko Location ki permission "Allow" karein, phir dobara Punch karein.'
+      : '📍 Is browser mein location support nahi hai — Chrome mein app kholein.';
+    errEl.style.display = 'block'; btn.disabled = false; return;
+  }
+  const body = { lat: gps.lat, lng: gps.lng };
   const r = isPunchIn
     ? await api('/api/attendance/punch-in', 'POST', body)
     : await api('/api/attendance/punch-out', 'POST', body);
@@ -5485,8 +5681,11 @@ async function performAttendancePunch(isPunchIn) {
 function setAttnHistoryDefaultDates() {
   const to = document.getElementById('attnHistTo');
   const from = document.getElementById('attnHistFrom');
-  if (!to.value) to.value = new Date().toISOString().slice(0, 10);
-  if (!from.value) { const d = new Date(); d.setDate(d.getDate() - 29); from.value = d.toISOString().slice(0, 10); }
+  // Default view = today's attendance (local date, not UTC).
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (!to.value) to.value = today;
+  if (!from.value) from.value = today;
 }
 
 // One employee's rows (self, or Admin viewing one specific employee) — a
@@ -5563,6 +5762,19 @@ async function loadAttendanceHistory() {
   wrap.innerHTML = (isAdmin && employee === 'all') ? renderAttendanceTable(rows) : renderAttendanceCards(rows);
 }
 
+// Admin: post the not-punched list to the team WhatsApp group right now
+// (the same message goes out automatically at 11 AM and 8 PM).
+function sendAbsentAlertNow() {
+  const slot = new Date().getHours() >= 17 ? 'evening' : 'morning';
+  showConfirm({ icon: '📣', title: 'Send Not-Punched Alert?',
+    msg: `Posts the names of staff who haven't punched ${slot === 'evening' ? 'in / out' : 'in'} today to the team WhatsApp group.`,
+    okLabel: 'Send', okColor: 'var(--color-primary)' }, async () => {
+    const r = await api('/api/attendance/absent-alert', 'POST', { slot });
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast(r.sent ? `✅ Sent — ${r.notIn.length} not punched in${r.notOut.length ? `, ${r.notOut.length} not punched out` : ''}` : (r.skipped || 'Nothing to send'));
+  });
+}
+
 // ── Leave tab (apply + list, unified self/admin) ──
 function openApplyLeaveModal() {
   document.getElementById('applyLeaveErr').style.display = 'none';
@@ -5570,7 +5782,25 @@ function openApplyLeaveModal() {
   document.getElementById('alStartDate').value = '';
   document.getElementById('alEndDate').value = '';
   document.getElementById('alReason').value = '';
+  const s = document.getElementById('alStartDate'), e = document.getElementById('alEndDate');
+  if (!s.dataset.clashHooked) {
+    s.dataset.clashHooked = '1';
+    s.addEventListener('change', checkLeaveClash);
+    e.addEventListener('change', checkLeaveClash);
+  }
   document.getElementById('applyLeaveModal').classList.add('open');
+}
+
+// Warns as soon as dates are picked if a colleague from the same department
+// already has approved leave then (server blocks the submit too).
+async function checkLeaveClash() {
+  const errEl = document.getElementById('applyLeaveErr');
+  const start = document.getElementById('alStartDate').value;
+  const end = document.getElementById('alEndDate').value || start;
+  if (!start) return;
+  const r = await api(`/api/leave/clash?start=${start}&end=${end}`);
+  if (r && r.clash) { errEl.textContent = '⚠️ ' + r.message; errEl.style.display = 'block'; }
+  else if (errEl.textContent.startsWith('⚠️')) errEl.style.display = 'none';
 }
 
 async function submitApplyLeave() {
@@ -6094,6 +6324,13 @@ function fmtDate(d) {
 // round 2026-09-25; was DD/MM/YYYY), distinct from fmtDate's "DD-MM-YYYY"
 // used elsewhere. Accepts either "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
 // (sfmsSerialToDate's output); withTime appends HH:MM when there is one.
+// "2026-10-02 17:11:57" → "5:11 PM" (blank when there's no time part).
+function fmtTimeOfDay(d) {
+  const m = String(d || '').match(/[ T](\d{2}):(\d{2})/);
+  if (!m) return '';
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
+}
 function fmtDateDMY(d, withTime) {
   if (!d) return '';
   const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
@@ -7171,7 +7408,7 @@ const SFMS_STEP_DEFS = [
     ] },
   // Per spare taken out: new pieces back + bad (old) pieces back; a shortage
   // stays pending, or is settled in cash (approved on the Approvals page).
-  { n: 6, key: 'inout', tab: 'Check In/Out', label: 'Check In/Out (Spare Return)', doer: 'Mechanic (self)', extraFields: [
+  { n: 6, key: 'inout', tab: 'Check In/Out', label: 'Check In/Out (Spare Return)', doer: 'Niranjan', extraFields: [
       { key: 'qtyReturned', label: 'Item Qty (Returned)', type: 'number' },
       { key: 'reasonIfShort', label: 'Reason (if Short)' },
       { key: 'spareInJson', label: 'Spares Returned (all items)' },
@@ -7336,9 +7573,10 @@ async function ensureSfmsAccess(force) {
 }
 function sfmsCanAct(n) { return sfmsAccess.pcView || sfmsAccess.steps.includes(n); }
 function sfmsCanEdit() { return sfmsAccess.pcView || sfmsAccess.steps.length > 0 || sfmsAccess.mechanic; }
-// Solve / Check In/Out belong to the mechanic named at Assign (server puts
-// that login in the step's doers) — a mechanic gets these for his own complaints.
-function sfmsIsMechanicStep(n) { return n === SN.solve || n === SN.inout; }
+// Solve belongs to the mechanic named at Assign (server puts that login in
+// the step's doers) — a mechanic gets it for his own complaints. Check In/Out
+// is done by store staff (the Takeout doers), never the mechanic himself.
+function sfmsIsMechanicStep(n) { return n === SN.solve; }
 function sfmsCanActOnComplaint(c, n) {
   if (sfmsCanAct(n)) return true;
   if (!sfmsAccess.mechanic || !sfmsIsMechanicStep(n)) return false;
@@ -7367,6 +7605,7 @@ async function loadServiceFmsList() {
   renderSfmsTabs();
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   sfmsData = data;
+  window._lastSfmsData = data;
   renderServiceFmsList();
 }
 
@@ -7743,7 +7982,7 @@ function renderServiceFmsList() {
       return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
         <td style="padding:8px 6px"><input type="checkbox" class="sfmsRowCheckbox" data-row="${c.row}" onclick="event.stopPropagation()" onchange="toggleComplaintSelected(${c.row}, this.checked)" ${sfmsSelectedRows.has(c.row) ? 'checked' : ''}/></td>
         <td style="font-weight:700;white-space:nowrap;padding:8px">${esc(c.complainNo)}</td>
-        <td style="white-space:nowrap;padding:8px">${fmtDateDMY(c.timestamp)}</td>
+        <td style="white-space:nowrap;padding:8px">${fmtDateDMY(c.timestamp)}<div style="font-size:10.5px;color:var(--gray-500)">${fmtTimeOfDay(c.timestamp)}</div></td>
         <td style="max-width:130px;padding:8px">${esc(c.filledByName)}<br/><span style="color:var(--gray-500)">${esc(c.mobile)}</span></td>
         <td style="max-width:150px;padding:8px">${esc(c.productName)}</td>
         <td style="max-width:120px;padding:8px">${esc(c.area || '—')}${sfmsZoneOf(c) ? `<br/><span style="color:var(--gray-500)">${esc(sfmsZoneOf(c))}</span>` : ''}</td>
@@ -8138,7 +8377,7 @@ function buildReportPC() {
           <td>${esc(c.productName)}</td>
           <td>${esc(c.problemDescription)}</td>
           <td style="font-weight:700;color:${needPurchase ? 'var(--color-danger-text)' : 'var(--color-primary)'}">${esc(label)}</td>
-          <td>${fmtDateDMY(c.timestamp)}</td>
+          <td style="white-space:nowrap">${fmtDateDMY(c.timestamp)}<div style="font-size:10.5px;color:var(--gray-500)">${fmtTimeOfDay(c.timestamp)}</div></td>
         </tr>`;
         }).join('')}
       </tbody>
@@ -9182,7 +9421,7 @@ async function advanceSfmsStep(row, step, stage) {
 // update so the rest of the currently-rendered list stays untouched.
 async function refreshSfmsDataQuietly() {
   const [data] = await Promise.all([api('/api/service-fms'), ensureSfmsMasterLists()]);
-  if (Array.isArray(data)) sfmsData = data;
+  if (Array.isArray(data)) { sfmsData = data; window._lastSfmsData = data; }
 }
 
 // After one complaint's step is updated: if it's no longer pending at the
@@ -9287,6 +9526,7 @@ async function loadO2dFmsList() {
   const data = await api('/api/o2d-fms');
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   o2dData = data;
+  window._lastO2dData = data;
   renderO2dActiveView();
 }
 
@@ -10388,36 +10628,66 @@ function printDealerLedger() {
   window.print();
 }
 
-// Sends the dealer's COMPLETE current-FY statement through the app's
-// WhatsApp gateway (Service FMS's generic send endpoint — nothing
-// FMS-specific about it): Opening → every Tally voucher with Dr/Cr and
-// running balance → Closing, then the open bills and Outstanding. Laid out
-// line-by-line since a table doesn't render in a WhatsApp message.
-function buildDealerLedgerWhatsappText() {
+// Sends the dealer's COMPLETE current-FY statement on WhatsApp as a PDF
+// document (client, 2026-10-03 — was a long text message): Opening → every
+// Tally voucher with Dr/Cr and running balance → Closing, then the open
+// bills and Outstanding. Built in the browser with jsPDF; jsPDF's built-in
+// fonts have no ₹ glyph, so amounts use "Rs.".
+function pdfAmt(n) { return 'Rs. ' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+async function buildDealerStatementPdf() {
   const { name, data } = _dlCurrent;
-  if (!data) return '';
-  const bills = (data.entries || []).filter(e => e.type === 'bill');
+  const jsPDF = await loadJsPdf();
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pw = doc.internal.pageSize.getWidth();
+  const bal = b => `${pdfAmt(Math.abs(b))} ${b < 0 ? 'Cr' : 'Dr'}`;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+  doc.text('Ajanta Appliances', pw / 2, 15, { align: 'center' });
+  doc.setFontSize(11);
+  doc.text('Statement of Account', pw / 2, 21, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+  doc.text(`Party: ${name}`, 14, 30);
+  doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, pw - 14, 30, { align: 'right' });
+  let y = 35;
+  const head = { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' };
   const L = data.ledger;
-  const bal = b => `${inr(Math.abs(b))} ${b < 0 ? 'Cr' : 'Dr'}`;
-  const lines = [`*Ajanta Appliances — Statement of Account*`, `*${name}*`, `Date: ${new Date().toLocaleDateString('en-GB')}`, ''];
   if (L && L.rows && L.rows.length) {
-    lines.push(`📒 *Ledger — ${L.fyLabel}*`);
-    lines.push(`Opening Balance: ${bal(L.opening)}`, '');
-    L.rows.forEach(x => {
-      const amt = x.debit ? `Dr ${inr(x.debit)}` : `Cr ${inr(x.credit)}`;
-      lines.push(`${x.date || '—'} | ${x.vchType || ''}${x.vchNo ? ' ' + x.vchNo : ''} | ${amt} | Bal ${bal(x.balance)}`);
+    doc.setFont('helvetica', 'bold'); doc.text(`Ledger — ${L.fyLabel}`, 14, y + 4); y += 6;
+    const closing = L.closing !== null ? L.closing : L.rows[L.rows.length - 1].balance;
+    doc.autoTable({
+      startY: y, theme: 'grid', headStyles: head, styles: { fontSize: 8, cellPadding: 1.5 },
+      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      head: [['Date', 'Particulars', 'Debit', 'Credit', 'Balance']],
+      body: [
+        [{ content: 'Opening Balance', colSpan: 4, styles: { fontStyle: 'bold' } }, { content: bal(L.opening), styles: { fontStyle: 'bold' } }],
+        ...L.rows.map(x => [x.date || '—', `${x.particulars || ''}\n${x.vchType || ''}${x.vchNo ? ' · ' + x.vchNo : ''}`,
+          x.debit ? pdfAmt(x.debit) : '', x.credit ? pdfAmt(x.credit) : '', bal(x.balance)]),
+        [{ content: 'Closing Balance', colSpan: 2, styles: { fontStyle: 'bold' } },
+          { content: pdfAmt(L.totalDebit), styles: { fontStyle: 'bold' } }, { content: pdfAmt(L.totalCredit), styles: { fontStyle: 'bold' } },
+          { content: bal(closing), styles: { fontStyle: 'bold' } }]
+      ]
     });
-    lines.push('', `Total Debit: ${inr(L.totalDebit)}`, `Total Credit: ${inr(L.totalCredit)}`);
-    lines.push(`*Closing Balance: ${bal(L.closing !== null ? L.closing : L.rows[L.rows.length - 1].balance)}*`, '');
+    y = doc.lastAutoTable.finalY + 8;
   }
+  const bills = (data.entries || []).filter(e => e.type === 'bill');
   if (bills.length) {
-    lines.push(`🧾 *Open Bills (${bills.length})*`);
-    bills.forEach((b, i) => lines.push(`${i + 1}. ${b.date || '—'} | Bill ${b.ref || '—'} | ${inr(b.amount)}${b.dueDate ? ` | Due ${b.dueDate}` : ''}`));
-    lines.push('');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text(`Open Bills (${bills.length})`, 14, y); y += 2;
+    doc.autoTable({
+      startY: y, theme: 'grid', headStyles: head, styles: { fontSize: 8, cellPadding: 1.5 },
+      columnStyles: { 3: { halign: 'right' } },
+      head: [['#', 'Date', 'Bill No', 'Amount', 'Due Date']],
+      body: bills.map((b, i) => [i + 1, b.date || '—', b.ref || '—', pdfAmt(b.amount), b.dueDate || '—'])
+    });
+    y = doc.lastAutoTable.finalY + 8;
   }
-  if (data.outstanding !== null && data.outstanding !== undefined) lines.push(`*Total Outstanding: ${inr(data.outstanding)}*`);
-  if (data.syncedAt) lines.push('', `_Tally sync: ${new Date(data.syncedAt).toLocaleString('en-IN')}_`);
-  return lines.join('\n');
+  if (data.outstanding !== null && data.outstanding !== undefined) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(`Total Outstanding: ${pdfAmt(data.outstanding)}`, 14, y); y += 6;
+  }
+  if (data.syncedAt) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8);
+    doc.text(`Tally sync: ${new Date(data.syncedAt).toLocaleString('en-IN')}`, 14, y);
+  }
+  return doc.output('datauristring').replace(/^data:application\/pdf;[^,]*,/, 'data:application/pdf;base64,');
 }
 async function sendDealerLedgerWhatsapp() {
   if (!_dlCurrent.data) { showToast('Pehle Statement load hone do', 'error'); return; }
@@ -10431,13 +10701,23 @@ async function sendDealerLedgerWhatsapp() {
   }
   const btn = document.getElementById('dlWhatsappBtn');
   const original = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Sending…';
-  const r = await api('/api/service-fms/send-whatsapp', 'POST', {
-    mobile: _dlCurrent.phone, message: buildDealerLedgerWhatsappText()
-  });
-  btn.disabled = false; btn.textContent = original;
-  if (r.error) { showToast(r.error, 'error'); return; }
-  showToast('Poora Statement WhatsApp pe bhej diya!');
+  btn.disabled = true; btn.textContent = 'PDF ban raha hai…';
+  try {
+    const pdf = await buildDealerStatementPdf();
+    btn.textContent = 'Sending…';
+    const data = _dlCurrent.data;
+    const caption = `*Ajanta Appliances — Statement of Account*\n*${_dlCurrent.name}*\nDate: ${new Date().toLocaleDateString('en-GB')}` +
+      (data.outstanding !== null && data.outstanding !== undefined ? `\nTotal Outstanding: ${inr(data.outstanding)}` : '');
+    const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_dlCurrent.name)}/statement-whatsapp`, 'POST', {
+      mobile: _dlCurrent.phone, pdf, caption
+    });
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Statement PDF WhatsApp pe bhej diya!');
+  } catch (e) {
+    showToast(e.message || 'Statement PDF nahi ban paya', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -10589,29 +10869,31 @@ async function deletePriceListItem(id, name) {
 // ══════════════════════════════════════════════════════
 // STOCK — Ajanta-brand appliance stock (fans, blenders etc.), imported from
 // the "Ajanta Stock" Google Sheet into ajanta_stock_items. Access-gated by
-// 'stock'. Top tabs — Inward / Outward / Report — mirror the reference IMS
-// Trading screen; Inward/Outward each have their own Log/List sub-tabs the
-// same way. Catalog add/edit/delete (under Report) stays admin-only; logging
-// an Inward/Outward entry is open to anyone with 'stock' access (day-to-day
-// store use), cancelling one is admin-only (server checks all of this too,
-// this is just to avoid showing controls that'd 403).
+// 'stock'. Two tabs: Daily Register (one date — Inward on the left, Outward
+// on the right; fed automatically by Purchase FMS + O2D FMS, plus manual
+// entries) and Report (the stock catalog). Catalog add/edit/delete stays
+// admin-only; a manual entry is open to anyone with 'stock' access (day-to-
+// day store use), cancelling / linking an entry is admin-only (server checks
+// all of this too, this is just to avoid showing controls that'd 403).
 // ══════════════════════════════════════════════════════
 let stockItems = [];
 let stockCanEdit = false;
 let stockLoaded = false;
 let stockSearchQ = '';
-let stockTab = 'inward'; // 'inward' | 'outward' | 'report'
-let stockInwardRows = [];
-let stockInwardLoaded = false;
-let stockInwardCanEdit = false;
-let stockInwardSubTab = 'log'; // 'log' | 'list'
-let stockOutwardRows = [];
-let stockOutwardLoaded = false;
-let stockOutwardCanEdit = false;
-let stockOutwardSubTab = 'log';
+let stockTab = 'register'; // 'register' | 'report'
+let stockRegDate = '';      // YYYY-MM-DD shown in the Daily Register
+let stockReg = null;        // last /api/stock/register response
+let stockRegAddDir = '';    // 'IN' | 'OUT' while the manual-entry form is open
+let stockUnlinked = null;   // /api/stock/unlinked rows while that view is open
+
+function stockTodayYmd() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 async function loadStockPage() {
-  await Promise.all([loadStock(false), loadStockTxns('IN', false)]);
+  if (!stockRegDate) stockRegDate = stockTodayYmd();
+  await loadStock(false);
   renderStockPage();
 }
 
@@ -10626,15 +10908,13 @@ async function loadStock(force) {
 
 function switchStockTab(tab) {
   stockTab = tab;
+  stockUnlinked = null;
   renderStockPage();
-  if (tab === 'inward') loadStockTxns('IN', false).then(renderStockPage);
-  if (tab === 'outward') loadStockTxns('OUT', false).then(renderStockPage);
 }
 
 // Underline-style tabs (bold colored text + bottom border when active, plain
-// gray text otherwise), matching the reference IMS Trading screen's
-// Inward/Outward/Report row exactly — not the app's pill-style .tab-group,
-// which looked wrong here per user feedback.
+// gray text otherwise), matching the reference IMS Trading screen — not the
+// app's pill-style .tab-group, which looked wrong here per user feedback.
 function _underlineTabHtml(active, label, onclick) {
   return `<div onclick="${onclick}" style="cursor:pointer;padding-bottom:10px;margin-bottom:-1.5px;font-size:14px;white-space:nowrap;${active
     ? 'font-weight:700;color:var(--color-primary);border-bottom:2px solid var(--color-primary)'
@@ -10647,14 +10927,12 @@ function renderStockPage() {
   wrap.innerHTML = `
     <div style="padding:16px">
       <div style="display:flex;gap:28px;border-bottom:1.5px solid var(--gray-200);margin-bottom:20px">
-        ${_underlineTabHtml(stockTab==='inward','Inward',"switchStockTab('inward')")}
-        ${_underlineTabHtml(stockTab==='outward','Outward',"switchStockTab('outward')")}
+        ${_underlineTabHtml(stockTab==='register','Daily Register',"switchStockTab('register')")}
         ${_underlineTabHtml(stockTab==='report','Report',"switchStockTab('report')")}
       </div>
       <div id="stockTabBody"></div>
     </div>`;
-  if (stockTab === 'inward') renderStockMovementTab('IN');
-  else if (stockTab === 'outward') renderStockMovementTab('OUT');
+  if (stockTab === 'register') loadStockRegister(false);
   else renderStockGrid();
 }
 
@@ -10700,121 +10978,197 @@ function renderStockGrid() {
     <div style="font-size:12px;color:var(--gray-400);padding:12px 4px">${filtered.length} item${filtered.length===1?'':'s'} · total stock ${totalStock.toLocaleString('en-IN')}</div>`;
 }
 
-// ── Inward / Outward — shared rendering for both directions (dir: 'IN'|'OUT') ──
-async function loadStockTxns(dir, force) {
-  const loaded = dir === 'IN' ? stockInwardLoaded : stockOutwardLoaded;
-  if (loaded && !force) return;
-  const r = await api('/api/stock/transactions?direction=' + dir);
-  if (r && r.error) { showToast(r.error, 'error'); return; }
-  const rows = (r && r.items) || [];
-  const canEdit = !!(r && r.canEdit);
-  if (dir === 'IN') { stockInwardRows = rows; stockInwardLoaded = true; stockInwardCanEdit = canEdit; }
-  else { stockOutwardRows = rows; stockOutwardLoaded = true; stockOutwardCanEdit = canEdit; }
-}
-
 function stockItemOptionsHtml() {
   return stockItems.slice().sort((a,b)=>a.description.localeCompare(b.description))
     .map(it => `<option value="${esc(it.item_code)}">${esc(it.item_code)} — ${esc(it.description)}</option>`).join('');
 }
 
-function stockMovementRowHtml(dir, row) {
-  const canEdit = dir === 'IN' ? stockInwardCanEdit : stockOutwardCanEdit;
-  const cancelled = row.status === 'Cancelled';
-  const action = cancelled
-    ? `<span style="color:var(--gray-400);font-size:11px">Cancelled</span>`
-    : (canEdit ? `<button class="btn btn-outline btn-sm" onclick="cancelStockTxn('${dir}',${row.id})">Cancel</button>` : '—');
-  return `<tr${cancelled ? ' style="opacity:.5;text-decoration:line-through"' : ''}>
-    <td>${row.txn_date ? esc(row.txn_date.slice(0,10)) : '—'}</td>
-    <td style="font-weight:600">${esc(row.item_code)}</td>
-    <td>${esc(row.item_name || '—')}</td>
-    <td style="text-align:right;font-weight:700">${Number(row.quantity).toLocaleString('en-IN')}</td>
-    <td>${esc(row.uom || '—')}</td>
-    <td>${esc(row.remarks || '—')}</td>
-    <td>${esc(row.created_by || '—')}</td>
-    <td style="white-space:nowrap">${action}</td>
-  </tr>`;
-}
-
-function switchStockSubTab(dir, sub) {
-  if (dir === 'IN') stockInwardSubTab = sub; else stockOutwardSubTab = sub;
-  renderStockMovementSubBody(dir);
-}
-
-function renderStockMovementTab(dir) {
+// ── Daily Register — Inward (left) / Outward (right) for one date. Entries
+// come from Purchase FMS (Material Received), O2D FMS (Goods Takeout) and
+// manual entries; see the IMS ⇄ FMS section in server.js. ──
+async function loadStockRegister(refresh) {
   const body = document.getElementById('stockTabBody');
   if (!body) return;
-  const sub = dir === 'IN' ? stockInwardSubTab : stockOutwardSubTab;
-  const label = dir === 'IN' ? 'Inward' : 'Outward';
-  body.innerHTML = `
-    <div style="display:flex;gap:24px;border-bottom:1.5px solid var(--gray-200);margin-bottom:18px">
-      ${_underlineTabHtml(sub==='log','Log ' + label, `switchStockSubTab('${dir}','log')`)}
-      ${_underlineTabHtml(sub==='list', label + ' List', `switchStockSubTab('${dir}','list')`)}
-    </div>
-    <div id="stockMv${dir}Body"></div>`;
-  renderStockMovementSubBody(dir);
+  if (!stockReg || stockReg.date !== stockRegDate || refresh) {
+    body.innerHTML = `<div class="empty">Loading register…</div>`;
+    const r = await api(`/api/stock/register?date=${stockRegDate}${refresh ? '&refresh=1' : ''}`);
+    if (r && r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+    stockReg = r;
+    if (refresh) await loadStock(true);
+  }
+  renderStockRegister();
 }
 
-function renderStockMovementSubBody(dir) {
-  const body = document.getElementById(`stockMv${dir}Body`);
-  if (!body) return;
-  const sub = dir === 'IN' ? stockInwardSubTab : stockOutwardSubTab;
-  if (sub === 'log') renderStockMovementForm(dir, body);
-  else renderStockMovementList(dir, body);
+function shiftStockRegDate(days) {
+  const d = new Date(stockRegDate + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  stockRegDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  stockRegAddDir = '';
+  loadStockRegister(false);
 }
+function setStockRegDate(v) { if (v) { stockRegDate = v; stockRegAddDir = ''; loadStockRegister(false); } }
 
-function renderStockMovementForm(dir, body) {
-  const label = dir === 'IN' ? 'Inward' : 'Outward';
-  const today = new Date().toISOString().slice(0,10);
-  body.innerHTML = `
-    <div style="background:var(--surface-alt,#f8fafc);border:1px solid var(--gray-200);border-radius:10px;padding:14px">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px">
-        <div class="form-group"><label>Date</label><input type="date" id="stkMv${dir}Date" value="${today}" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
-        <div class="form-group"><label>Item</label><select id="stkMv${dir}Item" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"><option value="">Select item…</option>${stockItemOptionsHtml()}</select></div>
-        <div class="form-group"><label>Quantity</label><input type="number" id="stkMv${dir}Qty" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
-        <div class="form-group"><label>Remarks</label><input type="text" id="stkMv${dir}Remarks" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+const STOCK_SOURCE_BADGE = {
+  purchase: { label: 'Purchase FMS', color: '#7c3aed' },
+  o2d: { label: 'Sales (O2D)', color: '#0369a1' },
+  manual: { label: 'Manual', color: 'var(--gray-500)' }
+};
+
+function stockRegEntryHtml(row, canEdit) {
+  const cancelled = row.status === 'Cancelled';
+  const unlinked = Number(row.applied) === 0 && !cancelled;
+  const badge = STOCK_SOURCE_BADGE[row.source || 'manual'] || STOCK_SOURCE_BADGE.manual;
+  const meta = [row.ref_no, row.party].filter(Boolean).map(esc).join(' · ');
+  const linkCtl = unlinked
+    ? (canEdit
+      ? `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+           <span style="font-size:11px;color:var(--color-warning);font-weight:600">⚠ Not linked to stock</span>
+           <select onchange="linkStockTxn(${row.id}, this.value)" style="flex:1;min-width:160px;padding:5px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px"><option value="">Link to stock item…</option>${stockItemOptionsHtml()}</select>
+         </div>`
+      : `<div style="margin-top:4px;font-size:11px;color:var(--color-warning);font-weight:600">⚠ Not linked to stock yet (admin)</div>`)
+    : '';
+  const cancelBtn = (!cancelled && canEdit)
+    ? `<button class="row-action-btn cancel" onclick="cancelStockTxn(${row.id})" title="Cancel this entry">Cancel</button>` : '';
+  return `<div style="padding:10px 12px;border-bottom:1px solid var(--gray-100);${cancelled ? 'opacity:.5;text-decoration:line-through' : ''}">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+      <div style="min-width:0">
+        <div style="font-weight:600;font-size:13px">${esc(row.item_name || row.source_item || '—')}</div>
+        <div style="font-size:11px;color:var(--gray-500);margin-top:2px">
+          ${row.item_code ? `<b>${esc(row.item_code)}</b> · ` : ''}<span style="color:${badge.color};font-weight:600">${badge.label}</span>${meta ? ' · ' + meta : ''}${row.remarks ? ' · ' + esc(row.remarks) : ''}
+        </div>
+        ${row.source !== 'manual' && row.source_item && row.source_item !== row.item_name ? `<div style="font-size:10px;color:var(--gray-400)">FMS name: ${esc(row.source_item)}</div>` : ''}
       </div>
-      <button class="btn btn-primary" onclick="submitStockMovement('${dir}')">${dir==='IN' ? '⬇ Log Inward' : '⬆ Log Outward'}</button>
+      <div style="text-align:right;white-space:nowrap">
+        <div style="font-size:15px;font-weight:800">${Number(row.quantity).toLocaleString('en-IN')} <span style="font-size:11px;font-weight:600;color:var(--gray-400)">${esc(row.uom || '')}</span></div>
+        ${cancelBtn}
+      </div>
+    </div>
+    ${linkCtl}
+  </div>`;
+}
+
+function stockRegColumnHtml(dir, rows, canEdit) {
+  const isIn = dir === 'IN';
+  const color = isIn ? 'var(--color-success)' : 'var(--color-danger)';
+  const active = rows.filter(r => r.status !== 'Cancelled');
+  const total = active.reduce((s, r) => s + Number(r.quantity), 0);
+  const form = stockRegAddDir === dir ? `
+    <div style="padding:12px;border-bottom:1px solid var(--gray-200);background:var(--surface-alt,#f8fafc)">
+      <select id="stkRegItem" style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;margin-bottom:8px;box-sizing:border-box"><option value="">Select item…</option>${stockItemOptionsHtml()}</select>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input type="number" id="stkRegQty" placeholder="Qty" style="width:90px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <input type="text" id="stkRegRemarks" placeholder="Remarks (party / reason)" style="flex:1;min-width:0;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('')">Close</button>
+        <button class="btn btn-primary btn-sm" id="stkRegSaveBtn" onclick="submitStockRegEntry('${dir}')">Save ${isIn ? 'Inward' : 'Outward'}</button>
+      </div>
+    </div>` : '';
+  return `<div style="flex:1;min-width:280px;background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;overflow:hidden;border-top:3px solid ${color}">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid var(--gray-200)">
+      <div>
+        <div style="font-weight:800;font-size:14px;color:${color}">${isIn ? '⬇ Inward' : '⬆ Outward'}</div>
+        <div style="font-size:11px;color:var(--gray-500)">${active.length} entr${active.length === 1 ? 'y' : 'ies'} · total qty <b>${total.toLocaleString('en-IN')}</b></div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('${dir}')">+ Manual</button>
+    </div>
+    ${form}
+    ${rows.map(r => stockRegEntryHtml(r, canEdit)).join('') || `<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">No ${isIn ? 'inward' : 'outward'} entries</div>`}
+  </div>`;
+}
+
+function renderStockRegister() {
+  const body = document.getElementById('stockTabBody');
+  if (!body || !stockReg) return;
+  if (stockUnlinked) { renderStockUnlinked(); return; }
+  const r = stockReg;
+  const isToday = stockRegDate === stockTodayYmd();
+  const dLabel = new Date(stockRegDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  body.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn btn-outline btn-sm" onclick="shiftStockRegDate(-1)" title="Previous day">◀</button>
+      <input type="date" value="${stockRegDate}" onchange="setStockRegDate(this.value)" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
+      <button class="btn btn-outline btn-sm" onclick="shiftStockRegDate(1)" title="Next day">▶</button>
+      ${isToday ? '' : `<button class="btn btn-outline btn-sm" onclick="setStockRegDate(stockTodayYmd())">Today</button>`}
+      <span style="font-weight:700;font-size:13px;color:var(--gray-700)">${dLabel}</span>
+      <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="loadStockRegister(true)" title="Pull the latest Purchase / O2D FMS entries">🔄 Sync FMS</button>
+    </div>
+    ${r.syncError ? `<div class="alert error" style="display:block;margin-bottom:12px">⚠️ FMS sync failed: ${esc(r.syncError)} — showing entries already in the register.</div>` : ''}
+    ${r.unlinkedTotal ? `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+      <span>⚠ <b>${r.unlinkedTotal}</b> FMS entr${r.unlinkedTotal === 1 ? 'y is' : 'ies are'} not linked to a stock item yet, so ${r.unlinkedTotal === 1 ? 'it has' : 'they have'} not changed Current Stock.</span>
+      <button class="btn btn-outline btn-sm" onclick="openStockUnlinked()">View all</button>
+    </div>` : ''}
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+      ${stockRegColumnHtml('IN', r.inward || [], r.canEdit)}
+      ${stockRegColumnHtml('OUT', r.outward || [], r.canEdit)}
+    </div>
+    <div style="font-size:11px;color:var(--gray-400);margin-top:10px">Inward comes in automatically from Purchase FMS (Material Received), Outward from Sales / O2D FMS (Goods Takeout)${r.syncFrom ? `, from ${fmtDateFull(r.syncFrom)} onwards` : ''}. Use “+ Manual” for anything else.</div>`;
+}
+
+async function openStockUnlinked() {
+  const r = await api('/api/stock/unlinked');
+  if (r && r.error) { showToast(r.error, 'error'); return; }
+  stockUnlinked = r.items || [];
+  renderStockUnlinked();
+}
+function closeStockUnlinked() { stockUnlinked = null; loadStockRegister(true); }
+function renderStockUnlinked() {
+  const body = document.getElementById('stockTabBody');
+  if (!body) return;
+  const canEdit = stockReg && stockReg.canEdit;
+  body.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <button class="btn btn-outline btn-sm" onclick="closeStockUnlinked()">◀ Back to register</button>
+      <span style="font-weight:700;font-size:13px">Not linked to stock (${stockUnlinked.length})</span>
+    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Pick the matching stock item once — every entry with the same FMS product name gets linked, and future ones link automatically.</div>
+    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;overflow:hidden">
+      ${stockUnlinked.map(row => `<div style="display:flex;gap:10px;align-items:center;padding:0 0 0 12px;border-bottom:1px solid var(--gray-100)">
+        <span style="font-size:11px;font-weight:700;white-space:nowrap;color:${row.direction === 'IN' ? 'var(--color-success)' : 'var(--color-danger)'}">${row.direction === 'IN' ? '⬇ IN' : '⬆ OUT'}<br><span style="color:var(--gray-400);font-weight:500">${fmtDateFull(row.txn_date)}</span></span>
+        <div style="flex:1;min-width:0">${stockRegEntryHtml(row, canEdit)}</div>
+      </div>`).join('') || `<div style="padding:24px;text-align:center;color:var(--gray-400)">Everything is linked 🎉</div>`}
     </div>`;
 }
 
-function renderStockMovementList(dir, body) {
-  const rows = dir === 'IN' ? stockInwardRows : stockOutwardRows;
-  const label = dir === 'IN' ? 'Inward' : 'Outward';
-  body.innerHTML = `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-      <button class="btn btn-outline" onclick="loadStockTxns('${dir}',true).then(()=>renderStockMovementSubBody('${dir}'))">🔄 Refresh</button>
-    </div>
-    <table>
-      <thead><tr><th>Date</th><th>Item Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Remarks</th><th>By</th><th>Actions</th></tr></thead>
-      <tbody>${rows.map(r => stockMovementRowHtml(dir, r)).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--gray-400)">No ${label.toLowerCase()} entries yet</td></tr>`}</tbody>
-    </table>`;
+async function linkStockTxn(id, itemCode) {
+  if (!itemCode) return;
+  const res = await api(`/api/stock/transactions/${id}/link`, 'PUT', { itemCode });
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(`✅ Linked ${res.linked} entr${res.linked === 1 ? 'y' : 'ies'} — stock updated`);
+  await loadStock(true);
+  if (stockUnlinked) await openStockUnlinked();
+  else loadStockRegister(true);
 }
 
-async function submitStockMovement(dir) {
-  const itemCode = document.getElementById(`stkMv${dir}Item`).value;
-  const quantity = document.getElementById(`stkMv${dir}Qty`).value.trim();
-  const txnDate = document.getElementById(`stkMv${dir}Date`).value;
-  const remarks = document.getElementById(`stkMv${dir}Remarks`).value.trim();
+function toggleStockRegAdd(dir) {
+  stockRegAddDir = stockRegAddDir === dir ? '' : dir;
+  renderStockRegister();
+}
+
+async function submitStockRegEntry(dir) {
+  const itemCode = document.getElementById('stkRegItem').value;
+  const quantity = document.getElementById('stkRegQty').value.trim();
+  const remarks = document.getElementById('stkRegRemarks').value.trim();
   if (!itemCode) { showToast('Select an item', 'error'); return; }
-  const url = dir === 'IN' ? '/api/stock/inward' : '/api/stock/outward';
-  const btn = document.querySelector(`[onclick="submitStockMovement('${dir}')"]`);
+  const btn = document.getElementById('stkRegSaveBtn');
   if (btn) btn.disabled = true;
-  const res = await api(url, 'POST', { itemCode, quantity, txnDate, remarks });
+  const res = await api(dir === 'IN' ? '/api/stock/inward' : '/api/stock/outward', 'POST', { itemCode, quantity, txnDate: stockRegDate, remarks });
   if (btn) btn.disabled = false;
   if (res.error) { showToast(res.error, 'error'); return; }
-  showToast(dir === 'IN' ? '✅ Inward logged!' : '✅ Outward logged!');
-  await Promise.all([loadStock(true), loadStockTxns(dir, true)]);
-  if (dir === 'IN') stockInwardSubTab = 'list'; else stockOutwardSubTab = 'list';
-  renderStockMovementTab(dir); // switch to the List sub-tab so the new entry is visible
+  showToast(dir === 'IN' ? '✅ Inward saved!' : '✅ Outward saved!');
+  stockRegAddDir = '';
+  await loadStock(true);
+  loadStockRegister(true);
 }
 
-async function cancelStockTxn(dir, id) {
+async function cancelStockTxn(id) {
   if (!confirm('Cancel this entry? Its effect on current stock will be reversed.')) return;
   const res = await api(`/api/stock/transactions/${id}/cancel`, 'PUT');
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast('Entry cancelled');
-  await Promise.all([loadStock(true), loadStockTxns(dir, true)]);
-  renderStockMovementSubBody(dir);
+  await loadStock(true);
+  if (stockUnlinked) await openStockUnlinked();
+  else loadStockRegister(true);
 }
 
 function openAddStockModal() {
@@ -11535,46 +11889,117 @@ function onO2dDoerSelectChange(orderNo, key) {
   other.style.display = isOther ? 'block' : 'none';
   if (isOther) other.focus(); else other.value = '';
 }
-async function onO2dPhotoSelected(orderNo, key, event) {
+// In-flight uploads per `${orderNo}|${key}` — Mark Done waits for these
+// instead of failing "Photo is required" while the upload is still running
+// (staff were re-uploading 2-3 times because of that, 2026-10-03).
+const _o2dUploads = {};
+
+// Lazy-loads jsPDF (+ autoTable) from cdnjs the first time a PDF is built.
+let _jsPdfPromise = null;
+function loadJsPdf() {
+  if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable) return Promise.resolve(window.jspdf.jsPDF);
+  const load = src => new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = resolve; el.onerror = () => reject(new Error('Could not load PDF library — check internet'));
+    document.head.appendChild(el);
+  });
+  if (!_jsPdfPromise) {
+    _jsPdfPromise = load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+      .then(() => load('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'))
+      .then(() => window.jspdf.jsPDF)
+      .catch(e => { _jsPdfPromise = null; throw e; });
+  }
+  return _jsPdfPromise;
+}
+
+// A JPEG data URL → a one-page A4 PDF data URL with the image fitted on it.
+async function imageDataUrlToPdf(dataUrl) {
+  const jsPDF = await loadJsPdf();
+  const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = dataUrl; });
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: img.width > img.height ? 'landscape' : 'portrait' });
+  const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight(), m = 8;
+  const scale = Math.min((pw - 2 * m) / img.width, (ph - 2 * m) / img.height);
+  const w = img.width * scale, h = img.height * scale;
+  doc.addImage(dataUrl, 'JPEG', (pw - w) / 2, m, w, h);
+  return doc.output('datauristring').replace(/^data:application\/pdf;[^,]*,/, 'data:application/pdf;base64,');
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Upload with up to 3 attempts — a cold server / flaky mobile data used to
+// fail the first try and look like "photo didn't upload".
+async function uploadFileWithRetry(dataUrl, filename, onAttempt) {
+  let last;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (onAttempt) onAttempt(attempt);
+    last = await api('/api/upload-photo', 'POST', { image: dataUrl, filename });
+    if (!last.error) return last;
+    if (/HTTP 413|too large/i.test(last.error)) break; // retrying won't help
+    await new Promise(r => setTimeout(r, 1500 * attempt));
+  }
+  return last;
+}
+
+function onO2dPhotoSelected(orderNo, key, event) {
   const file = event.target.files[0];
   if (!file) return;
+  const uploadKey = `${orderNo}|${key}`;
+  const hidden = document.getElementById(`o2dExtra_${orderNo}_${key}`);
+  if (hidden) { hidden.value = ''; delete hidden.dataset.filename; }
+  const p = _o2dUploadFile(orderNo, key, file).finally(() => { if (_o2dUploads[uploadKey] === p) delete _o2dUploads[uploadKey]; });
+  _o2dUploads[uploadKey] = p;
+  return p;
+}
+async function _o2dUploadFile(orderNo, key, file) {
   const statusEl = document.getElementById(`o2dExtra_${orderNo}_${key}_status`);
-  const isImage = file.type.startsWith('image/');
-  statusEl.textContent = isImage ? 'Compressing…' : 'Reading file…';
-  statusEl.style.color = 'var(--gray-500)';
+  const setStatus = (text, color) => { if (statusEl) { statusEl.textContent = text; statusEl.style.color = color || 'var(--gray-500)'; } };
+  const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|heic|heif|webp)$/i.test(file.name);
+  // Make Bill's Invoice goes to the dealer on WhatsApp as a PDF (client,
+  // 2026-10-03) — a photographed invoice is turned into a one-page PDF here.
+  const asPdf = key === 'photoLink';
+  setStatus(isImage ? 'Compressing…' : 'Reading file…');
+  let dataUrl, filename;
   try {
-    let dataUrl, filename;
     if (isImage) {
       // A raw phone camera photo (often several MB) hit HTTP 413 uploaded
-      // as-is — compress it client-side first, same as every other photo
-      // upload in the app (KM, Service FMS bill/product photos).
-      dataUrl = await compressImageToDataURL(file, 1400, 0.7);
-      if (dataUrl.length > 1400000) dataUrl = await compressImageToDataURL(file, 1000, 0.6);
-      filename = `${orderNo}-${key}-${Date.now()}.jpg`;
+      // as-is — compress it client-side first. Some phones' photos (HEIC,
+      // very large) can't be decoded at full size, so step down before
+      // falling back to the original file.
+      try { dataUrl = await compressImageToDataURL(file, 1400, 0.7); }
+      catch (e) {
+        try { dataUrl = await compressImageToDataURL(file, 1000, 0.6); }
+        catch (e2) { if (file.size > 3.5 * 1024 * 1024 || asPdf) throw e2; dataUrl = await readFileAsDataUrl(file); }
+      }
+      if (dataUrl.length > 1400000 && dataUrl.startsWith('data:image/jpeg')) dataUrl = await compressImageToDataURL(file, 1000, 0.6);
+      if (asPdf) {
+        setStatus('Making PDF…');
+        dataUrl = await imageDataUrlToPdf(dataUrl);
+        filename = `${orderNo}-invoice-${Date.now()}.pdf`;
+      } else {
+        filename = `${orderNo}-${key}-${Date.now()}.jpg`;
+      }
     } else {
-      // Some of these fields (e.g. Make Bill's Invoice) are just as often a
-      // PDF as a photo — compressImageToDataURL only understands images
-      // (it decodes via <img>), so a non-image file goes through as-is,
-      // same as before compression was added for the image case.
-      dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // Invoices are just as often a PDF already — sent through as-is.
+      dataUrl = await readFileAsDataUrl(file);
       const ext = (file.name.match(/\.[a-zA-Z0-9]+$/) || ['.pdf'])[0];
       filename = `${orderNo}-${key}-${Date.now()}${ext}`;
     }
-    statusEl.textContent = '⏳ Uploading...';
-    const res = await api('/api/upload-photo', 'POST', { image: dataUrl, filename });
-    if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
-    document.getElementById(`o2dExtra_${orderNo}_${key}`).value = res.url;
-    statusEl.textContent = '✅ Uploaded';
-    statusEl.style.color = 'var(--color-success-text)';
   } catch (e) {
-    statusEl.textContent = isImage ? '⚠️ Could not read image' : '⚠️ Could not read file';
-    statusEl.style.color = 'var(--color-danger)';
+    setStatus(isImage ? '⚠️ Could not read this photo — take a new photo or pick another one' : '⚠️ Could not read file', 'var(--color-danger)');
+    return;
   }
+  const res = await uploadFileWithRetry(dataUrl, filename, n => setStatus(n === 1 ? '⏳ Uploading…' : `⏳ Uploading… (try ${n}/3)`));
+  if (res.error) { setStatus('❌ ' + res.error + ' — please choose the file again', 'var(--color-danger)'); return; }
+  const hidden = document.getElementById(`o2dExtra_${orderNo}_${key}`);
+  if (hidden) { hidden.value = res.url; hidden.dataset.filename = filename; }
+  setStatus(asPdf && filename.endsWith('.pdf') ? '✅ Uploaded (PDF)' : '✅ Uploaded', 'var(--color-success-text)');
 }
 function readO2dField(f, orderNo) {
   const el = document.getElementById(`o2dExtra_${orderNo}_${f.key}`);
@@ -11631,10 +12056,22 @@ async function advanceO2dStep(orderNo, step) {
     body.status = val;
   }
 
+  // A photo/invoice still uploading → wait for it rather than failing.
+  const pendingUploads = Object.keys(_o2dUploads).filter(k => k.startsWith(orderNo + '|')).map(k => _o2dUploads[k]);
+  if (pendingUploads.length) {
+    const waitBtn = document.getElementById(`o2dMarkDoneBtn_${orderNo}`);
+    const waitText = waitBtn ? waitBtn.textContent : '';
+    if (waitBtn) { waitBtn.textContent = '⏳ Photo uploading…'; waitBtn.disabled = true; }
+    await Promise.all(pendingUploads);
+    if (waitBtn) { waitBtn.textContent = waitText; waitBtn.disabled = false; }
+  }
   for (const f of stepDef.extraFields) body[f.key] = readO2dField(f, orderNo);
   for (const f of stepDef.extraFields) {
-    if (f.required && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
+    if (f.required && !body[f.key]) { showToast(f.type === 'photo' ? `${f.label} upload nahi hua — dobara choose karein` : `${f.label} is required`, 'error'); return; }
   }
+  // Lets the server send the invoice to the dealer as a PDF document.
+  const invoiceEl = document.getElementById(`o2dExtra_${orderNo}_photoLink`);
+  if (body.photoLink && invoiceEl && invoiceEl.dataset.filename) body.photoFileName = invoiceEl.dataset.filename;
 
   const btn = document.getElementById(`o2dMarkDoneBtn_${orderNo}`);
   const originalBtnText = btn ? btn.textContent : '';

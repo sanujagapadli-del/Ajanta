@@ -182,6 +182,14 @@ const _dbReady = db.init()
       catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attachment_required migration skipped:', e.message); }
       try { await db.query('ALTER TABLE delegation_tasks ADD COLUMN attachment_link TEXT DEFAULT NULL'); }
       catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attachment_link migration skipped:', e.message); }
+      // Migration: reference photo attached by whoever delegates the task.
+      try { await db.query('ALTER TABLE delegation_tasks ADD COLUMN photo_link TEXT DEFAULT NULL'); }
+      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ photo_link migration skipped:', e.message); }
+      // Migration: reference file + voice note attached when delegating.
+      for (const col of ['ref_file_link TEXT DEFAULT NULL', 'ref_file_name VARCHAR(255) DEFAULT NULL', 'audio_link TEXT DEFAULT NULL']) {
+        try { await db.query(`ALTER TABLE delegation_tasks ADD COLUMN ${col}`); }
+        catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ delegation attachment migration skipped:', e.message); }
+      }
       // Migration: add GPS columns to an already-created attendance table
       // (a brand new install instead gets them straight from CREATE TABLE
       // in ensureAttendanceTables — ER_NO_SUCH_TABLE here is expected then).
@@ -499,7 +507,13 @@ function requireAdminOrPC(req, res, next) {
 // Per-user page access — only these pages are ever restrictable; everything
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'sfms-pc-view'];
+// 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'sfms-pc-view', 'all-delegations'];
+async function hasPageGrant(req, key) {
+  if (req.session.role === 'admin') return true;
+  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
+  return parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role).includes(key);
+}
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
 function parsePageAccess(raw, role) {
   if (role === 'admin') return RESTRICTABLE_PAGES.slice();
@@ -910,7 +924,6 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
   if (collectPending) result.perUserPending = {}; // uid -> [ {fmsName, stepName, planValue, planDate, isLate} ]
   const _today = new Date().toISOString().split('T')[0];
   const [sheets] = await db.query('SELECT * FROM fms_sheets ORDER BY fms_name ASC');
-  if (!sheets.length) return result;
 
   for (const sheet of sheets) {
     const fmsName = sheet.fms_name || sheet.sheet_name;
@@ -1009,7 +1022,76 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
     });
   }
 
+  await addBespokeFmsStats(result, hodDept, collectPending, _today);
   return result;
+}
+
+// Service / O2D / Purchase FMS are hand-coded modules (not fms_sheets), with
+// their own <name>_step_doers tables — without this their doers never showed
+// up in MIS "All". Each entity (complaint / order / PO) counts its completed
+// steps as done and only its next pending step as pending, credited to that
+// step's assigned users.
+async function addBespokeFmsStats(result, hodDept, collectPending, today) {
+  const toYmd = s => { const m = String(s || '').match(/^(\d{4}-\d{2}-\d{2})/); return m ? m[1] : ''; };
+  const modules = [
+    { name: 'Service FMS', steps: SFMS_STEPS, load: sfmsFetchComplaints, doersMap: getSfmsStepDoersMap,
+      label: c => c.complainNo, skip: c => false },
+    { name: 'O2D FMS', steps: O2D_STEPS, load: getO2dOrders, doersMap: getO2dStepDoersMap,
+      label: o => o.orderNo, skip: o => o.cancelled },
+    { name: 'Purchase FMS', steps: PURCHASE_STEPS, load: getPurchasePOs, doersMap: getPurchaseStepDoersMap,
+      label: p => p.poNumber, skip: p => false }
+  ];
+  let deptById = null;
+  if (hodDept) {
+    const [us] = await db.query('SELECT id, department FROM users');
+    deptById = Object.fromEntries(us.map(u => [u.id, u.department || '']));
+  }
+  for (const mod of modules) {
+    let entities, doersMap;
+    try {
+      [entities, doersMap] = await Promise.all([mod.load(), mod.doersMap()]);
+    } catch (e) {
+      result.errors.push(mod.name);
+      result.perFms.push({ fmsId: mod.name, fmsName: mod.name, pending: 0, done: 0, total: 0, steps: [], error: 'Sheet read failed (try again)' });
+      continue;
+    }
+    const stepIdxs = mod.steps.map((_, i) => i).filter(i => !hodDept ||
+      (doersMap[mod.steps[i].n] || []).some(d => deptById[d.id] === hodDept));
+    if (!stepIdxs.length) continue;
+    let fmsPending = 0, fmsDone = 0;
+    const perStep = [];
+    for (const i of stepIdxs) {
+      const sd = mod.steps[i];
+      let pending = 0, done = 0;
+      const pendingRows = [];
+      for (const ent of entities) {
+        if (ent.currentStep > i) done++;
+        else if (ent.currentStep === i && !ent.closed && !mod.skip(ent)) {
+          pending++;
+          if (collectPending) {
+            const planDate = toYmd(ent.steps[i] && ent.steps[i].planned);
+            pendingRows.push({ fmsName: mod.name, stepName: `${sd.label} — ${mod.label(ent) || ''}`,
+              planValue: (ent.steps[i] && ent.steps[i].planned) || '', planDate, isLate: !!(planDate && planDate < today) });
+          }
+        }
+      }
+      fmsPending += pending; fmsDone += done;
+      const doers = doersMap[sd.n] || [];
+      const credit = hodDept ? doers.filter(d => deptById[d.id] === hodDept) : doers;
+      for (const d of credit) {
+        if (!result.perUser[d.id]) result.perUser[d.id] = { pending: 0, done: 0, total: 0 };
+        result.perUser[d.id].pending += pending;
+        result.perUser[d.id].done += done;
+        result.perUser[d.id].total += pending + done;
+        if (collectPending && pendingRows.length) {
+          (result.perUserPending[d.id] = result.perUserPending[d.id] || []).push(...pendingRows);
+        }
+      }
+      perStep.push({ stepName: sd.label, stepOrder: sd.n, doers: doers.map(d => d.name).join(', ') || (sd.doer || '—'),
+        pending, done, total: pending + done });
+    }
+    result.perFms.push({ fmsId: mod.name, fmsName: mod.name, pending: fmsPending, done: fmsDone, total: fmsPending + fmsDone, steps: perStep });
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -1191,7 +1273,7 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 
     let delegationPending = [], checklistPending = [];
     if (taskType === 'delegation' || taskType === 'both') {
-      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${delDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
+      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,t.photo_link,t.ref_file_link,t.ref_file_name,t.audio_link,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${delDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
       delegationPending = rows.map(t => ({ ...t, type: 'delegation', frequency: '', assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
     }
     if (taskType === 'checklist' || taskType === 'both') {
@@ -1225,6 +1307,9 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
       params.push(uid);
     } else if (isAdmin || role === 'pc') {
       // Admin/PC — sees everything
+    } else if (isDeleg && await hasPageGrant(req, 'all-delegations')) {
+      // "All Delegations" grant (Users → Access) — every employee's delegation
+      // tasks, flat list; Done/Revise stay limited to the doer server-side.
     } else if (isHod) {
       // HOD — tasks for users in their department
       const [me] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
@@ -1258,7 +1343,7 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
     // LIMIT is a safety ceiling (matches /api/dashboard's own cap), not a
     // real pagination UX — this endpoint's grouped-by-user response isn't
     // set up for paging without also changing the frontend's "All Tasks" view.
-    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,":"'no' AS approval,0 AS waiting_approval,t.remarks,'no' AS attachment_required,NULL AS attachment_link,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
+    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,t.photo_link,t.ref_file_link,t.ref_file_name,t.audio_link,":"'no' AS approval,0 AS waiting_approval,t.remarks,'no' AS attachment_required,NULL AS attachment_link,NULL AS photo_link,NULL AS ref_file_link,NULL AS ref_file_name,NULL AS audio_link,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
     const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]?.name||'', assignedToDept: uMap[t.assigned_to]?.dept||'', assignedByName: uMap[t.assigned_by]?.name||'' }));
 
     // mine=1 mode always returns flat tasks (not grouped)
@@ -1277,9 +1362,29 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Reference attachments for a delegated task (photo, any file, voice note) —
+// stored privately on Drive, viewable by logged-in users via /api/drive-file.
+const TASK_FILE_LINK_RE = /^(https?:\/\/[^/]+)?\/api\/drive-file\/[\w-]+$/;
+const TASK_FILE_MAX_BYTES = 3 * 1024 * 1024;
+app.post('/api/task-files', requireAuth, async (req, res) => {
+  try {
+    const { data, filename } = req.body;
+    const m = /^data:([^;,]*)(;[^,]*)?;base64,(.+)$/.exec(data || '');
+    if (!m) return res.status(400).json({ error: 'No file received' });
+    const buf = Buffer.from(m[3], 'base64');
+    if (buf.length > TASK_FILE_MAX_BYTES) return res.status(400).json({ error: 'File is too large — max 3 MB' });
+    const name = String(filename || 'file').replace(/[^\w.\- ]+/g, '_').slice(0, 120);
+    const url = await uploadBufferToDrive(buf, `task-${Date.now()}-${name}`, m[1] || 'application/octet-stream');
+    res.json({ success: true, url });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
 app.post('/api/tasks', requireAuth, async (req, res) => {
   try {
-    const { type, title, desc, assignedTo, approverEmail, startDate, date, priority, approval, attachmentRequired, remarks, link } = req.body;
+    const { type, title, desc, assignedTo, approverEmail, startDate, date, priority, approval, attachmentRequired, remarks, link, photo, photoLink: photoLinkIn, fileLink, fileName, audioLink } = req.body;
     const isAdmin = req.session.role === 'admin';
     const isHod   = req.session.role === 'hod';
     const isUser  = req.session.role === 'user';
@@ -1298,7 +1403,15 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
         const [aprRows] = await db.query('SELECT id FROM users WHERE email=? LIMIT 1', [approverEmail]);
         if (aprRows.length) assignedBy = aprRows[0].id;
       }
-      await db.query(`INSERT INTO delegation_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,approval,attachment_required,remarks,link) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, assignedBy, startDate||'', date, 'pending', priority||'low', approval||'no', attachmentRequired||'no', remarks||'', link||'']);
+      // Optional reference photo from whoever delegates the task (2026-10-03)
+      // — separate from attachment_link, the doer's proof-of-completion photo.
+      // Photo / file / voice note are uploaded first via POST /api/task-files
+      // (each its own request — Vercel caps one body at ~4.5MB), so only
+      // their app-proxy links arrive here. `photo` (a data URL) is the older form.
+      const okLink = v => (typeof v === 'string' && TASK_FILE_LINK_RE.test(v)) ? v : null;
+      const photoLink = okLink(photoLinkIn) || (photo ? await uploadPhotoToDrive(photo, `delegation-${Date.now()}.jpg`) : null);
+      const refFileLink = okLink(fileLink);
+      await db.query(`INSERT INTO delegation_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,approval,attachment_required,remarks,link,photo_link,ref_file_link,ref_file_name,audio_link) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, assignedBy, startDate||'', date, 'pending', priority||'low', approval||'no', attachmentRequired||'no', remarks||'', link||'', photoLink, refFileLink, refFileLink ? String(fileName || 'File').slice(0, 255) : null, okLink(audioLink)]);
       // 📧 Send delegation email (non-blocking — fire and forget). Wrapped in
       // its own try/catch so a failure here (DB hiccup, mail error) can't
       // become an unhandled rejection — task creation itself already succeeded.
@@ -1349,9 +1462,18 @@ app.post('/api/tasks/bulk-checklist', requireAuth, requireAdmin, async (req, res
       return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
     }).filter(Boolean);
     if (!normalizeDates.length) return res.status(400).json({ error: 'No valid dates generated — check start_date format (use DD/MM/YYYY or YYYY-MM-DD)' });
-    const values = normalizeDates.map((date, i) => [title||'', desc, assignedToId, req.session.userId, i===0 ? (startDate||date) : date, date, 'pending', priority||'low', remarks||'', freq]);
+    // Never create the same checklist task twice for a day — a double
+    // Generate (or re-uploading a CSV) was leaving identical twins, so
+    // marking one done left the other "pending" (2026-10-03).
+    const [existingRows] = await db.query(
+      `SELECT DATE_FORMAT(due_date,'%Y-%m-%d') AS d FROM checklist_tasks WHERE assigned_to=? AND description=? AND COALESCE(title,'')=? AND due_date IN (?)`,
+      [assignedToId, desc, title || '', normalizeDates]);
+    const already = new Set(existingRows.map(r => r.d));
+    const freshDates = normalizeDates.filter((d, i) => !already.has(d) && normalizeDates.indexOf(d) === i);
+    if (!freshDates.length) return res.json({ success: true, count: 0, skipped: normalizeDates.length });
+    const values = freshDates.map((date, i) => [title||'', desc, assignedToId, req.session.userId, i===0 ? (startDate||date) : date, date, 'pending', priority||'low', remarks||'', freq]);
     await db.query(`INSERT INTO checklist_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,remarks,frequency) VALUES ?`, [values]);
-    res.json({ success: true, count: normalizeDates.length });
+    res.json({ success: true, count: freshDates.length, skipped: normalizeDates.length - freshDates.length });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -1774,6 +1896,14 @@ async function reverseGeocode(lat, lng) {
   } catch (e) { return null; }
 }
 
+// Punch In/Out must carry a location (client request 2026-10-02 — half the
+// punches had none). The address text is retried once and falls back to the
+// raw coordinates, so a punch never ends up without a readable location.
+const LOCATION_REQUIRED_MSG = 'Location is required to punch — turn on GPS/Location and allow it for this site, then try again.';
+async function punchAddress(lat, lng) {
+  return (await reverseGeocode(lat, lng)) || (await reverseGeocode(lat, lng)) || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+
 app.get('/api/attendance/today', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
@@ -1792,7 +1922,8 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
     const uid = req.session.userId;
     const lat = parseCoord(req.body?.lat);
     const lng = parseCoord(req.body?.lng);
-    const address = await reverseGeocode(lat, lng);
+    if (lat == null || lng == null) return res.status(400).json({ error: LOCATION_REQUIRED_MSG });
+    const address = await punchAddress(lat, lng);
     await withAttendanceTables(async () => {
       const [existing] = await db.query('SELECT id,time_in FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
       if (existing[0] && existing[0].time_in) {
@@ -1816,7 +1947,8 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
     const uid = req.session.userId;
     const lat = parseCoord(req.body?.lat);
     const lng = parseCoord(req.body?.lng);
-    const address = await reverseGeocode(lat, lng);
+    if (lat == null || lng == null) return res.status(400).json({ error: LOCATION_REQUIRED_MSG });
+    const address = await punchAddress(lat, lng);
     await withAttendanceTables(async () => {
       const [existing] = await db.query('SELECT id,time_in,time_out,TIMESTAMPDIFF(SECOND,time_in,NOW()) AS secs_since_in FROM attendance WHERE user_id=? AND date=CURDATE()', [uid]);
       if (!existing[0] || !existing[0].time_in) {
@@ -1887,6 +2019,110 @@ app.delete('/api/attendance/:id', requireAuth, requireAdmin, async (req, res) =>
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
+
+// ── Not-punched alert — posts the names of staff who haven't punched in
+// (and at 8 PM, who haven't punched out) to the team WhatsApp group (same
+// group O2D new-order alerts use). Skips holidays, each user's week off /
+// extra off, approved leave, and admins. Fired by Vercel cron (vercel.json)
+// and, when running as a long-lived server, by the in-process ticker below.
+// One send per slot per day — claimed atomically in app_settings so a
+// duplicate cron hit / two instances can't post twice.
+const ATTENDANCE_ALERT_SLOTS = { morning: 11, evening: 20 }; // IST hour
+async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
+  if (!ATTENDANCE_ALERT_SLOTS[slot]) throw new Error('Unknown slot');
+  const [[clock]] = await db.query(
+    "SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d, DAYOFWEEK(CURDATE())-1 AS dow, DAYOFMONTH(CURDATE()) AS dom"
+  );
+  const today = clock.d, dow = Number(clock.dow), nth = Math.ceil(Number(clock.dom) / 7);
+  try {
+    const [hol] = await db.query('SELECT name FROM holidays WHERE date=?', [today]);
+    if (hol.length && !force) return { skipped: `Holiday (${hol[0].name || today})` };
+  } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+
+  const [users] = await db.query(
+    "SELECT id, name, week_off, extra_off FROM users WHERE is_active=1 AND (role IS NULL OR role<>'admin') ORDER BY name"
+  );
+  const working = users.filter(u => {
+    const weekOff = String(u.week_off || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    if (weekOff.includes(dow)) return false;
+    let extra = [];
+    try { extra = u.extra_off ? JSON.parse(u.extra_off) : []; } catch (_) {}
+    return !(Array.isArray(extra) && extra.some(e => e && e.day === dow && Array.isArray(e.weeks) && e.weeks.includes(nth)));
+  });
+  const [onLeave, attn] = await withAttendanceTables(async () => Promise.all([
+    db.query("SELECT DISTINCT user_id FROM leave_requests WHERE status='approved' AND ? BETWEEN start_date AND end_date", [today]).then(r => r[0]),
+    db.query('SELECT user_id, time_in, time_out FROM attendance WHERE date=?', [today]).then(r => r[0])
+  ]));
+  const leaveIds = new Set(onLeave.map(r => r.user_id));
+  const attnBy = Object.fromEntries(attn.map(a => [a.user_id, a]));
+  const expected = working.filter(u => !leaveIds.has(u.id));
+  const notIn = expected.filter(u => !(attnBy[u.id] && attnBy[u.id].time_in)).map(u => u.name);
+  const notOut = slot === 'evening'
+    ? expected.filter(u => attnBy[u.id] && attnBy[u.id].time_in && !attnBy[u.id].time_out).map(u => u.name)
+    : [];
+  if (!notIn.length && !notOut.length) return { skipped: 'Everyone has punched', notIn, notOut };
+
+  const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
+  const group = raw ? JSON.parse(raw) : null;
+  if (!group || !group.id) throw new Error('No team WhatsApp group selected (O2D → 💬 WhatsApp Group)');
+
+  if (!force) {
+    await ensureAppSettingsTable();
+    const [claim] = await db.query('INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, ?)',
+      [`attn_alert_${slot}_${today}`, new Date().toISOString()]);
+    if (!claim.affectedRows) return { skipped: 'Already sent for this slot today' };
+  }
+  const dmy = today.split('-').reverse().join('/');
+  const lines = [`⏰ *Attendance Alert — ${dmy} (${slot === 'morning' ? '11:00 AM' : '8:00 PM'})*`];
+  if (notIn.length) lines.push('', `❌ *Punch In nahi kiya (${notIn.length}):*`, ...notIn.map((n, i) => `${i + 1}. ${n}`));
+  if (notOut.length) lines.push('', `⚠️ *Punch Out nahi kiya (${notOut.length}):*`, ...notOut.map((n, i) => `${i + 1}. ${n}`));
+  lines.push('', 'Please punch your attendance in the Ajanta app.');
+  try {
+    await sendWhatsApp(group.id, lines.join('\n'));
+  } catch (e) {
+    // Release the claim so the next tick / a manual retry can send it.
+    if (!force) await db.query('DELETE FROM app_settings WHERE setting_key=?', [`attn_alert_${slot}_${today}`]).catch(() => {});
+    throw e;
+  }
+  return { sent: true, notIn, notOut };
+}
+
+// Vercel cron entry point. Vercel sends "Authorization: Bearer <CRON_SECRET>"
+// when that env var is set; without it, only Vercel's own cron user agent is
+// accepted.
+app.get('/api/cron/attendance-alert', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const ok = secret
+    ? req.headers.authorization === `Bearer ${secret}`
+    : /vercel-cron/i.test(req.headers['user-agent'] || '');
+  if (!ok) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const slot = req.query.slot === 'evening' ? 'evening' : 'morning';
+    res.json(await runAttendanceAbsentAlert(slot));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin: preview / send now from the Attendance page.
+app.post('/api/attendance/absent-alert', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const slot = req.body?.slot === 'evening' ? 'evening' : 'morning';
+    res.json(await runAttendanceAbsentAlert(slot, { force: true }));
+  } catch (err) { if (err.isWhatsApp) return sendWhatsAppError(res, err); res.status(400).json({ error: err.message }); }
+});
+
+// Long-lived server (local / non-Vercel): tick every minute, fire each slot
+// once its IST hour has arrived (the app_settings claim prevents repeats).
+if (!process.env.VERCEL) {
+  setInterval(async () => {
+    try {
+      const [[r]] = await db.query('SELECT HOUR(NOW()) AS h');
+      const h = Number(r.h);
+      for (const [slot, hour] of Object.entries(ATTENDANCE_ALERT_SLOTS)) {
+        if (h >= hour && h < hour + 2) await runAttendanceAbsentAlert(slot);
+      }
+    } catch (e) { console.error('  ❌ Attendance alert tick:', e.message); }
+  }, 60 * 1000).unref();
+}
 
 // ── Daily KM — Morning / Evening odometer reading (photo + typed number)
 // for KM-tracked (track_km) staff; the day's KM = evening - morning. ──
@@ -1997,6 +2233,29 @@ app.delete('/api/km/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// One staff off per department per day: if a colleague from the same
+// department already has APPROVED leave overlapping these dates, a new
+// request is refused up front (and can't be approved either).
+async function findLeaveClash(userId, startDate, endDate) {
+  const [me] = await db.query('SELECT department FROM users WHERE id=?', [userId]);
+  const dept = (me[0] && me[0].department || '').trim();
+  if (!dept) return null;
+  const rows = await withAttendanceTables(async () => (await db.query(
+    `SELECT u.name, DATE_FORMAT(l.start_date,'%Y-%m-%d') AS start_date, DATE_FORMAT(l.end_date,'%Y-%m-%d') AS end_date
+     FROM leave_requests l JOIN users u ON l.user_id=u.id
+     WHERE l.status='approved' AND l.user_id<>? AND u.department=? AND l.start_date<=? AND l.end_date>=?
+     ORDER BY l.start_date LIMIT 1`,
+    [userId, dept, endDate, startDate]))[0]);
+  return rows[0] ? { ...rows[0], department: dept } : null;
+}
+function leaveClashMessage(c, forApplicant) {
+  const dmy = d => d.split('-').reverse().join('/');
+  const range = c.start_date === c.end_date ? dmy(c.start_date) : `${dmy(c.start_date)} – ${dmy(c.end_date)}`;
+  return forApplicant
+    ? `${c.name} (${c.department}) already has approved leave on ${range}. Only one staff from a department can be on leave the same day, so your leave will not be approved — please pick other dates.`
+    : `Cannot approve — ${c.name} (${c.department}) already has approved leave on ${range}.`;
+}
+
 // ── Leave requests — admin-only sees everyone's; HOD/PC see only their own ──
 app.get('/api/leave', requireAuth, async (req, res) => {
   try {
@@ -2023,6 +2282,15 @@ app.get('/api/leave', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+app.get('/api/leave/clash', requireAuth, async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '')) return res.json({ clash: null });
+    const clash = await findLeaveClash(req.session.userId, start, end);
+    res.json({ clash, message: clash ? leaveClashMessage(clash, true) : '' });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.post('/api/leave', requireAuth, async (req, res) => {
   try {
     const { leaveType, startDate, endDate, reason } = req.body;
@@ -2030,6 +2298,8 @@ app.post('/api/leave', requireAuth, async (req, res) => {
     if (!String(reason || '').trim()) return res.status(400).json({ error: 'Reason is required' });
     if (new Date(endDate) < new Date(startDate)) return res.status(400).json({ error: 'End date cannot be before start date' });
     const days = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
+    const clash = await findLeaveClash(req.session.userId, startDate, endDate);
+    if (clash) return res.status(400).json({ error: leaveClashMessage(clash, true), clash });
     await withAttendanceTables(async () => {
       await db.query(
         'INSERT INTO leave_requests (user_id,leave_type,start_date,end_date,days,reason,status) VALUES (?,?,?,?,?,?,\'pending\')',
@@ -2045,6 +2315,11 @@ app.put('/api/leave/:id', requireAuth, requireAdmin, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const { action, remarks } = req.body;
     if (!['approved', 'rejected'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+    if (action === 'approved') {
+      const [lr] = await db.query("SELECT user_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS s, DATE_FORMAT(end_date,'%Y-%m-%d') AS e FROM leave_requests WHERE id=?", [id]);
+      const clash = lr[0] && await findLeaveClash(lr[0].user_id, lr[0].s, lr[0].e);
+      if (clash) return res.status(400).json({ error: leaveClashMessage(clash, false) });
+    }
     const [result] = await db.query(
       `UPDATE leave_requests SET status=?,approved_by=?,approved_at=NOW(),remarks=? WHERE id=? AND status='pending'`,
       [action, req.session.userId, remarks || '', id]
@@ -2866,6 +3141,7 @@ async function canAccessTaskComments(req, taskId, taskType) {
   const task = rows[0];
   if (!task) return false;
   if (task.assigned_to === req.session.userId || task.assigned_by === req.session.userId) return true;
+  if (getTable(taskType) === 'delegation_tasks' && await hasPageGrant(req, 'all-delegations')) return true;
   if (req.session.role === 'hod') {
     const [[me], [assignee]] = await Promise.all([
       db.query('SELECT department FROM users WHERE id=?', [req.session.userId]),
@@ -3344,7 +3620,7 @@ const SFMS_STEPS = [
   // which needs the cash approver's OK (Approvals page) before this step
   // completes. qtyReturned stays new + old returned so older reports work.
   // Last step — completing it closes the complaint.
-  { n: 6, key: 'inout', label: 'Check In/Out (Spare Return)', doer: 'Mechanic (self)', planned: 'AP', actual: 'AQ', status: 'AT',
+  { n: 6, key: 'inout', label: 'Check In/Out (Spare Return)', doer: 'Niranjan', planned: 'AP', actual: 'AQ', status: 'AT',
     extra: [
       { key: 'qtyReturned', col: 'AR', label: 'Item Qty (Returned)' },
       { key: 'reasonIfShort', col: 'AS', label: 'Reason (if Short)' },
@@ -3459,7 +3735,10 @@ app.put('/api/service-fms/step-doers', requireAuth, requireAdmin, async (req, re
 // Doers person. Sheet names are matched to app logins by name, ignoring
 // "ji" and anything in brackets ("Vinod ji" → Vinod, "Buddhiram" →
 // "Buddhiram (Mechanic 3)"); a name matching no login (or two) maps to nobody.
-const SFMS_MECHANIC_STEP_NS = ['solve', 'inout'].map(k => SFMS_N[k]);
+// Only Solve is the AF mechanic's own step. Check In/Out (spare return) is
+// done by store staff — the same people who did Takeout (Step Doers matrix)
+// — never the mechanic himself (client, 2026-10-03).
+const SFMS_MECHANIC_STEP_NS = ['solve'].map(k => SFMS_N[k]);
 function sfmsNameKey(name) {
   return String(name || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/\bji\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 }
@@ -3596,6 +3875,46 @@ function sfmsDateToSerial(date) {
 // (a QR-linked-device session, connected once via MYAPI's own /api/sessions
 // flow; not re-established here). Was Maytapi before; kept the same
 // mobile-normalizing helper and call shape so nothing else had to change.
+// Customer-facing Service FMS WhatsApp texts (client-approved Hindi wording,
+// 2026-10-03). Multi-product complaint numbers ("C-56-1") show the shared
+// group number ("C-56").
+function sfmsDisplayDateTime(d) {
+  const ist = new Date(d.getTime() + IST_OFFSET_MS);
+  const dd = String(ist.getUTCDate()).padStart(2, '0'), mm = String(ist.getUTCMonth() + 1).padStart(2, '0');
+  let h = ist.getUTCHours(); const ampm = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+  return `${dd}/${mm}/${ist.getUTCFullYear()} ${h}:${String(ist.getUTCMinutes()).padStart(2, '0')} ${ampm}`;
+}
+function sfmsComplaintRegisteredMsg(name, complainNo, productList, when) {
+  return `🙏 नमस्ते ${String(name || '').trim() || 'ग्राहक'} जी,
+
+` +
+    `Ajanta Appliances में आपकी शिकायत दर्ज हो गई है।
+
+` +
+    `📋 शिकायत नंबर: *${complainNo}*
+🔧 प्रोडक्ट: ${productList}
+📅 दिनांक: ${sfmsDisplayDateTime(when)}
+
+` +
+    `हमारे technician जल्द ही आपसे संपर्क करेंगे। कृपया आगे की जानकारी के लिए यह शिकायत नंबर संभाल कर रखें।
+
+— Ajanta Appliances Service Team`;
+}
+function sfmsOtpMsg(name, complainNo, otp) {
+  const group = (String(complainNo || '').match(/^(C-\d+)/) || [null, complainNo])[1];
+  return `🙏 नमस्ते ${String(name || '').trim() || 'ग्राहक'} जी,
+
+` +
+    `आपकी शिकायत${group ? ` *${group}*` : ''} का समाधान हो गया है।
+
+🔐 OTP: *${otp}*
+
+` +
+    `कृपया यह OTP सिर्फ़ हमारे technician को बताएं, जब आप काम से संतुष्ट हों। यह OTP 30 मिनट तक valid है।
+
+— Ajanta Appliances Service Team`;
+}
+
 function sfmsNormalizeMobile(mobile) {
   const digits = String(mobile || '').replace(/\D/g, '');
   const last10 = digits.slice(-10);
@@ -3700,8 +4019,17 @@ function vercelWaitUntil(promise) {
   const waitUntil = ctx && typeof ctx.get === 'function' && (ctx.get() || {}).waitUntil;
   if (typeof waitUntil === 'function') waitUntil(promise);
 }
+// One retry ~8s later: the gateway's linked-device session drops and
+// reconnects roughly hourly, and a send landing in that gap used to be lost
+// (only ~3 in 10 complaint confirmations arrived). Bad numbers aren't retried.
 function sendWhatsAppInBackground(mobile, text, media, label) {
   const p = sendWhatsApp(mobile, text, media)
+    .catch(async e => {
+      if (/Invalid mobile/i.test(e.message)) throw e;
+      console.warn(`WhatsApp (${label}) failed, retrying:`, e.message);
+      await new Promise(r => setTimeout(r, 8000));
+      return sendWhatsApp(mobile, text, media);
+    })
     .catch(e => console.error(`WhatsApp (${label}) failed:`, e.message));
   vercelWaitUntil(p);
   return p;
@@ -3873,7 +4201,7 @@ async function sfmsFetchComplaints() {
         sd.extra.forEach(e => { step[e.key] = get(e.col) || ''; });
         return step;
       });
-      // Solve / Check In/Out belong to the mechanic assigned in AF (when
+      // Solve belongs to the mechanic assigned in AF (when
       // that name maps to an app login) — see sfmsMechanicUsers.
       const assignedMech = (c.steps.find(s => s.n === SFMS_N.assign) || {}).mechanic;
       const mechUser = assignedMech ? mechUsers.byKey.get(sfmsNameKey(assignedMech)) : null;
@@ -4120,7 +4448,7 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
     // registered. Never let a WhatsApp failure fail the complaint creation
     // itself — the complaint is already saved at this point.
     const productList = products.map(p => p.productName).join(', ');
-    sendWhatsAppInBackground(mobile, `Ajanta Appliances Service: Your complaint ${groupNo} for ${productList} has been registered. Our team will get back to you soon.`,
+    sendWhatsAppInBackground(mobile, sfmsComplaintRegisteredMsg(filledByName, groupNo, productList, new Date()),
       undefined, `complaint confirmation ${groupNo}`);
 
     res.json({ success: true, groupNo, complainNos, firstRow });
@@ -4205,10 +4533,10 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     const [allowed, rowRes] = await Promise.all([
       sfmsUserAccess(req).then(acc => sfmsCanActOnRow(req, acc, stepNum, row, sheetsApi)),
-      sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!D${row}:D${row}` })
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${row}:D${row}` })
     ]);
     if (!allowed) return res.status(403).json({ error: 'You are not assigned to this step' });
-    const mobile = (rowRes.data.values && rowRes.data.values[0] && rowRes.data.values[0][0]) || '';
+    const [complainNo = '', customerName = '', mobile = ''] = (rowRes.data.values && rowRes.data.values[0]) || [];
     if (!mobile) return res.status(400).json({ error: 'No customer mobile number on file for this complaint' });
 
     const otp = String(crypto.randomInt(100000, 1000000));
@@ -4228,9 +4556,7 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
       }
     });
 
-    const delivery = await sendWhatsAppQuick(mobile,
-      `Ajanta Appliances Service: Your OTP to confirm the technician's visit is ${otp}. Please share this with the technician. Valid for 30 minutes.`,
-      undefined, `OTP row ${row}`);
+    const delivery = await sendWhatsAppQuick(mobile, sfmsOtpMsg(customerName, complainNo, otp), undefined, `OTP row ${row}`);
 
     res.json({ success: true, pending: delivery === 'pending', otp: req.session.role === 'admin' ? otp : undefined });
   } catch (err) {
@@ -5406,6 +5732,29 @@ app.post('/api/o2d-fms/dealers/:name/payments', requireAuth, async (req, res) =>
   } catch (err) { sendServerError(res, err); }
 });
 
+// Dealer statement as a PDF on WhatsApp (client, 2026-10-03). The browser
+// builds the PDF (jsPDF) and posts it here; it's stored on Drive with a
+// public link only so the WhatsApp gateway can fetch it, then sent as a
+// document attachment.
+app.post('/api/o2d-fms/dealers/:name/statement-whatsapp', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
+    const name = req.params.name.trim();
+    const { mobile, pdf, caption } = req.body;
+    if (!mobile) return res.status(400).json({ error: 'Dealer WhatsApp number is required' });
+    if (!/^data:application\/pdf;base64,/.test(pdf || '')) return res.status(400).json({ error: 'Statement PDF missing' });
+    const safe = name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'Dealer';
+    const fileName = `Statement-${safe}.pdf`;
+    const url = await uploadPhotoToDrive(pdf, `${safe}-statement-${Date.now()}.pdf`, { public: true });
+    const delivery = await sendWhatsAppQuick(mobile, String(caption || '').slice(0, 1000),
+      { type: 'document', url, mimetype: 'application/pdf', fileName }, `statement ${name}`);
+    res.json({ success: true, pending: delivery === 'pending' });
+  } catch (err) {
+    if (err.isWhatsApp) return sendWhatsAppError(res, err);
+    sendServerError(res, err);
+  }
+});
+
 // ══════════════════════════════════════════════════════
 // PRICE LIST & CATALOGUE — its own page (not nested in O2D FMS), gated by
 // the 'price-catalogue' permission on the Access page. Has two parts: an
@@ -5770,9 +6119,220 @@ app.put('/api/stock/transactions/:id/cancel', requireAuth, async (req, res) => {
     if (!claim.affectedRows) return res.status(400).json({ error: 'Already cancelled' });
     // Reverse this entry's effect on current_stock — an IN being cancelled
     // subtracts back out, an OUT being cancelled adds back in.
-    const reverseDelta = txn.direction === 'IN' ? -Number(txn.quantity) : Number(txn.quantity);
-    await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?', [reverseDelta, txn.item_code]);
+    // An FMS-synced entry that was never linked to a stock item (applied=0)
+    // never touched current_stock, so there's nothing to reverse.
+    if (txn.applied === undefined || Number(txn.applied) === 1) {
+      const reverseDelta = txn.direction === 'IN' ? -Number(txn.quantity) : Number(txn.quantity);
+      await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?', [reverseDelta, txn.item_code]);
+    }
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ── IMS ⇄ FMS link + Daily Register ───────────────────────────────────────
+// Purchase FMS "Material Received" rows become automatic INWARD entries and
+// O2D (Sales) FMS "Goods Takeout" rows become automatic OUTWARD entries in
+// ajanta_stock_transactions (source='purchase'|'o2d', source_ref unique, so
+// each sheet line is booked exactly once). Product names in the FMS sheets
+// don't match the stock catalog spelling, so an entry is matched by a
+// normalised name (or a saved alias); unmatched ones are stored with
+// applied=0 and don't move current_stock until an admin links them to a
+// stock item once from the Daily Register (that link is remembered as an
+// alias for every later entry with the same name). Only movements AFTER the
+// catalog's opening-stock date are synced — earlier ones are already in it.
+const STOCK_O2D_OUT_STEP = 5;          // O2D "Goods Takeout and Photo"
+const STOCK_PURCHASE_IN_STEP = 2;      // Purchase "Material Received"
+const STOCK_SYNC_FROM_SETTING = 'stock_fms_sync_from';
+const STOCK_SYNC_THROTTLE_MS = 60 * 1000;
+
+let _stockTxnSchemaOk = false;
+async function ensureStockTxnSchema() {
+  if (_stockTxnSchemaOk) return;
+  await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1'));
+  const [cols] = await db.query('SHOW COLUMNS FROM ajanta_stock_transactions');
+  const have = new Set(cols.map(c => c.Field));
+  const adds = [
+    ['source', "VARCHAR(16) NOT NULL DEFAULT 'manual'"],
+    ['source_ref', 'VARCHAR(191) DEFAULT NULL'],
+    ['source_item', "VARCHAR(255) DEFAULT ''"],
+    ['party', "VARCHAR(255) DEFAULT ''"],
+    ['ref_no', "VARCHAR(64) DEFAULT ''"],
+    ['applied', 'TINYINT NOT NULL DEFAULT 1']
+  ];
+  for (const [name, def] of adds) {
+    if (!have.has(name)) await db.query(`ALTER TABLE ajanta_stock_transactions ADD COLUMN ${name} ${def}`);
+  }
+  if (!have.has('source_ref')) await db.query('ALTER TABLE ajanta_stock_transactions ADD UNIQUE KEY uq_source_ref (source_ref)');
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS ajanta_stock_aliases (
+      alias_key VARCHAR(191) PRIMARY KEY,
+      item_code VARCHAR(32) NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  _stockTxnSchemaOk = true;
+}
+
+// 'Ajanta Ceiling Fan 48" Runner Brown' and 'Ceiling Fan48" Runner Brown'
+// → the same key.
+function stockNameKey(name) {
+  return String(name || '').toLowerCase().replace(/^\s*ajanta\s+/, '').replace(/[^a-z0-9]/g, '').slice(0, 191);
+}
+function stockSerialToYmd(v) {
+  if (typeof v === 'number') return sfmsSerialToDate(v).slice(0, 10);
+  const m = String(v || '').match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const iso = String(v || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  return iso ? iso[1] : '';
+}
+
+async function stockSyncFromDate() {
+  const saved = await getAppSetting(STOCK_SYNC_FROM_SETTING);
+  if (saved) return saved;
+  const [[r]] = await withStockTable(() => db.query(
+    "SELECT DATE_FORMAT(DATE_ADD(MIN(as_of_date), INTERVAL 1 DAY), '%Y-%m-%d') AS d FROM ajanta_stock_items"));
+  const d = (r && r.d) || new Date().toISOString().slice(0, 10);
+  await setAppSetting(STOCK_SYNC_FROM_SETTING, d);
+  return d;
+}
+
+let _stockSyncAt = 0, _stockSyncPromise = null;
+function syncStockFromFms(force) {
+  if (_stockSyncPromise) return _stockSyncPromise;
+  if (!force && Date.now() - _stockSyncAt < STOCK_SYNC_THROTTLE_MS) return Promise.resolve({ throttled: true });
+  _stockSyncPromise = _syncStockFromFms().finally(() => { _stockSyncPromise = null; });
+  return _stockSyncPromise;
+}
+async function _syncStockFromFms() {
+  await ensureStockTxnSchema();
+  const fromDate = await stockSyncFromDate();
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const outStep = O2D_STEPS.find(s => s.n === STOCK_O2D_OUT_STEP);
+  const inStep = PURCHASE_STEPS.find(s => s.n === STOCK_PURCHASE_IN_STEP);
+  const [o2dRes, purRes] = await Promise.all([
+    sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:${outStep.status}`, valueRenderOption: 'UNFORMATTED_VALUE' }),
+    sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:${PURCHASE_LAST_COL}`, valueRenderOption: 'UNFORMATTED_VALUE' })
+  ]);
+
+  const events = [];
+  (o2dRes.data.values || []).forEach(r => {
+    const get = col => r[colToIdx(col)];
+    const status = String(get(outStep.status) || '');
+    if (!get('R') || !status || status === 'No') return;
+    const date = stockSerialToYmd(get(outStep.actual));
+    const qty = Number(get('O')) || 0;
+    if (!date || date < fromDate || qty <= 0) return;
+    events.push({ ref: `o2d|${get('R')}`, direction: 'OUT', source: 'o2d', date, qty,
+      name: String(get('M') || ''), party: String(get('C') || ''), refNo: String(get('Q') || '') });
+  });
+  (purRes.data.values || []).forEach(r => {
+    const get = col => r[colToIdx(col)];
+    if (!get('B') || !get(inStep.status) || String(get(inStep.status)) === 'No') return;
+    const date = stockSerialToYmd(get(inStep.actual));
+    const received = Number(get('S'));
+    const qty = received > 0 ? received : (Number(get('G')) || 0);
+    if (!date || date < fromDate || qty <= 0) return;
+    events.push({ ref: `purchase|${get('B')}|${get('D') || ''}|${stockNameKey(get('E'))}`.slice(0, 191), direction: 'IN', source: 'purchase', date, qty,
+      name: String(get('E') || ''), party: String(get('I') || ''), refNo: String(get('B') || '') });
+  });
+  if (!events.length) { _stockSyncAt = Date.now(); return { added: 0 }; }
+
+  const [existing] = await db.query('SELECT source_ref FROM ajanta_stock_transactions WHERE source_ref IS NOT NULL');
+  const seen = new Set(existing.map(r => r.source_ref));
+  const fresh = events.filter(e => !seen.has(e.ref));
+  if (!fresh.length) { _stockSyncAt = Date.now(); return { added: 0 }; }
+
+  const [items] = await withStockTable(() => db.query('SELECT item_code, description, uom FROM ajanta_stock_items'));
+  const [aliases] = await db.query('SELECT alias_key, item_code FROM ajanta_stock_aliases');
+  const byCode = Object.fromEntries(items.map(i => [i.item_code, i]));
+  const byKey = {};
+  items.forEach(i => { const k = stockNameKey(i.description); if (!byKey[k]) byKey[k] = i; });
+  aliases.forEach(a => { if (byCode[a.item_code]) byKey[a.alias_key] = byCode[a.item_code]; });
+
+  let added = 0;
+  for (const e of fresh) {
+    const item = byKey[stockNameKey(e.name)] || null;
+    const [ins] = await db.query(
+      `INSERT IGNORE INTO ajanta_stock_transactions
+         (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, source_ref, source_item, party, ref_no, applied)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [e.date, e.direction, item ? item.item_code : '', item ? item.description : e.name, e.qty, item ? item.uom : '',
+       '', e.source === 'o2d' ? 'O2D FMS' : 'Purchase FMS', e.source, e.ref, e.name, e.party, e.refNo, item ? 1 : 0]);
+    if (!ins.affectedRows) continue;
+    added++;
+    if (item) {
+      await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?',
+        [e.direction === 'IN' ? e.qty : -e.qty, item.item_code]);
+    }
+  }
+  _stockSyncAt = Date.now();
+  return { added };
+}
+
+// Daily Register — one date, Inward on one side, Outward on the other
+// (manual entries + everything synced from Purchase / O2D FMS).
+app.get('/api/stock/register', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : new Date().toISOString().slice(0, 10);
+    let syncError = '';
+    try { await syncStockFromFms(req.query.refresh === '1'); }
+    catch (e) { syncError = e.message || 'FMS sync failed'; await ensureStockTxnSchema(); }
+    const [rows] = await db.query(
+      "SELECT *, DATE_FORMAT(txn_date, '%Y-%m-%d') AS txn_date FROM ajanta_stock_transactions WHERE txn_date = ? ORDER BY id", [date]);
+    const [[unlinked]] = await db.query(
+      "SELECT COUNT(*) AS c FROM ajanta_stock_transactions WHERE applied = 0 AND status <> 'Cancelled'");
+    res.json({
+      date,
+      inward: rows.filter(r => r.direction === 'IN'),
+      outward: rows.filter(r => r.direction === 'OUT'),
+      unlinkedTotal: Number(unlinked.c) || 0,
+      syncFrom: await getAppSetting(STOCK_SYNC_FROM_SETTING),
+      canEdit: canEditStock(req),
+      syncError
+    });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Every FMS entry still waiting to be linked to a stock item (any date).
+app.get('/api/stock/unlinked', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
+    await ensureStockTxnSchema();
+    const [rows] = await db.query(
+      "SELECT *, DATE_FORMAT(txn_date, '%Y-%m-%d') AS txn_date FROM ajanta_stock_transactions WHERE applied = 0 AND status <> 'Cancelled' ORDER BY txn_date DESC, id DESC");
+    res.json({ items: rows, canEdit: canEditStock(req) });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Admin: link an unmatched FMS product name to a stock item. Saves the alias
+// and books every pending entry with that same name, not just this one.
+app.put('/api/stock/transactions/:id/link', requireAuth, async (req, res) => {
+  try {
+    if (!canEditStock(req)) return res.status(403).json({ error: 'Only admins can link stock entries' });
+    await ensureStockTxnSchema();
+    const id = parseInt(req.params.id, 10);
+    const itemCode = String(req.body.itemCode || '').trim();
+    const [[txn]] = await db.query('SELECT * FROM ajanta_stock_transactions WHERE id = ?', [id]);
+    if (!txn) return res.status(404).json({ error: 'Entry not found' });
+    if (Number(txn.applied) === 1) return res.status(400).json({ error: 'This entry is already linked' });
+    const [[item]] = await withStockTable(() => db.query('SELECT * FROM ajanta_stock_items WHERE item_code = ?', [itemCode]));
+    if (!item) return res.status(400).json({ error: 'Stock item not found' });
+    const key = stockNameKey(txn.source_item || txn.item_name);
+    if (key) await db.query('INSERT INTO ajanta_stock_aliases (alias_key, item_code) VALUES (?, ?) ON DUPLICATE KEY UPDATE item_code = VALUES(item_code)', [key, item.item_code]);
+    const [pending] = await db.query("SELECT * FROM ajanta_stock_transactions WHERE applied = 0 AND status <> 'Cancelled'");
+    let linked = 0;
+    for (const t of pending) {
+      if (t.id !== id && stockNameKey(t.source_item || t.item_name) !== key) continue;
+      const [claim] = await db.query(
+        'UPDATE ajanta_stock_transactions SET item_code = ?, item_name = ?, uom = ?, applied = 1 WHERE id = ? AND applied = 0',
+        [item.item_code, item.description, item.uom, t.id]);
+      if (!claim.affectedRows) continue;
+      linked++;
+      await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?',
+        [t.direction === 'IN' ? Number(t.quantity) : -Number(t.quantity), item.item_code]);
+    }
+    res.json({ success: true, linked });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -6653,10 +7213,12 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
           const billNo = req.body.billNo ? `\nBill No: ${req.body.billNo}` : '';
           const amount = req.body.billAmount ? `\nAmount: ₹${req.body.billAmount}` : '';
           const text = `Ajanta Appliances द्वारा आपका bill बना दिया गया है। कुछ ही समय में आपका order dispatch कर दिया जाएगा।\n\nOrder: ${orderNo}${billNo}${amount}`;
-          // Invoice goes as an actual attachment (photo/PDF), with the link
-          // kept in the caption too as a fallback if the preview fails.
-          sendWhatsAppInBackground(phone, `${text}\n\nInvoice: ${req.body.photoLink}`,
-            whatsappMediaFor(req.body.photoLink, req.body.photoFileName || `Invoice-${orderNo}${/\.pdf$/i.test(req.body.photoFileName || '') ? '.pdf' : '.jpg'}`),
+          // Invoice goes as a PDF document attachment only — no link in the
+          // text (client, 2026-10-03). The Make Bill upload converts a photo
+          // to PDF in the browser; an older non-PDF upload still goes as an image.
+          const isPdf = /\.pdf$/i.test(req.body.photoFileName || '') || /\.pdf(\?|$)/i.test(req.body.photoLink) || req.body.photoIsPdf === true;
+          sendWhatsAppInBackground(phone, text,
+            whatsappMediaFor(req.body.photoLink, isPdf ? `Invoice-${orderNo}.pdf` : `Invoice-${orderNo}.jpg`),
             `invoice ${orderNo}`);
           whatsappSent = true;
         } else {
