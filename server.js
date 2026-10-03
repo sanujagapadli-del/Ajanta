@@ -488,9 +488,15 @@ async function requireAuth(req, res, next) {
         return res.status(401).json({ error: 'You were signed out remotely. Please sign in again.' });
       }
     } catch(e) {} // column not migrated yet / sheets-db — fail open rather than lock everyone out
+    // Vendor accounts (Purchase FMS vendor page) are outside the company —
+    // they may only reach their own vendor APIs, never staff data.
+    if (decoded.role === 'vendor' && !VENDOR_ALLOWED_PATH.test(req.path)) {
+      return res.status(403).json({ error: 'Not available for vendor accounts' });
+    }
     next();
   } catch(e) { res.status(401).json({ error: 'Invalid token' }); }
 }
+const VENDOR_ALLOWED_PATH = /^\/api\/(me|vendor\/[\w-]+)$/;
 function requireAdmin(req, res, next) {
   if (req.session.role === 'admin') return next();
   res.status(403).json({ error: 'Admin only' });
@@ -2040,7 +2046,7 @@ async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
   } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
 
   const [users] = await db.query(
-    "SELECT id, name, week_off, extra_off FROM users WHERE is_active=1 AND (role IS NULL OR role<>'admin') ORDER BY name"
+    "SELECT id, name, week_off, extra_off FROM users WHERE is_active=1 AND (role IS NULL OR role NOT IN ('admin','vendor')) ORDER BY name"
   );
   const working = users.filter(u => {
     const weekOff = String(u.week_off || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
@@ -2940,7 +2946,7 @@ async function canAccessUsersPage(req) {
 // canAccessUsersPage; this one is open to any logged-in user.
 app.get('/api/users/roster', requireAuth, async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT id,name,email,department,role,week_off,extra_off,is_active FROM users ORDER BY role DESC,name ASC');
+    const [rows] = await db.query("SELECT id,name,email,department,role,week_off,extra_off,is_active FROM users WHERE role IS NULL OR role<>'vendor' ORDER BY role DESC,name ASC");
     res.json(rows.map(r => ({
       ...r,
       is_active: (r.is_active === '' || r.is_active === null || r.is_active === undefined) ? 1 : +r.is_active
@@ -2951,7 +2957,7 @@ app.get('/api/users/roster', requireAuth, async (req, res) => {
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessUsersPage(req))) return res.status(403).json({ error: 'You do not have access to the Users page' });
-    const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,is_active,track_km FROM users ORDER BY role DESC,name ASC');
+    const [rows] = await db.query("SELECT id,name,email,notification_email,role,phone,department,week_off,extra_off,is_active,track_km FROM users WHERE role IS NULL OR role<>'vendor' ORDER BY role DESC,name ASC");
     // page_access fetch separately — safe if column not yet added
     let accessById = {};
     try {
@@ -7510,7 +7516,8 @@ async function getPurchasePOs() {
       qty: group.reduce((sum, l) => sum + l.qty, 0),
       amount: group.reduce((sum, l) => sum + l.qty * (Number(l.finalRate) || 0), 0),
       products: group.map(l => ({
-        row: l.row, itemId: l.itemId, productName: l.productName, uom: l.uom, qty: l.qty, finalRate: l.finalRate
+        row: l.row, itemId: l.itemId, productName: l.productName, uom: l.uom, qty: l.qty, finalRate: l.finalRate,
+        received: !!(l.steps[1] && l.steps[1].done)
       }))
     };
     o.steps = PURCHASE_STEPS.map((sd, idx) => {
@@ -7613,6 +7620,166 @@ app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req,
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
     sendServerError(res, err);
   }
+});
+
+// ══════════════════════════════════════════════════════
+// PURCHASE FMS — VENDOR PAGE (client, 2026-10-03). Each vendor gets an app
+// login (users.role = 'vendor', users.vendor_name = the exact "Vendor Name"
+// used in the Purchase Fms sheet). A vendor sees only /vendor — the PO lines
+// still due from them — and posts status updates (In Production / Ready to
+// Dispatch / Dispatched + date + qty + remark). Each update is kept in
+// purchase_vendor_updates (shown to Priyanka in Purchase FMS) and is also
+// written to that line's Follow step Remark (O) + Next Followup (P) in the
+// sheet. Material Received stays with Priyanka. requireAuth blocks vendor
+// tokens from every other API (VENDOR_ALLOWED_PATH).
+// ══════════════════════════════════════════════════════
+const VENDOR_STATUSES = ['In Production', 'Ready to Dispatch', 'Dispatched'];
+async function ensureVendorTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS purchase_vendor_updates (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      po_number VARCHAR(64) NOT NULL,
+      item_id VARCHAR(64) DEFAULT '',
+      product_name VARCHAR(255) DEFAULT '',
+      vendor_name VARCHAR(255) NOT NULL,
+      status VARCHAR(40) NOT NULL,
+      update_date DATE NULL,
+      dispatched_qty DECIMAL(12,2) NULL,
+      remark VARCHAR(500) DEFAULT '',
+      user_id INT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_po (po_number),
+      INDEX idx_vendor (vendor_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  try { await db.query('ALTER TABLE users ADD COLUMN vendor_name VARCHAR(255) DEFAULT NULL'); }
+  catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+}
+let _vendorTablesOk = false;
+async function withVendorTables(fn) {
+  if (!_vendorTablesOk) { await ensureVendorTables(); _vendorTablesOk = true; }
+  return fn();
+}
+const vendorKey = v => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+async function vendorOf(req) {
+  const [[u]] = await withVendorTables(() => db.query('SELECT vendor_name FROM users WHERE id=?', [req.session.userId]));
+  return (u && u.vendor_name) || '';
+}
+
+app.get('/api/vendor/items', requireAuth, async (req, res) => {
+  try {
+    if (req.session.role !== 'vendor') return res.status(403).json({ error: 'Vendor accounts only' });
+    const vendor = await vendorOf(req);
+    if (!vendor) return res.status(400).json({ error: 'This login is not linked to a vendor yet — contact Ajanta Appliances.' });
+    const pos = (await getPurchasePOs()).filter(o => vendorKey(o.vendorName) === vendorKey(vendor));
+    const [updates] = await db.query(
+      `SELECT po_number, item_id, status, DATE_FORMAT(update_date,'%Y-%m-%d') AS update_date, dispatched_qty, remark,
+              DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
+       FROM purchase_vendor_updates WHERE vendor_name=? ORDER BY id DESC`, [vendor]);
+    const shape = o => ({
+      poNumber: o.poNumber, indentNo: o.indentNo, poDate: o.timestamp, leadTime: o.leadTime,
+      expectedBy: (o.steps[1] && o.steps[1].planned) || '',
+      items: o.products.map(p => ({ itemId: p.itemId, productName: p.productName, uom: p.uom, qty: p.qty, received: p.received,
+        updates: updates.filter(u => u.po_number === o.poNumber && String(u.item_id) === String(p.itemId)) }))
+    });
+    res.json({
+      vendor,
+      pending: pos.filter(o => o.products.some(p => !p.received)).map(shape),
+      // Last few fully-received POs, so the vendor can see they were booked in.
+      received: pos.filter(o => o.products.every(p => p.received)).slice(0, 10).map(shape)
+    });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.post('/api/vendor/update', requireAuth, async (req, res) => {
+  try {
+    if (req.session.role !== 'vendor') return res.status(403).json({ error: 'Vendor accounts only' });
+    const vendor = await vendorOf(req);
+    if (!vendor) return res.status(400).json({ error: 'This login is not linked to a vendor yet.' });
+    const { poNumber, itemId, status, date, dispatchedQty, remark } = req.body;
+    if (!VENDOR_STATUSES.includes(status)) return res.status(400).json({ error: 'Choose a status' });
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date' });
+    if (status === 'Dispatched' && !(Number(dispatchedQty) > 0)) return res.status(400).json({ error: 'Enter the dispatched quantity' });
+    const po = (await getPurchasePOs()).find(o => o.poNumber === poNumber && vendorKey(o.vendorName) === vendorKey(vendor));
+    const line = po && po.products.find(p => String(p.itemId) === String(itemId));
+    if (!line) return res.status(404).json({ error: 'This PO item was not found for your company' });
+    if (line.received) return res.status(400).json({ error: 'This item is already received by Ajanta Appliances' });
+    const cleanRemark = String(remark || '').trim().slice(0, 400);
+    await db.query(
+      `INSERT INTO purchase_vendor_updates (po_number, item_id, product_name, vendor_name, status, update_date, dispatched_qty, remark, user_id)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [poNumber, String(itemId), line.productName, vendor, status, date || null,
+       status === 'Dispatched' ? Number(dispatchedQty) : null, cleanRemark, req.session.userId]);
+    // Mirror into the sheet's Follow step so Priyanka's sheet stays current.
+    const dmy = d => d ? d.split('-').reverse().join('/') : '';
+    const text = `Vendor: ${status}${status === 'Dispatched' ? ` ${Number(dispatchedQty)} ${line.uom || ''}`.trimEnd() : ''}` +
+      `${date ? ` (${status === 'Dispatched' ? 'on' : 'by'} ${dmy(date)})` : ''}${cleanRemark ? ` — ${cleanRemark}` : ''}`;
+    const follow = PURCHASE_STEPS.find(sd => sd.n === 1);
+    const remarkCol = follow.extra.find(e => e.key === 'remark').col;
+    const nextCol = follow.extra.find(e => e.key === 'nextFollowup').col;
+    const data = [{ range: `'${PURCHASE_TAB}'!${remarkCol}${line.row}`, values: [[text]] }];
+    if (date) data.push({ range: `'${PURCHASE_TAB}'!${nextCol}${line.row}`, values: [[sfmsDateToSerial(new Date(date + 'T00:00:00'))]] });
+    let sheetError = '';
+    try {
+      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+      await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
+    } catch (e) { sheetError = e.message; console.error('Vendor update sheet write failed:', e.message); }
+    res.json({ success: true, sheetError });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Staff side: every vendor update, newest first (Purchase FMS page).
+app.get('/api/purchase-fms/vendor-updates', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'purchase-fms'))) return res.status(403).json({ error: 'You do not have access to Purchase FMS' });
+    const [rows] = await withVendorTables(() => db.query(
+      `SELECT po_number, item_id, product_name, vendor_name, status, DATE_FORMAT(update_date,'%Y-%m-%d') AS update_date,
+              dispatched_qty, remark, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
+       FROM purchase_vendor_updates ORDER BY id DESC LIMIT 2000`));
+    res.json(rows);
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Admin: vendor logins — one per vendor name found in the Purchase sheet.
+app.get('/api/purchase-fms/vendor-logins', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const pos = await getPurchasePOs();
+    const names = [...new Map(pos.filter(o => o.vendorName).map(o => [vendorKey(o.vendorName), String(o.vendorName).trim()])).values()].sort();
+    const [logins] = await withVendorTables(() => db.query("SELECT id, name, email, vendor_name FROM users WHERE role='vendor'"));
+    res.json(names.map(n => {
+      const login = logins.find(l => vendorKey(l.vendor_name) === vendorKey(n));
+      const pending = pos.filter(o => vendorKey(o.vendorName) === vendorKey(n) && o.products.some(p => !p.received)).length;
+      return { vendorName: n, pendingPOs: pending, login: login ? { id: login.id, email: login.email } : null };
+    }));
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/purchase-fms/vendor-logins', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const vendorName = String(req.body.vendorName || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
+    if (!vendorName) return res.status(400).json({ error: 'Vendor name missing' });
+    if (!/^\S+@\S+\.\S+$/.test(email) && !/^[a-z0-9._-]{3,}$/.test(email)) return res.status(400).json({ error: 'Enter a login ID (email or simple username)' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    const [existing] = await withVendorTables(() => db.query("SELECT id FROM users WHERE role='vendor' AND vendor_name=?", [vendorName]));
+    const [clash] = await db.query('SELECT id FROM users WHERE LOWER(email)=? AND id<>?', [email, existing[0] ? existing[0].id : 0]);
+    if (clash.length) return res.status(400).json({ error: 'That login ID is already used by another account' });
+    if (existing[0]) {
+      await db.query('UPDATE users SET email=?, password=?, force_logout_at=NOW() WHERE id=?', [email, hashPassword(password), existing[0].id]);
+    } else {
+      await db.query("INSERT INTO users (name, email, password, role, department, is_active, vendor_name, page_access) VALUES (?,?,?,'vendor','',1,?,'[]')",
+        [vendorName, email, hashPassword(password), vendorName]);
+    }
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/purchase-fms/vendor-logins/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [r] = await db.query("DELETE FROM users WHERE id=? AND role='vendor'", [parseInt(req.params.id, 10)]);
+    if (!r.affectedRows) return res.status(404).json({ error: 'Vendor login not found' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -7991,6 +8158,10 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 // Auth check is handled client-side via /api/me in init() — removing server-side
 // requireAuth here prevents app.html from loading if cookie has any timing/domain issue
 // no-cache: browser always fetches latest version (prevents stale JS bugs)
+app.get('/vendor', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'public', 'vendor.html'));
+});
 app.get('/app', (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.sendFile(path.join(__dirname, 'public', 'app.html'));

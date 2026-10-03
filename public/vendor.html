@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Vendor Portal — Ajanta Appliances</title>
+<link rel="icon" type="image/png" href="/logo-mark.png"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<!--
+  Purchase FMS vendor page (2026-10-03). Opened by a vendor login (role
+  'vendor' — /app redirects here). Shows the PO lines still due from this
+  vendor and lets them post a status update per line; see the "PURCHASE FMS —
+  VENDOR PAGE" section in server.js. Vendor tokens can only reach
+  /api/me and /api/vendor/*.
+-->
+<style>
+:root{
+  --primary:#010371; --primary-light:rgba(1,3,113,.08);
+  --success:#059669; --success-bg:#ecfdf5; --warning:#b45309; --warning-bg:#fffbeb; --danger:#dc2626;
+  --g50:#f8fafc; --g100:#f1f5f9; --g200:#e2e8f0; --g400:#94a3b8; --g500:#64748b; --g700:#334155; --g900:#0f172a;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Inter',sans-serif;background:var(--g50);color:var(--g900);font-size:14px}
+header{background:var(--primary);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:5}
+header img{height:34px;background:#fff;border-radius:8px;padding:3px}
+header .who{flex:1;min-width:0}
+header .who b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .who span{font-size:11.5px;opacity:.8}
+header button{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:8px;padding:8px 12px;font:600 13px 'Inter';cursor:pointer}
+main{max-width:860px;margin:0 auto;padding:16px}
+.tabs{display:flex;gap:24px;border-bottom:1.5px solid var(--g200);margin-bottom:16px}
+.tab{padding-bottom:10px;margin-bottom:-1.5px;font-weight:600;color:var(--g400);cursor:pointer;border-bottom:2px solid transparent}
+.tab.active{color:var(--primary);font-weight:700;border-color:var(--primary)}
+.po{background:#fff;border:1px solid var(--g200);border-radius:14px;margin-bottom:14px;overflow:hidden}
+.po-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 14px;background:var(--g100)}
+.po-head b{font-size:15px}
+.po-head small{color:var(--g500);font-size:12px}
+.item{padding:12px 14px;border-top:1px solid var(--g200)}
+.item-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.item-name{font-weight:600}
+.qty{font-weight:800;white-space:nowrap}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;margin-top:6px}
+.chip.none{background:var(--g100);color:var(--g500)}
+.chip.prod{background:var(--warning-bg);color:var(--warning)}
+.chip.ready{background:var(--primary-light);color:var(--primary)}
+.chip.disp,.chip.recv{background:var(--success-bg);color:var(--success)}
+.btn{border:1.5px solid var(--primary);background:#fff;color:var(--primary);border-radius:9px;padding:8px 14px;font:700 13px 'Inter';cursor:pointer}
+.btn.primary{background:var(--primary);color:#fff}
+.btn:disabled{opacity:.6;cursor:wait}
+.form{margin-top:10px;background:var(--g50);border:1px solid var(--g200);border-radius:10px;padding:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr}
+.form label{display:block;font-size:11px;font-weight:700;color:var(--g500);text-transform:uppercase;margin-bottom:4px}
+.form input,.form select{width:100%;padding:9px 10px;border:1.5px solid var(--g200);border-radius:8px;font:14px 'Inter';background:#fff}
+.form .full{grid-column:1/-1}
+.form .actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end}
+.hist{margin-top:8px;font-size:12px;color:var(--g500)}
+.hist div{padding:3px 0}
+.empty{text-align:center;color:var(--g400);padding:40px 16px;background:#fff;border:1px dashed var(--g200);border-radius:14px}
+.err{color:var(--danger);font-size:13px;margin-top:6px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--g900);color:#fff;padding:10px 16px;border-radius:10px;font-weight:600;display:none;z-index:10;max-width:90vw}
+@media(max-width:560px){.form{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <img src="/logo-mark.png" alt=""/>
+  <div class="who"><b id="vName">Loading…</b><span>Ajanta Appliances — Vendor Portal</span></div>
+  <button onclick="logout()">Logout</button>
+</header>
+<main>
+  <div class="tabs">
+    <div class="tab active" id="tabPending" onclick="setTab('pending')">Material to Send</div>
+    <div class="tab" id="tabReceived" onclick="setTab('received')">Received</div>
+  </div>
+  <div id="list"><div class="empty">Loading…</div></div>
+</main>
+<div id="toast"></div>
+<script>
+let DATA = null, TAB = 'pending', OPEN = null;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const dmy = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', 3500); }
+
+async function api(url, method = 'GET', body) {
+  const opts = { method, credentials: 'include', headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  let r;
+  try { r = await fetch(url, opts); } catch (e) { return { error: 'Network error — check your internet' }; }
+  if (r.status === 401) { location.replace('/'); return {}; }
+  try { const d = await r.json(); if (!r.ok && !d.error) d.error = 'HTTP ' + r.status; return d; }
+  catch (e) { return { error: 'HTTP ' + r.status }; }
+}
+
+async function init() {
+  const me = await api('/api/me');
+  if (me && me.role && me.role !== 'vendor') { location.replace('/app'); return; }
+  await load();
+}
+async function load() {
+  const d = await api('/api/vendor/items');
+  if (d.error) { document.getElementById('list').innerHTML = `<div class="empty">⚠️ ${esc(d.error)}</div>`; return; }
+  DATA = d;
+  document.getElementById('vName').textContent = d.vendor;
+  render();
+}
+function setTab(t) {
+  TAB = t; OPEN = null;
+  document.getElementById('tabPending').classList.toggle('active', t === 'pending');
+  document.getElementById('tabReceived').classList.toggle('active', t === 'received');
+  render();
+}
+function chip(item) {
+  if (item.received) return '<span class="chip recv">✅ Received by Ajanta</span>';
+  const u = item.updates[0];
+  if (!u) return '<span class="chip none">No update yet</span>';
+  const cls = { 'In Production': 'prod', 'Ready to Dispatch': 'ready', 'Dispatched': 'disp' }[u.status] || 'none';
+  const extra = u.status === 'Dispatched' ? ` ${Number(u.dispatched_qty)} on ${dmy(u.update_date)}` : (u.update_date ? ` — by ${dmy(u.update_date)}` : '');
+  return `<span class="chip ${cls}">${esc(u.status)}${esc(extra)}</span>`;
+}
+function render() {
+  const list = document.getElementById('list');
+  const pos = (DATA && DATA[TAB]) || [];
+  if (!pos.length) {
+    list.innerHTML = `<div class="empty">${TAB === 'pending' ? '🎉 Nothing pending — no material due from you right now.' : 'No received POs yet.'}</div>`;
+    return;
+  }
+  list.innerHTML = pos.map(po => `
+    <div class="po">
+      <div class="po-head">
+        <div><b>${esc(po.poNumber)}</b><br><small>PO date ${esc(dmy(po.poDate) || '—')}${po.indentNo ? ' · ' + esc(po.indentNo) : ''}</small></div>
+        ${po.expectedBy ? `<div style="text-align:right"><small>Expected by</small><br><b style="font-size:13px">${esc(dmy(po.expectedBy))}</b></div>` : ''}
+      </div>
+      ${po.items.filter(it => TAB === 'received' || !it.received).map(it => itemHtml(po, it)).join('')}
+    </div>`).join('');
+}
+function itemHtml(po, it) {
+  const key = `${po.poNumber}|${it.itemId}`;
+  const open = OPEN === key;
+  return `<div class="item">
+    <div class="item-top">
+      <div><div class="item-name">${esc(it.productName)}</div>${chip(it)}</div>
+      <div style="text-align:right"><div class="qty">${esc(it.qty)} ${esc(it.uom || '')}</div>
+        ${TAB === 'pending' && !it.received && !open ? `<button class="btn" style="margin-top:8px" onclick="openForm('${esc(key)}')">Update Status</button>` : ''}</div>
+    </div>
+    ${open ? formHtml(po, it) : ''}
+    ${it.updates.length ? `<div class="hist">${it.updates.slice(0, 5).map(u => `<div>🕒 ${esc(u.created_at.slice(8, 10) + '/' + u.created_at.slice(5, 7))} ${esc(u.created_at.slice(11))} — <b>${esc(u.status)}</b>${u.status === 'Dispatched' ? ' ' + Number(u.dispatched_qty) : ''}${u.update_date ? ' · ' + esc(dmy(u.update_date)) : ''}${u.remark ? ' · ' + esc(u.remark) : ''}</div>`).join('')}</div>` : ''}
+  </div>`;
+}
+function formHtml(po, it) {
+  return `<div class="form">
+    <div><label>Status</label>
+      <select id="fStatus" onchange="onStatus()">
+        <option value="In Production">In Production</option>
+        <option value="Ready to Dispatch">Ready to Dispatch</option>
+        <option value="Dispatched">Dispatched</option>
+      </select></div>
+    <div><label><span id="fDateLabel">Expected dispatch date</span> <span id="fDateDmy" style="color:var(--primary);text-transform:none"></span></label><input type="date" id="fDate" oninput="showDmy()" onchange="showDmy()"/></div>
+    <div id="fQtyWrap" style="display:none"><label>Dispatched qty</label><input type="number" id="fQty" min="1" placeholder="${esc(it.qty)}"/></div>
+    <div class="full"><label>Remark (vehicle / LR no. / anything)</label><input type="text" id="fRemark" maxlength="400"/></div>
+    <div class="err full" id="fErr" style="display:none"></div>
+    <div class="actions"><button class="btn" onclick="closeForm()">Cancel</button>
+      <button class="btn primary" id="fSave" onclick="save('${esc(po.poNumber)}','${esc(it.itemId)}')">Save</button></div>
+  </div>`;
+}
+// Phones show a native date box in their own locale (often MM/DD) — echo
+// the picked date as DD/MM/YYYY next to the label so there's no confusion.
+function showDmy() { const v = document.getElementById('fDate').value; document.getElementById('fDateDmy').textContent = v ? '— ' + dmy(v) : ''; }
+function openForm(key) { OPEN = key; render(); onStatus(); }
+function closeForm() { OPEN = null; render(); }
+function onStatus() {
+  const st = document.getElementById('fStatus').value;
+  const disp = st === 'Dispatched';
+  document.getElementById('fQtyWrap').style.display = disp ? '' : 'none';
+  document.getElementById('fDateLabel').textContent = disp ? 'Dispatch date' : 'Expected dispatch date';
+  const d = document.getElementById('fDate');
+  if (disp && !d.value) { const t = new Date(); d.value = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; }
+  showDmy();
+}
+async function save(poNumber, itemId) {
+  const err = document.getElementById('fErr'), btn = document.getElementById('fSave');
+  const body = {
+    poNumber, itemId,
+    status: document.getElementById('fStatus').value,
+    date: document.getElementById('fDate').value,
+    dispatchedQty: document.getElementById('fQty').value,
+    remark: document.getElementById('fRemark').value
+  };
+  if (body.status === 'Dispatched' && !(Number(body.dispatchedQty) > 0)) { err.textContent = 'Enter the dispatched quantity'; err.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const r = await api('/api/vendor/update', 'POST', body);
+  btn.disabled = false; btn.textContent = 'Save';
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  OPEN = null;
+  toast('✅ Status updated — Ajanta Appliances can see it now');
+  await load();
+}
+async function logout() {
+  await fetch('/api/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+  location.replace('/');
+}
+init();
+</script>
+</body>
+</html>

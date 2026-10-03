@@ -1521,6 +1521,7 @@ tbody tr:last-child td{border-bottom:none;}
            tab since Apps Script web apps don't reliably load inside an iframe. -->
       <a class="btn btn-primary" href="https://script.google.com/a/macros/e-marketing.io/s/AKfycbx2BdRpx2H82Akm9uegkUz15GZLR-zOIUFJmdBu59TCz39iaQoYb6IOkDiwhOm_V_4/exec" target="_blank" rel="noopener" style="text-decoration:none">+ New Indent</a>
       <button class="btn btn-outline" onclick="loadPurchaseFmsList()">🔄 Refresh</button>
+      <button class="btn btn-outline" id="purchaseVendorLoginsBtn" style="display:none" onclick="openVendorLoginsModal()">👤 Vendor Logins</button>
       <button class="btn btn-outline" id="purchaseStepDoersBtn" style="display:none" onclick="openPurchaseStepDoersModal()">⚙ Step Doers</button>
     </div>
 
@@ -3326,6 +3327,7 @@ async function init() {
     }
     ME = await r.json();
     if (!ME || !ME.id) { window.location.replace('/'); return; }
+    if (ME.role === 'vendor') { window.location.replace('/vendor'); return; } // Purchase FMS vendor portal
     // ── ROLE FEATURE FLAGS ──────────────────────────────
     // To re-enable hod/pc: remove or comment the next 2 lines
     if (ME.role === 'hod' || ME.role === 'pc') ME.role = 'user';
@@ -3363,6 +3365,7 @@ async function init() {
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
       document.getElementById('o2dTeamGroupBtn').style.display = 'inline-flex';
       document.getElementById('purchaseStepDoersBtn').style.display = 'inline-flex';
+      document.getElementById('purchaseVendorLoginsBtn').style.display = 'inline-flex';
       document.getElementById('sfmsStepDoersBtn').style.display = 'inline-flex';
     }
     // hod/pc nav blocks — re-enable when ROLE FEATURE FLAGS above are removed
@@ -12467,9 +12470,10 @@ async function loadPurchaseFmsList() {
   const wrap = document.getElementById('pfmsListWrap');
   wrap.innerHTML = '<div class="empty">Loading…</div>';
   if (!_pfmsStepDoersMerged) await mergePurchaseStepDoersIntoDefs();
-  const data = await api('/api/purchase-fms');
+  const [data, vu] = await Promise.all([api('/api/purchase-fms'), api('/api/purchase-fms/vendor-updates')]);
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   pfmsData = data;
+  pfmsVendorUpdates = Array.isArray(vu) ? vu : [];
   renderPurchaseFmsActiveView();
 }
 
@@ -12555,7 +12559,7 @@ function renderPurchaseFmsView() {
           <td style="font-weight:600">${esc(o.poNumber || '—')}</td>
           <td>${esc(o.indentNo || '—')}</td>
           <td>${esc(o.vendorName || '—')}</td>
-          <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}</div>`).join('') || '—'}</td>
+          <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}${p.received ? '' : pfmsVendorChipHtml(o.poNumber, p.itemId)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
           ${o.steps.map(s => `
             <td style="border-left:2px solid var(--gray-200)">${esc(s.planned || '—')}</td>
@@ -12587,7 +12591,7 @@ function renderPurchasePCView() {
           <td style="font-weight:600">${esc(o.poNumber || '—')}</td>
           <td>${esc(o.indentNo || '—')}</td>
           <td>${esc(o.vendorName || '—')}</td>
-          <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}</div>`).join('') || '—'}</td>
+          <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}${p.received ? '' : pfmsVendorChipHtml(o.poNumber, p.itemId)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
           <td style="font-weight:600">${pendingStep.n}. ${esc(pendingStep.label)}</td>
           <td style="${plannedStyle}">${esc(pendingStep.planned || '—')}${overdue ? ' ⚠️' : ''}</td>
@@ -12736,6 +12740,84 @@ async function advancePurchaseStep(poNumber, step) {
   loadPurchaseFmsList();
 }
 
+// ── Vendor portal updates (vendor page, /vendor) shown to Purchase staff ──
+let pfmsVendorUpdates = [];
+function pfmsVendorUpdatesFor(poNumber, itemId) {
+  return pfmsVendorUpdates.filter(u => u.po_number === poNumber && (itemId === undefined || String(u.item_id) === String(itemId)));
+}
+function pfmsVendorStatusText(u) {
+  const dmy = d => d ? d.split('-').reverse().join('/') : '';
+  return `${u.status}${u.status === 'Dispatched' ? ` ${Number(u.dispatched_qty)}${u.update_date ? ' on ' + dmy(u.update_date) : ''}` : (u.update_date ? ' — by ' + dmy(u.update_date) : '')}`;
+}
+function pfmsVendorChipHtml(poNumber, itemId) {
+  const u = pfmsVendorUpdatesFor(poNumber, itemId)[0];
+  if (!u) return '';
+  const color = u.status === 'Dispatched' ? 'var(--color-success-text)' : u.status === 'Ready to Dispatch' ? 'var(--color-primary)' : 'var(--color-warning)';
+  return `<div style="font-size:10.5px;font-weight:700;color:${color}" title="${esc(u.remark || '')}">🚚 ${esc(pfmsVendorStatusText(u))}</div>`;
+}
+function pfmsVendorHistoryHtml(o) {
+  const ups = pfmsVendorUpdatesFor(o.poNumber);
+  if (!ups.length) return '';
+  return `<div style="${PFMS_FIELD_LABEL_STYLE}">🚚 Vendor updates</div>
+    <div style="margin-bottom:14px">${ups.slice(0, 15).map(u => `<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--gray-100)">
+      <b>${esc(pfmsVendorStatusText(u))}</b> · ${esc(u.product_name || '')}${u.remark ? ` · <span style="color:var(--gray-600)">${esc(u.remark)}</span>` : ''}
+      <span style="color:var(--gray-400);font-size:11px">— ${esc(fmtDateDMY(u.created_at, true))}</span></div>`).join('')}</div>`;
+}
+
+// ── Admin: one login per vendor for the vendor page ──
+async function openVendorLoginsModal() {
+  let m = document.getElementById('vendorLoginsModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'vendorLoginsModal';
+    m.innerHTML = `<div class="modal" style="max-width:780px;width:96vw">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h3 style="margin:0">👤 Vendor Logins</h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('vendorLoginsModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:12px">Each vendor logs in at the normal app login page with the ID + password set here and sees only their own pending material, where they can update the status. Share the app link with them: <b>${esc(location.origin)}</b></div>
+      <div id="vendorLoginsBody"><div class="empty">Loading…</div></div>
+    </div>`;
+    document.body.appendChild(m);
+  }
+  m.classList.add('open');
+  await renderVendorLogins();
+}
+async function renderVendorLogins() {
+  const body = document.getElementById('vendorLoginsBody');
+  const r = await api('/api/purchase-fms/vendor-logins');
+  if (!Array.isArray(r)) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error || 'Failed to load')}</div>`; return; }
+  const inp = 'padding:7px 9px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12.5px;width:100%;box-sizing:border-box';
+  body.innerHTML = `<div style="overflow-x:auto"><table style="font-size:12.5px;min-width:620px">
+    <thead><tr><th>Vendor</th><th>Pending POs</th><th>Login ID</th><th>Password</th><th></th></tr></thead>
+    <tbody>${r.map((v, i) => `<tr>
+      <td style="font-weight:600">${esc(v.vendorName)}${v.login ? '<div style="font-size:10.5px;color:var(--color-success-text);font-weight:700">✓ login active</div>' : ''}</td>
+      <td>${v.pendingPOs}</td>
+      <td><input id="vlEmail_${i}" style="${inp}" value="${esc(v.login ? v.login.email : '')}" placeholder="e.g. mrindustries"/></td>
+      <td><input id="vlPass_${i}" style="${inp}" type="text" placeholder="${v.login ? 'new password to reset' : 'min 6 characters'}"/></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-primary btn-sm" onclick="saveVendorLogin(${i}, '${esc(v.vendorName).replace(/'/g, "\\'")}')">${v.login ? 'Update' : 'Create'}</button>
+        ${v.login ? `<button class="btn btn-outline btn-sm" onclick="deleteVendorLogin(${v.login.id})" title="Remove login">🗑</button>` : ''}
+      </td></tr>`).join('')}</tbody></table></div>`;
+}
+async function saveVendorLogin(i, vendorName) {
+  const email = document.getElementById(`vlEmail_${i}`).value.trim();
+  const password = document.getElementById(`vlPass_${i}`).value;
+  if (!email || !password) { showToast('Enter a login ID and a password', 'error'); return; }
+  const r = await api('/api/purchase-fms/vendor-logins', 'POST', { vendorName, email, password });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ Login saved for ${vendorName} — ID: ${email}`);
+  renderVendorLogins();
+}
+function deleteVendorLogin(id) {
+  showConfirm({ icon: '🗑️', title: 'Remove vendor login?', msg: 'The vendor will no longer be able to sign in. Their past updates stay.', okLabel: 'Remove' }, async () => {
+    const r = await api(`/api/purchase-fms/vendor-logins/${id}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Vendor login removed');
+    renderVendorLogins();
+  });
+}
+
 function renderPurchaseDetailBody(o) {
   const body = document.getElementById('pfmsBody');
 
@@ -12750,6 +12832,7 @@ function renderPurchaseDetailBody(o) {
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.poNumber)} · ${esc(o.indentNo || '—')}</div>
       <div style="${PFMS_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
       <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>
+      ${pfmsVendorHistoryHtml(o)}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
           <div style="${PFMS_FIELD_LABEL_STYLE}">Vendor</div>
