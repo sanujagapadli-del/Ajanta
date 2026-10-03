@@ -891,6 +891,10 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 11H4L5 9z"/></svg>
       <span class="nav-label-text">Purchase FMS</span>
     </div>
+    <div class="nav-item" id="nav-cheque-fms" style="display:none" onclick="navigate('cheque-fms',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18v10H3zM7 11h6M7 14h3M16 13h2"/></svg>
+      <span class="nav-label-text">Cheque FMS</span>
+    </div>
     <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
       <span class="nav-label-text">Price List & Catalogue</span>
@@ -953,6 +957,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="purchase-fms" onclick="navigate('purchase-fms',null)" id="bnPurchase" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 11H4L5 9z"/></svg>
     <span>Purchase</span>
+  </div>
+  <div class="bn-item" data-page="cheque-fms" onclick="navigate('cheque-fms',null)" id="bnCheque" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="10" rx="1"/><line x1="7" y1="11" x2="13" y2="11"/><line x1="7" y1="14" x2="10" y2="14"/></svg>
+    <span>Cheque</span>
   </div>
   <div class="bn-item" data-page="price-catalogue" onclick="navigate('price-catalogue',null)" id="bnCatalogue" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -1045,6 +1053,7 @@ tbody tr:last-child td{border-bottom:none;}
               <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
               <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">O2D FMS</div>
               <div class="tab"        id="dashTabSFMS"  onclick="dashTab('sfms',this)">Service FMS</div>
+              <div class="tab"        id="dashTabCHQ"   onclick="dashTab('cheque',this)">Cheque FMS</div>
             </div>
             <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="every_10_days">Every 10 Days</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
           </div>
@@ -1540,6 +1549,41 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div id="pfmsListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── CHEQUE FMS ── -->
+  <div id="page-cheque-fms" class="page">
+    <div class="page-header">
+      <button class="btn btn-primary" onclick="openNewChequeModal()">📷 + New Cheque</button>
+      <button class="btn btn-outline" onclick="loadChequeFmsList()">🔄 Refresh</button>
+      <button class="btn btn-outline" id="chqStepDoersBtn" style="display:none" onclick="openChequeStepDoersModal()">⚙ Step Doers</button>
+      <button class="btn btn-outline" id="chqImportBtn" style="display:none" onclick="importOldCheques()">📥 Import old sheet</button>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto">
+      <div class="tab-group">
+        <div class="tab active" onclick="switchChequeView('queue',this)">⚡ Action Queue</div>
+        <div class="tab" onclick="switchChequeView('all',this)">All Cheques</div>
+        <div class="tab" id="chqViewRisk" style="display:none" onclick="switchChequeView('risk',this)">⛔ Party Risk</div>
+        <div class="tab" onclick="switchChequeView('reports',this)">📊 Reports</div>
+      </div>
+    </div>
+
+    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:12px 16px;margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap">
+      <input type="text" id="chqSearch" oninput="renderChequeActiveView()" placeholder="🔍 Search cheque, party, cheque no, salesman, amount…" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      <div id="chqFilterWrap" style="display:none">
+        <select id="chqStageFilter" onchange="renderChequeActiveView()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)">
+          <option value="">All statuses</option><option value="open">Open (not closed)</option>
+          <option value="details">Details pending</option><option value="deposit">To deposit</option><option value="clearance">Awaiting clearance</option>
+          <option value="cleared">Passed</option><option value="bounced">Bounced (open)</option><option value="recovered">Recovered</option>
+          <option value="written_off">Written off</option><option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="chqListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty">Loading…</div>
     </div>
   </div>
@@ -2914,6 +2958,57 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── CHEQUE FMS: NEW CHEQUE (salesman uploads only a photo) ── -->
+<div class="modal-overlay" id="newChequeModal">
+  <div class="modal" style="max-width:460px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0">📷 New Cheque</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('newChequeModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="alert error" id="ncErr" style="display:none"></div>
+    <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:12px">Bas cheque ki saaf photo lijiye — baaki details Accounts team bharegi. Cheque jeb me mat rakhiye, aaj hi office me jama karein.</div>
+    <div class="form-group">
+      <label>Cheque Photo <span style="color:var(--color-danger)">*</span></label>
+      <input type="file" id="ncPhoto" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'ncPhotoPreview')" style="width:100%;font-size:13px"/>
+      <div id="ncPhotoPreview" style="font-size:12px;margin-top:4px"></div>
+    </div>
+    <div class="form-group" id="ncSalesmanWrap" style="display:none">
+      <label>Salesman</label>
+      <select id="ncSalesman" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)"></select>
+    </div>
+    <div class="form-group">
+      <label>Note (optional)</label>
+      <input type="text" id="ncNote" maxlength="500" placeholder="e.g. Party ne 10 tarikh ke baad lagane ko bola" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+    </div>
+    <button class="btn btn-primary" id="ncSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitNewCheque()">Submit Cheque</button>
+  </div>
+</div>
+
+<!-- ── CHEQUE FMS: DETAIL MODAL ── -->
+<div class="modal-overlay" id="chequeDetailModal">
+  <div class="modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 id="chqTitle" style="margin:0">Cheque</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('chequeDetailModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="chqBody" style="overflow-y:auto;flex:1"></div>
+    <datalist id="chqPartyNameList"></datalist>
+  </div>
+</div>
+
+<!-- ── CHEQUE FMS: STEP DOERS MODAL ── -->
+<div class="modal-overlay" id="chequeStepDoersModal">
+  <div class="modal sdm-modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 style="margin:0">⚙ Cheque FMS — Step Doers</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('chequeStepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = woh user us step ka doer (Accounts: 1-4, CRM: 5). Doers saare cheques dekhte hain; baaki users (salesmen) sirf apne. Bina doer ke step sirf admin kar sakta hai.</div>
+    <div id="chequeStepDoersRows" class="sdm-body"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="submitChequeStepDoers()">Save</button>
+  </div>
+</div>
+
 <!-- ── O2D DEALERS: ADD DEALER MODAL ── -->
 <div class="modal-overlay" id="addDealerModal">
   <div class="modal" style="max-width:420px">
@@ -3358,10 +3453,11 @@ async function init() {
     if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
     if (canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
     if (canSee('purchase-fms')) document.getElementById('nav-purchase-fms').style.display = 'flex';
+    if (canSee('cheque-fms')) document.getElementById('nav-cheque-fms').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
-    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('purchase-fms') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
+    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('purchase-fms') || canSee('cheque-fms') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
@@ -3378,7 +3474,7 @@ async function init() {
     // Refresh pe last visited page restore karo
     const savedPage = localStorage.getItem('lastPage');
     const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
-    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
+    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','cheque-fms','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
     if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -3466,7 +3562,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance & Leave',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance & Leave',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -3478,7 +3574,7 @@ function closeMobileSidebar() {
 }
 
 function navigate(page, el) {
-  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
+  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','cheque-fms','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
     showToast("You don't have access to this page", 'error');
     return;
   }
@@ -3503,6 +3599,7 @@ function navigate(page, el) {
   if (page==='service-fms') loadServiceFmsList();
   if (page==='o2d-fms') loadO2dFmsList();
   if (page==='purchase-fms') loadPurchaseFmsList();
+  if (page==='cheque-fms') loadChequeFmsList();
   if (page==='price-catalogue') loadPriceCataloguePage();
   if (page==='stock') loadStockPage();
   localStorage.setItem('lastPage', page);
@@ -3523,6 +3620,8 @@ function setupBottomNav() {
   if (bnCatalogue && canSee('price-catalogue')) bnCatalogue.style.display = '';
   if (bnNewOrder && (canSee('o2d-fms') || canSee('o2d-new-order'))) bnNewOrder.style.display = '';
   if (bnPurchase && canSee('purchase-fms')) bnPurchase.style.display = '';
+  const bnCheque = document.getElementById('bnCheque');
+  if (bnCheque && canSee('cheque-fms')) bnCheque.style.display = '';
   attachScrollHint(document.getElementById('bottomNav'));
 }
 
@@ -3678,7 +3777,9 @@ async function loadDashboard() {
   const canSeeSfms = ME.role === 'admin' || MY_PAGES.has('service-fms');
   const fmsPromise = Promise.all([
     api('/api/o2d-fms').catch(() => null),
-    canSeeSfms ? api('/api/service-fms').catch(() => null) : null
+    canSeeSfms ? api('/api/service-fms').catch(() => null) : null,
+    // Scoped server-side: doers get the queue, everyone else only their own cheques (bounce alerts).
+    api('/api/cheque-fms').catch(() => null)
   ]);
   const [dDel, dChl] = await Promise.all([
     api(baseUrl + 'delegation'),
@@ -3748,7 +3849,7 @@ async function loadDashboard() {
   // Paints the table, cards and chart from taskRows plus whatever O2D/SFMS
   // data is in hand (no network call).
   const renderDash = () => {
-    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks()];
+    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks(), ...buildChequeDashboardTasks()];
 
 
     // Pending count/chart use allTodayPending's actual length — it's the same
@@ -3788,11 +3889,12 @@ async function loadDashboard() {
   // update, so a step just done there shows here without waiting on the
   // sheet re-read — then repaint once the fresh read lands.
   renderDash();
-  const [o2d, sfms] = await fmsPromise;
+  const [o2d, sfms, chq] = await fmsPromise;
   if (loadSeq !== _dashLoadSeq) return;
   // A failed read keeps the last good data instead of blanking the FMS rows.
   if (Array.isArray(o2d)) window._lastO2dData = o2d;
   if (canSeeSfms && Array.isArray(sfms)) window._lastSfmsData = sfms;
+  if (chq && Array.isArray(chq.cheques)) window._lastChequeData = chq;
   renderDash();
 }
 
@@ -3894,6 +3996,8 @@ function renderDashTable(tasks, type) {
     ? `<span style="font-size:9px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-success-border)">✅ Che</span>`
     : t.type==='fms'
     ? `<span style="font-size:9px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-purple-border)">🛠️ Service</span>`
+    : t.type==='cheque'
+    ? `<span style="font-size:9px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-success-border)">🧾 Cheque</span>`
     : t.type==='o2d'
     ? `<span style="font-size:9px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-warning-border)">🚚 O2D</span>`
     : `<span style="font-size:9px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-primary-ring)">📋 Del</span>`;
@@ -3908,13 +4012,15 @@ function renderDashTable(tasks, type) {
     // literally instead of rendering them. Delegation/Checklist descriptions
     // are raw user-typed text straight from the DB and still need escaping.
     const rawDesc = t.description || t.desc || '';
-    const descCell = `${(t.type === 'o2d' || t.type === 'fms') ? rawDesc : esc(rawDesc)}${linkBtn}`;
+    const descCell = `${(t.type === 'o2d' || t.type === 'fms' || t.type === 'cheque') ? rawDesc : esc(rawDesc)}${linkBtn}`;
     let actions = '';
     let rowStyle = '';
     if (t.type === 'fms') {
       actions = `<button class="action-btn done" onclick="openFmsQuickAction(${t.id})">Fill Details</button>`;
     } else if (t.type === 'o2d') {
       actions = `<button class="action-btn done" onclick="openO2dQuickAction('${t.id}')">Done</button>`;
+    } else if (t.type === 'cheque') {
+      actions = `<button class="action-btn done" onclick="openChequeQuickAction(${t.id})">Open</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
       rowStyle = 'background:var(--color-warning-bg)';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">⏳ Awaiting Decision</span>`;
@@ -3945,8 +4051,8 @@ function renderDashTable(tasks, type) {
       <td data-label="${doerLabel}" style="white-space:nowrap;font-size:12px;font-weight:600">${esc((isAdmin||isPC)?t.assignedToName:t.assignedByName)}</td>
       <td data-label="Freq" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>
       <td data-label="Start" style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate((t.start_date||'').slice(0,10))||'—'}</td>
-      <td data-label="Due" style="white-space:nowrap;font-size:12px">${(t.type==='fms'||t.type==='o2d') ? '—' : fmtDate(t.due_date||t.date)}</td>
-      <td data-label="Priority">${(t.type!=='checklist' && t.type!=='fms' && t.type!=='o2d') ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
+      <td data-label="Due" style="white-space:nowrap;font-size:12px">${(t.type==='fms'||t.type==='o2d'||t.type==='cheque') ? '—' : fmtDate(t.due_date||t.date)}</td>
+      <td data-label="Priority">${(t.type!=='checklist' && t.type!=='fms' && t.type!=='o2d' && t.type!=='cheque') ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
       <td class="dt-action" style="white-space:nowrap">${actions}</td>
     </tr>`;
   }).join('');
@@ -5150,6 +5256,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'o2d-fms', label: 'O2D FMS' },
     { key: 'o2d-new-order', label: 'New Order' },
     { key: 'purchase-fms', label: 'Purchase FMS' },
+    { key: 'cheque-fms', label: 'Cheque FMS' },
     { key: 'price-catalogue', label: 'Price List & Catalogue' },
     { key: 'stock', label: 'Stock' },
   ]},
@@ -11802,6 +11909,10 @@ function onO2dCounterNameInput() {
   // Area/Location repeats order after order for the same dealer — carry
   // over whatever their last order used instead of retyping it.
   if (d && d.lastOrder && d.lastOrder.area) document.getElementById('noArea').value = d.lastOrder.area;
+  // Cheque bounce history (Cheque FMS): repeated bouncers are advance/online only.
+  o2dChequeRiskBanner(name).then(html => {
+    if (html && document.getElementById('noCounterName').value.trim() === name) box.insertAdjacentHTML('afterbegin', html);
+  });
 }
 
 async function submitNewO2dOrder() {
@@ -12910,6 +13021,540 @@ function renderPurchaseDetailBody(o) {
     </details>`;
 
   body.innerHTML = infoHtml + actionHtml + checklistHtml;
+}
+
+// ══════════════════════════════════════════════════════
+// CHEQUE FMS — MySQL-backed (see the CHEQUE FMS section in server.js for the
+// flow). Salesman uploads a photo → Accounts fills details → deposit (or
+// extend) → Pass / Bounce → on Bounce: salesman alert + Accounts ledger &
+// penalty + CRM follow-up, side by side. Party bounce history drives the
+// "advance / online payment only" warning (also shown on O2D New Order).
+// The server sends each cheque's open `tasks`; this file only renders them.
+// ══════════════════════════════════════════════════════
+const CHEQUE_STEP_DEFS = [
+  { n: 1, key: 'details',   label: 'Fill Cheque Details',      doer: 'Accounts', tat: '2 hours' },
+  { n: 2, key: 'deposit',   label: 'Bank Deposit',             doer: 'Accounts', tat: 'On deposit date' },
+  { n: 3, key: 'clearance', label: 'Pass / Bounce',            doer: 'Accounts', tat: 'Next day 6 PM' },
+  { n: 4, key: 'penalty',   label: 'Bounce: Ledger & Penalty', doer: 'Accounts', tat: '1 day' },
+  { n: 5, key: 'followup',  label: 'Bounce: CRM Follow-up',    doer: 'CRM',      tat: 'Every 2 days' }
+];
+const CHQ_STAGE = {
+  details:     { label: 'Details pending', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
+  deposit:     { label: 'To deposit',      bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
+  clearance:   { label: 'Awaiting clearance', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
+  cleared:     { label: '✓ Passed',        bg: 'var(--color-success-bg)', fg: 'var(--color-success-text)' },
+  bounced:     { label: '✗ Bounced',       bg: 'var(--color-danger-bg)', fg: 'var(--color-danger-text)' },
+  recovered:   { label: 'Recovered',       bg: 'var(--color-success-bg)', fg: 'var(--color-success-text)' },
+  written_off: { label: 'Written off',     bg: 'var(--gray-100)', fg: 'var(--gray-600)' },
+  cancelled:   { label: 'Cancelled',       bg: 'var(--gray-100)', fg: 'var(--gray-500)' }
+};
+const CHQ_LABEL = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
+const CHQ_INPUT = "width:100%;padding:10px 12px;border:1.5px solid var(--border-base);border-radius:var(--radius-sm);font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif;background:var(--surface);color:var(--gray-900)";
+
+let chqData = [];
+let chqMe = { seeAll: false, mySteps: [], isAdmin: false, pageAccess: false };
+let chqToday = '';
+let chqView = 'queue';
+let chqRisk = null; // { parties, threshold, windowDays }
+
+async function loadChequeFmsList() {
+  const wrap = document.getElementById('chqListWrap');
+  if (wrap) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (!_chqStepDoersMerged) mergeChequeStepDoersIntoDefs();
+  const [d, risk] = await Promise.all([api('/api/cheque-fms'), api('/api/cheque-fms/party-risk').catch(() => null)]);
+  if (!d || !Array.isArray(d.cheques)) { if (wrap) wrap.innerHTML = `<div class="empty">⚠️ ${esc((d && d.error) || 'Failed to load')}</div>`; return; }
+  chqApplyData(d);
+  if (risk && Array.isArray(risk.parties)) chqRisk = risk;
+  document.getElementById('chqImportBtn').style.display = chqMe.isAdmin ? 'inline-flex' : 'none';
+  document.getElementById('chqStepDoersBtn').style.display = chqMe.isAdmin ? 'inline-flex' : 'none';
+  document.getElementById('chqViewRisk').style.display = chqRisk ? '' : 'none';
+  renderChequeActiveView();
+}
+function chqApplyData(d) {
+  chqData = d.cheques; chqMe = d.me || chqMe; chqToday = d.today || '';
+  window._lastChequeData = d;
+}
+
+function switchChequeView(view, el) {
+  chqView = view;
+  document.querySelectorAll('#page-cheque-fms .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('chqFilterWrap').style.display = (view === 'all') ? '' : 'none';
+  renderChequeActiveView();
+}
+function renderChequeActiveView() {
+  if (chqView === 'queue') return renderChequeQueue();
+  if (chqView === 'all') return renderChequeAll();
+  if (chqView === 'risk') return renderChequeRisk();
+  return renderChequeReports();
+}
+
+const chqAmt = n => (n == null || isNaN(n)) ? '—' : inr(n);
+const chqStageBadge = c => { const s = CHQ_STAGE[c.stage] || { label: c.stage, bg: 'var(--gray-100)', fg: 'var(--gray-600)' };
+  return `<span class="status-badge" style="background:${s.bg};color:${s.fg};white-space:nowrap">${s.label}</span>`; };
+function chqCanDo(task) {
+  if (task.key === 'ack') return (task.doers || []).some(d => Number(d.id) === Number(ME.id)) || chqMe.isAdmin;
+  return chqMe.mySteps.includes(task.n);
+}
+function chqPartyKey(name) { return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+function chqRiskFor(name) {
+  if (!chqRisk || !name) return null;
+  const k = chqPartyKey(name);
+  return chqRisk.parties.find(p => p.key === k) || null;
+}
+function chqRiskBannerHtml(name) {
+  const r = chqRiskFor(name);
+  if (!r || r.level === 'ok') return '';
+  const high = r.level === 'high';
+  return `<div style="padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:13px;background:${high ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};border:1.5px solid ${high ? 'var(--color-danger-border)' : 'var(--color-warning-border)'};color:${high ? 'var(--color-danger-text)' : 'var(--color-warning-text)'}">
+    ${high ? '⛔' : '⚠️'} <b>${esc(r.party)}</b>: ${r.bouncesInWindow} cheque bounce${r.bouncesInWindow === 1 ? '' : 's'} in last ${chqRisk.windowDays} days (${chqAmt(r.bouncedAmount)})${r.lastBounce ? ` · last ${fmtDateDMY(r.lastBounce)}` : ''}
+    ${high ? '<div style="font-weight:700;margin-top:3px">Credit / cheque par kaam NAHI — sirf Advance Cash / Online Payment.</div>' : ''}
+  </div>`;
+}
+function chqPhotoHtml(url, h) {
+  if (!url) return '<div style="font-size:12px;color:var(--gray-400)">No photo</div>';
+  if (url.includes('/api/drive-file/')) return `<a href="${esc(url)}" target="_blank"><img src="${esc(url)}" loading="lazy" style="max-width:100%;max-height:${h || 220}px;border-radius:10px;border:1px solid var(--gray-200);display:block"/></a>`;
+  return `<a href="${esc(url)}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">🖼 Open photo</a>`;
+}
+function chqSearchMatch(c, q) {
+  if (!q) return true;
+  return [c.code, c.partyName, c.chequeNo, c.bankName, c.salesmanName, String(c.amount || '')].some(v => String(v || '').toLowerCase().includes(q));
+}
+
+// ── Action Queue: what needs doing now, grouped by task. ──
+function renderChequeQueue() {
+  const wrap = document.getElementById('chqListWrap');
+  const q = (document.getElementById('chqSearch').value || '').trim().toLowerCase();
+  const groups = [
+    { key: 'ack', title: '🔔 Bounce alerts (Salesman)' },
+    ...CHEQUE_STEP_DEFS.map(sd => ({ key: sd.key, title: `${sd.n}. ${sd.label}` }))
+  ].map(g => ({ ...g, items: [] }));
+  const upcoming = [];
+  chqData.filter(c => chqSearchMatch(c, q)).forEach(c => (c.tasks || []).forEach(t => {
+    if (!chqCanDo(t)) return;
+    if (t.upcoming) { upcoming.push({ c, t }); return; }
+    const g = groups.find(x => x.key === t.key);
+    if (g) g.items.push({ c, t });
+  }));
+  const row = ({ c, t }) => {
+    const late = t.planned && t.planned < chqToday;
+    const risk = chqRiskFor(c.partyName);
+    return `<tr onclick="openChequeDetail(${c.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
+      <td style="font-weight:600;white-space:nowrap">${esc(c.code)}</td>
+      <td>${esc(c.partyName || '— (fill from photo)')}${risk && risk.level === 'high' ? ' <span title="High bounce risk">⛔</span>' : risk && risk.level === 'watch' ? ' <span title="Has bounced before">⚠️</span>' : ''}</td>
+      <td style="white-space:nowrap">${esc(c.chequeNo || '—')}</td>
+      <td style="white-space:nowrap">${chqAmt(c.amount)}</td>
+      <td>${esc(c.salesmanName || '—')}</td>
+      <td style="white-space:nowrap;${late ? 'color:var(--color-danger);font-weight:700' : ''}">${t.planned ? fmtDateDMY(t.planned) : '—'}${late ? ' ⚠️' : ''}</td>
+      <td style="white-space:nowrap">${c.extensionCount ? `<span title="Deposit date extended">↻${c.extensionCount}</span> ` : ''}${c.bounceCount ? `<span title="Bounces">✗${c.bounceCount}</span>` : ''}</td>
+    </tr>`;
+  };
+  const table = items => `<table style="font-size:12.5px"><thead><tr><th>Cheque</th><th>Party</th><th>Cheque No</th><th>Amount</th><th>Salesman</th><th>Planned</th><th></th></tr></thead><tbody>${items.map(row).join('')}</tbody></table>`;
+  const nonEmpty = groups.filter(g => g.items.length);
+  let html = nonEmpty.length
+    ? nonEmpty.map(g => `<div style="padding:14px 16px 4px;font-size:13px;font-weight:800;color:var(--gray-800)">${esc(g.title)} <span style="color:var(--gray-400);font-weight:600">(${g.items.length})</span></div>${table(g.items.sort((a, b) => String(a.t.planned).localeCompare(String(b.t.planned))))}`).join('')
+    : `<div class="empty">${chqMe.seeAll || chqMe.mySteps.length ? 'Aaj ke liye koi action pending nahi 🎉' : 'Koi bounce alert nahi. "+ New Cheque" se cheque ki photo upload karein.'}</div>`;
+  if (upcoming.length) {
+    html += `<details style="padding:10px 16px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--gray-500)">🗓 Upcoming (${upcoming.length}) — deposit date / next follow-up abhi aage hai</summary>
+      ${table(upcoming.sort((a, b) => String(a.t.planned).localeCompare(String(b.t.planned))))}</details>`;
+  }
+  wrap.innerHTML = html;
+}
+
+// ── All Cheques ──
+function renderChequeAll() {
+  const wrap = document.getElementById('chqListWrap');
+  const q = (document.getElementById('chqSearch').value || '').trim().toLowerCase();
+  const st = document.getElementById('chqStageFilter').value;
+  const rows = chqData.filter(c => chqSearchMatch(c, q) && (!st || (st === 'open' ? !['cleared', 'recovered', 'written_off', 'cancelled'].includes(c.stage) : c.stage === st)));
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No cheques found.</div>'; return; }
+  const shown = rows.slice(0, 300);
+  wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
+    <thead><tr><th>Cheque</th><th>Received</th><th>Salesman</th><th>Party</th><th>Bank</th><th>Cheque No</th><th>Cheque Date</th><th>Amount</th><th>Deposit Date</th><th>Deposited</th><th>Status</th></tr></thead>
+    <tbody>${shown.map(c => `<tr onclick="openChequeDetail(${c.id})" style="cursor:pointer">
+      <td style="font-weight:600">${esc(c.code)}</td>
+      <td>${fmtDateDMY(String(c.createdAt || '').slice(0, 10))}</td>
+      <td>${esc(c.salesmanName || '—')}</td>
+      <td style="white-space:normal;min-width:140px">${esc(c.partyName || '—')}</td>
+      <td>${esc(c.bankName || '—')}</td>
+      <td>${esc(c.chequeNo || '—')}</td>
+      <td>${c.chequeDate ? fmtDateDMY(c.chequeDate) : '—'}</td>
+      <td>${chqAmt(c.amount)}</td>
+      <td>${c.depositDate ? fmtDateDMY(c.depositDate) : '—'}${c.extensionCount ? ` <span style="color:var(--color-warning-text)" title="Extended">↻${c.extensionCount}</span>` : ''}</td>
+      <td>${c.depositedOn ? fmtDateDMY(c.depositedOn) : '—'}</td>
+      <td>${chqStageBadge(c)}</td>
+    </tr>`).join('')}</tbody></table>
+    <div style="padding:10px 16px;font-size:12px;color:var(--gray-400)">${rows.length} cheques${rows.length > shown.length ? ` — showing first ${shown.length}, search to narrow` : ''} · Total ${chqAmt(rows.reduce((s, c) => s + (c.amount || 0), 0))}</div>`;
+}
+
+// ── Party Risk: bounce history per party ──
+function renderChequeRisk() {
+  const wrap = document.getElementById('chqListWrap');
+  const q = (document.getElementById('chqSearch').value || '').trim().toLowerCase();
+  const list = ((chqRisk && chqRisk.parties) || []).filter(p => !q || p.party.toLowerCase().includes(q));
+  const head = `<div style="padding:14px 16px;font-size:12.5px;color:var(--gray-500)">Rule: ${chqRisk ? chqRisk.threshold : 3}+ bounces in ${chqRisk ? chqRisk.windowDays : 365} days ⇒ <b style="color:var(--color-danger-text)">⛔ No credit / cheque — Advance Cash / Online only</b>. This warning also shows on O2D New Order for that dealer.</div>`;
+  if (!list.length) { wrap.innerHTML = head + '<div class="empty">No bounced cheques on record 🎉</div>'; return; }
+  wrap.innerHTML = head + `<table style="font-size:12.5px">
+    <thead><tr><th>Party</th><th>Bounces (window)</th><th>Bounced Amount</th><th>All-time Bounces</th><th>Total Cheques</th><th>Last Bounce</th><th>Decision</th></tr></thead>
+    <tbody>${list.map(p => `<tr style="${p.level === 'high' ? 'background:var(--color-danger-bg)' : ''}">
+      <td style="font-weight:600">${esc(p.party)}</td><td>${p.bouncesInWindow}</td><td>${chqAmt(p.bouncedAmount)}</td><td>${p.bounces}</td><td>${p.totalCheques}</td>
+      <td>${p.lastBounce ? fmtDateDMY(p.lastBounce) : '—'}</td>
+      <td style="font-weight:700;color:${p.level === 'high' ? 'var(--color-danger-text)' : p.level === 'watch' ? 'var(--color-warning-text)' : 'var(--gray-500)'}">${p.level === 'high' ? '⛔ Advance / Online only' : p.level === 'watch' ? '⚠️ Watch' : 'OK'}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+// ── Reports ──
+function renderChequeReports() {
+  const wrap = document.getElementById('chqListWrap');
+  const live = chqData.filter(c => c.stage !== 'cancelled');
+  const sum = arr => arr.reduce((s, c) => s + (c.amount || 0), 0);
+  const by = st => live.filter(c => c.stage === st);
+  const toDeposit = by('deposit'), dueNow = toDeposit.filter(c => c.depositDate && c.depositDate <= chqToday);
+  const decided = live.filter(c => c.clearance || c.bounceCount);
+  const bouncedEver = live.filter(c => c.bounceCount > 0);
+  const card = (label, value, sub, color) => `<div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;flex:1;min-width:150px">
+    <div style="${CHQ_LABEL}">${label}</div><div style="font-size:24px;font-weight:800;color:${color}">${value}</div><div style="font-size:12px;color:var(--gray-500)">${sub || ''}</div></div>`;
+  const salesmen = {};
+  live.forEach(c => { const k = c.salesmanName || '—'; const s = salesmen[k] = salesmen[k] || { n: 0, amt: 0, bounced: 0 }; s.n++; s.amt += c.amount || 0; if (c.bounceCount) s.bounced++; });
+  const delays = live.filter(c => c.depositedOn && c.depositDate).map(c => (new Date(c.depositedOn) - new Date(c.depositDate)) / 86400000).filter(d => d > 0);
+  wrap.innerHTML = `<div style="padding:16px">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+      ${card('Details pending', by('details').length, 'photo uploaded, not filled', 'var(--color-warning-text)')}
+      ${card('Deposit due today/overdue', dueNow.length, chqAmt(sum(dueNow)), 'var(--color-primary)')}
+      ${card('In hand (future date)', toDeposit.length - dueNow.length, chqAmt(sum(toDeposit) - sum(dueNow)), 'var(--gray-800)')}
+      ${card('Awaiting clearance', by('clearance').length, chqAmt(sum(by('clearance'))), 'var(--color-purple)')}
+      ${card('Open bounces', by('bounced').length, chqAmt(sum(by('bounced'))), 'var(--color-danger)')}
+      ${card('Bounce rate', decided.length ? Math.round(bouncedEver.length * 100 / decided.length) + '%' : '—', `${bouncedEver.length} of ${decided.length} cheques`, 'var(--color-danger)')}
+      ${card('Late deposits', delays.length, delays.length ? `avg ${Math.round(delays.reduce((a, b) => a + b, 0) / delays.length)} days late` : 'all on time', 'var(--color-warning-text)')}
+    </div>
+    <div style="${CHQ_LABEL};margin-bottom:8px">Salesman-wise</div>
+    <table style="font-size:12.5px"><thead><tr><th>Salesman</th><th>Cheques</th><th>Amount</th><th>Bounced</th></tr></thead>
+    <tbody>${Object.entries(salesmen).sort((a, b) => b[1].amt - a[1].amt).map(([k, s]) => `<tr><td style="font-weight:600">${esc(k)}</td><td>${s.n}</td><td>${chqAmt(s.amt)}</td><td>${s.bounced}</td></tr>`).join('')}</tbody></table>
+  </div>`;
+}
+
+// ── New Cheque (salesman): photo only ──
+let _chqUsers = null;
+async function openNewChequeModal() {
+  document.getElementById('ncPhoto').value = '';
+  document.getElementById('ncPhoto').dataset.compressed = '';
+  document.getElementById('ncPhotoPreview').innerHTML = '';
+  document.getElementById('ncNote').value = '';
+  document.getElementById('ncErr').style.display = 'none';
+  const wrap = document.getElementById('ncSalesmanWrap');
+  wrap.style.display = chqMe.seeAll ? '' : 'none';
+  document.getElementById('newChequeModal').classList.add('open');
+  if (chqMe.seeAll) {
+    if (!_chqUsers) { const u = await api('/api/users/roster'); _chqUsers = Array.isArray(u) ? u.filter(x => +x.is_active !== 0) : []; }
+    document.getElementById('ncSalesman').innerHTML = _chqUsers.map(u => `<option value="${u.id}" ${Number(u.id) === Number(ME.id) ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
+  }
+}
+async function onChequePhotoSelected(input, previewId) {
+  const preview = document.getElementById(previewId);
+  const file = input.files[0];
+  input.dataset.compressed = '';
+  if (!file) { preview.innerHTML = ''; return; }
+  preview.textContent = 'Compressing…';
+  try {
+    let dataUrl = await compressImageToDataURL(file, 1600, 0.75);
+    if (dataUrl.length > 2500000) dataUrl = await compressImageToDataURL(file, 1100, 0.6);
+    input.dataset.compressed = dataUrl;
+    preview.innerHTML = `<img src="${dataUrl}" style="max-width:100%;max-height:200px;border-radius:10px;margin-top:6px"/>`;
+  } catch (e) { preview.textContent = '⚠️ Could not read this image'; }
+}
+async function submitNewCheque() {
+  const err = document.getElementById('ncErr');
+  err.style.display = 'none';
+  const photo = document.getElementById('ncPhoto').dataset.compressed;
+  if (!photo) { err.textContent = 'Cheque ki photo lagao'; err.style.display = 'block'; return; }
+  const btn = document.getElementById('ncSubmitBtn');
+  btn.disabled = true; btn.textContent = '⏳ Uploading…';
+  const body = { photo, note: document.getElementById('ncNote').value.trim() };
+  if (chqMe.seeAll) body.salesmanUserId = Number(document.getElementById('ncSalesman').value);
+  const r = await api('/api/cheque-fms', 'POST', body);
+  btn.disabled = false; btn.textContent = 'Submit Cheque';
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  closeModal('newChequeModal');
+  showToast(`✅ ${r.code} submitted — Accounts will fill the details`);
+  if (document.getElementById('page-cheque-fms').classList.contains('active')) loadChequeFmsList();
+}
+
+// ── Detail modal ──
+let _chqPartyNamesLoaded = false;
+async function loadChequePartyNames() {
+  if (_chqPartyNamesLoaded) return;
+  _chqPartyNamesLoaded = true;
+  const r = await api('/api/o2d-fms/customer-names').catch(() => null);
+  const names = new Set(((r && r.names) || []));
+  chqData.forEach(c => { if (c.partyName) names.add(c.partyName); });
+  document.getElementById('chqPartyNameList').innerHTML = [...names].sort((a, b) => a.localeCompare(b)).map(n => `<option value="${esc(n)}">`).join('');
+}
+function openChequeDetail(id) {
+  const c = chqData.find(x => x.id === id);
+  if (!c) { showToast('Cheque not found — please refresh', 'error'); return; }
+  document.getElementById('chqTitle').textContent = `${c.code}${c.partyName ? ' · ' + c.partyName : ''}`;
+  document.getElementById('chequeDetailModal').classList.add('open');
+  renderChequeDetailBody(c);
+  loadChequePartyNames();
+  loadChequeEvents(c.id);
+}
+
+function chqTaskFormHtml(c, t) {
+  const id = `chq_${c.id}_${t.key}`;
+  const L = (txt, req) => `<div style="${CHQ_LABEL}">${txt}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
+  const btn = (label, action, cls) => `<button class="btn ${cls || 'btn-green'}" style="flex:1;justify-content:center;padding:12px" onclick="submitChequeAction(${c.id},'${action}',this)">${label}</button>`;
+  let inner = '';
+  if (t.key === 'details') {
+    inner = `${L('Party / Counter Name', true)}<input id="${id}_party" list="chqPartyNameList" style="${CHQ_INPUT}" oninput="document.getElementById('${id}_risk').innerHTML=chqRiskBannerHtml(this.value)"/>
+      <div id="${id}_risk"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+        <div>${L('Bank Name')}<input id="${id}_bank" style="${CHQ_INPUT}"/></div>
+        <div>${L('Account No')}<input id="${id}_acc" style="${CHQ_INPUT}"/></div>
+        <div>${L('Cheque No', true)}<input id="${id}_no" inputmode="numeric" style="${CHQ_INPUT}"/></div>
+        <div>${L('Amount (₹)', true)}<input id="${id}_amt" type="number" min="1" style="${CHQ_INPUT}"/></div>
+        <div>${L('Cheque Date', true)}<input id="${id}_date" type="date" style="${CHQ_INPUT}" onchange="const d=document.getElementById('${id}_dep');if(!d.value)d.value=this.value"/></div>
+        <div>${L('Deposit Date')}<input id="${id}_dep" type="date" style="${CHQ_INPUT}"/></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Deposit Date blank = Cheque Date. Tally me party check kar lein.</div>
+      <div style="display:flex;gap:8px">${btn('Save Details', 'details')}</div>`;
+  } else if (t.key === 'deposit') {
+    inner = `<div style="font-size:13px;margin-bottom:10px">Deposit date: <b>${c.depositDate ? fmtDateDMY(c.depositDate) : '—'}</b>${t.upcoming ? ' <span style="color:var(--gray-500)">(abhi aage hai)</span>' : ''}</div>
+      ${L('Deposited On')}<input id="${id}_on" type="date" value="${chqToday}" style="${CHQ_INPUT}"/>
+      <div style="display:flex;gap:8px;margin-bottom:12px">${btn('✓ Deposited in Bank', 'deposit')}</div>
+      <details><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--color-warning-text)">↻ Party ne time maanga? Extend deposit date</summary>
+        <div style="margin-top:8px">${L('New Deposit Date', true)}<input id="${id}_nd" type="date" min="${chqToday}" style="${CHQ_INPUT}"/>
+        ${L('Reason', true)}<input id="${id}_reason" placeholder="e.g. Party ne 5 din ka time maanga" style="${CHQ_INPUT}"/>
+        <div style="display:flex;gap:8px">${btn('Extend Date', 'extend', 'btn-amber')}</div></div>
+      </details>`;
+  } else if (t.key === 'clearance') {
+    inner = `<div style="font-size:13px;margin-bottom:10px">Deposited on <b>${c.depositedOn ? fmtDateDMY(c.depositedOn) : '—'}</b> — bank statement check karein.</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">${btn('✓ Pass', 'pass')}</div>
+      <details><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--color-danger-text)">✗ Bounce hua?</summary>
+        <div style="margin-top:8px">${L('Bounce Reason', true)}<select id="${id}_reason" style="${CHQ_INPUT}"><option value="">-- Select --</option>${['Insufficient Funds', 'Signature Mismatch', 'Payment Stopped by Drawer', 'Account Closed', 'Date Issue / Stale', 'Amount Mismatch', 'Other'].map(o => `<option>${o}</option>`).join('')}</select>
+        ${L('Remark')}<input id="${id}_remark" style="${CHQ_INPUT}"/>
+        ${L('Bounce Memo Photo')}<input id="${id}_photo" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${CHQ_INPUT}"/><div id="${id}_pv" style="font-size:12px;margin:-6px 0 8px"></div>
+        <div style="font-size:11.5px;color:var(--color-danger-text);margin-bottom:8px">Bounce mark karte hi Salesman, CRM aur Accounts — teeno ko alert jayega.</div>
+        <div style="display:flex;gap:8px">${btn('Mark Bounce', 'bounce', 'btn-danger')}</div></div>
+      </details>`;
+  } else if (t.key === 'penalty') {
+    inner = `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_ledger"/> Tally ledger me bounce entry kar di (cheque reverse)</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+        <div>${L('Bounce Penalty (₹)')}<input id="${id}_amt" type="number" min="0" placeholder="blank = not charged" style="${CHQ_INPUT}"/></div>
+        <div>${L('Remark')}<input id="${id}_remark" style="${CHQ_INPUT}"/></div>
+      </div>
+      <div style="display:flex;gap:8px">${btn('Save', 'penalty')}</div>`;
+  } else if (t.key === 'followup') {
+    inner = `<div style="font-size:13px;margin-bottom:10px">Follow-ups so far: <b>${c.followupCount}</b>${c.noticeSent ? ' · <b>Notice sent</b>' : ''}${t.upcoming ? ` · next on ${fmtDateDMY(t.planned)}` : ''}</div>
+      ${L('Party ne kya kaha?', true)}<input id="${id}_remark" style="${CHQ_INPUT}"/>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_notice" ${c.noticeSent ? 'checked' : ''}/> Formal notice bhej diya</label>
+      ${L('Outcome', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="document.getElementById('${id}_nfw').style.display=this.value==='Next Followup'?'':'none';document.getElementById('${id}_rdw').style.display=this.value==='Re-deposit'?'':'none'">
+        <option>Next Followup</option><option>Payment Received</option><option value="Re-deposit">Re-deposit same cheque</option><option>New Cheque</option><option>Written Off</option></select>
+      <div id="${id}_nfw">${L('Next Follow-up Date')}<input id="${id}_nf" type="date" min="${chqToday}" placeholder="default +2 days" style="${CHQ_INPUT}"/></div>
+      <div id="${id}_rdw" style="display:none">${L('Re-deposit Date', true)}<input id="${id}_rd" type="date" min="${chqToday}" style="${CHQ_INPUT}"/></div>
+      <div style="display:flex;gap:8px">${btn('Save Follow-up', 'followup')}</div>`;
+  } else if (t.key === 'ack') {
+    inner = `<div style="font-size:13px;margin-bottom:10px;color:var(--color-danger-text)">Party ka cheque bounce ho gaya — <b>${esc(c.bounceReason)}</b>. Party se turant baat karein.</div>
+      ${L('Remark (optional)')}<input id="${id}_remark" placeholder="e.g. Party se baat ho gayi, 2 din me payment" style="${CHQ_INPUT}"/>
+      <div style="display:flex;gap:8px">${btn('👍 Seen — informed party', 'ack')}</div>`;
+  }
+  const doers = t.key === 'ack' ? 'Salesman' : stepDoerLabel(CHEQUE_STEP_DEFS.find(d => d.n === t.n));
+  return `<div style="border:1.5px solid ${t.key === 'ack' || t.key === 'penalty' || t.key === 'followup' ? 'var(--color-danger-border)' : 'var(--color-purple-border)'};background:${t.key === 'ack' || t.key === 'penalty' || t.key === 'followup' ? 'var(--color-danger-bg)' : 'var(--color-purple-bg)'};border-radius:14px;padding:16px;margin-bottom:12px">
+    <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Next Action</div>
+    <div style="font-weight:700;font-size:15px;margin-bottom:2px;color:var(--gray-800)">${esc(t.label)}</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Doer: ${esc(doers)} · TAT: ${esc(t.tat || '—')}${t.planned ? ` · Planned ${fmtDateDMY(t.planned)}` : ''}</div>
+    ${chqCanDo(t) ? inner : `<div style="font-size:12.5px;color:var(--gray-500)">Waiting on ${esc(doers)}.</div>`}
+  </div>`;
+}
+
+function renderChequeDetailBody(c) {
+  const body = document.getElementById('chqBody');
+  const f = (label, val) => `<div><div style="${CHQ_LABEL}">${label}</div><div style="font-size:14px;color:var(--gray-800)">${val}</div></div>`;
+  const canEdit = chqMe.mySteps.includes(1) && c.stage !== 'cancelled';
+  const info = `<div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:16px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">${chqStageBadge(c)}
+      <span style="font-size:12px;color:var(--gray-500)">${c.source === 'old-sheet' ? 'From old FMS · ' : ''}Received ${fmtDateDMY(String(c.createdAt || ''), true)}</span></div>
+    ${chqRiskBannerHtml(c.partyName)}
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
+      <div style="grid-column:1/-1">${chqPhotoHtml(c.photoUrl)}</div>
+      ${f('Salesman', esc(c.salesmanName || '—'))}
+      ${f('Party', esc(c.partyName || '—'))}
+      ${f('Bank', esc(c.bankName || '—'))}${f('Account No', esc(c.accountNo || '—'))}
+      ${f('Cheque No', esc(c.chequeNo || '—'))}${f('Cheque Date', c.chequeDate ? fmtDateDMY(c.chequeDate) : '—')}
+      ${f('Amount', chqAmt(c.amount))}${f('Deposit Date', (c.depositDate ? fmtDateDMY(c.depositDate) : '—') + (c.extensionCount ? ` <span style="color:var(--color-warning-text);font-size:12px">(extended ${c.extensionCount}×)</span>` : ''))}
+      ${c.depositedOn ? f('Deposited On', fmtDateDMY(c.depositedOn) + (c.depositCount > 1 ? ` <span style="font-size:12px">(presented ${c.depositCount}×)</span>` : '')) : ''}
+      ${c.bounceCount ? f('Bounce', `<span style="color:var(--color-danger-text)">${esc(c.bounceReason || '—')}</span>${c.bounceCount > 1 ? ` (${c.bounceCount}×)` : ''}`) : ''}
+      ${c.bouncePhoto ? `<div>${chqPhotoHtml(c.bouncePhoto, 120)}</div>` : ''}
+      ${c.penaltyAt ? f('Penalty', `${chqAmt(c.penaltyAmount)}${c.penaltyRemark ? ' · ' + esc(c.penaltyRemark) : ''}`) : ''}
+      ${c.resolution ? f('Resolution', `${esc(c.resolution)}${c.resolutionRemark ? ' · ' + esc(c.resolutionRemark) : ''}`) : ''}
+      ${c.salesmanNote ? f('Salesman note', esc(c.salesmanNote)) : ''}
+      ${c.cancelledAt ? f('Cancelled', esc(c.cancelReason)) : ''}
+    </div>
+    ${canEdit && c.detailsAt ? `<div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-outline btn-sm" onclick="openChequeEdit(${c.id})">✏️ Edit details</button><button class="btn btn-outline btn-sm" onclick="cancelCheque(${c.id})">🚫 Cancel cheque</button></div>` : ''}
+    ${canEdit && !c.detailsAt ? `<div style="margin-top:12px"><button class="btn btn-outline btn-sm" onclick="cancelCheque(${c.id})">🚫 Cancel (duplicate / wrong photo)</button></div>` : ''}
+    <div id="chqEditWrap_${c.id}"></div>
+  </div>`;
+  const tasks = (c.tasks || []);
+  const actions = tasks.length ? tasks.map(t => chqTaskFormHtml(c, t)).join('')
+    : `<div style="text-align:center;color:var(--color-success-text);font-weight:700;padding:14px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:12px">${c.stage === 'cancelled' ? 'Cancelled' : 'Nothing pending — cheque closed'}</div>`;
+  body.innerHTML = info + actions + `<div style="${CHQ_LABEL};margin:6px 0 8px">History</div><div id="chqEvents_${c.id}" style="font-size:12.5px"><div class="empty">Loading…</div></div>`;
+}
+
+const CHQ_EVENT_LABEL = { created: '📷 Photo uploaded', imported: '📥 Imported', details: '📝 Details filled', edited: '✏️ Details edited', extended: '↻ Deposit date extended',
+  deposited: '🏦 Deposited', pass: '✅ Passed', bounce: '❌ Bounced', penalty: '📒 Ledger & penalty', followup: '📞 Follow-up', resolved: '🏁 Resolved', ack: '👍 Salesman informed', cancelled: '🚫 Cancelled' };
+async function loadChequeEvents(id) {
+  const el = () => document.getElementById(`chqEvents_${id}`);
+  const r = await api(`/api/cheque-fms/${id}/events`);
+  if (!el()) return;
+  if (!Array.isArray(r)) { el().innerHTML = `<div class="empty">${esc(r.error || 'Failed')}</div>`; return; }
+  el().innerHTML = r.map(e => `<div style="padding:6px 0;border-bottom:1px solid var(--gray-100)"><b>${CHQ_EVENT_LABEL[e.event] || esc(e.event)}</b>${e.detail ? ' — ' + esc(e.detail) : ''}
+    <div style="font-size:11px;color:var(--gray-400)">${esc(fmtDateDMY(e.created_at, true))}${e.user_name ? ' · ' + esc(e.user_name) : ''}</div></div>`).join('') || '<div class="empty">—</div>';
+}
+
+function openChequeEdit(id) {
+  const c = chqData.find(x => x.id === id);
+  const w = document.getElementById(`chqEditWrap_${id}`);
+  const p = `chqE_${id}`;
+  w.innerHTML = `<div style="margin-top:12px;border-top:1px solid var(--gray-200);padding-top:12px">
+    <div style="${CHQ_LABEL}">Party</div><input id="${p}_party" list="chqPartyNameList" value="${esc(c.partyName)}" style="${CHQ_INPUT}"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      <div><div style="${CHQ_LABEL}">Bank</div><input id="${p}_bank" value="${esc(c.bankName)}" style="${CHQ_INPUT}"/></div>
+      <div><div style="${CHQ_LABEL}">Account No</div><input id="${p}_acc" value="${esc(c.accountNo)}" style="${CHQ_INPUT}"/></div>
+      <div><div style="${CHQ_LABEL}">Cheque No</div><input id="${p}_no" value="${esc(c.chequeNo)}" style="${CHQ_INPUT}"/></div>
+      <div><div style="${CHQ_LABEL}">Amount</div><input id="${p}_amt" type="number" value="${c.amount || ''}" style="${CHQ_INPUT}"/></div>
+      <div><div style="${CHQ_LABEL}">Cheque Date</div><input id="${p}_date" type="date" value="${c.chequeDate}" style="${CHQ_INPUT}"/></div>
+    </div>
+    <button class="btn btn-primary" onclick="submitChequeAction(${id},'edit-details',this)">Save changes</button></div>`;
+}
+function cancelCheque(id) {
+  const reason = prompt('Cancel reason (e.g. duplicate photo, wrong entry):');
+  if (!reason || !reason.trim()) return;
+  submitChequeAction(id, 'cancel', null, { reason: reason.trim() });
+}
+
+async function submitChequeAction(id, kind, btnEl, preset) {
+  const c = chqData.find(x => x.id === id);
+  const g = (key, suffix) => { const el = document.getElementById(`chq_${id}_${key}_${suffix}`); return el ? (el.type === 'checkbox' ? el.checked : el.value.trim()) : ''; };
+  let action = kind, body = preset || {};
+  if (kind === 'details') body = { partyName: g('details', 'party'), bankName: g('details', 'bank'), accountNo: g('details', 'acc'), chequeNo: g('details', 'no'), amount: g('details', 'amt'), chequeDate: g('details', 'date'), depositDate: g('details', 'dep') };
+  else if (kind === 'edit-details') { const e = s => document.getElementById(`chqE_${id}_${s}`).value.trim(); body = { partyName: e('party'), bankName: e('bank'), accountNo: e('acc'), chequeNo: e('no'), amount: e('amt'), chequeDate: e('date') }; }
+  else if (kind === 'deposit') body = { depositedOn: g('deposit', 'on') };
+  else if (kind === 'extend') body = { newDate: g('deposit', 'nd'), reason: g('deposit', 'reason') };
+  else if (kind === 'pass') { action = 'clearance'; body = { result: 'Pass' }; }
+  else if (kind === 'bounce') {
+    action = 'clearance';
+    const remark = g('clearance', 'remark');
+    const photoEl = document.getElementById(`chq_${id}_clearance_photo`);
+    body = { result: 'Bounce', bounceReason: [g('clearance', 'reason'), remark].filter(Boolean).join(' — '), bouncePhoto: (photoEl && photoEl.dataset.compressed) || '' };
+    if (!g('clearance', 'reason')) { showToast('Bounce reason select karein', 'error'); return; }
+  }
+  else if (kind === 'penalty') body = { ledgerUpdated: g('penalty', 'ledger'), penaltyAmount: g('penalty', 'amt'), remark: g('penalty', 'remark') };
+  else if (kind === 'followup') body = { remark: g('followup', 'remark'), noticeSent: g('followup', 'notice'), outcome: g('followup', 'outcome'), nextFollowup: g('followup', 'nf'), redepositDate: g('followup', 'rd') };
+  else if (kind === 'ack') body = { remark: g('ack', 'remark') };
+
+  if (kind === 'pass' && !confirm(`${c.code}: cheque PASS mark karein?`)) return;
+  const orig = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }
+  const r = await api(`/api/cheque-fms/${id}/action/${action}`, 'PUT', body);
+  if (btnEl) { btnEl.disabled = false; btnEl.textContent = orig; }
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const i = chqData.findIndex(x => x.id === id);
+  if (i >= 0 && r.cheque) chqData[i] = r.cheque;
+  if (window._lastChequeData) window._lastChequeData.cheques = chqData;
+  showToast(kind === 'bounce' ? '❌ Bounce recorded — Salesman, CRM & Accounts alerted' : '✅ Saved');
+  if (kind === 'bounce' || kind === 'followup') api('/api/cheque-fms/party-risk').then(x => { if (x && x.parties) chqRisk = x; }).catch(() => {});
+  const fresh = chqData[i];
+  if (fresh && document.getElementById('chequeDetailModal').classList.contains('open')) {
+    document.getElementById('chqTitle').textContent = `${fresh.code}${fresh.partyName ? ' · ' + fresh.partyName : ''}`;
+    renderChequeDetailBody(fresh); loadChequeEvents(id);
+  }
+  if (document.getElementById('page-cheque-fms').classList.contains('active')) renderChequeActiveView();
+  refreshDashboardChequeLocally();
+}
+
+// ── Step doers (admin) ──
+let _chqStepDoersMerged = false;
+async function mergeChequeStepDoersIntoDefs() {
+  const r = await api('/api/cheque-fms/step-doers');
+  const a = (r && r.assignments) || {};
+  CHEQUE_STEP_DEFS.forEach(sd => { sd.doers = a[sd.n] || []; });
+  _chqStepDoersMerged = true;
+}
+async function openChequeStepDoersModal() {
+  const [users, doers] = await Promise.all([api('/api/users/roster'), api('/api/cheque-fms/step-doers')]);
+  renderStepDoerMatrix('chequeStepDoersRows', CHEQUE_STEP_DEFS, Array.isArray(users) ? users : [], (doers && doers.assignments) || {}, 'chqStepDoerCheck_');
+  document.getElementById('chequeStepDoersModal').classList.add('open');
+}
+async function submitChequeStepDoers() {
+  const assignments = {};
+  CHEQUE_STEP_DEFS.forEach(sd => { assignments[sd.n] = [...document.querySelectorAll(`.chqStepDoerCheck_${sd.n}:checked`)].map(el => Number(el.value)); });
+  const r = await api('/api/cheque-fms/step-doers', 'PUT', { assignments });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Step doers updated!');
+  closeModal('chequeStepDoersModal');
+  await mergeChequeStepDoersIntoDefs();
+  loadChequeFmsList();
+}
+function importOldCheques() {
+  showConfirm({ icon: '📥', title: 'Import from old Cheque FMS sheet?', msg: 'Old Google-Form sheet ke saare cheques yahan aa jayenge (jo pehle se hain woh skip). Dobara chalana safe hai.', okLabel: 'Import', okColor: 'var(--color-primary)' }, async () => {
+    showToast('Importing…');
+    const r = await api('/api/cheque-fms/import-old', 'POST', {});
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast(`✅ Imported ${r.imported}, skipped ${r.skipped}${r.unmatchedSalesmen.length ? ` · No login for: ${r.unmatchedSalesmen.join(', ')}` : ''}`);
+    loadChequeFmsList();
+  });
+}
+
+// ── Dashboard rows (from window._lastChequeData, no extra fetch) ──
+function buildChequeDashboardTasks() {
+  const d = window._lastChequeData;
+  if (!d || !Array.isArray(d.cheques)) return [];
+  const empFilter = document.getElementById('dashEmployeeFilter');
+  const empVal = empFilter ? empFilter.value : 'all';
+  const isManager = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
+  const seeAll = isManager && empVal === 'all' && d.me && d.me.seeAll;
+  const doerId = isManager && empVal !== 'all' ? Number(empVal) : Number(ME.id);
+  const tasks = [];
+  d.cheques.forEach(c => (c.tasks || []).forEach(t => {
+    if (t.upcoming) return;
+    if (!seeAll && !(t.doers || []).some(x => Number(x.id) === doerId)) return;
+    const late = t.planned && t.planned < (d.today || '');
+    const bounceTask = t.key === 'ack' || t.key === 'penalty' || t.key === 'followup';
+    const description = `
+      <div style="font-weight:700;color:${bounceTask ? 'var(--color-danger-text)' : 'var(--gray-800)'};font-size:13px">${t.n ? t.n + '. ' : '🔔 '}${esc(t.label)}</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(c.partyName || 'Details from photo')}${c.amount ? ' · ' + inr(c.amount) : ''}${c.chequeNo ? ' · #' + esc(c.chequeNo) : ''}</div>
+      <div style="font-size:11.5px;color:var(--gray-500)">Salesman: ${esc(c.salesmanName || '—')}${c.bounceReason && bounceTask ? ' · ' + esc(c.bounceReason) : ''}</div>
+      ${fmsFieldRow('PLANNED', `${t.planned ? fmtDateDMY(t.planned) : '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
+    tasks.push({ id: c.id, type: 'cheque', status: 'pending', title: c.code, description,
+      assignedToName: (t.doers || []).map(x => x.name).join(', ') || t.doer || '—',
+      assignedByName: t.key === 'ack' ? 'Accounts' : (t.doers || []).map(x => x.name).join(', ') || '—',
+      assignedToDept: 'Accounts', start_date: String(c.createdAt || '') });
+  }));
+  return tasks;
+}
+function refreshDashboardChequeLocally() {
+  if (!window._lastDashTasks || !document.getElementById('page-dashboard').classList.contains('active')) return;
+  const merged = [...window._lastDashTasks.filter(t => t.type !== 'cheque'), ...buildChequeDashboardTasks()];
+  window._lastDashTasks = merged;
+  const pendingEl = document.getElementById('dPending');
+  if (pendingEl) pendingEl.textContent = merged.length;
+  renderDashTable(merged, dashType);
+}
+// Dashboard "Open" — load the data if this session hasn't opened the page yet.
+async function openChequeQuickAction(id) {
+  if (!chqData.length && window._lastChequeData) chqApplyData(window._lastChequeData);
+  if (!chqData.find(x => x.id === id)) { const d = await api('/api/cheque-fms'); if (d && Array.isArray(d.cheques)) chqApplyData(d); }
+  if (!chqRisk) api('/api/cheque-fms/party-risk').then(x => { if (x && x.parties) chqRisk = x; }).catch(() => {});
+  openChequeDetail(id);
+}
+
+// O2D New Order — dealer bounce warning (risk list fetched once per session).
+let _o2dChequeRiskPromise = null;
+async function o2dChequeRiskBanner(name) {
+  if (!_o2dChequeRiskPromise) _o2dChequeRiskPromise = api('/api/cheque-fms/party-risk').catch(() => null);
+  const r = await _o2dChequeRiskPromise;
+  if (!r || !Array.isArray(r.parties)) return '';
+  if (!chqRisk) chqRisk = r;
+  return chqRiskBannerHtml(name);
 }
 
 // ══════════════════════════════════════════════════════

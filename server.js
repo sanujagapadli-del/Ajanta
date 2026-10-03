@@ -514,7 +514,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'sfms-pc-view', 'all-delegations'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'sfms-pc-view', 'all-delegations'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -7780,6 +7780,558 @@ app.delete('/api/purchase-fms/vendor-logins/:id', requireAuth, requireAdmin, asy
     if (!r.affectedRows) return res.status(404).json({ error: 'Vendor login not found' });
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// CHEQUE FMS (client, 2026-10-03) — replaces the Google-Forms based "Cheque
+// Received FMS V2" sheet. Stored in MySQL (not a sheet): a cheque's life has
+// branches (date extensions, bounce → penalty + CRM follow-up in parallel,
+// re-deposit) that a fixed Planned/Actual column grid can't hold, and the
+// party bounce history needs real queries.
+//
+// Flow: Salesman uploads only a PHOTO → Accounts fills the details from the
+// photo (party, bank, cheque no/date, amount, deposit date) → on the deposit
+// date Accounts deposits it (or extends the date if the party asked) → next
+// day Pass / Bounce. On Bounce, three dashboards light up at once: the
+// salesman (acknowledge + WhatsApp), Accounts (ledger entry + bounce
+// penalty) and CRM (follow-up calls / notice until resolved: payment
+// received, re-deposit on a new date, new cheque, or written off).
+// Every bounce is an event in cheque_events — a party with
+// CHEQUE_RISK_BOUNCES+ bounces in the last 365 days is flagged "advance /
+// online payment only" here and on O2D New Order.
+//
+// A cheque's stage is never stored — chequeStage() derives it from the
+// filled fields, so it can't drift out of sync with them.
+// ══════════════════════════════════════════════════════
+const CHEQUE_STEPS = [
+  { n: 1, key: 'details',   label: 'Fill Cheque Details',      doer: 'Accounts', tat: '2 hours' },
+  { n: 2, key: 'deposit',   label: 'Bank Deposit',             doer: 'Accounts', tat: 'On deposit date' },
+  { n: 3, key: 'clearance', label: 'Pass / Bounce',            doer: 'Accounts', tat: 'Next day 6 PM' },
+  { n: 4, key: 'penalty',   label: 'Bounce: Ledger & Penalty', doer: 'Accounts', tat: '1 day' },
+  { n: 5, key: 'followup',  label: 'Bounce: CRM Follow-up',    doer: 'CRM',      tat: 'Every 2 days' }
+];
+const CHEQUE_N = Object.fromEntries(CHEQUE_STEPS.map(s => [s.key, s.n]));
+const CHEQUE_RISK_BOUNCES = 3;          // bounces in the window → no more credit/cheque business
+const CHEQUE_RISK_WINDOW_DAYS = 365;
+const CHEQUE_FOLLOWUP_GAP_DAYS = 2;
+const CHEQUE_RESOLUTIONS = ['Payment Received', 'Re-deposit', 'New Cheque', 'Written Off'];
+const CHEQUE_OLD_SHEET_ID = '16ftSmv-YrjFYmFOcoBR2IfWKUzSSXaTibSq3_LoMooE';
+
+async function ensureChequeTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS cheques (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      cheque_code VARCHAR(30) NOT NULL UNIQUE,
+      source VARCHAR(20) DEFAULT 'app',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_by INT,
+      salesman_user_id INT,
+      salesman_name VARCHAR(255),
+      photo_url VARCHAR(1000),
+      salesman_note VARCHAR(500),
+      party_name VARCHAR(255),
+      account_no VARCHAR(50),
+      bank_name VARCHAR(255),
+      cheque_no VARCHAR(50),
+      cheque_date DATE,
+      amount DECIMAL(12,2),
+      details_at DATETIME,
+      details_by INT,
+      deposit_date DATE,
+      extension_count INT DEFAULT 0,
+      deposit_count INT DEFAULT 0,
+      deposited_at DATETIME,
+      deposited_on DATE,
+      deposited_by INT,
+      clearance VARCHAR(10),
+      clearance_at DATETIME,
+      clearance_by INT,
+      bounce_count INT DEFAULT 0,
+      bounce_reason VARCHAR(500),
+      bounce_photo VARCHAR(1000),
+      salesman_ack_at DATETIME,
+      penalty_amount DECIMAL(12,2),
+      penalty_remark VARCHAR(500),
+      penalty_at DATETIME,
+      penalty_by INT,
+      followup_count INT DEFAULT 0,
+      next_followup DATE,
+      notice_sent TINYINT DEFAULT 0,
+      resolution VARCHAR(30),
+      resolution_remark VARCHAR(500),
+      resolution_at DATETIME,
+      resolution_by INT,
+      cancelled_at DATETIME,
+      cancelled_by INT,
+      cancel_reason VARCHAR(500),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_party (party_name),
+      INDEX idx_salesman (salesman_user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS cheque_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      cheque_id INT NOT NULL,
+      event VARCHAR(30) NOT NULL,
+      detail TEXT,
+      user_id INT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_cheque (cheque_id),
+      INDEX idx_event (event, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS cheque_step_doers (
+      step_n INT NOT NULL,
+      user_id INT NOT NULL,
+      PRIMARY KEY (step_n, user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+async function withChequeTables(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureChequeTables(); return await fn(); }
+}
+async function logChequeEvent(chequeId, event, detail, userId, at) {
+  await db.query('INSERT INTO cheque_events (cheque_id, event, detail, user_id, created_at) VALUES (?,?,?,?,COALESCE(?,NOW()))',
+    [chequeId, event, detail || null, userId || null, at || null]);
+}
+
+let _chequeStepDoersCache = null;
+async function getChequeStepDoersMap() {
+  if (_chequeStepDoersCache && Date.now() - _chequeStepDoersCache.ts < 60 * 1000) return _chequeStepDoersCache.map;
+  const [rows] = await withChequeTables(() => db.query(
+    'SELECT csd.step_n, u.id, u.name FROM cheque_step_doers csd JOIN users u ON csd.user_id=u.id ORDER BY u.name'));
+  const map = {};
+  rows.forEach(r => { (map[r.step_n] = map[r.step_n] || []).push({ id: r.id, name: r.name }); });
+  _chequeStepDoersCache = { map, ts: Date.now() };
+  return map;
+}
+
+// Who sees what: admin and every step doer see all cheques (they work the
+// whole queue); anyone else — the salesmen — only the cheques they brought.
+async function chequeUserAccess(req) {
+  const isAdmin = req.session.role === 'admin';
+  const map = await getChequeStepDoersMap();
+  const mySteps = new Set(isAdmin ? CHEQUE_STEPS.map(s => s.n)
+    : CHEQUE_STEPS.filter(s => (map[s.n] || []).some(d => Number(d.id) === Number(req.session.userId))).map(s => s.n));
+  const pageAccess = isAdmin || (await hasPageGrant(req, 'cheque-fms'));
+  return { isAdmin, mySteps, seeAll: isAdmin || mySteps.size > 0, pageAccess, doersMap: map };
+}
+// Unlike O2D/Purchase, an unassigned step is NOT open to everyone — salesmen
+// get this page too, and must never be able to mark a cheque Pass/Bounce.
+async function assertChequeStepDoer(req, res, key) {
+  const acc = await chequeUserAccess(req);
+  if (acc.mySteps.has(CHEQUE_N[key])) return acc;
+  res.status(403).json({ error: 'You are not assigned to this step (ask admin: Cheque FMS → Step Doers)' });
+  return null;
+}
+
+function chequeStage(c) {
+  if (c.cancelled_at) return 'cancelled';
+  if (!c.details_at) return 'details';
+  if (!c.clearance && !c.deposited_at) return 'deposit';
+  if (!c.clearance) return 'clearance';
+  if (c.clearance === 'Pass') return 'cleared';
+  if (!c.resolution || !c.penalty_at) return 'bounced';
+  return c.resolution === 'Written Off' ? 'written_off' : 'recovered';
+}
+const ymdAddDays = (ymd, days) => {
+  const d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+function chequePartyKey(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Open actions on a cheque right now. Penalty and CRM follow-up run side by
+// side after a bounce; the salesman's alert is a third, personal one.
+function chequeTasks(c, doersMap, today) {
+  const stage = chequeStage(c);
+  const tasks = [];
+  const step = key => CHEQUE_STEPS[CHEQUE_N[key] - 1];
+  const add = (key, planned, extra) => tasks.push({ key, n: step(key).n, label: step(key).label, tat: step(key).tat,
+    planned, doers: doersMap[step(key).n] || [], ...extra });
+  if (stage === 'details') add('details', String(c.created_at || '').slice(0, 10));
+  if (stage === 'deposit') add('deposit', c.deposit_date, { upcoming: !!(c.deposit_date && c.deposit_date > today) });
+  if (stage === 'clearance') add('clearance', c.deposited_on ? ymdAddDays(c.deposited_on, 1) : today);
+  const bouncedOn = c.clearance === 'Bounce' ? String(c.clearance_at || '').slice(0, 10) : '';
+  // Penalty stays open even after a re-deposit — the bounce still happened.
+  if (+c.bounce_count > 0 && !c.penalty_at && !c.cancelled_at) add('penalty', bouncedOn ? ymdAddDays(bouncedOn, 1) : today);
+  if (c.clearance === 'Bounce' && !c.cancelled_at) {
+    if (!c.resolution) {
+      const due = c.next_followup || bouncedOn || today;
+      add('followup', due, { upcoming: due > today });
+    }
+    if (!c.salesman_ack_at && c.salesman_user_id) {
+      tasks.push({ key: 'ack', n: 0, label: 'Cheque Bounced — inform party', tat: 'Immediately', planned: bouncedOn,
+        doers: [{ id: c.salesman_user_id, name: c.salesman_name || '' }] });
+    }
+  }
+  return tasks;
+}
+
+async function chequeTodayYmd() {
+  const [[r]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d");
+  return r.d;
+}
+
+const CHEQUE_SELECT = `SELECT c.*, DATE_FORMAT(c.cheque_date,'%Y-%m-%d') AS cheque_date, DATE_FORMAT(c.deposit_date,'%Y-%m-%d') AS deposit_date,
+  DATE_FORMAT(c.deposited_on,'%Y-%m-%d') AS deposited_on, DATE_FORMAT(c.next_followup,'%Y-%m-%d') AS next_followup,
+  cu.name AS created_by_name FROM cheques c LEFT JOIN users cu ON cu.id=c.created_by`;
+
+function chequeOut(c, doersMap, today) {
+  return {
+    id: c.id, code: c.cheque_code, source: c.source, createdAt: c.created_at, createdByName: c.created_by_name || '',
+    salesmanUserId: c.salesman_user_id, salesmanName: c.salesman_name || '', photoUrl: c.photo_url || '',
+    salesmanNote: c.salesman_note || '', partyName: c.party_name || '', accountNo: c.account_no || '',
+    bankName: c.bank_name || '', chequeNo: c.cheque_no || '', chequeDate: c.cheque_date || '',
+    amount: c.amount == null ? null : Number(c.amount), detailsAt: c.details_at, depositDate: c.deposit_date || '',
+    extensionCount: +c.extension_count || 0, depositCount: +c.deposit_count || 0, depositedAt: c.deposited_at,
+    depositedOn: c.deposited_on || '', clearance: c.clearance || '', clearanceAt: c.clearance_at,
+    bounceCount: +c.bounce_count || 0, bounceReason: c.bounce_reason || '', bouncePhoto: c.bounce_photo || '',
+    salesmanAckAt: c.salesman_ack_at, penaltyAmount: c.penalty_amount == null ? null : Number(c.penalty_amount),
+    penaltyRemark: c.penalty_remark || '', penaltyAt: c.penalty_at, followupCount: +c.followup_count || 0,
+    nextFollowup: c.next_followup || '', noticeSent: !!+c.notice_sent, resolution: c.resolution || '',
+    resolutionRemark: c.resolution_remark || '', resolutionAt: c.resolution_at,
+    cancelledAt: c.cancelled_at, cancelReason: c.cancel_reason || '',
+    stage: chequeStage(c), tasks: chequeTasks(c, doersMap, today)
+  };
+}
+
+// Party bounce history from the event log (cancelled cheques excluded).
+async function chequePartyRisk() {
+  const [rows] = await withChequeTables(() => db.query(`
+    SELECT c.party_name, c.amount, DATE_FORMAT(e.created_at,'%Y-%m-%d') AS d,
+      e.created_at >= DATE_SUB(CURDATE(), INTERVAL ${CHEQUE_RISK_WINDOW_DAYS} DAY) AS recent
+    FROM cheque_events e JOIN cheques c ON c.id=e.cheque_id
+    WHERE e.event='bounce' AND c.cancelled_at IS NULL AND c.party_name IS NOT NULL AND c.party_name<>''`));
+  const [tot] = await db.query(`SELECT party_name, COUNT(*) AS n FROM cheques WHERE cancelled_at IS NULL AND party_name IS NOT NULL GROUP BY party_name`);
+  const totals = {};
+  tot.forEach(t => { const k = chequePartyKey(t.party_name); totals[k] = (totals[k] || 0) + Number(t.n); });
+  const byKey = {};
+  rows.forEach(r => {
+    const k = chequePartyKey(r.party_name);
+    const p = byKey[k] = byKey[k] || { party: r.party_name.trim(), key: k, bounces: 0, bouncesInWindow: 0, bouncedAmount: 0, lastBounce: '' };
+    p.bounces++;
+    if (+r.recent) { p.bouncesInWindow++; p.bouncedAmount += Number(r.amount) || 0; }
+    if (r.d > p.lastBounce) p.lastBounce = r.d;
+  });
+  return Object.values(byKey).map(p => ({ ...p, totalCheques: totals[p.key] || 0,
+    level: p.bouncesInWindow >= CHEQUE_RISK_BOUNCES ? 'high' : p.bouncesInWindow > 0 ? 'watch' : 'ok' }))
+    .sort((a, b) => b.bouncesInWindow - a.bouncesInWindow || b.lastBounce.localeCompare(a.lastBounce));
+}
+
+app.get('/api/cheque-fms/step-doers', requireAuth, async (req, res) => {
+  try {
+    const map = await getChequeStepDoersMap();
+    const assignments = {};
+    CHEQUE_STEPS.forEach(s => { assignments[s.n] = map[s.n] || []; });
+    res.json({ assignments });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/cheque-fms/step-doers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { assignments } = req.body;
+    await ensureChequeTables();
+    await db.query('DELETE FROM cheque_step_doers');
+    const rows = [];
+    Object.entries(assignments || {}).forEach(([n, ids]) => (ids || []).forEach(uid => rows.push([Number(n), Number(uid)])));
+    if (rows.length) await db.query('INSERT INTO cheque_step_doers (step_n, user_id) VALUES ?', [rows]);
+    _chequeStepDoersCache = null;
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Scoped list: doers/admin get every cheque, everyone else only their own
+// (works without page access too, so a salesman's bounce alert still reaches
+// their Dashboard).
+app.get('/api/cheque-fms', requireAuth, async (req, res) => {
+  try {
+    const acc = await chequeUserAccess(req);
+    const today = await chequeTodayYmd();
+    const [rows] = await withChequeTables(() => acc.seeAll
+      ? db.query(`${CHEQUE_SELECT} ORDER BY c.id DESC`)
+      : db.query(`${CHEQUE_SELECT} WHERE c.salesman_user_id=? OR c.created_by=? ORDER BY c.id DESC`, [req.session.userId, req.session.userId]));
+    res.json({
+      cheques: rows.map(c => chequeOut(c, acc.doersMap, today)),
+      me: { seeAll: acc.seeAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess },
+      today
+    });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.get('/api/cheque-fms/:id/events', requireAuth, async (req, res) => {
+  try {
+    const acc = await chequeUserAccess(req);
+    const [[c]] = await withChequeTables(() => db.query('SELECT salesman_user_id, created_by FROM cheques WHERE id=?', [req.params.id]));
+    if (!c) return res.status(404).json({ error: 'Cheque not found' });
+    if (!acc.seeAll && Number(c.salesman_user_id) !== Number(req.session.userId) && Number(c.created_by) !== Number(req.session.userId)) {
+      return res.status(403).json({ error: 'Not your cheque' });
+    }
+    const [rows] = await db.query(`SELECT e.event, e.detail, e.created_at, u.name AS user_name FROM cheque_events e
+      LEFT JOIN users u ON u.id=e.user_id WHERE e.cheque_id=? ORDER BY e.created_at DESC, e.id DESC`, [req.params.id]);
+    res.json(rows);
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Bounce history per party — also read by O2D New Order, so either page grant works.
+app.get('/api/cheque-fms/party-risk', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'cheque-fms')) && !(await hasPageGrant(req, 'o2d-fms')) && !(await hasPageGrant(req, 'o2d-new-order'))) {
+      return res.status(403).json({ error: 'No access' });
+    }
+    res.json({ parties: await chequePartyRisk(), threshold: CHEQUE_RISK_BOUNCES, windowDays: CHEQUE_RISK_WINDOW_DAYS });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// App cheques are CHQ-n; imported ones keep the old sheet's Cheque-n, so the
+// two series can never collide (the import skips codes already present).
+async function nextChequeCode() {
+  const [rows] = await db.query("SELECT cheque_code FROM cheques WHERE cheque_code LIKE 'CHQ-%'");
+  const max = rows.reduce((m, r) => Math.max(m, parseInt(String(r.cheque_code).slice(4), 10) || 0), 0);
+  return `CHQ-${await claimNextSeqValue('cheque_code', max + 1)}`;
+}
+async function uploadChequePhoto(dataUri, code, kind) {
+  if (!dataUri) return '';
+  return uploadPhotoToDrive(dataUri, `${code}-${kind}-${Date.now()}.jpg`); // private — cheques carry account numbers
+}
+
+// Step 0 — salesman: just a photo (+ optional note). Accounts staff entering
+// on someone's behalf may name the salesman.
+app.post('/api/cheque-fms', requireAuth, async (req, res) => {
+  try {
+    const acc = await chequeUserAccess(req);
+    if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Cheque FMS' });
+    const { photo, note, salesmanUserId } = req.body || {};
+    if (!photo) return res.status(400).json({ error: 'Cheque photo is required' });
+    let sid = req.session.userId;
+    if (salesmanUserId && Number(salesmanUserId) !== Number(sid)) {
+      if (!acc.seeAll) return res.status(403).json({ error: 'You can only add your own cheques' });
+      sid = Number(salesmanUserId);
+    }
+    const [[su]] = await db.query('SELECT name FROM users WHERE id=?', [sid]);
+    if (!su) return res.status(400).json({ error: 'Salesman not found' });
+    await ensureChequeTables();
+    const code = await nextChequeCode();
+    const photoUrl = await uploadChequePhoto(photo, code, 'cheque');
+    const [r] = await db.query('INSERT INTO cheques (cheque_code, created_by, salesman_user_id, salesman_name, photo_url, salesman_note) VALUES (?,?,?,?,?,?)',
+      [code, req.session.userId, sid, su.name, photoUrl, String(note || '').slice(0, 500) || null]);
+    await logChequeEvent(r.insertId, 'created', note ? `Note: ${note}` : null, req.session.userId);
+    res.json({ success: true, id: r.insertId, code });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+const chequeYmd = v => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null);
+async function loadCheque(id) {
+  const [[c]] = await withChequeTables(() => db.query(`${CHEQUE_SELECT} WHERE c.id=?`, [id]));
+  return c || null;
+}
+
+// Bounce alerts — WhatsApp to the salesman and the CRM follow-up doers,
+// best-effort in the background (the Dashboards carry the real alert).
+async function sendChequeBounceAlerts(c, reason, doersMap) {
+  try {
+    const ids = new Set([c.salesman_user_id, ...(doersMap[CHEQUE_N.followup] || []).map(d => d.id), ...(doersMap[CHEQUE_N.penalty] || []).map(d => d.id)].filter(Boolean).map(Number));
+    if (!ids.size) return;
+    const [users] = await db.query(`SELECT id, phone FROM users WHERE id IN (${[...ids].map(() => '?').join(',')})`, [...ids]);
+    const amt = c.amount != null ? `₹${Math.round(Number(c.amount)).toLocaleString('en-IN')}` : '';
+    const text = `⚠️ *Cheque Bounce*\n${c.cheque_code} — ${c.party_name || ''}\nCheque No: ${c.cheque_no || '—'} · ${c.bank_name || ''}\nAmount: ${amt}\nReason: ${reason || '—'}\nSalesman: ${c.salesman_name || '—'}\n\nParty se turant baat karein. (Ajanta Task Manager)`;
+    users.filter(u => u.phone).forEach(u => sendWhatsAppInBackground(u.phone, text, null, `cheque-bounce ${c.cheque_code}`));
+  } catch (e) { console.warn('cheque bounce alert failed:', e.message); }
+}
+
+app.put('/api/cheque-fms/:id/action/:action', requireAuth, async (req, res) => {
+  try {
+    const action = req.params.action;
+    const b = req.body || {};
+    const uid = req.session.userId;
+    const c = await loadCheque(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Cheque not found' });
+    const stage = chequeStage(c);
+    const fail = (msg, code = 400) => res.status(code).json({ error: msg });
+    if (c.cancelled_at && action !== 'ack') return fail('This cheque was cancelled');
+
+    if (action === 'details' || action === 'edit-details') {
+      if (!(await assertChequeStepDoer(req, res, 'details'))) return;
+      if (action === 'details' && stage !== 'details') return fail('Details were already filled — refresh');
+      const party = String(b.partyName || '').trim();
+      const amount = Number(b.amount);
+      const chequeDate = chequeYmd(b.chequeDate);
+      if (!party || !String(b.chequeNo || '').trim() || !chequeDate || !(amount > 0)) return fail('Party, Cheque No, Cheque Date and Amount are required');
+      const fields = [party, String(b.accountNo || '').trim() || null, String(b.bankName || '').trim() || null, String(b.chequeNo).trim(), chequeDate, amount];
+      if (action === 'details') {
+        const depositDate = chequeYmd(b.depositDate) || chequeDate;
+        await db.query('UPDATE cheques SET party_name=?, account_no=?, bank_name=?, cheque_no=?, cheque_date=?, amount=?, deposit_date=?, details_at=NOW(), details_by=? WHERE id=?',
+          [...fields, depositDate, uid, c.id]);
+        await logChequeEvent(c.id, 'details', `${party} · ${b.chequeNo} · ₹${amount} · deposit on ${depositDate}`, uid);
+      } else {
+        await db.query('UPDATE cheques SET party_name=?, account_no=?, bank_name=?, cheque_no=?, cheque_date=?, amount=? WHERE id=?', [...fields, c.id]);
+        await logChequeEvent(c.id, 'edited', `${party} · ${b.chequeNo} · ₹${amount}`, uid);
+      }
+    } else if (action === 'deposit') {
+      if (!(await assertChequeStepDoer(req, res, 'deposit'))) return;
+      if (stage !== 'deposit') return fail('Cheque is not waiting for deposit — refresh');
+      const on = chequeYmd(b.depositedOn);
+      await db.query('UPDATE cheques SET deposited_at=NOW(), deposited_on=COALESCE(?,CURDATE()), deposited_by=?, deposit_count=deposit_count+1 WHERE id=?', [on, uid, c.id]);
+      await logChequeEvent(c.id, 'deposited', `Deposited${on ? ' on ' + on : ''}${b.remark ? ' — ' + b.remark : ''}`, uid);
+    } else if (action === 'extend') {
+      if (!(await assertChequeStepDoer(req, res, 'deposit'))) return;
+      if (stage !== 'deposit') return fail('Only a cheque waiting for deposit can be extended');
+      const nd = chequeYmd(b.newDate);
+      const reason = String(b.reason || '').trim();
+      if (!nd || !reason) return fail('New deposit date and reason are required');
+      await db.query('UPDATE cheques SET deposit_date=?, extension_count=extension_count+1 WHERE id=?', [nd, c.id]);
+      await logChequeEvent(c.id, 'extended', `${c.deposit_date || '—'} → ${nd} · ${reason}`, uid);
+    } else if (action === 'clearance') {
+      if (!(await assertChequeStepDoer(req, res, 'clearance'))) return;
+      if (stage !== 'clearance') return fail('Cheque is not waiting for Pass/Bounce — refresh');
+      if (b.result === 'Pass') {
+        await db.query("UPDATE cheques SET clearance='Pass', clearance_at=NOW(), clearance_by=? WHERE id=?", [uid, c.id]);
+        await logChequeEvent(c.id, 'pass', null, uid);
+      } else if (b.result === 'Bounce') {
+        const reason = String(b.bounceReason || '').trim();
+        if (!reason) return fail('Bounce reason is required');
+        const photo = await uploadChequePhoto(b.bouncePhoto, c.cheque_code, 'bounce');
+        // A fresh bounce re-opens penalty + follow-up + salesman alert (a
+        // re-deposited cheque can bounce again; the earlier round stays in the event log).
+        await db.query(`UPDATE cheques SET clearance='Bounce', clearance_at=NOW(), clearance_by=?, bounce_count=bounce_count+1, bounce_reason=?,
+          bounce_photo=COALESCE(?, bounce_photo), salesman_ack_at=NULL, penalty_amount=NULL, penalty_remark=NULL, penalty_at=NULL, penalty_by=NULL,
+          followup_count=0, next_followup=CURDATE(), notice_sent=0, resolution=NULL, resolution_remark=NULL, resolution_at=NULL, resolution_by=NULL WHERE id=?`,
+          [uid, reason, photo || null, c.id]);
+        await logChequeEvent(c.id, 'bounce', reason, uid);
+        sendChequeBounceAlerts(c, reason, await getChequeStepDoersMap());
+      } else return fail('Choose Pass or Bounce');
+    } else if (action === 'penalty') {
+      if (!(await assertChequeStepDoer(req, res, 'penalty'))) return;
+      if (!(+c.bounce_count > 0) || c.penalty_at) return fail('No penalty pending on this cheque — refresh');
+      const amt = b.penaltyAmount === '' || b.penaltyAmount == null ? null : Number(b.penaltyAmount);
+      if (amt != null && !(amt >= 0)) return fail('Invalid penalty amount');
+      if (!b.ledgerUpdated) return fail('Confirm the Tally ledger entry first');
+      await db.query('UPDATE cheques SET penalty_amount=?, penalty_remark=?, penalty_at=NOW(), penalty_by=? WHERE id=?',
+        [amt, String(b.remark || '').trim() || null, uid, c.id]);
+      await logChequeEvent(c.id, 'penalty', `Ledger updated · Penalty ${amt != null ? '₹' + amt : 'not charged'}${b.remark ? ' · ' + b.remark : ''}`, uid);
+    } else if (action === 'followup') {
+      if (!(await assertChequeStepDoer(req, res, 'followup'))) return;
+      if (c.clearance !== 'Bounce' || c.resolution) return fail('No follow-up pending on this cheque — refresh');
+      const remark = String(b.remark || '').trim();
+      if (!remark) return fail('Write what the party said');
+      const outcome = b.outcome || 'Next Followup';
+      const notice = b.noticeSent ? 1 : 0;
+      if (outcome === 'Next Followup') {
+        const nf = chequeYmd(b.nextFollowup);
+        await db.query(`UPDATE cheques SET followup_count=followup_count+1, notice_sent=GREATEST(notice_sent,?),
+          next_followup=COALESCE(?, DATE_ADD(CURDATE(), INTERVAL ${CHEQUE_FOLLOWUP_GAP_DAYS} DAY)) WHERE id=?`, [notice, nf, c.id]);
+        await logChequeEvent(c.id, 'followup', `${remark}${notice ? ' · Notice sent' : ''} · next ${nf || `in ${CHEQUE_FOLLOWUP_GAP_DAYS} days`}`, uid);
+      } else if (CHEQUE_RESOLUTIONS.includes(outcome)) {
+        if (outcome === 'Re-deposit') {
+          const nd = chequeYmd(b.redepositDate);
+          if (!nd) return fail('Re-deposit date is required');
+          // Back to the deposit queue; the bounce stays counted in history.
+          await db.query(`UPDATE cheques SET followup_count=followup_count+1, notice_sent=GREATEST(notice_sent,?), resolution='Re-deposit', resolution_remark=?, resolution_at=NOW(), resolution_by=?,
+            clearance=NULL, clearance_at=NULL, deposited_at=NULL, deposited_on=NULL, deposit_date=?, salesman_ack_at=COALESCE(salesman_ack_at,NOW()) WHERE id=?`,
+            [notice, remark, uid, nd, c.id]);
+          await logChequeEvent(c.id, 'resolved', `Re-deposit on ${nd} · ${remark}`, uid);
+        } else {
+          await db.query('UPDATE cheques SET followup_count=followup_count+1, notice_sent=GREATEST(notice_sent,?), resolution=?, resolution_remark=?, resolution_at=NOW(), resolution_by=? WHERE id=?',
+            [notice, outcome, remark, uid, c.id]);
+          await logChequeEvent(c.id, 'resolved', `${outcome} · ${remark}`, uid);
+        }
+      } else return fail('Invalid outcome');
+    } else if (action === 'ack') {
+      if (Number(c.salesman_user_id) !== Number(uid) && req.session.role !== 'admin') return fail('Only the salesman can acknowledge this alert', 403);
+      if (c.clearance !== 'Bounce' || c.salesman_ack_at) return fail('Nothing to acknowledge');
+      await db.query('UPDATE cheques SET salesman_ack_at=NOW() WHERE id=?', [c.id]);
+      await logChequeEvent(c.id, 'ack', String(b.remark || '').trim() || 'Seen by salesman', uid);
+    } else if (action === 'cancel') {
+      if (!(await assertChequeStepDoer(req, res, 'details'))) return;
+      const reason = String(b.reason || '').trim();
+      if (!reason) return fail('Reason is required');
+      await db.query('UPDATE cheques SET cancelled_at=NOW(), cancelled_by=?, cancel_reason=? WHERE id=?', [uid, reason, c.id]);
+      await logChequeEvent(c.id, 'cancelled', reason, uid);
+    } else return fail('Unknown action', 404);
+
+    const acc = await chequeUserAccess(req);
+    res.json({ success: true, cheque: chequeOut(await loadCheque(c.id), acc.doersMap, await chequeTodayYmd()) });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+// One-time cutover from the old Google-Forms FMS ("Cheque FMS" tab, data
+// from row 7). Idempotent — cheque ids already here are skipped, so it can
+// be re-run while both systems overlap. Columns per the live header row 6
+// (verified 2026-10-03): A Timestamp, B Cheque Id, C Salesman, D Photo,
+// E Counter, F Cheque No, G Cheque Date, H Bank, I Amount, J Deposited Date,
+// K Pass/Bounce, L Bounce Reason, M Bounce Photo, S/T/U/V Step-2 planned/
+// actual/status/deposited date, AC Step-4 actual (Pass/Bounce recorded),
+// AL/AM, AP/AQ, AT/AU follow-ups 1-3 actual/status.
+function chequeSheetDate(v) {
+  const s = String(v || '').trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')} ${(m[4] || '00').padStart(2, '0')}:${m[5] || '00'}:${m[6] || '00'}`;
+  if (/^\d{5}(\.\d+)?$/.test(s)) { // raw sheet serial (one row has this)
+    const d = new Date(Math.round((Number(s) - 25569) * 86400000));
+    return d.toISOString().slice(0, 10) + ' 00:00:00';
+  }
+  return null;
+}
+app.post('/api/cheque-fms/import-old', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: CHEQUE_OLD_SHEET_ID, range: "'Cheque FMS'!A7:AU2000" });
+    const rows = (r.data.values || []).filter(x => /^Cheque-\d+$/i.test(String(x[1] || '').trim()));
+    await ensureChequeTables();
+    const [existing] = await db.query('SELECT cheque_code FROM cheques');
+    const have = new Set(existing.map(e => e.cheque_code.toLowerCase()));
+    const [users] = await db.query("SELECT id, name FROM users WHERE role IS NULL OR role<>'vendor'");
+    const userByKey = new Map(users.map(u => [sfmsNameKey(u.name), u]));
+    let imported = 0, skipped = 0;
+    const unmatchedSalesmen = new Set();
+    for (const x of rows) {
+      const code = String(x[1]).trim();
+      if (have.has(code.toLowerCase())) { skipped++; continue; }
+      const g = i => String(x[i] || '').trim();
+      const day = v => (chequeSheetDate(v) || '').slice(0, 10) || null;
+      const su = userByKey.get(sfmsNameKey(g(2)));
+      if (!su && g(2)) unmatchedSalesmen.add(g(2));
+      const createdAt = chequeSheetDate(g(0));
+      const depositedAt = g(20) === 'Yes' ? chequeSheetDate(g(19)) : null;
+      // A few rows went on to deposit/pass with the counter left blank — still past step 1.
+      const hasDetails = !!(g(4) || g(8) || g(15) || depositedAt);
+      const detailsAt = hasDetails ? (chequeSheetDate(g(15)) || createdAt) : null;
+      const clearance = /^pass$/i.test(g(10)) ? 'Pass' : /^bounce$/i.test(g(10)) ? 'Bounce' : null;
+      const clearanceAt = clearance ? (chequeSheetDate(g(28)) || chequeSheetDate(g(24)) || depositedAt) : null;
+      const amount = parseFloat(g(8).replace(/[^\d.]/g, '')) || null;
+      const followups = [37, 41, 45].filter(i => g(i)).length;
+      const followupYes = [38, 42, 46].some(i => g(i) === 'Yes');
+      const bounced = clearance === 'Bounce';
+      const [ins] = await db.query(`INSERT INTO cheques (cheque_code, source, created_at, salesman_user_id, salesman_name, photo_url, party_name, bank_name, cheque_no, cheque_date, amount,
+          details_at, deposit_date, deposit_count, deposited_at, deposited_on, clearance, clearance_at, bounce_count, bounce_reason, bounce_photo,
+          salesman_ack_at, penalty_at, penalty_remark, followup_count, next_followup, resolution, resolution_remark, resolution_at)
+        VALUES (?,'old-sheet',COALESCE(?,NOW()),?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?)`, [
+        code, createdAt, su ? su.id : null, su ? su.name : g(2), g(3) || null, g(4) || null, g(7) || null, g(5).replace(/^'/, '') || null, day(g(6)), amount,
+        detailsAt, day(g(18)) || day(g(6)), depositedAt ? 1 : 0, depositedAt, depositedAt ? (day(g(21)) || day(g(9)) || depositedAt.slice(0, 10)) : null,
+        clearance, clearanceAt, bounced ? 1 : 0, bounced ? (g(11) || g(34) || null) : null, bounced ? (g(12) || g(35) || null) : null,
+        bounced ? clearanceAt : null, bounced ? clearanceAt : null, bounced ? 'Old FMS — penalty not tracked there' : null,
+        followups, bounced && !followupYes ? (clearanceAt || '').slice(0, 10) || null : null,
+        bounced && followupYes ? 'Payment Received' : null, bounced && followupYes ? 'Old FMS follow-up marked Yes' : null,
+        bounced && followupYes ? clearanceAt : null
+      ]);
+      await logChequeEvent(ins.insertId, 'imported', 'From old Google-Form Cheque FMS', req.session.userId, createdAt);
+      if (bounced) await logChequeEvent(ins.insertId, 'bounce', g(11) || g(34) || 'Bounce (old FMS)', null, clearanceAt);
+      imported++;
+    }
+    res.json({ success: true, imported, skipped, unmatchedSalesmen: [...unmatchedSalesmen] });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the old Cheque FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════
