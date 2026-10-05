@@ -781,42 +781,59 @@ tbody tr:last-child td{border-bottom:none;}
   .topbar-right{gap:4px}
   .topbar-right button{font-size:11px;padding:5px 10px}
 
-  /* ── Dashboard pending table: card view ── */
-  #dashTableWrap{overflow-x:visible !important;max-height:none !important}
+  /* ── Dashboard on phones (client, 2026-10-05: "jitna simple bana sako") ── */
+  /* Top buttons: one compact, wrapping row instead of big pills */
+  #page-dashboard .dash-topbar{margin-bottom:12px;row-gap:8px !important}
+  #page-dashboard .dash-topbar > div{gap:8px !important;width:100%}
+  #page-dashboard .dash-topbar .btn-pill{padding:8px 6px;font-size:12px;border-radius:9px;flex:1;justify-content:center;white-space:nowrap}
+  #page-dashboard .dash-topbar > div:last-child{flex-wrap:nowrap !important}
+  /* Row 1: Holidays / Checklist / Delegate — equal widths */
+  #page-dashboard .dash-topbar-btns{gap:6px;flex-wrap:nowrap;order:-1;flex:1 1 100%;display:flex}
+  #page-dashboard .dash-topbar-btns:empty{display:none}
+  #page-dashboard .dash-topbar > div:last-child:has(.dash-topbar-btns:not(:empty)){flex-wrap:wrap !important}
+  #dashEmployeeFilter{width:100%}
+  /* Overview: three slim tiles */
+  #page-dashboard .overview-cards{grid-template-columns:repeat(3,1fr) !important;gap:6px;margin-bottom:12px}
+  #page-dashboard .ov-card{padding:9px 10px;grid-column:auto !important}
+  #page-dashboard .ov-card .number{font-size:20px}
+  #page-dashboard .ov-card .label{font-size:9.5px}
+  /* Task list header: tabs stretch across, filter below */
+  #page-dashboard .task-table-card .card-head{padding:12px 12px 8px}
+  #page-dashboard .task-table-card .card-head > div:last-child{width:100%;flex-wrap:wrap;gap:8px !important}
+  #dashTypeTabGroup{width:100%}
+  #dashTypeTabGroup .tab{flex:1;text-align:center;padding:7px 4px;font-size:12px}
+  #dashFmsFilter, #dashFreqFilter{width:100%}
+
+  /* ── Pending tasks: one simple card per task ── */
+  #dashTableWrap{overflow-x:visible !important;max-height:none !important;padding:0 10px 4px}
   #dashTable{min-width:0 !important;width:100%;border-collapse:separate;border-spacing:0}
   #dashTableHead{display:none}
   #dashTable tbody tr{
-    display:block;background:var(--surface);border-radius:12px;
-    border:1.5px solid var(--color-primary-light);padding:10px 12px;
-    margin-bottom:10px;
-    box-shadow:0 1px 6px rgba(1,80,170,.07);
+    display:flex;flex-wrap:wrap;align-items:center;column-gap:10px;
+    background:var(--surface);border-radius:12px;
+    border:1px solid var(--gray-200);padding:10px 12px;
+    margin-bottom:8px;box-shadow:0 1px 4px rgba(1,80,170,.06);
   }
-  #dashTable tbody td{
-    display:flex;align-items:flex-start;gap:8px;
-    padding:3px 0;border:none;font-size:12px;
-    white-space:normal !important;line-height:1.5;
-  }
-  #dashTable tbody td::before{
-    content:attr(data-label);font-size:9px;font-weight:700;
-    color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;
-    min-width:56px;flex-shrink:0;padding-top:2px;
-  }
-  /* Type row: badge + dept on same line */
-  #dashTable tbody td.dt-type{
-    border-bottom:1px solid var(--gray-100);padding-bottom:8px;
-    margin-bottom:2px;justify-content:space-between;align-items:center;
-  }
-  #dashTable tbody td.dt-type::before{display:none}
+  #dashTable tbody td{display:block;padding:0;border:none;white-space:normal !important;line-height:1.45;max-width:none !important}
+  #dashTable tbody td::before{display:none}
+  #dashTable tbody td.dt-empty, #dashTable tbody td.dt-dept, #dashTable tbody td.dt-start{display:none}
+  /* Line 1: badge (+dept) */
+  #dashTable tbody td.dt-type{width:100%;display:flex;align-items:center;gap:6px;margin-bottom:4px}
   .dt-dept-in-type{display:inline}
-  /* Dept row: hidden on mobile (shown inside type row already) */
-  #dashTable tbody td[data-label="Dept"]{display:none}
-  /* Action row: full-width footer (not a sticky side column on mobile's card layout) */
+  /* Line 2: title, then description */
+  #dashTable tbody td.dt-title{width:100%;font-size:14px !important;font-weight:700 !important;color:var(--gray-900) !important}
+  #dashTable tbody td.dt-desc{width:100%;font-size:12.5px;color:var(--gray-600);margin-top:2px}
+  /* Line 3: who · due · priority · frequency — small, inline */
+  #dashTable tbody td.dt-meta{width:auto;font-size:11.5px !important;font-weight:600;color:var(--gray-500);margin-top:6px}
+  #dashTable tbody td.dt-doer::before{display:inline;content:'👤 ';font-size:11px;min-width:0;text-transform:none;letter-spacing:0}
+  #dashTable tbody td.dt-due::before{display:inline;content:'📅 ';font-size:11px;min-width:0;text-transform:none;letter-spacing:0}
+  #dashTable tbody td.dt-freq::before{display:inline;content:'🔁 ';font-size:11px;min-width:0;text-transform:none;letter-spacing:0}
+  /* Footer: big tap-friendly buttons */
   #dashTable tbody td.dt-action{
-    position:static;box-shadow:none;
-    border-top:1px solid var(--gray-100);padding-top:8px;
-    margin-top:2px;flex-wrap:wrap;gap:6px;
+    width:100%;display:flex;gap:8px;position:static;box-shadow:none;
+    border-top:1px solid var(--gray-100);padding-top:9px;margin-top:9px;flex-wrap:wrap;
   }
-  #dashTable tbody td.dt-action::before{display:none}
+  #dashTable tbody td.dt-action .action-btn{flex:1;padding:9px 10px;font-size:13px;border-radius:9px;text-align:center}
   #dashTable thead th:last-child{position:static;box-shadow:none}
 }
 
@@ -1051,10 +1068,12 @@ tbody tr:last-child td{border-bottom:none;}
               <div class="tab active" id="dashTabAll"   onclick="dashTab('all',this)">All</div>
               <div class="tab"        id="dashTabDel"   onclick="dashTab('delegation',this)">Delegation</div>
               <div class="tab"        id="dashTabChl"   onclick="dashTab('checklist',this)">Checklist</div>
-              <div class="tab"        id="dashTabFMS"   onclick="dashTab('fms',this)">O2D FMS</div>
-              <div class="tab"        id="dashTabSFMS"  onclick="dashTab('sfms',this)">Service FMS</div>
-              <div class="tab"        id="dashTabCHQ"   onclick="dashTab('cheque',this)">Cheque FMS</div>
+              <div class="tab"        id="dashTabFMS"   onclick="dashTab('fmsall',this)">FMS</div>
             </div>
+            <!-- One FMS tab (client, 2026-10-05) — which FMS is picked here. -->
+            <select id="dashFmsFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)">
+              <option value="all">All FMS</option><option value="o2d">🚚 O2D</option><option value="fms">🛠️ Service</option><option value="cheque">🧾 Cheque</option>
+            </select>
             <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="every_10_days">Every 10 Days</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
           </div>
         </div>
@@ -3970,18 +3989,21 @@ function renderDashFreq() {
 function renderDashTable(tasks, type) {
   const dashFreqEl = document.getElementById('dashFreqFilter');
   if (dashFreqEl) dashFreqEl.style.display = type === 'checklist' ? '' : 'none';
+  const dashFmsEl = document.getElementById('dashFmsFilter');
+  if (dashFmsEl) dashFmsEl.style.display = type === 'fmsall' ? '' : 'none';
+  const fmsPick = dashFmsEl ? dashFmsEl.value : 'all';
   // Show ALL pending tasks (delegation + checklist) combined
   const isAdmin = ME.role==='admin' || ME.role==='hod';
   const isPC    = ME.role==='pc';
   document.getElementById('dashDoerHead').textContent = (isAdmin||isPC)?'Doer':'Assigned By';
   const tbody = document.getElementById('dashTbody');
-  // Filter by selected tab: all / delegation / checklist / O2D FMS (tab key
-  // 'fms', kept for compatibility → t.type 'o2d') / Service FMS (tab key
-  // 'sfms' → t.type 'fms', the task type openFmsQuickAction handles).
+  // Filter by selected tab: all / delegation / checklist / FMS. The single
+  // FMS tab ('fmsall') covers O2D (t.type 'o2d'), Service (t.type 'fms') and
+  // Cheque (t.type 'cheque'), narrowed by the #dashFmsFilter dropdown.
+  const FMS_TYPES = ['o2d', 'fms', 'cheque'];
   let allPending = tasks.filter(t => {
     const matchType = (!type || type === 'all') ? true
-      : type === 'fms' ? t.type === 'o2d'
-      : type === 'sfms' ? t.type === 'fms'
+      : type === 'fmsall' ? (fmsPick === 'all' ? FMS_TYPES.includes(t.type) : t.type === fmsPick)
       : t.type === type;
     const matchFreq = type !== 'checklist' || dashFreq === 'all' || (t.frequency || '') === dashFreq;
     return matchType && matchFreq && (t.status === 'pending' || t.status === 'revised' || !t.status);
@@ -4044,16 +4066,25 @@ function renderDashTable(tasks, type) {
       if (!isPC || t.type==='checklist') actions += `<button class="action-btn done" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
       if (!isPC && t.type!=='checklist') actions += ` <button class="action-btn revise" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
     }
+    // Mobile shows each row as a compact card (see the #dashTable rules in the
+    // phone media query): empty cells and a description that just repeats the
+    // title get class dt-empty and are hidden there.
+    const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque';
+    const doerName = (isAdmin||isPC)?t.assignedToName:t.assignedByName;
+    const dueText = isFmsRow ? '' : fmtDate(t.due_date||t.date);
+    const hasPriority = t.type!=='checklist' && !isFmsRow;
+    const descRepeatsTitle = !isFmsRow && String(rawDesc).trim().toLowerCase() === String(t.title||'').trim().toLowerCase();
+    const emptyCls = v => (!v || v === '—') ? ' dt-empty' : '';
     return `<tr style="${rowStyle}">
-      <td class="dt-type" style="white-space:nowrap">${typeBadge(t)}<span class="dt-dept-in-type" style="font-size:11px;color:var(--gray-500);font-weight:600">${esc(t.assignedToDept||'')}</span></td>
-      <td data-label="Dept" style="font-size:10px;color:var(--gray-500);max-width:120px;word-break:break-word;line-height:1.3">${esc(t.assignedToDept||'—')}</td>
-      <td data-label="Title" style="font-size:11px;font-weight:600;color:var(--gray-800);max-width:130px;word-break:break-word;line-height:1.3">${esc(t.title||'—')}</td>
-      <td data-label="Desc">${descCell}</td>
-      <td data-label="${doerLabel}" style="white-space:nowrap;font-size:12px;font-weight:600">${esc((isAdmin||isPC)?t.assignedToName:t.assignedByName)}</td>
-      <td data-label="Freq" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>
-      <td data-label="Start" style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate((t.start_date||'').slice(0,10))||'—'}</td>
-      <td data-label="Due" style="white-space:nowrap;font-size:12px">${(t.type==='fms'||t.type==='o2d'||t.type==='cheque') ? '—' : fmtDate(t.due_date||t.date)}</td>
-      <td data-label="Priority">${(t.type!=='checklist' && t.type!=='fms' && t.type!=='o2d' && t.type!=='cheque') ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
+      <td class="dt-type" style="white-space:nowrap">${typeBadge(t)}<span class="dt-dept-in-type" style="font-size:11px;color:var(--gray-500);font-weight:600">${isFmsRow ? '' : esc(t.assignedToDept||'')}</span></td>
+      <td data-label="Dept" class="dt-dept" style="font-size:10px;color:var(--gray-500);max-width:120px;word-break:break-word;line-height:1.3">${esc(t.assignedToDept||'—')}</td>
+      <td data-label="Title" class="dt-title${emptyCls(t.title)}" style="font-size:11px;font-weight:600;color:var(--gray-800);max-width:130px;word-break:break-word;line-height:1.3">${esc(t.title||'—')}</td>
+      <td data-label="Desc" class="dt-desc${descRepeatsTitle && !linkBtn ? ' dt-empty' : ''}">${descCell}</td>
+      <td data-label="${doerLabel}" class="dt-meta dt-doer${emptyCls(doerName)}" style="white-space:nowrap;font-size:12px;font-weight:600">${esc(doerName)}</td>
+      <td data-label="Freq" class="dt-meta dt-freq${emptyCls(t.frequency)}" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>
+      <td data-label="Start" class="dt-start" style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate((t.start_date||'').slice(0,10))||'—'}</td>
+      <td data-label="Due" class="dt-meta dt-due${emptyCls(dueText)}" style="white-space:nowrap;font-size:12px">${dueText || '—'}</td>
+      <td data-label="Priority" class="dt-meta dt-prio${hasPriority ? '' : ' dt-empty'}">${hasPriority ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
       <td class="dt-action" style="white-space:nowrap">${actions}</td>
     </tr>`;
   }).join('');
