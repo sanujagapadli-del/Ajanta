@@ -3713,6 +3713,7 @@ function buildSfmsDashboardTasks() {
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(c.filledByName) || '—'} · ${esc(c.mobile) || '—'}</div>
       <div style="font-size:12px;color:var(--gray-600)">${esc(c.productName) || '—'}${c.problemDescription ? ` — ${esc(c.problemDescription)}` : ''}</div>
       ${place ? `<div style="font-size:11.5px;color:var(--gray-500)">📍 ${place}</div>` : ''}
+      ${fmsFieldRow('REGISTERED', `${fmtDateDMY(c.timestamp) || '—'} ${fmtTimeOfDay(c.timestamp)}`)}
       ${fmsFieldRow('PENDING', `${daysPending} day${daysPending === 1 ? '' : 's'}${late ? ' — Late' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}
     `;
     tasks.push({
@@ -7935,7 +7936,7 @@ function renderSfmsStepView(n) {
       <td style="max-width:120px;padding:8px 8px">${esc(c.filledByName)}<br/><a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a></td>
       <td style="max-width:130px;padding:8px 8px">${esc(c.productName)}${c.dealerName ? `<br/><span style="color:var(--gray-500)">🏪 ${esc(c.dealerName)}</span>` : ''}${purchaseDateOnly !== '—' ? `<br/><span style="color:var(--gray-500)">🗓 ${purchaseDateOnly}</span>` : ''}${photosHtml ? `<br/>${photosHtml}` : ''}</td>
       <td style="max-width:170px;padding:8px 8px">${esc(c.problemDescription || '—')}${locationLine ? `<br/><span style="color:var(--gray-500)">📍 ${esc(locationLine)}</span>` : ''}</td>
-      <td style="white-space:nowrap;padding:8px 8px;${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</td>
+      <td style="white-space:nowrap;padding:8px 8px"><span style="${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</span><div style="font-size:10.5px;color:var(--gray-500)">${fmtDateDMY(c.timestamp)}<br/>${fmtTimeOfDay(c.timestamp)}</div></td>
       ${isWarrantyTab ? `<td style="padding:8px 8px">${sfmsWarrantyStatusHtml(c)}</td>` : ''}
       ${isSpareCheckTab ? `<td style="white-space:nowrap;padding:8px 8px;font-weight:600;color:${c.productOwnership === 'Dealer Stock Piece' ? 'var(--color-primary)' : 'var(--color-purple)'}">${esc(c.productOwnership || '—')}</td>` : ''}
       <td id="sfmsStepAction_${c.row}" style="padding:8px 8px">${buildSfmsNextActionHtml(c, true)}</td>
@@ -7946,7 +7947,7 @@ function renderSfmsStepView(n) {
   <table style="font-size:11.5px">
     <thead><tr>
       <th style="width:24px;padding:8px 6px">${canAct ? `<input type="checkbox" title="Select all" onchange="sfmsBulkToggleAll(this.checked)"/>` : ''}</th>
-      <th>Complain No</th><th>Customer</th><th>Product</th><th>Problem / Location</th><th>Pending</th>
+      <th>Complain No</th><th>Customer</th><th>Product</th><th>Problem / Location</th><th>Pending / Registered</th>
       ${isWarrantyTab ? '<th>Warranty</th>' : ''}
       ${isSpareCheckTab ? '<th>Ownership</th>' : ''}
       <th>${n}. ${esc(stepDef.label)}${stepDef.doer ? `<div style="font-size:9.5px;font-weight:600;color:var(--gray-400);text-transform:none;letter-spacing:0">👤 ${esc(stepDoerLabel(stepDef))}</div>` : ''}</th>
@@ -9195,6 +9196,14 @@ function renderComplaintDetailBody(c) {
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div>
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Complaint Date & Time</div>
+          <div style="font-size:14px;color:var(--gray-800);font-weight:600">${fmtDateDMY(c.timestamp) || '—'} ${fmtTimeOfDay(c.timestamp)}</div>
+        </div>
+        <div>
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Complaint No</div>
+          <div style="font-size:14px;color:var(--gray-800);font-weight:600">${esc(c.complainNo)}</div>
+        </div>
         <div>
           <div style="${SFMS_FIELD_LABEL_STYLE}">Product</div>
           <div style="font-size:14px;color:var(--gray-800);font-weight:600">${esc(c.productName)}</div>
