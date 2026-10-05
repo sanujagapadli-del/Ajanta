@@ -1802,6 +1802,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="tab" id="misTabFMS" onclick="switchMisTab('fms',this)">FMS MIS</div>
           <div class="tab" id="misTabAll" onclick="switchMisTab('all',this)">All MIS</div>
           <div class="tab" id="misTabWeekly" onclick="switchMisTab('weekly',this)">📅 Weekly MIS</div>
+          <div class="tab" id="misTabAnalytics" onclick="switchMisTab('analytics',this)">📈 Task Analytics</div>
         </div>
       </div>
     </div>
@@ -7112,6 +7113,157 @@ function exportWeeklyMIS() {
   a.click();
 }
 
+// ── Task Analytics (client spec, 2026-10-05): KPI % cards, filters, count
+// cards and a row-per-task detail table for the MIS Start–End dates.
+//   Task Done %          = Completed / Planned × 100,  Not Done % = Done % − 100
+//   Task Done On Time %  = Completed On Time / Planned × 100, Not On Time % = that − 100
+// Rows come from /api/mis/tasks once per Generate; every filter is local.
+let taData = null;
+const taFilter = { emp: '', fms: '', status: '', q: '' };
+let taShown = 100;
+let taSort = 'planned';
+async function generateTaskAnalytics() {
+  const out = document.getElementById('misResults');
+  const start = document.getElementById('misStart').value, end = document.getElementById('misEnd').value;
+  if (!start || !end || start > end) { showToast('Start aur End date sahi chuno', 'error'); return; }
+  out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
+  const d = await api(`/api/mis/tasks?start=${start}&end=${end}`);
+  if (!d || d.error) { out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--color-danger-border);color:var(--color-danger)">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
+  taData = d;
+  taShown = 100;
+  populateMISDeptDropdown(d.employees);
+  if (taFilter.emp && !d.employees.some(e => String(e.id) === taFilter.emp)) taFilter.emp = '';
+  renderTaskAnalytics();
+}
+function taRows() {
+  if (!taData) return [];
+  const dept = (document.getElementById('misDeptFilter') || {}).value || '';
+  const deptIds = dept ? new Set(taData.employees.filter(e => e.department === dept).map(e => e.id)) : null;
+  const q = taFilter.q.trim().toLowerCase();
+  return taData.rows.filter(r =>
+    (!taFilter.emp || r.doerIds.includes(Number(taFilter.emp))) &&
+    (!deptIds || r.doerIds.some(id => deptIds.has(id))) &&
+    (!taFilter.fms || r.fms === taFilter.fms) &&
+    (!q || [r.uid, r.task, r.names.join(' ')].some(v => String(v).toLowerCase().includes(q))));
+}
+function taSetFilter(key, val) { taFilter[key] = val; taShown = 100; renderTaskAnalytics(); }
+function taSearch(val) {
+  taFilter.q = val; taShown = 100;
+  clearTimeout(taSearch._t);
+  taSearch._t = setTimeout(() => { renderTaskAnalytics(); const el = document.getElementById('taSearchBox'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250);
+}
+const TA_STATUS = {
+  'On Time': { bg: 'var(--color-success-bg)', fg: 'var(--color-success-text)', label: '✓ On Time' },
+  'Late':    { bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)', label: '⏱ Delay Completed' },
+  'Pending': { bg: 'var(--color-primary-light)', fg: 'var(--color-primary)', label: '… Pending' },
+  'Overdue': { bg: 'var(--color-danger-bg)', fg: 'var(--color-danger-text)', label: '⚠ Pending (overdue)' }
+};
+function taVariance(r) {
+  const h = Math.abs(r.varianceHours || 0);
+  const txt = h >= 24 ? `${Math.floor(h / 24)}d ${Math.round(h % 24)}h` : h >= 1 ? `${Math.round(h * 10) / 10}h` : `${Math.max(1, Math.round(h * 60))}m`;
+  if (r.status === 'On Time') return `<span style="color:var(--color-success-text);font-weight:700">${r.varianceHours < 0 ? txt + ' early' : 'On time'}</span>`;
+  if (r.status === 'Late') return `<span style="color:var(--color-warning-text);font-weight:700">+${txt} late</span>`;
+  if (r.status === 'Overdue') return `<span style="color:var(--color-danger-text);font-weight:700">${txt} overdue</span>`;
+  return `<span style="color:var(--gray-500)">due in ${txt}</span>`;
+}
+const taFmtDt = s => !s ? '—' : `${fmtDateDMY(s.slice(0, 10))}${s.length > 10 && s.slice(11, 16) !== '23:59' ? ' ' + fmtTimeOfDay(s) : ''}`;
+
+function renderTaskAnalytics() {
+  const out = document.getElementById('misResults');
+  const d = taData;
+  if (!d) return;
+  const base = taRows();
+  const n = s => base.filter(r => r.status === s).length;
+  const planned = base.length, onTime = n('On Time'), late = n('Late'), pending = n('Pending') + n('Overdue'), overdue = n('Overdue');
+  const completed = onTime + late;
+  const pct = v => planned ? Math.round(v * 1000 / planned) / 10 : null;
+  const donePct = pct(completed), onTimePct = pct(onTime);
+  const minus = v => v === null ? null : Math.round((v - 100) * 10) / 10;
+  const kpi = (label, v, sub, good) => {
+    const color = v === null ? 'var(--gray-400)' : good ? 'var(--color-success-text)' : v === 0 ? 'var(--color-success-text)' : 'var(--color-danger)';
+    return `<div style="flex:1;min-width:160px;background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:14px 16px;box-shadow:0 2px 10px rgba(1,80,170,.05)">
+      <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+      <div style="font-size:28px;font-weight:900;color:${color};margin:2px 0">${v === null ? '—' : v + '%'}</div>
+      <div style="font-size:11.5px;color:var(--gray-500)">${sub}</div></div>`;
+  };
+  const statusRows = taFilter.status === 'Completed' ? base.filter(r => r.status === 'On Time' || r.status === 'Late')
+    : taFilter.status === 'Pending' ? base.filter(r => r.status === 'Pending' || r.status === 'Overdue')
+    : taFilter.status ? base.filter(r => r.status === taFilter.status) : base;
+  const countCard = (key, label, value, color, icon) => {
+    const active = taFilter.status === key;
+    return `<div onclick="taSetFilter('status','${active ? '' : key}')" title="Click to ${active ? 'clear' : 'show only these'}" style="flex:1;min-width:120px;cursor:pointer;background:${active ? 'var(--color-primary-light)' : 'var(--surface)'};border:1.5px solid ${active ? 'var(--color-primary)' : 'var(--gray-200)'};border-radius:12px;padding:10px 14px;transition:all .15s">
+      <div style="font-size:10.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${icon} ${label}</div>
+      <div style="font-size:22px;font-weight:900;color:${color}">${value}</div></div>`;
+  };
+  const sel = 'padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:13px;background:var(--surface);color:var(--gray-800);min-width:150px';
+  const fmsList = [...new Set(d.rows.map(r => r.fms))];
+  const sorted = statusRows.slice().sort(
+    taSort === 'variance' ? (a, b) => (b.varianceHours || 0) - (a.varianceHours || 0)
+    : taSort === 'name' ? (a, b) => a.names[0].localeCompare(b.names[0]) || a.planned.localeCompare(b.planned)
+    : (a, b) => a.planned.localeCompare(b.planned));
+  const page = sorted.slice(0, taShown);
+  const th = 'padding:9px 10px;font-size:11px;font-weight:800;color:var(--gray-600);text-transform:uppercase;letter-spacing:.3px;text-align:left;border-bottom:2px solid var(--gray-200);background:var(--gray-50);white-space:nowrap';
+  const td = 'padding:8px 10px;font-size:12.5px;border-bottom:1px solid var(--gray-100);vertical-align:top';
+  const sortTh = (key, label) => `<th style="${th};cursor:pointer" onclick="taSort='${key}';renderTaskAnalytics()">${label}${taSort === key ? ' ▾' : ''}</th>`;
+
+  out.innerHTML = `
+    <div style="background:linear-gradient(135deg,var(--color-primary-light),var(--surface));border:1px solid var(--gray-200);border-radius:14px;padding:14px 16px;margin-bottom:14px">
+      <div style="font-size:16px;font-weight:800;color:var(--gray-900)">📈 Task Analytics</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">${fmtDateDMY(d.start)} – ${fmtDateDMY(d.end)} · Delegation, Checklist & FMS steps planned in these dates${d.fmsErrors && d.fmsErrors.length ? ` · <span style="color:var(--color-danger)">⚠️ Could not read: ${esc(d.fmsErrors.join(', '))}</span>` : ''}</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        ${kpi('Task Done %', donePct, `${completed} of ${planned} completed`, true)}
+        ${kpi('Task Not Done %', minus(donePct), `${pending} still pending`)}
+        ${kpi('Task Done On Time %', onTimePct, `${onTime} of ${planned} on time`, true)}
+        ${kpi('Task Not Done On Time %', minus(onTimePct), `${late} late + ${pending} pending`)}
+      </div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:12px;font-weight:800;color:var(--gray-500)">🔍 FILTERS</span>
+      <select style="${sel}" onchange="taSetFilter('emp',this.value)"><option value="">👤 All Employees</option>${d.employees.map(e => `<option value="${e.id}" ${String(e.id) === taFilter.emp ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
+      <select style="${sel}" onchange="taSetFilter('fms',this.value)"><option value="">⚙️ All FMS / Modules</option>${fmsList.map(f => `<option ${f === taFilter.fms ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>
+      <select style="${sel}" onchange="taSetFilter('status',this.value)">
+        ${[['', '📌 All Status'], ['Completed', 'Completed'], ['On Time', 'Completed On Time'], ['Late', 'Delay Completed'], ['Pending', 'Pending'], ['Overdue', 'Pending (overdue)']]
+          .map(([v, l]) => `<option value="${v}" ${v === taFilter.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <input id="taSearchBox" type="text" value="${esc(taFilter.q)}" oninput="taSearch(this.value)" placeholder="Search ID, task, name…" style="${sel};flex:1;min-width:180px"/>
+      ${taFilter.emp || taFilter.fms || taFilter.status || taFilter.q ? `<button class="btn btn-outline btn-sm" onclick="Object.assign(taFilter,{emp:'',fms:'',status:'',q:''});renderTaskAnalytics()">✕ Clear</button>` : ''}
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      ${countCard('', 'Planned', planned, 'var(--gray-900)', '📋')}
+      ${countCard('Completed', 'Completed', completed, 'var(--color-primary)', '✔')}
+      ${countCard('On Time', 'Completed On Time', onTime, 'var(--color-success-text)', '✓')}
+      ${countCard('Late', 'Delay Completed', late, 'var(--color-warning-text)', '⏱')}
+      ${countCard('Pending', 'Pending', pending, 'var(--color-danger)', '…')}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden">
+      <div style="padding:10px 14px;font-size:12.5px;color:var(--gray-500);border-bottom:1px solid var(--gray-100)"><b style="color:var(--gray-800)">${statusRows.length}</b> tasks${overdue ? ` · <span style="color:var(--color-danger-text);font-weight:700">${overdue} overdue</span>` : ''} · sort by column header</div>
+      ${page.length ? `<div class="mis-table-wrap" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr><th style="${th}">Unique ID</th>${sortTh('name', 'Name')}<th style="${th}">Task</th><th style="${th}">FMS</th><th style="${th}">Status</th>${sortTh('planned', 'Planned Date')}<th style="${th}">Actual Date</th>${sortTh('variance', 'Status Variance')}</tr></thead>
+        <tbody>${page.map(r => { const st = TA_STATUS[r.status]; return `<tr>
+          <td style="${td};font-weight:700;white-space:nowrap">${esc(r.uid)}</td>
+          <td style="${td};white-space:nowrap">${r.names.map(esc).join(', ')}</td>
+          <td style="${td};max-width:360px">${esc(r.task)}</td>
+          <td style="${td};white-space:nowrap">${esc(r.fms)}</td>
+          <td style="${td}"><span style="display:inline-block;padding:3px 9px;border-radius:999px;background:${st.bg};color:${st.fg};font-weight:700;font-size:11.5px;white-space:nowrap">${st.label}</span></td>
+          <td style="${td};white-space:nowrap">${taFmtDt(r.planned)}</td>
+          <td style="${td};white-space:nowrap">${taFmtDt(r.actual)}</td>
+          <td style="${td};white-space:nowrap">${taVariance(r)}</td></tr>`; }).join('')}</tbody></table></div>
+        ${statusRows.length > taShown ? `<div style="padding:12px;text-align:center"><button class="btn btn-outline" onclick="taShown+=200;renderTaskAnalytics()">Show more (${statusRows.length - taShown} left)</button></div>` : ''}`
+      : '<div class="empty">No tasks match these filters.</div>'}
+    </div>`;
+}
+function exportTaskAnalytics() {
+  if (!taData) { showToast('Pehle Generate karo', 'error'); return; }
+  const q = v => { const s = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const st = taFilter.status;
+  const rows = taRows().filter(r => !st || (st === 'Completed' ? r.status === 'On Time' || r.status === 'Late' : st === 'Pending' ? r.status === 'Pending' || r.status === 'Overdue' : r.status === st));
+  const lines = [['Unique ID', 'Name', 'Task', 'FMS', 'Status', 'Planned Date', 'Actual Date', 'Variance (hours, + = late)'].join(',')]
+    .concat(rows.map(r => [r.uid, r.names.join(', '), r.task, r.fms, TA_STATUS[r.status].label.replace(/^\S+ /, ''), r.planned, r.actual, r.varianceHours].map(q).join(',')));
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
+  a.download = `Task_Analytics_${taData.start}_to_${taData.end}.csv`;
+  a.click();
+}
+
 function filterMISDept() {
   if (misType === 'all') {
     renderAllMIS(misAllData, misFMSData);
@@ -7119,6 +7271,8 @@ function filterMISDept() {
     renderMIS(misData);
   } else if (misType === 'weekly') {
     renderWeeklyMIS();
+  } else if (misType === 'analytics') {
+    renderTaskAnalytics();
   }
   // FMS MIS tab does not have per-user dept data, skip
 }
@@ -7138,6 +7292,11 @@ function switchMisTab(type, el) {
     deptWrap.style.display = (type !== 'fms') ? '' : 'none';
   }
 
+  if (type === 'analytics') {
+    if (taData) renderTaskAnalytics();
+    else document.getElementById('misResults').innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Start aur End date chuno, phir Generate dabao</div>`;
+    return;
+  }
   if (type === 'weekly') {
     // Weekly MIS reports a finished week — start on last week's Monday.
     if (!misWeeklyData) setDmyDate('misStart', misLastWeekMonday());
@@ -7158,6 +7317,7 @@ function switchMisTab(type, el) {
 
 async function generateMIS() {
   if (misType === 'weekly') return generateWeeklyMIS();
+  if (misType === 'analytics') return generateTaskAnalytics();
   const start = document.getElementById('misStart').value;
   const end   = document.getElementById('misEnd').value;
   if (!start || !end) { showToast('Please select start and end date','error'); return; }
@@ -7376,6 +7536,7 @@ async function openMISDetail(userId, userName) {
 
 function exportMIS() {
   if (misType === 'weekly') return exportWeeklyMIS();
+  if (misType === 'analytics') return exportTaskAnalytics();
   // CSV escape helper — name/department me comma, quote ya newline ho to bhi columns na toote
   const esc = v => {
     if (v === null || v === undefined) return '';

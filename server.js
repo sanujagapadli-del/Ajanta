@@ -2502,6 +2502,89 @@ app.get('/api/mis/weekly', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// ── Task Analytics (client spec, 2026-10-05) ─────────────────────────────
+// Every task / FMS step planned in a date range, one row each, for the MIS
+// "Task Analytics" tab: Done %, Not Done %, Done On Time %, Not Done On Time %
+// cards, Planned / Completed / On Time / Delay Completed / Pending counts and
+// the detail table. Same sources and on-time rules as Weekly MIS; an FMS step
+// is ONE row with all its doers (so "all employees" totals never double-count),
+// and the employee filter matches any of them.
+app.get('/api/mis/tasks', requireAuth, async (req, res) => {
+  try {
+    const role = req.session.role, uid = req.session.userId;
+    const { start, end } = req.query;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
+      return res.status(400).json({ error: 'Valid start and end dates required' });
+    }
+    let [users] = await db.query("SELECT id, name, department FROM users WHERE (role IS NULL OR role<>'vendor') ORDER BY name");
+    if (role === 'hod') {
+      const me = users.find(u => u.id === uid);
+      users = users.filter(u => (u.department || '') === ((me && me.department) || ''));
+    } else if (role !== 'admin' && role !== 'pc') {
+      users = users.filter(u => u.id === uid);
+    }
+    const byId = Object.fromEntries(users.map(u => [u.id, u]));
+    const [[clock]] = await db.query("SELECT DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i:%s') AS now");
+    const now = clock.now;
+    const rows = [];
+    const add = r => {
+      const ids = r.doerIds.filter(id => byId[id]);
+      if (!ids.length) return;
+      const done = !!r.actual;
+      // Date-only plans (Delegation / Checklist) are due by the end of that day.
+      const due = r.planned.length > 10 ? r.planned : r.planned + ' 23:59:59';
+      const status = done ? (r.actual <= due ? 'On Time' : 'Late') : (due < now ? 'Overdue' : 'Pending');
+      const hours = (a, b) => {
+        const p = s => { const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) : NaN; };
+        return Math.round((p(a) - p(b)) / 360000) / 10;
+      };
+      rows.push({ ...r, doerIds: ids, names: ids.map(id => byId[id].name), status,
+        varianceHours: hours(done ? (r.actual.length > 10 ? r.actual : r.actual + ' 00:00:00') : now, due) });
+    };
+
+    for (const [fms, table, prefix] of [['Delegation', 'delegation_tasks', 'DEL'], ['Checklist', 'checklist_tasks', 'CHK']]) {
+      const [list] = await db.query(
+        `SELECT id, assigned_to, COALESCE(NULLIF(title,''), description) AS task, DATE_FORMAT(due_date,'%Y-%m-%d') AS due,
+           status, DATE_FORMAT(completed_at,'%Y-%m-%d %H:%i:%s') AS done_at
+         FROM ${table} WHERE due_date BETWEEN ? AND ?`, [start, end]);
+      for (const t of list) {
+        const done = t.status === 'completed';
+        add({ uid: `${prefix}-${t.id}`, fms, task: String(t.task || '').slice(0, 300), planned: t.due,
+          // Completed without a recorded time (older rows) counts as done on its due date.
+          actual: done ? (t.done_at || t.due) : '', doerIds: [Number(t.assigned_to)] });
+      }
+    }
+
+    const fmsErrors = [];
+    const modules = [
+      ['O2D FMS', () => getO2dOrders(), o => o.cancelled, o => [o.orderNo, o.counterName]],
+      ['Service FMS', () => sfmsFetchComplaints(), () => false, c => [c.complainNo, c.filledByName]],
+      ['Purchase FMS', () => getPurchasePOs(), () => false, p => [p.poNumber, p.vendorName]]
+    ];
+    await Promise.all(modules.map(async ([fms, load, skip, label]) => {
+      let list;
+      try { list = await load(); } catch (e) { fmsErrors.push(fms); return; }
+      for (const ent of list) {
+        if (skip(ent)) continue;
+        const [no, who] = label(ent);
+        for (const st of ent.steps || []) {
+          const planned = String(st.planned || '');
+          const day = planned.slice(0, 10);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < start || day > end) continue;
+          const actual = String(st.actual || '');
+          if (!actual && st.n !== ent.currentStep + 1) continue; // later steps' plans aren't real yet
+          add({ uid: `${no}/S${st.n}`, fms, task: `${st.n}. ${st.label || ''} — ${no}${who ? ' · ' + who : ''}`,
+            planned, actual, doerIds: (st.doers || []).map(d => Number(d.id)) });
+        }
+      }
+    }));
+
+    rows.sort((a, b) => a.planned.localeCompare(b.planned));
+    const employees = users.filter(u => rows.some(r => r.doerIds.includes(u.id))).map(u => ({ id: u.id, name: u.name, department: u.department || '' }));
+    res.json({ start, end, now, rows, employees, fmsErrors });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // ── FMS Dashboard — row-level pending tasks (like delegation/checklist) ──
 app.get('/api/fms-dashboard', requireAuth, async (req, res) => {
   try {
