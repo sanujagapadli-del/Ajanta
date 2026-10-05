@@ -896,6 +896,7 @@ tbody tr:last-child td{border-bottom:none;}
   /* Tables → stacked cards (labels filled in by mobileTableCards()) */
   table.mcards{min-width:0 !important;width:100% !important;border-collapse:separate;border-spacing:0}
   table.mcards thead{display:none}
+  table.mcards tfoot{display:none} /* a footer row keeps table layout and squeezes the cards */
   table.mcards tbody{display:block}
   table.mcards tbody tr{
     display:block;background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;
@@ -905,7 +906,7 @@ tbody tr:last-child td{border-bottom:none;}
   table.mcards tbody tr{position:relative}
   /* Label floats left, the cell's own content (one or several lines) stays together on the right */
   table.mcards tbody td{
-    display:block;padding:4px 0 !important;border:none !important;text-align:right;overflow-wrap:anywhere;
+    display:block;padding:4px 0 !important;border:none !important;text-align:right !important;overflow-wrap:anywhere;
     white-space:normal !important;max-width:none !important;min-width:0 !important;width:auto !important;font-size:13px;line-height:1.45;
   }
   table.mcards tbody td::before{
@@ -914,19 +915,19 @@ tbody tr:last-child td{border-bottom:none;}
   }
   table.mcards tbody td::after{content:'';display:block;clear:both}
   table.mcards tbody td[data-ml=""]::before{display:none}
-  table.mcards tbody td[data-ml=""]{text-align:left}
+  table.mcards tbody td[data-ml=""]{text-align:left !important}
   /* Row checkbox sits in the card's top-right corner */
   table.mcards tbody td.mc-check{position:absolute;top:9px;right:12px;padding:0 !important}
   table.mcards tbody td.mc-check::before{display:none}
   table.mcards tbody tr:has(> td.mc-check) td.mc-head{padding-right:34px !important}
   /* First column = the card's heading */
-  table.mcards tbody td.mc-head{font-size:14.5px;font-weight:700;color:var(--gray-900);text-align:left;border-bottom:1px solid var(--gray-100) !important;padding-bottom:6px !important;margin-bottom:2px}
+  table.mcards tbody td.mc-head{font-size:14.5px;font-weight:700;color:var(--gray-900);text-align:left !important;border-bottom:1px solid var(--gray-100) !important;padding-bottom:6px !important;margin-bottom:2px}
   table.mcards tbody td.mc-head::before{display:none}
   /* A cell holding a form / buttons gets the full card width */
-  table.mcards tbody td.mc-wide{display:block;text-align:left}
+  table.mcards tbody td.mc-wide{display:block;text-align:left !important}
   table.mcards tbody td.mc-wide::before{float:none;display:block;max-width:none;margin-bottom:4px}
   /* Group/heading rows (single cell spanning the table) */
-  table.mcards tbody td[colspan]{display:block;text-align:left}
+  table.mcards tbody td[colspan]{display:block;text-align:left !important}
   table.mcards tbody td[colspan]::before{display:none}
   table.mcards tbody tr:has(> td[colspan]:only-child){background:transparent;border:none;box-shadow:none;padding:6px 2px;margin:10px 0 0}
   table.mcards tbody td.mc-empty{display:none}
@@ -7162,6 +7163,46 @@ function taVariance(r) {
 }
 const taFmtDt = s => !s ? '<span style="color:var(--gray-300)">—</span>' : `${fmtDateDMY(s.slice(0, 10))}${s.length > 10 && s.slice(11, 16) !== '23:59' ? `<div style="font-size:11px;color:var(--gray-500)">${fmtTimeOfDay(s)}</div>` : ''}`;
 const taInitials = n => (String(n).replace(/\([^)]*\)/g, ' ').match(/[A-Za-z0-9]+/g) || ['?']).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+// "All Employees": instead of the task list, one row per employee — how many
+// tasks each has planned / completed / on time / late / pending (client,
+// 2026-10-05). Click a row = that employee's tasks; "All tasks" = full list.
+let taListMode = 'emp';
+let taEmpSort = 'pending';
+function taEmpBreakdownHtml(rows, card, th, td) {
+  const list = taData.employees.map(e => ({ e, c: taCount(rows.filter(r => r.doerIds.includes(e.id))) })).filter(x => x.c.planned);
+  const pc = (n, t) => t ? Math.round(n * 1000 / t) / 10 : null;
+  const val = (x, k) => k === 'name' ? x.e.name : k === 'done' ? pc(x.c.completed, x.c.planned) : k === 'ontime' ? pc(x.c.onTime, x.c.planned) : x.c[k];
+  list.sort((a, b) => taEmpSort === 'name' ? a.e.name.localeCompare(b.e.name)
+    : taEmpSort === 'done' || taEmpSort === 'ontime' ? (val(a, taEmpSort) - val(b, taEmpSort)) || b.c.planned - a.c.planned
+    : (val(b, taEmpSort) - val(a, taEmpSort)) || a.e.name.localeCompare(b.e.name));
+  const sh = (k, label, right) => `<th style="${th};cursor:pointer;${right ? 'text-align:center;' : ''}color:${taEmpSort === k ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="taEmpSort='${k}';renderTaskAnalytics()">${label} ${taEmpSort === k ? '▾' : '⇅'}</th>`;
+  const pill = (v, good) => v === null ? '—' : `<span style="display:inline-block;min-width:52px;padding:3px 9px;border-radius:999px;font-weight:800;font-size:12px;background:${v >= good ? 'var(--color-success-bg)' : v >= good - 25 ? 'var(--color-warning-bg)' : 'var(--color-danger-bg)'};color:${v >= good ? 'var(--color-success-text)' : v >= good - 25 ? 'var(--color-warning-text)' : 'var(--color-danger-text)'}">${v}%</span>`;
+  const num = (v, color) => `<td style="${td};text-align:center;font-weight:800;font-size:14px;color:${v ? color : 'var(--gray-300)'}">${v}</td>`;
+  const tot = taCount(rows);
+  return `
+    <div style="${card};overflow:hidden;margin-top:14px">
+      <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
+        <div style="font-size:14px;font-weight:800;color:var(--gray-900)">👥 Employee-wise Breakdown <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${list.length} employees · sabse zyada pending upar</span></div>
+        <div style="display:flex;gap:10px;align-items:center"><span style="font-size:11.5px;color:var(--gray-400)">Naam par click = uske tasks</span>
+          <button class="btn btn-outline btn-sm" onclick="taListMode='tasks';renderTaskAnalytics()">📋 All tasks</button></div>
+      </div>
+      ${list.length ? `<div class="mis-table-wrap" style="overflow:auto;max-height:640px"><table style="width:100%;border-collapse:separate;border-spacing:0">
+        <thead><tr>${sh('name', 'Employee')}${sh('planned', 'Planned', 1)}${sh('completed', 'Completed', 1)}${sh('onTime', 'On Time', 1)}${sh('late', 'Delay Completed', 1)}${sh('pending', 'Pending', 1)}${sh('overdue', 'Overdue', 1)}${sh('done', 'Done %', 1)}${sh('ontime', 'On Time %', 1)}</tr></thead>
+        <tbody>${list.map((x, i) => `<tr onclick="taSetFilter('emp','${x.e.id}')" style="cursor:pointer;background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}" title="${esc(x.e.name)} ke tasks dekhein">
+          <td style="${td};white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${esc(taInitials(x.e.name))}</span>
+            <span><b style="color:var(--gray-900);font-size:13px">${esc(x.e.name)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(x.e.department || '—')}</div></span></span></td>
+          ${num(x.c.planned, 'var(--gray-800)')}${num(x.c.completed, 'var(--color-primary)')}${num(x.c.onTime, 'var(--color-success-text)')}${num(x.c.late, 'var(--color-warning-text)')}
+          ${num(x.c.pending, 'var(--color-danger-text)')}${num(x.c.overdue, 'var(--color-danger)')}
+          <td style="${td};text-align:center">${pill(pc(x.c.completed, x.c.planned), 100)}</td>
+          <td style="${td};text-align:center">${pill(pc(x.c.onTime, x.c.planned), 75)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr style="background:var(--gray-50)">
+          <td style="${td};font-weight:900;color:var(--gray-900);border-top:2px solid var(--gray-200)">Total</td>
+          ${[tot.planned, tot.completed, tot.onTime, tot.late, tot.pending, tot.overdue].map(v => `<td style="${td};text-align:center;font-weight:900;font-size:14px;border-top:2px solid var(--gray-200)">${v}</td>`).join('')}
+          <td style="${td};text-align:center;border-top:2px solid var(--gray-200)">${pill(pc(tot.completed, tot.planned), 100)}</td>
+          <td style="${td};text-align:center;border-top:2px solid var(--gray-200)">${pill(pc(tot.onTime, tot.planned), 75)}</td></tr></tfoot>
+      </table></div>` : '<div class="empty">No tasks match these filters.</div>'}
+    </div>`;
+}
 function taCount(rows) {
   const c = { planned: rows.length, onTime: 0, late: 0, pending: 0, overdue: 0 };
   rows.forEach(r => { if (r.status === 'On Time') c.onTime++; else if (r.status === 'Late') c.late++; else { c.pending++; if (r.status === 'Overdue') c.overdue++; } });
@@ -7231,7 +7272,7 @@ function renderTaskAnalytics() {
     <div style="${card};overflow:hidden;margin-top:14px">
       <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
         <div style="font-size:14px;font-weight:800;color:var(--gray-900)">📋 Task Details <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${statusRows.length} tasks${c.overdue ? ` · <span style="color:var(--color-danger-text)">${c.overdue} overdue</span>` : ''}</span></div>
-        <div style="font-size:11.5px;color:var(--gray-400)">Column header par click karke sort karein</div>
+        <div style="display:flex;gap:10px;align-items:center">${!taFilter.emp ? `<button class="btn btn-outline btn-sm" onclick="taListMode='emp';renderTaskAnalytics()">👥 Employee-wise</button>` : ''}<span style="font-size:11.5px;color:var(--gray-400)">Column header par click karke sort karein</span></div>
       </div>
       ${page.length ? `<div class="mis-table-wrap" style="overflow:auto;max-height:640px"><table style="width:100%;border-collapse:separate;border-spacing:0">
         <thead><tr><th style="${th}">Unique ID</th>${sortTh('name', 'Name')}<th style="${th}">Task</th><th style="${th}">FMS</th><th style="${th}">Status</th>${sortTh('planned', 'Planned')}<th style="${th}">Actual</th>${sortTh('variance', 'Variance')}</tr></thead>
@@ -7261,7 +7302,7 @@ function renderTaskAnalytics() {
       ${countCard('On Time', 'On Time', c.onTime, '#10b981', '⏰')}
       ${countCard('Late', 'Delay Completed', c.late, '#f59e0b', '⏱️')}
       ${countCard('Pending', 'Pending', c.pending, '#ef4444', '⏳')}
-    </div>` + table;
+    </div>` + (!taFilter.emp && !taFilter.status && taListMode === 'emp' ? taEmpBreakdownHtml(base, card, th, td) : table);
 }
 function exportTaskAnalytics() {
   if (!taData) { showToast('Pehle report load hone do', 'error'); return; }
