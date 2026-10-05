@@ -1771,32 +1771,24 @@ tbody tr:last-child td{border-bottom:none;}
       <button id="setPlanBtn" class="btn btn-primary" onclick="openSetPlanModal()" style="display:none">📅 Set Plan</button>
     </div>
 
-    <!-- Old filter card: hidden — the MIS Report draws its own toolbar, but its
-         inputs (#misStart / #misEnd / #misDeptFilter) still hold the dates. -->
-    <div id="misFilterCard" style="display:none">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <!-- Date range + department for the MIS Report -->
+    <div id="misFilterCard" style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
         <div id="misStartWrap">
-          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Start Date</div>
-          <input type="date" id="misStart" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;"/>
+          <div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 Start Date</div>
+          <input type="date" id="misStart" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/>
         </div>
         <div id="misEndWrap">
-          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">End Date</div>
-          <input type="date" id="misEnd" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;"/>
+          <div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 End Date</div>
+          <input type="date" id="misEnd" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/>
         </div>
         <!-- Department filter: Admin only -->
         <div id="misDeptFilterWrap" style="display:none">
-          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Department</div>
-          <select id="misDeptFilter" onchange="filterMISDept()"
-            style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;min-width:160px;background:var(--surface);color:var(--gray-800);cursor:pointer;">
-            <option value="">All Departments</option>
-          </select>
+          <div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">🏢 Department</div>
+          <select id="misDeptFilter" onchange="filterMISDept()" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800);min-width:170px;cursor:pointer"><option value="">All Departments</option></select>
         </div>
-        <div style="align-self:flex-end">
-          <button class="btn btn-primary" onclick="generateMIS()">Generate</button>
-        </div>
-        <div style="align-self:flex-end">
-          <button class="btn btn-outline" onclick="exportMIS()">⬇ Export CSV</button>
-        </div>
+        <button class="btn btn-primary" onclick="generateMIS()" style="padding:10px 22px">Generate</button>
+        <button class="btn btn-outline" onclick="exportMIS()" style="padding:10px 16px">⬇ Export CSV</button>
       </div>
       <!-- One report only (client, 2026-10-05): the old Delegation / Checklist /
            FMS / All / Weekly MIS tabs were removed; "MIS Report" is the former
@@ -7112,38 +7104,15 @@ function exportWeeklyMIS() {
 // ── MIS Report (client spec, 2026-10-05; redesigned same day) ─────────────
 //   Task Done %          = Completed / Planned × 100,  Not Done % = Done % − 100
 //   Task Done On Time %  = Completed On Time / Planned × 100, Not On Time % = that − 100
-// One toolbar (quick date ranges + department / employee / FMS / status /
-// search), KPI rings, clickable count cards, By-FMS and By-Employee bars
-// (click = filter) and the per-task table. Rows come from /api/mis/tasks once
-// per date range; every filter is local. The old filter card's inputs
-// (#misStart / #misEnd) stay hidden in the page and hold the dates.
+// Layout the client approved: date card (#misStart / #misEnd / department)
+// → MIS Report card with the 4 KPI cards → employee / FMS / status / search
+// filters → clickable count cards → per-task table. Rows come from
+// /api/mis/tasks once per Generate; every filter is local.
 let taData = null;
 let taLoading = false;
 const taFilter = { emp: '', fms: '', status: '', q: '', dept: '' };
 let taShown = 100;
 let taSort = 'planned';
-let taRange = 'week';
-let taEmpAll = false;
-const taYmd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-function taQuickRange(key) {
-  const t = new Date(); t.setHours(0, 0, 0, 0);
-  const mon = new Date(t); mon.setDate(t.getDate() - ((t.getDay() + 6) % 7));
-  let s = t, e = t;
-  if (key === 'week') { s = mon; }
-  else if (key === 'lastweek') { s = new Date(mon); s.setDate(mon.getDate() - 7); e = new Date(mon); e.setDate(mon.getDate() - 1); }
-  else if (key === 'month') { s = new Date(t.getFullYear(), t.getMonth(), 1); }
-  else if (key === 'lastmonth') { s = new Date(t.getFullYear(), t.getMonth() - 1, 1); e = new Date(t.getFullYear(), t.getMonth(), 0); }
-  taRange = key;
-  setDmyDate('misStart', taYmd(s)); setDmyDate('misEnd', taYmd(e));
-  generateTaskAnalytics();
-}
-function taCustomDate(which, val) {
-  if (!val) return;
-  taRange = 'custom';
-  setDmyDate(which === 'start' ? 'misStart' : 'misEnd', val);
-  const s = document.getElementById('misStart').value, e = document.getElementById('misEnd').value;
-  if (s && e && s <= e) generateTaskAnalytics();
-}
 async function generateTaskAnalytics() {
   const start = document.getElementById('misStart').value, end = document.getElementById('misEnd').value;
   if (!start || !end || start > end) { showToast('Start aur End date sahi chuno', 'error'); return; }
@@ -7156,10 +7125,10 @@ async function generateTaskAnalytics() {
   if (taFilter.emp && !d.employees.some(e => String(e.id) === taFilter.emp)) taFilter.emp = '';
   renderTaskAnalytics();
 }
-// filters minus one key — the By-FMS / By-Employee charts ignore their own filter
 function taRows(skip) {
   if (!taData) return [];
   const f = { ...taFilter, ...(skip ? { [skip]: '' } : {}) };
+  f.dept = (document.getElementById('misDeptFilter') || {}).value || '';
   const deptIds = f.dept ? new Set(taData.employees.filter(e => e.department === f.dept).map(e => e.id)) : null;
   const q = f.q.trim().toLowerCase();
   return taData.rows.filter(r =>
@@ -7205,39 +7174,19 @@ function taRing(pct, color) {
   return `<svg width="58" height="58" viewBox="0 0 58 58" style="flex-shrink:0"><circle cx="29" cy="29" r="${r}" fill="none" stroke="var(--gray-100)" stroke-width="7"/>
     <circle cx="29" cy="29" r="${r}" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${(v / 100) * c} ${c}" transform="rotate(-90 29 29)"/></svg>`;
 }
-function taStackBar(c) {
-  const p = n => c.planned ? (n * 100 / c.planned) : 0;
-  return `<div style="display:flex;height:9px;border-radius:999px;overflow:hidden;background:var(--gray-100)">
-    <div style="width:${p(c.onTime)}%;background:#10b981"></div><div style="width:${p(c.late)}%;background:#f59e0b"></div><div style="width:${p(c.pending)}%;background:#ef4444"></div></div>`;
-}
-
 function renderTaskAnalytics() {
   const out = document.getElementById('misResults');
   const card = 'background:var(--surface);border:1px solid var(--gray-200);border-radius:16px;box-shadow:0 2px 12px rgba(1,80,170,.05)';
   const sel = 'padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)';
   const d = taData;
   const start = document.getElementById('misStart').value, end = document.getElementById('misEnd').value;
-  const chip = (key, label) => `<button onclick="taQuickRange('${key}')" style="padding:7px 13px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid ${taRange === key ? 'var(--color-primary)' : 'var(--gray-200)'};background:${taRange === key ? 'var(--color-primary)' : 'var(--surface)'};color:${taRange === key ? '#fff' : 'var(--gray-600)'}">${label}</button>`;
-  const depts = d ? [...new Set(d.employees.map(e => e.department).filter(Boolean))].sort() : [];
-  const toolbar = `
-    <div style="${card};padding:16px 18px;margin-bottom:14px;background:linear-gradient(135deg,var(--color-primary-light) 0%,var(--surface) 55%)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-        <div>
-          <div style="font-size:19px;font-weight:900;color:var(--gray-900);letter-spacing:-.3px">📊 MIS Report</div>
-          <div style="font-size:12.5px;color:var(--gray-500);margin-top:2px">${start ? fmtDateDMY(start) : ''} – ${end ? fmtDateDMY(end) : ''} · Delegation, Checklist & FMS steps planned in these dates${taLoading ? ' · <b style="color:var(--color-primary)">Loading…</b>' : ''}</div>
-        </div>
-        <button class="btn btn-outline btn-sm" onclick="exportMIS()" ${d ? '' : 'disabled'}>⬇ Export CSV</button>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px">
-        ${chip('today', 'Today')}${chip('week', 'This Week')}${chip('lastweek', 'Last Week')}${chip('month', 'This Month')}${chip('lastmonth', 'Last Month')}
-        <span style="display:inline-flex;gap:6px;align-items:center;padding:4px 8px;border-radius:999px;border:1.5px solid ${taRange === 'custom' ? 'var(--color-primary)' : 'var(--gray-200)'};background:var(--surface)">
-          <input type="date" value="${start}" onchange="taCustomDate('start',this.value)" style="border:none;background:transparent;font-size:12.5px;color:var(--gray-700);font-family:inherit"/>
-          <span style="color:var(--gray-400)">→</span>
-          <input type="date" value="${end}" onchange="taCustomDate('end',this.value)" style="border:none;background:transparent;font-size:12.5px;color:var(--gray-700);font-family:inherit"/>
-        </span>
-      </div>
+  const header = inner => `
+    <div style="${card};padding:16px 18px;margin-bottom:14px;background:linear-gradient(135deg,var(--color-primary-light) 0%,var(--surface) 60%)">
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900);letter-spacing:-.3px">📊 MIS Report</div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin:2px 0 14px">${start ? fmtDateDMY(start) : ''} – ${end ? fmtDateDMY(end) : ''} · Delegation, Checklist & FMS steps planned in these dates${taLoading ? ' · <b style="color:var(--color-primary)">Loading…</b>' : ''}</div>
+      ${inner}
     </div>`;
-  if (!d) { out.innerHTML = toolbar + `<div class="empty" style="${card}">${taLoading ? 'Loading…' : 'Date range chuno'}</div>`; return; }
+  if (!d) { out.innerHTML = header(`<div class="empty" style="padding:20px">${taLoading ? 'Loading…' : 'Start aur End date chuno, phir Generate dabao'}</div>`); return; }
 
   const base = taRows();
   const c = taCount(base);
@@ -7254,13 +7203,12 @@ function renderTaskAnalytics() {
       </div></div>`;
   const filters = `
     <div style="${card};padding:12px 14px;margin:14px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      ${depts.length > 1 ? `<select style="${sel}" onchange="taSetFilter('dept',this.value)"><option value="">🏢 All Departments</option>${depts.map(x => `<option ${x === taFilter.dept ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}
       <select style="${sel}" onchange="taSetFilter('emp',this.value)"><option value="">👤 All Employees</option>${d.employees.map(e => `<option value="${e.id}" ${String(e.id) === taFilter.emp ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
       <select style="${sel}" onchange="taSetFilter('fms',this.value)"><option value="">⚙️ All FMS / Modules</option>${Object.keys(TA_FMS_COLOR).filter(f => d.rows.some(r => r.fms === f)).map(f => `<option ${f === taFilter.fms ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>
       <select style="${sel}" onchange="taSetFilter('status',this.value)">
         ${[['', '📌 All Status'], ['Completed', 'Completed'], ['On Time', 'Completed On Time'], ['Late', 'Delay Completed'], ['Pending', 'Pending'], ['Overdue', 'Overdue']].map(([v, l]) => `<option value="${v}" ${v === taFilter.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <input id="taSearchBox" type="text" value="${esc(taFilter.q)}" oninput="taSearch(this.value)" placeholder="🔍 Search ID, task, name…" style="${sel};flex:1;min-width:180px"/>
-      ${Object.values(taFilter).some(Boolean) ? `<button class="btn btn-outline btn-sm" onclick="Object.assign(taFilter,{emp:'',fms:'',status:'',q:'',dept:''});renderTaskAnalytics()">✕ Clear</button>` : ''}
+      ${taFilter.emp || taFilter.fms || taFilter.status || taFilter.q ? `<button class="btn btn-outline btn-sm" onclick="Object.assign(taFilter,{emp:'',fms:'',status:'',q:''});renderTaskAnalytics()">✕ Clear</button>` : ''}
     </div>`;
   const countCard = (key, label, value, color, icon) => {
     const active = taFilter.status === key;
@@ -7269,35 +7217,6 @@ function renderTaskAnalytics() {
       <div><div style="font-size:10.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
         <div style="font-size:23px;font-weight:900;color:var(--gray-900);line-height:1.1">${value}</div></div></div>`;
   };
-
-  // By FMS (ignores the FMS filter) and By Employee (ignores the employee filter).
-  const fmsRows = taRows('fms');
-  const byFms = Object.keys(TA_FMS_COLOR).map(f => ({ f, c: taCount(fmsRows.filter(r => r.fms === f)) })).filter(x => x.c.planned);
-  const empRows = taRows('emp');
-  const byEmp = d.employees.map(e => ({ e, c: taCount(empRows.filter(r => r.doerIds.includes(e.id))) })).filter(x => x.c.planned)
-    .sort((a, b) => (a.c.onTime / a.c.planned) - (b.c.onTime / b.c.planned) || b.c.planned - a.c.planned);
-  const empList = taEmpAll ? byEmp : byEmp.slice(0, 8);
-  const legend = `<div style="display:flex;gap:12px;font-size:11px;color:var(--gray-500);margin-top:2px;white-space:nowrap"><span><b style="color:#10b981">■</b> On time</span><span><b style="color:#f59e0b">■</b> Late</span><span><b style="color:#ef4444">■</b> Pending</span></div>`;
-  const barRow = (active, onclick, title, icon, c) => `
-    <div onclick="${onclick}" style="cursor:pointer;padding:9px 10px;border-radius:12px;${active ? 'background:var(--color-primary-light);' : ''}">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
-        <div style="display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;font-weight:700;color:var(--gray-800)">${icon}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</span></div>
-        <div style="font-size:12px;color:var(--gray-500);white-space:nowrap"><b style="color:var(--gray-800)">${c.planned ? Math.round(c.onTime * 100 / c.planned) : 0}%</b> on time · ${c.planned}</div>
-      </div>${taStackBar(c)}</div>`;
-  const insights = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin:14px 0;align-items:start">
-      <div style="${card};padding:14px 14px 8px">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px 10px"><div style="font-size:14px;font-weight:800;color:var(--gray-900)">⚙️ By FMS / Module</div>${legend}</div>
-        <div style="margin-top:8px">${byFms.map(x => barRow(taFilter.fms === x.f, `taSetFilter('fms','${taFilter.fms === x.f ? '' : x.f}')`, esc(x.f),
-          `<span style="width:28px;height:28px;border-radius:9px;background:${TA_FMS_COLOR[x.f]}1a;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${TA_FMS_ICON[x.f]}</span>`, x.c)).join('') || '<div class="empty">—</div>'}</div>
-      </div>
-      <div style="${card};padding:14px 14px 8px">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px 10px"><div style="font-size:14px;font-weight:800;color:var(--gray-900)">👥 By Employee <span style="font-size:11px;font-weight:600;color:var(--gray-400)">lowest on-time first</span></div>${legend}</div>
-        <div style="margin-top:8px">${empList.map(x => barRow(taFilter.emp === String(x.e.id), `taSetFilter('emp','${taFilter.emp === String(x.e.id) ? '' : x.e.id}')`, esc(x.e.name),
-          `<span style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;flex-shrink:0">${esc(taInitials(x.e.name))}</span>`, x.c)).join('') || '<div class="empty">—</div>'}
-          ${byEmp.length > 8 ? `<div style="text-align:center;padding:6px"><button class="btn btn-outline btn-sm" onclick="taEmpAll=!taEmpAll;renderTaskAnalytics()">${taEmpAll ? 'Show less' : `Show all ${byEmp.length}`}</button></div>` : ''}</div>
-      </div>
-    </div>`;
 
   const statusRows = base.filter(r => taMatchStatus(r, taFilter.status));
   const sorted = statusRows.slice().sort(
@@ -7309,7 +7228,7 @@ function renderTaskAnalytics() {
   const td = 'padding:10px 12px;font-size:12.5px;border-top:1px solid var(--gray-100);vertical-align:top';
   const sortTh = (key, label) => `<th style="${th};cursor:pointer;color:${taSort === key ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="taSort='${key}';renderTaskAnalytics()">${label} ${taSort === key ? '▾' : '⇅'}</th>`;
   const table = `
-    <div style="${card};overflow:hidden">
+    <div style="${card};overflow:hidden;margin-top:14px">
       <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
         <div style="font-size:14px;font-weight:800;color:var(--gray-900)">📋 Task Details <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${statusRows.length} tasks${c.overdue ? ` · <span style="color:var(--color-danger-text)">${c.overdue} overdue</span>` : ''}</span></div>
         <div style="font-size:11.5px;color:var(--gray-400)">Column header par click karke sort karein</div>
@@ -7329,20 +7248,20 @@ function renderTaskAnalytics() {
       : '<div class="empty">No tasks match these filters.</div>'}
     </div>`;
 
-  out.innerHTML = toolbar + `
+  out.innerHTML = header(`
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       ${kpi('Task Done %', donePct, `${c.completed} of ${c.planned} completed`, '#10b981', donePct)}
       ${kpi('Task Not Done %', minus(donePct), `${c.pending} still pending`, minus(donePct) === 0 ? '#10b981' : '#ef4444', minus(donePct))}
       ${kpi('Task Done On Time %', onTimePct, `${c.onTime} of ${c.planned} on time`, '#2563eb', onTimePct)}
       ${kpi('Task Not Done On Time %', minus(onTimePct), `${c.late} late + ${c.pending} pending`, minus(onTimePct) === 0 ? '#10b981' : '#ef4444', minus(onTimePct))}
-    </div>` + filters + `
+    </div>`) + filters + `
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       ${countCard('', 'Planned', c.planned, '#334155', '📋')}
       ${countCard('Completed', 'Completed', c.completed, '#2563eb', '✔️')}
       ${countCard('On Time', 'On Time', c.onTime, '#10b981', '⏰')}
       ${countCard('Late', 'Delay Completed', c.late, '#f59e0b', '⏱️')}
       ${countCard('Pending', 'Pending', c.pending, '#ef4444', '⏳')}
-    </div>` + insights + table;
+    </div>` + table;
 }
 function exportTaskAnalytics() {
   if (!taData) { showToast('Pehle report load hone do', 'error'); return; }
