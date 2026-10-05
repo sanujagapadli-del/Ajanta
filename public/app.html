@@ -6915,11 +6915,16 @@ function populateMISDeptDropdown(data) {
     depts.map(d => `<option value="${esc(d)}"${d===currentVal?' selected':''}>${esc(d)}</option>`).join('');
 }
 
-// ── Weekly MIS (client's sheet format, 2026-10-05) — one block per employee:
-// System × {% work not done, % work not done on time} with Benchmark, Last
-// Week Actual %, Current Week Planned / Actual / Actual %, Next Week Planned.
+// ── Weekly MIS (client's sheet format, 2026-10-05) ───────────────────────
+// Default view "All" = every system an employee works in, summed. Tabs switch
+// to Delegation / Checklist / FMS; in the FMS view each FMS (O2D / Service /
+// Purchase) expands into its steps. The server sends raw weekly counts
+// ({planned, notDone, late} for last / current / next week), so All and FMS
+// totals are plain sums and every level uses the same % arithmetic.
 // The week = the Monday of the MIS Start Date (default: last full week).
 let misWeeklyData = null;
+let misWeeklyView = 'all';
+const misWeeklyOpen = new Set(); // "empId|system" rows expanded into steps
 function misLastWeekMonday() {
   const d = new Date(); d.setDate(d.getDate() - 7 - ((d.getDay() + 6) % 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -6931,82 +6936,152 @@ async function generateWeeklyMIS() {
   const d = await api(`/api/mis/weekly?week=${week}`);
   if (!d || d.error) { out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--color-danger-border);color:var(--color-danger)">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
   misWeeklyData = d;
+  misWeeklyOpen.clear();
   populateMISDeptDropdown(d.employees);
   renderWeeklyMIS();
 }
+const wmZero = () => ({ planned: 0, notDone: 0, late: 0 });
+function wmSum(list) {
+  const out = { last: wmZero(), cur: wmZero(), next: wmZero() };
+  list.forEach(w => ['last', 'cur', 'next'].forEach(k => ['planned', 'notDone', 'late'].forEach(f => { out[k][f] += (w[k] && w[k][f]) || 0; })));
+  return out;
+}
+const wmPct = (n, total) => total ? -Math.round((n / total) * 100) : null;
+const misPctText = v => v === null || v === undefined ? '—' : `${v}%`;
+function wmPill(v, bench) {
+  if (v === null || v === undefined) return '<span style="color:var(--gray-300)">—</span>';
+  const ok = bench !== null && bench !== undefined ? v >= bench : v === 0;
+  const mid = !ok && v > -25;
+  const [bg, fg] = ok ? ['var(--color-success-bg)', 'var(--color-success-text)'] : mid ? ['var(--color-warning-bg)', 'var(--color-warning-text)'] : ['var(--color-danger-bg)', 'var(--color-danger-text)'];
+  return `<span style="display:inline-block;min-width:48px;padding:3px 9px;border-radius:999px;background:${bg};color:${fg};font-weight:800;font-size:12px">${v}%</span>`;
+}
+// The groups (each = two KPI rows) one employee shows in the current view.
+function wmGroups(e) {
+  const sys = e.systems;
+  const fms = sys.filter(s => s.group === 'FMS');
+  if (misWeeklyView === 'all') return sys.length ? [{ name: 'All', icon: '📊', weeks: wmSum(sys.map(s => s.weeks)), sub: sys.map(s => s.name) }] : [];
+  if (misWeeklyView === 'fms') {
+    if (!fms.length) return [];
+    return [{ name: 'All FMS', icon: '⚙️', weeks: wmSum(fms.map(s => s.weeks)), sub: fms.map(s => s.name) },
+      ...fms.map(s => ({ name: s.name, icon: s.name.startsWith('O2D') ? '🚚' : s.name.startsWith('Service') ? '🛠️' : '🛒', weeks: s.weeks, steps: s.steps, key: `${e.id}|${s.name}` }))];
+  }
+  const one = sys.find(s => s.name.toLowerCase() === misWeeklyView);
+  return one ? [{ name: one.name, icon: one.name === 'Delegation' ? '📋' : '✅', weeks: one.weeks }] : [];
+}
+function wmKpis(w) {
+  return [
+    { kra: 'All work should be done', kpi: '% work not done', last: wmPct(w.last.notDone, w.last.planned), planned: w.cur.planned, actual: w.cur.notDone, pct: wmPct(w.cur.notDone, w.cur.planned), next: w.next.planned },
+    { kra: 'All work should be done on time', kpi: '% work not done on time', last: wmPct(w.last.late, w.last.planned), planned: w.cur.planned, actual: w.cur.late, pct: wmPct(w.cur.late, w.cur.planned), next: w.next.planned }
+  ];
+}
 function misWeeklyRows() {
   const dept = (document.getElementById('misDeptFilter') || {}).value || '';
-  return (misWeeklyData ? misWeeklyData.employees : []).filter(e => !dept || e.department === dept);
+  return (misWeeklyData ? misWeeklyData.employees : []).filter(e => (!dept || e.department === dept) && wmGroups(e).length);
 }
-const misPctText = v => v === null || v === undefined ? '—' : `${v}%`;
-function misPctStyle(v, bench) {
-  if (v === null || v === undefined) return 'color:var(--gray-400)';
-  const ok = bench !== null && bench !== undefined ? v >= bench : v === 0;
-  return `font-weight:700;color:${ok ? 'var(--color-success-text)' : 'var(--color-danger)'}`;
-}
+function setMisWeeklyView(v) { misWeeklyView = v; renderWeeklyMIS(); }
+function toggleMisWeeklySteps(key) { misWeeklyOpen.has(key) ? misWeeklyOpen.delete(key) : misWeeklyOpen.add(key); renderWeeklyMIS(); }
+
 function renderWeeklyMIS() {
   const out = document.getElementById('misResults');
   const d = misWeeklyData;
   if (!d) return;
-  const rows = misWeeklyRows();
   const dmy = s => s ? s.split('-').reverse().join('/') : '';
-  const cell = 'border:1px solid var(--gray-300);padding:7px 9px;font-size:12.5px;text-align:center;vertical-align:middle';
-  const head = 'border:1px solid var(--gray-300);padding:7px 9px;font-size:12px;font-weight:700;background:var(--gray-100);color:var(--gray-800);text-align:center;vertical-align:bottom';
-  const note = `<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Week <b>${dmy(d.weekStart)} – ${dmy(d.weekEnd)}</b> · Last week from ${dmy(d.lastWeekStart)} · Next week from ${dmy(d.nextWeekStart)}.
-    "% not done" = due that week and still not completed; "% not done on time" = not completed by its due date. Benchmark = Set Plan → Improvement Target.${d.fmsErrors && d.fmsErrors.length ? ` <span style="color:var(--color-danger)">⚠️ Could not read: ${esc(d.fmsErrors.join(', '))}</span>` : ''}</div>`;
-  if (!rows.length) { out.innerHTML = note + '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">No tasks in this period.</div>'; return; }
-  out.innerHTML = note + rows.map(e => `
-    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:16px">
-      <div style="font-size:14px;font-weight:800;color:var(--gray-900);margin-bottom:8px">${esc(e.name)} <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${esc(e.department)}</span>${e.benchmark === null ? '' : ` <span class="wmis-m" style="font-size:11.5px;font-weight:700;color:var(--color-primary)">· Benchmark ${e.benchmark}%</span>`}</div>
-      <div class="wmis-m">${e.systems.map(s => weeklyMisPhoneTable(s, e.benchmark)).join('')}</div>
+  const rows = misWeeklyRows();
+  const views = [['all', '📊 All'], ['delegation', '📋 Delegation'], ['checklist', '✅ Checklist'], ['fms', '⚙️ FMS']];
+  const team = wmSum(rows.flatMap(e => wmGroups(e).filter(g => !g.key).map(g => g.weeks)));
+  const stat = (label, v, sub) => `<div style="flex:1;min-width:130px;background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:10px 14px">
+      <div style="font-size:10.5px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+      <div style="font-size:20px;font-weight:800;margin-top:2px">${v}</div><div style="font-size:11px;color:var(--gray-500)">${sub}</div></div>`;
+  const header = `
+    <div style="background:linear-gradient(135deg,var(--color-primary-light),var(--surface));border:1px solid var(--gray-200);border-radius:14px;padding:14px 16px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div><div style="font-size:16px;font-weight:800;color:var(--gray-900)">📅 Weekly MIS</div>
+          <div style="font-size:12px;color:var(--gray-500)">Week <b>${dmy(d.weekStart)} – ${dmy(d.weekEnd)}</b> · last week from ${dmy(d.lastWeekStart)} · next week from ${dmy(d.nextWeekStart)}</div></div>
+        <div class="tab-group">${views.map(([k, l]) => `<div class="tab ${misWeeklyView === k ? 'active' : ''}" onclick="setMisWeeklyView('${k}')">${l}</div>`).join('')}</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${stat('Employees', rows.length, misWeeklyView === 'all' ? 'with tasks this period' : 'in this view')}
+        ${stat('Planned this week', team.cur.planned, `next week ${team.next.planned}`)}
+        ${stat('Not done', wmPill(wmPct(team.cur.notDone, team.cur.planned)), `${team.cur.notDone} of ${team.cur.planned}`)}
+        ${stat('Not on time', wmPill(wmPct(team.cur.late, team.cur.planned)), `${team.cur.late} of ${team.cur.planned}`)}
+      </div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:10px">"% not done" = due in the week, still not completed · "% not done on time" = not completed by its due date · Benchmark = Set Plan → Improvement Target${misWeeklyView === 'fms' ? ' · <b>FMS par ▸ click karke step-wise dekhein</b>' : ''}${d.fmsErrors && d.fmsErrors.length ? ` · <span style="color:var(--color-danger)">⚠️ Could not read: ${esc(d.fmsErrors.join(', '))}</span>` : ''}</div>
+    </div>`;
+  if (!rows.length) { out.innerHTML = header + '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">No tasks in this view for the selected week.</div>'; return; }
+
+  const th = 'padding:9px 10px;font-size:11px;font-weight:800;color:var(--gray-600);text-transform:uppercase;letter-spacing:.3px;text-align:center;border-bottom:2px solid var(--gray-200);background:var(--gray-50)';
+  const td = 'padding:9px 10px;font-size:12.5px;text-align:center;border-bottom:1px solid var(--gray-100)';
+  const groupRowsHtml = (g, e, opts) => {
+    const k = wmKpis(g.weeks);
+    const isStep = opts && opts.step;
+    const open = g.key && misWeeklyOpen.has(g.key);
+    const nameCell = `<td rowspan="2" style="${td};text-align:left;border-right:1px solid var(--gray-100);background:${isStep ? 'var(--surface)' : g.key ? 'var(--color-primary-light)' : 'var(--gray-50)'};${g.key ? 'cursor:pointer' : ''};min-width:150px" ${g.key ? `onclick="toggleMisWeeklySteps('${g.key.replace(/'/g, "\\'")}')"` : ''}>
+        <div style="font-weight:${isStep ? 600 : 800};font-size:${isStep ? 12 : 13}px;color:var(--gray-800);${isStep ? 'padding-left:14px' : ''}">${isStep ? '↳ ' : `${g.icon} `}${esc(g.name)}${g.key ? ` <span style="font-size:11px;color:var(--color-primary)">${open ? '▾' : '▸'} steps</span>` : ''}</div>
+        ${g.sub ? `<div style="font-size:10.5px;color:var(--gray-500);margin-top:3px">${g.sub.map(esc).join(' · ')}</div>` : ''}</td>`;
+    const bg = isStep ? 'background:var(--gray-50)' : '';
+    const rowsHtml = k.map((x, i) => `<tr style="${bg}">${i === 0 ? nameCell : ''}
+        <td style="${td};color:var(--gray-600)">${x.kra}</td><td style="${td};font-weight:600;color:var(--gray-700)">${x.kpi}</td>
+        <td style="${td}">${e.benchmark === null ? '<span style="color:var(--gray-300)">—</span>' : `<b>${e.benchmark}%</b>`}</td>
+        <td style="${td}">${wmPill(x.last, e.benchmark)}</td>
+        <td style="${td};font-weight:700">${x.planned}</td><td style="${td};font-weight:700">${x.actual}</td>
+        <td style="${td}">${wmPill(x.pct, e.benchmark)}</td><td style="${td};font-weight:700;color:var(--gray-600)">${x.next}</td></tr>`).join('');
+    const steps = open ? (g.steps || []).map(st => groupRowsHtml({ name: st.name, weeks: st.weeks }, e, { step: true })).join('') : '';
+    return rowsHtml + steps;
+  };
+  const phoneGroup = (g, e, isStep) => {
+    const k = wmKpis(g.weeks);
+    const open = g.key && misWeeklyOpen.has(g.key);
+    const b = 'border-bottom:1px solid var(--gray-100);padding:7px 4px;text-align:center;font-size:12px';
+    return `<div style="margin:${isStep ? '6px 0 0 12px' : '10px 0 0'}">
+      <div style="font-size:12.5px;font-weight:800;color:var(--gray-800);margin-bottom:4px;${g.key ? 'cursor:pointer' : ''}" ${g.key ? `onclick="toggleMisWeeklySteps('${g.key.replace(/'/g, "\\'")}')"` : ''}>${isStep ? '↳ ' : g.icon + ' '}${esc(g.name)}${g.key ? ` <span style="color:var(--color-primary);font-size:11px">${open ? '▾' : '▸'} steps</span>` : ''}</div>
+      <table class="no-mcards" style="border-collapse:collapse;width:100%;background:var(--surface);border:1px solid var(--gray-200);border-radius:10px;overflow:hidden">
+        <thead><tr>${['', 'Last', 'Plan', 'Act', '%', 'Next'].map(h => `<th style="${b};font-size:10px;font-weight:800;color:var(--gray-500);background:var(--gray-50)">${h}</th>`).join('')}</tr></thead>
+        <tbody>${k.map((x, i) => `<tr><td style="${b};text-align:left;font-weight:700;font-size:11.5px">${i === 0 ? 'Not done' : 'Not on time'}</td>
+          <td style="${b}">${wmPill(x.last, e.benchmark)}</td><td style="${b};font-weight:700">${x.planned}</td><td style="${b};font-weight:700">${x.actual}</td>
+          <td style="${b}">${wmPill(x.pct, e.benchmark)}</td><td style="${b}">${x.next}</td></tr>`).join('')}</tbody></table>
+      ${open ? (g.steps || []).map(st => phoneGroup({ name: st.name, weeks: st.weeks }, e, true)).join('') : ''}</div>`;
+  };
+
+  out.innerHTML = header + rows.map(e => {
+    const groups = wmGroups(e);
+    const top = wmKpis(groups[0].weeks);
+    const initials = (e.name.replace(/\([^)]*\)/g, ' ').match(/[A-Za-z0-9]+/g) || ['?']).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:14px;box-shadow:0 2px 10px rgba(1,80,170,.05);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap">
+        <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0">${esc(initials)}</div>
+        <div style="flex:1;min-width:140px"><div style="font-size:14.5px;font-weight:800;color:var(--gray-900)">${esc(e.name)}</div>
+          <div style="font-size:11.5px;color:var(--gray-500)">${esc(e.department || '—')}${e.benchmark === null ? '' : ` · Benchmark <b style="color:var(--color-primary)">${e.benchmark}%</b>`}</div></div>
+        <div style="display:flex;gap:14px;align-items:center">
+          <div style="text-align:center"><div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">Not done</div>${wmPill(top[0].pct, e.benchmark)}</div>
+          <div style="text-align:center"><div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">Not on time</div>${wmPill(top[1].pct, e.benchmark)}</div>
+        </div>
+      </div>
       <div class="wmis-d" style="overflow-x:auto">
-      <table class="no-mcards" style="border-collapse:collapse;min-width:820px;width:100%">
-        <thead>
-          <tr><th colspan="4" style="${head};text-align:left;background:var(--surface-alt)">${dmy(d.weekStart)}</th><th colspan="3" style="${head};background:var(--surface-alt)"></th>
-              <th style="${head};background:var(--surface-alt)">${d.weekStart}</th><th style="${head};background:var(--surface-alt)">${d.nextWeekStart}</th></tr>
-          <tr><th colspan="4" style="${head};background:var(--surface)"></th><th colspan="5" style="${head};background:var(--surface)">Scores</th></tr>
-          <tr><th style="${head}">Task/System</th><th style="${head}">KRA</th><th style="${head}">KPI</th><th style="${head}">Benchmark</th>
-              <th style="${head}">Last Week<br/>Actual %</th><th style="${head}">Current Week<br/>Planned</th><th style="${head}">Current Week<br/>Actual</th>
-              <th style="${head}">Current Week<br/>Actual %</th><th style="${head}">Next Week<br/>Planned</th></tr>
-        </thead>
-        <tbody>${e.systems.map(s => s.kpis.map((k, i) => `<tr>
-          ${i === 0 ? `<td rowspan="${s.kpis.length}" style="${cell};font-weight:700;background:var(--gray-50)"><div style="writing-mode:vertical-rl;transform:rotate(180deg);margin:auto;white-space:nowrap">${esc(s.name)}</div></td>` : ''}
-          <td style="${cell}">${esc(k.kra)}</td>
-          <td style="${cell}">${esc(k.kpi)}</td>
-          <td style="${cell}">${e.benchmark === null ? '—' : e.benchmark + '%'}</td>
-          <td style="${cell};${misPctStyle(k.lastPct, e.benchmark)}">${misPctText(k.lastPct)}</td>
-          <td style="${cell}">${k.planned}</td>
-          <td style="${cell}">${k.actual}</td>
-          <td style="${cell};${misPctStyle(k.pct, e.benchmark)}">${misPctText(k.pct)}</td>
-          <td style="${cell}">${k.nextPlanned}</td>
-        </tr>`).join('')).join('')}</tbody>
-      </table></div>
-    </div>`).join('');
+        <table class="no-mcards" style="border-collapse:collapse;width:100%;min-width:900px">
+          <thead><tr><th style="${th};text-align:left">Task/System</th><th style="${th}">KRA</th><th style="${th}">KPI</th><th style="${th}">Benchmark</th>
+            <th style="${th}">Last Week<br/>Actual %</th><th style="${th}">Current Week<br/>Planned</th><th style="${th}">Current Week<br/>Actual</th>
+            <th style="${th}">Current Week<br/>Actual %</th><th style="${th}">Next Week<br/>Planned<div style="font-weight:600;text-transform:none;color:var(--gray-400)">${dmy(d.nextWeekStart)}</div></th></tr></thead>
+          <tbody>${groups.map(g => groupRowsHtml(g, e)).join('')}</tbody>
+        </table>
+      </div>
+      <div class="wmis-m" style="padding:0 12px 12px">${groups.map(g => phoneGroup(g, e)).join('')}</div>
+    </div>`;
+  }).join('');
 }
-// Phones: the 9-column sheet layout doesn't fit, so each system is a small
-// 6-column table instead (shown via .wmis-m; the sheet layout is .wmis-d).
-function weeklyMisPhoneTable(s, bench) {
-  const b = 'border:1px solid var(--gray-200);padding:6px 4px;text-align:center';
-  return `<div style="font-size:12px;font-weight:800;color:var(--gray-700);margin:8px 0 4px">${esc(s.name)}</div>
-    <table class="no-mcards" style="border-collapse:collapse;width:100%;font-size:12px">
-      <thead><tr>${['', 'Last %', 'Plan', 'Actual', '%', 'Next'].map(h => `<th style="${b};font-size:10.5px;background:var(--gray-100)">${h}</th>`).join('')}</tr></thead>
-      <tbody>${s.kpis.map((k, i) => `<tr>
-        <td style="${b};text-align:left;font-weight:700;font-size:11.5px">${i === 0 ? 'Not done' : 'Not on time'}</td>
-        <td style="${b};${misPctStyle(k.lastPct, bench)}">${misPctText(k.lastPct)}</td>
-        <td style="${b}">${k.planned}</td><td style="${b}">${k.actual}</td>
-        <td style="${b};${misPctStyle(k.pct, bench)}">${misPctText(k.pct)}</td>
-        <td style="${b}">${k.nextPlanned}</td></tr>`).join('')}</tbody>
-    </table>`;
-}
+
 function exportWeeklyMIS() {
   if (!misWeeklyData) { showToast('Pehle Generate karo', 'error'); return; }
   const q = v => { const s = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lines = [['Employee', 'Department', 'Task/System', 'KRA', 'KPI', 'Benchmark', 'Last Week Actual %', 'Current Week Planned', 'Current Week Actual', 'Current Week Actual %', 'Next Week Planned'].join(',')];
-  misWeeklyRows().forEach(e => e.systems.forEach(s => s.kpis.forEach(k => lines.push([e.name, e.department, s.name, k.kra, k.kpi,
-    e.benchmark === null ? '' : e.benchmark + '%', misPctText(k.lastPct), k.planned, k.actual, misPctText(k.pct), k.nextPlanned].map(q).join(',')))));
+  const push = (e, name, w) => wmKpis(w).forEach(k => lines.push([e.name, e.department, name, k.kra, k.kpi,
+    e.benchmark === null ? '' : e.benchmark + '%', misPctText(k.last), k.planned, k.actual, misPctText(k.pct), k.next].map(q).join(',')));
+  misWeeklyRows().forEach(e => wmGroups(e).forEach(g => {
+    push(e, g.name, g.weeks);
+    (g.steps || []).forEach(st => push(e, `${g.name} → ${st.name}`, st.weeks));
+  }));
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
-  a.download = `Weekly_MIS_${misWeeklyData.weekStart}.csv`;
+  a.download = `Weekly_MIS_${misWeeklyView}_${misWeeklyData.weekStart}.csv`;
   a.click();
 }
 

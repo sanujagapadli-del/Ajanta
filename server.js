@@ -2422,15 +2422,20 @@ app.get('/api/mis/weekly', requireAuth, async (req, res) => {
     if (req.query.employee && req.query.employee !== 'all') users = users.filter(u => String(u.id) === String(req.query.employee));
     const ids = new Set(users.map(u => u.id));
 
-    // stats[userId][system][week] = { planned, notDone, late }
+    // stats[userId][system] = { weeks: {last|cur|next: {planned, notDone, late}},
+    //                           steps: {"n. label": {same weeks shape}} } (FMS only)
     const stats = {};
-    const bump = (userId, system, wk, done, onTime) => {
+    const bump = (userId, system, wk, done, onTime, stepKey) => {
       if (!ids.has(userId) || !wk) return;
-      const s = ((stats[userId] = stats[userId] || {})[system] = stats[userId][system] || {});
-      const c = s[wk] = s[wk] || { planned: 0, notDone: 0, late: 0 };
-      c.planned++;
-      if (!done) c.notDone++;
-      if (!onTime) c.late++;
+      const s = ((stats[userId] = stats[userId] || {})[system] = stats[userId][system] || { weeks: {}, steps: {} });
+      const add = weeks => {
+        const c = weeks[wk] = weeks[wk] || { planned: 0, notDone: 0, late: 0 };
+        c.planned++;
+        if (!done) c.notDone++;
+        if (!onTime) c.late++;
+      };
+      add(s.weeks);
+      if (stepKey) add((s.steps[stepKey] = s.steps[stepKey] || {}));
     };
     const [today] = [new Date().toISOString().slice(0, 10)];
 
@@ -2466,7 +2471,7 @@ app.get('/api/mis/weekly', requireAuth, async (req, res) => {
           // steps' plan dates aren't real yet.
           if (!done && st.n !== ent.currentStep + 1) continue;
           const onTime = done && (actual.length < 10 || actual <= (planned.length > 10 ? planned : planned + ' 23:59:59'));
-          for (const d of st.doers || []) bump(Number(d.id), system, weekOf(day), done, onTime);
+          for (const d of st.doers || []) bump(Number(d.id), system, weekOf(day), done, onTime, `${st.n}. ${st.label || ''}`);
         }
       }
     }));
@@ -2477,18 +2482,18 @@ app.get('/api/mis/weekly', requireAuth, async (req, res) => {
       plans = Object.fromEntries(p.map(r => [r.employee_id, r.improvement_pct]));
     } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
 
-    const pct = (n, total) => total ? -Math.round((n / total) * 100) : null;
+    // Raw counts per week — the browser sums them into All / FMS totals and
+    // turns them into percentages, so every level uses the same arithmetic.
     const ORDER = ['Delegation', 'Checklist', 'O2D FMS', 'Service FMS', 'Purchase FMS'];
+    const zero = () => ({ planned: 0, notDone: 0, late: 0 });
+    const full = w => ({ last: w.last || zero(), cur: w.cur || zero(), next: w.next || zero() });
+    const stepOrder = k => parseInt(k, 10) || 0;
     const employees = users.map(u => {
       const s = stats[u.id] || {};
-      const systems = ORDER.filter(name => s[name]).map(name => {
-        const w = k => s[name][k] || { planned: 0, notDone: 0, late: 0 };
-        const L = w('last'), C = w('cur'), N = w('next');
-        return { name, kpis: [
-          { kra: 'All work should be done', kpi: '% work not done', lastPct: pct(L.notDone, L.planned), planned: C.planned, actual: C.notDone, pct: pct(C.notDone, C.planned), nextPlanned: N.planned },
-          { kra: 'All work should be done on time', kpi: '% work not done on time', lastPct: pct(L.late, L.planned), planned: C.planned, actual: C.late, pct: pct(C.late, C.planned), nextPlanned: N.planned }
-        ] };
-      });
+      const systems = ORDER.filter(name => s[name]).map(name => ({
+        name, group: name.endsWith('FMS') ? 'FMS' : name, weeks: full(s[name].weeks),
+        steps: Object.keys(s[name].steps).sort((a, b) => stepOrder(a) - stepOrder(b)).map(k => ({ name: k, weeks: full(s[name].steps[k]) }))
+      }));
       const benchmark = plans[u.id];
       return { id: u.id, name: u.name, department: u.department || '', benchmark: benchmark == null ? null : Number(benchmark), systems };
     }).filter(e => e.systems.length);
