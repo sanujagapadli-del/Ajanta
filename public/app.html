@@ -1795,16 +1795,9 @@ tbody tr:last-child td{border-bottom:none;}
           <button class="btn btn-outline" onclick="exportMIS()">⬇ Export CSV</button>
         </div>
       </div>
-      <div style="display:flex;gap:6px;margin-top:14px;">
-        <div class="tab-group">
-          <div class="tab active" id="misTabDel" onclick="switchMisTab('delegation',this)">Delegation MIS</div>
-          <div class="tab" id="misTabChl" onclick="switchMisTab('checklist',this)">Checklist MIS</div>
-          <div class="tab" id="misTabFMS" onclick="switchMisTab('fms',this)">FMS MIS</div>
-          <div class="tab" id="misTabAll" onclick="switchMisTab('all',this)">All MIS</div>
-          <div class="tab" id="misTabWeekly" onclick="switchMisTab('weekly',this)">📅 Weekly MIS</div>
-          <div class="tab" id="misTabAnalytics" onclick="switchMisTab('analytics',this)">📈 Task Analytics</div>
-        </div>
-      </div>
+      <!-- One report only (client, 2026-10-05): the old Delegation / Checklist /
+           FMS / All / Weekly MIS tabs were removed; "MIS Report" is the former
+           Task Analytics view (misType 'analytics'). -->
     </div>
 
     <!-- Results -->
@@ -3813,7 +3806,7 @@ function navigate(page, el) {
   if (page==='attendance') loadAttendancePage();
   if (page==='fms') loadFMSAdmin();
   if (page==='fms-tasks') loadFMSTasks();
-  if (page==='mis') initMISDeptFilter();
+  if (page==='mis') { initMISDeptFilter(); if (!taData) generateMIS(); } // MIS Report builds itself on first open
   if (page==='records') loadRecords();
   if (page==='service-fms') loadServiceFmsList();
   if (page==='o2d-fms') loadO2dFmsList();
@@ -6890,7 +6883,7 @@ async function saveWeekPlan() {
 
 // MIS REPORT
 // ══════════════════════════════════════════════════════
-let misType = 'delegation';
+let misType = 'analytics'; // the only MIS view left (see the MIS page markup)
 let misData = {};
 let misFMSData = [];
 let misAllData = [];
@@ -7208,7 +7201,7 @@ function renderTaskAnalytics() {
 
   out.innerHTML = `
     <div style="background:linear-gradient(135deg,var(--color-primary-light),var(--surface));border:1px solid var(--gray-200);border-radius:14px;padding:14px 16px;margin-bottom:14px">
-      <div style="font-size:16px;font-weight:800;color:var(--gray-900)">📈 Task Analytics</div>
+      <div style="font-size:16px;font-weight:800;color:var(--gray-900)">📊 MIS Report</div>
       <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">${fmtDateDMY(d.start)} – ${fmtDateDMY(d.end)} · Delegation, Checklist & FMS steps planned in these dates${d.fmsErrors && d.fmsErrors.length ? ` · <span style="color:var(--color-danger)">⚠️ Could not read: ${esc(d.fmsErrors.join(', '))}</span>` : ''}</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap">
         ${kpi('Task Done %', donePct, `${completed} of ${planned} completed`, true)}
