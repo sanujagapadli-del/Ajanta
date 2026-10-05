@@ -1189,10 +1189,10 @@ tbody tr:last-child td{border-bottom:none;}
                 <th>Dept</th>
                 <th>Title</th>
                 <th>Description</th>
+                <th style="white-space:nowrap;cursor:pointer;user-select:none" onclick="toggleDashDateSort()" title="Click to sort by date">Planned Date <span id="dashDateSortIcon" style="font-size:10px;color:var(--gray-400)">⇅</span></th>
                 <th id="dashDoerHead">Doer</th>
                 <th>Frequency</th>
                 <th style="white-space:nowrap">Start Date</th>
-                <th style="white-space:nowrap;cursor:pointer;user-select:none" onclick="toggleDashDateSort()" title="Click to sort by date">Due Date <span id="dashDateSortIcon" style="font-size:10px;color:var(--gray-400)">⇅</span></th>
                 <th>Priority</th>
                 <th>Action</th>
               </tr>
@@ -3899,7 +3899,8 @@ function buildO2dDashboardTasks() {
       assignedToName: stepDoerLabel(pendingStep),
       assignedByName: stepDoerLabel(pendingStep),
       assignedToDept: '',
-      start_date: o.timestamp
+      start_date: o.timestamp,
+      planned: pendingStep.planned || '', plannedLate: overdue
     });
   });
   return tasks;
@@ -3941,7 +3942,8 @@ function buildSfmsDashboardTasks() {
       assignedToName: stepDoerLabel(step),
       assignedByName: stepDoerLabel(step),
       assignedToDept: 'Service',
-      start_date: c.timestamp
+      start_date: c.timestamp,
+      planned: step.planned || '', plannedLate: !!(step.planned && o2dIsOverdue(step.planned))
     });
   });
   return tasks;
@@ -4187,6 +4189,15 @@ function renderDashFreq() {
   if (window._lastDashTasks) renderDashTable(window._lastDashTasks, dashType);
 }
 
+// Sort key for the Planned Date column: ISO "YYYY-MM-DD…" where we have it;
+// O2D's planned comes as display text, so parse it back to a date first.
+function dashPlannedKey(t) {
+  const v = String(t.planned || t.due_date || t.date || '');
+  if (/^\d{4}-\d{2}-\d{2}/.test(v) || !v) return v;
+  const d = o2dParseDate(v);
+  return d && !isNaN(d) ? d.toISOString() : v;
+}
+
 function renderDashTable(tasks, type) {
   const dashFreqEl = document.getElementById('dashFreqFilter');
   if (dashFreqEl) dashFreqEl.style.display = type === 'checklist' ? '' : 'none';
@@ -4211,9 +4222,9 @@ function renderDashTable(tasks, type) {
   });
   // Apply date sort
   if (_dashDateSortState === 1) {
-    allPending = [...allPending].sort((a,b) => (a.due_date||a.date||'').localeCompare(b.due_date||b.date||''));
+    allPending = [...allPending].sort((a,b) => dashPlannedKey(a).localeCompare(dashPlannedKey(b)));
   } else if (_dashDateSortState === 2) {
-    allPending = [...allPending].sort((a,b) => (b.due_date||b.date||'').localeCompare(a.due_date||a.date||''));
+    allPending = [...allPending].sort((a,b) => dashPlannedKey(b).localeCompare(dashPlannedKey(a)));
   }
   if (!allPending.length) { tbody.innerHTML=`<tr><td colspan="10" class="empty">No pending tasks 🎉</td></tr>`; return; }
   const typeBadge = t => t.type==='checklist'
@@ -4276,7 +4287,9 @@ function renderDashTable(tasks, type) {
     // title get class dt-empty and are hidden there.
     const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque'||t.type==='repl';
     const doerName = (isAdmin||isPC)?t.assignedToName:t.assignedByName;
-    const dueText = isFmsRow ? '' : fmtDate(t.due_date||t.date);
+    // Planned date for every row — Delegation/Checklist due date, or the
+    // planned time of the FMS step that's pending (client, 2026-10-05).
+    const dueText = isFmsRow ? fmtDateDMY(t.planned, true) : fmtDate(t.due_date||t.date);
     const hasPriority = t.type!=='checklist' && !isFmsRow;
     const descRepeatsTitle = !isFmsRow && String(rawDesc).trim().toLowerCase() === String(t.title||'').trim().toLowerCase();
     const emptyCls = v => (!v || v === '—') ? ' dt-empty' : '';
@@ -4285,10 +4298,10 @@ function renderDashTable(tasks, type) {
       <td data-label="Dept" class="dt-dept" style="font-size:10px;color:var(--gray-500);max-width:120px;word-break:break-word;line-height:1.3">${esc(t.assignedToDept||'—')}</td>
       <td data-label="Title" class="dt-title${emptyCls(t.title)}" style="font-size:11px;font-weight:600;color:var(--gray-800);max-width:130px;word-break:break-word;line-height:1.3">${esc(t.title||'—')}</td>
       <td data-label="Desc" class="dt-desc${descRepeatsTitle && !linkBtn ? ' dt-empty' : ''}">${descCell}</td>
+      <td data-label="Planned" class="dt-meta dt-due${emptyCls(dueText)}" style="white-space:nowrap;font-size:12px${t.plannedLate ? ';color:var(--color-danger);font-weight:700' : ''}">${dueText || '—'}</td>
       <td data-label="${doerLabel}" class="dt-meta dt-doer${emptyCls(doerName)}" style="white-space:nowrap;font-size:12px;font-weight:600">${esc(doerName)}</td>
       <td data-label="Freq" class="dt-meta dt-freq${emptyCls(t.frequency)}" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>
       <td data-label="Start" class="dt-start" style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate((t.start_date||'').slice(0,10))||'—'}</td>
-      <td data-label="Due" class="dt-meta dt-due${emptyCls(dueText)}" style="white-space:nowrap;font-size:12px">${dueText || '—'}</td>
       <td data-label="Priority" class="dt-meta dt-prio${hasPriority ? '' : ' dt-empty'}">${hasPriority ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
       <td class="dt-action" style="white-space:nowrap">${actions}</td>
     </tr>`;
@@ -13813,7 +13826,7 @@ function buildChequeDashboardTasks() {
     tasks.push({ id: c.id, type: 'cheque', status: 'pending', title: c.code, description,
       assignedToName: (t.doers || []).map(x => x.name).join(', ') || t.doer || '—',
       assignedByName: t.key === 'ack' ? 'Accounts' : (t.doers || []).map(x => x.name).join(', ') || '—',
-      assignedToDept: 'Accounts', start_date: String(c.createdAt || '') });
+      assignedToDept: 'Accounts', start_date: String(c.createdAt || ''), planned: t.planned || '', plannedLate: !!late });
   }));
   return tasks;
 }
@@ -14359,7 +14372,7 @@ function buildReplDashboardTasks() {
       <div style="font-size:12px;color:var(--gray-600)">${esc(String(r.items).slice(0, 120))}</div>
       ${fmsFieldRow('PLANNED', `${fmtDateDMY(t.planned, true) || '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
     tasks.push({ id: r.id, type: 'repl', status: 'pending', title: r.code, description,
-      assignedToName: stepDoerLabel(t), assignedByName: stepDoerLabel(t), assignedToDept: 'Replacement', start_date: String(r.createdAt || '') });
+      assignedToName: stepDoerLabel(t), assignedByName: stepDoerLabel(t), assignedToDept: 'Replacement', start_date: String(r.createdAt || ''), planned: t.planned || '', plannedLate: !!late });
   });
   return tasks;
 }
