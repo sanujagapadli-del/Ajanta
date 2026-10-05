@@ -2386,6 +2386,117 @@ app.get('/api/mis', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// ── Weekly MIS (client format, 2026-10-05) ─────────────────────────────────
+// One block per employee: for every system they work in (Delegation,
+// Checklist, O2D / Service / Purchase FMS) two KPIs —
+//   "% work not done"         = tasks due in the week still not completed
+//   "% work not done on time" = tasks due in the week not completed by their
+//                               due date (late completions + still pending)
+// with Last Week Actual %, Current Week Planned / Actual / Actual %, and Next
+// Week Planned (tasks already due next week). Percentages are negative, the
+// usual MIS convention (0% = everything done). Benchmark = that employee's
+// "Improvement Target %" from Set Plan for the week.
+// FMS: a step counts in the week its Planned date falls in, credited to the
+// step's doers; done = it has an Actual, on time = Actual <= Planned.
+app.get('/api/mis/weekly', requireAuth, async (req, res) => {
+  try {
+    const role = req.session.role, uid = req.session.userId;
+    const m = String(req.query.week || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return res.status(400).json({ error: 'week (YYYY-MM-DD) required' });
+    const d0 = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    d0.setUTCDate(d0.getUTCDate() - ((d0.getUTCDay() + 6) % 7)); // Monday of that week
+    const ymd = (d, add) => { const x = new Date(d); x.setUTCDate(x.getUTCDate() + add); return x.toISOString().slice(0, 10); };
+    const W = { last: [ymd(d0, -7), ymd(d0, -1)], cur: [ymd(d0, 0), ymd(d0, 6)], next: [ymd(d0, 7), ymd(d0, 13)] };
+    const weekOf = day => day >= W.last[0] && day <= W.last[1] ? 'last' : day >= W.cur[0] && day <= W.cur[1] ? 'cur' : day >= W.next[0] && day <= W.next[1] ? 'next' : null;
+
+    // Who is in the report — same scoping as /api/mis.
+    let [users] = await db.query("SELECT id, name, department, role, is_active FROM users WHERE (role IS NULL OR role<>'vendor') ORDER BY name");
+    if (role === 'admin' || role === 'pc') {
+      if (req.query.dept) users = users.filter(u => (u.department || '') === req.query.dept);
+    } else if (role === 'hod') {
+      const me = users.find(u => u.id === uid);
+      users = users.filter(u => (u.department || '') === ((me && me.department) || ''));
+    } else {
+      users = users.filter(u => u.id === uid);
+    }
+    if (req.query.employee && req.query.employee !== 'all') users = users.filter(u => String(u.id) === String(req.query.employee));
+    const ids = new Set(users.map(u => u.id));
+
+    // stats[userId][system][week] = { planned, notDone, late }
+    const stats = {};
+    const bump = (userId, system, wk, done, onTime) => {
+      if (!ids.has(userId) || !wk) return;
+      const s = ((stats[userId] = stats[userId] || {})[system] = stats[userId][system] || {});
+      const c = s[wk] = s[wk] || { planned: 0, notDone: 0, late: 0 };
+      c.planned++;
+      if (!done) c.notDone++;
+      if (!onTime) c.late++;
+    };
+    const [today] = [new Date().toISOString().slice(0, 10)];
+
+    for (const [system, table] of [['Delegation', 'delegation_tasks'], ['Checklist', 'checklist_tasks']]) {
+      const [rows] = await db.query(
+        `SELECT assigned_to, DATE_FORMAT(due_date,'%Y-%m-%d') AS due, status, DATE_FORMAT(completed_at,'%Y-%m-%d') AS done_on
+         FROM ${table} WHERE due_date BETWEEN ? AND ?`, [W.last[0], W.next[1]]);
+      for (const r of rows) {
+        const done = r.status === 'completed';
+        // A completion without a recorded time (older rows) is taken as on time.
+        bump(r.assigned_to, system, weekOf(r.due), done, done && (!r.done_on || r.done_on <= r.due));
+      }
+    }
+
+    const fmsErrors = [];
+    const modules = [
+      ['O2D FMS', () => getO2dOrders(), o => o.cancelled],
+      ['Service FMS', () => sfmsFetchComplaints(), () => false],
+      ['Purchase FMS', () => getPurchasePOs(), () => false]
+    ];
+    await Promise.all(modules.map(async ([system, load, skip]) => {
+      let list;
+      try { list = await load(); } catch (e) { fmsErrors.push(system); return; }
+      for (const ent of list) {
+        if (skip(ent)) continue;
+        for (const st of ent.steps || []) {
+          const planned = String(st.planned || '');
+          const day = planned.slice(0, 10);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+          const actual = String(st.actual || '');
+          const done = !!actual;
+          // Only steps that are done or are the one currently due — later
+          // steps' plan dates aren't real yet.
+          if (!done && st.n !== ent.currentStep + 1) continue;
+          const onTime = done && (actual.length < 10 || actual <= (planned.length > 10 ? planned : planned + ' 23:59:59'));
+          for (const d of st.doers || []) bump(Number(d.id), system, weekOf(day), done, onTime);
+        }
+      }
+    }));
+
+    let plans = {};
+    try {
+      const [p] = await db.query("SELECT employee_id, improvement_pct FROM week_plans WHERE start_date=?", [W.cur[0]]);
+      plans = Object.fromEntries(p.map(r => [r.employee_id, r.improvement_pct]));
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+
+    const pct = (n, total) => total ? -Math.round((n / total) * 100) : null;
+    const ORDER = ['Delegation', 'Checklist', 'O2D FMS', 'Service FMS', 'Purchase FMS'];
+    const employees = users.map(u => {
+      const s = stats[u.id] || {};
+      const systems = ORDER.filter(name => s[name]).map(name => {
+        const w = k => s[name][k] || { planned: 0, notDone: 0, late: 0 };
+        const L = w('last'), C = w('cur'), N = w('next');
+        return { name, kpis: [
+          { kra: 'All work should be done', kpi: '% work not done', lastPct: pct(L.notDone, L.planned), planned: C.planned, actual: C.notDone, pct: pct(C.notDone, C.planned), nextPlanned: N.planned },
+          { kra: 'All work should be done on time', kpi: '% work not done on time', lastPct: pct(L.late, L.planned), planned: C.planned, actual: C.late, pct: pct(C.late, C.planned), nextPlanned: N.planned }
+        ] };
+      });
+      const benchmark = plans[u.id];
+      return { id: u.id, name: u.name, department: u.department || '', benchmark: benchmark == null ? null : Number(benchmark), systems };
+    }).filter(e => e.systems.length);
+
+    res.json({ weekStart: W.cur[0], weekEnd: W.cur[1], lastWeekStart: W.last[0], nextWeekStart: W.next[0], today, employees, fmsErrors });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // ── FMS Dashboard — row-level pending tasks (like delegation/checklist) ──
 app.get('/api/fms-dashboard', requireAuth, async (req, res) => {
   try {

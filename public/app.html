@@ -849,6 +849,9 @@ tbody tr:last-child td{border-bottom:none;}
 ═══════════════════════════════ */
 /* "More" sheet for the bottom nav — hidden everywhere until opened */
 #bnMoreSheet{display:none}
+/* Weekly MIS: sheet layout on desktop, compact per-system tables on phones */
+.wmis-m{display:none}
+@media(max-width:768px){ .wmis-m{display:block} span.wmis-m{display:inline} .wmis-d{display:none} }
 @media(max-width:768px){
   /* Bottom nav: 5 fixed slots (Dashboard / Tasks / Attendance / Approvals / More), no sideways scrolling */
   .bottom-nav{overflow:visible;justify-content:space-around}
@@ -1798,6 +1801,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="tab" id="misTabChl" onclick="switchMisTab('checklist',this)">Checklist MIS</div>
           <div class="tab" id="misTabFMS" onclick="switchMisTab('fms',this)">FMS MIS</div>
           <div class="tab" id="misTabAll" onclick="switchMisTab('all',this)">All MIS</div>
+          <div class="tab" id="misTabWeekly" onclick="switchMisTab('weekly',this)">📅 Weekly MIS</div>
         </div>
       </div>
     </div>
@@ -6911,11 +6915,108 @@ function populateMISDeptDropdown(data) {
     depts.map(d => `<option value="${esc(d)}"${d===currentVal?' selected':''}>${esc(d)}</option>`).join('');
 }
 
+// ── Weekly MIS (client's sheet format, 2026-10-05) — one block per employee:
+// System × {% work not done, % work not done on time} with Benchmark, Last
+// Week Actual %, Current Week Planned / Actual / Actual %, Next Week Planned.
+// The week = the Monday of the MIS Start Date (default: last full week).
+let misWeeklyData = null;
+function misLastWeekMonday() {
+  const d = new Date(); d.setDate(d.getDate() - 7 - ((d.getDay() + 6) % 7));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+async function generateWeeklyMIS() {
+  const out = document.getElementById('misResults');
+  const week = document.getElementById('misStart').value || misLastWeekMonday();
+  out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
+  const d = await api(`/api/mis/weekly?week=${week}`);
+  if (!d || d.error) { out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--color-danger-border);color:var(--color-danger)">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
+  misWeeklyData = d;
+  populateMISDeptDropdown(d.employees);
+  renderWeeklyMIS();
+}
+function misWeeklyRows() {
+  const dept = (document.getElementById('misDeptFilter') || {}).value || '';
+  return (misWeeklyData ? misWeeklyData.employees : []).filter(e => !dept || e.department === dept);
+}
+const misPctText = v => v === null || v === undefined ? '—' : `${v}%`;
+function misPctStyle(v, bench) {
+  if (v === null || v === undefined) return 'color:var(--gray-400)';
+  const ok = bench !== null && bench !== undefined ? v >= bench : v === 0;
+  return `font-weight:700;color:${ok ? 'var(--color-success-text)' : 'var(--color-danger)'}`;
+}
+function renderWeeklyMIS() {
+  const out = document.getElementById('misResults');
+  const d = misWeeklyData;
+  if (!d) return;
+  const rows = misWeeklyRows();
+  const dmy = s => s ? s.split('-').reverse().join('/') : '';
+  const cell = 'border:1px solid var(--gray-300);padding:7px 9px;font-size:12.5px;text-align:center;vertical-align:middle';
+  const head = 'border:1px solid var(--gray-300);padding:7px 9px;font-size:12px;font-weight:700;background:var(--gray-100);color:var(--gray-800);text-align:center;vertical-align:bottom';
+  const note = `<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Week <b>${dmy(d.weekStart)} – ${dmy(d.weekEnd)}</b> · Last week from ${dmy(d.lastWeekStart)} · Next week from ${dmy(d.nextWeekStart)}.
+    "% not done" = due that week and still not completed; "% not done on time" = not completed by its due date. Benchmark = Set Plan → Improvement Target.${d.fmsErrors && d.fmsErrors.length ? ` <span style="color:var(--color-danger)">⚠️ Could not read: ${esc(d.fmsErrors.join(', '))}</span>` : ''}</div>`;
+  if (!rows.length) { out.innerHTML = note + '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">No tasks in this period.</div>'; return; }
+  out.innerHTML = note + rows.map(e => `
+    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:800;color:var(--gray-900);margin-bottom:8px">${esc(e.name)} <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${esc(e.department)}</span>${e.benchmark === null ? '' : ` <span class="wmis-m" style="font-size:11.5px;font-weight:700;color:var(--color-primary)">· Benchmark ${e.benchmark}%</span>`}</div>
+      <div class="wmis-m">${e.systems.map(s => weeklyMisPhoneTable(s, e.benchmark)).join('')}</div>
+      <div class="wmis-d" style="overflow-x:auto">
+      <table class="no-mcards" style="border-collapse:collapse;min-width:820px;width:100%">
+        <thead>
+          <tr><th colspan="4" style="${head};text-align:left;background:var(--surface-alt)">${dmy(d.weekStart)}</th><th colspan="3" style="${head};background:var(--surface-alt)"></th>
+              <th style="${head};background:var(--surface-alt)">${d.weekStart}</th><th style="${head};background:var(--surface-alt)">${d.nextWeekStart}</th></tr>
+          <tr><th colspan="4" style="${head};background:var(--surface)"></th><th colspan="5" style="${head};background:var(--surface)">Scores</th></tr>
+          <tr><th style="${head}">Task/System</th><th style="${head}">KRA</th><th style="${head}">KPI</th><th style="${head}">Benchmark</th>
+              <th style="${head}">Last Week<br/>Actual %</th><th style="${head}">Current Week<br/>Planned</th><th style="${head}">Current Week<br/>Actual</th>
+              <th style="${head}">Current Week<br/>Actual %</th><th style="${head}">Next Week<br/>Planned</th></tr>
+        </thead>
+        <tbody>${e.systems.map(s => s.kpis.map((k, i) => `<tr>
+          ${i === 0 ? `<td rowspan="${s.kpis.length}" style="${cell};font-weight:700;background:var(--gray-50)"><div style="writing-mode:vertical-rl;transform:rotate(180deg);margin:auto;white-space:nowrap">${esc(s.name)}</div></td>` : ''}
+          <td style="${cell}">${esc(k.kra)}</td>
+          <td style="${cell}">${esc(k.kpi)}</td>
+          <td style="${cell}">${e.benchmark === null ? '—' : e.benchmark + '%'}</td>
+          <td style="${cell};${misPctStyle(k.lastPct, e.benchmark)}">${misPctText(k.lastPct)}</td>
+          <td style="${cell}">${k.planned}</td>
+          <td style="${cell}">${k.actual}</td>
+          <td style="${cell};${misPctStyle(k.pct, e.benchmark)}">${misPctText(k.pct)}</td>
+          <td style="${cell}">${k.nextPlanned}</td>
+        </tr>`).join('')).join('')}</tbody>
+      </table></div>
+    </div>`).join('');
+}
+// Phones: the 9-column sheet layout doesn't fit, so each system is a small
+// 6-column table instead (shown via .wmis-m; the sheet layout is .wmis-d).
+function weeklyMisPhoneTable(s, bench) {
+  const b = 'border:1px solid var(--gray-200);padding:6px 4px;text-align:center';
+  return `<div style="font-size:12px;font-weight:800;color:var(--gray-700);margin:8px 0 4px">${esc(s.name)}</div>
+    <table class="no-mcards" style="border-collapse:collapse;width:100%;font-size:12px">
+      <thead><tr>${['', 'Last %', 'Plan', 'Actual', '%', 'Next'].map(h => `<th style="${b};font-size:10.5px;background:var(--gray-100)">${h}</th>`).join('')}</tr></thead>
+      <tbody>${s.kpis.map((k, i) => `<tr>
+        <td style="${b};text-align:left;font-weight:700;font-size:11.5px">${i === 0 ? 'Not done' : 'Not on time'}</td>
+        <td style="${b};${misPctStyle(k.lastPct, bench)}">${misPctText(k.lastPct)}</td>
+        <td style="${b}">${k.planned}</td><td style="${b}">${k.actual}</td>
+        <td style="${b};${misPctStyle(k.pct, bench)}">${misPctText(k.pct)}</td>
+        <td style="${b}">${k.nextPlanned}</td></tr>`).join('')}</tbody>
+    </table>`;
+}
+function exportWeeklyMIS() {
+  if (!misWeeklyData) { showToast('Pehle Generate karo', 'error'); return; }
+  const q = v => { const s = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const lines = [['Employee', 'Department', 'Task/System', 'KRA', 'KPI', 'Benchmark', 'Last Week Actual %', 'Current Week Planned', 'Current Week Actual', 'Current Week Actual %', 'Next Week Planned'].join(',')];
+  misWeeklyRows().forEach(e => e.systems.forEach(s => s.kpis.forEach(k => lines.push([e.name, e.department, s.name, k.kra, k.kpi,
+    e.benchmark === null ? '' : e.benchmark + '%', misPctText(k.lastPct), k.planned, k.actual, misPctText(k.pct), k.nextPlanned].map(q).join(',')))));
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
+  a.download = `Weekly_MIS_${misWeeklyData.weekStart}.csv`;
+  a.click();
+}
+
 function filterMISDept() {
   if (misType === 'all') {
     renderAllMIS(misAllData, misFMSData);
   } else if (misType === 'delegation' || misType === 'checklist') {
     renderMIS(misData);
+  } else if (misType === 'weekly') {
+    renderWeeklyMIS();
   }
   // FMS MIS tab does not have per-user dept data, skip
 }
@@ -6935,6 +7036,13 @@ function switchMisTab(type, el) {
     deptWrap.style.display = (type !== 'fms') ? '' : 'none';
   }
 
+  if (type === 'weekly') {
+    // Weekly MIS reports a finished week — start on last week's Monday.
+    if (!misWeeklyData) setDmyDate('misStart', misLastWeekMonday());
+    if (misWeeklyData) renderWeeklyMIS();
+    else document.getElementById('misResults').innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Start Date me hafte ki koi bhi date chuno (blank = pichla hafta) aur Generate dabao</div>`;
+    return;
+  }
   if (type === 'fms') {
     if (misFMSData.length) renderFMSMIS(misFMSData);
     else document.getElementById('misResults').innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Click Generate to load FMS MIS</div>`;
@@ -6947,6 +7055,7 @@ function switchMisTab(type, el) {
 }
 
 async function generateMIS() {
+  if (misType === 'weekly') return generateWeeklyMIS();
   const start = document.getElementById('misStart').value;
   const end   = document.getElementById('misEnd').value;
   if (!start || !end) { showToast('Please select start and end date','error'); return; }
@@ -7164,6 +7273,7 @@ async function openMISDetail(userId, userName) {
 }
 
 function exportMIS() {
+  if (misType === 'weekly') return exportWeeklyMIS();
   // CSV escape helper — name/department me comma, quote ya newline ho to bhi columns na toote
   const esc = v => {
     if (v === null || v === undefined) return '';
