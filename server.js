@@ -514,7 +514,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'sfms-pc-view', 'all-delegations'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'sfms-pc-view', 'all-delegations'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -8350,6 +8350,548 @@ app.post('/api/cheque-fms/import-old', requireAuth, requireAdmin, async (req, re
     res.json({ success: true, imported, skipped, unmatchedSalesmen: [...unmatchedSalesmen] });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the old Cheque FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// CUSTOMER REPLACEMENT FMS (client SOP, 2026-10-05) — replaces the Google-Form
+// "Customer Replacement FMS" sheet (1G8JUBWG…), which ran the same work as
+// three separate FMS tabs (ReplProductFMS / Repl CN FMS / OW ReplFMS) and a
+// paper diary. One record per replacement (R-n), stored in MySQL like Cheque
+// FMS because the flow branches:
+//   Form → Diary entry + "is it our product?" (No → return to party)
+//   → Category: A Repair  — warranty & charges (OW needs customer consent)
+//                           → mechanic + lead time → repaired & tested → inform
+//               B Exchange — old piece to reject bin, new from stock → inform
+//               C Credit Note — reject bin/godown → credit note → send to dealer (closes)
+//   → Handover: OTP to the customer's mobile; entering it closes the record and
+//     sends a confirmation (no more pending paper slips).
+// The stage is derived from the filled fields (replStage), never stored.
+// ══════════════════════════════════════════════════════
+const REPL_STEPS = [
+  { n: 1,  key: 'check',    label: 'Diary Entry & Ownership Check', doer: 'Priyanka', tatH: 8 },
+  { n: 2,  key: 'category', label: 'Decide Category',               doer: 'Priyanka', tatH: 4 },
+  { n: 3,  key: 'warranty', label: 'Warranty & Charges',            doer: 'Priyanka / Aziz', tatH: 8 },
+  { n: 4,  key: 'assign',   label: 'Give to Mechanic',              doer: 'Priyanka', tatH: 4 },
+  { n: 5,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tatH: 48 },
+  { n: 6,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tatH: 6 },
+  { n: 7,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tatH: 4 },
+  { n: 8,  key: 'bin',      label: 'Reject Bin / Godown',           doer: 'Aziz', tatH: 4 },
+  { n: 9,  key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tatH: 24 },
+  { n: 10, key: 'cnsend',   label: 'Send Credit Note to Dealer',    doer: 'Accountant', tatH: 24 },
+  { n: 11, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tatH: 48 }
+];
+const REPL_N = Object.fromEntries(REPL_STEPS.map(s => [s.key, s.n]));
+const REPL_CATEGORIES = ['Repair', 'Exchange', 'Credit Note'];
+const REPL_OLD_SHEET_ID = '1G8JUBWG_GmLEkhWM6qjpjNwmN-JX8udSjTBH8iEdYO4';
+const REPL_OTP_TTL_MIN = 30;
+
+async function ensureReplTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS replacements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      code VARCHAR(20) NOT NULL UNIQUE,
+      source VARCHAR(20) DEFAULT 'app',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_by INT,
+      party_name VARCHAR(255) NOT NULL,
+      customer_mobile VARCHAR(30),
+      items TEXT,
+      product_condition VARCHAR(100),
+      product_type VARCHAR(50),
+      defect TEXT,
+      photo_url VARCHAR(1000),
+      brought_by VARCHAR(255),
+      remark TEXT,
+      diary_no VARCHAR(50),
+      ours VARCHAR(5),
+      not_ours_reason VARCHAR(500),
+      check_at DATETIME, check_by INT,
+      category VARCHAR(20), category_at DATETIME, category_by INT,
+      warranty VARCHAR(30), ow_reason VARCHAR(500), charges DECIMAL(10,2), customer_agreed VARCHAR(5),
+      warranty_at DATETIME, warranty_by INT,
+      mechanic_user_id INT, mechanic_name VARCHAR(255), lead_days DECIMAL(5,1), assigned_at DATETIME, assigned_by INT,
+      repaired_at DATETIME, repaired_by INT, repair_remark VARCHAR(500),
+      exchange_item VARCHAR(500), exchange_at DATETIME, exchange_by INT,
+      informed_at DATETIME, informed_by INT, inform_remark VARCHAR(500),
+      bin_at DATETIME, bin_by INT, bin_remark VARCHAR(500),
+      cn_no VARCHAR(50), cn_amount DECIMAL(12,2), cn_photo VARCHAR(1000), cn_at DATETIME, cn_by INT,
+      cn_sent_photo VARCHAR(1000), cn_sent_at DATETIME, cn_sent_by INT,
+      otp_hash VARCHAR(100), otp_expires DATETIME, otp_mobile VARCHAR(30),
+      delivered_at DATETIME, delivered_by INT, receiver_name VARCHAR(255), charges_received DECIMAL(10,2), handover_remark VARCHAR(500),
+      cancelled_at DATETIME, cancelled_by INT, cancel_reason VARCHAR(500),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_party (party_name),
+      INDEX idx_created_by (created_by)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS replacement_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      repl_id INT NOT NULL,
+      event VARCHAR(30) NOT NULL,
+      detail TEXT,
+      user_id INT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_repl (repl_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS replacement_step_doers (
+      step_n INT NOT NULL,
+      user_id INT NOT NULL,
+      PRIMARY KEY (step_n, user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+async function withReplTables(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureReplTables(); return await fn(); }
+}
+async function logReplEvent(id, event, detail, userId, at) {
+  await db.query('INSERT INTO replacement_events (repl_id, event, detail, user_id, created_at) VALUES (?,?,?,?,COALESCE(?,NOW()))',
+    [id, event, detail || null, userId || null, at || null]);
+}
+
+let _replStepDoersCache = null;
+async function getReplStepDoersMap() {
+  if (_replStepDoersCache && Date.now() - _replStepDoersCache.ts < 60 * 1000) return _replStepDoersCache.map;
+  const [rows] = await withReplTables(() => db.query(
+    'SELECT d.step_n, u.id, u.name FROM replacement_step_doers d JOIN users u ON d.user_id=u.id ORDER BY u.name'));
+  const map = {};
+  rows.forEach(r => { (map[r.step_n] = map[r.step_n] || []).push({ id: r.id, name: r.name }); });
+  _replStepDoersCache = { map, ts: Date.now() };
+  return map;
+}
+// Same model as Cheque FMS: admin + any step doer see every record; everyone
+// else (salesmen filling the form) only the ones they entered. An unassigned
+// step is admin-only.
+async function replUserAccess(req) {
+  const isAdmin = req.session.role === 'admin';
+  const map = await getReplStepDoersMap();
+  const uid = Number(req.session.userId);
+  const mySteps = new Set(isAdmin ? REPL_STEPS.map(s => s.n)
+    : REPL_STEPS.filter(s => (map[s.n] || []).some(d => Number(d.id) === uid)).map(s => s.n));
+  const pageAccess = isAdmin || (await hasPageGrant(req, 'replacement-fms'));
+  return { isAdmin, mySteps, seeAll: isAdmin || mySteps.size > 0, pageAccess, doersMap: map };
+}
+
+function replStage(r) {
+  if (r.cancelled_at) return 'cancelled';
+  if (!r.check_at) return 'check';
+  if (r.ours === 'No') return r.delivered_at ? 'returned' : 'handover';
+  if (!r.category) return 'category';
+  if (r.category === 'Credit Note') {
+    if (!r.bin_at) return 'bin';
+    if (!r.cn_at) return 'cn';
+    if (!r.cn_sent_at) return 'cnsend';
+    return 'closed';
+  }
+  if (r.category === 'Exchange') {
+    if (!r.exchange_at) return 'exchange';
+  } else {
+    if (!r.warranty_at) return 'warranty';
+    const declined = r.warranty === 'Out of Warranty' && r.customer_agreed === 'No';
+    if (!declined) {
+      if (!r.assigned_at) return 'assign';
+      if (!r.repaired_at) return 'repair';
+    }
+  }
+  if (!r.informed_at) return 'inform';
+  if (!r.delivered_at) return 'handover';
+  return 'closed';
+}
+// 'YYYY-MM-DD HH:MM:SS' (DB local time) + hours, kept as the same naive string form.
+function replAddHours(dt, hours) {
+  const m = String(dt || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return '';
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) + hours * 3600000);
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+function replTask(r, doersMap) {
+  const stage = replStage(r);
+  const step = REPL_STEPS.find(s => s.key === stage);
+  if (!step) return null;
+  const base = {
+    check: r.created_at, category: r.check_at, warranty: r.category_at, assign: r.warranty_at,
+    repair: r.assigned_at, exchange: r.category_at,
+    inform: r.repaired_at || r.exchange_at || r.warranty_at,
+    bin: r.category_at, cn: r.bin_at, cnsend: r.cn_at,
+    handover: r.ours === 'No' ? r.check_at : r.informed_at
+  }[stage];
+  const hours = stage === 'repair' && r.lead_days ? Number(r.lead_days) * 24 : step.tatH;
+  let doers = doersMap[step.n] || [];
+  // Repair belongs to the mechanic it was handed to.
+  if (stage === 'repair' && r.mechanic_user_id) doers = [{ id: r.mechanic_user_id, name: r.mechanic_name || '' }];
+  return { key: stage, n: step.n, label: step.label, planned: replAddHours(base, hours), doers, doer: step.doer,
+    returning: stage === 'handover' && (r.ours === 'No' || (r.warranty === 'Out of Warranty' && r.customer_agreed === 'No')) };
+}
+
+const REPL_SELECT = `SELECT r.*, DATE_FORMAT(r.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, cu.name AS created_by_name
+  FROM replacements r LEFT JOIN users cu ON cu.id=r.created_by`;
+function replOut(r, doersMap) {
+  const num = v => v == null ? null : Number(v);
+  return {
+    id: r.id, code: r.code, source: r.source, createdAt: r.created_at, createdByName: r.created_by_name || '',
+    partyName: r.party_name, customerMobile: r.customer_mobile || '', items: r.items || '', condition: r.product_condition || '',
+    productType: r.product_type || '', defect: r.defect || '', photoUrl: r.photo_url || '', broughtBy: r.brought_by || '',
+    remark: r.remark || '', diaryNo: r.diary_no || '', ours: r.ours || '', notOursReason: r.not_ours_reason || '', checkAt: r.check_at,
+    category: r.category || '', categoryAt: r.category_at,
+    warranty: r.warranty || '', owReason: r.ow_reason || '', charges: num(r.charges), customerAgreed: r.customer_agreed || '', warrantyAt: r.warranty_at,
+    mechanicUserId: r.mechanic_user_id, mechanicName: r.mechanic_name || '', leadDays: num(r.lead_days), assignedAt: r.assigned_at,
+    repairedAt: r.repaired_at, repairRemark: r.repair_remark || '',
+    exchangeItem: r.exchange_item || '', exchangeAt: r.exchange_at,
+    informedAt: r.informed_at, informRemark: r.inform_remark || '',
+    binAt: r.bin_at, binRemark: r.bin_remark || '', cnNo: r.cn_no || '', cnAmount: num(r.cn_amount), cnPhoto: r.cn_photo || '', cnAt: r.cn_at,
+    cnSentPhoto: r.cn_sent_photo || '', cnSentAt: r.cn_sent_at,
+    otpSentAt: r.otp_hash ? r.otp_expires : null, otpMobile: r.otp_mobile || '',
+    deliveredAt: r.delivered_at, receiverName: r.receiver_name || '', chargesReceived: num(r.charges_received), handoverRemark: r.handover_remark || '',
+    cancelledAt: r.cancelled_at, cancelReason: r.cancel_reason || '',
+    stage: replStage(r), task: replTask(r, doersMap)
+  };
+}
+
+app.get('/api/replacement-fms/step-doers', requireAuth, async (req, res) => {
+  try {
+    const map = await getReplStepDoersMap();
+    const assignments = {};
+    REPL_STEPS.forEach(s => { assignments[s.n] = map[s.n] || []; });
+    res.json({ assignments });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/replacement-fms/step-doers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await ensureReplTables();
+    await db.query('DELETE FROM replacement_step_doers');
+    const rows = [];
+    Object.entries((req.body && req.body.assignments) || {}).forEach(([n, ids]) => (ids || []).forEach(uid => rows.push([Number(n), Number(uid)])));
+    if (rows.length) await db.query('INSERT INTO replacement_step_doers (step_n, user_id) VALUES ?', [rows]);
+    _replStepDoersCache = null;
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.get('/api/replacement-fms', requireAuth, async (req, res) => {
+  try {
+    const acc = await replUserAccess(req);
+    const [rows] = await withReplTables(() => acc.seeAll
+      ? db.query(`${REPL_SELECT} ORDER BY r.id DESC`)
+      : db.query(`${REPL_SELECT} WHERE r.created_by=? OR r.mechanic_user_id=? ORDER BY r.id DESC`, [req.session.userId, req.session.userId]));
+    const [[now]] = await db.query("SELECT DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i:%s') AS n");
+    res.json({ items: rows.map(r => replOut(r, acc.doersMap)), me: { seeAll: acc.seeAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess }, now: now.n });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.get('/api/replacement-fms/:id/events', requireAuth, async (req, res) => {
+  try {
+    const acc = await replUserAccess(req);
+    const [[r]] = await withReplTables(() => db.query('SELECT created_by, mechanic_user_id FROM replacements WHERE id=?', [req.params.id]));
+    if (!r) return res.status(404).json({ error: 'Not found' });
+    const uid = Number(req.session.userId);
+    if (!acc.seeAll && Number(r.created_by) !== uid && Number(r.mechanic_user_id) !== uid) return res.status(403).json({ error: 'No access' });
+    const [ev] = await db.query(`SELECT e.event, e.detail, DATE_FORMAT(e.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, u.name AS user_name
+      FROM replacement_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.repl_id=? ORDER BY e.created_at DESC, e.id DESC`, [req.params.id]);
+    res.json(ev);
+  } catch (err) { sendServerError(res, err); }
+});
+
+// New codes continue the old sheet's R-series: the highest R-number ever used
+// there (app_settings floor, set by the import) or here, plus one.
+async function nextReplCode() {
+  const [rows] = await db.query("SELECT code FROM replacements WHERE code LIKE 'R-%'");
+  let max = rows.reduce((m, r) => Math.max(m, parseInt(String(r.code).slice(2), 10) || 0), 0);
+  let floor = parseInt(await getAppSetting('repl_code_floor').catch(() => null), 10) || 0;
+  if (!floor) floor = await replSheetCodeFloor().catch(() => 0); // first entry before any import
+  max = Math.max(max, floor);
+  return `R-${await claimNextSeqValue('repl_code', max + 1)}`;
+}
+// Highest R-number in the old sheet's Master.Data (every replacement ever
+// raised there), remembered in app_settings.
+async function replSheetCodeFloor() {
+  const sh = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const rows = (await sh.spreadsheets.values.get({ spreadsheetId: REPL_OLD_SHEET_ID, range: "'Master.Data'!K2:K5000" })).data.values || [];
+  const floor = rows.reduce((m, x) => Math.max(m, parseInt(String(x[0] || '').replace(/\D/g, ''), 10) || 0), 0);
+  if (floor) await setAppSetting('repl_code_floor', String(floor));
+  return floor;
+}
+async function replDealerPhone(party) {
+  try {
+    const [rows] = await withDealerTables(() => db.query('SELECT phone FROM o2d_dealers WHERE LOWER(TRIM(counter_name))=LOWER(TRIM(?)) LIMIT 1', [party]));
+    return (rows[0] && rows[0].phone) || '';
+  } catch (e) { return ''; }
+}
+
+// Replacement Form — anyone with the page (salesman / purchase assistant).
+app.post('/api/replacement-fms', requireAuth, async (req, res) => {
+  try {
+    const acc = await replUserAccess(req);
+    if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Replacement FMS' });
+    const b = req.body || {};
+    const t = (v, n = 500) => String(v || '').trim().slice(0, n);
+    const party = t(b.partyName, 255), items = t(b.items, 2000), defect = t(b.defect, 1000);
+    if (!party || !items || !defect) return res.status(400).json({ error: 'Party name, item & quantity and defect are required' });
+    if (!b.photo) return res.status(400).json({ error: 'Product photo is required' });
+    await ensureReplTables();
+    const code = await nextReplCode();
+    const photoUrl = await uploadPhotoToDrive(b.photo, `${code}-product-${Date.now()}.jpg`);
+    const mobile = t(b.customerMobile, 30) || await replDealerPhone(party);
+    const [r] = await db.query(`INSERT INTO replacements (code, created_by, party_name, customer_mobile, items, product_condition, product_type, defect, photo_url, brought_by, remark)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [code, req.session.userId, party, mobile || null, items, t(b.condition, 100) || null, t(b.productType, 50) || null, defect, photoUrl, t(b.broughtBy, 255) || null, t(b.remark, 2000) || null]);
+    await logReplEvent(r.insertId, 'created', `${items} · ${defect}`, req.session.userId);
+    res.json({ success: true, id: r.insertId, code });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+function replOtpMsg(r, otp) {
+  return `🙏 नमस्ते ${r.party_name} जी,\n\nAjanta Appliances से आपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) आपको दिया जा रहा है।\n📋 Replacement No: *${r.code}*\n\nप्रोडक्ट मिलने की पुष्टि के लिए यह OTP देने वाले व्यक्ति को बताएं: *${otp}*\n\nधन्यवाद 🙏\nAjanta Appliances`;
+}
+function replDeliveredMsg(r) {
+  return `✅ नमस्ते ${r.party_name} जी,\n\nआपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) आपको मिल गया है।\n📋 Replacement No: *${r.code}*\n\nAjanta Appliances पर भरोसा करने के लिए धन्यवाद 🙏`;
+}
+function replReadyMsg(r) {
+  return `🙏 नमस्ते ${r.party_name} जी,\n\nआपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) तैयार है।\n📋 Replacement No: *${r.code}*\n\nहमारी गाड़ी आपके रूट पर आते ही इसे पहुँचा दिया जाएगा, या आप इसे शॉप से ले सकते हैं।\nAjanta Appliances`;
+}
+
+app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res) => {
+  try {
+    const action = req.params.action;
+    const b = req.body || {};
+    const uid = req.session.userId;
+    const t = (v, n = 500) => String(v || '').trim().slice(0, n);
+    const fail = (msg, code = 400) => res.status(code).json({ error: msg });
+    const [[r]] = await withReplTables(() => db.query(`${REPL_SELECT} WHERE r.id=?`, [req.params.id]));
+    if (!r) return fail('Not found', 404);
+    const acc = await replUserAccess(req);
+    const stage = replStage(r);
+    const need = key => {
+      if (stage !== key) { fail('This step is not pending any more — please refresh'); return false; }
+      const isMech = key === 'repair' && Number(r.mechanic_user_id) === Number(uid);
+      if (acc.mySteps.has(REPL_N[key]) || isMech) return true;
+      fail('You are not assigned to this step (admin: Replacement FMS → Step Doers)', 403); return false;
+    };
+
+    if (action === 'check') {
+      if (!need('check')) return;
+      if (b.ours === 'Yes') {
+        const diary = t(b.diaryNo, 50);
+        if (!diary) return fail('Diary No. is required');
+        if (!b.stickerPasted) return fail('Confirm the sticker (Diary No. + date) is pasted on the product');
+        await db.query("UPDATE replacements SET ours='Yes', diary_no=?, check_at=NOW(), check_by=? WHERE id=?", [diary, uid, r.id]);
+        await logReplEvent(r.id, 'check', `Our product · Diary ${diary} · sticker pasted`, uid);
+      } else if (b.ours === 'No') {
+        const reason = t(b.reason);
+        if (!reason) return fail('Write why it is not our product');
+        await db.query("UPDATE replacements SET ours='No', not_ours_reason=?, diary_no=?, check_at=NOW(), check_by=? WHERE id=?", [reason, t(b.diaryNo, 50) || null, uid, r.id]);
+        await logReplEvent(r.id, 'check', `NOT our product — reject bin, return to party · ${reason}`, uid);
+      } else return fail('Choose whether it is our product');
+    } else if (action === 'category') {
+      if (!need('category')) return;
+      if (!REPL_CATEGORIES.includes(b.category)) return fail('Choose Repair, Exchange or Credit Note');
+      await db.query('UPDATE replacements SET category=?, category_at=NOW(), category_by=? WHERE id=?', [b.category, uid, r.id]);
+      await logReplEvent(r.id, 'category', b.category, uid);
+    } else if (action === 'warranty') {
+      if (!need('warranty')) return;
+      if (b.warranty === 'In Warranty') {
+        await db.query("UPDATE replacements SET warranty='In Warranty', warranty_at=NOW(), warranty_by=? WHERE id=?", [uid, r.id]);
+        await logReplEvent(r.id, 'warranty', 'In warranty — free repair', uid);
+      } else if (b.warranty === 'Out of Warranty') {
+        const reason = t(b.owReason), charges = Number(b.charges);
+        if (!reason) return fail('Write why it is out of warranty');
+        if (!(charges >= 0) || b.charges === '' || b.charges == null) return fail('Enter the charges told to the customer');
+        if (!['Yes', 'No'].includes(b.customerAgreed)) return fail('Did the customer agree to the charges?');
+        await db.query("UPDATE replacements SET warranty='Out of Warranty', ow_reason=?, charges=?, customer_agreed=?, warranty_at=NOW(), warranty_by=? WHERE id=?",
+          [reason, charges, b.customerAgreed, uid, r.id]);
+        await logReplEvent(r.id, 'warranty', `Out of warranty · ${reason} · ₹${charges} · customer ${b.customerAgreed === 'Yes' ? 'agreed' : 'declined — return without repair'}`, uid);
+      } else return fail('Choose In Warranty or Out of Warranty');
+    } else if (action === 'assign') {
+      if (!need('assign')) return;
+      const mid = Number(b.mechanicUserId), lead = Number(b.leadDays);
+      if (!mid) return fail('Choose the mechanic');
+      if (!(lead > 0)) return fail('Lead time (days) is required');
+      const [[m]] = await db.query('SELECT name FROM users WHERE id=?', [mid]);
+      if (!m) return fail('Mechanic not found');
+      await db.query('UPDATE replacements SET mechanic_user_id=?, mechanic_name=?, lead_days=?, assigned_at=NOW(), assigned_by=? WHERE id=?', [mid, m.name, lead, uid, r.id]);
+      await logReplEvent(r.id, 'assign', `${m.name} · lead time ${lead} day${lead === 1 ? '' : 's'}`, uid);
+    } else if (action === 'repair') {
+      if (!need('repair')) return;
+      if (!b.tested) return fail('Test the repaired product and tick "Tested OK"');
+      await db.query('UPDATE replacements SET repaired_at=NOW(), repaired_by=?, repair_remark=? WHERE id=?', [uid, t(b.remark) || null, r.id]);
+      await logReplEvent(r.id, 'repair', `Repaired & tested OK${b.remark ? ' · ' + t(b.remark) : ''}`, uid);
+    } else if (action === 'exchange') {
+      if (!need('exchange')) return;
+      const item = t(b.newItem);
+      if (!item) return fail('Which new item was taken from stock?');
+      if (!b.oldInBin) return fail('Confirm the old piece is in the Reject Bin');
+      await db.query('UPDATE replacements SET exchange_item=?, exchange_at=NOW(), exchange_by=? WHERE id=?', [item, uid, r.id]);
+      await logReplEvent(r.id, 'exchange', `Old piece → reject bin · new from stock: ${item}`, uid);
+    } else if (action === 'inform') {
+      if (!need('inform')) return;
+      const remark = t(b.remark);
+      if (!remark) return fail('Write who was informed and how (call / message)');
+      let wa = '';
+      if (b.sendWhatsApp) {
+        const mobile = t(b.mobile, 30) || r.customer_mobile;
+        if (!sfmsNormalizeMobile(mobile)) return fail('Enter a valid customer mobile to send WhatsApp');
+        if (mobile !== r.customer_mobile) await db.query('UPDATE replacements SET customer_mobile=? WHERE id=?', [mobile, r.id]);
+        sendWhatsAppInBackground(mobile, replReadyMsg(r), undefined, `repl ready ${r.code}`);
+        wa = ' · WhatsApp sent';
+      }
+      await db.query('UPDATE replacements SET informed_at=NOW(), informed_by=?, inform_remark=? WHERE id=?', [uid, remark, r.id]);
+      await logReplEvent(r.id, 'inform', remark + wa, uid);
+    } else if (action === 'bin') {
+      if (!need('bin')) return;
+      await db.query('UPDATE replacements SET bin_at=NOW(), bin_by=?, bin_remark=? WHERE id=?', [uid, t(b.remark) || null, r.id]);
+      await logReplEvent(r.id, 'bin', t(b.remark) || 'Put in reject bin / godown', uid);
+    } else if (action === 'cn') {
+      if (!need('cn')) return;
+      const no = t(b.cnNo, 50);
+      if (!no) return fail('Credit Note No. is required');
+      if (!b.cnPhoto) return fail('Upload the credit note photo');
+      const photo = await uploadPhotoToDrive(b.cnPhoto, `${r.code}-credit-note-${Date.now()}.jpg`);
+      const amt = b.cnAmount === '' || b.cnAmount == null ? null : Number(b.cnAmount);
+      await db.query('UPDATE replacements SET cn_no=?, cn_amount=?, cn_photo=?, cn_at=NOW(), cn_by=? WHERE id=?', [no, amt, photo, uid, r.id]);
+      await logReplEvent(r.id, 'cn', `Credit Note ${no}${amt != null ? ' · ₹' + amt : ''}`, uid);
+    } else if (action === 'cnsend') {
+      if (!need('cnsend')) return;
+      if (!b.photo) return fail('Upload the WhatsApp screenshot of the credit note sent to the dealer');
+      const photo = await uploadPhotoToDrive(b.photo, `${r.code}-cn-sent-${Date.now()}.jpg`);
+      await db.query('UPDATE replacements SET cn_sent_photo=?, cn_sent_at=NOW(), cn_sent_by=? WHERE id=?', [photo, uid, r.id]);
+      await logReplEvent(r.id, 'cnsend', 'Credit note sent to dealer — closed', uid);
+    } else if (action === 'send-otp') {
+      if (!need('handover')) return;
+      const mobile = t(b.mobile, 30) || r.customer_mobile;
+      if (!sfmsNormalizeMobile(mobile)) return fail('Enter the customer mobile number');
+      const otp = String(crypto.randomInt(100000, 1000000));
+      const hash = crypto.createHash('sha256').update(`${r.id}:${otp}`).digest('hex');
+      // Saved before sending, so a slow gateway can't leave a sent OTP unverifiable.
+      await db.query(`UPDATE replacements SET otp_hash=?, otp_expires=DATE_ADD(NOW(), INTERVAL ${REPL_OTP_TTL_MIN} MINUTE), otp_mobile=?, customer_mobile=COALESCE(customer_mobile,?) WHERE id=?`,
+        [hash, mobile, mobile, r.id]);
+      const delivery = await sendWhatsAppQuick(mobile, replOtpMsg(r, otp), undefined, `repl otp ${r.code}`);
+      await logReplEvent(r.id, 'otp', `OTP sent to ${mobile}${delivery === 'pending' ? ' (sending…)' : ''}`, uid);
+      return res.json({ success: true, pending: delivery === 'pending' });
+    } else if (action === 'handover') {
+      if (!need('handover')) return;
+      const receiver = t(b.receiverName, 255);
+      const chargesRecd = b.chargesReceived === '' || b.chargesReceived == null ? null : Number(b.chargesReceived);
+      let how;
+      if (b.otp) {
+        const [[o]] = await db.query('SELECT otp_hash, otp_expires > NOW() AS fresh FROM replacements WHERE id=?', [r.id]);
+        const hash = crypto.createHash('sha256').update(`${r.id}:${String(b.otp).trim()}`).digest('hex');
+        if (!o.otp_hash || hash !== o.otp_hash) return fail('Wrong OTP — check with the customer');
+        if (!+o.fresh) return fail('OTP expired — send a new one');
+        how = 'OTP verified';
+      } else if (acc.isAdmin && b.withoutOtp && receiver) {
+        how = 'Without OTP (admin)';
+      } else return fail('Enter the OTP from the customer');
+      await db.query('UPDATE replacements SET delivered_at=NOW(), delivered_by=?, receiver_name=?, charges_received=?, handover_remark=?, otp_hash=NULL WHERE id=?',
+        [uid, receiver || null, chargesRecd, t(b.remark) || null, r.id]);
+      await logReplEvent(r.id, 'handover', `${how}${receiver ? ' · received by ' + receiver : ''}${chargesRecd != null ? ' · ₹' + chargesRecd + ' received' : ''}`, uid);
+      const mobile = r.otp_mobile || r.customer_mobile;
+      if (sfmsNormalizeMobile(mobile)) sendWhatsAppInBackground(mobile, replDeliveredMsg(r), undefined, `repl delivered ${r.code}`);
+    } else if (action === 'cancel') {
+      if (!acc.isAdmin && !acc.mySteps.has(REPL_N.check)) return fail('Only admin or the Diary step doer can cancel', 403);
+      const reason = t(b.reason);
+      if (!reason) return fail('Reason is required');
+      await db.query('UPDATE replacements SET cancelled_at=NOW(), cancelled_by=?, cancel_reason=? WHERE id=?', [uid, reason, r.id]);
+      await logReplEvent(r.id, 'cancelled', reason, uid);
+    } else return fail('Unknown action', 404);
+
+    const [[fresh]] = await db.query(`${REPL_SELECT} WHERE r.id=?`, [r.id]);
+    res.json({ success: true, item: replOut(fresh, acc.doersMap) });
+  } catch (err) {
+    if (err.isWhatsApp) return sendWhatsAppError(res, err);
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+// One-time cutover from the old sheet: brings over every record still open
+// in ReplProductFMS and Repl CN FMS ("Archive" rows are finished), at the
+// stage the old sheet had reached. OW ReplFMS rows were all complete
+// (charges received) when checked on 2026-10-05, so they are not imported.
+// Idempotent — codes already here are skipped. Also records the highest
+// R-number used in Master.Data so new codes continue the series.
+function replSheetDate(v) {
+  const m = String(v || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')} ${(m[4] || '00').padStart(2, '0')}:${m[5] || '00'}:${m[6] || '00'}` : null;
+}
+app.post('/api/replacement-fms/import-old', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const sh = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const get = async range => ((await sh.spreadsheets.values.get({ spreadsheetId: REPL_OLD_SHEET_ID, range })).data.values || []);
+    const [main, cn, master] = await Promise.all([get("'ReplProductFMS'!A7:BO2000"), get("'Repl CN FMS'!A7:AF2000"), get("'Master.Data'!K2:K5000")]);
+    await ensureReplTables();
+    const floor = master.reduce((m, x) => Math.max(m, parseInt(String(x[0] || '').replace(/\D/g, ''), 10) || 0), 0);
+    if (floor) await setAppSetting('repl_code_floor', String(floor));
+    const [existing] = await db.query('SELECT code FROM replacements');
+    const have = new Set(existing.map(e => e.code));
+    const cnById = Object.fromEntries(cn.filter(x => x[1]).map(x => [String(x[1]).trim(), x]));
+    let imported = 0, skipped = 0;
+    const ins = async (rec, events) => {
+      const cols = Object.keys(rec);
+      const [r] = await db.query(`INSERT INTO replacements (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`, cols.map(c => rec[c]));
+      await logReplEvent(r.insertId, 'imported', 'From the old Customer Replacement FMS sheet', req.session.userId, rec.created_at);
+      for (const e of events) await logReplEvent(r.insertId, e[0], e[1], null, e[2]);
+      imported++;
+    };
+    const g = (x, i) => String(x[i] || '').trim();
+    // Main tab (ReplProductFMS): col indexes per the live header row 6.
+    for (const x of main) {
+      const code = g(x, 10);
+      if (!/^R-\d+$/.test(code)) continue;
+      if (g(x, 65) === 'Archive' || g(x, 60) === 'Done') { skipped++; continue; }
+      if (have.has(code)) { skipped++; continue; }
+      const created = replSheetDate(g(x, 0));
+      const checkAt = replSheetDate(g(x, 16)) || replSheetDate(g(x, 12));
+      const rec = { code, source: 'old-sheet', created_at: created, party_name: g(x, 1) || '—', items: g(x, 2), product_condition: g(x, 3) || null,
+        product_type: g(x, 4) || null, defect: g(x, 5), photo_url: g(x, 6) || null, brought_by: g(x, 7) || null,
+        remark: [g(x, 8), g(x, 64)].filter(Boolean).join(' · ') || null, diary_no: g(x, 62) || null };
+      const ev = [];
+      if (g(x, 17)) { rec.ours = g(x, 17) === 'No' ? 'No' : 'Yes'; rec.check_at = checkAt || created; ev.push(['check', `Old sheet: ours ${rec.ours}`, rec.check_at]); }
+      if (rec.ours === 'Yes') {
+        if (g(x, 25) === 'Yes') { rec.category = 'Credit Note'; rec.category_at = replSheetDate(g(x, 24)) || rec.check_at; }
+        else if (g(x, 30) === 'Yes') { rec.category = 'Repair'; rec.category_at = replSheetDate(g(x, 29)) || rec.check_at; }
+        else if (g(x, 30) === 'No' || g(x, 34)) { rec.category = 'Exchange'; rec.category_at = replSheetDate(g(x, 29)) || rec.check_at; }
+        if (rec.category) ev.push(['category', `Old sheet: ${rec.category}`, rec.category_at]);
+        if (rec.category === 'Exchange' && g(x, 34) === 'Done') { rec.exchange_at = replSheetDate(g(x, 33)) || rec.category_at; rec.exchange_item = '(old sheet)'; ev.push(['exchange', 'Old sheet: exchange done', rec.exchange_at]); }
+        if (rec.category === 'Repair') {
+          if (g(x, 43)) { rec.warranty = g(x, 43) === 'No' ? 'Out of Warranty' : 'In Warranty'; rec.warranty_at = replSheetDate(g(x, 42)) || rec.category_at; if (rec.warranty === 'Out of Warranty') { rec.customer_agreed = 'Yes'; rec.ow_reason = 'Old sheet'; rec.charges = 0; } }
+          if (g(x, 38) === 'Done') { rec.assigned_at = replSheetDate(g(x, 37)) || rec.category_at; rec.mechanic_name = '(old sheet)'; rec.lead_days = parseFloat(g(x, 39)) || null;
+            if (!rec.warranty_at) { rec.warranty = 'In Warranty'; rec.warranty_at = rec.assigned_at; } }
+          if (g(x, 48) === 'Done' && g(x, 52) === 'Done') { rec.repaired_at = replSheetDate(g(x, 51)) || replSheetDate(g(x, 47)) || rec.assigned_at; ev.push(['repair', 'Old sheet: repaired & tested', rec.repaired_at]); }
+        }
+        if (g(x, 56) === 'Done' && rec.category !== 'Credit Note') { rec.informed_at = replSheetDate(g(x, 55)) || created; rec.inform_remark = 'Old sheet'; ev.push(['inform', 'Old sheet: dealer/salesman informed', rec.informed_at]); }
+      }
+      if (rec.category === 'Credit Note') {
+        const c = cnById[code];
+        if (c && g(c, 13) === 'Done') rec.bin_at = replSheetDate(g(c, 12)) || rec.category_at;
+        if (c && g(c, 16)) { rec.cn_at = replSheetDate(g(c, 16)); rec.cn_no = g(c, 10) || g(c, 19) || '(old sheet)'; rec.cn_photo = g(c, 18) || null; }
+        delete cnById[code];
+      }
+      await ins(rec, ev);
+      have.add(code);
+    }
+    // Credit-note-only rows (their main-tab row was already archived).
+    for (const [code, c] of Object.entries(cnById)) {
+      if (!/^R-\d+$/.test(code)) continue;
+      if (g(c, 31) === 'Archive' || g(c, 23) === 'Done' || have.has(code)) { skipped++; continue; }
+      const created = replSheetDate(g(c, 0));
+      const rec = { code, source: 'old-sheet', created_at: created, party_name: g(c, 2) || '—', items: g(c, 3), product_condition: g(c, 4) || null,
+        defect: g(c, 5), photo_url: g(c, 6) || null, brought_by: g(c, 7) || null, remark: g(c, 8) || null, diary_no: g(c, 9) || null,
+        ours: 'Yes', check_at: created, category: 'Credit Note', category_at: created };
+      if (g(c, 13) === 'Done') rec.bin_at = replSheetDate(g(c, 12)) || created;
+      if (g(c, 16)) { rec.cn_at = replSheetDate(g(c, 16)); rec.cn_no = g(c, 10) || g(c, 19) || '(old sheet)'; rec.cn_photo = g(c, 18) || null; }
+      await ins(rec, []);
+      have.add(code);
+    }
+    res.json({ success: true, imported, skipped, codeFloor: floor });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the old Customer Replacement FMS sheet with the service account.' });
     sendServerError(res, err);
   }
 });
