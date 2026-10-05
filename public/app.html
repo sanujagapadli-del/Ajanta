@@ -842,6 +842,91 @@ tbody tr:last-child td{border-bottom:none;}
   .ov-card:last-child{grid-column:1/-1}
   .page{padding:10px 8px}
 }
+
+/* ═══════════════════════════════
+   PHONE POLISH (client, 2026-10-05: "phone view sab jagah ek dam mast")
+   Later in the file than the older mobile rules on purpose, so these win.
+═══════════════════════════════ */
+/* "More" sheet for the bottom nav — hidden everywhere until opened */
+#bnMoreSheet{display:none}
+@media(max-width:768px){
+  /* Bottom nav: 5 fixed slots (Dashboard / Tasks / Attendance / Approvals / More), no sideways scrolling */
+  .bottom-nav{overflow:visible;justify-content:space-around}
+  .bottom-nav > .bn-item{flex:1 1 0;min-width:0}
+  .bn-item span{font-size:10px}
+  #bnMoreSheet.open{display:block;position:fixed;inset:0;z-index:199;background:rgba(15,23,42,.35)}
+  #bnMoreSheet .bn-more-panel{
+    position:absolute;left:0;right:0;bottom:calc(62px + env(safe-area-inset-bottom));
+    background:var(--surface);border-radius:18px 18px 0 0;padding:14px 12px 10px;
+    box-shadow:0 -8px 30px rgba(15,23,42,.18);
+  }
+  #bnMoreSheet .bn-more-title{font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin:0 4px 8px}
+  #bnMoreGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  #bnMoreGrid .bn-item{min-width:0;padding:12px 4px;border-radius:12px;background:var(--gray-50);gap:6px}
+  #bnMoreGrid .bn-item span{font-size:11px;text-align:center}
+  #bnMoreGrid .bn-item.active{background:var(--color-primary-light)}
+  #bnMoreGrid .bn-item.active::before{display:none}
+
+  /* Popups: size to the VISIBLE screen, so buttons never hide behind the browser's own toolbar */
+  .modal-overlay{inset:auto;top:0;left:0;right:0;height:100dvh}
+  .modal{max-height:88dvh !important;padding-bottom:calc(20px + env(safe-area-inset-bottom)) !important}
+
+  /* Page headers: buttons in tidy wrapping rows, inputs full width */
+  .page-header{flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .page-header > div{flex-wrap:wrap;width:100%}
+  .page-header .btn{flex:1 1 auto;justify-content:center;padding:9px 12px;font-size:12.5px}
+  .page-header input[type="text"]{width:100% !important;box-sizing:border-box}
+  .page-header > div > div[style*="position:relative"]{flex:1 1 100%}
+  .tasks-page-title h2{font-size:18px}
+
+  /* Tabs: readable size, one line, swipe sideways when they don't fit */
+  .tab-group{overflow-x:auto;flex-wrap:nowrap;max-width:100%;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .tab-group::-webkit-scrollbar{display:none}
+  .tab-group .tab{white-space:nowrap;flex-shrink:0;padding:7px 12px;font-size:12.5px}
+  #page-service-fms .tab-group .tab{padding:7px 11px;font-size:12px}
+
+  /* Inputs: 16px stops iPhone from zooming in when a field is tapped */
+  input:not([type=checkbox]):not([type=radio]), select, textarea{font-size:16px !important;max-width:100%}
+
+  /* Tables → stacked cards (labels filled in by mobileTableCards()) */
+  table.mcards{min-width:0 !important;width:100% !important;border-collapse:separate;border-spacing:0}
+  table.mcards thead{display:none}
+  table.mcards tbody{display:block}
+  table.mcards tbody tr{
+    display:block;background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;
+    padding:8px 12px;margin:8px 0;box-shadow:0 1px 4px rgba(1,80,170,.05);
+  }
+  table.mcards tbody tr:hover td{background:transparent}
+  table.mcards tbody tr{position:relative}
+  /* Label floats left, the cell's own content (one or several lines) stays together on the right */
+  table.mcards tbody td{
+    display:block;padding:4px 0 !important;border:none !important;text-align:right;overflow-wrap:anywhere;
+    white-space:normal !important;max-width:none !important;min-width:0 !important;width:auto !important;font-size:13px;line-height:1.45;
+  }
+  table.mcards tbody td::before{
+    content:attr(data-ml);float:left;max-width:42%;margin-right:12px;text-align:left;
+    font-size:10.5px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.3px;padding-top:2px;
+  }
+  table.mcards tbody td::after{content:'';display:block;clear:both}
+  table.mcards tbody td[data-ml=""]::before{display:none}
+  table.mcards tbody td[data-ml=""]{text-align:left}
+  /* Row checkbox sits in the card's top-right corner */
+  table.mcards tbody td.mc-check{position:absolute;top:9px;right:12px;padding:0 !important}
+  table.mcards tbody td.mc-check::before{display:none}
+  table.mcards tbody tr:has(> td.mc-check) td.mc-head{padding-right:34px !important}
+  /* First column = the card's heading */
+  table.mcards tbody td.mc-head{font-size:14.5px;font-weight:700;color:var(--gray-900);text-align:left;border-bottom:1px solid var(--gray-100) !important;padding-bottom:6px !important;margin-bottom:2px}
+  table.mcards tbody td.mc-head::before{display:none}
+  /* A cell holding a form / buttons gets the full card width */
+  table.mcards tbody td.mc-wide{display:block;text-align:left}
+  table.mcards tbody td.mc-wide::before{float:none;display:block;max-width:none;margin-bottom:4px}
+  /* Group/heading rows (single cell spanning the table) */
+  table.mcards tbody td[colspan]{display:block;text-align:left}
+  table.mcards tbody td[colspan]::before{display:none}
+  table.mcards tbody tr:has(> td[colspan]:only-child){background:transparent;border:none;box-shadow:none;padding:6px 2px;margin:10px 0 0}
+  table.mcards tbody td.mc-empty{display:none}
+  .mis-table-wrap:has(> table.mcards){overflow-x:visible !important;border:none !important;background:transparent !important}
+}
 </style>
 </head>
 <body>
@@ -1004,7 +1089,18 @@ tbody tr:last-child td{border-bottom:none;}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     <span>Profile</span>
   </div>
+  <div class="bn-item" id="bnMore" onclick="toggleBottomNavMore()" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+    <span>More</span>
+  </div>
 </nav>
+<!-- Bottom-nav "More" sheet: pages that don't fit the 5-slot bar (filled by arrangeBottomNavMore) -->
+<div id="bnMoreSheet" onclick="toggleBottomNavMore(false)">
+  <div class="bn-more-panel">
+    <div class="bn-more-title">More</div>
+    <div id="bnMoreGrid"></div>
+  </div>
+</div>
 
 <div class="main" id="mainContent">
   <div class="topbar">
@@ -3605,6 +3701,7 @@ function navigate(page, el) {
   if (el) el.classList.add('active');
   const bnMatch = document.querySelector(`.bn-item[data-page="${page}"]`);
   if (bnMatch) bnMatch.classList.add('active');
+  syncBottomNavMoreActive();
   document.getElementById('topbarTitle').textContent = pageTitles[page] || page;
   if (page==='dashboard') loadDashboard();
   if (page==='alltasks') loadAllTasks();
@@ -3641,6 +3738,7 @@ function setupBottomNav() {
   if (bnPurchase && canSee('purchase-fms')) bnPurchase.style.display = '';
   const bnCheque = document.getElementById('bnCheque');
   if (bnCheque && canSee('cheque-fms')) bnCheque.style.display = '';
+  arrangeBottomNavMore();
   attachScrollHint(document.getElementById('bottomNav'));
 }
 
@@ -9682,8 +9780,16 @@ async function loadO2dFmsList() {
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   o2dData = data;
   window._lastO2dData = data;
+  // Phones open on PC View (one line per order: pending step / planned /
+  // doer — reads well as cards); the wide Planned/Actual grid stays a tab away.
+  if (!_o2dPhoneDefaulted && window.matchMedia('(max-width:768px)').matches && o2dView === 'fms') {
+    _o2dPhoneDefaulted = true;
+    return switchO2dView('pc', document.getElementById('o2dViewPC'));
+  }
+  _o2dPhoneDefaulted = true;
   renderO2dActiveView();
 }
+let _o2dPhoneDefaulted = false;
 
 function o2dSearchChanged() { o2dPage = 1; renderO2dActiveView(); }
 
@@ -12630,8 +12736,15 @@ async function loadPurchaseFmsList() {
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   pfmsData = data;
   pfmsVendorUpdates = Array.isArray(vu) ? vu : [];
+  // Phones open on PC View, same as O2D (see loadO2dFmsList).
+  if (!_pfmsPhoneDefaulted && window.matchMedia('(max-width:768px)').matches && pfmsView === 'fms') {
+    _pfmsPhoneDefaulted = true;
+    return switchPurchaseFmsView('pc', document.getElementById('pfmsViewPC'));
+  }
+  _pfmsPhoneDefaulted = true;
   renderPurchaseFmsActiveView();
 }
+let _pfmsPhoneDefaulted = false;
 
 function pfmsSearchChanged() { pfmsPage = 1; renderPurchaseFmsActiveView(); }
 
@@ -13620,6 +13733,82 @@ async function o2dChequeRiskBanner(name) {
   if (!r || !Array.isArray(r.parties)) return '';
   if (!chqRisk) chqRisk = r;
   return chqRiskBannerHtml(name);
+}
+
+// ══════════════════════════════════════════════════════
+// PHONE POLISH (client, 2026-10-05)
+// 1) Tables → cards: every simple table (one header row, no merged header
+//    cells) gets class `mcards` and each cell a `data-ml` label copied from
+//    its column header; the phone CSS then shows each row as a card of
+//    "LABEL  value" lines. Desktop is untouched (the CSS is phone-only).
+//    Tables re-render all the time, so a debounced MutationObserver keeps
+//    labelling whatever is new. Grids with two header rows (FMS plan/actual
+//    views) and the Dashboard / Step-Doers tables keep their own layout.
+// ══════════════════════════════════════════════════════
+const MCARDS_SKIP = '#dashTable, .sdm-table, .no-mcards';
+function mobileTableCards(root) {
+  (root || document).querySelectorAll('table').forEach(table => {
+    if (table.matches(MCARDS_SKIP) || table.closest('.no-mcards')) return;
+    const headRows = table.tHead ? table.tHead.rows : [];
+    if (headRows.length !== 1) return;
+    const ths = [...headRows[0].cells];
+    if (!ths.length || ths.some(th => th.colSpan > 1)) return;
+    const labels = ths.map(th => (th.innerText || th.textContent || '').replace(/\s+/g, ' ').trim());
+    table.classList.add('mcards');
+    for (const tb of table.tBodies) {
+      for (const tr of tb.rows) {
+        if (tr.dataset.mcDone === String(tr.cells.length)) continue;
+        let col = 0, firstLabelled = false;
+        for (const td of tr.cells) {
+          if (td.colSpan > 1) { col += td.colSpan; continue; }
+          const label = labels[col] || '';
+          td.setAttribute('data-ml', label);
+          const text = (td.textContent || '').trim();
+          const hasControls = !!td.querySelector('input:not([type=checkbox]), select, textarea, button, .btn');
+          td.classList.toggle('mc-wide', hasControls || text.length > 60);
+          td.classList.toggle('mc-empty', !hasControls && !td.querySelector('img, svg, a, input') && (text === '' || text === '—' || text === '-'));
+          // Card heading = first real column (skips a leading checkbox-only column).
+          const isCheckboxOnly = !!td.querySelector('input[type=checkbox]') && text === '';
+          td.classList.toggle('mc-head', !firstLabelled && !isCheckboxOnly && !hasControls);
+          td.classList.toggle('mc-check', isCheckboxOnly);
+          if (!isCheckboxOnly) firstLabelled = true;
+          col++;
+        }
+        tr.dataset.mcDone = String(tr.cells.length);
+      }
+    }
+  });
+}
+let _mcTimer = null;
+new MutationObserver(() => {
+  clearTimeout(_mcTimer);
+  _mcTimer = setTimeout(() => mobileTableCards(document), 120);
+}).observe(document.documentElement, { childList: true, subtree: true });
+
+// 2) Bottom nav: only Dashboard / Tasks / Attendance / Approvals stay in the
+//    bar; every other page the user can open goes into the "More" sheet.
+const BN_PRIMARY = ['dashboard', 'alltasks', 'attendance', 'approvals'];
+function arrangeBottomNavMore() {
+  const nav = document.getElementById('bottomNav');
+  const grid = document.getElementById('bnMoreGrid');
+  if (!nav || !grid) return;
+  [...nav.querySelectorAll(':scope > .bn-item')].forEach(item => {
+    if (item.id === 'bnMore' || BN_PRIMARY.includes(item.dataset.page)) return;
+    if (item.style.display === 'none') return;
+    grid.appendChild(item);
+  });
+  const more = document.getElementById('bnMore');
+  if (more) { nav.appendChild(more); more.style.display = grid.children.length ? '' : 'none'; }
+  syncBottomNavMoreActive();
+}
+function toggleBottomNavMore(open) {
+  const sheet = document.getElementById('bnMoreSheet');
+  if (!sheet) return;
+  sheet.classList.toggle('open', open === undefined ? !sheet.classList.contains('open') : open);
+}
+function syncBottomNavMoreActive() {
+  const more = document.getElementById('bnMore');
+  if (more) more.classList.toggle('active', !!document.querySelector('#bnMoreGrid .bn-item.active'));
 }
 
 // ══════════════════════════════════════════════════════
