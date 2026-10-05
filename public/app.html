@@ -852,6 +852,8 @@ tbody tr:last-child td{border-bottom:none;}
 /* Weekly MIS: sheet layout on desktop, compact per-system tables on phones */
 .wmis-m{display:none}
 @media(max-width:768px){ .wmis-m{display:block} span.wmis-m{display:inline} .wmis-d{display:none} }
+/* MIS Report on phones: KPI cards two per row, rings hidden */
+@media(max-width:768px){ .ta-kpi{min-width:calc(50% - 8px) !important;padding:12px !important} .ta-ring{display:none} }
 @media(max-width:768px){
   /* Bottom nav: 5 fixed slots (Dashboard / Tasks / Attendance / Approvals / More), no sideways scrolling */
   .bottom-nav{overflow:visible;justify-content:space-around}
@@ -1769,8 +1771,9 @@ tbody tr:last-child td{border-bottom:none;}
       <button id="setPlanBtn" class="btn btn-primary" onclick="openSetPlanModal()" style="display:none">📅 Set Plan</button>
     </div>
 
-    <!-- Filters -->
-    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:18px;margin-bottom:18px;">
+    <!-- Old filter card: hidden — the MIS Report draws its own toolbar, but its
+         inputs (#misStart / #misEnd / #misDeptFilter) still hold the dates. -->
+    <div id="misFilterCard" style="display:none">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <div id="misStartWrap">
           <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Start Date</div>
@@ -7106,39 +7109,66 @@ function exportWeeklyMIS() {
   a.click();
 }
 
-// ── Task Analytics (client spec, 2026-10-05): KPI % cards, filters, count
-// cards and a row-per-task detail table for the MIS Start–End dates.
+// ── MIS Report (client spec, 2026-10-05; redesigned same day) ─────────────
 //   Task Done %          = Completed / Planned × 100,  Not Done % = Done % − 100
 //   Task Done On Time %  = Completed On Time / Planned × 100, Not On Time % = that − 100
-// Rows come from /api/mis/tasks once per Generate; every filter is local.
+// One toolbar (quick date ranges + department / employee / FMS / status /
+// search), KPI rings, clickable count cards, By-FMS and By-Employee bars
+// (click = filter) and the per-task table. Rows come from /api/mis/tasks once
+// per date range; every filter is local. The old filter card's inputs
+// (#misStart / #misEnd) stay hidden in the page and hold the dates.
 let taData = null;
-const taFilter = { emp: '', fms: '', status: '', q: '' };
+let taLoading = false;
+const taFilter = { emp: '', fms: '', status: '', q: '', dept: '' };
 let taShown = 100;
 let taSort = 'planned';
+let taRange = 'week';
+let taEmpAll = false;
+const taYmd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function taQuickRange(key) {
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const mon = new Date(t); mon.setDate(t.getDate() - ((t.getDay() + 6) % 7));
+  let s = t, e = t;
+  if (key === 'week') { s = mon; }
+  else if (key === 'lastweek') { s = new Date(mon); s.setDate(mon.getDate() - 7); e = new Date(mon); e.setDate(mon.getDate() - 1); }
+  else if (key === 'month') { s = new Date(t.getFullYear(), t.getMonth(), 1); }
+  else if (key === 'lastmonth') { s = new Date(t.getFullYear(), t.getMonth() - 1, 1); e = new Date(t.getFullYear(), t.getMonth(), 0); }
+  taRange = key;
+  setDmyDate('misStart', taYmd(s)); setDmyDate('misEnd', taYmd(e));
+  generateTaskAnalytics();
+}
+function taCustomDate(which, val) {
+  if (!val) return;
+  taRange = 'custom';
+  setDmyDate(which === 'start' ? 'misStart' : 'misEnd', val);
+  const s = document.getElementById('misStart').value, e = document.getElementById('misEnd').value;
+  if (s && e && s <= e) generateTaskAnalytics();
+}
 async function generateTaskAnalytics() {
-  const out = document.getElementById('misResults');
   const start = document.getElementById('misStart').value, end = document.getElementById('misEnd').value;
   if (!start || !end || start > end) { showToast('Start aur End date sahi chuno', 'error'); return; }
-  out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
+  taLoading = true; renderTaskAnalytics();
   const d = await api(`/api/mis/tasks?start=${start}&end=${end}`);
-  if (!d || d.error) { out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--color-danger-border);color:var(--color-danger)">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
+  taLoading = false;
+  if (!d || d.error) { showToast((d && d.error) || 'MIS Report load nahi hua', 'error'); renderTaskAnalytics(); return; }
   taData = d;
   taShown = 100;
-  populateMISDeptDropdown(d.employees);
   if (taFilter.emp && !d.employees.some(e => String(e.id) === taFilter.emp)) taFilter.emp = '';
   renderTaskAnalytics();
 }
-function taRows() {
+// filters minus one key — the By-FMS / By-Employee charts ignore their own filter
+function taRows(skip) {
   if (!taData) return [];
-  const dept = (document.getElementById('misDeptFilter') || {}).value || '';
-  const deptIds = dept ? new Set(taData.employees.filter(e => e.department === dept).map(e => e.id)) : null;
-  const q = taFilter.q.trim().toLowerCase();
+  const f = { ...taFilter, ...(skip ? { [skip]: '' } : {}) };
+  const deptIds = f.dept ? new Set(taData.employees.filter(e => e.department === f.dept).map(e => e.id)) : null;
+  const q = f.q.trim().toLowerCase();
   return taData.rows.filter(r =>
-    (!taFilter.emp || r.doerIds.includes(Number(taFilter.emp))) &&
+    (!f.emp || r.doerIds.includes(Number(f.emp))) &&
     (!deptIds || r.doerIds.some(id => deptIds.has(id))) &&
-    (!taFilter.fms || r.fms === taFilter.fms) &&
+    (!f.fms || r.fms === f.fms) &&
     (!q || [r.uid, r.task, r.names.join(' ')].some(v => String(v).toLowerCase().includes(q))));
 }
+const taMatchStatus = (r, st) => !st || (st === 'Completed' ? r.status === 'On Time' || r.status === 'Late' : st === 'Pending' ? r.status === 'Pending' || r.status === 'Overdue' : r.status === st);
 function taSetFilter(key, val) { taFilter[key] = val; taShown = 100; renderTaskAnalytics(); }
 function taSearch(val) {
   taFilter.q = val; taShown = 100;
@@ -7149,8 +7179,10 @@ const TA_STATUS = {
   'On Time': { bg: 'var(--color-success-bg)', fg: 'var(--color-success-text)', label: '✓ On Time' },
   'Late':    { bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)', label: '⏱ Delay Completed' },
   'Pending': { bg: 'var(--color-primary-light)', fg: 'var(--color-primary)', label: '… Pending' },
-  'Overdue': { bg: 'var(--color-danger-bg)', fg: 'var(--color-danger-text)', label: '⚠ Pending (overdue)' }
+  'Overdue': { bg: 'var(--color-danger-bg)', fg: 'var(--color-danger-text)', label: '⚠ Overdue' }
 };
+const TA_FMS_COLOR = { Delegation: '#2563eb', Checklist: '#059669', 'O2D FMS': '#d97706', 'Service FMS': '#7c3aed', 'Purchase FMS': '#0891b2' };
+const TA_FMS_ICON = { Delegation: '📋', Checklist: '✅', 'O2D FMS': '🚚', 'Service FMS': '🛠️', 'Purchase FMS': '🛒' };
 function taVariance(r) {
   const h = Math.abs(r.varianceHours || 0);
   const txt = h >= 24 ? `${Math.floor(h / 24)}d ${Math.round(h % 24)}h` : h >= 1 ? `${Math.round(h * 10) / 10}h` : `${Math.max(1, Math.round(h * 60))}m`;
@@ -7159,101 +7191,168 @@ function taVariance(r) {
   if (r.status === 'Overdue') return `<span style="color:var(--color-danger-text);font-weight:700">${txt} overdue</span>`;
   return `<span style="color:var(--gray-500)">due in ${txt}</span>`;
 }
-const taFmtDt = s => !s ? '—' : `${fmtDateDMY(s.slice(0, 10))}${s.length > 10 && s.slice(11, 16) !== '23:59' ? ' ' + fmtTimeOfDay(s) : ''}`;
+const taFmtDt = s => !s ? '<span style="color:var(--gray-300)">—</span>' : `${fmtDateDMY(s.slice(0, 10))}${s.length > 10 && s.slice(11, 16) !== '23:59' ? `<div style="font-size:11px;color:var(--gray-500)">${fmtTimeOfDay(s)}</div>` : ''}`;
+const taInitials = n => (String(n).replace(/\([^)]*\)/g, ' ').match(/[A-Za-z0-9]+/g) || ['?']).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+function taCount(rows) {
+  const c = { planned: rows.length, onTime: 0, late: 0, pending: 0, overdue: 0 };
+  rows.forEach(r => { if (r.status === 'On Time') c.onTime++; else if (r.status === 'Late') c.late++; else { c.pending++; if (r.status === 'Overdue') c.overdue++; } });
+  c.completed = c.onTime + c.late;
+  return c;
+}
+// Progress ring for the KPI cards.
+function taRing(pct, color) {
+  const r = 22, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, Math.abs(pct || 0)));
+  return `<svg width="58" height="58" viewBox="0 0 58 58" style="flex-shrink:0"><circle cx="29" cy="29" r="${r}" fill="none" stroke="var(--gray-100)" stroke-width="7"/>
+    <circle cx="29" cy="29" r="${r}" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${(v / 100) * c} ${c}" transform="rotate(-90 29 29)"/></svg>`;
+}
+function taStackBar(c) {
+  const p = n => c.planned ? (n * 100 / c.planned) : 0;
+  return `<div style="display:flex;height:9px;border-radius:999px;overflow:hidden;background:var(--gray-100)">
+    <div style="width:${p(c.onTime)}%;background:#10b981"></div><div style="width:${p(c.late)}%;background:#f59e0b"></div><div style="width:${p(c.pending)}%;background:#ef4444"></div></div>`;
+}
 
 function renderTaskAnalytics() {
   const out = document.getElementById('misResults');
+  const card = 'background:var(--surface);border:1px solid var(--gray-200);border-radius:16px;box-shadow:0 2px 12px rgba(1,80,170,.05)';
+  const sel = 'padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)';
   const d = taData;
-  if (!d) return;
+  const start = document.getElementById('misStart').value, end = document.getElementById('misEnd').value;
+  const chip = (key, label) => `<button onclick="taQuickRange('${key}')" style="padding:7px 13px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid ${taRange === key ? 'var(--color-primary)' : 'var(--gray-200)'};background:${taRange === key ? 'var(--color-primary)' : 'var(--surface)'};color:${taRange === key ? '#fff' : 'var(--gray-600)'}">${label}</button>`;
+  const depts = d ? [...new Set(d.employees.map(e => e.department).filter(Boolean))].sort() : [];
+  const toolbar = `
+    <div style="${card};padding:16px 18px;margin-bottom:14px;background:linear-gradient(135deg,var(--color-primary-light) 0%,var(--surface) 55%)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:19px;font-weight:900;color:var(--gray-900);letter-spacing:-.3px">📊 MIS Report</div>
+          <div style="font-size:12.5px;color:var(--gray-500);margin-top:2px">${start ? fmtDateDMY(start) : ''} – ${end ? fmtDateDMY(end) : ''} · Delegation, Checklist & FMS steps planned in these dates${taLoading ? ' · <b style="color:var(--color-primary)">Loading…</b>' : ''}</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="exportMIS()" ${d ? '' : 'disabled'}>⬇ Export CSV</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px">
+        ${chip('today', 'Today')}${chip('week', 'This Week')}${chip('lastweek', 'Last Week')}${chip('month', 'This Month')}${chip('lastmonth', 'Last Month')}
+        <span style="display:inline-flex;gap:6px;align-items:center;padding:4px 8px;border-radius:999px;border:1.5px solid ${taRange === 'custom' ? 'var(--color-primary)' : 'var(--gray-200)'};background:var(--surface)">
+          <input type="date" value="${start}" onchange="taCustomDate('start',this.value)" style="border:none;background:transparent;font-size:12.5px;color:var(--gray-700);font-family:inherit"/>
+          <span style="color:var(--gray-400)">→</span>
+          <input type="date" value="${end}" onchange="taCustomDate('end',this.value)" style="border:none;background:transparent;font-size:12.5px;color:var(--gray-700);font-family:inherit"/>
+        </span>
+      </div>
+    </div>`;
+  if (!d) { out.innerHTML = toolbar + `<div class="empty" style="${card}">${taLoading ? 'Loading…' : 'Date range chuno'}</div>`; return; }
+
   const base = taRows();
-  const n = s => base.filter(r => r.status === s).length;
-  const planned = base.length, onTime = n('On Time'), late = n('Late'), pending = n('Pending') + n('Overdue'), overdue = n('Overdue');
-  const completed = onTime + late;
-  const pct = v => planned ? Math.round(v * 1000 / planned) / 10 : null;
-  const donePct = pct(completed), onTimePct = pct(onTime);
+  const c = taCount(base);
+  const pct = v => c.planned ? Math.round(v * 1000 / c.planned) / 10 : null;
+  const donePct = pct(c.completed), onTimePct = pct(c.onTime);
   const minus = v => v === null ? null : Math.round((v - 100) * 10) / 10;
-  const kpi = (label, v, sub, good) => {
-    const color = v === null ? 'var(--gray-400)' : good ? 'var(--color-success-text)' : v === 0 ? 'var(--color-success-text)' : 'var(--color-danger)';
-    return `<div style="flex:1;min-width:160px;background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:14px 16px;box-shadow:0 2px 10px rgba(1,80,170,.05)">
-      <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
-      <div style="font-size:28px;font-weight:900;color:${color};margin:2px 0">${v === null ? '—' : v + '%'}</div>
-      <div style="font-size:11.5px;color:var(--gray-500)">${sub}</div></div>`;
-  };
-  const statusRows = taFilter.status === 'Completed' ? base.filter(r => r.status === 'On Time' || r.status === 'Late')
-    : taFilter.status === 'Pending' ? base.filter(r => r.status === 'Pending' || r.status === 'Overdue')
-    : taFilter.status ? base.filter(r => r.status === taFilter.status) : base;
+  const kpi = (label, v, sub, color, ringPct) => `
+    <div class="ta-kpi" style="${card};flex:1;min-width:210px;padding:16px;display:flex;align-items:center;gap:14px">
+      <span class="ta-ring">${taRing(ringPct, color)}</span>
+      <div style="min-width:0">
+        <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+        <div style="font-size:27px;font-weight:900;color:${v === null ? 'var(--gray-300)' : color};line-height:1.15">${v === null ? '—' : v + '%'}</div>
+        <div style="font-size:11.5px;color:var(--gray-500)">${sub}</div>
+      </div></div>`;
+  const filters = `
+    <div style="${card};padding:12px 14px;margin:14px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      ${depts.length > 1 ? `<select style="${sel}" onchange="taSetFilter('dept',this.value)"><option value="">🏢 All Departments</option>${depts.map(x => `<option ${x === taFilter.dept ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}
+      <select style="${sel}" onchange="taSetFilter('emp',this.value)"><option value="">👤 All Employees</option>${d.employees.map(e => `<option value="${e.id}" ${String(e.id) === taFilter.emp ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
+      <select style="${sel}" onchange="taSetFilter('fms',this.value)"><option value="">⚙️ All FMS / Modules</option>${Object.keys(TA_FMS_COLOR).filter(f => d.rows.some(r => r.fms === f)).map(f => `<option ${f === taFilter.fms ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>
+      <select style="${sel}" onchange="taSetFilter('status',this.value)">
+        ${[['', '📌 All Status'], ['Completed', 'Completed'], ['On Time', 'Completed On Time'], ['Late', 'Delay Completed'], ['Pending', 'Pending'], ['Overdue', 'Overdue']].map(([v, l]) => `<option value="${v}" ${v === taFilter.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <input id="taSearchBox" type="text" value="${esc(taFilter.q)}" oninput="taSearch(this.value)" placeholder="🔍 Search ID, task, name…" style="${sel};flex:1;min-width:180px"/>
+      ${Object.values(taFilter).some(Boolean) ? `<button class="btn btn-outline btn-sm" onclick="Object.assign(taFilter,{emp:'',fms:'',status:'',q:'',dept:''});renderTaskAnalytics()">✕ Clear</button>` : ''}
+    </div>`;
   const countCard = (key, label, value, color, icon) => {
     const active = taFilter.status === key;
-    return `<div onclick="taSetFilter('status','${active ? '' : key}')" title="Click to ${active ? 'clear' : 'show only these'}" style="flex:1;min-width:120px;cursor:pointer;background:${active ? 'var(--color-primary-light)' : 'var(--surface)'};border:1.5px solid ${active ? 'var(--color-primary)' : 'var(--gray-200)'};border-radius:12px;padding:10px 14px;transition:all .15s">
-      <div style="font-size:10.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${icon} ${label}</div>
-      <div style="font-size:22px;font-weight:900;color:${color}">${value}</div></div>`;
+    return `<div onclick="taSetFilter('status','${active ? '' : key}')" title="Click to ${active ? 'clear' : 'show only these'}" style="flex:1;min-width:150px;cursor:pointer;${card};padding:12px 14px;display:flex;align-items:center;gap:12px;${active ? `border:2px solid ${color};background:var(--surface-alt)` : ''}">
+      <div style="width:40px;height:40px;border-radius:12px;background:${color}1a;color:${color};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${icon}</div>
+      <div><div style="font-size:10.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+        <div style="font-size:23px;font-weight:900;color:var(--gray-900);line-height:1.1">${value}</div></div></div>`;
   };
-  const sel = 'padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:13px;background:var(--surface);color:var(--gray-800);min-width:150px';
-  const fmsList = [...new Set(d.rows.map(r => r.fms))];
+
+  // By FMS (ignores the FMS filter) and By Employee (ignores the employee filter).
+  const fmsRows = taRows('fms');
+  const byFms = Object.keys(TA_FMS_COLOR).map(f => ({ f, c: taCount(fmsRows.filter(r => r.fms === f)) })).filter(x => x.c.planned);
+  const empRows = taRows('emp');
+  const byEmp = d.employees.map(e => ({ e, c: taCount(empRows.filter(r => r.doerIds.includes(e.id))) })).filter(x => x.c.planned)
+    .sort((a, b) => (a.c.onTime / a.c.planned) - (b.c.onTime / b.c.planned) || b.c.planned - a.c.planned);
+  const empList = taEmpAll ? byEmp : byEmp.slice(0, 8);
+  const legend = `<div style="display:flex;gap:12px;font-size:11px;color:var(--gray-500);margin-top:2px;white-space:nowrap"><span><b style="color:#10b981">■</b> On time</span><span><b style="color:#f59e0b">■</b> Late</span><span><b style="color:#ef4444">■</b> Pending</span></div>`;
+  const barRow = (active, onclick, title, icon, c) => `
+    <div onclick="${onclick}" style="cursor:pointer;padding:9px 10px;border-radius:12px;${active ? 'background:var(--color-primary-light);' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;font-weight:700;color:var(--gray-800)">${icon}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</span></div>
+        <div style="font-size:12px;color:var(--gray-500);white-space:nowrap"><b style="color:var(--gray-800)">${c.planned ? Math.round(c.onTime * 100 / c.planned) : 0}%</b> on time · ${c.planned}</div>
+      </div>${taStackBar(c)}</div>`;
+  const insights = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin:14px 0;align-items:start">
+      <div style="${card};padding:14px 14px 8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px 10px"><div style="font-size:14px;font-weight:800;color:var(--gray-900)">⚙️ By FMS / Module</div>${legend}</div>
+        <div style="margin-top:8px">${byFms.map(x => barRow(taFilter.fms === x.f, `taSetFilter('fms','${taFilter.fms === x.f ? '' : x.f}')`, esc(x.f),
+          `<span style="width:28px;height:28px;border-radius:9px;background:${TA_FMS_COLOR[x.f]}1a;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${TA_FMS_ICON[x.f]}</span>`, x.c)).join('') || '<div class="empty">—</div>'}</div>
+      </div>
+      <div style="${card};padding:14px 14px 8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px 10px"><div style="font-size:14px;font-weight:800;color:var(--gray-900)">👥 By Employee <span style="font-size:11px;font-weight:600;color:var(--gray-400)">lowest on-time first</span></div>${legend}</div>
+        <div style="margin-top:8px">${empList.map(x => barRow(taFilter.emp === String(x.e.id), `taSetFilter('emp','${taFilter.emp === String(x.e.id) ? '' : x.e.id}')`, esc(x.e.name),
+          `<span style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;flex-shrink:0">${esc(taInitials(x.e.name))}</span>`, x.c)).join('') || '<div class="empty">—</div>'}
+          ${byEmp.length > 8 ? `<div style="text-align:center;padding:6px"><button class="btn btn-outline btn-sm" onclick="taEmpAll=!taEmpAll;renderTaskAnalytics()">${taEmpAll ? 'Show less' : `Show all ${byEmp.length}`}</button></div>` : ''}</div>
+      </div>
+    </div>`;
+
+  const statusRows = base.filter(r => taMatchStatus(r, taFilter.status));
   const sorted = statusRows.slice().sort(
     taSort === 'variance' ? (a, b) => (b.varianceHours || 0) - (a.varianceHours || 0)
     : taSort === 'name' ? (a, b) => a.names[0].localeCompare(b.names[0]) || a.planned.localeCompare(b.planned)
     : (a, b) => a.planned.localeCompare(b.planned));
   const page = sorted.slice(0, taShown);
-  const th = 'padding:9px 10px;font-size:11px;font-weight:800;color:var(--gray-600);text-transform:uppercase;letter-spacing:.3px;text-align:left;border-bottom:2px solid var(--gray-200);background:var(--gray-50);white-space:nowrap';
-  const td = 'padding:8px 10px;font-size:12.5px;border-bottom:1px solid var(--gray-100);vertical-align:top';
-  const sortTh = (key, label) => `<th style="${th};cursor:pointer" onclick="taSort='${key}';renderTaskAnalytics()">${label}${taSort === key ? ' ▾' : ''}</th>`;
-
-  out.innerHTML = `
-    <div style="background:linear-gradient(135deg,var(--color-primary-light),var(--surface));border:1px solid var(--gray-200);border-radius:14px;padding:14px 16px;margin-bottom:14px">
-      <div style="font-size:16px;font-weight:800;color:var(--gray-900)">📊 MIS Report</div>
-      <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">${fmtDateDMY(d.start)} – ${fmtDateDMY(d.end)} · Delegation, Checklist & FMS steps planned in these dates${d.fmsErrors && d.fmsErrors.length ? ` · <span style="color:var(--color-danger)">⚠️ Could not read: ${esc(d.fmsErrors.join(', '))}</span>` : ''}</div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        ${kpi('Task Done %', donePct, `${completed} of ${planned} completed`, true)}
-        ${kpi('Task Not Done %', minus(donePct), `${pending} still pending`)}
-        ${kpi('Task Done On Time %', onTimePct, `${onTime} of ${planned} on time`, true)}
-        ${kpi('Task Not Done On Time %', minus(onTimePct), `${late} late + ${pending} pending`)}
+  const th = 'padding:11px 12px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;text-align:left;background:var(--gray-50);white-space:nowrap;position:sticky;top:0;z-index:1';
+  const td = 'padding:10px 12px;font-size:12.5px;border-top:1px solid var(--gray-100);vertical-align:top';
+  const sortTh = (key, label) => `<th style="${th};cursor:pointer;color:${taSort === key ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="taSort='${key}';renderTaskAnalytics()">${label} ${taSort === key ? '▾' : '⇅'}</th>`;
+  const table = `
+    <div style="${card};overflow:hidden">
+      <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
+        <div style="font-size:14px;font-weight:800;color:var(--gray-900)">📋 Task Details <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${statusRows.length} tasks${c.overdue ? ` · <span style="color:var(--color-danger-text)">${c.overdue} overdue</span>` : ''}</span></div>
+        <div style="font-size:11.5px;color:var(--gray-400)">Column header par click karke sort karein</div>
       </div>
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <span style="font-size:12px;font-weight:800;color:var(--gray-500)">🔍 FILTERS</span>
-      <select style="${sel}" onchange="taSetFilter('emp',this.value)"><option value="">👤 All Employees</option>${d.employees.map(e => `<option value="${e.id}" ${String(e.id) === taFilter.emp ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
-      <select style="${sel}" onchange="taSetFilter('fms',this.value)"><option value="">⚙️ All FMS / Modules</option>${fmsList.map(f => `<option ${f === taFilter.fms ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>
-      <select style="${sel}" onchange="taSetFilter('status',this.value)">
-        ${[['', '📌 All Status'], ['Completed', 'Completed'], ['On Time', 'Completed On Time'], ['Late', 'Delay Completed'], ['Pending', 'Pending'], ['Overdue', 'Pending (overdue)']]
-          .map(([v, l]) => `<option value="${v}" ${v === taFilter.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <input id="taSearchBox" type="text" value="${esc(taFilter.q)}" oninput="taSearch(this.value)" placeholder="Search ID, task, name…" style="${sel};flex:1;min-width:180px"/>
-      ${taFilter.emp || taFilter.fms || taFilter.status || taFilter.q ? `<button class="btn btn-outline btn-sm" onclick="Object.assign(taFilter,{emp:'',fms:'',status:'',q:''});renderTaskAnalytics()">✕ Clear</button>` : ''}
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-      ${countCard('', 'Planned', planned, 'var(--gray-900)', '📋')}
-      ${countCard('Completed', 'Completed', completed, 'var(--color-primary)', '✔')}
-      ${countCard('On Time', 'Completed On Time', onTime, 'var(--color-success-text)', '✓')}
-      ${countCard('Late', 'Delay Completed', late, 'var(--color-warning-text)', '⏱')}
-      ${countCard('Pending', 'Pending', pending, 'var(--color-danger)', '…')}
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden">
-      <div style="padding:10px 14px;font-size:12.5px;color:var(--gray-500);border-bottom:1px solid var(--gray-100)"><b style="color:var(--gray-800)">${statusRows.length}</b> tasks${overdue ? ` · <span style="color:var(--color-danger-text);font-weight:700">${overdue} overdue</span>` : ''} · sort by column header</div>
-      ${page.length ? `<div class="mis-table-wrap" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
-        <thead><tr><th style="${th}">Unique ID</th>${sortTh('name', 'Name')}<th style="${th}">Task</th><th style="${th}">FMS</th><th style="${th}">Status</th>${sortTh('planned', 'Planned Date')}<th style="${th}">Actual Date</th>${sortTh('variance', 'Status Variance')}</tr></thead>
-        <tbody>${page.map(r => { const st = TA_STATUS[r.status]; return `<tr>
-          <td style="${td};font-weight:700;white-space:nowrap">${esc(r.uid)}</td>
-          <td style="${td};white-space:nowrap">${r.names.map(esc).join(', ')}</td>
-          <td style="${td};max-width:360px">${esc(r.task)}</td>
-          <td style="${td};white-space:nowrap">${esc(r.fms)}</td>
-          <td style="${td}"><span style="display:inline-block;padding:3px 9px;border-radius:999px;background:${st.bg};color:${st.fg};font-weight:700;font-size:11.5px;white-space:nowrap">${st.label}</span></td>
+      ${page.length ? `<div class="mis-table-wrap" style="overflow:auto;max-height:640px"><table style="width:100%;border-collapse:separate;border-spacing:0">
+        <thead><tr><th style="${th}">Unique ID</th>${sortTh('name', 'Name')}<th style="${th}">Task</th><th style="${th}">FMS</th><th style="${th}">Status</th>${sortTh('planned', 'Planned')}<th style="${th}">Actual</th>${sortTh('variance', 'Variance')}</tr></thead>
+        <tbody>${page.map((r, i) => { const st = TA_STATUS[r.status]; const fc = TA_FMS_COLOR[r.fms] || 'var(--gray-500)'; return `<tr style="background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}">
+          <td style="${td};font-weight:800;white-space:nowrap;color:var(--gray-800)">${esc(r.uid)}</td>
+          <td style="${td};white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:7px"><span style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;flex-shrink:0">${esc(taInitials(r.names[0]))}</span>${r.names.map(esc).join(', ')}</span></td>
+          <td style="${td};max-width:380px;color:var(--gray-700)">${esc(r.task)}</td>
+          <td style="${td};white-space:nowrap"><span style="display:inline-block;padding:3px 9px;border-radius:8px;font-size:11.5px;font-weight:700;color:${fc};background:${fc}14;border:1px solid ${fc}33">${TA_FMS_ICON[r.fms] || ''} ${esc(r.fms)}</span></td>
+          <td style="${td}"><span style="display:inline-block;padding:4px 10px;border-radius:999px;background:${st.bg};color:${st.fg};font-weight:700;font-size:11.5px;white-space:nowrap">${st.label}</span></td>
           <td style="${td};white-space:nowrap">${taFmtDt(r.planned)}</td>
           <td style="${td};white-space:nowrap">${taFmtDt(r.actual)}</td>
           <td style="${td};white-space:nowrap">${taVariance(r)}</td></tr>`; }).join('')}</tbody></table></div>
-        ${statusRows.length > taShown ? `<div style="padding:12px;text-align:center"><button class="btn btn-outline" onclick="taShown+=200;renderTaskAnalytics()">Show more (${statusRows.length - taShown} left)</button></div>` : ''}`
+        ${statusRows.length > taShown ? `<div style="padding:12px;text-align:center;border-top:1px solid var(--gray-100)"><button class="btn btn-outline" onclick="taShown+=200;renderTaskAnalytics()">Show more (${statusRows.length - taShown} left)</button></div>` : ''}`
       : '<div class="empty">No tasks match these filters.</div>'}
     </div>`;
+
+  out.innerHTML = toolbar + `
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      ${kpi('Task Done %', donePct, `${c.completed} of ${c.planned} completed`, '#10b981', donePct)}
+      ${kpi('Task Not Done %', minus(donePct), `${c.pending} still pending`, minus(donePct) === 0 ? '#10b981' : '#ef4444', minus(donePct))}
+      ${kpi('Task Done On Time %', onTimePct, `${c.onTime} of ${c.planned} on time`, '#2563eb', onTimePct)}
+      ${kpi('Task Not Done On Time %', minus(onTimePct), `${c.late} late + ${c.pending} pending`, minus(onTimePct) === 0 ? '#10b981' : '#ef4444', minus(onTimePct))}
+    </div>` + filters + `
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      ${countCard('', 'Planned', c.planned, '#334155', '📋')}
+      ${countCard('Completed', 'Completed', c.completed, '#2563eb', '✔️')}
+      ${countCard('On Time', 'On Time', c.onTime, '#10b981', '⏰')}
+      ${countCard('Late', 'Delay Completed', c.late, '#f59e0b', '⏱️')}
+      ${countCard('Pending', 'Pending', c.pending, '#ef4444', '⏳')}
+    </div>` + insights + table;
 }
 function exportTaskAnalytics() {
-  if (!taData) { showToast('Pehle Generate karo', 'error'); return; }
+  if (!taData) { showToast('Pehle report load hone do', 'error'); return; }
   const q = v => { const s = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const st = taFilter.status;
-  const rows = taRows().filter(r => !st || (st === 'Completed' ? r.status === 'On Time' || r.status === 'Late' : st === 'Pending' ? r.status === 'Pending' || r.status === 'Overdue' : r.status === st));
+  const rows = taRows().filter(r => taMatchStatus(r, taFilter.status));
   const lines = [['Unique ID', 'Name', 'Task', 'FMS', 'Status', 'Planned Date', 'Actual Date', 'Variance (hours, + = late)'].join(',')]
     .concat(rows.map(r => [r.uid, r.names.join(', '), r.task, r.fms, TA_STATUS[r.status].label.replace(/^\S+ /, ''), r.planned, r.actual, r.varianceHours].map(q).join(',')));
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
-  a.download = `Task_Analytics_${taData.start}_to_${taData.end}.csv`;
+  a.download = `MIS_Report_${taData.start}_to_${taData.end}.csv`;
   a.click();
 }
 
