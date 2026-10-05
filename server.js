@@ -4468,6 +4468,19 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
 // fields after the complaint has already been saved. A multi-product
 // complaint's sibling rows are edited the same way, one row at a time.
 // :row is numeric-only so it can't swallow named routes like PUT /api/service-fms/cash-approver.
+// Complaints are addressed by sheet row, so a page loaded before rows were
+// deleted/inserted in the sheet would write into a different complaint.
+// The browser sends the complaint no it thinks is on that row; refuse on a
+// mismatch. Returns true (and has responded) when the row has moved.
+async function sfmsRowMoved(res, sheetsApi, row, expectComplainNo) {
+  if (!expectComplainNo) return false;
+  const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${row}:B${row}` });
+  const actual = String((r.data.values && r.data.values[0] && r.data.values[0][0]) || '').trim();
+  if (actual === String(expectComplainNo).trim()) return false;
+  res.status(409).json({ error: `Complaint list has changed — please refresh the page and try again (row ${row} is now ${actual || 'empty'}, not ${expectComplainNo}).` });
+  return true;
+}
+
 app.put('/api/service-fms/:row(\\d+)', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
     const row = parseInt(req.params.row, 10);
@@ -4486,6 +4499,7 @@ app.put('/api/service-fms/:row(\\d+)', requireAuth, requireSfmsEditor, async (re
     if (productPhoto && productPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Product photo is too large — try a smaller/compressed image' });
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (await sfmsRowMoved(res, sheetsApi, row, req.body.expectComplainNo)) return;
     if (remarks !== undefined) await sfmsEnsureColumns(sheetsApi);
 
     // Bill photo stays optional here too (point 2) — it's only required by
@@ -4543,6 +4557,11 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
     ]);
     if (!allowed) return res.status(403).json({ error: 'You are not assigned to this step' });
     const [complainNo = '', customerName = '', mobile = ''] = (rowRes.data.values && rowRes.data.values[0]) || [];
+    // Same stale-row guard as the step/edit routes (see sfmsRowMoved).
+    const expected = req.body && req.body.expectComplainNo;
+    if (expected && String(complainNo).trim() !== String(expected).trim()) {
+      return res.status(409).json({ error: 'Complaint list has changed — please refresh the page and try again.' });
+    }
     if (!mobile) return res.status(400).json({ error: 'No customer mobile number on file for this complaint' });
 
     const otp = String(crypto.randomInt(100000, 1000000));
@@ -4919,6 +4938,7 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
     if (!row || !stepDef) return res.status(400).json({ error: 'Invalid row or step number' });
     const nowVal = sfmsDateToSerial(new Date());
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (await sfmsRowMoved(res, sheetsApi, row, req.body.expectComplainNo)) return;
     if (!(await sfmsCanActOnRow(req, await sfmsUserAccess(req), stepNum, row, sheetsApi))) return res.status(403).json({ error: 'You are not assigned to this step' });
     let batchData;
 

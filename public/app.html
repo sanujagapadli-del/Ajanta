@@ -8927,6 +8927,7 @@ async function submitEditComplaint() {
   const btn = document.getElementById('ecSubmitBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   const res = await api(`/api/service-fms/${row}`, 'PUT', {
+    expectComplainNo: (sfmsData.find(x => x.row === row) || {}).complainNo || '',
     filledByName, mobile, customerType, dealerName, productOwnership,
     productName, purchaseDate, problemDescription,
     productLocation, address, area, billPhoto, productPhoto, remarks
@@ -9515,6 +9516,8 @@ function sfmsCollectStepBody(row, step, stage) {
     body.otp = otpEl ? otpEl.value.trim() : '';
     if (!body.otp) return { error: 'Pehle OTP bhejo aur customer se OTP lekar bharo' };
   }
+  // Server refuses if the sheet row now holds a different complaint (rows deleted/moved since load).
+  body.expectComplainNo = (sfmsData.find(x => x.row === row) || {}).complainNo || '';
   return { body };
 }
 
@@ -9580,7 +9583,7 @@ function btnLoading(btn, label) {
 
 async function sendSfmsOtp(row, step, btn) {
   const restore = btnLoading(btn, 'Sending OTP…');
-  const res = await api(`/api/service-fms/${row}/step/${step}/send-otp`, 'POST', {});
+  const res = await api(`/api/service-fms/${row}/step/${step}/send-otp`, 'POST', { expectComplainNo: (sfmsData.find(x => x.row === row) || {}).complainNo || '' });
   restore();
   if (res.error) { showToast(res.error, 'error'); return; }
   sfmsOtpSentFor[row] = true;
