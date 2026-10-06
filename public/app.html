@@ -852,6 +852,13 @@ tbody tr:last-child td{border-bottom:none;}
 /* Weekly MIS: sheet layout on desktop, compact per-system tables on phones */
 .wmis-m{display:none}
 @media(max-width:768px){ .wmis-m{display:block} span.wmis-m{display:inline} .wmis-d{display:none} }
+/* New Indent item line on phones: product / qty + UOM / vendor stacked */
+@media(max-width:768px){
+  .ind-line{grid-template-columns:22px 1fr 1fr 26px !important;row-gap:6px !important;padding-bottom:8px;border-bottom:1px solid var(--gray-100)}
+  .ind-line .ind-n{grid-column:1;grid-row:1} .ind-line .ind-product{grid-column:2 / 4;grid-row:1}
+  .ind-line > button{grid-column:4;grid-row:1} .ind-line .ind-qty{grid-column:2;grid-row:2} .ind-line .ind-uom{grid-column:3;grid-row:2}
+  .ind-line .ind-vendor{grid-column:2 / 4;grid-row:3}
+}
 /* MIS Report on phones: KPI cards two per row, rings hidden */
 @media(max-width:768px){ .ta-kpi{min-width:calc(50% - 8px) !important;padding:12px !important} .ta-ring{display:none} }
 @media(max-width:768px){
@@ -1654,11 +1661,8 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── PURCHASE FMS (Indent → PO) ── -->
   <div id="page-purchase-fms" class="page">
     <div class="page-header">
-      <!-- Indents are raised in the client's own Apps Script form (it writes
-           upstream of the Purchase Fms tab). Opened in a small popup window
-           over the app (client, 2026-10-03: "same screen pe chhote view mai",
-           the app page must not change). Not an iframe: the form needs a
-           Google login, and Google's login/script pages refuse to be framed. -->
+      <!-- Indents are raised in the app itself (client, 2026-10-06) — replaces
+           the separate Apps Script form; rows go to the same "Indent Data" tab. -->
       <button class="btn btn-primary" onclick="openNewIndentForm()">+ New Indent</button>
       <button class="btn btn-outline" onclick="loadPurchaseFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="purchaseVendorLoginsBtn" style="display:none" onclick="openVendorLoginsModal()">👤 Vendor Logins</button>
@@ -13294,26 +13298,116 @@ let _pfmsPhoneDefaulted = false;
 
 function pfmsSearchChanged() { pfmsPage = 1; renderPurchaseFmsActiveView(); }
 
-// "+ New Indent" — the client's Apps Script form in a small centred popup
-// window, so the app page underneath stays put. Re-clicking focuses the open
-// popup; closing it refreshes the list (the new indent may have landed).
-// Phones ignore popup sizes and open a new tab — the app tab still stays as is.
-const PFMS_INDENT_FORM_URL = 'https://script.google.com/a/macros/e-marketing.io/s/AKfycbx2BdRpx2H82Akm9uegkUz15GZLR-zOIUFJmdBu59TCz39iaQoYb6IOkDiwhOm_V_4/exec';
-let _pfmsIndentWin = null;
-function openNewIndentForm() {
-  if (_pfmsIndentWin && !_pfmsIndentWin.closed) { _pfmsIndentWin.focus(); return; }
-  const w = Math.min(560, screen.availWidth - 40), h = Math.min(760, screen.availHeight - 60);
-  const left = Math.round((window.screenX || 0) + (window.outerWidth - w) / 2);
-  const top = Math.round((window.screenY || 0) + Math.max(0, (window.outerHeight - h) / 2));
-  _pfmsIndentWin = window.open(PFMS_INDENT_FORM_URL, 'ajantaNewIndent', `popup=yes,width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
-  if (!_pfmsIndentWin) { showToast('Popup blocked — browser me is site ke popups allow karein', 'error'); return; }
-  const timer = setInterval(() => {
-    if (!_pfmsIndentWin || _pfmsIndentWin.closed) {
-      clearInterval(timer);
-      _pfmsIndentWin = null;
-      if (document.getElementById('page-purchase-fms').classList.contains('active')) loadPurchaseFmsList();
-    }
-  }, 1000);
+// "+ New Indent" — in-app Indent form (client, 2026-10-06; replaces the
+// Apps Script web form). Type + Raised By for the indent, then one line per
+// item (product / qty / UOM / vendor, with suggestions from earlier indents and
+// the stock catalog). Saved straight into the sheet's "Indent Data" tab.
+let _indentOpts = null;
+let _indentType = '';
+const IND_INPUT = "width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:13px;box-sizing:border-box;background:var(--surface);color:var(--gray-900);font-family:'Inter',sans-serif";
+async function openNewIndentForm() {
+  let m = document.getElementById('newIndentModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'newIndentModal';
+    m.innerHTML = `<div class="modal" style="max-width:760px;width:96vw;max-height:92vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="margin:0">📝 New Indent</h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('newIndentModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div id="newIndentBody" style="overflow-y:auto;flex:1"><div class="empty">Loading…</div></div>
+    </div>`;
+    document.body.appendChild(m);
+  }
+  m.classList.add('open');
+  _indentType = '';
+  if (!_indentOpts) {
+    const r = await api('/api/purchase-fms/indent-options');
+    if (r.error) { document.getElementById('newIndentBody').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+    _indentOpts = r;
+  }
+  renderNewIndentForm();
+}
+function renderNewIndentForm() {
+  const o = _indentOpts;
+  const dl = (id, list) => `<datalist id="${id}">${list.map(v => `<option value="${esc(v)}">`).join('')}</datalist>`;
+  const typeIcon = { finished: '📦', spare: '🔩', stationery: '🖊️', housekeeping: '🧹' };
+  document.getElementById('newIndentBody').innerHTML = `
+    <div class="alert error" id="indErr" style="display:none"></div>
+    <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Indent Type <span style="color:var(--color-danger)">*</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px">
+      ${o.types.map(t => `<button type="button" class="ind-type" data-key="${t.key}" onclick="pickIndentType('${t.key}')" style="padding:12px 10px;border-radius:12px;border:1.5px solid var(--gray-200);background:var(--surface);cursor:pointer;font-size:13.5px;font-weight:700;color:var(--gray-700)">${typeIcon[t.key] || ''} ${esc(t.label)}</button>`).join('')}
+    </div>
+    <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Raised By <span style="color:var(--color-danger)">*</span></div>
+    <input id="indRaisedBy" list="indRaisedList" value="${esc(o.myName)}" style="${IND_INPUT};margin-bottom:14px;max-width:280px"/>
+    ${dl('indRaisedList', o.raisedBy)}${dl('indProductList', o.products)}${dl('indVendorList', o.vendors)}${dl('indUomList', o.uoms)}
+    <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Items</div>
+    <div id="indItems"></div>
+    <button type="button" class="btn btn-outline btn-sm" onclick="addIndentItem()" style="margin:4px 0 14px">+ Add item</button>
+    <button id="indSubmitBtn" class="btn btn-primary" onclick="submitNewIndent()" style="width:100%;justify-content:center;padding:12px;font-size:14px">Submit Indent</button>
+    ${o.recent && o.recent.length ? `<details style="margin-top:16px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--gray-500)">🕘 Recent indents</summary>
+      <div style="margin-top:8px">${o.recent.map(r => `<div style="padding:8px 0;border-bottom:1px solid var(--gray-100);font-size:12.5px">
+        <b>${esc(r.indentNo)}</b> · ${esc(String(r.type || '').replace(/ for indent$/i, ''))} · ${esc(r.raisedBy || '')} <span style="color:var(--gray-400)">${esc(r.timestamp || '')}</span>
+        <div style="color:var(--gray-600)">${r.items.map(i => `${esc(i.product)} × ${esc(i.qty)} ${esc(i.uom || '')} (${esc(i.vendor || '')})`).join(' · ')}</div></div>`).join('')}</div></details>` : ''}`;
+  addIndentItem();
+}
+function pickIndentType(key) {
+  _indentType = key;
+  document.querySelectorAll('#newIndentBody .ind-type').forEach(b => {
+    const on = b.dataset.key === key;
+    b.style.borderColor = on ? 'var(--color-primary)' : 'var(--gray-200)';
+    b.style.background = on ? 'var(--color-primary-light)' : 'var(--surface)';
+    b.style.color = on ? 'var(--color-primary)' : 'var(--gray-700)';
+  });
+}
+let _indentLineSeq = 0;
+function addIndentItem() {
+  const box = document.getElementById('indItems');
+  const id = ++_indentLineSeq;
+  const n = box.children.length + 1;
+  const row = document.createElement('div');
+  row.className = 'ind-line';
+  row.style.cssText = 'display:grid;grid-template-columns:28px minmax(180px,2.2fr) 90px 90px minmax(150px,1.6fr) 32px;gap:8px;align-items:center;margin-bottom:8px';
+  row.innerHTML = `<div class="ind-n" style="font-weight:800;color:var(--gray-400);text-align:center">${n}</div>
+    <input class="ind-product" list="indProductList" placeholder="Product name" style="${IND_INPUT}"/>
+    <input class="ind-qty" type="number" min="0" step="any" placeholder="Qty" style="${IND_INPUT}"/>
+    <input class="ind-uom" list="indUomList" value="PCS" style="${IND_INPUT}"/>
+    <input class="ind-vendor" list="indVendorList" placeholder="Vendor" style="${IND_INPUT}"/>
+    <button type="button" onclick="removeIndentItem(this)" title="Remove" style="border:none;background:none;cursor:pointer;color:var(--gray-400);font-size:18px">×</button>`;
+  box.appendChild(row);
+  // Same vendor as the line above is the common case — prefill it.
+  const prev = row.previousElementSibling && row.previousElementSibling.querySelector('.ind-vendor');
+  if (prev && prev.value) row.querySelector('.ind-vendor').value = prev.value;
+  row.querySelector('.ind-product').focus();
+}
+function removeIndentItem(btn) {
+  const box = document.getElementById('indItems');
+  if (box.children.length <= 1) return;
+  btn.closest('.ind-line').remove();
+  [...box.children].forEach((r, i) => { r.querySelector('.ind-n').textContent = i + 1; });
+}
+async function submitNewIndent() {
+  const err = document.getElementById('indErr');
+  err.style.display = 'none';
+  const items = [...document.querySelectorAll('#indItems .ind-line')].map(r => ({
+    product: r.querySelector('.ind-product').value.trim(), qty: r.querySelector('.ind-qty').value.trim(),
+    uom: r.querySelector('.ind-uom').value.trim(), vendor: r.querySelector('.ind-vendor').value.trim()
+  })).filter(it => it.product || it.qty || it.vendor);
+  const raisedBy = document.getElementById('indRaisedBy').value.trim();
+  const fail = msg => { err.textContent = msg; err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); };
+  if (!_indentType) return fail('Indent Type chuno');
+  if (!raisedBy) return fail('Raised By likho');
+  if (!items.length) return fail('Kam se kam ek item daalo');
+  const bad = items.findIndex(it => !it.product || !(Number(it.qty) > 0) || !it.vendor);
+  if (bad >= 0) return fail(`Item ${bad + 1}: product, quantity aur vendor zaroori hain`);
+  const btn = document.getElementById('indSubmitBtn');
+  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api('/api/purchase-fms/indents', 'POST', { type: _indentType, raisedBy, items });
+  btn.disabled = false; btn.textContent = 'Submit Indent';
+  if (r.error) return fail(r.error);
+  closeModal('newIndentModal');
+  _indentOpts = null; // pick up the new vendors / products / recent list next time
+  showToast(`✅ ${r.indentNo} raised — ${r.items} item${r.items === 1 ? '' : 's'}. Indent FMS me aage badhega.`);
 }
 
 function switchPurchaseFmsView(view, el) {

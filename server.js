@@ -7851,6 +7851,102 @@ app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req,
 });
 
 // ══════════════════════════════════════════════════════
+// INDENT CREATION inside the app (client, 2026-10-06) — replaces the
+// separate Apps Script "Indent Creation" web form. Rows are appended to the
+// same "Indent Data" tab the form wrote to (A Timestamp, B Indent No,
+// C Indent Type, D Item Id, E Product Name, F UOM, G Qty, H Vendor Name,
+// I Raised By; J "status" stays blank) — the "Indent FMS" tab is a QUERY over
+// it, so the rest of the indent → PO flow carries on unchanged.
+// The form's two existing types keep their exact wording (sheet formulas may
+// key on it); the two new ones follow the same pattern.
+// ══════════════════════════════════════════════════════
+const INDENT_DATA_TAB = 'Indent Data';
+const INDENT_TYPES = [
+  { key: 'finished', label: 'Finished Goods', value: 'Finished Goods For Indent' },
+  { key: 'spare', label: 'Spare Part', value: 'Spare Part for Indent' },
+  { key: 'stationery', label: 'Office Stationery', value: 'Office Stationery For Indent' },
+  { key: 'housekeeping', label: 'Housekeeping', value: 'Housekeeping For Indent' }
+];
+async function canRaiseIndent(req) {
+  return req.session.role === 'admin' || (await hasPageGrant(req, 'purchase-fms'));
+}
+async function readIndentData(sheetsApi) {
+  const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${INDENT_DATA_TAB}'!A2:I` });
+  return (r.data.values || []).filter(x => x[1]);
+}
+
+// Suggestions for the form: vendors / products / UOMs / raised-by names used
+// before, plus the stock catalog's item names.
+app.get('/api/purchase-fms/indent-options', requireAuth, async (req, res) => {
+  try {
+    if (!(await canRaiseIndent(req))) return res.status(403).json({ error: 'No access to Purchase FMS' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const [rows, stock] = await Promise.all([
+      readIndentData(sheetsApi),
+      withStockTable(() => db.query('SELECT description FROM ajanta_stock_items ORDER BY description')).then(([r]) => r).catch(() => [])
+    ]);
+    const uniq = list => [...new Set(list.map(v => String(v || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    const myName = String((me && me.name) || '').replace(/\([^)]*\)/g, '').trim().split(/\s+/)[0] || '';
+    const recent = [];
+    const seen = new Set();
+    for (const x of rows.slice().reverse()) {
+      if (seen.has(x[1])) { const r0 = recent.find(r => r.indentNo === x[1]); if (r0) r0.items.push({ product: x[4], qty: x[6], uom: x[5], vendor: x[7] }); continue; }
+      if (recent.length >= 8) continue;
+      seen.add(x[1]);
+      recent.push({ indentNo: x[1], timestamp: x[0], type: x[2], raisedBy: x[8], items: [{ product: x[4], qty: x[6], uom: x[5], vendor: x[7] }] });
+    }
+    res.json({
+      types: INDENT_TYPES,
+      vendors: uniq(rows.map(x => x[7])),
+      products: uniq([...rows.map(x => x[4]), ...stock.map(s => s.description)]),
+      uoms: uniq(['PCS', 'SET', 'KG', 'BOX', 'PKT', 'LTR', 'MTR', 'ROLL', 'DOZEN', ...rows.map(x => x[5])]),
+      raisedBy: uniq([...rows.map(x => x[8]), myName]),
+      myName,
+      recent
+    });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+app.post('/api/purchase-fms/indents', requireAuth, async (req, res) => {
+  try {
+    if (!(await canRaiseIndent(req))) return res.status(403).json({ error: 'No access to Purchase FMS' });
+    const b = req.body || {};
+    const type = INDENT_TYPES.find(t => t.key === b.type);
+    if (!type) return res.status(400).json({ error: 'Choose the Indent Type' });
+    const raisedBy = String(b.raisedBy || '').trim().slice(0, 100);
+    if (!raisedBy) return res.status(400).json({ error: 'Raised By is required' });
+    const items = (Array.isArray(b.items) ? b.items : []).map(it => ({
+      product: String(it.product || '').trim().slice(0, 255), uom: String(it.uom || 'PCS').trim().slice(0, 20) || 'PCS',
+      qty: Number(it.qty), vendor: String(it.vendor || '').trim().slice(0, 255)
+    }));
+    if (!items.length) return res.status(400).json({ error: 'Add at least one item' });
+    const bad = items.findIndex(it => !it.product || !(it.qty > 0) || !it.vendor);
+    if (bad >= 0) return res.status(400).json({ error: `Item ${bad + 1}: product, quantity and vendor are required` });
+    if (items.length > 50) return res.status(400).json({ error: 'Too many items in one indent' });
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const existing = await readIndentData(sheetsApi);
+    const max = existing.reduce((m, x) => Math.max(m, parseInt(String(x[1]).replace(/\D/g, ''), 10) || 0), 0);
+    const n = await claimNextSeqValue('indent_no', max + 1);
+    const indentNo = `IND-${String(n).padStart(6, '0')}`;
+    const ts = sfmsDateToSerial(new Date());
+    const values = items.map((it, i) => [ts, indentNo, type.value, i + 1, it.product, it.uom, it.qty, it.vendor, raisedBy]);
+    await sheetsApi.spreadsheets.values.append({
+      spreadsheetId: PURCHASE_SHEET_ID, range: `'${INDENT_DATA_TAB}'!A:I`,
+      valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS', requestBody: { values }
+    });
+    res.json({ success: true, indentNo, items: items.length });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// ══════════════════════════════════════════════════════
 // PURCHASE FMS — VENDOR PAGE (client, 2026-10-03). Each vendor gets an app
 // login (users.role = 'vendor', users.vendor_name = the exact "Vendor Name"
 // used in the Purchase Fms sheet). A vendor sees only /vendor — the PO lines
