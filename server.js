@@ -514,7 +514,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'sfms-pc-view', 'all-delegations'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'sfms-pc-view', 'all-delegations'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -9250,6 +9250,146 @@ app.post('/api/replacement-fms/import-old', requireAuth, requireAdmin, async (re
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the old Customer Replacement FMS sheet with the service account.' });
     sendServerError(res, err);
   }
+});
+
+// ══════════════════════════════════════════════════════
+// GROSS PROFIT (client, 2026-10-06) — product-wise and dealer-wise, highest
+// first. Sales = Tally's SalesItems tab (every sales-bill line: party, date,
+// item, qty, taxable amount — GST excluded). Cost per item, first found:
+//   1. a cost rate typed in the app (product_costs, admin)
+//   2. Tally purchase bills — weighted average of the PurchaseItems tab
+//      (written by tally-sync.js from 2026-10-06; same Tally item names)
+//   3. Purchase FMS PO "Final Rate", when the PO product name matches the
+//      Tally item name confidently (buildStockMatcher, sizes must agree)
+// A line whose item has no cost is left out of GP and reported separately,
+// never counted as 100% profit.
+// ══════════════════════════════════════════════════════
+async function ensureProductCosts() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS product_costs (
+      item_key VARCHAR(191) PRIMARY KEY,
+      item_name VARCHAR(255) NOT NULL,
+      cost_rate DECIMAL(12,2) NOT NULL,
+      updated_by INT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+const gpKey = name => String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 191);
+const gpNum = v => parseFloat(String(v == null ? '' : v).replace(/,/g, '').replace(/[^\d.\-]/g, '')) || 0;
+async function canSeeGrossProfit(req) {
+  return req.session.role === 'admin' || (await hasPageGrant(req, 'gross-profit'));
+}
+async function readTallyItemsTab(sheetsApi, tab) {
+  const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'${tab}'!A2:G100000` })
+    .catch(() => ({ data: { values: [] } })); // PurchaseItems only exists once the updated sync has run
+  return (r.data.values || []).map(x => {
+    const d = parseAnyDate(x[2]);
+    return { party: String(x[0] || '').trim(), billRef: String(x[1] || '').trim(), date: d ? toIsoDate(d) : '',
+      item: String(x[3] || '').trim(), qty: Math.abs(gpNum(x[4])), rate: gpNum(x[5]), amount: Math.abs(gpNum(x[6])) };
+  }).filter(x => x.item && x.party);
+}
+
+app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeGrossProfit(req))) return res.status(403).json({ error: 'You do not have access to Gross Profit' });
+    const { start, end } = req.query;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
+      return res.status(400).json({ error: 'Valid start and end dates required' });
+    }
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    await ensureProductCosts();
+    const [sales, purchases, [manual], poRows] = await Promise.all([
+      readTallyItemsTab(sheetsApi, 'SalesItems'),
+      readTallyItemsTab(sheetsApi, 'PurchaseItems'),
+      db.query('SELECT item_key, item_name, cost_rate FROM product_costs'),
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I` })
+        .then(r => r.data.values || []).catch(() => [])
+    ]);
+    const inRange = sales.filter(s => s.date >= start && s.date <= end);
+
+    // Cost sources.
+    const manualBy = Object.fromEntries(manual.map(m => [m.item_key, Number(m.cost_rate)]));
+    const tallyCost = {};
+    purchases.filter(p => !p.date || p.date <= end).forEach(p => {
+      const k = gpKey(p.item);
+      const c = tallyCost[k] = tallyCost[k] || { qty: 0, amount: 0 };
+      if (p.qty > 0) { c.qty += p.qty; c.amount += p.amount; }
+    });
+    // Latest PO rate per PO product name (rows are in date order).
+    const poRate = {};
+    poRows.forEach(r => { const name = String(r[4] || '').trim(), rate = gpNum(r[7]); if (name && rate > 0) poRate[name] = rate; });
+    const poMatch = buildStockMatcher(Object.keys(poRate).map(n => ({ item_code: n, description: n })));
+    const costCache = {};
+    const costFor = item => {
+      const k = gpKey(item);
+      if (k in costCache) return costCache[k];
+      let out = null;
+      if (manualBy[k] > 0) out = { rate: manualBy[k], source: 'Manual' };
+      else if (tallyCost[k] && tallyCost[k].qty > 0) out = { rate: Math.round(tallyCost[k].amount / tallyCost[k].qty * 100) / 100, source: 'Tally purchase' };
+      else { const m = poMatch(item); if (m) out = { rate: poRate[m.item_code], source: 'PO rate', poName: m.item_code }; }
+      return (costCache[k] = out);
+    };
+
+    const round = v => Math.round(v * 100) / 100;
+    const byItem = {}, byParty = {};
+    const totals = { sales: 0, qty: 0, costedSales: 0, cost: 0, uncostedSales: 0, lines: inRange.length };
+    for (const s of inRange) {
+      const c = costFor(s.item);
+      const cost = c ? c.rate * s.qty : null;
+      const it = byItem[gpKey(s.item)] = byItem[gpKey(s.item)] || { item: s.item, qty: 0, sales: 0, costRate: c ? c.rate : null, costSource: c ? c.source : '', poName: c && c.poName || '', cost: 0 };
+      it.qty += s.qty; it.sales += s.amount; if (c) it.cost += cost;
+      const p = byParty[s.party.toLowerCase()] = byParty[s.party.toLowerCase()] || { party: s.party, bills: new Set(), qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {} };
+      p.bills.add(s.billRef); p.qty += s.qty; p.sales += s.amount;
+      if (c) { p.costedSales += s.amount; p.cost += cost; } else p.uncostedSales += s.amount;
+      const pi = p.items[s.item] = p.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: c ? 0 : null };
+      pi.qty += s.qty; pi.sales += s.amount; if (c) pi.cost += cost;
+      totals.sales += s.amount; totals.qty += s.qty;
+      if (c) { totals.costedSales += s.amount; totals.cost += cost; } else totals.uncostedSales += s.amount;
+    }
+    const products = Object.values(byItem).map(it => {
+      const gp = it.costRate == null ? null : it.sales - it.cost;
+      return { ...it, qty: round(it.qty), sales: round(it.sales), cost: it.costRate == null ? null : round(it.cost),
+        avgRate: it.qty ? round(it.sales / it.qty) : null, gp: gp == null ? null : round(gp), gpPct: gp == null || !it.sales ? null : round(gp * 100 / it.sales) };
+    }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
+    const dealers = Object.values(byParty).map(p => {
+      const gp = p.costedSales ? p.costedSales - p.cost : null;
+      return { party: p.party, bills: p.bills.size, qty: round(p.qty), sales: round(p.sales), costedSales: round(p.costedSales), cost: round(p.cost),
+        uncostedSales: round(p.uncostedSales), gp: gp == null ? null : round(gp), gpPct: gp == null ? null : round(gp * 100 / p.costedSales),
+        items: Object.values(p.items).map(i => ({ item: i.item, qty: round(i.qty), sales: round(i.sales), cost: i.cost == null ? null : round(i.cost),
+          gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales) };
+    }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
+    const gp = totals.costedSales - totals.cost;
+    const salesDates = sales.map(s => s.date).filter(Boolean).sort();
+    res.json({
+      start, end,
+      totals: { sales: round(totals.sales), qty: round(totals.qty), costedSales: round(totals.costedSales), cost: round(totals.cost),
+        uncostedSales: round(totals.uncostedSales), gp: round(gp), gpPct: totals.costedSales ? round(gp * 100 / totals.costedSales) : null, lines: totals.lines },
+      products, dealers,
+      dataRange: { from: salesDates[0] || '', to: salesDates[salesDates.length - 1] || '' },
+      purchaseItemsSynced: purchases.length > 0,
+      canEditCost: req.session.role === 'admin'
+    });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Tally sync sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Admin: type / clear an item's cost rate (without GST) — overrides Tally / PO.
+app.put('/api/reports/product-cost', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const name = String((req.body && req.body.itemName) || '').trim();
+    const k = gpKey(name);
+    if (!k) return res.status(400).json({ error: 'Item name required' });
+    await ensureProductCosts();
+    const rate = req.body.costRate === '' || req.body.costRate == null ? null : Number(req.body.costRate);
+    if (rate == null) { await db.query('DELETE FROM product_costs WHERE item_key=?', [k]); return res.json({ success: true, cleared: true }); }
+    if (!(rate > 0)) return res.status(400).json({ error: 'Cost rate must be more than 0' });
+    await db.query('INSERT INTO product_costs (item_key, item_name, cost_rate, updated_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), cost_rate=VALUES(cost_rate), updated_by=VALUES(updated_by)',
+      [k, name.slice(0, 255), rate, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
