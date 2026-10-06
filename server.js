@@ -2046,7 +2046,7 @@ async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
   } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
 
   const [users] = await db.query(
-    "SELECT id, name, week_off, extra_off FROM users WHERE is_active=1 AND (role IS NULL OR role NOT IN ('admin','vendor')) ORDER BY name"
+    "SELECT id, name, week_off, extra_off, track_km FROM users WHERE is_active=1 AND (role IS NULL OR role NOT IN ('admin','vendor')) ORDER BY name"
   );
   const working = users.filter(u => {
     const weekOff = String(u.week_off || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
@@ -2055,9 +2055,10 @@ async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
     try { extra = u.extra_off ? JSON.parse(u.extra_off) : []; } catch (_) {}
     return !(Array.isArray(extra) && extra.some(e => e && e.day === dow && Array.isArray(e.weeks) && e.weeks.includes(nth)));
   });
-  const [onLeave, attn] = await withAttendanceTables(async () => Promise.all([
+  const [onLeave, attn, kmRows] = await withAttendanceTables(async () => Promise.all([
     db.query("SELECT DISTINCT user_id FROM leave_requests WHERE status='approved' AND ? BETWEEN start_date AND end_date", [today]).then(r => r[0]),
-    db.query('SELECT user_id, time_in, time_out FROM attendance WHERE date=?', [today]).then(r => r[0])
+    db.query('SELECT user_id, time_in, time_out FROM attendance WHERE date=?', [today]).then(r => r[0]),
+    db.query('SELECT user_id, morning_km, evening_km FROM daily_km WHERE date=?', [today]).then(r => r[0])
   ]));
   const leaveIds = new Set(onLeave.map(r => r.user_id));
   const attnBy = Object.fromEntries(attn.map(a => [a.user_id, a]));
@@ -2066,7 +2067,12 @@ async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
   const notOut = slot === 'evening'
     ? expected.filter(u => attnBy[u.id] && attnBy[u.id].time_in && !attnBy[u.id].time_out).map(u => u.name)
     : [];
-  if (!notIn.length && !notOut.length) return { skipped: 'Everyone has punched', notIn, notOut };
+  // KM staff (users.track_km) who haven't entered this slot's reading
+  // (client, 2026-10-06: KM is paid only on readings entered in the app).
+  const kmBy = Object.fromEntries(kmRows.map(k => [k.user_id, k]));
+  const kmCol = slot === 'morning' ? 'morning_km' : 'evening_km';
+  const noKm = expected.filter(u => +u.track_km && !(kmBy[u.id] && kmBy[u.id][kmCol] != null)).map(u => u.name);
+  if (!notIn.length && !notOut.length && !noKm.length) return { skipped: 'Everyone has punched and entered KM', notIn, notOut, noKm };
 
   const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
   const group = raw ? JSON.parse(raw) : null;
@@ -2082,7 +2088,10 @@ async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
   const lines = [`⏰ *Attendance Alert — ${dmy} (${slot === 'morning' ? '11:00 AM' : '8:00 PM'})*`];
   if (notIn.length) lines.push('', `❌ *Punch In nahi kiya (${notIn.length}):*`, ...notIn.map((n, i) => `${i + 1}. ${n}`));
   if (notOut.length) lines.push('', `⚠️ *Punch Out nahi kiya (${notOut.length}):*`, ...notOut.map((n, i) => `${i + 1}. ${n}`));
-  lines.push('', 'Please punch your attendance in the Ajanta app.');
+  if (notIn.length || notOut.length) lines.push('', 'Please punch your attendance in the Ajanta app.');
+  if (noKm.length) lines.push('', `⚠️ जिन कर्मचारियों ने अभी तक ऐप पर अपनी ${slot === 'morning' ? 'सुबह की' : 'शाम की'} किलोमीटर रीडिंग नहीं डाली है, उनके नाम नीचे दिए गए हैं।`,
+    ...noKm.map((n, i) => `${i + 1}. ${n}`),
+    '', 'अब से किलोमीटर का भुगतान केवल ऐप में दर्ज रीडिंग के आधार पर किया जाएगा। कृपया अपनी रीडिंग समय पर ऐप में अपडेट करें।');
   try {
     await sendWhatsApp(group.id, lines.join('\n'));
   } catch (e) {
@@ -2090,7 +2099,7 @@ async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
     if (!force) await db.query('DELETE FROM app_settings WHERE setting_key=?', [`attn_alert_${slot}_${today}`]).catch(() => {});
     throw e;
   }
-  return { sent: true, notIn, notOut };
+  return { sent: true, notIn, notOut, noKm };
 }
 
 // Vercel cron entry point. Vercel sends "Authorization: Bearer <CRON_SECRET>"
