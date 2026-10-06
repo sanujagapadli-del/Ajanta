@@ -9253,16 +9253,20 @@ app.post('/api/replacement-fms/import-old', requireAuth, requireAdmin, async (re
 });
 
 // ══════════════════════════════════════════════════════
-// GROSS PROFIT (client, 2026-10-06) — product-wise and dealer-wise, highest
-// first. Sales = Tally's SalesItems tab (every sales-bill line: party, date,
-// item, qty, taxable amount — GST excluded). Cost per item, first found:
-//   1. a cost rate typed in the app (product_costs, admin)
-//   2. Tally purchase bills — weighted average of the PurchaseItems tab
-//      (written by tally-sync.js from 2026-10-06; same Tally item names)
-//   3. Purchase FMS PO "Final Rate", when the PO product name matches the
-//      Tally item name confidently (buildStockMatcher, sizes must agree)
-// A line whose item has no cost is left out of GP and reported separately,
-// never counted as 100% profit.
+// GROSS PROFIT (client, 2026-10-06: "GP O2D aur Purchase FMS se nikalna
+// hai") — product-wise and dealer-wise, highest first, from the app's own FMS
+// data (not Tally):
+//   Sales = O2D order lines whose "Make Bill" step is done — rate (N) × qty (O),
+//           dated by the Make Bill actual (AG), dealer = Counter Name (C).
+//   Cost  = per product, an admin-typed rate (product_costs) if any, else the
+//           qty-weighted average PO Final Rate (H) of Purchase FMS lines raised
+//           up to the report's end date.
+// O2D and PO name the same product differently ("Ajanta Ceiling Fan 48"…" vs
+// "Ceiling Fan 48"…"), so both sides are mapped to a Stock catalog item the
+// same way the stock sync does — saved alias → exact key → confident fuzzy
+// match — but READ-ONLY here (nothing is created); a name with no catalog item
+// falls back to its own normalised name. Rates are taken as entered on each
+// side. A line whose product has no cost is shown but kept out of GP.
 // ══════════════════════════════════════════════════════
 async function ensureProductCosts() {
   await db.query(`
@@ -9276,18 +9280,27 @@ async function ensureProductCosts() {
   `);
 }
 const gpKey = name => String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 191);
-const gpNum = v => parseFloat(String(v == null ? '' : v).replace(/,/g, '').replace(/[^\d.\-]/g, '')) || 0;
+const gpNum = v => typeof v === 'number' ? v : (parseFloat(String(v == null ? '' : v).replace(/,/g, '').replace(/[^\d.\-]/g, '')) || 0);
 async function canSeeGrossProfit(req) {
   return req.session.role === 'admin' || (await hasPageGrant(req, 'gross-profit'));
 }
-async function readTallyItemsTab(sheetsApi, tab) {
-  const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'${tab}'!A2:G100000` })
-    .catch(() => ({ data: { values: [] } })); // PurchaseItems only exists once the updated sync has run
-  return (r.data.values || []).map(x => {
-    const d = parseAnyDate(x[2]);
-    return { party: String(x[0] || '').trim(), billRef: String(x[1] || '').trim(), date: d ? toIsoDate(d) : '',
-      item: String(x[3] || '').trim(), qty: Math.abs(gpNum(x[4])), rate: gpNum(x[5]), amount: Math.abs(gpNum(x[6])) };
-  }).filter(x => x.item && x.party);
+// Product name → stock item code (or 'name:<key>' when there's none). Read-only.
+async function gpProductMapper() {
+  const [items] = await withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items'));
+  let aliases = [];
+  try { [aliases] = await db.query('SELECT alias_key, item_code FROM ajanta_stock_aliases'); } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+  const byKey = {};
+  items.forEach(i => { const k = stockNameKey(i.description); if (!byKey[k]) byKey[k] = i.item_code; });
+  aliases.forEach(a => { byKey[a.alias_key] = a.item_code; });
+  const fuzzy = buildStockMatcher(items);
+  const cache = {};
+  return name => {
+    const k = stockNameKey(name);
+    if (k in cache) return cache[k];
+    let code = byKey[k];
+    if (!code) { const m = fuzzy(name); code = m ? m.item_code : null; }
+    return (cache[k] = code || `name:${k}`);
+  };
 }
 
 app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
@@ -9299,48 +9312,66 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     }
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     await ensureProductCosts();
-    const [sales, purchases, [manual], poRows] = await Promise.all([
-      readTallyItemsTab(sheetsApi, 'SalesItems'),
-      readTallyItemsTab(sheetsApi, 'PurchaseItems'),
+    const bill = O2D_STEPS.find(s => s.n === 4); // Make Bill
+    const [o2dRes, poRes, [manual], mapTo, [stockItems]] = await Promise.all([
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }),
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }),
       db.query('SELECT item_key, item_name, cost_rate FROM product_costs'),
-      sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I` })
-        .then(r => r.data.values || []).catch(() => [])
+      gpProductMapper(),
+      withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items'))
     ]);
-    const inRange = sales.filter(s => s.date >= start && s.date <= end);
+    const stockName = Object.fromEntries(stockItems.map(i => [i.item_code, i.description]));
 
-    // Cost sources.
-    const manualBy = Object.fromEntries(manual.map(m => [m.item_key, Number(m.cost_rate)]));
-    const tallyCost = {};
-    purchases.filter(p => !p.date || p.date <= end).forEach(p => {
-      const k = gpKey(p.item);
-      const c = tallyCost[k] = tallyCost[k] || { qty: 0, amount: 0 };
-      if (p.qty > 0) { c.qty += p.qty; c.amount += p.amount; }
+    // Sales lines from O2D (billed).
+    const sales = [];
+    let firstBill = '', lastBill = '';
+    (o2dRes.data.values || []).forEach(r => {
+      const get = col => r[colToIdx(col)];
+      const status = String(get(bill.status) || '');
+      if (!get('R') || !status || /^no$/i.test(status) || /cancel/i.test(status)) return;
+      const date = stockSerialToYmd(get(bill.actual));
+      if (!date) return;
+      if (!firstBill || date < firstBill) firstBill = date;
+      if (date > lastBill) lastBill = date;
+      if (date < start || date > end) return;
+      const qty = gpNum(get('O')), rate = gpNum(get('N'));
+      const name = String(get('M') || '').trim();
+      if (!name || !(qty > 0)) return;
+      sales.push({ party: String(get('C') || '').trim() || '—', orderNo: String(get('Q') || ''), item: name, qty, rate, amount: qty * rate, code: mapTo(name) });
     });
-    // Latest PO rate per PO product name (rows are in date order).
-    const poRate = {};
-    poRows.forEach(r => { const name = String(r[4] || '').trim(), rate = gpNum(r[7]); if (name && rate > 0) poRate[name] = rate; });
-    const poMatch = buildStockMatcher(Object.keys(poRate).map(n => ({ item_code: n, description: n })));
-    const costCache = {};
-    const costFor = item => {
-      const k = gpKey(item);
-      if (k in costCache) return costCache[k];
-      let out = null;
-      if (manualBy[k] > 0) out = { rate: manualBy[k], source: 'Manual' };
-      else if (tallyCost[k] && tallyCost[k].qty > 0) out = { rate: Math.round(tallyCost[k].amount / tallyCost[k].qty * 100) / 100, source: 'Tally purchase' };
-      else { const m = poMatch(item); if (m) out = { rate: poRate[m.item_code], source: 'PO rate', poName: m.item_code }; }
-      return (costCache[k] = out);
+
+    // Cost per stock item from Purchase FMS PO lines (weighted by PO qty).
+    const poCost = {}; // code -> { qty, value, names:Set }
+    (poRes.data.values || []).forEach(r => {
+      const name = String(r[4] || '').trim(), qty = gpNum(r[6]), rate = gpNum(r[7]);
+      const date = stockSerialToYmd(r[0]);
+      if (!name || !(rate > 0) || (date && date > end)) return;
+      const c = poCost[mapTo(name)] = poCost[mapTo(name)] || { qty: 0, value: 0, names: new Set() };
+      const w = qty > 0 ? qty : 1;
+      c.qty += w; c.value += w * rate; c.names.add(name);
+    });
+    const manualBy = Object.fromEntries(manual.map(m => [m.item_key, Number(m.cost_rate)]));
+    const costFor = s => {
+      const mk = manualBy[gpKey(s.item)];
+      if (mk > 0) return { rate: mk, source: 'Manual' };
+      const c = poCost[s.code];
+      if (c && c.qty > 0) return { rate: Math.round(c.value / c.qty * 100) / 100, source: 'PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
+      return null;
     };
 
     const round = v => Math.round(v * 100) / 100;
     const byItem = {}, byParty = {};
-    const totals = { sales: 0, qty: 0, costedSales: 0, cost: 0, uncostedSales: 0, lines: inRange.length };
-    for (const s of inRange) {
-      const c = costFor(s.item);
+    const totals = { sales: 0, qty: 0, costedSales: 0, cost: 0, uncostedSales: 0, lines: sales.length };
+    for (const s of sales) {
+      const c = costFor(s);
       const cost = c ? c.rate * s.qty : null;
-      const it = byItem[gpKey(s.item)] = byItem[gpKey(s.item)] || { item: s.item, qty: 0, sales: 0, costRate: c ? c.rate : null, costSource: c ? c.source : '', poName: c && c.poName || '', cost: 0 };
+      const ik = gpKey(s.item);
+      const it = byItem[ik] = byItem[ik] || { item: s.item, stockItem: s.code.startsWith('name:') ? '' : (stockName[s.code] || ''), qty: 0, sales: 0,
+        costRate: c ? c.rate : null, costSource: c ? c.source : '', poName: c && c.poName || '', cost: 0 };
       it.qty += s.qty; it.sales += s.amount; if (c) it.cost += cost;
-      const p = byParty[s.party.toLowerCase()] = byParty[s.party.toLowerCase()] || { party: s.party, bills: new Set(), qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {} };
-      p.bills.add(s.billRef); p.qty += s.qty; p.sales += s.amount;
+      const pk = s.party.toLowerCase();
+      const p = byParty[pk] = byParty[pk] || { party: s.party, bills: new Set(), qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {} };
+      p.bills.add(s.orderNo); p.qty += s.qty; p.sales += s.amount;
       if (c) { p.costedSales += s.amount; p.cost += cost; } else p.uncostedSales += s.amount;
       const pi = p.items[s.item] = p.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: c ? 0 : null };
       pi.qty += s.qty; pi.sales += s.amount; if (c) pi.cost += cost;
@@ -9360,23 +9391,21 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
           gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
     const gp = totals.costedSales - totals.cost;
-    const salesDates = sales.map(s => s.date).filter(Boolean).sort();
     res.json({
-      start, end,
+      start, end, source: 'fms',
       totals: { sales: round(totals.sales), qty: round(totals.qty), costedSales: round(totals.costedSales), cost: round(totals.cost),
         uncostedSales: round(totals.uncostedSales), gp: round(gp), gpPct: totals.costedSales ? round(gp * 100 / totals.costedSales) : null, lines: totals.lines },
       products, dealers,
-      dataRange: { from: salesDates[0] || '', to: salesDates[salesDates.length - 1] || '' },
-      purchaseItemsSynced: purchases.length > 0,
+      dataRange: { from: firstBill, to: lastBill },
       canEditCost: req.session.role === 'admin'
     });
   } catch (err) {
-    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Tally sync sheet with the service account.' });
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D / Purchase FMS sheets with the service account.' });
     sendServerError(res, err);
   }
 });
 
-// Admin: type / clear an item's cost rate (without GST) — overrides Tally / PO.
+// Admin: type / clear an item's cost rate — overrides the PO rate.
 app.put('/api/reports/product-cost', requireAuth, requireAdmin, async (req, res) => {
   try {
     const name = String((req.body && req.body.itemName) || '').trim();

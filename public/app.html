@@ -14952,9 +14952,9 @@ async function openReplQuickAction(id) {
 
 // ══════════════════════════════════════════════════════
 // GROSS PROFIT (client, 2026-10-06) — product-wise and dealer-wise, highest
-// GP first. Sales from Tally bills (GST excluded); cost per item from an
-// admin-typed rate, Tally purchase bills, or a matching Purchase FMS PO rate
-// (see the server section). Lines with no cost are shown but kept out of GP.
+// GP first, from the FMS data: sales = O2D billed lines (rate × qty), cost =
+// an admin-typed rate or the Purchase FMS PO rate of the same stock item (see
+// the server section). Lines with no cost are shown but kept out of GP.
 // ══════════════════════════════════════════════════════
 let gpData = null;
 let gpView = 'product';
@@ -15066,10 +15066,8 @@ function renderGrossProfit() {
   }
   const noCost = d.products.filter(p => p.costRate == null).length;
   out.innerHTML = `
-    ${!d.purchaseItemsSynced ? `<div style="background:var(--color-warning-bg);border:1px solid var(--color-warning-border);color:var(--color-warning-text);border-radius:12px;padding:10px 14px;font-size:12.5px;margin-bottom:12px">
-      ⚠️ Tally se purchase (khareed) ka data abhi nahi aaya — updated Tally sync chalne ke baad laagat apne aap bhar jayegi. Tab tak laagat Purchase FMS ke PO rate${d.canEditCost ? ' ya neeche khud daale gaye cost' : ''} se hai.</div>` : ''}
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-      ${kpi('Sales (without GST)', gpInr(t.sales), `${t.lines.toLocaleString('en-IN')} bill lines · ${t.qty.toLocaleString('en-IN')} pcs`, 'var(--gray-900)')}
+      ${kpi('Sales (O2D billed)', gpInr(t.sales), `${t.lines.toLocaleString('en-IN')} order lines · ${t.qty.toLocaleString('en-IN')} pcs`, 'var(--gray-900)')}
       ${kpi('Cost', gpInr(t.cost), `on ${gpInr(t.costedSales)} of sales (${costPct}%)`, 'var(--gray-700)')}
       ${kpi('Gross Profit', gpInr(t.gp), 'sales with a known cost − cost', t.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)')}
       ${kpi('GP %', t.gpPct == null ? '—' : t.gpPct + '%', 'of sales with a known cost', 'var(--color-primary)')}
@@ -15079,11 +15077,11 @@ function renderGrossProfit() {
       <div style="padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
         <div class="tab-group"><div class="tab ${gpView === 'product' ? 'active' : ''}" onclick="gpSetView('product')">📦 Product-wise</div><div class="tab ${gpView === 'dealer' ? 'active' : ''}" onclick="gpSetView('dealer')">🏪 Dealer-wise</div></div>
         <input id="gpSearchBox" value="${esc(gpQuery)}" oninput="gpSearch(this.value)" placeholder="🔍 Search ${gpView === 'product' ? 'product' : 'dealer'}…" style="flex:1;min-width:180px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-900)"/>
-        <span style="font-size:11.5px;color:var(--gray-400)">Highest gross profit first${gpView === 'dealer' ? ' · dealer par click = items' : d.canEditCost ? ' · Cost Rate box me laagat (bina GST) daalein' : ''}</span>
+        <span style="font-size:11.5px;color:var(--gray-400)">Highest gross profit first${gpView === 'dealer' ? ' · dealer par click = items' : d.canEditCost ? ' · jis product ka PO nahi hai, uski laagat Cost Rate box me daalein' : ''}</span>
       </div>
       <div class="mis-table-wrap" style="overflow:auto;max-height:680px">${table}</div>
     </div>
-    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Tally sales data: ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Sales = bill amount without GST. Cost priority: Manual → Tally purchase average → Purchase FMS PO rate.</div>`;
+    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else Purchase FMS PO Final Rate (qty-weighted average) of the same stock item. Rates are used exactly as entered in O2D and PO.</div>`;
 }
 function exportGrossProfit() {
   if (!gpData) return;
