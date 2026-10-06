@@ -8058,6 +8058,7 @@ async function ensureChequeTables() {
       photo_url VARCHAR(1000),
       salesman_note VARCHAR(500),
       party_name VARCHAR(255),
+      party_mobile VARCHAR(30),
       account_no VARCHAR(50),
       bank_name VARCHAR(255),
       cheque_no VARCHAR(50),
@@ -8118,8 +8119,22 @@ async function ensureChequeTables() {
   `);
 }
 async function withChequeTables(fn) {
+  await chequeMigrateOnce();
   try { return await fn(); }
   catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureChequeTables(); return await fn(); }
+}
+// Columns added after the tables first went live (once per process).
+let _chequeMigrated = null;
+function chequeMigrateOnce() {
+  if (!_chequeMigrated) {
+    _chequeMigrated = (async () => {
+      for (const col of ['party_mobile VARCHAR(30) AFTER party_name']) {
+        try { await db.query(`ALTER TABLE cheques ADD COLUMN ${col}`); }
+        catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') { _chequeMigrated = null; throw e; } }
+      }
+    })();
+  }
+  return _chequeMigrated;
 }
 async function logChequeEvent(chequeId, event, detail, userId, at) {
   await db.query('INSERT INTO cheque_events (cheque_id, event, detail, user_id, created_at) VALUES (?,?,?,?,COALESCE(?,NOW()))',
@@ -8213,7 +8228,7 @@ function chequeOut(c, doersMap, today) {
   return {
     id: c.id, code: c.cheque_code, source: c.source, createdAt: c.created_at, createdByName: c.created_by_name || '',
     salesmanUserId: c.salesman_user_id, salesmanName: c.salesman_name || '', photoUrl: c.photo_url || '',
-    salesmanNote: c.salesman_note || '', partyName: c.party_name || '', accountNo: c.account_no || '',
+    salesmanNote: c.salesman_note || '', partyName: c.party_name || '', partyMobile: c.party_mobile || '', accountNo: c.account_no || '',
     bankName: c.bank_name || '', chequeNo: c.cheque_no || '', chequeDate: c.cheque_date || '',
     amount: c.amount == null ? null : Number(c.amount), detailsAt: c.details_at, depositDate: c.deposit_date || '',
     extensionCount: +c.extension_count || 0, depositCount: +c.deposit_count || 0, depositedAt: c.deposited_at,
@@ -8373,6 +8388,22 @@ async function sendChequeBounceAlerts(c, reason, doersMap) {
   } catch (e) { console.warn('cheque bounce alert failed:', e.message); }
 }
 
+// Messages to the party itself (client, 2026-10-06): on bounce — the reason
+// plus the bank's bounce slip photo; on every CRM follow-up — a reminder, until
+// the cheque clears or the payment comes in. Returns '' or a note for the log.
+const chequeAmt = c => c.amount != null ? `₹${Math.round(Number(c.amount)).toLocaleString('en-IN')}` : '';
+function chequePartyBounceMsg(c, reason) {
+  return `🙏 नमस्ते ${c.party_name || ''} जी,\n\nआपका चेक बैंक से वापस (Bounce) आ गया है।\n\n🧾 चेक नंबर: ${c.cheque_no || '—'}${c.bank_name ? ' · ' + c.bank_name : ''}\n💰 राशि: ${chequeAmt(c)}\n❗ कारण: ${reason || '—'}\n\nकृपया जल्द से जल्द भुगतान करें या नया चेक दें।\n\nधन्यवाद\nAjanta Appliances`;
+}
+function chequePartyReminderMsg(c) {
+  return `🙏 नमस्ते ${c.party_name || ''} जी,\n\n⏰ रिमाइंडर: आपका चेक नंबर ${c.cheque_no || '—'} (${chequeAmt(c)}) बाउंस हुआ था${c.bounce_reason ? ` (कारण: ${c.bounce_reason})` : ''}। इसका भुगतान अभी बाकी है।\n\nकृपया जल्द से जल्द भुगतान करें।\n\nधन्यवाद\nAjanta Appliances`;
+}
+function chequeNotifyParty(c, mobile, text, media, label) {
+  if (!sfmsNormalizeMobile(mobile)) return ' · ⚠️ party mobile missing — WhatsApp not sent';
+  sendWhatsAppInBackground(mobile, text, media, label);
+  return ` · WhatsApp sent to party (${mobile})`;
+}
+
 app.put('/api/cheque-fms/:id/action/:action', requireAuth, async (req, res) => {
   try {
     const action = req.params.action;
@@ -8391,14 +8422,16 @@ app.put('/api/cheque-fms/:id/action/:action', requireAuth, async (req, res) => {
       const amount = Number(b.amount);
       const chequeDate = chequeYmd(b.chequeDate);
       if (!party || !String(b.chequeNo || '').trim() || !chequeDate || !(amount > 0)) return fail('Party, Cheque No, Cheque Date and Amount are required');
-      const fields = [party, String(b.accountNo || '').trim() || null, String(b.bankName || '').trim() || null, String(b.chequeNo).trim(), chequeDate, amount];
+      // Party WhatsApp number (bounce message / reminders) — typed, else the dealer profile's.
+      const partyMobile = String(b.partyMobile || '').trim().slice(0, 30) || await replDealerPhone(party) || null;
+      const fields = [party, partyMobile, String(b.accountNo || '').trim() || null, String(b.bankName || '').trim() || null, String(b.chequeNo).trim(), chequeDate, amount];
       if (action === 'details') {
         const depositDate = chequeYmd(b.depositDate) || chequeDate;
-        await db.query('UPDATE cheques SET party_name=?, account_no=?, bank_name=?, cheque_no=?, cheque_date=?, amount=?, deposit_date=?, details_at=NOW(), details_by=? WHERE id=?',
+        await db.query('UPDATE cheques SET party_name=?, party_mobile=?, account_no=?, bank_name=?, cheque_no=?, cheque_date=?, amount=?, deposit_date=?, details_at=NOW(), details_by=? WHERE id=?',
           [...fields, depositDate, uid, c.id]);
         await logChequeEvent(c.id, 'details', `${party} · ${b.chequeNo} · ₹${amount} · deposit on ${depositDate}`, uid);
       } else {
-        await db.query('UPDATE cheques SET party_name=?, account_no=?, bank_name=?, cheque_no=?, cheque_date=?, amount=? WHERE id=?', [...fields, c.id]);
+        await db.query('UPDATE cheques SET party_name=?, party_mobile=?, account_no=?, bank_name=?, cheque_no=?, cheque_date=?, amount=? WHERE id=?', [...fields, c.id]);
         await logChequeEvent(c.id, 'edited', `${party} · ${b.chequeNo} · ₹${amount}`, uid);
       }
     } else if (action === 'deposit') {
@@ -8424,14 +8457,20 @@ app.put('/api/cheque-fms/:id/action/:action', requireAuth, async (req, res) => {
       } else if (b.result === 'Bounce') {
         const reason = String(b.bounceReason || '').trim();
         if (!reason) return fail('Bounce reason is required');
-        const photo = await uploadChequePhoto(b.bouncePhoto, c.cheque_code, 'bounce');
+        // The bounce slip goes to the party on WhatsApp, so it needs a link the
+        // gateway can fetch (public) — unlike the cheque photo itself.
+        const photo = b.bouncePhoto ? await uploadPhotoToDrive(b.bouncePhoto, `${c.cheque_code}-bounce-slip-${Date.now()}.jpg`, { public: true }) : '';
+        const partyMobile = String(b.partyMobile || '').trim().slice(0, 30) || c.party_mobile || '';
+        if (partyMobile !== (c.party_mobile || '')) await db.query('UPDATE cheques SET party_mobile=? WHERE id=?', [partyMobile || null, c.id]);
         // A fresh bounce re-opens penalty + follow-up + salesman alert (a
         // re-deposited cheque can bounce again; the earlier round stays in the event log).
         await db.query(`UPDATE cheques SET clearance='Bounce', clearance_at=NOW(), clearance_by=?, bounce_count=bounce_count+1, bounce_reason=?,
           bounce_photo=COALESCE(?, bounce_photo), salesman_ack_at=NULL, penalty_amount=NULL, penalty_remark=NULL, penalty_at=NULL, penalty_by=NULL,
           followup_count=0, next_followup=CURDATE(), notice_sent=0, resolution=NULL, resolution_remark=NULL, resolution_at=NULL, resolution_by=NULL WHERE id=?`,
           [uid, reason, photo || null, c.id]);
-        await logChequeEvent(c.id, 'bounce', reason, uid);
+        const note = b.notifyParty === false ? '' : chequeNotifyParty(c, partyMobile, chequePartyBounceMsg(c, reason),
+          photo ? { type: 'image', url: photo } : undefined, `cheque-bounce-party ${c.cheque_code}`);
+        await logChequeEvent(c.id, 'bounce', reason + note, uid);
         sendChequeBounceAlerts(c, reason, await getChequeStepDoersMap());
       } else return fail('Choose Pass or Bounce');
     } else if (action === 'penalty') {
@@ -8452,9 +8491,11 @@ app.put('/api/cheque-fms/:id/action/:action', requireAuth, async (req, res) => {
       const notice = b.noticeSent ? 1 : 0;
       if (outcome === 'Next Followup') {
         const nf = chequeYmd(b.nextFollowup);
+        // Reminder to the party on every follow-up while it's still unpaid.
+        const reminded = b.remindParty ? chequeNotifyParty(c, c.party_mobile, chequePartyReminderMsg(c), undefined, `cheque-reminder ${c.cheque_code}`) : '';
         await db.query(`UPDATE cheques SET followup_count=followup_count+1, notice_sent=GREATEST(notice_sent,?),
           next_followup=COALESCE(?, DATE_ADD(CURDATE(), INTERVAL ${CHEQUE_FOLLOWUP_GAP_DAYS} DAY)) WHERE id=?`, [notice, nf, c.id]);
-        await logChequeEvent(c.id, 'followup', `${remark}${notice ? ' · Notice sent' : ''} · next ${nf || `in ${CHEQUE_FOLLOWUP_GAP_DAYS} days`}`, uid);
+        await logChequeEvent(c.id, 'followup', `${remark}${notice ? ' · Notice sent' : ''}${reminded} · next ${nf || `in ${CHEQUE_FOLLOWUP_GAP_DAYS} days`}`, uid);
       } else if (CHEQUE_RESOLUTIONS.includes(outcome)) {
         if (outcome === 'Re-deposit') {
           const nd = chequeYmd(b.redepositDate);

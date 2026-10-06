@@ -14031,6 +14031,7 @@ function chqTaskFormHtml(c, t) {
   if (t.key === 'details') {
     inner = `${L('Party / Counter Name', true)}<input id="${id}_party" list="chqPartyNameList" style="${CHQ_INPUT}" oninput="document.getElementById('${id}_risk').innerHTML=chqRiskBannerHtml(this.value)"/>
       <div id="${id}_risk"></div>
+      ${L('Party Mobile (WhatsApp)')}<input id="${id}_mobile" inputmode="tel" placeholder="Blank = dealer profile ka number" style="${CHQ_INPUT}"/>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
         <div>${L('Bank Name')}<input id="${id}_bank" style="${CHQ_INPUT}"/></div>
         <div>${L('Account No')}<input id="${id}_acc" style="${CHQ_INPUT}"/></div>
@@ -14056,7 +14057,9 @@ function chqTaskFormHtml(c, t) {
       <details><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--color-danger-text)">✗ Bounce hua?</summary>
         <div style="margin-top:8px">${L('Bounce Reason', true)}<select id="${id}_reason" style="${CHQ_INPUT}"><option value="">-- Select --</option>${['Insufficient Funds', 'Signature Mismatch', 'Payment Stopped by Drawer', 'Account Closed', 'Date Issue / Stale', 'Amount Mismatch', 'Other'].map(o => `<option>${o}</option>`).join('')}</select>
         ${L('Remark')}<input id="${id}_remark" style="${CHQ_INPUT}"/>
-        ${L('Bounce Memo Photo')}<input id="${id}_photo" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${CHQ_INPUT}"/><div id="${id}_pv" style="font-size:12px;margin:-6px 0 8px"></div>
+        ${L('Bounce Reason Slip (bank memo) photo')}<input id="${id}_photo" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${CHQ_INPUT}"/><div id="${id}_pv" style="font-size:12px;margin:-6px 0 8px"></div>
+        ${L('Party Mobile (WhatsApp)')}<input id="${id}_pmobile" inputmode="tel" value="${esc(c.partyMobile)}" placeholder="Party ka WhatsApp number" style="${CHQ_INPUT}"/>
+        <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_notify" checked/> Party ko WhatsApp bhejo — bounce ka reason + slip photo</label>
         <div style="font-size:11.5px;color:var(--color-danger-text);margin-bottom:8px">Bounce mark karte hi Salesman, CRM aur Accounts — teeno ko alert jayega.</div>
         <div style="display:flex;gap:8px">${btn('Mark Bounce', 'bounce', 'btn-danger')}</div></div>
       </details>`;
@@ -14071,6 +14074,7 @@ function chqTaskFormHtml(c, t) {
     inner = `<div style="font-size:13px;margin-bottom:10px">Follow-ups so far: <b>${c.followupCount}</b>${c.noticeSent ? ' · <b>Notice sent</b>' : ''}${t.upcoming ? ` · next on ${fmtDateDMY(t.planned)}` : ''}</div>
       ${L('Party ne kya kaha?', true)}<input id="${id}_remark" style="${CHQ_INPUT}"/>
       <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_notice" ${c.noticeSent ? 'checked' : ''}/> Formal notice bhej diya</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_remind" ${c.partyMobile ? 'checked' : 'disabled'}/> Party ko WhatsApp reminder bhejo (payment baaki hai)${c.partyMobile ? ` — ${esc(c.partyMobile)}` : ' — <span style="color:var(--color-danger-text)">party mobile nahi hai (Edit details me daalein)</span>'}</label>
       ${L('Outcome', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="document.getElementById('${id}_nfw').style.display=this.value==='Next Followup'?'':'none';document.getElementById('${id}_rdw').style.display=this.value==='Re-deposit'?'':'none'">
         <option>Next Followup</option><option>Payment Received</option><option value="Re-deposit">Re-deposit same cheque</option><option>New Cheque</option><option>Written Off</option></select>
       <div id="${id}_nfw">${L('Next Follow-up Date')}<input id="${id}_nf" type="date" min="${chqToday}" placeholder="default +2 days" style="${CHQ_INPUT}"/></div>
@@ -14101,7 +14105,7 @@ function renderChequeDetailBody(c) {
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
       <div style="grid-column:1/-1">${chqPhotoHtml(c.photoUrl)}</div>
       ${f('Salesman', esc(c.salesmanName || '—'))}
-      ${f('Party', esc(c.partyName || '—'))}
+      ${f('Party', esc(c.partyName || '—') + (c.partyMobile ? `<div style="font-size:12px"><a href="tel:${esc(c.partyMobile)}">📞 ${esc(c.partyMobile)}</a></div>` : ''))}
       ${f('Bank', esc(c.bankName || '—'))}${f('Account No', esc(c.accountNo || '—'))}
       ${f('Cheque No', esc(c.chequeNo || '—'))}${f('Cheque Date', c.chequeDate ? fmtDateDMY(c.chequeDate) : '—')}
       ${f('Amount', chqAmt(c.amount))}${f('Deposit Date', (c.depositDate ? fmtDateDMY(c.depositDate) : '—') + (c.extensionCount ? ` <span style="color:var(--color-warning-text);font-size:12px">(extended ${c.extensionCount}×)</span>` : ''))}
@@ -14140,6 +14144,7 @@ function openChequeEdit(id) {
   const p = `chqE_${id}`;
   w.innerHTML = `<div style="margin-top:12px;border-top:1px solid var(--gray-200);padding-top:12px">
     <div style="${CHQ_LABEL}">Party</div><input id="${p}_party" list="chqPartyNameList" value="${esc(c.partyName)}" style="${CHQ_INPUT}"/>
+    <div style="${CHQ_LABEL}">Party Mobile (WhatsApp)</div><input id="${p}_mobile" inputmode="tel" value="${esc(c.partyMobile)}" style="${CHQ_INPUT}"/>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
       <div><div style="${CHQ_LABEL}">Bank</div><input id="${p}_bank" value="${esc(c.bankName)}" style="${CHQ_INPUT}"/></div>
       <div><div style="${CHQ_LABEL}">Account No</div><input id="${p}_acc" value="${esc(c.accountNo)}" style="${CHQ_INPUT}"/></div>
@@ -14159,8 +14164,8 @@ async function submitChequeAction(id, kind, btnEl, preset) {
   const c = chqData.find(x => x.id === id);
   const g = (key, suffix) => { const el = document.getElementById(`chq_${id}_${key}_${suffix}`); return el ? (el.type === 'checkbox' ? el.checked : el.value.trim()) : ''; };
   let action = kind, body = preset || {};
-  if (kind === 'details') body = { partyName: g('details', 'party'), bankName: g('details', 'bank'), accountNo: g('details', 'acc'), chequeNo: g('details', 'no'), amount: g('details', 'amt'), chequeDate: g('details', 'date'), depositDate: g('details', 'dep') };
-  else if (kind === 'edit-details') { const e = s => document.getElementById(`chqE_${id}_${s}`).value.trim(); body = { partyName: e('party'), bankName: e('bank'), accountNo: e('acc'), chequeNo: e('no'), amount: e('amt'), chequeDate: e('date') }; }
+  if (kind === 'details') body = { partyName: g('details', 'party'), partyMobile: g('details', 'mobile'), bankName: g('details', 'bank'), accountNo: g('details', 'acc'), chequeNo: g('details', 'no'), amount: g('details', 'amt'), chequeDate: g('details', 'date'), depositDate: g('details', 'dep') };
+  else if (kind === 'edit-details') { const e = s => document.getElementById(`chqE_${id}_${s}`).value.trim(); body = { partyName: e('party'), partyMobile: e('mobile'), bankName: e('bank'), accountNo: e('acc'), chequeNo: e('no'), amount: e('amt'), chequeDate: e('date') }; }
   else if (kind === 'deposit') body = { depositedOn: g('deposit', 'on') };
   else if (kind === 'extend') body = { newDate: g('deposit', 'nd'), reason: g('deposit', 'reason') };
   else if (kind === 'pass') { action = 'clearance'; body = { result: 'Pass' }; }
@@ -14168,11 +14173,11 @@ async function submitChequeAction(id, kind, btnEl, preset) {
     action = 'clearance';
     const remark = g('clearance', 'remark');
     const photoEl = document.getElementById(`chq_${id}_clearance_photo`);
-    body = { result: 'Bounce', bounceReason: [g('clearance', 'reason'), remark].filter(Boolean).join(' — '), bouncePhoto: (photoEl && photoEl.dataset.compressed) || '' };
+    body = { result: 'Bounce', bounceReason: [g('clearance', 'reason'), remark].filter(Boolean).join(' — '), bouncePhoto: (photoEl && photoEl.dataset.compressed) || '', partyMobile: g('clearance', 'pmobile'), notifyParty: !!g('clearance', 'notify') };
     if (!g('clearance', 'reason')) { showToast('Bounce reason select karein', 'error'); return; }
   }
   else if (kind === 'penalty') body = { ledgerUpdated: g('penalty', 'ledger'), penaltyAmount: g('penalty', 'amt'), remark: g('penalty', 'remark') };
-  else if (kind === 'followup') body = { remark: g('followup', 'remark'), noticeSent: g('followup', 'notice'), outcome: g('followup', 'outcome'), nextFollowup: g('followup', 'nf'), redepositDate: g('followup', 'rd') };
+  else if (kind === 'followup') body = { remark: g('followup', 'remark'), noticeSent: g('followup', 'notice'), remindParty: !!g('followup', 'remind'), outcome: g('followup', 'outcome'), nextFollowup: g('followup', 'nf'), redepositDate: g('followup', 'rd') };
   else if (kind === 'ack') body = { remark: g('ack', 'remark') };
 
   if (kind === 'pass' && !confirm(`${c.code}: cheque PASS mark karein?`)) return;
