@@ -6302,6 +6302,8 @@ async function _logStockMovement(req, res, direction) {
   if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
   const { itemCode, quantity, txnDate, remarks } = req.body;
   const qty = Number(quantity);
+  const rate = direction === 'OUT' && Number(req.body.rate) > 0 ? Number(req.body.rate) : null;
+  await ensureStockTxnSchema(); // the rate column must exist before stock is moved below
   if (!itemCode || !itemCode.trim()) return res.status(400).json({ error: 'Item code is required' });
   if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'Quantity must be a positive number' });
   const [items] = await withStockTable(() => db.query('SELECT * FROM ajanta_stock_items WHERE item_code = ?', [itemCode.trim()]));
@@ -6324,8 +6326,8 @@ async function _logStockMovement(req, res, direction) {
     );
   }
   await withStockTxnTable(() => db.query(
-    `INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)`,
-    [date, direction, item.item_code, item.description, qty, item.uom, (remarks || '').trim(), req.session.name || '']
+    `INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, rate) VALUES (?,?,?,?,?,?,?,?,?)`,
+    [date, direction, item.item_code, item.description, qty, item.uom, (remarks || '').trim(), req.session.name || '', rate]
   ));
   res.json({ success: true });
 }
@@ -6391,7 +6393,9 @@ async function ensureStockTxnSchema() {
     ['source_item', "VARCHAR(255) DEFAULT ''"],
     ['party', "VARCHAR(255) DEFAULT ''"],
     ['ref_no', "VARCHAR(64) DEFAULT ''"],
-    ['applied', 'TINYINT NOT NULL DEFAULT 1']
+    ['applied', 'TINYINT NOT NULL DEFAULT 1'],
+    // Sale rate of an OUT line (O2D order rate, or typed on a manual entry) — Daily Register shows qty × rate.
+    ['rate', 'DECIMAL(12,2) DEFAULT NULL']
   ];
   for (const [name, def] of adds) {
     if (!have.has(name)) await db.query(`ALTER TABLE ajanta_stock_transactions ADD COLUMN ${name} ${def}`);
@@ -6456,7 +6460,8 @@ async function _syncStockFromFms() {
     const date = stockSerialToYmd(get(outStep.actual));
     const qty = Number(get('O')) || 0;
     if (!date || date < fromDate || qty <= 0) return;
-    events.push({ ref: `o2d|${get('R')}`, direction: 'OUT', source: 'o2d', date, qty,
+    const rate = parseFloat(String(get('N') == null ? '' : get('N')).replace(/[^\d.]/g, '')) || null; // O2D order rate per unit
+    events.push({ ref: `o2d|${get('R')}`, direction: 'OUT', source: 'o2d', date, qty, rate,
       name: String(get('M') || ''), party: String(get('C') || ''), refNo: String(get('Q') || '') });
   });
   (purRes.data.values || []).forEach(r => {
@@ -6472,6 +6477,12 @@ async function _syncStockFromFms() {
   const [existing] = await db.query('SELECT source_ref FROM ajanta_stock_transactions WHERE source_ref IS NOT NULL');
   const seen = new Set(existing.map(r => r.source_ref));
   const fresh = events.filter(e => !seen.has(e.ref));
+  // Sale rate for OUT lines booked before the rate column existed.
+  const [noRate] = await db.query("SELECT source_ref FROM ajanta_stock_transactions WHERE source='o2d' AND rate IS NULL");
+  if (noRate.length) {
+    const need = new Set(noRate.map(r => r.source_ref));
+    for (const e of events) if (e.rate && need.has(e.ref)) await db.query('UPDATE ajanta_stock_transactions SET rate=? WHERE source_ref=?', [e.rate, e.ref]);
+  }
   const [waiting] = await db.query("SELECT * FROM ajanta_stock_transactions WHERE applied = 0 AND status <> 'Cancelled' AND source IN ('o2d','purchase')");
   if (!fresh.length && !waiting.length) { _stockSyncAt = Date.now(); return { added: 0 }; }
 
@@ -6481,10 +6492,10 @@ async function _syncStockFromFms() {
     const item = await resolve(e.name);
     const [ins] = await db.query(
       `INSERT IGNORE INTO ajanta_stock_transactions
-         (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, source_ref, source_item, party, ref_no, applied)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, source_ref, source_item, party, ref_no, applied, rate)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [e.date, e.direction, item ? item.item_code : '', item ? item.description : e.name, e.qty, item ? item.uom : '',
-       '', e.source === 'o2d' ? 'O2D FMS' : 'Purchase FMS', e.source, e.ref, e.name, e.party, e.refNo, item ? 1 : 0]);
+       '', e.source === 'o2d' ? 'O2D FMS' : 'Purchase FMS', e.source, e.ref, e.name, e.party, e.refNo, item ? 1 : 0, e.rate || null]);
     if (!ins.affectedRows) continue;
     added++;
     if (item) {

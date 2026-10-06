@@ -11851,6 +11851,7 @@ function stockRegEntryHtml(row, canEdit) {
       </div>
       <div style="text-align:right;white-space:nowrap">
         <div style="font-size:15px;font-weight:800">${Number(row.quantity).toLocaleString('en-IN')} <span style="font-size:11px;font-weight:600;color:var(--gray-400)">${esc(row.uom || '')}</span></div>
+        ${row.direction === 'OUT' && Number(row.rate) > 0 ? `<div style="font-size:11px;color:var(--gray-500)">@ ₹${Number(row.rate).toLocaleString('en-IN')} = <b style="color:var(--gray-800)">${inr(Number(row.rate) * Number(row.quantity))}</b></div>` : ''}
         ${cancelBtn}
       </div>
     </div>
@@ -11863,11 +11864,15 @@ function stockRegColumnHtml(dir, rows, canEdit) {
   const color = isIn ? 'var(--color-success)' : 'var(--color-danger)';
   const active = rows.filter(r => r.status !== 'Cancelled');
   const total = active.reduce((s, r) => s + Number(r.quantity), 0);
+  // Daily sale value (client, 2026-10-06): Σ qty × rate of the day's OUT lines.
+  const priced = active.filter(r => Number(r.rate) > 0);
+  const saleValue = priced.reduce((s, r) => s + Number(r.rate) * Number(r.quantity), 0);
   const form = stockRegAddDir === dir ? `
     <div style="padding:12px;border-bottom:1px solid var(--gray-200);background:var(--surface-alt,#f8fafc)">
       <select id="stkRegItem" style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;margin-bottom:8px;box-sizing:border-box"><option value="">Select item…</option>${stockItemOptionsHtml()}</select>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <input type="number" id="stkRegQty" placeholder="Qty" style="width:90px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        ${isIn ? '' : `<input type="number" id="stkRegRate" placeholder="Rate ₹" min="0" style="width:100px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>`}
         <input type="text" id="stkRegRemarks" placeholder="Remarks (party / reason)" style="flex:1;min-width:0;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -11880,6 +11885,7 @@ function stockRegColumnHtml(dir, rows, canEdit) {
       <div>
         <div style="font-weight:800;font-size:14px;color:${color}">${isIn ? '⬇ Inward' : '⬆ Outward'}</div>
         <div style="font-size:11px;color:var(--gray-500)">${active.length} entr${active.length === 1 ? 'y' : 'ies'} · total qty <b>${total.toLocaleString('en-IN')}</b></div>
+        ${isIn ? '' : `<div style="font-size:12.5px;margin-top:3px;color:var(--gray-600)">💰 Sale value <b style="font-size:14px;color:var(--gray-900)">${inr(saleValue)}</b>${priced.length < active.length ? ` <span style="font-size:11px;color:var(--color-warning)">(${active.length - priced.length} without rate)</span>` : ''}</div>`}
       </div>
       <button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('${dir}')">+ Manual</button>
     </div>
@@ -11963,7 +11969,7 @@ async function submitStockRegEntry(dir) {
   if (!itemCode) { showToast('Select an item', 'error'); return; }
   const btn = document.getElementById('stkRegSaveBtn');
   if (btn) btn.disabled = true;
-  const res = await api(dir === 'IN' ? '/api/stock/inward' : '/api/stock/outward', 'POST', { itemCode, quantity, txnDate: stockRegDate, remarks });
+  const res = await api(dir === 'IN' ? '/api/stock/inward' : '/api/stock/outward', 'POST', { itemCode, quantity, txnDate: stockRegDate, remarks, rate: (document.getElementById('stkRegRate') || {}).value || '' });
   if (btn) btn.disabled = false;
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast(dir === 'IN' ? '✅ Inward saved!' : '✅ Outward saved!');
