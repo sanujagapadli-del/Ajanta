@@ -1615,7 +1615,10 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── SERVICE FMS (live-connected to the real Complain FMS Google Sheet) ── -->
   <div id="page-service-fms" class="page">
     <div class="page-header">
-      <button class="btn btn-primary" id="sfmsNewComplaintBtn" style="display:none" onclick="openNewComplaintModal()">+ New Complaint</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="sfmsNewComplaintBtn" style="display:none" onclick="openNewComplaintModal()">+ New Complaint</button>
+        <button class="btn btn-outline" id="sfmsCompletedBtn" onclick="switchSfmsView('completed', null)" style="color:var(--color-success-text);border-color:var(--color-success-border)">✅ Completed Complaints</button>
+      </div>
       <button class="btn btn-outline" onclick="loadServiceFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="sfmsStepDoersBtn" style="display:none" onclick="openSfmsStepDoersModal()">⚙ Step Doers</button>
     </div>
@@ -2887,6 +2890,9 @@ tbody tr:last-child td{border-bottom:none;}
         <label>Remarks / Notes</label>
         <textarea id="scRemarks" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1.5px solid var(--color-danger-border);background:var(--color-danger-bg);border-radius:10px;font-size:13.5px;font-weight:700;color:var(--color-danger);cursor:pointer;text-transform:none;letter-spacing:0;margin-top:4px">
+        <input type="checkbox" id="scUrgent" style="width:18px;height:18px"/> 🚨 Urgent complaint — sabse upar dikhegi
+      </label>
     </div>
     <!-- Shared across the whole page (datalists work by id anywhere in the
          document) — spare-item search for the Takeout/In-Out steps, point 2:
@@ -3955,10 +3961,11 @@ function buildSfmsDashboardTasks() {
     const cashWaiting = c.currentStep + 1 === SN.inout && step.cashStatus === 'Pending Approval';
     const place = [c.area, (sfmsAreaZoneMap && sfmsAreaZoneMap[c.area]) || c.zone].filter(Boolean).map(esc).join(' · ');
     const description = `
-      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${step.n}. ${esc(step.label)}${onHold ? ' <span style="font-size:10px;background:var(--color-danger-bg);color:var(--color-danger-text);padding:2px 7px;border-radius:8px">⏸ Spare to purchase</span>' : ''}${cashWaiting ? ' <span style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:8px">⏳ Cash approval</span>' : ''}</div>
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${step.n}. ${esc(step.label)}${sfmsUrgentBadge(c)}${onHold ? ' <span style="font-size:10px;background:var(--color-danger-bg);color:var(--color-danger-text);padding:2px 7px;border-radius:8px">⏸ Spare to purchase</span>' : ''}${cashWaiting ? ' <span style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:8px">⏳ Cash approval</span>' : ''}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(c.filledByName) || '—'} · ${esc(c.mobile) || '—'}</div>
       <div style="font-size:12px;color:var(--gray-600)">${esc(c.productName) || '—'}${c.problemDescription ? ` — ${esc(c.problemDescription)}` : ''}</div>
-      ${place ? `<div style="font-size:11.5px;color:var(--gray-500)">📍 ${place}</div>` : ''}
+      ${(place || c.address) ? `<div style="font-size:11.5px;color:var(--gray-500)">📍 ${[c.address ? esc(c.address) : '', place].filter(Boolean).join(' · ')} ${sfmsMapLink(c)}</div>` : ''}
+      ${c.currentStep >= SN.assign ? `<div style="font-size:11.5px">${sfmsMechanicSparesHtml(c)}</div>` : ''}
       ${fmsFieldRow('REGISTERED', `${fmtDateDMY(c.timestamp) || '—'} ${fmtTimeOfDay(c.timestamp)}`)}
       ${fmsFieldRow('PENDING', `${daysPending} day${daysPending === 1 ? '' : 's'}${late ? ' — Late' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}
     `;
@@ -4279,7 +4286,12 @@ function renderDashTable(tasks, type) {
     const descCell = `${(t.type === 'o2d' || t.type === 'fms' || t.type === 'cheque' || t.type === 'repl') ? rawDesc : esc(rawDesc)}${linkBtn}`;
     let actions = '';
     let rowStyle = '';
-    if (t.type === 'fms') {
+    // Someone else's delegation, visible through the "All Delegations" grant — view + comment only.
+    const othersDeleg = t.type === 'delegation' && !isAdmin && !isPC && String(t.assigned_to) !== String(ME.id);
+    if (othersDeleg) {
+      actions = `<button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'delegation')" title="Comments">💬</button>`
+        + (t.waiting_approval == 1 ? ` <span style="font-size:11px;color:var(--color-warning);font-weight:600">⏳ Waiting</span>` : '');
+    } else if (t.type === 'fms') {
       actions = `<button class="action-btn done" onclick="openFmsQuickAction(${t.id})">Fill Details</button>`;
     } else if (t.type === 'o2d') {
       actions = `<button class="action-btn done" onclick="openO2dQuickAction('${t.id}')">Done</button>`;
@@ -4313,7 +4325,7 @@ function renderDashTable(tasks, type) {
     // phone media query): empty cells and a description that just repeats the
     // title get class dt-empty and are hidden there.
     const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque'||t.type==='repl';
-    const doerName = (isAdmin||isPC)?t.assignedToName:t.assignedByName;
+    const doerName = (isAdmin||isPC) ? t.assignedToName : othersDeleg ? `${t.assignedByName} → ${t.assignedToName}` : t.assignedByName;
     // Planned date for every row — Delegation/Checklist due date, or the
     // planned time of the FMS step that's pending (client, 2026-10-05).
     const dueText = isFmsRow ? fmtDateDMY(t.planned, true) : fmtDate(t.due_date||t.date);
@@ -8409,14 +8421,25 @@ function sfmsCanActOnComplaint(c, n) {
 function renderSfmsTabs() {
   const visible = SFMS_STEP_DEFS.filter(d => sfmsCanAct(d.n) || (sfmsAccess.mechanic && sfmsIsMechanicStep(d.n)));
   const extra = sfmsCanEdit() ? [['balance', '🧰 Spare Balance'], ['reports', '📊 Reports']] : [];
-  const allowed = new Set(['all', ...visible.map(d => 'step' + d.n), ...extra.map(e => e[0])]);
+  const allowed = new Set(['all', 'completed', ...visible.map(d => 'step' + d.n), ...extra.map(e => e[0])]);
   if (!allowed.has(sfmsView)) sfmsView = 'all';
   const tab = (view, label) => `<div class="tab${sfmsView === view ? ' active' : ''}" onclick="switchSfmsView('${view}',this)">${label}</div>`;
   document.getElementById('sfmsTabGroup').innerHTML = tab('all', 'All Complaints') +
     visible.map(d => tab('step' + d.n, `${d.n}. ${esc(d.tab)}`)).join('') +
     extra.map(([v, l]) => tab(v, l)).join('');
   document.getElementById('sfmsNewComplaintBtn').style.display = sfmsCanEdit() ? '' : 'none';
-  document.getElementById('sfmsSearchWrap').style.display = sfmsView === 'all' ? '' : 'none';
+  sfmsMarkCompletedBtn();
+}
+// Completed complaints live in their own list (client, 2026-10-07) — the
+// button next to "+ New Complaint"; All Complaints shows only open ones.
+function sfmsMarkCompletedBtn() {
+  const btn = document.getElementById('sfmsCompletedBtn');
+  if (btn) {
+    const n = sfmsData.filter(c => c.closed).length;
+    btn.textContent = `✅ Completed Complaints${n ? ` (${n})` : ''}`;
+    btn.style.background = sfmsView === 'completed' ? 'var(--color-success-bg)' : '';
+  }
+  document.getElementById('sfmsSearchWrap').style.display = (sfmsView === 'all' || sfmsView === 'completed') ? '' : 'none';
 }
 
 async function loadServiceFmsList() {
@@ -8428,14 +8451,15 @@ async function loadServiceFmsList() {
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   sfmsData = data;
   window._lastSfmsData = data;
+  sfmsMarkCompletedBtn();
   renderServiceFmsList();
 }
 
 function switchSfmsView(view, el) {
   sfmsView = view;
   document.querySelectorAll('#sfmsTabGroup .tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById('sfmsSearchWrap').style.display = view === 'all' ? '' : 'none';
+  if (el) el.classList.add('active');
+  sfmsMarkCompletedBtn();
   renderServiceFmsList();
 }
 
@@ -8572,8 +8596,8 @@ function renderSfmsStepView(n) {
   const filtered = (isAssignTab && sfmsAssignZoneFilter)
     ? allRows.filter(c => sfmsZoneOf(c) === sfmsAssignZoneFilter)
     : allRows;
-  // Zone-wise, then oldest first within a zone.
-  const rows = filtered.slice().sort((a, b) => sfmsZoneCompare(sfmsZoneOf(a), sfmsZoneOf(b)) || a.row - b.row);
+  // Zone-wise, then urgent first, then oldest first within a zone.
+  const rows = filtered.slice().sort((a, b) => sfmsZoneCompare(sfmsZoneOf(a), sfmsZoneOf(b)) || (b.urgent - a.urgent) || a.row - b.row);
 
   // Areas belonging to the selected zone (reverse lookup over sfmsAreaZoneMap)
   // — shown as a reference so staff can see what "Zone 1" actually covers.
@@ -8639,12 +8663,13 @@ function renderSfmsStepView(n) {
     const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
       (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:4px">📷</a>` : '');
     const locationLine = [c.productLocation, c.address, c.area].filter(Boolean).join(' · ');
-    return zoneRow + `<tr data-row="${c.row}" data-zone="${esc(zone)}">
+    const mechLine = c.currentStep >= SN.assign ? sfmsMechanicSparesHtml(c) : '';
+    return zoneRow + `<tr data-row="${c.row}" data-zone="${esc(zone)}"${c.urgent ? ' style="background:var(--color-danger-bg)"' : ''}>
       <td style="padding:8px 6px;width:24px">${canAct ? `<input type="checkbox" class="sfmsBulkChk" data-row="${c.row}" onchange="sfmsBulkUpdateCount()"/>` : ''}</td>
-      <td style="font-weight:600;cursor:pointer;white-space:nowrap;padding:8px 8px" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}</td>
+      <td style="font-weight:600;cursor:pointer;white-space:nowrap;padding:8px 8px" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}${sfmsUrgentBadge(c)}</td>
       <td style="max-width:120px;padding:8px 8px">${esc(c.filledByName)}<br/><a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a></td>
       <td style="max-width:130px;padding:8px 8px">${esc(c.productName)}${c.dealerName ? `<br/><span style="color:var(--gray-500)">🏪 ${esc(c.dealerName)}</span>` : ''}${purchaseDateOnly !== '—' ? `<br/><span style="color:var(--gray-500)">🗓 ${purchaseDateOnly}</span>` : ''}${photosHtml ? `<br/>${photosHtml}` : ''}</td>
-      <td style="max-width:170px;padding:8px 8px">${esc(c.problemDescription || '—')}${locationLine ? `<br/><span style="color:var(--gray-500)">📍 ${esc(locationLine)}</span>` : ''}</td>
+      <td style="max-width:200px;padding:8px 8px">${esc(c.problemDescription || '—')}${locationLine ? `<br/><span style="color:var(--gray-500)">📍 ${esc(locationLine)}</span> ${sfmsMapLink(c)}` : ''}${mechLine}</td>
       <td style="white-space:nowrap;padding:8px 8px"><span style="${isLate ? 'color:var(--color-danger);font-weight:700' : ''}">${daysPending}d${isLate ? ' ⚠️' : ''}</span><div style="font-size:10.5px;color:var(--gray-500)">${fmtDateDMY(c.timestamp)}<br/>${fmtTimeOfDay(c.timestamp)}</div></td>
       ${isWarrantyTab ? `<td style="padding:8px 8px">${sfmsWarrantyStatusHtml(c)}</td>` : ''}
       ${isSpareCheckTab ? `<td style="white-space:nowrap;padding:8px 8px;font-weight:600;color:${c.productOwnership === 'Dealer Stock Piece' ? 'var(--color-primary)' : 'var(--color-purple)'}">${esc(c.productOwnership || '—')}</td>` : ''}
@@ -8775,14 +8800,16 @@ function renderServiceFmsList() {
   if (sfmsView.startsWith('step')) { renderSfmsStepView(Number(sfmsView.slice(4))); return; }
   const wrap = document.getElementById('sfmsListWrap');
   const q = (document.getElementById('sfmsSearch').value || '').trim().toLowerCase();
-  let rows = sfmsData;
+  const showCompleted = sfmsView === 'completed';
+  let rows = sfmsData.filter(c => !!c.closed === showCompleted);
+  if (!showCompleted) rows = rows.slice().sort((a, b) => b.urgent - a.urgent); // urgent on top, otherwise newest first
   if (q) rows = rows.filter(c =>
     (c.complainNo || '').toLowerCase().includes(q) ||
     (c.filledByName || '').toLowerCase().includes(q) ||
     String(c.mobile || '').includes(q) ||
     (c.productName || '').toLowerCase().includes(q)
   );
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No complaints found.</div>'; return; }
+  if (!rows.length) { wrap.innerHTML = `<div class="empty">${showCompleted ? 'No completed complaints found.' : 'No open complaints found.'}</div>`; return; }
   // Point 7 — CSV export of a hand-picked subset. Selection is kept in
   // sfmsSelectedRows across re-renders (search typing, tab switches) so
   // ticking a few complaints then refining the search doesn't lose them.
@@ -8803,7 +8830,7 @@ function renderServiceFmsList() {
         : nextStep ? `<span style="color:var(--color-primary);font-weight:600">👉 ${nextStep.n}. ${esc(nextStep.label)}</span><div style="font-size:10.5px;color:var(--gray-400)">👤 ${esc(stepDoerLabel(nextStep))}</div>` : '—';
       return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
         <td style="padding:8px 6px"><input type="checkbox" class="sfmsRowCheckbox" data-row="${c.row}" onclick="event.stopPropagation()" onchange="toggleComplaintSelected(${c.row}, this.checked)" ${sfmsSelectedRows.has(c.row) ? 'checked' : ''}/></td>
-        <td style="font-weight:700;white-space:nowrap;padding:8px">${esc(c.complainNo)}</td>
+        <td style="font-weight:700;white-space:nowrap;padding:8px">${esc(c.complainNo)}${sfmsUrgentBadge(c)}</td>
         <td style="white-space:nowrap;padding:8px">${fmtDateDMY(c.timestamp)}<div style="font-size:10.5px;color:var(--gray-500)">${fmtTimeOfDay(c.timestamp)}</div></td>
         <td style="max-width:130px;padding:8px">${esc(c.filledByName)}<br/><span style="color:var(--gray-500)">${esc(c.mobile)}</span></td>
         <td style="max-width:150px;padding:8px">${esc(c.productName)}</td>
@@ -8985,7 +9012,8 @@ function renderSfmsSpareBalanceView() {
         <option value="">-- All Mechanics (summary) --</option>
         ${allMechs.map(m => `<option value="${esc(m)}" ${m === sfmsBalanceMech ? 'selected' : ''}>${esc(m)}${balances[m] ? ` (${balances[m].total})` : ''}</option>`).join('')}
       </select>
-      <span style="font-size:12px;color:var(--gray-400)">Takeout mein liye, Check In/Out mein abhi wapas nahi aaye</span>
+      <span style="font-size:12px;color:var(--gray-400)">Takeout mein liye, Check In/Out mein abhi wapas nahi aaye${sfmsAccess.spareBalanceResetAt ? ` · balance zero kiya gaya ${esc(fmtDateDMY(sfmsAccess.spareBalanceResetAt, true))} — uske baad ke takeout hi gine jaate hain` : ''}</span>
+      ${ME.role === 'admin' ? `<button class="btn btn-outline btn-sm" onclick="sfmsResetSpareBalance(this)" style="margin-left:auto;color:var(--color-danger);border-color:var(--color-danger-border)">♻ Reset all to 0</button>` : ''}
     </div>`;
   const tableWrap = inner => `<div class="mis-table-wrap" style="overflow-x:auto;margin:12px 16px 16px;border:1px solid var(--gray-200);border-radius:10px">${inner}</div>`;
 
@@ -9256,6 +9284,7 @@ function openNewComplaintModal() {
   onScCustomerTypeChange(); // resets Dealer wrap visibility + auto-sets Product Ownership
   document.getElementById('scAddress').value = '';
   document.getElementById('scRemarks').value = '';
+  document.getElementById('scUrgent').checked = false;
   document.getElementById('newComplaintErr').style.display = 'none';
   document.getElementById('scProductRows').innerHTML = '';
   scProductRowCount = 0;
@@ -9494,6 +9523,7 @@ async function submitNewComplaint() {
   const address = document.getElementById('scAddress').value.trim();
   const area = document.getElementById('scArea').value === '__add_new__' ? '' : document.getElementById('scArea').value;
   const remarks = document.getElementById('scRemarks').value.trim();
+  const urgent = document.getElementById('scUrgent').checked;
 
   if (!filledByName || !mobile) {
     err.textContent = 'Name and mobile are required';
@@ -9546,7 +9576,7 @@ async function submitNewComplaint() {
   btn.disabled = true; btn.textContent = 'Saving…';
   const res = await api('/api/service-fms', 'POST', {
     filledByName, mobile, customerType, dealerName, productOwnership,
-    productLocation, address, area, billPhoto, remarks, products
+    productLocation, address, area, billPhoto, remarks, products, urgent
   });
   btn.disabled = false; btn.textContent = 'Save Complaint';
 
@@ -9844,7 +9874,7 @@ function buildSfmsNextActionHtml(c, compact) {
         ${billMissing ? '' : `<div id="sfmsSpareOutRows_${c.row}">${spareRowsHtml}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
           <button type="button" onclick="sfmsAddSpareOutRow(${c.row})" class="btn btn-outline btn-sm">+ Add Spare</button>
-          <button type="button" onclick="sfmsAddNewSpareItem(${c.row})" class="btn btn-outline btn-sm" title="Spare master mein naya spare item add karo">+ New Spare Item</button>
+          ${ME.role === 'admin' ? `<button type="button" onclick="sfmsAddNewSpareItem(${c.row})" class="btn btn-outline btn-sm" title="Spare master mein naya spare item add karo (sirf admin)">+ New Spare Item</button>` : ''}
         </div>
         ${btn}`}
       </div>`;
@@ -9897,12 +9927,13 @@ function renderComplaintDetailBody(c) {
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px">
         <div>
-          <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${esc(c.filledByName)}</div>
+          <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${esc(c.filledByName)}${sfmsUrgentBadge(c)}</div>
           ${showDealer ? `<div style="font-size:13px;color:var(--gray-500);margin-top:2px">Dealer: ${esc(c.dealerName)}</div>` : ''}
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
           <a href="tel:${esc(c.mobile)}" class="btn btn-outline btn-sm" style="white-space:nowrap">${esc(c.mobile)}</a>
           ${sfmsCanEdit() ? `<button class="btn btn-outline btn-sm" onclick="openEditComplaintModal(${c.row})">✏️ Edit</button>` : ''}
+          ${sfmsCanEdit() && !c.closed ? `<button class="btn btn-outline btn-sm" onclick="sfmsToggleUrgent(${c.row}, this)" style="white-space:nowrap;${c.urgent ? '' : 'color:var(--color-danger);border-color:var(--color-danger-border)'}">${c.urgent ? 'Remove Urgent' : '🚨 Mark Urgent'}</button>` : ''}
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
@@ -9930,9 +9961,14 @@ function renderComplaintDetailBody(c) {
           <div style="${SFMS_FIELD_LABEL_STYLE}">Warranty</div>
           <div>${sfmsWarrantyDetailHtml(c)}</div>
         </div>` : ''}
-        ${c.productLocation ? `<div>
-          <div style="${SFMS_FIELD_LABEL_STYLE}">Location</div>
-          <div style="font-size:14px;color:var(--gray-800)">${esc(c.productLocation)}${c.area ? ', ' + esc(c.area) : ''}</div>
+        ${(c.productLocation || c.address || c.area) ? `<div style="grid-column:1 / -1">
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Customer Location</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc([c.address, c.area].filter(Boolean).join(', ') || '—')}${c.productLocation ? ` <span style="color:var(--gray-500)">(${esc(c.productLocation)})</span>` : ''} ${sfmsMapLink(c)}</div>
+        </div>` : ''}
+        ${sfmsStep(c, 'assign').mechanic ? `<div style="grid-column:1 / -1">
+          <div style="${SFMS_FIELD_LABEL_STYLE}">Mechanic & Spares</div>
+          <div style="font-size:14px;color:var(--gray-800)">${sfmsMechanicSparesHtml(c).replace(/<a [^>]*>🔁 Transfer<\/a>/, '') || '—'}</div>
+          ${sfmsTransferHtml(c)}
         </div>` : ''}
       </div>
       <div style="margin-bottom:14px">
@@ -10148,6 +10184,9 @@ function sfmsPendingWithMechanic(c) {
   if (c.currentStep < SN.takeout) return [];
   const s = sfmsStep(c, 'inout');
   if (s.status) return [];
+  // Balance was reset to zero (admin) after this takeout — not counted.
+  const resetAt = sfmsAccess.spareBalanceResetAt || '';
+  if (resetAt && (sfmsStep(c, 'takeout').actual || '') <= resetAt) return [];
   const back = Object.fromEntries(sfmsParseJson(s.spareInJson).map(x => [x.item, x]));
   return sfmsTakeoutItems(c).map(it => {
     const taken = Number(it.qty) || 0;
@@ -10155,6 +10194,79 @@ function sfmsPendingWithMechanic(c) {
     const qty = b ? Math.max(0, taken - (Number(b.newQty) || 0) - (Number(b.oldQty) || 0)) : taken;
     return { item: it.item, qty };
   }).filter(x => x.item && x.qty > 0);
+}
+
+// ── Urgent flag, customer location and the assigned mechanic (client, 2026-10-07) ──
+function sfmsUrgentBadge(c) {
+  return c.urgent ? ` <span style="font-size:10px;background:var(--color-danger);color:#fff;padding:2px 7px;border-radius:8px;font-weight:800;vertical-align:1px">🚨 URGENT</span>` : '';
+}
+function sfmsMapLink(c) {
+  const q = [c.address, c.area, c.productLocation].filter(Boolean).join(', ');
+  return q ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px;font-weight:700;white-space:nowrap">🗺 Map</a>` : '';
+}
+// "🔧 Mechanic · 🧰 spares taken" — shown once a complaint is assigned.
+function sfmsMechanicSparesHtml(c) {
+  const mech = sfmsStep(c, 'assign').mechanic || '';
+  const spares = sfmsTakeoutItems(c).filter(it => it.item);
+  return (mech ? `<div style="margin-top:3px;color:var(--color-primary);font-weight:600">🔧 ${esc(mech)}${sfmsCanTransfer(c) ? ` <a href="#" onclick="event.preventDefault();event.stopPropagation();openComplaintDetail(${c.row})" style="font-size:11px">🔁 Transfer</a>` : ''}</div>` : '') +
+    (spares.length ? `<div style="margin-top:2px;color:var(--gray-700)">🧰 ${spares.map(it => `${esc(it.item)}${it.qty ? ` × ${esc(it.qty)}` : ''}`).join(', ')}</div>` : '');
+}
+// Assign doer / PC View / admin can move an assigned complaint to another
+// mechanic until the mechanic has solved it.
+function sfmsCanTransfer(c) {
+  return !c.closed && sfmsCanAct(SN.assign) && !!sfmsStep(c, 'assign').status && !sfmsStep(c, 'solve').status;
+}
+function sfmsTransferHtml(c) {
+  const cur = sfmsStep(c, 'assign').mechanic || '';
+  if (!sfmsCanTransfer(c)) return '';
+  const others = sfmsMechanicsList.filter(m => m !== cur);
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px">
+    <select id="sfmsTransferSel_${c.row}" style="flex:1;min-width:160px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px">
+      <option value="">-- Transfer to mechanic --</option>
+      ${others.map(m => `<option value="${esc(m)}">${esc(m)}${sfmsMechanicZones[m] ? ` (${esc(sfmsMechanicZones[m])})` : ''}</option>`).join('')}
+    </select>
+    <button class="btn btn-outline btn-sm" onclick="sfmsTransferMechanic(${c.row}, this)">🔁 Transfer</button>
+  </div>`;
+}
+async function sfmsTransferMechanic(row, btn) {
+  const c = sfmsData.find(x => x.row === row);
+  const sel = document.getElementById(`sfmsTransferSel_${row}`);
+  const mechanic = sel ? sel.value : '';
+  if (!c || !mechanic) { showToast('Mechanic select karo', 'error'); return; }
+  if (!confirm(`${c.complainNo} — ${sfmsStep(c, 'assign').mechanic || '—'} se ${mechanic} ko transfer karein?`)) return;
+  const restore = btnLoading(btn, 'Transferring…');
+  const res = await api(`/api/service-fms/${row}/mechanic`, 'PUT', { mechanic, expectComplainNo: c.complainNo });
+  restore();
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(`✅ ${c.complainNo} ab ${res.to} ke paas`);
+  await refreshSfmsDataQuietly();
+  const updated = sfmsData.find(x => x.row === row);
+  if (updated && document.getElementById('complaintDetailModal').classList.contains('open')) renderComplaintDetailBody(updated);
+  renderServiceFmsList();
+  window._lastSfmsData = sfmsData;
+  refreshDashboardSfmsLocally();
+}
+async function sfmsToggleUrgent(row, btn) {
+  const c = sfmsData.find(x => x.row === row);
+  if (!c) return;
+  const restore = btnLoading(btn, 'Saving…');
+  const res = await api(`/api/service-fms/${row}/urgent`, 'PUT', { urgent: !c.urgent, expectComplainNo: c.complainNo });
+  restore();
+  if (res.error) { showToast(res.error, 'error'); return; }
+  c.urgent = !c.urgent;
+  showToast(c.urgent ? '🚨 Urgent mark ho gaya' : 'Urgent hata diya');
+  renderComplaintDetailBody(c);
+  renderServiceFmsList();
+}
+async function sfmsResetSpareBalance(btn) {
+  if (!confirm('Sabhi mechanics ka spare balance ZERO karein? Ab tak takeout hue spares balance mein nahi gine jayenge (sheet mein kuch nahi badlega).')) return;
+  const restore = btnLoading(btn, 'Resetting…');
+  const res = await api('/api/service-fms/spare-balance-reset', 'PUT', {});
+  restore();
+  if (res.error) { showToast(res.error, 'error'); return; }
+  sfmsAccess.spareBalanceResetAt = res.spareBalanceResetAt;
+  showToast('✅ Sabhi mechanics ka spare balance zero ho gaya');
+  renderSfmsSpareBalanceView();
 }
 
 // Reads one row's step form into the PUT body — { body } or { error }.
@@ -10183,7 +10295,7 @@ function sfmsCollectStepBody(row, step, stage) {
       const qty = Number(it.qty);
       if (!it.qty || !Number.isInteger(qty) || qty < 1) return { error: `${it.item}: qty bharo (1 ya zyada)` };
       const canonical = known.get(it.item.toLowerCase());
-      if (!canonical) return { error: `"${it.item}" spare master mein nahi hai — list se chuno ya "+ New Spare Item" se add karo` };
+      if (!canonical) return { error: `"${it.item}" spare master mein nahi hai — list se chuno${ME.role === 'admin' ? ' ya "+ New Spare Item" se add karo' : ' (naya spare sirf admin add kar sakte hain)'}` };
       it.item = canonical;
       it.qty = String(qty);
     }
@@ -10220,6 +10332,8 @@ function sfmsCollectStepBody(row, step, stage) {
   }
 
   if (step === SN.assign && !body.mechanic) return { error: 'Mechanic select karo' };
+  // Where it was fixed must be picked — the OTP alone used to submit Solve.
+  if (step === SN.solve && !body.repairStatus) return { error: 'Repair Status chuno — customer location par theek hua ya product office aaya' };
   if (stepDef.otpRequired) {
     const otpEl = document.getElementById(`sfmsOtpInput_${row}`);
     body.otp = otpEl ? otpEl.value.trim() : '';
@@ -10276,7 +10390,8 @@ function patchSfmsRowAfterUpdate(row) {
       const stepDef = SFMS_STEP_DEFS.find(d => d.n === stepNum);
       document.getElementById('sfmsListWrap').innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`;
     }
-  } else if (sfmsView === 'all') {
+  } else if (sfmsView === 'all' || sfmsView === 'completed') {
+    sfmsMarkCompletedBtn();
     renderServiceFmsList(); // card grid — no per-row typed state to preserve here
   }
 }

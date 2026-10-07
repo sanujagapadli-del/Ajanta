@@ -1278,8 +1278,12 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
     allUsers.forEach(u => { userMap[u.id] = { name: u.name||'', dept: u.department||'' }; });
 
     let delegationPending = [], checklistPending = [];
+    // "All Delegations" grant (Priyanka, client 2026-10-07): the Dashboard's
+    // Delegation list shows every employee's pending delegation tasks — the
+    // ones Sir assigns included. Counts and checklist stay her own.
+    const allDeleg = !isAdmin && !isHod && await hasPageGrant(req, 'all-delegations');
     if (taskType === 'delegation' || taskType === 'both') {
-      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,t.photo_link,t.ref_file_link,t.ref_file_name,t.audio_link,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${delDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
+      const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,t.link,COALESCE(t.revision_status,'') AS revision_status,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,t.photo_link,t.ref_file_link,t.ref_file_name,t.audio_link,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date FROM delegation_tasks t WHERE t.status IN ('pending','revised') ${delDateClause} ${allDeleg ? '' : userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...(allDeleg ? [] : params)]);
       delegationPending = rows.map(t => ({ ...t, type: 'delegation', frequency: '', assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
     }
     if (taskType === 'checklist' || taskType === 'both') {
@@ -3746,7 +3750,7 @@ const SFMS_SHEET_ID = '1sim5xXi7uKiUdLh_O1NjWbB9b047p9VVW-Z8oAG1gSE';
 const SFMS_TAB = 'Complain FMS';
 const SFMS_HEADER_ROW = 6;
 const SFMS_DATA_START_ROW = 7;
-const SFMS_LAST_COL = 'BR';
+const SFMS_LAST_COL = 'BS';
 const SFMS_PHOTO_MAX_CHARS = 40000; // stays under the 45k Sheets cell limit
 const SFMS_OTP_CODE_COL = 'AN';
 const SFMS_OTP_SENT_COL = 'AO';
@@ -3803,6 +3807,8 @@ const SFMS_SPARE_USED_BY_COL = 'BK';
 // Point 3 — free-text Remarks/Notes captured on the intake form itself
 // (distinct from step 8's own per-visit "Remark", col BB).
 const SFMS_REMARKS_COL = 'BP';
+// Urgent flag (client, 2026-10-07) — "Yes" puts the complaint on top of every list.
+const SFMS_URGENT_COL = 'BS';
 // 2026-10-02 (client batch): Takeout → Solve → Check In/Out, and the
 // complaint closes there — Solved?, Evening Review and Spare Deposited were
 // dropped (their sheet columns BI/BJ, AV-BB, BL-BO are simply no longer used).
@@ -3846,6 +3852,7 @@ const SFMS_STEPS = [
     timeDelay: 'AU' }
 ];
 const SFMS_N = Object.fromEntries(SFMS_STEPS.map(s => [s.key, s.n]));
+const SFMS_REPAIR_STATUS_VALUES = ['Repaired at Location', 'Brought to Office'];
 const SFMS_NEW_COLUMN_HEADERS = {
   BK: 'Spare Used - Filled By (Mechanic)',
   BL: 'Spare Deposited in Office - Actual',
@@ -3854,7 +3861,8 @@ const SFMS_NEW_COLUMN_HEADERS = {
   BO: 'Spare Received By',
   BP: 'Remarks/Notes (Intake)',
   BQ: 'In/Out - Cash for Short Pieces',
-  BR: 'In/Out - Cash Approval Status'
+  BR: 'In/Out - Cash Approval Status',
+  BS: 'Urgent'
 };
 // Users page toggle: sees and can act on every Service FMS step, not just
 // the ones they're assigned to in Step Doers.
@@ -4009,8 +4017,20 @@ async function requireSfmsEditor(req, res, next) {
 }
 
 app.get('/api/service-fms/my-access', requireAuth, async (req, res) => {
-  try { res.json(await sfmsUserAccess(req)); }
+  try { res.json({ ...(await sfmsUserAccess(req)), spareBalanceResetAt: (await getAppSetting(SFMS_SPARE_RESET_SETTING)) || '' }); }
   catch (err) { sendServerError(res, err); }
+});
+
+// Spare Balance "reset to zero" (client, 2026-10-07): spares taken out at or
+// before this IST time no longer count as held by the mechanic. Nothing in
+// the sheet changes — Check In/Out still works normally for those complaints.
+const SFMS_SPARE_RESET_SETTING = 'sfms_spare_balance_reset_at';
+app.put('/api/service-fms/spare-balance-reset', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const at = sfmsSerialToDate(sfmsDateToSerial(new Date())); // IST "YYYY-MM-DD HH:MM:SS", same form as step actuals
+    await setAppSetting(SFMS_SPARE_RESET_SETTING, at);
+    res.json({ success: true, spareBalanceResetAt: at });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Writes past the sheet's last column fail ("exceeds grid limits"), and
@@ -4089,8 +4109,8 @@ function sfmsDateToSerial(date) {
 // (a QR-linked-device session, connected once via MYAPI's own /api/sessions
 // flow; not re-established here). Was Maytapi before; kept the same
 // mobile-normalizing helper and call shape so nothing else had to change.
-// Customer-facing Service FMS WhatsApp texts (client-approved Hindi wording,
-// 2026-10-03). Multi-product complaint numbers ("C-56-1") show the shared
+// Customer-facing Service FMS WhatsApp texts (client's English formats,
+// 2026-10-07 — replaced the Hindi ones of 2026-10-03). Multi-product complaint numbers ("C-56-1") show the shared
 // group number ("C-56").
 function sfmsDisplayDateTime(d) {
   const ist = new Date(d.getTime() + IST_OFFSET_MS);
@@ -4098,35 +4118,50 @@ function sfmsDisplayDateTime(d) {
   let h = ist.getUTCHours(); const ampm = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
   return `${dd}/${mm}/${ist.getUTCFullYear()} ${h}:${String(ist.getUTCMinutes()).padStart(2, '0')} ${ampm}`;
 }
+const SFMS_GOOGLE_REVIEW_URL = 'https://share.google/VAuHJcPuwpV8SGWWP';
+const SFMS_CUSTOMER_CARE = '8432612777';
+function sfmsDearName(name) {
+  const n = String(name || '').trim();
+  return n ? `Dear ${n}` : 'Dear Customer';
+}
 function sfmsComplaintRegisteredMsg(name, complainNo, productList, when) {
-  return `🙏 नमस्ते ${String(name || '').trim() || 'ग्राहक'} जी,
+  return `${sfmsDearName(name)},
 
-` +
-    `Ajanta Appliances में आपकी शिकायत दर्ज हो गई है।
+Your service complaint has been successfully registered.
 
-` +
-    `📋 शिकायत नंबर: *${complainNo}*
-🔧 प्रोडक्ट: ${productList}
-📅 दिनांक: ${sfmsDisplayDateTime(when)}
+Complaint No.: *${complainNo}*
+Product : ${productList}
+Complaint Date / Time : ${sfmsDisplayDateTime(when)}
 
-` +
-    `हमारे technician जल्द ही आपसे संपर्क करेंगे। कृपया आगे की जानकारी के लिए यह शिकायत नंबर संभाल कर रखें।
+Our service team will contact you regarding your complaint and provide the necessary assistance.
 
-— Ajanta Appliances Service Team`;
+For any further assistance, please contact us at:
+Customer Care: ${SFMS_CUSTOMER_CARE}
+
+Thank you for choosing *Ajanta Appliances*
+
+Regards,
+Team Ajanta Appliances`;
 }
 function sfmsOtpMsg(name, complainNo, otp) {
   const group = (String(complainNo || '').match(/^(C-\d+)/) || [null, complainNo])[1];
-  return `🙏 नमस्ते ${String(name || '').trim() || 'ग्राहक'} जी,
+  return `*${sfmsDearName(name)}*,
 
-` +
-    `आपकी शिकायत${group ? ` *${group}*` : ''} का समाधान हो गया है।
+Your service complaint *${group || ''}* has been successfully resolved.
 
-🔐 OTP: *${otp}*
+To confirm the completion of your service, please share the *OTP: ${otp}* with our service technician.
 
-` +
-    `कृपया यह OTP सिर्फ़ हमारे technician को बताएं, जब आप काम से संतुष्ट हों। यह OTP 30 मिनट तक valid है।
+We value your feedback! ⭐
+Please take a moment to *rate our service and share your experience on Google.*
 
-— Ajanta Appliances Service Team`;
+👉 *Rate Us on Google:*
+
+${SFMS_GOOGLE_REVIEW_URL}
+
+Thank you for choosing *Ajanta Appliances*
+
+*Regards,*
+*Team Ajanta Appliances*`;
 }
 
 function sfmsNormalizeMobile(mobile) {
@@ -4398,7 +4433,8 @@ async function sfmsFetchComplaints() {
         zone: get(SFMS_ZONE_COL) || '',
         productOwnership: get(SFMS_OWNERSHIP_COL) || '',
         warrantyChargesAgreed: get(SFMS_WARRANTY_CHARGES_AGREED_COL) || '',
-        remarks: get(SFMS_REMARKS_COL) || ''
+        remarks: get(SFMS_REMARKS_COL) || '',
+        urgent: get(SFMS_URGENT_COL) === 'Yes'
       };
       c.steps = SFMS_STEPS.map(sd => {
         const step = {
@@ -4536,7 +4572,7 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
   try {
     const {
       filledByName, mobile, customerType, dealerName,
-      productLocation, address, area, productOwnership, billPhoto, remarks, products
+      productLocation, address, area, productOwnership, billPhoto, remarks, products, urgent
     } = req.body;
     if (!filledByName || !mobile) {
       return res.status(400).json({ error: 'Name and mobile are required' });
@@ -4560,7 +4596,7 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
     if (billPhoto && billPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Bill photo is too large — try a smaller/compressed image' });
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    if (remarks) await sfmsEnsureColumns(sheetsApi);
+    if (remarks || urgent) await sfmsEnsureColumns(sheetsApi);
 
     const colB = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${SFMS_DATA_START_ROW}:B`, valueRenderOption: 'UNFORMATTED_VALUE'
@@ -4646,6 +4682,7 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
       // Point 3 — Remarks/Notes captured at intake, shared across every
       // product line the same way the bill photo is (one customer, one note).
       if (remarks) formulaData.push({ range: `'${SFMS_TAB}'!${SFMS_REMARKS_COL}${r}`, values: [[remarks]] });
+      if (urgent) formulaData.push({ range: `'${SFMS_TAB}'!${SFMS_URGENT_COL}${r}`, values: [['Yes']] });
       // Out-of-warranty-but-customer-agreed-to-pay flag (point 5) — written only
       // when the frontend determined the product was out of warranty and the
       // customer explicitly agreed to be charged.
@@ -4747,6 +4784,53 @@ app.put('/api/service-fms/:row(\\d+)', requireAuth, requireSfmsEditor, async (re
   }
 });
 
+// Urgent on/off for one complaint row (client, 2026-10-07).
+app.put('/api/service-fms/:row(\\d+)/urgent', requireAuth, requireSfmsEditor, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (await sfmsRowMoved(res, sheetsApi, row, req.body.expectComplainNo)) return;
+    await sfmsEnsureColumns(sheetsApi);
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!${SFMS_URGENT_COL}${row}`,
+      valueInputOption: 'RAW', requestBody: { values: [[req.body.urgent ? 'Yes' : '']] }
+    });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Transfer an assigned complaint to another mechanic (client, 2026-10-07) —
+// whoever can do Assign may change the Mechanic Name (AF) any time after
+// Assign until the mechanic has solved it. The Solve step follows AF, so
+// the new mechanic gets it straight away.
+app.put('/api/service-fms/:row(\\d+)/mechanic', requireAuth, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    const mechanic = String(req.body.mechanic || '').trim();
+    if (!mechanic) return res.status(400).json({ error: 'Select the mechanic to transfer to' });
+    if (!sfmsCanActOn(await sfmsUserAccess(req), SFMS_N.assign)) return res.status(403).json({ error: 'Only the Assign step doer can transfer a complaint' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (await sfmsRowMoved(res, sheetsApi, row, req.body.expectComplainNo)) return;
+    const assign = SFMS_STEPS.find(s => s.key === 'assign'), solve = SFMS_STEPS.find(s => s.key === 'solve');
+    const mechCol = assign.extra.find(e => e.key === 'mechanic').col;
+    const cur = await sheetsApi.spreadsheets.values.batchGet({
+      spreadsheetId: SFMS_SHEET_ID,
+      ranges: [`'${SFMS_TAB}'!${assign.status}${row}`, `'${SFMS_TAB}'!${solve.status}${row}`, `'${SFMS_TAB}'!${mechCol}${row}`]
+    });
+    const [assignStatus, solveStatus, oldMech] = cur.data.valueRanges.map(v => (v.values && v.values[0] && v.values[0][0]) || '');
+    if (!assignStatus) return res.status(400).json({ error: 'This complaint has not been assigned yet — assign it from the Assign tab' });
+    if (solveStatus) return res.status(400).json({ error: 'The mechanic has already solved this complaint — it can no longer be transferred' });
+    if (sfmsNameKey(oldMech) === sfmsNameKey(mechanic)) return res.status(400).json({ error: `Already assigned to ${oldMech}` });
+    const known = (await sfmsGetMechanics()).find(m => sfmsNameKey(m.name) === sfmsNameKey(mechanic));
+    if (!known) return res.status(400).json({ error: 'Pick a mechanic from the list' });
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!${mechCol}${row}`,
+      valueInputOption: 'RAW', requestBody: { values: [[known.name]] }
+    });
+    res.json({ success: true, from: oldMech, to: known.name });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Sends a 6-digit OTP to the customer's WhatsApp; the mechanic must read it
 // from the customer and enter it to mark Step 6 (Complaint Solve) done.
 app.post('/api/service-fms/:row/step/:stepNum/send-otp',
@@ -4834,7 +4918,8 @@ app.get('/api/service-fms/items', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_ITEMS_TAB)); }
   catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/items', requireAuth, requireSfmsEditor, async (req, res) => {
+// Only admin adds a new spare to the master (client, 2026-10-07).
+app.post('/api/service-fms/items', requireAuth, requireAdmin, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Item name is required' });
@@ -5189,6 +5274,11 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
       await sfmsEnsureColumns(sheetsApi);
     }
     if (stepNum === SFMS_N.inout) return await sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal);
+
+    // Solve: where it was fixed must be picked — the OTP alone used to submit it.
+    if (stepNum === SFMS_N.solve && !SFMS_REPAIR_STATUS_VALUES.includes(req.body.repairStatus)) {
+      return res.status(400).json({ error: 'Select whether it was repaired at the customer\'s location or the product came to the office' });
+    }
 
     if (stepDef.otpRequired) {
       // A 6-digit code is guessable given enough attempts — cap attempts per
@@ -7291,7 +7381,14 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
       const group = raw ? JSON.parse(raw) : null;
       if (group && group.id) {
-        const productLines = products.map((p, i) => `📦 Product ${i + 1}: ${p.productName} × ${p.qty}`).join('\n');
+        // Amount per line + order total (client, 2026-10-07); a line with no rate shows qty only.
+        const inr = v => `₹${Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+        let total = 0;
+        const productLines = products.map((p, i) => {
+          const rate = Number(p.rate) || 0, amt = rate * (Number(p.qty) || 0);
+          total += amt;
+          return `📦 Product ${i + 1}: ${p.productName} × ${p.qty}${rate ? ` @ ${inr(rate)} = *${inr(amt)}*` : ''}`;
+        }).join('\n') + (total ? `\n\n💰 *Total Amount: ${inr(total)}*` : '');
         sendWhatsAppInBackground(group.id,
           `नया ऑर्डर प्राप्त हुआ\nकृपया ऑर्डर की जाँच करें।\n\n` +
           `Order ID: ${orderNo}\nDealer / Customer Name: ${counterName}\n\n${productLines}\n\n` +
@@ -7549,9 +7646,13 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
         const [dealerRows] = await withDealerTables(() => db.query('SELECT phone FROM o2d_dealers WHERE counter_name = ?', [counterName]));
         const phone = dealerRows[0] && dealerRows[0].phone;
         if (phone) {
-          const billNo = req.body.billNo ? `\nBill No: ${req.body.billNo}` : '';
-          const amount = req.body.billAmount ? `\nAmount: ₹${req.body.billAmount}` : '';
-          const text = `Ajanta Appliances द्वारा आपका bill बना दिया गया है। कुछ ही समय में आपका order dispatch कर दिया जाएगा।\n\nOrder: ${orderNo}${billNo}${amount}`;
+          // Client's English format (2026-10-07); the bill itself rides along as the attached PDF.
+          const text = `Dear Customer,\n\nYour order *${orderNo}* has been successfully processed and is now ready for dispatch.\n\n` +
+            `Your bill has also been generated successfully.\n\nOrder No.: ${orderNo}\nBill No.: ${req.body.billNo || '—'}\n\n` +
+            `View / Download Bill: 📄 attached\n\n` +
+            `Your order will be dispatched shortly. We will share the dispatch and delivery details once the order is shipped.\n\n` +
+            `⭐ We value your feedback!\nPlease take a moment to rate our service and share your experience on Google.\n\n` +
+            `👉 Rate Us on Google : ${SFMS_GOOGLE_REVIEW_URL}\n\nThank you for choosing *Ajanta Appliances*`;
           // Invoice goes as a PDF document attachment only — no link in the
           // text (client, 2026-10-03). The Make Bill upload converts a photo
           // to PDF in the browser; an older non-PDF upload still goes as an image.
