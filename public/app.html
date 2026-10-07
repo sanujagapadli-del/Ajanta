@@ -1197,7 +1197,7 @@ tbody tr:last-child td{border-bottom:none;}
             </div>
             <!-- One FMS tab (client, 2026-10-05) — which FMS is picked here. -->
             <select id="dashFmsFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)">
-              <option value="all">All FMS</option><option value="o2d">🚚 O2D</option><option value="fms">🛠️ Service</option><option value="cheque">🧾 Cheque</option><option value="repl">♻️ Replacement</option>
+              <option value="all">All FMS</option><option value="o2d">🚚 O2D</option><option value="fms">🛠️ Service</option><option value="cheque">🧾 Cheque</option><option value="repl">♻️ Replacement</option><option value="purchase">🛒 Purchase</option>
             </select>
             <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="every_10_days">Every 10 Days</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
           </div>
@@ -4035,7 +4035,8 @@ async function loadDashboard() {
     canSeeSfms ? api('/api/service-fms').catch(() => null) : null,
     // Scoped server-side: doers get the queue, everyone else only their own cheques (bounce alerts).
     api('/api/cheque-fms').catch(() => null),
-    api('/api/replacement-fms').catch(() => null)
+    api('/api/replacement-fms').catch(() => null),
+    (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms').catch(() => null) : null
   ]);
   const [dDel, dChl] = await Promise.all([
     api(baseUrl + 'delegation'),
@@ -4105,7 +4106,7 @@ async function loadDashboard() {
   // Paints the table, cards and chart from taskRows plus whatever O2D/SFMS
   // data is in hand (no network call).
   const renderDash = () => {
-    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks(), ...buildChequeDashboardTasks(), ...buildReplDashboardTasks()];
+    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks(), ...buildChequeDashboardTasks(), ...buildReplDashboardTasks(), ...buildPurchaseDashboardTasks()];
 
 
     // Pending count/chart use allTodayPending's actual length — it's the same
@@ -4145,13 +4146,14 @@ async function loadDashboard() {
   // update, so a step just done there shows here without waiting on the
   // sheet re-read — then repaint once the fresh read lands.
   renderDash();
-  const [o2d, sfms, chq, repl] = await fmsPromise;
+  const [o2d, sfms, chq, repl, pur] = await fmsPromise;
   if (loadSeq !== _dashLoadSeq) return;
   // A failed read keeps the last good data instead of blanking the FMS rows.
   if (Array.isArray(o2d)) window._lastO2dData = o2d;
   if (canSeeSfms && Array.isArray(sfms)) window._lastSfmsData = sfms;
   if (chq && Array.isArray(chq.cheques)) window._lastChequeData = chq;
   if (repl && Array.isArray(repl.items)) window._lastReplData = repl;
+  if (Array.isArray(pur)) window._lastPurchaseData = pur;
   renderDash();
 }
 
@@ -4246,7 +4248,7 @@ function renderDashTable(tasks, type) {
   // Filter by selected tab: all / delegation / checklist / FMS. The single
   // FMS tab ('fmsall') covers O2D (t.type 'o2d'), Service (t.type 'fms') and
   // Cheque (t.type 'cheque'), narrowed by the #dashFmsFilter dropdown.
-  const FMS_TYPES = ['o2d', 'fms', 'cheque', 'repl'];
+  const FMS_TYPES = ['o2d', 'fms', 'cheque', 'repl', 'purchase'];
   let allPending = tasks.filter(t => {
     const matchType = (!type || type === 'all') ? true
       : type === 'fmsall' ? (fmsPick === 'all' ? FMS_TYPES.includes(t.type) : t.type === fmsPick)
@@ -4265,6 +4267,8 @@ function renderDashTable(tasks, type) {
     ? `<span style="font-size:9px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-success-border)">✅ Che</span>`
     : t.type==='fms'
     ? `<span style="font-size:9px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-purple-border)">🛠️ Service</span>`
+    : t.type==='purchase'
+    ? `<span style="font-size:9px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-warning-border)">🛒 Purchase</span>`
     : t.type==='repl'
     ? `<span style="font-size:9px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-primary-ring)">♻️ Repl.</span>`
     : t.type==='cheque'
@@ -4283,7 +4287,7 @@ function renderDashTable(tasks, type) {
     // literally instead of rendering them. Delegation/Checklist descriptions
     // are raw user-typed text straight from the DB and still need escaping.
     const rawDesc = t.description || t.desc || '';
-    const descCell = `${(t.type === 'o2d' || t.type === 'fms' || t.type === 'cheque' || t.type === 'repl') ? rawDesc : esc(rawDesc)}${linkBtn}`;
+    const descCell = `${(t.type === 'o2d' || t.type === 'fms' || t.type === 'cheque' || t.type === 'repl' || t.type === 'purchase') ? rawDesc : esc(rawDesc)}${linkBtn}`;
     let actions = '';
     let rowStyle = '';
     // Someone else's delegation, visible through the "All Delegations" grant — view + comment only.
@@ -4299,6 +4303,8 @@ function renderDashTable(tasks, type) {
       actions = `<button class="action-btn done" onclick="openChequeQuickAction(${t.id})">Open</button>`;
     } else if (t.type === 'repl') {
       actions = `<button class="action-btn done" onclick="openReplQuickAction(${t.id})">Open</button>`;
+    } else if (t.type === 'purchase') {
+      actions = `<button class="action-btn done" onclick="openPurchaseQuickAction('${esc(t.id)}')">Open</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
       rowStyle = 'background:var(--color-warning-bg)';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">⏳ Awaiting Decision</span>`;
@@ -4324,7 +4330,7 @@ function renderDashTable(tasks, type) {
     // Mobile shows each row as a compact card (see the #dashTable rules in the
     // phone media query): empty cells and a description that just repeats the
     // title get class dt-empty and are hidden there.
-    const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque'||t.type==='repl';
+    const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque'||t.type==='repl'||t.type==='purchase';
     const doerName = (isAdmin||isPC) ? t.assignedToName : othersDeleg ? `${t.assignedByName} → ${t.assignedToName}` : t.assignedByName;
     // Planned date for every row — Delegation/Checklist due date, or the
     // planned time of the FMS step that's pending (client, 2026-10-05).
@@ -15050,6 +15056,38 @@ function buildReplDashboardTasks() {
       assignedToName: stepDoerLabel(t), assignedByName: stepDoerLabel(t), assignedToDept: 'Replacement', start_date: String(r.createdAt || ''), planned: t.planned || '', plannedLate: !!late });
   });
   return tasks;
+}
+// Purchase FMS on the Dashboard (client, 2026-10-07): each open PO at its
+// pending step, for that step's doers (admin / manager "All" sees every one).
+function buildPurchaseDashboardTasks() {
+  const pos = window._lastPurchaseData || [];
+  const empFilter = document.getElementById('dashEmployeeFilter');
+  const empVal = empFilter ? empFilter.value : 'all';
+  const isManager = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
+  const doerId = isManager ? (empVal !== 'all' ? Number(empVal) : null) : Number(ME.id);
+  const tasks = [];
+  pos.filter(o => !o.closed).forEach(o => {
+    const step = o.steps[o.currentStep];
+    if (!step) return;
+    if (doerId && !(step.doers || []).some(d => Number(d.id) === doerId)) return;
+    const late = !!(step.planned && o2dIsOverdue(step.planned));
+    const products = (o.products || []).filter(p => !p.received).map(p => `${esc(p.productName)}${p.qty ? ' × ' + esc(p.qty) : ''}`).join(', ');
+    const description = `
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${step.n}. ${esc(step.label)}</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(o.vendorName) || '—'}${o.indentNo ? ' · ' + esc(o.indentNo) : ''}</div>
+      <div style="font-size:12px;color:var(--gray-600)">${products || '—'}</div>
+      ${step.nextFollowup ? fmsFieldRow('NEXT FOLLOWUP', esc(fmtDateDMY(step.nextFollowup) || step.nextFollowup)) : ''}
+      ${fmsFieldRow('PLANNED', `${esc(fmtDateDMY(step.planned, true) || step.planned || '—')}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
+    tasks.push({ id: o.poNumber, type: 'purchase', status: 'pending', title: o.poNumber, description,
+      assignedToName: stepDoerLabel(step), assignedByName: stepDoerLabel(step), assignedToDept: 'Purchase',
+      start_date: o.timestamp, planned: step.planned || '', plannedLate: late });
+  });
+  return tasks;
+}
+async function openPurchaseQuickAction(poNumber) {
+  if (window._lastPurchaseData) pfmsData = window._lastPurchaseData;
+  if (!pfmsData.find(x => x.poNumber === poNumber)) { const d = await api('/api/purchase-fms'); if (Array.isArray(d)) { pfmsData = d; window._lastPurchaseData = d; } }
+  openPurchaseDetail(poNumber);
 }
 function refreshDashboardReplLocally() {
   if (!window._lastDashTasks || !document.getElementById('page-dashboard').classList.contains('active')) return;
