@@ -4300,11 +4300,11 @@ function renderDashTable(tasks, type) {
     } else if (t.type === 'o2d') {
       actions = `<button class="action-btn done" onclick="openO2dQuickAction('${t.id}')">Done</button>`;
     } else if (t.type === 'cheque') {
-      actions = `<button class="action-btn done" onclick="openChequeQuickAction(${t.id})">Open</button>`;
+      actions = `<button class="action-btn done" onclick="openChequeQuickAction(${t.id})">Done</button>`;
     } else if (t.type === 'repl') {
-      actions = `<button class="action-btn done" onclick="openReplQuickAction(${t.id})">Open</button>`;
+      actions = `<button class="action-btn done" onclick="openReplQuickAction(${t.id})">Done</button>`;
     } else if (t.type === 'purchase') {
-      actions = `<button class="action-btn done" onclick="openPurchaseQuickAction('${esc(t.id)}')">Open</button>`;
+      actions = `<button class="action-btn done" onclick="openPurchaseQuickAction('${esc(t.id)}')">Done</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
       rowStyle = 'background:var(--color-warning-bg)';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">⏳ Awaiting Decision</span>`;
@@ -14906,7 +14906,6 @@ function rplTaskFormHtml(r) {
   }
   const doers = stepDoerLabel(t);
   return `<div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:16px;margin-bottom:12px">
-    <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Next Action</div>
     <div style="font-weight:700;font-size:15px;margin-bottom:2px;color:var(--gray-800)">${t.n}. ${esc(t.label)}</div>
     <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Doer: ${esc(doers)}${t.planned ? ` · Planned ${fmtDateDMY(t.planned, true)}${rplIsLate(t) ? ' <b style="color:var(--color-danger)">— Overdue</b>' : ''}` : ''}</div>
     ${rplCanDo(r) ? inner : `<div style="font-size:12.5px;color:var(--gray-500)">Waiting on ${esc(doers)}.</div>`}
@@ -15098,8 +15097,11 @@ function refreshDashboardReplLocally() {
   renderDashTable(merged, dashType);
 }
 async function openReplQuickAction(id) {
-  if (!rplData.length && window._lastReplData) rplApplyData(window._lastReplData);
-  if (!rplData.find(x => x.id === id)) { const d = await api('/api/replacement-fms'); if (d && Array.isArray(d.items)) rplApplyData(d); }
+  // Always fresh: step doers may have changed since this page loaded, and
+  // stale access hid the Save form from the step's own doer.
+  const d = await api('/api/replacement-fms');
+  if (d && Array.isArray(d.items)) rplApplyData(d);
+  else if (!rplData.length && window._lastReplData) rplApplyData(window._lastReplData);
   openReplDetail(id);
 }
 
