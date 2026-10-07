@@ -1764,7 +1764,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── GROSS PROFIT ── -->
   <div id="page-gross-profit" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:16px">
-      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-bottom:12px">📈 Gross Profit <span style="font-size:12.5px;font-weight:600;color:var(--gray-500)">product-wise & dealer-wise</span></div>
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-bottom:12px">📈 Gross Profit <span style="font-size:12.5px;font-weight:600;color:var(--gray-500)">product-wise, dealer-wise & vendor-wise</span></div>
       <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
         <div><div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 From</div><input type="date" id="gpStart" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
         <div><div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 To</div><input type="date" id="gpEnd" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
@@ -15117,6 +15117,17 @@ let gpQuery = '';
 let gpShown = 60;
 let gpOpenDealer = '';
 let gpOnlyNoCost = false;
+let gpSortBy = 'gp';
+let gpSortDir = 'desc';
+// Sort by the chosen field; rows without a value (no cost) always go last.
+function gpSortRows(rows) {
+  const dir = gpSortDir === 'asc' ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const x = a[gpSortBy], y = b[gpSortBy];
+    if (x == null || y == null) return (x == null) - (y == null) || b.sales - a.sales;
+    return (x - y) * dir || b.sales - a.sales;
+  });
+}
 const gpYmd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 function gpDefaultRange() {
   const t = new Date();
@@ -15179,7 +15190,7 @@ function renderGrossProfit() {
   let table;
   if (gpView === 'product') {
     let rows = d.products.filter(p => !q || p.item.toLowerCase().includes(q));
-    if (gpOnlyNoCost) rows = rows.filter(p => p.costRate == null).sort((a, b) => b.sales - a.sales);
+    rows = gpOnlyNoCost ? rows.filter(p => p.costRate == null).sort((a, b) => b.sales - a.sales) : gpSortRows(rows);
     const page = rows.slice(0, gpShown);
     table = `<table style="width:100%;border-collapse:separate;border-spacing:0">
       <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Product</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Avg Sale Rate</th><th style="${th}">Cost Rate</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
@@ -15198,26 +15209,28 @@ function renderGrossProfit() {
       ${rows.length > gpShown ? `<div style="padding:12px;text-align:center"><button class="btn btn-outline" onclick="gpShown+=100;renderGrossProfit()">Show more (${rows.length - gpShown})</button></div>` : ''}`;
     if (!rows.length) table = '<div class="empty">No products.</div>';
   } else {
-    const rows = d.dealers.filter(p => !q || p.party.toLowerCase().includes(q));
+    const vendorView = gpView === 'vendor';
+    const nameOf = p => vendorView ? p.vendor : p.party;
+    const rows = gpSortRows((vendorView ? (d.vendors || []) : d.dealers).filter(p => !q || nameOf(p).toLowerCase().includes(q)));
     const page = rows.slice(0, gpShown);
     table = rows.length ? `<table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Dealer</th><th style="${th}">Bills</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
+      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">${vendorView ? 'Vendor' : 'Dealer'}</th><th style="${th}">${vendorView ? 'Products' : 'Bills'}</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
       <tbody>${page.map((p, i) => {
-        const open = gpOpenDealer === p.party;
-        return `<tr style="background:${open ? 'var(--color-primary-light)' : i % 2 ? 'var(--surface-alt)' : 'var(--surface)'};cursor:pointer" onclick="gpOpenDealer=gpOpenDealer===this.dataset.p?'':this.dataset.p;renderGrossProfit()" data-p="${esc(p.party)}">
+        const open = gpOpenDealer === nameOf(p);
+        return `<tr style="background:${open ? 'var(--color-primary-light)' : i % 2 ? 'var(--surface-alt)' : 'var(--surface)'};cursor:pointer" onclick="gpOpenDealer=gpOpenDealer===this.dataset.p?'':this.dataset.p;renderGrossProfit()" data-p="${esc(nameOf(p))}">
           <td style="${td};text-align:center">${rank(i)}</td>
-          <td style="${td};text-align:left;white-space:normal;min-width:220px"><b style="color:var(--gray-900)">${esc(p.party)}</b> <span style="font-size:11px;color:var(--color-primary)">${open ? '▾' : '▸'} items</span>${p.uncostedSales ? `<div style="font-size:10.5px;color:var(--color-warning-text)">${gpInr(p.uncostedSales)} sales without cost — not in GP</div>` : ''}</td>
-          <td style="${td}">${p.bills}</td><td style="${td}">${p.qty.toLocaleString('en-IN')}</td>
+          <td style="${td};text-align:left;white-space:normal;min-width:220px"><b style="color:${p.noPo ? 'var(--gray-500)' : 'var(--gray-900)'}">${esc(nameOf(p))}</b> <span style="font-size:11px;color:var(--color-primary)">${open ? '▾' : '▸'} items</span>${p.uncostedSales ? `<div style="font-size:10.5px;color:var(--color-warning-text)">${gpInr(p.uncostedSales)} sales without cost — not in GP</div>` : ''}</td>
+          <td style="${td}">${vendorView ? p.products : p.bills}</td><td style="${td}">${Math.round(p.qty).toLocaleString('en-IN')}</td>
           <td style="${td};font-weight:700">${gpInr(p.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
           <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
           <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>
           ${open ? p.items.map(it => `<tr style="background:var(--gray-50)"><td style="${td}"></td>
             <td style="${td};text-align:left;white-space:normal;padding-left:26px;color:var(--gray-700)">↳ ${esc(it.item)}</td><td style="${td}"></td>
-            <td style="${td}">${it.qty.toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}</td>
+            <td style="${td}">${Math.round(it.qty).toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}</td>
             <td style="${td};font-weight:700;color:${it.gp == null ? 'var(--gray-300)' : it.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(it.gp)}</td>
             <td style="${td};text-align:center">${gpPctPill(it.gp == null || !it.sales ? null : Math.round(it.gp * 1000 / it.sales) / 10)}</td></tr>`).join('') : ''}`;
       }).join('')}</tbody></table>
-      ${rows.length > gpShown ? `<div style="padding:12px;text-align:center"><button class="btn btn-outline" onclick="gpShown+=100;renderGrossProfit()">Show more (${rows.length - gpShown})</button></div>` : ''}` : '<div class="empty">No dealers.</div>';
+      ${rows.length > gpShown ? `<div style="padding:12px;text-align:center"><button class="btn btn-outline" onclick="gpShown+=100;renderGrossProfit()">Show more (${rows.length - gpShown})</button></div>` : ''}` : `<div class="empty">No ${vendorView ? 'vendors' : 'dealers'}.</div>`;
   }
   const noCost = d.products.filter(p => p.costRate == null).length;
   out.innerHTML = `
@@ -15230,20 +15243,28 @@ function renderGrossProfit() {
     ${t.uncostedSales ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">ℹ️ ${gpInr(t.uncostedSales)} ki bikri (${noCost} products) ki laagat abhi pata nahi — woh GP me shaamil nahi.${d.canEditCost ? ` <a href="#" onclick="gpView='product';gpOnlyNoCost=!gpOnlyNoCost;renderGrossProfit();return false" style="font-weight:700">${gpOnlyNoCost ? 'Sab products dikhao' : 'Bina laagat wale products dikhao →'}</a>` : ''}</div>` : ''}
     <div style="${card};overflow:hidden">
       <div style="padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
-        <div class="tab-group"><div class="tab ${gpView === 'product' ? 'active' : ''}" onclick="gpSetView('product')">📦 Product-wise</div><div class="tab ${gpView === 'dealer' ? 'active' : ''}" onclick="gpSetView('dealer')">🏪 Dealer-wise</div></div>
-        <input id="gpSearchBox" value="${esc(gpQuery)}" oninput="gpSearch(this.value)" placeholder="🔍 Search ${gpView === 'product' ? 'product' : 'dealer'}…" style="flex:1;min-width:180px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-900)"/>
-        <span style="font-size:11.5px;color:var(--gray-400)">Highest gross profit first${gpView === 'dealer' ? ' · dealer par click = items' : d.canEditCost ? ' · jis product ka PO nahi hai, uski laagat Cost Rate box me daalein' : ''}</span>
+        <div class="tab-group"><div class="tab ${gpView === 'product' ? 'active' : ''}" onclick="gpSetView('product')">📦 Product-wise</div><div class="tab ${gpView === 'dealer' ? 'active' : ''}" onclick="gpSetView('dealer')">🏪 Dealer-wise</div><div class="tab ${gpView === 'vendor' ? 'active' : ''}" onclick="gpSetView('vendor')">🏭 Vendor-wise</div></div>
+        <input id="gpSearchBox" value="${esc(gpQuery)}" oninput="gpSearch(this.value)" placeholder="🔍 Search ${gpView}…" style="flex:1;min-width:180px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-900)"/>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select onchange="gpSortBy=this.value;gpShown=60;renderGrossProfit()" title="Sort by" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:12.5px;background:var(--surface);color:var(--gray-900)">
+            ${[['gp', 'Gross Profit'], ['gpPct', 'GP %'], ['sales', 'Sales'], ['qty', 'Qty'], ['cost', 'Cost']].map(([v, l]) => `<option value="${v}" ${gpSortBy === v ? 'selected' : ''}>Sort: ${l}</option>`).join('')}
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="gpSortDir=gpSortDir==='desc'?'asc':'desc';gpShown=60;renderGrossProfit()" title="Ascending / Descending" style="white-space:nowrap">${gpSortDir === 'desc' ? '↓ High → Low' : '↑ Low → High'}</button>
+        </div>
+        <span style="font-size:11.5px;color:var(--gray-400)">${gpView !== 'product' ? `${gpView === 'vendor' ? 'vendor' : 'dealer'} par click = items` : d.canEditCost ? 'jis product ka PO nahi hai, uski laagat Cost Rate box me daalein' : ''}</span>
       </div>
       <div class="mis-table-wrap" style="overflow:auto;max-height:680px">${table}</div>
     </div>
-    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else Purchase FMS PO Final Rate (qty-weighted average) of the same stock item. Rates are used exactly as entered in O2D and PO.</div>`;
+    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else Purchase FMS PO Final Rate (qty-weighted average) of the same stock item. Rates are used exactly as entered in O2D and PO.${gpView === 'vendor' ? ' Vendor-wise: an item bought from more than one vendor is split between them by PO qty, each share at that vendor\'s own PO rate.' : ''}</div>`;
 }
 function exportGrossProfit() {
   if (!gpData) return;
   const q = v => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lines = gpView === 'product'
-    ? [['Product', 'Qty', 'Sales', 'Avg Sale Rate', 'Cost Rate', 'Cost Source', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpData.products.map(p => [p.item, p.qty, p.sales, p.avgRate, p.costRate, p.costSource, p.cost, p.gp, p.gpPct].map(q).join(',')))
-    : [['Dealer', 'Bills', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpData.dealers.map(p => [p.party, p.bills, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')));
+    ? [['Product', 'Qty', 'Sales', 'Avg Sale Rate', 'Cost Rate', 'Cost Source', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.products).map(p => [p.item, p.qty, p.sales, p.avgRate, p.costRate, p.costSource, p.cost, p.gp, p.gpPct].map(q).join(',')))
+    : gpView === 'vendor'
+    ? [['Vendor', 'Products', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.vendors || []).map(p => [p.vendor, p.products, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')))
+    : [['Dealer', 'Bills', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.dealers).map(p => [p.party, p.bills, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')));
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
   a.download = `Gross_Profit_${gpView}_${gpData.start}_to_${gpData.end}.csv`;

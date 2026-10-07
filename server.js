@@ -9442,14 +9442,17 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     });
 
     // Cost per stock item from Purchase FMS PO lines (weighted by PO qty).
-    const poCost = {}; // code -> { qty, value, names:Set }
+    const poCost = {}; // code -> { qty, value, names:Set, vendors: { key: { vendor, qty, value } } }
     (poRes.data.values || []).forEach(r => {
       const name = String(r[4] || '').trim(), qty = gpNum(r[6]), rate = gpNum(r[7]);
       const date = stockSerialToYmd(r[0]);
       if (!name || !(rate > 0) || (date && date > end)) return;
-      const c = poCost[mapTo(name)] = poCost[mapTo(name)] || { qty: 0, value: 0, names: new Set() };
+      const c = poCost[mapTo(name)] = poCost[mapTo(name)] || { qty: 0, value: 0, names: new Set(), vendors: {} };
       const w = qty > 0 ? qty : 1;
       c.qty += w; c.value += w * rate; c.names.add(name);
+      const vendor = String(r[8] || '').trim().replace(/\s+/g, ' ') || '—';
+      const v = c.vendors[vendor.toLowerCase()] = c.vendors[vendor.toLowerCase()] || { vendor, qty: 0, value: 0 };
+      v.qty += w; v.value += w * rate;
     });
     const manualBy = Object.fromEntries(manual.map(m => [m.item_key, Number(m.cost_rate)]));
     const costFor = s => {
@@ -9461,6 +9464,21 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     };
 
     const round = v => Math.round(v * 100) / 100;
+    // Vendor-wise: a sold line is shared among the vendors its item was bought
+    // from, in proportion to PO qty, each share costed at that vendor's own
+    // PO rate (a manual cost rate applies to every share). The shares add up
+    // to the line's cost, so vendor GP totals match the overall GP.
+    const NO_PO_VENDOR = 'No PO (vendor unknown)';
+    const byVendor = {};
+    const addVendor = (vendor, s, share, cost) => {
+      const vk = vendor.toLowerCase();
+      const v = byVendor[vk] = byVendor[vk] || { vendor, qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {} };
+      const qty = s.qty * share, amount = s.amount * share;
+      v.qty += qty; v.sales += amount;
+      if (cost == null) v.uncostedSales += amount; else { v.costedSales += amount; v.cost += cost; }
+      const vi = v.items[s.item] = v.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: cost == null ? null : 0 };
+      vi.qty += qty; vi.sales += amount; if (cost != null) vi.cost = (vi.cost || 0) + cost;
+    };
     const byItem = {}, byParty = {};
     const totals = { sales: 0, qty: 0, costedSales: 0, cost: 0, uncostedSales: 0, lines: sales.length };
     for (const s of sales) {
@@ -9476,6 +9494,14 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       if (c) { p.costedSales += s.amount; p.cost += cost; } else p.uncostedSales += s.amount;
       const pi = p.items[s.item] = p.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: c ? 0 : null };
       pi.qty += s.qty; pi.sales += s.amount; if (c) pi.cost += cost;
+      const pc = poCost[s.code];
+      const vendors = pc ? Object.values(pc.vendors) : [];
+      if (!vendors.length) addVendor(NO_PO_VENDOR, s, 1, c ? cost : null);
+      else vendors.forEach(v => {
+        const share = v.qty / pc.qty;
+        const rate = c && c.source === 'Manual' ? c.rate : v.value / v.qty;
+        addVendor(v.vendor, s, share, rate * s.qty * share);
+      });
       totals.sales += s.amount; totals.qty += s.qty;
       if (c) { totals.costedSales += s.amount; totals.cost += cost; } else totals.uncostedSales += s.amount;
     }
@@ -9491,12 +9517,20 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
         items: Object.values(p.items).map(i => ({ item: i.item, qty: round(i.qty), sales: round(i.sales), cost: i.cost == null ? null : round(i.cost),
           gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
+    const vendorRows = Object.values(byVendor).map(v => {
+      const gp = v.costedSales ? v.costedSales - v.cost : null;
+      return { vendor: v.vendor, noPo: v.vendor === NO_PO_VENDOR, products: Object.keys(v.items).length, qty: round(v.qty), sales: round(v.sales),
+        costedSales: round(v.costedSales), cost: round(v.cost), uncostedSales: round(v.uncostedSales),
+        gp: gp == null ? null : round(gp), gpPct: gp == null ? null : round(gp * 100 / v.costedSales),
+        items: Object.values(v.items).map(i => ({ item: i.item, qty: round(i.qty), sales: round(i.sales), cost: i.cost == null ? null : round(i.cost),
+          gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales) };
+    }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
     const gp = totals.costedSales - totals.cost;
     res.json({
       start, end, source: 'fms',
       totals: { sales: round(totals.sales), qty: round(totals.qty), costedSales: round(totals.costedSales), cost: round(totals.cost),
         uncostedSales: round(totals.uncostedSales), gp: round(gp), gpPct: totals.costedSales ? round(gp * 100 / totals.costedSales) : null, lines: totals.lines },
-      products, dealers,
+      products, dealers, vendors: vendorRows,
       dataRange: { from: firstBill, to: lastBill },
       canEditCost: req.session.role === 'admin'
     });
