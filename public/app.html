@@ -1014,6 +1014,10 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18v10H3zM7 11h6M7 14h3M16 13h2"/></svg>
       <span class="nav-label-text">Cheque FMS</span>
     </div>
+    <div class="nav-item" id="nav-lead-fms" style="display:none" onclick="navigate('lead-fms',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
+      <span class="nav-label-text">Lead FMS</span>
+    </div>
     <div class="nav-item" id="nav-replacement-fms" style="display:none" onclick="navigate('replacement-fms',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2.5M18.4 9A7 7 0 006.5 6.5"/></svg>
       <span class="nav-label-text">Replacement FMS</span>
@@ -1084,6 +1088,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="cheque-fms" onclick="navigate('cheque-fms',null)" id="bnCheque" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="10" rx="1"/><line x1="7" y1="11" x2="13" y2="11"/><line x1="7" y1="14" x2="10" y2="14"/></svg>
     <span>Cheque</span>
+  </div>
+  <div class="bn-item" data-page="lead-fms" onclick="navigate('lead-fms',null)" id="bnLead" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
+    <span>Leads</span>
   </div>
   <div class="bn-item" data-page="replacement-fms" onclick="navigate('replacement-fms',null)" id="bnRepl" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2.5M18.4 9A7 7 0 006.5 6.5"/></svg>
@@ -1197,7 +1205,7 @@ tbody tr:last-child td{border-bottom:none;}
             </div>
             <!-- One FMS tab (client, 2026-10-05) — which FMS is picked here. -->
             <select id="dashFmsFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)">
-              <option value="all">All FMS</option><option value="o2d">🚚 O2D</option><option value="fms">🛠️ Service</option><option value="cheque">🧾 Cheque</option><option value="repl">♻️ Replacement</option><option value="purchase">🛒 Purchase</option>
+              <option value="all">All FMS</option><option value="o2d">🚚 O2D</option><option value="fms">🛠️ Service</option><option value="cheque">🧾 Cheque</option><option value="repl">♻️ Replacement</option><option value="lead">📞 Lead</option><option value="purchase">🛒 Purchase</option>
             </select>
             <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="every_10_days">Every 10 Days</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
           </div>
@@ -1728,6 +1736,43 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div id="chqListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── LEAD FMS + DEALER ONBOARDING ── -->
+  <div id="page-lead-fms" class="page">
+    <div class="page-header">
+      <button class="btn btn-primary" onclick="openNewLeadModal()">+ New Lead</button>
+      <button class="btn btn-green" onclick="openDealerOnboardModal()">🏪 New Dealer Onboarding</button>
+      <button class="btn btn-outline" onclick="loadLeadFmsList()">🔄 Refresh</button>
+      <button class="btn btn-outline" id="leadStepDoersBtn" style="display:none" onclick="openLeadStepDoersModal()">⚙ Step Doers</button>
+      <button class="btn btn-outline" id="leadSettingsBtn" style="display:none" onclick="openLeadSettingsModal()">💬 WhatsApp Kit</button>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto">
+      <div class="tab-group">
+        <div class="tab active" onclick="switchLeadView('queue',this)">⚡ Action Queue</div>
+        <div class="tab" onclick="switchLeadView('all',this)">All Leads</div>
+        <div class="tab" onclick="switchLeadView('dealers',this)">🏪 Dealers Onboarded</div>
+        <div class="tab" onclick="switchLeadView('reports',this)">📊 Reports</div>
+      </div>
+    </div>
+
+    <div id="leadSearchBar" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:12px 16px;margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap">
+      <input type="text" id="leadSearch" oninput="renderLeadActiveView()" placeholder="🔍 Search lead, shop, contact, mobile, area, salesman…" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface);color:var(--gray-900)"/>
+      <div id="leadFilterWrap" style="display:none;gap:8px;flex-wrap:wrap">
+        <select id="leadTypeFilter" onchange="renderLeadActiveView()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)">
+          <option value="">Incoming + Outgoing</option><option>Incoming</option><option>Outgoing</option>
+        </select>
+        <select id="leadStageFilter" onchange="renderLeadActiveView()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)">
+          <option value="">All statuses</option><option value="open">Open</option><option value="call">Call pending</option><option value="schedule">Visit to fix</option>
+          <option value="visit">Visit scheduled</option><option value="missed">⚠️ Visit missed</option><option value="won">Won</option><option value="lost">Closed — no business</option><option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="leadListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty">Loading…</div>
     </div>
   </div>
@@ -3190,6 +3235,74 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<!-- ── LEAD FMS: NEW LEAD ── -->
+<div class="modal-overlay" id="newLeadModal">
+  <div class="modal" style="max-width:520px;max-height:92vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin:0">📞 New Lead</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('newLeadModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="nlBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── LEAD FMS: DETAIL ── -->
+<div class="modal-overlay" id="leadDetailModal">
+  <div class="modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 id="leadTitle" style="margin:0">Lead</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('leadDetailModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="leadBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── LEAD FMS: STEP DOERS ── -->
+<div class="modal-overlay" id="leadStepDoersModal">
+  <div class="modal sdm-modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 style="margin:0">⚙ Lead FMS — Step Doers</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('leadStepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Step 1-2 = SC-NBD (saari leads dekhti hai). Step 3 (Visit) us salesman ka hota hai jise visit diya gaya — usse yahan tick karne ki zaroorat nahi. Baaki users sirf apni leads dekhte hain.</div>
+    <div id="leadStepDoersRows" class="sdm-body"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="submitLeadStepDoers()">Save</button>
+  </div>
+</div>
+
+<!-- ── LEAD FMS: WHATSAPP KIT (admin) ── -->
+<div class="modal-overlay" id="leadSettingsModal">
+  <div class="modal" style="max-width:560px;max-height:92vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin:0">💬 WhatsApp Kit — Catalogue & New Dealer Welcome</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('leadSettingsModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="lsBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── DEALER ONBOARDING: FORM ── -->
+<div class="modal-overlay" id="dealerOnboardModal">
+  <div class="modal" style="max-width:640px;max-height:94vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin:0">🏪 New Dealer Onboarding</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('dealerOnboardModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="onbBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── DEALER ONBOARDING: DETAIL ── -->
+<div class="modal-overlay" id="onbDetailModal">
+  <div class="modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 id="onbDetailTitle" style="margin:0">Dealer</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('onbDetailModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="onbDetailBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
 <!-- ── REPLACEMENT FMS: FORM ── -->
 <div class="modal-overlay" id="newReplModal">
   <div class="modal" style="max-width:520px">
@@ -3258,6 +3371,7 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="modal-close-x modal-close" onclick="closeModal('addDealerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="alert error" id="addDealerErr" style="display:none"></div>
+    <div style="padding:10px 12px;border-radius:10px;background:var(--color-success-bg);border:1px solid var(--color-success-border);font-size:12.5px;margin-bottom:12px">Bilkul naya dealer bana rahe ho? <a href="#" onclick="closeModal('addDealerModal');openDealerOnboardModal();return false" style="font-weight:700">🏪 Full onboarding form bharo →</a><div style="color:var(--gray-500);margin-top:2px">GST + dukaan ki photos, firm details, aur dealer ko WhatsApp welcome kit.</div></div>
     <div class="form-group"><label>Dealer / Counter Name <span style="color:var(--color-danger)">*</span></label><input type="text" id="adName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>City</label><input type="text" id="adCity" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>Phone</label><input type="tel" id="adPhone" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
@@ -3697,10 +3811,11 @@ async function init() {
     if (canSee('purchase-fms')) document.getElementById('nav-purchase-fms').style.display = 'flex';
     if (canSee('cheque-fms')) document.getElementById('nav-cheque-fms').style.display = 'flex';
     if (canSee('replacement-fms')) document.getElementById('nav-replacement-fms').style.display = 'flex';
+    if (canSee('lead-fms')) document.getElementById('nav-lead-fms').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
-    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('purchase-fms') || canSee('cheque-fms') || canSee('replacement-fms') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
+    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('purchase-fms') || canSee('cheque-fms') || canSee('replacement-fms') || canSee('lead-fms') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
@@ -3717,7 +3832,7 @@ async function init() {
     // Refresh pe last visited page restore karo
     const savedPage = localStorage.getItem('lastPage');
     const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
-    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','gross-profit','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
+    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
     if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -3805,7 +3920,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance & Leave',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','gross-profit':'Gross Profit','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance & Leave',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -3817,7 +3932,7 @@ function closeMobileSidebar() {
 }
 
 function navigate(page, el) {
-  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
+  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
     showToast("You don't have access to this page", 'error');
     return;
   }
@@ -3845,6 +3960,7 @@ function navigate(page, el) {
   if (page==='purchase-fms') loadPurchaseFmsList();
   if (page==='cheque-fms') loadChequeFmsList();
   if (page==='replacement-fms') loadReplFmsList();
+  if (page==='lead-fms') loadLeadFmsList();
   if (page==='gross-profit') loadGrossProfit();
   if (page==='price-catalogue') loadPriceCataloguePage();
   if (page==='stock') loadStockPage();
@@ -3870,6 +3986,8 @@ function setupBottomNav() {
   if (bnCheque && canSee('cheque-fms')) bnCheque.style.display = '';
   const bnRepl = document.getElementById('bnRepl');
   if (bnRepl && canSee('replacement-fms')) bnRepl.style.display = '';
+  const bnLead = document.getElementById('bnLead');
+  if (bnLead && canSee('lead-fms')) bnLead.style.display = '';
   const bnGp = document.getElementById('bnGp');
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
   arrangeBottomNavMore();
@@ -4036,6 +4154,7 @@ async function loadDashboard() {
     // Scoped server-side: doers get the queue, everyone else only their own cheques (bounce alerts).
     api('/api/cheque-fms').catch(() => null),
     api('/api/replacement-fms').catch(() => null),
+    api('/api/lead-fms').catch(() => null),
     (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms').catch(() => null) : null
   ]);
   const [dDel, dChl] = await Promise.all([
@@ -4106,7 +4225,7 @@ async function loadDashboard() {
   // Paints the table, cards and chart from taskRows plus whatever O2D/SFMS
   // data is in hand (no network call).
   const renderDash = () => {
-    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks(), ...buildChequeDashboardTasks(), ...buildReplDashboardTasks(), ...buildPurchaseDashboardTasks()];
+    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks(), ...buildChequeDashboardTasks(), ...buildReplDashboardTasks(), ...buildLeadDashboardTasks(), ...buildPurchaseDashboardTasks()];
 
 
     // Pending count/chart use allTodayPending's actual length — it's the same
@@ -4146,13 +4265,14 @@ async function loadDashboard() {
   // update, so a step just done there shows here without waiting on the
   // sheet re-read — then repaint once the fresh read lands.
   renderDash();
-  const [o2d, sfms, chq, repl, pur] = await fmsPromise;
+  const [o2d, sfms, chq, repl, lead, pur] = await fmsPromise;
   if (loadSeq !== _dashLoadSeq) return;
   // A failed read keeps the last good data instead of blanking the FMS rows.
   if (Array.isArray(o2d)) window._lastO2dData = o2d;
   if (canSeeSfms && Array.isArray(sfms)) window._lastSfmsData = sfms;
   if (chq && Array.isArray(chq.cheques)) window._lastChequeData = chq;
   if (repl && Array.isArray(repl.items)) window._lastReplData = repl;
+  if (lead && Array.isArray(lead.leads)) window._lastLeadData = lead;
   if (Array.isArray(pur)) window._lastPurchaseData = pur;
   renderDash();
 }
@@ -4248,7 +4368,7 @@ function renderDashTable(tasks, type) {
   // Filter by selected tab: all / delegation / checklist / FMS. The single
   // FMS tab ('fmsall') covers O2D (t.type 'o2d'), Service (t.type 'fms') and
   // Cheque (t.type 'cheque'), narrowed by the #dashFmsFilter dropdown.
-  const FMS_TYPES = ['o2d', 'fms', 'cheque', 'repl', 'purchase'];
+  const FMS_TYPES = ['o2d', 'fms', 'cheque', 'repl', 'lead', 'purchase'];
   let allPending = tasks.filter(t => {
     const matchType = (!type || type === 'all') ? true
       : type === 'fmsall' ? (fmsPick === 'all' ? FMS_TYPES.includes(t.type) : t.type === fmsPick)
@@ -4269,6 +4389,8 @@ function renderDashTable(tasks, type) {
     ? `<span style="font-size:9px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-purple-border)">🛠️ Service</span>`
     : t.type==='purchase'
     ? `<span style="font-size:9px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-warning-border)">🛒 Purchase</span>`
+    : t.type==='lead'
+    ? `<span style="font-size:9px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-purple-border)">📞 Lead</span>`
     : t.type==='repl'
     ? `<span style="font-size:9px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-primary-ring)">♻️ Repl.</span>`
     : t.type==='cheque'
@@ -4287,7 +4409,7 @@ function renderDashTable(tasks, type) {
     // literally instead of rendering them. Delegation/Checklist descriptions
     // are raw user-typed text straight from the DB and still need escaping.
     const rawDesc = t.description || t.desc || '';
-    const descCell = `${(t.type === 'o2d' || t.type === 'fms' || t.type === 'cheque' || t.type === 'repl' || t.type === 'purchase') ? rawDesc : esc(rawDesc)}${linkBtn}`;
+    const descCell = `${(t.type === 'o2d' || t.type === 'fms' || t.type === 'cheque' || t.type === 'repl' || t.type === 'lead' || t.type === 'purchase') ? rawDesc : esc(rawDesc)}${linkBtn}`;
     let actions = '';
     let rowStyle = '';
     // Someone else's delegation, visible through the "All Delegations" grant — view + comment only.
@@ -4303,6 +4425,8 @@ function renderDashTable(tasks, type) {
       actions = `<button class="action-btn done" onclick="openChequeQuickAction(${t.id})">Done</button>`;
     } else if (t.type === 'repl') {
       actions = `<button class="action-btn done" onclick="openReplQuickAction(${t.id})">Done</button>`;
+    } else if (t.type === 'lead') {
+      actions = `<button class="action-btn done" onclick="openLeadQuickAction(${t.id})">Done</button>`;
     } else if (t.type === 'purchase') {
       actions = `<button class="action-btn done" onclick="openPurchaseQuickAction('${esc(t.id)}')">Done</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
@@ -4330,7 +4454,7 @@ function renderDashTable(tasks, type) {
     // Mobile shows each row as a compact card (see the #dashTable rules in the
     // phone media query): empty cells and a description that just repeats the
     // title get class dt-empty and are hidden there.
-    const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque'||t.type==='repl'||t.type==='purchase';
+    const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque'||t.type==='repl'||t.type==='lead'||t.type==='purchase';
     const doerName = (isAdmin||isPC) ? t.assignedToName : othersDeleg ? `${t.assignedByName} → ${t.assignedToName}` : t.assignedByName;
     // Planned date for every row — Delegation/Checklist due date, or the
     // planned time of the FMS step that's pending (client, 2026-10-05).
@@ -5554,6 +5678,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'purchase-fms', label: 'Purchase FMS' },
     { key: 'cheque-fms', label: 'Cheque FMS' },
     { key: 'replacement-fms', label: 'Replacement FMS' },
+    { key: 'lead-fms', label: 'Lead FMS + Dealer Onboarding' },
     { key: 'price-catalogue', label: 'Price List & Catalogue' },
     { key: 'stock', label: 'Stock' },
   ]},
@@ -10720,19 +10845,42 @@ function o2dReportsLostReasonLabel(reason) {
 // Sales Lost — two-level drill: first WHY (grouped by which step actually
 // cancelled the item — an order-level "No", or a per-item Good Check
 // "Not Available"), then which specific order/items for that reason.
+// By Product (client, 2026-10-07): which items keep losing sales — "Not
+// Available" items are what stock planning (IMS) has to fix.
+function o2dReportsLostTabs(active) {
+  const tab = (key, label, fn) => `<div class="tab ${active === key ? 'active' : ''}" onclick="${fn}">${label}</div>`;
+  return `<div class="tab-group" style="margin-bottom:10px">${tab('reason', 'By Reason', 'o2dReportsShowLostSalesDrill()')}${tab('product', 'By Product', 'o2dReportsShowLostByProduct()')}</div>`;
+}
+function o2dReportsShowLostByProduct() {
+  const byProduct = {};
+  Object.entries(_o2dReportsDrillData.lostByReason || {}).forEach(([reason, data]) => data.items.forEach(it => {
+    const p = byProduct[it.productName] = byProduct[it.productName] || { qty: 0, value: 0, orders: new Set(), notAvailable: 0 };
+    p.qty += Number(it.qty) || 0; p.value += it.value; p.orders.add(it.orderNo);
+    if (reason === 'Good Check') p.notAvailable += Number(it.qty) || 0;
+  }));
+  const entries = Object.entries(byProduct).sort((a, b) => b[1].value - a[1].value);
+  document.getElementById('o2dReportsDrillTitle').textContent = 'Sales Lost — By Product';
+  document.getElementById('o2dReportsDrillBody').innerHTML = o2dReportsLostTabs('product') + (entries.length ? entries.map(([name, p]) => `<div class="o2d-drill-row" style="cursor:default">
+      <div class="o2d-drill-row-main">
+        <div class="o2d-drill-row-title">${esc(name)}</div>
+        <div class="o2d-drill-row-sub">${p.qty} pcs lost in ${p.orders.size} order${p.orders.size > 1 ? 's' : ''}${p.notAvailable ? ` · <b style="color:var(--color-danger)">${p.notAvailable} pcs Not Available</b>` : ''}</div>
+      </div>
+      <div class="o2d-drill-row-value" style="color:var(--color-danger)">${inr(p.value)}</div>
+    </div>`).join('') : '<div class="empty">No lost sales in this range</div>');
+}
 function o2dReportsShowLostSalesDrill() {
   const reasons = _o2dReportsDrillData.lostByReason || {};
   const entries = Object.entries(reasons).sort((a, b) => b[1].value - a[1].value);
   document.getElementById('o2dReportsDrillTitle').textContent = 'Sales Lost — By Reason';
   const body = document.getElementById('o2dReportsDrillBody');
-  body.innerHTML = entries.length ? entries.map(([reason, data]) => `<div class="o2d-drill-row" onclick="o2dReportsShowLostSalesItems('${o2dJsEsc(reason)}')" title="Click to see the affected items">
+  body.innerHTML = o2dReportsLostTabs('reason') + (entries.length ? entries.map(([reason, data]) => `<div class="o2d-drill-row" onclick="o2dReportsShowLostSalesItems('${o2dJsEsc(reason)}')" title="Click to see the affected items">
       <div class="o2d-drill-row-main">
         <div class="o2d-drill-row-title">${esc(o2dReportsLostReasonLabel(reason))}</div>
         <div class="o2d-drill-row-sub">${data.count} item${data.count > 1 ? 's' : ''}</div>
       </div>
       <div class="o2d-drill-row-value" style="color:var(--color-danger)">${inr(data.value)}</div>
       <div class="o2d-drill-row-arrow">›</div>
-    </div>`).join('') : '<div class="empty">No lost sales in this range</div>';
+    </div>`).join('') : '<div class="empty">No lost sales in this range</div>');
   document.getElementById('o2dReportsDrillModal').classList.add('open');
 }
 
@@ -14535,6 +14683,748 @@ async function o2dChequeRiskBanner(name) {
   if (!r || !Array.isArray(r.parties)) return '';
   if (!chqRisk) chqRisk = r;
   return chqRiskBannerHtml(name);
+}
+
+// ══════════════════════════════════════════════════════
+// LEAD FMS + DEALER ONBOARDING (client recording, 2026-10-07). SC-NBD calls
+// each lead and sends the catalogue, fixes the salesman's visit, and the
+// salesman confirms it. Reports catch leads nobody went back to. Server:
+// search "LEAD FMS" in server.js.
+// ══════════════════════════════════════════════════════
+const LEAD_STEP_DEFS = [
+  { n: 1, key: 'call',     label: 'Call + Send Catalogue', doer: 'SC-NBD',   tat: '1-2 days' },
+  { n: 2, key: 'schedule', label: 'Fix Salesman Visit',    doer: 'SC-NBD',   tat: 'Same day' },
+  { n: 3, key: 'visit',    label: 'Salesman Visit',        doer: 'Salesman', tat: 'On visit date' }
+];
+const LEAD_STAGE = {
+  call:      { label: 'Call pending',    bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
+  schedule:  { label: 'Visit to fix',    bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
+  visit:     { label: 'Visit scheduled', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
+  missed:    { label: '⚠️ Visit missed', bg: 'var(--color-danger-bg)', fg: 'var(--color-danger-text)' },
+  won:       { label: '✓ Won',           bg: 'var(--color-success-bg)', fg: 'var(--color-success-text)' },
+  lost:      { label: 'Closed',          bg: 'var(--gray-100)', fg: 'var(--gray-600)' },
+  cancelled: { label: 'Cancelled',       bg: 'var(--gray-100)', fg: 'var(--gray-500)' }
+};
+const LEAD_RECALL = ['Baad Me Call Karo', 'Phone Nahi Utha'];
+
+let leadData = [];
+let leadMe = { seeAll: false, mySteps: [], isAdmin: false, pageAccess: false };
+let leadToday = '';
+let leadView = 'queue';
+let leadMeta = { sources: [], callOutcomes: [], visitOutcomes: [], catalogue: '' };
+let leadRepFrom = '', leadRepTo = '';
+let onbData = null;
+let _leadUsers = null;
+async function leadUserList() {
+  if (!_leadUsers) { const u = await api('/api/users/roster'); _leadUsers = Array.isArray(u) ? u.filter(x => +x.is_active !== 0) : []; }
+  return _leadUsers;
+}
+
+async function loadLeadFmsList() {
+  const wrap = document.getElementById('leadListWrap');
+  if (wrap) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const d = await api('/api/lead-fms');
+  if (!d || !Array.isArray(d.leads)) { if (wrap) wrap.innerHTML = `<div class="empty">⚠️ ${esc((d && d.error) || 'Failed to load')}</div>`; return; }
+  leadApplyData(d);
+  document.getElementById('leadStepDoersBtn').style.display = leadMe.isAdmin ? 'inline-flex' : 'none';
+  document.getElementById('leadSettingsBtn').style.display = leadMe.isAdmin ? 'inline-flex' : 'none';
+  onbData = null;
+  renderLeadActiveView();
+}
+function leadApplyData(d) {
+  leadData = d.leads; leadMe = d.me || leadMe; leadToday = d.today || '';
+  leadMeta = { sources: d.sources || [], callOutcomes: d.callOutcomes || [], visitOutcomes: d.visitOutcomes || [], catalogue: d.catalogue || '' };
+  window._lastLeadData = d;
+}
+function switchLeadView(view, el) {
+  leadView = view;
+  document.querySelectorAll('#page-lead-fms .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('leadFilterWrap').style.display = view === 'all' ? 'flex' : 'none';
+  document.getElementById('leadSearchBar').style.display = view === 'reports' ? 'none' : 'flex';
+  renderLeadActiveView();
+}
+function renderLeadActiveView() {
+  if (leadView === 'queue') return renderLeadQueue();
+  if (leadView === 'all') return renderLeadAll();
+  if (leadView === 'dealers') return renderOnboardedList();
+  return renderLeadReports();
+}
+
+const leadIsMissed = l => l.stage === 'visit' && l.visitDate && l.visitDate < leadToday;
+const leadDaysSince = ymd => ymd ? Math.round((new Date(leadToday + 'T00:00:00') - new Date(String(ymd).slice(0, 10) + 'T00:00:00')) / 86400000) : 0;
+const leadName = l => l.shopName || l.contactName || '—';
+function leadStageBadge(l) {
+  const s = LEAD_STAGE[leadIsMissed(l) ? 'missed' : l.stage] || { label: l.stage, bg: 'var(--gray-100)', fg: 'var(--gray-600)' };
+  const label = l.stage === 'won' || l.stage === 'lost' ? `${l.stage === 'won' ? '✓ ' : ''}${l.result}` : s.label;
+  return `<span class="status-badge" style="background:${s.bg};color:${s.fg};white-space:nowrap">${esc(label)}</span>`;
+}
+const leadTypeBadge = l => `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;white-space:nowrap;background:${l.leadType === 'Incoming' ? 'var(--color-primary-light)' : 'var(--color-warning-bg)'};color:${l.leadType === 'Incoming' ? 'var(--color-primary)' : 'var(--color-warning-text)'}">${l.leadType === 'Incoming' ? '⬇ In' : '⬆ Out'}</span>`;
+function leadCanDo(t) {
+  if (t.key === 'visit') return (t.doers || []).some(d => ME && Number(d.id) === Number(ME.id)) || leadMe.mySteps.includes(2);
+  return leadMe.mySteps.includes(t.n);
+}
+function leadSearchMatch(l, q) {
+  if (!q) return true;
+  return [l.code, l.shopName, l.contactName, l.mobile, l.city, l.area, l.salesmanName, l.visitUserName, l.requirement, l.source].some(v => String(v || '').toLowerCase().includes(q));
+}
+
+// ── Action Queue ──
+function renderLeadQueue() {
+  const wrap = document.getElementById('leadListWrap');
+  const q = (document.getElementById('leadSearch').value || '').trim().toLowerCase();
+  const groups = LEAD_STEP_DEFS.map(sd => ({ key: sd.key, title: `${sd.n}. ${sd.label}`, items: [] }));
+  const upcoming = [];
+  leadData.filter(l => leadSearchMatch(l, q)).forEach(l => (l.tasks || []).forEach(t => {
+    if (!leadCanDo(t)) return;
+    if (t.planned && t.planned > leadToday) { upcoming.push({ l, t }); return; }
+    const g = groups.find(x => x.key === t.key);
+    if (g) g.items.push({ l, t });
+  }));
+  const row = ({ l, t }) => {
+    const late = t.planned && t.planned < leadToday;
+    return `<tr onclick="openLeadDetail(${l.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
+      <td style="font-weight:600;white-space:nowrap">${esc(l.code)} ${leadTypeBadge(l)}</td>
+      <td style="min-width:160px"><b>${esc(leadName(l))}</b>${l.shopName && l.contactName ? `<div style="font-size:11.5px;color:var(--gray-500)">${esc(l.contactName)}</div>` : ''}</td>
+      <td style="white-space:nowrap">${esc(l.mobile || '—')}</td>
+      <td>${esc([l.area, l.city].filter(Boolean).join(', ') || '—')}</td>
+      <td>${esc(t.key === 'visit' ? (l.visitUserName || '—') : (l.salesmanName || '—'))}</td>
+      <td style="min-width:140px;font-size:12px;color:var(--gray-600)">${esc(t.key === 'call' ? (l.callOutcome ? `Last: ${l.callOutcome}` : (l.requirement || '')) : (l.visitPurpose === 'Sample' ? '🎁 Sample leke jaana' : l.callRemark || l.requirement || ''))}</td>
+      <td style="white-space:nowrap;${late ? 'color:var(--color-danger);font-weight:700' : ''}">${t.planned ? fmtDateDMY(t.planned) : '—'}${late ? ` ⚠️ ${leadDaysSince(t.planned)}d` : ''}</td>
+    </tr>`;
+  };
+  const table = items => `<table style="font-size:12.5px"><thead><tr><th>Lead</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Salesman</th><th>Note</th><th>Planned</th></tr></thead><tbody>${items.map(row).join('')}</tbody></table>`;
+  const nonEmpty = groups.filter(g => g.items.length);
+  let html = nonEmpty.length
+    ? nonEmpty.map(g => `<div style="padding:14px 16px 4px;font-size:13px;font-weight:800;color:var(--gray-800)">${esc(g.title)} <span style="color:var(--gray-400);font-weight:600">(${g.items.length})</span></div>${table(g.items.sort((a, b) => String(a.t.planned).localeCompare(String(b.t.planned))))}`).join('')
+    : `<div class="empty">${leadMe.seeAll ? 'Aaj ke liye koi action pending nahi 🎉' : 'Aapke liye koi visit pending nahi. "+ New Lead" se nayi lead daalein.'}</div>`;
+  if (upcoming.length) {
+    html += `<details style="padding:10px 16px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--gray-500)">🗓 Upcoming (${upcoming.length}) — call / visit date abhi aage hai</summary>
+      ${table(upcoming.sort((a, b) => String(a.t.planned).localeCompare(String(b.t.planned))))}</details>`;
+  }
+  wrap.innerHTML = html;
+}
+
+// ── All Leads ──
+function renderLeadAll() {
+  const wrap = document.getElementById('leadListWrap');
+  const q = (document.getElementById('leadSearch').value || '').trim().toLowerCase();
+  const ty = document.getElementById('leadTypeFilter').value;
+  const st = document.getElementById('leadStageFilter').value;
+  const rows = leadData.filter(l => leadSearchMatch(l, q) && (!ty || l.leadType === ty) && (!st
+    || (st === 'open' ? ['call', 'schedule', 'visit'].includes(l.stage) : st === 'missed' ? leadIsMissed(l) : l.stage === st)));
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No leads found.</div>'; return; }
+  const shown = rows.slice(0, 300);
+  wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
+    <thead><tr><th>Lead</th><th>Date</th><th>Source</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Brought by</th><th>Calls</th><th>Visit</th><th>Status</th></tr></thead>
+    <tbody>${shown.map(l => `<tr onclick="openLeadDetail(${l.id})" style="cursor:pointer">
+      <td style="font-weight:600">${esc(l.code)} ${leadTypeBadge(l)}</td>
+      <td>${fmtDateDMY(String(l.createdAt || '').slice(0, 10))}</td>
+      <td>${esc(l.source || '—')}</td>
+      <td style="white-space:normal;min-width:150px">${esc(leadName(l))}${l.shopName && l.contactName ? ` <span style="color:var(--gray-500)">· ${esc(l.contactName)}</span>` : ''}</td>
+      <td>${esc(l.mobile || '—')}</td>
+      <td>${esc([l.area, l.city].filter(Boolean).join(', ') || '—')}</td>
+      <td>${esc(l.salesmanName || l.createdByName || '—')}</td>
+      <td>${l.callCount || '—'}${l.catalogueSent ? ' <span title="Catalogue sent">📘</span>' : ''}</td>
+      <td>${l.visitDate ? `${fmtDateDMY(l.visitDate)} · ${esc(l.visitUserName)}` : l.visitCount ? `${l.visitCount} done` : '—'}</td>
+      <td>${leadStageBadge(l)}</td>
+    </tr>`).join('')}</tbody></table>
+    <div style="padding:10px 16px;font-size:12px;color:var(--gray-400)">${rows.length} leads${rows.length > shown.length ? ` — showing first ${shown.length}, search to narrow` : ''}</div>`;
+}
+
+// ── Reports ──
+function leadRepRange(kind) {
+  const now = new Date(leadToday + 'T00:00:00');
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (kind === 'month') { leadRepFrom = ymd(new Date(now.getFullYear(), now.getMonth(), 1)); leadRepTo = leadToday; }
+  else if (kind === 'last') { leadRepFrom = ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)); leadRepTo = ymd(new Date(now.getFullYear(), now.getMonth(), 0)); }
+  else if (kind === 'all') { leadRepFrom = ''; leadRepTo = ''; }
+  else { leadRepFrom = document.getElementById('leadRepFrom').value; leadRepTo = document.getElementById('leadRepTo').value; }
+  renderLeadReports();
+}
+function renderLeadReports() {
+  const wrap = document.getElementById('leadListWrap');
+  if (leadRepFrom === '' && leadRepTo === '' && !renderLeadReports._init) { renderLeadReports._init = true; leadRepRange('month'); return; }
+  const inRange = l => { const d = String(l.createdAt || '').slice(0, 10); return (!leadRepFrom || d >= leadRepFrom) && (!leadRepTo || d <= leadRepTo); };
+  const live = leadData.filter(l => l.stage !== 'cancelled');
+  const ranged = live.filter(inRange);
+  const won = ranged.filter(l => l.stage === 'won');
+  const closedNo = ranged.filter(l => l.stage === 'lost');
+  const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—';
+  const card = (label, value, sub, color, onclick) => `<div ${onclick ? `onclick="${onclick}" ` : ''}style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:16px;flex:1;min-width:150px;${onclick ? 'cursor:pointer' : ''}">
+    <div style="${CHQ_LABEL}">${label}</div><div style="font-size:24px;font-weight:800;color:${color}">${value}</div><div style="font-size:12px;color:var(--gray-500)">${sub || ''}</div></div>`;
+  // Action list (not date-ranged): leads someone should have gone back to.
+  const missed = live.filter(leadIsMissed).map(l => ({ l, why: `Visit ${fmtDateDMY(l.visitDate)} tha — ${leadDaysSince(l.visitDate)} din ho gaye`, days: leadDaysSince(l.visitDate) }));
+  const unscheduled = live.filter(l => l.stage === 'schedule' && leadDaysSince(l.visitNeededAt) >= 2)
+    .map(l => ({ l, why: `Visit fix hi nahi hua — ${leadDaysSince(l.visitNeededAt)} din se`, days: leadDaysSince(l.visitNeededAt) }));
+  const uncalled = live.filter(l => l.stage === 'call' && !l.callCount && leadDaysSince(l.createdAt) >= 2)
+    .map(l => ({ l, why: `Call hi nahi hua — ${leadDaysSince(l.createdAt)} din se`, days: leadDaysSince(l.createdAt) }));
+  const attention = [...missed, ...unscheduled, ...uncalled].sort((a, b) => b.days - a.days);
+  // Salesman-wise: leads brought (Outgoing), visits assigned / done / missed, won.
+  const sm = {};
+  const S = name => sm[name] = sm[name] || { brought: 0, assigned: 0, done: 0, missed: 0, won: 0 };
+  ranged.forEach(l => {
+    if (l.leadType === 'Outgoing' && l.salesmanName) S(l.salesmanName).brought++;
+    if (l.visitUserName) { const s = S(l.visitUserName); s.assigned++; if (l.visitCount) s.done++; if (leadIsMissed(l)) s.missed++; if (l.stage === 'won') s.won++; }
+  });
+  const src = {};
+  ranged.forEach(l => { const k = `${l.leadType} · ${l.source || '—'}`; const s = src[k] = src[k] || { n: 0, called: 0, visited: 0, won: 0 }; s.n++; if (l.callCount) s.called++; if (l.visitCount) s.visited++; if (l.stage === 'won') s.won++; });
+  const funnel = [['Leads', ranged.length], ['Call hua', ranged.filter(l => l.callCount).length], ['Catalogue gaya', ranged.filter(l => l.catalogueSent).length],
+    ['Visit fix hua', ranged.filter(l => l.visitUserName).length], ['Visit hua', ranged.filter(l => l.visitCount).length], ['Won', won.length]];
+  const maxF = Math.max(1, funnel[0][1]);
+  wrap.innerHTML = `<div style="padding:16px">
+    <div class="o2d-report-filterbar" style="margin-bottom:14px">
+      <div><label>From</label><input type="date" id="leadRepFrom" value="${leadRepFrom}"/></div>
+      <div><label>To</label><input type="date" id="leadRepTo" value="${leadRepTo}"/></div>
+      <button class="btn btn-primary" onclick="leadRepRange('custom')">Generate</button>
+      <button class="btn btn-outline btn-sm" onclick="leadRepRange('month')">This Month</button>
+      <button class="btn btn-outline btn-sm" onclick="leadRepRange('last')">Last Month</button>
+      <button class="btn btn-outline btn-sm" onclick="leadRepRange('all')">All Time</button>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+      ${card('Leads', ranged.length, `⬇ ${ranged.filter(l => l.leadType === 'Incoming').length} Incoming · ⬆ ${ranged.filter(l => l.leadType === 'Outgoing').length} Outgoing`, 'var(--gray-900)')}
+      ${card('Won', won.length, `${won.filter(l => l.result === 'Order').length} order · ${won.filter(l => l.result === 'Dealer Onboarded').length} new dealer · ${pct(won.length, ranged.length)}`, 'var(--color-success-text)')}
+      ${card('Closed — no business', closedNo.length, pct(closedNo.length, ranged.length) + ' of leads', 'var(--gray-700)')}
+      ${card('⚠️ Visit missed', missed.length, 'visit date nikal gaya, koi nahi gaya', missed.length ? 'var(--color-danger)' : 'var(--gray-700)')}
+      ${card('Visit to fix', live.filter(l => l.stage === 'schedule').length, `${unscheduled.length} 2+ din se pending`, 'var(--color-primary)')}
+      ${card('Call pending', live.filter(l => l.stage === 'call').length, `${uncalled.length} kabhi call nahi hua`, 'var(--color-warning-text)')}
+    </div>
+
+    <div style="${CHQ_LABEL};margin-bottom:8px">⚠️ In leads par koi wapas nahi gaya / kaam ruka hai (${attention.length})</div>
+    ${attention.length ? `<table style="font-size:12.5px;margin-bottom:20px"><thead><tr><th>Lead</th><th>Shop / Contact</th><th>Mobile</th><th>Salesman</th><th>Kya ruka hai</th><th>Last call</th></tr></thead>
+      <tbody>${attention.map(({ l, why, days }) => `<tr onclick="openLeadDetail(${l.id})" style="cursor:pointer;${days >= 7 ? 'background:var(--color-danger-bg)' : ''}">
+        <td style="font-weight:600;white-space:nowrap">${esc(l.code)} ${leadTypeBadge(l)}</td><td>${esc(leadName(l))}</td><td style="white-space:nowrap">${esc(l.mobile || '—')}</td>
+        <td>${esc(l.visitUserName || l.salesmanName || '—')}</td><td style="font-weight:600;color:var(--color-danger-text)">${esc(why)}</td><td style="font-size:12px">${esc(l.callOutcome || '—')}</td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty" style="margin-bottom:20px">Sab leads par kaam chal raha hai 🎉</div>'}
+
+    <div class="o2d-report-grid-2-even">
+      <div>
+        <div style="${CHQ_LABEL};margin-bottom:8px">Funnel</div>
+        ${funnel.map(([k, v]) => `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:12.5px">
+          <div style="width:110px;color:var(--gray-600)">${k}</div>
+          <div style="flex:1;background:var(--gray-100);border-radius:6px;height:20px;overflow:hidden"><div style="width:${Math.round(v * 100 / maxF)}%;height:100%;background:var(--color-primary);opacity:.8"></div></div>
+          <div style="width:70px;text-align:right;font-weight:700">${v} <span style="color:var(--gray-400);font-weight:500">${pct(v, funnel[0][1])}</span></div></div>`).join('')}
+      </div>
+      <div>
+        <div style="${CHQ_LABEL};margin-bottom:8px">Source-wise</div>
+        <table style="font-size:12.5px"><thead><tr><th>Source</th><th>Leads</th><th>Called</th><th>Visited</th><th>Won</th><th>Conv.</th></tr></thead>
+        <tbody>${Object.entries(src).sort((a, b) => b[1].n - a[1].n).map(([k, s]) => `<tr><td style="font-weight:600">${esc(k)}</td><td>${s.n}</td><td>${s.called}</td><td>${s.visited}</td><td>${s.won}</td><td>${pct(s.won, s.n)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">—</td></tr>'}</tbody></table>
+      </div>
+    </div>
+
+    <div style="${CHQ_LABEL};margin:18px 0 8px">Salesman-wise</div>
+    <table style="font-size:12.5px"><thead><tr><th>Salesman</th><th>Leads laaye (Outgoing)</th><th>Visits diye</th><th>Visit hue</th><th>Missed</th><th>Won</th></tr></thead>
+    <tbody>${Object.entries(sm).sort((a, b) => b[1].missed - a[1].missed || b[1].assigned - a[1].assigned).map(([k, s]) => `<tr><td style="font-weight:600">${esc(k)}</td><td>${s.brought}</td><td>${s.assigned}</td><td>${s.done}</td>
+      <td style="${s.missed ? 'color:var(--color-danger);font-weight:700' : ''}">${s.missed}</td><td>${s.won}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">—</td></tr>'}</tbody></table>
+  </div>`;
+}
+
+// ── New Lead ──
+async function openNewLeadModal() {
+  if (!leadMeta.sources.length) { const d = await api('/api/lead-fms'); if (d && Array.isArray(d.leads)) leadApplyData(d); }
+  const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
+  document.getElementById('nlBody').innerHTML = `
+    <div class="alert error" id="nlErr" style="display:none"></div>
+    ${L('Lead kahan se aayi?', true)}
+    <div class="tab-group" style="margin-bottom:12px" id="nlType">
+      <div class="tab" data-v="Incoming" onclick="leadPickType(this)">⬇ Incoming — Insta / FB enquiry</div>
+      <div class="tab" data-v="Outgoing" onclick="leadPickType(this)">⬆ Outgoing — market visit</div>
+    </div>
+    ${L('Source')}<select id="nlSource" style="${CHQ_INPUT}">${leadMeta.sources.map(s => `<option>${esc(s)}</option>`).join('')}</select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      <div>${L('Shop / Firm Name')}<input id="nlShop" style="${CHQ_INPUT}"/></div>
+      <div>${L('Contact Person')}<input id="nlContact" style="${CHQ_INPUT}"/></div>
+      <div>${L('Mobile (WhatsApp)')}<input id="nlMobile" inputmode="tel" style="${CHQ_INPUT}"/></div>
+      <div>${L('City')}<input id="nlCity" style="${CHQ_INPUT}"/></div>
+    </div>
+    ${L('Area / Market')}<input id="nlArea" placeholder="e.g. Mansarovar, Jhotwara" style="${CHQ_INPUT}"/>
+    ${L('Requirement / Note')}<textarea id="nlReq" rows="2" placeholder="e.g. 10 ceiling fan ki requirement · ya: naya dealer, catalogue maanga" style="${CHQ_INPUT};resize:vertical"></textarea>
+    ${L('Visiting Card / Shop Photo')}<input type="file" id="nlCard" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'nlCardPv')" style="${CHQ_INPUT}"/><div id="nlCardPv" style="font-size:12px;margin:-6px 0 8px"></div>
+    <div id="nlSalesmanWrap" style="display:${leadMe.seeAll ? '' : 'none'}">${L('Salesman (jo dealer se mila / us area ka)')}<select id="nlSalesman" style="${CHQ_INPUT}"><option value="">— None —</option></select></div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Mobile ya card photo me se ek zaroori hai. Lead save hote hi SC-NBD ke dashboard par call aa jayegi.</div>
+    <button class="btn btn-primary" id="nlSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitNewLead()">Save Lead</button>`;
+  document.getElementById('newLeadModal').classList.add('open');
+  leadPickType(document.querySelector(`#nlType .tab[data-v="${leadMe.seeAll ? 'Incoming' : 'Outgoing'}"]`));
+  if (leadMe.seeAll) {
+    const users = await leadUserList();
+    document.getElementById('nlSalesman').innerHTML = '<option value="">— None —</option>' + users.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+  }
+}
+function leadPickType(el) {
+  document.querySelectorAll('#nlType .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  const src = document.getElementById('nlSource');
+  if (src) src.value = el.dataset.v === 'Outgoing' ? 'Market Visit' : 'Instagram';
+}
+async function submitNewLead(force) {
+  const err = document.getElementById('nlErr');
+  err.style.display = 'none';
+  const typeEl = document.querySelector('#nlType .tab.active');
+  const v = id => document.getElementById(id).value.trim();
+  const body = { leadType: typeEl ? typeEl.dataset.v : '', source: v('nlSource'), shopName: v('nlShop'), contactName: v('nlContact'), mobile: v('nlMobile'),
+    city: v('nlCity'), area: v('nlArea'), requirement: v('nlReq'), cardPhoto: document.getElementById('nlCard').dataset.compressed || '', force: !!force };
+  if (leadMe.seeAll && v('nlSalesman')) body.salesmanUserId = Number(v('nlSalesman'));
+  if (!body.shopName && !body.contactName) { err.textContent = 'Shop name ya contact person daalein'; err.style.display = 'block'; return; }
+  if (!body.mobile && !body.cardPhoto) { err.textContent = 'Mobile number ya visiting card ki photo daalein'; err.style.display = 'block'; return; }
+  const btn = document.getElementById('nlSubmitBtn');
+  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api('/api/lead-fms', 'POST', body);
+  btn.disabled = false; btn.textContent = 'Save Lead';
+  if (r.duplicate) {
+    showConfirm({ icon: '⚠️', title: 'Duplicate lead?', msg: r.error + '. Phir bhi nayi lead banayein?', okLabel: 'Haan, banao', okColor: 'var(--color-primary)' }, () => submitNewLead(true));
+    return;
+  }
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  closeModal('newLeadModal');
+  showToast(`✅ ${r.code} saved`);
+  if (document.getElementById('page-lead-fms').classList.contains('active')) loadLeadFmsList();
+}
+
+// ── Detail ──
+function openLeadDetail(id) {
+  const l = leadData.find(x => x.id === id);
+  if (!l) { showToast('Lead not found — please refresh', 'error'); return; }
+  document.getElementById('leadTitle').textContent = `${l.code} · ${leadName(l)}`;
+  document.getElementById('leadDetailModal').classList.add('open');
+  renderLeadDetailBody(l);
+  loadLeadEvents(l.id);
+}
+function renderLeadDetailBody(l) {
+  const f = (label, val) => `<div><div style="${CHQ_LABEL}">${label}</div><div style="font-size:14px;color:var(--gray-800)">${val}</div></div>`;
+  const wa = l.mobile ? `https://wa.me/${String(l.mobile).replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}` : '';
+  const canEdit = (leadMe.seeAll || (ME && Number(l.createdBy) === Number(ME.id))) && l.stage !== 'cancelled';
+  const info = `<div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:16px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><span>${leadTypeBadge(l)} ${leadStageBadge(l)}</span>
+      <span style="font-size:12px;color:var(--gray-500)">${esc(l.source || '')} · ${fmtDateDMY(String(l.createdAt || ''), true)} · by ${esc(l.createdByName || '—')}</span></div>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
+      ${f('Shop', esc(l.shopName || '—'))}${f('Contact', esc(l.contactName || '—'))}
+      ${f('Mobile', l.mobile ? `<a href="tel:${esc(l.mobile)}">📞 ${esc(l.mobile)}</a> · <a href="${wa}" target="_blank">WhatsApp</a>` : '—')}
+      ${f('Area', esc([l.area, l.city].filter(Boolean).join(', ') || '—'))}
+      ${l.requirement ? `<div style="grid-column:1/-1">${f('Requirement', esc(l.requirement))}</div>` : ''}
+      ${f('Salesman (lead)', esc(l.salesmanName || '—'))}
+      ${f('Calls', `${l.callCount}${l.catalogueSent ? ' · 📘 catalogue sent' : ''}${l.callOutcome ? `<div style="font-size:12px;color:var(--gray-600)">${esc(l.callOutcome)}${l.callRemark ? ' — ' + esc(l.callRemark) : ''}</div>` : ''}`)}
+      ${l.visitUserName || l.visitCount ? f('Visit', `${l.visitDate ? fmtDateDMY(l.visitDate) + ' · ' : ''}${esc(l.visitUserName || '—')}${l.visitPurpose === 'Sample' ? ' · 🎁 Sample' : ''}${l.visitCount ? `<div style="font-size:12px;color:var(--gray-600)">${l.visitCount} visit · last: ${esc(l.visitOutcome)}${l.visitRemark ? ' — ' + esc(l.visitRemark) : ''}</div>` : ''}`) : ''}
+      ${l.result ? f('Result', esc(l.result)) : ''}
+      ${l.cancelledAt ? f('Cancelled', esc(l.cancelReason)) : ''}
+      ${l.cardPhoto ? `<div>${chqPhotoHtml(l.cardPhoto, 140)}</div>` : ''}${l.visitPhoto ? `<div>${chqPhotoHtml(l.visitPhoto, 140)}</div>` : ''}
+    </div>
+    ${canEdit ? `<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="openLeadEdit(${l.id})">✏️ Edit</button>
+      ${leadMe.seeAll && !l.result ? `<button class="btn btn-outline btn-sm" onclick="leadPromptAction(${l.id},'cancel','Cancel reason (duplicate / galat entry):')">🚫 Cancel lead</button>` : ''}
+      ${leadMe.seeAll && l.result ? `<button class="btn btn-outline btn-sm" onclick="leadPromptAction(${l.id},'reopen','Reopen kyun? (dealer ne dobara contact kiya…)')">↺ Reopen</button>` : ''}
+      ${l.stage === 'won' && !l.onboardingId ? `<button class="btn btn-green btn-sm" onclick="openDealerOnboardModal(${l.id})">🏪 Dealer Onboarding form</button>` : ''}
+    </div>` : ''}
+    <div id="leadEditWrap_${l.id}"></div>
+  </div>`;
+  const tasks = l.tasks || [];
+  // SC-NBD can move a scheduled visit to another day / salesman.
+  const resched = l.stage === 'visit' && leadMe.mySteps.includes(2)
+    ? `<details style="margin:-4px 0 12px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--color-primary)">↻ Visit date / salesman badlo</summary><div style="margin-top:8px">${leadScheduleFormHtml(l, 'resched')}</div></details>` : '';
+  const actions = tasks.length ? tasks.map(t => leadTaskFormHtml(l, t)).join('') + resched
+    : `<div style="text-align:center;color:var(--color-success-text);font-weight:700;padding:14px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:12px">${l.stage === 'cancelled' ? 'Cancelled' : `Lead closed — ${esc(l.result)}`}</div>`;
+  document.getElementById('leadBody').innerHTML = info + actions + `<div style="${CHQ_LABEL};margin:6px 0 8px">History</div><div id="leadEvents_${l.id}" style="font-size:12.5px"><div class="empty">Loading…</div></div>`;
+  if (tasks.some(t => t.key === 'schedule' && leadCanDo(t)) || resched) leadFillSalesmen(l);
+}
+function leadScheduleFormHtml(l, key) {
+  const id = `lead_${l.id}_${key}`;
+  const L = (txt, req) => `<div style="${CHQ_LABEL}">${txt}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
+  const def = l.visitDate || ymdAddDaysLocal(leadToday, 7);
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      <div>${L('Visit Date', true)}<input id="${id}_date" type="date" min="${leadToday}" value="${def}" style="${CHQ_INPUT}"/></div>
+      <div>${L('Salesman', true)}<select id="${id}_user" class="leadSalesmanPick" data-sel="${l.visitUserId || l.salesmanUserId || ''}" style="${CHQ_INPUT}"><option value="">Loading…</option></select></div>
+    </div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 8px">Salesman ki agli beat ka din chuniye (aam taur par ~7 din baad).${l.visitPurpose === 'Sample' ? ' <b>Sample leke jaana hai.</b>' : ''}</div>
+    ${L('Note for salesman')}<input id="${id}_remark" placeholder="e.g. 48 inch fan ka sample le jaana" style="${CHQ_INPUT}"/>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_notify" checked/> Salesman ko WhatsApp par visit ki details bhejo</label>
+    <div style="display:flex;gap:8px"><button class="btn btn-green" style="flex:1;justify-content:center;padding:12px" onclick="submitLeadAction(${l.id},'${key}',this)">${key === 'resched' ? 'Update Visit' : 'Fix Visit'}</button></div>`;
+}
+const ymdAddDaysLocal = (ymd, n) => { const d = new Date((ymd || new Date().toISOString().slice(0, 10)) + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+async function leadFillSalesmen() {
+  const users = await leadUserList();
+  document.querySelectorAll('.leadSalesmanPick').forEach(sel => {
+    const pick = String(sel.dataset.sel || '');
+    sel.innerHTML = '<option value="">-- Select --</option>' + users.map(u => `<option value="${u.id}" ${String(u.id) === pick ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
+  });
+}
+function leadTaskFormHtml(l, t) {
+  const id = `lead_${l.id}_${t.key}`;
+  const L = (txt, req) => `<div style="${CHQ_LABEL}">${txt}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
+  const btn = label => `<button class="btn btn-green" style="flex:1;justify-content:center;padding:12px" onclick="submitLeadAction(${l.id},'${t.key}',this)">${label}</button>`;
+  let inner = '';
+  if (t.key === 'call') {
+    const canSend = leadMeta.catalogue && l.mobile;
+    inner = `<div style="font-size:13px;margin-bottom:10px;color:var(--gray-700)">Bolein: <i>"${l.leadType === 'Outgoing' ? 'Hamare salesman aapke paas aaye the. ' : 'Aapne Ajanta Appliances ke baare me enquiry ki thi. '}Ye hamara catalogue hai — koi requirement ho to bataiye."</i>${l.callCount ? `<div style="font-size:12px;color:var(--gray-500);margin-top:4px">Pichhli call: ${esc(l.callOutcome)}${l.callRemark ? ' — ' + esc(l.callRemark) : ''}</div>` : ''}</div>
+      ${L('Dealer ne kya kaha?', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="document.getElementById('${id}_ncw').style.display=${JSON.stringify(LEAD_RECALL).replace(/"/g, "'")}.includes(this.value)?'':'none'">
+        <option value="">-- Select --</option>${leadMeta.callOutcomes.map(o => `<option>${esc(o)}</option>`).join('')}</select>
+      <div id="${id}_ncw" style="display:none">${L('Agli call kab?')}<input id="${id}_nc" type="date" min="${leadToday}" value="${ymdAddDaysLocal(leadToday, 1)}" style="${CHQ_INPUT}"/></div>
+      ${L('Remark')}<input id="${id}_remark" placeholder="e.g. 20 fan chahiye, rate puch rahe the" style="${CHQ_INPUT}"/>
+      ${canSend ? `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_send" ${l.catalogueSent ? '' : 'checked'}/> Catalogue WhatsApp par bhejo (${esc(leadMeta.catalogue)}) → ${esc(l.mobile)}</label>`
+        : `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_cat" ${l.catalogueSent ? 'checked' : ''}/> Catalogue bhej diya</label>
+           <div style="font-size:11.5px;color:var(--gray-500);margin:-6px 0 10px">${!leadMeta.catalogue ? 'Auto-send ke liye Price List & Catalogue page par catalogue PDF upload karein.' : 'Lead me mobile number nahi hai — Edit se daalein.'}</div>`}
+      <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">"Salesman Bhejo" / "Sample Leke Bhejo" → agla step: visit fix karna.</div>
+      <div style="display:flex;gap:8px">${btn('Save Call')}</div>`;
+  } else if (t.key === 'schedule') {
+    inner = leadScheduleFormHtml(l, 'schedule');
+  } else if (t.key === 'visit') {
+    inner = `<div style="font-size:13px;margin-bottom:10px">Visit: <b>${fmtDateDMY(l.visitDate)}</b> · ${esc(l.visitUserName)}${l.visitPurpose === 'Sample' ? ' · <b>🎁 Sample leke jaana</b>' : ''}${leadIsMissed(l) ? ` <span style="color:var(--color-danger);font-weight:700">(${leadDaysSince(l.visitDate)} din late)</span>` : ''}</div>
+      ${L('Visit me kya hua?', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="document.getElementById('${id}_nvw').style.display=this.value==='Dobara Visit'?'':'none'">
+        <option value="">-- Select --</option>${leadMeta.visitOutcomes.map(o => `<option>${esc(o)}</option>`).join('')}</select>
+      <div id="${id}_nvw" style="display:none">${L('Agla visit kab? (blank = SC-NBD fix karegi)')}<input id="${id}_nv" type="date" min="${leadToday}" style="${CHQ_INPUT}"/></div>
+      ${L('Remark')}<input id="${id}_remark" placeholder="e.g. Dealer ne 5 fan ka order diya" style="${CHQ_INPUT}"/>
+      ${L('Photo (dukaan / visit proof)')}<input id="${id}_photo" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${CHQ_INPUT}"/><div id="${id}_pv" style="font-size:12px;margin:-6px 0 8px"></div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">"New Dealer Bana" chunne par save ke baad Dealer Onboarding form khulega.</div>
+      <div style="display:flex;gap:8px">${btn('✓ Visit Done')}</div>`;
+  }
+  const doers = t.key === 'visit' ? (l.visitUserName || 'Salesman') : stepDoerLabel(LEAD_STEP_DEFS.find(d => d.n === t.n));
+  return `<div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:16px;margin-bottom:12px">
+    <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Next Action</div>
+    <div style="font-weight:700;font-size:15px;margin-bottom:2px;color:var(--gray-800)">${esc(t.label)}</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Doer: ${esc(doers)} · TAT: ${esc(t.tat || '—')}${t.planned ? ` · Planned ${fmtDateDMY(t.planned)}` : ''}</div>
+    ${leadCanDo(t) ? inner : `<div style="font-size:12.5px;color:var(--gray-500)">Waiting on ${esc(doers)}.</div>`}
+  </div>`;
+}
+
+const LEAD_EVENT_LABEL = { created: '➕ Lead added', call: '📞 Call', scheduled: '📍 Visit fixed', rescheduled: '↻ Visit changed', visit: '🚶 Visit',
+  edited: '✏️ Edited', cancelled: '🚫 Cancelled', reopened: '↺ Reopened', onboarded: '🏪 Dealer onboarded' };
+async function loadLeadEvents(id) {
+  const el = () => document.getElementById(`leadEvents_${id}`);
+  const r = await api(`/api/lead-fms/${id}/events`);
+  if (!el()) return;
+  if (!Array.isArray(r)) { el().innerHTML = `<div class="empty">${esc(r.error || 'Failed')}</div>`; return; }
+  el().innerHTML = r.map(e => `<div style="padding:6px 0;border-bottom:1px solid var(--gray-100)"><b>${LEAD_EVENT_LABEL[e.event] || esc(e.event)}</b>${e.detail ? ' — ' + esc(e.detail) : ''}
+    <div style="font-size:11px;color:var(--gray-400)">${esc(fmtDateDMY(e.created_at, true))}${e.user_name ? ' · ' + esc(e.user_name) : ''}</div></div>`).join('') || '<div class="empty">—</div>';
+}
+function openLeadEdit(id) {
+  const l = leadData.find(x => x.id === id);
+  const p = `leadE_${id}`;
+  const L = t => `<div style="${CHQ_LABEL}">${t}</div>`;
+  document.getElementById(`leadEditWrap_${id}`).innerHTML = `<div style="margin-top:12px;border-top:1px solid var(--gray-200);padding-top:12px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      <div>${L('Shop')}<input id="${p}_shop" value="${esc(l.shopName)}" style="${CHQ_INPUT}"/></div>
+      <div>${L('Contact')}<input id="${p}_contact" value="${esc(l.contactName)}" style="${CHQ_INPUT}"/></div>
+      <div>${L('Mobile')}<input id="${p}_mobile" inputmode="tel" value="${esc(l.mobile)}" style="${CHQ_INPUT}"/></div>
+      <div>${L('City')}<input id="${p}_city" value="${esc(l.city)}" style="${CHQ_INPUT}"/></div>
+      <div>${L('Area')}<input id="${p}_area" value="${esc(l.area)}" style="${CHQ_INPUT}"/></div>
+      <div>${L('Source')}<select id="${p}_source" style="${CHQ_INPUT}">${leadMeta.sources.map(s => `<option ${s === l.source ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div>
+    </div>
+    ${L('Requirement')}<input id="${p}_req" value="${esc(l.requirement)}" style="${CHQ_INPUT}"/>
+    <button class="btn btn-primary" onclick="submitLeadAction(${id},'edit',this)">Save changes</button></div>`;
+}
+function leadPromptAction(id, action, question) {
+  const reason = prompt(question);
+  if (!reason || !reason.trim()) return;
+  submitLeadAction(id, action, null, { reason: reason.trim() });
+}
+async function submitLeadAction(id, kind, btnEl, preset) {
+  const g = (key, suffix) => { const el = document.getElementById(`lead_${id}_${key}_${suffix}`); return el ? (el.type === 'checkbox' ? el.checked : el.value.trim()) : ''; };
+  let action = kind, body = preset || {};
+  if (kind === 'call') {
+    body = { outcome: g('call', 'outcome'), remark: g('call', 'remark'), nextCall: g('call', 'nc'), sendCatalogue: !!g('call', 'send'), catalogueSent: !!g('call', 'cat') || !!g('call', 'send') };
+    if (!body.outcome) { showToast('Dealer ne kya kaha — select karein', 'error'); return; }
+  } else if (kind === 'schedule' || kind === 'resched') {
+    action = 'schedule';
+    body = { visitDate: g(kind, 'date'), visitUserId: g(kind, 'user'), remark: g(kind, 'remark'), notify: !!g(kind, 'notify') };
+    if (!body.visitDate || !body.visitUserId) { showToast('Visit date aur salesman chunein', 'error'); return; }
+  } else if (kind === 'visit') {
+    const photoEl = document.getElementById(`lead_${id}_visit_photo`);
+    body = { outcome: g('visit', 'outcome'), remark: g('visit', 'remark'), nextVisitDate: g('visit', 'nv'), photo: (photoEl && photoEl.dataset.compressed) || '' };
+    if (!body.outcome) { showToast('Visit me kya hua — select karein', 'error'); return; }
+  } else if (kind === 'edit') {
+    const e = s => document.getElementById(`leadE_${id}_${s}`).value.trim();
+    body = { shopName: e('shop'), contactName: e('contact'), mobile: e('mobile'), city: e('city'), area: e('area'), source: e('source'), requirement: e('req') };
+  }
+  const orig = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }
+  const r = await api(`/api/lead-fms/${id}/action/${action}`, 'PUT', body);
+  if (btnEl) { btnEl.disabled = false; btnEl.textContent = orig; }
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const i = leadData.findIndex(x => x.id === id);
+  if (i >= 0 && r.lead) leadData[i] = r.lead;
+  if (window._lastLeadData) window._lastLeadData.leads = leadData;
+  showToast(kind === 'call' && body.sendCatalogue ? '✅ Saved — catalogue WhatsApp par ja raha hai' : action === 'schedule' && body.notify ? '✅ Visit fixed — salesman ko WhatsApp gaya' : '✅ Saved');
+  const fresh = leadData[i];
+  if (fresh && document.getElementById('leadDetailModal').classList.contains('open')) {
+    document.getElementById('leadTitle').textContent = `${fresh.code} · ${leadName(fresh)}`;
+    renderLeadDetailBody(fresh); loadLeadEvents(id);
+  }
+  if (document.getElementById('page-lead-fms').classList.contains('active')) renderLeadActiveView();
+  refreshDashboardLeadLocally();
+  if (kind === 'visit' && body.outcome === 'New Dealer Bana') { closeModal('leadDetailModal'); openDealerOnboardModal(id); }
+}
+
+// ── Step doers (admin) — only the two SC-NBD steps are assignable. ──
+async function openLeadStepDoersModal() {
+  const [users, doers] = await Promise.all([api('/api/users/roster'), api('/api/lead-fms/step-doers')]);
+  renderStepDoerMatrix('leadStepDoersRows', LEAD_STEP_DEFS.slice(0, 2), Array.isArray(users) ? users : [], (doers && doers.assignments) || {}, 'leadStepDoerCheck_');
+  document.getElementById('leadStepDoersModal').classList.add('open');
+}
+async function submitLeadStepDoers() {
+  const assignments = {};
+  LEAD_STEP_DEFS.slice(0, 2).forEach(sd => { assignments[sd.n] = [...document.querySelectorAll(`.leadStepDoerCheck_${sd.n}:checked`)].map(el => Number(el.value)); });
+  const r = await api('/api/lead-fms/step-doers', 'PUT', { assignments });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Step doers updated!');
+  closeModal('leadStepDoersModal');
+  const d = await api('/api/lead-fms/step-doers');
+  LEAD_STEP_DEFS.forEach(sd => { sd.doers = (d && d.assignments && d.assignments[sd.n]) || []; });
+  loadLeadFmsList();
+}
+
+// ── WhatsApp kit (admin): welcome texts + warranty / terms / QR files. ──
+let _leadSettings = null;
+async function openLeadSettingsModal() {
+  const body = document.getElementById('lsBody');
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('leadSettingsModal').classList.add('open');
+  const r = await api('/api/lead-fms/settings');
+  if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  _leadSettings = r.settings || {};
+  const s = _leadSettings;
+  const L = t => `<div style="${CHQ_LABEL}">${t}</div>`;
+  const fileRow = (k, label) => `<div style="border:1px solid var(--gray-200);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><b style="font-size:13px">${label}</b>
+      ${s[k + 'Url'] ? `<span style="font-size:12px"><a href="${esc(s[k + 'Url'])}" target="_blank">${esc(s[k + 'Name'] || 'current file')}</a> · <label style="cursor:pointer;color:var(--color-danger)"><input type="checkbox" id="ls_${k}_del"/> remove</label></span>` : '<span style="font-size:12px;color:var(--gray-400)">not set</span>'}</div>
+    <input type="file" id="ls_${k}_file" accept="application/pdf,image/*" style="font-size:12.5px;width:100%"/></div>`;
+  body.innerHTML = `
+    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:12px">Ye sab <b>naye dealer ko onboarding ke turant baad</b> WhatsApp par jaata hai. Catalogue lead ko bhi call ke time bheja ja sakta hai.</div>
+    <div style="padding:10px 12px;border-radius:10px;background:var(--gray-50);border:1px solid var(--gray-200);font-size:12.5px;margin-bottom:12px">📘 Catalogue: ${r.catalogue ? `<b>${esc(r.catalogue)}</b> (Price List & Catalogue page ka latest)` : '<span style="color:var(--color-warning-text)">Price List & Catalogue page par catalogue PDF upload karein</span>'}</div>
+    ${L('Service Centre Number')}<input id="ls_serviceNumber" value="${esc(s.serviceNumber || '')}" placeholder="e.g. 98290 00000 (10 AM – 7 PM)" style="${CHQ_INPUT}"/>
+    ${L('Welcome message (optional)')}<textarea id="ls_welcomeMessage" rows="2" style="${CHQ_INPUT};resize:vertical" placeholder="e.g. Kisi bhi product ki complaint ke liye service number par call karein.">${esc(s.welcomeMessage || '')}</textarea>
+    ${L('Bank Details')}<textarea id="ls_bankDetails" rows="4" style="${CHQ_INPUT};resize:vertical" placeholder="A/c Name: …&#10;A/c No: …&#10;IFSC: …&#10;Bank / Branch: …">${esc(s.bankDetails || '')}</textarea>
+    ${L('Terms & Conditions (text — ya neeche file lagayein)')}<textarea id="ls_termsText" rows="3" style="${CHQ_INPUT};resize:vertical">${esc(s.termsText || '')}</textarea>
+    ${fileRow('warranty', '🛡️ Warranty Chart (PDF / image)')}
+    ${fileRow('terms', '📋 Terms & Conditions file (PDF / image)')}
+    ${fileRow('qr', '🔳 Payment QR (image)')}
+    <button class="btn btn-primary" id="lsSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="saveLeadSettings()">Save</button>`;
+}
+function leadReadFile(file) {
+  return new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.onerror = reject; fr.readAsDataURL(file); });
+}
+async function saveLeadSettings() {
+  const v = id => document.getElementById(id).value;
+  const body = { serviceNumber: v('ls_serviceNumber'), welcomeMessage: v('ls_welcomeMessage'), bankDetails: v('ls_bankDetails'), termsText: v('ls_termsText'), files: {} };
+  for (const k of ['warranty', 'terms', 'qr']) {
+    const del = document.getElementById(`ls_${k}_del`);
+    const f = document.getElementById(`ls_${k}_file`).files[0];
+    if (f) {
+      if (f.size > 3.5 * 1024 * 1024) { showToast(`${f.name}: 3.5 MB se chhoti file lagayein`, 'error'); return; }
+      body.files[k] = { data: await leadReadFile(f) };
+    } else if (del && del.checked) body.files[k] = null;
+  }
+  const btn = document.getElementById('lsSaveBtn');
+  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api('/api/lead-fms/settings', 'PUT', body);
+  btn.disabled = false; btn.textContent = 'Save';
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ WhatsApp kit saved');
+  closeModal('leadSettingsModal');
+}
+
+// ── Dealer onboarding form ──
+async function onOnbPhotoSelected(input, previewId) {
+  const preview = document.getElementById(previewId);
+  const file = input.files[0];
+  input.dataset.compressed = '';
+  if (!file) { preview.innerHTML = ''; return; }
+  preview.textContent = '…';
+  try {
+    // Kept small: up to 6 photos go up in one request.
+    let dataUrl = await compressImageToDataURL(file, 1200, 0.62);
+    if (dataUrl.length > 700000) dataUrl = await compressImageToDataURL(file, 900, 0.5);
+    input.dataset.compressed = dataUrl;
+    preview.innerHTML = `<img src="${dataUrl}" style="width:100%;height:70px;object-fit:cover;border-radius:8px;margin-top:4px"/>`;
+  } catch (e) { preview.textContent = '⚠️ image error'; }
+}
+async function openDealerOnboardModal(leadId) {
+  const l = leadId ? leadData.find(x => x.id === leadId) : null;
+  let firmTypes = ['Proprietorship', 'Partnership', 'Pvt Ltd', 'LLP', 'Other'];
+  const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
+  const inp = (id, label, req, attrs, val) => `<div>${L(label, req)}<input id="onb_${id}" ${attrs || ''} value="${esc(val || '')}" style="${CHQ_INPUT}"/></div>`;
+  const sel = (id, label, opts, req) => `<div>${L(label, req)}<select id="onb_${id}" style="${CHQ_INPUT}"><option value="">-- Select --</option>${opts.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
+  const photo = (id, label) => `<div><div style="font-size:11px;font-weight:700;color:var(--gray-500);margin-bottom:3px">${label}</div>
+    <label style="display:block;border:1.5px dashed var(--gray-300);border-radius:10px;padding:8px;text-align:center;cursor:pointer;font-size:12px;color:var(--gray-500)">📷 Photo
+      <input type="file" id="onb_${id}" accept="image/*" capture="environment" style="display:none" onchange="onOnbPhotoSelected(this,'onb_${id}_pv')"/></label><div id="onb_${id}_pv"></div></div>`;
+  const sec = t => `<div style="font-size:13px;font-weight:800;color:var(--gray-800);margin:14px 0 8px;padding-top:10px;border-top:1px solid var(--gray-100)">${t}</div>`;
+  document.getElementById('onbBody').innerHTML = `
+    <div class="alert error" id="onbErr" style="display:none"></div>
+    ${l ? `<div style="padding:8px 12px;border-radius:10px;background:var(--color-primary-light);color:var(--color-primary);font-size:12.5px;margin-bottom:10px">Lead ${esc(l.code)} se — save karte hi lead "Dealer Onboarded" ho jayegi.</div>` : ''}
+    <input type="hidden" id="onb_leadId" value="${l ? l.id : ''}"/>
+    <div style="font-size:13px;font-weight:800;color:var(--gray-800);margin-bottom:8px">Dealer / Dukaan</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      ${inp('shop', 'Dukaan / Firm ka naam', true, '', l && l.shopName)}
+      ${inp('owner', 'Dealer (malik) ka naam', true, '', l && l.contactName)}
+      ${inp('mobile', 'Mobile (WhatsApp)', true, 'inputmode="tel"', l && l.mobile)}
+      ${inp('alt', 'Doosra Mobile', false, 'inputmode="tel"')}
+      ${inp('city', 'City', false, '', l && l.city)}
+      ${inp('area', 'Area / Market', false, '', l && l.area)}
+      ${inp('pincode', 'Pincode', false, 'inputmode="numeric" maxlength="6"')}
+      ${inp('email', 'Email', false, 'type="email"')}
+    </div>
+    ${L('Pura Address')}<textarea id="onb_address" rows="2" style="${CHQ_INPUT};resize:vertical"></textarea>
+    <button class="btn btn-outline btn-sm" type="button" onclick="onbCaptureLocation(this)" style="margin-bottom:6px">📍 Dukaan ki location lo</button> <span id="onb_locText" style="font-size:12px;color:var(--gray-500)"></span>
+
+    ${sec('Firm details')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      ${sel('firm', 'Firm type', firmTypes, true)}
+      ${inp('partners', 'Proprietor / Partners ke naam', false, 'placeholder="e.g. Ramesh Sharma, Suresh Sharma"')}
+      ${inp('gst', 'GST No', false, 'maxlength="15" oninput="this.value=this.value.toUpperCase()"')}
+      ${inp('pan', 'PAN No', false, 'maxlength="10"')}
+      ${sel('own', 'Dukaan apni hai ya kiraye ki?', ['Own', 'Rented'], true)}
+      ${inp('years', 'Kitne saal se business?', false, 'placeholder="e.g. 8"')}
+    </div>
+
+    ${sec('Dukaan ka size & maal')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      ${sel('size', 'Dukaan ka size', ['Chhoti (< 200 sq ft)', 'Medium (200-500 sq ft)', 'Badi (> 500 sq ft)'], true)}
+      ${sel('stock', 'Dukaan me maal kitna hai?', ['Kam (limited)', 'Theek-thaak', 'Bahut (full stocked)'], true)}
+      ${inp('brands', 'Kaun-kaun se brand rakhta hai?', false, 'placeholder="e.g. Usha, Bajaj"')}
+      ${inp('potential', 'Mahine ki kharid (₹ approx)', false, 'type="number" min="0"')}
+      ${inp('credit', 'Suggested credit limit (₹)', false, 'type="number" min="0"')}
+    </div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 6px">Dukaan me maal kam hai to pehli supply bhi limited rakhein.</div>
+
+    ${sec('Photos')}
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+      ${photo('gstPhoto', 'GST certificate *')}${photo('out', 'Bahar se (board) *')}<div></div>
+      ${photo('in1', 'Andar 1 *')}${photo('in2', 'Andar 2 *')}${photo('in3', 'Andar 3 *')}${photo('in4', 'Andar 4 *')}
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:8px 0"><input type="checkbox" id="onb_noGst"/> Dealer ke paas GST nahi hai</label>
+    ${L('Remark')}<input id="onb_remark" style="${CHQ_INPUT}"/>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px"><input type="checkbox" id="onb_welcome" checked/> Dealer ko WhatsApp par welcome kit bhejo (service number, warranty chart, T&amp;C, bank details, QR, catalogue)</label>
+    <button class="btn btn-green" id="onbSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerOnboarding()">Submit Dealer</button>`;
+  document.getElementById('dealerOnboardModal').classList.add('open');
+}
+function onbCaptureLocation(btn) {
+  if (!navigator.geolocation) { showToast('Location not supported on this device', 'error'); return; }
+  btn.disabled = true; btn.textContent = '⏳ Location…';
+  navigator.geolocation.getCurrentPosition(p => {
+    btn.disabled = false; btn.textContent = '📍 Location li gayi';
+    btn.dataset.lat = p.coords.latitude; btn.dataset.lng = p.coords.longitude;
+    btn.id = 'onb_locBtn';
+    document.getElementById('onb_locText').textContent = `${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)}`;
+  }, e => { btn.disabled = false; btn.textContent = '📍 Dukaan ki location lo'; showToast('Location nahi mili: ' + e.message, 'error'); }, { enableHighAccuracy: true, timeout: 15000 });
+}
+async function submitDealerOnboarding() {
+  const err = document.getElementById('onbErr');
+  err.style.display = 'none';
+  const v = id => { const el = document.getElementById(`onb_${id}`); return el ? el.value.trim() : ''; };
+  const ph = id => (document.getElementById(`onb_${id}`) || {}).dataset ? document.getElementById(`onb_${id}`).dataset.compressed || '' : '';
+  const loc = document.getElementById('onb_locBtn');
+  const body = { leadId: v('leadId') ? Number(v('leadId')) : null, shopName: v('shop'), ownerName: v('owner'), mobile: v('mobile'), altMobile: v('alt'), city: v('city'), area: v('area'),
+    pincode: v('pincode'), email: v('email'), address: v('address'), firmType: v('firm'), partners: v('partners'), gstNo: v('gst'), panNo: v('pan'), shopOwnership: v('own'),
+    yearsInBusiness: v('years'), shopSize: v('size'), stockLevel: v('stock'), brandsDealt: v('brands'), monthlyPotential: v('potential'), suggestedCredit: v('credit'), remark: v('remark'),
+    gstPhoto: ph('gstPhoto'), noGst: document.getElementById('onb_noGst').checked, outsidePhoto: ph('out'), insidePhotos: ['in1', 'in2', 'in3', 'in4'].map(ph),
+    locationLat: loc ? loc.dataset.lat : null, locationLng: loc ? loc.dataset.lng : null, sendWelcome: document.getElementById('onb_welcome').checked };
+  const missing = [];
+  if (!body.shopName) missing.push('dukaan ka naam'); if (!body.ownerName) missing.push('dealer ka naam'); if (!body.mobile) missing.push('mobile');
+  if (!body.firmType) missing.push('firm type'); if (!body.shopOwnership) missing.push('apni / kiraye ki'); if (!body.shopSize) missing.push('dukaan ka size'); if (!body.stockLevel) missing.push('maal kitna');
+  if (!body.gstPhoto && !body.noGst) missing.push('GST photo'); if (!body.outsidePhoto) missing.push('bahar ki photo');
+  const inCount = body.insidePhotos.filter(Boolean).length; if (inCount < 4) missing.push(`andar ki ${4 - inCount} photo`);
+  if (missing.length) { err.textContent = 'Ye bharna baaki hai: ' + missing.join(', '); err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); return; }
+  body.insidePhotos = body.insidePhotos.filter(Boolean);
+  const btn = document.getElementById('onbSubmitBtn');
+  btn.disabled = true; btn.textContent = '⏳ Uploading photos…';
+  const r = await api('/api/dealer-onboarding', 'POST', body);
+  btn.disabled = false; btn.textContent = 'Submit Dealer';
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); return; }
+  closeModal('dealerOnboardModal');
+  showToast(`✅ ${r.code} — ${body.shopName} onboarded${r.welcome === 'sent' ? ' · welcome kit WhatsApp par ja raha hai' : ''}`);
+  onbData = null;
+  if (document.getElementById('page-lead-fms').classList.contains('active')) loadLeadFmsList();
+  if (typeof loadO2dDealers === 'function') loadO2dDealers(true);
+}
+
+// ── Dealers onboarded ──
+async function renderOnboardedList() {
+  const wrap = document.getElementById('leadListWrap');
+  if (!onbData) {
+    wrap.innerHTML = '<div class="empty">Loading…</div>';
+    const r = await api('/api/dealer-onboarding');
+    if (!r || !Array.isArray(r.items)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed')}</div>`; return; }
+    onbData = r.items;
+  }
+  if (leadView !== 'dealers') return;
+  const q = (document.getElementById('leadSearch').value || '').trim().toLowerCase();
+  const rows = onbData.filter(o => !q || [o.code, o.shopName, o.ownerName, o.mobile, o.city, o.area, o.gstNo, o.createdByName].some(v => String(v || '').toLowerCase().includes(q)));
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">Abhi koi dealer onboard nahi hua. "🏪 New Dealer Onboarding" se form bharein.</div>'; return; }
+  wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
+    <thead><tr><th>Code</th><th>Date</th><th>Dukaan</th><th>Dealer</th><th>Mobile</th><th>City / Area</th><th>Firm</th><th>Dukaan</th><th>Maal</th><th>By</th><th>Welcome</th></tr></thead>
+    <tbody>${rows.map(o => `<tr onclick="openOnboardDetail(${o.id})" style="cursor:pointer">
+      <td style="font-weight:600">${esc(o.code)}</td><td>${fmtDateDMY(o.createdAt)}</td><td style="white-space:normal;min-width:140px"><b>${esc(o.shopName)}</b></td>
+      <td>${esc(o.ownerName)}</td><td>${esc(o.mobile)}</td><td>${esc([o.area, o.city].filter(Boolean).join(', ') || '—')}</td>
+      <td>${esc(o.firmType || '—')}</td><td>${esc(o.shopOwnership || '—')}</td><td>${esc(o.stockLevel || '—')}</td><td>${esc(o.createdByName || '—')}</td>
+      <td>${o.welcomeSentAt ? '✅' : '—'}</td></tr>`).join('')}</tbody></table>`;
+}
+function openOnboardDetail(id) {
+  const o = (onbData || []).find(x => x.id === id);
+  if (!o) return;
+  const f = (label, val) => val ? `<div><div style="${CHQ_LABEL}">${label}</div><div style="font-size:14px;color:var(--gray-800)">${val}</div></div>` : '';
+  const pics = [['GST', o.gstPhoto], ['Bahar', o.outsidePhoto], ...o.insidePhotos.map((u, i) => [`Andar ${i + 1}`, u])].filter(p => p[1]);
+  document.getElementById('onbDetailTitle').textContent = `${o.code} · ${o.shopName}`;
+  document.getElementById('onbDetailBody').innerHTML = `
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px">
+      ${f('Dealer', esc(o.ownerName))}${f('Mobile', `<a href="tel:${esc(o.mobile)}">📞 ${esc(o.mobile)}</a>${o.altMobile ? ' · ' + esc(o.altMobile) : ''}`)}
+      ${f('Address', esc([o.address, o.area, o.city, o.pincode].filter(Boolean).join(', ')))}${f('Email', esc(o.email))}
+      ${f('Firm', esc([o.firmType, o.partners].filter(Boolean).join(' — ')))}${f('GST / PAN', esc([o.gstNo, o.panNo].filter(Boolean).join(' · ')))}
+      ${f('Dukaan', esc([o.shopOwnership, o.shopSize].filter(Boolean).join(' · ')))}${f('Maal', esc(o.stockLevel))}
+      ${f('Business since', esc(o.yearsInBusiness ? o.yearsInBusiness + ' saal' : ''))}${f('Brands', esc(o.brandsDealt))}
+      ${f('Monthly kharid', o.monthlyPotential != null ? inr(o.monthlyPotential) : '')}${f('Suggested credit', o.suggestedCredit != null ? inr(o.suggestedCredit) : '')}
+      ${f('Location', o.locationLat ? `<a href="https://maps.google.com/?q=${o.locationLat},${o.locationLng}" target="_blank">📍 Map</a>` : '')}
+      ${f('Remark', esc(o.remark))}
+      ${f('Onboarded', `${fmtDateDMY(o.createdAt, true)} · ${esc(o.createdByName)}`)}
+      ${f('Welcome kit', o.welcomeSentAt ? `✅ ${fmtDateDMY(String(o.welcomeSentAt), true)}${o.welcomeNote ? ' · ' + esc(o.welcomeNote) : ''}` : 'Not sent')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px">${pics.map(([t, u]) => `<div><div style="${CHQ_LABEL}">${t}</div>${chqPhotoHtml(u, 140)}</div>`).join('')}</div>
+    <button class="btn btn-outline" onclick="resendDealerWelcome(${o.id},this)">💬 Welcome kit dobara bhejo</button>`;
+  document.getElementById('onbDetailModal').classList.add('open');
+}
+async function resendDealerWelcome(id, btn) {
+  btn.disabled = true;
+  const r = await api(`/api/dealer-onboarding/${id}/welcome`, 'POST', {});
+  btn.disabled = false;
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Welcome kit WhatsApp par ja raha hai');
+}
+
+// ── Dashboard rows (from window._lastLeadData, no extra fetch) ──
+function buildLeadDashboardTasks() {
+  const d = window._lastLeadData;
+  if (!d || !Array.isArray(d.leads)) return [];
+  const empFilter = document.getElementById('dashEmployeeFilter');
+  const empVal = empFilter ? empFilter.value : 'all';
+  const isManager = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
+  const seeAll = isManager && empVal === 'all' && d.me && d.me.seeAll;
+  const doerId = isManager && empVal !== 'all' ? Number(empVal) : Number(ME.id);
+  const today = d.today || '';
+  const tasks = [];
+  d.leads.forEach(l => (l.tasks || []).forEach(t => {
+    if (t.planned && t.planned > today) return;
+    if (!seeAll && !(t.doers || []).some(x => Number(x.id) === doerId)) return;
+    const late = t.planned && t.planned < today;
+    const description = `
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${t.n}. ${esc(t.label)}${l.visitPurpose === 'Sample' && t.key !== 'call' ? ' · 🎁 Sample' : ''}</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(l.shopName || l.contactName || '—')}${l.mobile ? ' · ' + esc(l.mobile) : ''}${l.area || l.city ? ' · ' + esc([l.area, l.city].filter(Boolean).join(', ')) : ''}</div>
+      <div style="font-size:11.5px;color:var(--gray-500)">${l.leadType === 'Incoming' ? '⬇ Incoming' : '⬆ Outgoing'}${l.source ? ' · ' + esc(l.source) : ''}${l.requirement ? ' · ' + esc(l.requirement) : ''}</div>
+      ${fmsFieldRow('PLANNED', `${t.planned ? fmtDateDMY(t.planned) : '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
+    tasks.push({ id: l.id, type: 'lead', status: 'pending', title: l.code, description,
+      assignedToName: (t.doers || []).map(x => x.name).join(', ') || t.doer || '—',
+      assignedByName: t.key === 'visit' ? 'SC-NBD' : (l.createdByName || '—'),
+      assignedToDept: 'Sales', start_date: String(l.createdAt || ''), planned: t.planned || '', plannedLate: !!late });
+  }));
+  return tasks;
+}
+function refreshDashboardLeadLocally() {
+  if (!window._lastDashTasks || !document.getElementById('page-dashboard').classList.contains('active')) return;
+  const merged = [...window._lastDashTasks.filter(t => t.type !== 'lead'), ...buildLeadDashboardTasks()];
+  window._lastDashTasks = merged;
+  const pendingEl = document.getElementById('dPending');
+  if (pendingEl) pendingEl.textContent = merged.length;
+  renderDashTable(merged, dashType);
+}
+async function openLeadQuickAction(id) {
+  if (!leadData.length && window._lastLeadData) leadApplyData(window._lastLeadData);
+  if (!leadData.find(x => x.id === id)) { const d = await api('/api/lead-fms'); if (d && Array.isArray(d.leads)) leadApplyData(d); }
+  openLeadDetail(id);
 }
 
 // ══════════════════════════════════════════════════════

@@ -514,7 +514,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'sfms-pc-view', 'all-delegations'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'sfms-pc-view', 'all-delegations'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -9552,6 +9552,647 @@ app.put('/api/reports/product-cost', requireAuth, requireAdmin, async (req, res)
     if (!(rate > 0)) return res.status(400).json({ error: 'Cost rate must be more than 0' });
     await db.query('INSERT INTO product_costs (item_key, item_name, cost_rate, updated_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), cost_rate=VALUES(cost_rate), updated_by=VALUES(updated_by)',
       [k, name.slice(0, 255), rate, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// LEAD FMS (client recording, 2026-10-07) — replaces posting leads on a
+// WhatsApp group. Two kinds of lead: Incoming (an enquiry from Instagram /
+// Facebook ads) and Outgoing (a salesman met a dealer in the market and
+// brought back a card / requirement). SC-NBD (new-dealer coordinator) calls
+// every lead within 1-2 days, sends the catalogue and records the answer. If
+// the dealer wants the salesman back (or a sample), she fixes the visit date
+// — usually the salesman's next beat, ~7 days later — and the salesman
+// confirms he went. The reports exist to catch leads nobody went back to.
+//
+// Stored in MySQL like Cheque FMS; the stage is derived (leadStage), never
+// stored. The visit step belongs to whichever salesman it was assigned to.
+// ══════════════════════════════════════════════════════
+const LEAD_STEPS = [
+  { n: 1, key: 'call',     label: 'Call + Send Catalogue', doer: 'SC-NBD',   tat: '1-2 days' },
+  { n: 2, key: 'schedule', label: 'Fix Salesman Visit',    doer: 'SC-NBD',   tat: 'Same day' },
+  { n: 3, key: 'visit',    label: 'Salesman Visit',        doer: 'Salesman', tat: 'On visit date' }
+];
+const LEAD_N = Object.fromEntries(LEAD_STEPS.map(s => [s.key, s.n]));
+const LEAD_TYPES = ['Incoming', 'Outgoing'];
+const LEAD_SOURCES = ['Instagram', 'Facebook', 'Market Visit', 'Reference', 'Walk-in', 'Other'];
+// Call answer → what happens next.
+const LEAD_CALL_OUTCOMES = {
+  'Order Mil Gaya': { close: 'Order' },
+  'Salesman Bhejo': { visit: 'Visit' },
+  'Sample Leke Bhejo': { visit: 'Sample' },
+  'Baad Me Call Karo': { recall: true },
+  'Phone Nahi Utha': { recall: true },
+  'Requirement Nahi': { close: 'No Requirement' }
+};
+const LEAD_VISIT_OUTCOMES = {
+  'Order Mil Gaya': { close: 'Order' },
+  'New Dealer Bana': { close: 'Dealer Onboarded' },
+  'Dobara Visit': { again: true },
+  'Interested Nahi': { close: 'Not Interested' }
+};
+const LEAD_WON = ['Order', 'Dealer Onboarded'];
+const LEAD_SETTINGS_KEY = 'lead_dealer_whatsapp';
+
+async function ensureLeadTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS leads (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      lead_code VARCHAR(30) NOT NULL UNIQUE,
+      lead_type VARCHAR(20) NOT NULL,
+      source VARCHAR(40),
+      shop_name VARCHAR(255),
+      contact_name VARCHAR(255),
+      mobile VARCHAR(30),
+      city VARCHAR(255),
+      area VARCHAR(255),
+      requirement VARCHAR(1000),
+      card_photo VARCHAR(1000),
+      salesman_user_id INT,
+      salesman_name VARCHAR(255),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_by INT,
+      call_count INT DEFAULT 0,
+      last_call_at DATETIME,
+      call_outcome VARCHAR(40),
+      call_remark VARCHAR(1000),
+      catalogue_sent TINYINT DEFAULT 0,
+      next_call DATE,
+      needs_visit TINYINT DEFAULT 0,
+      visit_needed_at DATETIME,
+      visit_purpose VARCHAR(20),
+      visit_date DATE,
+      visit_user_id INT,
+      visit_user_name VARCHAR(255),
+      scheduled_at DATETIME,
+      scheduled_by INT,
+      visit_count INT DEFAULT 0,
+      visited_at DATETIME,
+      visit_outcome VARCHAR(40),
+      visit_remark VARCHAR(1000),
+      visit_photo VARCHAR(1000),
+      result VARCHAR(30),
+      closed_at DATETIME,
+      closed_by INT,
+      onboarding_id INT,
+      cancelled_at DATETIME,
+      cancelled_by INT,
+      cancel_reason VARCHAR(500),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_mobile (mobile),
+      INDEX idx_visit_user (visit_user_id),
+      INDEX idx_salesman (salesman_user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS lead_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      lead_id INT NOT NULL,
+      event VARCHAR(30) NOT NULL,
+      detail TEXT,
+      user_id INT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_lead (lead_id),
+      INDEX idx_event (event, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS lead_step_doers (
+      step_n INT NOT NULL,
+      user_id INT NOT NULL,
+      PRIMARY KEY (step_n, user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS dealer_onboardings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      code VARCHAR(30) NOT NULL UNIQUE,
+      lead_id INT,
+      shop_name VARCHAR(255) NOT NULL,
+      owner_name VARCHAR(255) NOT NULL,
+      mobile VARCHAR(30) NOT NULL,
+      alt_mobile VARCHAR(30),
+      email VARCHAR(255),
+      address VARCHAR(1000),
+      city VARCHAR(255),
+      area VARCHAR(255),
+      pincode VARCHAR(10),
+      gst_no VARCHAR(30),
+      pan_no VARCHAR(20),
+      firm_type VARCHAR(30),
+      partners VARCHAR(1000),
+      shop_ownership VARCHAR(20),
+      years_in_business VARCHAR(20),
+      shop_size VARCHAR(30),
+      stock_level VARCHAR(30),
+      brands_dealt VARCHAR(500),
+      monthly_potential DECIMAL(12,2),
+      suggested_credit DECIMAL(12,2),
+      remark VARCHAR(1000),
+      gst_photo VARCHAR(1000),
+      inside_photos TEXT,
+      outside_photo VARCHAR(1000),
+      location_lat DECIMAL(10,7),
+      location_lng DECIMAL(10,7),
+      salesman_user_id INT,
+      salesman_name VARCHAR(255),
+      created_by INT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      welcome_sent_at DATETIME,
+      welcome_note VARCHAR(500),
+      INDEX idx_shop (shop_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+let _leadTablesOk = false;
+async function withLeadTables(fn) {
+  if (!_leadTablesOk) { await ensureLeadTables(); _leadTablesOk = true; }
+  return fn();
+}
+async function logLeadEvent(leadId, event, detail, userId) {
+  await db.query('INSERT INTO lead_events (lead_id, event, detail, user_id) VALUES (?,?,?,?)', [leadId, event, detail || null, userId || null]);
+}
+
+let _leadStepDoersCache = null;
+async function getLeadStepDoersMap() {
+  if (_leadStepDoersCache && Date.now() - _leadStepDoersCache.ts < 60 * 1000) return _leadStepDoersCache.map;
+  const [rows] = await withLeadTables(() => db.query(
+    'SELECT d.step_n, u.id, u.name FROM lead_step_doers d JOIN users u ON d.user_id=u.id ORDER BY u.name'));
+  const map = {};
+  rows.forEach(r => { (map[r.step_n] = map[r.step_n] || []).push({ id: r.id, name: r.name }); });
+  _leadStepDoersCache = { map, ts: Date.now() };
+  return map;
+}
+
+// Admin and the SC-NBD step doers see every lead; a salesman sees the leads
+// he brought, entered, or was sent to visit.
+async function leadUserAccess(req) {
+  const isAdmin = req.session.role === 'admin';
+  const map = await getLeadStepDoersMap();
+  const uid = Number(req.session.userId);
+  const mySteps = new Set(isAdmin ? [1, 2] : [1, 2].filter(n => (map[n] || []).some(d => Number(d.id) === uid)));
+  const pageAccess = isAdmin || (await hasPageGrant(req, 'lead-fms'));
+  return { isAdmin, mySteps, seeAll: isAdmin || mySteps.size > 0, pageAccess, doersMap: map };
+}
+const leadOwnedBy = (l, uid) => [l.created_by, l.salesman_user_id, l.visit_user_id].some(x => Number(x) === Number(uid));
+
+function leadStage(l) {
+  if (l.cancelled_at) return 'cancelled';
+  if (l.result) return LEAD_WON.includes(l.result) ? 'won' : 'lost';
+  if (+l.needs_visit) return l.visit_date ? 'visit' : 'schedule';
+  return 'call';
+}
+function leadTasks(l, doersMap) {
+  const stage = leadStage(l);
+  const step = key => LEAD_STEPS[LEAD_N[key] - 1];
+  const mk = (key, planned, doers, extra) => ({ key, n: step(key).n, label: step(key).label, tat: step(key).tat, planned, doers, ...extra });
+  if (stage === 'call') {
+    const planned = l.next_call || ymdAddDays(String(l.created_at_ymd), 1);
+    return [mk('call', planned, doersMap[1] || [], { recall: !!l.next_call })];
+  }
+  if (stage === 'schedule') return [mk('schedule', String(l.visit_needed_ymd || l.created_at_ymd), doersMap[2] || [])];
+  if (stage === 'visit') return [mk('visit', l.visit_date, l.visit_user_id ? [{ id: l.visit_user_id, name: l.visit_user_name || '' }] : [])];
+  return [];
+}
+
+const LEAD_SELECT = `SELECT l.*, DATE_FORMAT(l.created_at,'%Y-%m-%d') AS created_at_ymd, DATE_FORMAT(l.visit_needed_at,'%Y-%m-%d') AS visit_needed_ymd,
+  DATE_FORMAT(l.next_call,'%Y-%m-%d') AS next_call, DATE_FORMAT(l.visit_date,'%Y-%m-%d') AS visit_date, cu.name AS created_by_name
+  FROM leads l LEFT JOIN users cu ON cu.id=l.created_by`;
+
+function leadOut(l, doersMap) {
+  return {
+    id: l.id, code: l.lead_code, leadType: l.lead_type, source: l.source || '', shopName: l.shop_name || '', contactName: l.contact_name || '',
+    mobile: l.mobile || '', city: l.city || '', area: l.area || '', requirement: l.requirement || '', cardPhoto: l.card_photo || '',
+    salesmanUserId: l.salesman_user_id, salesmanName: l.salesman_name || '', createdAt: l.created_at, createdBy: l.created_by,
+    createdByName: l.created_by_name || '', callCount: +l.call_count || 0, lastCallAt: l.last_call_at, callOutcome: l.call_outcome || '',
+    callRemark: l.call_remark || '', catalogueSent: !!+l.catalogue_sent, nextCall: l.next_call || '', visitPurpose: l.visit_purpose || '',
+    visitNeededAt: l.visit_needed_at, visitDate: l.visit_date || '', visitUserId: l.visit_user_id, visitUserName: l.visit_user_name || '',
+    scheduledAt: l.scheduled_at, visitCount: +l.visit_count || 0, visitedAt: l.visited_at, visitOutcome: l.visit_outcome || '',
+    visitRemark: l.visit_remark || '', visitPhoto: l.visit_photo || '', result: l.result || '', closedAt: l.closed_at,
+    onboardingId: l.onboarding_id, cancelledAt: l.cancelled_at, cancelReason: l.cancel_reason || '',
+    stage: leadStage(l), tasks: leadTasks(l, doersMap)
+  };
+}
+async function loadLead(id) {
+  const [[l]] = await withLeadTables(() => db.query(`${LEAD_SELECT} WHERE l.id=?`, [id]));
+  return l || null;
+}
+async function nextLeadCode() {
+  const [rows] = await db.query("SELECT lead_code FROM leads WHERE lead_code LIKE 'L-%'");
+  const max = rows.reduce((m, r) => Math.max(m, parseInt(String(r.lead_code).slice(2), 10) || 0), 0);
+  return `L-${await claimNextSeqValue('lead_code', max + 1)}`;
+}
+const leadYmd = v => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null);
+const leadStr = (v, n) => String(v == null ? '' : v).trim().slice(0, n) || null;
+
+// Catalogue / welcome-kit settings (admin): texts plus public file links,
+// since the WhatsApp gateway must be able to fetch them.
+async function getLeadSettings() {
+  const raw = await getAppSetting(LEAD_SETTINGS_KEY);
+  try { return Object.assign({}, JSON.parse(raw || '{}')); } catch (e) { return {}; }
+}
+const leadMediaFor = (url, fileName) => {
+  if (!url) return null;
+  const isPdf = /\.pdf$/i.test(fileName || '');
+  return isPdf ? { type: 'document', url, mimetype: 'application/pdf', fileName } : { type: 'image', url };
+};
+// Several messages to one number, in order (parallel sends can arrive shuffled).
+function sendWhatsAppSequence(mobile, items, label) {
+  const p = (async () => {
+    for (const it of items) {
+      try { await sendWhatsApp(mobile, it.text || '', it.media || null); }
+      catch (e) {
+        if (/Invalid mobile/i.test(e.message)) throw e;
+        await new Promise(r => setTimeout(r, 8000));
+        await sendWhatsApp(mobile, it.text || '', it.media || null);
+      }
+    }
+  })().catch(e => console.error(`WhatsApp (${label}) failed:`, e.message));
+  vercelWaitUntil(p);
+  return p;
+}
+// The catalogue is the latest one uploaded on the Price List & Catalogue page.
+// Those files are private; the one we send gets an "anyone with the link"
+// permission (it goes to dealers anyway) so the WhatsApp gateway can fetch it.
+async function getLeadCatalogue(makePublic) {
+  const [rows] = await withCataloguePdfsTable(() => db.query(
+    "SELECT filename, drive_file_id FROM o2d_catalogue_pdfs WHERE doc_type='catalogue' AND drive_file_id IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1"));
+  const c = rows[0];
+  if (!c) return null;
+  if (makePublic) {
+    const s = await getLeadSettings();
+    if (s.catalogueSharedId !== c.drive_file_id) {
+      const drive = await getDriveClient();
+      await drive.permissions.create({ fileId: c.drive_file_id, supportsAllDrives: true, requestBody: { role: 'reader', type: 'anyone' } });
+      s.catalogueSharedId = c.drive_file_id;
+      await setAppSetting(LEAD_SETTINGS_KEY, JSON.stringify(s));
+    }
+  }
+  const fileName = /\.pdf$/i.test(c.filename) ? c.filename : `${c.filename}.pdf`;
+  return { fileName, url: `https://drive.google.com/uc?export=download&id=${c.drive_file_id}` };
+}
+function leadCatalogueMessages(l, cat) {
+  const name = l.contact_name || l.shop_name || '';
+  const text = `🙏 नमस्ते ${name} जी,\n\nAjanta Appliances से बात करने के लिए धन्यवाद।${l.lead_type === 'Outgoing' ? ' हमारे प्रतिनिधि आपसे मिलने आए थे।' : ''}\n\nहमारा कैटलॉग साथ में भेज रहे हैं। कोई भी requirement हो तो इसी नंबर पर बताएं।\n\nधन्यवाद\nAjanta Appliances`;
+  return [{ text }, { text: '', media: { type: 'document', url: cat.url, mimetype: 'application/pdf', fileName: cat.fileName } }];
+}
+
+app.get('/api/lead-fms/step-doers', requireAuth, async (req, res) => {
+  try {
+    const map = await getLeadStepDoersMap();
+    const assignments = {};
+    LEAD_STEPS.forEach(s => { assignments[s.n] = map[s.n] || []; });
+    res.json({ assignments });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/lead-fms/step-doers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { assignments } = req.body || {};
+    await withLeadTables(() => db.query('DELETE FROM lead_step_doers'));
+    const rows = [];
+    Object.entries(assignments || {}).forEach(([n, ids]) => { if (+n === 1 || +n === 2) (ids || []).forEach(uid => rows.push([Number(n), Number(uid)])); });
+    if (rows.length) await db.query('INSERT INTO lead_step_doers (step_n, user_id) VALUES ?', [rows]);
+    _leadStepDoersCache = null;
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.get('/api/lead-fms', requireAuth, async (req, res) => {
+  try {
+    const acc = await leadUserAccess(req);
+    const uid = req.session.userId;
+    const [rows] = await withLeadTables(() => acc.seeAll
+      ? db.query(`${LEAD_SELECT} ORDER BY l.id DESC`)
+      : db.query(`${LEAD_SELECT} WHERE l.created_by=? OR l.salesman_user_id=? OR l.visit_user_id=? ORDER BY l.id DESC`, [uid, uid, uid]));
+    const [[t]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d");
+    const cat = await getLeadCatalogue(false).catch(() => null);
+    res.json({
+      leads: rows.map(l => leadOut(l, acc.doersMap)),
+      me: { seeAll: acc.seeAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess },
+      today: t.d, sources: LEAD_SOURCES, callOutcomes: Object.keys(LEAD_CALL_OUTCOMES), visitOutcomes: Object.keys(LEAD_VISIT_OUTCOMES),
+      catalogue: cat ? cat.fileName : ''
+    });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.get('/api/lead-fms/:id/events', requireAuth, async (req, res) => {
+  try {
+    const acc = await leadUserAccess(req);
+    const l = await loadLead(req.params.id);
+    if (!l) return res.status(404).json({ error: 'Lead not found' });
+    if (!acc.seeAll && !leadOwnedBy(l, req.session.userId)) return res.status(403).json({ error: 'Not your lead' });
+    const [rows] = await db.query(`SELECT e.event, e.detail, e.created_at, u.name AS user_name FROM lead_events e
+      LEFT JOIN users u ON u.id=e.user_id WHERE e.lead_id=? ORDER BY e.created_at DESC, e.id DESC`, [l.id]);
+    res.json(rows);
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.post('/api/lead-fms', requireAuth, async (req, res) => {
+  try {
+    const acc = await leadUserAccess(req);
+    if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Lead FMS' });
+    const b = req.body || {};
+    const leadType = LEAD_TYPES.includes(b.leadType) ? b.leadType : null;
+    if (!leadType) return res.status(400).json({ error: 'Lead type (Incoming / Outgoing) is required' });
+    const shop = leadStr(b.shopName, 255), contact = leadStr(b.contactName, 255), mobile = leadStr(b.mobile, 30);
+    if (!shop && !contact) return res.status(400).json({ error: 'Shop name or contact name is required' });
+    if (!mobile && !b.cardPhoto) return res.status(400).json({ error: 'Mobile number or visiting card photo is required' });
+    if (mobile && !sfmsNormalizeMobile(mobile)) return res.status(400).json({ error: 'Mobile number looks wrong' });
+    // Same number already open? Ask before creating a duplicate.
+    if (mobile && !b.force) {
+      const key = sfmsNormalizeMobile(mobile);
+      const [open] = await withLeadTables(() => db.query("SELECT lead_code, mobile FROM leads WHERE cancelled_at IS NULL AND result IS NULL AND mobile LIKE ?", [`%${key.slice(-10)}`]));
+      if (open.length) return res.status(409).json({ error: `Is number ki lead pehle se open hai: ${open.map(o => o.lead_code).join(', ')}`, duplicate: true });
+    }
+    // The salesman behind an Outgoing lead: whoever entered it, unless an SC-NBD / admin names someone.
+    let sid = b.salesmanUserId ? Number(b.salesmanUserId) : (leadType === 'Outgoing' ? Number(req.session.userId) : null);
+    let sname = null;
+    if (sid) {
+      const [[su]] = await db.query('SELECT name FROM users WHERE id=?', [sid]);
+      if (!su) return res.status(400).json({ error: 'Salesman not found' });
+      sname = su.name;
+    }
+    const code = await withLeadTables(() => nextLeadCode());
+    const card = b.cardPhoto ? await uploadPhotoToDrive(b.cardPhoto, `${code}-card-${Date.now()}.jpg`) : null;
+    const [r] = await db.query(`INSERT INTO leads (lead_code, lead_type, source, shop_name, contact_name, mobile, city, area, requirement, card_photo, salesman_user_id, salesman_name, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [code, leadType, leadStr(b.source, 40) || (leadType === 'Outgoing' ? 'Market Visit' : null), shop, contact, mobile,
+        leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.requirement, 1000), card, sid || null, sname, req.session.userId]);
+    await logLeadEvent(r.insertId, 'created', [leadType, b.source, b.requirement].filter(Boolean).join(' · '), req.session.userId);
+    res.json({ success: true, id: r.insertId, code });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+app.put('/api/lead-fms/:id/action/:action', requireAuth, async (req, res) => {
+  try {
+    const action = req.params.action;
+    const b = req.body || {};
+    const uid = req.session.userId;
+    const acc = await leadUserAccess(req);
+    const l = await loadLead(req.params.id);
+    if (!l) return res.status(404).json({ error: 'Lead not found' });
+    const fail = (msg, code = 400) => res.status(code).json({ error: msg });
+    const stage = leadStage(l);
+    if (l.cancelled_at) return fail('This lead was cancelled');
+    const needStep = n => acc.mySteps.has(n) ? true : (fail('You are not assigned to this step (ask admin: Lead FMS → Step Doers)', 403), false);
+    let note = '';
+
+    if (action === 'call') {
+      if (!needStep(1)) return;
+      if (stage !== 'call') return fail('This lead is not waiting for a call — refresh');
+      const outcome = LEAD_CALL_OUTCOMES[b.outcome];
+      if (!outcome) return fail('Select what the dealer said');
+      const remark = leadStr(b.remark, 1000);
+      let catalogue = !!b.catalogueSent;
+      if (b.sendCatalogue) {
+        if (!sfmsNormalizeMobile(l.mobile)) return fail('Lead has no valid mobile number — add it with Edit first');
+        const cat = await getLeadCatalogue(true);
+        if (!cat) return fail('No catalogue PDF uploaded yet (Price List & Catalogue page)');
+        sendWhatsAppSequence(l.mobile, leadCatalogueMessages(l, cat), `lead-catalogue ${l.lead_code}`);
+        catalogue = true; note = ' · catalogue sent on WhatsApp';
+      }
+      const sets = ['call_count=call_count+1', 'last_call_at=NOW()', 'call_outcome=?', 'call_remark=?', 'catalogue_sent=GREATEST(catalogue_sent,?)', 'next_call=?'];
+      const vals = [b.outcome, remark, catalogue ? 1 : 0];
+      if (outcome.recall) {
+        vals.push(leadYmd(b.nextCall) || ymdAddDays(await chequeTodayYmd(), 1));
+      } else vals.push(null);
+      if (outcome.visit) { sets.push('needs_visit=1', 'visit_needed_at=NOW()', 'visit_purpose=?', 'visit_date=NULL'); vals.push(outcome.visit); }
+      if (outcome.close) { sets.push('result=?', 'closed_at=NOW()', 'closed_by=?'); vals.push(outcome.close, uid); }
+      await db.query(`UPDATE leads SET ${sets.join(', ')} WHERE id=?`, [...vals, l.id]);
+      await logLeadEvent(l.id, 'call', `${b.outcome}${remark ? ' — ' + remark : ''}${outcome.recall ? ' · next call ' + vals[3] : ''}${catalogue && !note ? ' · catalogue sent' : ''}${note}`, uid);
+    } else if (action === 'schedule') {
+      if (!needStep(2)) return;
+      if (stage !== 'schedule' && stage !== 'visit') return fail('This lead does not need a visit — refresh');
+      const date = leadYmd(b.visitDate);
+      const vid = Number(b.visitUserId);
+      if (!date || !vid) return fail('Visit date and salesman are required');
+      const [[vu]] = await db.query('SELECT name, phone FROM users WHERE id=?', [vid]);
+      if (!vu) return fail('Salesman not found');
+      const remark = leadStr(b.remark, 1000);
+      await db.query('UPDATE leads SET needs_visit=1, visit_date=?, visit_user_id=?, visit_user_name=?, scheduled_at=NOW(), scheduled_by=? WHERE id=?', [date, vid, vu.name, uid, l.id]);
+      if (b.notify !== false && vu.phone) {
+        const text = `📍 *Visit fix hua hai* — ${l.lead_code}\nDate: ${date.split('-').reverse().join('-')}\nDukaan: ${l.shop_name || '—'}${l.contact_name ? ' (' + l.contact_name + ')' : ''}\nMobile: ${l.mobile || '—'}\nArea: ${[l.area, l.city].filter(Boolean).join(', ') || '—'}\nKaam: ${l.visit_purpose === 'Sample' ? 'Sample leke jaana hai' : 'Dealer se milna hai'}${l.requirement ? '\nRequirement: ' + l.requirement : ''}${remark ? '\nNote: ' + remark : ''}\n\nVisit ke baad app me "Visit Done" zaroor karein. (Ajanta Task Manager)`;
+        sendWhatsAppInBackground(vu.phone, text, null, `lead-visit ${l.lead_code}`);
+        note = ` · WhatsApp to ${vu.name}`;
+      }
+      await logLeadEvent(l.id, stage === 'visit' ? 'rescheduled' : 'scheduled', `${vu.name} on ${date}${remark ? ' — ' + remark : ''}${note}`, uid);
+    } else if (action === 'visit') {
+      if (stage !== 'visit') return fail('No visit is scheduled on this lead — refresh');
+      if (Number(l.visit_user_id) !== Number(uid) && !acc.mySteps.has(2)) return fail('This visit is assigned to ' + (l.visit_user_name || 'another salesman'), 403);
+      const outcome = LEAD_VISIT_OUTCOMES[b.outcome];
+      if (!outcome) return fail('Select what happened on the visit');
+      const remark = leadStr(b.remark, 1000);
+      const photo = b.photo ? await uploadPhotoToDrive(b.photo, `${l.lead_code}-visit-${Date.now()}.jpg`) : null;
+      const sets = ['visit_count=visit_count+1', 'visited_at=NOW()', 'visit_outcome=?', 'visit_remark=?', 'visit_photo=COALESCE(?,visit_photo)'];
+      const vals = [b.outcome, remark, photo];
+      if (outcome.again) {
+        // Back to SC-NBD to fix the next visit — unless the salesman already knows the date.
+        const next = leadYmd(b.nextVisitDate);
+        sets.push('visit_date=?', 'visit_needed_at=NOW()'); vals.push(next);
+      } else { sets.push('needs_visit=0', 'result=?', 'closed_at=NOW()', 'closed_by=?'); vals.push(outcome.close, uid); }
+      await db.query(`UPDATE leads SET ${sets.join(', ')} WHERE id=?`, [...vals, l.id]);
+      await logLeadEvent(l.id, 'visit', `${b.outcome}${remark ? ' — ' + remark : ''}${outcome.again && leadYmd(b.nextVisitDate) ? ' · next visit ' + b.nextVisitDate : ''}`, uid);
+    } else if (action === 'edit') {
+      if (!acc.seeAll && Number(l.created_by) !== Number(uid)) return fail('Only SC-NBD / admin can edit this lead', 403);
+      const mobile = leadStr(b.mobile, 30);
+      if (mobile && !sfmsNormalizeMobile(mobile)) return fail('Mobile number looks wrong');
+      if (!leadStr(b.shopName, 255) && !leadStr(b.contactName, 255)) return fail('Shop name or contact name is required');
+      await db.query('UPDATE leads SET shop_name=?, contact_name=?, mobile=?, city=?, area=?, requirement=?, source=? WHERE id=?',
+        [leadStr(b.shopName, 255), leadStr(b.contactName, 255), mobile, leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.requirement, 1000), leadStr(b.source, 40), l.id]);
+      await logLeadEvent(l.id, 'edited', null, uid);
+    } else if (action === 'cancel') {
+      if (!acc.seeAll) return fail('Only SC-NBD / admin can cancel a lead', 403);
+      const reason = leadStr(b.reason, 500);
+      if (!reason) return fail('Reason is required');
+      await db.query('UPDATE leads SET cancelled_at=NOW(), cancelled_by=?, cancel_reason=? WHERE id=?', [uid, reason, l.id]);
+      await logLeadEvent(l.id, 'cancelled', reason, uid);
+    } else if (action === 'reopen') {
+      if (!acc.seeAll) return fail('Only SC-NBD / admin can reopen a lead', 403);
+      if (!l.result) return fail('Lead is not closed');
+      await db.query('UPDATE leads SET result=NULL, closed_at=NULL, closed_by=NULL, needs_visit=0, visit_date=NULL, next_call=CURDATE() WHERE id=?', [l.id]);
+      await logLeadEvent(l.id, 'reopened', leadStr(b.reason, 500), uid);
+    } else return fail('Unknown action');
+
+    const fresh = await loadLead(l.id);
+    res.json({ success: true, lead: leadOut(fresh, acc.doersMap) });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    if (err.isWhatsApp) return sendWhatsAppError(res, err);
+    sendServerError(res, err);
+  }
+});
+
+// ── WhatsApp settings: catalogue + new-dealer welcome kit ──
+const LEAD_SETTING_TEXTS = ['welcomeMessage', 'serviceNumber', 'bankDetails', 'termsText'];
+const LEAD_SETTING_FILES = { qr: 'Payment-QR', warranty: 'Warranty-Chart', terms: 'Terms-and-Conditions' };
+app.get('/api/lead-fms/settings', requireAuth, async (req, res) => {
+  try {
+    const acc = await leadUserAccess(req);
+    if (!acc.pageAccess && !(await canAccessDealers(req))) return res.status(403).json({ error: 'No access' });
+    const cat = await getLeadCatalogue(false).catch(() => null);
+    res.json({ settings: await getLeadSettings(), catalogue: cat ? cat.fileName : '', canEdit: acc.isAdmin });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/lead-fms/settings', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const s = await getLeadSettings();
+    LEAD_SETTING_TEXTS.forEach(k => { if (k in b) s[k] = String(b[k] || '').slice(0, 3000); });
+    for (const [k, base] of Object.entries(LEAD_SETTING_FILES)) {
+      const f = b.files && b.files[k];
+      if (f === null) { delete s[k + 'Url']; delete s[k + 'Name']; continue; }
+      if (!f || !f.data) continue;
+      const m = /^data:([^;]+);base64,/.exec(f.data);
+      if (!m) return res.status(400).json({ error: `${base}: invalid file` });
+      const ext = m[1] === 'application/pdf' ? 'pdf' : m[1] === 'image/png' ? 'png' : 'jpg';
+      if (!['pdf', 'png', 'jpg'].includes(ext) || !/^(application\/pdf|image\/)/.test(m[1])) return res.status(400).json({ error: `${base}: only PDF or image` });
+      s[k + 'Url'] = await uploadPhotoToDrive(f.data, `${base}-${Date.now()}.${ext}`, { public: true });
+      s[k + 'Name'] = `${base}.${ext}`;
+    }
+    await setAppSetting(LEAD_SETTINGS_KEY, JSON.stringify(s));
+    res.json({ success: true, settings: s });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// NEW DEALER ONBOARDING (same recording) — one form when a salesman makes a
+// new dealer: GST photo, 4 photos inside the shop and 1 outside, owner / firm
+// details, own or rented shop and how much stock it carries (so the first
+// supply matches the shop). On submit the dealer profile (O2D Dealers) is
+// created/updated and the dealer gets the welcome kit on WhatsApp: service
+// centre number, warranty chart, terms, bank account and payment QR.
+// ══════════════════════════════════════════════════════
+const ONB_FIRM_TYPES = ['Proprietorship', 'Partnership', 'Pvt Ltd', 'LLP', 'Other'];
+async function canOnboardDealers(req) {
+  return req.session.role === 'admin' || (await hasPageGrant(req, 'lead-fms')) || (await canAccessDealers(req));
+}
+function dealerWelcomeMessages(o, s, cat) {
+  const lines = [`🙏 नमस्ते ${o.owner_name} जी,`, '', `*Ajanta Appliances* परिवार में ${o.shop_name} का स्वागत है! 🎉`];
+  if (s.welcomeMessage) lines.push('', s.welcomeMessage);
+  if (s.serviceNumber) lines.push('', `🛠️ Service Centre: ${s.serviceNumber}`);
+  if (s.bankDetails) lines.push('', '🏦 Bank Details:', s.bankDetails);
+  if (s.termsText) lines.push('', '📋 Terms & Conditions:', s.termsText);
+  const attach = [cat && 'Catalogue', s.warrantyUrl && 'Warranty Chart', s.termsUrl && 'Terms & Conditions', s.qrUrl && 'Payment QR'].filter(Boolean);
+  if (attach.length) lines.push('', `📎 ${attach.join(', ')} नीचे भेज रहे हैं — save करके रखें।`);
+  lines.push('', 'धन्यवाद', 'Ajanta Appliances');
+  const items = [{ text: lines.join('\n') }];
+  if (s.warrantyUrl) items.push({ text: 'Warranty Chart', media: leadMediaFor(s.warrantyUrl, s.warrantyName) });
+  if (s.termsUrl) items.push({ text: 'Terms & Conditions', media: leadMediaFor(s.termsUrl, s.termsName) });
+  if (s.qrUrl) items.push({ text: 'Payment QR — isi QR par payment karein', media: leadMediaFor(s.qrUrl, s.qrName) });
+  if (cat) items.push({ text: '', media: { type: 'document', url: cat.url, mimetype: 'application/pdf', fileName: cat.fileName } });
+  return items;
+}
+const ONB_SELECT = `SELECT o.*, DATE_FORMAT(o.created_at,'%Y-%m-%d %H:%i') AS created_fmt, u.name AS created_by_name FROM dealer_onboardings o LEFT JOIN users u ON u.id=o.created_by`;
+function onboardingOut(o) {
+  let inside = [];
+  try { inside = JSON.parse(o.inside_photos || '[]'); } catch (e) {}
+  return { id: o.id, code: o.code, leadId: o.lead_id, shopName: o.shop_name, ownerName: o.owner_name, mobile: o.mobile, altMobile: o.alt_mobile || '',
+    email: o.email || '', address: o.address || '', city: o.city || '', area: o.area || '', pincode: o.pincode || '', gstNo: o.gst_no || '', panNo: o.pan_no || '',
+    firmType: o.firm_type || '', partners: o.partners || '', shopOwnership: o.shop_ownership || '', yearsInBusiness: o.years_in_business || '',
+    shopSize: o.shop_size || '', stockLevel: o.stock_level || '', brandsDealt: o.brands_dealt || '',
+    monthlyPotential: o.monthly_potential == null ? null : Number(o.monthly_potential), suggestedCredit: o.suggested_credit == null ? null : Number(o.suggested_credit),
+    remark: o.remark || '', gstPhoto: o.gst_photo || '', insidePhotos: inside, outsidePhoto: o.outside_photo || '',
+    locationLat: o.location_lat == null ? null : Number(o.location_lat), locationLng: o.location_lng == null ? null : Number(o.location_lng),
+    salesmanName: o.salesman_name || '', createdAt: o.created_fmt, createdByName: o.created_by_name || '', welcomeSentAt: o.welcome_sent_at, welcomeNote: o.welcome_note || '' };
+}
+
+app.get('/api/dealer-onboarding', requireAuth, async (req, res) => {
+  try {
+    if (!(await canOnboardDealers(req))) return res.status(403).json({ error: 'No access' });
+    const acc = await leadUserAccess(req);
+    const uid = req.session.userId;
+    const [rows] = await withLeadTables(() => acc.seeAll || req.session.role === 'admin'
+      ? db.query(`${ONB_SELECT} ORDER BY o.id DESC`)
+      : db.query(`${ONB_SELECT} WHERE o.created_by=? OR o.salesman_user_id=? ORDER BY o.id DESC`, [uid, uid]));
+    res.json({ items: rows.map(onboardingOut), firmTypes: ONB_FIRM_TYPES });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
+  try {
+    if (!(await canOnboardDealers(req))) return res.status(403).json({ error: 'You do not have access to add dealers' });
+    const b = req.body || {};
+    const shop = leadStr(b.shopName, 255), owner = leadStr(b.ownerName, 255), mobile = leadStr(b.mobile, 30);
+    if (!shop || !owner || !mobile) return res.status(400).json({ error: 'Shop name, owner name and mobile are required' });
+    if (!sfmsNormalizeMobile(mobile)) return res.status(400).json({ error: 'Mobile number looks wrong' });
+    const inside = Array.isArray(b.insidePhotos) ? b.insidePhotos.filter(Boolean) : [];
+    if (!b.gstPhoto && !b.noGst) return res.status(400).json({ error: 'GST photo is required (or tick "GST nahi hai")' });
+    if (inside.length < 4) return res.status(400).json({ error: 'Dukaan ke andar ki 4 photo chahiye' });
+    if (!b.outsidePhoto) return res.status(400).json({ error: 'Dukaan ke bahar ki 1 photo chahiye' });
+    if (inside.length > 6) return res.status(400).json({ error: 'Maximum 6 inside photos' });
+    const num = v => (v === '' || v == null || !(Number(v) >= 0)) ? null : Number(v);
+    let lead = null;
+    if (b.leadId) {
+      lead = await loadLead(b.leadId);
+      if (!lead) return res.status(400).json({ error: 'Linked lead not found' });
+    }
+    const code = await withLeadTables(async () => {
+      const [rows] = await db.query("SELECT code FROM dealer_onboardings WHERE code LIKE 'DO-%'");
+      const max = rows.reduce((m, r) => Math.max(m, parseInt(String(r.code).slice(3), 10) || 0), 0);
+      return `DO-${await claimNextSeqValue('dealer_onboarding_code', max + 1)}`;
+    });
+    // KYC + shop photos stay private (app login to view).
+    const up = (img, kind) => img ? uploadPhotoToDrive(img, `${code}-${kind}-${Date.now()}.jpg`) : Promise.resolve(null);
+    const [gstUrl, outsideUrl, ...insideUrls] = await Promise.all([up(b.gstPhoto, 'gst'), up(b.outsidePhoto, 'outside'), ...inside.map((p, i) => up(p, `inside${i + 1}`))]);
+    const lat = Number(b.locationLat), lng = Number(b.locationLng);
+    const hasLoc = isFinite(lat) && isFinite(lng) && (lat || lng);
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    const [r] = await db.query(`INSERT INTO dealer_onboardings (code, lead_id, shop_name, owner_name, mobile, alt_mobile, email, address, city, area, pincode, gst_no, pan_no,
+        firm_type, partners, shop_ownership, years_in_business, shop_size, stock_level, brands_dealt, monthly_potential, suggested_credit, remark,
+        gst_photo, inside_photos, outside_photo, location_lat, location_lng, salesman_user_id, salesman_name, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [code, lead ? lead.id : null, shop, owner, mobile, leadStr(b.altMobile, 30), leadStr(b.email, 255), leadStr(b.address, 1000), leadStr(b.city, 255), leadStr(b.area, 255),
+        leadStr(b.pincode, 10), leadStr(b.gstNo, 30) && leadStr(b.gstNo, 30).toUpperCase(), leadStr(b.panNo, 20) && leadStr(b.panNo, 20).toUpperCase(),
+        ONB_FIRM_TYPES.includes(b.firmType) ? b.firmType : null, leadStr(b.partners, 1000), ['Own', 'Rented'].includes(b.shopOwnership) ? b.shopOwnership : null,
+        leadStr(b.yearsInBusiness, 20), leadStr(b.shopSize, 30), leadStr(b.stockLevel, 30), leadStr(b.brandsDealt, 500), num(b.monthlyPotential), num(b.suggestedCredit),
+        leadStr(b.remark, 1000), gstUrl, JSON.stringify(insideUrls), outsideUrl, hasLoc ? lat : null, hasLoc ? lng : null, req.session.userId, me ? me.name : null, req.session.userId]);
+
+    // Dealer profile used by O2D (Dealers tab, New Order): fill what's known, keep the rest.
+    await withDealerTables(() => db.query(
+      `INSERT INTO o2d_dealers (counter_name, city, phone, kyc_gst_url, kyc_shop_url, location_lat, location_lng, location_address) VALUES (?,?,?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE city=COALESCE(VALUES(city),city), phone=COALESCE(VALUES(phone),phone), kyc_gst_url=COALESCE(VALUES(kyc_gst_url),kyc_gst_url),
+         kyc_shop_url=COALESCE(VALUES(kyc_shop_url),kyc_shop_url), location_lat=COALESCE(VALUES(location_lat),location_lat),
+         location_lng=COALESCE(VALUES(location_lng),location_lng), location_address=COALESCE(VALUES(location_address),location_address)`,
+      [shop, leadStr(b.city, 255), mobile, gstUrl, outsideUrl, hasLoc ? lat : null, hasLoc ? lng : null, leadStr(b.address, 500)]));
+
+    if (lead && !lead.result && !lead.cancelled_at) {
+      await db.query("UPDATE leads SET result='Dealer Onboarded', needs_visit=0, closed_at=NOW(), closed_by=?, onboarding_id=? WHERE id=?", [req.session.userId, r.insertId, lead.id]);
+      await logLeadEvent(lead.id, 'onboarded', `${code} · ${shop}`, req.session.userId);
+    } else if (lead) await db.query('UPDATE leads SET onboarding_id=? WHERE id=?', [r.insertId, lead.id]);
+
+    let welcome = 'not sent';
+    if (b.sendWelcome !== false) {
+      const s = await getLeadSettings();
+      const [[o]] = await db.query('SELECT * FROM dealer_onboardings WHERE id=?', [r.insertId]);
+      const cat = await getLeadCatalogue(true).catch(e => { console.warn('catalogue share failed:', e.message); return null; });
+      sendWhatsAppSequence(mobile, dealerWelcomeMessages(o, s, cat), `dealer-welcome ${code}`);
+      welcome = 'sent';
+      await db.query('UPDATE dealer_onboardings SET welcome_sent_at=NOW(), welcome_note=? WHERE id=?',
+        [[s.serviceNumber && 'service no', cat && 'catalogue', s.warrantyUrl && 'warranty', (s.termsUrl || s.termsText) && 'terms', s.bankDetails && 'bank', s.qrUrl && 'QR'].filter(Boolean).join(', ') || 'welcome text only', r.insertId]);
+    }
+    res.json({ success: true, id: r.insertId, code, welcome });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+app.post('/api/dealer-onboarding/:id/welcome', requireAuth, async (req, res) => {
+  try {
+    if (!(await canOnboardDealers(req))) return res.status(403).json({ error: 'No access' });
+    const [[o]] = await withLeadTables(() => db.query('SELECT * FROM dealer_onboardings WHERE id=?', [req.params.id]));
+    if (!o) return res.status(404).json({ error: 'Not found' });
+    const s = await getLeadSettings();
+    const cat = await getLeadCatalogue(true).catch(() => null);
+    sendWhatsAppSequence(o.mobile, dealerWelcomeMessages(o, s, cat), `dealer-welcome ${o.code}`);
+    await db.query('UPDATE dealer_onboardings SET welcome_sent_at=NOW() WHERE id=?', [o.id]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
