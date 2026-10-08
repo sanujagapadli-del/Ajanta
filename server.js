@@ -9411,6 +9411,63 @@ async function gpProductMapper() {
   };
 }
 
+// O2D billed sales lines in [start, end] with what each one cost (manual rate,
+// else the qty-weighted PO rate). Shared by Gross Profit and Salesman P&L.
+async function gpLoadData(start, end) {
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  await ensureProductCosts();
+  const bill = O2D_STEPS.find(s => s.n === 4); // Make Bill
+  const [o2dRes, poRes, [manual], mapTo, [stockItems]] = await Promise.all([
+    sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }),
+    sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }),
+    db.query('SELECT item_key, item_name, cost_rate FROM product_costs'),
+    gpProductMapper(),
+    withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items'))
+  ]);
+  const stockName = Object.fromEntries(stockItems.map(i => [i.item_code, i.description]));
+
+  // Sales lines from O2D (billed).
+  const sales = [];
+  let firstBill = '', lastBill = '';
+  (o2dRes.data.values || []).forEach(r => {
+    const get = col => r[colToIdx(col)];
+    const status = String(get(bill.status) || '');
+    if (!get('R') || !status || /^no$/i.test(status) || /cancel/i.test(status)) return;
+    const date = stockSerialToYmd(get(bill.actual));
+    if (!date) return;
+    if (!firstBill || date < firstBill) firstBill = date;
+    if (date > lastBill) lastBill = date;
+    if (date < start || date > end) return;
+    const qty = gpNum(get('O')), rate = gpNum(get('N'));
+    const name = String(get('M') || '').trim();
+    if (!name || !(qty > 0)) return;
+    sales.push({ party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), item: name, qty, rate, amount: qty * rate, code: mapTo(name) });
+  });
+
+  // Cost per stock item from Purchase FMS PO lines (weighted by PO qty).
+  const poCost = {}; // code -> { qty, value, names:Set, vendors: { key: { vendor, qty, value } } }
+  (poRes.data.values || []).forEach(r => {
+    const name = String(r[4] || '').trim(), qty = gpNum(r[6]), rate = gpNum(r[7]);
+    const date = stockSerialToYmd(r[0]);
+    if (!name || !(rate > 0) || (date && date > end)) return;
+    const c = poCost[mapTo(name)] = poCost[mapTo(name)] || { qty: 0, value: 0, names: new Set(), vendors: {} };
+    const w = qty > 0 ? qty : 1;
+    c.qty += w; c.value += w * rate; c.names.add(name);
+    const vendor = String(r[8] || '').trim().replace(/\s+/g, ' ') || '—';
+    const v = c.vendors[vendor.toLowerCase()] = c.vendors[vendor.toLowerCase()] || { vendor, qty: 0, value: 0 };
+    v.qty += w; v.value += w * rate;
+  });
+  const manualBy = Object.fromEntries(manual.map(m => [m.item_key, Number(m.cost_rate)]));
+  const costFor = s => {
+    const mk = manualBy[gpKey(s.item)];
+    if (mk > 0) return { rate: mk, source: 'Manual' };
+    const c = poCost[s.code];
+    if (c && c.qty > 0) return { rate: Math.round(c.value / c.qty * 100) / 100, source: 'PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
+    return null;
+  };
+  return { sales, poCost, costFor, stockName, firstBill, lastBill };
+}
+
 app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
   try {
     if (!(await canSeeGrossProfit(req))) return res.status(403).json({ error: 'You do not have access to Gross Profit' });
@@ -9418,57 +9475,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
       return res.status(400).json({ error: 'Valid start and end dates required' });
     }
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-    await ensureProductCosts();
-    const bill = O2D_STEPS.find(s => s.n === 4); // Make Bill
-    const [o2dRes, poRes, [manual], mapTo, [stockItems]] = await Promise.all([
-      sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }),
-      sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }),
-      db.query('SELECT item_key, item_name, cost_rate FROM product_costs'),
-      gpProductMapper(),
-      withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items'))
-    ]);
-    const stockName = Object.fromEntries(stockItems.map(i => [i.item_code, i.description]));
-
-    // Sales lines from O2D (billed).
-    const sales = [];
-    let firstBill = '', lastBill = '';
-    (o2dRes.data.values || []).forEach(r => {
-      const get = col => r[colToIdx(col)];
-      const status = String(get(bill.status) || '');
-      if (!get('R') || !status || /^no$/i.test(status) || /cancel/i.test(status)) return;
-      const date = stockSerialToYmd(get(bill.actual));
-      if (!date) return;
-      if (!firstBill || date < firstBill) firstBill = date;
-      if (date > lastBill) lastBill = date;
-      if (date < start || date > end) return;
-      const qty = gpNum(get('O')), rate = gpNum(get('N'));
-      const name = String(get('M') || '').trim();
-      if (!name || !(qty > 0)) return;
-      sales.push({ party: String(get('C') || '').trim() || '—', orderNo: String(get('Q') || ''), item: name, qty, rate, amount: qty * rate, code: mapTo(name) });
-    });
-
-    // Cost per stock item from Purchase FMS PO lines (weighted by PO qty).
-    const poCost = {}; // code -> { qty, value, names:Set, vendors: { key: { vendor, qty, value } } }
-    (poRes.data.values || []).forEach(r => {
-      const name = String(r[4] || '').trim(), qty = gpNum(r[6]), rate = gpNum(r[7]);
-      const date = stockSerialToYmd(r[0]);
-      if (!name || !(rate > 0) || (date && date > end)) return;
-      const c = poCost[mapTo(name)] = poCost[mapTo(name)] || { qty: 0, value: 0, names: new Set(), vendors: {} };
-      const w = qty > 0 ? qty : 1;
-      c.qty += w; c.value += w * rate; c.names.add(name);
-      const vendor = String(r[8] || '').trim().replace(/\s+/g, ' ') || '—';
-      const v = c.vendors[vendor.toLowerCase()] = c.vendors[vendor.toLowerCase()] || { vendor, qty: 0, value: 0 };
-      v.qty += w; v.value += w * rate;
-    });
-    const manualBy = Object.fromEntries(manual.map(m => [m.item_key, Number(m.cost_rate)]));
-    const costFor = s => {
-      const mk = manualBy[gpKey(s.item)];
-      if (mk > 0) return { rate: mk, source: 'Manual' };
-      const c = poCost[s.code];
-      if (c && c.qty > 0) return { rate: Math.round(c.value / c.qty * 100) / 100, source: 'PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
-      return null;
-    };
+    const { sales, poCost, costFor, stockName, firstBill, lastBill } = await gpLoadData(start, end);
 
     const round = v => Math.round(v * 100) / 100;
     // Vendor-wise: a sold line is shared among the vendors its item was bought
@@ -9559,6 +9566,276 @@ app.put('/api/reports/product-cost', requireAuth, requireAdmin, async (req, res)
     if (!(rate > 0)) return res.status(400).json({ error: 'Cost rate must be more than 0' });
     await db.query('INSERT INTO product_costs (item_key, item_name, cost_rate, updated_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), cost_rate=VALUES(cost_rate), updated_by=VALUES(updated_by)',
       [k, name.slice(0, 255), rate, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// SALESMAN PROFIT CENTER (client voice note, 2026-10-08) — every salesman is
+// a profit center: what he costs (salary for the days he was paid, petrol
+// for the KM he drove, tour expenses outside Jaipur) against the gross
+// profit on what he sold (O2D billed orders whose "Order By" is his name).
+//
+// Salary is private: a salesman sees only his own; the users listed in
+// app_settings `salesman_pl_viewers` (Vishal and Ajay — client, 2026-10-08)
+// see everyone, set salaries and approve tour expenses.
+// Paid day = punched in, week-off / extra-off, holiday, or approved leave.
+// ══════════════════════════════════════════════════════
+const PL_VIEWERS_KEY = 'salesman_pl_viewers';
+const PL_DEFAULT_VIEWERS = '1,9'; // Vishal Jaga, Ajay (MD)
+const TOUR_MODES = ['Bus', 'Train', 'Own Bike', 'Own Car', 'Company Vehicle', 'Taxi / Cab', 'Other'];
+const TOUR_HEADS = ['fare', 'stay', 'food', 'local', 'other'];
+
+async function ensurePlTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS salesman_profiles (
+      user_id INT PRIMARY KEY,
+      monthly_salary DECIMAL(12,2),
+      km_rate DECIMAL(8,2),
+      o2d_names VARCHAR(500),
+      updated_by INT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tour_expenses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      tour_date DATE NOT NULL,
+      from_place VARCHAR(255),
+      places VARCHAR(500) NOT NULL,
+      travel_mode VARCHAR(30),
+      fare DECIMAL(10,2) DEFAULT 0,
+      stay DECIMAL(10,2) DEFAULT 0,
+      food DECIMAL(10,2) DEFAULT 0,
+      local DECIMAL(10,2) DEFAULT 0,
+      other DECIMAL(10,2) DEFAULT 0,
+      total DECIMAL(10,2) DEFAULT 0,
+      remark VARCHAR(1000),
+      bill_photo VARCHAR(1000),
+      status VARCHAR(20) DEFAULT 'pending',
+      decided_by INT,
+      decided_at DATETIME,
+      decision_remark VARCHAR(500),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_user_date (user_id, tour_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+let _plTablesOk = false;
+async function withPlTables(fn) {
+  if (!_plTablesOk) { await ensurePlTables(); _plTablesOk = true; }
+  return fn();
+}
+async function plViewerIds() {
+  let v = await getAppSetting(PL_VIEWERS_KEY);
+  if (v == null) { v = PL_DEFAULT_VIEWERS; await setAppSetting(PL_VIEWERS_KEY, v); }
+  return String(v).split(',').map(x => Number(x.trim())).filter(Boolean);
+}
+async function plIsViewer(req) {
+  return (await plViewerIds()).includes(Number(req.session.userId));
+}
+const plYmd = v => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null);
+const plMoney = v => { const n = Number(v); return isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0; };
+const plRound = v => Math.round(v * 100) / 100;
+const plNameKey = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Paid days and earned salary of one user over [start, end] (never past today).
+function plSalaryFor(u, profile, start, end, today, ctx) {
+  const monthly = Number(profile && profile.monthly_salary) || 0;
+  const weekOff = String(u.week_off || '').split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
+  let extra = [];
+  try { extra = u.extra_off ? JSON.parse(u.extra_off) : []; } catch (_) {}
+  const out = { days: 0, present: 0, off: 0, leave: 0, absent: 0, salary: 0 };
+  const last = end < today ? end : today;
+  for (let d = start; d <= last; d = ymdAddDays(d, 1)) {
+    const dt = new Date(d + 'T00:00:00Z');
+    const dow = dt.getUTCDay(), nth = Math.ceil(dt.getUTCDate() / 7);
+    const daysInMonth = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();
+    out.days++;
+    let paid = true;
+    if (ctx.present.has(`${u.id}|${d}`)) out.present++;
+    else if (weekOff.includes(dow) || ctx.holidays.has(d) || (Array.isArray(extra) && extra.some(e => e && e.day === dow && Array.isArray(e.weeks) && e.weeks.includes(nth)))) out.off++;
+    else if ((ctx.leaves[u.id] || []).some(l => d >= l.s && d <= l.e)) out.leave++;
+    else { out.absent++; paid = false; }
+    if (paid) out.salary += monthly / daysInMonth;
+  }
+  out.salary = plRound(out.salary);
+  return out;
+}
+
+async function buildSalesmanPl(start, end, onlyUserId) {
+  await withPlTables(() => Promise.resolve());
+  const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+  const [profiles] = await db.query(`SELECT p.*, u.name, u.department, u.week_off, u.extra_off, u.id
+    FROM salesman_profiles p JOIN users u ON u.id=p.user_id WHERE u.is_active=1${onlyUserId ? ' AND u.id=?' : ''} ORDER BY u.name`, onlyUserId ? [onlyUserId] : []);
+  if (!profiles.length && onlyUserId) return { rows: [], unassigned: [], today };
+  const ids = profiles.length ? profiles.map(p => p.id) : [0];
+  const [[att], [leaves], [kms], [tours], hol] = await withAttendanceTables(() => Promise.all([
+    db.query("SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d FROM attendance WHERE time_in IS NOT NULL AND date BETWEEN ? AND ? AND user_id IN (?)", [start, end, ids]),
+    db.query("SELECT user_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS s, DATE_FORMAT(end_date,'%Y-%m-%d') AS e FROM leave_requests WHERE status='approved' AND end_date>=? AND start_date<=? AND user_id IN (?)", [start, end, ids]),
+    db.query('SELECT user_id, SUM(GREATEST(evening_km - morning_km, 0)) AS km, COUNT(evening_km) AS days FROM daily_km WHERE date BETWEEN ? AND ? AND morning_km IS NOT NULL AND evening_km IS NOT NULL AND user_id IN (?) GROUP BY user_id', [start, end, ids]),
+    db.query("SELECT user_id, status, SUM(total) AS amt, COUNT(*) AS n FROM tour_expenses WHERE tour_date BETWEEN ? AND ? AND user_id IN (?) GROUP BY user_id, status", [start, end, ids]),
+    db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [start, end]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; })
+  ]));
+  const ctx = { present: new Set(att.map(a => `${a.user_id}|${a.d}`)), holidays: new Set((hol[0] || []).map(h => h.d)), leaves: {} };
+  leaves.forEach(l => (ctx.leaves[l.user_id] = ctx.leaves[l.user_id] || []).push(l));
+  const kmBy = Object.fromEntries(kms.map(k => [k.user_id, { km: Number(k.km) || 0, days: Number(k.days) || 0 }]));
+  const tourBy = {};
+  tours.forEach(t => { const x = tourBy[t.user_id] = tourBy[t.user_id] || { approved: 0, pending: 0, pendingCount: 0 }; if (t.status === 'approved') x.approved += Number(t.amt) || 0; else if (t.status === 'pending') { x.pending += Number(t.amt) || 0; x.pendingCount += Number(t.n); } });
+
+  // Sales + gross profit per salesman from O2D "Order By".
+  const { sales, costFor } = await gpLoadData(start, end);
+  const owner = {};
+  profiles.forEach(p => String(p.o2d_names || '').split(',').map(plNameKey).filter(Boolean).forEach(k => { owner[k] = p.id; }));
+  const sold = {}, unassigned = {};
+  sales.forEach(s => {
+    const uid = owner[plNameKey(s.orderBy)];
+    if (!uid) { const k = s.orderBy || '(blank)'; unassigned[k] = (unassigned[k] || 0) + s.amount; return; }
+    const x = sold[uid] = sold[uid] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
+    const c = costFor(s);
+    x.sales += s.amount; x.qty += s.qty; x.orders.add(s.orderNo);
+    if (c) { x.costedSales += s.amount; x.cost += c.rate * s.qty; } else x.uncostedSales += s.amount;
+  });
+
+  const rows = profiles.map(p => {
+    const sal = plSalaryFor(p, p, start, end, today, ctx);
+    const km = kmBy[p.id] || { km: 0, days: 0 };
+    const kmRate = Number(p.km_rate) || 0;
+    const petrol = plRound(km.km * kmRate);
+    const tour = tourBy[p.id] || { approved: 0, pending: 0, pendingCount: 0 };
+    const so = sold[p.id] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
+    const gp = so.costedSales - so.cost;
+    const expense = sal.salary + petrol + tour.approved;
+    const net = gp - expense;
+    return {
+      userId: p.id, name: p.name, department: p.department || '', o2dNames: p.o2d_names || '',
+      monthlySalary: p.monthly_salary == null ? null : Number(p.monthly_salary), kmRate,
+      days: sal.days, present: sal.present, offDays: sal.off, leaveDays: sal.leave, absent: sal.absent, salary: sal.salary,
+      km: plRound(km.km), kmDays: km.days, petrol, tour: plRound(tour.approved), tourPending: plRound(tour.pending), tourPendingCount: tour.pendingCount,
+      orders: so.orders.size, qty: plRound(so.qty), sales: plRound(so.sales), uncostedSales: plRound(so.uncostedSales),
+      gp: plRound(gp), gpPct: so.costedSales ? plRound(gp * 100 / so.costedSales) : null,
+      expense: plRound(expense), net: plRound(net), netPct: so.sales ? plRound(net * 100 / so.sales) : null
+    };
+  }).sort((a, b) => b.net - a.net);
+  return { rows, today, unassigned: onlyUserId ? [] : Object.entries(unassigned).map(([name, amt]) => ({ name, sales: plRound(amt) })).sort((a, b) => b.sales - a.sales) };
+}
+
+// Who may see what — drives the Attendance page tabs.
+app.get('/api/salesman-pl/access', requireAuth, async (req, res) => {
+  try {
+    const viewer = await plIsViewer(req);
+    const [[p]] = await withPlTables(() => db.query('SELECT user_id FROM salesman_profiles WHERE user_id=?', [req.session.userId]));
+    const [[u]] = await db.query('SELECT track_km FROM users WHERE id=?', [req.session.userId]);
+    res.json({ viewer, hasProfile: !!p, tour: viewer || !!p || !!(u && +u.track_km), modes: TOUR_MODES });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.get('/api/salesman-pl', requireAuth, async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!plYmd(start) || !plYmd(end) || start > end) return res.status(400).json({ error: 'Valid start and end dates required' });
+    const viewer = await plIsViewer(req);
+    const r = await buildSalesmanPl(start, end, viewer ? null : req.session.userId);
+    res.json({ ...r, start, end, viewer });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D / Purchase FMS sheets with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Salary / KM rate / O2D "Order By" names — viewers only.
+app.get('/api/salesman-pl/profiles', requireAuth, async (req, res) => {
+  try {
+    if (!(await plIsViewer(req))) return res.status(403).json({ error: 'Only Vishal / Ajay can see salaries' });
+    const [users] = await withPlTables(() => db.query(`SELECT u.id, u.name, u.department, u.track_km, p.monthly_salary, p.km_rate, p.o2d_names, p.user_id AS has
+      FROM users u LEFT JOIN salesman_profiles p ON p.user_id=u.id WHERE u.is_active=1 AND (u.role IS NULL OR u.role<>'vendor') ORDER BY (p.user_id IS NULL), u.department, u.name`));
+    res.json({ users: users.map(u => ({ id: u.id, name: u.name, department: u.department || '', trackKm: !!+u.track_km, enabled: !!u.has,
+      monthlySalary: u.monthly_salary == null ? null : Number(u.monthly_salary), kmRate: u.km_rate == null ? null : Number(u.km_rate), o2dNames: u.o2d_names || '' })) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/salesman-pl/profiles/:userId', requireAuth, async (req, res) => {
+  try {
+    if (!(await plIsViewer(req))) return res.status(403).json({ error: 'Only Vishal / Ajay can set salaries' });
+    const uid = Number(req.params.userId);
+    const b = req.body || {};
+    if (b.enabled === false) { await withPlTables(() => db.query('DELETE FROM salesman_profiles WHERE user_id=?', [uid])); return res.json({ success: true }); }
+    const num = v => (v === '' || v == null) ? null : (Number(v) >= 0 ? Number(v) : NaN);
+    const salary = num(b.monthlySalary), rate = num(b.kmRate);
+    if (Number.isNaN(salary) || Number.isNaN(rate)) return res.status(400).json({ error: 'Salary and KM rate must be numbers' });
+    await withPlTables(() => db.query(`INSERT INTO salesman_profiles (user_id, monthly_salary, km_rate, o2d_names, updated_by) VALUES (?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE monthly_salary=VALUES(monthly_salary), km_rate=VALUES(km_rate), o2d_names=VALUES(o2d_names), updated_by=VALUES(updated_by)`,
+      [uid, salary, rate, String(b.o2dNames || '').slice(0, 500).trim() || null, req.session.userId]));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ── Tour expenses: the salesman enters each outstation day; Vishal / Ajay approve. ──
+const TOUR_SELECT = `SELECT t.*, DATE_FORMAT(t.tour_date,'%Y-%m-%d') AS tour_date, u.name AS user_name, d.name AS decided_by_name
+  FROM tour_expenses t JOIN users u ON u.id=t.user_id LEFT JOIN users d ON d.id=t.decided_by`;
+const tourOut = t => ({ id: t.id, userId: t.user_id, userName: t.user_name, date: t.tour_date, fromPlace: t.from_place || '', places: t.places, mode: t.travel_mode || '',
+  fare: Number(t.fare) || 0, stay: Number(t.stay) || 0, food: Number(t.food) || 0, local: Number(t.local) || 0, other: Number(t.other) || 0, total: Number(t.total) || 0,
+  remark: t.remark || '', billPhoto: t.bill_photo || '', status: t.status, decidedByName: t.decided_by_name || '', decidedAt: t.decided_at, decisionRemark: t.decision_remark || '', createdAt: t.created_at });
+
+app.get('/api/tour-expenses', requireAuth, async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!plYmd(start) || !plYmd(end)) return res.status(400).json({ error: 'Valid start and end dates required' });
+    const viewer = await plIsViewer(req);
+    const want = viewer && req.query.userId && req.query.userId !== 'all' ? Number(req.query.userId) : (viewer ? null : req.session.userId);
+    const [rows] = await withPlTables(() => db.query(`${TOUR_SELECT} WHERE t.tour_date BETWEEN ? AND ?${want ? ' AND t.user_id=?' : ''} ORDER BY t.tour_date DESC, t.id DESC`,
+      want ? [start, end, want] : [start, end]));
+    // The salesman's own petrol for the same range (KM × his rate).
+    let km = null;
+    if (want) {
+      const [[k]] = await withAttendanceTables(() => db.query('SELECT SUM(GREATEST(evening_km - morning_km, 0)) AS km FROM daily_km WHERE user_id=? AND date BETWEEN ? AND ? AND morning_km IS NOT NULL AND evening_km IS NOT NULL', [want, start, end]));
+      const [[p]] = await db.query('SELECT km_rate FROM salesman_profiles WHERE user_id=?', [want]);
+      const rate = p && p.km_rate != null ? Number(p.km_rate) : null;
+      km = { km: Number(k.km) || 0, rate, amount: rate != null ? plRound((Number(k.km) || 0) * rate) : null };
+    }
+    res.json({ items: rows.map(tourOut), viewer, km });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/tour-expenses', requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = plYmd(b.date);
+    const places = String(b.places || '').trim().slice(0, 500);
+    if (!date || !places) return res.status(400).json({ error: 'Date and places visited are required' });
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    if (date > today) return res.status(400).json({ error: 'Tour date cannot be in the future' });
+    const heads = Object.fromEntries(TOUR_HEADS.map(h => [h, plMoney(b[h])]));
+    const total = plRound(TOUR_HEADS.reduce((s, h) => s + heads[h], 0));
+    if (!(total > 0)) return res.status(400).json({ error: 'Enter at least one expense amount' });
+    const bill = b.billPhoto ? await uploadPhotoToDrive(b.billPhoto, `tour-${req.session.userId}-${date}-${Date.now()}.jpg`) : null;
+    const [r] = await withPlTables(() => db.query(`INSERT INTO tour_expenses (user_id, tour_date, from_place, places, travel_mode, fare, stay, food, local, other, total, remark, bill_photo)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [req.session.userId, date, String(b.fromPlace || '').trim().slice(0, 255) || null, places, TOUR_MODES.includes(b.mode) ? b.mode : null,
+        heads.fare, heads.stay, heads.food, heads.local, heads.other, total, String(b.remark || '').trim().slice(0, 1000) || null, bill]));
+    res.json({ success: true, id: r.insertId });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+app.put('/api/tour-expenses/:id/decision', requireAuth, async (req, res) => {
+  try {
+    if (!(await plIsViewer(req))) return res.status(403).json({ error: 'Only Vishal / Ajay can approve tour expenses' });
+    const status = ['approved', 'rejected', 'pending'].includes(req.body.status) ? req.body.status : null;
+    if (!status) return res.status(400).json({ error: 'Invalid status' });
+    const [r] = await withPlTables(() => db.query('UPDATE tour_expenses SET status=?, decided_by=?, decided_at=NOW(), decision_remark=? WHERE id=?',
+      [status, status === 'pending' ? null : req.session.userId, String(req.body.remark || '').trim().slice(0, 500) || null, req.params.id]));
+    if (!r.affectedRows) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/tour-expenses/:id', requireAuth, async (req, res) => {
+  try {
+    const [[t]] = await withPlTables(() => db.query('SELECT user_id, status FROM tour_expenses WHERE id=?', [req.params.id]));
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    const viewer = await plIsViewer(req);
+    if (!viewer && !(Number(t.user_id) === Number(req.session.userId) && t.status === 'pending')) return res.status(403).json({ error: 'Only a pending entry of your own can be deleted' });
+    await db.query('DELETE FROM tour_expenses WHERE id=?', [req.params.id]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });

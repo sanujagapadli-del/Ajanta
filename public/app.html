@@ -1445,6 +1445,8 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="tab active" id="attnTabAttendance" onclick="switchAttendanceTab('attendance',this)">🕒 Attendance</div>
       <div class="tab" id="attnTabLeave" onclick="switchAttendanceTab('leave',this)" style="position:relative">🌴 Leave<span id="attnLeaveTabBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:var(--color-danger);color:#fff;border-radius:50%;min-width:16px;height:16px;padding:0 3px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span></div>
       <div class="tab" id="attnTabKm" onclick="switchAttendanceTab('km',this)">🛣️ Kilometer</div>
+      <div class="tab" id="attnTabTour" style="display:none" onclick="switchAttendanceTab('tour',this)">🧳 Tour Expense</div>
+      <div class="tab" id="attnTabPl" style="display:none" onclick="switchAttendanceTab('pl',this)">💼 Profit Center</div>
     </div>
 
     <!-- Attendance panel — self sees only own rows; Admin gets an employee dropdown (default All) -->
@@ -1523,6 +1525,32 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="attnKmResults">
         <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
+    </div>
+
+    <!-- Tour expenses — salesman adds each outstation day; Vishal / Ajay approve. -->
+    <div id="attnTourPanel" style="display:none">
+      <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div><div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div><input type="date" id="tourFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
+        <div><div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div><input type="date" id="tourTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
+        <div id="tourEmpWrap" style="display:none"><div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Employee</div><select id="tourEmpFilter" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800);min-width:170px"><option value="all">All Employees</option></select></div>
+        <div id="tourStatusWrap" style="display:none"><div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">Status</div><select id="tourStatusFilter" onchange="renderTourList()" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"><option value="">All</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+        <div><button class="btn btn-primary" onclick="loadTourList()">Show</button></div>
+        <div style="margin-left:auto"><button class="btn btn-green" onclick="openTourModal()">+ Tour Expense</button></div>
+      </div>
+      <div id="tourResults"><div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div></div>
+    </div>
+
+    <!-- Salesman profit center — own row for a salesman, everyone for Vishal / Ajay. -->
+    <div id="attnPlPanel" style="display:none">
+      <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div><div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div><input type="date" id="plFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
+        <div><div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div><input type="date" id="plTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
+        <div><button class="btn btn-primary" onclick="loadSalesmanPl()">Generate</button></div>
+        <button class="btn btn-outline btn-sm" onclick="plQuick('month')">This Month</button>
+        <button class="btn btn-outline btn-sm" onclick="plQuick('last')">Last Month</button>
+        <div style="margin-left:auto"><button class="btn btn-outline" id="plProfilesBtn" style="display:none" onclick="openPlProfilesModal()">⚙ Salary & KM Rate</button></div>
+      </div>
+      <div id="plResults"><div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div></div>
     </div>
   </div>
 
@@ -3239,6 +3267,28 @@ tbody tr:last-child td{border-bottom:none;}
     <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = woh user us step ka doer (Accounts: 1-4, CRM: 5). Doers saare cheques dekhte hain; baaki users (salesmen) sirf apne. Bina doer ke step sirf admin kar sakta hai.</div>
     <div id="chequeStepDoersRows" class="sdm-body"></div>
     <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="submitChequeStepDoers()">Save</button>
+  </div>
+</div>
+
+<!-- ── TOUR EXPENSE: ADD ── -->
+<div class="modal-overlay" id="tourModal">
+  <div class="modal" style="max-width:520px;max-height:92vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin:0">🧳 Tour Expense</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('tourModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="tourBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── PROFIT CENTER: SALARY & KM RATE (Vishal / Ajay) ── -->
+<div class="modal-overlay" id="plProfilesModal">
+  <div class="modal" style="max-width:860px;width:96vw;max-height:92vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <h3 style="margin:0">⚙ Salesman — Salary, KM Rate, O2D Name</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('plProfilesModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="plProfilesBody" style="overflow:auto;flex:1"></div>
   </div>
 </div>
 
@@ -6121,6 +6171,227 @@ async function populateEmployeeDropdown(selectId) {
   sel.value = current;
 }
 
+// ── Salesman profit center + tour expenses (client voice note, 2026-10-08).
+// Server: search "SALESMAN PROFIT CENTER" in server.js. A salesman sees his
+// own; Vishal / Ajay ("viewers") see everyone, set salaries and approve tours.
+const RAJ_DISTRICTS = ['Ajmer', 'Alwar', 'Balotra', 'Banswara', 'Baran', 'Barmer', 'Beawar', 'Bharatpur', 'Bhilwara', 'Bikaner', 'Bundi', 'Chittorgarh', 'Churu',
+  'Dausa', 'Deeg', 'Dholpur', 'Didwana-Kuchaman', 'Dungarpur', 'Hanumangarh', 'Jaipur', 'Jaisalmer', 'Jalore', 'Jhalawar', 'Jhunjhunu', 'Jodhpur', 'Karauli',
+  'Khairthal-Tijara', 'Kota', 'Kotputli-Behror', 'Nagaur', 'Pali', 'Phalodi', 'Pratapgarh', 'Rajsamand', 'Salumbar', 'Sawai Madhopur', 'Sikar', 'Sirohi',
+  'Sri Ganganagar', 'Tonk', 'Udaipur', 'Kishangarh', 'Chomu', 'Shahpura', 'Phulera', 'Bassi', 'Chaksu', 'Kotputli', 'Behror', 'Bhiwadi', 'Neemrana'];
+let _plAccess = null;
+async function loadPlAccess() {
+  const r = await api('/api/salesman-pl/access').catch(() => null);
+  _plAccess = r && !r.error ? r : { viewer: false, hasProfile: false, tour: false, modes: [] };
+  document.getElementById('attnTabTour').style.display = _plAccess.tour ? '' : 'none';
+  document.getElementById('attnTabPl').style.display = (_plAccess.viewer || _plAccess.hasProfile) ? '' : 'none';
+  document.getElementById('tourEmpWrap').style.display = _plAccess.viewer ? '' : 'none';
+  document.getElementById('tourStatusWrap').style.display = _plAccess.viewer ? '' : 'none';
+  document.getElementById('plProfilesBtn').style.display = _plAccess.viewer ? 'inline-flex' : 'none';
+  if (_plAccess.viewer) populateEmployeeDropdown('tourEmpFilter');
+  return _plAccess;
+}
+const plYmdLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function plMonthRange(which) {
+  const now = new Date();
+  if (which === 'last') return [plYmdLocal(new Date(now.getFullYear(), now.getMonth() - 1, 1)), plYmdLocal(new Date(now.getFullYear(), now.getMonth(), 0))];
+  return [plYmdLocal(new Date(now.getFullYear(), now.getMonth(), 1)), plYmdLocal(now)];
+}
+const plInr = v => v == null ? '—' : (v < 0 ? '−' : '') + '₹' + Math.abs(Math.round(v)).toLocaleString('en-IN');
+
+// ── Tour expenses ──
+let tourData = null;
+async function loadTourList(first) {
+  if (!_plAccess) await loadPlAccess();
+  const f = document.getElementById('tourFrom'), t = document.getElementById('tourTo');
+  if (first || !f.value || !t.value) { const [a, b] = plMonthRange('month'); if (!f.value) setDmyDate('tourFrom', a); if (!t.value) setDmyDate('tourTo', b); }
+  const out = document.getElementById('tourResults');
+  out.innerHTML = '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div>';
+  const emp = _plAccess.viewer ? document.getElementById('tourEmpFilter').value : '';
+  const r = await api(`/api/tour-expenses?start=${f.value}&end=${t.value}${emp ? '&userId=' + emp : ''}`);
+  if (r.error) { out.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  tourData = r;
+  renderTourList();
+}
+function renderTourList() {
+  const out = document.getElementById('tourResults');
+  const r = tourData; if (!r) return;
+  const st = _plAccess.viewer ? document.getElementById('tourStatusFilter').value : '';
+  const items = r.items.filter(x => !st || x.status === st);
+  const sum = s => r.items.filter(x => x.status === s).reduce((a, x) => a + x.total, 0);
+  const badge = s => `<span class="status-badge" style="background:${s === 'approved' ? 'var(--color-success-bg)' : s === 'rejected' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${s === 'approved' ? 'var(--color-success-text)' : s === 'rejected' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'}">${s === 'approved' ? '✓ Approved' : s === 'rejected' ? '✗ Rejected' : '⏳ Pending'}</span>`;
+  const card = (label, value, sub, color) => `<div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:14px 16px;flex:1;min-width:160px">
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">${label}</div><div style="font-size:22px;font-weight:800;color:${color}">${value}</div><div style="font-size:12px;color:var(--gray-500)">${sub || ''}</div></div>`;
+  const km = r.km;
+  const head = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+    ${card('Approved tour kharcha', plInr(sum('approved')), `${r.items.filter(x => x.status === 'approved').length} din`, 'var(--color-success-text)')}
+    ${card('Pending approval', plInr(sum('pending')), `${r.items.filter(x => x.status === 'pending').length} entries`, 'var(--color-warning-text)')}
+    ${km ? card('🛣️ Petrol (KM)', km.amount != null ? plInr(km.amount) : '—', km.rate != null ? `${km.km.toLocaleString('en-IN')} km × ₹${km.rate}/km` : `${km.km.toLocaleString('en-IN')} km · rate set nahi`, 'var(--gray-800)') : ''}
+  </div>`;
+  if (!items.length) { out.innerHTML = head + '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Is range me koi tour expense nahi. Jaipur se bahar gaye the to "+ Tour Expense" se daalein.</div>'; return; }
+  const money = v => v ? '₹' + Math.round(v).toLocaleString('en-IN') : '<span style="color:var(--gray-300)">—</span>';
+  out.innerHTML = head + `<div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><table style="font-size:12.5px;white-space:nowrap">
+    <thead><tr><th>Date</th>${_plAccess.viewer ? '<th>Employee</th>' : ''}<th>Kahan gaye</th><th>Mode</th><th>Kiraya</th><th>Stay</th><th>Khana</th><th>Local</th><th>Other</th><th>Total</th><th>Bill</th><th>Status</th><th></th></tr></thead>
+    <tbody>${items.map(x => `<tr>
+      <td>${fmtDateDMY(x.date)}</td>${_plAccess.viewer ? `<td>${esc(x.userName)}</td>` : ''}
+      <td style="white-space:normal;min-width:160px"><b>${esc(x.fromPlace ? x.fromPlace + ' → ' : '')}${esc(x.places)}</b>${x.remark ? `<div style="font-size:11.5px;color:var(--gray-500)">${esc(x.remark)}</div>` : ''}</td>
+      <td>${esc(x.mode || '—')}</td><td>${money(x.fare)}</td><td>${money(x.stay)}</td><td>${money(x.food)}</td><td>${money(x.local)}</td><td>${money(x.other)}</td>
+      <td style="font-weight:800">${money(x.total)}</td>
+      <td>${x.billPhoto ? `<a href="${esc(x.billPhoto)}" target="_blank">🧾</a>` : '—'}</td>
+      <td>${badge(x.status)}${x.decisionRemark ? `<div style="font-size:11px;color:var(--gray-500)">${esc(x.decisionRemark)}</div>` : ''}</td>
+      <td>${_plAccess.viewer && x.status !== 'approved' ? `<button class="row-action-btn" style="color:var(--color-success-text)" onclick="decideTour(${x.id},'approved')">✓ Approve</button> ` : ''}${_plAccess.viewer && x.status === 'pending' ? `<button class="row-action-btn" style="color:var(--color-danger)" onclick="decideTour(${x.id},'rejected')">✗ Reject</button> ` : ''}${_plAccess.viewer || (x.status === 'pending' && Number(x.userId) === Number(ME.id)) ? `<button class="row-action-btn" onclick="deleteTour(${x.id})" title="Delete">🗑</button>` : ''}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+async function decideTour(id, status) {
+  const remark = status === 'rejected' ? prompt('Reject kyun? (salesman ko dikhega)') : '';
+  if (status === 'rejected' && remark === null) return;
+  const r = await api(`/api/tour-expenses/${id}/decision`, 'PUT', { status, remark: remark || '' });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(status === 'approved' ? '✅ Approved' : 'Rejected');
+  loadTourList();
+}
+function deleteTour(id) {
+  showConfirm({ title: 'Tour expense delete karein?' }, async () => {
+    const r = await api(`/api/tour-expenses/${id}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Deleted'); loadTourList();
+  });
+}
+function openTourModal() {
+  const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
+  const today = plYmdLocal(new Date());
+  const amt = (id, label) => `<div>${L(label)}<input id="tr_${id}" type="number" min="0" inputmode="decimal" oninput="tourTotal()" placeholder="0" style="${CHQ_INPUT}"/></div>`;
+  document.getElementById('tourBody').innerHTML = `
+    <div class="alert error" id="trErr" style="display:none"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      <div>${L('Date', true)}<input id="tr_date" type="date" max="${today}" value="${today}" style="${CHQ_INPUT}"/></div>
+      <div>${L('Kaise gaye')}<select id="tr_mode" style="${CHQ_INPUT}">${((_plAccess && _plAccess.modes) || []).map(m => `<option>${esc(m)}</option>`).join('')}</select></div>
+      <div>${L('Kahan se')}<input id="tr_from" value="Jaipur" list="rajDistrictList" style="${CHQ_INPUT}"/></div>
+      <div>${L('Kahan gaye', true)}<input id="tr_places" list="rajDistrictList" placeholder="e.g. Ajmer, Kishangarh" style="${CHQ_INPUT}"/></div>
+    </div>
+    <datalist id="rajDistrictList">${RAJ_DISTRICTS.map(d => `<option value="${d}">`).join('')}</datalist>
+    <div style="font-size:11.5px;color:var(--gray-500);margin:-6px 0 10px">Ek din me kai jagah gaye to comma se likhein.</div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 10px">
+      ${amt('fare', 'Kiraya (Bus/Train)')}${amt('stay', 'Hotel / Stay')}${amt('food', 'Khana')}${amt('local', 'Local auto/taxi')}${amt('other', 'Other')}
+      <div>${L('Total')}<div id="tr_total" style="font-size:20px;font-weight:800;padding:8px 0;color:var(--gray-900)">₹0</div></div>
+    </div>
+    ${L('Remark')}<input id="tr_remark" placeholder="e.g. 3 dealers se mila, 1 order mila" style="${CHQ_INPUT}"/>
+    ${L('Bill / ticket photo')}<input id="tr_bill" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'tr_billPv')" style="${CHQ_INPUT}"/><div id="tr_billPv" style="font-size:12px;margin:-6px 0 8px"></div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Petrol (KM) yahan mat daalein — woh Morning/Evening KM se apne aap judta hai. Entry Vishal / Ajay approve karenge.</div>
+    <button class="btn btn-green" id="trSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitTour()">Save</button>`;
+  document.getElementById('tourModal').classList.add('open');
+}
+function tourTotal() {
+  const t = ['fare', 'stay', 'food', 'local', 'other'].reduce((s, k) => s + (Number(document.getElementById('tr_' + k).value) || 0), 0);
+  document.getElementById('tr_total').textContent = '₹' + Math.round(t).toLocaleString('en-IN');
+  return t;
+}
+async function submitTour() {
+  const err = document.getElementById('trErr'); err.style.display = 'none';
+  const v = id => document.getElementById('tr_' + id).value.trim();
+  const body = { date: v('date'), mode: v('mode'), fromPlace: v('from'), places: v('places'), remark: v('remark'), billPhoto: document.getElementById('tr_bill').dataset.compressed || '' };
+  ['fare', 'stay', 'food', 'local', 'other'].forEach(k => { body[k] = v(k); });
+  if (!body.places) { err.textContent = 'Kahan gaye — likhein'; err.style.display = 'block'; return; }
+  if (!(tourTotal() > 0)) { err.textContent = 'Kam se kam ek kharcha daalein'; err.style.display = 'block'; return; }
+  const btn = document.getElementById('trSubmitBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api('/api/tour-expenses', 'POST', body);
+  btn.disabled = false; btn.textContent = 'Save';
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  closeModal('tourModal'); showToast('✅ Tour expense saved — approval ke liye gaya');
+  if (attnView === 'tour') loadTourList();
+}
+
+// ── Profit center ──
+let plData = null;
+function plQuick(which) { const [a, b] = plMonthRange(which); setDmyDate('plFrom', a); setDmyDate('plTo', b); loadSalesmanPl(); }
+async function loadSalesmanPl(first) {
+  if (!_plAccess) await loadPlAccess();
+  const f = document.getElementById('plFrom'), t = document.getElementById('plTo');
+  if (first || !f.value || !t.value) { const [a, b] = plMonthRange('month'); if (!f.value) setDmyDate('plFrom', a); if (!t.value) setDmyDate('plTo', b); }
+  const out = document.getElementById('plResults');
+  out.innerHTML = '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Calculating… (O2D + Purchase FMS sheet padh rahe hain)</div>';
+  const r = await api(`/api/salesman-pl?start=${f.value}&end=${t.value}`);
+  if (r.error) { out.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  plData = r;
+  renderSalesmanPl();
+}
+function renderSalesmanPl() {
+  const out = document.getElementById('plResults');
+  const d = plData; if (!d) return;
+  if (!d.rows.length) {
+    out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">${d.viewer ? 'Abhi kisi salesman ki salary set nahi hai — "⚙ Salary & KM Rate" se set karein.' : 'Aapki salary abhi set nahi hui.'}</div>`;
+    return;
+  }
+  const tot = k => d.rows.reduce((s, r) => s + (r[k] || 0), 0);
+  const color = v => v >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)';
+  const card = (label, value, sub, c) => `<div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:14px 16px;flex:1;min-width:150px">
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">${label}</div><div style="font-size:22px;font-weight:800;color:${c}">${value}</div><div style="font-size:12px;color:var(--gray-500)">${sub || ''}</div></div>`;
+  const th = 'padding:10px 12px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;text-align:right;background:var(--gray-50);white-space:nowrap';
+  const td = 'padding:10px 12px;font-size:12.5px;border-top:1px solid var(--gray-100);text-align:right;white-space:nowrap;vertical-align:top';
+  const sub = t => `<div style="font-size:10.5px;color:var(--gray-400);font-weight:500">${t}</div>`;
+  out.innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      ${card('Sales (billed)', plInr(tot('sales')), `${tot('orders')} orders`, 'var(--gray-900)')}
+      ${card('Gross Profit', plInr(tot('gp')), 'sales − maal ki laagat', color(tot('gp')))}
+      ${card('Kharcha', plInr(tot('expense')), `salary ${plInr(tot('salary'))} · petrol ${plInr(tot('petrol'))} · tour ${plInr(tot('tour'))}`, 'var(--gray-700)')}
+      ${card('Net Profit', plInr(tot('net')), 'GP − salary − petrol − tour', color(tot('net')))}
+    </div>
+    <div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:0">
+      <thead><tr><th style="${th};text-align:left">Salesman</th><th style="${th}">Din</th><th style="${th}">Sales</th><th style="${th}">Gross Profit</th><th style="${th}">Salary</th><th style="${th}">Petrol</th><th style="${th}">Tour</th><th style="${th}">Kul Kharcha</th><th style="${th}">Net Profit</th></tr></thead>
+      <tbody>${d.rows.map(r => `<tr>
+        <td style="${td};text-align:left"><b style="color:var(--gray-900)">${esc(r.name)}</b>${sub(`O2D: ${esc(r.o2dNames || '— (Order By naam set nahi)')}`)}</td>
+        <td style="${td}">${r.present}/${r.days}${sub(`${r.offDays} off · ${r.leaveDays} leave · <span style="color:${r.absent ? 'var(--color-danger)' : 'inherit'}">${r.absent} absent</span>`)}</td>
+        <td style="${td};font-weight:700">${plInr(r.sales)}${sub(`${r.orders} orders${r.uncostedSales ? ` · ${plInr(r.uncostedSales)} bina laagat` : ''}`)}</td>
+        <td style="${td};font-weight:700;color:${color(r.gp)}">${plInr(r.gp)}${sub(r.gpPct == null ? '' : r.gpPct + '%')}</td>
+        <td style="${td}">${plInr(r.salary)}${sub(r.monthlySalary != null ? `${plInr(r.monthlySalary)}/mahina` : 'set nahi')}</td>
+        <td style="${td}">${plInr(r.petrol)}${sub(`${r.km.toLocaleString('en-IN')} km × ₹${r.kmRate}`)}</td>
+        <td style="${td}">${plInr(r.tour)}${r.tourPendingCount ? sub(`<span style="color:var(--color-warning-text)">+${plInr(r.tourPending)} pending</span>`) : ''}</td>
+        <td style="${td};font-weight:700">${plInr(r.expense)}</td>
+        <td style="${td};font-weight:900;font-size:14px;color:${color(r.net)}">${plInr(r.net)}${sub(r.netPct == null ? '' : r.netPct + '% of sales')}</td>
+      </tr>`).join('')}</tbody></table></div>
+    ${d.viewer && d.unassigned && d.unassigned.length ? `<div style="font-size:12px;color:var(--gray-500);margin-top:10px">ℹ️ Ye O2D "Order By" kisi salesman se jude nahi (inki sale upar nahi gini): ${d.unassigned.map(u => `<b>${esc(u.name)}</b> ${plInr(u.sales)}`).join(' · ')}. Jodne ke liye "⚙ Salary & KM Rate" me O2D naam daalein.</div>` : ''}
+    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Salary = mahine ki salary ÷ mahine ke din × paid din (punch kiya, week-off, holiday, approved leave). Petrol = Morning/Evening KM × KM rate. Tour = sirf approved. Sales/GP = O2D billed orders jinme "Order By" is salesman ka naam hai (bill date se); GP sirf un items par jinki laagat pata hai.</div>`;
+}
+
+// Salary / KM rate / O2D name editor (viewers only).
+async function openPlProfilesModal() {
+  const body = document.getElementById('plProfilesBody');
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('plProfilesModal').classList.add('open');
+  const r = await api('/api/salesman-pl/profiles');
+  if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  const inp = "width:100%;padding:7px 9px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12.5px;box-sizing:border-box;background:var(--surface);color:var(--gray-900)";
+  const known = (plData && plData.unassigned || []).map(u => u.name).concat((plData && plData.rows || []).map(x => x.o2dNames)).filter(Boolean);
+  body.innerHTML = `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = ye salesman Profit Center me aayega. <b>O2D naam</b> = O2D order me "Order By" me jaisa likha jaata hai (ek se zyada ho to comma)${known.length ? ` — abhi O2D me: ${[...new Set(known.join(',').split(',').map(x => x.trim()).filter(Boolean))].map(esc).join(', ')}` : ''}. Salary sirf Vishal / Ajay ko aur us salesman ko khud dikhti hai.</div>
+    <div class="mis-table-wrap" style="overflow-x:auto"><table style="font-size:12.5px;width:100%;min-width:640px"><thead><tr><th>Salesman?</th><th>Employee</th><th style="min-width:120px">Mahine ki Salary (₹)</th><th style="min-width:90px">KM rate (₹/km)</th><th style="min-width:160px">O2D "Order By" naam</th></tr></thead>
+    <tbody>${r.users.map(u => `<tr data-uid="${u.id}" data-orig="${esc(JSON.stringify([u.enabled, u.monthlySalary, u.kmRate, u.o2dNames]))}">
+      <td style="text-align:center"><input type="checkbox" class="plEn" ${u.enabled ? 'checked' : ''}/></td>
+      <td style="white-space:nowrap"><b>${esc(u.name)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(u.department || '—')}${u.trackKm ? ' · KM' : ''}</div></td>
+      <td><input class="plSal" type="number" min="0" value="${u.monthlySalary ?? ''}" style="${inp}"/></td>
+      <td><input class="plRate" type="number" min="0" step="0.1" value="${u.kmRate ?? ''}" style="${inp}"/></td>
+      <td><input class="plNames" value="${esc(u.o2dNames)}" placeholder="e.g. Krishna" style="${inp}"/></td>
+    </tr>`).join('')}</tbody></table></div>
+    <button class="btn btn-primary" id="plProfSaveBtn" style="width:100%;margin-top:12px" onclick="savePlProfiles()">Save</button>`;
+}
+async function savePlProfiles() {
+  const rows = [...document.querySelectorAll('#plProfilesBody tr[data-uid]')];
+  const changed = rows.map(tr => {
+    const now = [tr.querySelector('.plEn').checked, tr.querySelector('.plSal').value, tr.querySelector('.plRate').value, tr.querySelector('.plNames').value.trim()];
+    const orig = JSON.parse(tr.dataset.orig);
+    const same = now[0] === orig[0] && (!now[0] || (String(now[1]) === String(orig[1] ?? '') && String(now[2]) === String(orig[2] ?? '') && now[3] === (orig[3] || '')));
+    return same ? null : { uid: tr.dataset.uid, enabled: now[0], monthlySalary: now[1], kmRate: now[2], o2dNames: now[3] };
+  }).filter(Boolean);
+  if (!changed.length) { closeModal('plProfilesModal'); return; }
+  const btn = document.getElementById('plProfSaveBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
+  for (const c of changed) {
+    const r = await api(`/api/salesman-pl/profiles/${c.uid}`, 'PUT', c);
+    if (r.error) { btn.disabled = false; btn.textContent = 'Save'; showToast(r.error, 'error'); return; }
+  }
+  btn.disabled = false; btn.textContent = 'Save';
+  showToast(`✅ ${changed.length} salesman updated`);
+  closeModal('plProfilesModal');
+  loadSalesmanPl();
+}
+
 function loadAttendancePage() {
   const isAdmin = ME.role === 'admin';
   ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnKmEmpWrap', 'attnAlertWrap'].forEach(id => {
@@ -6132,6 +6403,8 @@ function loadAttendancePage() {
     populateEmployeeDropdown('attnLeaveEmpFilter');
     populateEmployeeDropdown('attnKmEmpFilter');
   }
+  loadPlAccess();
+  if ((attnView === 'tour' || attnView === 'pl') && !(_plAccess && (attnView === 'pl' ? (_plAccess.viewer || _plAccess.hasProfile) : _plAccess.tour))) attnView = 'attendance';
   switchAttendanceTab(attnView, document.getElementById('attnTab' + attnView[0].toUpperCase() + attnView.slice(1)));
 }
 
@@ -6139,9 +6412,11 @@ function switchAttendanceTab(view, el) {
   attnView = view;
   document.querySelectorAll('#attnTabsWrap .tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
-  ['Attendance', 'Leave', 'Km'].forEach(v => {
+  ['Attendance', 'Leave', 'Km', 'Tour', 'Pl'].forEach(v => {
     document.getElementById('attn' + v + 'Panel').style.display = (v.toLowerCase() === view) ? '' : 'none';
   });
+  if (view === 'tour') loadTourList(true);
+  if (view === 'pl') loadSalesmanPl(true);
   if (view === 'attendance') { setAttnHistoryDefaultDates(); loadAttendanceHistory(); }
   if (view === 'leave') loadLeaveList();
   if (view === 'km') { setAttnKmDefaultDates(); loadKmHistory(); loadKmState(); }
