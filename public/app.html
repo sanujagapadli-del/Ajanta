@@ -1920,6 +1920,7 @@ tbody tr:last-child td{border-bottom:none;}
       <input type="text" id="empSearch" oninput="renderEmployees()" placeholder="🔍 Search name, phone, designation…" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface);color:var(--gray-900)"/>
       <select id="empDept" onchange="renderEmployees()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)"><option value="">All Departments</option></select>
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray-600);cursor:pointer"><input type="checkbox" id="empInactive" onchange="renderEmployees()"/> Inactive bhi</label>
+      <button id="empCsvBtn" class="btn btn-outline" onclick="exportEmployeesCsv()">⬇ Export CSV</button>
     </div>
     <div id="empCards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div id="empList" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><div class="empty">Loading…</div></div>
@@ -6413,14 +6414,19 @@ function empTenure(joining, today) {
   return m < 12 ? `${m} mo` : `${Math.floor(m / 12)} yr${m % 12 ? ` ${m % 12} mo` : ''}`;
 }
 
-function renderEmployees() {
-  const d = empData; if (!d) return;
+// Search / department / inactive filters shared by the list and the CSV.
+function empFilterRows(list) {
   const q = document.getElementById('empSearch').value.trim().toLowerCase();
   const dept = document.getElementById('empDept').value;
   const showInactive = document.getElementById('empInactive').checked;
-  const all = d.employees.filter(e => e.active);
-  const rows = d.employees.filter(e => (showInactive || e.active) && (!dept || e.department === dept) &&
+  return list.filter(e => (showInactive || e.active) && (!dept || e.department === dept) &&
     (!q || [e.name, e.phone, e.designation, e.department, e.email].some(v => String(v || '').toLowerCase().includes(q))));
+}
+
+function renderEmployees() {
+  const d = empData; if (!d) return;
+  const all = d.employees.filter(e => e.active);
+  const rows = empFilterRows(d.employees);
   const month = d.today.slice(5, 7);
   const bdays = all.filter(e => e.dob && e.dob.slice(5, 7) === month);
   const card = (label, value, sub, color) => `<div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:12px 16px;flex:1;min-width:140px">
@@ -6445,6 +6451,43 @@ function renderEmployees() {
       <td>${e.missingDocs.length ? `<span style="color:var(--color-warning-text);font-weight:700" title="Missing: ${esc(e.missingDocs.join(', '))}">⚠ ${e.missingDocs.length} missing</span>` : '<span style="color:var(--color-success-text);font-weight:700">✓ complete</span>'}<div style="font-size:11px;color:var(--gray-400)">${e.docs} type${e.docs === 1 ? '' : 's'} uploaded</div></td>
       ${d.viewer ? `<td>${e.salary != null ? inr(e.salary) : '<span style="color:var(--gray-400)">—</span>'}</td>` : ''}
     </tr>`).join('')}</tbody></table>`;
+}
+
+// CSV of the employees currently shown, with every detail field (salary
+// columns only for Vishal / Ajay — the server leaves them out for others).
+async function exportEmployeesCsv() {
+  const btn = document.getElementById('empCsvBtn');
+  btn.disabled = true; btn.textContent = '⏳ Preparing…';
+  const r = await api('/api/employees?full=1');
+  btn.disabled = false; btn.textContent = '⬇ Export CSV';
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const rows = empFilterRows(r.employees);
+  if (!rows.length) { showToast('Export ke liye koi employee nahi', 'error'); return; }
+  const q = v => { const x = v == null ? '' : String(v); return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+  // Long digit strings (Aadhaar, account no., phone) would turn into 9.88E+11 in Excel.
+  const txt = v => v ? `="${String(v).replace(/"/g, '')}"` : '';
+  const dmy = v => v ? v.split('-').reverse().join('/') : '';
+  const cols = [
+    ['Name', e => e.name], ['Status', e => e.active ? 'Active' : 'Inactive'], ['Department', e => e.department], ['Designation', e => e.profile.designation],
+    ['Role', e => e.role], ['Phone', e => txt(e.phone)], ['Email (login)', e => e.email],
+    ['Date of Joining', e => dmy(e.profile.joining_date)], ['Date of Birth', e => dmy(e.profile.dob)], ['Gender', e => e.profile.gender], ['Blood Group', e => e.profile.blood_group],
+    ["Father's / Husband's Name", e => e.profile.father_name], ['Alternate Phone', e => txt(e.profile.alt_phone)], ['Personal Email', e => e.profile.personal_email],
+    ['Current Address', e => e.profile.current_address], ['Permanent Address', e => e.profile.permanent_address],
+    ['Emergency Contact', e => e.profile.emergency_name], ['Emergency Relation', e => e.profile.emergency_relation], ['Emergency Phone', e => txt(e.profile.emergency_phone)],
+    ['Aadhaar No', e => txt(e.profile.aadhaar_no)], ['PAN No', e => e.profile.pan_no], ['Bank Name', e => e.profile.bank_name], ['Account No', e => txt(e.profile.bank_account)],
+    ['IFSC', e => e.profile.bank_ifsc], ['UAN', e => txt(e.profile.uan_no)], ['ESIC', e => txt(e.profile.esic_no)],
+    [`Leave Days (${r.today.slice(0, 4)})`, e => e.leaveDays], ['Documents Uploaded', e => (e.docTypes || []).join('; ')], ['Documents Missing', e => e.missingDocs.join('; ')],
+    ...(r.viewer ? [['Monthly Salary', e => e.salary ?? ''], ['Petrol Rate (per km)', e => e.kmRate ?? ''], ['O2D Order By Name', e => e.o2dNames || '']] : []),
+    ['Notes', e => e.profile.notes]
+  ];
+  const lines = [cols.map(c => q(c[0])).join(',')].concat(rows.map(e => cols.map(c => { const v = c[1](e); return String(v).startsWith('="') ? v : q(v); }).join(',')));
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Employees_${r.today}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  showToast(`✅ ${rows.length} employees exported`);
 }
 
 async function openEmployee(id, tab) {

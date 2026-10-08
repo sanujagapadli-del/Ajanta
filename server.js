@@ -11133,15 +11133,20 @@ app.get('/api/employees', requireAuth, async (req, res) => {
     const viewer = await plIsViewer(req);
     const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
     const yearStart = today.slice(0, 4) + '-01-01';
-    const [[users], [docs], [leaves], [att], [sal]] = await withEmpTables(() => withAttendanceTables(() => Promise.all([
+    const full = req.query.full === '1'; // CSV export: every detail field too
+    const [[users], [docs], [leaves], [att], [sal], [profs]] = await withEmpTables(() => withAttendanceTables(() => Promise.all([
       db.query(`SELECT u.id, u.name, u.email, u.phone, u.department, u.role, u.is_active, u.profile_image,
           p.designation, DATE_FORMAT(p.joining_date,'%Y-%m-%d') AS joining_date, DATE_FORMAT(p.dob,'%Y-%m-%d') AS dob
         FROM users u LEFT JOIN employee_profiles p ON p.user_id=u.id WHERE u.role IS NULL OR u.role<>'vendor' ORDER BY u.is_active DESC, u.department, u.name`),
       db.query('SELECT user_id, doc_type, COUNT(*) AS n FROM employee_documents GROUP BY user_id, doc_type'),
       db.query("SELECT user_id, status, SUM(days) AS days, COUNT(*) AS n FROM leave_requests WHERE end_date >= ? GROUP BY user_id, status", [yearStart]),
       db.query("SELECT user_id, DATE_FORMAT(time_in,'%H:%i') AS time_in, DATE_FORMAT(time_out,'%H:%i') AS time_out FROM attendance WHERE date=?", [today]),
-      viewer ? db.query('SELECT user_id, monthly_salary FROM salesman_profiles') : Promise.resolve([[]])
+      viewer ? db.query('SELECT user_id, monthly_salary, km_rate, o2d_names FROM salesman_profiles') : Promise.resolve([[]]),
+      full ? db.query('SELECT * FROM employee_profiles') : Promise.resolve([[]])
     ])));
+    const profBy = {};
+    profs.forEach(pr => { const o = {}; Object.keys(EMP_FIELDS).forEach(k => { o[k] = pr[k] == null ? '' : (EMP_FIELDS[k] === 'date' ? empYmd(pr[k]) : String(pr[k])); }); profBy[pr.user_id] = o; });
+    const salFull = Object.fromEntries(sal.map(s => [s.user_id, s]));
     const docsBy = {}, leaveBy = {};
     docs.forEach(d => { (docsBy[d.user_id] = docsBy[d.user_id] || new Set()).add(d.doc_type); });
     leaves.forEach(l => { const x = leaveBy[l.user_id] = leaveBy[l.user_id] || { approved: 0, pending: 0 };
@@ -11158,7 +11163,9 @@ app.get('/api/employees', requireAuth, async (req, res) => {
           docs: have.size, missingDocs: EMP_REQUIRED_DOCS.filter(t => !have.has(t)),
           leaveDays: (leaveBy[u.id] || {}).approved || 0, leavePending: (leaveBy[u.id] || {}).pending || 0,
           today: attBy[u.id] ? { in: attBy[u.id].time_in || '', out: attBy[u.id].time_out || '' } : null,
-          ...(viewer ? { salary: salBy[u.id] ?? null } : {})
+          ...(viewer ? { salary: salBy[u.id] ?? null } : {}),
+          ...(full ? { profile: profBy[u.id] || {}, docTypes: [...have] } : {}),
+          ...(full && viewer ? { kmRate: salFull[u.id] && salFull[u.id].km_rate != null ? Number(salFull[u.id].km_rate) : null, o2dNames: (salFull[u.id] && salFull[u.id].o2d_names) || '' } : {})
         };
       })
     });
