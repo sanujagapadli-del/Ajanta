@@ -9953,24 +9953,31 @@ app.get('/api/salesman-pl/profiles', requireAuth, async (req, res) => {
       monthlySalary: u.monthly_salary == null ? null : Number(u.monthly_salary), kmRate: u.km_rate == null ? null : Number(u.km_rate), o2dNames: u.o2d_names || '' })) });
   } catch (err) { sendServerError(res, err); }
 });
+const plNumOrNull = v => (v === '' || v == null) ? null : (Number(v) >= 0 ? Number(v) : NaN);
+// Sets salary / KM rate / O2D names (b.enabled === false removes them); every
+// salary change goes into employee_salary_history. Shared by the Salary tab
+// and the Employees CSV import.
+async function plSaveProfile(uid, b, byUserId) {
+  const [[before]] = await withEmpTables(() => db.query('SELECT monthly_salary FROM salesman_profiles WHERE user_id=?', [uid]));
+  const oldSalary = before && before.monthly_salary != null ? Number(before.monthly_salary) : null;
+  const logSalary = async nw => { if (oldSalary !== nw) await db.query('INSERT INTO employee_salary_history (user_id, old_salary, new_salary, changed_by) VALUES (?,?,?,?)', [uid, oldSalary, nw, byUserId]); };
+  if (b.enabled === false) { await db.query('DELETE FROM salesman_profiles WHERE user_id=?', [uid]); await logSalary(null); return; }
+  const salary = plNumOrNull(b.monthlySalary), rate = plNumOrNull(b.kmRate);
+  if (Number.isNaN(salary) || Number.isNaN(rate)) { const e = new Error('Salary and KM rate must be numbers'); e.status = 400; throw e; }
+  await logSalary(salary);
+  await withPlTables(() => db.query(`INSERT INTO salesman_profiles (user_id, monthly_salary, km_rate, o2d_names, updated_by) VALUES (?,?,?,?,?)
+    ON DUPLICATE KEY UPDATE monthly_salary=VALUES(monthly_salary), km_rate=VALUES(km_rate), o2d_names=VALUES(o2d_names), updated_by=VALUES(updated_by)`,
+    [uid, salary, rate, String(b.o2dNames || '').slice(0, 500).trim() || null, byUserId]));
+}
 app.put('/api/salesman-pl/profiles/:userId', requireAuth, async (req, res) => {
   try {
     if (!(await plIsViewer(req))) return res.status(403).json({ error: 'Only Vishal / Ajay can set salaries' });
-    const uid = Number(req.params.userId);
-    const b = req.body || {};
-    const [[before]] = await withEmpTables(() => db.query('SELECT monthly_salary FROM salesman_profiles WHERE user_id=?', [uid]));
-    const oldSalary = before && before.monthly_salary != null ? Number(before.monthly_salary) : null;
-    const logSalary = async nw => { if (oldSalary !== nw) await db.query('INSERT INTO employee_salary_history (user_id, old_salary, new_salary, changed_by) VALUES (?,?,?,?)', [uid, oldSalary, nw, req.session.userId]); };
-    if (b.enabled === false) { await db.query('DELETE FROM salesman_profiles WHERE user_id=?', [uid]); await logSalary(null); return res.json({ success: true }); }
-    const num = v => (v === '' || v == null) ? null : (Number(v) >= 0 ? Number(v) : NaN);
-    const salary = num(b.monthlySalary), rate = num(b.kmRate);
-    if (Number.isNaN(salary) || Number.isNaN(rate)) return res.status(400).json({ error: 'Salary and KM rate must be numbers' });
-    await logSalary(salary);
-    await withPlTables(() => db.query(`INSERT INTO salesman_profiles (user_id, monthly_salary, km_rate, o2d_names, updated_by) VALUES (?,?,?,?,?)
-      ON DUPLICATE KEY UPDATE monthly_salary=VALUES(monthly_salary), km_rate=VALUES(km_rate), o2d_names=VALUES(o2d_names), updated_by=VALUES(updated_by)`,
-      [uid, salary, rate, String(b.o2dNames || '').slice(0, 500).trim() || null, req.session.userId]));
+    await plSaveProfile(Number(req.params.userId), req.body || {}, req.session.userId);
     res.json({ success: true });
-  } catch (err) { sendServerError(res, err); }
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
 });
 
 // ── Tour expenses: the salesman enters each outstation day; Vishal / Ajay approve. ──
@@ -11219,28 +11226,82 @@ app.get('/api/employees/:id', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Validates the detail fields present in b → { cols, vals } or { error }.
+function empProfileCols(b) {
+  const cols = [], vals = [];
+  for (const [k, lim] of Object.entries(EMP_FIELDS)) {
+    if (!(k in b)) continue;
+    let v = String(b[k] == null ? '' : b[k]).trim();
+    if (lim === 'date') { if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return { error: `${k.replace('_', ' ')}: date sahi nahi hai` }; }
+    else v = v.slice(0, lim);
+    if (k === 'pan_no' || k === 'bank_ifsc') v = v.toUpperCase();
+    cols.push(k); vals.push(v || null);
+  }
+  return { cols, vals };
+}
+async function empSaveProfile(uid, cols, vals, byUserId) {
+  if (!cols.length) return;
+  await withEmpTables(() => db.query(
+    `INSERT INTO employee_profiles (user_id, ${cols.join(', ')}, updated_by) VALUES (?, ${cols.map(() => '?').join(', ')}, ?)
+     ON DUPLICATE KEY UPDATE ${cols.map(c => `${c}=VALUES(${c})`).join(', ')}, updated_by=VALUES(updated_by)`,
+    [uid, ...vals, byUserId]));
+}
+
 app.put('/api/employees/:id/profile', requireAuth, async (req, res) => {
   try {
     if (!(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
     const uid = Number(req.params.id);
     const [[u]] = await db.query("SELECT id FROM users WHERE id=? AND (role IS NULL OR role<>'vendor')", [uid]);
     if (!u) return res.status(404).json({ error: 'Employee not found' });
-    const b = req.body || {};
-    const cols = [], vals = [];
-    for (const [k, lim] of Object.entries(EMP_FIELDS)) {
-      if (!(k in b)) continue;
-      let v = String(b[k] == null ? '' : b[k]).trim();
-      if (lim === 'date') { if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return res.status(400).json({ error: `${k.replace('_', ' ')}: date sahi nahi hai` }); }
-      else v = v.slice(0, lim);
-      if (k === 'pan_no' || k === 'bank_ifsc') v = v.toUpperCase();
-      cols.push(k); vals.push(v || null);
-    }
-    if (!cols.length) return res.json({ success: true });
-    await withEmpTables(() => db.query(
-      `INSERT INTO employee_profiles (user_id, ${cols.join(', ')}, updated_by) VALUES (?, ${cols.map(() => '?').join(', ')}, ?)
-       ON DUPLICATE KEY UPDATE ${cols.map(c => `${c}=VALUES(${c})`).join(', ')}, updated_by=VALUES(updated_by)`,
-      [uid, ...vals, req.session.userId]));
+    const { cols, vals, error } = empProfileCols(req.body || {});
+    if (error) return res.status(400).json({ error });
+    await empSaveProfile(uid, cols, vals, req.session.userId);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// CSV import from the Employees page: rows = [{ id, profile: {field: value},
+// salary?: {monthlySalary?, kmRate?, o2dNames?} }]. The page sends only the
+// non-blank cells, so a blank cell never wipes a saved value. Everything is
+// validated before anything is written; salary only for Vishal / Ajay.
+app.post('/api/employees/import', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
+    const viewer = await plIsViewer(req);
+    const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'File me koi row nahi' });
+    if (rows.length > 500) return res.status(400).json({ error: 'Ek baar me 500 se zyada rows nahi' });
+    const [users] = await db.query("SELECT id, name FROM users WHERE role IS NULL OR role<>'vendor'");
+    const nameById = Object.fromEntries(users.map(u => [u.id, u.name]));
+    const plan = [];
+    for (const r of rows) {
+      const uid = Number(r.id);
+      if (!nameById[uid]) return res.status(400).json({ error: `Employee id ${r.id} nahi mila` });
+      const { cols, vals, error } = empProfileCols(r.profile || {});
+      if (error) return res.status(400).json({ error: `${nameById[uid]}: ${error}` });
+      let sal = null;
+      if (r.salary && Object.keys(r.salary).length) {
+        if (!viewer) return res.status(403).json({ error: 'Salary sirf Vishal / Ajay import kar sakte hain' });
+        for (const k of ['monthlySalary', 'kmRate']) if (k in r.salary && Number.isNaN(plNumOrNull(r.salary[k]))) return res.status(400).json({ error: `${nameById[uid]}: salary / petrol rate number hona chahiye` });
+        sal = r.salary;
+      }
+      plan.push({ uid, cols, vals, sal });
+    }
+    let salaries = 0;
+    for (const x of plan) {
+      await empSaveProfile(x.uid, x.cols, x.vals, req.session.userId);
+      if (x.sal) {
+        // Only the salary cells that were filled change; the rest stay as saved.
+        const [[cur]] = await withEmpTables(() => db.query('SELECT monthly_salary, km_rate, o2d_names FROM salesman_profiles WHERE user_id=?', [x.uid]));
+        await plSaveProfile(x.uid, {
+          monthlySalary: 'monthlySalary' in x.sal ? x.sal.monthlySalary : (cur ? cur.monthly_salary : null),
+          kmRate: 'kmRate' in x.sal ? x.sal.kmRate : (cur ? cur.km_rate : null),
+          o2dNames: 'o2dNames' in x.sal ? x.sal.o2dNames : (cur ? cur.o2d_names : '')
+        }, req.session.userId);
+        salaries++;
+      }
+    }
+    res.json({ success: true, employees: plan.length, salaries });
   } catch (err) { sendServerError(res, err); }
 });
 

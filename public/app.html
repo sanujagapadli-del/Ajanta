@@ -1921,6 +1921,7 @@ tbody tr:last-child td{border-bottom:none;}
       <select id="empDept" onchange="renderEmployees()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)"><option value="">All Departments</option></select>
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray-600);cursor:pointer"><input type="checkbox" id="empInactive" onchange="renderEmployees()"/> Inactive bhi</label>
       <button id="empCsvBtn" class="btn btn-outline" onclick="exportEmployeesCsv()">⬇ Export CSV</button>
+      <button class="btn btn-outline" onclick="empImportPick()" title="Export wali file me details bharke yahan upload karein">⬆ Import CSV</button>
     </div>
     <div id="empCards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div id="empList" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><div class="empty">Loading…</div></div>
@@ -6453,6 +6454,50 @@ function renderEmployees() {
     </tr>`).join('')}</tbody></table>`;
 }
 
+// ── Employees CSV: Export, fill in Excel, Import back. ──
+// One column list for both directions, so an exported file can be uploaded
+// as-is. `field` = a detail saved in employee_profiles, `sal` = salary
+// (Vishal / Ajay only), `kind` = how an imported cell is checked. Columns
+// without field/sal (Name, Department, Phone…) are for reading only — those
+// are edited on the Users page.
+const EMP_CSV_COLS = [
+  { h: 'Name', get: e => e.name },
+  { h: 'Status', get: e => e.active ? 'Active' : 'Inactive' },
+  { h: 'Department', get: e => e.department },
+  { h: 'Designation', field: 'designation' },
+  { h: 'Role', get: e => e.role },
+  { h: 'Phone', get: e => e.phone, text: true },
+  { h: 'Email (login)', get: e => e.email },
+  { h: 'Date of Joining', field: 'joining_date', kind: 'date' },
+  { h: 'Date of Birth', field: 'dob', kind: 'date' },
+  { h: 'Gender', field: 'gender', kind: 'gender' },
+  { h: 'Blood Group', field: 'blood_group', kind: 'blood' },
+  { h: "Father's / Husband's Name", field: 'father_name' },
+  { h: 'Alternate Phone', field: 'alt_phone', text: true, kind: 'digits' },
+  { h: 'Personal Email', field: 'personal_email' },
+  { h: 'Current Address', field: 'current_address' },
+  { h: 'Permanent Address', field: 'permanent_address' },
+  { h: 'Emergency Contact', field: 'emergency_name' },
+  { h: 'Emergency Relation', field: 'emergency_relation' },
+  { h: 'Emergency Phone', field: 'emergency_phone', text: true, kind: 'digits' },
+  { h: 'Aadhaar No', field: 'aadhaar_no', text: true, kind: 'aadhaar' },
+  { h: 'PAN No', field: 'pan_no', kind: 'pan' },
+  { h: 'Bank Name', field: 'bank_name' },
+  { h: 'Account No', field: 'bank_account', text: true, kind: 'digits' },
+  { h: 'IFSC', field: 'bank_ifsc', kind: 'ifsc' },
+  { h: 'UAN', field: 'uan_no', text: true, kind: 'digits' },
+  { h: 'ESIC', field: 'esic_no', text: true, kind: 'digits' },
+  { h: 'Leave Days', get: (e, r) => e.leaveDays, label: r => `Leave Days (${r.today.slice(0, 4)})` },
+  { h: 'Documents Uploaded', get: e => (e.docTypes || []).join('; ') },
+  { h: 'Documents Missing', get: e => e.missingDocs.join('; ') },
+  { h: 'Monthly Salary', sal: 'monthlySalary', kind: 'money', viewer: true },
+  { h: 'Petrol Rate (per km)', sal: 'kmRate', kind: 'money', viewer: true },
+  { h: 'O2D Order By Name', sal: 'o2dNames', viewer: true },
+  { h: 'Notes', field: 'notes' }
+];
+const empCsvVal = (c, e) => c.field ? (e.profile[c.field] || '') : c.sal === 'monthlySalary' ? (e.salary ?? '') : c.sal === 'kmRate' ? (e.kmRate ?? '') : c.sal ? (e.o2dNames || '') : c.get(e);
+const empIsoToDmy = v => v ? v.split('-').reverse().join('/') : '';
+
 // CSV of the employees currently shown, with every detail field (salary
 // columns only for Vishal / Ajay — the server leaves them out for others).
 async function exportEmployeesCsv() {
@@ -6466,21 +6511,12 @@ async function exportEmployeesCsv() {
   const q = v => { const x = v == null ? '' : String(v); return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
   // Long digit strings (Aadhaar, account no., phone) would turn into 9.88E+11 in Excel.
   const txt = v => v ? `="${String(v).replace(/"/g, '')}"` : '';
-  const dmy = v => v ? v.split('-').reverse().join('/') : '';
-  const cols = [
-    ['Name', e => e.name], ['Status', e => e.active ? 'Active' : 'Inactive'], ['Department', e => e.department], ['Designation', e => e.profile.designation],
-    ['Role', e => e.role], ['Phone', e => txt(e.phone)], ['Email (login)', e => e.email],
-    ['Date of Joining', e => dmy(e.profile.joining_date)], ['Date of Birth', e => dmy(e.profile.dob)], ['Gender', e => e.profile.gender], ['Blood Group', e => e.profile.blood_group],
-    ["Father's / Husband's Name", e => e.profile.father_name], ['Alternate Phone', e => txt(e.profile.alt_phone)], ['Personal Email', e => e.profile.personal_email],
-    ['Current Address', e => e.profile.current_address], ['Permanent Address', e => e.profile.permanent_address],
-    ['Emergency Contact', e => e.profile.emergency_name], ['Emergency Relation', e => e.profile.emergency_relation], ['Emergency Phone', e => txt(e.profile.emergency_phone)],
-    ['Aadhaar No', e => txt(e.profile.aadhaar_no)], ['PAN No', e => e.profile.pan_no], ['Bank Name', e => e.profile.bank_name], ['Account No', e => txt(e.profile.bank_account)],
-    ['IFSC', e => e.profile.bank_ifsc], ['UAN', e => txt(e.profile.uan_no)], ['ESIC', e => txt(e.profile.esic_no)],
-    [`Leave Days (${r.today.slice(0, 4)})`, e => e.leaveDays], ['Documents Uploaded', e => (e.docTypes || []).join('; ')], ['Documents Missing', e => e.missingDocs.join('; ')],
-    ...(r.viewer ? [['Monthly Salary', e => e.salary ?? ''], ['Petrol Rate (per km)', e => e.kmRate ?? ''], ['O2D Order By Name', e => e.o2dNames || '']] : []),
-    ['Notes', e => e.profile.notes]
-  ];
-  const lines = [cols.map(c => q(c[0])).join(',')].concat(rows.map(e => cols.map(c => { const v = c[1](e); return String(v).startsWith('="') ? v : q(v); }).join(',')));
+  const cols = EMP_CSV_COLS.filter(c => !c.viewer || r.viewer);
+  const lines = [cols.map(c => q(c.label ? c.label(r) : c.h)).join(',')].concat(rows.map(e => cols.map(c => {
+    let v = empCsvVal(c, e);
+    if (c.kind === 'date') v = empIsoToDmy(v);
+    return c.text ? txt(v) : q(v);
+  }).join(',')));
   const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -6488,6 +6524,157 @@ async function exportEmployeesCsv() {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   showToast(`✅ ${rows.length} employees exported`);
+}
+
+// RFC-4180-ish parser: quoted cells, "" escapes, commas / newlines inside quotes.
+function parseCsvText(text) {
+  const rows = []; let row = [], cell = '', inQ = false;
+  text = text.replace(/^\ufeff/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else inQ = false; }
+      else cell += ch;
+    } else if (ch === '"' && cell === '') inQ = true; // a quote opens a quoted cell only at its start
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => String(c).trim() !== ''));
+}
+
+// Excel-tolerant date → YYYY-MM-DD (DD/MM/YYYY, DD-MM-YY, 5-Oct-2026, YYYY-MM-DD).
+function empParseDate(v) {
+  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  let y, m, d, x;
+  if ((x = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v))) [, y, m, d] = x.map(Number);
+  else if ((x = /^(\d{1,2})[\/\-. ](\d{1,2})[\/\-. ](\d{2}|\d{4})$/.exec(v))) [, d, m, y] = x.map(Number);
+  else if ((x = /^(\d{1,2})[\s\-]+([A-Za-z]{3,})[\s\-,]+(\d{2}|\d{4})$/.exec(v))) { d = Number(x[1]); m = months.indexOf(x[2].slice(0, 3).toLowerCase()) + 1; y = Number(x[3]); }
+  else return null;
+  if (y < 100) y += y > (new Date().getFullYear() % 100) ? 1900 : 2000;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (!m || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+// One imported cell → { value } or { warn } (warned cells are skipped).
+function empCleanCell(c, raw) {
+  let v = String(raw == null ? '' : raw).trim();
+  // ="9468…" is how Export keeps long numbers as text; a plain = prefix can survive an edit too.
+  const f = /^="(.*)"$/.exec(v) || /^=(\d+)$/.exec(v); if (f) v = f[1].trim();
+  if (!v) return null;
+  if (/^\d+(\.\d+)?E\+\d+$/i.test(v)) return { warn: `${c.h}: Excel ne number bigaad diya (${v}) — us column ko Text format karke dobara bharein` };
+  switch (c.kind) {
+    case 'date': { const iso = empParseDate(v); return iso ? { value: iso } : { warn: `${c.h}: "${v}" date samajh nahi aayi (DD/MM/YYYY likhein)` }; }
+    case 'gender': { const g = { m: 'Male', male: 'Male', f: 'Female', female: 'Female', other: 'Other', o: 'Other' }[v.toLowerCase()]; return g ? { value: g } : { warn: `${c.h}: "${v}" — Male / Female / Other` }; }
+    case 'blood': { const b = v.toUpperCase().replace(/\s+/g, '').replace(/POSITIVE$|POS$/, '+').replace(/NEGATIVE$|NEG$/, '-').replace(/VE$/, ''); return /^(A|B|AB|O)[+-]$/.test(b) ? { value: b } : { warn: `${c.h}: "${v}" — jaise B+ / O-` }; }
+    case 'aadhaar': { const a = v.replace(/[\s-]/g, ''); return /^\d{12}$/.test(a) ? { value: a } : { warn: `${c.h}: "${v}" 12 digit nahi hai` }; }
+    case 'pan': { const p = v.toUpperCase().replace(/\s/g, ''); return /^[A-Z]{5}\d{4}[A-Z]$/.test(p) ? { value: p } : { warn: `${c.h}: "${v}" — format ABCDE1234F` }; }
+    case 'ifsc': { const s = v.toUpperCase().replace(/\s/g, ''); return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(s) ? { value: s } : { warn: `${c.h}: "${v}" — 11 character, jaise SBIN0001234` }; }
+    case 'digits': return { value: v.replace(/\s/g, '') };
+    case 'money': { const n = Number(v.replace(/[₹,\s]/g, '').replace(/^rs\.?/i, '')); return n >= 0 ? { value: String(n) } : { warn: `${c.h}: "${v}" number nahi hai` }; }
+    default: return { value: v };
+  }
+}
+
+function empImportPick() {
+  let inp = document.getElementById('empCsvFile');
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type = 'file'; inp.id = 'empCsvFile'; inp.accept = '.csv,text/csv'; inp.style.display = 'none';
+    inp.onchange = () => { const f = inp.files[0]; inp.value = ''; if (f) empImportFile(f); };
+    document.body.appendChild(inp);
+  }
+  inp.click();
+}
+
+let _empImportPlan = null;
+async function empImportFile(file) {
+  const text = await file.text();
+  const grid = parseCsvText(text);
+  if (grid.length < 2) { showToast('File me header ke baad koi row nahi', 'error'); return; }
+  const cur = await api('/api/employees?full=1');
+  if (cur.error) { showToast(cur.error, 'error'); return; }
+  const norm = s => String(s || '').trim().toLowerCase().replace(/\s*\(\d{4}\)$/, '');
+  const head = grid[0].map(norm);
+  const colIdx = c => head.indexOf(c.h.toLowerCase());
+  const iEmail = colIdx({ h: 'Email (login)' }), iName = colIdx({ h: 'Name' });
+  if (iEmail < 0 && iName < 0) { showToast('File me "Name" ya "Email (login)" column chahiye — Export CSV wali file use karein', 'error'); return; }
+  const cols = EMP_CSV_COLS.filter(c => (c.field || c.sal) && colIdx(c) >= 0 && (!c.sal || cur.viewer));
+  const byEmail = {}, byName = {};
+  cur.employees.forEach(e => { byEmail[String(e.email || '').toLowerCase()] = e; byName[String(e.name || '').trim().toLowerCase()] = e; });
+  const seen = new Set();
+  const plan = [], unmatched = [], dupes = [];
+  grid.slice(1).forEach((cells, i) => {
+    const email = iEmail >= 0 ? String(cells[iEmail] || '').trim().toLowerCase() : '';
+    const name = iName >= 0 ? String(cells[iName] || '').trim() : '';
+    const e = byEmail[email] || byName[name.toLowerCase()];
+    if (!e) { unmatched.push(name || email || `row ${i + 2}`); return; }
+    if (seen.has(e.id)) { dupes.push(e.name); return; }
+    seen.add(e.id);
+    const item = { id: e.id, name: e.name, profile: {}, salary: {}, changes: [], warns: [] };
+    cols.forEach(c => {
+      const res = empCleanCell(c, cells[colIdx(c)]);
+      if (!res) return;
+      if (res.warn) { item.warns.push(res.warn); return; }
+      const old = String(empCsvVal(c, e) ?? '');
+      if (res.value === old || (c.kind === 'money' && old !== '' && Number(old) === Number(res.value))) return;
+      if (c.field) item.profile[c.field] = res.value; else item.salary[c.sal] = res.value;
+      item.changes.push({ h: c.h, old: c.kind === 'date' ? empIsoToDmy(old) : old, now: c.kind === 'date' ? empIsoToDmy(res.value) : res.value });
+    });
+    if (item.changes.length || item.warns.length) plan.push(item);
+  });
+  _empImportPlan = plan.filter(x => x.changes.length);
+  renderEmpImportPreview(plan, unmatched, dupes, cols.length);
+}
+
+function renderEmpImportPreview(plan, unmatched, dupes, nCols) {
+  let m = document.getElementById('empImportModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'empImportModal';
+    m.innerHTML = `<div class="modal" style="max-width:820px;width:96vw;max-height:90vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-shrink:0">
+        <h3 style="margin:0">⬆ Import preview</h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('empImportModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div id="empImportBody" style="overflow-y:auto;flex:1"></div>
+    </div>`;
+    document.body.appendChild(m);
+  }
+  const ok = _empImportPlan;
+  const nChanges = ok.reduce((s, x) => s + x.changes.length, 0);
+  const nWarn = plan.reduce((s, x) => s + x.warns.length, 0);
+  const note = (bg, fg, html) => `<div style="background:${bg};color:${fg};border-radius:10px;padding:9px 12px;font-size:12.5px;margin-bottom:8px">${html}</div>`;
+  document.getElementById('empImportBody').innerHTML = `
+    <div style="font-size:13px;color:var(--gray-600);margin-bottom:10px"><b style="color:var(--gray-900)">${ok.length}</b> employees ki <b style="color:var(--gray-900)">${nChanges}</b> details update hongi. Khaali cells se kuch nahi badlega. (${nCols} columns padhe)</div>
+    ${unmatched.length ? note('var(--color-warning-bg)', 'var(--color-warning-text)', `⚠ Ye rows kisi employee se match nahi hui (Name / Email check karein): <b>${unmatched.map(esc).join(', ')}</b>`) : ''}
+    ${dupes.length ? note('var(--color-warning-bg)', 'var(--color-warning-text)', `⚠ Ek hi employee do baar — sirf pehli row li: <b>${dupes.map(esc).join(', ')}</b>`) : ''}
+    ${nWarn ? note('var(--color-danger-bg)', 'var(--color-danger)', `✗ ${nWarn} cell galat hain — wo skip honge (neeche dekhein)`) : ''}
+    ${plan.length ? `<table style="width:100%;font-size:12.5px"><thead><tr><th>Employee</th><th>Kya badlega</th></tr></thead><tbody>
+      ${plan.map(x => `<tr><td style="font-weight:700;vertical-align:top;white-space:nowrap">${esc(x.name)}</td><td style="white-space:normal">
+        ${x.changes.map(c => `<div><span style="color:var(--gray-500)">${esc(c.h)}:</span> ${c.old ? `<s style="color:var(--gray-400)">${esc(c.old)}</s> → ` : ''}<b>${esc(c.now)}</b></div>`).join('')}
+        ${x.warns.map(w => `<div style="color:var(--color-danger)">✗ ${esc(w)}</div>`).join('')}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="empty">File me koi nayi detail nahi mili — sab pehle jaisa hi hai.</div>'}
+    ${ok.length ? `<button id="empImportGo" class="btn btn-primary" onclick="runEmployeeImport()" style="width:100%;justify-content:center;padding:12px;font-size:14px;margin-top:12px;position:sticky;bottom:0">✅ Import — ${ok.length} employees</button>` : ''}`;
+  m.classList.add('open');
+}
+
+async function runEmployeeImport() {
+  const plan = _empImportPlan || [];
+  if (!plan.length) return;
+  const btn = document.getElementById('empImportGo');
+  btn.disabled = true; btn.textContent = '⏳ Importing…';
+  const r = await api('/api/employees/import', 'POST', { rows: plan.map(x => ({ id: x.id, profile: x.profile, ...(Object.keys(x.salary).length ? { salary: x.salary } : {}) })) });
+  if (r.error) { btn.disabled = false; btn.textContent = `✅ Import — ${plan.length} employees`; showToast(r.error, 'error'); return; }
+  closeModal('empImportModal');
+  _empImportPlan = null;
+  showToast(`✅ ${r.employees} employees updated${r.salaries ? ` · ${r.salaries} salary` : ''}`);
+  empCur = null;
+  loadEmployeesPage();
 }
 
 async function openEmployee(id, tab) {
