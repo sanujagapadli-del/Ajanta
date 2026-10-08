@@ -1018,6 +1018,10 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
       <span class="nav-label-text">Lead FMS</span>
     </div>
+    <div class="nav-item" id="nav-dealer-onboarding" style="display:none" onclick="closeMobileSidebar();openDealerOnboardModal()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9l1.5-5h15L21 9M3 9h18M3 9v11h18V9M9 20v-6h6v6"/></svg>
+      <span class="nav-label-text">Dealer Onboarding</span>
+    </div>
     <div class="nav-item" id="nav-replacement-fms" style="display:none" onclick="navigate('replacement-fms',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2.5M18.4 9A7 7 0 006.5 6.5"/></svg>
       <span class="nav-label-text">Replacement FMS</span>
@@ -1092,6 +1096,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="lead-fms" onclick="navigate('lead-fms',null)" id="bnLead" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
     <span>Leads</span>
+  </div>
+  <div class="bn-item" data-page="dealer-onboarding" onclick="toggleBottomNavMore(false);openDealerOnboardModal()" id="bnOnboard" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9M3 9h18M3 9v11h18V9M9 20v-6h6v6"/></svg>
+    <span>New Dealer</span>
   </div>
   <div class="bn-item" data-page="replacement-fms" onclick="navigate('replacement-fms',null)" id="bnRepl" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2.5M18.4 9A7 7 0 006.5 6.5"/></svg>
@@ -3810,6 +3818,7 @@ async function init() {
     if (canSee('cheque-fms')) document.getElementById('nav-cheque-fms').style.display = 'flex';
     if (canSee('replacement-fms')) document.getElementById('nav-replacement-fms').style.display = 'flex';
     if (canSee('lead-fms')) document.getElementById('nav-lead-fms').style.display = 'flex';
+    if (canSee('lead-fms') || canSee('o2d-fms')) document.getElementById('nav-dealer-onboarding').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
@@ -3986,6 +3995,8 @@ function setupBottomNav() {
   if (bnRepl && canSee('replacement-fms')) bnRepl.style.display = '';
   const bnLead = document.getElementById('bnLead');
   if (bnLead && canSee('lead-fms')) bnLead.style.display = '';
+  const bnOnboard = document.getElementById('bnOnboard');
+  if (bnOnboard && (canSee('lead-fms') || canSee('o2d-fms'))) bnOnboard.style.display = '';
   const bnGp = document.getElementById('bnGp');
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
   arrangeBottomNavMore();
