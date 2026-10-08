@@ -977,6 +977,10 @@ tbody tr:last-child td{border-bottom:none;}
       <span id="leaveBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
     </div>
     <div class="nav-section-label">Management</div>
+    <div class="nav-item" id="nav-employees" style="display:none" onclick="navigate('employees',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" stroke-width="2"/><circle cx="9" cy="10" r="2.5" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M5.5 16.5c.6-1.6 1.9-2.5 3.5-2.5s2.9.9 3.5 2.5M14 9h4M14 13h4"/></svg>
+      <span class="nav-label-text">Employees</span>
+    </div>
     <div class="nav-item" id="nav-users" style="display:none" onclick="navigate('users',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
       <span class="nav-label-text">Users</span>
@@ -1125,6 +1129,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="mis" onclick="navigate('mis',null)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
     <span>MIS</span>
+  </div>
+  <div class="bn-item" data-page="employees" onclick="navigate('employees',null)" id="bnEmp" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2.5"/><path d="M5.5 16.5c.6-1.6 1.9-2.5 3.5-2.5s2.9.9 3.5 2.5M14 9h4M14 13h4"/></svg>
+    <span>Employees</span>
   </div>
   <div class="bn-item" data-page="gross-profit" onclick="navigate('gross-profit',null)" id="bnGp" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M14 7h7v7"/></svg>
@@ -1713,6 +1721,7 @@ tbody tr:last-child td{border-bottom:none;}
 
     <div style="display:flex;gap:6px;margin-bottom:16px;">
       <div class="tab-group">
+        <div class="tab" id="pfmsViewIndents" onclick="switchPurchaseFmsView('indents',this)">📝 Indents</div>
         <div class="tab active" id="pfmsViewFms" onclick="switchPurchaseFmsView('fms',this)">FMS View</div>
         <div class="tab" id="pfmsViewPC" onclick="switchPurchaseFmsView('pc',this)">PC View</div>
         <div class="tab" id="pfmsViewReports" onclick="switchPurchaseFmsView('reports',this)">📊 Reports</div>
@@ -1905,6 +1914,17 @@ tbody tr:last-child td{border-bottom:none;}
     <!-- ══════════════════════════════════════
        EMPLOYEE RECORDS  (Admin / HOD / PC)
   ══════════════════════════════════════ -->
+  <!-- ── EMPLOYEES: one full record per employee (details, salary, leave, attendance, documents) ── -->
+  <div id="page-employees" class="page">
+    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="empSearch" oninput="renderEmployees()" placeholder="🔍 Search name, phone, designation…" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface);color:var(--gray-900)"/>
+      <select id="empDept" onchange="renderEmployees()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)"><option value="">All Departments</option></select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray-600);cursor:pointer"><input type="checkbox" id="empInactive" onchange="renderEmployees()"/> Inactive bhi</label>
+    </div>
+    <div id="empCards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"></div>
+    <div id="empList" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><div class="empty">Loading…</div></div>
+  </div>
+
   <div id="page-records" class="page">
     <div class="page-header">
       <button class="btn btn-outline" onclick="exportRecords()">⬇ Export CSV</button>
@@ -2653,16 +2673,7 @@ tbody tr:last-child td{border-bottom:none;}
         </label>
       </div>
     </div>
-    <!-- Salesman salary — only Vishal / Ajay (pl_viewer) see this box. Filled = shows in Gross Profit → Salesman-wise. -->
-    <div id="uSalaryBox" style="display:none;border:1.5px solid var(--color-success-border);background:var(--color-success-bg);border-radius:12px;padding:12px 14px;margin-bottom:14px">
-      <div style="font-size:12.5px;font-weight:800;color:var(--gray-800);margin-bottom:8px">💰 Salary <span style="font-weight:500;color:var(--gray-500)">— sirf aapko (Vishal / Ajay) aur us employee ko dikhti hai</span></div>
-      <div class="form-row">
-        <div class="form-group"><label>Mahine ki Salary (₹)</label><input type="number" min="0" id="uSalary" placeholder="e.g. 18000"/></div>
-        <div class="form-group"><label>Petrol rate (₹ per km)</label><input type="number" min="0" step="0.1" id="uKmRate" placeholder="e.g. 3"/></div>
-      </div>
-      <div class="form-group" style="margin-bottom:4px"><label>O2D me "Order By" naam <span style="color:var(--gray-400);font-weight:400;text-transform:none">(salesman ho to)</span></label><input type="text" id="uO2dNames" placeholder="e.g. Krishna — ek se zyada ho to comma"/></div>
-      <div style="font-size:11.5px;color:var(--gray-500)">Salary bharte hi ye employee <b>Gross Profit → 👤 Salesman-wise</b> me aa jayega (sales, GP, salary, petrol, tour, net profit).</div>
-    </div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 12px">💡 Salary, documents, address, bank aur baaki details: <b>👥 Employees</b> page par.</div>
     <div class="form-group">
       <label>Password <span id="pwdOptional" style="color:var(--gray-400);font-weight:400;text-transform:none">(leave blank to keep current)</span></label>
       <input type="password" id="uPassword" placeholder="Enter password"/>
@@ -3847,6 +3858,7 @@ async function init() {
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
     if (canSee('gross-profit')) document.getElementById('nav-gross-profit').style.display = 'flex';
     if (canSee('users')) document.getElementById('nav-users').style.display = 'flex';
+    if (canSee('employees')) document.getElementById('nav-employees').style.display = 'flex';
     if (canSee('service-fms')) document.getElementById('nav-service-fms').style.display = 'flex';
     if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
     if (canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
@@ -3875,7 +3887,7 @@ async function init() {
     // Refresh pe last visited page restore karo
     const savedPage = localStorage.getItem('lastPage');
     const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
-    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
+    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
     if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -3963,7 +3975,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance & Leave',users:'Users',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance & Leave',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -3975,7 +3987,7 @@ function closeMobileSidebar() {
 }
 
 function navigate(page, el) {
-  if (ME && ME.role !== 'admin' && ['mis','users','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
+  if (ME && ME.role !== 'admin' && ['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
     showToast("You don't have access to this page", 'error');
     return;
   }
@@ -4005,6 +4017,7 @@ function navigate(page, el) {
   if (page==='replacement-fms') loadReplFmsList();
   if (page==='lead-fms') loadLeadFmsList();
   if (page==='gross-profit') loadGrossProfit();
+  if (page==='employees') loadEmployeesPage();
   if (page==='price-catalogue') loadPriceCataloguePage();
   if (page==='stock') loadStockPage();
   localStorage.setItem('lastPage', page);
@@ -4035,6 +4048,8 @@ function setupBottomNav() {
   if (bnOnboard && (canSee('lead-fms') || canSee('o2d-fms'))) bnOnboard.style.display = '';
   const bnGp = document.getElementById('bnGp');
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
+  const bnEmp = document.getElementById('bnEmp');
+  if (bnEmp && canSee('employees')) bnEmp.style.display = '';
   arrangeBottomNavMore();
   attachScrollHint(document.getElementById('bottomNav'));
 }
@@ -4200,7 +4215,8 @@ async function loadDashboard() {
     api('/api/cheque-fms').catch(() => null),
     api('/api/replacement-fms').catch(() => null),
     api('/api/lead-fms').catch(() => null),
-    (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms').catch(() => null) : null
+    (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms').catch(() => null) : null,
+    (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms/indents').catch(() => null) : null
   ]);
   const [dDel, dChl] = await Promise.all([
     api(baseUrl + 'delegation'),
@@ -4310,7 +4326,7 @@ async function loadDashboard() {
   // update, so a step just done there shows here without waiting on the
   // sheet re-read — then repaint once the fresh read lands.
   renderDash();
-  const [o2d, sfms, chq, repl, lead, pur] = await fmsPromise;
+  const [o2d, sfms, chq, repl, lead, pur, ind] = await fmsPromise;
   if (loadSeq !== _dashLoadSeq) return;
   // A failed read keeps the last good data instead of blanking the FMS rows.
   if (Array.isArray(o2d)) window._lastO2dData = o2d;
@@ -4319,6 +4335,7 @@ async function loadDashboard() {
   if (repl && Array.isArray(repl.items)) window._lastReplData = repl;
   if (lead && Array.isArray(lead.leads)) window._lastLeadData = lead;
   if (Array.isArray(pur)) window._lastPurchaseData = pur;
+  if (ind && Array.isArray(ind.indents)) window._lastIndentData = ind;
   renderDash();
 }
 
@@ -5709,6 +5726,7 @@ const PAGE_ACCESS_GROUPS = [
   { label: 'Reports & Admin', locked: false, pages: [
     { key: 'mis', label: 'MIS Report' },
     { key: 'gross-profit', label: 'Gross Profit' },
+    { key: 'employees', label: 'Employees (details, documents)' },
     { key: 'users', label: 'Users' },
     { key: 'records', label: 'Records' },
     // Not a page: All Tasks → Delegation shows every employee's tasks (view + comment).
@@ -5861,34 +5879,7 @@ function openAddUser() {
   document.getElementById('userSuccess').style.display='none';
   _setWeekOff('');
   _setExtraOff('');
-  fillUserSalaryBox(null);
   document.getElementById('userModal').classList.add('open');
-}
-
-// Salary box in Add/Edit User — Vishal / Ajay only (ME.pl_viewer).
-let _userSalaryOrig = null;
-async function fillUserSalaryBox(userId) {
-  const box = document.getElementById('uSalaryBox');
-  _userSalaryOrig = null;
-  ['uSalary', 'uKmRate', 'uO2dNames'].forEach(id => { document.getElementById(id).value = ''; });
-  box.style.display = ME && ME.pl_viewer ? '' : 'none';
-  if (!ME || !ME.pl_viewer || !userId) return;
-  const r = await api('/api/salesman-pl/profiles');
-  const p = r && Array.isArray(r.users) ? r.users.find(u => String(u.id) === String(userId)) : null;
-  if (!p || String(document.getElementById('editUserId').value) !== String(userId)) return;
-  _userSalaryOrig = p;
-  document.getElementById('uSalary').value = p.monthlySalary ?? '';
-  document.getElementById('uKmRate').value = p.kmRate ?? '';
-  document.getElementById('uO2dNames').value = p.o2dNames || '';
-}
-async function saveUserSalary(userId) {
-  if (!ME || !ME.pl_viewer || !userId) return null;
-  const sal = document.getElementById('uSalary').value.trim(), rate = document.getElementById('uKmRate').value.trim(), names = document.getElementById('uO2dNames').value.trim();
-  const o = _userSalaryOrig;
-  const was = !!(o && o.enabled), now = !!(sal || rate || names);
-  if (!was && !now) return null;
-  if (was && now && String(o.monthlySalary ?? '') === sal && String(o.kmRate ?? '') === rate && (o.o2dNames || '') === names) return null;
-  return api(`/api/salesman-pl/profiles/${userId}`, 'PUT', now ? { monthlySalary: sal, kmRate: rate, o2dNames: names } : { enabled: false });
 }
 
 function openEditUser(id) {
@@ -5910,7 +5901,6 @@ function openEditUser(id) {
   document.getElementById('userSuccess').style.display='none';
   _setWeekOff(u.week_off||'');
   _setExtraOff(u.extra_off||'');
-  fillUserSalaryBox(u.id);
   document.getElementById('userModal').classList.add('open');
 }
 
@@ -5937,16 +5927,7 @@ async function saveUser() {
   const r = id ? await api(`/api/users/${id}`,'PUT',body) : await api('/api/users','POST',body);
   if (btn) btn.disabled = false;
   if (r.error) { err.textContent=r.error; err.style.display='block'; return; }
-  let uid = id;
-  if (!uid && ME && ME.pl_viewer && (document.getElementById('uSalary').value || document.getElementById('uKmRate').value || document.getElementById('uO2dNames').value)) {
-    const list = await api('/api/users');
-    const nu = Array.isArray(list) ? list.find(x => String(x.email).toLowerCase() === email.toLowerCase()) : null;
-    uid = nu && nu.id;
-  }
-  const sr = await saveUserSalary(uid);
-  if (sr && sr.error) { err.textContent = 'User saved, salary nahi: ' + sr.error; err.style.display = 'block'; return; }
   closeModal('userModal');
-  if (sr) showToast('✅ Salary saved');
   loadUsers();
 }
 
@@ -6338,10 +6319,15 @@ function renderSalesmanPl() {
   const d = plData; if (!d) return;
   const tabs = `<div style="margin-bottom:12px">${gpTabsHtml()}</div>`;
   if (!d.rows.length) {
-    out.innerHTML = tabs + `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">${d.viewer ? 'Abhi kisi salesman ki salary set nahi hai — <b>Users</b> page par salesman ko ✏️ Edit karke "Salary" bharein.' : 'Aapki salary abhi set nahi hui.'}</div>`;
+    out.innerHTML = tabs + `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">${d.viewer || d.gpOnly ? 'Is date range me koi billed O2D order nahi.' : 'Aapki salary abhi set nahi hui.'}</div>`;
     return;
   }
+  // gpOnly = Gross Profit access without salary rights: Sales + GP only.
+  const full = !d.gpOnly;
+  const prof = d.rows.filter(r => !r.noProfile);
   const tot = k => d.rows.reduce((s, r) => s + (r[k] || 0), 0);
+  const costed = tot('sales') - tot('uncostedSales');
+  const dash = '<span style="color:var(--gray-300)">—</span>';
   const color = v => v >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)';
   const card = (label, value, sub, c) => `<div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:14px 16px;flex:1;min-width:150px">
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">${label}</div><div style="font-size:22px;font-weight:800;color:${c}">${value}</div><div style="font-size:12px;color:var(--gray-500)">${sub || ''}</div></div>`;
@@ -6351,38 +6337,353 @@ function renderSalesmanPl() {
   out.innerHTML = tabs + `
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       ${card('Sales (billed)', plInr(tot('sales')), `${tot('orders')} orders`, 'var(--gray-900)')}
-      ${card('Gross Profit', plInr(tot('gp')), 'sales − maal ki laagat', color(tot('gp')))}
-      ${card('Kharcha', plInr(tot('expense')), `salary ${plInr(tot('salary'))} · petrol ${plInr(tot('petrol'))} · tour ${plInr(tot('tour'))}`, 'var(--gray-700)')}
-      ${card('Net Profit', plInr(tot('net')), 'GP − salary − petrol − tour', color(tot('net')))}
+      ${card('Gross Profit', plInr(tot('gp')), `sales − maal ki laagat${costed > 0 ? ` · ${Math.round(tot('gp') * 1000 / costed) / 10}%` : ''}`, color(tot('gp')))}
+      ${full && prof.length ? card('Kharcha', plInr(tot('expense')), `salary ${plInr(tot('salary'))} · petrol ${plInr(tot('petrol'))} · tour ${plInr(tot('tour'))}`, 'var(--gray-700)') : ''}
+      ${full && prof.length ? card('Net Profit', plInr(tot('net')), 'GP − salary − petrol − tour (salary set wale)', color(tot('net'))) : ''}
     </div>
     <div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr><th style="${th};text-align:left">Salesman</th><th style="${th}">Din</th><th style="${th}">Sales</th><th style="${th}">Gross Profit</th><th style="${th}">Salary</th><th style="${th}">Petrol</th><th style="${th}">Tour</th><th style="${th}">Kul Kharcha</th><th style="${th}">Net Profit</th></tr></thead>
+      <thead><tr><th style="${th};text-align:left">Salesman</th>${full ? `<th style="${th}">Din</th>` : ''}<th style="${th}">Sales</th><th style="${th}">Gross Profit</th>${full ? `<th style="${th}">Salary</th><th style="${th}">Petrol</th><th style="${th}">Tour</th><th style="${th}">Kul Kharcha</th><th style="${th}">Net Profit</th>` : ''}</tr></thead>
       <tbody>${d.rows.map(r => `<tr>
-        <td style="${td};text-align:left"><b style="color:var(--gray-900)">${esc(r.name)}</b>${sub(`O2D: ${esc(r.o2dNames || '— (Order By naam set nahi)')}`)}</td>
-        <td style="${td}">${r.present}/${r.days}${sub(`${r.offDays} off · ${r.leaveDays} leave · <span style="color:${r.absent ? 'var(--color-danger)' : 'inherit'}">${r.absent} absent</span>`)}</td>
+        <td style="${td};text-align:left"><b style="color:var(--gray-900)">${esc(r.name)}</b>${r.noProfile ? sub(full ? 'O2D Order By · salary set nahi' : 'O2D Order By') : sub(`O2D: ${esc(r.o2dNames || '— (Order By naam set nahi)')}`)}</td>
+        ${!full ? '' : r.noProfile ? `<td style="${td}">${dash}</td>` : `<td style="${td}">${r.present}/${r.days}${sub(`${r.offDays} off · ${r.leaveDays} leave · <span style="color:${r.absent ? 'var(--color-danger)' : 'inherit'}">${r.absent} absent</span>`)}</td>`}
         <td style="${td};font-weight:700">${plInr(r.sales)}${sub(`${r.orders} orders${r.uncostedSales ? ` · ${plInr(r.uncostedSales)} bina laagat` : ''}`)}</td>
         <td style="${td};font-weight:700;color:${color(r.gp)}">${plInr(r.gp)}${sub(r.gpPct == null ? '' : r.gpPct + '%')}</td>
+        ${!full ? '' : r.noProfile ? `<td style="${td}">${dash}</td>`.repeat(5) : `
         <td style="${td}">${plInr(r.salary)}${sub(r.monthlySalary != null ? `${plInr(r.monthlySalary)}/mahina` : 'set nahi')}</td>
         <td style="${td}">${plInr(r.petrol)}${sub(`${r.km.toLocaleString('en-IN')} km × ₹${r.kmRate}`)}</td>
         <td style="${td}">${plInr(r.tour)}${r.tourPendingCount ? sub(`<span style="color:var(--color-warning-text)">+${plInr(r.tourPending)} pending</span>`) : ''}</td>
         <td style="${td};font-weight:700">${plInr(r.expense)}</td>
-        <td style="${td};font-weight:900;font-size:14px;color:${color(r.net)}">${plInr(r.net)}${sub(r.netPct == null ? '' : r.netPct + '% of sales')}</td>
+        <td style="${td};font-weight:900;font-size:14px;color:${color(r.net)}">${plInr(r.net)}${sub(r.netPct == null ? '' : r.netPct + '% of sales')}</td>`}
       </tr>`).join('')}</tbody></table></div>
-    ${d.viewer && d.unassigned && d.unassigned.length ? `<div style="font-size:12px;color:var(--gray-500);margin-top:10px">ℹ️ Ye O2D "Order By" kisi salesman se jude nahi (inki sale upar nahi gini): ${d.unassigned.map(u => `<b>${esc(u.name)}</b> ${plInr(u.sales)}`).join(' · ')}. Jodne ke liye Users page par us salesman ke "O2D naam" me daalein.</div>` : ''}
-    ${d.salaryFrom && d.salaryFrom > d.start ? `<div style="font-size:12px;color:var(--color-warning-text);margin-top:10px">⚠️ Salary ${fmtDateDMY(d.salaryFrom)} se gini hai — app me attendance tabhi se lag rahi hai.</div>` : ''}
-    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Salary = mahine ki salary ÷ mahine ke din × paid din (punch kiya, week-off, holiday, approved leave). Petrol = Morning/Evening KM × KM rate. Tour = sirf approved. Sales/GP = O2D billed orders jinme "Order By" is salesman ka naam hai (bill date se); GP sirf un items par jinki laagat pata hai.</div>`;
+    ${d.viewer && d.rows.some(r => r.noProfile) ? `<div style="font-size:12px;color:var(--gray-500);margin-top:10px">ℹ️ "salary set nahi" wale naam O2D ke "Order By" se hain. Salary / petrol / tour aur Net Profit ke liye <b>👥 Employees</b> page par salesman ke 💰 Salary tab me Salary aur "O2D naam" bharein — phir uski sale us salesman ke naam me judegi.</div>` : ''}
+    ${full && prof.length && d.salaryFrom && d.salaryFrom > d.start ? `<div style="font-size:12px;color:var(--color-warning-text);margin-top:10px">⚠️ Salary ${fmtDateDMY(d.salaryFrom)} se gini hai — app me attendance tabhi se lag rahi hai.</div>` : ''}
+    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Salary = mahine ki salary ÷ mahine ke din × paid din (punch kiya, week-off, holiday, approved leave). Petrol = Morning/Evening KM × KM rate. Tour = sirf approved. Sales/GP = O2D billed orders, salesman = order ka "Order By" (bill date se); GP sirf un items par jinki laagat pata hai.</div>`;
 }
 
 function exportSalesmanPl() {
   if (!plData || !plData.rows.length) return;
   const q = v => { const x = v == null ? '' : String(v); return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
-  const head = ['Salesman', 'Paid days', 'Present', 'Absent', 'Sales', 'Gross Profit', 'Salary', 'KM', 'Petrol', 'Tour', 'Total Expense', 'Net Profit'];
-  const lines = [head.join(',')].concat(plData.rows.map(r => [r.name, r.days - r.absent, r.present, r.absent, r.sales, r.gp, r.salary, r.km, r.petrol, r.tour, r.expense, r.net].map(q).join(',')));
+  const full = !plData.gpOnly;
+  const head = full ? ['Salesman', 'Paid days', 'Present', 'Absent', 'Sales', 'Gross Profit', 'GP %', 'Salary', 'KM', 'Petrol', 'Tour', 'Total Expense', 'Net Profit'] : ['Salesman', 'Orders', 'Sales', 'Gross Profit', 'GP %'];
+  const lines = [head.join(',')].concat(plData.rows.map(r => (!full ? [r.name, r.orders, r.sales, r.gp, r.gpPct]
+    : r.noProfile ? [r.name, '', '', '', r.sales, r.gp, r.gpPct, '', '', '', '', '', '']
+    : [r.name, r.days - r.absent, r.present, r.absent, r.sales, r.gp, r.gpPct, r.salary, r.km, r.petrol, r.tour, r.expense, r.net]).map(q).join(',')));
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
   a.download = `Salesman_PL_${plData.start}_to_${plData.end}.csv`;
   a.click();
 }
+// ── Employees page (client, 2026-10-08: "emp management ka new page — puri
+// detail, salary, leave, document sab kuch"). Server: search "EMPLOYEES" in
+// server.js. Login / role / department / week-off stay in Users; leave is
+// applied and approved in Attendance → Leave (shown here read-only). Salary
+// tab only for ME.pl_viewer (Vishal / Ajay).
+let empData = null;
+let empCur = null;       // full record of the open employee
+let empTab = 'details';
+const EMP_INPUT = "width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:13px;box-sizing:border-box;background:var(--surface);color:var(--gray-900);font-family:'Inter',sans-serif";
+const EMP_LABEL = 'font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px';
+
+async function loadEmployeesPage() {
+  const list = document.getElementById('empList');
+  if (!empData) list.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api('/api/employees');
+  if (r.error) { list.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  empData = r;
+  const sel = document.getElementById('empDept');
+  const prev = sel.value;
+  const depts = [...new Set(r.employees.map(e => e.department).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All Departments</option>' + depts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+  if (depts.includes(prev)) sel.value = prev;
+  renderEmployees();
+}
+
+function empAvatar(e, size) {
+  const initials = String(e.name || '?').replace(/\([^)]*\)/g, '').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  return e.photo
+    ? `<img src="${esc(e.photo)}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex-shrink:0"/>`
+    : `<span style="width:${size}px;height:${size}px;border-radius:50%;background:var(--color-primary-light);color:var(--color-primary);display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:${Math.round(size * .38)}px;flex-shrink:0">${esc(initials)}</span>`;
+}
+// Years / months since joining, e.g. "2 yr 3 mo".
+function empTenure(joining, today) {
+  if (!joining) return '';
+  const [y1, m1, d1] = joining.split('-').map(Number), [y2, m2, d2] = today.split('-').map(Number);
+  let m = (y2 - y1) * 12 + (m2 - m1) - (d2 < d1 ? 1 : 0);
+  if (m < 0) return '';
+  return m < 12 ? `${m} mo` : `${Math.floor(m / 12)} yr${m % 12 ? ` ${m % 12} mo` : ''}`;
+}
+
+function renderEmployees() {
+  const d = empData; if (!d) return;
+  const q = document.getElementById('empSearch').value.trim().toLowerCase();
+  const dept = document.getElementById('empDept').value;
+  const showInactive = document.getElementById('empInactive').checked;
+  const all = d.employees.filter(e => e.active);
+  const rows = d.employees.filter(e => (showInactive || e.active) && (!dept || e.department === dept) &&
+    (!q || [e.name, e.phone, e.designation, e.department, e.email].some(v => String(v || '').toLowerCase().includes(q))));
+  const month = d.today.slice(5, 7);
+  const bdays = all.filter(e => e.dob && e.dob.slice(5, 7) === month);
+  const card = (label, value, sub, color) => `<div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:12px 16px;flex:1;min-width:140px">
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+    <div style="font-size:22px;font-weight:800;color:${color || 'var(--gray-900)'}">${value}</div><div style="font-size:11.5px;color:var(--gray-500)">${sub || ''}</div></div>`;
+  document.getElementById('empCards').innerHTML =
+    card('Employees', all.length, `${all.filter(e => e.today && e.today.in).length} aaj present`) +
+    card('Documents incomplete', all.filter(e => e.missingDocs.length).length, 'Aadhaar / PAN / Photo / Bank', all.some(e => e.missingDocs.length) ? 'var(--color-warning-text)' : 'var(--color-success-text)') +
+    card('Leave pending', all.reduce((s, e) => s + e.leavePending, 0), 'approve: Attendance → Leave') +
+    card('🎂 Birthdays this month', bdays.length, bdays.map(e => `${esc(e.name.split(' ')[0])} ${e.dob.slice(8, 10)}`).join(', ') || '—');
+  const list = document.getElementById('empList');
+  if (!rows.length) { list.innerHTML = '<div class="empty">Koi employee nahi mila.</div>'; return; }
+  list.innerHTML = `<table style="width:100%">
+    <thead><tr><th>Employee</th><th>Department</th><th>Phone</th><th>Joining</th><th>Aaj</th><th>Leave (${d.today.slice(0, 4)})</th><th>Documents</th>${d.viewer ? '<th>Salary</th>' : ''}</tr></thead>
+    <tbody>${rows.map(e => `<tr onclick="openEmployee(${e.id})" style="cursor:pointer;${e.active ? '' : 'opacity:.55'}">
+      <td><div style="display:flex;align-items:center;gap:10px">${empAvatar(e, 34)}<div><div style="font-weight:700;color:var(--gray-900)">${esc(e.name)}${e.active ? '' : ' <span style="font-size:10.5px;color:var(--color-danger)">inactive</span>'}</div><div style="font-size:11.5px;color:var(--gray-500)">${esc(e.designation || e.role || '—')}</div></div></div></td>
+      <td>${esc(e.department || '—')}</td>
+      <td>${e.phone ? `<a href="tel:${esc(e.phone)}" onclick="event.stopPropagation()" style="color:var(--color-primary)">${esc(e.phone)}</a>` : '—'}</td>
+      <td>${e.joiningDate ? `${esc(fmtDateDMY(e.joiningDate))}<div style="font-size:11px;color:var(--gray-400)">${esc(empTenure(e.joiningDate, d.today))}</div>` : '<span style="color:var(--gray-400)">—</span>'}</td>
+      <td>${e.today && e.today.in ? `<span style="color:var(--color-success-text);font-weight:700">● ${esc(e.today.in)}</span>${e.today.out ? ` – ${esc(e.today.out)}` : ''}` : '<span style="color:var(--gray-400)">—</span>'}</td>
+      <td>${e.leaveDays ? `${e.leaveDays} din` : '0'}${e.leavePending ? ` <span style="font-size:11px;color:var(--color-warning-text);font-weight:700">· ${e.leavePending} pending</span>` : ''}</td>
+      <td>${e.missingDocs.length ? `<span style="color:var(--color-warning-text);font-weight:700" title="Missing: ${esc(e.missingDocs.join(', '))}">⚠ ${e.missingDocs.length} missing</span>` : '<span style="color:var(--color-success-text);font-weight:700">✓ complete</span>'}<div style="font-size:11px;color:var(--gray-400)">${e.docs} type${e.docs === 1 ? '' : 's'} uploaded</div></td>
+      ${d.viewer ? `<td>${e.salary != null ? inr(e.salary) : '<span style="color:var(--gray-400)">—</span>'}</td>` : ''}
+    </tr>`).join('')}</tbody></table>`;
+}
+
+async function openEmployee(id, tab) {
+  let m = document.getElementById('empModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'empModal';
+    m.innerHTML = `<div class="modal" style="max-width:880px;width:96vw;max-height:92vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;flex-shrink:0">
+        <div id="empHead" style="flex:1;min-width:0"></div>
+        <button class="modal-close-x modal-close" onclick="closeModal('empModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div id="empTabs" style="margin-bottom:12px;overflow-x:auto;flex-shrink:0"></div>
+      <div id="empBody" style="overflow-y:auto;flex:1"><div class="empty">Loading…</div></div>
+    </div>`;
+    document.body.appendChild(m);
+  }
+  m.classList.add('open');
+  if (tab) empTab = tab;
+  if (!empCur || empCur.user.id !== id) { empCur = null; document.getElementById('empBody').innerHTML = '<div class="empty">Loading…</div>'; }
+  const r = await api(`/api/employees/${id}${empCur && empCur.user.id === id ? `?month=${empCur.month}` : ''}`);
+  if (r.error) { document.getElementById('empBody').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  empCur = r;
+  if (empTab === 'salary' && !r.viewer) empTab = 'details';
+  renderEmployeeModal();
+}
+
+function renderEmployeeModal() {
+  const r = empCur, u = r.user, p = r.profile;
+  document.getElementById('empHead').innerHTML = `<div style="display:flex;align-items:center;gap:12px">${empAvatar(u, 52)}
+    <div style="min-width:0"><div style="font-size:18px;font-weight:800;color:var(--gray-900)">${esc(u.name)}${u.active ? '' : ' <span style="font-size:11px;color:var(--color-danger)">inactive</span>'}</div>
+    <div style="font-size:12.5px;color:var(--gray-500)">${esc([p.designation, u.department].filter(Boolean).join(' · ') || u.role || '—')}${p.joining_date ? ` · joined ${esc(fmtDateDMY(p.joining_date))} (${esc(empTenure(p.joining_date, r.today))})` : ''}</div>
+    <div style="font-size:12.5px;color:var(--gray-600)">${u.phone ? `📞 <a href="tel:${esc(u.phone)}" style="color:var(--color-primary)">${esc(u.phone)}</a> · ` : ''}✉ ${esc(u.email)}</div></div></div>`;
+  const tabs = [['details', '📋 Details'], ...(r.viewer ? [['salary', '💰 Salary']] : []), ['leave', '🏖 Leave'], ['attendance', '🕘 Attendance'], ['docs', `📁 Documents${r.documents.length ? ` (${r.documents.length})` : ''}`]];
+  document.getElementById('empTabs').innerHTML = `<div class="tab-group">${tabs.map(([k, l]) => `<div class="tab ${empTab === k ? 'active' : ''}" onclick="empSwitchTab('${k}')">${l}</div>`).join('')}</div>`;
+  const body = document.getElementById('empBody');
+  if (empTab === 'details') body.innerHTML = empDetailsHtml(r);
+  else if (empTab === 'salary') body.innerHTML = empSalaryHtml(r);
+  else if (empTab === 'leave') body.innerHTML = empLeaveHtml(r);
+  else if (empTab === 'attendance') body.innerHTML = empAttendanceHtml(r);
+  else body.innerHTML = empDocsHtml(r);
+  if (empTab === 'details') { setDmyDate('empF_joining_date', p.joining_date); setDmyDate('empF_dob', p.dob); }
+}
+function empSwitchTab(k) { empTab = k; renderEmployeeModal(); }
+
+function empSection(title, inner) {
+  return `<div style="border:1px solid var(--gray-200);border-radius:12px;padding:14px;margin-bottom:12px">
+    <div style="font-size:12.5px;font-weight:800;color:var(--gray-800);margin-bottom:10px">${title}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 12px">${inner}</div></div>`;
+}
+function empField(key, label, p, opts = {}) {
+  const v = p[key] || '';
+  let input;
+  if (opts.date) input = dmyDateFieldHtml(`empF_${key}`, '', EMP_INPUT);
+  else if (opts.options) input = `<select id="empF_${key}" style="${EMP_INPUT}"><option value="">—</option>${opts.options.map(o => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  else if (opts.area) input = `<textarea id="empF_${key}" rows="2" style="${EMP_INPUT};resize:vertical">${esc(v)}</textarea>`;
+  else input = `<input id="empF_${key}" type="${opts.type || 'text'}" value="${esc(v)}" placeholder="${esc(opts.ph || '')}" style="${EMP_INPUT}"/>`;
+  return `<div style="${opts.wide ? 'grid-column:1/-1' : ''}"><div style="${EMP_LABEL}">${label}</div>${input}</div>`;
+}
+function empRO(label, value) {
+  return `<div><div style="${EMP_LABEL}">${label}</div><div style="font-size:13px;color:var(--gray-800);padding:9px 0">${value || '<span style="color:var(--gray-400)">—</span>'}</div></div>`;
+}
+const EMP_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function empDetailsHtml(r) {
+  const p = r.profile, u = r.user;
+  const weekOff = String(u.weekOff || '').split(',').map(x => EMP_WEEKDAYS[parseInt(x, 10)]).filter(Boolean).join(', ');
+  return empSection('💼 Job', `
+      ${empField('designation', 'Designation', p, { ph: 'e.g. Sales Executive' })}
+      ${empField('joining_date', 'Date of joining', p, { date: true })}
+      ${empRO('Department', esc(u.department))}
+      ${empRO('Role (login)', esc(u.role))}
+      ${empRO('Week off', esc(weekOff))}
+      ${empRO('KM tracking', u.trackKm ? 'Yes' : 'No')}
+      <div style="grid-column:1/-1;font-size:11.5px;color:var(--gray-400)">Department, role, week-off, phone aur login: <b>Users</b> page par.</div>`)
+    + empSection('👤 Personal', `
+      ${empField('dob', 'Date of birth', p, { date: true })}
+      ${empField('gender', 'Gender', p, { options: ['Male', 'Female', 'Other'] })}
+      ${empField('blood_group', 'Blood group', p, { options: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] })}
+      ${empField('father_name', "Father's / Husband's name", p)}
+      ${empField('alt_phone', 'Alternate phone', p, { type: 'tel' })}
+      ${empField('personal_email', 'Personal email', p, { type: 'email' })}
+      ${empField('current_address', 'Current address', p, { area: true, wide: true })}
+      <div style="grid-column:1/-1">
+        <div style="${EMP_LABEL};display:flex;justify-content:space-between;align-items:center">Permanent address
+          <label style="text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" onchange="if(this.checked)document.getElementById('empF_permanent_address').value=document.getElementById('empF_current_address').value"/> same as current</label></div>
+        <textarea id="empF_permanent_address" rows="2" style="${EMP_INPUT};resize:vertical">${esc(p.permanent_address || '')}</textarea>
+      </div>`)
+    + empSection('🚨 Emergency contact', `
+      ${empField('emergency_name', 'Name', p)}
+      ${empField('emergency_relation', 'Relation', p, { ph: 'e.g. Father, Wife' })}
+      ${empField('emergency_phone', 'Phone', p, { type: 'tel' })}`)
+    + empSection('🏦 ID & Bank', `
+      ${empField('aadhaar_no', 'Aadhaar no.', p, { ph: '12 digits' })}
+      ${empField('pan_no', 'PAN no.', p, { ph: 'ABCDE1234F' })}
+      ${empField('bank_name', 'Bank name', p)}
+      ${empField('bank_account', 'Account no.', p)}
+      ${empField('bank_ifsc', 'IFSC', p)}
+      ${empField('uan_no', 'UAN (PF)', p)}
+      ${empField('esic_no', 'ESIC no.', p)}`)
+    + empSection('📝 Notes', empField('notes', 'Notes', p, { area: true, wide: true }))
+    + `<button id="empSaveBtn" class="btn btn-primary" onclick="saveEmployeeProfile()" style="width:100%;justify-content:center;padding:12px;font-size:14px;position:sticky;bottom:0">Save details</button>`;
+}
+
+async function saveEmployeeProfile() {
+  const body = {};
+  Object.keys(empCur.profile).forEach(k => { const el = document.getElementById(`empF_${k}`); if (el) body[k] = el.value.trim(); });
+  if (body.aadhaar_no && !/^\d{12}$/.test(body.aadhaar_no.replace(/\s/g, ''))) { showToast('Aadhaar 12 digit ka hona chahiye', 'error'); return; }
+  if (body.pan_no && !/^[A-Za-z]{5}\d{4}[A-Za-z]$/.test(body.pan_no)) { showToast('PAN format: ABCDE1234F', 'error'); return; }
+  if (body.aadhaar_no) body.aadhaar_no = body.aadhaar_no.replace(/\s/g, '');
+  const btn = document.getElementById('empSaveBtn');
+  btn.disabled = true; btn.textContent = '⏳ Saving...';
+  const r = await api(`/api/employees/${empCur.user.id}/profile`, 'PUT', body);
+  btn.disabled = false; btn.textContent = 'Save details';
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Details saved');
+  Object.assign(empCur.profile, body);
+  renderEmployeeModal();
+  loadEmployeesPage();
+}
+
+function empSalaryHtml(r) {
+  const s = r.salary || {};
+  const a = r.attendance.summary;
+  return `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="flex:1;min-width:160px;border:1.5px solid var(--gray-200);border-radius:14px;padding:12px 16px"><div style="${EMP_LABEL}">Monthly salary</div><div style="font-size:22px;font-weight:800">${s.monthlySalary != null ? inr(s.monthlySalary) : '—'}</div></div>
+      <div style="flex:1;min-width:160px;border:1.5px solid var(--gray-200);border-radius:14px;padding:12px 16px"><div style="${EMP_LABEL}">Earned — ${esc(fmtMonthLabel(r.month))}</div><div style="font-size:22px;font-weight:800;color:var(--color-success-text)">${s.earnedThisMonth != null ? inr(s.earnedThisMonth) : '—'}</div>
+        <div style="font-size:11.5px;color:var(--gray-500)">${a.days - a.absent} paid / ${a.days} din (${a.absent} absent)</div></div>
+    </div>`
+    + empSection('💰 Salary settings — sirf Vishal / Ajay ko dikhta hai', `
+      <div><div style="${EMP_LABEL}">Mahine ki salary (₹)</div><input id="empSal" type="number" min="0" value="${s.monthlySalary ?? ''}" placeholder="e.g. 18000" style="${EMP_INPUT}"/></div>
+      <div><div style="${EMP_LABEL}">Petrol rate (₹ / km)</div><input id="empKmRate" type="number" min="0" step="0.1" value="${s.kmRate ?? ''}" placeholder="field staff" style="${EMP_INPUT}"/></div>
+      <div><div style="${EMP_LABEL}">O2D "Order By" naam</div><input id="empO2d" value="${esc(s.o2dNames || '')}" placeholder="sirf salesman — e.g. Krishna" style="${EMP_INPUT}"/></div>
+      <div style="grid-column:1/-1;font-size:11.5px;color:var(--gray-500)">O2D naam bharne par ye employee <b>Gross Profit → 👤 Salesman-wise</b> me aata hai (sales, GP, salary, petrol, tour, net profit). Earned = salary ÷ mahine ke din × paid din (present, week-off, holiday, approved leave).</div>`)
+    + `<button id="empSalBtn" class="btn btn-primary" onclick="saveEmployeeSalary()" style="width:100%;justify-content:center;padding:12px;font-size:14px;margin-bottom:14px">Save salary</button>`
+    + `<div style="${EMP_LABEL}">Salary history</div>`
+    + (s.history && s.history.length ? `<table style="width:100%;font-size:12.5px"><thead><tr><th>Date</th><th>Old</th><th>New</th><th>By</th></tr></thead><tbody>${s.history.map(h => `<tr><td>${esc(fmtDateDMY(String(h.at).replace('T', ' '), true))}</td><td>${h.old != null ? inr(h.old) : '—'}</td><td style="font-weight:700">${h.new != null ? inr(h.new) : 'removed'}</td><td>${esc(h.by)}</td></tr>`).join('')}</tbody></table>` : '<div style="font-size:12.5px;color:var(--gray-400)">Abhi koi change nahi.</div>');
+}
+function fmtMonthLabel(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+}
+async function saveEmployeeSalary() {
+  const sal = document.getElementById('empSal').value.trim(), rate = document.getElementById('empKmRate').value.trim(), names = document.getElementById('empO2d').value.trim();
+  const btn = document.getElementById('empSalBtn');
+  btn.disabled = true; btn.textContent = '⏳ Saving...';
+  const r = await api(`/api/salesman-pl/profiles/${empCur.user.id}`, 'PUT', sal || rate || names ? { monthlySalary: sal, kmRate: rate, o2dNames: names } : { enabled: false });
+  btn.disabled = false; btn.textContent = 'Save salary';
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Salary saved');
+  openEmployee(empCur.user.id, 'salary');
+  loadEmployeesPage();
+}
+
+function empStatusBadge(st) {
+  const c = st === 'approved' ? ['var(--color-success-bg)', 'var(--color-success-text)'] : st === 'pending' ? ['var(--color-warning-bg)', 'var(--color-warning-text)'] : ['var(--gray-100)', 'var(--gray-500)'];
+  return `<span class="status-badge" style="background:${c[0]};color:${c[1]}">${esc(st)}</span>`;
+}
+function empLeaveHtml(r) {
+  const L = r.leave;
+  const chips = Object.entries(L.approvedByType).map(([t, n]) => `<span style="display:inline-block;padding:6px 12px;border-radius:999px;background:var(--gray-50);border:1px solid var(--gray-200);font-size:12.5px;margin:0 6px 6px 0"><b>${n}</b> ${esc(t)}</span>`).join('');
+  return `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="font-size:22px;font-weight:800">${L.approvedDays} din</div><div style="font-size:12.5px;color:var(--gray-500)">approved leave in ${esc(L.year)}</div></div>
+    <div style="margin-bottom:10px">${chips || ''}</div>
+    <div style="font-size:11.5px;color:var(--gray-400);margin-bottom:10px">Leave apply / approve: <b>Attendance → Leave</b>.</div>
+    ${L.list.length ? `<table style="width:100%;font-size:12.5px"><thead><tr><th>Type</th><th>From – To</th><th>Days</th><th>Status</th><th>Reason</th><th>By</th></tr></thead><tbody>
+      ${L.list.map(l => `<tr><td>${esc(l.type)}</td><td style="white-space:nowrap">${esc(fmtDateDMY(l.start))}${l.end !== l.start ? ` – ${esc(fmtDateDMY(l.end))}` : ''}</td><td>${l.days}</td><td>${empStatusBadge(l.status)}</td><td style="white-space:normal;max-width:240px">${esc(l.reason)}${l.remarks ? `<div style="font-size:11px;color:var(--gray-400)">${esc(l.remarks)}</div>` : ''}</td><td>${esc(l.approvedBy || '—')}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="empty">Koi leave nahi.</div>'}`;
+}
+
+function empAttendanceHtml(r) {
+  const A = r.attendance, s = A.summary;
+  const chip = (label, n, color) => `<div style="flex:1;min-width:110px;border:1.5px solid var(--gray-200);border-radius:12px;padding:10px 14px"><div style="${EMP_LABEL}">${label}</div><div style="font-size:20px;font-weight:800;color:${color}">${n}</div></div>`;
+  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <input type="month" id="empMonth" value="${esc(r.month)}" max="${esc(r.today.slice(0, 7))}" onchange="empChangeMonth(this.value)" style="${EMP_INPUT};width:auto"/>
+      <span style="font-size:12px;color:var(--gray-500)">${s.days} din ab tak</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      ${chip('Present', s.present, 'var(--color-success-text)')}${chip('Week-off / Holiday', s.off, 'var(--gray-700)')}${chip('Leave', s.leave, 'var(--color-primary)')}${chip('Absent', s.absent, s.absent ? 'var(--color-danger)' : 'var(--gray-700)')}
+    </div>
+    ${A.rows.length ? `<table style="width:100%;font-size:12.5px"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Location (in)</th></tr></thead><tbody>
+      ${A.rows.map(a => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(a.d))} <span style="color:var(--gray-400)">${esc(EMP_WEEKDAYS[new Date(a.d + 'T00:00:00').getDay()].slice(0, 3))}</span></td><td>${esc(a.time_in || '—')}</td><td>${esc(a.time_out || '—')}</td><td style="white-space:normal;font-size:11.5px;color:var(--gray-500)">${esc(a.address_in || '')}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="empty">Is mahine koi punch nahi.</div>'}`;
+}
+async function empChangeMonth(ym) {
+  if (!/^\d{4}-\d{2}$/.test(ym)) return;
+  const r = await api(`/api/employees/${empCur.user.id}?month=${ym}`);
+  if (r.error) { showToast(r.error, 'error'); return; }
+  empCur = r;
+  renderEmployeeModal();
+}
+
+function empDocsHtml(r) {
+  const have = new Set(r.documents.map(d => d.type));
+  return `<div style="margin-bottom:12px">${r.requiredDocs.map(t => `<span style="display:inline-block;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:700;margin:0 6px 6px 0;${have.has(t) ? 'background:var(--color-success-bg);color:var(--color-success-text)' : 'background:var(--color-warning-bg);color:var(--color-warning-text)'}">${have.has(t) ? '✓' : '✗'} ${esc(t)}</span>`).join('')}</div>
+    <div style="border:1.5px dashed var(--gray-300);border-radius:12px;padding:12px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:180px"><div style="${EMP_LABEL}">Document</div><select id="empDocType" style="${EMP_INPUT}"><option value="">-- Select --</option>${r.docTypes.map(t => `<option>${esc(t)}</option>`).join('')}</select></div>
+      <div style="flex:1;min-width:180px"><div style="${EMP_LABEL}">File (photo / PDF, max 3 MB)</div><input id="empDocFile" type="file" accept="image/*,application/pdf" style="${EMP_INPUT};padding:6px"/></div>
+      <button id="empDocBtn" class="btn btn-primary" onclick="uploadEmployeeDoc()">⬆ Upload</button>
+    </div>
+    ${r.documents.length ? `<table style="width:100%;font-size:12.5px"><thead><tr><th>Document</th><th>File</th><th>Uploaded</th><th></th></tr></thead><tbody>
+      ${r.documents.map(d => `<tr><td style="font-weight:700">${esc(d.type)}</td><td style="white-space:normal;max-width:220px">${esc(d.fileName)}</td><td style="white-space:nowrap">${esc(fmtDateDMY(String(d.uploadedAt).replace('T', ' ')))}<div style="font-size:11px;color:var(--gray-400)">${esc(d.uploadedBy)}</div></td>
+        <td style="white-space:nowrap"><a class="btn btn-outline btn-sm" href="/api/employees/documents/${d.id}/file" target="_blank" rel="noopener">👁 View</a>
+          <a class="btn btn-outline btn-sm" href="/api/employees/documents/${d.id}/file?download=1">⬇</a>
+          <button class="btn btn-outline btn-sm" onclick="deleteEmployeeDoc(${d.id})" title="Remove">🗑</button></td></tr>`).join('')}
+    </tbody></table>` : '<div class="empty">Abhi koi document upload nahi hua.</div>'}`;
+}
+async function uploadEmployeeDoc() {
+  const type = document.getElementById('empDocType').value;
+  const file = document.getElementById('empDocFile').files[0];
+  if (!type) { showToast('Document type chuno', 'error'); return; }
+  if (!file) { showToast('File chuno', 'error'); return; }
+  const btn = document.getElementById('empDocBtn');
+  btn.disabled = true; btn.textContent = '⏳ Uploading...';
+  try {
+    // Photos are shrunk first (a phone photo is often 4–8 MB); PDFs go as-is.
+    const isImg = /^image\//.test(file.type);
+    const data = isImg ? await compressImageToDataURL(file, 1800, 0.8) : await readFileAsDataUrl(file);
+    if (!isImg && file.size > 3 * 1024 * 1024) throw new Error('PDF 3 MB se bada hai');
+    const name = isImg ? file.name.replace(/\.[^.]+$/, '') + '.jpg' : file.name;
+    const r = await api(`/api/employees/${empCur.user.id}/documents`, 'POST', { docType: type, data, filename: name });
+    if (r.error) throw new Error(r.error);
+    showToast(`✅ ${type} uploaded`);
+    openEmployee(empCur.user.id, 'docs');
+    loadEmployeesPage();
+  } catch (e) {
+    showToast(e.message || 'Upload failed', 'error');
+    btn.disabled = false; btn.textContent = '⬆ Upload';
+  }
+}
+function deleteEmployeeDoc(id) {
+  showConfirm({ icon: '🗑️', title: 'Document hatana hai?', msg: 'Ye document is employee ke record se hat jayega.', okLabel: 'Remove' }, async () => {
+    const r = await api(`/api/employees/documents/${id}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('Document removed');
+    openEmployee(empCur.user.id, 'docs');
+    loadEmployeesPage();
+  });
+}
+
 function loadAttendancePage() {
   const isAdmin = ME.role === 'admin';
   ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnKmEmpWrap', 'attnAlertWrap'].forEach(id => {
@@ -12877,7 +13178,7 @@ function renderStepDoerMatrix(containerId, stepDefs, users, assignments, prefix)
   const assigned = Object.fromEntries(stepDefs.map(sd => [sd.n, new Set((assignments[sd.n] || []).map(u => Number(u.id)))]));
   const head = `<thead><tr><th class="sdm-user">User</th>${stepDefs.map(sd => `
     <th title="${esc(sd.label)}">
-      <div>${sd.n}. ${esc(sd.tab || sd.label)}</div>
+      <div>${sd.disp ? esc(sd.disp) : sd.n + '.'} ${esc(sd.tab || sd.label)}</div>
       ${sd.doer ? `<div class="sdm-doer">${esc(sd.doer)}</div>` : ''}
       <div class="sdm-count" data-count-step="${sd.n}"></div>
     </th>`).join('')}</tr></thead>`;
@@ -13834,9 +14135,9 @@ function renderO2dDetailBody(o, hideProgress) {
 // column layout had changed since this module was first built (see the
 // matching comment above PURCHASE_STEPS in server.js for the full story —
 // it used to be a 6-step Indent→PO sheet, now it's a 2-step post-PO
-// tracker keyed by PO Number). New-Indent creation and the per-line
-// Generate-PO flow were removed to match — a PO already exists as input
-// data by the time a row appears here.
+// tracker keyed by PO Number). The steps before a PO exists (Check Stock →
+// Finalise Rate → Approval → Generate PO) live in the "📝 Indents" tab —
+// see INDENT_STEPS in server.js.
 // ══════════════════════════════════════════════════════
 const PURCHASE_STEP_DEFS = [
   { n: 1, label: 'Follow', doer: 'Priyanka (SCCRR)', tat: 'Every alternate day', extraFields: [
@@ -13861,10 +14162,13 @@ async function loadPurchaseFmsList() {
   const wrap = document.getElementById('pfmsListWrap');
   wrap.innerHTML = '<div class="empty">Loading…</div>';
   if (!_pfmsStepDoersMerged) await mergePurchaseStepDoersIntoDefs();
-  const [data, vu] = await Promise.all([api('/api/purchase-fms'), api('/api/purchase-fms/vendor-updates')]);
+  const [data, vu, ind] = await Promise.all([api('/api/purchase-fms'), api('/api/purchase-fms/vendor-updates'), api('/api/purchase-fms/indents')]);
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   pfmsData = data;
   pfmsVendorUpdates = Array.isArray(vu) ? vu : [];
+  if (ind && Array.isArray(ind.indents)) { pfmsIndents = ind.indents; pfmsPoLinks = ind.poLinks || {}; window._lastIndentData = ind; }
+  const openIndents = pfmsIndents.filter(o => !o.closed).length;
+  document.getElementById('pfmsViewIndents').textContent = `📝 Indents${openIndents ? ` (${openIndents})` : ''}`;
   // Phones open on PC View, same as O2D (see loadO2dFmsList).
   if (!_pfmsPhoneDefaulted && window.matchMedia('(max-width:768px)').matches && pfmsView === 'fms') {
     _pfmsPhoneDefaulted = true;
@@ -13876,6 +14180,201 @@ async function loadPurchaseFmsList() {
 let _pfmsPhoneDefaulted = false;
 
 function pfmsSearchChanged() { pfmsPage = 1; renderPurchaseFmsActiveView(); }
+
+// ── 📝 Indents: an indent's steps before it becomes a PO (client voice note,
+// 2026-10-08 — "indent bharte hi direct PO nahi banna chahiye"). Check Stock →
+// Finalise Rate (Accounts) → Approval (only ≥ 2 lakh, the sheet decides) →
+// Generate PO & send (Purchase). Each step is per product line; the server
+// writes the same Google Form response rows the sheet already reads. Once the
+// PO is generated the line leaves this tab and shows under FMS View → Follow.
+const INDENT_STEP_DEFS = [
+  { n: 11, key: 'stock', disp: 'Indent 1.', label: 'Check Stock', doer: 'Rajesh (Warehouse Mnager)', tat: '1 hour' },
+  { n: 12, key: 'rate', disp: 'Indent 2.', label: 'Finalise Rate', doer: 'Accountant (Narender)', tat: '1 hour' },
+  { n: 13, key: 'approval', disp: 'Indent 3.', label: 'Approval', doer: 'Ajay', tat: '1 hour' },
+  { n: 14, key: 'po', disp: 'Indent 4.', label: 'Generate PO & Send', doer: 'Priyanka (SCCRR)', tat: '1 hour' }
+];
+// The sheet's own Apps Script PO generator (Indent FMS → Step 5 "Click Here for
+// PO Generate"); it makes the PDF + PO Number. Opened as a popup, same as the
+// old indent form was, since Google script pages refuse framing.
+const PFMS_PO_GENERATOR_URL = 'https://script.google.com/a/macros/ajantaappliances.com/s/AKfycbxpcAYsLFoz1EUxU3NposqHfhg6eS-U9UgSAcR1te_AO3PHFLcWj7i2zWaUfOIIY89U/exec';
+let pfmsIndents = [];
+let pfmsPoLinks = {};
+let pfmsIndentSub = 'pending';
+
+function pfmsFilteredIndents() {
+  const q = (document.getElementById('pfmsSearch').value || '').trim().toLowerCase();
+  if (!q) return pfmsIndents;
+  return pfmsIndents.filter(o => o.indentNo.toLowerCase().includes(q) ||
+    (o.raisedBy || '').toLowerCase().includes(q) ||
+    o.lines.some(l => (l.productName || '').toLowerCase().includes(q) || (l.vendorName || '').toLowerCase().includes(q) || (l.poNumber || '').toLowerCase().includes(q)));
+}
+function switchPfmsIndentSub(sub) { pfmsIndentSub = sub; pfmsPage = 1; renderPurchaseIndentsView(); }
+
+function renderPurchaseIndentsView() {
+  const wrap = document.getElementById('pfmsListWrap');
+  const btn = (k, label) => `<button onclick="switchPfmsIndentSub('${k}')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${pfmsIndentSub===k?'var(--color-primary)':'var(--gray-200)'};background:${pfmsIndentSub===k?'var(--color-primary-light)':'var(--surface)'};color:${pfmsIndentSub===k?'var(--color-primary)':'var(--gray-600)'}">${label}</button>`;
+  const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200);flex-wrap:wrap">
+    ${btn('pending', 'Pending (PO not made)')}${btn('done', 'PO Made')}</div>`;
+  const rows = pfmsFilteredIndents().filter(o => pfmsIndentSub === 'pending' ? !o.closed : o.closed);
+  if (!rows.length) { wrap.innerHTML = subTabsHtml + `<div class="empty">${pfmsIndentSub === 'pending' ? 'Koi indent pending nahi 🎉' : 'Nothing here yet.'}</div>`; return; }
+  const { pageRows, totalPages, total } = pfmsPaginate(rows);
+  wrap.innerHTML = subTabsHtml + `<table>
+    <thead><tr><th>Indent No</th><th>Date</th><th>Raised By</th><th>Items</th><th>${pfmsIndentSub === 'pending' ? 'Pending Step' : 'PO'}</th><th>Planned</th><th>Doer Name</th></tr></thead>
+    <tbody>${pageRows.map(o => {
+      const steps = o.pendingSteps.map(i => o.steps[i]);
+      const overdue = steps.some(s => pfmsIsOverdue(s.planned));
+      return `<tr onclick="openIndentDetail('${esc(o.indentNo)}')" style="cursor:pointer;${!o.closed && overdue ? 'background:var(--color-danger-bg)' : ''}">
+        <td style="font-weight:600">${esc(o.indentNo)}<div style="font-size:10.5px;color:var(--gray-400);font-weight:500">${esc(String(o.type || '').replace(/ for indent$/i, ''))}</div></td>
+        <td style="white-space:nowrap">${esc(fmtDateDMY(o.timestamp) || '—')}</td>
+        <td>${esc(o.raisedBy || '—')}</td>
+        <td style="max-width:260px;white-space:normal;padding-top:8px;padding-bottom:8px">${o.lines.map(l => `<div style="font-size:11.5px;line-height:1.5">${esc(l.productName)} × ${esc(l.qty)} ${esc(l.uom || '')} <span style="color:var(--gray-400)">· ${esc(l.vendorName || '')}</span>${l.rejected ? ' <span style="color:var(--color-danger);font-weight:700">✗ rejected</span>' : ''}</div>`).join('')}</td>
+        <td style="font-weight:600">${o.closed ? esc([...new Set(o.lines.map(l => l.poNumber).filter(Boolean))].join(', ') || '—') : steps.map(s => `<div>${esc(s.label)}</div>`).join('')}</td>
+        <td style="${overdue && !o.closed ? 'color:var(--color-danger);font-weight:700' : ''}">${o.closed ? '—' : steps.map(s => `<div>${esc(fmtDateDMY(s.planned, true) || '—')}</div>`).join('')}</td>
+        <td>${o.closed ? '—' : steps.map(s => `<div>${esc(stepDoerLabel(INDENT_STEP_DEFS.find(d => d.n === s.n)))}</div>`).join('')}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>
+  ${pfmsPaginationHtml(totalPages, total, 'indents')}`;
+}
+
+function openIndentDetail(indentNo) {
+  const o = pfmsIndents.find(x => x.indentNo === indentNo);
+  if (!o) { showToast('Indent not found — please refresh', 'error'); return; }
+  document.getElementById('pfmsTitle').textContent = `📝 ${o.indentNo}`;
+  document.getElementById('purchaseDetailModal').classList.add('open');
+  renderIndentDetailBody(o);
+}
+
+function renderIndentDetailBody(o) {
+  const inp = PFMS_INPUT_STYLE.replace('margin-bottom:10px', 'margin-bottom:0');
+  const lab = t => `<div style="${PFMS_FIELD_LABEL_STYLE}">${t}</div>`;
+  const rateTxt = l => l.finalRate ? `₹${esc(l.finalRate)}${l.oldRate ? ` <span style="color:var(--gray-400)">(old ₹${esc(l.oldRate)})</span>` : ''}${l.rateType ? ` · ${esc(l.rateType)}` : ''}` : '';
+  const infoHtml = `
+    <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:16px;margin-bottom:16px">
+      <div style="font-size:13px;color:var(--gray-600);margin-bottom:8px">${esc(String(o.type || '').replace(/ for indent$/i, ''))} · Raised by <b>${esc(o.raisedBy || '—')}</b> · ${esc(fmtDateDMY(o.timestamp, true) || '')}</div>
+      ${o.lines.map(l => `<div style="font-size:13px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
+        <div><b>${esc(l.productName)}</b> — ${esc(l.qty)} ${esc(l.uom || '')} <span style="color:var(--gray-500)">· ${esc(l.vendorName || '')}</span></div>
+        <div style="font-size:11.5px;color:var(--gray-500)">${[
+          l.stockAvailable ? `Stock: ${esc(l.stockAvailable)}${l.qtyAvailable !== '' ? ` (${esc(l.qtyAvailable)})` : ''}` : '',
+          rateTxt(l), l.indentValue ? `Value ${inr(l.indentValue)}` : '',
+          l.approvalNeeded ? `Approval: ${esc(l.approvalStatus || 'pending')}` : '',
+          l.poNumber ? `<b style="color:var(--color-success-text)">${esc(l.poNumber)}</b>` : (l.closed ? '' : `<span style="color:var(--color-primary)">→ ${esc(INDENT_STEP_DEFS[l.currentStep].label)}</span>`)
+        ].filter(Boolean).join(' · ')}</div></div>`).join('')}
+    </div>`;
+
+  const sections = o.closed ? [] : o.pendingSteps.map(idx => {
+    const sd = INDENT_STEP_DEFS[idx];
+    const lines = o.lines.filter(l => !l.closed && l.currentStep === idx);
+    const li = l => o.lines.indexOf(l);
+    let fields;
+    if (sd.key === 'stock') {
+      fields = lines.map(l => `<div style="padding:8px 0;border-bottom:1px solid var(--gray-100)">
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px">${esc(l.productName)} <span style="font-weight:500;color:var(--gray-500)">× ${esc(l.qty)} ${esc(l.uom || '')}</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>${lab('Stock available?')}<select id="indF_${li(l)}_stockAvailable" style="${inp};background:var(--surface)"><option value="">-- Select --</option><option>Yes</option><option>No</option></select></div>
+          <div>${lab('Qty available')}<input id="indF_${li(l)}_qtyAvailable" type="number" min="0" placeholder="0" style="${inp}"/></div>
+        </div></div>`).join('');
+    } else if (sd.key === 'rate') {
+      fields = lines.map(l => `<div style="padding:8px 0;border-bottom:1px solid var(--gray-100)">
+        <div style="font-size:13px;font-weight:700">${esc(l.productName)} <span style="font-weight:500;color:var(--gray-500)">× ${esc(l.qty)} ${esc(l.uom || '')} · ${esc(l.vendorName || '')}</span></div>
+        <div style="font-size:11.5px;color:var(--gray-500);margin:2px 0 6px">${l.lastRate ? `Last rate ₹${esc(l.lastRate.rate)} — ${esc(fmtDateDMY(l.lastRate.date))} (${esc(l.lastRate.indentNo)})` : 'No earlier rate for this product'}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">
+          <div>${lab('Rate type')}<select id="indF_${li(l)}_rateType" onchange="indentRateTypeChanged(${li(l)})" style="${inp};background:var(--surface)"><option value="">-- Select --</option><option>Fresh</option><option>Old Rate</option></select></div>
+          <div>${lab('Old rate')}<input id="indF_${li(l)}_oldRate" type="number" min="0" step="0.01" value="${l.lastRate ? esc(l.lastRate.rate) : ''}" style="${inp}"/></div>
+          <div>${lab('Final rate *')}<input id="indF_${li(l)}_finalRate" type="number" min="0" step="0.01" style="${inp}"/></div>
+          <div>${lab('Lead time (days)')}<input id="indF_${li(l)}_leadTime" type="number" min="1" value="10" style="${inp}"/></div>
+        </div></div>`).join('');
+    } else if (sd.key === 'approval') {
+      fields = lines.map(l => `<div style="padding:8px 0;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+        <div style="font-size:13px"><b>${esc(l.productName)}</b> × ${esc(l.qty)} — ${rateTxt(l)} · <b>${inr(l.indentValue)}</b></div>
+        <select id="indF_${li(l)}_status" style="${inp};width:auto;background:var(--surface)"><option value="">-- Decide --</option><option value="Yes">✓ Approve</option><option value="No">✗ Reject</option></select>
+      </div>`).join('');
+    } else {
+      const total = lines.reduce((s, l) => s + (l.indentValue || 0), 0);
+      fields = lines.map(l => `<div style="font-size:13px;padding:6px 0;border-bottom:1px solid var(--gray-100)"><b>${esc(l.productName)}</b> × ${esc(l.qty)} ${esc(l.uom || '')} · ${esc(l.vendorName || '')}<div style="font-size:12px;color:var(--gray-600)">${rateTxt(l)} · ${inr(l.indentValue)}</div></div>`).join('')
+        + `<div style="font-size:13px;font-weight:700;text-align:right;margin:8px 0">Total ${inr(total)}</div>
+        <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Rate check karke PO generate karo. PO bante hi yeh items <b>FMS View → Follow</b> me aa jayenge — wahan PO kholke <b>📤 Send PO to vendor</b>.</div>`;
+    }
+    const action = sd.key === 'po'
+      ? `<button onclick="openPoGenerator()" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">🧾 Generate PO</button>`
+      : `<button id="indDoneBtn_${idx}" onclick="submitIndentStep('${esc(o.indentNo)}', ${idx})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px;margin-top:12px">Mark Done</button>`;
+    return `<div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Next Action</div>
+      <div style="font-weight:700;font-size:16px;color:var(--gray-800)">${esc(sd.label)}</div>
+      <div style="font-size:12px;color:var(--gray-400);margin-bottom:8px">Doer: ${esc(stepDoerLabel(sd))} · Planned: ${esc(fmtDateDMY(o.steps[idx].planned, true) || '—')}</div>
+      ${fields}${action}
+    </div>`;
+  }).join('');
+
+  const progress = `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Progress</div>
+    <div style="display:flex;flex-direction:column;gap:6px">${[...o.steps.map((s, i) => ({ label: s.label, done: s.done, skipped: s.skipped, cur: !o.closed && o.pendingSteps.includes(i) })),
+      { label: 'Follow → Material Received (PO list)', done: false, skipped: false, cur: false }].map((s, i) => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;background:${s.done ? 'var(--color-success-bg)' : s.cur ? 'var(--color-purple-bg)' : 'var(--gray-50)'}">
+        <span style="width:20px;height:20px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;${s.done ? 'background:var(--color-success-text);color:#fff' : `border:2px solid ${s.cur ? 'var(--color-primary)' : 'var(--gray-200)'}`}">${s.done ? '✓' : ''}</span>
+        <span style="font-size:14px;font-weight:${s.done || s.cur ? 600 : 400};color:${s.done ? 'var(--color-success-text)' : s.cur ? 'var(--color-primary)' : 'var(--gray-400)'}">${i + 1}. ${esc(s.label)}${s.skipped ? ' <span style="font-size:11px;font-weight:500">(not needed — under ₹2 lakh)</span>' : ''}</span>
+      </div>`).join('')}</div>`;
+
+  document.getElementById('pfmsBody').innerHTML = infoHtml + sections + progress;
+}
+
+// "Old Rate" picked and no final rate typed yet → use the old rate.
+function indentRateTypeChanged(i) {
+  const t = document.getElementById(`indF_${i}_rateType`).value;
+  const fin = document.getElementById(`indF_${i}_finalRate`), old = document.getElementById(`indF_${i}_oldRate`);
+  if (t === 'Old Rate' && !fin.value && old.value) fin.value = old.value;
+}
+
+async function submitIndentStep(indentNo, idx) {
+  const o = pfmsIndents.find(x => x.indentNo === indentNo);
+  if (!o) return;
+  const sd = INDENT_STEP_DEFS[idx];
+  const keys = { stock: ['stockAvailable', 'qtyAvailable'], rate: ['rateType', 'oldRate', 'finalRate', 'leadTime'], approval: ['status'] }[sd.key];
+  const lines = o.lines.filter(l => !l.closed && l.currentStep === idx).map(l => {
+    const v = { itemId: l.itemId };
+    keys.forEach(k => { const el = document.getElementById(`indF_${o.lines.indexOf(l)}_${k}`); v[k] = el ? el.value.trim() : ''; });
+    return v;
+  });
+  const btn = document.getElementById(`indDoneBtn_${idx}`);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
+  const r = await api(`/api/purchase-fms/indent/${encodeURIComponent(indentNo)}/step/${sd.n}`, 'PUT', { lines });
+  if (r.error) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Mark Done'; }
+    showToast(r.error, 'error');
+    return;
+  }
+  showToast(`✅ ${sd.label} done — ${r.lines} item${r.lines === 1 ? '' : 's'}`);
+  closeModal('purchaseDetailModal');
+  loadPurchaseFmsList();
+}
+
+let _pfmsPoGenWin = null;
+function openPoGenerator() {
+  if (_pfmsPoGenWin && !_pfmsPoGenWin.closed) { _pfmsPoGenWin.focus(); return; }
+  if (window.matchMedia('(max-width:768px)').matches) { window.open(PFMS_PO_GENERATOR_URL, '_blank'); return; }
+  const w = Math.min(900, screen.availWidth - 40), h = Math.min(780, screen.availHeight - 60);
+  const left = Math.round((window.screenX || 0) + (window.outerWidth - w) / 2);
+  const top = Math.round((window.screenY || 0) + Math.max(0, (window.outerHeight - h) / 2));
+  _pfmsPoGenWin = window.open(PFMS_PO_GENERATOR_URL, 'ajantaPoGenerator', `popup=yes,width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+  if (!_pfmsPoGenWin) { showToast('Popup blocked — browser me is site ke popups allow karein', 'error'); return; }
+  const timer = setInterval(() => {
+    if (!_pfmsPoGenWin || _pfmsPoGenWin.closed) {
+      clearInterval(timer);
+      _pfmsPoGenWin = null;
+      if (document.getElementById('page-purchase-fms').classList.contains('active')) loadPurchaseFmsList();
+    }
+  }, 1000);
+}
+
+// PO detail: send the generated PO PDF to the vendor on WhatsApp (pick the
+// vendor's chat — the sheet keeps no vendor phone numbers).
+function sendPoToVendor(poNumber) {
+  const o = pfmsData.find(x => x.poNumber === poNumber);
+  const link = pfmsPoLinks[poNumber];
+  if (!o || !link) return;
+  const items = (o.products || []).map(p => `• ${p.productName} × ${p.qty} ${p.uom || ''}`.trim()).join('\n');
+  const msg = `Namaste ${o.vendorName || ''},\nPurchase Order *${poNumber}*\n${items}\n\nPO: ${link}\n\nKripya dispatch date confirm karein.`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+}
 
 // "+ New Indent" — in-app Indent form (client, 2026-10-06; replaces the
 // Apps Script web form). Type + Raised By for the indent, then one line per
@@ -13986,7 +14485,7 @@ async function submitNewIndent() {
   if (r.error) return fail(r.error);
   closeModal('newIndentModal');
   _indentOpts = null; // pick up the new vendors / products / recent list next time
-  showToast(`✅ ${r.indentNo} raised — ${r.items} item${r.items === 1 ? '' : 's'}. Indent FMS me aage badhega.`);
+  showToast(`✅ ${r.indentNo} raised — ${r.items} item${r.items === 1 ? '' : 's'}. Ab Stock check → Accounts rate → PO (📝 Indents tab).`);
 }
 
 function switchPurchaseFmsView(view, el) {
@@ -13999,6 +14498,7 @@ function switchPurchaseFmsView(view, el) {
 }
 
 function renderPurchaseFmsActiveView() {
+  if (pfmsView === 'indents') return renderPurchaseIndentsView();
   if (pfmsView === 'fms') return renderPurchaseFmsView();
   if (pfmsView === 'pc') return renderPurchasePCView();
   return renderPurchaseReportsView();
@@ -14010,9 +14510,9 @@ function pfmsPaginate(rows) {
   const start = (pfmsPage - 1) * PFMS_PAGE_SIZE;
   return { pageRows: rows.slice(start, start + PFMS_PAGE_SIZE), totalPages, total: rows.length };
 }
-function pfmsPaginationHtml(totalPages, total) {
+function pfmsPaginationHtml(totalPages, total, noun = 'POs') {
   return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--gray-200)">
-    <span style="font-size:12px;color:var(--gray-400)">${total} indents — page ${pfmsPage} of ${totalPages}</span>
+    <span style="font-size:12px;color:var(--gray-400)">${total} ${noun} — page ${pfmsPage} of ${totalPages}</span>
     <div style="display:flex;gap:6px">
       <button class="btn btn-outline btn-sm" ${pfmsPage <= 1 ? 'disabled' : ''} onclick="pfmsGoToPage(${pfmsPage - 1})">← Prev</button>
       <button class="btn btn-outline btn-sm" ${pfmsPage >= totalPages ? 'disabled' : ''} onclick="pfmsGoToPage(${pfmsPage + 1})">Next →</button>
@@ -14159,7 +14659,7 @@ let _pfmsStepDoersMerged = false;
 async function mergePurchaseStepDoersIntoDefs() {
   const r = await api('/api/purchase-fms/step-doers');
   const assignments = (r && r.assignments) || {};
-  PURCHASE_STEP_DEFS.forEach(sd => { sd.doers = assignments[sd.n] || []; });
+  [...INDENT_STEP_DEFS, ...PURCHASE_STEP_DEFS].forEach(sd => { sd.doers = assignments[sd.n] || []; });
   _pfmsStepDoersMerged = true;
 }
 
@@ -14169,13 +14669,13 @@ async function openPurchaseStepDoersModal() {
     api('/api/purchase-fms/step-doers')
   ]);
   if (Array.isArray(usersRes)) _pfmsAllUsersForDoers = usersRes;
-  renderStepDoerMatrix('purchaseStepDoersRows', PURCHASE_STEP_DEFS, _pfmsAllUsersForDoers || [], (doersRes && doersRes.assignments) || {}, 'pfmsStepDoerCheck_');
+  renderStepDoerMatrix('purchaseStepDoersRows', [...INDENT_STEP_DEFS, ...PURCHASE_STEP_DEFS], _pfmsAllUsersForDoers || [], (doersRes && doersRes.assignments) || {}, 'pfmsStepDoerCheck_');
   document.getElementById('purchaseStepDoersModal').classList.add('open');
 }
 
 async function submitPurchaseStepDoers() {
   const assignments = {};
-  PURCHASE_STEP_DEFS.forEach(sd => {
+  [...INDENT_STEP_DEFS, ...PURCHASE_STEP_DEFS].forEach(sd => {
     const checked = [...document.querySelectorAll(`.pfmsStepDoerCheck_${sd.n}:checked`)].map(el => Number(el.value));
     assignments[sd.n] = checked;
   });
@@ -14340,6 +14840,10 @@ function renderPurchaseDetailBody(o) {
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.poNumber)} · ${esc(o.indentNo || '—')}</div>
+      ${pfmsPoLinks[o.poNumber] ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <a class="btn btn-outline btn-sm" href="${esc(pfmsPoLinks[o.poNumber])}" target="_blank" rel="noopener">📄 View PO</a>
+        <button class="btn btn-green btn-sm" onclick="sendPoToVendor('${esc(o.poNumber)}')">📤 Send PO to vendor (WhatsApp)</button>
+      </div>` : ''}
       <div style="${PFMS_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
       <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>
       ${pfmsVendorHistoryHtml(o)}
@@ -16222,9 +16726,29 @@ function buildPurchaseDashboardTasks() {
       assignedToName: stepDoerLabel(step), assignedByName: stepDoerLabel(step), assignedToDept: 'Purchase',
       start_date: o.timestamp, planned: step.planned || '', plannedLate: late });
   });
+  // Indents not yet a PO — one task per pending step (Check Stock / Rate /
+  // Approval / Generate PO) for that step's doers.
+  ((window._lastIndentData && window._lastIndentData.indents) || []).filter(o => !o.closed).forEach(o => {
+    o.pendingSteps.forEach(idx => {
+      const step = o.steps[idx];
+      if (doerId && !(step.doers || []).some(d => Number(d.id) === doerId)) return;
+      const late = !!(step.planned && o2dIsOverdue(step.planned));
+      const lines = o.lines.filter(l => !l.closed && l.currentStep === idx);
+      const description = `
+        <div style="font-weight:700;color:var(--gray-800);font-size:13px">📝 ${esc(step.label)}</div>
+        <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc([...new Set(lines.map(l => l.vendorName).filter(Boolean))].join(', ')) || '—'} · Raised by ${esc(o.raisedBy || '—')}</div>
+        <div style="font-size:12px;color:var(--gray-600)">${lines.map(l => `${esc(l.productName)} × ${esc(l.qty)}`).join(', ')}</div>
+        ${fmsFieldRow('PLANNED', `${esc(fmtDateDMY(step.planned, true) || '—')}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
+      tasks.push({ id: o.indentNo, type: 'purchase', status: 'pending', title: o.indentNo, description,
+        assignedToName: stepDoerLabel(step), assignedByName: stepDoerLabel(step), assignedToDept: 'Purchase',
+        start_date: o.timestamp, planned: step.planned || '', plannedLate: late });
+    });
+  });
   return tasks;
 }
 async function openPurchaseQuickAction(poNumber) {
+  if (window._lastIndentData) { pfmsIndents = window._lastIndentData.indents || []; pfmsPoLinks = window._lastIndentData.poLinks || {}; }
+  if (pfmsIndents.some(x => x.indentNo === poNumber)) return openIndentDetail(poNumber);
   if (window._lastPurchaseData) pfmsData = window._lastPurchaseData;
   if (!pfmsData.find(x => x.poNumber === poNumber)) { const d = await api('/api/purchase-fms'); if (Array.isArray(d)) { pfmsData = d; window._lastPurchaseData = d; } }
   openPurchaseDetail(poNumber);
@@ -16277,7 +16801,7 @@ function gpDefaultRange() {
 }
 // A salesman without the Gross Profit grant only gets the Salesman-wise tab (his own row).
 const gpSalesOnly = () => ME && ME.role !== 'admin' && !(ME.page_access || []).includes('gross-profit');
-const gpShowSalesman = () => ME && (ME.pl_viewer || ME.sales_profile);
+const gpShowSalesman = () => ME && (ME.pl_viewer || ME.sales_profile || !gpSalesOnly());
 function gpTabsHtml() {
   const t = (v, label) => `<div class="tab ${gpView === v ? 'active' : ''}" onclick="gpSetView('${v}')">${label}</div>`;
   return `<div class="tab-group">${gpSalesOnly() ? '' : t('product', '📦 Product-wise') + t('dealer', '🏪 Dealer-wise') + t('vendor', '🏭 Vendor-wise')}${gpShowSalesman() ? t('salesman', '👤 Salesman-wise') : ''}</div>`;

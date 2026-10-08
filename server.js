@@ -514,7 +514,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'sfms-pc-view', 'all-delegations'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'sfms-pc-view', 'all-delegations', 'employees'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -1045,7 +1045,9 @@ async function addBespokeFmsStats(result, hodDept, collectPending, today) {
     { name: 'O2D FMS', steps: O2D_STEPS, load: getO2dOrders, doersMap: getO2dStepDoersMap,
       label: o => o.orderNo, skip: o => o.cancelled },
     { name: 'Purchase FMS', steps: PURCHASE_STEPS, load: getPurchasePOs, doersMap: getPurchaseStepDoersMap,
-      label: p => p.poNumber, skip: p => false }
+      label: p => p.poNumber, skip: p => false },
+    { name: 'Purchase Indents', steps: INDENT_STEPS, load: async () => (await getIndents()).indents, doersMap: getPurchaseStepDoersMap,
+      label: i => i.indentNo, skip: i => false }
   ];
   let deptById = null;
   if (hodDept) {
@@ -1200,7 +1202,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
     // the Gross Profit page; pl_viewer (Vishal / Ajay) sees all and sets salaries.
     try {
       rows[0].pl_viewer = (await plViewerIds()).includes(Number(req.session.userId));
-      const [[sp]] = await withPlTables(() => db.query('SELECT user_id FROM salesman_profiles WHERE user_id=?', [req.session.userId]));
+      const [[sp]] = await withPlTables(() => db.query("SELECT user_id FROM salesman_profiles WHERE user_id=? AND o2d_names IS NOT NULL AND o2d_names<>''", [req.session.userId]));
       rows[0].sales_profile = !!sp;
     } catch (e) { rows[0].pl_viewer = false; rows[0].sales_profile = false; }
     res.json(rows[0]);
@@ -7770,7 +7772,7 @@ app.get('/api/purchase-fms/step-doers', requireAuth, async (req, res) => {
   try {
     const map = await getPurchaseStepDoersMap();
     const assignments = {};
-    PURCHASE_STEPS.forEach(s => { assignments[s.n] = map[s.n] || []; });
+    [...INDENT_STEPS, ...PURCHASE_STEPS].forEach(s => { assignments[s.n] = map[s.n] || []; });
     res.json({ assignments });
   } catch (err) { sendServerError(res, err); }
 });
@@ -8066,6 +8068,168 @@ app.post('/api/purchase-fms/indents', requireAuth, async (req, res) => {
       valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS', requestBody: { values }
     });
     res.json({ success: true, indentNo, items: items.length });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// INDENT STAGE in the app (client voice note, 2026-10-08): a raised indent
+// must not look like it jumped straight to a PO. It goes Check Stock (store)
+// → Finalise Rate (Accounts: fresh rate or last rate) → Approval (only when
+// the sheet flags Indent Value ≥ 2 lakh) → Generate PO + send to vendor
+// (Purchase), and only then joins the PO follow-up steps above.
+// The "Indent FMS" tab is formulas end to end (QUERY over Indent Data +
+// VLOOKUPs into the Google Form response tabs, keyed on Indent No & Item Id &
+// Product Name), so the app never writes into it — each step appends a row to
+// the same response tab its Google Form writes to. The sheet's "Provide from
+// store" step gates nothing (rate's Planned runs off Check Stock) and is not
+// used, so it's left out. PO generation stays in the existing Apps Script PO
+// generator (link-out); it writes the PO Number/PDF the sheet picks up.
+// Doers live in purchase_step_doers under step_n 11-14, so they're set on the
+// same Purchase FMS Step Doers screen.
+// ══════════════════════════════════════════════════════
+const INDENT_FMS_TAB = 'Indent FMS';
+const INDENT_FMS_DATA_START_ROW = 7;
+const INDENT_STEPS = [
+  { n: 11, key: 'stock', label: 'Check Stock', doer: 'Rajesh (Warehouse Mnager)', tat: '1 hour', planned: 'J', actual: 'K' },
+  { n: 12, key: 'rate', label: 'Finalise Rate', doer: 'Accountant (Narender)', tat: '1 hour', planned: 'T', actual: 'U' },
+  { n: 13, key: 'approval', label: 'Approval', doer: 'Ajay', tat: '1 hour', planned: 'AD', actual: 'AE' },
+  { n: 14, key: 'po', label: 'Generate PO & Send', doer: 'Priyanka (SCCRR)', tat: '1 hour', planned: 'AG', actual: 'AH' }
+];
+const INDENT_RATE_TYPES = ['Fresh', 'Old Rate'];
+
+async function getIndents() {
+  const [stepDoersMap, sheetsApi] = await Promise.all([
+    getPurchaseStepDoersMap(), getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly'])
+  ]);
+  const r = await sheetsApi.spreadsheets.values.batchGet({
+    spreadsheetId: PURCHASE_SHEET_ID, valueRenderOption: 'UNFORMATTED_VALUE',
+    ranges: [`'${INDENT_FMS_TAB}'!A${INDENT_FMS_DATA_START_ROW}:AK`, `'Step 3 Updation'!A2:I`]
+  });
+  const [fmsRows, rateRows] = r.data.valueRanges.map(v => v.values || []);
+
+  // Last rate Accounts gave per product — prefilled as "Old Rate".
+  const lastRate = {};
+  rateRows.forEach(x => {
+    const k = String(x[3] || '').trim().toLowerCase();
+    if (k && Number(x[4]) > 0) lastRate[k] = { rate: Number(x[4]), date: sfmsSerialToDate(x[0]).slice(0, 10), indentNo: x[1] || '' };
+  });
+
+  const poLinks = {};
+  const lines = fmsRows.map((x, i) => {
+    const get = col => x[colToIdx(col)];
+    if (!get('B')) return null;
+    const line = {
+      row: INDENT_FMS_DATA_START_ROW + i,
+      timestamp: sfmsSerialToDate(get('A')), indentNo: String(get('B')), type: get('C') || '',
+      itemId: get('D') === undefined ? '' : String(get('D')), productName: String(get('E') || ''), uom: get('F') || '',
+      qty: Number(get('G')) || 0, vendorName: get('H') || '', raisedBy: get('I') || '',
+      stockAvailable: get('L') || '', qtyAvailable: get('M') === undefined ? '' : get('M'),
+      finalRate: get('V') || '', oldRate: get('W') || '', rateType: get('X') || '',
+      indentValue: Number(get('Z')) || 0, leadTime: get('AA') || '', approvalNeeded: get('AC') === 'Yes',
+      approvalStatus: get('AF') || '', poNumber: get('AI') || '', poLink: get('AJ') || '',
+      lastRate: lastRate[String(get('E') || '').trim().toLowerCase()] || null
+    };
+    if (line.poNumber && line.poLink) poLinks[line.poNumber] = line.poLink;
+    line.steps = INDENT_STEPS.map(sd => ({
+      planned: sfmsSerialToDate(get(sd.planned)), actual: sfmsSerialToDate(get(sd.actual)),
+      done: !!get(sd.actual) || (sd.key === 'po' && !!line.poNumber),
+      skipped: sd.key === 'approval' && !!get('U') && !line.approvalNeeded
+    }));
+    line.rejected = line.approvalStatus === 'No';
+    // A line with a PO is finished even if an earlier response row is missing
+    // (a few old lines got their PO without an Approval entry).
+    const cur = line.poNumber ? -1 : line.steps.findIndex(s => !s.done && !s.skipped);
+    line.currentStep = cur === -1 ? INDENT_STEPS.length : cur;
+    line.closed = line.currentStep === INDENT_STEPS.length || line.rejected;
+    return line;
+  }).filter(Boolean);
+
+  const order = [];
+  const byNo = {};
+  lines.forEach(l => { if (!byNo[l.indentNo]) { byNo[l.indentNo] = []; order.push(l.indentNo); } byNo[l.indentNo].push(l); });
+  const indents = order.map(indentNo => {
+    const group = byNo[indentNo];
+    const open = group.filter(l => !l.closed);
+    const first = group[0];
+    const o = {
+      indentNo, timestamp: first.timestamp, type: first.type, raisedBy: first.raisedBy,
+      vendors: [...new Set(group.map(l => l.vendorName).filter(Boolean))],
+      lines: group, qty: group.reduce((s, l) => s + l.qty, 0),
+      value: group.reduce((s, l) => s + l.indentValue, 0),
+      pendingSteps: [...new Set(open.map(l => l.currentStep))].sort((a, b) => a - b)
+    };
+    o.currentStep = open.length ? o.pendingSteps[0] : INDENT_STEPS.length;
+    o.closed = !open.length;
+    o.steps = INDENT_STEPS.map((sd, idx) => {
+      const ls = group.filter(l => !l.rejected).map(l => l.steps[idx]);
+      const planned = open.filter(l => l.currentStep === idx).map(l => l.steps[idx].planned).filter(Boolean).sort()[0] || '';
+      return { n: sd.n, key: sd.key, label: sd.label, doer: sd.doer, tat: sd.tat, doers: stepDoersMap[sd.n] || [],
+        planned, done: ls.length > 0 && ls.every(s => s.done || s.skipped), skipped: ls.length > 0 && ls.every(s => s.skipped) };
+    });
+    return o;
+  });
+  indents.reverse(); // newest first
+  return { indents, poLinks };
+}
+
+app.get('/api/purchase-fms/indents', requireAuth, async (req, res) => {
+  try {
+    res.json(await getIndents());
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Records one indent step for the chosen lines — only lines whose pending step
+// really is this one (re-read live, so a double submit or a Google Form entry
+// made meanwhile doesn't add a second response row).
+app.put('/api/purchase-fms/indent/:indentNo/step/:stepN', requireAuth, async (req, res) => {
+  try {
+    const stepN = parseInt(req.params.stepN, 10);
+    const idx = INDENT_STEPS.findIndex(s => s.n === stepN);
+    const sd = INDENT_STEPS[idx];
+    if (!sd || sd.key === 'po') return res.status(400).json({ error: 'Invalid step' });
+    if (!(await assertIsStepDoer(res, 'purchase_step_doers', stepN, req.session.userId, req.session.role))) return;
+    const input = Array.isArray(req.body && req.body.lines) ? req.body.lines : [];
+    const { indents } = await getIndents();
+    const ind = indents.find(o => o.indentNo === req.params.indentNo);
+    if (!ind) return res.status(404).json({ error: 'Indent not found' });
+    const due = ind.lines.filter(l => !l.closed && l.currentStep === idx);
+    const now = sfmsDateToSerial(new Date());
+    const values = [];
+    for (const v of input) {
+      const l = due.find(x => x.itemId === String(v.itemId));
+      if (!l) continue;
+      const name = `${l.productName}`;
+      if (sd.key === 'stock') {
+        if (!['Yes', 'No'].includes(v.stockAvailable)) return res.status(400).json({ error: `${name}: Stock available? Yes / No chuno` });
+        const q = v.qtyAvailable === '' || v.qtyAvailable === undefined ? 0 : Number(v.qtyAvailable);
+        if (!(q >= 0)) return res.status(400).json({ error: `${name}: Qty available sahi number nahi hai` });
+        values.push([now, l.indentNo, Number(l.itemId) || l.itemId, l.productName, v.stockAvailable, q]);
+      } else if (sd.key === 'rate') {
+        const rate = Number(v.finalRate), lead = Number(v.leadTime);
+        const old = v.oldRate === '' || v.oldRate === undefined ? '' : Number(v.oldRate);
+        if (!(rate > 0)) return res.status(400).json({ error: `${name}: Final rate daalo` });
+        if (!INDENT_RATE_TYPES.includes(v.rateType)) return res.status(400).json({ error: `${name}: Rate type chuno (Fresh / Old Rate)` });
+        if (!(lead > 0)) return res.status(400).json({ error: `${name}: Lead time (days) daalo` });
+        if (old !== '' && !(old >= 0)) return res.status(400).json({ error: `${name}: Old rate sahi number nahi hai` });
+        values.push([now, l.indentNo, Number(l.itemId) || l.itemId, l.productName, rate, v.rateType, 'Yes', lead, old]);
+      } else {
+        if (!['Yes', 'No'].includes(v.status)) return res.status(400).json({ error: `${name}: Approve (Yes) ya Reject (No) chuno` });
+        values.push([now, l.indentNo, Number(l.itemId) || l.itemId, l.productName, 'Step 4', v.status]);
+      }
+    }
+    if (!values.length) return res.status(409).json({ error: 'Yeh step pehle hi ho chuka hai — refresh karein' });
+    const range = sd.key === 'stock' ? `'Step 1 Updation '!A:F` : sd.key === 'rate' ? `'Step 3 Updation'!A:I` : `'FMS Updation'!A:F`;
+    const sheetsW = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    await sheetsW.spreadsheets.values.append({
+      spreadsheetId: PURCHASE_SHEET_ID, range, valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS', requestBody: { values }
+    });
+    res.json({ success: true, lines: values.length });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
     sendServerError(res, err);
@@ -9679,7 +9843,7 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   const [[{ first }]] = await withAttendanceTables(() => db.query("SELECT DATE_FORMAT(MIN(date),'%Y-%m-%d') AS first FROM attendance"));
   const salaryFrom = first && first > start ? first : start;
   const [profiles] = await db.query(`SELECT p.*, u.name, u.department, u.week_off, u.extra_off, u.id
-    FROM salesman_profiles p JOIN users u ON u.id=p.user_id WHERE u.is_active=1${onlyUserId ? ' AND u.id=?' : ''} ORDER BY u.name`, onlyUserId ? [onlyUserId] : []);
+    FROM salesman_profiles p JOIN users u ON u.id=p.user_id WHERE u.is_active=1 AND p.o2d_names IS NOT NULL AND p.o2d_names<>''${onlyUserId ? ' AND u.id=?' : ''} ORDER BY u.name`, onlyUserId ? [onlyUserId] : []);
   if (!profiles.length && onlyUserId) return { rows: [], unassigned: [], today, salaryFrom };
   const ids = profiles.length ? profiles.map(p => p.id) : [0];
   const [[att], [leaves], [kms], [tours], hol] = await withAttendanceTables(() => Promise.all([
@@ -9699,11 +9863,18 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   const { sales, costFor } = await gpLoadData(start, end);
   const owner = {};
   profiles.forEach(p => String(p.o2d_names || '').split(',').map(plNameKey).filter(Boolean).forEach(k => { owner[k] = p.id; }));
+  // Order By names not linked to any salesman profile still get their own
+  // Sales + GP row (client, 2026-10-08: "sales person wise GP bhi nikalna
+  // hai" — no salaries were set, so the tab was empty).
   const sold = {}, unassigned = {};
   sales.forEach(s => {
     const uid = owner[plNameKey(s.orderBy)];
-    if (!uid) { const k = s.orderBy || '(blank)'; unassigned[k] = (unassigned[k] || 0) + s.amount; return; }
-    const x = sold[uid] = sold[uid] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
+    let x;
+    if (uid) x = sold[uid] = sold[uid] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
+    else {
+      const k = String(s.orderBy || '').trim() || '(blank)';
+      x = unassigned[k] = unassigned[k] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
+    }
     const c = costFor(s);
     x.sales += s.amount; x.qty += s.qty; x.orders.add(s.orderNo);
     if (c) { x.costedSales += s.amount; x.cost += c.rate * s.qty; } else x.uncostedSales += s.amount;
@@ -9728,8 +9899,23 @@ async function buildSalesmanPl(start, end, onlyUserId) {
       gp: plRound(gp), gpPct: so.costedSales ? plRound(gp * 100 / so.costedSales) : null,
       expense: plRound(expense), net: plRound(net), netPct: so.sales ? plRound(net * 100 / so.sales) : null
     };
-  }).sort((a, b) => b.net - a.net);
-  return { rows, today, salaryFrom, unassigned: onlyUserId ? [] : Object.entries(unassigned).map(([name, amt]) => ({ name, sales: plRound(amt) })).sort((a, b) => b.sales - a.sales) };
+  });
+  if (!onlyUserId) Object.entries(unassigned).forEach(([name, so]) => {
+    const gp = so.costedSales - so.cost;
+    rows.push({ userId: null, noProfile: true, name, o2dNames: name, orders: so.orders.size, qty: plRound(so.qty),
+      sales: plRound(so.sales), uncostedSales: plRound(so.uncostedSales), gp: plRound(gp),
+      gpPct: so.costedSales ? plRound(gp * 100 / so.costedSales) : null });
+  });
+  rows.sort((a, b) => b.gp - a.gp);
+  return { rows, today, salaryFrom };
+}
+// Gross Profit users who aren't P&L viewers see every salesman's Sales + GP,
+// never salary / petrol / tour / net.
+const PL_PRIVATE_KEYS = ['monthlySalary', 'kmRate', 'days', 'present', 'offDays', 'leaveDays', 'absent', 'salary', 'km', 'kmDays', 'petrol', 'tour', 'tourPending', 'tourPendingCount', 'expense', 'net', 'netPct'];
+function plStripPrivate(r) {
+  const o = { ...r };
+  PL_PRIVATE_KEYS.forEach(k => delete o[k]);
+  return o;
 }
 
 // Who may see what — drives the Attendance page tabs.
@@ -9747,8 +9933,10 @@ app.get('/api/salesman-pl', requireAuth, async (req, res) => {
     const { start, end } = req.query;
     if (!plYmd(start) || !plYmd(end) || start > end) return res.status(400).json({ error: 'Valid start and end dates required' });
     const viewer = await plIsViewer(req);
-    const r = await buildSalesmanPl(start, end, viewer ? null : req.session.userId);
-    res.json({ ...r, start, end, viewer });
+    const gpOnly = !viewer && (await canSeeGrossProfit(req));
+    const r = await buildSalesmanPl(start, end, viewer || gpOnly ? null : req.session.userId);
+    if (gpOnly) r.rows = r.rows.map(plStripPrivate);
+    res.json({ ...r, start, end, viewer, gpOnly });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D / Purchase FMS sheets with the service account.' });
     sendServerError(res, err);
@@ -9770,10 +9958,14 @@ app.put('/api/salesman-pl/profiles/:userId', requireAuth, async (req, res) => {
     if (!(await plIsViewer(req))) return res.status(403).json({ error: 'Only Vishal / Ajay can set salaries' });
     const uid = Number(req.params.userId);
     const b = req.body || {};
-    if (b.enabled === false) { await withPlTables(() => db.query('DELETE FROM salesman_profiles WHERE user_id=?', [uid])); return res.json({ success: true }); }
+    const [[before]] = await withEmpTables(() => db.query('SELECT monthly_salary FROM salesman_profiles WHERE user_id=?', [uid]));
+    const oldSalary = before && before.monthly_salary != null ? Number(before.monthly_salary) : null;
+    const logSalary = async nw => { if (oldSalary !== nw) await db.query('INSERT INTO employee_salary_history (user_id, old_salary, new_salary, changed_by) VALUES (?,?,?,?)', [uid, oldSalary, nw, req.session.userId]); };
+    if (b.enabled === false) { await db.query('DELETE FROM salesman_profiles WHERE user_id=?', [uid]); await logSalary(null); return res.json({ success: true }); }
     const num = v => (v === '' || v == null) ? null : (Number(v) >= 0 ? Number(v) : NaN);
     const salary = num(b.monthlySalary), rate = num(b.kmRate);
     if (Number.isNaN(salary) || Number.isNaN(rate)) return res.status(400).json({ error: 'Salary and KM rate must be numbers' });
+    await logSalary(salary);
     await withPlTables(() => db.query(`INSERT INTO salesman_profiles (user_id, monthly_salary, km_rate, o2d_names, updated_by) VALUES (?,?,?,?,?)
       ON DUPLICATE KEY UPDATE monthly_salary=VALUES(monthly_salary), km_rate=VALUES(km_rate), o2d_names=VALUES(o2d_names), updated_by=VALUES(updated_by)`,
       [uid, salary, rate, String(b.o2dNames || '').slice(0, 500).trim() || null, req.session.userId]));
@@ -10868,6 +11060,235 @@ app.get('/api/week-plan/history/:employeeId', requireAuth, requireAdminOrHod, as
     console.error('  ❌ Week Plan history fetch failed:', e.message);
     res.json({ error: 'Failed to fetch history', plans: [] });
   }
+});
+
+// ══════════════════════════════════════════════════════
+// EMPLOYEES (client, 2026-10-08: "emp management ka new page — emp ki puri
+// detail, salary, leave, document sab kuch"). One record per employee:
+// personal / job / bank details (employee_profiles), documents on Drive
+// (employee_documents), plus read-only Leave and Attendance pulled from the
+// existing tables. Login, role, department and week-off stay in Users;
+// applying / approving leave stays in Attendance → Leave.
+// Access: admin or the 'employees' page grant (HR). Salary is still only for
+// the salesman_pl_viewers (Vishal / Ajay) and lives in salesman_profiles.
+// Its edits are logged in employee_salary_history.
+// ══════════════════════════════════════════════════════
+const EMP_FIELDS = {
+  designation: 100, joining_date: 'date', dob: 'date', gender: 20, blood_group: 10, father_name: 150,
+  alt_phone: 30, personal_email: 150, emergency_name: 150, emergency_relation: 50, emergency_phone: 30,
+  current_address: 500, permanent_address: 500, aadhaar_no: 20, pan_no: 20,
+  bank_name: 100, bank_account: 40, bank_ifsc: 20, uan_no: 30, esic_no: 30, notes: 1000
+};
+const EMP_DOC_TYPES = ['Aadhaar Card', 'PAN Card', 'Photo', 'Resume / CV', 'Offer / Appointment Letter', 'Bank Passbook / Cheque',
+  'Education Certificate', 'Experience / Relieving Letter', 'Driving Licence', 'Police Verification', 'Other'];
+const EMP_REQUIRED_DOCS = ['Aadhaar Card', 'PAN Card', 'Photo', 'Bank Passbook / Cheque'];
+
+async function ensureEmployeeTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS employee_profiles (
+      user_id INT PRIMARY KEY,
+      ${Object.entries(EMP_FIELDS).map(([k, v]) => `${k} ${v === 'date' ? 'DATE' : v > 255 ? 'TEXT' : `VARCHAR(${v})`}`).join(',\n      ')},
+      updated_by INT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS employee_documents (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      doc_type VARCHAR(60) NOT NULL,
+      file_name VARCHAR(255),
+      drive_file_id VARCHAR(100) NOT NULL,
+      mime_type VARCHAR(100),
+      uploaded_by INT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS employee_salary_history (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      old_salary DECIMAL(12,2),
+      new_salary DECIMAL(12,2),
+      changed_by INT,
+      changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+let _empTablesOk = false;
+async function withEmpTables(fn) {
+  if (!_empTablesOk) { await ensureEmployeeTables(); await ensurePlTables(); _empTablesOk = true; }
+  return fn();
+}
+async function canSeeEmployees(req) {
+  return req.session.role === 'admin' || (await hasPageGrant(req, 'employees'));
+}
+const empYmd = v => (v instanceof Date ? v.toISOString().slice(0, 10) : (v ? String(v).slice(0, 10) : ''));
+
+app.get('/api/employees', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
+    const viewer = await plIsViewer(req);
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    const yearStart = today.slice(0, 4) + '-01-01';
+    const [[users], [docs], [leaves], [att], [sal]] = await withEmpTables(() => withAttendanceTables(() => Promise.all([
+      db.query(`SELECT u.id, u.name, u.email, u.phone, u.department, u.role, u.is_active, u.profile_image,
+          p.designation, DATE_FORMAT(p.joining_date,'%Y-%m-%d') AS joining_date, DATE_FORMAT(p.dob,'%Y-%m-%d') AS dob
+        FROM users u LEFT JOIN employee_profiles p ON p.user_id=u.id WHERE u.role IS NULL OR u.role<>'vendor' ORDER BY u.is_active DESC, u.department, u.name`),
+      db.query('SELECT user_id, doc_type, COUNT(*) AS n FROM employee_documents GROUP BY user_id, doc_type'),
+      db.query("SELECT user_id, status, SUM(days) AS days, COUNT(*) AS n FROM leave_requests WHERE end_date >= ? GROUP BY user_id, status", [yearStart]),
+      db.query("SELECT user_id, DATE_FORMAT(time_in,'%H:%i') AS time_in, DATE_FORMAT(time_out,'%H:%i') AS time_out FROM attendance WHERE date=?", [today]),
+      viewer ? db.query('SELECT user_id, monthly_salary FROM salesman_profiles') : Promise.resolve([[]])
+    ])));
+    const docsBy = {}, leaveBy = {};
+    docs.forEach(d => { (docsBy[d.user_id] = docsBy[d.user_id] || new Set()).add(d.doc_type); });
+    leaves.forEach(l => { const x = leaveBy[l.user_id] = leaveBy[l.user_id] || { approved: 0, pending: 0 };
+      if (l.status === 'approved') x.approved += Number(l.days) || 0; else if (l.status === 'pending') x.pending += Number(l.n) || 0; });
+    const attBy = Object.fromEntries(att.map(a => [a.user_id, a]));
+    const salBy = Object.fromEntries(sal.map(s => [s.user_id, s.monthly_salary == null ? null : Number(s.monthly_salary)]));
+    res.json({
+      today, viewer, requiredDocs: EMP_REQUIRED_DOCS,
+      employees: users.map(u => {
+        const have = docsBy[u.id] || new Set();
+        return {
+          id: u.id, name: u.name, email: u.email, phone: u.phone || '', department: u.department || '', role: u.role || '',
+          active: !!+u.is_active, photo: u.profile_image || '', designation: u.designation || '', joiningDate: u.joining_date || '', dob: u.dob || '',
+          docs: have.size, missingDocs: EMP_REQUIRED_DOCS.filter(t => !have.has(t)),
+          leaveDays: (leaveBy[u.id] || {}).approved || 0, leavePending: (leaveBy[u.id] || {}).pending || 0,
+          today: attBy[u.id] ? { in: attBy[u.id].time_in || '', out: attBy[u.id].time_out || '' } : null,
+          ...(viewer ? { salary: salBy[u.id] ?? null } : {})
+        };
+      })
+    });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Full record of one employee. month=YYYY-MM picks the attendance month.
+app.get('/api/employees/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
+    const uid = Number(req.params.id);
+    const viewer = await plIsViewer(req);
+    const [[u]] = await db.query("SELECT id, name, email, notification_email, phone, department, role, is_active, profile_image, week_off, extra_off, track_km FROM users WHERE id=? AND (role IS NULL OR role<>'vendor')", [uid]);
+    if (!u) return res.status(404).json({ error: 'Employee not found' });
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : today.slice(0, 7);
+    const mStart = month + '-01';
+    const mEnd = ymdAddDays(ymdAddDays(mStart, 31).slice(0, 7) + '-01', -1);
+    const [[prof], [docs], [leaves], [att], [hol], [[sp]], [salHist]] = await withEmpTables(() => withAttendanceTables(() => Promise.all([
+      db.query('SELECT * FROM employee_profiles WHERE user_id=?', [uid]),
+      db.query('SELECT d.id, d.doc_type, d.file_name, d.mime_type, d.created_at, b.name AS uploaded_by_name FROM employee_documents d LEFT JOIN users b ON b.id=d.uploaded_by WHERE d.user_id=? ORDER BY d.created_at DESC', [uid]),
+      db.query(`SELECT l.id, l.leave_type, DATE_FORMAT(l.start_date,'%Y-%m-%d') AS start_date, DATE_FORMAT(l.end_date,'%Y-%m-%d') AS end_date, l.days, l.reason, l.status, l.remarks, l.created_at, a.name AS approved_by_name
+        FROM leave_requests l LEFT JOIN users a ON a.id=l.approved_by WHERE l.user_id=? ORDER BY l.start_date DESC LIMIT 100`, [uid]),
+      db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d, DATE_FORMAT(time_in,'%H:%i') AS time_in, DATE_FORMAT(time_out,'%H:%i') AS time_out, address_in FROM attendance WHERE user_id=? AND date BETWEEN ? AND ? ORDER BY date", [uid, mStart, mEnd]),
+      db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [mStart, mEnd]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; }),
+      viewer ? db.query('SELECT monthly_salary, km_rate, o2d_names FROM salesman_profiles WHERE user_id=?', [uid]) : Promise.resolve([[null]]),
+      viewer ? db.query('SELECT h.old_salary, h.new_salary, h.changed_at, c.name AS changed_by_name FROM employee_salary_history h LEFT JOIN users c ON c.id=h.changed_by WHERE h.user_id=? ORDER BY h.changed_at DESC LIMIT 30', [uid]) : Promise.resolve([[]])
+    ])));
+    const approved = leaves.filter(l => l.status === 'approved');
+    const ctx = { present: new Set(att.map(a => `${uid}|${a.d}`)), holidays: new Set(hol.map(h => h.d)), leaves: { [uid]: approved.map(l => ({ s: l.start_date, e: l.end_date })) } };
+    const summary = mStart <= today ? plSalaryFor(u, sp || {}, mStart, mEnd, today, ctx) : { days: 0, present: 0, off: 0, leave: 0, absent: 0, salary: 0 };
+    const year = today.slice(0, 4);
+    const byType = {};
+    approved.filter(l => l.end_date >= year + '-01-01').forEach(l => { byType[l.leave_type || 'Other'] = (byType[l.leave_type || 'Other'] || 0) + (Number(l.days) || 0); });
+    const profile = {};
+    Object.keys(EMP_FIELDS).forEach(k => { profile[k] = prof && prof[k] != null ? (EMP_FIELDS[k] === 'date' ? empYmd(prof[k]) : String(prof[k])) : ''; });
+    res.json({
+      today, month, viewer, docTypes: EMP_DOC_TYPES, requiredDocs: EMP_REQUIRED_DOCS,
+      user: { id: u.id, name: u.name, email: u.email, notificationEmail: u.notification_email || '', phone: u.phone || '', department: u.department || '',
+        role: u.role || '', active: !!+u.is_active, photo: u.profile_image || '', weekOff: u.week_off || '', trackKm: !!+u.track_km },
+      profile,
+      documents: docs.map(d => ({ id: d.id, type: d.doc_type, fileName: d.file_name || '', mime: d.mime_type || '', uploadedAt: d.created_at, uploadedBy: d.uploaded_by_name || '' })),
+      leave: { year, approvedByType: byType, approvedDays: Object.values(byType).reduce((a, b) => a + b, 0),
+        list: leaves.map(l => ({ id: l.id, type: l.leave_type || '', start: l.start_date, end: l.end_date, days: Number(l.days) || 0, reason: l.reason || '', status: l.status, remarks: l.remarks || '', approvedBy: l.approved_by_name || '' })) },
+      attendance: { start: mStart, end: mEnd, summary: { days: summary.days, present: summary.present, off: summary.off, leave: summary.leave, absent: summary.absent }, rows: att },
+      ...(viewer ? { salary: {
+        monthlySalary: sp && sp.monthly_salary != null ? Number(sp.monthly_salary) : null, kmRate: sp && sp.km_rate != null ? Number(sp.km_rate) : null,
+        o2dNames: (sp && sp.o2d_names) || '', earnedThisMonth: sp && sp.monthly_salary != null ? summary.salary : null,
+        history: salHist.map(h => ({ old: h.old_salary == null ? null : Number(h.old_salary), new: h.new_salary == null ? null : Number(h.new_salary), at: h.changed_at, by: h.changed_by_name || '' })) } } : {})
+    });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.put('/api/employees/:id/profile', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
+    const uid = Number(req.params.id);
+    const [[u]] = await db.query("SELECT id FROM users WHERE id=? AND (role IS NULL OR role<>'vendor')", [uid]);
+    if (!u) return res.status(404).json({ error: 'Employee not found' });
+    const b = req.body || {};
+    const cols = [], vals = [];
+    for (const [k, lim] of Object.entries(EMP_FIELDS)) {
+      if (!(k in b)) continue;
+      let v = String(b[k] == null ? '' : b[k]).trim();
+      if (lim === 'date') { if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return res.status(400).json({ error: `${k.replace('_', ' ')}: date sahi nahi hai` }); }
+      else v = v.slice(0, lim);
+      if (k === 'pan_no' || k === 'bank_ifsc') v = v.toUpperCase();
+      cols.push(k); vals.push(v || null);
+    }
+    if (!cols.length) return res.json({ success: true });
+    await withEmpTables(() => db.query(
+      `INSERT INTO employee_profiles (user_id, ${cols.join(', ')}, updated_by) VALUES (?, ${cols.map(() => '?').join(', ')}, ?)
+       ON DUPLICATE KEY UPDATE ${cols.map(c => `${c}=VALUES(${c})`).join(', ')}, updated_by=VALUES(updated_by)`,
+      [uid, ...vals, req.session.userId]));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// One document per request (Vercel caps a body at ~4.5 MB → 3 MB file max).
+app.post('/api/employees/:id/documents', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
+    const uid = Number(req.params.id);
+    const { data, filename, docType } = req.body || {};
+    if (!EMP_DOC_TYPES.includes(docType)) return res.status(400).json({ error: 'Document type chuno' });
+    const [[u]] = await db.query("SELECT id, name FROM users WHERE id=? AND (role IS NULL OR role<>'vendor')", [uid]);
+    if (!u) return res.status(404).json({ error: 'Employee not found' });
+    const m = /^data:([^;,]*)(;[^,]*)?;base64,(.+)$/.exec(data || '');
+    if (!m) return res.status(400).json({ error: 'No file received' });
+    const buf = Buffer.from(m[3], 'base64');
+    if (buf.length > TASK_FILE_MAX_BYTES) return res.status(400).json({ error: 'File is too large — max 3 MB' });
+    const name = String(filename || 'file').replace(/[^\w.\- ]+/g, '_').slice(0, 120);
+    const url = await uploadBufferToDrive(buf, `emp-${uid}-${docType.replace(/[^\w]+/g, '_')}-${Date.now()}-${name}`, m[1] || 'application/octet-stream');
+    const fileId = url.split('/api/drive-file/')[1];
+    await withEmpTables(() => db.query('INSERT INTO employee_documents (user_id, doc_type, file_name, drive_file_id, mime_type, uploaded_by) VALUES (?,?,?,?,?,?)',
+      [uid, docType, name, fileId, m[1] || '', req.session.userId]));
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+// Streams a document only to Employees users — not via the open
+// /api/drive-file route, since these are ID / bank papers.
+app.get('/api/employees/documents/:docId/file', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
+    const [[d]] = await withEmpTables(() => db.query('SELECT drive_file_id, file_name, mime_type FROM employee_documents WHERE id=?', [Number(req.params.docId)]));
+    if (!d) return res.status(404).json({ error: 'Document not found' });
+    const drive = await getDriveClient();
+    const resp = await drive.files.get({ fileId: d.drive_file_id, alt: 'media', supportsAllDrives: true }, { responseType: 'stream' });
+    res.setHeader('Content-Type', d.mime_type || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename="${String(d.file_name || 'document').replace(/"/g, '')}"`);
+    resp.data.pipe(res);
+  } catch (err) {
+    if (err.code === 404) return res.status(404).json({ error: 'File not found' });
+    sendServerError(res, err);
+  }
+});
+
+// Removes the record only — the service account can't delete from the
+// shared Drive; the file stays there, unreachable from the app.
+app.delete('/api/employees/documents/:docId', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
+    await withEmpTables(() => db.query('DELETE FROM employee_documents WHERE id=?', [Number(req.params.docId)]));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
