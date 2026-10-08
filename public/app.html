@@ -1754,7 +1754,6 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="tab-group">
         <div class="tab active" onclick="switchLeadView('queue',this)">⚡ Action Queue</div>
         <div class="tab" onclick="switchLeadView('all',this)">All Leads</div>
-        <div class="tab" onclick="switchLeadView('dealers',this)">🏪 Dealers Onboarded</div>
         <div class="tab" onclick="switchLeadView('reports',this)">📊 Reports</div>
       </div>
     </div>
@@ -3367,11 +3366,10 @@ tbody tr:last-child td{border-bottom:none;}
 <div class="modal-overlay" id="addDealerModal">
   <div class="modal" style="max-width:420px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <h3 style="margin:0">🏪 Naya Dealer Add Karo</h3>
+      <h3 style="margin:0">🏪 Purana Dealer — sirf naam / phone</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('addDealerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="alert error" id="addDealerErr" style="display:none"></div>
-    <div style="padding:10px 12px;border-radius:10px;background:var(--color-success-bg);border:1px solid var(--color-success-border);font-size:12.5px;margin-bottom:12px">Bilkul naya dealer bana rahe ho? <a href="#" onclick="closeModal('addDealerModal');openDealerOnboardModal();return false" style="font-weight:700">🏪 Full onboarding form bharo →</a><div style="color:var(--gray-500);margin-top:2px">GST + dukaan ki photos, firm details, aur dealer ko WhatsApp welcome kit.</div></div>
     <div class="form-group"><label>Dealer / Counter Name <span style="color:var(--color-danger)">*</span></label><input type="text" id="adName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>City</label><input type="text" id="adCity" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>Phone</label><input type="tel" id="adPhone" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
@@ -11280,7 +11278,7 @@ function renderDealerGrid() {
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
         <input type="text" id="dealerSearchInput" placeholder="🔍 Search dealer or city…" value="${esc(o2dDealerSearchQ)}" oninput="onDealerSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <button class="btn btn-outline" onclick="loadO2dDealers(true).then(renderDealerGridResults)">🔄 Refresh</button>
-        <button class="btn btn-primary" onclick="openAddDealerModal()">+ Naya Dealer Add Karo</button>
+        <button class="btn btn-primary" onclick="openDealerOnboardModal()">+ Naya Dealer Add Karo</button>
       </div>
       <div id="dealerGridResults"></div>
     </div>`;
@@ -11339,7 +11337,7 @@ function dealerRowHtml(d) {
 
   return `<tr>
     <td>
-      <div style="font-weight:600">${esc(d.name)}</div>
+      <div style="font-weight:600">${esc(d.name)}${d.onboarding ? ` <a href="#" onclick="openOnboardDetail(${d.onboarding.id});return false" title="Onboarding form ki detail — photos, firm, GST" style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success-text);text-decoration:none;white-space:nowrap">🏪 ${esc(d.onboarding.code)}</a>` : ''}</div>
       <div style="font-size:11px;color:var(--gray-500)">${esc([d.city, d.phone].filter(Boolean).join(' · ') || '—')}</div>
     </td>
     <td>${tierCellHtml}</td>
@@ -11422,7 +11420,7 @@ function dealerCardHtml(d) {
         ${tierBadgeHtml}
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
-        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor}">KYC: ${d.kycCount}/4</span>
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor}">KYC: ${d.kycCount}/4</span>${d.onboarding ? ` <a href="#" onclick="openOnboardDetail(${d.onboarding.id});return false" title="Onboarding form ki detail — photos, firm, GST" style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success-text);text-decoration:none;white-space:nowrap">🏪 ${esc(d.onboarding.code)}</a>` : ''}
         <button class="btn btn-outline btn-sm" onclick="openKycModal('${nameEsc}')">Upload KYC</button>
         <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
         <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')">📋 View Statement</button>
@@ -14713,7 +14711,6 @@ let leadToday = '';
 let leadView = 'queue';
 let leadMeta = { sources: [], callOutcomes: [], visitOutcomes: [], catalogue: '' };
 let leadRepFrom = '', leadRepTo = '';
-let onbData = null;
 let _leadUsers = null;
 async function leadUserList() {
   if (!_leadUsers) { const u = await api('/api/users/roster'); _leadUsers = Array.isArray(u) ? u.filter(x => +x.is_active !== 0) : []; }
@@ -14728,7 +14725,6 @@ async function loadLeadFmsList() {
   leadApplyData(d);
   document.getElementById('leadStepDoersBtn').style.display = leadMe.isAdmin ? 'inline-flex' : 'none';
   document.getElementById('leadSettingsBtn').style.display = leadMe.isAdmin ? 'inline-flex' : 'none';
-  onbData = null;
   renderLeadActiveView();
 }
 function leadApplyData(d) {
@@ -14747,7 +14743,6 @@ function switchLeadView(view, el) {
 function renderLeadActiveView() {
   if (leadView === 'queue') return renderLeadQueue();
   if (leadView === 'all') return renderLeadAll();
-  if (leadView === 'dealers') return renderOnboardedList();
   return renderLeadReports();
 }
 
@@ -15247,7 +15242,8 @@ async function openDealerOnboardModal(leadId) {
   const sec = t => `<div style="font-size:13px;font-weight:800;color:var(--gray-800);margin:14px 0 8px;padding-top:10px;border-top:1px solid var(--gray-100)">${t}</div>`;
   document.getElementById('onbBody').innerHTML = `
     <div class="alert error" id="onbErr" style="display:none"></div>
-    ${l ? `<div style="padding:8px 12px;border-radius:10px;background:var(--color-primary-light);color:var(--color-primary);font-size:12.5px;margin-bottom:10px">Lead ${esc(l.code)} se — save karte hi lead "Dealer Onboarded" ho jayegi.</div>` : ''}
+    ${l ? `<div style="padding:8px 12px;border-radius:10px;background:var(--color-primary-light);color:var(--color-primary);font-size:12.5px;margin-bottom:10px">Lead ${esc(l.code)} se — save karte hi lead "Dealer Onboarded" ho jayegi.</div>`
+      : `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Dealer O2D → Dealers me save hoga. Purana dealer hai, sirf naam / phone daalna hai? <a href="#" onclick="closeModal('dealerOnboardModal');openAddDealerModal();return false">Chhota form →</a></div>`}
     <input type="hidden" id="onb_leadId" value="${l ? l.id : ''}"/>
     <div style="font-size:13px;font-weight:800;color:var(--gray-800);margin-bottom:8px">Dealer / Dukaan</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
@@ -15328,36 +15324,15 @@ async function submitDealerOnboarding() {
   btn.disabled = false; btn.textContent = 'Submit Dealer';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); return; }
   closeModal('dealerOnboardModal');
-  showToast(`✅ ${r.code} — ${body.shopName} onboarded${r.welcome === 'sent' ? ' · welcome kit WhatsApp par ja raha hai' : ''}`);
-  onbData = null;
+  showToast(`✅ ${r.code} — ${body.shopName} onboarded (O2D → Dealers)${r.welcome === 'sent' ? ' · welcome kit WhatsApp par ja raha hai' : ''}`);
   if (document.getElementById('page-lead-fms').classList.contains('active')) loadLeadFmsList();
-  if (typeof loadO2dDealers === 'function') loadO2dDealers(true);
+  if (o2dDealersLoaded) { await loadO2dDealers(true); refreshDealerViews(); }
 }
 
-// ── Dealers onboarded ──
-async function renderOnboardedList() {
-  const wrap = document.getElementById('leadListWrap');
-  if (!onbData) {
-    wrap.innerHTML = '<div class="empty">Loading…</div>';
-    const r = await api('/api/dealer-onboarding');
-    if (!r || !Array.isArray(r.items)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed')}</div>`; return; }
-    onbData = r.items;
-  }
-  if (leadView !== 'dealers') return;
-  const q = (document.getElementById('leadSearch').value || '').trim().toLowerCase();
-  const rows = onbData.filter(o => !q || [o.code, o.shopName, o.ownerName, o.mobile, o.city, o.area, o.gstNo, o.createdByName].some(v => String(v || '').toLowerCase().includes(q)));
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">Abhi koi dealer onboard nahi hua. "🏪 New Dealer Onboarding" se form bharein.</div>'; return; }
-  wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
-    <thead><tr><th>Code</th><th>Date</th><th>Dukaan</th><th>Dealer</th><th>Mobile</th><th>City / Area</th><th>Firm</th><th>Dukaan</th><th>Maal</th><th>By</th><th>Welcome</th></tr></thead>
-    <tbody>${rows.map(o => `<tr onclick="openOnboardDetail(${o.id})" style="cursor:pointer">
-      <td style="font-weight:600">${esc(o.code)}</td><td>${fmtDateDMY(o.createdAt)}</td><td style="white-space:normal;min-width:140px"><b>${esc(o.shopName)}</b></td>
-      <td>${esc(o.ownerName)}</td><td>${esc(o.mobile)}</td><td>${esc([o.area, o.city].filter(Boolean).join(', ') || '—')}</td>
-      <td>${esc(o.firmType || '—')}</td><td>${esc(o.shopOwnership || '—')}</td><td>${esc(o.stockLevel || '—')}</td><td>${esc(o.createdByName || '—')}</td>
-      <td>${o.welcomeSentAt ? '✅' : '—'}</td></tr>`).join('')}</tbody></table>`;
-}
-function openOnboardDetail(id) {
-  const o = (onbData || []).find(x => x.id === id);
-  if (!o) return;
+// Opened from O2D → Dealers (the one dealer list).
+async function openOnboardDetail(id) {
+  const o = await api(`/api/dealer-onboarding/${id}`);
+  if (!o || o.error) { showToast((o && o.error) || 'Not found', 'error'); return; }
   const f = (label, val) => val ? `<div><div style="${CHQ_LABEL}">${label}</div><div style="font-size:14px;color:var(--gray-800)">${val}</div></div>` : '';
   const pics = [['GST', o.gstPhoto], ['Bahar', o.outsidePhoto], ...o.insidePhotos.map((u, i) => [`Andar ${i + 1}`, u])].filter(p => p[1]);
   document.getElementById('onbDetailTitle').textContent = `${o.code} · ${o.shopName}`;

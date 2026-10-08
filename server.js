@@ -5889,6 +5889,13 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
 
     paymentRows.forEach(p => { const d = ensure(p.counter_name); if (d) d.payments.push(p); });
 
+    // Dealers that came in through the New Dealer Onboarding form (Lead FMS) —
+    // the form's details open from here; there is no separate list for them.
+    try {
+      const [onb] = await withLeadTables(() => db.query('SELECT id, code, shop_name FROM dealer_onboardings ORDER BY id'));
+      onb.forEach(o => { const d = ensure(o.shop_name); if (d) d.onboarding = { id: o.id, code: o.code }; });
+    } catch (e) { console.warn('dealer onboardings not merged:', e.message); }
+
     // getO2dOrders() already groups by Order No. — just take each dealer's most recent
     orders.forEach(o => {
       if (!o.counterName) return;
@@ -10182,6 +10189,15 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);
   }
+});
+
+app.get('/api/dealer-onboarding/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await canOnboardDealers(req))) return res.status(403).json({ error: 'No access' });
+    const [[o]] = await withLeadTables(() => db.query(`${ONB_SELECT} WHERE o.id=?`, [req.params.id]));
+    if (!o) return res.status(404).json({ error: 'Not found' });
+    res.json(onboardingOut(o));
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/dealer-onboarding/:id/welcome', requireAuth, async (req, res) => {
