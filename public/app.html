@@ -1446,7 +1446,6 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="tab" id="attnTabLeave" onclick="switchAttendanceTab('leave',this)" style="position:relative">🌴 Leave<span id="attnLeaveTabBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:var(--color-danger);color:#fff;border-radius:50%;min-width:16px;height:16px;padding:0 3px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span></div>
       <div class="tab" id="attnTabKm" onclick="switchAttendanceTab('km',this)">🛣️ Kilometer</div>
       <div class="tab" id="attnTabTour" style="display:none" onclick="switchAttendanceTab('tour',this)">🧳 Tour Expense</div>
-      <div class="tab" id="attnTabPl" style="display:none" onclick="switchAttendanceTab('pl',this)">💼 Profit Center</div>
     </div>
 
     <!-- Attendance panel — self sees only own rows; Admin gets an employee dropdown (default All) -->
@@ -1540,18 +1539,6 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="tourResults"><div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div></div>
     </div>
 
-    <!-- Salesman profit center — own row for a salesman, everyone for Vishal / Ajay. -->
-    <div id="attnPlPanel" style="display:none">
-      <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-        <div><div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">From</div><input type="date" id="plFrom" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
-        <div><div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px;text-transform:uppercase">To</div><input type="date" id="plTo" style="padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
-        <div><button class="btn btn-primary" onclick="loadSalesmanPl()">Generate</button></div>
-        <button class="btn btn-outline btn-sm" onclick="plQuick('month')">This Month</button>
-        <button class="btn btn-outline btn-sm" onclick="plQuick('last')">Last Month</button>
-        <div style="margin-left:auto"><button class="btn btn-outline" id="plProfilesBtn" style="display:none" onclick="openPlProfilesModal()">⚙ Salary & KM Rate</button></div>
-      </div>
-      <div id="plResults"><div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div></div>
-    </div>
   </div>
 
   <!-- ── FMS ADMIN ── -->
@@ -1780,7 +1767,6 @@ tbody tr:last-child td{border-bottom:none;}
   <div id="page-lead-fms" class="page">
     <div class="page-header">
       <button class="btn btn-primary" onclick="openNewLeadModal()">+ New Lead</button>
-      <button class="btn btn-green" onclick="openDealerOnboardModal()">🏪 New Dealer Onboarding</button>
       <button class="btn btn-outline" onclick="loadLeadFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="leadStepDoersBtn" style="display:none" onclick="openLeadStepDoersModal()">⚙ Step Doers</button>
       <button class="btn btn-outline" id="leadSettingsBtn" style="display:none" onclick="openLeadSettingsModal()">💬 WhatsApp Kit</button>
@@ -1844,7 +1830,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── GROSS PROFIT ── -->
   <div id="page-gross-profit" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:16px">
-      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-bottom:12px">📈 Gross Profit <span style="font-size:12.5px;font-weight:600;color:var(--gray-500)">product-wise, dealer-wise & vendor-wise</span></div>
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-bottom:12px">📈 Gross Profit <span style="font-size:12.5px;font-weight:600;color:var(--gray-500)">product, dealer, vendor & salesman-wise</span></div>
       <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
         <div><div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 From</div><input type="date" id="gpStart" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
         <div><div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 To</div><input type="date" id="gpEnd" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></div>
@@ -2667,6 +2653,16 @@ tbody tr:last-child td{border-bottom:none;}
         </label>
       </div>
     </div>
+    <!-- Salesman salary — only Vishal / Ajay (pl_viewer) see this box. Filled = shows in Gross Profit → Salesman-wise. -->
+    <div id="uSalaryBox" style="display:none;border:1.5px solid var(--color-success-border);background:var(--color-success-bg);border-radius:12px;padding:12px 14px;margin-bottom:14px">
+      <div style="font-size:12.5px;font-weight:800;color:var(--gray-800);margin-bottom:8px">💰 Salary <span style="font-weight:500;color:var(--gray-500)">— sirf aapko (Vishal / Ajay) aur us employee ko dikhti hai</span></div>
+      <div class="form-row">
+        <div class="form-group"><label>Mahine ki Salary (₹)</label><input type="number" min="0" id="uSalary" placeholder="e.g. 18000"/></div>
+        <div class="form-group"><label>Petrol rate (₹ per km)</label><input type="number" min="0" step="0.1" id="uKmRate" placeholder="e.g. 3"/></div>
+      </div>
+      <div class="form-group" style="margin-bottom:4px"><label>O2D me "Order By" naam <span style="color:var(--gray-400);font-weight:400;text-transform:none">(salesman ho to)</span></label><input type="text" id="uO2dNames" placeholder="e.g. Krishna — ek se zyada ho to comma"/></div>
+      <div style="font-size:11.5px;color:var(--gray-500)">Salary bharte hi ye employee <b>Gross Profit → 👤 Salesman-wise</b> me aa jayega (sales, GP, salary, petrol, tour, net profit).</div>
+    </div>
     <div class="form-group">
       <label>Password <span id="pwdOptional" style="color:var(--gray-400);font-weight:400;text-transform:none">(leave blank to keep current)</span></label>
       <input type="password" id="uPassword" placeholder="Enter password"/>
@@ -3281,17 +3277,6 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
-<!-- ── PROFIT CENTER: SALARY & KM RATE (Vishal / Ajay) ── -->
-<div class="modal-overlay" id="plProfilesModal">
-  <div class="modal" style="max-width:860px;width:96vw;max-height:92vh;display:flex;flex-direction:column">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <h3 style="margin:0">⚙ Salesman — Salary, KM Rate, O2D Name</h3>
-      <button class="modal-close-x modal-close" onclick="closeModal('plProfilesModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-    </div>
-    <div id="plProfilesBody" style="overflow:auto;flex:1"></div>
-  </div>
-</div>
-
 <!-- ── LEAD FMS: NEW LEAD ── -->
 <div class="modal-overlay" id="newLeadModal">
   <div class="modal" style="max-width:520px;max-height:92vh;display:flex;flex-direction:column">
@@ -3856,6 +3841,7 @@ async function init() {
     // MIS Report: admin, hod, and regular users all see it
     // Per-user page access (Users → Access tab). Admins always see everything.
     MY_PAGES = new Set(ME.role === 'admin' ? [] : (Array.isArray(ME.page_access) ? ME.page_access : ['mis']));
+    if (ME.sales_profile && ME.role !== 'admin') MY_PAGES.add('gross-profit'); // own Salesman-wise row only
     const canSee = page => ME.role === 'admin' || MY_PAGES.has(page);
 
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
@@ -5875,7 +5861,34 @@ function openAddUser() {
   document.getElementById('userSuccess').style.display='none';
   _setWeekOff('');
   _setExtraOff('');
+  fillUserSalaryBox(null);
   document.getElementById('userModal').classList.add('open');
+}
+
+// Salary box in Add/Edit User — Vishal / Ajay only (ME.pl_viewer).
+let _userSalaryOrig = null;
+async function fillUserSalaryBox(userId) {
+  const box = document.getElementById('uSalaryBox');
+  _userSalaryOrig = null;
+  ['uSalary', 'uKmRate', 'uO2dNames'].forEach(id => { document.getElementById(id).value = ''; });
+  box.style.display = ME && ME.pl_viewer ? '' : 'none';
+  if (!ME || !ME.pl_viewer || !userId) return;
+  const r = await api('/api/salesman-pl/profiles');
+  const p = r && Array.isArray(r.users) ? r.users.find(u => String(u.id) === String(userId)) : null;
+  if (!p || String(document.getElementById('editUserId').value) !== String(userId)) return;
+  _userSalaryOrig = p;
+  document.getElementById('uSalary').value = p.monthlySalary ?? '';
+  document.getElementById('uKmRate').value = p.kmRate ?? '';
+  document.getElementById('uO2dNames').value = p.o2dNames || '';
+}
+async function saveUserSalary(userId) {
+  if (!ME || !ME.pl_viewer || !userId) return null;
+  const sal = document.getElementById('uSalary').value.trim(), rate = document.getElementById('uKmRate').value.trim(), names = document.getElementById('uO2dNames').value.trim();
+  const o = _userSalaryOrig;
+  const was = !!(o && o.enabled), now = !!(sal || rate || names);
+  if (!was && !now) return null;
+  if (was && now && String(o.monthlySalary ?? '') === sal && String(o.kmRate ?? '') === rate && (o.o2dNames || '') === names) return null;
+  return api(`/api/salesman-pl/profiles/${userId}`, 'PUT', now ? { monthlySalary: sal, kmRate: rate, o2dNames: names } : { enabled: false });
 }
 
 function openEditUser(id) {
@@ -5897,6 +5910,7 @@ function openEditUser(id) {
   document.getElementById('userSuccess').style.display='none';
   _setWeekOff(u.week_off||'');
   _setExtraOff(u.extra_off||'');
+  fillUserSalaryBox(u.id);
   document.getElementById('userModal').classList.add('open');
 }
 
@@ -5923,7 +5937,16 @@ async function saveUser() {
   const r = id ? await api(`/api/users/${id}`,'PUT',body) : await api('/api/users','POST',body);
   if (btn) btn.disabled = false;
   if (r.error) { err.textContent=r.error; err.style.display='block'; return; }
+  let uid = id;
+  if (!uid && ME && ME.pl_viewer && (document.getElementById('uSalary').value || document.getElementById('uKmRate').value || document.getElementById('uO2dNames').value)) {
+    const list = await api('/api/users');
+    const nu = Array.isArray(list) ? list.find(x => String(x.email).toLowerCase() === email.toLowerCase()) : null;
+    uid = nu && nu.id;
+  }
+  const sr = await saveUserSalary(uid);
+  if (sr && sr.error) { err.textContent = 'User saved, salary nahi: ' + sr.error; err.style.display = 'block'; return; }
   closeModal('userModal');
+  if (sr) showToast('✅ Salary saved');
   loadUsers();
 }
 
@@ -6183,10 +6206,8 @@ async function loadPlAccess() {
   const r = await api('/api/salesman-pl/access').catch(() => null);
   _plAccess = r && !r.error ? r : { viewer: false, hasProfile: false, tour: false, modes: [] };
   document.getElementById('attnTabTour').style.display = _plAccess.tour ? '' : 'none';
-  document.getElementById('attnTabPl').style.display = (_plAccess.viewer || _plAccess.hasProfile) ? '' : 'none';
   document.getElementById('tourEmpWrap').style.display = _plAccess.viewer ? '' : 'none';
   document.getElementById('tourStatusWrap').style.display = _plAccess.viewer ? '' : 'none';
-  document.getElementById('plProfilesBtn').style.display = _plAccess.viewer ? 'inline-flex' : 'none';
   if (_plAccess.viewer) populateEmployeeDropdown('tourEmpFilter');
   return _plAccess;
 }
@@ -6300,25 +6321,24 @@ async function submitTour() {
   if (attnView === 'tour') loadTourList();
 }
 
-// ── Profit center ──
+// ── Profit center (Gross Profit page → Salesman-wise) ──
 let plData = null;
-function plQuick(which) { const [a, b] = plMonthRange(which); setDmyDate('plFrom', a); setDmyDate('plTo', b); loadSalesmanPl(); }
-async function loadSalesmanPl(first) {
-  if (!_plAccess) await loadPlAccess();
-  const f = document.getElementById('plFrom'), t = document.getElementById('plTo');
-  if (first || !f.value || !t.value) { const [a, b] = plMonthRange('month'); if (!f.value) setDmyDate('plFrom', a); if (!t.value) setDmyDate('plTo', b); }
-  const out = document.getElementById('plResults');
-  out.innerHTML = '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Calculating… (O2D + Purchase FMS sheet padh rahe hain)</div>';
+async function loadSalesmanPl() {
+  const f = document.getElementById('gpStart'), t = document.getElementById('gpEnd');
+  const out = document.getElementById('gpResults');
+  out.innerHTML = `<div style="margin-bottom:12px">${gpTabsHtml()}</div><div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Calculating…</div>`;
   const r = await api(`/api/salesman-pl?start=${f.value}&end=${t.value}`);
-  if (r.error) { out.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  if (gpView !== 'salesman') return;
+  if (r.error) { out.innerHTML = `<div style="margin-bottom:12px">${gpTabsHtml()}</div><div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   plData = r;
   renderSalesmanPl();
 }
 function renderSalesmanPl() {
-  const out = document.getElementById('plResults');
+  const out = document.getElementById('gpResults');
   const d = plData; if (!d) return;
+  const tabs = `<div style="margin-bottom:12px">${gpTabsHtml()}</div>`;
   if (!d.rows.length) {
-    out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">${d.viewer ? 'Abhi kisi salesman ki salary set nahi hai — "⚙ Salary & KM Rate" se set karein.' : 'Aapki salary abhi set nahi hui.'}</div>`;
+    out.innerHTML = tabs + `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">${d.viewer ? 'Abhi kisi salesman ki salary set nahi hai — <b>Users</b> page par salesman ko ✏️ Edit karke "Salary" bharein.' : 'Aapki salary abhi set nahi hui.'}</div>`;
     return;
   }
   const tot = k => d.rows.reduce((s, r) => s + (r[k] || 0), 0);
@@ -6328,7 +6348,7 @@ function renderSalesmanPl() {
   const th = 'padding:10px 12px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;text-align:right;background:var(--gray-50);white-space:nowrap';
   const td = 'padding:10px 12px;font-size:12.5px;border-top:1px solid var(--gray-100);text-align:right;white-space:nowrap;vertical-align:top';
   const sub = t => `<div style="font-size:10.5px;color:var(--gray-400);font-weight:500">${t}</div>`;
-  out.innerHTML = `
+  out.innerHTML = tabs + `
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       ${card('Sales (billed)', plInr(tot('sales')), `${tot('orders')} orders`, 'var(--gray-900)')}
       ${card('Gross Profit', plInr(tot('gp')), 'sales − maal ki laagat', color(tot('gp')))}
@@ -6348,50 +6368,21 @@ function renderSalesmanPl() {
         <td style="${td};font-weight:700">${plInr(r.expense)}</td>
         <td style="${td};font-weight:900;font-size:14px;color:${color(r.net)}">${plInr(r.net)}${sub(r.netPct == null ? '' : r.netPct + '% of sales')}</td>
       </tr>`).join('')}</tbody></table></div>
-    ${d.viewer && d.unassigned && d.unassigned.length ? `<div style="font-size:12px;color:var(--gray-500);margin-top:10px">ℹ️ Ye O2D "Order By" kisi salesman se jude nahi (inki sale upar nahi gini): ${d.unassigned.map(u => `<b>${esc(u.name)}</b> ${plInr(u.sales)}`).join(' · ')}. Jodne ke liye "⚙ Salary & KM Rate" me O2D naam daalein.</div>` : ''}
+    ${d.viewer && d.unassigned && d.unassigned.length ? `<div style="font-size:12px;color:var(--gray-500);margin-top:10px">ℹ️ Ye O2D "Order By" kisi salesman se jude nahi (inki sale upar nahi gini): ${d.unassigned.map(u => `<b>${esc(u.name)}</b> ${plInr(u.sales)}`).join(' · ')}. Jodne ke liye Users page par us salesman ke "O2D naam" me daalein.</div>` : ''}
+    ${d.salaryFrom && d.salaryFrom > d.start ? `<div style="font-size:12px;color:var(--color-warning-text);margin-top:10px">⚠️ Salary ${fmtDateDMY(d.salaryFrom)} se gini hai — app me attendance tabhi se lag rahi hai.</div>` : ''}
     <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Salary = mahine ki salary ÷ mahine ke din × paid din (punch kiya, week-off, holiday, approved leave). Petrol = Morning/Evening KM × KM rate. Tour = sirf approved. Sales/GP = O2D billed orders jinme "Order By" is salesman ka naam hai (bill date se); GP sirf un items par jinki laagat pata hai.</div>`;
 }
 
-// Salary / KM rate / O2D name editor (viewers only).
-async function openPlProfilesModal() {
-  const body = document.getElementById('plProfilesBody');
-  body.innerHTML = '<div class="empty">Loading…</div>';
-  document.getElementById('plProfilesModal').classList.add('open');
-  const r = await api('/api/salesman-pl/profiles');
-  if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
-  const inp = "width:100%;padding:7px 9px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12.5px;box-sizing:border-box;background:var(--surface);color:var(--gray-900)";
-  const known = (plData && plData.unassigned || []).map(u => u.name).concat((plData && plData.rows || []).map(x => x.o2dNames)).filter(Boolean);
-  body.innerHTML = `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = ye salesman Profit Center me aayega. <b>O2D naam</b> = O2D order me "Order By" me jaisa likha jaata hai (ek se zyada ho to comma)${known.length ? ` — abhi O2D me: ${[...new Set(known.join(',').split(',').map(x => x.trim()).filter(Boolean))].map(esc).join(', ')}` : ''}. Salary sirf Vishal / Ajay ko aur us salesman ko khud dikhti hai.</div>
-    <div class="mis-table-wrap" style="overflow-x:auto"><table style="font-size:12.5px;width:100%;min-width:640px"><thead><tr><th>Salesman?</th><th>Employee</th><th style="min-width:120px">Mahine ki Salary (₹)</th><th style="min-width:90px">KM rate (₹/km)</th><th style="min-width:160px">O2D "Order By" naam</th></tr></thead>
-    <tbody>${r.users.map(u => `<tr data-uid="${u.id}" data-orig="${esc(JSON.stringify([u.enabled, u.monthlySalary, u.kmRate, u.o2dNames]))}">
-      <td style="text-align:center"><input type="checkbox" class="plEn" ${u.enabled ? 'checked' : ''}/></td>
-      <td style="white-space:nowrap"><b>${esc(u.name)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(u.department || '—')}${u.trackKm ? ' · KM' : ''}</div></td>
-      <td><input class="plSal" type="number" min="0" value="${u.monthlySalary ?? ''}" style="${inp}"/></td>
-      <td><input class="plRate" type="number" min="0" step="0.1" value="${u.kmRate ?? ''}" style="${inp}"/></td>
-      <td><input class="plNames" value="${esc(u.o2dNames)}" placeholder="e.g. Krishna" style="${inp}"/></td>
-    </tr>`).join('')}</tbody></table></div>
-    <button class="btn btn-primary" id="plProfSaveBtn" style="width:100%;margin-top:12px" onclick="savePlProfiles()">Save</button>`;
+function exportSalesmanPl() {
+  if (!plData || !plData.rows.length) return;
+  const q = v => { const x = v == null ? '' : String(v); return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+  const head = ['Salesman', 'Paid days', 'Present', 'Absent', 'Sales', 'Gross Profit', 'Salary', 'KM', 'Petrol', 'Tour', 'Total Expense', 'Net Profit'];
+  const lines = [head.join(',')].concat(plData.rows.map(r => [r.name, r.days - r.absent, r.present, r.absent, r.sales, r.gp, r.salary, r.km, r.petrol, r.tour, r.expense, r.net].map(q).join(',')));
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
+  a.download = `Salesman_PL_${plData.start}_to_${plData.end}.csv`;
+  a.click();
 }
-async function savePlProfiles() {
-  const rows = [...document.querySelectorAll('#plProfilesBody tr[data-uid]')];
-  const changed = rows.map(tr => {
-    const now = [tr.querySelector('.plEn').checked, tr.querySelector('.plSal').value, tr.querySelector('.plRate').value, tr.querySelector('.plNames').value.trim()];
-    const orig = JSON.parse(tr.dataset.orig);
-    const same = now[0] === orig[0] && (!now[0] || (String(now[1]) === String(orig[1] ?? '') && String(now[2]) === String(orig[2] ?? '') && now[3] === (orig[3] || '')));
-    return same ? null : { uid: tr.dataset.uid, enabled: now[0], monthlySalary: now[1], kmRate: now[2], o2dNames: now[3] };
-  }).filter(Boolean);
-  if (!changed.length) { closeModal('plProfilesModal'); return; }
-  const btn = document.getElementById('plProfSaveBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
-  for (const c of changed) {
-    const r = await api(`/api/salesman-pl/profiles/${c.uid}`, 'PUT', c);
-    if (r.error) { btn.disabled = false; btn.textContent = 'Save'; showToast(r.error, 'error'); return; }
-  }
-  btn.disabled = false; btn.textContent = 'Save';
-  showToast(`✅ ${changed.length} salesman updated`);
-  closeModal('plProfilesModal');
-  loadSalesmanPl();
-}
-
 function loadAttendancePage() {
   const isAdmin = ME.role === 'admin';
   ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnKmEmpWrap', 'attnAlertWrap'].forEach(id => {
@@ -6404,7 +6395,7 @@ function loadAttendancePage() {
     populateEmployeeDropdown('attnKmEmpFilter');
   }
   loadPlAccess();
-  if ((attnView === 'tour' || attnView === 'pl') && !(_plAccess && (attnView === 'pl' ? (_plAccess.viewer || _plAccess.hasProfile) : _plAccess.tour))) attnView = 'attendance';
+  if (attnView === 'tour' && !(_plAccess && _plAccess.tour)) attnView = 'attendance';
   switchAttendanceTab(attnView, document.getElementById('attnTab' + attnView[0].toUpperCase() + attnView.slice(1)));
 }
 
@@ -6412,11 +6403,10 @@ function switchAttendanceTab(view, el) {
   attnView = view;
   document.querySelectorAll('#attnTabsWrap .tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
-  ['Attendance', 'Leave', 'Km', 'Tour', 'Pl'].forEach(v => {
+  ['Attendance', 'Leave', 'Km', 'Tour'].forEach(v => {
     document.getElementById('attn' + v + 'Panel').style.display = (v.toLowerCase() === view) ? '' : 'none';
   });
   if (view === 'tour') loadTourList(true);
-  if (view === 'pl') loadSalesmanPl(true);
   if (view === 'attendance') { setAttnHistoryDefaultDates(); loadAttendanceHistory(); }
   if (view === 'leave') loadLeaveList();
   if (view === 'km') { setAttnKmDefaultDates(); loadKmHistory(); loadKmState(); }
@@ -16285,13 +16275,23 @@ function gpDefaultRange() {
   const fyStart = new Date(t.getMonth() >= 3 ? t.getFullYear() : t.getFullYear() - 1, 3, 1); // 1 April
   return [gpYmd(fyStart), gpYmd(t)];
 }
+// A salesman without the Gross Profit grant only gets the Salesman-wise tab (his own row).
+const gpSalesOnly = () => ME && ME.role !== 'admin' && !(ME.page_access || []).includes('gross-profit');
+const gpShowSalesman = () => ME && (ME.pl_viewer || ME.sales_profile);
+function gpTabsHtml() {
+  const t = (v, label) => `<div class="tab ${gpView === v ? 'active' : ''}" onclick="gpSetView('${v}')">${label}</div>`;
+  return `<div class="tab-group">${gpSalesOnly() ? '' : t('product', '📦 Product-wise') + t('dealer', '🏪 Dealer-wise') + t('vendor', '🏭 Vendor-wise')}${gpShowSalesman() ? t('salesman', '👤 Salesman-wise') : ''}</div>`;
+}
 async function loadGrossProfit() {
   const s = document.getElementById('gpStart'), e = document.getElementById('gpEnd');
-  if (!s.value || !e.value) { const [a, b] = gpDefaultRange(); setDmyDate('gpStart', a); setDmyDate('gpEnd', b); }
+  if (!s.value || !e.value) { const [a, b] = gpSalesOnly() ? plMonthRange('month') : gpDefaultRange(); setDmyDate('gpStart', a); setDmyDate('gpEnd', b); }
   if (s.value > e.value) { showToast('Start date End date se pehle honi chahiye', 'error'); return; }
+  if (gpSalesOnly()) gpView = 'salesman';
+  if (gpView === 'salesman') return loadSalesmanPl();
   const out = document.getElementById('gpResults');
   out.innerHTML = '<div class="empty" style="background:var(--surface);border-radius:14px;border:1px solid var(--gray-200)">Loading…</div>';
   const d = await api(`/api/reports/gross-profit?start=${s.value}&end=${e.value}`);
+  if (gpView === 'salesman') { if (d && !d.error) gpData = d; return; }
   if (!d || d.error) { out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:14px;border:1px solid var(--color-danger-border);color:var(--color-danger)">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
   gpData = d; gpShown = 60; gpOpenDealer = '';
   renderGrossProfit();
@@ -16310,7 +16310,7 @@ function gpPctPill(v) {
   const [bg, fg] = v >= 20 ? ['var(--color-success-bg)', 'var(--color-success-text)'] : v >= 10 ? ['var(--color-warning-bg)', 'var(--color-warning-text)'] : ['var(--color-danger-bg)', 'var(--color-danger-text)'];
   return `<span style="display:inline-block;min-width:54px;padding:3px 9px;border-radius:999px;background:${bg};color:${fg};font-weight:800;font-size:12px;text-align:center">${v}%</span>`;
 }
-function gpSetView(v) { gpView = v; gpShown = 60; gpOpenDealer = ''; renderGrossProfit(); }
+function gpSetView(v) { gpView = v; gpShown = 60; gpOpenDealer = ''; if (v === 'salesman' || !gpData) loadGrossProfit(); else renderGrossProfit(); }
 function gpSearch(v) {
   gpQuery = v; gpShown = 60;
   clearTimeout(gpSearch._t);
@@ -16325,6 +16325,7 @@ async function gpSaveCost(item, inputEl) {
 }
 
 function renderGrossProfit() {
+  if (gpView === 'salesman') return renderSalesmanPl();
   const out = document.getElementById('gpResults');
   const d = gpData;
   if (!d) return;
@@ -16394,7 +16395,7 @@ function renderGrossProfit() {
     ${t.uncostedSales ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">ℹ️ ${gpInr(t.uncostedSales)} ki bikri (${noCost} products) ki laagat abhi pata nahi — woh GP me shaamil nahi.${d.canEditCost ? ` <a href="#" onclick="gpView='product';gpOnlyNoCost=!gpOnlyNoCost;renderGrossProfit();return false" style="font-weight:700">${gpOnlyNoCost ? 'Sab products dikhao' : 'Bina laagat wale products dikhao →'}</a>` : ''}</div>` : ''}
     <div style="${card};overflow:hidden">
       <div style="padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
-        <div class="tab-group"><div class="tab ${gpView === 'product' ? 'active' : ''}" onclick="gpSetView('product')">📦 Product-wise</div><div class="tab ${gpView === 'dealer' ? 'active' : ''}" onclick="gpSetView('dealer')">🏪 Dealer-wise</div><div class="tab ${gpView === 'vendor' ? 'active' : ''}" onclick="gpSetView('vendor')">🏭 Vendor-wise</div></div>
+        ${gpTabsHtml()}
         <input id="gpSearchBox" value="${esc(gpQuery)}" oninput="gpSearch(this.value)" placeholder="🔍 Search ${gpView}…" style="flex:1;min-width:180px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-900)"/>
         <div style="display:flex;gap:6px;align-items:center">
           <select onchange="gpSortBy=this.value;gpShown=60;renderGrossProfit()" title="Sort by" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:12.5px;background:var(--surface);color:var(--gray-900)">
@@ -16409,6 +16410,7 @@ function renderGrossProfit() {
     <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else Purchase FMS PO Final Rate (qty-weighted average) of the same stock item. Rates are used exactly as entered in O2D and PO.${gpView === 'vendor' ? ' Vendor-wise: an item bought from more than one vendor is split between them by PO qty, each share at that vendor\'s own PO rate.' : ''}</div>`;
 }
 function exportGrossProfit() {
+  if (gpView === 'salesman') return exportSalesmanPl();
   if (!gpData) return;
   const q = v => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lines = gpView === 'product'

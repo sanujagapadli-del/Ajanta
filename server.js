@@ -1196,6 +1196,13 @@ app.get('/api/me', requireAuth, async (req, res) => {
       rawAccess = pa[0]?.page_access;
     } catch(e) {}
     rows[0].page_access = parsePageAccess(rawAccess, rows[0].role);
+    // Salesman profit center: a salesman with a salary set sees his own row on
+    // the Gross Profit page; pl_viewer (Vishal / Ajay) sees all and sets salaries.
+    try {
+      rows[0].pl_viewer = (await plViewerIds()).includes(Number(req.session.userId));
+      const [[sp]] = await withPlTables(() => db.query('SELECT user_id FROM salesman_profiles WHERE user_id=?', [req.session.userId]));
+      rows[0].sales_profile = !!sp;
+    } catch (e) { rows[0].pl_viewer = false; rows[0].sales_profile = false; }
     res.json(rows[0]);
   } catch (err) { sendServerError(res, err); }
 });
@@ -9667,9 +9674,13 @@ function plSalaryFor(u, profile, start, end, today, ctx) {
 async function buildSalesmanPl(start, end, onlyUserId) {
   await withPlTables(() => Promise.resolve());
   const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+  // Salary is only counted from the day attendance started in the app — earlier
+  // days have no punches, and would otherwise all show up as absent.
+  const [[{ first }]] = await withAttendanceTables(() => db.query("SELECT DATE_FORMAT(MIN(date),'%Y-%m-%d') AS first FROM attendance"));
+  const salaryFrom = first && first > start ? first : start;
   const [profiles] = await db.query(`SELECT p.*, u.name, u.department, u.week_off, u.extra_off, u.id
     FROM salesman_profiles p JOIN users u ON u.id=p.user_id WHERE u.is_active=1${onlyUserId ? ' AND u.id=?' : ''} ORDER BY u.name`, onlyUserId ? [onlyUserId] : []);
-  if (!profiles.length && onlyUserId) return { rows: [], unassigned: [], today };
+  if (!profiles.length && onlyUserId) return { rows: [], unassigned: [], today, salaryFrom };
   const ids = profiles.length ? profiles.map(p => p.id) : [0];
   const [[att], [leaves], [kms], [tours], hol] = await withAttendanceTables(() => Promise.all([
     db.query("SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d FROM attendance WHERE time_in IS NOT NULL AND date BETWEEN ? AND ? AND user_id IN (?)", [start, end, ids]),
@@ -9699,7 +9710,7 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   });
 
   const rows = profiles.map(p => {
-    const sal = plSalaryFor(p, p, start, end, today, ctx);
+    const sal = plSalaryFor(p, p, salaryFrom, end, today, ctx);
     const km = kmBy[p.id] || { km: 0, days: 0 };
     const kmRate = Number(p.km_rate) || 0;
     const petrol = plRound(km.km * kmRate);
@@ -9718,7 +9729,7 @@ async function buildSalesmanPl(start, end, onlyUserId) {
       expense: plRound(expense), net: plRound(net), netPct: so.sales ? plRound(net * 100 / so.sales) : null
     };
   }).sort((a, b) => b.net - a.net);
-  return { rows, today, unassigned: onlyUserId ? [] : Object.entries(unassigned).map(([name, amt]) => ({ name, sales: plRound(amt) })).sort((a, b) => b.sales - a.sales) };
+  return { rows, today, salaryFrom, unassigned: onlyUserId ? [] : Object.entries(unassigned).map(([name, amt]) => ({ name, sales: plRound(amt) })).sort((a, b) => b.sales - a.sales) };
 }
 
 // Who may see what — drives the Attendance page tabs.
