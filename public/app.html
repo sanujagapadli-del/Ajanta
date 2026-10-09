@@ -183,6 +183,20 @@ body{font-family:'Inter',sans-serif;background:var(--app-bg);color:var(--gray-90
   opacity:0;transition:opacity .22s;
 }
 .sidebar:hover .nav-section-label{opacity:1 !important;}
+/* Sidebar categories (client, 2026-10-09: "category bano and usme slider") —
+   a header per group that slides its items open / shut. */
+.nav-group{margin-top:4px;}
+.nav-group-head{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:var(--radius-md);cursor:pointer;user-select:none;
+  font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sidebar-section-label);white-space:nowrap;overflow:hidden;
+  border-top:1px solid var(--sidebar-border);transition:background .14s,color .14s;}
+.nav-group-head:hover{background:rgba(255,255,255,.06);color:var(--sidebar-text);}
+.nav-group-head svg{width:18px;height:18px;flex-shrink:0;color:var(--sidebar-section-label);}
+.nav-group-head .nav-chev{width:14px;height:14px;margin-left:auto;opacity:0;transition:transform .22s,opacity .22s;}
+.sidebar:hover .nav-group-head .nav-chev,.sidebar.mobile-open .nav-group-head .nav-chev{opacity:1;}
+.nav-group.collapsed .nav-chev{transform:rotate(-90deg);}
+.nav-group.has-active .nav-group-head svg:first-child{color:var(--sidebar-accent-bar);}
+.nav-group-items{overflow:hidden;max-height:900px;transition:max-height .28s ease;}
+.nav-group.collapsed .nav-group-items{max-height:0;}
 
 .sidebar-user{
   padding:13px;border-top:1px solid var(--sidebar-border);
@@ -971,84 +985,110 @@ tbody tr:last-child td{border-bottom:none;}
       <span id="approvalBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
       <span id="transferBadge" style="display:none;position:absolute;top:6px;right:26px;background:var(--color-purple);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
     </div>
-    <div class="nav-item" id="nav-attendance" onclick="navigate('attendance',this)" style="position:relative">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 7v5l3 3"/></svg>
-      <span class="nav-label-text">Attendance</span>
+    <div class="nav-group" data-group="hr">
+      <div class="nav-group-head" onclick="toggleNavGroup('hr')" title="HR & Attendance">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.36-1.86M17 20H7m10 0v-2c0-.66-.13-1.28-.36-1.86M7 20H2v-2a3 3 0 015.36-1.86M7 20v-2c0-.66.13-1.28.36-1.86m0 0a5 5 0 019.28 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span class="nav-label-text">HR & Attendance</span><svg class="nav-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="nav-group-items">
+      <div class="nav-item" id="nav-attendance" onclick="navigate('attendance',this)" style="position:relative">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 7v5l3 3"/></svg>
+        <span class="nav-label-text">Attendance</span>
+      </div>
+      <div class="nav-item" id="nav-leave" onclick="navigate('leave',this)" style="position:relative">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 21V11M12 11c-4 0-7-2.5-8-6 3.5-.5 6.5 1 8 6zm0 0c4 0 7-2.5 8-6-3.5-.5-6.5 1-8 6z"/></svg>
+        <span class="nav-label-text">Leave</span>
+        <span id="leaveBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
+      </div>
+      <div class="nav-item" id="nav-km" onclick="navigate('km',this)" style="position:relative">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3L4 21M16 3l4 18M12 5v2M12 11v2M12 17v2"/></svg>
+        <span class="nav-label-text">Kilometer</span>
+      </div>
+      <div class="nav-item" id="nav-tour" style="display:none" onclick="navigate('tour',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="2" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+        <span class="nav-label-text">Tour Expense</span>
+      </div>
+      <div class="nav-item" id="nav-employees" style="display:none" onclick="navigate('employees',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" stroke-width="2"/><circle cx="9" cy="10" r="2.5" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M5.5 16.5c.6-1.6 1.9-2.5 3.5-2.5s2.9.9 3.5 2.5M14 9h4M14 13h4"/></svg>
+        <span class="nav-label-text">Employees</span>
+      </div>
+      <div class="nav-item" id="nav-users" style="display:none" onclick="navigate('users',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+        <span class="nav-label-text">Users</span>
+      </div>
+      <div class="nav-item" id="nav-records" style="display:none" onclick="navigate('records',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+        <span class="nav-label-text">Records</span>
+      </div>
+      </div>
     </div>
-    <div class="nav-item" id="nav-leave" onclick="navigate('leave',this)" style="position:relative">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 21V11M12 11c-4 0-7-2.5-8-6 3.5-.5 6.5 1 8 6zm0 0c4 0 7-2.5 8-6-3.5-.5-6.5 1-8 6z"/></svg>
-      <span class="nav-label-text">Leave</span>
-      <span id="leaveBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
+    <div class="nav-group" data-group="sales">
+      <div class="nav-group-head" onclick="toggleNavGroup('sales')" title="Sales & Dealers">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg><span class="nav-label-text">Sales & Dealers</span><svg class="nav-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="nav-group-items">
+      <div class="nav-item" id="nav-o2d-fms" style="display:none" onclick="navigate('o2d-fms',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-1.5 5.5a2 2 0 01-1.94 1.5H7.44a2 2 0 01-1.94-1.5L4 13m16 0H4"/></svg>
+        <span class="nav-label-text">O2D FMS</span>
+      </div>
+      <div class="nav-item" id="nav-o2d-new-order" style="display:none" onclick="openNewO2dOrderModal()">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        <span class="nav-label-text">New Order</span>
+      </div>
+      <div class="nav-item" id="nav-lead-fms" style="display:none" onclick="navigate('lead-fms',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
+        <span class="nav-label-text">Lead FMS</span>
+      </div>
+      <div class="nav-item" id="nav-dealers" style="display:none" onclick="navigate('dealers',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <span class="nav-label-text">Dealer Master</span>
+      </div>
+      <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+        <span class="nav-label-text">Price List & Catalogue</span>
+      </div>
+      </div>
     </div>
-    <div class="nav-item" id="nav-km" onclick="navigate('km',this)" style="position:relative">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3L4 21M16 3l4 18M12 5v2M12 11v2M12 17v2"/></svg>
-      <span class="nav-label-text">Kilometer</span>
+    <div class="nav-group" data-group="ops">
+      <div class="nav-group-head" onclick="toggleNavGroup('ops')" title="Operations FMS">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.3 4.3c.4-1.8 3-1.8 3.4 0a1.7 1.7 0 002.6 1.1c1.5-.9 3.3.8 2.4 2.4a1.7 1.7 0 001 2.5c1.8.4 1.8 3 0 3.4a1.7 1.7 0 00-1 2.6c.9 1.5-.9 3.3-2.4 2.4a1.7 1.7 0 00-2.6 1c-.4 1.8-3 1.8-3.4 0a1.7 1.7 0 00-2.5-1c-1.6.9-3.3-.9-2.4-2.4a1.7 1.7 0 00-1.1-2.6c-1.8-.4-1.8-3 0-3.4a1.7 1.7 0 001.1-2.5c-.9-1.6.8-3.3 2.4-2.4 1 .6 2.3.1 2.5-1.1z"/><circle cx="12" cy="12" r="3" stroke-width="2"/></svg><span class="nav-label-text">Operations FMS</span><svg class="nav-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="nav-group-items">
+      <div class="nav-item" id="nav-service-fms" style="display:none" onclick="navigate('service-fms',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/></svg>
+        <span class="nav-label-text">Service FMS</span>
+      </div>
+      <div class="nav-item" id="nav-purchase-fms" style="display:none" onclick="navigate('purchase-fms',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 11H4L5 9z"/></svg>
+        <span class="nav-label-text">Purchase FMS</span>
+      </div>
+      <div class="nav-item" id="nav-cheque-fms" style="display:none" onclick="navigate('cheque-fms',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18v10H3zM7 11h6M7 14h3M16 13h2"/></svg>
+        <span class="nav-label-text">Cheque FMS</span>
+      </div>
+      <div class="nav-item" id="nav-replacement-fms" style="display:none" onclick="navigate('replacement-fms',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2.5M18.4 9A7 7 0 006.5 6.5"/></svg>
+        <span class="nav-label-text">Replacement FMS</span>
+      </div>
+      <div class="nav-item" id="nav-stock" style="display:none" onclick="navigate('stock',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span class="nav-label-text">Stock</span>
+      </div>
+      </div>
     </div>
-    <div class="nav-item" id="nav-tour" style="display:none" onclick="navigate('tour',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="2" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
-      <span class="nav-label-text">Tour Expense</span>
-    </div>
-    <div class="nav-section-label">Management</div>
-    <div class="nav-item" id="nav-employees" style="display:none" onclick="navigate('employees',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" stroke-width="2"/><circle cx="9" cy="10" r="2.5" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M5.5 16.5c.6-1.6 1.9-2.5 3.5-2.5s2.9.9 3.5 2.5M14 9h4M14 13h4"/></svg>
-      <span class="nav-label-text">Employees</span>
-    </div>
-    <div class="nav-item" id="nav-users" style="display:none" onclick="navigate('users',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-      <span class="nav-label-text">Users</span>
-    </div>
-    <div class="nav-item" id="nav-mis" style="display:none" onclick="navigate('mis',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-      <span class="nav-label-text">MIS Report</span>
-    </div>
-    <div class="nav-item" id="nav-gross-profit" style="display:none" onclick="navigate('gross-profit',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 17l6-6 4 4 8-8M14 7h7v7"/></svg>
-      <span class="nav-label-text">Gross Profit</span>
-    </div>
-    <div class="nav-item" id="nav-records" style="display:none" onclick="navigate('records',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
-      <span class="nav-label-text">Records</span>
-    </div>
-    <div class="nav-section-label" id="nav-section-fms" style="display:none">FMS</div>
-    <div class="nav-item" id="nav-service-fms" style="display:none" onclick="navigate('service-fms',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/></svg>
-      <span class="nav-label-text">Service FMS</span>
-    </div>
-    <div class="nav-item" id="nav-o2d-fms" style="display:none" onclick="navigate('o2d-fms',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-1.5 5.5a2 2 0 01-1.94 1.5H7.44a2 2 0 01-1.94-1.5L4 13m16 0H4"/></svg>
-      <span class="nav-label-text">O2D FMS</span>
-    </div>
-    <div class="nav-item" id="nav-o2d-new-order" style="display:none" onclick="openNewO2dOrderModal()">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-      <span class="nav-label-text">New Order</span>
-    </div>
-    <div class="nav-item" id="nav-purchase-fms" style="display:none" onclick="navigate('purchase-fms',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 11H4L5 9z"/></svg>
-      <span class="nav-label-text">Purchase FMS</span>
-    </div>
-    <div class="nav-item" id="nav-cheque-fms" style="display:none" onclick="navigate('cheque-fms',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18v10H3zM7 11h6M7 14h3M16 13h2"/></svg>
-      <span class="nav-label-text">Cheque FMS</span>
-    </div>
-    <div class="nav-item" id="nav-lead-fms" style="display:none" onclick="navigate('lead-fms',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
-      <span class="nav-label-text">Lead FMS</span>
-    </div>
-    <div class="nav-item" id="nav-dealers" style="display:none" onclick="navigate('dealers',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg>
-      <span class="nav-label-text">Dealer Master</span>
-    </div>
-    <div class="nav-item" id="nav-replacement-fms" style="display:none" onclick="navigate('replacement-fms',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2.5M18.4 9A7 7 0 006.5 6.5"/></svg>
-      <span class="nav-label-text">Replacement FMS</span>
-    </div>
-    <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
-      <span class="nav-label-text">Price List & Catalogue</span>
-    </div>
-    <div class="nav-item" id="nav-stock" style="display:none" onclick="navigate('stock',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-      <span class="nav-label-text">Stock</span>
+    <div class="nav-group" data-group="reports">
+      <div class="nav-group-head" onclick="toggleNavGroup('reports')" title="Reports">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6m3 6V7m3 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="nav-label-text">Reports</span><svg class="nav-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="nav-group-items">
+      <div class="nav-item" id="nav-mis" style="display:none" onclick="navigate('mis',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span class="nav-label-text">MIS Report</span>
+      </div>
+      <div class="nav-item" id="nav-gross-profit" style="display:none" onclick="navigate('gross-profit',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 17l6-6 4 4 8-8M14 7h7v7"/></svg>
+        <span class="nav-label-text">Gross Profit</span>
+      </div>
+      </div>
     </div>
     <div class="nav-divider"></div>
     <div class="nav-item" onclick="navigate('profile',this)">
@@ -3916,7 +3956,6 @@ async function init() {
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
-    if (canSee('service-fms') || canSee('o2d-fms') || canSee('o2d-new-order') || canSee('purchase-fms') || canSee('cheque-fms') || canSee('replacement-fms') || canSee('lead-fms') || canSee('price-catalogue') || canSee('stock')) document.getElementById('nav-section-fms').style.display = 'block';
     if (ME.role === 'admin') {
       document.getElementById('bulkDeleteBtn').style.display = 'inline-flex';
       document.getElementById('o2dStepDoersBtn').style.display = 'inline-flex';
@@ -3930,6 +3969,7 @@ async function init() {
     // if (ME.role === 'pc')  { nav-fms-tasks, nav-records }
     setMinDates();
     setupBottomNav();
+    refreshNavGroups();
     loadPlAccess(); // shows the Tour Expense nav item for users who have it
     // Refresh pe last visited page restore karo
     const savedPage = localStorage.getItem('lastPage');
@@ -4052,6 +4092,7 @@ function navigate(page, el) {
   document.querySelectorAll('.bn-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+basePage).classList.add('active');
   if (el) el.classList.add('active');
+  markNavGroup(el || document.getElementById('nav-' + page));
   const bnMatch = document.querySelector(`.bn-item[data-page="${page}"]`);
   if (bnMatch) bnMatch.classList.add('active');
   syncBottomNavMoreActive();
@@ -4078,6 +4119,34 @@ function navigate(page, el) {
   if (page==='stock') loadStockPage();
   localStorage.setItem('lastPage', page);
   window.scrollTo(0,0);
+}
+// ── Sidebar categories: open / shut a group; remembered per browser. ──
+function navGroupState() { try { return JSON.parse(localStorage.getItem('navGroupsOpen') || 'null'); } catch (e) { return null; } }
+function toggleNavGroup(key, open) {
+  const g = document.querySelector(`.nav-group[data-group="${key}"]`);
+  if (!g) return;
+  const willOpen = open == null ? g.classList.contains('collapsed') : open;
+  g.classList.toggle('collapsed', !willOpen);
+  const st = navGroupState() || {};
+  st[key] = willOpen;
+  try { localStorage.setItem('navGroupsOpen', JSON.stringify(st)); } catch (e) {}
+}
+// Hide a group the user has no page in; first visit: only the current page's group is open.
+function refreshNavGroups() {
+  const st = navGroupState();
+  document.querySelectorAll('.nav-group').forEach(g => {
+    const any = [...g.querySelectorAll('.nav-item')].some(n => n.style.display !== 'none');
+    g.style.display = any ? '' : 'none';
+    const open = st && g.dataset.group in st ? st[g.dataset.group] : g.classList.contains('has-active');
+    g.classList.toggle('collapsed', !open);
+  });
+}
+function markNavGroup(navEl) {
+  document.querySelectorAll('.nav-group').forEach(g => g.classList.remove('has-active'));
+  const g = navEl && navEl.closest('.nav-group');
+  if (!g) return;
+  g.classList.add('has-active');
+  if (g.classList.contains('collapsed')) toggleNavGroup(g.dataset.group, true);
 }
 function setupBottomNav() {
   const isAdmin = ME && ME.role === 'admin';
@@ -6246,6 +6315,7 @@ async function loadPlAccess() {
   document.getElementById('nav-tour').style.display = _plAccess.tour ? 'flex' : 'none';
   const bnTour = document.getElementById('bnTour');
   if (bnTour) { bnTour.style.display = _plAccess.tour ? '' : 'none'; arrangeBottomNavMore(); }
+  refreshNavGroups();
   document.getElementById('tourEmpWrap').style.display = _plAccess.viewer ? '' : 'none';
   document.getElementById('tourStatusWrap').style.display = _plAccess.viewer ? '' : 'none';
   if (_plAccess.viewer) populateEmployeeDropdown('tourEmpFilter');
