@@ -974,7 +974,19 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="nav-item" id="nav-attendance" onclick="navigate('attendance',this)" style="position:relative">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 7v5l3 3"/></svg>
       <span class="nav-label-text">Attendance</span>
+    </div>
+    <div class="nav-item" id="nav-leave" onclick="navigate('leave',this)" style="position:relative">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 21V11M12 11c-4 0-7-2.5-8-6 3.5-.5 6.5 1 8 6zm0 0c4 0 7-2.5 8-6-3.5-.5-6.5 1-8 6z"/></svg>
+      <span class="nav-label-text">Leave</span>
       <span id="leaveBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
+    </div>
+    <div class="nav-item" id="nav-km" onclick="navigate('km',this)" style="position:relative">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3L4 21M16 3l4 18M12 5v2M12 11v2M12 17v2"/></svg>
+      <span class="nav-label-text">Kilometer</span>
+    </div>
+    <div class="nav-item" id="nav-tour" style="display:none" onclick="navigate('tour',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="2" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+      <span class="nav-label-text">Tour Expense</span>
     </div>
     <div class="nav-section-label">Management</div>
     <div class="nav-item" id="nav-employees" style="display:none" onclick="navigate('employees',this)">
@@ -1022,7 +1034,11 @@ tbody tr:last-child td{border-bottom:none;}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
       <span class="nav-label-text">Lead FMS</span>
     </div>
-    <div class="nav-item" id="nav-dealer-onboarding" style="display:none" onclick="closeMobileSidebar();openDealerOnboardModal()">
+    <div class="nav-item" id="nav-dealers" style="display:none" onclick="navigate('dealers',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg>
+      <span class="nav-label-text">Dealer Master</span>
+    </div>
+    <div class="nav-item" id="nav-dealer-onboarding" style="display:none" onclick="navigate('dealer-onboarding',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9l1.5-5h15L21 9M3 9h18M3 9v11h18V9M9 20v-6h6v6"/></svg>
       <span class="nav-label-text">Dealer Onboarding</span>
     </div>
@@ -1101,7 +1117,11 @@ tbody tr:last-child td{border-bottom:none;}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
     <span>Leads</span>
   </div>
-  <div class="bn-item" data-page="dealer-onboarding" onclick="toggleBottomNavMore(false);openDealerOnboardModal()" id="bnOnboard" style="display:none">
+  <div class="bn-item" data-page="dealers" onclick="navigate('dealers',null)" id="bnDealers" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    <span>Dealers</span>
+  </div>
+  <div class="bn-item" data-page="dealer-onboarding" onclick="navigate('dealer-onboarding',null)" id="bnOnboard" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9M3 9h18M3 9v11h18V9M9 20v-6h6v6"/></svg>
     <span>New Dealer</span>
   </div>
@@ -1121,6 +1141,18 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="attendance" onclick="navigate('attendance',null)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
     <span>Attendance</span>
+  </div>
+  <div class="bn-item" data-page="leave" onclick="navigate('leave',null)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V11M12 11c-4 0-7-2.5-8-6 3.5-.5 6.5 1 8 6zm0 0c4 0 7-2.5 8-6-3.5-.5-6.5 1-8 6z"/></svg>
+    <span>Leave</span>
+  </div>
+  <div class="bn-item" data-page="km" onclick="navigate('km',null)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3L4 21M16 3l4 18M12 5v2M12 11v2M12 17v2"/></svg>
+    <span>KM</span>
+  </div>
+  <div class="bn-item" data-page="tour" onclick="navigate('tour',null)" id="bnTour" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+    <span>Tour</span>
   </div>
   <div class="bn-item" data-page="users" onclick="navigate('users',null)" id="bnUsers" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1449,7 +1481,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── ATTENDANCE & LEAVE ── -->
   <div id="page-attendance" class="page">
 
-    <div id="attnTabsWrap" style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px;flex-wrap:wrap">
+    <div id="attnTabsWrap" style="display:none;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px;flex-wrap:wrap">
       <div class="tab active" id="attnTabAttendance" onclick="switchAttendanceTab('attendance',this)">🕒 Attendance</div>
       <div class="tab" id="attnTabLeave" onclick="switchAttendanceTab('leave',this)" style="position:relative">🌴 Leave<span id="attnLeaveTabBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:var(--color-danger);color:#fff;border-radius:50%;min-width:16px;height:16px;padding:0 3px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span></div>
       <div class="tab" id="attnTabKm" onclick="switchAttendanceTab('km',this)">🛣️ Kilometer</div>
@@ -1694,7 +1726,6 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab active" id="o2dViewFms" onclick="switchO2dView('fms',this)">FMS View</div>
         <div class="tab" id="o2dViewPC" onclick="switchO2dView('pc',this)">PC View</div>
         <div class="tab" id="o2dViewReports" onclick="switchO2dView('reports',this)">📊 Reports</div>
-        <div class="tab" id="o2dViewDealers" onclick="switchO2dView('dealers',this)">🏪 Dealers</div>
         <div class="tab" id="o2dViewBillsReceivable" onclick="switchO2dView('bills',this)">💰 Bills Receivable</div>
       </div>
     </div>
@@ -1704,6 +1735,26 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div id="o2dListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── DEALER MASTER (was O2D → Dealers) ── -->
+  <div id="page-dealers" class="page">
+    <div id="dealerPageWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── DEALER ONBOARDING (forms filled for new dealers) ── -->
+  <div id="page-dealer-onboarding" class="page">
+    <div class="page-header">
+      <button class="btn btn-green" onclick="openDealerOnboardModal()">+ New Dealer Onboarding</button>
+    </div>
+    <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:12px 16px;margin-bottom:16px">
+      <input type="text" id="onbListSearch" oninput="renderDealerOnboardingList()" placeholder="🔍 Search dukaan, malik, mobile, city, salesman…" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface);color:var(--gray-900)"/>
+    </div>
+    <div id="onbListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty">Loading…</div>
     </div>
   </div>
@@ -3882,6 +3933,7 @@ async function init() {
     if (canSee('cheque-fms')) document.getElementById('nav-cheque-fms').style.display = 'flex';
     if (canSee('replacement-fms')) document.getElementById('nav-replacement-fms').style.display = 'flex';
     if (canSee('lead-fms')) document.getElementById('nav-lead-fms').style.display = 'flex';
+    if (canSee('o2d-fms')) document.getElementById('nav-dealers').style.display = 'flex';
     if (canSee('lead-fms') || canSee('o2d-fms')) document.getElementById('nav-dealer-onboarding').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
@@ -3900,11 +3952,14 @@ async function init() {
     // if (ME.role === 'pc')  { nav-fms-tasks, nav-records }
     setMinDates();
     setupBottomNav();
+    loadPlAccess(); // shows the Tour Expense nav item for users who have it
     // Refresh pe last visited page restore karo
     const savedPage = localStorage.getItem('lastPage');
     const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
-    const savedPageBlocked = ME.role !== 'admin' && ['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','stock'].includes(savedPage) && !MY_PAGES.has(savedPage);
-    if (savedPage && document.getElementById('page-' + savedPage) && savedNavEl && !savedPageBlocked) {
+    const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
+      || (savedPage === 'dealers' && !MY_PAGES.has('o2d-fms')) || (savedPage === 'dealer-onboarding' && !MY_PAGES.has('o2d-fms') && !MY_PAGES.has('lead-fms')));
+    const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || document.getElementById('page-' + savedPage));
+    if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
       loadDashboard();
@@ -3991,7 +4046,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance & Leave',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master','dealer-onboarding':'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4002,16 +4057,22 @@ function closeMobileSidebar() {
   document.getElementById('sidebarBackdrop').classList.remove('active');
 }
 
+// Leave / Kilometer / Tour Expense are separate sidebar pages (client,
+// 2026-10-09) but live as panels inside #page-attendance.
+const ATTN_SUB_PAGES = ['leave', 'km', 'tour'];
 function navigate(page, el) {
-  if (ME && ME.role !== 'admin' && ['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page)) {
+  const noAccess = ME && ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page))
+    || (page === 'dealers' && !MY_PAGES.has('o2d-fms')) || (page === 'dealer-onboarding' && !MY_PAGES.has('o2d-fms') && !MY_PAGES.has('lead-fms')));
+  if (noAccess) {
     showToast("You don't have access to this page", 'error');
     return;
   }
+  const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.bn-item').forEach(n=>n.classList.remove('active'));
-  document.getElementById('page-'+page).classList.add('active');
+  document.getElementById('page-'+basePage).classList.add('active');
   if (el) el.classList.add('active');
   const bnMatch = document.querySelector(`.bn-item[data-page="${page}"]`);
   if (bnMatch) bnMatch.classList.add('active');
@@ -4021,7 +4082,9 @@ function navigate(page, el) {
   if (page==='alltasks') loadAllTasks();
   if (page==='users') loadUsers();
   if (page==='approvals') loadApprovals();
-  if (page==='attendance') loadAttendancePage();
+  if (basePage==='attendance') { attnView = basePage === page ? 'attendance' : page; loadAttendancePage(); }
+  if (page==='dealers') loadDealersPage();
+  if (page==='dealer-onboarding') loadDealerOnboardingPage();
   if (page==='fms') loadFMSAdmin();
   if (page==='fms-tasks') loadFMSTasks();
   if (page==='mis') { initMISDeptFilter(); if (!taData) generateMIS(); } // MIS Report builds itself on first open
@@ -4062,6 +4125,8 @@ function setupBottomNav() {
   if (bnLead && canSee('lead-fms')) bnLead.style.display = '';
   const bnOnboard = document.getElementById('bnOnboard');
   if (bnOnboard && (canSee('lead-fms') || canSee('o2d-fms'))) bnOnboard.style.display = '';
+  const bnDealers = document.getElementById('bnDealers');
+  if (bnDealers && canSee('o2d-fms')) bnDealers.style.display = '';
   const bnGp = document.getElementById('bnGp');
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
   const bnEmp = document.getElementById('bnEmp');
@@ -6203,6 +6268,9 @@ async function loadPlAccess() {
   const r = await api('/api/salesman-pl/access').catch(() => null);
   _plAccess = r && !r.error ? r : { viewer: false, hasProfile: false, tour: false, modes: [] };
   document.getElementById('attnTabTour').style.display = _plAccess.tour ? '' : 'none';
+  document.getElementById('nav-tour').style.display = _plAccess.tour ? 'flex' : 'none';
+  const bnTour = document.getElementById('bnTour');
+  if (bnTour) { bnTour.style.display = _plAccess.tour ? '' : 'none'; arrangeBottomNavMore(); }
   document.getElementById('tourEmpWrap').style.display = _plAccess.viewer ? '' : 'none';
   document.getElementById('tourStatusWrap').style.display = _plAccess.viewer ? '' : 'none';
   if (_plAccess.viewer) populateEmployeeDropdown('tourEmpFilter');
@@ -7000,7 +7068,7 @@ function deleteEmployeeDoc(id) {
   });
 }
 
-function loadAttendancePage() {
+async function loadAttendancePage() {
   const isAdmin = ME.role === 'admin';
   ['attnEmpWrap', 'attnLeaveEmpWrap', 'attnLeaveStatusWrap', 'attnKmEmpWrap', 'attnAlertWrap'].forEach(id => {
     const el = document.getElementById(id);
@@ -7011,7 +7079,7 @@ function loadAttendancePage() {
     populateEmployeeDropdown('attnLeaveEmpFilter');
     populateEmployeeDropdown('attnKmEmpFilter');
   }
-  loadPlAccess();
+  if (attnView === 'tour' || !_plAccess) await loadPlAccess(); else loadPlAccess();
   if (attnView === 'tour' && !(_plAccess && _plAccess.tour)) attnView = 'attendance';
   switchAttendanceTab(attnView, document.getElementById('attnTab' + attnView[0].toUpperCase() + attnView.slice(1)));
 }
@@ -11526,7 +11594,6 @@ function switchO2dView(view, el) {
 function renderO2dActiveView() {
   if (o2dView === 'fms') return renderO2dFmsView();
   if (o2dView === 'pc') return renderO2dPCView();
-  if (o2dView === 'dealers') return renderO2dDealersView();
   if (o2dView === 'bills') return renderBillsReceivableView();
   return renderO2dReportsView();
 }
@@ -12107,9 +12174,10 @@ async function loadO2dDealers(force) {
   o2dDealersLoaded = true;
 }
 
-async function renderO2dDealersView() {
-  const wrap = document.getElementById('o2dListWrap');
-  wrap.innerHTML = `<div class="empty">Loading dealers…</div>`;
+// ── Dealer Master page (client, 2026-10-09: "sab page ke alag tabs") ──
+async function loadDealersPage() {
+  const wrap = document.getElementById('dealerPageWrap');
+  if (!o2dDealersLoaded) wrap.innerHTML = `<div class="empty">Loading dealers…</div>`;
   await loadO2dDealers(false);
   renderDealerGrid();
 }
@@ -12150,7 +12218,7 @@ function o2dDealerGoToPage(p) { o2dDealerPage = p; renderDealerGridResults(); }
 // table, and/or the New Order modal's step-1 profile preview (both can be
 // open-ish/cached at once since KYC/location/payment modals nest on top).
 function refreshDealerViews() {
-  if (document.getElementById('o2dListWrap') && o2dView === 'dealers') renderDealerGrid();
+  if (document.getElementById('page-dealers').classList.contains('active')) renderDealerGrid();
   if (document.getElementById('newO2dOrderModal').classList.contains('open')
       && document.getElementById('noStep1').style.display !== 'none') {
     onO2dCounterNameInput();
@@ -12165,7 +12233,7 @@ function refreshDealerViews() {
 // node on every character, kicking focus out and forcing a re-click just
 // to type the next letter.
 function renderDealerGrid() {
-  const wrap = document.getElementById('o2dListWrap');
+  const wrap = document.getElementById('dealerPageWrap');
   wrap.innerHTML = `
     <div style="padding:16px">
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
@@ -16510,9 +16578,41 @@ async function submitDealerOnboarding() {
   showToast(`✅ ${r.code} — ${body.shopName} onboarded (O2D → Dealers)${r.welcome === 'sent' ? ' · welcome kit WhatsApp par ja raha hai' : ''}`);
   if (document.getElementById('page-lead-fms').classList.contains('active')) loadLeadFmsList();
   if (o2dDealersLoaded) { await loadO2dDealers(true); refreshDealerViews(); }
+  if (document.getElementById('page-dealer-onboarding').classList.contains('active')) loadDealerOnboardingPage();
 }
 
-// Opened from O2D → Dealers (the one dealer list).
+// ── Dealer Onboarding page: every onboarding form filled so far ──
+let onbList = [];
+async function loadDealerOnboardingPage() {
+  const wrap = document.getElementById('onbListWrap');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api('/api/dealer-onboarding');
+  if (!r || r.error || !Array.isArray(r.items)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed to load')}</div>`; return; }
+  onbList = r.items;
+  renderDealerOnboardingList();
+}
+function renderDealerOnboardingList() {
+  const wrap = document.getElementById('onbListWrap');
+  const q = (document.getElementById('onbListSearch').value || '').trim().toLowerCase();
+  const rows = onbList.filter(o => !q || [o.code, o.shopName, o.ownerName, o.mobile, o.city, o.area, o.salesmanName].some(v => String(v || '').toLowerCase().includes(q)));
+  if (!rows.length) { wrap.innerHTML = `<div class="empty">${onbList.length ? 'Kuch nahi mila.' : 'Abhi tak koi dealer onboard nahi hua. "+ New Dealer Onboarding" se form bharein.'}</div>`; return; }
+  wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
+    <thead><tr><th>Code</th><th>Date</th><th>Dukaan</th><th>Malik</th><th>Mobile</th><th>Area / City</th><th>GST</th><th>Salesman</th><th>Welcome kit</th></tr></thead>
+    <tbody>${rows.map(o => `<tr onclick="openOnboardDetail(${o.id})" style="cursor:pointer">
+      <td style="font-weight:700">${esc(o.code)}</td>
+      <td>${esc(fmtDateDMY(o.createdAt || ''))}</td>
+      <td style="white-space:normal;min-width:140px"><b>${esc(o.shopName)}</b></td>
+      <td>${esc(o.ownerName)}</td>
+      <td>${esc(o.mobile)}</td>
+      <td>${esc([o.area, o.city].filter(Boolean).join(', ') || '—')}</td>
+      <td>${esc(o.gstNo || '—')}</td>
+      <td>${esc(o.salesmanName || o.createdByName || '—')}</td>
+      <td>${o.welcomeSentAt ? '✅ Sent' : '<span style="color:var(--gray-400)">—</span>'}</td>
+    </tr>`).join('')}</tbody></table>
+    <div style="padding:10px 16px;font-size:12px;color:var(--gray-400)">${rows.length} dealer${rows.length === 1 ? '' : 's'}</div>`;
+}
+
+// Opened from Dealer Master / Dealer Onboarding.
 async function openOnboardDetail(id) {
   const o = await api(`/api/dealer-onboarding/${id}`);
   if (!o || o.error) { showToast((o && o.error) || 'Not found', 'error'); return; }
