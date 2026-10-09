@@ -3985,15 +3985,27 @@ async function init() {
     loadApprovalBadge();
     loadTransferBadge();
     loadLeaveBadge();
-    // Refresh badges every 30 seconds
-    setInterval(loadApprovalBadge, 30000);
-    setInterval(loadTransferBadge, 30000);
-    setInterval(loadLeaveBadge, 30000);
-    // Auto-refresh dashboard stats every 30 seconds while it's the visible page
+    // Background refresh — only while the tab is actually on screen. Every
+    // dashboard load reads several FMS sheets on the server, and office PCs
+    // keep the app open all day; polling every 30s used up Vercel's monthly
+    // CPU allowance and the site was paused (2026-10-09).
+    const BADGE_EVERY_MS = 2 * 60 * 1000, DASH_EVERY_MS = 5 * 60 * 1000;
+    let lastBadges = Date.now(), lastDash = Date.now();
+    const tabVisible = () => document.visibilityState === 'visible';
+    const dashShown = () => { const p = document.getElementById('page-dashboard'); return p && p.classList.contains('active'); };
+    const refreshBadges = () => { lastBadges = Date.now(); loadApprovalBadge(); loadTransferBadge(); loadLeaveBadge(); };
+    const refreshDash = () => { lastDash = Date.now(); loadDashboard(); };
     setInterval(() => {
-      const dashPage = document.getElementById('page-dashboard');
-      if (dashPage && dashPage.classList.contains('active')) loadDashboard();
+      if (!tabVisible()) return;
+      if (Date.now() - lastBadges >= BADGE_EVERY_MS) refreshBadges();
+      if (dashShown() && Date.now() - lastDash >= DASH_EVERY_MS) refreshDash();
     }, 30000);
+    // Coming back to the tab: catch up at once if the data is stale.
+    document.addEventListener('visibilitychange', () => {
+      if (!tabVisible()) return;
+      if (Date.now() - lastBadges >= BADGE_EVERY_MS) refreshBadges();
+      if (dashShown() && Date.now() - lastDash >= DASH_EVERY_MS) refreshDash();
+    });
   } catch(e) { console.error('Init error:', e); window.location.replace('/'); }
 }
 
