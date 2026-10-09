@@ -5787,12 +5787,24 @@ async function ensureDealerTables() {
 
 async function withDealerTables(fn) {
   try {
+    if (!_dealerDetailColsOk) await ensureDealerDetailCols();
     return await fn();
   } catch (e) {
     if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
     await ensureDealerTables();
+    await ensureDealerDetailCols();
     return await fn();
   }
+}
+// Dealer's own details, kept up to date by the salesman on each market visit
+// (client, 2026-10-09: "jaisa employees ka banaya hai, aisa hi dealer ka" —
+// owner, date of birth, address, location…). Same one dealer list, O2D → Dealers.
+const DEALER_DETAIL_COLS = [['owner_name', 'VARCHAR(255)'], ['alt_phone', 'VARCHAR(50)'], ['area', 'VARCHAR(255)'], ['address', 'VARCHAR(1000)'],
+  ['dob', 'DATE'], ['anniversary', 'DATE'], ['gst_no', 'VARCHAR(30)'], ['notes', 'VARCHAR(1000)'], ['details_updated_by', 'INT'], ['details_updated_at', 'DATETIME']];
+let _dealerDetailColsOk = false;
+async function ensureDealerDetailCols() {
+  await addMissingColumns('o2d_dealers', DEALER_DETAIL_COLS);
+  _dealerDetailColsOk = true;
 }
 
 // Tally dates come back as "DD-Mon-YY" / "DD-Mon-YYYY" (e.g. "29-Mar-16") —
@@ -5861,7 +5873,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty, tallyRatingByParty, ledgerBalancesByParty, vouchers] = await Promise.all([
       getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
-      withDealerTables(() => db.query('SELECT * FROM o2d_dealers')).then(([r]) => r),
+      withDealerTables(() => db.query('SELECT d.*, u.name AS details_by_name FROM o2d_dealers d LEFT JOIN users u ON u.id=d.details_updated_by')).then(([r]) => r),
       withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
       getO2dOrders().catch(() => []), // dealer directory shouldn't 500 just because the orders sheet hiccups
       getBillsReceivableAgingByDealer().catch(() => ({})), // same — Tally sync sheet hiccup shouldn't break the whole page
@@ -5894,6 +5906,9 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       d.locationLng = row.location_lng !== null ? Number(row.location_lng) : null;
       d.locationAddress = row.location_address || '';
       d.kyc = { aadhar: row.kyc_aadhar_url || null, pan: row.kyc_pan_url || null, gst: row.kyc_gst_url || null, shop: row.kyc_shop_url || null };
+      d.details = { ownerName: row.owner_name || '', altPhone: row.alt_phone || '', area: row.area || '', address: row.address || '',
+        dob: row.dob || '', anniversary: row.anniversary || '', gstNo: row.gst_no || '', notes: row.notes || '',
+        updatedAt: row.details_updated_at || '', updatedBy: row.details_by_name || '' };
     });
 
     paymentRows.forEach(p => { const d = ensure(p.counter_name); if (d) d.payments.push(p); });
@@ -6019,6 +6034,31 @@ app.put('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
       // keeps the existing limit; an explicit '' / null still clears it.
       [name, city || null, phone || null, (creditLimit === '' || creditLimit === undefined || creditLimit === null) ? null : Number(creditLimit), creditLimit !== undefined ? 1 : 0]
     ));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.put('/api/o2d-fms/dealers/:name/details', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
+    const name = req.params.name.trim();
+    const b = req.body || {};
+    const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n) || null;
+    const ymd = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : null;
+    for (const k of ['dob', 'anniversary']) if (b[k] && !ymd(b[k])) return res.status(400).json({ error: 'Date galat hai' });
+    const phone = str(b.phone, 50), alt = str(b.altPhone, 50);
+    for (const p of [phone, alt]) if (p && !sfmsNormalizeMobile(p)) return res.status(400).json({ error: `Mobile number galat lag raha hai: ${p}` });
+    const lat = Number(b.locationLat), lng = Number(b.locationLng);
+    const hasLoc = b.locationLat != null && b.locationLat !== '' && isFinite(lat) && isFinite(lng) && (lat || lng);
+    const vals = [str(b.ownerName, 255), phone, alt, str(b.city, 255), str(b.area, 255), str(b.address, 1000), ymd(b.dob), ymd(b.anniversary),
+      str(b.gstNo, 30) && str(b.gstNo, 30).toUpperCase(), str(b.notes, 1000)];
+    await withDealerTables(() => db.query(
+      `INSERT INTO o2d_dealers (counter_name, owner_name, phone, alt_phone, city, area, address, dob, anniversary, gst_no, notes, details_updated_by, details_updated_at${hasLoc ? ', location_lat, location_lng' : ''})
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW()${hasLoc ? ',?,?' : ''})
+       ON DUPLICATE KEY UPDATE owner_name=VALUES(owner_name), phone=VALUES(phone), alt_phone=VALUES(alt_phone), city=VALUES(city), area=VALUES(area),
+         address=VALUES(address), dob=VALUES(dob), anniversary=VALUES(anniversary), gst_no=VALUES(gst_no), notes=VALUES(notes),
+         details_updated_by=VALUES(details_updated_by), details_updated_at=NOW()${hasLoc ? ', location_lat=VALUES(location_lat), location_lng=VALUES(location_lng)' : ''}`,
+      [name, ...vals, req.session.userId, ...(hasLoc ? [lat, lng] : [])]));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -6408,7 +6448,7 @@ async function _logStockMovement(req, res, direction) {
   if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
   const { itemCode, quantity, txnDate, remarks } = req.body;
   const qty = Number(quantity);
-  const rate = direction === 'OUT' && Number(req.body.rate) > 0 ? Number(req.body.rate) : null;
+  const rate = Number(req.body.rate) > 0 ? Number(req.body.rate) : null; // OUT sale rate / IN purchase rate
   await ensureStockTxnSchema(); // the rate column must exist before stock is moved below
   if (!itemCode || !itemCode.trim()) return res.status(400).json({ error: 'Item code is required' });
   if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'Quantity must be a positive number' });
@@ -6500,7 +6540,7 @@ async function ensureStockTxnSchema() {
     ['party', "VARCHAR(255) DEFAULT ''"],
     ['ref_no', "VARCHAR(64) DEFAULT ''"],
     ['applied', 'TINYINT NOT NULL DEFAULT 1'],
-    // Sale rate of an OUT line (O2D order rate, or typed on a manual entry) — Daily Register shows qty × rate.
+    // Rate of a line — OUT: O2D sale rate (or typed on a manual entry); IN: PO Final Rate. Daily Register shows qty × rate.
     ['rate', 'DECIMAL(12,2) DEFAULT NULL']
   ];
   for (const [name, def] of adds) {
@@ -6577,14 +6617,15 @@ async function _syncStockFromFms() {
     const received = Number(get('S'));
     const qty = received > 0 ? received : (Number(get('G')) || 0);
     if (!date || date < fromDate || qty <= 0) return;
-    events.push({ ref: `purchase|${get('B')}|${get('D') || ''}|${stockNameKey(get('E'))}`.slice(0, 191), direction: 'IN', source: 'purchase', date, qty,
+    const rate = parseFloat(String(get('H') == null ? '' : get('H')).replace(/[^\d.]/g, '')) || null; // PO Final Rate per unit
+    events.push({ ref: `purchase|${get('B')}|${get('D') || ''}|${stockNameKey(get('E'))}`.slice(0, 191), direction: 'IN', source: 'purchase', date, qty, rate,
       name: String(get('E') || ''), party: String(get('I') || ''), refNo: String(get('B') || '') });
   });
   const [existing] = await db.query('SELECT source_ref FROM ajanta_stock_transactions WHERE source_ref IS NOT NULL');
   const seen = new Set(existing.map(r => r.source_ref));
   const fresh = events.filter(e => !seen.has(e.ref));
-  // Sale rate for OUT lines booked before the rate column existed.
-  const [noRate] = await db.query("SELECT source_ref FROM ajanta_stock_transactions WHERE source='o2d' AND rate IS NULL");
+  // Rate for lines booked before it was stored (O2D sale rate / PO Final Rate).
+  const [noRate] = await db.query("SELECT source_ref FROM ajanta_stock_transactions WHERE source IN ('o2d','purchase') AND rate IS NULL");
   if (noRate.length) {
     const need = new Set(noRate.map(r => r.source_ref));
     for (const e of events) if (e.rate && need.has(e.ref)) await db.query('UPDATE ajanta_stock_transactions SET rate=? WHERE source_ref=?', [e.rate, e.ref]);
@@ -9756,6 +9797,7 @@ const PL_VIEWERS_KEY = 'salesman_pl_viewers';
 const PL_DEFAULT_VIEWERS = '1,9'; // Vishal Jaga, Ajay (MD)
 const TOUR_MODES = ['Bus', 'Train', 'Own Bike', 'Own Car', 'Company Vehicle', 'Taxi / Cab', 'Other'];
 const TOUR_HEADS = ['fare', 'stay', 'food', 'local', 'other'];
+const TOUR_MAX_LEGS = 5, TOUR_MAX_EXTRA_BILLS = 4; // ≤ 9 photos per request (Vercel body limit)
 
 async function ensurePlTables() {
   await db.query(`
@@ -9792,6 +9834,10 @@ async function ensurePlTables() {
       INDEX idx_user_date (user_id, tour_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  // Client voice notes 2026-10-09: a tour has several legs (Jaipur → Niwai →
+  // Tonk → Jaipur), each with its own fare and ticket; extra bills (parking…);
+  // what "Other" was for; and the day's total order value.
+  await addMissingColumns('tour_expenses', [['legs', 'TEXT'], ['bill_photos', 'TEXT'], ['other_note', 'VARCHAR(255)'], ['order_value', 'DECIMAL(12,2)']]);
 }
 let _plTablesOk = false;
 async function withPlTables(fn) {
@@ -9983,8 +10029,12 @@ app.put('/api/salesman-pl/profiles/:userId', requireAuth, async (req, res) => {
 // ── Tour expenses: the salesman enters each outstation day; Vishal / Ajay approve. ──
 const TOUR_SELECT = `SELECT t.*, DATE_FORMAT(t.tour_date,'%Y-%m-%d') AS tour_date, u.name AS user_name, d.name AS decided_by_name
   FROM tour_expenses t JOIN users u ON u.id=t.user_id LEFT JOIN users d ON d.id=t.decided_by`;
+const tourJson = v => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } };
 const tourOut = t => ({ id: t.id, userId: t.user_id, userName: t.user_name, date: t.tour_date, fromPlace: t.from_place || '', places: t.places, mode: t.travel_mode || '',
   fare: Number(t.fare) || 0, stay: Number(t.stay) || 0, food: Number(t.food) || 0, local: Number(t.local) || 0, other: Number(t.other) || 0, total: Number(t.total) || 0,
+  legs: tourJson(t.legs), otherNote: t.other_note || '', orderValue: t.order_value == null ? null : Number(t.order_value),
+  // every ticket / bill: per-leg tickets, extra bills, and the single photo of older entries
+  bills: tourJson(t.bill_photos).length ? tourJson(t.bill_photos) : (t.bill_photo ? [{ label: 'Bill', url: t.bill_photo }] : []),
   remark: t.remark || '', billPhoto: t.bill_photo || '', status: t.status, decidedByName: t.decided_by_name || '', decidedAt: t.decided_at, decisionRemark: t.decision_remark || '', createdAt: t.created_at });
 
 app.get('/api/tour-expenses', requireAuth, async (req, res) => {
@@ -10010,18 +10060,42 @@ app.post('/api/tour-expenses', requireAuth, async (req, res) => {
   try {
     const b = req.body || {};
     const date = plYmd(b.date);
-    const places = String(b.places || '').trim().slice(0, 500);
+    const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    // Legs: Jaipur → Niwai, Niwai → Tonk, Tonk → Jaipur — each with its fare (+ ticket).
+    const legsIn = (Array.isArray(b.legs) ? b.legs : []).slice(0, TOUR_MAX_LEGS)
+      .map(l => ({ from: str(l && l.from, 100), to: str(l && l.to, 100), mode: TOUR_MODES.includes(l && l.mode) ? l.mode : '', fare: plMoney(l && l.fare), ticket: l && l.ticket || '' }))
+      .filter(l => l.from || l.to || l.fare);
+    if (legsIn.some(l => !l.to)) return res.status(400).json({ error: 'Har safar me "kahan gaye" likhein' });
+    const places = legsIn.length ? legsIn.map(l => l.to).join(', ').slice(0, 500) : str(b.places, 500);
     if (!date || !places) return res.status(400).json({ error: 'Date and places visited are required' });
     const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
     if (date > today) return res.status(400).json({ error: 'Tour date cannot be in the future' });
     const heads = Object.fromEntries(TOUR_HEADS.map(h => [h, plMoney(b[h])]));
+    if (legsIn.length) heads.fare = plRound(legsIn.reduce((s, l) => s + l.fare, 0));
     const total = plRound(TOUR_HEADS.reduce((s, h) => s + heads[h], 0));
     if (!(total > 0)) return res.status(400).json({ error: 'Enter at least one expense amount' });
-    const bill = b.billPhoto ? await uploadPhotoToDrive(b.billPhoto, `tour-${req.session.userId}-${date}-${Date.now()}.jpg`) : null;
-    const [r] = await withPlTables(() => db.query(`INSERT INTO tour_expenses (user_id, tour_date, from_place, places, travel_mode, fare, stay, food, local, other, total, remark, bill_photo)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [req.session.userId, date, String(b.fromPlace || '').trim().slice(0, 255) || null, places, TOUR_MODES.includes(b.mode) ? b.mode : null,
-        heads.fare, heads.stay, heads.food, heads.local, heads.other, total, String(b.remark || '').trim().slice(0, 1000) || null, bill]));
+    const otherNote = str(b.otherNote, 255);
+    if (heads.other > 0 && !otherNote) return res.status(400).json({ error: 'Other kharcha kis cheez ka hai — likhein (parking, courier…)' });
+    // Tickets: one per leg + extra bills (parking etc.), plus the old single photo field.
+    const extra = (Array.isArray(b.billPhotos) ? b.billPhotos : []).filter(Boolean).slice(0, TOUR_MAX_EXTRA_BILLS);
+    if (b.billPhoto) extra.unshift(b.billPhoto);
+    const stamp = `tour-${req.session.userId}-${date}-${Date.now()}`;
+    const up = (img, tag) => img ? uploadPhotoToDrive(img, `${stamp}-${tag}.jpg`) : Promise.resolve(null);
+    const [legUrls, extraUrls] = await Promise.all([
+      Promise.all(legsIn.map((l, i) => up(l.ticket, `leg${i + 1}`))),
+      Promise.all(extra.map((p, i) => up(p, `bill${i + 1}`)))
+    ]);
+    const legs = legsIn.map((l, i) => ({ from: l.from, to: l.to, mode: l.mode, fare: l.fare, ticket: legUrls[i] || '' }));
+    const bills = legs.filter(l => l.ticket).map(l => ({ label: `${l.from || '?'} → ${l.to}`, url: l.ticket }))
+      .concat(extraUrls.filter(Boolean).map((url, i) => ({ label: `Bill ${i + 1}`, url })));
+    const mode = legs.length ? (legs.find(l => l.mode) || {}).mode : (TOUR_MODES.includes(b.mode) ? b.mode : null);
+    const orderValue = b.orderValue === '' || b.orderValue == null ? null : plMoney(b.orderValue);
+    const [r] = await withPlTables(() => db.query(`INSERT INTO tour_expenses (user_id, tour_date, from_place, places, travel_mode, fare, stay, food, local, other, total, remark, bill_photo,
+        legs, bill_photos, other_note, order_value)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [req.session.userId, date, (legs.length ? legs[0].from : str(b.fromPlace, 255)) || null, places, mode || null,
+        heads.fare, heads.stay, heads.food, heads.local, heads.other, total, str(b.remark, 1000) || null, bills.length ? bills[0].url : null,
+        legs.length ? JSON.stringify(legs) : null, bills.length ? JSON.stringify(bills) : null, otherNote || null, orderValue]));
     res.json({ success: true, id: r.insertId });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
@@ -10198,6 +10272,24 @@ async function ensureLeadTables() {
       INDEX idx_shop (shop_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  // Added later (client voice notes, 2026-10-09): requirement as a product
+  // category (so leads can be sorted by it); Aadhaar + cheque photo at onboarding.
+  await addMissingColumns('leads', [['req_category', 'VARCHAR(100)']]);
+  await addMissingColumns('dealer_onboardings', [['aadhaar_photo', 'VARCHAR(1000)'], ['cheque_photo', 'VARCHAR(1000)']]);
+}
+async function addMissingColumns(table, defs) {
+  const [cols] = await db.query(`SHOW COLUMNS FROM ${table}`);
+  const have = new Set(cols.map(c => c.Field));
+  for (const [name, def] of defs) {
+    if (have.has(name)) continue;
+    try { await db.query(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; } // another request added it first
+  }
+}
+// Requirement dropdown on New Lead = the Price List's product categories.
+async function leadReqCategories() {
+  const [rows] = await withPriceListTable(() => db.query("SELECT DISTINCT TRIM(category) AS c FROM o2d_price_list WHERE category IS NOT NULL AND TRIM(category)<>'' ORDER BY c"));
+  return rows.map(r => r.c);
 }
 let _leadTablesOk = false;
 async function withLeadTables(fn) {
@@ -10257,7 +10349,7 @@ const LEAD_SELECT = `SELECT l.*, DATE_FORMAT(l.created_at,'%Y-%m-%d') AS created
 function leadOut(l, doersMap) {
   return {
     id: l.id, code: l.lead_code, leadType: l.lead_type, source: l.source || '', shopName: l.shop_name || '', contactName: l.contact_name || '',
-    mobile: l.mobile || '', city: l.city || '', area: l.area || '', requirement: l.requirement || '', cardPhoto: l.card_photo || '',
+    mobile: l.mobile || '', city: l.city || '', area: l.area || '', requirement: l.requirement || '', reqCategory: l.req_category || '', cardPhoto: l.card_photo || '',
     salesmanUserId: l.salesman_user_id, salesmanName: l.salesman_name || '', createdAt: l.created_at, createdBy: l.created_by,
     createdByName: l.created_by_name || '', callCount: +l.call_count || 0, lastCallAt: l.last_call_at, callOutcome: l.call_outcome || '',
     callRemark: l.call_remark || '', catalogueSent: !!+l.catalogue_sent, nextCall: l.next_call || '', visitPurpose: l.visit_purpose || '',
@@ -10361,11 +10453,12 @@ app.get('/api/lead-fms', requireAuth, async (req, res) => {
       : db.query(`${LEAD_SELECT} WHERE l.created_by=? OR l.salesman_user_id=? OR l.visit_user_id=? ORDER BY l.id DESC`, [uid, uid, uid]));
     const [[t]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d");
     const cat = await getLeadCatalogue(false).catch(() => null);
+    const reqCategories = await leadReqCategories().catch(() => []);
     res.json({
       leads: rows.map(l => leadOut(l, acc.doersMap)),
       me: { seeAll: acc.seeAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess },
       today: t.d, sources: LEAD_SOURCES, callOutcomes: Object.keys(LEAD_CALL_OUTCOMES), visitOutcomes: Object.keys(LEAD_VISIT_OUTCOMES),
-      catalogue: cat ? cat.fileName : ''
+      catalogue: cat ? cat.fileName : '', reqCategories
     });
   } catch (err) { sendServerError(res, err); }
 });
@@ -10409,11 +10502,11 @@ app.post('/api/lead-fms', requireAuth, async (req, res) => {
     }
     const code = await withLeadTables(() => nextLeadCode());
     const card = b.cardPhoto ? await uploadPhotoToDrive(b.cardPhoto, `${code}-card-${Date.now()}.jpg`) : null;
-    const [r] = await db.query(`INSERT INTO leads (lead_code, lead_type, source, shop_name, contact_name, mobile, city, area, requirement, card_photo, salesman_user_id, salesman_name, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    const [r] = await db.query(`INSERT INTO leads (lead_code, lead_type, source, shop_name, contact_name, mobile, city, area, req_category, requirement, card_photo, salesman_user_id, salesman_name, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [code, leadType, leadStr(b.source, 40) || (leadType === 'Outgoing' ? 'Market Visit' : null), shop, contact, mobile,
-        leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.requirement, 1000), card, sid || null, sname, req.session.userId]);
-    await logLeadEvent(r.insertId, 'created', [leadType, b.source, b.requirement].filter(Boolean).join(' · '), req.session.userId);
+        leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), card, sid || null, sname, req.session.userId]);
+    await logLeadEvent(r.insertId, 'created', [leadType, b.source, b.reqCategory, b.requirement].filter(Boolean).join(' · '), req.session.userId);
     res.json({ success: true, id: r.insertId, code });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
@@ -10495,8 +10588,8 @@ app.put('/api/lead-fms/:id/action/:action', requireAuth, async (req, res) => {
       const mobile = leadStr(b.mobile, 30);
       if (mobile && !sfmsNormalizeMobile(mobile)) return fail('Mobile number looks wrong');
       if (!leadStr(b.shopName, 255) && !leadStr(b.contactName, 255)) return fail('Shop name or contact name is required');
-      await db.query('UPDATE leads SET shop_name=?, contact_name=?, mobile=?, city=?, area=?, requirement=?, source=? WHERE id=?',
-        [leadStr(b.shopName, 255), leadStr(b.contactName, 255), mobile, leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.requirement, 1000), leadStr(b.source, 40), l.id]);
+      await db.query('UPDATE leads SET shop_name=?, contact_name=?, mobile=?, city=?, area=?, req_category=?, requirement=?, source=? WHERE id=?',
+        [leadStr(b.shopName, 255), leadStr(b.contactName, 255), mobile, leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), leadStr(b.source, 40), l.id]);
       await logLeadEvent(l.id, 'edited', null, uid);
     } else if (action === 'cancel') {
       if (!acc.seeAll) return fail('Only SC-NBD / admin can cancel a lead', 403);
@@ -10593,6 +10686,7 @@ function onboardingOut(o) {
     shopSize: o.shop_size || '', stockLevel: o.stock_level || '', brandsDealt: o.brands_dealt || '',
     monthlyPotential: o.monthly_potential == null ? null : Number(o.monthly_potential), suggestedCredit: o.suggested_credit == null ? null : Number(o.suggested_credit),
     remark: o.remark || '', gstPhoto: o.gst_photo || '', insidePhotos: inside, outsidePhoto: o.outside_photo || '',
+    aadhaarPhoto: o.aadhaar_photo || '', chequePhoto: o.cheque_photo || '',
     locationLat: o.location_lat == null ? null : Number(o.location_lat), locationLng: o.location_lng == null ? null : Number(o.location_lng),
     salesmanName: o.salesman_name || '', createdAt: o.created_fmt, createdByName: o.created_by_name || '', welcomeSentAt: o.welcome_sent_at, welcomeNote: o.welcome_note || '' };
 }
@@ -10620,6 +10714,8 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
     if (!b.gstPhoto && !b.noGst) return res.status(400).json({ error: 'GST photo is required (or tick "GST nahi hai")' });
     if (inside.length < 4) return res.status(400).json({ error: 'Dukaan ke andar ki 4 photo chahiye' });
     if (!b.outsidePhoto) return res.status(400).json({ error: 'Dukaan ke bahar ki 1 photo chahiye' });
+    if (!b.aadhaarPhoto) return res.status(400).json({ error: 'Owner ke Aadhaar ki photo chahiye' });
+    if (!b.chequePhoto) return res.status(400).json({ error: 'Dukaandar ke cheque ki photo chahiye (bank / account no. ke liye)' });
     if (inside.length > 6) return res.status(400).json({ error: 'Maximum 6 inside photos' });
     const num = v => (v === '' || v == null || !(Number(v) >= 0)) ? null : Number(v);
     let lead = null;
@@ -10634,27 +10730,32 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
     });
     // KYC + shop photos stay private (app login to view).
     const up = (img, kind) => img ? uploadPhotoToDrive(img, `${code}-${kind}-${Date.now()}.jpg`) : Promise.resolve(null);
-    const [gstUrl, outsideUrl, ...insideUrls] = await Promise.all([up(b.gstPhoto, 'gst'), up(b.outsidePhoto, 'outside'), ...inside.map((p, i) => up(p, `inside${i + 1}`))]);
+    const [gstUrl, outsideUrl, aadhaarUrl, chequeUrl, ...insideUrls] = await Promise.all([up(b.gstPhoto, 'gst'), up(b.outsidePhoto, 'outside'),
+      up(b.aadhaarPhoto, 'aadhaar'), up(b.chequePhoto, 'cheque'), ...inside.map((p, i) => up(p, `inside${i + 1}`))]);
     const lat = Number(b.locationLat), lng = Number(b.locationLng);
     const hasLoc = isFinite(lat) && isFinite(lng) && (lat || lng);
     const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
     const [r] = await db.query(`INSERT INTO dealer_onboardings (code, lead_id, shop_name, owner_name, mobile, alt_mobile, email, address, city, area, pincode, gst_no, pan_no,
         firm_type, partners, shop_ownership, years_in_business, shop_size, stock_level, brands_dealt, monthly_potential, suggested_credit, remark,
-        gst_photo, inside_photos, outside_photo, location_lat, location_lng, salesman_user_id, salesman_name, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        gst_photo, inside_photos, outside_photo, aadhaar_photo, cheque_photo, location_lat, location_lng, salesman_user_id, salesman_name, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [code, lead ? lead.id : null, shop, owner, mobile, leadStr(b.altMobile, 30), leadStr(b.email, 255), leadStr(b.address, 1000), leadStr(b.city, 255), leadStr(b.area, 255),
         leadStr(b.pincode, 10), leadStr(b.gstNo, 30) && leadStr(b.gstNo, 30).toUpperCase(), leadStr(b.panNo, 20) && leadStr(b.panNo, 20).toUpperCase(),
         ONB_FIRM_TYPES.includes(b.firmType) ? b.firmType : null, leadStr(b.partners, 1000), ['Own', 'Rented'].includes(b.shopOwnership) ? b.shopOwnership : null,
         leadStr(b.yearsInBusiness, 20), leadStr(b.shopSize, 30), leadStr(b.stockLevel, 30), leadStr(b.brandsDealt, 500), num(b.monthlyPotential), num(b.suggestedCredit),
-        leadStr(b.remark, 1000), gstUrl, JSON.stringify(insideUrls), outsideUrl, hasLoc ? lat : null, hasLoc ? lng : null, req.session.userId, me ? me.name : null, req.session.userId]);
+        leadStr(b.remark, 1000), gstUrl, JSON.stringify(insideUrls), outsideUrl, aadhaarUrl, chequeUrl, hasLoc ? lat : null, hasLoc ? lng : null, req.session.userId, me ? me.name : null, req.session.userId]);
 
     // Dealer profile used by O2D (Dealers tab, New Order): fill what's known, keep the rest.
     await withDealerTables(() => db.query(
-      `INSERT INTO o2d_dealers (counter_name, city, phone, kyc_gst_url, kyc_shop_url, location_lat, location_lng, location_address) VALUES (?,?,?,?,?,?,?,?)
+      `INSERT INTO o2d_dealers (counter_name, city, phone, kyc_gst_url, kyc_shop_url, location_lat, location_lng, location_address, kyc_aadhar_url, owner_name, alt_phone, area, address, gst_no)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE city=COALESCE(VALUES(city),city), phone=COALESCE(VALUES(phone),phone), kyc_gst_url=COALESCE(VALUES(kyc_gst_url),kyc_gst_url),
+         kyc_aadhar_url=COALESCE(kyc_aadhar_url,VALUES(kyc_aadhar_url)), owner_name=COALESCE(owner_name,VALUES(owner_name)), alt_phone=COALESCE(alt_phone,VALUES(alt_phone)),
+         area=COALESCE(area,VALUES(area)), address=COALESCE(address,VALUES(address)), gst_no=COALESCE(gst_no,VALUES(gst_no)),
          kyc_shop_url=COALESCE(VALUES(kyc_shop_url),kyc_shop_url), location_lat=COALESCE(VALUES(location_lat),location_lat),
          location_lng=COALESCE(VALUES(location_lng),location_lng), location_address=COALESCE(VALUES(location_address),location_address)`,
-      [shop, leadStr(b.city, 255), mobile, gstUrl, outsideUrl, hasLoc ? lat : null, hasLoc ? lng : null, leadStr(b.address, 500)]));
+      [shop, leadStr(b.city, 255), mobile, gstUrl, outsideUrl, hasLoc ? lat : null, hasLoc ? lng : null, leadStr(b.address, 500),
+        aadhaarUrl, owner, leadStr(b.altMobile, 50), leadStr(b.area, 255), leadStr(b.address, 1000), leadStr(b.gstNo, 30) && leadStr(b.gstNo, 30).toUpperCase()]));
 
     if (lead && !lead.result && !lead.cancelled_at) {
       await db.query("UPDATE leads SET result='Dealer Onboarded', needs_visit=0, closed_at=NOW(), closed_by=?, onboarding_id=? WHERE id=?", [req.session.userId, r.insertId, lead.id]);

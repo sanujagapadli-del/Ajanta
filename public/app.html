@@ -1795,6 +1795,9 @@ tbody tr:last-child td{border-bottom:none;}
         <select id="leadTypeFilter" onchange="renderLeadActiveView()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)">
           <option value="">Incoming + Outgoing</option><option>Incoming</option><option>Outgoing</option>
         </select>
+        <select id="leadCatFilter" onchange="renderLeadActiveView()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)">
+          <option value="">All requirements</option>
+        </select>
         <select id="leadStageFilter" onchange="renderLeadActiveView()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)">
           <option value="">All statuses</option><option value="open">Open</option><option value="call">Call pending</option><option value="schedule">Visit to fix</option>
           <option value="visit">Visit scheduled</option><option value="missed">⚠️ Visit missed</option><option value="won">Won</option><option value="lost">Closed — no business</option><option value="cancelled">Cancelled</option>
@@ -3287,6 +3290,17 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="modal-close-x modal-close" onclick="closeModal('tourModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div id="tourBody" style="overflow-y:auto;flex:1"></div>
+  </div>
+</div>
+
+<!-- ── O2D DEALERS: DETAILS (salesman updates on visits) ── -->
+<div class="modal-overlay" id="dealerDetailsModal">
+  <div class="modal" style="max-width:520px;max-height:92vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 id="ddTitle" style="margin:0">Dealer details</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('dealerDetailsModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="ddBody" style="overflow-y:auto;flex:1"></div>
   </div>
 </div>
 
@@ -6234,13 +6248,17 @@ function renderTourList() {
   if (!items.length) { out.innerHTML = head + '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Is range me koi tour expense nahi. Jaipur se bahar gaye the to "+ Tour Expense" se daalein.</div>'; return; }
   const money = v => v ? '₹' + Math.round(v).toLocaleString('en-IN') : '<span style="color:var(--gray-300)">—</span>';
   out.innerHTML = head + `<div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><table style="font-size:12.5px;white-space:nowrap">
-    <thead><tr><th>Date</th>${_plAccess.viewer ? '<th>Employee</th>' : ''}<th>Kahan gaye</th><th>Mode</th><th>Kiraya</th><th>Stay</th><th>Khana</th><th>Local</th><th>Other</th><th>Total</th><th>Bill</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Date</th>${_plAccess.viewer ? '<th>Employee</th>' : ''}<th>Kahan gaye</th><th>Mode</th><th>Kiraya</th><th>Stay</th><th>Khana</th><th>Local</th><th>Other</th><th>Total</th><th>Order value</th><th>Bills</th><th>Status</th><th></th></tr></thead>
     <tbody>${items.map(x => `<tr>
       <td>${fmtDateDMY(x.date)}</td>${_plAccess.viewer ? `<td>${esc(x.userName)}</td>` : ''}
-      <td style="white-space:normal;min-width:160px"><b>${esc(x.fromPlace ? x.fromPlace + ' → ' : '')}${esc(x.places)}</b>${x.remark ? `<div style="font-size:11.5px;color:var(--gray-500)">${esc(x.remark)}</div>` : ''}</td>
-      <td>${esc(x.mode || '—')}</td><td>${money(x.fare)}</td><td>${money(x.stay)}</td><td>${money(x.food)}</td><td>${money(x.local)}</td><td>${money(x.other)}</td>
+      <td style="white-space:normal;min-width:180px">${x.legs.length
+        ? `<b>${esc([x.legs[0].from].concat(x.legs.map(l => l.to)).filter(Boolean).join(' → '))}</b>${x.legs.length > 1 ? x.legs.map(l => `<div style="font-size:11px;color:var(--gray-500)">${esc(l.from || '?')} → ${esc(l.to)}${l.mode ? ' · ' + esc(l.mode) : ''} · ${money(l.fare)}</div>`).join('') : ''}`
+        : `<b>${esc(x.fromPlace ? x.fromPlace + ' → ' : '')}${esc(x.places)}</b>`}${x.remark ? `<div style="font-size:11.5px;color:var(--gray-500)">${esc(x.remark)}</div>` : ''}</td>
+      <td>${esc(x.legs.length ? [...new Set(x.legs.map(l => l.mode).filter(Boolean))].join(', ') || '—' : x.mode || '—')}</td><td>${money(x.fare)}</td><td>${money(x.stay)}</td><td>${money(x.food)}</td><td>${money(x.local)}</td>
+      <td>${money(x.other)}${x.otherNote ? `<div style="font-size:11px;color:var(--gray-500)">${esc(x.otherNote)}</div>` : ''}</td>
       <td style="font-weight:800">${money(x.total)}</td>
-      <td>${x.billPhoto ? `<a href="${esc(x.billPhoto)}" target="_blank">🧾</a>` : '—'}</td>
+      <td>${money(x.orderValue)}</td>
+      <td>${x.bills.length ? x.bills.map(bl => `<a href="${esc(bl.url)}" target="_blank" title="${esc(bl.label)}">🧾</a>`).join(' ') : '—'}</td>
       <td>${badge(x.status)}${x.decisionRemark ? `<div style="font-size:11px;color:var(--gray-500)">${esc(x.decisionRemark)}</div>` : ''}</td>
       <td>${_plAccess.viewer && x.status !== 'approved' ? `<button class="row-action-btn" style="color:var(--color-success-text)" onclick="decideTour(${x.id},'approved')">✓ Approve</button> ` : ''}${_plAccess.viewer && x.status === 'pending' ? `<button class="row-action-btn" style="color:var(--color-danger)" onclick="decideTour(${x.id},'rejected')">✗ Reject</button> ` : ''}${_plAccess.viewer || (x.status === 'pending' && Number(x.userId) === Number(ME.id)) ? `<button class="row-action-btn" onclick="deleteTour(${x.id})" title="Delete">🗑</button>` : ''}</td>
     </tr>`).join('')}</tbody></table></div>`;
@@ -6260,46 +6278,114 @@ function deleteTour(id) {
     showToast('Deleted'); loadTourList();
   });
 }
+// Client voice notes 2026-10-09: a tour is several legs (Jaipur → Niwai →
+// Tonk → Jaipur) each with its own fare + ticket; extra bills (parking…);
+// say what "Other" was for; and the day's total order value.
+const TOUR_MAX_LEGS = 5, TOUR_MAX_EXTRA_BILLS = 4;
 function openTourModal() {
   const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
   const today = plYmdLocal(new Date());
   const amt = (id, label) => `<div>${L(label)}<input id="tr_${id}" type="number" min="0" inputmode="decimal" oninput="tourTotal()" placeholder="0" style="${CHQ_INPUT}"/></div>`;
   document.getElementById('tourBody').innerHTML = `
     <div class="alert error" id="trErr" style="display:none"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
-      <div>${L('Date', true)}<input id="tr_date" type="date" max="${today}" value="${today}" style="${CHQ_INPUT}"/></div>
-      <div>${L('Kaise gaye')}<select id="tr_mode" style="${CHQ_INPUT}">${((_plAccess && _plAccess.modes) || []).map(m => `<option>${esc(m)}</option>`).join('')}</select></div>
-      <div>${L('Kahan se')}<input id="tr_from" value="Jaipur" list="rajDistrictList" style="${CHQ_INPUT}"/></div>
-      <div>${L('Kahan gaye', true)}<input id="tr_places" list="rajDistrictList" placeholder="e.g. Ajmer, Kishangarh" style="${CHQ_INPUT}"/></div>
-    </div>
+    ${L('Date', true)}<input id="tr_date" type="date" max="${today}" value="${today}" style="${CHQ_INPUT}"/>
     <datalist id="rajDistrictList">${RAJ_DISTRICTS.map(d => `<option value="${d}">`).join('')}</datalist>
-    <div style="font-size:11.5px;color:var(--gray-500);margin:-6px 0 10px">Ek din me kai jagah gaye to comma se likhein.</div>
-    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 10px">
-      ${amt('fare', 'Kiraya (Bus/Train)')}${amt('stay', 'Hotel / Stay')}${amt('food', 'Khana')}${amt('local', 'Local auto/taxi')}${amt('other', 'Other')}
-      <div>${L('Total')}<div id="tr_total" style="font-size:20px;font-weight:800;padding:8px 0;color:var(--gray-900)">₹0</div></div>
+    <div style="font-size:13px;font-weight:800;color:var(--gray-800);margin:4px 0 8px">🚌 Safar — kahan se kahan gaye</div>
+    <div id="tr_legs"></div>
+    <button class="btn btn-outline btn-sm" type="button" id="tr_addLeg" onclick="tourAddLeg()" style="margin-bottom:10px">+ Aage ka safar jodo</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:10px;background:var(--gray-50);margin-bottom:12px;font-size:13px">
+      <span style="color:var(--gray-600)">Kul kiraya</span><b id="tr_fareTotal" style="font-size:15px;color:var(--gray-900)">₹0</b></div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px">
+      ${amt('stay', 'Hotel / Stay')}${amt('food', 'Khana')}${amt('local', 'Local auto/taxi')}${amt('other', 'Other')}
     </div>
-    ${L('Remark')}<input id="tr_remark" placeholder="e.g. 3 dealers se mila, 1 order mila" style="${CHQ_INPUT}"/>
-    ${L('Bill / ticket photo')}<input id="tr_bill" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'tr_billPv')" style="${CHQ_INPUT}"/><div id="tr_billPv" style="font-size:12px;margin:-6px 0 8px"></div>
+    <div id="tr_otherNoteWrap" style="display:none">${L('Other kis cheez ka?', true)}<input id="tr_otherNote" placeholder="e.g. bike parking, courier" style="${CHQ_INPUT}"/></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:10px;border:1.5px solid var(--gray-200);margin-bottom:12px">
+      <span style="font-weight:700;color:var(--gray-700)">Total kharcha</span><span id="tr_total" style="font-size:20px;font-weight:800;color:var(--gray-900)">₹0</span></div>
+    ${L('Aaj ka total order value (₹)')}<input id="tr_orderValue" type="number" min="0" inputmode="decimal" placeholder="Aaj kitne ka maal book hua" style="${CHQ_INPUT}"/>
+    ${L('Remark')}<input id="tr_remark" placeholder="e.g. 3 dealers se mila" style="${CHQ_INPUT}"/>
+    ${L('Aur bill / ticket (parking, hotel…)')}
+    <div id="tr_bills"></div>
+    <button class="btn btn-outline btn-sm" type="button" id="tr_addBill" onclick="tourAddBill()" style="margin-bottom:10px">+ Aur bill</button>
     <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Petrol (KM) yahan mat daalein — woh Morning/Evening KM se apne aap judta hai. Entry Vishal / Ajay approve karenge.</div>
     <button class="btn btn-green" id="trSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitTour()">Save</button>`;
+  tourAddLeg('Jaipur');
+  tourAddBill();
   document.getElementById('tourModal').classList.add('open');
 }
+let _tourSeq = 0;
+function tourAddLeg(from) {
+  const box = document.getElementById('tr_legs');
+  const legs = box.querySelectorAll('.tr-leg');
+  if (legs.length >= TOUR_MAX_LEGS) return;
+  if (from == null) { const prev = legs[legs.length - 1]; from = prev ? prev.querySelector('[data-k="to"]').value : ''; }
+  const id = `trl${++_tourSeq}`;
+  const modes = ((_plAccess && _plAccess.modes) || []).map(m => `<option>${esc(m)}</option>`).join('');
+  box.insertAdjacentHTML('beforeend', `<div class="tr-leg" id="${id}" style="border:1.5px solid var(--gray-200);border-radius:12px;padding:10px 10px 2px;margin-bottom:8px;position:relative">
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px">
+      <div><div style="${CHQ_LABEL}">Kahan se</div><input data-k="from" value="${esc(from || '')}" list="rajDistrictList" style="${CHQ_INPUT}"/></div>
+      <div><div style="${CHQ_LABEL}">Kahan gaye <span style="color:var(--color-danger)">*</span></div><input data-k="to" list="rajDistrictList" placeholder="e.g. Niwai" style="${CHQ_INPUT}"/></div>
+      <div><div style="${CHQ_LABEL}">Kaise gaye</div><select data-k="mode" style="${CHQ_INPUT}">${modes}</select></div>
+      <div><div style="${CHQ_LABEL}">Kiraya ₹</div><input data-k="fare" type="number" min="0" inputmode="decimal" placeholder="0" oninput="tourTotal()" style="${CHQ_INPUT}"/></div>
+    </div>
+    <label style="display:inline-block;border:1.5px dashed var(--gray-300);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px;color:var(--gray-500);margin-bottom:8px">📷 Ticket
+      <input type="file" data-k="ticket" accept="image/*" capture="environment" style="display:none" onchange="tourPhotoSelected(this,'${id}_pv')"/></label>
+    <span id="${id}_pv"></span>
+    ${legs.length ? `<button type="button" class="row-action-btn" onclick="document.getElementById('${id}').remove();tourTotal()" title="Hatao" style="position:absolute;top:6px;right:6px">✕</button>` : ''}
+  </div>`);
+  document.getElementById('tr_addLeg').style.display = legs.length + 1 >= TOUR_MAX_LEGS ? 'none' : '';
+}
+function tourAddBill() {
+  const box = document.getElementById('tr_bills');
+  const n = box.querySelectorAll('input[type=file]').length;
+  if (n >= TOUR_MAX_EXTRA_BILLS) return;
+  const id = `trb${++_tourSeq}`;
+  box.insertAdjacentHTML('beforeend', `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <label style="border:1.5px dashed var(--gray-300);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px;color:var(--gray-500)">📷 Bill ${n + 1}
+      <input type="file" accept="image/*" capture="environment" style="display:none" onchange="tourPhotoSelected(this,'${id}_pv')"/></label><span id="${id}_pv"></span></div>`);
+  document.getElementById('tr_addBill').style.display = n + 1 >= TOUR_MAX_EXTRA_BILLS ? 'none' : '';
+}
+// Small images: up to 9 photos go up in one request (Vercel body limit ~4.5 MB).
+async function tourPhotoSelected(input, previewId) {
+  const pv = document.getElementById(previewId);
+  const file = input.files[0];
+  input.dataset.compressed = '';
+  if (!file) { pv.innerHTML = ''; return; }
+  pv.textContent = '…';
+  try {
+    let dataUrl = await compressImageToDataURL(file, 1100, 0.6);
+    if (dataUrl.length > 400000) dataUrl = await compressImageToDataURL(file, 800, 0.5);
+    input.dataset.compressed = dataUrl;
+    pv.innerHTML = `<img src="${dataUrl}" style="height:34px;width:34px;object-fit:cover;border-radius:6px;vertical-align:middle"/> <span style="font-size:11px;color:var(--color-success-text)">✓</span>`;
+  } catch (e) { pv.textContent = '⚠️ image error'; }
+}
 function tourTotal() {
-  const t = ['fare', 'stay', 'food', 'local', 'other'].reduce((s, k) => s + (Number(document.getElementById('tr_' + k).value) || 0), 0);
+  const num = el => Number(el && el.value) || 0;
+  const fare = [...document.querySelectorAll('#tr_legs [data-k="fare"]')].reduce((s, el) => s + num(el), 0);
+  const t = fare + ['stay', 'food', 'local', 'other'].reduce((s, k) => s + num(document.getElementById('tr_' + k)), 0);
+  document.getElementById('tr_fareTotal').textContent = '₹' + Math.round(fare).toLocaleString('en-IN');
   document.getElementById('tr_total').textContent = '₹' + Math.round(t).toLocaleString('en-IN');
+  document.getElementById('tr_otherNoteWrap').style.display = num(document.getElementById('tr_other')) > 0 ? '' : 'none';
   return t;
 }
 async function submitTour() {
   const err = document.getElementById('trErr'); err.style.display = 'none';
+  const fail = m => { err.textContent = m; err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); };
   const v = id => document.getElementById('tr_' + id).value.trim();
-  const body = { date: v('date'), mode: v('mode'), fromPlace: v('from'), places: v('places'), remark: v('remark'), billPhoto: document.getElementById('tr_bill').dataset.compressed || '' };
-  ['fare', 'stay', 'food', 'local', 'other'].forEach(k => { body[k] = v(k); });
-  if (!body.places) { err.textContent = 'Kahan gaye — likhein'; err.style.display = 'block'; return; }
-  if (!(tourTotal() > 0)) { err.textContent = 'Kam se kam ek kharcha daalein'; err.style.display = 'block'; return; }
+  const legs = [...document.querySelectorAll('#tr_legs .tr-leg')].map(el => {
+    const g = k => el.querySelector(`[data-k="${k}"]`);
+    return { from: g('from').value.trim(), to: g('to').value.trim(), mode: g('mode').value, fare: g('fare').value, ticket: g('ticket').dataset.compressed || '' };
+  }).filter(l => l.to || Number(l.fare) > 0 || l.ticket);
+  const body = { date: v('date'), legs, otherNote: v('otherNote'), orderValue: v('orderValue'), remark: v('remark'),
+    billPhotos: [...document.querySelectorAll('#tr_bills input[type=file]')].map(el => el.dataset.compressed || '').filter(Boolean) };
+  ['stay', 'food', 'local', 'other'].forEach(k => { body[k] = v(k); });
+  if (!legs.length) return fail('Kahan gaye — kam se kam ek safar likhein');
+  if (legs.some(l => !l.to)) return fail('Har safar me "kahan gaye" likhein');
+  if (!(tourTotal() > 0)) return fail('Kam se kam ek kharcha daalein');
+  if (Number(body.other) > 0 && !body.otherNote) return fail('Other kharcha kis cheez ka hai — likhein');
   const btn = document.getElementById('trSubmitBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
   const r = await api('/api/tour-expenses', 'POST', body);
   btn.disabled = false; btn.textContent = 'Save';
-  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  if (r.error) return fail(r.error);
   closeModal('tourModal'); showToast('✅ Tour expense saved — approval ke liye gaya');
   if (attnView === 'tour') loadTourList();
 }
@@ -12083,7 +12169,7 @@ function renderDealerGrid() {
   wrap.innerHTML = `
     <div style="padding:16px">
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <input type="text" id="dealerSearchInput" placeholder="🔍 Search dealer or city…" value="${esc(o2dDealerSearchQ)}" oninput="onDealerSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <input type="text" id="dealerSearchInput" placeholder="🔍 Search dealer, malik, city, area, mobile…" value="${esc(o2dDealerSearchQ)}" oninput="onDealerSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <button class="btn btn-outline" onclick="loadO2dDealers(true).then(renderDealerGridResults)">🔄 Refresh</button>
         <button class="btn btn-primary" onclick="openDealerOnboardModal()">+ Naya Dealer Add Karo</button>
       </div>
@@ -12096,14 +12182,15 @@ function renderDealerGridResults() {
   const resultsEl = document.getElementById('dealerGridResults');
   if (!resultsEl) return; // dealers view isn't the one on screen (e.g. a stale timer/callback)
   const q = o2dDealerSearchQ.trim().toLowerCase();
-  const filtered = q ? o2dDealers.filter(d => d.name.toLowerCase().includes(q) || (d.city || '').toLowerCase().includes(q)) : o2dDealers;
+  const filtered = q ? o2dDealers.filter(d => [d.name, d.city, d.phone, d.details && d.details.ownerName, d.details && d.details.area].some(v => String(v || '').toLowerCase().includes(q))) : o2dDealers;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / O2D_DEALER_PAGE_SIZE));
   if (o2dDealerPage > totalPages) o2dDealerPage = totalPages;
   const start = (o2dDealerPage - 1) * O2D_DEALER_PAGE_SIZE;
   const pageRows = filtered.slice(start, start + O2D_DEALER_PAGE_SIZE);
 
-  resultsEl.innerHTML = `
+  const bdays = dealerBirthdaysThisMonth();
+  resultsEl.innerHTML = `${bdays}
     <table>
       <thead><tr>
         <th>Dealer</th><th>Tier</th><th>KYC</th><th>Outstanding</th><th>Credit Limit</th><th>Rating</th><th>Last Order</th><th>Actions</th>
@@ -12145,7 +12232,7 @@ function dealerRowHtml(d) {
   return `<tr>
     <td>
       <div style="font-weight:600">${esc(d.name)}${d.onboarding ? ` <a href="#" onclick="openOnboardDetail(${d.onboarding.id});return false" title="Onboarding form ki detail — photos, firm, GST" style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success-text);text-decoration:none;white-space:nowrap">🏪 ${esc(d.onboarding.code)}</a>` : ''}</div>
-      <div style="font-size:11px;color:var(--gray-500)">${esc([d.city, d.phone].filter(Boolean).join(' · ') || '—')}</div>
+      <div style="font-size:11px;color:var(--gray-500)">${esc([d.details && d.details.ownerName, d.city, d.phone].filter(Boolean).join(' · ') || '—')}${d.details && d.details.dob ? ` · 🎂 ${esc(fmtDateDMY(d.details.dob).slice(0, 5))}` : ''}</div>
     </td>
     <td>${tierCellHtml}</td>
     <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor};white-space:nowrap">${d.kycCount}/4</span></td>
@@ -12155,6 +12242,7 @@ function dealerRowHtml(d) {
     <td style="white-space:nowrap">${lastOrderHtml}</td>
     <td style="white-space:nowrap">
       <div style="display:flex;gap:4px;align-items:center">
+        <button class="btn btn-outline btn-sm" title="Dealer ki details — malik, birthday, address, location" onclick="openDealerDetailsModal('${nameEsc}')">✏️</button>
         <button class="btn btn-outline btn-sm" title="Upload KYC" onclick="openKycModal('${nameEsc}')">📎</button>
         <button class="btn btn-outline btn-sm" title="Location set karo" onclick="openLocationModal('${nameEsc}')">📍</button>
         <button class="btn btn-outline btn-sm" title="View Statement" onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')">📋</button>
@@ -12228,6 +12316,7 @@ function dealerCardHtml(d) {
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
         <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor}">KYC: ${d.kycCount}/4</span>${d.onboarding ? ` <a href="#" onclick="openOnboardDetail(${d.onboarding.id});return false" title="Onboarding form ki detail — photos, firm, GST" style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;background:var(--color-success-bg);color:var(--color-success-text);text-decoration:none;white-space:nowrap">🏪 ${esc(d.onboarding.code)}</a>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="openDealerDetailsModal('${nameEsc}')">✏️ Details</button>
         <button class="btn btn-outline btn-sm" onclick="openKycModal('${nameEsc}')">Upload KYC</button>
         <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
         <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')">📋 View Statement</button>
@@ -12244,6 +12333,72 @@ function dealerCardHtml(d) {
       <div style="font-size:12.5px;color:var(--gray-600);margin-top:4px">${lastOrderHtml}</div>
       ${locHtml ? `<div style="margin-top:4px">${locHtml}</div>` : ''}
     </div>`;
+}
+
+// ── Dealer details (client, 2026-10-09: "jaisa employees ka banaya hai, aisa
+// hi dealer ka" — salesman keeps owner / birthday / address / location
+// updated whenever he is in the market). ──
+function dealerBirthdaysThisMonth() {
+  const mm = String(new Date().getMonth() + 1).padStart(2, '0');
+  const list = o2dDealers.filter(d => d.details && d.details.dob && d.details.dob.slice(5, 7) === mm)
+    .sort((a, b) => a.details.dob.slice(8, 10).localeCompare(b.details.dob.slice(8, 10)));
+  if (!list.length) return '';
+  return `<div style="background:var(--color-warning-bg);border:1px solid var(--color-warning-border,var(--gray-200));border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:var(--gray-800)">
+    🎂 <b>Is mahine birthday:</b> ${list.map(d => `${esc(d.details.ownerName || d.name)} <span style="color:var(--gray-500)">(${esc(d.name)}, ${esc(d.details.dob.slice(8, 10))})</span>`).join(' · ')}</div>`;
+}
+let _ddDealer = null;
+function openDealerDetailsModal(name) {
+  const d = o2dDealers.find(x => x.name === name) || { name, city: '', phone: '' };
+  const x = d.details || {};
+  _ddDealer = name;
+  const L = t => `<div style="${CHQ_LABEL}">${t}</div>`;
+  const inp = (id, label, val, attrs) => `<div>${L(label)}<input id="dd_${id}" value="${esc(val || '')}" ${attrs || ''} style="${CHQ_INPUT}"/></div>`;
+  document.getElementById('ddTitle').textContent = `✏️ ${name}`;
+  document.getElementById('ddBody').innerHTML = `
+    <div class="alert error" id="ddErr" style="display:none"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      ${inp('owner', 'Malik ka naam', x.ownerName)}
+      ${inp('dob', 'Malik ki date of birth', x.dob, 'type="date"')}
+      ${inp('phone', 'Mobile (WhatsApp)', d.phone, 'inputmode="tel"')}
+      ${inp('alt', 'Doosra mobile', x.altPhone, 'inputmode="tel"')}
+      ${inp('city', 'City', d.city)}
+      ${inp('area', 'Area / Market', x.area)}
+      ${inp('anniv', 'Anniversary', x.anniversary, 'type="date"')}
+      ${inp('gst', 'GST No', x.gstNo, 'maxlength="15" oninput="this.value=this.value.toUpperCase()"')}
+    </div>
+    ${L('Pura address')}<textarea id="dd_address" rows="2" style="${CHQ_INPUT};resize:vertical">${esc(x.address || '')}</textarea>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn btn-outline btn-sm" type="button" onclick="ddCaptureLocation(this)">📍 Dukaan par ho? Location lo</button>
+      <span id="dd_locText" style="font-size:12px;color:var(--gray-500)">${d.locationLat ? `Saved: <a href="https://maps.google.com/?q=${d.locationLat},${d.locationLng}" target="_blank">map</a>` : 'Location abhi save nahi'}</span>
+    </div>
+    ${L('Notes (kya bechta hai, kab milta hai, family…)')}<textarea id="dd_notes" rows="2" style="${CHQ_INPUT};resize:vertical">${esc(x.notes || '')}</textarea>
+    ${x.updatedAt ? `<div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Last update: ${esc(fmtDateDMY(x.updatedAt, true))}${x.updatedBy ? ' · ' + esc(x.updatedBy) : ''}</div>` : ''}
+    <button class="btn btn-primary" id="ddSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerDetails()">Save</button>`;
+  document.getElementById('dealerDetailsModal').classList.add('open');
+}
+function ddCaptureLocation(btn) {
+  if (!navigator.geolocation) { showToast('Location not supported on this device', 'error'); return; }
+  btn.disabled = true; btn.textContent = '⏳ Location…';
+  navigator.geolocation.getCurrentPosition(p => {
+    btn.disabled = false; btn.textContent = '📍 Location li gayi';
+    btn.id = 'dd_locBtn'; btn.dataset.lat = p.coords.latitude; btn.dataset.lng = p.coords.longitude;
+    document.getElementById('dd_locText').textContent = `${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)} — Save dabayein`;
+  }, e => { btn.disabled = false; btn.textContent = '📍 Dukaan par ho? Location lo'; showToast('Location nahi mili: ' + e.message, 'error'); }, { enableHighAccuracy: true, timeout: 15000 });
+}
+async function submitDealerDetails() {
+  const err = document.getElementById('ddErr'); err.style.display = 'none';
+  const v = id => document.getElementById('dd_' + id).value.trim();
+  const loc = document.getElementById('dd_locBtn');
+  const body = { ownerName: v('owner'), dob: v('dob'), phone: v('phone'), altPhone: v('alt'), city: v('city'), area: v('area'), anniversary: v('anniv'),
+    gstNo: v('gst'), address: v('address'), notes: v('notes'), locationLat: loc ? loc.dataset.lat : null, locationLng: loc ? loc.dataset.lng : null };
+  const btn = document.getElementById('ddSaveBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_ddDealer)}/details`, 'PUT', body);
+  btn.disabled = false; btn.textContent = 'Save';
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  showToast('✅ Dealer details saved');
+  closeModal('dealerDetailsModal');
+  await loadO2dDealers(true);
+  refreshDealerViews();
 }
 
 function openAddDealerModal() {
@@ -12955,7 +13110,7 @@ function stockRegEntryHtml(row, canEdit) {
       </div>
       <div style="text-align:right;white-space:nowrap">
         <div style="font-size:15px;font-weight:800">${Number(row.quantity).toLocaleString('en-IN')} <span style="font-size:11px;font-weight:600;color:var(--gray-400)">${esc(row.uom || '')}</span></div>
-        ${row.direction === 'OUT' && Number(row.rate) > 0 ? `<div style="font-size:11px;color:var(--gray-500)">@ ₹${Number(row.rate).toLocaleString('en-IN')} = <b style="color:var(--gray-800)">${inr(Number(row.rate) * Number(row.quantity))}</b></div>` : ''}
+        ${Number(row.rate) > 0 ? `<div style="font-size:11px;color:var(--gray-500)">@ ₹${Number(row.rate).toLocaleString('en-IN')} = <b style="color:var(--gray-800)">${inr(Number(row.rate) * Number(row.quantity))}</b></div>` : ''}
         ${cancelBtn}
       </div>
     </div>
@@ -12968,7 +13123,7 @@ function stockRegColumnHtml(dir, rows, canEdit) {
   const color = isIn ? 'var(--color-success)' : 'var(--color-danger)';
   const active = rows.filter(r => r.status !== 'Cancelled');
   const total = active.reduce((s, r) => s + Number(r.quantity), 0);
-  // Daily sale value (client, 2026-10-06): Σ qty × rate of the day's OUT lines.
+  // Daily value: Σ qty × rate — OUT = sale value (client, 2026-10-06), IN = purchase value at PO rate (2026-10-09).
   const priced = active.filter(r => Number(r.rate) > 0);
   const saleValue = priced.reduce((s, r) => s + Number(r.rate) * Number(r.quantity), 0);
   const form = stockRegAddDir === dir ? `
@@ -12976,7 +13131,7 @@ function stockRegColumnHtml(dir, rows, canEdit) {
       <select id="stkRegItem" style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;margin-bottom:8px;box-sizing:border-box"><option value="">Select item…</option>${stockItemOptionsHtml()}</select>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <input type="number" id="stkRegQty" placeholder="Qty" style="width:90px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-        ${isIn ? '' : `<input type="number" id="stkRegRate" placeholder="Rate ₹" min="0" style="width:100px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>`}
+        <input type="number" id="stkRegRate" placeholder="Rate ₹" min="0" style="width:100px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <input type="text" id="stkRegRemarks" placeholder="Remarks (party / reason)" style="flex:1;min-width:0;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -12989,7 +13144,7 @@ function stockRegColumnHtml(dir, rows, canEdit) {
       <div>
         <div style="font-weight:800;font-size:14px;color:${color}">${isIn ? '⬇ Inward' : '⬆ Outward'}</div>
         <div style="font-size:11px;color:var(--gray-500)">${active.length} entr${active.length === 1 ? 'y' : 'ies'} · total qty <b>${total.toLocaleString('en-IN')}</b></div>
-        ${isIn ? '' : `<div style="font-size:12.5px;margin-top:3px;color:var(--gray-600)">💰 Sale value <b style="font-size:14px;color:var(--gray-900)">${inr(saleValue)}</b>${priced.length < active.length ? ` <span style="font-size:11px;color:var(--color-warning)">(${active.length - priced.length} without rate)</span>` : ''}</div>`}
+        <div style="font-size:12.5px;margin-top:3px;color:var(--gray-600)">💰 ${isIn ? 'Inward value' : 'Sale value'} <b style="font-size:14px;color:var(--gray-900)">${inr(saleValue)}</b>${priced.length < active.length ? ` <span style="font-size:11px;color:var(--color-warning)">(${active.length - priced.length} without rate)</span>` : ''}</div>
       </div>
       <button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('${dir}')">+ Manual</button>
     </div>
@@ -15719,7 +15874,7 @@ let leadData = [];
 let leadMe = { seeAll: false, mySteps: [], isAdmin: false, pageAccess: false };
 let leadToday = '';
 let leadView = 'queue';
-let leadMeta = { sources: [], callOutcomes: [], visitOutcomes: [], catalogue: '' };
+let leadMeta = { sources: [], callOutcomes: [], visitOutcomes: [], catalogue: '', reqCategories: [] };
 let leadRepFrom = '', leadRepTo = '';
 let _leadUsers = null;
 async function leadUserList() {
@@ -15739,8 +15894,14 @@ async function loadLeadFmsList() {
 }
 function leadApplyData(d) {
   leadData = d.leads; leadMe = d.me || leadMe; leadToday = d.today || '';
-  leadMeta = { sources: d.sources || [], callOutcomes: d.callOutcomes || [], visitOutcomes: d.visitOutcomes || [], catalogue: d.catalogue || '' };
+  leadMeta = { sources: d.sources || [], callOutcomes: d.callOutcomes || [], visitOutcomes: d.visitOutcomes || [], catalogue: d.catalogue || '', reqCategories: d.reqCategories || [] };
   window._lastLeadData = d;
+  const cf = document.getElementById('leadCatFilter');
+  if (cf) {
+    const cur = cf.value;
+    const cats = [...new Set(leadMeta.reqCategories.concat(leadData.map(l => l.reqCategory).filter(Boolean)))].sort();
+    cf.innerHTML = '<option value="">All requirements</option>' + cats.map(c => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  }
 }
 function switchLeadView(view, el) {
   leadView = view;
@@ -15759,6 +15920,12 @@ function renderLeadActiveView() {
 const leadIsMissed = l => l.stage === 'visit' && l.visitDate && l.visitDate < leadToday;
 const leadDaysSince = ymd => ymd ? Math.round((new Date(leadToday + 'T00:00:00') - new Date(String(ymd).slice(0, 10) + 'T00:00:00')) / 86400000) : 0;
 const leadName = l => l.shopName || l.contactName || '—';
+const leadReqText = l => [l.reqCategory, l.requirement].filter(Boolean).join(' — ');
+// Requirement dropdown = Price List categories (client, 2026-10-09: "requirement ko dropdown karenge… taki data sort kar paayein").
+const leadReqSelectHtml = (id, cur) => {
+  const cats = leadMeta.reqCategories.includes(cur) || !cur ? leadMeta.reqCategories : leadMeta.reqCategories.concat(cur);
+  return `<select id="${id}" style="${CHQ_INPUT}"><option value="">— Select product —</option>${cats.map(c => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="Naya Dealer / Catalogue" ${cur === 'Naya Dealer / Catalogue' ? 'selected' : ''}>Naya Dealer / Catalogue</option></select>`;
+};
 function leadStageBadge(l) {
   const s = LEAD_STAGE[leadIsMissed(l) ? 'missed' : l.stage] || { label: l.stage, bg: 'var(--gray-100)', fg: 'var(--gray-600)' };
   const label = l.stage === 'won' || l.stage === 'lost' ? `${l.stage === 'won' ? '✓ ' : ''}${l.result}` : s.label;
@@ -15771,7 +15938,7 @@ function leadCanDo(t) {
 }
 function leadSearchMatch(l, q) {
   if (!q) return true;
-  return [l.code, l.shopName, l.contactName, l.mobile, l.city, l.area, l.salesmanName, l.visitUserName, l.requirement, l.source].some(v => String(v || '').toLowerCase().includes(q));
+  return [l.code, l.shopName, l.contactName, l.mobile, l.city, l.area, l.salesmanName, l.visitUserName, l.reqCategory, l.requirement, l.source].some(v => String(v || '').toLowerCase().includes(q));
 }
 
 // ── Action Queue ──
@@ -15794,7 +15961,7 @@ function renderLeadQueue() {
       <td style="white-space:nowrap">${esc(l.mobile || '—')}</td>
       <td>${esc([l.area, l.city].filter(Boolean).join(', ') || '—')}</td>
       <td>${esc(t.key === 'visit' ? (l.visitUserName || '—') : (l.salesmanName || '—'))}</td>
-      <td style="min-width:140px;font-size:12px;color:var(--gray-600)">${esc(t.key === 'call' ? (l.callOutcome ? `Last: ${l.callOutcome}` : (l.requirement || '')) : (l.visitPurpose === 'Sample' ? '🎁 Sample leke jaana' : l.callRemark || l.requirement || ''))}</td>
+      <td style="min-width:140px;font-size:12px;color:var(--gray-600)">${esc(t.key === 'call' ? (l.callOutcome ? `Last: ${l.callOutcome}` : leadReqText(l)) : (l.visitPurpose === 'Sample' ? '🎁 Sample leke jaana' : l.callRemark || leadReqText(l)))}</td>
       <td style="white-space:nowrap;${late ? 'color:var(--color-danger);font-weight:700' : ''}">${t.planned ? fmtDateDMY(t.planned) : '—'}${late ? ` ⚠️ ${leadDaysSince(t.planned)}d` : ''}</td>
     </tr>`;
   };
@@ -15816,12 +15983,13 @@ function renderLeadAll() {
   const q = (document.getElementById('leadSearch').value || '').trim().toLowerCase();
   const ty = document.getElementById('leadTypeFilter').value;
   const st = document.getElementById('leadStageFilter').value;
-  const rows = leadData.filter(l => leadSearchMatch(l, q) && (!ty || l.leadType === ty) && (!st
+  const cat = document.getElementById('leadCatFilter').value;
+  const rows = leadData.filter(l => leadSearchMatch(l, q) && (!ty || l.leadType === ty) && (!cat || l.reqCategory === cat) && (!st
     || (st === 'open' ? ['call', 'schedule', 'visit'].includes(l.stage) : st === 'missed' ? leadIsMissed(l) : l.stage === st)));
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No leads found.</div>'; return; }
   const shown = rows.slice(0, 300);
   wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
-    <thead><tr><th>Lead</th><th>Date</th><th>Source</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Brought by</th><th>Calls</th><th>Visit</th><th>Status</th></tr></thead>
+    <thead><tr><th>Lead</th><th>Date</th><th>Source</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Requirement</th><th>Brought by</th><th>Calls</th><th>Visit</th><th>Status</th></tr></thead>
     <tbody>${shown.map(l => `<tr onclick="openLeadDetail(${l.id})" style="cursor:pointer">
       <td style="font-weight:600">${esc(l.code)} ${leadTypeBadge(l)}</td>
       <td>${fmtDateDMY(String(l.createdAt || '').slice(0, 10))}</td>
@@ -15829,6 +15997,7 @@ function renderLeadAll() {
       <td style="white-space:normal;min-width:150px">${esc(leadName(l))}${l.shopName && l.contactName ? ` <span style="color:var(--gray-500)">· ${esc(l.contactName)}</span>` : ''}</td>
       <td>${esc(l.mobile || '—')}</td>
       <td>${esc([l.area, l.city].filter(Boolean).join(', ') || '—')}</td>
+      <td>${esc(l.reqCategory || '—')}</td>
       <td>${esc(l.salesmanName || l.createdByName || '—')}</td>
       <td>${l.callCount || '—'}${l.catalogueSent ? ' <span title="Catalogue sent">📘</span>' : ''}</td>
       <td>${l.visitDate ? `${fmtDateDMY(l.visitDate)} · ${esc(l.visitUserName)}` : l.visitCount ? `${l.visitCount} done` : '—'}</td>
@@ -15943,7 +16112,8 @@ async function openNewLeadModal() {
       <div>${L('City')}<input id="nlCity" style="${CHQ_INPUT}"/></div>
     </div>
     ${L('Area / Market')}<input id="nlArea" placeholder="e.g. Mansarovar, Jhotwara" style="${CHQ_INPUT}"/>
-    ${L('Requirement / Note')}<textarea id="nlReq" rows="2" placeholder="e.g. 10 ceiling fan ki requirement · ya: naya dealer, catalogue maanga" style="${CHQ_INPUT};resize:vertical"></textarea>
+    ${L('Requirement (product)')}${leadReqSelectHtml('nlReqCat', '')}
+    ${L('Note')}<textarea id="nlReq" rows="2" placeholder="e.g. 10 piece chahiye · catalogue maanga" style="${CHQ_INPUT};resize:vertical"></textarea>
     ${L('Visiting Card / Shop Photo')}<input type="file" id="nlCard" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'nlCardPv')" style="${CHQ_INPUT}"/><div id="nlCardPv" style="font-size:12px;margin:-6px 0 8px"></div>
     <div id="nlSalesmanWrap" style="display:${leadMe.seeAll ? '' : 'none'}">${L('Salesman (jo dealer se mila / us area ka)')}<select id="nlSalesman" style="${CHQ_INPUT}"><option value="">— None —</option></select></div>
     <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Mobile ya card photo me se ek zaroori hai. Lead save hote hi SC-NBD ke dashboard par call aa jayegi.</div>
@@ -15967,7 +16137,7 @@ async function submitNewLead(force) {
   const typeEl = document.querySelector('#nlType .tab.active');
   const v = id => document.getElementById(id).value.trim();
   const body = { leadType: typeEl ? typeEl.dataset.v : '', source: v('nlSource'), shopName: v('nlShop'), contactName: v('nlContact'), mobile: v('nlMobile'),
-    city: v('nlCity'), area: v('nlArea'), requirement: v('nlReq'), cardPhoto: document.getElementById('nlCard').dataset.compressed || '', force: !!force };
+    city: v('nlCity'), area: v('nlArea'), reqCategory: v('nlReqCat'), requirement: v('nlReq'), cardPhoto: document.getElementById('nlCard').dataset.compressed || '', force: !!force };
   if (leadMe.seeAll && v('nlSalesman')) body.salesmanUserId = Number(v('nlSalesman'));
   if (!body.shopName && !body.contactName) { err.textContent = 'Shop name ya contact person daalein'; err.style.display = 'block'; return; }
   if (!body.mobile && !body.cardPhoto) { err.textContent = 'Mobile number ya visiting card ki photo daalein'; err.style.display = 'block'; return; }
@@ -16005,7 +16175,7 @@ function renderLeadDetailBody(l) {
       ${f('Shop', esc(l.shopName || '—'))}${f('Contact', esc(l.contactName || '—'))}
       ${f('Mobile', l.mobile ? `<a href="tel:${esc(l.mobile)}">📞 ${esc(l.mobile)}</a> · <a href="${wa}" target="_blank">WhatsApp</a>` : '—')}
       ${f('Area', esc([l.area, l.city].filter(Boolean).join(', ') || '—'))}
-      ${l.requirement ? `<div style="grid-column:1/-1">${f('Requirement', esc(l.requirement))}</div>` : ''}
+      ${leadReqText(l) ? `<div style="grid-column:1/-1">${f('Requirement', esc(leadReqText(l)))}</div>` : ''}
       ${f('Salesman (lead)', esc(l.salesmanName || '—'))}
       ${f('Calls', `${l.callCount}${l.catalogueSent ? ' · 📘 catalogue sent' : ''}${l.callOutcome ? `<div style="font-size:12px;color:var(--gray-600)">${esc(l.callOutcome)}${l.callRemark ? ' — ' + esc(l.callRemark) : ''}</div>` : ''}`)}
       ${l.visitUserName || l.visitCount ? f('Visit', `${l.visitDate ? fmtDateDMY(l.visitDate) + ' · ' : ''}${esc(l.visitUserName || '—')}${l.visitPurpose === 'Sample' ? ' · 🎁 Sample' : ''}${l.visitCount ? `<div style="font-size:12px;color:var(--gray-600)">${l.visitCount} visit · last: ${esc(l.visitOutcome)}${l.visitRemark ? ' — ' + esc(l.visitRemark) : ''}</div>` : ''}`) : ''}
@@ -16112,7 +16282,8 @@ function openLeadEdit(id) {
       <div>${L('Area')}<input id="${p}_area" value="${esc(l.area)}" style="${CHQ_INPUT}"/></div>
       <div>${L('Source')}<select id="${p}_source" style="${CHQ_INPUT}">${leadMeta.sources.map(s => `<option ${s === l.source ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div>
     </div>
-    ${L('Requirement')}<input id="${p}_req" value="${esc(l.requirement)}" style="${CHQ_INPUT}"/>
+    ${L('Requirement (product)')}${leadReqSelectHtml(`${p}_reqcat`, l.reqCategory)}
+    ${L('Note')}<input id="${p}_req" value="${esc(l.requirement)}" style="${CHQ_INPUT}"/>
     <button class="btn btn-primary" onclick="submitLeadAction(${id},'edit',this)">Save changes</button></div>`;
 }
 function leadPromptAction(id, action, question) {
@@ -16136,7 +16307,7 @@ async function submitLeadAction(id, kind, btnEl, preset) {
     if (!body.outcome) { showToast('Visit me kya hua — select karein', 'error'); return; }
   } else if (kind === 'edit') {
     const e = s => document.getElementById(`leadE_${id}_${s}`).value.trim();
-    body = { shopName: e('shop'), contactName: e('contact'), mobile: e('mobile'), city: e('city'), area: e('area'), source: e('source'), requirement: e('req') };
+    body = { shopName: e('shop'), contactName: e('contact'), mobile: e('mobile'), city: e('city'), area: e('area'), source: e('source'), reqCategory: e('reqcat'), requirement: e('req') };
   }
   const orig = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }
@@ -16233,9 +16404,9 @@ async function onOnbPhotoSelected(input, previewId) {
   if (!file) { preview.innerHTML = ''; return; }
   preview.textContent = '…';
   try {
-    // Kept small: up to 6 photos go up in one request.
+    // Kept small: up to 8 photos go up in one request (Vercel body limit ~4.5 MB).
     let dataUrl = await compressImageToDataURL(file, 1200, 0.62);
-    if (dataUrl.length > 700000) dataUrl = await compressImageToDataURL(file, 900, 0.5);
+    if (dataUrl.length > 500000) dataUrl = await compressImageToDataURL(file, 900, 0.5);
     input.dataset.compressed = dataUrl;
     preview.innerHTML = `<img src="${dataUrl}" style="width:100%;height:70px;object-fit:cover;border-radius:8px;margin-top:4px"/>`;
   } catch (e) { preview.textContent = '⚠️ image error'; }
@@ -16291,7 +16462,8 @@ async function openDealerOnboardModal(leadId) {
 
     ${sec('Photos')}
     <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
-      ${photo('gstPhoto', 'GST certificate *')}${photo('out', 'Bahar se (board) *')}<div></div>
+      ${photo('gstPhoto', 'GST certificate *')}${photo('out', 'Bahar se (board) *')}${photo('aadhaar', 'Malik ka Aadhaar *')}
+      ${photo('cheque', 'Cheque (bank / A/c no.) *')}
       ${photo('in1', 'Andar 1 *')}${photo('in2', 'Andar 2 *')}${photo('in3', 'Andar 3 *')}${photo('in4', 'Andar 4 *')}
     </div>
     <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:8px 0"><input type="checkbox" id="onb_noGst"/> Dealer ke paas GST nahi hai</label>
@@ -16319,12 +16491,13 @@ async function submitDealerOnboarding() {
   const body = { leadId: v('leadId') ? Number(v('leadId')) : null, shopName: v('shop'), ownerName: v('owner'), mobile: v('mobile'), altMobile: v('alt'), city: v('city'), area: v('area'),
     pincode: v('pincode'), email: v('email'), address: v('address'), firmType: v('firm'), partners: v('partners'), gstNo: v('gst'), panNo: v('pan'), shopOwnership: v('own'),
     yearsInBusiness: v('years'), shopSize: v('size'), stockLevel: v('stock'), brandsDealt: v('brands'), monthlyPotential: v('potential'), suggestedCredit: v('credit'), remark: v('remark'),
-    gstPhoto: ph('gstPhoto'), noGst: document.getElementById('onb_noGst').checked, outsidePhoto: ph('out'), insidePhotos: ['in1', 'in2', 'in3', 'in4'].map(ph),
+    gstPhoto: ph('gstPhoto'), noGst: document.getElementById('onb_noGst').checked, outsidePhoto: ph('out'), aadhaarPhoto: ph('aadhaar'), chequePhoto: ph('cheque'), insidePhotos: ['in1', 'in2', 'in3', 'in4'].map(ph),
     locationLat: loc ? loc.dataset.lat : null, locationLng: loc ? loc.dataset.lng : null, sendWelcome: document.getElementById('onb_welcome').checked };
   const missing = [];
   if (!body.shopName) missing.push('dukaan ka naam'); if (!body.ownerName) missing.push('dealer ka naam'); if (!body.mobile) missing.push('mobile');
   if (!body.firmType) missing.push('firm type'); if (!body.shopOwnership) missing.push('apni / kiraye ki'); if (!body.shopSize) missing.push('dukaan ka size'); if (!body.stockLevel) missing.push('maal kitna');
   if (!body.gstPhoto && !body.noGst) missing.push('GST photo'); if (!body.outsidePhoto) missing.push('bahar ki photo');
+  if (!body.aadhaarPhoto) missing.push('Aadhaar photo'); if (!body.chequePhoto) missing.push('cheque photo');
   const inCount = body.insidePhotos.filter(Boolean).length; if (inCount < 4) missing.push(`andar ki ${4 - inCount} photo`);
   if (missing.length) { err.textContent = 'Ye bharna baaki hai: ' + missing.join(', '); err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); return; }
   body.insidePhotos = body.insidePhotos.filter(Boolean);
@@ -16344,7 +16517,7 @@ async function openOnboardDetail(id) {
   const o = await api(`/api/dealer-onboarding/${id}`);
   if (!o || o.error) { showToast((o && o.error) || 'Not found', 'error'); return; }
   const f = (label, val) => val ? `<div><div style="${CHQ_LABEL}">${label}</div><div style="font-size:14px;color:var(--gray-800)">${val}</div></div>` : '';
-  const pics = [['GST', o.gstPhoto], ['Bahar', o.outsidePhoto], ...o.insidePhotos.map((u, i) => [`Andar ${i + 1}`, u])].filter(p => p[1]);
+  const pics = [['GST', o.gstPhoto], ['Aadhaar', o.aadhaarPhoto], ['Cheque', o.chequePhoto], ['Bahar', o.outsidePhoto], ...o.insidePhotos.map((u, i) => [`Andar ${i + 1}`, u])].filter(p => p[1]);
   document.getElementById('onbDetailTitle').textContent = `${o.code} · ${o.shopName}`;
   document.getElementById('onbDetailBody').innerHTML = `
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px">
@@ -17038,7 +17211,7 @@ function gpTabsHtml() {
 }
 async function loadGrossProfit() {
   const s = document.getElementById('gpStart'), e = document.getElementById('gpEnd');
-  if (!s.value || !e.value) { const [a, b] = gpSalesOnly() ? plMonthRange('month') : gpDefaultRange(); setDmyDate('gpStart', a); setDmyDate('gpEnd', b); }
+  if (!s.value || !e.value) { const [a, b] = plMonthRange('month'); setDmyDate('gpStart', a); setDmyDate('gpEnd', b); } // client: open on this month
   if (s.value > e.value) { showToast('Start date End date se pehle honi chahiye', 'error'); return; }
   if (gpSalesOnly()) gpView = 'salesman';
   if (gpView === 'salesman') return loadSalesmanPl();
