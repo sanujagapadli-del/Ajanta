@@ -97,11 +97,30 @@ if (!JWT_SECRET) {
   JWT_SECRET = 'dev_only_insecure_secret_do_not_use_in_production';
 }
 
+// ── Vercel free plan: only ~4 h of server CPU a month (the site was paused
+// on 2026-10-09 for going over). Keep server work small: ──
+// 1) Log any request that burns a lot of CPU, so heavy endpoints show up in
+//    `vercel logs`. Approximate when requests overlap on one instance.
+app.use((req, res, next) => {
+  const t0 = process.cpuUsage();
+  res.on('finish', () => {
+    const d = process.cpuUsage(t0);
+    const ms = Math.round((d.user + d.system) / 1000);
+    if (ms >= 150) console.log(`[cpu] ${ms}ms ${req.method} ${req.path} ${res.statusCode}`);
+  });
+  next();
+});
+// 2) Pages and static files are the same for everyone (login is checked by
+//    /api/me), so Vercel's CDN may keep them: s-maxage lets the CDN answer
+//    without running the function, max-age=0 makes browsers re-check every
+//    time, and a new deployment clears the CDN — users still get new code.
+const CDN_CACHE = 'public, max-age=0, s-maxage=31536000';
+
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: r => r.setHeader('Cache-Control', CDN_CACHE) }));
 
 // ══════════════════════════════════════════════════════
 // LIGHTWEIGHT RATE LIMITING — in-memory per-process sliding window, used on
@@ -645,8 +664,10 @@ async function getSheetsClient(scopes) {
   }
 }
 
-// Pre-warm Google auth on startup (reduces cold start time)
-(async () => {
+// Pre-warm Google auth on startup (reduces cold start time) — long-running
+// server only; on Vercel every cold start would pay for it even when the
+// request never touches Sheets.
+if (!process.env.VERCEL) (async () => {
   try {
     await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     console.log('  ✅ Google Auth pre-warmed');
@@ -11478,16 +11499,16 @@ app.delete('/api/employees/documents/:docId', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 // PAGES
 // ══════════════════════════════════════════════════════
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/', (req, res) => { res.set('Cache-Control', CDN_CACHE); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 // Auth check is handled client-side via /api/me in init() — removing server-side
 // requireAuth here prevents app.html from loading if cookie has any timing/domain issue
-// no-cache: browser always fetches latest version (prevents stale JS bugs)
+// CDN_CACHE: browsers re-check every load (no stale JS), the CDN answers.
 app.get('/vendor', (req, res) => {
-  res.set('Cache-Control', 'no-store');
+  res.set('Cache-Control', CDN_CACHE);
   res.sendFile(path.join(__dirname, 'public', 'vendor.html'));
 });
 app.get('/app', (req, res) => {
-  res.set('Cache-Control', 'no-store');
+  res.set('Cache-Control', CDN_CACHE);
   res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
 
