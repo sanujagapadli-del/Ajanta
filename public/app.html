@@ -1900,7 +1900,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="rplFilterWrap" style="display:none">
         <select id="rplStageFilter" onchange="renderReplActiveView()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)">
           <option value="">All</option><option value="open">Open</option><option value="done">Closed</option>
-          <option value="Repair">🔧 Repair</option><option value="Exchange">🔄 Exchange</option><option value="Credit Note">🧾 Credit Note</option>
+          <option value="Repair">🔧 Repair</option><option value="Exchange">🔄 Exchange</option><option value="Credit Note">↩ Maal Wapas (Return)</option>
         </select>
       </div>
     </div>
@@ -16794,9 +16794,9 @@ const REPL_STEP_DEFS = [
   { n: 5,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tat: 'Lead time' },
   { n: 6,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tat: '6 hours' },
   { n: 7,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tat: '4 hours' },
-  { n: 8,  key: 'bin',      label: 'Reject Bin / Godown',           doer: 'Aziz', tat: '4 hours' },
+  { n: 8,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tat: '4 hours' },
   { n: 9,  key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tat: '1 day' },
-  { n: 10, key: 'cnsend',   label: 'Send Credit Note to Dealer',    doer: 'Accountant', tat: '1 day' },
+  { n: 10, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tat: '1 day' },
   { n: 11, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tat: '2 days' }
 ];
 const RPL_STAGE = {
@@ -16807,7 +16807,7 @@ const RPL_STAGE = {
   repair:   { label: 'In repair', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
   exchange: { label: 'Exchange', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
   inform:   { label: 'Inform party', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
-  bin:      { label: 'Reject bin', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
+  bin:      { label: 'Maal check', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   cn:       { label: 'Credit note', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   cnsend:   { label: 'Send CN', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   handover: { label: 'Handover', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
@@ -16850,7 +16850,9 @@ function renderReplActiveView() {
 }
 const rplStageBadge = r => { const s = RPL_STAGE[r.stage] || { label: r.stage, bg: 'var(--gray-100)', fg: 'var(--gray-600)' };
   return `<span class="status-badge" style="background:${s.bg};color:${s.fg};white-space:nowrap">${s.label}</span>`; };
-const rplCatChip = r => r.category ? `<span style="font-size:11px;font-weight:700;color:${r.category === 'Repair' ? 'var(--color-purple)' : r.category === 'Exchange' ? 'var(--color-primary)' : 'var(--gray-600)'}">${r.category === 'Repair' ? '🔧' : r.category === 'Exchange' ? '🔄' : '🧾'} ${esc(r.category)}</span>` : '';
+// Stored category 'Credit Note' = goods returned → credit note (client calls it "maal wapas").
+const RPL_CAT_LABEL = { Repair: '🔧 Repair', Exchange: '🔄 Exchange', 'Credit Note': '↩ Maal Wapas' };
+const rplCatChip = r => r.category ? `<span style="font-size:11px;font-weight:700;color:${r.category === 'Repair' ? 'var(--color-purple)' : r.category === 'Exchange' ? 'var(--color-primary)' : 'var(--gray-600)'}">${esc(RPL_CAT_LABEL[r.category] || r.category)}</span>` : '';
 function rplCanDo(r) {
   const t = r.task;
   if (!t) return false;
@@ -16925,7 +16927,7 @@ function renderReplReports() {
       ${card('Open', open.length, `${late.length} overdue`, 'var(--color-warning-text)')}
       ${card('🔧 Repair', byCat('Repair').length, `${byCat('Repair').filter(r => r.task).length} open`, 'var(--color-purple)')}
       ${card('🔄 Exchange', byCat('Exchange').length, `${byCat('Exchange').filter(r => r.task).length} open`, 'var(--color-primary)')}
-      ${card('🧾 Credit Note', byCat('Credit Note').length, `${byCat('Credit Note').filter(r => r.task).length} open`, 'var(--gray-700)')}
+      ${card('↩ Maal Wapas', byCat('Credit Note').length, `${byCat('Credit Note').filter(r => r.task).length} open`, 'var(--gray-700)')}
       ${card('↩ Not ours', live.filter(r => r.ours === 'No').length, 'returned to party', 'var(--color-danger-text)')}
     </div>
     <div style="${RPL_LABEL};margin-bottom:8px">Pending by step</div>
@@ -17015,15 +17017,17 @@ function rplTaskFormHtml(r) {
         <div style="font-size:12px;color:var(--color-danger-text);margin:-4px 0 10px">Product reject bin me rakh kar party ko wapas jayega (Handover step).</div></div>
       <div style="display:flex;gap:8px">${btn('Save', 'check')}</div>`;
   } else if (t.key === 'category') {
-    inner = `${L('Is product ka kya hoga?', true)}${radio(`${id}_cat`, [{ v: 'Repair', l: '🔧 Repair' }, { v: 'Exchange', l: '🔄 Instant Exchange' }, { v: 'Credit Note', l: '🧾 Credit Note' }])}
-      <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Instant Exchange: cooler pump, cooler motor, immersion rod. Credit Note: damage/return maal jo repair nahi hoga.</div>
+    inner = `${L('Is product ka kya hoga?', true)}${radio(`${id}_cat`, [{ v: 'Repair', l: '🔧 Repair' }, { v: 'Exchange', l: '🔄 Instant Exchange' }, { v: 'Credit Note', l: '↩ Maal Wapas (Return)' }])}
+      <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Instant Exchange: cooler pump, cooler motor, immersion rod. Maal Wapas: party ne maal wapas kiya — maal check → stock / reject bin → credit note → party ko share.</div>
       <div style="display:flex;gap:8px">${btn('Save', 'category')}</div>`;
   } else if (t.key === 'warranty') {
     inner = `${radio(`${id}_w`, [{ v: 'In Warranty', l: '✅ In Warranty (free)' }, { v: 'Out of Warranty', l: '💰 Out of Warranty / Damage' }],
         `document.getElementById('${id}_ow').style.display=this.value==='Out of Warranty'?'':'none'`)}
       <div id="${id}_ow" style="display:none">${L('Out of warranty kyun?', true)}<input id="${id}_owr" placeholder="e.g. Bill 2 saal purana / pani gaya" style="${RPL_INPUT}"/>
-        ${L('Customer ko bataye charges (₹)', true)}<input id="${id}_ch" type="number" min="0" style="${RPL_INPUT}"/>
-        ${L('Customer maana?', true)}${radio(`${id}_ag`, [{ v: 'Yes', l: '👍 Haan, repair karo' }, { v: 'No', l: '👎 Nahi — bina repair wapas' }])}</div>
+        ${L('Rate kisko bataya?', true)}${radio(`${id}_told`, [{ v: 'Customer', l: '👤 Customer' }, { v: 'Dealer', l: '🏪 Dealer' }])}
+        ${L('Kitna rate bataya (₹)', true)}<input id="${id}_ch" type="number" min="0" style="${RPL_INPUT}"/>
+        ${L('Rate maana?', true)}${radio(`${id}_ag`, [{ v: 'Yes', l: '👍 Haan — repair karo' }, { v: 'No', l: '👎 Nahi — wapas le gaya (close)' }])}
+        <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">"Nahi" par entry yahin close ho jayegi.</div></div>
       <div style="display:flex;gap:8px">${btn('Save', 'warranty')}</div>`;
   } else if (t.key === 'assign') {
     inner = `${L('Mechanic', true)}<select id="${id}_mech" style="${RPL_INPUT}"><option value="">Loading…</option></select>
@@ -17048,8 +17052,10 @@ function rplTaskFormHtml(r) {
       <div id="${id}_mw" style="display:none">${L('Customer mobile')}<input id="${id}_mobile" value="${esc(r.customerMobile)}" inputmode="tel" style="${RPL_INPUT}"/></div>
       <div style="display:flex;gap:8px">${btn('Save', 'inform')}</div>`;
   } else if (t.key === 'bin') {
-    inner = `${L('Kahan rakha / aage kya')}<input id="${id}_remark" placeholder="e.g. Godown rack 3 · company ko back-to-back bhejna" style="${RPL_INPUT}"/>
-      <div style="display:flex;gap:8px">${btn('✓ Reject bin / godown me rakh diya', 'bin')}</div>`;
+    inner = `${L('Wapas aaya maal check karo', true)}${radio(`${id}_cond`, [{ v: 'OK', l: '✅ Sahi hai — stock me rakho' }, { v: 'Damaged', l: '💥 Toota-phoota — reject bin' }],
+        `document.getElementById('${id}_remark').placeholder=this.value==='OK'?'e.g. Store / warehouse rack 2':'e.g. Reject bin · company ko back-to-back'`)}
+      ${L('Kahan rakha')}<input id="${id}_remark" placeholder="e.g. Store / warehouse rack 2" style="${RPL_INPUT}"/>
+      <div style="display:flex;gap:8px">${btn('✓ Save — aage Credit Note', 'bin')}</div>`;
   } else if (t.key === 'cn') {
     inner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
         <div>${L('Credit Note No.', true)}<input id="${id}_no" style="${RPL_INPUT}"/></div>
@@ -17057,7 +17063,7 @@ function rplTaskFormHtml(r) {
       ${L('Credit note photo', true)}<input id="${id}_photo" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${RPL_INPUT}"/><div id="${id}_pv" style="margin:-6px 0 8px"></div>
       <div style="display:flex;gap:8px">${btn('Save Credit Note', 'cn')}</div>`;
   } else if (t.key === 'cnsend') {
-    inner = `<div style="font-size:13px;margin-bottom:10px">Credit Note <b>${esc(r.cnNo)}</b> dealer ko WhatsApp karein, phir uska screenshot lagayein.</div>
+    inner = `<div style="font-size:13px;margin-bottom:10px">Credit Note <b>${esc(r.cnNo)}</b> party ko WhatsApp par share karein, phir uska screenshot lagayein.</div>
       ${rplPhoto(r.cnPhoto, 140)}
       ${L('WhatsApp screenshot', true)}<input id="${id}_photo" type="file" accept="image/*" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${RPL_INPUT};margin-top:8px"/><div id="${id}_pv" style="margin:-6px 0 8px"></div>
       <div style="display:flex;gap:8px">${btn('✓ Sent — Close', 'cnsend')}</div>`;
@@ -17093,7 +17099,8 @@ function renderReplDetailBody(r) {
       <div style="grid-column:1/-1">${f('Defect', esc(r.defect))}</div>
       ${f('Brought by', esc(r.broughtBy))}${f('Diary No.', esc(r.diaryNo))}
       ${r.ours === 'No' ? f('Not ours', esc(r.notOursReason)) : ''}
-      ${r.warranty ? f('Warranty', esc(r.warranty) + (r.warranty === 'Out of Warranty' ? ` · ₹${r.charges ?? '—'} · customer ${r.customerAgreed === 'Yes' ? 'agreed' : 'declined'}` : '')) : ''}
+      ${r.warranty ? f('Warranty', esc(r.warranty) + (r.warranty === 'Out of Warranty' ? ` · ₹${r.charges ?? '—'}${r.rateToldTo ? ' (' + esc(r.rateToldTo) + ' ko bataya)' : ''} · ${r.customerAgreed === 'Yes' ? 'maana' : 'nahi maana — wapas le gaya'}` : '')) : ''}
+      ${r.binAt ? f('Maal check', (r.returnCondition === 'OK' ? '✅ Sahi — ' : r.returnCondition === 'Damaged' ? '💥 Toota-phoota — ' : '') + esc(r.binRemark)) : ''}
       ${r.owReason && r.warranty === 'Out of Warranty' ? f('OW reason', esc(r.owReason)) : ''}
       ${f('Mechanic', esc(r.mechanicName) + (r.leadDays ? ` · ${r.leadDays} day(s)` : ''))}
       ${f('Exchange item', esc(r.exchangeItem))}
@@ -17110,8 +17117,8 @@ function renderReplDetailBody(r) {
   document.getElementById('rplBody').innerHTML = info + action + `<div style="${RPL_LABEL};margin:6px 0 8px">History</div><div id="rplEvents_${r.id}" style="font-size:12.5px"><div class="empty">Loading…</div></div>`;
 }
 const RPL_EVENT_LABEL = { created: '📝 Form filled', imported: '📥 Imported', check: '📒 Diary / ownership', category: '🗂 Category', warranty: '🛡 Warranty',
-  assign: '🔧 Given to mechanic', repair: '✅ Repaired & tested', exchange: '🔄 Exchanged', inform: '📞 Informed', bin: '🗑 Reject bin', cn: '🧾 Credit note',
-  cnsend: '📤 CN sent', otp: '🔐 OTP', handover: '🤝 Handed over', cancelled: '🚫 Cancelled' };
+  assign: '🔧 Given to mechanic', repair: '✅ Repaired & tested', exchange: '🔄 Exchanged', inform: '📞 Informed', bin: '🔍 Maal check', cn: '🧾 Credit note',
+  cnsend: '📤 CN shared', otp: '🔐 OTP', handover: '🤝 Handed over', cancelled: '🚫 Cancelled' };
 async function loadReplEvents(id) {
   const r = await api(`/api/replacement-fms/${id}/events`);
   const el = document.getElementById(`rplEvents_${id}`);
@@ -17141,12 +17148,12 @@ async function submitReplAction(id, action, btnEl, preset) {
   let body = preset || {};
   if (action === 'check') body = { ours: radio('ours'), diaryNo: val('diary'), stickerPasted: val('sticker'), reason: val('reason') };
   else if (action === 'category') body = { category: radio('cat') };
-  else if (action === 'warranty') body = { warranty: radio('w'), owReason: val('owr'), charges: val('ch'), customerAgreed: radio('ag') };
+  else if (action === 'warranty') body = { warranty: radio('w'), owReason: val('owr'), charges: val('ch'), rateToldTo: radio('told'), customerAgreed: radio('ag') };
   else if (action === 'assign') body = { mechanicUserId: val('mech'), leadDays: val('lead') };
   else if (action === 'repair') body = { tested: val('tested'), remark: val('remark') };
   else if (action === 'exchange') body = { newItem: val('item'), oldInBin: val('bin') };
   else if (action === 'inform') body = { remark: val('remark'), sendWhatsApp: val('wa'), mobile: val('mobile') };
-  else if (action === 'bin') body = { remark: val('remark') };
+  else if (action === 'bin') body = { condition: radio('cond'), remark: val('remark') };
   else if (action === 'cn') body = { cnNo: val('no'), cnAmount: val('amt'), cnPhoto: photo() };
   else if (action === 'cnsend') body = { photo: photo() };
   else if (action === 'handover') body = { otp: val('otp'), receiverName: val('recv'), chargesReceived: val('chr'), withoutOtp: val('nootp') };

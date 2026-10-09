@@ -9053,12 +9053,13 @@ const REPL_STEPS = [
   { n: 5,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tatH: 48 },
   { n: 6,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tatH: 6 },
   { n: 7,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tatH: 4 },
-  { n: 8,  key: 'bin',      label: 'Reject Bin / Godown',           doer: 'Aziz', tatH: 4 },
+  { n: 8,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tatH: 4 },
   { n: 9,  key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tatH: 24 },
-  { n: 10, key: 'cnsend',   label: 'Send Credit Note to Dealer',    doer: 'Accountant', tatH: 24 },
+  { n: 10, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tatH: 24 },
   { n: 11, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tatH: 48 }
 ];
 const REPL_N = Object.fromEntries(REPL_STEPS.map(s => [s.key, s.n]));
+// 'Credit Note' = goods returned (shown as "Maal Wapas (Return)"); value kept for old records.
 const REPL_CATEGORIES = ['Repair', 'Exchange', 'Credit Note'];
 const REPL_OLD_SHEET_ID = '1G8JUBWG_GmLEkhWM6qjpjNwmN-JX8udSjTBH8iEdYO4';
 const REPL_OTP_TTL_MIN = 30;
@@ -9121,9 +9122,16 @@ async function ensureReplTables() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 }
+// Added 2026-10-09 (client voice note): returned goods' condition (OK → stock,
+// damaged → reject bin) and to whom the out-of-warranty rate was told.
+let _replColsOk = false;
+async function ensureReplCols() {
+  await addMissingColumns('replacements', [['return_condition', 'VARCHAR(20)'], ['rate_told_to', 'VARCHAR(20)']]);
+  _replColsOk = true;
+}
 async function withReplTables(fn) {
-  try { return await fn(); }
-  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureReplTables(); return await fn(); }
+  try { if (!_replColsOk) await ensureReplCols(); return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureReplTables(); await ensureReplCols(); return await fn(); }
 }
 async function logReplEvent(id, event, detail, userId, at) {
   await db.query('INSERT INTO replacement_events (repl_id, event, detail, user_id, created_at) VALUES (?,?,?,?,COALESCE(?,NOW()))',
@@ -9169,6 +9177,8 @@ function replStage(r) {
   } else {
     if (!r.warranty_at) return 'warranty';
     const declined = r.warranty === 'Out of Warranty' && r.customer_agreed === 'No';
+    // Refused the rate and took the product back — closed at the warranty step.
+    if (declined && r.delivered_at) return 'closed';
     if (!declined) {
       if (!r.assigned_at) return 'assign';
       if (!r.repaired_at) return 'repair';
@@ -9219,7 +9229,7 @@ function replOut(r, doersMap) {
     repairedAt: r.repaired_at, repairRemark: r.repair_remark || '',
     exchangeItem: r.exchange_item || '', exchangeAt: r.exchange_at,
     informedAt: r.informed_at, informRemark: r.inform_remark || '',
-    binAt: r.bin_at, binRemark: r.bin_remark || '', cnNo: r.cn_no || '', cnAmount: num(r.cn_amount), cnPhoto: r.cn_photo || '', cnAt: r.cn_at,
+    binAt: r.bin_at, binRemark: r.bin_remark || '', returnCondition: r.return_condition || '', rateToldTo: r.rate_told_to || '', cnNo: r.cn_no || '', cnAmount: num(r.cn_amount), cnPhoto: r.cn_photo || '', cnAt: r.cn_at,
     cnSentPhoto: r.cn_sent_photo || '', cnSentAt: r.cn_sent_at,
     otpSentAt: r.otp_hash ? r.otp_expires : null, otpMobile: r.otp_mobile || '',
     deliveredAt: r.delivered_at, receiverName: r.receiver_name || '', chargesReceived: num(r.charges_received), handoverRemark: r.handover_remark || '',
@@ -9379,10 +9389,13 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
         const reason = t(b.owReason), charges = Number(b.charges);
         if (!reason) return fail('Write why it is out of warranty');
         if (!(charges >= 0) || b.charges === '' || b.charges == null) return fail('Enter the charges told to the customer');
+        if (!['Customer', 'Dealer'].includes(b.rateToldTo)) return fail('Rate kisko bataya — Customer ya Dealer?');
         if (!['Yes', 'No'].includes(b.customerAgreed)) return fail('Did the customer agree to the charges?');
-        await db.query("UPDATE replacements SET warranty='Out of Warranty', ow_reason=?, charges=?, customer_agreed=?, warranty_at=NOW(), warranty_by=? WHERE id=?",
-          [reason, charges, b.customerAgreed, uid, r.id]);
-        await logReplEvent(r.id, 'warranty', `Out of warranty · ${reason} · ₹${charges} · customer ${b.customerAgreed === 'Yes' ? 'agreed' : 'declined — return without repair'}`, uid);
+        const refused = b.customerAgreed === 'No';
+        // Refused: they take the product back as it is — the entry closes here.
+        await db.query(`UPDATE replacements SET warranty='Out of Warranty', ow_reason=?, charges=?, rate_told_to=?, customer_agreed=?, warranty_at=NOW(), warranty_by=?${refused ? ", delivered_at=NOW(), delivered_by=?, handover_remark='Rate nahi maana — product wapas le gaya'" : ''} WHERE id=?`,
+          refused ? [reason, charges, b.rateToldTo, b.customerAgreed, uid, uid, r.id] : [reason, charges, b.rateToldTo, b.customerAgreed, uid, r.id]);
+        await logReplEvent(r.id, 'warranty', `Out of warranty · ${reason} · ₹${charges} told to ${b.rateToldTo} · ${refused ? 'NOT agreed — product taken back, closed' : 'agreed — repair'}`, uid);
       } else return fail('Choose In Warranty or Out of Warranty');
     } else if (action === 'assign') {
       if (!need('assign')) return;
@@ -9421,8 +9434,10 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       await logReplEvent(r.id, 'inform', remark + wa, uid);
     } else if (action === 'bin') {
       if (!need('bin')) return;
-      await db.query('UPDATE replacements SET bin_at=NOW(), bin_by=?, bin_remark=? WHERE id=?', [uid, t(b.remark) || null, r.id]);
-      await logReplEvent(r.id, 'bin', t(b.remark) || 'Put in reject bin / godown', uid);
+      if (!['OK', 'Damaged'].includes(b.condition)) return fail('Maal check karke batayein — sahi hai ya toota-phoota?');
+      const where = t(b.remark) || (b.condition === 'OK' ? 'Store / warehouse stock me rakha' : 'Reject bin / godown me rakha');
+      await db.query('UPDATE replacements SET return_condition=?, bin_at=NOW(), bin_by=?, bin_remark=? WHERE id=?', [b.condition, uid, where, r.id]);
+      await logReplEvent(r.id, 'bin', `${b.condition === 'OK' ? 'Maal sahi hai' : 'Toota-phoota / damaged'} · ${where}`, uid);
     } else if (action === 'cn') {
       if (!need('cn')) return;
       const no = t(b.cnNo, 50);
@@ -9437,7 +9452,7 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       if (!b.photo) return fail('Upload the WhatsApp screenshot of the credit note sent to the dealer');
       const photo = await uploadPhotoToDrive(b.photo, `${r.code}-cn-sent-${Date.now()}.jpg`);
       await db.query('UPDATE replacements SET cn_sent_photo=?, cn_sent_at=NOW(), cn_sent_by=? WHERE id=?', [photo, uid, r.id]);
-      await logReplEvent(r.id, 'cnsend', 'Credit note sent to dealer — closed', uid);
+      await logReplEvent(r.id, 'cnsend', 'Credit note shared with party — closed', uid);
     } else if (action === 'send-otp') {
       if (!need('handover')) return;
       const mobile = t(b.mobile, 30) || r.customer_mobile;
