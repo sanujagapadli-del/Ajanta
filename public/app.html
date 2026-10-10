@@ -19141,5 +19141,146 @@ init();
 setDefaultMISDates();
 
 </script>
+
+<!-- ══════════════════════════════════════════════════════
+     FESTIVAL THEME (client, 2026-10-10: "Navratri special — 9 din tak change,
+     Dussehra ko Dussehra ka"). Browser-only (CSS animation), no server calls.
+     Garland under the topbar, a greeting chip next to the page title that
+     changes every day (Maa Durga's 9 forms), falling petals and a small corner
+     scene. Full / Lite / Off is remembered per browser. Preview any day with
+     ?fest=navratri3 or ?fest=dussehra in the URL. Next year: update FESTIVALS.
+     ══════════════════════════════════════════════════════ -->
+<style>
+.fest-toran{position:absolute;left:0;right:0;bottom:-19px;height:20px;pointer-events:none;z-index:2;
+  background:
+    linear-gradient(var(--fest-rope,#b45309),var(--fest-rope,#b45309)) 0 1px/100% 2px no-repeat,
+    radial-gradient(circle at 10px 9px,var(--fest-c1,#f59e0b) 0 6px,transparent 6.6px) 0 0/40px 20px repeat-x,
+    radial-gradient(circle at 10px 9px,var(--fest-c2,#ea580c) 0 2.5px,transparent 3px) 0 0/40px 20px repeat-x,
+    radial-gradient(ellipse 4px 7px at 30px 9px,#2e7d32 96%,transparent 100%) 0 0/40px 20px repeat-x;
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.12));animation:festSway 4s ease-in-out infinite alternate;transform-origin:top}
+@keyframes festSway{from{transform:skewX(-1.2deg)}to{transform:skewX(1.2deg)}}
+.topbar.fest-on{background:linear-gradient(90deg,var(--surface) 0%,var(--fest-tint,#fff7ed) 100%);border-bottom:2px solid var(--fest-c1,#f59e0b)}
+.fest-chip{display:inline-flex;align-items:center;gap:6px;margin-left:14px;padding:6px 12px;border-radius:999px;cursor:pointer;user-select:none;
+  margin-right:auto;font-size:12.5px;font-weight:700;white-space:nowrap;color:#fff;background:linear-gradient(90deg,var(--fest-c2,#ea580c),var(--fest-c1,#f59e0b));
+  box-shadow:0 3px 10px rgba(234,88,12,.28);border:none;font-family:inherit;max-width:58vw;overflow:hidden;text-overflow:ellipsis}
+.fest-chip.fest-min{padding:6px 9px;background:var(--surface-alt,#f3f4f6);color:var(--gray-600);box-shadow:none;border:1px solid var(--border-base)}
+.fest-pop{position:fixed;z-index:1200;top:70px;width:300px;max-width:calc(100vw - 24px);background:var(--surface);color:var(--gray-800);border-radius:16px;
+  box-shadow:0 18px 50px rgba(0,0,0,.22);border:1px solid var(--border-light);padding:16px;font-size:13px}
+.fest-pop h4{margin:0 0 4px;font-size:16px}
+.fest-days{display:flex;gap:4px;margin:10px 0 12px}
+.fest-days span{flex:1;height:8px;border-radius:4px;background:var(--gray-200)}
+.fest-modes{display:flex;gap:6px}
+.fest-modes button{flex:1;padding:7px;border-radius:9px;border:1.5px solid var(--border-base);background:var(--surface);font-weight:700;font-size:12px;cursor:pointer;color:var(--gray-700);font-family:inherit}
+.fest-modes button.on{border-color:var(--fest-c2,#ea580c);background:var(--fest-tint,#fff7ed);color:var(--fest-c2,#ea580c)}
+.fest-fall{position:fixed;inset:0;pointer-events:none;z-index:80;overflow:hidden}
+.fest-fall i{position:absolute;top:-30px;font-style:normal;opacity:.85;animation:festFall linear infinite}
+@keyframes festFall{0%{transform:translate(0,0) rotate(0)}100%{transform:translate(40px,105vh) rotate(360deg)}}
+.fest-corner{position:fixed;left:84px;bottom:14px;z-index:80;pointer-events:none;font-size:38px;line-height:1;filter:drop-shadow(0 4px 6px rgba(0,0,0,.18))}
+.fest-corner b{display:inline-block;animation:festDance 1.1s ease-in-out infinite alternate}
+.fest-corner b:nth-child(2){animation-delay:.35s}.fest-corner b:nth-child(3){animation-delay:.7s}
+@keyframes festDance{from{transform:translateY(0) rotate(-8deg)}to{transform:translateY(-8px) rotate(8deg)}}
+.fest-corner .fest-flame{animation:festFlame .5s ease-in-out infinite alternate}
+@keyframes festFlame{from{transform:scale(1)}to{transform:scale(1.18) translateY(-3px)}}
+@media(max-width:768px){.fest-corner{display:none}.fest-chip{margin-left:8px;font-size:11.5px;padding:5px 10px}}
+@media(prefers-reduced-motion:reduce){.fest-fall,.fest-corner{display:none}.fest-toran{animation:none}}
+</style>
+<script>
+(function festivalTheme() {
+  const FESTIVALS = { navratriStart: '2026-10-11', navratriDays: 9, dussehra: '2026-10-20' };
+  const GODDESS = [
+    { n: 'माँ शैलपुत्री',    c1: '#f97316', c2: '#c2410c', tint: '#fff7ed' },
+    { n: 'माँ ब्रह्मचारिणी', c1: '#e5e7eb', c2: '#6b7280', tint: '#f9fafb' },
+    { n: 'माँ चंद्रघंटा',    c1: '#ef4444', c2: '#b91c1c', tint: '#fef2f2' },
+    { n: 'माँ कूष्मांडा',    c1: '#3b82f6', c2: '#1d4ed8', tint: '#eff6ff' },
+    { n: 'माँ स्कंदमाता',    c1: '#facc15', c2: '#ca8a04', tint: '#fefce8' },
+    { n: 'माँ कात्यायनी',    c1: '#22c55e', c2: '#15803d', tint: '#f0fdf4' },
+    { n: 'माँ कालरात्रि',    c1: '#9ca3af', c2: '#374151', tint: '#f3f4f6' },
+    { n: 'माँ महागौरी',      c1: '#a855f7', c2: '#7e22ce', tint: '#faf5ff' },
+    { n: 'माँ सिद्धिदात्री', c1: '#14b8a6', c2: '#0f766e', tint: '#f0fdfa' }
+  ];
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const dayDiff = (a, b) => Math.round((new Date(a + 'T12:00:00') - new Date(b + 'T12:00:00')) / 86400000);
+  function current() {
+    const pv = (new URLSearchParams(location.search).get('fest') || '').toLowerCase();
+    if (pv === 'dussehra') return { kind: 'dussehra' };
+    const pm = pv.match(/^navratri([1-9])$/);
+    if (pm) return { kind: 'navratri', day: +pm[1] };
+    const today = ymd(new Date());
+    if (today === FESTIVALS.dussehra) return { kind: 'dussehra' };
+    const d = dayDiff(today, FESTIVALS.navratriStart) + 1;
+    return d >= 1 && d <= FESTIVALS.navratriDays ? { kind: 'navratri', day: d } : null;
+  }
+  const fest = current();
+  if (!fest) return;
+  const KEY = 'festTheme';
+  const getMode = () => { try { return localStorage.getItem(KEY) || (matchMedia('(max-width:768px)').matches ? 'lite' : 'full'); } catch (e) { return 'lite'; } };
+  const topbar = document.querySelector('.topbar');
+  const title = document.getElementById('topbarTitle');
+  if (!topbar || !title) return;
+  const g = fest.kind === 'navratri' ? GODDESS[fest.day - 1] : { c1: '#f59e0b', c2: '#dc2626', tint: '#fff7ed' };
+  const root = document.documentElement.style;
+  root.setProperty('--fest-c1', g.c1); root.setProperty('--fest-c2', g.c2); root.setProperty('--fest-tint', g.tint);
+  root.setProperty('--fest-rope', fest.kind === 'dussehra' ? '#b91c1c' : '#b45309');
+
+  const chip = document.createElement('button');
+  chip.className = 'fest-chip'; chip.type = 'button';
+  title.insertAdjacentElement('afterend', chip);
+  const toran = document.createElement('div'); toran.className = 'fest-toran';
+  let fall = null, corner = null, pop = null;
+
+  function render() {
+    const mode = getMode();
+    const on = mode !== 'off';
+    topbar.classList.toggle('fest-on', on);
+    chip.classList.toggle('fest-min', !on);
+    chip.textContent = !on ? '🪔' : fest.kind === 'navratri'
+      ? `🪔 शुभ नवरात्रि · दिन ${fest.day} · ${g.n}`
+      : '🏹 शुभ विजयादशमी';
+    chip.title = 'Festival theme';
+    if (on) { if (!toran.isConnected) topbar.appendChild(toran); } else toran.remove();
+    if (fall) { fall.remove(); fall = null; }
+    if (corner) { corner.remove(); corner = null; }
+    if (mode === 'full') {
+      fall = document.createElement('div'); fall.className = 'fest-fall';
+      const items = fest.kind === 'navratri' ? ['🌼', '🌸', '🌺', '🌼'] : ['🌼', '✨', '🌼', '🔥'];
+      for (let i = 0; i < 12; i++) {
+        const p = document.createElement('i');
+        p.textContent = items[i % items.length];
+        p.style.left = (Math.random() * 98) + 'vw';
+        p.style.fontSize = (14 + Math.random() * 10) + 'px';
+        p.style.animationDuration = (11 + Math.random() * 9) + 's';
+        p.style.animationDelay = (-Math.random() * 18) + 's';
+        fall.appendChild(p);
+      }
+      document.body.appendChild(fall);
+      corner = document.createElement('div'); corner.className = 'fest-corner';
+      corner.innerHTML = fest.kind === 'navratri' ? '<b>💃</b><b>🪔</b><b>🕺</b>' : '<b>🏹</b> <span class="fest-flame">👹🔥</span>';
+      document.body.appendChild(corner);
+    }
+  }
+  function closePop() { if (pop) { pop.remove(); pop = null; document.removeEventListener('click', outside, true); } }
+  function outside(e) { if (pop && !pop.contains(e.target) && e.target !== chip) closePop(); }
+  chip.addEventListener('click', () => {
+    if (pop) { closePop(); return; }
+    const mode = getMode();
+    pop = document.createElement('div'); pop.className = 'fest-pop';
+    const r = chip.getBoundingClientRect();
+    pop.style.left = Math.max(12, Math.min(r.left, innerWidth - 312)) + 'px';
+    pop.innerHTML = fest.kind === 'navratri'
+      ? `<h4>🪔 नवरात्रि — दिन ${fest.day}</h4><div>आज ${g.n} की आराधना का दिन है।<br/>आप सभी को नवरात्रि की हार्दिक शुभकामनाएँ 🙏</div>
+         <div class="fest-days">${GODDESS.map((x, i) => `<span title="दिन ${i + 1} · ${x.n}" style="${i < fest.day ? `background:${x.c1}` : ''}"></span>`).join('')}</div>`
+      : `<h4>🏹 शुभ विजयादशमी</h4><div>असत्य पर सत्य की, बुराई पर अच्छाई की जीत का पर्व।<br/>आप सभी को दशहरे की हार्दिक शुभकामनाएँ 🙏</div><div style="height:12px"></div>`;
+    pop.insertAdjacentHTML('beforeend', `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;margin-bottom:6px">Festival theme</div>
+      <div class="fest-modes">${[['full', 'Full'], ['lite', 'Lite'], ['off', 'Off']].map(([v, l]) => `<button type="button" data-m="${v}" class="${mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>`);
+    pop.querySelectorAll('[data-m]').forEach(b => b.addEventListener('click', () => {
+      try { localStorage.setItem(KEY, b.dataset.m); } catch (e) {}
+      closePop(); render();
+    }));
+    document.body.appendChild(pop);
+    setTimeout(() => document.addEventListener('click', outside, true), 0);
+  });
+  render();
+})();
+</script>
 </body>
 </html>
