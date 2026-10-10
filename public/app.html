@@ -19232,7 +19232,7 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
 </style>
 <script>
 (function festivalTheme() {
-  const FESTIVALS = { navratriStart: '2026-10-10', navratriDays: 9, dussehra: '2026-10-20' };
+  const FESTIVALS = { navratriStart: '2026-10-11', navratriDays: 9, dussehra: '2026-10-20' };
   // Day-wise Devi, what she stands for, and the popular "colour of the day" (2026 starts on a Sunday).
   const DEVI = [
     { n: 'माँ शैलपुत्री',    m: 'स्थिरता और शक्ति की देवी', rang: 'नारंगी', c1: '#fb923c', c2: '#c2410c', tint: '#ffedd5', dot: '#f97316' },
@@ -19250,17 +19250,19 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
   function current() {
     const pv = (new URLSearchParams(location.search).get('fest') || '').toLowerCase();
     if (pv === 'dussehra') return { kind: 'dussehra' };
+    if (pv === 'eve') return { kind: 'eve' };
     const pm = pv.match(/^navratri([1-9])$/);
     if (pm) return { kind: 'navratri', day: +pm[1] };
     const today = ymd(new Date());
     if (today === FESTIVALS.dussehra) return { kind: 'dussehra' };
     const d = dayDiff(today, FESTIVALS.navratriStart) + 1;
+    if (d === 0) return { kind: 'eve' }; // the day before: just a light welcome
     // Day 9 (Navami) stays up until Dussehra if the calendar has a gap day.
     return d >= 1 && today < FESTIVALS.dussehra ? { kind: 'navratri', day: Math.min(d, FESTIVALS.navratriDays) } : null;
   }
   const fest = current();
   if (!fest) return;
-  const isNav = fest.kind === 'navratri';
+  const isNav = fest.kind === 'navratri', isEve = fest.kind === 'eve';
   const g = isNav ? DEVI[fest.day - 1] : { c1: '#fb923c', c2: '#c2410c', tint: '#ffedd5' };
   const store = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
   const getMode = () => { const m = store.get('festTheme'); return m === 'lite' || m === 'off' ? m : 'full'; };
@@ -19466,6 +19468,7 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
   }
   // The day's info, inline next to the page title (client: "Dashboard wali line mai hi").
   function fillLine() {
+    if (isEve) { line.innerHTML = '<span class="fl-sub" style="display:inline">माँ दुर्गा के स्वागत की तैयारी 🌼</span>'; return; }
     if (isNav) {
       line.innerHTML = `<span class="fl-name">${g.n}</span><span class="fl-sub">${g.m} 🙏</span>
         <span class="fl-rang"><i style="background:${g.dot}"></i>आज का रंग: ${g.rang}</span>
@@ -19492,6 +19495,7 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
       petals.appendChild(p);
     }
     out.push(petals);
+    if (isEve) { out.forEach(n => document.body.appendChild(n)); return out; }
     const left = document.createElement('div'); left.className = 'fest-corner left';
     left.innerHTML = (isNav ? garbaScene() : ramScene()) + `<div class="fest-pill">${isNav ? '🪔 शुभ नवरात्रि' : '🏹 शुभ दशहरा'}</div>`;
     const right = document.createElement('div'); right.className = 'fest-corner right';
@@ -19503,9 +19507,9 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
   }
   function render() {
     const mode = getMode(), on = mode !== 'off';
-    html.classList.toggle('fest-day', on);
+    html.classList.toggle('fest-day', on && !isEve);
     chip.classList.toggle('fest-min', !on);
-    chip.textContent = !on ? '🪔' : isNav ? `🪔 नवरात्रि · दिन ${fest.day} / 9` : '🏹 शुभ विजयादशमी';
+    chip.textContent = !on ? '🪔' : isEve ? '🪔 कल से शुभ नवरात्रि' : isNav ? `🪔 नवरात्रि · दिन ${fest.day} / 9` : '🏹 शुभ विजयादशमी';
     if (on) { if (!toran.isConnected) topbar.appendChild(toran); } else toran.remove();
     line.style.display = on ? '' : 'none';
     if (on) fillLine();
