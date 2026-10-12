@@ -6837,7 +6837,6 @@ const EMP_CSV_COLS = [
   { h: 'Documents Uploaded', get: e => (e.docTypes || []).join('; ') },
   { h: 'Documents Missing', get: e => e.missingDocs.join('; ') },
   { h: 'Monthly Salary', sal: 'monthlySalary', kind: 'money', viewer: true },
-  { h: 'Petrol Rate (per km)', sal: 'kmRate', kind: 'money', viewer: true },
   { h: 'O2D Order By Name', sal: 'o2dNames', viewer: true },
   { h: 'Notes', field: 'notes' }
 ];
@@ -7152,9 +7151,8 @@ function empSalaryHtml(r) {
     </div>`
     + empSection('💰 Salary settings — sirf Vishal / Ajay ko dikhta hai', `
       <div><div style="${EMP_LABEL}">Mahine ki salary (₹)</div><input id="empSal" type="number" min="0" value="${s.monthlySalary ?? ''}" placeholder="e.g. 18000" style="${EMP_INPUT}"/></div>
-      <div><div style="${EMP_LABEL}">Petrol rate (₹ / km)</div><input id="empKmRate" type="number" min="0" step="0.1" value="${s.kmRate ?? ''}" placeholder="field staff" style="${EMP_INPUT}"/></div>
       <div><div style="${EMP_LABEL}">O2D "Order By" naam</div><input id="empO2d" value="${esc(s.o2dNames || '')}" placeholder="sirf salesman — e.g. Krishna" style="${EMP_INPUT}"/></div>
-      <div style="grid-column:1/-1;font-size:11.5px;color:var(--gray-500)">O2D naam bharne par ye employee <b>Gross Profit → 👤 Salesman-wise</b> me aata hai (sales, GP, salary, petrol, tour, net profit). Earned = salary ÷ mahine ke din × paid din (present, week-off, holiday, approved leave).</div>`)
+      <div style="grid-column:1/-1;font-size:11.5px;color:var(--gray-500)">O2D naam bharne par ye employee <b>Gross Profit → 👤 Salesman-wise</b> me aata hai (sales, GP, salary, petrol, tour, net profit). Earned = salary ÷ mahine ke din × paid din (present, week-off, holiday, approved leave). Petrol rate sab ke liye ek hai — <b>Kilometer</b> page se badlein.</div>`)
     + `<button id="empSalBtn" class="btn btn-primary" onclick="saveEmployeeSalary()" style="width:100%;justify-content:center;padding:12px;font-size:14px;margin-bottom:14px">Save salary</button>`
     + `<div style="${EMP_LABEL}">Salary history</div>`
     + (s.history && s.history.length ? `<table style="width:100%;font-size:12.5px"><thead><tr><th>Date</th><th>Old</th><th>New</th><th>By</th></tr></thead><tbody>${s.history.map(h => `<tr><td>${esc(fmtDateDMY(String(h.at).replace('T', ' '), true))}</td><td>${h.old != null ? inr(h.old) : '—'}</td><td style="font-weight:700">${h.new != null ? inr(h.new) : 'removed'}</td><td>${esc(h.by)}</td></tr>`).join('')}</tbody></table>` : '<div style="font-size:12.5px;color:var(--gray-400)">Abhi koi change nahi.</div>');
@@ -7164,10 +7162,10 @@ function fmtMonthLabel(ym) {
   return new Date(y, m - 1, 1).toLocaleString('en-IN', { month: 'short', year: 'numeric' });
 }
 async function saveEmployeeSalary() {
-  const sal = document.getElementById('empSal').value.trim(), rate = document.getElementById('empKmRate').value.trim(), names = document.getElementById('empO2d').value.trim();
+  const sal = document.getElementById('empSal').value.trim(), names = document.getElementById('empO2d').value.trim();
   const btn = document.getElementById('empSalBtn');
   btn.disabled = true; btn.textContent = '⏳ Saving...';
-  const r = await api(`/api/salesman-pl/profiles/${empCur.user.id}`, 'PUT', sal || rate || names ? { monthlySalary: sal, kmRate: rate, o2dNames: names } : { enabled: false });
+  const r = await api(`/api/salesman-pl/profiles/${empCur.user.id}`, 'PUT', sal || names ? { monthlySalary: sal, o2dNames: names } : { enabled: false });
   btn.disabled = false; btn.textContent = 'Save salary';
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast('✅ Salary saved');
@@ -7632,12 +7630,41 @@ function dayKmChip(dayKm) {
   return `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--color-success-bg);color:var(--color-success-text);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap">🛣️ ${fmtKm(dayKm)} km</span>`;
 }
 
+// One petrol rate per km for everyone (client, 2026-10-12) — editable here by admin / Vishal / Ajay.
+let kmRateInfo = { rate: 3.8, canEdit: false };
+const kmAmt = km => inr(Math.round((Number(km) || 0) * kmRateInfo.rate * 100) / 100);
+function renderKmSummary(rows) {
+  const by = {};
+  rows.forEach(r => { const x = by[r.user_id] = by[r.user_id] || { name: r.name, km: 0, days: 0, pending: 0 }; if (r.day_km != null) { x.km += Number(r.day_km); x.days++; } else x.pending++; });
+  const list = Object.values(by).sort((a, b) => b.km - a.km);
+  const totalKm = list.reduce((s, x) => s + x.km, 0);
+  const rateHtml = `₹${kmRateInfo.rate.toFixed(2)} / km${kmRateInfo.canEdit ? ` <button class="btn btn-outline btn-sm" style="padding:2px 8px;margin-left:4px" onclick="editKmRate()">✏️ Edit</button>` : ''}`;
+  const cardStyle = 'flex:1;min-width:150px;border:1.5px solid var(--gray-200);border-radius:14px;padding:12px 16px;background:var(--surface)';
+  return `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="${cardStyle}"><div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase">Total KM</div><div style="font-size:22px;font-weight:800">${fmtKm(Math.round(totalKm * 10) / 10)} km</div></div>
+      <div style="${cardStyle}"><div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase">Rate</div><div style="font-size:22px;font-weight:800">${rateHtml}</div><div style="font-size:11px;color:var(--gray-500)">sab salesman ke liye same</div></div>
+      <div style="${cardStyle}"><div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase">Total Amount</div><div style="font-size:22px;font-weight:800;color:var(--color-success-text)">${kmAmt(totalKm)}</div></div>
+    </div>
+    ${list.length > 1 ? `<div class="mis-table-wrap" style="overflow-x:auto;margin-bottom:16px"><table>
+      <thead><tr><th>Employee</th><th style="text-align:right">Days</th><th style="text-align:right">Total KM</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
+      <tbody>${list.map(x => `<tr><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${x.days}${x.pending ? ` <span style="color:var(--color-warning-text);font-size:11px">+${x.pending} adhura</span>` : ''}</td><td style="text-align:right;font-weight:700">${fmtKm(Math.round(x.km * 10) / 10)} km</td><td style="text-align:right">₹${kmRateInfo.rate.toFixed(2)}</td><td style="text-align:right;font-weight:800;color:var(--color-success-text)">${kmAmt(x.km)}</td></tr>`).join('')}</tbody>
+    </table></div>` : ''}`;
+}
+async function editKmRate() {
+  const v = prompt('Petrol rate per km (₹) — sab salesman pe lagega:', kmRateInfo.rate);
+  if (v === null) return;
+  const r = await api('/api/km/rate', 'PUT', { rate: v });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ Rate ₹${r.rate}/km — sab jagah update ho gaya`);
+  loadKmHistory();
+}
+
 function renderKmTable(rows, isAdmin) {
   return `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Daily Kilometer</div>
   <div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:${isAdmin ? 820 : 620}px">
     <thead><tr>
       ${isAdmin ? '<th>Employee</th>' : ''}
-      <th>Date</th><th>Morning</th><th>Evening</th><th>Day Total</th><th></th>
+      <th>Date</th><th>Morning</th><th>Evening</th><th>Day Total</th><th>Amount</th><th></th>
     </tr></thead>
     <tbody>${rows.map(r => `<tr>
       ${isAdmin ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
@@ -7645,6 +7672,7 @@ function renderKmTable(rows, isAdmin) {
       <td>${kmReadingCell(r.morning_km, r.morning_time, r.morning_photo, r.morning_lat, r.morning_lng, r.morning_address)}</td>
       <td>${kmReadingCell(r.evening_km, r.evening_time, r.evening_photo, r.evening_lat, r.evening_lng, r.evening_address)}</td>
       <td>${dayKmChip(r.day_km)}</td>
+      <td style="font-weight:700;white-space:nowrap">${r.day_km != null ? kmAmt(r.day_km) : '—'}</td>
       <td>${isAdmin ? `<button class="row-action-btn del" onclick="deleteKmEntry(${r.id})" title="Delete">🗑</button>` : ''}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
@@ -7669,13 +7697,14 @@ function renderKmWeekly(rows) {
   const weekLabel = wk => { const s = new Date(wk + 'T00:00:00'); const e = new Date(s); e.setDate(e.getDate() + 6); const f = d => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); return `${f(s)} – ${f(e)}`; };
   return `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Weekly Kilometer Report</div>
   <div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:760px">
-    <thead><tr><th>Week</th><th>Employee</th>${dayNames.map(d => `<th style="text-align:right">${d}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Avg / Day</th></tr></thead>
+    <thead><tr><th>Week</th><th>Employee</th>${dayNames.map(d => `<th style="text-align:right">${d}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Avg / Day</th><th style="text-align:right">Amount</th></tr></thead>
     <tbody>${list.map(g => `<tr>
       <td style="white-space:nowrap">${weekLabel(g.wk)}</td>
       <td style="font-weight:600;white-space:nowrap">${esc(g.name)}</td>
       ${dayNames.map((_, i) => `<td style="text-align:right">${i in g.days ? (g.days[i] == null ? '<span style="color:var(--color-warning-text)" title="Evening reading pending">…</span>' : fmtKm(g.days[i])) : '<span style="color:var(--gray-300)">—</span>'}</td>`).join('')}
       <td style="text-align:right;font-weight:800;color:var(--color-success-text)">${fmtKm(g.total)} km</td>
       <td style="text-align:right;color:var(--gray-500)">${g.logged ? fmtKm(Math.round(g.total / g.logged * 10) / 10) : '—'}</td>
+      <td style="text-align:right;font-weight:800">${kmAmt(g.total)}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
@@ -7700,10 +7729,11 @@ async function loadKmHistory() {
   const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
   wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
   weeklyWrap.innerHTML = '';
-  const rows = await api(`/api/km/history?from=${from}&to=${to}&employee=${employee}`);
+  const [rows, rate] = await Promise.all([api(`/api/km/history?from=${from}&to=${to}&employee=${employee}`), api('/api/km/rate')]);
+  if (rate && rate.rate) kmRateInfo = rate;
   if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
   if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No kilometer entries in this range.</div>`; return; }
-  weeklyWrap.innerHTML = renderKmWeekly(rows);
+  weeklyWrap.innerHTML = renderKmSummary(rows) + renderKmWeekly(rows);
   wrap.innerHTML = renderKmTable(rows, isAdmin);
 }
 

@@ -2255,6 +2255,29 @@ app.post('/api/km/:slot', requireAuth, async (req, res) => {
   }
 });
 
+// One petrol rate per km for every salesman (client voice note, 2026-10-12:
+// "abhi 3.80 de rahe hain, editable ho, sab salesman pe same rate").
+// Used by the Kilometer page, Profit Center petrol and Tour Expense.
+const KM_RATE_KEY = 'km_rate', KM_RATE_DEFAULT = 3.8;
+async function getKmRate() {
+  const v = Number(await getAppSetting(KM_RATE_KEY));
+  return v > 0 ? v : KM_RATE_DEFAULT;
+}
+app.get('/api/km/rate', requireAuth, async (req, res) => {
+  try {
+    res.json({ rate: await getKmRate(), canEdit: req.session.role === 'admin' || await plIsViewer(req) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/km/rate', requireAuth, async (req, res) => {
+  try {
+    if (!(req.session.role === 'admin' || await plIsViewer(req))) return res.status(403).json({ error: 'Only admin can change the rate' });
+    const rate = Math.round(Number(req.body.rate) * 100) / 100;
+    if (!(rate > 0 && rate < 100)) return res.status(400).json({ error: 'Rate ₹0 se ₹100 ke beech hona chahiye' });
+    await setAppSetting(KM_RATE_KEY, String(rate));
+    res.json({ success: true, rate });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Self sees own rows; admin can pass ?employee=<userId> or omit for all.
 // day_km is computed here once so the Dashboard, the daily table and the
 // weekly report all agree on the same number.
@@ -10756,10 +10779,10 @@ async function buildSalesmanPl(start, end, onlyUserId) {
     if (c) { x.costedSales += s.amount; x.cost += c.rate * s.qty; } else x.uncostedSales += s.amount;
   });
 
+  const kmRate = await getKmRate(); // one rate for every salesman
   const rows = profiles.map(p => {
     const sal = plSalaryFor(p, p, salaryFrom, end, today, ctx);
     const km = kmBy[p.id] || { km: 0, days: 0 };
-    const kmRate = Number(p.km_rate) || 0;
     const petrol = plRound(km.km * kmRate);
     const tour = tourBy[p.id] || { approved: 0, pending: 0, pendingCount: 0 };
     const so = sold[p.id] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
@@ -10879,9 +10902,8 @@ app.get('/api/tour-expenses', requireAuth, async (req, res) => {
     let km = null;
     if (want) {
       const [[k]] = await withAttendanceTables(() => db.query('SELECT SUM(GREATEST(evening_km - morning_km, 0)) AS km FROM daily_km WHERE user_id=? AND date BETWEEN ? AND ? AND morning_km IS NOT NULL AND evening_km IS NOT NULL', [want, start, end]));
-      const [[p]] = await db.query('SELECT km_rate FROM salesman_profiles WHERE user_id=?', [want]);
-      const rate = p && p.km_rate != null ? Number(p.km_rate) : null;
-      km = { km: Number(k.km) || 0, rate, amount: rate != null ? plRound((Number(k.km) || 0) * rate) : null };
+      const rate = await getKmRate();
+      km = { km: Number(k.km) || 0, rate, amount: plRound((Number(k.km) || 0) * rate) };
     }
     res.json({ items: rows.map(tourOut), viewer, km });
   } catch (err) { sendServerError(res, err); }
