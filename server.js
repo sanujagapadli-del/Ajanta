@@ -533,7 +533,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sfms-pc-view', 'all-delegations', 'employees'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -1428,14 +1428,22 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     const isAdmin = req.session.role === 'admin';
     const isHod   = req.session.role === 'hod';
     const isUser  = req.session.role === 'user';
-    // Admin, HOD and regular users can all assign to others; fallback to self if not specified
-    const targetUser = (isAdmin || isHod || isUser) && assignedTo ? parseInt(assignedTo) : req.session.userId;
+    // Admin, HOD and regular users can all assign to others; fallback to self if not specified.
+    // A delegation can go to several doers at once (client, 2026-10-12) —
+    // each gets their own copy of the task, marked done independently.
+    const canAssign = isAdmin || isHod || isUser;
+    const requested = Array.isArray(assignedTo) ? assignedTo : (assignedTo ? [assignedTo] : []);
+    const targets = canAssign && requested.length ? [...new Set(requested.map(v => parseInt(v, 10)))] : [req.session.userId];
     if (!desc || !date) return res.status(400).json({ error: 'Description and date required' });
-    if (!Number.isFinite(targetUser)) return res.status(400).json({ error: 'Invalid assignee' });
-    if (targetUser !== req.session.userId) {
-      const [targetRows] = await db.query('SELECT id FROM users WHERE id=?', [targetUser]);
-      if (!targetRows.length) return res.status(400).json({ error: 'Assignee not found' });
+    if (targets.some(t => !Number.isFinite(t))) return res.status(400).json({ error: 'Invalid assignee' });
+    if (targets.length > 30) return res.status(400).json({ error: 'Too many doers' });
+    const others = targets.filter(t => t !== req.session.userId);
+    if (others.length) {
+      const [targetRows] = await db.query('SELECT id FROM users WHERE id IN (?)', [others]);
+      if (targetRows.length !== others.length) return res.status(400).json({ error: 'Assignee not found' });
     }
+    if ((type||'checklist') !== 'delegation' && targets.length > 1) return res.status(400).json({ error: 'A checklist task has one doer' });
+    const targetUser = targets[0];
     if ((type||'checklist') === 'delegation') {
       // Approver: if approverEmail is provided look up that user, otherwise use logged-in user
       let assignedBy = req.session.userId;
@@ -1451,11 +1459,12 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
       const okLink = v => (typeof v === 'string' && TASK_FILE_LINK_RE.test(v)) ? v : null;
       const photoLink = okLink(photoLinkIn) || (photo ? await uploadPhotoToDrive(photo, `delegation-${Date.now()}.jpg`) : null);
       const refFileLink = okLink(fileLink);
-      await db.query(`INSERT INTO delegation_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,approval,attachment_required,remarks,link,photo_link,ref_file_link,ref_file_name,audio_link) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, assignedBy, startDate||'', date, 'pending', priority||'low', approval||'no', attachmentRequired||'no', remarks||'', link||'', photoLink, refFileLink, refFileLink ? String(fileName || 'File').slice(0, 255) : null, okLink(audioLink)]);
+      const rows = targets.map(t => [title||'', desc, t, assignedBy, startDate||'', date, 'pending', priority||'low', approval||'no', attachmentRequired||'no', remarks||'', link||'', photoLink, refFileLink, refFileLink ? String(fileName || 'File').slice(0, 255) : null, okLink(audioLink)]);
+      await db.query(`INSERT INTO delegation_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,approval,attachment_required,remarks,link,photo_link,ref_file_link,ref_file_name,audio_link) VALUES ?`, [rows]);
       // 📧 Send delegation email (non-blocking — fire and forget). Wrapped in
       // its own try/catch so a failure here (DB hiccup, mail error) can't
       // become an unhandled rejection — task creation itself already succeeded.
-      (async () => {
+      targets.forEach(targetUser => (async () => {
         try {
           const target = await getNotifyTarget(targetUser);
           if (!target) return;
@@ -1474,11 +1483,11 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
             })
           );
         } catch (e) { console.error('  ⚠️ Delegation email failed:', e.message); }
-      })();
+      })());
     } else {
       await db.query(`INSERT INTO checklist_tasks (title,description,assigned_to,assigned_by,start_date,due_date,status,priority,remarks) VALUES (?,?,?,?,?,?,?,?,?)`, [title||'', desc, targetUser, req.session.userId, startDate||'', date, 'pending', priority||'low', remarks||'']);
     }
-    res.json({ success: true });
+    res.json({ success: true, count: targets.length });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -10118,6 +10127,175 @@ app.post('/api/petty-cash/import-sheet', requireAuth, requireAdmin, async (req, 
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the petty cash sheet with the service account.' });
     sendServerError(res, err);
   }
+});
+
+// ══════════════════════════════════════════════════════
+// SALES SCHEDULE (client, 2026-10-12: "sales person ka scheduler — har mahine
+// ka schedule kab kis dealer ke paas jana hai"). A manager (admin / HOD / PC
+// / Vishal & Ajay) plans each salesman's month dealer by dealer; the salesman
+// sees his own visits and records a visit with any of: check-in photo + GPS,
+// order value / remark, next visit date (which adds the next visit).
+// ══════════════════════════════════════════════════════
+async function ensureSalesScheduleTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS sales_schedule (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      visit_date DATE NOT NULL,
+      dealer_name VARCHAR(255) NOT NULL,
+      purpose VARCHAR(255),
+      status VARCHAR(20) NOT NULL DEFAULT 'planned',
+      visited_at DATETIME,
+      photo VARCHAR(500),
+      lat DECIMAL(10,7), lng DECIMAL(10,7),
+      distance_m INT,
+      order_value DECIMAL(12,2),
+      remark VARCHAR(500),
+      next_visit_date DATE,
+      created_by_name VARCHAR(255),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX (user_id, visit_date)
+    )`);
+}
+async function withSalesSchedule(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureSalesScheduleTable(); return await fn(); }
+}
+async function ssIsManager(req) {
+  return ['admin', 'hod', 'pc'].includes(req.session.role) || await plIsViewer(req);
+}
+const SS_SELECT = `SELECT s.id, s.user_id, u.name AS user_name, DATE_FORMAT(s.visit_date,'%Y-%m-%d') AS visit_date, s.dealer_name, s.purpose, s.status,
+  DATE_FORMAT(s.visited_at,'%Y-%m-%d %H:%i') AS visited_at, s.photo, s.lat, s.lng, s.distance_m, s.order_value, s.remark,
+  DATE_FORMAT(s.next_visit_date,'%Y-%m-%d') AS next_visit_date, s.created_by_name
+  FROM sales_schedule s LEFT JOIN users u ON u.id=s.user_id`;
+
+app.get('/api/sales-schedule', requireAuth, async (req, res) => {
+  try {
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : new Date().toISOString().slice(0, 7);
+    const manager = await ssIsManager(req);
+    const userId = manager ? (req.query.userId === 'all' ? null : Number(req.query.userId) || null) : Number(req.session.userId);
+    const start = `${month}-01`, end = ymdAddDays(`${month}-01`, 40).slice(0, 7) + '-01';
+    const [visits] = await withSalesSchedule(() => db.query(
+      `${SS_SELECT} WHERE s.visit_date >= ? AND s.visit_date < ?${userId ? ' AND s.user_id=?' : ''} ORDER BY s.visit_date, s.dealer_name`,
+      userId ? [start, end, userId] : [start, end]));
+    let salesmen = [], dealers = [];
+    if (manager) {
+      // Salesmen first (O2D-linked profile or KM-tracked), then everyone else.
+      const [u] = await db.query(`SELECT u.id, u.name, (sp.user_id IS NOT NULL OR u.track_km=1) AS is_sales
+        FROM users u LEFT JOIN salesman_profiles sp ON sp.user_id=u.id
+        WHERE u.is_active=1 AND (u.role IS NULL OR u.role<>'vendor') ORDER BY is_sales DESC, u.name`).catch(async e => {
+          if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+          return db.query("SELECT id, name, track_km=1 AS is_sales FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor') ORDER BY is_sales DESC, name");
+        });
+      salesmen = u.map(x => ({ id: x.id, name: x.name, isSales: !!Number(x.is_sales) }));
+      const [d] = await withDealerTables(() => db.query('SELECT counter_name AS name, city FROM o2d_dealers ORDER BY counter_name'));
+      dealers = d;
+    }
+    res.json({ month, isManager: manager, userId, visits, salesmen, dealers });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Manager: add one or more dealers to a salesman's day(s).
+app.post('/api/sales-schedule', requireAuth, async (req, res) => {
+  try {
+    if (!(await ssIsManager(req))) return res.status(403).json({ error: 'Only a manager can plan the schedule' });
+    const userId = Number(req.body.userId);
+    const dates = (Array.isArray(req.body.dates) ? req.body.dates : [req.body.date]).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d || ''));
+    const dealers = (Array.isArray(req.body.dealers) ? req.body.dealers : []).map(d => String(d || '').trim().slice(0, 255)).filter(Boolean);
+    const purpose = String(req.body.purpose || '').trim().slice(0, 255);
+    if (!userId || !dates.length || !dealers.length) return res.status(400).json({ error: 'Salesman, date and dealer are required' });
+    if (dates.length * dealers.length > 400) return res.status(400).json({ error: 'Too many visits at once' });
+    const [[u]] = await db.query('SELECT id FROM users WHERE id=?', [userId]);
+    if (!u) return res.status(400).json({ error: 'Salesman not found' });
+    // Skip a dealer already planned for that salesman on that day.
+    const [existing] = await withSalesSchedule(() => db.query(
+      "SELECT DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, LOWER(dealer_name) AS n FROM sales_schedule WHERE user_id=? AND visit_date IN (?)", [userId, dates]));
+    const have = new Set(existing.map(r => `${r.d}|${r.n}`));
+    const rows = [];
+    dates.forEach(d => dealers.forEach(n => { if (!have.has(`${d}|${n.toLowerCase()}`)) { have.add(`${d}|${n.toLowerCase()}`); rows.push([userId, d, n, purpose, req.session.name || '']); } }));
+    if (rows.length) await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES ?', [rows]);
+    res.json({ success: true, added: rows.length, skipped: dates.length * dealers.length - rows.length });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Manager: copy a salesman's month onto another month, keeping the weekday
+// pattern (2nd Monday → 2nd Monday), so a beat repeats without retyping.
+app.post('/api/sales-schedule/copy', requireAuth, async (req, res) => {
+  try {
+    if (!(await ssIsManager(req))) return res.status(403).json({ error: 'Only a manager can plan the schedule' });
+    const userId = Number(req.body.userId);
+    const from = String(req.body.fromMonth || ''), to = String(req.body.toMonth || '');
+    if (!userId || !/^\d{4}-\d{2}$/.test(from) || !/^\d{4}-\d{2}$/.test(to) || from === to) return res.status(400).json({ error: 'Pick a salesman and two different months' });
+    const [src] = await withSalesSchedule(() => db.query(
+      "SELECT DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, dealer_name, purpose FROM sales_schedule WHERE user_id=? AND DATE_FORMAT(visit_date,'%Y-%m')=?", [userId, from]));
+    if (!src.length) return res.status(400).json({ error: 'That month has no visits to copy' });
+    const [ty, tm] = to.split('-').map(Number);
+    const daysIn = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+    const mapDate = d => {
+      const dt = new Date(d + 'T00:00:00Z');
+      const dow = dt.getUTCDay(), nth = Math.ceil(dt.getUTCDate() / 7);
+      const firstDow = new Date(Date.UTC(ty, tm - 1, 1)).getUTCDay();
+      const day = 1 + ((dow - firstDow + 7) % 7) + (nth - 1) * 7;
+      return day <= daysIn ? `${to}-${String(day).padStart(2, '0')}` : null;
+    };
+    const [existing] = await db.query("SELECT DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, LOWER(dealer_name) AS n FROM sales_schedule WHERE user_id=? AND DATE_FORMAT(visit_date,'%Y-%m')=?", [userId, to]);
+    const have = new Set(existing.map(r => `${r.d}|${r.n}`));
+    const rows = [];
+    src.forEach(s => {
+      const d = mapDate(s.d);
+      const k = `${d}|${s.dealer_name.toLowerCase()}`;
+      if (d && !have.has(k)) { have.add(k); rows.push([userId, d, s.dealer_name, s.purpose || '', req.session.name || '']); }
+    });
+    if (rows.length) await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES ?', [rows]);
+    res.json({ success: true, added: rows.length });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.delete('/api/sales-schedule/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await ssIsManager(req))) return res.status(403).json({ error: 'Only a manager can change the schedule' });
+    const [r] = await withSalesSchedule(() => db.query("DELETE FROM sales_schedule WHERE id=? AND status='planned'", [req.params.id]));
+    if (!r.affectedRows) return res.status(400).json({ error: 'Already visited — it can’t be removed' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Salesman (or a manager for him): record the visit. Any one of photo,
+// order value, remark or next visit date is enough (client's choice).
+app.post('/api/sales-schedule/:id/visit', requireAuth, async (req, res) => {
+  try {
+    const [[v]] = await withSalesSchedule(() => db.query('SELECT * FROM sales_schedule WHERE id=?', [req.params.id]));
+    if (!v) return res.status(404).json({ error: 'Visit not found' });
+    if (Number(v.user_id) !== Number(req.session.userId) && !(await ssIsManager(req))) return res.status(403).json({ error: 'This visit is not yours' });
+    const b = req.body;
+    const orderValue = b.orderValue === '' || b.orderValue == null ? null : Number(b.orderValue);
+    if (orderValue !== null && !(orderValue >= 0)) return res.status(400).json({ error: 'Order value must be a number' });
+    const remark = String(b.remark || '').trim().slice(0, 500);
+    const next = /^\d{4}-\d{2}-\d{2}$/.test(b.nextVisitDate || '') ? b.nextVisitDate : null;
+    const lat = Number(b.lat), lng = Number(b.lng);
+    const hasGps = isFinite(lat) && isFinite(lng) && (lat || lng);
+    if (!b.photo && orderValue === null && !remark && !next) return res.status(400).json({ error: 'Photo, order, remark ya next visit — koi ek bharein' });
+    const photo = b.photo && /^data:image\//.test(b.photo) ? await uploadPhotoToDrive(b.photo, `visit-${v.id}-${Date.now()}.jpg`) : null;
+    // Distance from the dealer's saved shop location (Dealer Master), when both exist.
+    let distance = null;
+    if (hasGps) {
+      const [[d]] = await withDealerTables(() => db.query('SELECT location_lat, location_lng FROM o2d_dealers WHERE counter_name=?', [v.dealer_name]));
+      if (d && d.location_lat != null && d.location_lng != null) {
+        const R = 6371000, rad = x => x * Math.PI / 180;
+        const dLat = rad(Number(d.location_lat) - lat), dLng = rad(Number(d.location_lng) - lng);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(Number(d.location_lat))) * Math.sin(dLng / 2) ** 2;
+        distance = Math.round(2 * R * Math.asin(Math.sqrt(a)));
+      }
+    }
+    await db.query(`UPDATE sales_schedule SET status='visited', visited_at=NOW(), photo=COALESCE(?, photo), lat=?, lng=?, distance_m=?, order_value=?, remark=?, next_visit_date=? WHERE id=?`,
+      [photo, hasGps ? lat : null, hasGps ? lng : null, distance, orderValue, remark || null, next, v.id]);
+    if (next) {
+      const [dup] = await db.query('SELECT 1 FROM sales_schedule WHERE user_id=? AND visit_date=? AND LOWER(dealer_name)=LOWER(?)', [v.user_id, next, v.dealer_name]);
+      if (!dup.length) await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES (?,?,?,?,?)', [v.user_id, next, v.dealer_name, 'Next visit', req.session.name || '']);
+    }
+    const [[row]] = await db.query(`${SS_SELECT} WHERE s.id=?`, [v.id]);
+    res.json({ success: true, visit: row });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════

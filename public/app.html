@@ -338,6 +338,14 @@ tbody tr:last-child td{border-bottom:none;}
 @media (max-width:900px){.o2d-report-grid-2,.o2d-report-grid-2-even{grid-template-columns:1fr;}.o2d-stat-grid{grid-template-columns:repeat(3,1fr);}}
 @media (max-width:640px){.o2d-stat-grid{grid-template-columns:repeat(2,1fr);}}
 @media (max-width:400px){.o2d-stat-grid{grid-template-columns:1fr;}}
+.ss-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
+.ss-head{font-size:11px;font-weight:800;color:var(--gray-500);text-align:center;text-transform:uppercase;}
+.ss-cell{background:var(--surface);border:1px solid var(--gray-200);border-radius:10px;padding:6px;min-height:86px;cursor:pointer;min-width:0;}
+.ss-cell:hover{border-color:var(--color-primary);}
+.ss-cell.ss-today{border:2px solid var(--color-primary);}
+.ss-blank{background:transparent;border:none;cursor:default;}
+.ss-dow{display:none;font-weight:600;color:var(--gray-400);}
+@media (max-width:768px){.ss-cal{grid-template-columns:1fr;}.ss-head,.ss-blank{display:none;}.ss-cell{min-height:0;}.ss-cell.ss-empty{padding:4px 8px;}.ss-dow{display:inline;}}
 .fmsrep-stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px;}
 @media (max-width:640px){.fmsrep-stat-grid{grid-template-columns:repeat(2,1fr);}}
 .o2d-report-card{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);padding:20px;margin-bottom:16px;}
@@ -1047,6 +1055,10 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg>
         <span class="nav-label-text">Dealer Master</span>
       </div>
+      <div class="nav-item" id="nav-sales-schedule" style="display:none" onclick="navigate('sales-schedule',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        <span class="nav-label-text">Sales Schedule</span>
+      </div>
       <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
         <span class="nav-label-text">Price List & Catalogue</span>
@@ -1165,6 +1177,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="dealers" onclick="navigate('dealers',null)" id="bnDealers" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
     <span>Dealers</span>
+  </div>
+  <div class="bn-item" data-page="sales-schedule" onclick="navigate('sales-schedule',null)" id="bnSalesSchedule" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+    <span>Schedule</span>
   </div>
   <div class="bn-item" data-page="replacement-fms" onclick="navigate('replacement-fms',null)" id="bnRepl" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2.5M18.4 9A7 7 0 006.5 6.5"/></svg>
@@ -1939,6 +1955,28 @@ tbody tr:last-child td{border-bottom:none;}
     <div id="gpResults"><div class="empty">Loading…</div></div>
   </div>
 
+  <!-- ── SALES SCHEDULE (client, 2026-10-12) ── -->
+  <div id="page-sales-schedule" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🗓 Sales Schedule</div>
+        <input type="month" id="ssMonth" onchange="ssSetMonth(this.value)" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)"/>
+        <select id="ssUser" onchange="ssSetUser(this.value)" style="display:none;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800);min-width:170px"></select>
+        <span id="ssManagerBtns" style="display:none">
+          <button class="btn btn-primary btn-sm" onclick="openSsPlan()">+ Plan visit</button>
+          <button class="btn btn-outline btn-sm" onclick="ssCopyLastMonth()" title="Pichhle mahine ka schedule same weekday pattern se copy karein">⧉ Copy last month</button>
+        </span>
+      </div>
+    </div>
+    <div class="tab-group" style="margin-bottom:12px">
+      <div class="tab" data-v="calendar" onclick="ssSwitch('calendar')">📅 Calendar</div>
+      <div class="tab" data-v="list" onclick="ssSwitch('list')">📋 List</div>
+      <div class="tab" data-v="summary" id="ssTabSummary" style="display:none" onclick="ssSwitch('summary')">📊 Summary</div>
+    </div>
+    <datalist id="ssDealerList"></datalist>
+    <div id="ssResults"><div class="empty">Loading…</div></div>
+  </div>
+
   <!-- ── PETTY CASH (client, 2026-10-12) ── -->
   <div id="page-petty-cash" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:16px">
@@ -2179,7 +2217,9 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-row">
       <div class="form-group">
         <label>Doer (Assign To)</label>
-        <select id="dDoer"><option value="">Select Doer</option></select>
+        <select id="dDoer" onchange="renderDelegateExtraDoers()"><option value="">Select Doer</option></select>
+        <div id="dDoerChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+        <select id="dDoerAdd" onchange="addDelegateExtraDoer(this)" style="margin-top:6px"><option value="">+ Aur doer jodo (optional)</option></select>
       </div>
       <div class="form-group">
         <label>Approval Required</label>
@@ -3980,11 +4020,13 @@ async function init() {
     // Per-user page access (Users → Access tab). Admins always see everything.
     MY_PAGES = new Set(ME.role === 'admin' ? [] : (Array.isArray(ME.page_access) ? ME.page_access : ['mis']));
     if (ME.sales_profile && ME.role !== 'admin') MY_PAGES.add('gross-profit'); // own Salesman-wise row only
+    if (ME.sales_profile || ME.pl_viewer) MY_PAGES.add('sales-schedule'); // salesmen see their own plan; Vishal / Ajay plan
     const canSee = page => ME.role === 'admin' || MY_PAGES.has(page);
 
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
     if (canSee('gross-profit')) document.getElementById('nav-gross-profit').style.display = 'flex';
     if (canSee('petty-cash')) document.getElementById('nav-petty-cash').style.display = 'flex';
+    if (canSee('sales-schedule')) document.getElementById('nav-sales-schedule').style.display = 'flex';
     if (canSee('users')) document.getElementById('nav-users').style.display = 'flex';
     if (canSee('employees')) document.getElementById('nav-employees').style.display = 'flex';
     if (canSee('service-fms')) document.getElementById('nav-service-fms').style.display = 'flex';
@@ -4019,7 +4061,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || document.getElementById('page-' + savedPage))
-      && !(savedPage === 'petty-cash' && ME.role !== 'admin' && !MY_PAGES.has('petty-cash'));
+      && !(['petty-cash', 'sales-schedule'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4119,7 +4161,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4140,7 +4182,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && page === 'petty-cash' && !MY_PAGES.has('petty-cash')) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ['petty-cash', 'sales-schedule'].includes(page) && !MY_PAGES.has(page)) { showToast("You don't have access to this page", 'error'); return; }
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -4171,6 +4213,7 @@ function navigate(page, el) {
   if (page==='lead-fms') loadLeadFmsList();
   if (page==='gross-profit') loadGrossProfit();
   if (page==='petty-cash') loadPettyCash();
+  if (page==='sales-schedule') loadSalesSchedule();
   if (page==='employees') loadEmployeesPage();
   if (page==='price-catalogue') loadPriceCataloguePage();
   if (page==='stock') loadStockPage();
@@ -4232,6 +4275,8 @@ function setupBottomNav() {
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
   const bnPetty = document.getElementById('bnPetty');
   if (bnPetty && canSee('petty-cash')) bnPetty.style.display = '';
+  const bnSs = document.getElementById('bnSalesSchedule');
+  if (bnSs && canSee('sales-schedule')) bnSs.style.display = '';
   const bnEmp = document.getElementById('bnEmp');
   if (bnEmp && canSee('employees')) bnEmp.style.display = '';
   arrangeBottomNavMore();
@@ -5354,6 +5399,8 @@ async function openDelegate() {
   const activeUsers = users.filter(u => u.is_active == null || +u.is_active === 1);
   const opts = activeUsers.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('');
   document.getElementById('dDoer').innerHTML='<option value="">Select Doer</option>'+opts;
+  _delegateExtraDoers = [];
+  renderDelegateExtraDoers();
   document.getElementById('dApprover').innerHTML='<option value="">Select Approver</option>'+opts;
   document.getElementById('delegateModal').classList.add('open');
   // Re-assert after the roster fetch/render, in case anything cleared them.
@@ -5433,10 +5480,30 @@ function toggleDApproverField() {
   document.getElementById('dApproverWrap').style.display = document.getElementById('dApproval').value === 'yes' ? 'block' : 'none';
 }
 
+// More than one doer (client, 2026-10-12): each gets their own copy of the task.
+let _delegateExtraDoers = [];
+function renderDelegateExtraDoers() {
+  const main = document.getElementById('dDoer').value;
+  _delegateExtraDoers = _delegateExtraDoers.filter(id => id !== main);
+  const users = (_delegateUsers || []).filter(u => u.is_active == null || +u.is_active === 1);
+  const name = id => (users.find(u => String(u.id) === id) || {}).name || id;
+  document.getElementById('dDoerChips').innerHTML = _delegateExtraDoers.map(id => `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 6px 4px 10px;border-radius:999px;background:var(--color-primary-light);color:var(--color-primary);font-size:12px;font-weight:700">${esc(name(id))}<button type="button" onclick="_delegateExtraDoers=_delegateExtraDoers.filter(x=>x!=='${id}');renderDelegateExtraDoers()" style="border:none;background:none;color:inherit;cursor:pointer;font-size:13px;padding:0 2px">✕</button></span>`).join('');
+  const taken = new Set([main, ..._delegateExtraDoers]);
+  const add = document.getElementById('dDoerAdd');
+  add.innerHTML = `<option value="">${_delegateExtraDoers.length ? `+ Aur doer jodo (${_delegateExtraDoers.length + (main ? 1 : 0)} selected)` : '+ Aur doer jodo (optional)'}</option>` +
+    users.filter(u => !taken.has(String(u.id))).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+  add.style.display = main ? '' : 'none';
+}
+function addDelegateExtraDoer(sel) {
+  if (sel.value && !_delegateExtraDoers.includes(sel.value)) _delegateExtraDoers.push(sel.value);
+  renderDelegateExtraDoers();
+}
+
 async function saveDelegate() {
   const err = document.getElementById('delegateErr');
   err.style.display='none';
   const doer      = document.getElementById('dDoer').value;
+  const doers     = doer ? [doer, ..._delegateExtraDoers.filter(id => id !== doer)] : [];
   const title     = document.getElementById('dTitle').value.trim();
   const startDate = document.getElementById('dStartDate').value;
   const date      = document.getElementById('dDate').value;
@@ -5480,11 +5547,11 @@ async function saveDelegate() {
     }
   } catch (e) { return fail('Upload failed: ' + e.message); }
   if (btn) btn.textContent = 'Saving…';
-  const r = await api('/api/tasks','POST',{type:'delegation',title,desc,assignedTo:doer,approverEmail,startDate,date,priority,approval,attachmentRequired,remarks,link,photoLink,fileLink,fileName,audioLink});
+  const r = await api('/api/tasks','POST',{type:'delegation',title,desc,assignedTo:doers.length > 1 ? doers : doer,approverEmail,startDate,date,priority,approval,attachmentRequired,remarks,link,photoLink,fileLink,fileName,audioLink});
   if (btn) { btn.disabled = false; btn.textContent = 'Assign'; }
   if (r && r.error) { err.textContent=r.error; err.style.display='block'; return; }
   closeModal('delegateModal');
-  showToast('Task delegated successfully!');
+  showToast(doers.length > 1 ? `Task delegated to ${doers.length} people!` : 'Task delegated successfully!');
   scheduleDashboardRefresh();
 }
 
@@ -5914,6 +5981,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'mis', label: 'MIS Report' },
     { key: 'gross-profit', label: 'Gross Profit' },
     { key: 'petty-cash', label: 'Petty Cash' },
+    { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'employees', label: 'Employees (details, documents)' },
     { key: 'users', label: 'Users' },
     { key: 'records', label: 'Records' },
@@ -18186,6 +18254,263 @@ function fmsRepGroup(items, keyFn, valueFn, byValue) {
   return Object.entries(m).sort((a, b) => byValue ? b[1].v - a[1].v : b[1].n - a[1].n);
 }
 const fmsRepPct = (n, d) => d ? Math.round(n * 1000 / d) / 10 : 0;
+
+// ══════════════════════════════════════════════════════
+// SALES SCHEDULE (client, 2026-10-12) — the manager plans each salesman's
+// month (which dealer, which day); the salesman records each visit with any
+// of: check-in photo + GPS, order value / remark, next visit date.
+// ══════════════════════════════════════════════════════
+let ssData = null, ssView = '', ssMonth = '', ssUserId = '';
+const SS_INPUT = "width:100%;padding:10px 12px;border:1.5px solid var(--border-base);border-radius:var(--radius-sm);font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif;background:var(--surface);color:var(--gray-800)";
+const SS_LABEL = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
+const ssToday = () => o2dReportsFmtDate(new Date());
+
+async function loadSalesSchedule() {
+  if (!ssMonth) ssMonth = ssToday().slice(0, 7);
+  document.getElementById('ssMonth').value = ssMonth;
+  const wrap = document.getElementById('ssResults');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const userParam = ssView === 'summary' ? 'all' : ssUserId;
+  const r = await api(`/api/sales-schedule?month=${ssMonth}${userParam ? `&userId=${userParam}` : ''}`);
+  if (!r || r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed to load')}</div>`; return; }
+  ssData = r;
+  if (!ssView) ssView = r.isManager ? 'calendar' : 'list';
+  const sel = document.getElementById('ssUser');
+  sel.style.display = r.isManager && ssView !== 'summary' ? '' : 'none';
+  if (r.isManager && !sel.options.length) {
+    sel.innerHTML = '<option value="">— Salesman chunein —</option>' + r.salesmen.map(u => `<option value="${u.id}">${esc(u.name)}${u.isSales ? '' : ' (other)'}</option>`).join('');
+  }
+  if (r.isManager) sel.value = ssUserId;
+  document.getElementById('ssManagerBtns').style.display = r.isManager ? '' : 'none';
+  document.getElementById('ssTabSummary').style.display = r.isManager ? '' : 'none';
+  document.getElementById('ssDealerList').innerHTML = (r.dealers || []).map(d => `<option value="${esc(d.name)}">${esc(d.city || '')}</option>`).join('');
+  document.querySelectorAll('#page-sales-schedule .tab').forEach(t => t.classList.toggle('active', t.dataset.v === ssView));
+  renderSalesSchedule();
+}
+function ssSetMonth(v) { ssMonth = v; loadSalesSchedule(); }
+function ssSetUser(v) { ssUserId = v; loadSalesSchedule(); }
+function ssSwitch(v) { const reload = (v === 'summary') !== (ssView === 'summary'); ssView = v; reload ? loadSalesSchedule() : (document.querySelectorAll('#page-sales-schedule .tab').forEach(t => t.classList.toggle('active', t.dataset.v === v)), renderSalesSchedule()); }
+
+function ssStatus(v) {
+  if (v.status === 'visited') return 'visited';
+  return v.visit_date < ssToday() ? 'missed' : (v.visit_date === ssToday() ? 'today' : 'planned');
+}
+const SS_COLORS = { visited: ['var(--color-success-bg)', 'var(--color-success-text)', '✅'], missed: ['var(--color-danger-bg)', 'var(--color-danger-text)', '❌'],
+  today: ['var(--color-warning-bg)', 'var(--color-warning-text)', '📍'], planned: ['var(--gray-100)', 'var(--gray-700)', '🗓'] };
+function ssChip(v) {
+  const [bg, fg, ic] = SS_COLORS[ssStatus(v)];
+  return `<div onclick="event.stopPropagation();openSsVisit(${v.id})" title="${esc(v.dealer_name)}${v.purpose ? ' — ' + esc(v.purpose) : ''}" style="background:${bg};color:${fg};border-radius:6px;padding:2px 6px;font-size:11px;font-weight:600;margin-top:3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ic} ${esc(v.dealer_name)}</div>`;
+}
+
+function renderSalesSchedule() {
+  const wrap = document.getElementById('ssResults');
+  const d = ssData;
+  if (!d) return;
+  if (ssView === 'summary') return renderSsSummary();
+  if (d.isManager && !ssUserId) { wrap.innerHTML = '<div class="empty">Upar se salesman chunein — phir uska mahine ka schedule dikhega.</div>'; return; }
+  const visits = d.visits;
+  const done = visits.filter(v => v.status === 'visited');
+  const missed = visits.filter(v => ssStatus(v) === 'missed');
+  const order = done.reduce((s, v) => s + (Number(v.order_value) || 0), 0);
+  const stats = `<div class="fmsrep-stat-grid" style="margin-bottom:14px">
+      ${fmsRepStat('Planned', visits.length, { icon: '🗓' })}
+      ${fmsRepStat('Visited', done.length, { icon: '✅', tone: 'good', sub: visits.length ? fmsRepPct(done.length, visits.length) + '%' : '' })}
+      ${fmsRepStat('Missed', missed.length, { icon: '❌', tone: missed.length ? 'bad' : 'neutral' })}
+      ${fmsRepStat('Order value', inr(order), { icon: '💰' })}
+    </div>`;
+  if (ssView === 'list') { wrap.innerHTML = stats + ssListHtml(visits); return; }
+
+  // Calendar (Mon-first). On phones the grid collapses to one day per row via CSS.
+  const [y, m] = ssMonth.split('-').map(Number);
+  const days = new Date(y, m, 0).getDate();
+  const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+  const byDay = {};
+  visits.forEach(v => (byDay[v.visit_date] = byDay[v.visit_date] || []).push(v));
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push('<div class="ss-cell ss-blank"></div>');
+  for (let day = 1; day <= days; day++) {
+    const date = `${ssMonth}-${String(day).padStart(2, '0')}`;
+    const list = byDay[date] || [];
+    const dow = new Date(y, m - 1, day).toLocaleDateString('en-IN', { weekday: 'short' });
+    cells.push(`<div class="ss-cell${date === ssToday() ? ' ss-today' : ''}${list.length ? '' : ' ss-empty'}" onclick="openSsPlan('${date}')" title="Click to add dealers">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:800;color:var(--gray-600)"><span>${day} <span class="ss-dow">${dow}</span></span><span style="color:var(--color-primary)">＋</span></div>
+        ${list.map(ssChip).join('')}</div>`);
+  }
+  wrap.innerHTML = stats + `<div class="ss-cal">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(x => `<div class="ss-head">${x}</div>`).join('')}${cells.join('')}</div>`;
+}
+
+function ssListHtml(visits) {
+  const today = ssToday();
+  const groups = [
+    ['📍 Aaj', visits.filter(v => v.visit_date === today)],
+    ['❌ Missed', visits.filter(v => ssStatus(v) === 'missed')],
+    ['🗓 Aage', visits.filter(v => v.visit_date > today)],
+    ['✅ Ho gaye', visits.filter(v => v.status === 'visited' && v.visit_date !== today).reverse()]
+  ];
+  const row = v => {
+    const st = ssStatus(v);
+    const [bg, fg] = SS_COLORS[st];
+    return `<div style="display:flex;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--gray-100)">
+      <div style="min-width:46px;text-align:center;background:${bg};color:${fg};border-radius:8px;padding:4px 2px;font-size:11px;font-weight:800">${esc(fmtDateDMY(v.visit_date).slice(0, 5))}</div>
+      <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--gray-900)">${esc(v.dealer_name)}${ssData.isManager && !ssUserId ? ` <span style="font-weight:500;color:var(--gray-500)">· ${esc(v.user_name || '')}</span>` : ''}</div>
+        <div style="font-size:11.5px;color:var(--gray-500)">${[v.purpose, v.status === 'visited' ? `✅ ${fmtDateDMY(v.visited_at, true)}` : '', v.order_value ? `💰 ${inr(v.order_value)}` : '', v.remark, v.distance_m != null ? `📍 ${v.distance_m < 1000 ? v.distance_m + ' m' : (v.distance_m / 1000).toFixed(1) + ' km'} from shop` : '', v.photo ? '' : ''].filter(Boolean).map(esc).join(' · ')}${v.photo ? ' · ' + linkOrText(v.photo) : ''}</div></div>
+      ${v.status !== 'visited' ? `<button class="btn ${st === 'today' ? 'btn-green' : 'btn-outline'} btn-sm" onclick="openSsVisit(${v.id})">✓ Visit</button>` : `<button class="btn btn-outline btn-sm" onclick="openSsVisit(${v.id})">View</button>`}
+    </div>`;
+  };
+  const html = groups.filter(([, l]) => l.length).map(([t, l]) => `<div class="o2d-report-card" style="padding:0;overflow:hidden;margin-bottom:12px"><div style="padding:10px 12px;font-weight:800;border-bottom:1px solid var(--gray-100)">${t} (${l.length})</div>${l.map(row).join('')}</div>`).join('');
+  return html || '<div class="empty">Is mahine koi visit plan nahi hai</div>';
+}
+
+function renderSsSummary() {
+  const wrap = document.getElementById('ssResults');
+  const by = {};
+  ssData.visits.forEach(v => {
+    const x = by[v.user_id] = by[v.user_id] || { name: v.user_name || '—', planned: 0, visited: 0, missed: 0, today: 0, order: 0, far: 0 };
+    x.planned++;
+    const st = ssStatus(v);
+    if (st === 'visited') { x.visited++; x.order += Number(v.order_value) || 0; if (v.distance_m > 500) x.far++; }
+    else if (st === 'missed') x.missed++;
+    else if (st === 'today') x.today++;
+  });
+  const rows = Object.entries(by).sort((a, b) => b[1].missed - a[1].missed || a[1].name.localeCompare(b[1].name)).map(([id, x]) => ({
+    cells: [`<b>${esc(x.name)}</b>`, x.planned, `<b style="color:var(--color-success-text)">${x.visited}</b>`, `<b style="color:${x.missed ? 'var(--color-danger)' : 'var(--gray-400)'}">${x.missed}</b>`, x.today,
+      `${fmsRepPct(x.visited, x.planned)}%`, inr(x.order), x.far ? `<span style="color:var(--color-warning-text)" title="Check-in more than 500 m from the dealer's saved location">${x.far}</span>` : '—'],
+    onclick: `ssUserId='${id}';ssSwitch('calendar')`
+  }));
+  wrap.innerHTML = fmsRepCard('👥 Salesman-wise — ' + esc(ssMonth), 'click a row for the calendar',
+    fmsRepTable(['Salesman', 'Planned', 'Visited', 'Missed', 'Today', 'Done %', 'Order value', 'Far check-ins'], rows, { empty: 'Is mahine kisi ka schedule nahi bana' }));
+}
+
+// ── Manager: plan dealers on a date (optionally every same weekday of the month) ──
+function ssModal(id, title, body) {
+  let m = document.getElementById(id);
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = id;
+    m.innerHTML = `<div class="modal" style="max-width:460px;max-height:88dvh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 class="ss-mtitle" style="margin:0"></h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('${id}')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div class="ss-mbody" style="overflow-y:auto;flex:1"></div></div>`;
+    document.body.appendChild(m);
+  }
+  m.querySelector('.ss-mtitle').textContent = title;
+  m.querySelector('.ss-mbody').innerHTML = body;
+  m.classList.add('open');
+}
+let _ssPlanDealers = [];
+function openSsPlan(date) {
+  if (!ssData || !ssData.isManager) return;
+  if (!ssUserId) { showToast('Pehle salesman chunein', 'error'); return; }
+  date = date || ssToday();
+  _ssPlanDealers = [];
+  const name = (ssData.salesmen.find(u => String(u.id) === String(ssUserId)) || {}).name || '';
+  const dayVisits = ssData.visits.filter(v => v.visit_date === date);
+  const wd = new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' });
+  ssModal('ssPlanModal', `🗓 ${name} — ${fmtDateDMY(date)}`, `
+    ${dayVisits.length ? `<div style="${SS_LABEL}">Already planned</div><div style="margin-bottom:12px">${dayVisits.map(v => `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--gray-100)"><span>${esc(v.dealer_name)}${v.purpose ? ` <span style="color:var(--gray-400)">· ${esc(v.purpose)}</span>` : ''}</span>${v.status === 'visited' ? '<span style="color:var(--color-success-text);font-size:12px">✅ visited</span>' : `<button class="btn btn-outline btn-sm" onclick="ssDelete(${v.id},'${date}')">✕</button>`}</div>`).join('')}</div>` : ''}
+    <div style="${SS_LABEL}">Dealer jodo</div>
+    <div style="display:flex;gap:6px"><input id="ssDealerIn" list="ssDealerList" placeholder="Dealer name likhein / chunein" style="${SS_INPUT};margin-bottom:6px" onkeydown="if(event.key==='Enter'){event.preventDefault();ssAddDealer()}"/>
+      <button class="btn btn-outline btn-sm" style="height:40px" onclick="ssAddDealer()">+ Add</button></div>
+    <div id="ssPlanChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+    <div style="${SS_LABEL}">Purpose (optional)</div><input id="ssPurpose" placeholder="e.g. order, payment collection, new product" style="${SS_INPUT}"/>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="ssRepeat"/> Har ${esc(wd)} (is mahine ke saare ${esc(wd)})</label>
+    <button class="btn btn-primary" id="ssPlanSave" style="width:100%;justify-content:center;padding:12px" onclick="saveSsPlan('${date}')">Save</button>`);
+  setTimeout(() => { const el = document.getElementById('ssDealerIn'); if (el) el.focus(); }, 50);
+}
+function ssAddDealer() {
+  const el = document.getElementById('ssDealerIn');
+  el.value.split(',').map(x => x.trim()).filter(Boolean).forEach(n => { if (!_ssPlanDealers.some(d => d.toLowerCase() === n.toLowerCase())) _ssPlanDealers.push(n); });
+  el.value = '';
+  document.getElementById('ssPlanChips').innerHTML = _ssPlanDealers.map((n, i) => `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 6px 4px 10px;border-radius:999px;background:var(--color-primary-light);color:var(--color-primary);font-size:12px;font-weight:700">${esc(n)}<button type="button" onclick="_ssPlanDealers.splice(${i},1);document.getElementById('ssDealerIn').value='';ssAddDealer()" style="border:none;background:none;color:inherit;cursor:pointer;padding:0 2px">✕</button></span>`).join('');
+  el.focus();
+}
+async function saveSsPlan(date) {
+  ssAddDealer();
+  if (!_ssPlanDealers.length) { showToast('Kam se kam ek dealer jodo', 'error'); return; }
+  let dates = [date];
+  if (document.getElementById('ssRepeat').checked) {
+    const [y, m, dd] = date.split('-').map(Number);
+    const dow = new Date(y, m - 1, dd).getDay(), days = new Date(y, m, 0).getDate();
+    dates = [];
+    for (let i = 1; i <= days; i++) if (new Date(y, m - 1, i).getDay() === dow) dates.push(`${date.slice(0, 7)}-${String(i).padStart(2, '0')}`);
+  }
+  const restore = btnLoading(document.getElementById('ssPlanSave'), 'Saving…');
+  const r = await api('/api/sales-schedule', 'POST', { userId: ssUserId, dates, dealers: _ssPlanDealers, purpose: document.getElementById('ssPurpose').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ ${r.added} visit${r.added === 1 ? '' : 's'} planned${r.skipped ? ` · ${r.skipped} already there` : ''}`);
+  closeModal('ssPlanModal');
+  loadSalesSchedule();
+}
+async function ssDelete(id, date) {
+  const r = await api(`/api/sales-schedule/${id}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  ssData.visits = ssData.visits.filter(v => v.id !== id);
+  renderSalesSchedule();
+  openSsPlan(date);
+}
+async function ssCopyLastMonth() {
+  if (!ssUserId) { showToast('Pehle salesman chunein', 'error'); return; }
+  const [y, m] = ssMonth.split('-').map(Number);
+  const prev = o2dReportsFmtDate(new Date(y, m - 2, 1)).slice(0, 7);
+  if (!confirm(`${prev} ka schedule ${ssMonth} mein copy karein? (same weekday pattern — jaise 2nd Monday → 2nd Monday)`)) return;
+  const r = await api('/api/sales-schedule/copy', 'POST', { userId: ssUserId, fromMonth: prev, toMonth: ssMonth });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ ${r.added} visits copied`);
+  loadSalesSchedule();
+}
+
+// ── Salesman: record a visit (any of photo + GPS, order / remark, next visit) ──
+let _ssGps = null;
+function openSsVisit(id) {
+  const v = ssData.visits.find(x => x.id === id);
+  if (!v) return;
+  const mine = Number(v.user_id) === Number(ME.id) || ssData.isManager;
+  if (v.status === 'visited' || !mine) {
+    ssModal('ssVisitModal', `${v.dealer_name}`, `<div style="font-size:13.5px;line-height:1.9">
+      🗓 ${esc(fmtDateDMY(v.visit_date))}${v.purpose ? ' · ' + esc(v.purpose) : ''}<br>
+      ${v.status === 'visited' ? `✅ Visited ${esc(fmtDateDMY(v.visited_at, true))}<br>` : `Status: ${esc(ssStatus(v))}<br>`}
+      ${v.order_value ? `💰 Order ${inr(v.order_value)}<br>` : ''}${v.remark ? `📝 ${esc(v.remark)}<br>` : ''}
+      ${v.lat ? `📍 <a href="https://maps.google.com/?q=${v.lat},${v.lng}" target="_blank" rel="noopener" style="color:var(--color-primary)">Location</a>${v.distance_m != null ? ` · ${v.distance_m < 1000 ? v.distance_m + ' m' : (v.distance_m / 1000).toFixed(1) + ' km'} from shop` : ''}<br>` : ''}
+      ${v.photo ? `📷 ${linkOrText(v.photo)}<br>` : ''}${v.next_visit_date ? `➡️ Next visit ${esc(fmtDateDMY(v.next_visit_date))}` : ''}</div>`);
+    return;
+  }
+  _ssGps = null;
+  ssModal('ssVisitModal', `✓ Visit — ${v.dealer_name}`, `
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">In mein se koi bhi ek ya zyada bharein.</div>
+    <div style="${SS_LABEL}">📷 Check-in photo</div><input type="file" id="ssPhoto" accept="image/*" capture="environment" style="${SS_INPUT}"/>
+    <div id="ssGpsStatus" style="font-size:12px;color:var(--gray-500);margin:-4px 0 10px">📍 Location le rahe hain…</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      <div><div style="${SS_LABEL}">💰 Order value ₹</div><input type="number" id="ssOrder" min="0" step="any" style="${SS_INPUT}"/></div>
+      <div><div style="${SS_LABEL}">➡️ Next visit</div><input type="date" id="ssNext" min="${ssToday()}" style="${SS_INPUT}"/></div>
+    </div>
+    <div style="${SS_LABEL}">📝 Remark</div><input id="ssRemark" placeholder="kya hua — order, payment, feedback" style="${SS_INPUT}"/>
+    <button class="btn btn-green" id="ssVisitSave" style="width:100%;justify-content:center;padding:12px" onclick="saveSsVisit(${v.id})">Save Visit</button>`);
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(p => {
+      _ssGps = { lat: p.coords.latitude, lng: p.coords.longitude };
+      const el = document.getElementById('ssGpsStatus'); if (el) el.textContent = `📍 Location mil gayi (±${Math.round(p.coords.accuracy)} m)`;
+    }, () => { const el = document.getElementById('ssGpsStatus'); if (el) el.textContent = '📍 Location nahi mili — phone settings mein Location allow karein'; },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+  } else document.getElementById('ssGpsStatus').textContent = '📍 Is browser mein location nahi hai';
+}
+async function saveSsVisit(id) {
+  const file = document.getElementById('ssPhoto').files[0];
+  const body = { orderValue: document.getElementById('ssOrder').value.trim(), remark: document.getElementById('ssRemark').value.trim(), nextVisitDate: document.getElementById('ssNext').value };
+  if (!file && !body.orderValue && !body.remark && !body.nextVisitDate) { showToast('Photo, order, remark ya next visit — koi ek bharein', 'error'); return; }
+  const restore = btnLoading(document.getElementById('ssVisitSave'), 'Saving…');
+  if (file) {
+    try { body.photo = await compressImageToDataURL(file, 1200, 0.7); }
+    catch (e) { restore(); showToast('Photo read nahi hui — dobara lein', 'error'); return; }
+  }
+  if (_ssGps) Object.assign(body, _ssGps);
+  const r = await api(`/api/sales-schedule/${id}/visit`, 'POST', body);
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Visit saved');
+  closeModal('ssVisitModal');
+  loadSalesSchedule();
+}
 
 // ══════════════════════════════════════════════════════
 // PETTY CASH (client, 2026-10-12) — replaces the separate petty cash sheet.
