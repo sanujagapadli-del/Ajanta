@@ -14572,12 +14572,12 @@ function renderO2dField(f, orderNo) {
   const id = `o2dExtra_${orderNo}_${f.key}`;
   const reqMark = f.required ? ` <span style="color:var(--color-danger)">*</span>` : '';
   if (f.type === 'photo') {
-    // Proof photos (Goods Takeout) are camera-only — no old photo from the
-    // gallery (client, 2026-10-12). The Make Bill invoice is a document and
-    // can still be a PDF / file from the accountant's PC.
+    // No capture attribute: phones offer Camera or Gallery. The client asked
+    // for the gallery option back on the dispatch photo (2026-10-12, after a
+    // short camera-only spell). The Make Bill invoice can also be a PDF.
     const isDoc = f.key === 'photoLink';
     return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
-      <input type="file" accept="${isDoc ? 'image/*,.pdf,application/pdf' : 'image/*'}"${isDoc ? '' : ' capture="environment"'} id="${id}_file" onchange="onO2dPhotoSelected('${orderNo}','${f.key}',event)" style="${O2D_INPUT_STYLE}"/>
+      <input type="file" accept="${isDoc ? 'image/*,.pdf,application/pdf' : 'image/*'}" id="${id}_file" onchange="onO2dPhotoSelected('${orderNo}','${f.key}',event)" style="${O2D_INPUT_STYLE}"/>
       <input type="hidden" id="${id}"/>
       <div id="${id}_status" style="font-size:11px;color:var(--gray-500);margin-top:-6px;margin-bottom:10px"></div>`;
   }
@@ -18660,8 +18660,10 @@ function pettyActionsHtml(e) {
 function renderPettyCash() {
   const wrap = document.getElementById('pettyResults');
   if (!wrap) return;
-  // Cash in hand is all-time, not range-bound.
-  const advIn = pettyData.filter(e => e.type === 'advance' && e.status === 'accepted').reduce((s, e) => s + e.amount, 0);
+  // Cash in hand is all-time, not range-bound. Every advance given counts
+  // (accepted or not), same as the old Petty Cash Ledger app — counting only
+  // accepted ones left it ₹7,201 off (client, 2026-10-12).
+  const advIn = pettyData.filter(e => e.type === 'advance' && e.status !== 'rejected').reduce((s, e) => s + e.amount, 0);
   const advWaiting = pettyData.filter(e => e.type === 'advance' && e.status === 'pending').reduce((s, e) => s + e.amount, 0);
   const spentAll = pettyData.filter(e => e.type === 'expense' && e.status !== 'rejected').reduce((s, e) => s + e.amount, 0);
   const inHand = advIn - spentAll;
@@ -18672,12 +18674,12 @@ function renderPettyCash() {
   const pendingExp = pettyData.filter(e => e.type === 'expense' && e.status === 'pending');
   const pendingAmt = pendingExp.reduce((s, e) => s + e.amount, 0);
   const pendingAdv = pettyData.filter(e => e.type === 'advance' && e.status === 'pending');
-  document.getElementById('pettyTabPending').textContent = `⏳ Pending${pendingExp.length + pendingAdv.length ? ` (${pendingExp.length + pendingAdv.length})` : ''}`;
+  document.getElementById('pettyTabPending').textContent = `⏳ Pending${pendingExp.length ? ` (${pendingExp.length})` : ''}`;
 
   const card = (label, value, sub, color) => `<div class="o2d-stat-card" style="--accent:${color || 'var(--gray-900)'};--accent-bg:var(--gray-100);--accent-bar:${color || 'transparent'}">
       <div class="o2d-stat-label">${label}</div><div class="o2d-stat-value">${value}</div>${sub ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px">${sub}</div>` : ''}</div>`;
   const cards = `<div class="o2d-stat-grid" style="margin-bottom:14px">
-      ${card('💵 Cash in hand', inr(inHand), inHand < 0 ? 'Manager ne apne paise lagaye' : (advWaiting ? `+ ${inr(advWaiting)} advance accept hona baaki` : 'all time'), inHand < 0 ? 'var(--color-danger)' : 'var(--color-success-text)')}
+      ${card('💵 Cash in hand', inr(inHand), `Given ${inr(advIn)} − Spent ${inr(spentAll)}${inHand < 0 ? ' · manager ne apne paise lagaye' : ''}${advWaiting ? ` · ${inr(advWaiting)} advance accept hona baaki` : ''}`, inHand < 0 ? 'var(--color-danger)' : 'var(--color-success-text)')}
       ${card('🧾 Expenses', inr(expTotal), `${exp.length} entries · selected dates`)}
       ${card('➕ Advances', inr(advTotal), 'selected dates')}
       ${card('⏳ Approval pending', inr(pendingAmt), `${pendingExp.length} expense${pendingExp.length === 1 ? '' : 's'}`, pendingExp.length ? 'var(--color-warning-text)' : '')}

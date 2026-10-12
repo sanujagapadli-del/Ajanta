@@ -9952,7 +9952,7 @@ app.post('/api/replacement-fms/import-old', requireAuth, requireAdmin, async (re
 // cash advances; the manager (Aziz) accepts them and records each expense
 // (mostly freight: party, payee, vehicle, bill no, goods value); the owner
 // approves or rejects each expense with a remark.
-// Cash in hand = accepted advances − expenses that aren't rejected.
+// Cash in hand = advances given (not rejected) − expenses not rejected, as in the old ledger app.
 // ══════════════════════════════════════════════════════
 const PETTY_SHEET_ID = '1IFBNpI2ZRCyIDnXOYFktwGwBPqLj-Pd3U5XiKzCSeQ4';
 async function ensurePettyTable() {
