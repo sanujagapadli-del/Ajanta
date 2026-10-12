@@ -1105,6 +1105,10 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 17l6-6 4 4 8-8M14 7h7v7"/></svg>
         <span class="nav-label-text">Gross Profit</span>
       </div>
+      <div class="nav-item" id="nav-net-profit" style="display:none" onclick="navigate('net-profit',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span class="nav-label-text">Net Profit</span>
+      </div>
       <div class="nav-item" id="nav-petty-cash" style="display:none" onclick="navigate('petty-cash',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
         <span class="nav-label-text">Petty Cash</span>
@@ -1226,6 +1230,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="gross-profit" onclick="navigate('gross-profit',null)" id="bnGp" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M14 7h7v7"/></svg>
     <span>Gross Profit</span>
+  </div>
+  <div class="bn-item" data-page="net-profit" onclick="navigate('net-profit',null)" id="bnNp" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span>Net Profit</span>
   </div>
   <div class="bn-item" data-page="petty-cash" onclick="navigate('petty-cash',null)" id="bnPetty" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
@@ -1965,6 +1973,9 @@ tbody tr:last-child td{border-bottom:none;}
         <span id="ssManagerBtns" style="display:none">
           <button class="btn btn-primary btn-sm" onclick="openSsPlan()">+ Plan visit</button>
           <button class="btn btn-outline btn-sm" onclick="ssCopyLastMonth()" title="Pichhle mahine ka schedule same weekday pattern se copy karein">⧉ Copy last month</button>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('ssCsvFile').click()" title="Columns: Salesman, Date, Dealer, Purpose">⬆ Upload CSV</button>
+          <button class="btn btn-outline btn-sm" onclick="ssSampleCsv()">⬇ Sample CSV</button>
+          <input type="file" id="ssCsvFile" accept=".csv,text/csv" style="display:none" onchange="ssUploadCsv(this)"/>
         </span>
       </div>
     </div>
@@ -4025,6 +4036,7 @@ async function init() {
 
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
     if (canSee('gross-profit')) document.getElementById('nav-gross-profit').style.display = 'flex';
+    if (canSee('gross-profit') && !gpSalesOnly()) document.getElementById('nav-net-profit').style.display = 'flex';
     if (canSee('petty-cash')) document.getElementById('nav-petty-cash').style.display = 'flex';
     if (canSee('sales-schedule')) document.getElementById('nav-sales-schedule').style.display = 'flex';
     if (canSee('users')) document.getElementById('nav-users').style.display = 'flex';
@@ -4060,7 +4072,7 @@ async function init() {
     const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
-    const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || document.getElementById('page-' + savedPage))
+    const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
       && !(['petty-cash', 'sales-schedule'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
@@ -4161,7 +4173,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4182,8 +4194,9 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ['petty-cash', 'sales-schedule'].includes(page) && !MY_PAGES.has(page)) { showToast("You don't have access to this page", 'error'); return; }
-  const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly())))) { showToast("You don't have access to this page", 'error'); return; }
+  // Net Profit has its own sidebar item (client, 2026-10-12) but is the Gross Profit page's 💰 view.
+  const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page === 'net-profit' ? 'gross-profit' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -4211,7 +4224,7 @@ function navigate(page, el) {
   if (page==='cheque-fms') loadChequeFmsList();
   if (page==='replacement-fms') loadReplFmsList();
   if (page==='lead-fms') loadLeadFmsList();
-  if (page==='gross-profit') loadGrossProfit();
+  if (page==='gross-profit' || page==='net-profit') { gpView = page === 'net-profit' ? 'np' : (gpView === 'np' ? 'product' : gpView); loadGrossProfit(); }
   if (page==='petty-cash') loadPettyCash();
   if (page==='sales-schedule') loadSalesSchedule();
   if (page==='employees') loadEmployeesPage();
@@ -4273,6 +4286,8 @@ function setupBottomNav() {
   if (bnDealers && canSee('dealers')) bnDealers.style.display = '';
   const bnGp = document.getElementById('bnGp');
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
+  const bnNp = document.getElementById('bnNp');
+  if (bnNp && canSee('gross-profit') && !gpSalesOnly()) bnNp.style.display = '';
   const bnPetty = document.getElementById('bnPetty');
   if (bnPetty && canSee('petty-cash')) bnPetty.style.display = '';
   const bnSs = document.getElementById('bnSalesSchedule');
@@ -18457,6 +18472,42 @@ async function ssCopyLastMonth() {
   const r = await api('/api/sales-schedule/copy', 'POST', { userId: ssUserId, fromMonth: prev, toMonth: ssMonth });
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast(`✅ ${r.added} visits copied`);
+  loadSalesSchedule();
+}
+
+// ── CSV upload: Salesman, Date, Dealer, Purpose (header row optional) ──
+function ssSampleCsv() {
+  const who = ssUserId ? ((ssData.salesmen.find(u => String(u.id) === String(ssUserId)) || {}).name || '') : ((ssData.salesmen.find(u => u.isSales) || ssData.salesmen[0] || {}).name || 'Salesman Name');
+  const d = n => fmtDateDMY(`${ssMonth}-${String(n).padStart(2, '0')}`).replace(/\/(\d\d)$/, '/20$1');
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = [['Salesman', 'Date (DD/MM/YYYY)', 'Dealer', 'Purpose'], [who, d(2), 'Dealer name exactly as in Dealer Master', 'Order'], [who, d(2), 'Second dealer same day', 'Payment collection'], [who, d(3), 'Another dealer', '']];
+  const blob = new Blob(['\ufeff' + lines.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `Sales_Schedule_${ssMonth}_sample.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function ssUploadCsv(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  const all = parseCsvText(await file.text());
+  // Skip a header row (its date cell won't parse as a date).
+  const start = all.length && !empParseDate(String(all[0][1] || '').trim()) ? 1 : 0;
+  const rows = [], bad = [];
+  all.slice(start).forEach((r, i) => {
+    const line = i + start + 1;
+    const date = empParseDate(String(r[1] || '').trim());
+    if (!date) { bad.push(`Line ${line}: date "${r[1] || ''}" samajh nahi aayi`); return; }
+    rows.push({ line, salesman: String(r[0] || '').trim(), date, dealer: String(r[2] || '').trim(), purpose: String(r[3] || '').trim() });
+  });
+  if (!rows.length) { showToast(bad[0] || 'CSV mein koi row nahi mili', 'error'); return; }
+  if (!confirm(`${rows.length} visits upload karein?${bad.length ? `\n(${bad.length} rows ki date galat hai — wo chhod di jaayengi)` : ''}`)) return;
+  const r = await api('/api/sales-schedule/bulk', 'POST', { rows });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const errs = [...bad, ...(r.errors || []).map(e => `Line ${e.line}: ${e.error}`)];
+  showToast(`✅ ${r.added} visits added${r.skipped ? ` · ${r.skipped} pehle se the` : ''}${errs.length ? ` · ${errs.length} rows skipped` : ''}`, errs.length && !r.added ? 'error' : undefined);
+  if (errs.length) ssModal('ssCsvErrModal', `⚠️ ${errs.length} rows skipped`, `<div style="font-size:12.5px;line-height:1.8">${errs.slice(0, 200).map(esc).join('<br>')}</div>`);
   loadSalesSchedule();
 }
 

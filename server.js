@@ -10218,6 +10218,48 @@ app.post('/api/sales-schedule', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Manager: CSV upload (client, 2026-10-12) — rows of { salesman (name or
+// id), date (YYYY-MM-DD, parsed in the browser), dealer, purpose }. Rows
+// already planned are skipped; bad rows come back with their line number.
+app.post('/api/sales-schedule/bulk', requireAuth, async (req, res) => {
+  try {
+    if (!(await ssIsManager(req))) return res.status(403).json({ error: 'Only a manager can plan the schedule' });
+    const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'CSV mein koi row nahi mili' });
+    if (rows.length > 3000) return res.status(400).json({ error: 'Ek baar mein max 3000 rows' });
+    const [users] = await db.query("SELECT id, name FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor')");
+    const byName = new Map(users.map(u => [u.name.trim().toLowerCase(), u.id]));
+    const ids = new Set(users.map(u => u.id));
+    const errors = [], good = [];
+    rows.forEach(r => {
+      const who = String(r.salesman || '').trim();
+      const uid = ids.has(Number(who)) ? Number(who) : byName.get(who.toLowerCase());
+      const dealer = String(r.dealer || '').trim().slice(0, 255);
+      if (!uid) return errors.push({ line: r.line, error: `Salesman "${who}" nahi mila` });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) return errors.push({ line: r.line, error: 'Date galat hai' });
+      if (!dealer) return errors.push({ line: r.line, error: 'Dealer khaali hai' });
+      good.push({ uid, date: r.date, dealer, purpose: String(r.purpose || '').trim().slice(0, 255) });
+    });
+    let added = 0, skipped = 0;
+    if (good.length) {
+      const uids = [...new Set(good.map(g => g.uid))], dates = [...new Set(good.map(g => g.date))];
+      const [existing] = await withSalesSchedule(() => db.query(
+        "SELECT user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, LOWER(dealer_name) AS n FROM sales_schedule WHERE user_id IN (?) AND visit_date IN (?)", [uids, dates]));
+      const have = new Set(existing.map(e => `${e.user_id}|${e.d}|${e.n}`));
+      const ins = [];
+      good.forEach(g => {
+        const k = `${g.uid}|${g.date}|${g.dealer.toLowerCase()}`;
+        if (have.has(k)) { skipped++; return; }
+        have.add(k);
+        ins.push([g.uid, g.date, g.dealer, g.purpose, req.session.name || '']);
+      });
+      if (ins.length) await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES ?', [ins]);
+      added = ins.length;
+    }
+    res.json({ success: true, added, skipped, errors });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Manager: copy a salesman's month onto another month, keeping the weekday
 // pattern (2nd Monday → 2nd Monday), so a beat repeats without retyping.
 app.post('/api/sales-schedule/copy', requireAuth, async (req, res) => {
