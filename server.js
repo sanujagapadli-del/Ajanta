@@ -533,7 +533,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'sfms-pc-view', 'all-delegations', 'employees'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sfms-pc-view', 'all-delegations', 'employees'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -2512,7 +2512,7 @@ app.get('/api/mis/weekly', requireAuth, async (req, res) => {
           const done = !!actual;
           // Only steps that are done or are the one currently due — later
           // steps' plan dates aren't real yet.
-          if (!done && st.n !== ent.currentStep + 1) continue;
+          if (!done && (st.n !== ent.currentStep + 1 || ent.onHold)) continue; // on-hold orders don't count against the doer
           const onTime = done && (actual.length < 10 || actual <= (planned.length > 10 ? planned : planned + ' 23:59:59'));
           for (const d of st.doers || []) bump(Number(d.id), system, weekOf(day), done, onTime, `${st.n}. ${st.label || ''}`);
         }
@@ -2552,6 +2552,45 @@ app.get('/api/mis/weekly', requireAuth, async (req, res) => {
 // the detail table. Same sources and on-time rules as Weekly MIS; an FMS step
 // is ONE row with all its doers (so "all employees" totals never double-count),
 // and the employee filter matches any of them.
+// Attendance over [start, end] (never past today, never before the app's
+// first punch) and KM of the last full Mon–Sun week, keyed by user id.
+// Present % = present days ÷ working days (days − week-off/holiday − approved leave).
+async function misAttendanceAndKm(userIds, start, end) {
+  const out = { attendance: {}, km: {}, kmWeek: null };
+  if (!userIds.length) return out;
+  const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+  const dow = new Date(today + 'T00:00:00Z').getUTCDay();
+  const weekStart = ymdAddDays(today, -((dow + 6) % 7) - 7), weekEnd = ymdAddDays(weekStart, 6);
+  out.kmWeek = { start: weekStart, end: weekEnd };
+  const [[{ first }]] = await withAttendanceTables(() => db.query("SELECT DATE_FORMAT(MIN(date),'%Y-%m-%d') AS first FROM attendance"));
+  const from = first && first > start ? first : start;
+  const [[users], [att], [leaves], [kms], hol] = await withAttendanceTables(() => Promise.all([
+    db.query('SELECT id, week_off, extra_off, track_km FROM users WHERE id IN (?) AND is_active=1', [userIds]),
+    db.query("SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d FROM attendance WHERE time_in IS NOT NULL AND date BETWEEN ? AND ? AND user_id IN (?)", [from, end, userIds]),
+    db.query("SELECT user_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS s, DATE_FORMAT(end_date,'%Y-%m-%d') AS e FROM leave_requests WHERE status='approved' AND end_date>=? AND start_date<=? AND user_id IN (?)", [from, end, userIds]),
+    db.query(`SELECT user_id, SUM(GREATEST(evening_km - morning_km, 0)) AS km,
+                SUM(morning_km IS NOT NULL AND evening_km IS NOT NULL) AS days, COUNT(*) AS entries
+              FROM daily_km WHERE date BETWEEN ? AND ? AND user_id IN (?) GROUP BY user_id`, [weekStart, weekEnd, userIds]),
+    db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [from, end]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; })
+  ]));
+  const ctx = { present: new Set(att.map(a => `${a.user_id}|${a.d}`)), holidays: new Set((hol[0] || []).map(h => h.d)), leaves: {} };
+  leaves.forEach(l => (ctx.leaves[l.user_id] = ctx.leaves[l.user_id] || []).push(l));
+  const kmBy = Object.fromEntries(kms.map(k => [k.user_id, k]));
+  // Today counts only once punched in — not "absent" at 10 AM.
+  const yesterday = ymdAddDays(today, -1);
+  users.forEach(u => {
+    if (from <= end && from <= today) {
+      const a = from <= yesterday ? plSalaryFor(u, null, from, end, yesterday, ctx) : { present: 0, absent: 0, leave: 0, off: 0 };
+      if (end >= today && ctx.present.has(`${u.id}|${today}`)) a.present++;
+      const working = a.present + a.absent;
+      if (working) out.attendance[u.id] = { present: a.present, absent: a.absent, leave: a.leave, off: a.off, working, pct: Math.round(a.present * 1000 / working) / 10 };
+    }
+    const k = kmBy[u.id];
+    if (u.track_km || k) out.km[u.id] = { km: Math.round(Number(k && k.km) || 0), days: Number(k && k.days) || 0, incomplete: k ? Number(k.entries) - Number(k.days) : 0 };
+  });
+  return out;
+}
+
 app.get('/api/mis/tasks', requireAuth, async (req, res) => {
   try {
     const role = req.session.role, uid = req.session.userId;
@@ -2615,7 +2654,7 @@ app.get('/api/mis/tasks', requireAuth, async (req, res) => {
           const day = planned.slice(0, 10);
           if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < start || day > end) continue;
           const actual = String(st.actual || '');
-          if (!actual && st.n !== ent.currentStep + 1) continue; // later steps' plans aren't real yet
+          if (!actual && (st.n !== ent.currentStep + 1 || ent.onHold)) continue; // later steps' plans aren't real yet; held orders wait
           add({ uid: `${no}/S${st.n}`, fms, task: `${st.n}. ${st.label || ''} — ${no}${who ? ' · ' + who : ''}`,
             planned, actual, doerIds: (st.doers || []).map(d => Number(d.id)) });
         }
@@ -2623,8 +2662,13 @@ app.get('/api/mis/tasks', requireAuth, async (req, res) => {
     }));
 
     rows.sort((a, b) => a.planned.localeCompare(b.planned));
-    const employees = users.filter(u => rows.some(r => r.doerIds.includes(u.id))).map(u => ({ id: u.id, name: u.name, department: u.department || '' }));
-    res.json({ start, end, now, rows, employees, fmsErrors });
+
+    // Attendance for the range + KM of last week (Mon–Sun) per employee
+    // (client, 2026-10-12: "MIS score mai attendance and last week KM bhi").
+    const { attendance, km, kmWeek } = await misAttendanceAndKm(users.map(u => u.id), start, end);
+    const employees = users.filter(u => rows.some(r => r.doerIds.includes(u.id)) || attendance[u.id] || km[u.id])
+      .map(u => ({ id: u.id, name: u.name, department: u.department || '' }));
+    res.json({ start, end, now, rows, employees, fmsErrors, attendance, km, kmWeek });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -5682,6 +5726,19 @@ async function getO2dOrders() {
       return o;
     });
 
+    // Hold / app-side Cancel / dispatch videos (o2d_order_flags, o2d_media).
+    let extras = { flagBy: {}, mediaBy: {} };
+    try { extras = await getO2dOrderExtras(); } catch (e) { console.error('O2D extras:', e.message); }
+    orders.forEach(o => {
+      const f = extras.flagBy[o.orderNo];
+      o.videos = extras.mediaBy[o.orderNo] || [];
+      if (!f) return;
+      o.restartCount = f.restart_count || 0;
+      if (f.cancelled && !o.closed) { o.cancelled = true; o.closed = true; o.cancelledStepLabel = o.cancelledStepLabel || 'Cancelled'; }
+      if (f.cancelled) Object.assign(o, { cancelReason: f.cancel_reason || '', cancelledBy: f.cancelled_by || '', cancelledAt: f.cancelled_at || '' });
+      if (f.on_hold && !o.closed) Object.assign(o, { onHold: true, holdReason: f.hold_reason || '', holdBy: f.hold_by || '', holdAt: f.hold_at || '' });
+    });
+
     orders.reverse(); // newest first
     return orders;
   }
@@ -5880,7 +5937,8 @@ async function canAccessDealers(req) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
   const pages = parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role);
-  return pages.includes('o2d-fms');
+  // 'dealers' = Dealer Master page grant; O2D FMS still reads dealer data for its own screens.
+  return pages.includes('dealers') || pages.includes('o2d-fms');
 }
 // Credit limit and payment history directly feed the automated credit-tier
 // rating (computeCreditTier/computeDealerRating) — restrict those to admin
@@ -7704,6 +7762,7 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
     const orderNo = req.params.orderNo;
     const stepNum = parseInt(req.params.stepNum, 10);
     if (!(await assertIsStepDoer(res, 'o2d_step_doers', stepNum, req.session.userId, req.session.role))) return;
+    if (await o2dOrderOnHold(orderNo)) return res.status(409).json({ error: 'Order is on Hold — resume it first' });
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     const { rowsUpdated, counterName } = await writeO2dStepForOrder(sheetsApi, orderNo, stepNum, req.body);
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
@@ -7750,6 +7809,252 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     sendServerError(res, err);
   }
+});
+
+// ── O2D order controls (client, 2026-10-12): Hold / Cancel / Restart from
+// step 1, edit items at Make Bill, and dispatch videos. Hold, the cancel
+// reason and videos live in MySQL; Cancel also writes "No" on the pending
+// step in the sheet so GP / stock / MIS (which read the sheet) see it too. ──
+async function ensureO2dOrderTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_order_flags (
+      order_no VARCHAR(64) PRIMARY KEY,
+      on_hold TINYINT(1) NOT NULL DEFAULT 0,
+      hold_reason VARCHAR(500), hold_by VARCHAR(255), hold_at DATETIME,
+      cancelled TINYINT(1) NOT NULL DEFAULT 0,
+      cancel_reason VARCHAR(500), cancelled_by VARCHAR(255), cancelled_at DATETIME,
+      restart_count INT NOT NULL DEFAULT 0, restarted_by VARCHAR(255), restarted_at DATETIME
+    )`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS o2d_media (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_no VARCHAR(64) NOT NULL,
+      step_n INT NOT NULL,
+      url VARCHAR(500) NOT NULL,
+      kind VARCHAR(20) NOT NULL DEFAULT 'video',
+      seconds INT,
+      created_by VARCHAR(255),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX (order_no)
+    )`);
+}
+async function withO2dOrderTables(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureO2dOrderTables(); return await fn(); }
+}
+async function o2dOrderOnHold(orderNo) {
+  const [rows] = await withO2dOrderTables(() => db.query('SELECT on_hold FROM o2d_order_flags WHERE order_no=?', [orderNo]));
+  return !!(rows[0] && rows[0].on_hold);
+}
+// Both tables are tiny — one query each per O2D read is cheaper than any cache.
+async function getO2dOrderExtras() {
+  const [[flags], [media]] = await withO2dOrderTables(() => Promise.all([
+    db.query(`SELECT order_no, on_hold, hold_reason, hold_by, DATE_FORMAT(hold_at,'%Y-%m-%d %H:%i') AS hold_at,
+                cancelled, cancel_reason, cancelled_by, DATE_FORMAT(cancelled_at,'%Y-%m-%d %H:%i') AS cancelled_at, restart_count
+              FROM o2d_order_flags`),
+    db.query(`SELECT id, order_no, step_n, url, kind, seconds, created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
+              FROM o2d_media ORDER BY id`)
+  ]));
+  const flagBy = Object.fromEntries(flags.map(f => [f.order_no, f]));
+  const mediaBy = {};
+  media.forEach(m => (mediaBy[m.order_no] = mediaBy[m.order_no] || []).push(m));
+  return { flagBy, mediaBy };
+}
+
+// Who may Hold / Cancel an order: admin, HOD/PC, or anyone assigned to an O2D step.
+async function canControlO2dOrder(req) {
+  if (['admin', 'hod', 'pc'].includes(req.session.role)) return true;
+  const [rows] = await withO2dStepDoersTable(() => db.query('SELECT 1 FROM o2d_step_doers WHERE user_id=? LIMIT 1', [req.session.userId]));
+  return rows.length > 0;
+}
+
+async function readO2dOrderRows(sheetsApi, orderNo, lastCol) {
+  const resp = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:${lastCol}`, valueRenderOption: 'UNFORMATTED_VALUE'
+  });
+  const out = [];
+  (resp.data.values || []).forEach((r, i) => { if ((r[colToIdx('Q')] || '') === orderNo && r[colToIdx('R')]) out.push({ row: O2D_DATA_START_ROW + i, r }); });
+  return out;
+}
+
+app.post('/api/o2d-fms/order/:orderNo/hold', requireAuth, async (req, res) => {
+  try {
+    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Only O2D step doers / admin can hold an order' });
+    const orderNo = req.params.orderNo;
+    const hold = !!req.body.hold;
+    const reason = String(req.body.reason || '').trim().slice(0, 500);
+    if (hold && !reason) return res.status(400).json({ error: 'Hold ka reason likhein' });
+    await withO2dOrderTables(() => db.query(
+      `INSERT INTO o2d_order_flags (order_no, on_hold, hold_reason, hold_by, hold_at) VALUES (?,?,?,?,NOW())
+       ON DUPLICATE KEY UPDATE on_hold=VALUES(on_hold), hold_reason=VALUES(hold_reason), hold_by=VALUES(hold_by), hold_at=VALUES(hold_at)`,
+      [orderNo, hold ? 1 : 0, hold ? reason : null, req.session.name || '']));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+app.post('/api/o2d-fms/order/:orderNo/cancel', requireAuth, async (req, res) => {
+  try {
+    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Only O2D step doers / admin can cancel an order' });
+    const orderNo = req.params.orderNo;
+    const reason = String(req.body.reason || '').trim().slice(0, 500);
+    if (!reason) return res.status(400).json({ error: 'Cancel ka reason likhein' });
+    const orders = await getO2dOrders();
+    const o = orders.find(x => x.orderNo === orderNo);
+    if (!o) return res.status(404).json({ error: `Order ${orderNo} not found` });
+    if (o.closed && !o.cancelled) return res.status(400).json({ error: 'Order is already dispatched — it cannot be cancelled' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    // "No" on each still-active line's own pending step — the sheet's
+    // existing meaning of a cancelled line, read by GP / stock / MIS.
+    const steps = [...new Set(o.products.filter(p => !p.cancelled && p.currentStep < O2D_STEPS.length).map(p => p.currentStep + 1))];
+    for (const n of steps.sort((a, b) => a - b)) {
+      await writeO2dStepForOrder(sheetsApi, orderNo, n, { status: 'No', reason: n === 1 ? `Cancelled: ${reason}` : undefined });
+    }
+    await withO2dOrderTables(() => db.query(
+      `INSERT INTO o2d_order_flags (order_no, cancelled, cancel_reason, cancelled_by, cancelled_at, on_hold) VALUES (?,1,?,?,NOW(),0)
+       ON DUPLICATE KEY UPDATE cancelled=1, cancel_reason=VALUES(cancel_reason), cancelled_by=VALUES(cancelled_by), cancelled_at=VALUES(cancelled_at), on_hold=0`,
+      [orderNo, reason, req.session.name || '']));
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Restart: clears every step's Actual / Status / detail cells on all of the
+// order's lines, so it begins again at step 1. Planned and Time Delay columns
+// are sheet formulas and are left alone. Admin / PC only.
+app.post('/api/o2d-fms/order/:orderNo/restart', requireAuth, async (req, res) => {
+  try {
+    if (!['admin', 'pc'].includes(req.session.role)) return res.status(403).json({ error: 'Only admin / PC can restart an order' });
+    const orderNo = req.params.orderNo;
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const lines = await readO2dOrderRows(sheetsApi, orderNo, 'R');
+    if (!lines.length) return res.status(404).json({ error: `Order ${orderNo} not found` });
+    const cols = O2D_STEPS.flatMap(s => [s.actual, s.status, ...s.extra.map(e => e.col)]);
+    const ranges = lines.flatMap(l => cols.map(c => `'${O2D_TAB}'!${c}${l.row}`));
+    await sheetsApi.spreadsheets.values.batchClear({ spreadsheetId: O2D_SHEET_ID, requestBody: { ranges } });
+    await withO2dOrderTables(async () => {
+      await db.query(
+        `INSERT INTO o2d_order_flags (order_no, restart_count, restarted_by, restarted_at) VALUES (?,1,?,NOW())
+         ON DUPLICATE KEY UPDATE on_hold=0, hold_reason=NULL, cancelled=0, cancel_reason=NULL,
+           restart_count=restart_count+1, restarted_by=VALUES(restarted_by), restarted_at=VALUES(restarted_at)`,
+        [orderNo, req.session.name || '']);
+      await db.query('DELETE FROM o2d_media WHERE order_no=?', [orderNo]);
+    });
+    res.json({ success: true, rows: lines.length });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Make Bill (step 4): the accountant can change an item's name / rate / qty
+// (qty 0 = item dropped) and add items before billing. Added lines are
+// written with steps 1-3 already done so the order stays at Make Bill.
+app.put('/api/o2d-fms/order/:orderNo/items', requireAuth, async (req, res) => {
+  try {
+    const BILL_STEP = 4;
+    if (!(await assertIsStepDoer(res, 'o2d_step_doers', BILL_STEP, req.session.userId, req.session.role))) return;
+    const orderNo = req.params.orderNo;
+    const edits = Array.isArray(req.body.edits) ? req.body.edits : [];
+    const adds = Array.isArray(req.body.adds) ? req.body.adds : [];
+    if (!edits.length && !adds.length) return res.status(400).json({ error: 'Nothing to save' });
+    const num = v => (v === '' || v === null || v === undefined) ? NaN : Number(v);
+    for (const p of [...edits, ...adds]) {
+      if (!String(p.productName || '').trim()) return res.status(400).json({ error: 'Every item needs a product name' });
+      if (!(num(p.qty) >= 0)) return res.status(400).json({ error: 'Qty must be 0 or more' });
+      if (p.rate !== '' && p.rate !== undefined && !(num(p.rate) >= 0)) return res.status(400).json({ error: 'Rate must be 0 or more' });
+    }
+    if (adds.some(p => !(num(p.qty) > 0))) return res.status(400).json({ error: 'A new item needs qty more than 0' });
+
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const billStep = O2D_STEPS.find(s => s.n === BILL_STEP);
+    const lines = await readO2dOrderRows(sheetsApi, orderNo, billStep.status);
+    if (!lines.length) return res.status(404).json({ error: `Order ${orderNo} not found` });
+    const prior = O2D_STEPS.filter(s => s.n < BILL_STEP);
+    const atBill = l => !l.r[colToIdx(billStep.status)] && prior.every(s => { const v = l.r[colToIdx(s.status)]; return v && v !== 'No'; });
+    const byRow = Object.fromEntries(lines.map(l => [l.row, l]));
+    const data = [];
+    for (const e of edits) {
+      const l = byRow[Number(e.row)];
+      if (!l) return res.status(400).json({ error: `Row ${e.row} is not part of ${orderNo}` });
+      if (!atBill(l)) return res.status(400).json({ error: `"${l.r[colToIdx('M')]}" is not at Make Bill — it can't be changed now` });
+      data.push({ range: `'${O2D_TAB}'!M${l.row}:O${l.row}`, values: [[String(e.productName).trim(), e.rate === '' || e.rate === undefined ? '' : num(e.rate), num(e.qty)]] });
+    }
+    if (adds.length && !lines.some(atBill)) return res.status(400).json({ error: 'Items can only be added while the order is at Make Bill' });
+    if (data.length) await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: O2D_SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
+
+    if (adds.length) {
+      const t = lines[0].r;
+      const ids = await sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!R${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE' });
+      let maxOrderId = 0;
+      (ids.data.values || []).forEach(r => { const m = String(r[0] || '').match(/Order-(\d+)/); if (m) maxOrderId = Math.max(maxOrderId, parseInt(m[1], 10)); });
+      const now = sfmsDateToSerial(new Date());
+      const rows = [];
+      let next = maxOrderId + 1;
+      for (const p of adds) {
+        const id = await claimNextSeqValue('o2d_order_id', next);
+        next = id + 1;
+        rows.push([now, t[1] || '', t[2] || '', t[3] || '', t[4] || '', t[5] || '', t[6] || '', t[7] || 'No', t[8] || 'No', t[9] || '',
+          t[10] || '', t[11] || '', String(p.productName).trim(), p.rate === '' || p.rate === undefined ? '' : num(p.rate), num(p.qty), 'No', orderNo, `Order-${id}`]);
+      }
+      const app_ = await sheetsApi.spreadsheets.values.append({
+        spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
+        valueInputOption: 'RAW', insertDataOption: 'OVERWRITE', requestBody: { values: rows }
+      });
+      const m = String((app_.data.updates || {}).updatedRange || '').match(/![A-Z]+(\d+):/);
+      if (m) {
+        const first = parseInt(m[1], 10);
+        const stepData = [];
+        rows.forEach((_, i) => prior.forEach(s => {
+          stepData.push({ range: `'${O2D_TAB}'!${s.actual}${first + i}`, values: [[now]] });
+          stepData.push({ range: `'${O2D_TAB}'!${s.status}${first + i}`, values: [['Yes']] });
+        }));
+        await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: O2D_SHEET_ID, requestBody: { valueInputOption: 'RAW', data: stepData } });
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Dispatch videos (Load Goods). Recorded in the app at low quality (so only
+// fresh videos, never an old one from the gallery) and posted as raw bytes —
+// no base64 — to stay well under Vercel's 4.5 MB request limit.
+app.post('/api/o2d-fms/order/:orderNo/video', requireAuth,
+  express.raw({ type: ['video/*', 'application/octet-stream'], limit: '4mb' }), async (req, res) => {
+  try {
+    const orderNo = req.params.orderNo;
+    const stepN = parseInt(req.query.step, 10) || 9;
+    if (!(await assertIsStepDoer(res, 'o2d_step_doers', stepN, req.session.userId, req.session.role))) return;
+    if (!Buffer.isBuffer(req.body) || req.body.length < 1000) return res.status(400).json({ error: 'Video is empty — record again' });
+    const mime = String(req.headers['content-type'] || 'video/webm').split(';')[0];
+    const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+    const safeNo = orderNo.replace(/[^\w-]/g, '');
+    const link = await uploadBufferToDrive(req.body, `${safeNo}-dispatch-${Date.now()}.${ext}`, mime, { public: true });
+    const id = (link.match(/[?&]id=([\w-]+)/) || [])[1];
+    const url = id ? `https://drive.google.com/file/d/${id}/view` : link;
+    const seconds = parseInt(req.query.seconds, 10) || null;
+    const [ins] = await withO2dOrderTables(() => db.query(
+      'INSERT INTO o2d_media (order_no, step_n, url, kind, seconds, created_by) VALUES (?,?,?,?,?,?)',
+      [orderNo, stepN, url, 'video', seconds, req.session.name || '']));
+    res.json({ success: true, id: ins.insertId, url });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+app.delete('/api/o2d-fms/media/:id', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await withO2dOrderTables(() => db.query('SELECT step_n, created_by FROM o2d_media WHERE id=?', [req.params.id]));
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    if (req.session.role !== 'admin' && rows[0].created_by !== (req.session.name || '')) return res.status(403).json({ error: 'Only the person who recorded it can remove it' });
+    await db.query('DELETE FROM o2d_media WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -9609,6 +9914,213 @@ app.post('/api/replacement-fms/import-old', requireAuth, requireAdmin, async (re
 });
 
 // ══════════════════════════════════════════════════════
+// PETTY CASH (client, 2026-10-12) — replaces the separate "petty cash
+// tracker" sheet/app. The owner (Ajay / Vishal — app_settings
+// petty_cash_owners, else the salesman_pl_viewers list, plus admins) gives
+// cash advances; the manager (Aziz) accepts them and records each expense
+// (mostly freight: party, payee, vehicle, bill no, goods value); the owner
+// approves or rejects each expense with a remark.
+// Cash in hand = accepted advances − expenses that aren't rejected.
+// ══════════════════════════════════════════════════════
+const PETTY_SHEET_ID = '1IFBNpI2ZRCyIDnXOYFktwGwBPqLj-Pd3U5XiKzCSeQ4';
+async function ensurePettyTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS petty_cash (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      ext_id VARCHAR(40) UNIQUE,
+      entry_date DATETIME NOT NULL,
+      type VARCHAR(10) NOT NULL,
+      amount DECIMAL(12,2) NOT NULL,
+      description VARCHAR(500),
+      payee VARCHAR(255),
+      vehicle VARCHAR(100),
+      mode VARCHAR(20),
+      note VARCHAR(500),
+      goods_value DECIMAL(14,2),
+      bill_photo VARCHAR(500),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      owner_remark VARCHAR(500),
+      recorded_by_id INT,
+      recorded_by_name VARCHAR(255),
+      decided_by_name VARCHAR(255),
+      decided_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX (entry_date)
+    )`);
+}
+async function withPettyTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensurePettyTable(); return await fn(); }
+}
+async function pettyIsOwner(req) {
+  if (req.session.role === 'admin') return true;
+  const raw = (await getAppSetting('petty_cash_owners')) || (await getAppSetting(PL_VIEWERS_KEY)) || '';
+  return raw.split(',').map(s => Number(s.trim())).includes(Number(req.session.userId));
+}
+const PETTY_SELECT = `SELECT id, ext_id, DATE_FORMAT(entry_date,'%Y-%m-%d %H:%i') AS entry_date, type, amount, description, payee, vehicle, mode, note,
+  goods_value, bill_photo, status, owner_remark, recorded_by_id, recorded_by_name, decided_by_name, DATE_FORMAT(decided_at,'%Y-%m-%d %H:%i') AS decided_at FROM petty_cash`;
+
+app.get('/api/petty-cash', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'petty-cash'))) return res.status(403).json({ error: 'No access to Petty Cash' });
+    const [entries] = await withPettyTable(() => db.query(`${PETTY_SELECT} ORDER BY entry_date DESC, id DESC`));
+    entries.forEach(e => { e.amount = Number(e.amount); e.goods_value = e.goods_value === null ? null : Number(e.goods_value); });
+    res.json({ entries, isOwner: await pettyIsOwner(req), me: req.session.name || '' });
+  } catch (err) { sendServerError(res, err); }
+});
+
+function pettyReadBody(b) {
+  const amount = Number(b.amount);
+  const goods = b.goodsValue === '' || b.goodsValue === undefined || b.goodsValue === null ? null : Number(b.goodsValue);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : null;
+  return {
+    amount, goods, date,
+    description: String(b.description || '').trim().slice(0, 500),
+    payee: String(b.payee || '').trim().slice(0, 255),
+    vehicle: String(b.vehicle || '').trim().slice(0, 100),
+    mode: b.mode === 'online' ? 'online' : 'cash',
+    note: String(b.note || '').trim().slice(0, 500)
+  };
+}
+
+app.post('/api/petty-cash', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'petty-cash'))) return res.status(403).json({ error: 'No access to Petty Cash' });
+    const type = req.body.type === 'advance' ? 'advance' : 'expense';
+    const owner = await pettyIsOwner(req);
+    if (type === 'advance' && !owner) return res.status(403).json({ error: 'Only the owner can give an advance' });
+    const v = pettyReadBody(req.body);
+    if (!(v.amount > 0)) return res.status(400).json({ error: 'Amount must be more than 0' });
+    if (!v.date) return res.status(400).json({ error: 'Date is required' });
+    if (!v.description) return res.status(400).json({ error: type === 'advance' ? 'Note likhein' : 'Description (party / kaam) likhein' });
+    if (v.goods !== null && !(v.goods >= 0)) return res.status(400).json({ error: 'Goods value must be a number' });
+    let photo = null;
+    if (req.body.billPhoto && /^data:/.test(req.body.billPhoto)) photo = await uploadPhotoToDrive(req.body.billPhoto, `petty-${Date.now()}.jpg`);
+    // An expense the owner records himself needs no approval from himself.
+    const status = type === 'advance' ? 'pending' : (owner ? 'approved' : 'pending');
+    const [ins] = await withPettyTable(() => db.query(
+      `INSERT INTO petty_cash (entry_date, type, amount, description, payee, vehicle, mode, note, goods_value, bill_photo, status, recorded_by_id, recorded_by_name)
+       VALUES (CONCAT(?, ' ', DATE_FORMAT(NOW(),'%H:%i:%s')),?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [v.date, type, v.amount, v.description, v.payee, type === 'advance' ? '' : v.vehicle, v.mode, v.note, type === 'advance' ? null : v.goods, photo, status, req.session.userId, req.session.name || '']));
+    const [[row]] = await db.query(`${PETTY_SELECT} WHERE id=?`, [ins.insertId]);
+    res.json({ success: true, entry: row });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Edit / delete: the person who recorded it, while it's still pending; admin any time.
+async function pettyEditable(req, id) {
+  const [[e]] = await withPettyTable(() => db.query('SELECT * FROM petty_cash WHERE id=?', [id]));
+  if (!e) return { error: 'Entry not found', code: 404 };
+  if (req.session.role === 'admin') return { e };
+  if (Number(e.recorded_by_id) !== Number(req.session.userId)) return { error: 'Only the person who recorded it can change it', code: 403 };
+  if (e.status !== 'pending') return { error: 'Already approved / accepted — ask the owner', code: 400 };
+  return { e };
+}
+app.put('/api/petty-cash/:id', requireAuth, async (req, res) => {
+  try {
+    const chk = await pettyEditable(req, req.params.id);
+    if (chk.error) return res.status(chk.code).json({ error: chk.error });
+    const v = pettyReadBody(req.body);
+    if (!(v.amount > 0) || !v.date || !v.description) return res.status(400).json({ error: 'Date, amount and description are required' });
+    await db.query(`UPDATE petty_cash SET entry_date=CONCAT(?, ' ', DATE_FORMAT(entry_date,'%H:%i:%s')), amount=?, description=?, payee=?, vehicle=?, mode=?, note=?, goods_value=? WHERE id=?`,
+      [v.date, v.amount, v.description, v.payee, v.vehicle, v.mode, v.note, chk.e.type === 'advance' ? null : v.goods, req.params.id]);
+    const [[row]] = await db.query(`${PETTY_SELECT} WHERE id=?`, [req.params.id]);
+    res.json({ success: true, entry: row });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/petty-cash/:id', requireAuth, async (req, res) => {
+  try {
+    const chk = await pettyEditable(req, req.params.id);
+    if (chk.error) return res.status(chk.code).json({ error: chk.error });
+    await db.query('DELETE FROM petty_cash WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Owner: approve / reject an expense (remark required to reject). Manager
+// (anyone but the owner who gave it): accept an advance as received.
+app.post('/api/petty-cash/:id/decide', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'petty-cash'))) return res.status(403).json({ error: 'No access to Petty Cash' });
+    const [[e]] = await withPettyTable(() => db.query('SELECT * FROM petty_cash WHERE id=?', [req.params.id]));
+    if (!e) return res.status(404).json({ error: 'Entry not found' });
+    const decision = String(req.body.decision || '');
+    const remark = String(req.body.remark || '').trim().slice(0, 500);
+    let status;
+    if (e.type === 'advance') {
+      if (decision !== 'accepted') return res.status(400).json({ error: 'An advance can only be accepted' });
+      status = 'accepted';
+    } else {
+      if (!(await pettyIsOwner(req))) return res.status(403).json({ error: 'Only the owner can approve expenses' });
+      if (!['approved', 'rejected', 'pending'].includes(decision)) return res.status(400).json({ error: 'Invalid decision' });
+      if (decision === 'rejected' && !remark) return res.status(400).json({ error: 'Reject ka reason likhein' });
+      status = decision;
+    }
+    await db.query('UPDATE petty_cash SET status=?, owner_remark=COALESCE(NULLIF(?,\'\'), owner_remark), decided_by_name=?, decided_at=NOW() WHERE id=?',
+      [status, remark, req.session.name || '', e.id]);
+    const [[row]] = await db.query(`${PETTY_SELECT} WHERE id=?`, [e.id]);
+    res.json({ success: true, entry: row });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Bulk approve (owner) — the old sheet had 70+ pending at once.
+app.post('/api/petty-cash/approve-many', requireAuth, async (req, res) => {
+  try {
+    if (!(await pettyIsOwner(req))) return res.status(403).json({ error: 'Only the owner can approve expenses' });
+    const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
+    if (!ids.length) return res.status(400).json({ error: 'Nothing selected' });
+    const [r] = await withPettyTable(() => db.query(
+      "UPDATE petty_cash SET status='approved', decided_by_name=?, decided_at=NOW() WHERE type='expense' AND status='pending' AND id IN (?)", [req.session.name || '', ids]));
+    res.json({ success: true, approved: r.affectedRows });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// One-time (re-runnable) import of the old "petty cash tracker" sheet's
+// Entries tab. Keyed by the sheet's own ID, so running it again only adds
+// rows that aren't in the app yet. A few early rows lack the vehicle column
+// — detected by Mode not being where it should be.
+app.post('/api/petty-cash/import-sheet', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await ensurePettyTable();
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const resp = await sheetsApi.spreadsheets.values.get({ spreadsheetId: PETTY_SHEET_ID, range: "'Entries'!A2:M" });
+    const STATUSES = ['pending', 'approved', 'accepted', 'rejected'];
+    const [users] = await db.query('SELECT id, name FROM users');
+    const userId = name => { const u = users.find(x => x.name.trim().toLowerCase() === String(name || '').trim().toLowerCase()); return u ? u.id : null; };
+    let imported = 0, skipped = 0;
+    for (const r of resp.data.values || []) {
+      const extId = String(r[0] || '').trim();
+      const type = String(r[2] || '').trim().toLowerCase();
+      const amount = Number(String(r[3] || '').replace(/[^\d.]/g, ''));
+      const when = new Date(r[1]);
+      if (!extId || !['advance', 'expense'].includes(type) || !(amount > 0) || isNaN(when)) { skipped++; continue; }
+      const shifted = !['cash', 'online', ''].includes(String(r[7] || '').trim().toLowerCase());
+      const f = shifted
+        ? { vehicle: '', mode: r[6], by: r[7], note: r[8], goods: r[9] }
+        : { vehicle: r[6], mode: r[7], by: r[8], note: r[9], goods: r[10] };
+      let statusIdx = -1;
+      r.forEach((v, i) => { if (i >= 9 && STATUSES.includes(String(v || '').trim().toLowerCase())) statusIdx = i; });
+      const status = statusIdx >= 0 ? String(r[statusIdx]).trim().toLowerCase() : 'pending';
+      const remark = statusIdx >= 0 && statusIdx < 12 ? String(r[12] || '').trim() : '';
+      const goods = Number(String(f.goods || '').replace(/[^\d.]/g, ''));
+      // Sheet times are UTC (ISO "Z") — stored as India time like the rest of the app.
+      const ist = new Date(when.getTime() + 330 * 60000).toISOString().slice(0, 19).replace('T', ' ');
+      const [ins] = await db.query(
+        `INSERT IGNORE INTO petty_cash (ext_id, entry_date, type, amount, description, payee, vehicle, mode, note, goods_value, status, owner_remark, recorded_by_id, recorded_by_name)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [extId, ist, type, amount, String(r[4] || '').trim().slice(0, 500), String(r[5] || '').trim().slice(0, 255), String(f.vehicle || '').trim().slice(0, 100),
+         String(f.mode || '').trim().toLowerCase() === 'online' ? 'online' : 'cash', String(f.note || '').trim().slice(0, 500), goods > 0 ? goods : null,
+         status, remark || null, userId(f.by), String(f.by || '').trim().slice(0, 255)]);
+      if (ins.affectedRows) imported++; else skipped++;
+    }
+    res.json({ success: true, imported, skipped });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the petty cash sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// ══════════════════════════════════════════════════════
 // GROSS PROFIT (client, 2026-10-06: "GP O2D aur Purchase FMS se nikalna
 // hai") — product-wise and dealer-wise, highest first, from the app's own FMS
 // data (not Tally):
@@ -9715,6 +10227,68 @@ async function gpLoadData(start, end) {
   };
   return { sales, poCost, costFor, stockName, firstBill, lastBill };
 }
+
+// ── Net Profit (client, 2026-10-12: "GP ke baad NP nikalna hai, office exp
+// tally se") — expenses for [start, end] from the Tally sync: every ledger
+// whose primary group is Indirect Expenses (office) or Direct Expenses, net
+// of reversals, read off the LedgerVouchers legs (current FY only). The
+// ledger → group map comes from the sync's LedgerGroups tab. Petty cash is
+// returned separately — the page decides whether to deduct it too.
+const NP_EXPENSE_GROUPS = ['Indirect Expenses', 'Direct Expenses'];
+let _ledgerGroupsCache = null;
+async function getLedgerGroups() {
+  if (_ledgerGroupsCache && Date.now() - _ledgerGroupsCache.ts < LEDGER_VOUCHERS_CACHE_TTL_MS) return _ledgerGroupsCache;
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerGroups'!A2:D20000` })
+    .catch(() => ({ data: { values: null } })); // tab only exists once the updated Tally sync has run
+  const rows = r.data.values;
+  const map = {};
+  (rows || []).forEach(x => { const l = String(x[0] || '').trim(); if (l) map[l.toLowerCase()] = { group: String(x[1] || '').trim(), primary: String(x[2] || '').trim() }; });
+  _ledgerGroupsCache = { map, found: !!rows, syncedAt: rows && rows[0] ? rows[0][3] || '' : '', ts: Date.now() };
+  return _ledgerGroupsCache;
+}
+app.get('/api/reports/net-profit-expenses', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'gross-profit'))) return res.status(403).json({ error: 'You do not have access to Net Profit' });
+    const { start, end } = req.query;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
+      return res.status(400).json({ error: 'Valid start and end dates required' });
+    }
+    const [groups, vouchers, petty] = await Promise.all([
+      getLedgerGroups(),
+      getLedgerVouchers(),
+      withPettyTable(() => db.query("SELECT COALESCE(SUM(amount),0) AS amt, COUNT(*) AS n FROM petty_cash WHERE type='expense' AND status<>'rejected' AND entry_date BETWEEN ? AND ?", [start + ' 00:00:00', end + ' 23:59:59']))
+    ]);
+    const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const byGroup = {};
+    let firstDate = '', lastDate = '';
+    Object.values(vouchers.byKey).forEach(v => {
+      const d = parseAnyDate(v.date);
+      if (!d) return;
+      const day = ymd(d);
+      if (!firstDate || day < firstDate) firstDate = day;
+      if (day > lastDate) lastDate = day;
+      if (day < start || day > end) return;
+      v.legs.forEach(l => {
+        const g = groups.map[l.ledgerKey];
+        if (!g || !NP_EXPENSE_GROUPS.includes(g.primary)) return;
+        const grp = byGroup[g.primary] = byGroup[g.primary] || { total: 0, ledgers: {} };
+        const led = grp.ledgers[l.ledgerName] = grp.ledgers[l.ledgerName] || { ledger: l.ledgerName, group: g.group, amount: 0, entries: 0 };
+        led.amount -= l.amount; // Tally export: negative = Dr = expense booked
+        led.entries++;
+        grp.total -= l.amount;
+      });
+    });
+    const round = v => Math.round(v * 100) / 100;
+    const out = NP_EXPENSE_GROUPS.map(name => {
+      const g = byGroup[name] || { total: 0, ledgers: {} };
+      return { group: name, total: round(g.total), ledgers: Object.values(g.ledgers).map(l => ({ ...l, amount: round(l.amount) })).filter(l => l.amount).sort((a, b) => b.amount - a.amount) };
+    });
+    const [[p]] = petty;
+    res.json({ start, end, groups: out, groupsSynced: groups.found, groupsSyncedAt: groups.syncedAt, tallyFrom: firstDate, tallyTo: lastDate,
+      pettyCash: { amount: Number(p.amt) || 0, entries: Number(p.n) || 0 } });
+  } catch (err) { sendServerError(res, err); }
+});
 
 app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
   try {
