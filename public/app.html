@@ -1765,6 +1765,7 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="btn btn-outline" onclick="loadServiceFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="sfmsStepDoersBtn" style="display:none" onclick="openSfmsStepDoersModal()">⚙ Step Doers</button>
       <button class="btn btn-outline" id="sfmsZonesBtn" style="display:none" onclick="openSfmsZonesModal()">🗺 Zones &amp; Areas</button>
+      <button class="btn btn-outline" id="sfmsDeletedBtn" style="display:none" onclick="openSfmsDeleted()">🗑 Deleted</button>
     </div>
 
     <div style="display:flex;gap:6px;margin-bottom:8px;overflow-x:auto">
@@ -1776,8 +1777,9 @@ tbody tr:last-child td{border-bottom:none;}
 
     <div style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);padding:9px 12px;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap" id="sfmsSearchWrap">
       <input type="text" id="sfmsSearch" oninput="renderServiceFmsList()" placeholder="🔍 Search by Complain No, Name, Mobile, Product…" style="flex:1;min-width:160px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-      <button class="btn btn-outline" id="sfmsExportSelectedBtn" onclick="exportSelectedComplaintsCsv()" disabled style="white-space:nowrap" title="Tick complaints below, then export just those">⬇ Export Selected (0) CSV</button>
-      <a class="btn btn-outline" href="/api/service-fms/export.xlsx" download style="white-space:nowrap;text-decoration:none" title="All complaints with every detail, as an Excel sheet">⬇ Export Excel</a>
+      <button class="btn btn-outline" id="sfmsExportSelectedBtn" onclick="exportSelectedComplaintsCsv()" disabled style="white-space:nowrap" title="Tick complaints below, then export just those — daily sheet format">⬇ Export Selected (0) Excel</button>
+      <a class="btn btn-outline" href="/api/service-fms/daily.xlsx" download style="white-space:nowrap;text-decoration:none" title="Saari pending complaints — daily sheet format (No, Date, Customer, Mobile, Product, Problem, Address, Area)">⬇ Complaints Excel</a>
+      <a href="/api/service-fms/export.xlsx" download style="white-space:nowrap;font-size:12px;align-self:center" title="All complaints with every detail">Full data</a>
     </div>
 
     <div id="sfmsListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
@@ -4067,6 +4069,7 @@ async function init() {
       document.getElementById('purchaseVendorLoginsBtn').style.display = 'inline-flex';
       document.getElementById('sfmsStepDoersBtn').style.display = 'inline-flex';
       document.getElementById('sfmsZonesBtn').style.display = 'inline-flex';
+      document.getElementById('sfmsDeletedBtn').style.display = 'inline-flex';
     }
     // hod/pc nav blocks — re-enable when ROLE FEATURE FLAGS above are removed
     // if (ME.role === 'hod') { nav-fms-tasks, nav-records, setPlanBtn }
@@ -9698,6 +9701,48 @@ async function ensureSfmsMasterLists() {
   const itemListEl = document.getElementById('sfmsItemNameList');
   if (itemListEl) itemListEl.innerHTML = sfmsItemsList.map(v => `<option value="${v.replace(/"/g, '&quot;')}">`).join('');
 }
+// ── Admin: delete a complaint (client, 2026-10-13) — hidden everywhere in
+// the app (the sheet row stays), restorable from 🗑 Deleted. ──
+async function sfmsDeleteComplaint(row, no) {
+  const reason = (prompt(`${no} delete karein? Ye har list / report se hat jaayegi (🗑 Deleted se wapas la sakte hain).\n\nReason:`) || '').trim();
+  if (!reason) return;
+  const res = await api(`/api/service-fms/${row}`, 'DELETE', { reason, expectComplainNo: no });
+  if (res.error) { showToast(res.error, 'error'); return; }
+  sfmsData = sfmsData.filter(c => c.complainNo !== no);
+  window._lastSfmsData = sfmsData;
+  closeModal('complaintDetailModal');
+  showToast(`🗑 ${no} deleted`);
+  renderServiceFmsList();
+}
+async function openSfmsDeleted() {
+  let m = document.getElementById('sfmsDeletedModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'sfmsDeletedModal';
+    m.innerHTML = `<div class="modal" style="max-width:640px;max-height:88dvh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">🗑 Deleted Complaints</h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('sfmsDeletedModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div id="sfmsDeletedBody" style="overflow-y:auto;flex:1"></div></div>`;
+    document.body.appendChild(m);
+  }
+  m.classList.add('open');
+  const body = document.getElementById('sfmsDeletedBody');
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  const list = await api('/api/service-fms/deleted');
+  if (!Array.isArray(list)) { body.innerHTML = `<div class="empty">⚠️ ${esc(list.error || 'Failed')}</div>`; return; }
+  body.innerHTML = list.length ? list.map(d => `<div style="display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-100)">
+      <div style="flex:1;min-width:0"><b>${esc(d.complainNo)}</b> · ${esc(d.customer || '')} · ${esc(d.product || '')}
+        <div style="font-size:12px;color:var(--gray-500)">${esc(d.reason || '')} — ${esc(d.deletedBy || '')}, ${esc(fmtDateDMY(d.deletedAt, true))}</div></div>
+      <button class="btn btn-outline btn-sm" onclick="sfmsRestoreComplaint('${esc(d.complainNo)}')">↩ Restore</button></div>`).join('') : '<div class="empty">Koi deleted complaint nahi</div>';
+}
+async function sfmsRestoreComplaint(no) {
+  const res = await api(`/api/service-fms/deleted/${encodeURIComponent(no)}/restore`, 'POST', {});
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(`↩ ${no} restored`);
+  openSfmsDeleted();
+  loadServiceFmsList();
+}
+
 // ── Admin: Zones & Areas (client, 2026-10-13) — put areas into zones from the
 // app instead of typing column B of the sheet's Area tab. Areas with no zone
 // are listed first so they can be fixed; complaints from them show "No Zone".
@@ -10375,35 +10420,17 @@ function toggleSelectAllComplaints(checked) {
 function updateSfmsExportSelectedBtn() {
   const btn = document.getElementById('sfmsExportSelectedBtn');
   if (!btn) return;
-  btn.textContent = `⬇ Export Selected (${sfmsSelectedRows.size}) CSV`;
+  btn.textContent = `⬇ Export Selected (${sfmsSelectedRows.size}) Excel`;
   btn.disabled = sfmsSelectedRows.size === 0;
 }
 
 // Same column set as the server's export.xlsx, built from already-loaded
 // sfmsData so no extra request is needed for a hand-picked subset.
+// Ticked complaints → the daily sheet Excel (client's format, 2026-10-13).
 function exportSelectedComplaintsCsv() {
   const selected = sfmsData.filter(c => sfmsSelectedRows.has(c.row));
   if (!selected.length) { showToast('Tick at least one complaint first', 'error'); return; }
-  const cols = ['Complaint No', 'Complaint Date', 'Customer Name', 'Mobile Number', 'Customer / Dealer',
-    'Dealer Name', 'Product', 'Purchase Date', 'Problem', 'Remarks/Notes', 'Product Ownership',
-    'Product Location', 'Address', 'Area', 'Status'];
-  const csvEsc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [cols.map(csvEsc).join(',')];
-  selected.forEach(c => {
-    const nextStep = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
-    lines.push([
-      c.complainNo, c.timestamp, c.filledByName, c.mobile, c.customerType, c.dealerName,
-      c.productName, c.purchaseDate, c.problemDescription, c.remarks, c.productOwnership,
-      c.productLocation, c.address, c.area, c.closed ? 'Closed' : `Pending: ${nextStep ? nextStep.label : ''}`
-    ].map(csvEsc).join(','));
-  });
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const stamp = new Date().toISOString().slice(0, 10);
-  a.href = url; a.download = `Selected-Complaints-${stamp}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  location.href = `/api/service-fms/daily.xlsx?rows=${selected.map(c => c.row).join(',')}`;
 }
 
 // Groups open complaints by the mechanic assigned at Assign, dropping any
@@ -11892,7 +11919,8 @@ function renderComplaintDetailBody(c) {
       </div>
     </details>` : '';
 
-  body.innerHTML = siblingsTableHtml + infoHtml + actionHtml + checklistHtml;
+  const deleteHtml = ME.role === 'admin' ? `<div style="margin-top:14px;text-align:right"><button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="sfmsDeleteComplaint(${c.row},'${esc(c.complainNo)}')">🗑 Delete complaint</button></div>` : '';
+  body.innerHTML = siblingsTableHtml + infoHtml + actionHtml + checklistHtml + deleteHtml;
   body.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
   sfmsPrefillSpareHold(c);
   if (c.currentStep + 1 === SN.inout) sfmsCheckSpareInShortage(c.row);

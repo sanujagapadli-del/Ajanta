@@ -4530,8 +4530,26 @@ app.post('/api/o2d-fms/team-group/test', requireAuth, requireAdmin, async (req, 
   } catch (err) { sendWhatsAppError(res, err); }
 });
 
+// Admin "delete complaint" (client, 2026-10-13). The sheet row is left in
+// place — deleting sheet rows would shift the per-row formulas and the
+// holiday list kept in the same tab — and the complaint is hidden everywhere
+// in the app instead, keyed by its number. Restorable.
+async function sfmsDeletedTable(fn) {
+  try { return await fn(); }
+  catch (e) {
+    if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+    await db.query(`CREATE TABLE IF NOT EXISTS sfms_deleted (
+      complain_no VARCHAR(40) PRIMARY KEY, reason VARCHAR(500), snapshot TEXT,
+      deleted_by VARCHAR(255), deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+    return await fn();
+  }
+}
+async function sfmsDeletedSet() {
+  const [rows] = await sfmsDeletedTable(() => db.query('SELECT complain_no FROM sfms_deleted'));
+  return new Set(rows.map(r => String(r.complain_no)));
+}
 async function sfmsFetchComplaints() {
-    const [stepDoersMap, mechUsers] = await Promise.all([getSfmsStepDoersMap(), sfmsMechanicUsers()]);
+    const [stepDoersMap, mechUsers, deleted] = await Promise.all([getSfmsStepDoersMap(), sfmsMechanicUsers(), sfmsDeletedSet()]);
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
     const result = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: SFMS_SHEET_ID,
@@ -4543,6 +4561,7 @@ async function sfmsFetchComplaints() {
       const rowNum = SFMS_DATA_START_ROW + i;
       const get = col => r[colToIdx(col)];
       if (!get('B')) return null; // skip blank rows
+      if (deleted.has(String(get('B')))) return null; // deleted by admin
       const c = {
         row: rowNum,
         timestamp: sfmsSerialToDate(get('A')),
@@ -4691,6 +4710,87 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="All-Complaints-${stamp}.xlsx"`);
     res.send(buf);
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+app.delete('/api/service-fms/:row', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    const reason = String((req.body && req.body.reason) || '').trim().slice(0, 500);
+    if (!reason) return res.status(400).json({ error: 'Delete ka reason likhein' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${row}:I${row}` });
+    const v = (r.data.values && r.data.values[0]) || [];
+    const no = String(v[0] || '').trim();
+    if (!no) return res.status(404).json({ error: 'Complaint not found' });
+    if (req.body.expectComplainNo && no !== String(req.body.expectComplainNo).trim()) return res.status(409).json({ error: 'Complaint list has changed — please refresh and try again.' });
+    const snapshot = JSON.stringify({ customer: v[1] || '', mobile: v[2] || '', product: v[5] || '', problem: v[7] || '' });
+    await sfmsDeletedTable(() => db.query('INSERT INTO sfms_deleted (complain_no, reason, snapshot, deleted_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE reason=VALUES(reason), deleted_by=VALUES(deleted_by), deleted_at=NOW()',
+      [no, reason, snapshot, req.session.name || '']));
+    res.json({ success: true, complainNo: no });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/service-fms/deleted', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await sfmsDeletedTable(() => db.query("SELECT complain_no, reason, snapshot, deleted_by, DATE_FORMAT(deleted_at,'%Y-%m-%d %H:%i') AS deleted_at FROM sfms_deleted ORDER BY deleted_at DESC"));
+    res.json(rows.map(x => { let snap = {}; try { snap = JSON.parse(x.snapshot || '{}'); } catch (e) {} return { complainNo: x.complain_no, reason: x.reason, deletedBy: x.deleted_by, deletedAt: x.deleted_at, ...snap }; }));
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/service-fms/deleted/:no/restore', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await sfmsDeletedTable(() => db.query('DELETE FROM sfms_deleted WHERE complain_no=?', [req.params.no]));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Daily complaint sheet in the client's own format (10oct.pdf, 2026-10-13):
+// every open complaint, newest first — Complaint No, Date, Customer, Mobile,
+// Product, Problem, Address, Area — bordered, wrapped, landscape, ready to
+// print or forward without editing (staff were reformatting the full export).
+app.get('/api/service-fms/daily.xlsx', requireAuth, async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs'); // lazy, like xlsx above
+    // ?rows=7,9,12 → just the ticked complaints (any status); otherwise every open one.
+    const pick = new Set(String(req.query.rows || '').split(',').map(Number).filter(Boolean));
+    const complaints = (await sfmsFetchComplaints()).filter(c => pick.size ? pick.has(c.row) : !c.closed);
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Complaints', {
+      pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } },
+      views: [{ state: 'frozen', ySplit: 1 }]
+    });
+    ws.columns = [
+      { header: 'Complaint No', key: 'no', width: 10 },
+      { header: 'Complaint Date', key: 'date', width: 17 },
+      { header: 'Customer Name', key: 'name', width: 14 },
+      { header: 'Mobile Number', key: 'mobile', width: 14 },
+      { header: 'Product', key: 'product', width: 20 },
+      { header: 'Problem', key: 'problem', width: 24 },
+      { header: 'Address', key: 'address', width: 24 },
+      { header: 'Area', key: 'area', width: 10 }
+    ];
+    // Sheet dates are IST wall-clock strings; written as Excel dates in that same clock.
+    const toDate = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); return m ? new Date(Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5])) : (s || ''); };
+    complaints.forEach(c => ws.addRow({ no: c.complainNo, date: toDate(c.timestamp), name: c.filledByName, mobile: String(c.mobile || ''),
+      product: c.productName, problem: c.problemDescription, address: c.address, area: c.area }));
+    const border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    ws.eachRow((row, i) => {
+      row.eachCell({ includeEmpty: true }, cell => {
+        cell.border = border;
+        cell.alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
+        cell.font = { name: 'Calibri', size: 11, bold: i === 1 };
+        if (i === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC9C9C9' } };
+      });
+    });
+    ws.getColumn('date').numFmt = 'm/d/yyyy h:mm';
+    ws.pageSetup.printTitlesRow = '1:1';
+    const buf = await wb.xlsx.writeBuffer();
+    const stamp = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="Complaints-${stamp}.xlsx"`);
+    res.send(Buffer.from(buf));
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     sendServerError(res, err);
