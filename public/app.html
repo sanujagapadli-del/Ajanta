@@ -9631,8 +9631,11 @@ const SFMS_STEP_DEFS = [
       { key: 'spareTaken', label: 'Qty', type: 'number' },
       { key: 'spareOutJson', label: 'Spares Taken (all items)' }
     ] },
+  // workDone + spareUsedJson are filled BEFORE the OTP (sfmsSolveFormHtml).
   { n: 5, key: 'solve', tab: 'Solve', label: "Mechanic's Complaint Solve", otpRequired: true, extraFields: [
-      { key: 'repairStatus', label: 'Repair Status', options: ['Repaired at Location', 'Brought to Office'] }
+      { key: 'repairStatus', label: 'Repair Status', options: ['Repaired at Location', 'Brought to Office'] },
+      { key: 'workDone', label: 'Kya kiya' },
+      { key: 'spareUsedJson', label: 'Spares fitted' }
     ] },
   // Per spare taken out: new pieces back + bad (old) pieces back; a shortage
   // stays pending, or is settled in cash (approved on the Approvals page).
@@ -10064,6 +10067,7 @@ function sfmsZoneCompare(a, b) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+let sfmsMechFilter = '';
 function renderSfmsStepView(n) {
   const wrap = document.getElementById('sfmsListWrap');
   const stepDef = SFMS_STEP_DEFS.find(d => d.n === n);
@@ -10072,11 +10076,17 @@ function renderSfmsStepView(n) {
   if (!allRows.length) { wrap.innerHTML = `<div class="empty">No complaints pending at "${stepDef.label}" 🎉</div>`; return; }
 
   const isAssignTab = n === SN.assign;
+  // After Assign (Takeout / Solve / Check In/Out) the list can be filtered
+  // and is sorted by mechanic (client, 2026-10-13: "Vinod ki dekhni ho to
+  // sirf Vinod ki").
+  const isMechTab = n > SN.assign;
+  const mechOf = c => sfmsStep(c, 'assign').mechanic || '';
+  if (isMechTab && sfmsMechFilter && !allRows.some(c => mechOf(c) === sfmsMechFilter)) sfmsMechFilter = '';
   const filtered = (isAssignTab && sfmsAssignZoneFilter)
     ? allRows.filter(c => sfmsZoneOf(c) === sfmsAssignZoneFilter)
-    : allRows;
-  // Zone-wise, then urgent first, then oldest first within a zone.
-  const rows = filtered.slice().sort((a, b) => sfmsZoneCompare(sfmsZoneOf(a), sfmsZoneOf(b)) || (b.urgent - a.urgent) || a.row - b.row);
+    : (isMechTab && sfmsMechFilter) ? allRows.filter(c => mechOf(c) === sfmsMechFilter) : allRows;
+  // Zone-wise (mechanic-wise after Assign), then urgent first, then oldest first.
+  const rows = filtered.slice().sort((a, b) => (isMechTab ? sfmsZoneCompare(mechOf(a), mechOf(b)) : 0) || sfmsZoneCompare(sfmsZoneOf(a), sfmsZoneOf(b)) || (b.urgent - a.urgent) || a.row - b.row);
 
   // Areas belonging to the selected zone (reverse lookup over sfmsAreaZoneMap)
   // — shown as a reference so staff can see what "Zone 1" actually covers.
@@ -10098,6 +10108,17 @@ function renderSfmsStepView(n) {
     wrap.innerHTML = zoneFilterHtml + `<div class="empty">No complaints pending at "${stepDef.label}" in this zone.</div>`;
     return;
   }
+  const mechCounts = {};
+  if (isMechTab) allRows.forEach(c => { const m = mechOf(c) || '—'; mechCounts[m] = (mechCounts[m] || 0) + 1; });
+  const mechFilterHtml = isMechTab && Object.keys(mechCounts).length > 1 ? `
+    <div style="padding:10px 12px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <label style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">🔧 Mechanic</label>
+      <select onchange="sfmsMechFilter=this.value;renderServiceFmsList()" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px">
+        <option value="">-- All Mechanics --</option>
+        ${Object.keys(mechCounts).filter(m => m !== '—').sort((a, b) => a.localeCompare(b)).map(m => `<option value="${esc(m)}" ${m === sfmsMechFilter ? 'selected' : ''}>${esc(m)} (${mechCounts[m]})</option>`).join('')}
+      </select>
+      <span style="font-size:12px;color:var(--gray-400)">${rows.length} of ${allRows.length} complaint${allRows.length === 1 ? '' : 's'}</span>
+    </div>` : '';
 
   const isWarrantyTab = n === SN.warranty;
   const isSpareCheckTab = n === SN.spareCheck; // ownership shown clearly here
@@ -10129,11 +10150,13 @@ function renderSfmsStepView(n) {
   const bodyHtml = rows.map(c => {
     const zone = sfmsZoneOf(c);
     let zoneRow = '';
-    if (zone !== lastZone) {
-      lastZone = zone;
-      const inZone = rows.filter(x => sfmsZoneOf(x) === zone).length;
+    // Grouped by mechanic after Assign, by zone before.
+    const group = isMechTab ? mechOf(c) : zone;
+    if (group !== lastZone) {
+      lastZone = group;
+      const inGroup = rows.filter(x => (isMechTab ? mechOf(x) : sfmsZoneOf(x)) === group).length;
       zoneRow = `<tr class="sfms-zone-row"><td colspan="${colCount}" style="background:var(--surface-alt);padding:6px 8px;font-weight:700;font-size:12px;color:var(--color-primary)">
-        ${canAct ? `<input type="checkbox" onchange="sfmsBulkToggleZone(this, '${esc(zone).replace(/'/g, "\\'")}')" title="Select this whole zone" style="margin-right:6px;vertical-align:middle"/>` : ''}📍 ${esc(zone || 'No Zone')} <span style="font-weight:500;color:var(--gray-500)">· ${inZone} complaint${inZone === 1 ? '' : 's'}</span>
+        ${canAct && !isMechTab ? `<input type="checkbox" onchange="sfmsBulkToggleZone(this, '${esc(zone).replace(/'/g, "\\'")}')" title="Select this whole zone" style="margin-right:6px;vertical-align:middle"/>` : ''}${isMechTab ? `🔧 ${esc(group || 'No mechanic')}` : `📍 ${esc(zone || 'No Zone')}`} <span style="font-weight:500;color:var(--gray-500)">· ${inGroup} complaint${inGroup === 1 ? '' : 's'}</span>
       </td></tr>`;
     }
     const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
@@ -10156,7 +10179,7 @@ function renderSfmsStepView(n) {
     </tr>`;
   }).join('');
 
-  wrap.innerHTML = zoneFilterHtml + bulkBarHtml + `<div class="mis-table-wrap" style="overflow-x:auto">
+  wrap.innerHTML = zoneFilterHtml + mechFilterHtml + bulkBarHtml + `<div class="mis-table-wrap" style="overflow-x:auto">
   <table style="font-size:11.5px">
     <thead><tr>
       <th style="width:24px;padding:8px 6px">${canAct ? `<input type="checkbox" title="Select all" onchange="sfmsBulkToggleAll(this.checked)"/>` : ''}</th>
@@ -10511,28 +10534,47 @@ function renderSfmsSpareBalanceView() {
 
   const b = balances[sfmsBalanceMech];
   if (!b) { wrap.innerHTML = picker + `<div class="empty">${esc(sfmsBalanceMech)} ke paas koi spare pending nahi hai.</div>`; return; }
-  const itemNames = Object.keys(b.totals).sort();
+  // Complaint-wise (client, 2026-10-13): per complaint, each spare — taken,
+  // fitted (from Solve), new / old expected back, received so far, still
+  // pending — then an item-wise total at the bottom.
+  const sum = {};
+  const lines = b.complaints.map(({ c }) => {
+    const expect = sfmsExpectedBack(c);
+    const back = Object.fromEntries(sfmsParseJson(sfmsStep(c, 'inout').spareInJson).map(x => [x.item, x]));
+    const pend = Object.fromEntries(sfmsPendingWithMechanic(c).map(x => [x.item, x.qty]));
+    const items = sfmsTakeoutItems(c).filter(it => it.item).map(it => {
+      const taken = Number(it.qty) || 0, ex = expect(it), bk = back[it.item] || {};
+      const got = (Number(bk.newQty) || 0) + (Number(bk.oldQty) || 0);
+      const r = { item: it.item, taken, fitted: ex ? ex.fitted : null, newBack: ex ? ex.newBack : null, oldBack: ex ? ex.oldBack : null, got, pending: pend[it.item] || 0 };
+      const t = sum[it.item] = sum[it.item] || { taken: 0, fitted: 0, newBack: 0, oldBack: 0, got: 0, pending: 0 };
+      t.taken += taken; t.got += got; t.pending += r.pending;
+      if (ex) { t.fitted += ex.fitted; t.newBack += ex.newBack; t.oldBack += ex.oldBack; }
+      return r;
+    });
+    return { c, items };
+  });
+  const dash = v => v === null ? '<span style="color:var(--gray-300)" title="Mechanic ne Solve par abhi nahi bataya">—</span>' : v;
+  const head = '<thead><tr><th>Complaint</th><th>Spare</th><th style="text-align:right">Liye</th><th style="text-align:right">Laga</th><th style="text-align:right">Naya wapas aana</th><th style="text-align:right">Purana wapas aana</th><th style="text-align:right">Aaya</th><th style="text-align:right">Pending</th></tr></thead>';
+  const body = lines.map(({ c, items }) => items.map((r, k) => `<tr${k === 0 ? ' style="border-top:2px solid var(--gray-200)"' : ''}>
+      ${k === 0 ? `<td rowspan="${items.length}" style="vertical-align:top;cursor:pointer" onclick="openComplaintDetail(${c.row})"><b style="color:var(--color-primary)">${esc(c.complainNo)}</b><div style="font-size:11.5px;color:var(--gray-600)">${esc(c.filledByName)} · ${esc(c.productName || '')}</div>${sfmsStep(c, 'solve').workDone ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px">🔧 ${esc(sfmsStep(c, 'solve').workDone)}</div>` : ''}</td>` : ''}
+      <td style="font-weight:600">${esc(r.item)}</td><td style="text-align:right">${r.taken}</td><td style="text-align:right">${dash(r.fitted)}</td>
+      <td style="text-align:right">${dash(r.newBack)}</td><td style="text-align:right">${dash(r.oldBack)}</td><td style="text-align:right;color:var(--color-success-text)">${r.got || '—'}</td>
+      <td style="text-align:right;font-weight:800;color:${r.pending ? 'var(--color-danger-text)' : 'var(--gray-400)'}">${r.pending}</td></tr>`).join('')).join('');
+  const itemNames = Object.keys(sum).sort();
+  const tot = k => itemNames.reduce((a, n) => a + sum[n][k], 0);
   wrap.innerHTML = picker + `
     <div style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 16px 0">
       <div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:10px;padding:10px 14px;font-weight:700">Pieces pending: ${b.total}</div>
       <div style="background:var(--gray-50);border-radius:10px;padding:10px 14px;font-size:13px">Complaints: <b>${b.complaints.length}</b></div>
     </div>` +
+    tableWrap(`<table class="no-mcards">${head}<tbody>${body}</tbody></table>`) +
+    `<div style="padding:0 16px;font-size:13px;font-weight:800;color:var(--gray-800)">📦 Summary — ${esc(sfmsBalanceMech)}</div>` +
     tableWrap(`<table>
-      <thead><tr><th>Spare Item</th><th style="text-align:right">Pieces Pending</th></tr></thead>
-      <tbody>${itemNames.map(n => `<tr><td style="font-weight:600">${esc(n)}</td><td style="text-align:right;font-weight:700">${b.totals[n]}</td></tr>`).join('')}</tbody>
+      <thead><tr><th>Spare Item</th><th style="text-align:right">Liye</th><th style="text-align:right">Laga</th><th style="text-align:right">Naya wapas aana</th><th style="text-align:right">Purana wapas aana</th><th style="text-align:right">Aaya</th><th style="text-align:right">Pending</th></tr></thead>
+      <tbody>${itemNames.map(n => `<tr><td style="font-weight:600">${esc(n)}</td><td style="text-align:right">${sum[n].taken}</td><td style="text-align:right">${sum[n].fitted}</td><td style="text-align:right">${sum[n].newBack}</td><td style="text-align:right">${sum[n].oldBack}</td><td style="text-align:right">${sum[n].got}</td><td style="text-align:right;font-weight:800;color:var(--color-danger-text)">${sum[n].pending}</td></tr>`).join('')}</tbody>
+      <tfoot><tr style="background:var(--gray-50);font-weight:900"><td>Total</td><td style="text-align:right">${tot('taken')}</td><td style="text-align:right">${tot('fitted')}</td><td style="text-align:right">${tot('newBack')}</td><td style="text-align:right">${tot('oldBack')}</td><td style="text-align:right">${tot('got')}</td><td style="text-align:right;color:var(--color-danger-text)">${tot('pending')}</td></tr></tfoot>
     </table>`) +
-    tableWrap(`<table>
-      <thead><tr><th>Complain No</th><th>Customer</th><th>Spares Pending</th><th>Stage</th></tr></thead>
-      <tbody>${b.complaints.map(({ c, items }) => {
-        const next = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
-        return `<tr style="cursor:pointer" onclick="openComplaintDetail(${c.row})">
-          <td style="font-weight:600;white-space:nowrap">${esc(c.complainNo)}</td>
-          <td>${esc(c.filledByName)}</td>
-          <td style="font-size:12px">${items.map(it => `${esc(it.item)}: ${it.qty}`).join('<br/>')}</td>
-          <td style="font-size:12px">${c.currentStep + 1 === SN.inout ? sfmsInOutStateLabel(c) === '—' ? esc(next.label) : sfmsInOutStateLabel(c) : esc(next ? next.label : '—')}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table>`);
+    `<div style="padding:0 16px 14px;font-size:11.5px;color:var(--gray-500)">"Laga" mechanic Solve par batata hai: laga hua spare → purana piece wapas aana chahiye, na laga → naya. "—" = abhi Solve nahi hua.</div>`;
   wrap.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
 }
 
@@ -11582,16 +11624,17 @@ function buildSfmsNextActionHtml(c, compact) {
         ${wrapClose}`;
     }
   } else if (nextStepDef && nextStepDef.otpRequired) {
-    const extraInputsHtml = nextStepDef.extraFields.map(f => renderSfmsField(f, c.row, compact)).join('');
+    const extraInputsHtml = nextStepDef.n === SN.solve ? sfmsSolveFormHtml(c, compact) : nextStepDef.extraFields.map(f => renderSfmsField(f, c.row, compact)).join('');
     if (!sfmsOtpSentFor[c.row]) {
       const sendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n},this)" class="btn btn-primary" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">Send OTP to Customer</button>`;
       actionHtml = compact
-        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${sendBtn}</div>`
+        ? `<div style="display:flex;flex-direction:column;gap:6px;min-width:240px">${extraInputsHtml}${sendBtn}</div>`
         : `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
           ${doerHtml}
-          <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Send a verification code to the customer's WhatsApp, then ask them for it to confirm the visit.</div>
+          <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">Pehle batao kya kiya aur kaunse spare lagaye, phir customer ke WhatsApp par OTP bhejo.</div>
+          ${extraInputsHtml}
           ${sendBtn}
         ${wrapClose}`;
     } else {
@@ -11599,14 +11642,14 @@ function buildSfmsNextActionHtml(c, compact) {
       const verifyBtn = `<button onclick="advanceSfmsStep(${c.row},${nextStepDef.n})" class="btn btn-green" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px;margin-bottom:8px'}">Verify &amp; Complete</button>`;
       const resendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n},this)" class="btn btn-outline btn-sm" style="${compact ? 'padding:8px 12px;font-size:12px;white-space:nowrap' : 'width:100%;justify-content:center'}">Resend</button>`;
       actionHtml = compact
-        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${otpInput}${extraInputsHtml}${verifyBtn}${resendBtn}</div>`
+        ? `<div style="display:flex;flex-direction:column;gap:6px;min-width:240px">${extraInputsHtml}<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${otpInput}${verifyBtn}${resendBtn}</div></div>`
         : `
         ${nextActionWrapOpen}
           <div style="${titleStyle}">${nextStepDef.label}</div>
           ${doerHtml}
           <div style="font-size:13px;color:var(--color-success-text);font-weight:600;margin-bottom:14px">OTP sent — ask the customer for the code</div>
-          ${otpInput}
           ${extraInputsHtml}
+          ${otpInput}
           ${verifyBtn}
           ${resendBtn}
         ${wrapClose}`;
@@ -11887,6 +11930,57 @@ function sfmsTakeoutItems(c) {
   if (!items.length && stepData.itemName) items = [{ item: stepData.itemName, qty: stepData.spareTaken }];
   return items;
 }
+// ── Solve (client voice note, 2026-10-13): before the OTP the mechanic tells
+// what he did and how many of each spare he FITTED. Check In/Out then expects
+// the old piece back for every fitted one and the new piece for the rest. ──
+const sfmsSolveDraft = {}; // row -> { workDone, repairStatus, used: { item: qty } } typed before the OTP
+function sfmsSolveSaved(c) {
+  const s = sfmsStep(c, 'solve');
+  return { workDone: s.workDone || '', repairStatus: s.repairStatus || '', used: Object.fromEntries(sfmsParseJson(s.spareUsedJson).map(u => [u.item, u.usedQty])) };
+}
+function sfmsSolveFormHtml(c, compact) {
+  const d = sfmsSolveDraft[c.row] || sfmsSolveSaved(c);
+  const items = sfmsTakeoutItems(c).filter(it => it.item);
+  const st = compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE;
+  const small = 'width:64px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box';
+  const lbl = 'font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin:2px 0 4px';
+  const spares = items.length ? `<div style="${lbl}">Kaunse spare lagaye? <span style="text-transform:none;font-weight:500">(jo nahi lagaya usme 0)</span></div>
+    ${items.map((it, i) => `<div style="display:flex;gap:8px;align-items:center;margin-bottom:5px;flex-wrap:wrap">
+      <span style="font-size:12.5px;font-weight:600;color:var(--gray-700);min-width:110px">${esc(it.item)} <span style="color:var(--gray-400);font-weight:400">(liye ${esc(it.qty)})</span></span>
+      <input type="number" min="0" max="${Number(it.qty) || 0}" id="sfmsSolveUsed_${c.row}_${i}" value="${d.used[it.item] ?? ''}" placeholder="Lagaye" style="${small}"/>
+    </div>`).join('')}` : `<div style="font-size:12px;color:var(--gray-400);margin-bottom:6px">Is complaint par koi spare nahi nikala gaya.</div>`;
+  return `<div style="${lbl}">Kya kiya? <span style="color:var(--color-danger)">*</span></div>
+    <input type="text" id="sfmsExtra_${c.row}_workDone" value="${esc(d.workDone)}" placeholder="e.g. stator jal gaya tha — naya lagaya, wire joda" style="${st}"/>
+    ${spares}
+    <select id="sfmsExtra_${c.row}_repairStatus" style="${st}"><option value="">-- Repair Status --</option>
+      ${['Repaired at Location', 'Brought to Office'].map(o => `<option${o === d.repairStatus ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+}
+function sfmsCollectSolve(row, c) {
+  const workDone = (document.getElementById(`sfmsExtra_${row}_workDone`)?.value || '').trim();
+  const repairStatus = document.getElementById(`sfmsExtra_${row}_repairStatus`)?.value || '';
+  if (!workDone) return { error: 'Pehle likho kya kiya (kya kharab tha, kya badla)' };
+  const used = {}, list = [];
+  for (const [i, it] of sfmsTakeoutItems(c).filter(x => x.item).entries()) {
+    const el = document.getElementById(`sfmsSolveUsed_${row}_${i}`);
+    const v = el ? el.value.trim() : '';
+    const taken = Number(it.qty) || 0, n = Number(v);
+    if (v === '' || !Number.isInteger(n) || n < 0 || n > taken) return { error: `${it.item}: kitne lagaye (0 se ${taken}) bharo` };
+    used[it.item] = n; list.push({ item: it.item, takenQty: taken, usedQty: n });
+  }
+  if (!repairStatus) return { error: 'Repair Status chuno — customer location par theek hua ya product office aaya' };
+  return { body: { workDone, repairStatus, spareUsedJson: JSON.stringify(list) }, draft: { workDone, repairStatus, used } };
+}
+// What the mechanic said he fitted → pieces expected back at Check In/Out.
+function sfmsExpectedBack(c) {
+  const used = Object.fromEntries(sfmsParseJson(sfmsStep(c, 'solve').spareUsedJson).map(u => [u.item, Number(u.usedQty) || 0]));
+  const known = Object.keys(used).length > 0;
+  return item => {
+    if (!known || !(item.item in used)) return null;
+    const taken = Number(item.qty) || 0, fitted = Math.min(used[item.item], taken);
+    return { fitted, newBack: taken - fitted, oldBack: fitted };
+  };
+}
+
 function sfmsBuildSpareOutRowsHtml(c) {
   const items = sfmsTakeoutItems(c);
   return (items.length ? items : [{ item: '', qty: '' }]).map((it, i) => sfmsSpareOutRowHtml(c.row, i, it.item, it.qty)).join('');
@@ -11914,11 +12008,17 @@ function sfmsBuildSpareInRowsHtml(c) {
   // Counts saved by an earlier submit (pieces were short) are pre-filled.
   const saved = Object.fromEntries(sfmsParseJson(s.spareInJson).map(x => [x.item, x]));
   const inp = 'width:56px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box';
+  const expect = sfmsExpectedBack(c);
+  const solve = sfmsStep(c, 'solve');
   const rowsHtml = sfmsTakeoutItems(c).map((it, i) => {
     const taken = Number(it.qty) || 0;
     const sv = saved[it.item] || {};
+    const ex = expect(it);
+    // "✓ Receive" fills New / Old with what the mechanic said (client, 2026-10-13).
+    const tick = ex ? `<label style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:var(--color-success-text);cursor:pointer;margin:0;text-transform:none;letter-spacing:0" title="Lagaye ${ex.fitted} → purane ${ex.oldBack} + naye ${ex.newBack} wapas">
+        <input type="checkbox" class="sfmsInTick_${c.row}" onchange="sfmsInReceiveTick(${c.row},${i},${ex.newBack},${ex.oldBack},this.checked)"/> ✓ Receive <span style="font-weight:500;color:var(--gray-500)">(New ${ex.newBack} · Old ${ex.oldBack})</span></label>` : '';
     return `<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(it.item || '—')} <span style="color:var(--gray-400);font-weight:400">(liye ${taken})</span></span>
+      <span style="font-size:12px;color:var(--gray-700);font-weight:600;min-width:90px">${esc(it.item || '—')} <span style="color:var(--gray-400);font-weight:400">(liye ${taken}${ex ? ` · laga ${ex.fitted}` : ''})</span></span>${tick}
       <input type="number" min="0" max="${taken}" placeholder="New" title="New (unused) pieces returned" id="sfmsInNew_${c.row}_${i}" value="${sv.newQty ?? ''}" oninput="sfmsCheckSpareInShortage(${c.row})" style="${inp}"/>
       <input type="number" min="0" max="${taken}" placeholder="Old" title="Old (purane / kharab) pieces returned" id="sfmsInBad_${c.row}_${i}" value="${sv.oldQty ?? ''}" oninput="sfmsCheckSpareInShortage(${c.row})" style="${inp}"/>
       <span id="sfmsInShort_${c.row}_${i}" style="font-size:11.5px;font-weight:700"></span>
@@ -11929,7 +12029,9 @@ function sfmsBuildSpareInRowsHtml(c) {
   // for the missing pieces, or settle the shortage in cash (→ approval).
   const radio = (value, label, checked) => `<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--gray-700);cursor:pointer;margin:0 0 4px;text-transform:none;letter-spacing:0">
       <input type="radio" name="sfmsInSettle_${c.row}" value="${value}" ${checked ? 'checked' : ''} onchange="sfmsCheckSpareInShortage(${c.row})"/> ${label}</label>`;
-  return `<div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Per spare: <b>New</b> pieces wapas · <b>Old</b> (purane / kharab) pieces wapas</div>${rowsHtml}
+  const anyTick = sfmsTakeoutItems(c).some(it => expect(it));
+  return `${solve.workDone ? `<div style="font-size:12px;color:var(--gray-700);background:var(--gray-50);border-radius:8px;padding:6px 8px;margin-bottom:6px">🔧 <b>Kya kiya:</b> ${esc(solve.workDone)}</div>` : ''}
+    <div style="font-size:10.5px;color:var(--gray-400);margin-bottom:4px">Per spare: <b>New</b> pieces wapas · <b>Old</b> (purane / kharab) pieces wapas${anyTick ? ` · <label style="display:inline-flex;gap:4px;align-items:center;font-weight:700;color:var(--color-success-text);cursor:pointer;margin:0;text-transform:none;letter-spacing:0"><input type="checkbox" onchange="sfmsInReceiveAll(${c.row},this.checked)"/> Sab receive</label>` : ''}</div>${rowsHtml}
     <div id="sfmsInShortWrap_${c.row}" style="display:none;background:var(--color-warning-bg);border-radius:8px;padding:8px;margin-bottom:8px">
       <div id="sfmsInShortMsg_${c.row}" style="font-size:12px;font-weight:700;color:var(--color-warning-text);margin-bottom:6px"></div>
       ${radio('cash', '💰 Cash ke saath settle karo', !!cashPrefill)}
@@ -11942,6 +12044,15 @@ function sfmsBuildSpareInRowsHtml(c) {
         <div style="font-size:10.5px;color:var(--gray-500);margin-top:4px">Submit karte hi ${esc(sfmsCashApproverName || 'approver')} ke paas approval jayega; approve hote hi complaint close.</div>
       </div>
     </div>`;
+}
+function sfmsInReceiveTick(row, i, newBack, oldBack, on) {
+  const n = document.getElementById(`sfmsInNew_${row}_${i}`), o = document.getElementById(`sfmsInBad_${row}_${i}`);
+  if (n) n.value = on ? newBack : '';
+  if (o) o.value = on ? oldBack : '';
+  sfmsCheckSpareInShortage(row);
+}
+function sfmsInReceiveAll(row, on) {
+  document.querySelectorAll(`.sfmsInTick_${row}`).forEach(cb => { if (cb.checked !== on) { cb.checked = on; cb.dispatchEvent(new Event('change')); } });
 }
 function sfmsInSettleChoice(row) {
   const el = document.querySelector(`input[name="sfmsInSettle_${row}"]:checked`);
@@ -12123,6 +12234,13 @@ function sfmsCollectStepBody(row, step, stage) {
     ['qtyReturned', 'spareInJson', 'cashAmount', 'cashStatus', 'reasonIfShort'].forEach(k => skipGenericKeys.add(k));
   }
 
+  if (step === SN.solve) {
+    const sv = sfmsCollectSolve(row, c);
+    if (sv.error) return { error: sv.error };
+    Object.assign(body, sv.body);
+    ['workDone', 'spareUsedJson', 'repairStatus'].forEach(k => skipGenericKeys.add(k));
+  }
+
   const fieldsForStage = stage ? stepDef.extraFields.filter(f => f.stage === stage) : stepDef.extraFields;
   for (const f of fieldsForStage) {
     if (skipGenericKeys.has(f.key)) continue;
@@ -12227,8 +12345,16 @@ function btnLoading(btn, label) {
 }
 
 async function sendSfmsOtp(row, step, btn) {
+  const c = sfmsData.find(x => x.row === row);
+  const otpBody = { expectComplainNo: (c || {}).complainNo || '' };
+  if (step === SN.solve && c) {
+    const sv = sfmsCollectSolve(row, c);
+    if (sv.error) { showToast(sv.error, 'error'); return; }
+    Object.assign(otpBody, sv.body);
+    sfmsSolveDraft[row] = sv.draft;
+  }
   const restore = btnLoading(btn, 'Sending OTP…');
-  const res = await api(`/api/service-fms/${row}/step/${step}/send-otp`, 'POST', { expectComplainNo: (sfmsData.find(x => x.row === row) || {}).complainNo || '' });
+  const res = await api(`/api/service-fms/${row}/step/${step}/send-otp`, 'POST', otpBody);
   restore();
   if (res.error) { showToast(res.error, 'error'); return; }
   sfmsOtpSentFor[row] = true;

@@ -3868,7 +3868,7 @@ const SFMS_SHEET_ID = '1sim5xXi7uKiUdLh_O1NjWbB9b047p9VVW-Z8oAG1gSE';
 const SFMS_TAB = 'Complain FMS';
 const SFMS_HEADER_ROW = 6;
 const SFMS_DATA_START_ROW = 7;
-const SFMS_LAST_COL = 'BS';
+const SFMS_LAST_COL = 'BU';
 const SFMS_PHOTO_MAX_CHARS = 40000; // stays under the 45k Sheets cell limit
 const SFMS_OTP_CODE_COL = 'AN';
 const SFMS_OTP_SENT_COL = 'AO';
@@ -3927,6 +3927,11 @@ const SFMS_SPARE_USED_BY_COL = 'BK';
 const SFMS_REMARKS_COL = 'BP';
 // Urgent flag (client, 2026-10-07) — "Yes" puts the complaint on top of every list.
 const SFMS_URGENT_COL = 'BS';
+// Solve (client voice note, 2026-10-13): before the OTP, the mechanic says
+// what he did and which of the spares he took were fitted — so Check In/Out
+// knows what to expect back (fitted → old piece back, not fitted → new back).
+const SFMS_SPARE_USED_COL = 'BT'; // JSON [{ item, takenQty, usedQty }]
+const SFMS_WORK_DONE_COL = 'BU';
 // 2026-10-02 (client batch): Takeout → Solve → Check In/Out, and the
 // complaint closes there — Solved?, Evening Review and Spare Deposited were
 // dropped (their sheet columns BI/BJ, AV-BB, BL-BO are simply no longer used).
@@ -3951,7 +3956,11 @@ const SFMS_STEPS = [
     timeDelay: 'AB' },
   // Mechanic reaching the customer's location, OTP-gated, plus a repair-status answer.
   { n: 5, key: 'solve', label: "Mechanic's Complaint Solve", planned: 'AH', actual: 'AI', status: 'AJ',
-    extra: [{ key: 'repairStatus', col: 'AK', label: 'Repair Status' }],
+    extra: [
+      { key: 'repairStatus', col: 'AK', label: 'Repair Status' },
+      { key: 'spareUsedJson', col: SFMS_SPARE_USED_COL, label: 'Spares Fitted' },
+      { key: 'workDone', col: SFMS_WORK_DONE_COL, label: 'Kya Kiya' }
+    ],
     timeDelay: 'AM', otpRequired: true },
   // Check In/Out: per item taken out — new pieces returned + bad (old) pieces
   // returned. A shortage either stays pending here, or is settled in cash,
@@ -3980,7 +3989,9 @@ const SFMS_NEW_COLUMN_HEADERS = {
   BP: 'Remarks/Notes (Intake)',
   BQ: 'In/Out - Cash for Short Pieces',
   BR: 'In/Out - Cash Approval Status',
-  BS: 'Urgent'
+  BS: 'Urgent',
+  BT: 'Solve - Spares Fitted (JSON)',
+  BU: 'Solve - Kya Kiya (Work Done)'
 };
 // Users page toggle: sees and can act on every Service FMS step, not just
 // the ones they're assigned to in Step Doers.
@@ -4949,6 +4960,30 @@ app.put('/api/service-fms/:row(\\d+)/mechanic', requireAuth, async (req, res) =>
   } catch (err) { sendServerError(res, err); }
 });
 
+// Solve details the mechanic fills before the OTP: what he did (required)
+// and, per spare taken out, how many he fitted. Returns { data } or { error }.
+function sfmsSolveDetails(body, takenItems) {
+  const workDone = String(body.workDone || '').trim().slice(0, 500);
+  if (!workDone) return { error: 'Pehle likho kya kiya (kya kharab tha, kya badla) — phir OTP bhejo' };
+  let used = [];
+  if (takenItems.length) {
+    try { used = JSON.parse(body.spareUsedJson || '[]'); } catch (e) { used = null; }
+    if (!Array.isArray(used)) return { error: 'Spares fitted — data galat hai, page refresh karein' };
+    const byItem = Object.fromEntries(used.map(u => [String(u.item || ''), Number(u.usedQty)]));
+    used = takenItems.map(t => ({ item: t.item, takenQty: Number(t.qty) || 0, usedQty: byItem[t.item] }));
+    const bad = used.find(u => !Number.isInteger(u.usedQty) || u.usedQty < 0 || u.usedQty > u.takenQty);
+    if (bad) return { error: `${bad.item}: kitne lagaye (0 se ${bad.takenQty}) bharo` };
+  }
+  return { data: { workDone, spareUsedJson: JSON.stringify(used) } };
+}
+async function sfmsTakenItems(sheetsApi, row) {
+  const r = await sheetsApi.spreadsheets.values.batchGet({ spreadsheetId: SFMS_SHEET_ID,
+    ranges: [`'${SFMS_TAB}'!${SFMS_SPARE_OUT_COL}${row}`, `'${SFMS_TAB}'!BE${row}`, `'${SFMS_TAB}'!Z${row}`] });
+  const cell = i => { const v = r.data.valueRanges[i].values; return v && v[0] ? v[0][0] : ''; };
+  try { const j = JSON.parse(cell(0) || '[]'); if (Array.isArray(j) && j.length) return j.filter(x => x && x.item); } catch (e) { /* older single-item rows */ }
+  return cell(1) ? [{ item: cell(1), qty: cell(2) }] : [];
+}
+
 // Sends a 6-digit OTP to the customer's WhatsApp; the mechanic must read it
 // from the customer and enter it to mark Step 6 (Complaint Solve) done.
 app.post('/api/service-fms/:row/step/:stepNum/send-otp',
@@ -4974,6 +5009,20 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
     }
     if (!mobile) return res.status(400).json({ error: 'No customer mobile number on file for this complaint' });
 
+    // Solve: "kya kiya" + spares fitted are asked BEFORE the OTP (client, 2026-10-13).
+    let solveData = [];
+    if (stepNum === SFMS_N.solve) {
+      const det = sfmsSolveDetails(req.body || {}, await sfmsTakenItems(sheetsApi, row));
+      if (det.error) return res.status(400).json({ error: det.error });
+      if (!SFMS_REPAIR_STATUS_VALUES.includes(req.body.repairStatus)) return res.status(400).json({ error: 'Repair Status chuno — customer location par theek hua ya product office aaya' });
+      await sfmsEnsureColumns(sheetsApi);
+      solveData = [
+        { range: `'${SFMS_TAB}'!${SFMS_SPARE_USED_COL}${row}`, values: [[det.data.spareUsedJson]] },
+        { range: `'${SFMS_TAB}'!${SFMS_WORK_DONE_COL}${row}`, values: [[det.data.workDone]] },
+        { range: `'${SFMS_TAB}'!AK${row}`, values: [[req.body.repairStatus]] }
+      ];
+    }
+
     const otp = String(crypto.randomInt(100000, 1000000));
     const sentAtIso = new Date().toISOString();
 
@@ -4986,7 +5035,8 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
         valueInputOption: 'RAW',
         data: [
           { range: `'${SFMS_TAB}'!${SFMS_OTP_CODE_COL}${row}`, values: [[otp]] },
-          { range: `'${SFMS_TAB}'!${SFMS_OTP_SENT_COL}${row}`, values: [[sentAtIso]] }
+          { range: `'${SFMS_TAB}'!${SFMS_OTP_SENT_COL}${row}`, values: [[sentAtIso]] },
+          ...solveData
         ]
       }
     });
@@ -5424,6 +5474,13 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
     // Solve: where it was fixed must be picked — the OTP alone used to submit it.
     if (stepNum === SFMS_N.solve && !SFMS_REPAIR_STATUS_VALUES.includes(req.body.repairStatus)) {
       return res.status(400).json({ error: 'Select whether it was repaired at the customer\'s location or the product came to the office' });
+    }
+
+    if (stepNum === SFMS_N.solve) {
+      const det = sfmsSolveDetails(req.body, await sfmsTakenItems(sheetsApi, row));
+      if (det.error) return res.status(400).json({ error: det.error });
+      Object.assign(req.body, det.data);
+      await sfmsEnsureColumns(sheetsApi);
     }
 
     if (stepDef.otpRequired) {
