@@ -3567,6 +3567,8 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-group"><label>Product Photo <span style="color:var(--color-danger)">*</span> <span style="font-weight:400;color:var(--gray-400)">(saare pcs ek saath rakh kar)</span></label>
       <input type="file" id="rfPhoto" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'rfPhotoPreview')" style="width:100%;font-size:13px"/>
       <div id="rfPhotoPreview" style="font-size:12px;margin-top:4px"></div></div>
+    <div class="form-group"><label>Salesman <span style="font-weight:400;color:var(--gray-400)">(kiska counter hai)</span></label>
+      <select id="rfSalesman" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"><option value="">-- Select --</option></select></div>
     <div class="form-group"><label>Who Got the Product <span style="color:var(--color-danger)">*</span></label>
       <input type="text" id="rfBroughtBy" placeholder="Salesman / courier / self customer" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>Remark</label>
@@ -19406,7 +19408,8 @@ const REPL_STEP_DEFS = [
   { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tat: '4 hours' },
   { n: 10, key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tat: '1 day' },
   { n: 11, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tat: '1 day' },
-  { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tat: '2 days' }
+  { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tat: '2 days' },
+  { n: 13, key: 'cashstaff', label: 'Cash from Staff',              doer: 'Accountant', tat: '1 day' }
 ];
 const RPL_STAGE = {
   diary:    { label: 'Diary entry', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
@@ -19421,6 +19424,7 @@ const RPL_STAGE = {
   cn:       { label: 'Credit note', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   cnsend:   { label: 'Send CN', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   handover: { label: 'Handover', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
+  cashstaff:{ label: 'Cash from staff', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
   closed:   { label: '✓ Closed', bg: 'var(--color-success-bg)', fg: 'var(--color-success-text)' },
   returned: { label: 'Returned (not ours)', bg: 'var(--color-success-bg)', fg: 'var(--color-success-text)' },
   cancelled:{ label: 'Cancelled', bg: 'var(--gray-100)', fg: 'var(--gray-500)' }
@@ -19461,8 +19465,8 @@ function renderReplActiveView() {
 const rplStageBadge = r => { const s = RPL_STAGE[r.stage] || { label: r.stage, bg: 'var(--gray-100)', fg: 'var(--gray-600)' };
   return `<span class="status-badge" style="background:${s.bg};color:${s.fg};white-space:nowrap">${s.label}</span>`; };
 // Stored category 'Credit Note' = goods returned → credit note (client calls it "maal wapas").
-const RPL_CAT_LABEL = { Repair: '🔧 Repair', Exchange: '🔄 Exchange', 'Credit Note': '↩ Maal Wapas' };
-const rplCatChip = r => r.category ? `<span style="font-size:11px;font-weight:700;color:${r.category === 'Repair' ? 'var(--color-purple)' : r.category === 'Exchange' ? 'var(--color-primary)' : 'var(--gray-600)'}">${esc(RPL_CAT_LABEL[r.category] || r.category)}</span>` : '';
+const RPL_CAT_LABEL = { Repair: '🔧 Repair', Exchange: '🔄 Exchange', 'Credit Note': '↩ Maal Wapas', 'Out of Warranty': '💰 Out of Warranty' };
+const rplCatChip = r => r.category ? `<span style="font-size:11px;font-weight:700;color:${r.category === 'Repair' ? 'var(--color-purple)' : r.category === 'Out of Warranty' ? 'var(--color-warning-text)' : r.category === 'Exchange' ? 'var(--color-primary)' : 'var(--gray-600)'}">${esc(RPL_CAT_LABEL[r.category] || r.category)}</span>` : '';
 function rplCanDo(r) {
   const t = r.task;
   if (!t) return false;
@@ -19730,13 +19734,27 @@ function openNewReplModal() {
   document.getElementById('rfErr').style.display = 'none';
   document.getElementById('newReplModal').classList.add('open');
   loadReplPartyNames();
+  loadReplSalesmen();
+}
+// Salesman whose counter it is (client, 2026-10-13) — sales staff listed first.
+async function loadReplSalesmen() {
+  const sel = document.getElementById('rfSalesman');
+  sel.value = '';
+  if (sel.options.length > 1) return;
+  const users = await api('/api/users/roster');
+  if (!Array.isArray(users)) return;
+  const act = users.filter(u => u.is_active && u.role !== 'vendor');
+  const isSales = u => /sale|market/i.test(u.department || '');
+  const opt = u => `<option value="${u.id}">${esc(u.name)}</option>`;
+  const sales = act.filter(isSales), rest = act.filter(u => !isSales(u));
+  sel.innerHTML = '<option value="">-- Select --</option>' + (sales.length ? `<optgroup label="Sales">${sales.map(opt).join('')}</optgroup><optgroup label="Others">${rest.map(opt).join('')}</optgroup>` : rest.map(opt).join(''));
 }
 async function submitNewRepl() {
   const err = document.getElementById('rfErr');
   err.style.display = 'none';
   const v = id => document.getElementById(id).value.trim();
   const body = { partyName: v('rfParty'), customerMobile: v('rfMobile'), items: v('rfItems'), condition: v('rfCondition'), productType: v('rfType'),
-    defect: v('rfDefect'), broughtBy: v('rfBroughtBy'), remark: v('rfRemark'), photo: document.getElementById('rfPhoto').dataset.compressed || '' };
+    defect: v('rfDefect'), broughtBy: v('rfBroughtBy'), remark: v('rfRemark'), salesmanUserId: v('rfSalesman'), photo: document.getElementById('rfPhoto').dataset.compressed || '' };
   const miss = !body.partyName ? 'Party name' : !body.items ? 'Item name & quantity' : !body.defect ? 'Product defect' : !body.photo ? 'Product photo' : !body.broughtBy ? 'Who brought the product' : '';
   if (miss) { err.textContent = `${miss} is required`; err.style.display = 'block'; return; }
   const btn = document.getElementById('rfSubmitBtn');
@@ -19792,17 +19810,19 @@ function rplTaskFormHtml(r) {
         <div style="font-size:12px;color:var(--color-danger-text);margin:-4px 0 10px">Product reject bin me rakh kar party ko wapas jayega (Handover step, OTP ke saath).</div></div>
       <div style="display:flex;gap:8px">${btn('Save', 'check')}</div>`;
   } else if (t.key === 'category') {
-    inner = `${L('Is product ka kya hoga?', true)}${radio(`${id}_cat`, [{ v: 'Repair', l: '🔧 Repair' }, { v: 'Exchange', l: '🔄 Instant Exchange' }, { v: 'Credit Note', l: '↩ Maal Wapas (Return)' }])}
-      <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Instant Exchange: cooler pump, cooler motor, immersion rod. Maal Wapas: party ne maal wapas kiya — maal check → stock / reject bin → credit note → party ko share.</div>
+    inner = `${L('Is product ka kya hoga?', true)}${radio(`${id}_cat`, [{ v: 'Repair', l: '🔧 Repair' }, { v: 'Exchange', l: '🔄 Instant Exchange' }, { v: 'Credit Note', l: '↩ Maal Wapas (Return)' }, { v: 'Out of Warranty', l: '💰 Out of Warranty' }])}
+      <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Instant Exchange: cooler pump, cooler motor, immersion rod. Maal Wapas: party ne maal wapas kiya — maal check → stock / reject bin → credit note → party ko share. Out of Warranty: rate batao — mana kiya to kharab maal wapas, maana to paise lekar repair.</div>
       <div style="display:flex;gap:8px">${btn('Save', 'category')}</div>`;
   } else if (t.key === 'warranty') {
-    inner = `${radio(`${id}_w`, [{ v: 'In Warranty', l: '✅ In Warranty (free)' }, { v: 'Out of Warranty', l: '💰 Out of Warranty / Damage' }],
+    const owOnly = r.category === 'Out of Warranty';
+    inner = `${owOnly ? `<input type="radio" name="${id}_w" value="Out of Warranty" checked style="display:none"/><div style="font-size:12.5px;font-weight:700;color:var(--color-warning-text);margin-bottom:10px">💰 Out of Warranty — customer ko rate batao</div>`
+      : radio(`${id}_w`, [{ v: 'In Warranty', l: '✅ In Warranty (free)' }, { v: 'Out of Warranty', l: '💰 Out of Warranty / Damage' }],
         `document.getElementById('${id}_ow').style.display=this.value==='Out of Warranty'?'':'none'`)}
-      <div id="${id}_ow" style="display:none">${L('Out of warranty kyun?', true)}<input id="${id}_owr" placeholder="e.g. Bill 2 saal purana / pani gaya" style="${RPL_INPUT}"/>
+      <div id="${id}_ow" style="display:${owOnly ? '' : 'none'}">${L('Out of warranty kyun?', true)}<input id="${id}_owr" placeholder="e.g. Bill 2 saal purana / pani gaya" style="${RPL_INPUT}"/>
         ${L('Rate kisko bataya?', true)}${radio(`${id}_told`, [{ v: 'Customer', l: '👤 Customer' }, { v: 'Dealer', l: '🏪 Dealer' }])}
         ${L('Kitna rate bataya (₹)', true)}<input id="${id}_ch" type="number" min="0" style="${RPL_INPUT}"/>
-        ${L('Rate maana?', true)}${radio(`${id}_ag`, [{ v: 'Yes', l: '👍 Haan — repair karo' }, { v: 'No', l: '👎 Nahi — wapas le gaya (close)' }])}
-        <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">"Nahi" par entry yahin close ho jayegi.</div></div>
+        ${L('Rate maana?', true)}${radio(`${id}_ag`, [{ v: 'Yes', l: '👍 Haan — repair karo' }, { v: 'No', l: '👎 Nahi — kharab maal wapas' }])}
+        <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">"Nahi" par product bina repair Handover (OTP) se wapas jayega.</div></div>
       <div style="display:flex;gap:8px">${btn('Save', 'warranty')}</div>`;
   } else if (t.key === 'assign') {
     inner = `${L('Mechanic', true)}<select id="${id}_mech" style="${RPL_INPUT}"><option value="">Loading…</option></select>
@@ -19825,6 +19845,7 @@ function rplTaskFormHtml(r) {
       ${L('Kisko, kaise bataya?', true)}<input id="${id}_remark" placeholder="e.g. Rohit ji ko call kiya" style="${RPL_INPUT}"/>
       <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:8px"><input type="checkbox" id="${id}_wa" onchange="document.getElementById('${id}_mw').style.display=this.checked?'':'none'"/> Customer ko WhatsApp bhi bhejo ("product tayyar hai")</label>
       <div id="${id}_mw" style="display:none">${L('Customer mobile')}<input id="${id}_mobile" value="${esc(r.customerMobile)}" inputmode="tel" style="${RPL_INPUT}"/></div>
+      ${r.salesmanUserId ? `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:8px"><input type="checkbox" id="${id}_sm" checked/> Salesman <b>${esc(r.salesmanName)}</b> ko WhatsApp bhejo ("maal tayyar hai")</label>` : ''}
       <div style="display:flex;gap:8px">${btn('Save', 'inform')}</div>`;
   } else if (t.key === 'bin') {
     inner = `${L('Wapas aaya maal check karo', true)}${radio(`${id}_cond`, [{ v: 'OK', l: '✅ Sahi hai — stock me rakho' }, { v: 'Damaged', l: '💥 Toota-phoota — reject bin' }],
@@ -19842,6 +19863,12 @@ function rplTaskFormHtml(r) {
       ${rplPhoto(r.cnPhoto, 140)}
       ${L('WhatsApp screenshot', true)}<input id="${id}_photo" type="file" accept="image/*" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${RPL_INPUT};margin-top:8px"/><div id="${id}_pv" style="margin:-6px 0 8px"></div>
       <div style="display:flex;gap:8px">${btn('✓ Sent — Close', 'cnsend')}</div>`;
+  } else if (t.key === 'cashstaff') {
+    inner = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Customer se <b>${inr(r.chargesReceived)}</b> liye gaye the${r.receiverName ? ` (receiver: ${esc(r.receiverName)})` : ''}. Jis staff ne paise liye, unse paise lekar yahan entry karein.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+        <div>${L('Staff ka naam', true)}<input id="${id}_staff" placeholder="e.g. delivery boy / salesman" style="${RPL_INPUT}"/></div>
+        <div>${L('Amount liya (₹)', true)}<input id="${id}_amt" type="number" min="0" value="${r.chargesReceived ?? ''}" style="${RPL_INPUT}"/></div></div>
+      <div style="display:flex;gap:8px">${btn('✓ Cash Received — Close', 'cashstaff')}</div>`;
   } else if (t.key === 'handover') {
     inner = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${t.returning ? '↩ Product party ko <b>wapas</b> diya ja raha hai.' : 'Product customer ko dete waqt OTP lijiye — OTP daalte hi entry close ho jayegi.'}</div>
       ${L('Customer mobile', true)}<div style="display:flex;gap:8px;margin-bottom:10px"><input id="${id}_mobile" value="${esc(r.customerMobile)}" inputmode="tel" style="${RPL_INPUT};margin-bottom:0;flex:1"/>
@@ -19873,6 +19900,7 @@ function renderReplDetailBody(r) {
       ${f('Condition', esc(r.condition))}${f('Product type', esc(r.productType))}
       <div style="grid-column:1/-1">${f('Defect', esc(r.defect))}</div>
       ${f('Brought by', esc(r.broughtBy))}${f('Diary No.', esc(r.diaryNo))}
+      ${f('Salesman', esc(r.salesmanName))}
       ${r.ours === 'No' ? f('Not ours', esc(r.notOursReason)) : ''}
       ${r.warranty ? f('Warranty', esc(r.warranty) + (r.warranty === 'Out of Warranty' ? ` · ₹${r.charges ?? '—'}${r.rateToldTo ? ' (' + esc(r.rateToldTo) + ' ko bataya)' : ''} · ${r.customerAgreed === 'Yes' ? 'maana' : 'nahi maana — wapas le gaya'}` : '')) : ''}
       ${r.binAt ? f('Maal check', (r.returnCondition === 'OK' ? '✅ Sahi — ' : r.returnCondition === 'Damaged' ? '💥 Toota-phoota — ' : '') + esc(r.binRemark)) : ''}
@@ -19882,6 +19910,7 @@ function renderReplDetailBody(r) {
       ${r.cnNo ? f('Credit Note', esc(r.cnNo) + (r.cnAmount != null ? ` · ${inr(r.cnAmount)}` : '')) : ''}
       ${r.cnPhoto ? `<div>${rplPhoto(r.cnPhoto, 120)}</div>` : ''}${r.cnSentPhoto ? `<div>${rplPhoto(r.cnSentPhoto, 120)}</div>` : ''}
       ${r.deliveredAt ? f('Delivered', fmtDateDMY(r.deliveredAt, true) + (r.receiverName ? ' · ' + esc(r.receiverName) : '') + (r.chargesReceived != null ? ` · ${inr(r.chargesReceived)} recd` : '')) : ''}
+      ${r.cashStaffAt ? f('Cash from staff', `${inr(r.cashStaffAmount)} · ${esc(r.cashStaffName)} · ${fmtDateDMY(r.cashStaffAt, true)}`) : ''}
       <div style="grid-column:1/-1">${f('Remark', esc(r.remark))}</div>
       ${r.cancelledAt ? f('Cancelled', esc(r.cancelReason)) : ''}
     </div>
@@ -19893,7 +19922,7 @@ function renderReplDetailBody(r) {
 }
 const RPL_EVENT_LABEL = { created: '📝 Form filled', imported: '📥 Imported', check: '📒 Diary / ownership', category: '🗂 Category', warranty: '🛡 Warranty',
   assign: '🔧 Given to mechanic', repair: '✅ Repaired & tested', exchange: '🔄 Exchanged', inform: '📞 Informed', bin: '🔍 Maal check', cn: '🧾 Credit note',
-  cnsend: '📤 CN shared', otp: '🔐 OTP', handover: '🤝 Handed over', cancelled: '🚫 Cancelled' };
+  cnsend: '📤 CN shared', otp: '🔐 OTP', handover: '🤝 Handed over', cashstaff: '💵 Cash from staff', cancelled: '🚫 Cancelled' };
 async function loadReplEvents(id) {
   const r = await api(`/api/replacement-fms/${id}/events`);
   const el = document.getElementById(`rplEvents_${id}`);
@@ -19928,11 +19957,12 @@ async function submitReplAction(id, action, btnEl, preset) {
   else if (action === 'assign') body = { mechanicUserId: val('mech'), leadDays: val('lead') };
   else if (action === 'repair') body = { tested: val('tested'), remark: val('remark') };
   else if (action === 'exchange') body = { newItem: val('item'), oldInBin: val('bin') };
-  else if (action === 'inform') body = { remark: val('remark'), sendWhatsApp: val('wa'), mobile: val('mobile') };
+  else if (action === 'inform') body = { remark: val('remark'), sendWhatsApp: val('wa'), mobile: val('mobile'), notifySalesman: val('sm') };
   else if (action === 'bin') body = { condition: radio('cond'), remark: val('remark') };
   else if (action === 'cn') body = { cnNo: val('no'), cnAmount: val('amt'), cnPhoto: photo() };
   else if (action === 'cnsend') body = { photo: photo() };
   else if (action === 'handover') body = { otp: val('otp'), receiverName: val('recv'), chargesReceived: val('chr'), withoutOtp: val('nootp') };
+  else if (action === 'cashstaff') body = { staffName: val('staff'), amount: val('amt') };
   const orig = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }
   const r = await api(`/api/replacement-fms/${id}/action/${action}`, 'PUT', body);
@@ -19999,7 +20029,7 @@ function buildReplDashboardTasks() {
     const late = t.planned && d.now && t.planned < d.now;
     const description = `
       <div style="font-weight:700;color:var(--gray-800);font-size:13px">${t.n}. ${esc(t.label)}${t.returning ? ' <span style="font-size:10px;color:var(--color-danger-text)">↩ Return</span>' : ''}</div>
-      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(r.partyName)}${r.category ? ' · ' + esc(r.category) : ''}</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(r.partyName)}${r.category ? ' · ' + esc(r.category) : ''}${r.salesmanName ? ' · 🧑‍💼 ' + esc(r.salesmanName) : ''}</div>
       <div style="font-size:12px;color:var(--gray-600)">${esc(String(r.items).slice(0, 120))}</div>
       ${fmsFieldRow('PLANNED', `${fmtDateDMY(t.planned, true) || '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
     tasks.push({ id: r.id, type: 'repl', status: 'pending', title: r.code, description,
