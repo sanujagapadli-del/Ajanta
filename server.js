@@ -10913,18 +10913,28 @@ async function gpProductMapper() {
   };
 }
 
+// Purchase FMS PO lines kept after the sheet was cleared (client, 2026-10-13)
+// so Gross Profit still costs older sales. Same shape as 'Purchase Fms'!A:I.
+async function purchasePoArchiveRows() {
+  try {
+    const [rows] = await db.query('SELECT po_serial, po_number, indent_no, item_id, product_name, uom, po_qty, final_rate, vendor_name FROM purchase_po_archive');
+    return rows.map(r => [Number(r.po_serial) || '', r.po_number, r.indent_no, r.item_id, r.product_name, r.uom, Number(r.po_qty), Number(r.final_rate), r.vendor_name]);
+  } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return []; throw e; }
+}
+
 // O2D billed sales lines in [start, end] with what each one cost (manual rate,
 // else the qty-weighted PO rate). Shared by Gross Profit and Salesman P&L.
 async function gpLoadData(start, end) {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   await ensureProductCosts();
   const bill = O2D_STEPS.find(s => s.n === 4); // Make Bill
-  const [o2dRes, poRes, [manual], mapTo, [stockItems]] = await Promise.all([
+  const [o2dRes, poRes, [manual], mapTo, [stockItems], poArchive] = await Promise.all([
     sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }),
     sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }),
     db.query('SELECT item_key, item_name, cost_rate FROM product_costs'),
     gpProductMapper(),
-    withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items'))
+    withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items')),
+    purchasePoArchiveRows()
   ]);
   const stockName = Object.fromEntries(stockItems.map(i => [i.item_code, i.description]));
 
@@ -10948,7 +10958,7 @@ async function gpLoadData(start, end) {
 
   // Cost per stock item from Purchase FMS PO lines (weighted by PO qty).
   const poCost = {}; // code -> { qty, value, names:Set, vendors: { key: { vendor, qty, value } } }
-  (poRes.data.values || []).forEach(r => {
+  [...(poRes.data.values || []), ...poArchive].forEach(r => {
     const name = String(r[4] || '').trim(), qty = gpNum(r[6]), rate = gpNum(r[7]);
     const date = stockSerialToYmd(r[0]);
     if (!name || !(rate > 0) || (date && date > end)) return;
