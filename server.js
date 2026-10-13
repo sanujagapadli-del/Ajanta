@@ -9558,18 +9558,22 @@ app.post('/api/cheque-fms/import-old', requireAuth, requireAdmin, async (req, re
 //     sends a confirmation (no more pending paper slips).
 // The stage is derived from the filled fields (replStage), never stored.
 // ══════════════════════════════════════════════════════
+// 2026-10-13 (client voice note): Diary Entry and Ownership Check are two
+// separate steps — every later step moved up by one (doers migrated once,
+// replMigrateStepsV2).
 const REPL_STEPS = [
-  { n: 1,  key: 'check',    label: 'Diary Entry & Ownership Check', doer: 'Priyanka', tatH: 8 },
-  { n: 2,  key: 'category', label: 'Decide Category',               doer: 'Priyanka', tatH: 4 },
-  { n: 3,  key: 'warranty', label: 'Warranty & Charges',            doer: 'Priyanka / Aziz', tatH: 8 },
-  { n: 4,  key: 'assign',   label: 'Give to Mechanic',              doer: 'Priyanka', tatH: 4 },
-  { n: 5,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tatH: 48 },
-  { n: 6,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tatH: 6 },
-  { n: 7,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tatH: 4 },
-  { n: 8,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tatH: 4 },
-  { n: 9,  key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tatH: 24 },
-  { n: 10, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tatH: 24 },
-  { n: 11, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tatH: 48 }
+  { n: 1,  key: 'diary',    label: 'Diary Entry',                   doer: 'Priyanka', tatH: 4 },
+  { n: 2,  key: 'check',    label: 'Ownership Check',               doer: 'Priyanka', tatH: 4 },
+  { n: 3,  key: 'category', label: 'Decide Category',               doer: 'Priyanka', tatH: 4 },
+  { n: 4,  key: 'warranty', label: 'Warranty & Charges',            doer: 'Priyanka / Aziz', tatH: 8 },
+  { n: 5,  key: 'assign',   label: 'Give to Mechanic',              doer: 'Priyanka', tatH: 4 },
+  { n: 6,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tatH: 48 },
+  { n: 7,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tatH: 6 },
+  { n: 8,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tatH: 4 },
+  { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tatH: 4 },
+  { n: 10, key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tatH: 24 },
+  { n: 11, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tatH: 24 },
+  { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tatH: 48 }
 ];
 const REPL_N = Object.fromEntries(REPL_STEPS.map(s => [s.key, s.n]));
 // 'Credit Note' = goods returned (shown as "Maal Wapas (Return)"); value kept for old records.
@@ -9639,8 +9643,21 @@ async function ensureReplTables() {
 // damaged → reject bin) and to whom the out-of-warranty rate was told.
 let _replColsOk = false;
 async function ensureReplCols() {
-  await addMissingColumns('replacements', [['return_condition', 'VARCHAR(20)'], ['rate_told_to', 'VARCHAR(20)']]);
+  await addMissingColumns('replacements', [['return_condition', 'VARCHAR(20)'], ['rate_told_to', 'VARCHAR(20)'], ['diary_at', 'DATETIME'], ['diary_by', 'INT']]);
+  await replMigrateStepsV2();
   _replColsOk = true;
+}
+// Step doers were saved by step number: when "Diary Entry & Ownership Check"
+// split into steps 1 + 2, steps 2..11 became 3..12. Runs once (app_settings flag);
+// the Ownership Check step starts with the Diary step's doers.
+async function replMigrateStepsV2() {
+  if (await getAppSetting('repl_steps_v2')) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS replacement_step_doers (step_n INT NOT NULL, user_id INT NOT NULL, PRIMARY KEY (step_n, user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query('UPDATE replacement_step_doers SET step_n = step_n + 100 WHERE step_n >= 2 AND step_n < 100');
+  await db.query('UPDATE replacement_step_doers SET step_n = step_n - 99 WHERE step_n >= 100');
+  await db.query('INSERT IGNORE INTO replacement_step_doers (step_n, user_id) SELECT 2, user_id FROM replacement_step_doers WHERE step_n = 1');
+  await setAppSetting('repl_steps_v2', new Date().toISOString());
+  _replStepDoersCache = null;
 }
 async function withReplTables(fn) {
   try { if (!_replColsOk) await ensureReplCols(); return await fn(); }
@@ -9676,6 +9693,7 @@ async function replUserAccess(req) {
 
 function replStage(r) {
   if (r.cancelled_at) return 'cancelled';
+  if (!r.diary_at && !r.check_at) return 'diary'; // older records did both in one step
   if (!r.check_at) return 'check';
   if (r.ours === 'No') return r.delivered_at ? 'returned' : 'handover';
   if (!r.category) return 'category';
@@ -9690,8 +9708,10 @@ function replStage(r) {
   } else {
     if (!r.warranty_at) return 'warranty';
     const declined = r.warranty === 'Out of Warranty' && r.customer_agreed === 'No';
-    // Refused the rate and took the product back — closed at the warranty step.
+    // Refused the rate: older records were closed at the warranty step; now
+    // the product goes back through Handover with the customer's OTP.
     if (declined && r.delivered_at) return 'closed';
+    if (declined) return 'handover';
     if (!declined) {
       if (!r.assigned_at) return 'assign';
       if (!r.repaired_at) return 'repair';
@@ -9713,11 +9733,11 @@ function replTask(r, doersMap) {
   const step = REPL_STEPS.find(s => s.key === stage);
   if (!step) return null;
   const base = {
-    check: r.created_at, category: r.check_at, warranty: r.category_at, assign: r.warranty_at,
+    diary: r.created_at, check: r.diary_at || r.created_at, category: r.check_at, warranty: r.category_at, assign: r.warranty_at,
     repair: r.assigned_at, exchange: r.category_at,
     inform: r.repaired_at || r.exchange_at || r.warranty_at,
     bin: r.category_at, cn: r.bin_at, cnsend: r.cn_at,
-    handover: r.ours === 'No' ? r.check_at : r.informed_at
+    handover: r.ours === 'No' ? r.check_at : (r.informed_at || r.warranty_at)
   }[stage];
   const hours = stage === 'repair' && r.lead_days ? Number(r.lead_days) * 24 : step.tatH;
   let doers = doersMap[step.n] || [];
@@ -9735,7 +9755,7 @@ function replOut(r, doersMap) {
     id: r.id, code: r.code, source: r.source, createdAt: r.created_at, createdByName: r.created_by_name || '',
     partyName: r.party_name, customerMobile: r.customer_mobile || '', items: r.items || '', condition: r.product_condition || '',
     productType: r.product_type || '', defect: r.defect || '', photoUrl: r.photo_url || '', broughtBy: r.brought_by || '',
-    remark: r.remark || '', diaryNo: r.diary_no || '', ours: r.ours || '', notOursReason: r.not_ours_reason || '', checkAt: r.check_at,
+    remark: r.remark || '', diaryNo: r.diary_no || '', diaryAt: r.diary_at || null, ours: r.ours || '', notOursReason: r.not_ours_reason || '', checkAt: r.check_at,
     category: r.category || '', categoryAt: r.category_at,
     warranty: r.warranty || '', owReason: r.ow_reason || '', charges: num(r.charges), customerAgreed: r.customer_agreed || '', warrantyAt: r.warranty_at,
     mechanicUserId: r.mechanic_user_id, mechanicName: r.mechanic_name || '', leadDays: num(r.lead_days), assignedAt: r.assigned_at,
@@ -9839,13 +9859,22 @@ app.post('/api/replacement-fms', requireAuth, async (req, res) => {
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [code, req.session.userId, party, mobile || null, items, t(b.condition, 100) || null, t(b.productType, 50) || null, defect, photoUrl, t(b.broughtBy, 255) || null, t(b.remark, 2000) || null]);
     await logReplEvent(r.insertId, 'created', `${items} · ${defect}`, req.session.userId);
-    res.json({ success: true, id: r.insertId, code });
+    // Customer hears at once that the product reached us, with its R-number (client, 2026-10-13).
+    let notified = false;
+    if (sfmsNormalizeMobile(mobile)) {
+      sendWhatsAppInBackground(mobile, replReceivedMsg({ party_name: party, items, code }), undefined, `repl received ${code}`);
+      notified = true;
+    }
+    res.json({ success: true, id: r.insertId, code, notified });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);
   }
 });
 
+function replReceivedMsg(r) {
+  return `🙏 नमस्ते ${r.party_name} जी,\n\nआपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) जाँच / रिपेयर के लिए Ajanta Appliances में पहुँच गया है।\n📋 आपका Replacement No: *${r.code}*\n\nकृपया यह नंबर संभाल कर रखें — प्रोडक्ट तैयार होते ही आपको सूचना दी जाएगी।\nधन्यवाद 🙏\nAjanta Appliances`;
+}
 function replOtpMsg(r, otp) {
   return `🙏 नमस्ते ${r.party_name} जी,\n\nAjanta Appliances से आपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) आपको दिया जा रहा है।\n📋 Replacement No: *${r.code}*\n\nप्रोडक्ट मिलने की पुष्टि के लिए यह OTP देने वाले व्यक्ति को बताएं: *${otp}*\n\nधन्यवाद 🙏\nAjanta Appliances`;
 }
@@ -9874,18 +9903,22 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       fail('You are not assigned to this step (admin: Replacement FMS → Step Doers)', 403); return false;
     };
 
-    if (action === 'check') {
+    if (action === 'diary') {
+      if (!need('diary')) return;
+      const diary = t(b.diaryNo, 50);
+      if (!diary) return fail('Diary No. is required');
+      if (!b.stickerPasted) return fail('Confirm the sticker (Diary No. + date) is pasted on the product');
+      await db.query('UPDATE replacements SET diary_no=?, diary_at=NOW(), diary_by=? WHERE id=?', [diary, uid, r.id]);
+      await logReplEvent(r.id, 'diary', `Diary ${diary} · in/out register + sticker`, uid);
+    } else if (action === 'check') {
       if (!need('check')) return;
       if (b.ours === 'Yes') {
-        const diary = t(b.diaryNo, 50);
-        if (!diary) return fail('Diary No. is required');
-        if (!b.stickerPasted) return fail('Confirm the sticker (Diary No. + date) is pasted on the product');
-        await db.query("UPDATE replacements SET ours='Yes', diary_no=?, check_at=NOW(), check_by=? WHERE id=?", [diary, uid, r.id]);
-        await logReplEvent(r.id, 'check', `Our product · Diary ${diary} · sticker pasted`, uid);
+        await db.query("UPDATE replacements SET ours='Yes', check_at=NOW(), check_by=? WHERE id=?", [uid, r.id]);
+        await logReplEvent(r.id, 'check', 'Our product', uid);
       } else if (b.ours === 'No') {
         const reason = t(b.reason);
         if (!reason) return fail('Write why it is not our product');
-        await db.query("UPDATE replacements SET ours='No', not_ours_reason=?, diary_no=?, check_at=NOW(), check_by=? WHERE id=?", [reason, t(b.diaryNo, 50) || null, uid, r.id]);
+        await db.query("UPDATE replacements SET ours='No', not_ours_reason=?, check_at=NOW(), check_by=? WHERE id=?", [reason, uid, r.id]);
         await logReplEvent(r.id, 'check', `NOT our product — reject bin, return to party · ${reason}`, uid);
       } else return fail('Choose whether it is our product');
     } else if (action === 'category') {
@@ -9905,10 +9938,11 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
         if (!['Customer', 'Dealer'].includes(b.rateToldTo)) return fail('Rate kisko bataya — Customer ya Dealer?');
         if (!['Yes', 'No'].includes(b.customerAgreed)) return fail('Did the customer agree to the charges?');
         const refused = b.customerAgreed === 'No';
-        // Refused: they take the product back as it is — the entry closes here.
-        await db.query(`UPDATE replacements SET warranty='Out of Warranty', ow_reason=?, charges=?, rate_told_to=?, customer_agreed=?, warranty_at=NOW(), warranty_by=?${refused ? ", delivered_at=NOW(), delivered_by=?, handover_remark='Rate nahi maana — product wapas le gaya'" : ''} WHERE id=?`,
-          refused ? [reason, charges, b.rateToldTo, b.customerAgreed, uid, uid, r.id] : [reason, charges, b.rateToldTo, b.customerAgreed, uid, r.id]);
-        await logReplEvent(r.id, 'warranty', `Out of warranty · ${reason} · ₹${charges} told to ${b.rateToldTo} · ${refused ? 'NOT agreed — product taken back, closed' : 'agreed — repair'}`, uid);
+        // Refused: the product goes back as it is — through Handover, with the
+        // customer's OTP like every delivery (client, 2026-10-13).
+        await db.query("UPDATE replacements SET warranty='Out of Warranty', ow_reason=?, charges=?, rate_told_to=?, customer_agreed=?, warranty_at=NOW(), warranty_by=? WHERE id=?",
+          [reason, charges, b.rateToldTo, b.customerAgreed, uid, r.id]);
+        await logReplEvent(r.id, 'warranty', `Out of warranty · ${reason} · ₹${charges} told to ${b.rateToldTo} · ${refused ? 'NOT agreed — return to party (Handover with OTP)' : 'agreed — repair'}`, uid);
       } else return fail('Choose In Warranty or Out of Warranty');
     } else if (action === 'assign') {
       if (!need('assign')) return;
@@ -9998,7 +10032,7 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       const mobile = r.otp_mobile || r.customer_mobile;
       if (sfmsNormalizeMobile(mobile)) sendWhatsAppInBackground(mobile, replDeliveredMsg(r), undefined, `repl delivered ${r.code}`);
     } else if (action === 'cancel') {
-      if (!acc.isAdmin && !acc.mySteps.has(REPL_N.check)) return fail('Only admin or the Diary step doer can cancel', 403);
+      if (!acc.isAdmin && !acc.mySteps.has(REPL_N.diary) && !acc.mySteps.has(REPL_N.check)) return fail('Only admin or the Diary step doer can cancel', 403);
       const reason = t(b.reason);
       if (!reason) return fail('Reason is required');
       await db.query('UPDATE replacements SET cancelled_at=NOW(), cancelled_by=?, cancel_reason=? WHERE id=?', [uid, reason, r.id]);

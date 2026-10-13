@@ -19365,21 +19365,24 @@ function syncBottomNavMoreActive() {
 // the flow). The server sends each record's single open `task`; this file
 // renders the list views, the Replacement Form and the per-step forms.
 // ══════════════════════════════════════════════════════
+// 2026-10-13: Diary Entry and Ownership Check split into steps 1 and 2.
 const REPL_STEP_DEFS = [
-  { n: 1,  key: 'check',    label: 'Diary Entry & Ownership Check', doer: 'Priyanka', tat: '8 hours' },
-  { n: 2,  key: 'category', label: 'Decide Category',               doer: 'Priyanka', tat: '4 hours' },
-  { n: 3,  key: 'warranty', label: 'Warranty & Charges',            doer: 'Priyanka / Aziz', tat: '8 hours' },
-  { n: 4,  key: 'assign',   label: 'Give to Mechanic',              doer: 'Priyanka', tat: '4 hours' },
-  { n: 5,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tat: 'Lead time' },
-  { n: 6,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tat: '6 hours' },
-  { n: 7,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tat: '4 hours' },
-  { n: 8,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tat: '4 hours' },
-  { n: 9,  key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tat: '1 day' },
-  { n: 10, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tat: '1 day' },
-  { n: 11, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tat: '2 days' }
+  { n: 1,  key: 'diary',    label: 'Diary Entry',                   doer: 'Priyanka', tat: '4 hours' },
+  { n: 2,  key: 'check',    label: 'Ownership Check',               doer: 'Priyanka', tat: '4 hours' },
+  { n: 3,  key: 'category', label: 'Decide Category',               doer: 'Priyanka', tat: '4 hours' },
+  { n: 4,  key: 'warranty', label: 'Warranty & Charges',            doer: 'Priyanka / Aziz', tat: '8 hours' },
+  { n: 5,  key: 'assign',   label: 'Give to Mechanic',              doer: 'Priyanka', tat: '4 hours' },
+  { n: 6,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tat: 'Lead time' },
+  { n: 7,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tat: '6 hours' },
+  { n: 8,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tat: '4 hours' },
+  { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tat: '4 hours' },
+  { n: 10, key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tat: '1 day' },
+  { n: 11, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tat: '1 day' },
+  { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tat: '2 days' }
 ];
 const RPL_STAGE = {
-  check:    { label: 'Diary / check', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
+  diary:    { label: 'Diary entry', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
+  check:    { label: 'Ownership check', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
   category: { label: 'Category?', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
   warranty: { label: 'Warranty check', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
   assign:   { label: 'To mechanic', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
@@ -19714,7 +19717,7 @@ async function submitNewRepl() {
   btn.disabled = false; btn.textContent = 'Submit';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   closeModal('newReplModal');
-  showToast(`✅ ${r.code} saved — Diary me entry karke sticker lagayein`);
+  showToast(`✅ ${r.code} saved — Diary me entry karke sticker lagayein${r.notified ? " · customer ko WhatsApp gaya" : " · mobile nahi tha, WhatsApp nahi gaya"}`);
   if (document.getElementById('page-replacement-fms').classList.contains('active')) loadReplFmsList();
 }
 
@@ -19736,7 +19739,8 @@ let _rplMechanics = null;
 async function rplMechanicOptions() {
   if (!_rplMechanics) {
     const d = await api('/api/replacement-fms/step-doers');
-    _rplMechanics = ((d && d.assignments && d.assignments[5]) || []);
+    const repairN = (REPL_STEP_DEFS.find(x => x.key === 'repair') || {}).n;
+    _rplMechanics = ((d && d.assignments && d.assignments[repairN]) || []);
     if (!_rplMechanics.length) { const u = await api('/api/users/roster'); _rplMechanics = Array.isArray(u) ? u.filter(x => +x.is_active !== 0) : []; }
   }
   return _rplMechanics;
@@ -19749,13 +19753,15 @@ function rplTaskFormHtml(r) {
   const btn = (label, action, cls) => `<button class="btn ${cls || 'btn-green'}" style="flex:1;justify-content:center;padding:12px" onclick="submitReplAction(${r.id},'${action}',this)">${label}</button>`;
   const radio = (name, opts, onchange) => `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${opts.map(o => `<label style="flex:1;min-width:120px;display:flex;align-items:center;gap:6px;padding:10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer"><input type="radio" name="${name}" value="${o.v}" onchange="${onchange || ''}"/> ${o.l}</label>`).join('')}</div>`;
   let inner = '';
-  if (t.key === 'check') {
-    inner = `${L('Apna maal hai? (Ajanta ka product)', true)}${radio(`${id}_ours`, [{ v: 'Yes', l: '✅ Haan, apna hai' }, { v: 'No', l: '❌ Nahi, apna nahi' }],
-        `document.getElementById('${id}_yes').style.display=this.value==='Yes'?'':'none';document.getElementById('${id}_no').style.display=this.value==='No'?'':'none'`)}
-      <div id="${id}_yes" style="display:none">${L('Diary No.', true)}<input id="${id}_diary" placeholder="e.g. A1-42" style="${RPL_INPUT}"/>
-        <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_sticker"/> In/Out register + diary me entry ki, aur product par sticker (Diary No. + date) laga diya</label></div>
+  if (t.key === 'diary') {
+    inner = `${L('Diary No.', true)}<input id="${id}_diary" placeholder="e.g. A1-42" style="${RPL_INPUT}"/>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_sticker"/> In/Out register + diary me entry ki, aur product par sticker (Diary No. + date) laga diya</label>
+      <div style="display:flex;gap:8px">${btn('Save', 'diary')}</div>`;
+  } else if (t.key === 'check') {
+    inner = `${r.diaryNo ? `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:8px">📒 Diary No: <b>${esc(r.diaryNo)}</b></div>` : ''}${L('Apna maal hai? (Ajanta ka product)', true)}${radio(`${id}_ours`, [{ v: 'Yes', l: '✅ Haan, apna hai' }, { v: 'No', l: '❌ Nahi, apna nahi' }],
+        `document.getElementById('${id}_no').style.display=this.value==='No'?'':'none'`)}
       <div id="${id}_no" style="display:none">${L('Kyun apna nahi hai?', true)}<input id="${id}_reason" placeholder="e.g. Doosri company ka product" style="${RPL_INPUT}"/>
-        <div style="font-size:12px;color:var(--color-danger-text);margin:-4px 0 10px">Product reject bin me rakh kar party ko wapas jayega (Handover step).</div></div>
+        <div style="font-size:12px;color:var(--color-danger-text);margin:-4px 0 10px">Product reject bin me rakh kar party ko wapas jayega (Handover step, OTP ke saath).</div></div>
       <div style="display:flex;gap:8px">${btn('Save', 'check')}</div>`;
   } else if (t.key === 'category') {
     inner = `${L('Is product ka kya hoga?', true)}${radio(`${id}_cat`, [{ v: 'Repair', l: '🔧 Repair' }, { v: 'Exchange', l: '🔄 Instant Exchange' }, { v: 'Credit Note', l: '↩ Maal Wapas (Return)' }])}
@@ -19887,7 +19893,8 @@ async function submitReplAction(id, action, btnEl, preset) {
   const radio = n => (document.querySelector(`input[name="${p}_${n}"]:checked`) || {}).value || '';
   const photo = () => (document.getElementById(`${p}_photo`) || {}).dataset?.compressed || '';
   let body = preset || {};
-  if (action === 'check') body = { ours: radio('ours'), diaryNo: val('diary'), stickerPasted: val('sticker'), reason: val('reason') };
+  if (action === 'diary') body = { diaryNo: val('diary'), stickerPasted: val('sticker') };
+  else if (action === 'check') body = { ours: radio('ours'), reason: val('reason') };
   else if (action === 'category') body = { category: radio('cat') };
   else if (action === 'warranty') body = { warranty: radio('w'), owReason: val('owr'), charges: val('ch'), rateToldTo: radio('told'), customerAgreed: radio('ag') };
   else if (action === 'assign') body = { mechanicUserId: val('mech'), leadDays: val('lead') };
