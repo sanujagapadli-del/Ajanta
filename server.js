@@ -947,7 +947,9 @@ async function fetchSheetRows(sheet) {
 // Returns { perFms: [...], perUser: { uid: {pending,done,total} }, errors: [name] }
 // hodDept '' => admin/pc (all steps). hodDept set => only steps where that dept has a doer.
 async function computeFmsStats(hodDept = '', collectPending = false) {
-  const result = { perFms: [], perUser: {}, errors: [] };
+  // perUserFms: uid -> { fmsName: { pending, done } } — Employee Records shows
+  // each FMS against its own plan target (client, 2026-10-13).
+  const result = { perFms: [], perUser: {}, perUserFms: {}, errors: [] };
   if (collectPending) result.perUserPending = {}; // uid -> [ {fmsName, stepName, planValue, planDate, isLate} ]
   const _today = new Date().toISOString().split('T')[0];
   const [sheets] = await db.query('SELECT * FROM fms_sheets ORDER BY fms_name ASC');
@@ -1023,6 +1025,9 @@ async function computeFmsStats(hodDept = '', collectPending = false) {
         result.perUser[d.id].pending += stepPending;
         result.perUser[d.id].done    += stepDone;
         result.perUser[d.id].total   += stepPending + stepDone;
+        const ufm = result.perUserFms[d.id] = result.perUserFms[d.id] || {};
+        const uf = ufm[fmsName] = ufm[fmsName] || { pending: 0, done: 0 };
+        uf.pending += stepPending; uf.done += stepDone;
         if (collectPending && stepPendingRows.length) {
           if (!result.perUserPending[d.id]) result.perUserPending[d.id] = [];
           for (const pr of stepPendingRows) result.perUserPending[d.id].push(pr);
@@ -1112,6 +1117,9 @@ async function addBespokeFmsStats(result, hodDept, collectPending, today) {
         result.perUser[d.id].pending += pending;
         result.perUser[d.id].done += done;
         result.perUser[d.id].total += pending + done;
+        const ufm = result.perUserFms[d.id] = result.perUserFms[d.id] || {};
+        const uf = ufm[mod.name] = ufm[mod.name] || { pending: 0, done: 0 };
+        uf.pending += pending; uf.done += done;
         if (collectPending && pendingRows.length) {
           (result.perUserPending[d.id] = result.perUserPending[d.id] || []).push(...pendingRows);
         }
@@ -3123,10 +3131,11 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
     }
 
     // ── FMS (ROLE-INDEPENDENT: always credit all doers) + pending detail ──
-    let fmsPerUser = {}, fmsPerUserPending = {}, fmsErrors = [];
+    let fmsPerUser = {}, fmsPerUserPending = {}, fmsPerUserFms = {}, fmsErrors = [];
     try {
       const fmsStats = await computeFmsStats('', true);
       fmsPerUser = fmsStats.perUser || {};
+      fmsPerUserFms = fmsStats.perUserFms || {};
       fmsPerUserPending = fmsStats.perUserPending || {};
       fmsErrors = fmsStats.errors || [];
     } catch (e) { fmsErrors = ['FMS data unavailable']; }
@@ -3149,7 +3158,7 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
     let planMap = {};
     try {
       const [plans] = await db.query(
-        `SELECT employee_id, target_count, DATE_FORMAT(start_date,'%Y-%m-%d') AS start_date, improvement_pct
+        `SELECT * , DATE_FORMAT(start_date,'%Y-%m-%d') AS start_date
          FROM week_plans WHERE start_date BETWEEN ? AND ? ORDER BY start_date DESC`, [start, end]);
       for (const p of plans) if (!planMap[p.employee_id]) planMap[p.employee_id] = p;
     } catch (e) { /* table may not exist */ }
@@ -3202,7 +3211,8 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
         committed: plan ? {
           start_date: plan.start_date,
           target_count: plan.target_count,
-          improvement_pct: (plan.improvement_pct === null || plan.improvement_pct === undefined) ? null : plan.improvement_pct
+          improvement_pct: (plan.improvement_pct === null || plan.improvement_pct === undefined) ? null : plan.improvement_pct,
+          fms_pcts: weekPlanFmsPcts(plan.fms_pcts)
         } : null,
         total, done, pending, overdue, revised, score,
         breakdown: {
@@ -3210,6 +3220,8 @@ app.get('/api/employee-records', requireAuth, requireAdminOrHod, async (req, res
           checklist:  { total: e.chl.total, done: e.chl.completed, pending: e.chl.pending },
           fms:        { total: e.fms.total, done: e.fms.done,       pending: e.fms.pending }
         },
+        // Each FMS on its own (O2D, Service, Purchase, Indents, sheet FMSs) — matched to the per-FMS plan targets.
+        fmsBy: Object.fromEntries(Object.entries(fmsPerUserFms[e.userId] || {}).map(([k, v]) => [k, { total: v.pending + v.done, done: v.done, pending: v.pending }])),
         pendingTasks: {
           delegation: delPending[e.userId] || [],
           checklist:  chlPending[e.userId] || [],
@@ -5063,6 +5075,34 @@ app.get('/api/service-fms/area-zone-map', requireAuth, async (req, res) => {
     const map = {};
     (result.data.values || []).forEach(r => { if (r[0] && r[1]) map[r[0]] = r[1]; });
     res.json(map);
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Admin: put an area in a zone (client, 2026-10-13: "zone me aur bhi areas
+// add karne ka access admin ke liye"). Sets column B on every Area row with
+// that name (case-insensitive); a new area is appended with its zone.
+// zone '' takes the area out of its zone.
+app.put('/api/service-fms/area-zone', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const area = String(req.body.area || '').trim();
+    const zone = String(req.body.zone || '').trim();
+    if (!area) return res.status(400).json({ error: 'Area name is required' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_AREA_TAB}'!A2:A` });
+    const rows = [];
+    (r.data.values || []).forEach((x, i) => { if (String(x[0] || '').trim().toLowerCase() === area.toLowerCase()) rows.push(i + 2); });
+    if (rows.length) {
+      await sheetsApi.spreadsheets.values.batchUpdate({
+        spreadsheetId: SFMS_SHEET_ID,
+        requestBody: { valueInputOption: 'RAW', data: rows.map(n => ({ range: `'${SFMS_AREA_TAB}'!B${n}`, values: [[zone]] })) }
+      });
+    } else {
+      await sheetsApi.spreadsheets.values.append({
+        spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_AREA_TAB}'!A:B`, valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [[area, zone]] }
+      });
+    }
+    res.json({ success: true, updated: rows.length, added: rows.length ? 0 : 1 });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -11837,12 +11877,38 @@ app.get('/api/transfers/my', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 // WEEK PLAN
 // ══════════════════════════════════════════════════════
+// Per-system plan targets (client, 2026-10-13: "plan FMS ke hisaab se set
+// hona chahiye, abhi sirf aggregate plan aa raha hai") — { "Delegation": -20,
+// "O2D FMS": -30, … } in week_plans.fms_pcts (JSON), next to the overall %.
+function weekPlanFmsPcts(raw) {
+  let o = raw;
+  if (typeof raw === 'string') { try { o = JSON.parse(raw); } catch (e) { o = null; } }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+  const out = {};
+  Object.entries(o).forEach(([k, v]) => {
+    const n = parseInt(v, 10);
+    if (String(k).trim() && Number.isFinite(n) && n >= -100 && n <= 100) out[String(k).trim().slice(0, 60)] = n;
+  });
+  return out;
+}
+async function saveWeekPlanFmsPcts(employeeId, startDate, pcts) {
+  const val = Object.keys(pcts).length ? JSON.stringify(pcts) : null;
+  const run = () => db.query('UPDATE week_plans SET fms_pcts=? WHERE employee_id=? AND start_date=?', [val, employeeId, startDate]);
+  try { await run(); }
+  catch (e) {
+    if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await db.query('ALTER TABLE week_plans ADD COLUMN fms_pcts TEXT NULL');
+    await run();
+  }
+}
+
 app.post('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
   try {
     const { employeeId, startDate, targetCount, hodId, improvementPct } = req.body;
     if (!employeeId || !startDate) {
       return res.json({ error: 'employeeId and startDate required' });
     }
+    const fmsPcts = weekPlanFmsPcts(req.body.fmsPcts);
     // Same department-scoping /api/employee-records already applies for HOD —
     // without it an HOD could set/overwrite another department's weekly targets.
     if (req.session.role === 'hod') {
@@ -11866,6 +11932,7 @@ app.post('/api/week-plan', requireAuth, requireAdminOrHod, async (req, res) => {
     );
     // affectedRows: 1 = inserted, 2 = updated existing row
     const action = result.affectedRows === 1 ? 'INSERTED' : 'UPDATED';
+    await saveWeekPlanFmsPcts(employeeId, startDate, fmsPcts);
     console.log(`  📅 Week Plan ${action}: employee=${employeeId}, week=${startDate}, improvement_pct=${impPct}, by_hod=${finalHodId}`);
     res.json({ success: true, action: action.toLowerCase() });
   } catch (e) {

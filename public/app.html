@@ -1761,6 +1761,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <button class="btn btn-outline" onclick="loadServiceFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="sfmsStepDoersBtn" style="display:none" onclick="openSfmsStepDoersModal()">⚙ Step Doers</button>
+      <button class="btn btn-outline" id="sfmsZonesBtn" style="display:none" onclick="openSfmsZonesModal()">🗺 Zones &amp; Areas</button>
     </div>
 
     <div style="display:flex;gap:6px;margin-bottom:8px;overflow-x:auto">
@@ -3822,6 +3823,10 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div id="planPctPreview" style="margin-top:6px;font-size:12px;color:var(--gray-500);min-height:18px"></div>
     </div>
+    <div class="form-group">
+      <label>FMS-wise target (%) <span style="font-size:11px;color:var(--gray-400);font-weight:400">— har system ka alag goal (optional)</span></label>
+      <div id="planFmsPcts" style="display:grid;grid-template-columns:1fr 110px;gap:6px 10px;align-items:center"></div>
+    </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
       <button class="btn btn-primary" onclick="saveWeekPlan()">Save Plan</button>
       <button class="btn btn-outline" onclick="closeModal('setPlanModal')">Cancel</button>
@@ -4059,6 +4064,7 @@ async function init() {
       document.getElementById('purchaseStepDoersBtn').style.display = 'inline-flex';
       document.getElementById('purchaseVendorLoginsBtn').style.display = 'inline-flex';
       document.getElementById('sfmsStepDoersBtn').style.display = 'inline-flex';
+      document.getElementById('sfmsZonesBtn').style.display = 'inline-flex';
     }
     // hod/pc nav blocks — re-enable when ROLE FEATURE FLAGS above are removed
     // if (ME.role === 'hod') { nav-fms-tasks, nav-records, setPlanBtn }
@@ -8220,8 +8226,27 @@ async function openSetPlanModal(preEmpId, preWeek) {
   });
 
   if (preEmpId) document.getElementById('planEmpSelect').value = String(preEmpId);
+  document.getElementById('planEmpSelect').onchange = () => renderPlanFmsInputs();
+  renderPlanFmsInputs();
 
   document.getElementById('setPlanModal').classList.add('open');
+}
+// One target per system the employee works in (Delegation, Checklist + each
+// FMS from Employee Records) — client, 2026-10-13: plan FMS-wise, not one total.
+const PLAN_DEFAULT_SYSTEMS = ['Delegation', 'Checklist', 'O2D FMS', 'Service FMS', 'Purchase FMS'];
+function planSystemsFor(r) {
+  const fms = r ? Object.keys(r.fmsBy || {}) : [];
+  const set = r ? ['Delegation', 'Checklist', ...fms] : PLAN_DEFAULT_SYSTEMS;
+  const have = r && r.committed && r.committed.fms_pcts ? Object.keys(r.committed.fms_pcts) : [];
+  return [...new Set([...set, ...have])];
+}
+function renderPlanFmsInputs() {
+  const empId = document.getElementById('planEmpSelect').value;
+  const r = (recordsData || []).find(e => String(e.userId) === String(empId));
+  const pcts = (r && r.committed && r.committed.fms_pcts) || {};
+  document.getElementById('planFmsPcts').innerHTML = planSystemsFor(r).map(sys => `
+    <span style="font-size:13px;color:var(--gray-700)">${esc(sys)}</span>
+    <input type="number" class="planFmsPct" data-sys="${esc(sys)}" min="-100" max="100" value="${pcts[sys] ?? ''}" placeholder="%" style="padding:7px 9px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box"/>`).join('');
 }
 
 async function saveWeekPlan() {
@@ -8243,6 +8268,8 @@ async function saveWeekPlan() {
   if (improvementPct !== '' && !isNaN(parseInt(improvementPct))) {
     payload.improvementPct = parseInt(improvementPct);
   }
+  payload.fmsPcts = {};
+  document.querySelectorAll('.planFmsPct').forEach(el => { if (el.value.trim() !== '' && !isNaN(parseInt(el.value))) payload.fmsPcts[el.dataset.sys] = parseInt(el.value); });
 
   const res = await api('/api/week-plan', 'POST', payload);
 
@@ -9423,7 +9450,10 @@ function renderRecords(fmsErrors) {
         const bd = ip < 0 ? 'var(--color-danger-border)' : 'var(--color-success-border)';
         badge = `<span style="font-size:11px;padding:2px 8px;border-radius:8px;background:${bg};color:${c};font-weight:700;border:1px solid ${bd}">${ip<0?'📉':'📈'} ${ip>0?'+':''}${ip}%</span>`;
       }
-      committedHtml = `<div style="font-size:11px;color:var(--gray-500);margin-bottom:3px">📅 ${fmtDate(r.committed.start_date)}</div>${badge}`;
+      const fp = r.committed.fms_pcts || {};
+      const chips = Object.entries(fp).map(([k, v]) => `<span style="display:inline-block;font-size:10.5px;padding:1px 6px;margin:2px 3px 0 0;border-radius:6px;background:var(--gray-100);color:${v < 0 ? 'var(--color-danger)' : 'var(--color-success-text)'};font-weight:700">${esc(k.replace(/ FMS$/, ''))} ${v > 0 ? '+' : ''}${v}%</span>`).join('');
+      if (chips && (ip === null || ip === undefined)) badge = '';
+      committedHtml = `<div style="font-size:11px;color:var(--gray-500);margin-bottom:3px">📅 ${fmtDate(r.committed.start_date)}</div>${badge}${chips ? `<div>${chips}</div>` : ''}`;
     }
 
     return `<tr>
@@ -9459,6 +9489,24 @@ function renderRecords(fmsErrors) {
     <div style="font-size:12px;color:var(--gray-400);margin-top:10px;padding:0 4px">
       * <strong>Total = Done + Pending</strong> (Delegation + Checklist + FMS). Score Admin/HOD/PC sabko ek jaisa.
     </div>`;
+}
+
+// Each system against its own plan target (client, 2026-10-13).
+function recordFmsPlanTable(r) {
+  const b = r.breakdown, pcts = (r.committed && r.committed.fms_pcts) || {};
+  const rows = [['Delegation', b.delegation], ['Checklist', b.checklist], ...Object.entries(r.fmsBy || {})];
+  Object.keys(pcts).forEach(k => { if (!rows.some(([n]) => n === k)) rows.push([k, { total: 0, done: 0, pending: 0 }]); });
+  const shown = rows.filter(([n, x]) => x.total || pcts[n] !== undefined);
+  if (!shown.length) return '';
+  return `<div style="font-size:13px;font-weight:700;color:var(--gray-800);margin-top:16px">📊 FMS-wise — Plan vs Kaam</div>
+    <div class="mis-table-wrap" style="overflow-x:auto;margin-top:6px"><table style="font-size:12.5px">
+      <thead><tr><th>System</th><th>Total</th><th>Done</th><th>Pending</th><th>Done %</th><th>Plan target</th></tr></thead>
+      <tbody>${shown.map(([n, x]) => {
+        const pct = x.total ? Math.round(x.done * 1000 / x.total) / 10 : null;
+        const t = pcts[n];
+        return `<tr><td style="font-weight:600">${esc(n)}</td><td>${x.total}</td><td style="color:var(--color-success);font-weight:700">${x.done}</td><td style="color:var(--color-danger);font-weight:700">${x.pending}</td>
+          <td>${pct === null ? '—' : pct + '%'}</td><td>${t === undefined ? '<span style="color:var(--gray-300)">—</span>' : `<b style="color:${t < 0 ? 'var(--color-danger)' : 'var(--color-success-text)'}">${t > 0 ? '+' : ''}${t}%</b>`}</td></tr>`;
+      }).join('')}</tbody></table></div>`;
 }
 
 async function openRecordDetail(userId) {
@@ -9521,6 +9569,7 @@ async function openRecordDetail(userId) {
       </div>
     </div>
 
+    ${recordFmsPlanTable(r)}
     <div style="font-size:13px;font-weight:700;color:var(--gray-800);margin-top:16px">⏳ Pending Tasks (${r.pending})</div>
     ${r.pending === 0 ? '<div class="empty" style="font-size:12px;margin-top:8px">🎉 No pending tasks — all complete!</div>' : ''}
     ${section('📋 Delegation', '#1d4ed8', b.delegation.pending, delRows)}
@@ -9634,6 +9683,91 @@ async function ensureSfmsMasterLists() {
   const itemListEl = document.getElementById('sfmsItemNameList');
   if (itemListEl) itemListEl.innerHTML = sfmsItemsList.map(v => `<option value="${v.replace(/"/g, '&quot;')}">`).join('');
 }
+// ── Admin: Zones & Areas (client, 2026-10-13) — put areas into zones from the
+// app instead of typing column B of the sheet's Area tab. Areas with no zone
+// are listed first so they can be fixed; complaints from them show "No Zone".
+let _sfmsZoneAreas = [];
+async function openSfmsZonesModal() {
+  let m = document.getElementById('sfmsZonesModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'sfmsZonesModal';
+    m.innerHTML = `<div class="modal" style="max-width:640px;max-height:88dvh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">🗺 Zones & Areas</h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('sfmsZonesModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div id="sfmsZonesBody" style="overflow-y:auto;flex:1"><div class="empty">Loading…</div></div></div>`;
+    document.body.appendChild(m);
+  }
+  m.classList.add('open');
+  const [areas, map, zones] = await Promise.all([api('/api/service-fms/areas'), api('/api/service-fms/area-zone-map'), api('/api/service-fms/zones')]);
+  if (!Array.isArray(areas) || !Array.isArray(zones)) { document.getElementById('sfmsZonesBody').innerHTML = `<div class="empty">⚠️ ${esc((areas && areas.error) || (zones && zones.error) || 'Failed to load')}</div>`; return; }
+  sfmsAreaZoneMap = (map && !map.error) ? map : {};
+  sfmsZoneList = zones;
+  const seen = new Set();
+  _sfmsZoneAreas = areas.filter(a => a && !seen.has(a.toLowerCase()) && seen.add(a.toLowerCase())).sort((a, b) => a.localeCompare(b));
+  renderSfmsZones();
+}
+function sfmsAreaZone(a) {
+  const k = Object.keys(sfmsAreaZoneMap).find(x => x.toLowerCase() === a.toLowerCase());
+  return k ? sfmsAreaZoneMap[k] : '';
+}
+function renderSfmsZones() {
+  const zoneOpts = sel => `<option value="">— No zone —</option>` + sfmsZoneList.map(z => `<option value="${esc(z)}"${z === sel ? ' selected' : ''}>${esc(z)}</option>`).join('');
+  const none = _sfmsZoneAreas.filter(a => !sfmsAreaZone(a));
+  const inp = 'padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)';
+  const areaRow = a => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--gray-100)">
+      <span style="flex:1;min-width:0;font-size:13px">${esc(a)}</span>
+      <select onchange="saveSfmsAreaZone('${o2dJsEsc(a)}', this.value, this)" style="${inp};max-width:160px">${zoneOpts(sfmsAreaZone(a))}</select></div>`;
+  document.getElementById('sfmsZonesBody').innerHTML = `
+    <div style="background:var(--gray-50);border-radius:12px;padding:12px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">➕ Naya area kisi zone mein jodo</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="sfmsNewArea" placeholder="Area name" style="${inp};flex:1;min-width:150px"/>
+        <select id="sfmsNewAreaZone" style="${inp}">${zoneOpts('')}</select>
+        <button class="btn btn-primary btn-sm" onclick="addSfmsArea()">Add</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <input id="sfmsNewZone" placeholder="Naya zone (e.g. Zone 9)" style="${inp};flex:1;min-width:150px"/>
+        <button class="btn btn-outline btn-sm" onclick="addSfmsZone()">+ New Zone</button>
+      </div>
+    </div>
+    ${none.length ? `<div style="font-size:12px;font-weight:800;color:var(--color-danger);margin-bottom:4px">⚠️ Bina zone ke areas (${none.length}) — inki complaints "No Zone" mein jaati hain</div><div style="margin-bottom:14px">${none.map(areaRow).join('')}</div>` : ''}
+    ${sfmsZoneList.map(z => {
+      const list = _sfmsZoneAreas.filter(a => sfmsAreaZone(a) === z);
+      return `<details style="margin-bottom:8px;border:1px solid var(--gray-200);border-radius:10px;padding:8px 12px">
+        <summary style="cursor:pointer;font-weight:700">📍 ${esc(z)} <span style="font-weight:500;color:var(--gray-500)">· ${list.length} areas</span></summary>
+        <div style="margin-top:6px">${list.map(areaRow).join('') || '<div style="font-size:12px;color:var(--gray-400)">Koi area nahi</div>'}</div></details>`;
+    }).join('')}`;
+}
+async function saveSfmsAreaZone(area, zone, el) {
+  if (el) el.disabled = true;
+  const r = await api('/api/service-fms/area-zone', 'PUT', { area, zone });
+  if (el) el.disabled = false;
+  if (r.error) { showToast(r.error, 'error'); return; }
+  Object.keys(sfmsAreaZoneMap).filter(x => x.toLowerCase() === area.toLowerCase()).forEach(x => delete sfmsAreaZoneMap[x]);
+  if (zone) sfmsAreaZoneMap[area] = zone;
+  if (!_sfmsZoneAreas.some(a => a.toLowerCase() === area.toLowerCase())) _sfmsZoneAreas.push(area);
+  showToast(zone ? `✅ ${area} → ${zone}` : `${area} — zone hata diya`);
+  renderSfmsZones();
+  if (document.getElementById('page-service-fms').classList.contains('active')) renderServiceFmsList();
+}
+function addSfmsArea() {
+  const area = document.getElementById('sfmsNewArea').value.trim(), zone = document.getElementById('sfmsNewAreaZone').value;
+  if (!area) { showToast('Area name likhein', 'error'); return; }
+  if (!zone) { showToast('Zone chunein', 'error'); return; }
+  saveSfmsAreaZone(area, zone);
+}
+async function addSfmsZone() {
+  const name = document.getElementById('sfmsNewZone').value.trim();
+  if (!name) { showToast('Zone ka naam likhein', 'error'); return; }
+  if (sfmsZoneList.some(z => z.toLowerCase() === name.toLowerCase())) { showToast('Ye zone pehle se hai', 'error'); return; }
+  const r = await api('/api/service-fms/zones', 'POST', { name });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  sfmsZoneList.push(name);
+  showToast(`✅ ${name} added`);
+  renderSfmsZones();
+}
+
 function sfmsMasterListFor(name) {
   if (name === 'items') return sfmsItemsList;
   if (name === 'zone') return sfmsZoneList;
@@ -21680,7 +21814,8 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
   const garbaScene = () => `<svg width="230" height="218" viewBox="0 0 230 218" aria-hidden="true">
       <ellipse cx="115" cy="208" rx="105" ry="8" fill="rgba(0,0,0,.12)"/>
       <g transform="translate(0,6)">${girl()}</g><g transform="translate(90,0)">${boy()}</g></svg>`;
-  // Maa Durga — eight arms with her weapons, golden chakra behind, seated on her lion/tiger.
+  // Maa Durga — eight arms with her weapons, golden chakra behind, seated on her lion
+  // (a maned lion — the earlier round-faced, striped one read as a cat; client, 2026-10-13).
   const durgaScene = () => {
     const SK = '#f4c590', SKD = '#e3a765', GOLD = 'url(#fdGold)';
     let rays = '', petals = '';
@@ -21699,7 +21834,7 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
       <g transform="translate(192,56)"><g class="fx-rays"><circle r="11" fill="none" stroke="#eab308" stroke-width="3"/>${[0, 45, 90, 135].map(a => `<line x1="-11" y1="0" x2="11" y2="0" stroke="#eab308" stroke-width="1.6" transform="rotate(${a})"/>`).join('')}</g><circle r="3" fill="#dc2626"/></g>
       <g transform="translate(210,94)">${[-50, -20, 10, 40].map(a => `<ellipse rx="4.5" ry="10" cy="-6" fill="#f9a8d4" stroke="#ec4899" stroke-width=".8" transform="rotate(${a})"/>`).join('')}<circle r="3.5" fill="#fde047"/></g>
       <g><path d="M206 118 Q226 140 206 162" stroke="#92400e" stroke-width="3.5" fill="none" stroke-linecap="round"/><line x1="206" y1="118" x2="206" y2="162" stroke="#e5e7eb" stroke-width="1.2"/></g>`;
-    return `<svg width="240" height="262" viewBox="0 0 240 262" aria-hidden="true">
+    return `<svg width="240" height="276" viewBox="0 0 240 276" aria-hidden="true">
       <defs><linearGradient id="fdGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#d97706"/></linearGradient>
         <radialGradient id="fdHalo"><stop offset=".55" stop-color="#fff7d6"/><stop offset="1" stop-color="#fde68a"/></radialGradient></defs>
       <g class="fx-float">
@@ -21730,16 +21865,26 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
         <path d="M143 96 l0 6" stroke="#eab308" stroke-width="1.5"/><path d="M140 102 L146 102 L143 109Z" fill="${GOLD}"/>
       </g>
       <g>
-        <path class="fx-tail" d="M206 228 Q232 210 224 180 Q220 168 230 162" stroke="#f59e0b" stroke-width="9" fill="none" stroke-linecap="round"/>
-        <ellipse cx="152" cy="232" rx="66" ry="25" fill="#f59e0b"/>
-        ${[[134, 214], [154, 211], [174, 215], [192, 223]].map(([x, y]) => `<path d="M${x} ${y} q4 9 0 18" stroke="#1c1917" stroke-width="4" fill="none" stroke-linecap="round"/>`).join('')}
-        <circle cx="70" cy="222" r="34" fill="#f59e0b"/>
-        <circle cx="45" cy="196" r="9.5" fill="#f59e0b"/><circle cx="95" cy="196" r="9.5" fill="#f59e0b"/><circle cx="45" cy="196" r="4.8" fill="#fda4af"/><circle cx="95" cy="196" r="4.8" fill="#fda4af"/>
-        <path d="M60 198 l3 8 M70 196 l0 9 M80 198 l-3 8" stroke="#1c1917" stroke-width="3" stroke-linecap="round"/>
-        <ellipse cx="70" cy="234" rx="18" ry="12" fill="#fff7ed"/>
-        <g class="fx-blink"><ellipse cx="58" cy="219" rx="4" ry="5" fill="#1c1917"/><ellipse cx="82" cy="219" rx="4" ry="5" fill="#1c1917"/></g>
-        <path d="M65 229 L75 229 L70 235Z" fill="#9f1239"/><path d="M63 239 Q70 244 77 239" stroke="#9f1239" stroke-width="2" fill="none"/>
-        <path d="M50 232 L34 229 M50 236 L34 239 M90 232 L106 229 M90 236 L106 239" stroke="#78350f" stroke-width="1.1"/>
+        <path class="fx-tail" d="M206 230 Q232 214 222 186 Q218 172 224 164" stroke="#e0a03a" stroke-width="7" fill="none" stroke-linecap="round"/>
+        <g transform="translate(224,160)">${[0, 60, 120, 180, 240, 300].map(a => `<ellipse rx="4.5" ry="8" cy="-4" fill="#8a4a12" transform="rotate(${a})"/>`).join('')}<circle r="5" fill="#9a5414"/></g>
+        <ellipse cx="156" cy="232" rx="64" ry="24" fill="#e7a843"/>
+        <ellipse cx="160" cy="224" rx="50" ry="12" fill="#f0bb5c" opacity=".7"/>
+        <path d="M112 246 q-4 10 6 12 h16 q6 -2 2 -10Z M176 248 q-4 9 6 10 h16 q6 -2 1 -9Z" fill="#e0a03a" stroke="#b7791f" stroke-width="1"/>
+        <path d="M120 256 v-4 M126 256 v-4 M184 256 v-4 M190 256 v-4" stroke="#8a4a12" stroke-width="1.2"/>
+        <g transform="translate(70,216)">${Array.from({ length: 20 }, (_, i) => `<path d="M0 -26 Q${i % 2 ? 9 : 11} -44 0 -${i % 2 ? 50 : 56} Q-${i % 2 ? 9 : 11} -44 0 -26Z" fill="${i % 2 ? '#a65a16' : '#8a4a12'}" transform="rotate(${i * 18})"/>`).join('')}
+          <circle r="42" fill="#b4651a"/>${Array.from({ length: 14 }, (_, i) => `<path d="M0 -28 Q7 -38 0 -44 Q-7 -38 0 -28Z" fill="#c97a24" transform="rotate(${i * 25.7 + 6})"/>`).join('')}</g>
+        <circle cx="50" cy="190" r="8" fill="#e7a843" stroke="#8a4a12" stroke-width="2"/><circle cx="90" cy="190" r="8" fill="#e7a843" stroke="#8a4a12" stroke-width="2"/>
+        <ellipse cx="70" cy="218" rx="27" ry="29" fill="#eeb04e"/>
+        <path d="M52 206 Q60 199 67 206 M73 206 Q80 199 88 206" stroke="#7a3a0c" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <g class="fx-blink"><path d="M54 213 Q60 208 66 213 Q60 216 54 213Z" fill="#fde68a"/><path d="M74 213 Q80 208 86 213 Q80 216 74 213Z" fill="#fde68a"/>
+          <circle cx="60" cy="212.6" r="2.3" fill="#1c1917"/><circle cx="80" cy="212.6" r="2.3" fill="#1c1917"/></g>
+        <path d="M70 214 L66 226 M70 214 L74 226" stroke="#c98a2e" stroke-width="2" fill="none"/>
+        <ellipse cx="70" cy="234" rx="17" ry="11" fill="#fbe3b0"/>
+        <path d="M62 224 Q70 220 78 224 L72 231 Q70 232 68 231Z" fill="#4a1d07"/>
+        <path d="M70 231 L70 236 M70 236 Q64 242 58 238 M70 236 Q76 242 82 238" stroke="#4a1d07" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        <path d="M62 239 L64 245 L66 240Z M78 239 L76 245 L74 240Z" fill="#fff"/>
+        ${[230, 234, 238].map(y => `<path d="M56 ${y} L36 ${y - 3} M84 ${y} L104 ${y - 3}" stroke="#7a3a0c" stroke-width=".9"/>`).join('')}
+        <circle cx="58" cy="232" r="1" fill="#7a3a0c"/><circle cx="61" cy="236" r="1" fill="#7a3a0c"/><circle cx="82" cy="232" r="1" fill="#7a3a0c"/><circle cx="79" cy="236" r="1" fill="#7a3a0c"/>
       </g></svg>`;
   };
   const ramScene = () => `<svg width="200" height="220" viewBox="0 0 200 220" aria-hidden="true">
