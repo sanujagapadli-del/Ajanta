@@ -21814,8 +21814,9 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
   const garbaScene = () => `<svg width="230" height="218" viewBox="0 0 230 218" aria-hidden="true">
       <ellipse cx="115" cy="208" rx="105" ry="8" fill="rgba(0,0,0,.12)"/>
       <g transform="translate(0,6)">${girl()}</g><g transform="translate(90,0)">${boy()}</g></svg>`;
-  // Maa Durga — eight arms with her weapons, golden chakra behind, seated on her lion
-  // (a maned lion — the earlier round-faced, striped one read as a cat; client, 2026-10-13).
+  // Maa Durga — eight arms with her weapons, golden chakra behind, seated on her lion,
+  // drawn side-on with a long muzzle and a full mane (client, 2026-10-13: the
+  // front-facing cartoon heads read as a cat).
   const durgaScene = () => {
     const SK = '#f4c590', SKD = '#e3a765', GOLD = 'url(#fdGold)';
     let rays = '', petals = '';
@@ -21865,26 +21866,36 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
         <path d="M143 96 l0 6" stroke="#eab308" stroke-width="1.5"/><path d="M140 102 L146 102 L143 109Z" fill="${GOLD}"/>
       </g>
       <g>
-        <path class="fx-tail" d="M206 230 Q232 214 222 186 Q218 172 224 164" stroke="#e0a03a" stroke-width="7" fill="none" stroke-linecap="round"/>
-        <g transform="translate(224,160)">${[0, 60, 120, 180, 240, 300].map(a => `<ellipse rx="4.5" ry="8" cy="-4" fill="#8a4a12" transform="rotate(${a})"/>`).join('')}<circle r="5" fill="#9a5414"/></g>
-        <ellipse cx="156" cy="232" rx="64" ry="24" fill="#e7a843"/>
-        <ellipse cx="160" cy="224" rx="50" ry="12" fill="#f0bb5c" opacity=".7"/>
-        <path d="M112 246 q-4 10 6 12 h16 q6 -2 2 -10Z M176 248 q-4 9 6 10 h16 q6 -2 1 -9Z" fill="#e0a03a" stroke="#b7791f" stroke-width="1"/>
-        <path d="M120 256 v-4 M126 256 v-4 M184 256 v-4 M190 256 v-4" stroke="#8a4a12" stroke-width="1.2"/>
-        <g transform="translate(70,216)">${Array.from({ length: 20 }, (_, i) => `<path d="M0 -26 Q${i % 2 ? 9 : 11} -44 0 -${i % 2 ? 50 : 56} Q-${i % 2 ? 9 : 11} -44 0 -26Z" fill="${i % 2 ? '#a65a16' : '#8a4a12'}" transform="rotate(${i * 18})"/>`).join('')}
-          <circle r="42" fill="#b4651a"/>${Array.from({ length: 14 }, (_, i) => `<path d="M0 -28 Q7 -38 0 -44 Q-7 -38 0 -28Z" fill="#c97a24" transform="rotate(${i * 25.7 + 6})"/>`).join('')}</g>
-        <circle cx="50" cy="190" r="8" fill="#e7a843" stroke="#8a4a12" stroke-width="2"/><circle cx="90" cy="190" r="8" fill="#e7a843" stroke="#8a4a12" stroke-width="2"/>
-        <ellipse cx="70" cy="218" rx="27" ry="29" fill="#eeb04e"/>
-        <path d="M52 206 Q60 199 67 206 M73 206 Q80 199 88 206" stroke="#7a3a0c" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-        <g class="fx-blink"><path d="M54 213 Q60 208 66 213 Q60 216 54 213Z" fill="#fde68a"/><path d="M74 213 Q80 208 86 213 Q80 216 74 213Z" fill="#fde68a"/>
-          <circle cx="60" cy="212.6" r="2.3" fill="#1c1917"/><circle cx="80" cy="212.6" r="2.3" fill="#1c1917"/></g>
-        <path d="M70 214 L66 226 M70 214 L74 226" stroke="#c98a2e" stroke-width="2" fill="none"/>
-        <ellipse cx="70" cy="234" rx="17" ry="11" fill="#fbe3b0"/>
-        <path d="M62 224 Q70 220 78 224 L72 231 Q70 232 68 231Z" fill="#4a1d07"/>
-        <path d="M70 231 L70 236 M70 236 Q64 242 58 238 M70 236 Q76 242 82 238" stroke="#4a1d07" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-        <path d="M62 239 L64 245 L66 240Z M78 239 L76 245 L74 240Z" fill="#fff"/>
-        ${[230, 234, 238].map(y => `<path d="M56 ${y} L36 ${y - 3} M84 ${y} L104 ${y - 3}" stroke="#7a3a0c" stroke-width=".9"/>`).join('')}
-        <circle cx="58" cy="232" r="1" fill="#7a3a0c"/><circle cx="61" cy="236" r="1" fill="#7a3a0c"/><circle cx="82" cy="232" r="1" fill="#7a3a0c"/><circle cx="79" cy="236" r="1" fill="#7a3a0c"/>
+        <defs>
+          <linearGradient id="fdLionBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6c766"/><stop offset="1" stop-color="#d98a2b"/></linearGradient>
+          <linearGradient id="fdLionHead" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f7cb72"/><stop offset="1" stop-color="#e2a03f"/></linearGradient>
+          <radialGradient id="fdMane" cx=".55" cy=".5" r=".6"><stop offset="0" stop-color="#c8701f"/><stop offset=".7" stop-color="#9a4b12"/><stop offset="1" stop-color="#6e320b"/></radialGradient>
+        </defs>
+        <path class="fx-tail" d="M214 236 Q232 230 228 210 Q226 196 214 190" stroke="#d98a2b" stroke-width="6" fill="none" stroke-linecap="round"/>
+        <path d="M214 190 q-10 -8 -5 -17 q4 6 8 4 q-1 -8 6 -11 q0 8 4 9 q4 -5 9 -3 q-5 6 -3 11 q-7 9 -19 7z" fill="#7a3a0c"/>
+        <path d="M90 214 Q114 204 152 206 Q196 206 218 220 Q232 232 224 248 Q214 262 186 262 L108 262 Q84 258 80 240 Z" fill="url(#fdLionBody)"/>
+        <path d="M124 248 Q152 256 188 250" stroke="#c77a22" stroke-width="2" fill="none" opacity=".6"/>
+        <ellipse cx="204" cy="240" rx="22" ry="20" fill="#e9a840"/>
+        <path d="M186 254 q-2 10 8 10 h18 q6 -2 2 -10z" fill="#e9a840" stroke="#b8741f" stroke-width="1"/>
+        <path d="M196 262 v-4 M202 262 v-4" stroke="#7a3a0c" stroke-width="1.2"/>
+        <path d="M70 248 q-26 2 -28 10 q2 6 12 6 h32 q6 -6 0 -14z M102 250 q-22 2 -24 9 q2 6 12 6 h28 q6 -6 0 -13z" fill="#eaa944" stroke="#b8741f" stroke-width="1"/>
+        <path d="M46 262 v-4 M52 262 v-4 M84 263 v-4 M90 263 v-4" stroke="#7a3a0c" stroke-width="1.2"/>
+        <g transform="translate(80,206)">
+          ${Array.from({ length: 20 }, (_, i) => `<path d="M0 0 Q11 -26 0 -50 Q-11 -26 0 0Z" fill="${i % 2 ? '#8c4410' : '#a8561a'}" transform="rotate(${-120 + i * 15})"/>`).join('')}
+          <ellipse cx="0" cy="6" rx="36" ry="40" fill="url(#fdMane)"/>
+          ${Array.from({ length: 12 }, (_, i) => `<path d="M0 -12 Q6 -26 0 -38 Q-6 -26 0 -12Z" fill="#c06a1c" opacity=".85" transform="rotate(${-110 + i * 22})"/>`).join('')}
+        </g>
+        <path d="M86 186 C78 172 58 170 47 178 C39 184 32 189 25 195 C19 200 19 209 25 212 C29 215 33 218 33 222 C34 230 44 234 56 233 C71 232 86 224 88 209 C89 199 89 192 86 186Z" fill="url(#fdLionHead)" stroke="#b8741f" stroke-width="1.2"/>
+        <path d="M25 206 C28 214 38 220 50 218 C57 216 57 207 50 203 C42 199 31 200 25 206Z" fill="#fbe2ad"/>
+        <path d="M33 222 C38 226 46 226 52 223" stroke="#b8741f" stroke-width="1.2" fill="none"/>
+        <path d="M21 197 C23 192 32 192 34 198 C31 203 24 203 21 197Z" fill="#4a1d07"/>
+        <path d="M27 202 C27 206 26 209 25 211 M25 211 C30 214 36 214 42 211" stroke="#6b2f0a" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+        <path d="M80 182 q5 -11 12 -5 q2 8 -7 11z" fill="#e9a840" stroke="#8c4410" stroke-width="1.5"/>
+        <path d="M82 182 q3 -5 7 -3" stroke="#8c4410" stroke-width="1" fill="none"/>
+        <g class="fx-blink"><path d="M44 189 Q51 184 58 188 Q51 193 44 189Z" fill="#fde68a" stroke="#4a1d07" stroke-width="1"/><circle cx="51" cy="188.6" r="2.2" fill="#1c1917"/><circle cx="51.7" cy="188" r=".6" fill="#fff"/></g>
+        <path d="M40 184 Q50 177 61 183" stroke="#6b2f0a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <path d="M36 205 L16 201 M37 208 L16 209 M38 211 L19 216" stroke="#6b2f0a" stroke-width=".9"/>
+        <circle cx="38" cy="206" r=".9" fill="#6b2f0a"/><circle cx="41" cy="209" r=".9" fill="#6b2f0a"/><circle cx="42" cy="205" r=".9" fill="#6b2f0a"/>
       </g></svg>`;
   };
   const ramScene = () => `<svg width="200" height="220" viewBox="0 0 200 220" aria-hidden="true">
