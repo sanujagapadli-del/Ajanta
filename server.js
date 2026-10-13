@@ -3869,7 +3869,9 @@ const SFMS_TAB = 'Complain FMS';
 const SFMS_HEADER_ROW = 6;
 const SFMS_DATA_START_ROW = 7;
 const SFMS_LAST_COL = 'BU';
-const SFMS_PHOTO_MAX_CHARS = 40000; // stays under the 45k Sheets cell limit
+// Photos go to Drive (the sheet only keeps the link), so the old 40k-char
+// cell cap is gone: ~500 KB per photo, the browser shrinks to fit (2026-10-13).
+const SFMS_PHOTO_MAX_CHARS = 700000;
 const SFMS_OTP_CODE_COL = 'AN';
 const SFMS_OTP_SENT_COL = 'AO';
 const SFMS_OTP_TTL_MS = 30 * 60 * 1000; // OTP valid for 30 minutes after send
@@ -4167,6 +4169,9 @@ app.put('/api/service-fms/spare-balance-reset', requireAuth, requireAdmin, async
 // label the new header cells) the first time a write needs to go further.
 // Cached per serverless instance once confirmed wide enough.
 let _sfmsGridWideEnough = false;
+function sfmsLocalLink(v) {
+  return String(v || '').replace(/^https?:\/\/[^/]+(\/api\/drive-file\/)/, '$1');
+}
 async function sfmsEnsureColumns(sheetsApi) {
   if (_sfmsGridWideEnough) return;
   const needed = colToIdx(SFMS_LAST_COL) + 1;
@@ -4554,8 +4559,9 @@ async function sfmsFetchComplaints() {
         productName: get('G') || '',
         purchaseDate: sfmsSerialToDate(get('H')),
         problemDescription: get('I') || '',
-        billPhoto: get('J') || '',
-        productPhoto: get('K') || '',
+        // Links saved on the old domain (paused Vercel account) open on this one.
+        billPhoto: sfmsLocalLink(get('J')),
+        productPhoto: sfmsLocalLink(get('K')),
         productLocation: get('L') || '',
         address: get('M') || '',
         area: get('N') || '',
@@ -4660,8 +4666,8 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
         'Address': c.address,
         'Area': c.area,
         'Zone': c.zone,
-        'Bill Photo': c.billPhoto,
-        'Product Photo': c.productPhoto,
+        'Bill Photo': c.billPhoto && c.billPhoto.startsWith('/') ? (process.env.APP_URL || '') + c.billPhoto : c.billPhoto,
+        'Product Photo': c.productPhoto && c.productPhoto.startsWith('/') ? (process.env.APP_URL || '') + c.productPhoto : c.productPhoto,
         'Status': c.closed ? 'Closed' : `Pending: ${next ? next.label : ''}`,
         'Warranty Checked': st(SFMS_N.warranty).status,
         'Spare Available': st(SFMS_N.spareCheck).status,
@@ -5863,6 +5869,7 @@ async function getO2dOrders() {
       o.videos = extras.mediaBy[o.orderNo] || [];
       if (!f) return;
       o.restartCount = f.restart_count || 0;
+      if (f.carried_by) Object.assign(o, { carriedBy: f.carried_by, carriedSetBy: f.carried_set_by || '' });
       if (f.cancelled && !o.closed) { o.cancelled = true; o.closed = true; o.cancelledStepLabel = o.cancelledStepLabel || 'Cancelled'; }
       if (f.cancelled) Object.assign(o, { cancelReason: f.cancel_reason || '', cancelledBy: f.cancelled_by || '', cancelledAt: f.cancelled_at || '' });
       if (f.on_hold && !o.closed) Object.assign(o, { onHold: true, holdReason: f.hold_reason || '', holdBy: f.hold_by || '', holdAt: f.hold_at || '' });
@@ -7952,7 +7959,8 @@ async function ensureO2dOrderTables() {
       hold_reason VARCHAR(500), hold_by VARCHAR(255), hold_at DATETIME,
       cancelled TINYINT(1) NOT NULL DEFAULT 0,
       cancel_reason VARCHAR(500), cancelled_by VARCHAR(255), cancelled_at DATETIME,
-      restart_count INT NOT NULL DEFAULT 0, restarted_by VARCHAR(255), restarted_at DATETIME
+      restart_count INT NOT NULL DEFAULT 0, restarted_by VARCHAR(255), restarted_at DATETIME,
+      carried_by VARCHAR(255), carried_set_by VARCHAR(255), carried_at DATETIME
     )`);
   await db.query(`
     CREATE TABLE IF NOT EXISTS o2d_media (
@@ -7969,7 +7977,17 @@ async function ensureO2dOrderTables() {
 }
 async function withO2dOrderTables(fn) {
   try { return await fn(); }
-  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureO2dOrderTables(); return await fn(); }
+  catch (e) {
+    if (e.code === 'ER_BAD_FIELD_ERROR') {
+      // carried_by* came after the table (client, 2026-10-13) — add them once.
+      for (const col of ['carried_by VARCHAR(255)', 'carried_set_by VARCHAR(255)', 'carried_at DATETIME']) {
+        await db.query(`ALTER TABLE o2d_order_flags ADD COLUMN ${col}`).catch(err => { if (err.code !== 'ER_DUP_FIELDNAME') throw err; });
+      }
+      return await fn();
+    }
+    if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+    await ensureO2dOrderTables(); return await fn();
+  }
 }
 async function o2dOrderOnHold(orderNo) {
   const [rows] = await withO2dOrderTables(() => db.query('SELECT on_hold FROM o2d_order_flags WHERE order_no=?', [orderNo]));
@@ -7979,7 +7997,8 @@ async function o2dOrderOnHold(orderNo) {
 async function getO2dOrderExtras() {
   const [[flags], [media]] = await withO2dOrderTables(() => Promise.all([
     db.query(`SELECT order_no, on_hold, hold_reason, hold_by, DATE_FORMAT(hold_at,'%Y-%m-%d %H:%i') AS hold_at,
-                cancelled, cancel_reason, cancelled_by, DATE_FORMAT(cancelled_at,'%Y-%m-%d %H:%i') AS cancelled_at, restart_count
+                cancelled, cancel_reason, cancelled_by, DATE_FORMAT(cancelled_at,'%Y-%m-%d %H:%i') AS cancelled_at, restart_count,
+                carried_by, carried_set_by
               FROM o2d_order_flags`),
     db.query(`SELECT id, order_no, step_n, url, kind, seconds, created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
               FROM o2d_media ORDER BY id`)
@@ -8077,6 +8096,45 @@ app.post('/api/o2d-fms/order/:orderNo/restart', requireAuth, async (req, res) =>
   }
 });
 
+// Accountant marks that a salesman is taking the party's goods himself
+// (client, 2026-10-13). salesman '' clears it. Make Bill doer or admin / PC.
+app.post('/api/o2d-fms/order/:orderNo/carry', requireAuth, async (req, res) => {
+  try {
+    if (!['admin', 'pc'].includes(req.session.role) && !(await assertIsStepDoer(res, 'o2d_step_doers', 4, req.session.userId, req.session.role))) return;
+    const orderNo = req.params.orderNo;
+    const salesman = String(req.body.salesman || '').trim().slice(0, 255);
+    await withO2dOrderTables(() => db.query(
+      `INSERT INTO o2d_order_flags (order_no, carried_by, carried_set_by, carried_at) VALUES (?,?,?,NOW())
+       ON DUPLICATE KEY UPDATE carried_by=VALUES(carried_by), carried_set_by=VALUES(carried_set_by), carried_at=VALUES(carried_at)`,
+      [orderNo, salesman || null, salesman ? req.session.name || '' : null]));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Remove one product line (e.g. added twice — client, 2026-10-13) while it is
+// not billed yet: its cells are cleared, so the row is skipped everywhere
+// (orders, GP, stock all need column R). Planned / Time Delay formula columns
+// are left alone. The order must keep at least one line.
+app.post('/api/o2d-fms/order/:orderNo/remove-item', requireAuth, async (req, res) => {
+  try {
+    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Only O2D step doers / admin can remove an item' });
+    const orderNo = req.params.orderNo, row = Number(req.body.row);
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const billStep = O2D_STEPS.find(s => s.n === 4);
+    const lines = await readO2dOrderRows(sheetsApi, orderNo, billStep.status);
+    const line = lines.find(l => l.row === row);
+    if (!line) return res.status(404).json({ error: 'Item not found in this order — refresh and try again' });
+    if (line.r[colToIdx(billStep.status)]) return res.status(400).json({ error: 'Bill ban chuka hai — ab item nahi hata sakte' });
+    if (lines.length < 2) return res.status(400).json({ error: 'Order ka akela item hai — poora order Cancel karein' });
+    const cols = ['A:R', ...O2D_STEPS.flatMap(s => [s.actual, s.status, ...s.extra.map(e => e.col)])];
+    await sheetsApi.spreadsheets.values.batchClear({ spreadsheetId: O2D_SHEET_ID, requestBody: { ranges: cols.map(c => c.includes(':') ? `'${O2D_TAB}'!A${row}:R${row}` : `'${O2D_TAB}'!${c}${row}`) } });
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
 // Make Bill (step 4): the accountant can change an item's name / rate / qty
 // (qty 0 = item dropped) and add items before billing. Added lines are
 // written with steps 1-3 already done so the order stays at Make Bill.
@@ -8156,7 +8214,7 @@ app.post('/api/o2d-fms/order/:orderNo/video', requireAuth,
   express.raw({ type: ['video/*', 'application/octet-stream'], limit: '4mb' }), async (req, res) => {
   try {
     const orderNo = req.params.orderNo;
-    const stepN = parseInt(req.query.step, 10) || 9;
+    const stepN = parseInt(req.query.step, 10) || 5; // Goods Takeout & Photo (moved from Load Goods, client 2026-10-13)
     if (!(await assertIsStepDoer(res, 'o2d_step_doers', stepN, req.session.userId, req.session.role))) return;
     if (!Buffer.isBuffer(req.body) || req.body.length < 1000) return res.status(400).json({ error: 'Video is empty — record again' });
     const mime = String(req.headers['content-type'] || 'video/webm').split(';')[0];

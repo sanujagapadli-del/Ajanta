@@ -346,6 +346,9 @@ tbody tr:last-child td{border-bottom:none;}
 .ss-blank{background:transparent;border:none;cursor:default;}
 .ss-dow{display:none;font-weight:600;color:var(--gray-400);}
 @media (max-width:768px){.ss-cal{grid-template-columns:1fr;}.ss-head,.ss-blank{display:none;}.ss-cell{min-height:0;}.ss-cell.ss-empty{padding:4px 8px;}.ss-dow{display:inline;}}
+.users-scroll{max-height:calc(100dvh - 230px)}
+.users-scroll thead th{position:sticky;top:0;z-index:2;background:var(--surface);box-shadow:0 1px 0 var(--gray-200)}
+@media(max-width:768px){.users-scroll{max-height:none}}
 .fmsrep-stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px;}
 @media (max-width:640px){.fmsrep-stat-grid{grid-template-columns:repeat(2,1fr);}}
 .o2d-report-card{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);box-shadow:0 2px 14px rgba(1,80,170,.07);padding:20px;margin-bottom:16px;}
@@ -1443,7 +1446,7 @@ tbody tr:last-child td{border-bottom:none;}
         </button>
       </div>
       <div class="users-grid">
-        <div style="overflow-x:auto">
+        <div class="users-scroll" style="overflow:auto">
         <table style="min-width:780px">
           <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Department</th><th>Role</th><th>Status</th><th style="white-space:nowrap">Action</th></tr></thead>
           <tbody id="usersTbody"></tbody>
@@ -4335,6 +4338,7 @@ function buildO2dDashboardTasks() {
     // a newer item hasn't caught up) — flag it so it doesn't read as if
     // the whole order regressed.
     const isReorder = (o.products || []).some(p => p.currentStep > o.currentStep);
+    const carryBadge = o.carriedBy ? ` <span style="font-size:10px;background:var(--color-primary-light);color:var(--color-primary);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🧍 ${esc(o.carriedBy)} le jaayega</span>` : '';
     const reorderBadge = isReorder
       ? ` <span style="font-size:10px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🔄 Reorder — new item added</span>`
       : '';
@@ -4345,7 +4349,7 @@ function buildO2dDashboardTasks() {
     // Dashboard-card version of the same info.
     const extraBitsText = [o.channel, o.whenToSend, o.deliverByTransport === 'Yes' ? 'By Transport' : ''].filter(Boolean).map(esc).join(' · ');
     const description = `
-      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${esc(pendingStep.label)}${reorderBadge}</div>
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${esc(pendingStep.label)}${reorderBadge}${carryBadge}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(o.counterName) || '—'}</div>
       <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
       ${extraBitsText ? `<div style="font-size:11.5px;color:var(--gray-500)">${extraBitsText}</div>` : ''}
@@ -8014,6 +8018,15 @@ async function api(url,method='GET',body=null) {
 
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
+// Photo / file links saved while the app ran on its old domain
+// (…-omega.vercel.app, now paused) open on this one (client, 2026-10-13).
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a[href*="/api/drive-file/"]');
+  if (!a) return;
+  const m = a.getAttribute('href').match(/^https?:\/\/[^/]+(\/api\/drive-file\/.+)$/);
+  if (m && !a.href.startsWith(location.origin)) a.setAttribute('href', m[1]);
+}, true);
+
 // No old photos (client, 2026-10-12): every camera-only input (capture=…)
 // also rejects a file that wasn't just taken — phones open the camera
 // directly for these, and on a PC / odd browser an old file picked from disk
@@ -11218,6 +11231,14 @@ function onScProductLineChanged(id) {
   if (!outOfWarranty) okEl.textContent = `✅ Under Warranty — expires ${fmtDateDMY(w.expiryIso)}${w.seasonal ? ' (seasonal warranty, till December)' : ''}`;
 }
 
+const SFMS_PHOTO_TARGET_CHARS = 450000; // ~330 KB JPEG — server allows 700k
+async function sfmsPhotoToFit(file) {
+  for (const [dim, q] of [[1400, 0.72], [1200, 0.65], [1000, 0.6], [800, 0.55], [640, 0.5], [480, 0.45], [360, 0.4]]) {
+    const d = await compressImageToDataURL(file, dim, q);
+    if (d.length <= SFMS_PHOTO_TARGET_CHARS) return d;
+  }
+  return '';
+}
 async function onScProdPhotoSelected(id) {
   const input = document.getElementById(`scProdPhoto_${id}`);
   const preview = document.getElementById(`scProdPhotoPreview_${id}`);
@@ -11225,9 +11246,9 @@ async function onScProdPhotoSelected(id) {
   if (!file) { input.dataset.compressed = ''; preview.textContent = ''; return; }
   preview.textContent = 'Compressing…';
   try {
-    let dataUrl = await compressImageToDataURL(file, 900, 0.6);
-    if (dataUrl.length > 38000) dataUrl = await compressImageToDataURL(file, 600, 0.45);
-    if (dataUrl.length > 38000) {
+    // Shrinks step by step until it fits (client, 2026-10-13: photos over ~100 KB weren't uploading).
+    const dataUrl = await sfmsPhotoToFit(file);
+    if (!dataUrl) {
       preview.textContent = '⚠️ Image still too large after compression — try a smaller photo';
       input.dataset.compressed = '';
       return;
@@ -11336,9 +11357,9 @@ async function onScPhotoSelected(input, previewId) {
   if (!file) { input.dataset.compressed = ''; preview.textContent = ''; return; }
   preview.textContent = 'Compressing…';
   try {
-    let dataUrl = await compressImageToDataURL(file, 900, 0.6);
-    if (dataUrl.length > 38000) dataUrl = await compressImageToDataURL(file, 600, 0.45);
-    if (dataUrl.length > 38000) {
+    // Shrinks step by step until it fits (client, 2026-10-13: photos over ~100 KB weren't uploading).
+    const dataUrl = await sfmsPhotoToFit(file);
+    if (!dataUrl) {
       preview.textContent = '⚠️ Image still too large after compression — try a smaller photo';
       input.dataset.compressed = '';
       return;
@@ -11821,10 +11842,11 @@ function renderComplaintDetailBody(c) {
         <div style="${SFMS_FIELD_LABEL_STYLE}">Remarks / Notes</div>
         <div style="font-size:14px;color:var(--gray-800);line-height:1.5">${esc(c.remarks)}</div>
       </div>` : ''}
-      ${(c.billPhoto || c.productPhoto) ? `<div style="display:flex;gap:8px">
-        ${c.billPhoto ? `<a href="${esc(c.billPhoto)}" target="_blank" class="btn btn-outline btn-sm">Bill Photo</a>` : ''}
-        ${c.productPhoto ? `<a href="${esc(c.productPhoto)}" target="_blank" class="btn btn-outline btn-sm">Product Photo</a>` : ''}
-      </div>` : ''}
+      ${(c.billPhoto || c.productPhoto) ? `<div style="display:flex;gap:12px;flex-wrap:wrap">
+        ${[['Bill Photo', c.billPhoto], ['Product Photo', c.productPhoto]].filter(x => x[1]).map(([label, url]) => `<a href="${esc(url)}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">
+          <img src="${esc(url)}" alt="${label}" loading="lazy" onerror="this.style.display='none'" style="display:block;width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--gray-200);background:var(--gray-50)"/>
+          <span class="btn btn-outline btn-sm" style="margin-top:6px">📷 ${label}</span></a>`).join('')}
+      </div>` : '<div style="font-size:12px;color:var(--gray-400)">Bill / product photo upload nahi hui</div>'}
     </div>`;
 
   const actionHtml = buildSfmsNextActionHtml(c);
@@ -15238,7 +15260,7 @@ function renderO2dDetailBody(o, hideProgress) {
         </select>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
       <span>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span></span>
-      ${control}
+      <span style="display:flex;align-items:center;gap:6px">${control}${o2dRemoveBtn(o, p)}</span>
     </div>`;
   }).join('');
 
@@ -15249,7 +15271,7 @@ function renderO2dDetailBody(o, hideProgress) {
   const productsInfoListHtml = (o.products || []).map(p => `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
       <span>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span></span>
-      ${o2dAvailabilityBadge(p)}
+      <span style="display:flex;align-items:center;gap:6px">${o2dAvailabilityBadge(p)}${o2dRemoveBtn(o, p)}</span>
     </div>`).join('')
     + `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:7px 0 0;color:var(--gray-700)">
       <span>Total — ${totalQty} pcs</span>
@@ -15263,6 +15285,7 @@ function renderO2dDetailBody(o, hideProgress) {
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.counterName || '—')}${o.area ? ' · ' + esc(o.area) : ''}</div>
+      ${o.carriedBy ? `<div style="display:inline-block;background:var(--color-primary-light);color:var(--color-primary);border-radius:8px;padding:4px 10px;font-size:12.5px;font-weight:700;margin:-4px 0 12px">🧍 Goods salesman le jaayega: ${esc(o.carriedBy)}${o.carriedSetBy ? ` <span style="font-weight:500;color:var(--gray-500)">(mark: ${esc(o.carriedSetBy)})</span>` : ''}</div>` : ''}
       ${itemsBlockHtml}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
@@ -15344,7 +15367,7 @@ function renderO2dDetailBody(o, hideProgress) {
         </select>` : ''}
         ${nextStepDef.n === 4 ? o2dItemEditorHtml(o) : ''}
         ${extraInputsHtml}
-        ${nextStepDef.n === 9 ? o2dVideosHtml(o, true) : ''}
+        ${nextStepDef.n === 5 ? o2dVideosHtml(o, true) : ''}
         <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${o.orderNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
         ${nextStepDef.allowAddOrder ? `
         <div style="border-top:1px dashed var(--color-purple-border);margin-top:14px;padding-top:14px">
@@ -15402,7 +15425,7 @@ function renderO2dDetailBody(o, hideProgress) {
       </div>
     </details>`;
 
-  const videosDoneHtml = nextStepDef && nextStepDef.n === 9 && !o.onHold ? '' : o2dVideosHtml(o, false);
+  const videosDoneHtml = nextStepDef && nextStepDef.n === 5 && !o.onHold ? '' : o2dVideosHtml(o, false);
   body.innerHTML = infoHtml + actionHtml + videosDoneHtml + o2dOrderControlsHtml(o) + (hideProgress ? '' : checklistHtml);
   if (nextStepDef && nextStepDef.n === 4 && !o.onHold) {
     // Bill Amount starts at the order total (rate × qty) — the accountant corrects it if the bill differs.
@@ -15444,8 +15467,37 @@ function o2dOrderControlsHtml(o) {
   if (['admin', 'pc'].includes(ME.role) && (o.currentStep > 0 || o.cancelled)) {
     btns.push(`<button class="btn btn-outline btn-sm" onclick="o2dRestartOrder('${no}')" title="Clears every step — the order starts again from step 1">🔁 Restart from Step 1</button>`);
   }
+  // Accountant: party's goods go with the salesman (client, 2026-10-13).
+  if (!o.closed && (['admin', 'pc'].includes(ME.role) || o2dIsStepDoer(4))) {
+    btns.push(o.carriedBy
+      ? `<button class="btn btn-outline btn-sm" onclick="o2dSetCarry('${no}', false)" title="Mark hatao">🧍 ${esc(o.carriedBy)} le jaayega ✕</button>`
+      : `<button class="btn btn-outline btn-sm" onclick="o2dSetCarry('${no}', true)">🧍 Salesman goods le jaayega</button>`);
+  }
   if (!btns.length) return '';
   return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin:-4px 0 16px">${btns.join('')}${o.restartCount ? `<span style="font-size:11px;color:var(--gray-400);align-self:center">Restarted ${o.restartCount}×</span>` : ''}</div>`;
+}
+async function o2dSetCarry(orderNo, on) {
+  const o = o2dData.find(x => x.orderNo === orderNo) || {};
+  let salesman = '';
+  if (on) {
+    salesman = (prompt('Kaunsa salesman goods le jaayega?', o.orderBy || '') || '').trim();
+    if (!salesman) return;
+  }
+  const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/carry`, 'POST', { salesman });
+  if (res.error) { showToast(res.error, 'error'); return; }
+  o2dReloadAfterControl(on ? `🧍 ${salesman} le jaayega — mark ho gaya` : 'Mark hata diya');
+}
+// A product added twice (or by mistake) can be removed until the bill is made.
+async function o2dRemoveItem(orderNo, row, name) {
+  if (!confirm(`"${name}" ko is order se hatayein?`)) return;
+  const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/remove-item`, 'POST', { row });
+  if (res.error) { showToast(res.error, 'error'); return; }
+  o2dReloadAfterControl(`🗑 ${name} hata diya`);
+}
+function o2dRemoveBtn(o, p) {
+  const active = (o.products || []).filter(x => !x.cancelled).length;
+  if (o.closed || p.cancelled || p.currentStep >= 4 || active < 2 || !o2dCanControl()) return '';
+  return `<button type="button" onclick="event.stopPropagation();o2dRemoveItem('${o2dJsEsc(o.orderNo)}',${p.row},'${o2dJsEsc(p.productName)}')" title="Item hatao (jaise do baar jud gaya ho)" style="border:none;background:none;color:var(--color-danger);cursor:pointer;font-size:13px;padding:0 2px">🗑</button>`;
 }
 async function o2dReloadAfterControl(msg) {
   const fresh = await api('/api/o2d-fms');
@@ -15547,10 +15599,11 @@ function o2dVideosHtml(o, canAdd) {
       ${canAdd && (ME.role === 'admin' || v.created_by === ME.name) ? `<button type="button" onclick="deleteO2dVideo(${v.id},'${o2dJsEsc(o.orderNo)}')" style="border:none;background:none;color:var(--gray-400);cursor:pointer;margin-left:auto" title="Remove">✕</button>` : ''}
     </div>`).join('');
   return `<div style="${canAdd ? 'background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:12px' : 'background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:12px 16px;margin-bottom:16px'}">
-      <div style="${O2D_FIELD_LABEL_STYLE}">Dispatch Videos (${vids.length})</div>
+      <div style="${O2D_FIELD_LABEL_STYLE}">Goods Takeout Videos (${vids.length})</div>
       ${list || '<div style="font-size:12px;color:var(--gray-400)">No video yet</div>'}
-      ${canAdd ? `<button type="button" class="btn btn-outline btn-sm" style="margin-top:6px" onclick="openO2dVideoRecorder('${o2dJsEsc(o.orderNo)}', 9)">🎥 Record Video</button>
-      <div style="font-size:11px;color:var(--gray-400);margin-top:4px">Max ${O2D_VIDEO_MAX_SEC} sec each · jitne chahein utne · sirf nayi recording</div>` : ''}
+      ${canAdd ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button type="button" class="btn btn-outline btn-sm" onclick="openO2dVideoRecorder('${o2dJsEsc(o.orderNo)}', 5)">🎥 Record Video</button>
+        <label class="btn btn-outline btn-sm" style="cursor:pointer;margin:0">📁 Gallery se video<input type="file" accept="video/*" style="display:none" onchange="o2dUploadGalleryVideo('${o2dJsEsc(o.orderNo)}', this)"/></label></div>
+      <div id="o2dGalleryVidStatus_${esc(o.orderNo)}" style="font-size:11.5px;color:var(--gray-500);margin-top:4px">Photo upar alag field mein · video jitne chahein utne · bada video apne aap chhota ho jaata hai</div>` : ''}
     </div>`;
 }
 async function deleteO2dVideo(id, orderNo) {
@@ -15559,6 +15612,69 @@ async function deleteO2dVideo(id, orderNo) {
   if (res.error) { showToast(res.error, 'error'); return; }
   const o = o2dData.find(x => x.orderNo === orderNo);
   if (o) { o.videos = (o.videos || []).filter(v => v.id !== id); renderO2dDetailBody(o); }
+}
+
+// Gallery video (client, 2026-10-13): a small file goes as-is; a bigger one is
+// re-encoded in the browser to 640px / ~300 kbps (plays through once, so it
+// takes as long as the video) to stay under the 4 MB upload limit.
+const O2D_VIDEO_DIRECT_MAX = 3.6 * 1024 * 1024;
+async function o2dShrinkVideo(file, onStatus) {
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  v.src = url; v.muted = true; v.playsInline = true;
+  try {
+    await new Promise((ok, no) => { v.onloadedmetadata = ok; v.onerror = () => no(new Error('Ye video phone par chal nahi raha — doosra chunein')); });
+    if (v.duration > 180) throw new Error('Video 3 minute se chhota chunein');
+    const scale = Math.min(1, 640 / Math.max(v.videoWidth || 640, v.videoHeight || 360));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(2, Math.round((v.videoWidth || 640) * scale / 2) * 2);
+    cv.height = Math.max(2, Math.round((v.videoHeight || 360) * scale / 2) * 2);
+    const ctx = cv.getContext('2d');
+    const mime = o2dVideoMime();
+    const rec = new MediaRecorder(cv.captureStream(20), { videoBitsPerSecond: 300000, ...(mime ? { mimeType: mime.replace(/,opus/, '') } : {}) });
+    const chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const done = new Promise(ok => { rec.onstop = ok; });
+    rec.start(1000);
+    await v.play();
+    await new Promise(ok => {
+      const draw = () => {
+        ctx.drawImage(v, 0, 0, cv.width, cv.height);
+        if (onStatus) onStatus(`⏳ Video chhota ho raha hai… ${Math.round(v.currentTime)}/${Math.round(v.duration)}s (screen par hi rahein)`);
+        if (v.ended) return ok();
+        requestAnimationFrame(draw);
+      };
+      v.onended = ok; draw();
+    });
+    rec.stop(); await done;
+    return { blob: new Blob(chunks, { type: (rec.mimeType || 'video/webm').split(';')[0] }), seconds: Math.round(v.duration) };
+  } finally { URL.revokeObjectURL(url); }
+}
+async function o2dUploadGalleryVideo(orderNo, input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  const st = document.getElementById(`o2dGalleryVidStatus_${orderNo}`);
+  const say = (t, bad) => { if (st) { st.textContent = t; st.style.color = bad ? 'var(--color-danger)' : 'var(--gray-500)'; } };
+  let blob = file, seconds = null;
+  try {
+    if (file.size > O2D_VIDEO_DIRECT_MAX) ({ blob, seconds } = await o2dShrinkVideo(file, say));
+  } catch (e) { say('❌ ' + e.message, true); return; }
+  if (blob.size > 3.9 * 1024 * 1024) { say('❌ Video abhi bhi bada hai — chhota video chunein', true); return; }
+  const type = (blob.type || 'video/mp4').split(';')[0];
+  say(`⏳ Uploading (${(blob.size / 1048576).toFixed(1)} MB)…`);
+  let res;
+  try {
+    const resp = await fetch(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/video?step=5${seconds ? `&seconds=${seconds}` : ''}`, { method: 'POST', headers: { 'Content-Type': type }, body: blob, credentials: 'include' });
+    res = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+  } catch (e) { res = { error: 'Network error' }; }
+  if (res.error) { say('❌ ' + res.error, true); return; }
+  const o = o2dData.find(x => x.orderNo === orderNo);
+  if (o) {
+    o.videos = [...(o.videos || []), { id: res.id, url: res.url, seconds, created_by: ME.name, created_at: o2dReportsFmtDate(new Date()) + ' ' + new Date().toTimeString().slice(0, 5) }];
+    renderO2dDetailBody(o);
+  }
+  showToast('✅ Video saved');
 }
 
 let _o2dRec = null;
