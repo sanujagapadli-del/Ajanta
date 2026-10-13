@@ -10276,6 +10276,29 @@ async function ensureSalesScheduleTable() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       INDEX (user_id, visit_date)
     )`);
+  // v1 of the client's paper scheduler (2026-10-13): each day of a salesman's
+  // month is Full / Half / No visit (normal beat) or an upcountry place, and
+  // every counter has its salesman + beat weekday (1 = Mon … 7 = Sun).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS sales_day_plan (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      plan_date DATE NOT NULL,
+      plan VARCHAR(10) NOT NULL,
+      place VARCHAR(120),
+      updated_by VARCHAR(255),
+      UNIQUE KEY uq_user_day (user_id, plan_date)
+    )`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS sales_counters (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      counter_name VARCHAR(255) NOT NULL UNIQUE,
+      city VARCHAR(255),
+      user_id INT,
+      beat_day TINYINT,
+      updated_by VARCHAR(255),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )`);
 }
 async function withSalesSchedule(fn) {
   try { return await fn(); }
@@ -10311,7 +10334,22 @@ app.get('/api/sales-schedule', requireAuth, async (req, res) => {
       const [d] = await withDealerTables(() => db.query('SELECT counter_name AS name, city FROM o2d_dealers ORDER BY counter_name'));
       dealers = d;
     }
-    res.json({ month, isManager: manager, userId, visits, salesmen, dealers });
+    const [[plans], [beat], [dm]] = await withSalesSchedule(() => Promise.all([
+      db.query(`SELECT user_id, DATE_FORMAT(plan_date,'%Y-%m-%d') AS d, plan, place FROM sales_day_plan
+                WHERE plan_date >= ? AND plan_date < ?${userId ? ' AND user_id=?' : ''}`, userId ? [start, end, userId] : [start, end]),
+      db.query('SELECT counter_name, city, user_id, beat_day FROM sales_counters'),
+      withDealerTables(() => db.query('SELECT counter_name, city FROM o2d_dealers'))
+    ]));
+    // Counters = Dealer Master + any counter only in the beat list, with its salesman / day.
+    const byKey = {};
+    dm.forEach(x => { byKey[x.counter_name.toLowerCase()] = { name: x.counter_name, city: x.city || '', userId: null, day: null }; });
+    beat.forEach(x => {
+      const c = byKey[x.counter_name.toLowerCase()] = byKey[x.counter_name.toLowerCase()] || { name: x.counter_name, city: '', userId: null, day: null };
+      if (x.city) c.city = x.city;
+      c.userId = x.user_id; c.day = x.beat_day;
+    });
+    const counters = Object.values(byKey).sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ month, isManager: manager, userId, visits, salesmen, dealers, dayPlans: plans.map(p => ({ userId: p.user_id, date: p.d, plan: p.plan, place: p.place || '' })), counters });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -10380,6 +10418,135 @@ app.post('/api/sales-schedule/bulk', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// "Full visit" / "Half" / "No visit" / anything else = an upcountry place.
+const SS_PLAN_KINDS = ['full', 'half', 'none', 'up'];
+function ssParsePlan(text) {
+  const t = String(text || '').trim();
+  const k = t.toLowerCase().replace(/\s+/g, ' ');
+  if (!k) return null;
+  if (/^full( visit)?$/.test(k)) return { plan: 'full', place: '' };
+  if (/^half( visit)?$/.test(k)) return { plan: 'half', place: '' };
+  if (/^no( visit)?$|^(off|leave|chutti)$/.test(k)) return { plan: 'none', place: '' };
+  return { plan: 'up', place: t.slice(0, 120) };
+}
+const SS_DAYS = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7, som: 1, man: 2, bud: 3, gur: 4, guru: 4, shu: 5, sha: 6, rav: 7 };
+function ssParseDay(v) {
+  const n = Number(v);
+  if (Number.isInteger(n) && n >= 1 && n <= 7) return n;
+  const k = String(v || '').trim().toLowerCase();
+  return SS_DAYS[k.slice(0, 4)] || SS_DAYS[k.slice(0, 3)] || null;
+}
+
+// Manager: set (or clear) one day's plan for a salesman.
+app.put('/api/sales-schedule/day-plan', requireAuth, async (req, res) => {
+  try {
+    if (!(await ssIsManager(req))) return res.status(403).json({ error: 'Only a manager can plan the schedule' });
+    const userId = Number(req.body.userId), date = String(req.body.date || '');
+    if (!userId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Salesman and date are required' });
+    const plan = String(req.body.plan || '');
+    if (!plan) {
+      await withSalesSchedule(() => db.query('DELETE FROM sales_day_plan WHERE user_id=? AND plan_date=?', [userId, date]));
+      return res.json({ success: true, cleared: true });
+    }
+    if (!SS_PLAN_KINDS.includes(plan)) return res.status(400).json({ error: 'Invalid plan' });
+    const place = plan === 'up' ? String(req.body.place || '').trim().slice(0, 120) : '';
+    if (plan === 'up' && !place) return res.status(400).json({ error: 'Upcountry ka shehar likhein' });
+    await withSalesSchedule(() => db.query(
+      `INSERT INTO sales_day_plan (user_id, plan_date, plan, place, updated_by) VALUES (?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE plan=VALUES(plan), place=VALUES(place), updated_by=VALUES(updated_by)`,
+      [userId, date, plan, place || null, req.session.name || '']));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Manager: day plans from CSV — rows [{ line, salesman, date, plan }].
+app.post('/api/sales-schedule/day-plan/bulk', requireAuth, async (req, res) => {
+  try {
+    if (!(await ssIsManager(req))) return res.status(403).json({ error: 'Only a manager can plan the schedule' });
+    const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 3000) : [];
+    const [users] = await db.query("SELECT id, name FROM users WHERE is_active=1");
+    const byName = new Map(users.map(u => [u.name.trim().toLowerCase(), u.id]));
+    const errors = [], vals = [];
+    rows.forEach(r => {
+      const uid = byName.get(String(r.salesman || '').trim().toLowerCase());
+      const p = ssParsePlan(r.plan);
+      if (!uid) return errors.push({ line: r.line, error: `Salesman "${r.salesman || ''}" nahi mila` });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) return errors.push({ line: r.line, error: 'Date galat hai' });
+      if (!p) return errors.push({ line: r.line, error: 'Plan khaali hai' });
+      vals.push([uid, r.date, p.plan, p.place || null, req.session.name || '']);
+    });
+    if (vals.length) await withSalesSchedule(() => db.query(
+      `INSERT INTO sales_day_plan (user_id, plan_date, plan, place, updated_by) VALUES ?
+       ON DUPLICATE KEY UPDATE plan=VALUES(plan), place=VALUES(place), updated_by=VALUES(updated_by)`, [vals]));
+    res.json({ success: true, saved: vals.length, errors });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Manager: a counter's salesman, beat day and city (upsert by name).
+async function ssSaveCounters(list, by) {
+  if (!list.length) return;
+  await withSalesSchedule(() => db.query(
+    `INSERT INTO sales_counters (counter_name, city, user_id, beat_day, updated_by) VALUES ?
+     ON DUPLICATE KEY UPDATE city=COALESCE(NULLIF(VALUES(city),''), city), user_id=VALUES(user_id), beat_day=VALUES(beat_day), updated_by=VALUES(updated_by)`,
+    [list.map(c => [c.name, c.city || '', c.userId || null, c.day || null, by])]));
+}
+app.put('/api/sales-counters', requireAuth, async (req, res) => {
+  try {
+    if (!(await ssIsManager(req))) return res.status(403).json({ error: 'Only a manager can change the beat list' });
+    const name = String(req.body.counterName || '').trim().slice(0, 255);
+    if (!name) return res.status(400).json({ error: 'Counter name is required' });
+    const day = req.body.day === '' || req.body.day == null ? null : ssParseDay(req.body.day);
+    if (req.body.day && !day) return res.status(400).json({ error: 'Day galat hai' });
+    await ssSaveCounters([{ name, city: String(req.body.city || '').trim().slice(0, 255), userId: Number(req.body.userId) || null, day }], req.session.name || '');
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// CSV: rows [{ line, counter, city, salesman, day }].
+app.post('/api/sales-counters/bulk', requireAuth, async (req, res) => {
+  try {
+    if (!(await ssIsManager(req))) return res.status(403).json({ error: 'Only a manager can change the beat list' });
+    const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 5000) : [];
+    const [users] = await db.query("SELECT id, name FROM users WHERE is_active=1");
+    const byName = new Map(users.map(u => [u.name.trim().toLowerCase(), u.id]));
+    const errors = [], list = [];
+    rows.forEach(r => {
+      const name = String(r.counter || '').trim().slice(0, 255);
+      if (!name) return errors.push({ line: r.line, error: 'Counter khaali hai' });
+      const who = String(r.salesman || '').trim();
+      const uid = who ? byName.get(who.toLowerCase()) : null;
+      if (who && !uid) return errors.push({ line: r.line, error: `Salesman "${who}" nahi mila` });
+      const day = r.day ? ssParseDay(r.day) : null;
+      if (r.day && !day) return errors.push({ line: r.line, error: `Day "${r.day}" samajh nahi aaya` });
+      list.push({ name, city: String(r.city || '').trim().slice(0, 255), userId: uid, day });
+    });
+    await ssSaveCounters(list, req.session.name || '');
+    res.json({ success: true, saved: list.length, errors });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Visited / not visited for one counter on one day (salesman for himself, or
+// a manager). Creates the visit row when the counter came from the beat list.
+app.post('/api/sales-schedule/mark', requireAuth, async (req, res) => {
+  try {
+    const manager = await ssIsManager(req);
+    const userId = manager ? Number(req.body.userId) : Number(req.session.userId);
+    const date = String(req.body.date || ''), dealer = String(req.body.dealer || '').trim().slice(0, 255);
+    const status = String(req.body.status || '');
+    if (!userId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !dealer) return res.status(400).json({ error: 'Salesman, date and counter are required' });
+    if (!['visited', 'not_visited', 'planned'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    if (!manager && Number(req.body.userId) && Number(req.body.userId) !== userId) return res.status(403).json({ error: 'This visit is not yours' });
+    const [[v]] = await withSalesSchedule(() => db.query('SELECT id FROM sales_schedule WHERE user_id=? AND visit_date=? AND LOWER(dealer_name)=LOWER(?) LIMIT 1', [userId, date, dealer]));
+    let id = v && v.id;
+    if (!id) {
+      const [ins] = await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES (?,?,?,?,?)', [userId, date, dealer, 'Beat', req.session.name || '']);
+      id = ins.insertId;
+    }
+    await db.query(`UPDATE sales_schedule SET status=?, visited_at=${status === 'visited' ? 'COALESCE(visited_at, NOW())' : 'NULL'} WHERE id=?`, [status, id]);
+    const [[row]] = await db.query(`${SS_SELECT} WHERE s.id=?`, [id]);
+    res.json({ success: true, visit: row });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Manager: copy a salesman's month onto another month, keeping the weekday
 // pattern (2nd Monday → 2nd Monday), so a beat repeats without retyping.
 app.post('/api/sales-schedule/copy', requireAuth, async (req, res) => {
@@ -10389,8 +10556,9 @@ app.post('/api/sales-schedule/copy', requireAuth, async (req, res) => {
     const from = String(req.body.fromMonth || ''), to = String(req.body.toMonth || '');
     if (!userId || !/^\d{4}-\d{2}$/.test(from) || !/^\d{4}-\d{2}$/.test(to) || from === to) return res.status(400).json({ error: 'Pick a salesman and two different months' });
     const [src] = await withSalesSchedule(() => db.query(
-      "SELECT DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, dealer_name, purpose FROM sales_schedule WHERE user_id=? AND DATE_FORMAT(visit_date,'%Y-%m')=?", [userId, from]));
-    if (!src.length) return res.status(400).json({ error: 'That month has no visits to copy' });
+      "SELECT DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, dealer_name, purpose FROM sales_schedule WHERE user_id=? AND DATE_FORMAT(visit_date,'%Y-%m')=? AND purpose<>'Beat'", [userId, from]));
+    const [srcPlans] = await db.query("SELECT DATE_FORMAT(plan_date,'%Y-%m-%d') AS d, plan, place FROM sales_day_plan WHERE user_id=? AND DATE_FORMAT(plan_date,'%Y-%m')=?", [userId, from]);
+    if (!src.length && !srcPlans.length) return res.status(400).json({ error: 'That month has nothing to copy' });
     const [ty, tm] = to.split('-').map(Number);
     const daysIn = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
     const mapDate = d => {
@@ -10409,7 +10577,11 @@ app.post('/api/sales-schedule/copy', requireAuth, async (req, res) => {
       if (d && !have.has(k)) { have.add(k); rows.push([userId, d, s.dealer_name, s.purpose || '', req.session.name || '']); }
     });
     if (rows.length) await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES ?', [rows]);
-    res.json({ success: true, added: rows.length });
+    // Day plans follow the same weekday pattern; days already planned are kept.
+    const planVals = srcPlans.map(p => [userId, mapDate(p.d), p.plan, p.place || null, req.session.name || '']).filter(v => v[1]);
+    let plans = 0;
+    if (planVals.length) { const [r] = await db.query('INSERT IGNORE INTO sales_day_plan (user_id, plan_date, plan, place, updated_by) VALUES ?', [planVals]); plans = r.affectedRows; }
+    res.json({ success: true, added: rows.length + plans });
   } catch (err) { sendServerError(res, err); }
 });
 

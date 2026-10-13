@@ -1972,9 +1972,8 @@ tbody tr:last-child td{border-bottom:none;}
         <input type="month" id="ssMonth" onchange="ssSetMonth(this.value)" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)"/>
         <select id="ssUser" onchange="ssSetUser(this.value)" style="display:none;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800);min-width:170px"></select>
         <span id="ssManagerBtns" style="display:none">
-          <button class="btn btn-primary btn-sm" onclick="openSsPlan()">+ Plan visit</button>
-          <button class="btn btn-outline btn-sm" onclick="ssCopyLastMonth()" title="Pichhle mahine ka schedule same weekday pattern se copy karein">⧉ Copy last month</button>
-          <button class="btn btn-outline btn-sm" onclick="document.getElementById('ssCsvFile').click()" title="Columns: Salesman, Date, Dealer, Purpose">⬆ Upload CSV</button>
+          <button class="btn btn-outline btn-sm" onclick="ssCopyLastMonth()" title="Pichhle mahine ka plan same weekday pattern se copy karein">⧉ Copy last month</button>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('ssCsvFile').click()">⬆ Upload CSV <span id="ssCsvHint" style="font-weight:500;color:var(--gray-500)"></span></button>
           <button class="btn btn-outline btn-sm" onclick="ssSampleCsv()">⬇ Sample CSV</button>
           <input type="file" id="ssCsvFile" accept=".csv,text/csv" style="display:none" onchange="ssUploadCsv(this)"/>
         </span>
@@ -1982,7 +1981,7 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div class="tab-group" style="margin-bottom:12px">
       <div class="tab" data-v="calendar" onclick="ssSwitch('calendar')">📅 Calendar</div>
-      <div class="tab" data-v="list" onclick="ssSwitch('list')">📋 List</div>
+      <div class="tab" data-v="counters" onclick="ssSwitch('counters')">🏪 Counters</div>
       <div class="tab" data-v="summary" id="ssTabSummary" style="display:none" onclick="ssSwitch('summary')">📊 Summary</div>
     </div>
     <datalist id="ssDealerList"></datalist>
@@ -18569,19 +18568,24 @@ let ssData = null, ssView = '', ssMonth = '', ssUserId = '';
 const SS_INPUT = "width:100%;padding:10px 12px;border:1.5px solid var(--border-base);border-radius:var(--radius-sm);font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif;background:var(--surface);color:var(--gray-800)";
 const SS_LABEL = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
 const ssToday = () => o2dReportsFmtDate(new Date());
+function ssStatus(v) {
+  if (v.status === 'visited' || v.status === 'not_visited') return v.status;
+  return v.visit_date < ssToday() ? 'missed' : (v.visit_date === ssToday() ? 'today' : 'planned');
+}
 
 async function loadSalesSchedule() {
   if (!ssMonth) ssMonth = ssToday().slice(0, 7);
   document.getElementById('ssMonth').value = ssMonth;
   const wrap = document.getElementById('ssResults');
   wrap.innerHTML = '<div class="empty">Loading…</div>';
-  const userParam = ssView === 'summary' ? 'all' : ssUserId;
+  const userParam = ssView === 'summary' || ssView === 'counters' ? 'all' : ssUserId;
   const r = await api(`/api/sales-schedule?month=${ssMonth}${userParam ? `&userId=${userParam}` : ''}`);
   if (!r || r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed to load')}</div>`; return; }
   ssData = r;
-  if (!ssView) ssView = r.isManager ? 'calendar' : 'list';
+  if (!ssView) ssView = 'calendar';
   const sel = document.getElementById('ssUser');
   sel.style.display = r.isManager && ssView !== 'summary' ? '' : 'none';
+  document.getElementById('ssCsvHint').textContent = ssView === 'counters' ? 'Counter, City, Salesman, Day' : 'Salesman, Date, Plan';
   if (r.isManager && !sel.options.length) {
     sel.innerHTML = '<option value="">— Salesman chunein —</option>' + r.salesmen.map(u => `<option value="${u.id}">${esc(u.name)}${u.isSales ? '' : ' (other)'}</option>`).join('');
   }
@@ -18591,20 +18595,44 @@ async function loadSalesSchedule() {
   document.getElementById('ssDealerList').innerHTML = (r.dealers || []).map(d => `<option value="${esc(d.name)}">${esc(d.city || '')}</option>`).join('');
   document.querySelectorAll('#page-sales-schedule .tab').forEach(t => t.classList.toggle('active', t.dataset.v === ssView));
   renderSalesSchedule();
+  const dm = document.getElementById('ssDayModal');
+  if (dm && dm.classList.contains('open') && _ssDay && ssView === 'calendar') openSsDay(_ssDay);
 }
 function ssSetMonth(v) { ssMonth = v; loadSalesSchedule(); }
 function ssSetUser(v) { ssUserId = v; loadSalesSchedule(); }
-function ssSwitch(v) { const reload = (v === 'summary') !== (ssView === 'summary'); ssView = v; reload ? loadSalesSchedule() : (document.querySelectorAll('#page-sales-schedule .tab').forEach(t => t.classList.toggle('active', t.dataset.v === v)), renderSalesSchedule()); }
+function ssSwitch(v) { const all = x => x === 'summary' || x === 'counters'; const reload = all(v) !== all(ssView) || !ssData; ssView = v; reload ? loadSalesSchedule() : (document.querySelectorAll('#page-sales-schedule .tab').forEach(t => t.classList.toggle('active', t.dataset.v === v)), renderSalesSchedule()); }
 
-function ssStatus(v) {
-  if (v.status === 'visited') return 'visited';
-  return v.visit_date < ssToday() ? 'missed' : (v.visit_date === ssToday() ? 'today' : 'planned');
-}
-const SS_COLORS = { visited: ['var(--color-success-bg)', 'var(--color-success-text)', '✅'], missed: ['var(--color-danger-bg)', 'var(--color-danger-text)', '❌'],
-  today: ['var(--color-warning-bg)', 'var(--color-warning-text)', '📍'], planned: ['var(--gray-100)', 'var(--gray-700)', '🗓'] };
-function ssChip(v) {
-  const [bg, fg, ic] = SS_COLORS[ssStatus(v)];
-  return `<div onclick="event.stopPropagation();openSsVisit(${v.id})" title="${esc(v.dealer_name)}${v.purpose ? ' — ' + esc(v.purpose) : ''}" style="background:${bg};color:${fg};border-radius:6px;padding:2px 6px;font-size:11px;font-weight:600;margin-top:3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ic} ${esc(v.dealer_name)}</div>`;
+// v1 of the client's paper "Monthly Scheduler" (2026-10-13): each day of a
+// salesman's month is Full / Half / No visit (normal beat) or an upcountry
+// place. A day's counters = his counters whose beat day is that weekday (normal
+// beat) or the counters in that place (upcountry), plus any added by hand;
+// each is ticked Visited / Not visited.
+const SS_PLAN = { full: ['Full visit', 'var(--color-success-bg)', 'var(--color-success-text)'], half: ['Half visit', 'var(--color-warning-bg)', 'var(--color-warning-text)'],
+  none: ['No visit', 'var(--gray-100)', 'var(--gray-500)'], up: ['', 'var(--color-primary-light)', 'var(--color-primary)'] };
+const SS_WEEKDAYS = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const ssUid = () => ssData && ssData.isManager ? Number(ssUserId) : Number(ME.id);
+const ssIsoDow = date => { const d = new Date(date + 'T00:00:00').getDay(); return d === 0 ? 7 : d; };
+function ssPlanOf(date, uid) { return (ssData.dayPlans || []).find(p => p.date === date && Number(p.userId) === Number(uid || ssUid())) || null; }
+function ssPlanLabel(p) { return p ? (p.plan === 'up' ? p.place : SS_PLAN[p.plan][0]) : ''; }
+// Counters due on a day for the selected salesman.
+function ssDayCounters(date) {
+  const uid = ssUid(), p = ssPlanOf(date, uid);
+  const names = new Map();
+  if (p && (p.plan === 'full' || p.plan === 'half')) {
+    const dow = ssIsoDow(date);
+    ssData.counters.filter(c => Number(c.userId) === uid && Number(c.day) === dow).forEach(c => names.set(c.name.toLowerCase(), c));
+  } else if (p && p.plan === 'up') {
+    const places = p.place.toLowerCase().split(/[,/]+/).map(x => x.trim()).filter(Boolean);
+    const inPlace = c => places.some(pl => (c.city || '').toLowerCase().includes(pl) || c.name.toLowerCase().includes(pl));
+    const mine = ssData.counters.filter(c => inPlace(c) && Number(c.userId) === uid);
+    (mine.length ? mine : ssData.counters.filter(c => inPlace(c) && !c.userId)).forEach(c => names.set(c.name.toLowerCase(), c));
+  }
+  // Counters added by hand for that day (or already ticked) stay in the list.
+  ssData.visits.filter(v => v.visit_date === date && Number(v.user_id) === uid).forEach(v => {
+    if (!names.has(v.dealer_name.toLowerCase())) names.set(v.dealer_name.toLowerCase(), { name: v.dealer_name, city: '' });
+  });
+  const visitOf = n => ssData.visits.find(v => v.visit_date === date && Number(v.user_id) === uid && v.dealer_name.toLowerCase() === n.toLowerCase());
+  return [...names.values()].map(c => ({ ...c, visit: visitOf(c.name) || null })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function renderSalesSchedule() {
@@ -18612,87 +18640,47 @@ function renderSalesSchedule() {
   const d = ssData;
   if (!d) return;
   if (ssView === 'summary') return renderSsSummary();
+  if (ssView === 'counters') return renderSsCounters();
   if (d.isManager && !ssUserId) { wrap.innerHTML = '<div class="empty">Upar se salesman chunein — phir uska mahine ka schedule dikhega.</div>'; return; }
-  const visits = d.visits;
-  const done = visits.filter(v => v.status === 'visited');
-  const missed = visits.filter(v => ssStatus(v) === 'missed');
-  const order = done.reduce((s, v) => s + (Number(v.order_value) || 0), 0);
+  const uid = ssUid();
+  const plans = (d.dayPlans || []).filter(p => Number(p.userId) === uid);
+  const mine = d.visits.filter(v => Number(v.user_id) === uid);
+  const cnt = k => plans.filter(p => p.plan === k).length;
+  const visited = mine.filter(v => v.status === 'visited').length, notVisited = mine.filter(v => v.status === 'not_visited').length;
   const stats = `<div class="fmsrep-stat-grid" style="margin-bottom:14px">
-      ${fmsRepStat('Planned', visits.length, { icon: '🗓' })}
-      ${fmsRepStat('Visited', done.length, { icon: '✅', tone: 'good', sub: visits.length ? fmsRepPct(done.length, visits.length) + '%' : '' })}
-      ${fmsRepStat('Missed', missed.length, { icon: '❌', tone: missed.length ? 'bad' : 'neutral' })}
-      ${fmsRepStat('Order value', inr(order), { icon: '💰' })}
+      ${fmsRepStat('Full visit days', cnt('full'), { icon: '🟢' })}
+      ${fmsRepStat('Half visit days', cnt('half'), { icon: '🟡' })}
+      ${fmsRepStat('Upcountry days', cnt('up'), { icon: '🚌' })}
+      ${fmsRepStat('No visit days', cnt('none'), { icon: '⚪' })}
+      ${fmsRepStat('Counters visited', visited, { icon: '✅', tone: 'good' })}
+      ${fmsRepStat('Not visited', notVisited, { icon: '❌', tone: notVisited ? 'bad' : 'neutral' })}
     </div>`;
-  if (ssView === 'list') { wrap.innerHTML = stats + ssListHtml(visits); return; }
-
-  // Calendar (Mon-first). On phones the grid collapses to one day per row via CSS.
   const [y, m] = ssMonth.split('-').map(Number);
   const days = new Date(y, m, 0).getDate();
   const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7;
-  const byDay = {};
-  visits.forEach(v => (byDay[v.visit_date] = byDay[v.visit_date] || []).push(v));
   const cells = [];
   for (let i = 0; i < lead; i++) cells.push('<div class="ss-cell ss-blank"></div>');
   for (let day = 1; day <= days; day++) {
     const date = `${ssMonth}-${String(day).padStart(2, '0')}`;
-    const list = byDay[date] || [];
+    const p = ssPlanOf(date, uid);
+    const list = ssDayCounters(date);
+    const done = list.filter(c => c.visit && c.visit.status === 'visited').length;
     const dow = new Date(y, m - 1, day).toLocaleDateString('en-IN', { weekday: 'short' });
-    cells.push(`<div class="ss-cell${date === ssToday() ? ' ss-today' : ''}${list.length ? '' : ' ss-empty'}" onclick="openSsPlan('${date}')" title="Click to add dealers">
-        <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:800;color:var(--gray-600)"><span>${day} <span class="ss-dow">${dow}</span></span><span style="color:var(--color-primary)">＋</span></div>
-        ${list.map(ssChip).join('')}</div>`);
+    const style = p ? SS_PLAN[p.plan] : null;
+    cells.push(`<div class="ss-cell${date === ssToday() ? ' ss-today' : ''}${p || list.length ? '' : ' ss-empty'}" onclick="openSsDay('${date}')" title="Click — us din ke counters">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:800;color:var(--gray-600)"><span>${day} <span class="ss-dow">${dow}</span></span>${list.length ? `<span style="color:${done === list.length ? 'var(--color-success-text)' : 'var(--gray-500)'}">✓${done}/${list.length}</span>` : ''}</div>
+        ${p ? `<div style="margin-top:5px;background:${style[1]};color:${style[2]};border-radius:6px;padding:4px 6px;font-size:12px;font-weight:800;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ssPlanLabel(p))}</div>` : ''}</div>`);
   }
   wrap.innerHTML = stats + `<div class="ss-cal">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(x => `<div class="ss-head">${x}</div>`).join('')}${cells.join('')}</div>`;
 }
 
-function ssListHtml(visits) {
-  const today = ssToday();
-  const groups = [
-    ['📍 Aaj', visits.filter(v => v.visit_date === today)],
-    ['❌ Missed', visits.filter(v => ssStatus(v) === 'missed')],
-    ['🗓 Aage', visits.filter(v => v.visit_date > today)],
-    ['✅ Ho gaye', visits.filter(v => v.status === 'visited' && v.visit_date !== today).reverse()]
-  ];
-  const row = v => {
-    const st = ssStatus(v);
-    const [bg, fg] = SS_COLORS[st];
-    return `<div style="display:flex;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--gray-100)">
-      <div style="min-width:46px;text-align:center;background:${bg};color:${fg};border-radius:8px;padding:4px 2px;font-size:11px;font-weight:800">${esc(fmtDateDMY(v.visit_date).slice(0, 5))}</div>
-      <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--gray-900)">${esc(v.dealer_name)}${ssData.isManager && !ssUserId ? ` <span style="font-weight:500;color:var(--gray-500)">· ${esc(v.user_name || '')}</span>` : ''}</div>
-        <div style="font-size:11.5px;color:var(--gray-500)">${[v.purpose, v.status === 'visited' ? `✅ ${fmtDateDMY(v.visited_at, true)}` : '', v.order_value ? `💰 ${inr(v.order_value)}` : '', v.remark, v.distance_m != null ? `📍 ${v.distance_m < 1000 ? v.distance_m + ' m' : (v.distance_m / 1000).toFixed(1) + ' km'} from shop` : '', v.photo ? '' : ''].filter(Boolean).map(esc).join(' · ')}${v.photo ? ' · ' + linkOrText(v.photo) : ''}</div></div>
-      ${v.status !== 'visited' ? `<button class="btn ${st === 'today' ? 'btn-green' : 'btn-outline'} btn-sm" onclick="openSsVisit(${v.id})">✓ Visit</button>` : `<button class="btn btn-outline btn-sm" onclick="openSsVisit(${v.id})">View</button>`}
-    </div>`;
-  };
-  const html = groups.filter(([, l]) => l.length).map(([t, l]) => `<div class="o2d-report-card" style="padding:0;overflow:hidden;margin-bottom:12px"><div style="padding:10px 12px;font-weight:800;border-bottom:1px solid var(--gray-100)">${t} (${l.length})</div>${l.map(row).join('')}</div>`).join('');
-  return html || '<div class="empty">Is mahine koi visit plan nahi hai</div>';
-}
-
-function renderSsSummary() {
-  const wrap = document.getElementById('ssResults');
-  const by = {};
-  ssData.visits.forEach(v => {
-    const x = by[v.user_id] = by[v.user_id] || { name: v.user_name || '—', planned: 0, visited: 0, missed: 0, today: 0, order: 0, far: 0 };
-    x.planned++;
-    const st = ssStatus(v);
-    if (st === 'visited') { x.visited++; x.order += Number(v.order_value) || 0; if (v.distance_m > 500) x.far++; }
-    else if (st === 'missed') x.missed++;
-    else if (st === 'today') x.today++;
-  });
-  const rows = Object.entries(by).sort((a, b) => b[1].missed - a[1].missed || a[1].name.localeCompare(b[1].name)).map(([id, x]) => ({
-    cells: [`<b>${esc(x.name)}</b>`, x.planned, `<b style="color:var(--color-success-text)">${x.visited}</b>`, `<b style="color:${x.missed ? 'var(--color-danger)' : 'var(--gray-400)'}">${x.missed}</b>`, x.today,
-      `${fmsRepPct(x.visited, x.planned)}%`, inr(x.order), x.far ? `<span style="color:var(--color-warning-text)" title="Check-in more than 500 m from the dealer's saved location">${x.far}</span>` : '—'],
-    onclick: `ssUserId='${id}';ssSwitch('calendar')`
-  }));
-  wrap.innerHTML = fmsRepCard('👥 Salesman-wise — ' + esc(ssMonth), 'click a row for the calendar',
-    fmsRepTable(['Salesman', 'Planned', 'Visited', 'Missed', 'Today', 'Done %', 'Order value', 'Far check-ins'], rows, { empty: 'Is mahine kisi ka schedule nahi bana' }));
-}
-
-// ── Manager: plan dealers on a date (optionally every same weekday of the month) ──
+// ── A day: its plan (manager sets it) and its counters to tick ──
 function ssModal(id, title, body) {
   let m = document.getElementById(id);
   if (!m) {
     m = document.createElement('div');
     m.className = 'modal-overlay'; m.id = id;
-    m.innerHTML = `<div class="modal" style="max-width:460px;max-height:88dvh;display:flex;flex-direction:column">
+    m.innerHTML = `<div class="modal" style="max-width:520px;max-height:88dvh;display:flex;flex-direction:column">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 class="ss-mtitle" style="margin:0"></h3>
         <button class="modal-close-x modal-close" onclick="closeModal('${id}')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
       <div class="ss-mbody" style="overflow-y:auto;flex:1"></div></div>`;
@@ -18702,101 +18690,181 @@ function ssModal(id, title, body) {
   m.querySelector('.ss-mbody').innerHTML = body;
   m.classList.add('open');
 }
-let _ssPlanDealers = [];
-function openSsPlan(date) {
-  if (!ssData || !ssData.isManager) return;
-  if (!ssUserId) { showToast('Pehle salesman chunein', 'error'); return; }
-  date = date || ssToday();
-  _ssPlanDealers = [];
-  const name = (ssData.salesmen.find(u => String(u.id) === String(ssUserId)) || {}).name || '';
-  const dayVisits = ssData.visits.filter(v => v.visit_date === date);
-  const wd = new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' });
-  ssModal('ssPlanModal', `🗓 ${name} — ${fmtDateDMY(date)}`, `
-    ${dayVisits.length ? `<div style="${SS_LABEL}">Already planned</div><div style="margin-bottom:12px">${dayVisits.map(v => `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--gray-100)"><span>${esc(v.dealer_name)}${v.purpose ? ` <span style="color:var(--gray-400)">· ${esc(v.purpose)}</span>` : ''}</span>${v.status === 'visited' ? '<span style="color:var(--color-success-text);font-size:12px">✅ visited</span>' : `<button class="btn btn-outline btn-sm" onclick="ssDelete(${v.id},'${date}')">✕</button>`}</div>`).join('')}</div>` : ''}
-    <div style="${SS_LABEL}">Dealer jodo</div>
-    <div style="display:flex;gap:6px"><input id="ssDealerIn" list="ssDealerList" placeholder="Dealer name likhein / chunein" style="${SS_INPUT};margin-bottom:6px" onkeydown="if(event.key==='Enter'){event.preventDefault();ssAddDealer()}"/>
-      <button class="btn btn-outline btn-sm" style="height:40px" onclick="ssAddDealer()">+ Add</button></div>
-    <div id="ssPlanChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
-    <div style="${SS_LABEL}">Purpose (optional)</div><input id="ssPurpose" placeholder="e.g. order, payment collection, new product" style="${SS_INPUT}"/>
-    <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="ssRepeat"/> Har ${esc(wd)} (is mahine ke saare ${esc(wd)})</label>
-    <button class="btn btn-primary" id="ssPlanSave" style="width:100%;justify-content:center;padding:12px" onclick="saveSsPlan('${date}')">Save</button>`);
-  setTimeout(() => { const el = document.getElementById('ssDealerIn'); if (el) el.focus(); }, 50);
+let _ssDay = '';
+function openSsDay(date) {
+  _ssDay = date;
+  const uid = ssUid();
+  const name = ssData.isManager ? ((ssData.salesmen.find(u => u.id === uid) || {}).name || '') : (ME.name || '');
+  const p = ssPlanOf(date, uid);
+  const list = ssDayCounters(date);
+  const wd = SS_WEEKDAYS[ssIsoDow(date)];
+  const planBtn = (k, label) => `<button class="btn ${p && p.plan === k ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="ssSetDayPlan('${k}')">${label}</button>`;
+  const manager = ssData.isManager ? `
+    <div style="${SS_LABEL}">Din ka plan</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${planBtn('full', 'Full visit')}${planBtn('half', 'Half visit')}${planBtn('none', 'No visit')}${p ? `<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="ssSetDayPlan('')">Clear</button>` : ''}</div>
+    <div style="display:flex;gap:6px;margin-bottom:12px"><input id="ssUpPlace" placeholder="Upcountry — shehar (e.g. Ajmer)" value="${p && p.plan === 'up' ? esc(p.place) : ''}" style="${SS_INPUT};margin-bottom:0"/>
+      <button class="btn ${p && p.plan === 'up' ? 'btn-primary' : 'btn-outline'} btn-sm" style="white-space:nowrap" onclick="ssSetDayPlan('up')">Upcountry</button></div>` :
+    `<div style="font-size:14px;font-weight:800;margin-bottom:10px">${p ? esc(ssPlanLabel(p)) : 'Plan set nahi hai'}</div>`;
+  const why = !p ? 'Plan set nahi — counters ki list plan se banti hai.' : p.plan === 'up' ? `"${esc(p.place)}" ke counters` : p.plan === 'none' ? 'No visit day' : `${esc(name)} ke ${wd} wale counters (🏪 Counters tab)`;
+  const rows = list.map(c => {
+    const st = c.visit ? c.visit.status : '';
+    const n = o2dJsEsc(c.name);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--gray-100)">
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px">${esc(c.name)}</div><div style="font-size:11px;color:var(--gray-500)">${esc(c.city || '')}${c.visit && c.visit.order_value ? ` · 💰 ${inr(c.visit.order_value)}` : ''}${c.visit && c.visit.remark ? ` · ${esc(c.visit.remark)}` : ''}</div></div>
+      <button class="btn btn-sm ${st === 'visited' ? 'btn-green' : 'btn-outline'}" onclick="ssMark('${n}','${st === 'visited' ? 'planned' : 'visited'}')" title="Visited">✓</button>
+      <button class="btn btn-sm ${st === 'not_visited' ? 'btn-danger' : 'btn-outline'}" onclick="ssMark('${n}','${st === 'not_visited' ? 'planned' : 'not_visited'}')" title="Not visited">✗</button>
+      ${c.visit ? `<button class="btn btn-outline btn-sm" onclick="openSsVisit(${c.visit.id})" title="Photo / order / remark">📝</button>` : ''}
+    </div>`;
+  }).join('');
+  const done = list.filter(c => c.visit && c.visit.status === 'visited').length;
+  ssModal('ssDayModal', `🗓 ${name} — ${fmtDateDMY(date)} (${wd})`, `${manager}
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px"><div style="${SS_LABEL}">Counters (${list.length})</div><div style="font-size:12px;font-weight:800;color:var(--color-success-text)">✓ ${done} visited</div></div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:4px">${why}</div>
+    ${rows || '<div class="empty" style="padding:14px">Koi counter nahi</div>'}
+    <div style="display:flex;gap:6px;margin-top:10px"><input id="ssExtraCounter" list="ssDealerList" placeholder="+ Aur counter jodo" style="${SS_INPUT};margin-bottom:0"/>
+      <button class="btn btn-outline btn-sm" onclick="ssAddDayCounter()">Add</button></div>`);
 }
-function ssAddDealer() {
-  const el = document.getElementById('ssDealerIn');
-  el.value.split(',').map(x => x.trim()).filter(Boolean).forEach(n => { if (!_ssPlanDealers.some(d => d.toLowerCase() === n.toLowerCase())) _ssPlanDealers.push(n); });
-  el.value = '';
-  document.getElementById('ssPlanChips').innerHTML = _ssPlanDealers.map((n, i) => `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 6px 4px 10px;border-radius:999px;background:var(--color-primary-light);color:var(--color-primary);font-size:12px;font-weight:700">${esc(n)}<button type="button" onclick="_ssPlanDealers.splice(${i},1);document.getElementById('ssDealerIn').value='';ssAddDealer()" style="border:none;background:none;color:inherit;cursor:pointer;padding:0 2px">✕</button></span>`).join('');
-  el.focus();
-}
-async function saveSsPlan(date) {
-  ssAddDealer();
-  if (!_ssPlanDealers.length) { showToast('Kam se kam ek dealer jodo', 'error'); return; }
-  let dates = [date];
-  if (document.getElementById('ssRepeat').checked) {
-    const [y, m, dd] = date.split('-').map(Number);
-    const dow = new Date(y, m - 1, dd).getDay(), days = new Date(y, m, 0).getDate();
-    dates = [];
-    for (let i = 1; i <= days; i++) if (new Date(y, m - 1, i).getDay() === dow) dates.push(`${date.slice(0, 7)}-${String(i).padStart(2, '0')}`);
-  }
-  const restore = btnLoading(document.getElementById('ssPlanSave'), 'Saving…');
-  const r = await api('/api/sales-schedule', 'POST', { userId: ssUserId, dates, dealers: _ssPlanDealers, purpose: document.getElementById('ssPurpose').value.trim() });
-  restore();
+async function ssSetDayPlan(plan) {
+  const body = { userId: ssUid(), date: _ssDay, plan, place: plan === 'up' ? (document.getElementById('ssUpPlace').value || '').trim() : '' };
+  if (plan === 'up' && !body.place) { showToast('Shehar ka naam likhein', 'error'); return; }
+  const r = await api('/api/sales-schedule/day-plan', 'PUT', body);
   if (r.error) { showToast(r.error, 'error'); return; }
-  showToast(`✅ ${r.added} visit${r.added === 1 ? '' : 's'} planned${r.skipped ? ` · ${r.skipped} already there` : ''}`);
-  closeModal('ssPlanModal');
-  loadSalesSchedule();
-}
-async function ssDelete(id, date) {
-  const r = await api(`/api/sales-schedule/${id}`, 'DELETE');
-  if (r.error) { showToast(r.error, 'error'); return; }
-  ssData.visits = ssData.visits.filter(v => v.id !== id);
+  ssData.dayPlans = (ssData.dayPlans || []).filter(p => !(p.date === _ssDay && Number(p.userId) === body.userId));
+  if (plan) ssData.dayPlans.push({ userId: body.userId, date: _ssDay, plan, place: body.place });
   renderSalesSchedule();
-  openSsPlan(date);
+  openSsDay(_ssDay);
+}
+async function ssMark(dealer, status) {
+  const r = await api('/api/sales-schedule/mark', 'POST', { userId: ssUid(), date: _ssDay, dealer, status });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  ssData.visits = ssData.visits.filter(v => v.id !== r.visit.id).concat([r.visit]);
+  renderSalesSchedule();
+  openSsDay(_ssDay);
+}
+function ssAddDayCounter() {
+  const v = (document.getElementById('ssExtraCounter').value || '').trim();
+  if (!v) { showToast('Counter ka naam likhein', 'error'); return; }
+  ssMark(v, 'planned');
 }
 async function ssCopyLastMonth() {
   if (!ssUserId) { showToast('Pehle salesman chunein', 'error'); return; }
   const [y, m] = ssMonth.split('-').map(Number);
   const prev = o2dReportsFmtDate(new Date(y, m - 2, 1)).slice(0, 7);
-  if (!confirm(`${prev} ka schedule ${ssMonth} mein copy karein? (same weekday pattern — jaise 2nd Monday → 2nd Monday)`)) return;
+  if (!confirm(`${prev} ka plan ${ssMonth} mein copy karein? (same weekday pattern — jaise 2nd Monday → 2nd Monday)`)) return;
   const r = await api('/api/sales-schedule/copy', 'POST', { userId: ssUserId, fromMonth: prev, toMonth: ssMonth });
   if (r.error) { showToast(r.error, 'error'); return; }
-  showToast(`✅ ${r.added} visits copied`);
+  showToast(`✅ ${r.added} din / visits copied`);
   loadSalesSchedule();
 }
 
-// ── CSV upload: Salesman, Date, Dealer, Purpose (header row optional) ──
-function ssSampleCsv() {
-  const who = ssUserId ? ((ssData.salesmen.find(u => String(u.id) === String(ssUserId)) || {}).name || '') : ((ssData.salesmen.find(u => u.isSales) || ssData.salesmen[0] || {}).name || 'Salesman Name');
-  const d = n => fmtDateDMY(`${ssMonth}-${String(n).padStart(2, '0')}`).replace(/\/(\d\d)$/, '/20$1');
+// ── 🏪 Counters: every counter with its salesman and beat day ──
+let ssCounterQ = '', ssCounterDay = '', ssCounterShown = 150;
+function renderSsCounters() {
+  const wrap = document.getElementById('ssResults');
+  const d = ssData;
+  const uid = d.isManager ? Number(ssUserId) || 0 : Number(ME.id);
+  const q = ssCounterQ.toLowerCase();
+  let list = d.counters.filter(c => (!uid || Number(c.userId) === uid) && (!ssCounterDay || String(c.day || '') === ssCounterDay)
+    && (!q || c.name.toLowerCase().includes(q) || (c.city || '').toLowerCase().includes(q)));
+  list = list.sort((a, b) => (a.day || 9) - (b.day || 9) || a.name.localeCompare(b.name));
+  const nameOf = id => (d.salesmen.find(u => Number(u.id) === Number(id)) || {}).name || '';
+  const sel = (c, i) => d.isManager ? `
+      <select onchange="ssSaveCounter(${i},'userId',this.value)" style="padding:5px 6px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12px;max-width:150px;background:var(--surface)"><option value="">—</option>${d.salesmen.filter(u => u.isSales || Number(u.id) === Number(c.userId)).map(u => `<option value="${u.id}"${Number(u.id) === Number(c.userId) ? ' selected' : ''}>${esc(u.name)}</option>`).join('')}</select>` : esc(nameOf(c.userId) || ME.name || '');
+  const daySel = (c, i) => d.isManager ? `
+      <select onchange="ssSaveCounter(${i},'day',this.value)" style="padding:5px 6px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12px;background:var(--surface)"><option value="">—</option>${SS_WEEKDAYS.slice(1).map((w, k) => `<option value="${k + 1}"${Number(c.day) === k + 1 ? ' selected' : ''}>${w}</option>`).join('')}</select>` : (SS_WEEKDAYS[c.day] || '—');
+  window._ssCounterList = list;
+  const shown = list.slice(0, ssCounterShown);
+  const assigned = d.counters.filter(c => c.userId && c.day).length;
+  wrap.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <input id="ssCounterSearch" value="${esc(ssCounterQ)}" oninput="ssCounterQ=this.value;ssCounterShown=150;clearTimeout(window._ssCq);window._ssCq=setTimeout(()=>{renderSsCounters();const e=document.getElementById('ssCounterSearch');e.focus();e.setSelectionRange(e.value.length,e.value.length)},250)" placeholder="🔍 Counter / shehar" style="${SS_INPUT};margin-bottom:0;max-width:260px"/>
+      <select onchange="ssCounterDay=this.value;renderSsCounters()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface)"><option value="">Saare din</option>${SS_WEEKDAYS.slice(1).map((w, k) => `<option value="${k + 1}"${ssCounterDay === String(k + 1) ? ' selected' : ''}>${w}</option>`).join('')}</select>
+      <span style="font-size:12px;color:var(--gray-500)">${list.length} counters${uid ? '' : ` · ${assigned} ka salesman + din set`}${d.isManager && !uid ? ' · upar se salesman chunke uske counters dekhein' : ''}</span>
+    </div>
+    <div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <table><thead><tr><th>Counter</th><th>Shehar</th><th>Salesman</th><th>Beat din</th></tr></thead>
+      <tbody>${shown.map((c, i) => `<tr><td style="font-weight:600">${esc(c.name)}</td><td>${esc(c.city || '—')}</td><td>${sel(c, i)}</td><td>${daySel(c, i)}</td></tr>`).join('')}</tbody></table></div>
+    ${list.length > shown.length ? `<div style="text-align:center;margin:10px"><button class="btn btn-outline btn-sm" onclick="ssCounterShown+=300;renderSsCounters()">Aur dikhao (${list.length - shown.length})</button></div>` : ''}
+    ${d.isManager ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"><input id="ssNewCounter" placeholder="Naya counter" style="${SS_INPUT};margin-bottom:0;max-width:240px"/><input id="ssNewCounterCity" placeholder="Shehar" style="${SS_INPUT};margin-bottom:0;max-width:160px"/><button class="btn btn-outline btn-sm" onclick="ssAddCounter()">+ Counter</button></div>` : ''}`;
+}
+async function ssSaveCounter(i, field, value) {
+  const c = window._ssCounterList[i];
+  if (!c) return;
+  const next = { ...c, [field]: value ? Number(value) : null };
+  const r = await api('/api/sales-counters', 'PUT', { counterName: c.name, city: c.city, userId: next.userId || '', day: next.day || '' });
+  if (r.error) { showToast(r.error, 'error'); renderSsCounters(); return; }
+  Object.assign(c, { userId: next.userId, day: next.day });
+  showToast(`✅ ${c.name} saved`);
+}
+async function ssAddCounter() {
+  const name = document.getElementById('ssNewCounter').value.trim(), city = document.getElementById('ssNewCounterCity').value.trim();
+  if (!name) { showToast('Counter ka naam likhein', 'error'); return; }
+  const r = await api('/api/sales-counters', 'PUT', { counterName: name, city, userId: ssUserId || '', day: '' });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ ${name} added`);
+  loadSalesSchedule();
+}
+
+function renderSsSummary() {
+  const wrap = document.getElementById('ssResults');
+  const by = {};
+  const row = uid => by[uid] = by[uid] || { name: (ssData.salesmen.find(u => Number(u.id) === Number(uid)) || {}).name || '—', full: 0, half: 0, up: 0, none: 0, visited: 0, notVisited: 0, order: 0 };
+  (ssData.dayPlans || []).forEach(p => { row(p.userId)[p.plan]++; });
+  ssData.visits.forEach(v => {
+    const x = row(v.user_id);
+    if (v.status === 'visited') { x.visited++; x.order += Number(v.order_value) || 0; }
+    else if (v.status === 'not_visited') x.notVisited++;
+  });
+  const rows = Object.entries(by).sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, x]) => ({
+    cells: [`<b>${esc(x.name)}</b>`, x.full, x.half, x.up, x.none, `<b style="color:var(--color-success-text)">${x.visited}</b>`, `<b style="color:${x.notVisited ? 'var(--color-danger)' : 'var(--gray-400)'}">${x.notVisited}</b>`, x.visited + x.notVisited ? fmsRepPct(x.visited, x.visited + x.notVisited) + '%' : '—', inr(x.order)],
+    onclick: `ssUserId='${id}';ssSwitch('calendar')`
+  }));
+  wrap.innerHTML = fmsRepCard('👥 Salesman-wise — ' + esc(ssMonth), 'click a row for the calendar',
+    fmsRepTable(['Salesman', 'Full', 'Half', 'Upcountry', 'No visit', 'Visited', 'Not visited', 'Visit %', 'Order value'], rows, { empty: 'Is mahine kisi ka plan nahi bana' }));
+}
+
+// ── CSV: Calendar tab = day plans (Salesman, Date, Plan); Counters tab =
+// beat list (Counter, City, Salesman, Day). Header row optional. ──
+function ssCsvDownload(lines, file) {
   const q = v => `"${String(v).replace(/"/g, '""')}"`;
-  const lines = [['Salesman', 'Date (DD/MM/YYYY)', 'Dealer', 'Purpose'], [who, d(2), 'Dealer name exactly as in Dealer Master', 'Order'], [who, d(2), 'Second dealer same day', 'Payment collection'], [who, d(3), 'Another dealer', '']];
-  const blob = new Blob(['\ufeff' + lines.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob(['﻿' + lines.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = `Sales_Schedule_${ssMonth}_sample.csv`;
+  a.href = URL.createObjectURL(blob); a.download = file;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function ssSampleCsv() {
+  const who = ssUserId ? ((ssData.salesmen.find(u => String(u.id) === String(ssUserId)) || {}).name || '') : ((ssData.salesmen.find(u => u.isSales) || ssData.salesmen[0] || {}).name || 'Salesman Name');
+  if (ssView === 'counters') {
+    const ex = ssData.counters.slice(0, 3);
+    return ssCsvDownload([['Counter', 'City', 'Salesman', 'Day'], ...ex.map((c, i) => [c.name, c.city || '', who, SS_WEEKDAYS[i + 1]])], 'Sales_Counters_sample.csv');
+  }
+  const d = n => fmtDateDMY(`${ssMonth}-${String(n).padStart(2, '0')}`).replace(/\/(\d\d)$/, '/20$1');
+  ssCsvDownload([['Salesman', 'Date (DD/MM/YYYY)', 'Plan (Full visit / Half visit / No visit / shehar)'], [who, d(1), 'Full visit'], [who, d(2), 'Half visit'], [who, d(3), 'Kekri'], [who, d(4), 'No visit']], `Sales_Plan_${ssMonth}_sample.csv`);
 }
 async function ssUploadCsv(input) {
   const file = input.files[0];
   input.value = '';
   if (!file) return;
   const all = parseCsvText(await file.text());
-  // Skip a header row (its date cell won't parse as a date).
-  const start = all.length && !empParseDate(String(all[0][1] || '').trim()) ? 1 : 0;
-  const rows = [], bad = [];
-  all.slice(start).forEach((r, i) => {
-    const line = i + start + 1;
-    const date = empParseDate(String(r[1] || '').trim());
-    if (!date) { bad.push(`Line ${line}: date "${r[1] || ''}" samajh nahi aayi`); return; }
-    rows.push({ line, salesman: String(r[0] || '').trim(), date, dealer: String(r[2] || '').trim(), purpose: String(r[3] || '').trim() });
-  });
+  const counters = ssView === 'counters';
+  let rows = [], bad = [];
+  if (counters) {
+    const start = all.length && /counter/i.test(String(all[0][0] || '')) ? 1 : 0;
+    rows = all.slice(start).map((r, i) => ({ line: i + start + 1, counter: String(r[0] || '').trim(), city: String(r[1] || '').trim(), salesman: String(r[2] || '').trim(), day: String(r[3] || '').trim() }));
+  } else {
+    const start = all.length && !empParseDate(String(all[0][1] || '').trim()) ? 1 : 0;
+    all.slice(start).forEach((r, i) => {
+      const line = i + start + 1, date = empParseDate(String(r[1] || '').trim());
+      if (!date) { bad.push(`Line ${line}: date "${r[1] || ''}" samajh nahi aayi`); return; }
+      rows.push({ line, salesman: String(r[0] || '').trim(), date, plan: String(r[2] || '').trim() });
+    });
+  }
   if (!rows.length) { showToast(bad[0] || 'CSV mein koi row nahi mili', 'error'); return; }
-  if (!confirm(`${rows.length} visits upload karein?${bad.length ? `\n(${bad.length} rows ki date galat hai — wo chhod di jaayengi)` : ''}`)) return;
-  const r = await api('/api/sales-schedule/bulk', 'POST', { rows });
+  if (!confirm(`${rows.length} ${counters ? 'counters' : 'din ke plan'} upload karein?`)) return;
+  const r = await api(counters ? '/api/sales-counters/bulk' : '/api/sales-schedule/day-plan/bulk', 'POST', { rows });
   if (r.error) { showToast(r.error, 'error'); return; }
   const errs = [...bad, ...(r.errors || []).map(e => `Line ${e.line}: ${e.error}`)];
-  showToast(`✅ ${r.added} visits added${r.skipped ? ` · ${r.skipped} pehle se the` : ''}${errs.length ? ` · ${errs.length} rows skipped` : ''}`, errs.length && !r.added ? 'error' : undefined);
+  showToast(`✅ ${r.saved} saved${errs.length ? ` · ${errs.length} rows skipped` : ''}`, errs.length && !r.saved ? 'error' : undefined);
   if (errs.length) ssModal('ssCsvErrModal', `⚠️ ${errs.length} rows skipped`, `<div style="font-size:12.5px;line-height:1.8">${errs.slice(0, 200).map(esc).join('<br>')}</div>`);
   loadSalesSchedule();
 }
