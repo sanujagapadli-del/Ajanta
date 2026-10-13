@@ -4359,6 +4359,7 @@ function buildO2dDashboardTasks() {
       <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
       ${extraBitsText ? `<div style="font-size:11.5px;color:var(--gray-500)">${extraBitsText}</div>` : ''}
       ${o.remark ? `<div style="font-size:11.5px;color:var(--gray-500);font-style:italic">"${esc(o.remark)}"</div>` : ''}
+      ${o.timestamp ? fmsFieldRow('ENTRY', esc(fmtEntry(o.timestamp))) : ''}
       ${fmsFieldRow('PLANNED', `${esc(pendingStep.planned) || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
     `;
     tasks.push({
@@ -4793,7 +4794,7 @@ function renderDashTable(tasks, type) {
       <td data-label="Planned" class="dt-meta dt-due${emptyCls(dueText)}" style="white-space:nowrap;font-size:12px${t.plannedLate ? ';color:var(--color-danger);font-weight:700' : ''}">${dueText || '—'}</td>
       <td data-label="${doerLabel}" class="dt-meta dt-doer${emptyCls(doerName)}" style="white-space:nowrap;font-size:12px;font-weight:600">${esc(doerName)}</td>
       <td data-label="Freq" class="dt-meta dt-freq${emptyCls(t.frequency)}" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>
-      <td data-label="Start" class="dt-start" style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate((t.start_date||'').slice(0,10))||'—'}</td>
+      <td data-label="Start" class="dt-start" style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${esc(fmtEntry(t.start_date))||'—'}</td>
       <td data-label="Priority" class="dt-meta dt-prio${hasPriority ? '' : ' dt-empty'}">${hasPriority ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
       <td class="dt-action" style="white-space:nowrap">${actions}</td>
     </tr>`;
@@ -8085,6 +8086,9 @@ function fmtDate(d) {
 // used elsewhere. Accepts either "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
 // (sfmsSerialToDate's output); withTime appends HH:MM when there is one.
 // "2026-10-02 17:11:57" → "5:11 PM" (blank when there's no time part).
+// Entry date + time everywhere in the FMS lists (client, 2026-10-13): "13/10/26 5:11 PM".
+function fmtEntry(d) { return d ? `${fmtDateDMY(String(d))} ${fmtTimeOfDay(d)}`.trim() : ''; }
+function entrySubHtml(d) { return d ? `<div style="font-size:10.5px;color:var(--gray-500);font-weight:400;white-space:nowrap">🕒 ${esc(fmtEntry(d))}</div>` : ''; }
 function fmtTimeOfDay(d) {
   const m = String(d || '').match(/[ T](\d{2}):(\d{2})/);
   if (!m) return '';
@@ -12571,7 +12575,7 @@ function renderO2dFmsView() {
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer">
-          <td style="font-weight:600">${esc(o.orderNo || '—')}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o.onHold ? ` <span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)" title="${esc(o.holdReason || '')}">⏸ Hold</span>` : ''}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
+          <td style="font-weight:600">${esc(o.orderNo || '—')}${entrySubHtml(o.timestamp)}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o.onHold ? ` <span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)" title="${esc(o.holdReason || '')}">⏸ Hold</span>` : ''}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td>${esc(o.counterName || '—')}</td>
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
@@ -12607,7 +12611,7 @@ function renderO2dPCView() {
         return `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer;${rowStyle}">
           <td style="font-weight:600">${esc(o.orderNo || '—')}${o.onHold ? ` <span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)" title="${esc(o.holdReason || '')}">⏸ Hold</span>` : ''}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
-          <td style="white-space:nowrap;color:var(--gray-500)">${fmtDate((o.timestamp||'').slice(0,10)) || '—'}</td>
+          <td style="white-space:nowrap;color:var(--gray-500)">${esc(fmtEntry(o.timestamp)) || '—'}</td>
           <td>${esc(o.counterName || '—')}</td>
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
@@ -15320,7 +15324,7 @@ function renderO2dDetailBody(o, hideProgress) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Order Date</div>
-          <div style="font-size:14px;color:var(--gray-800)">${fmtDate((o.timestamp||'').slice(0,10)) || '—'}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(fmtEntry(o.timestamp)) || '—'}</div>
         </div>
         <div>
           <div style="${O2D_FIELD_LABEL_STYLE}">Order By</div>
@@ -15922,7 +15926,7 @@ function renderPurchaseIndentsView() {
       const overdue = steps.some(s => pfmsIsOverdue(s.planned));
       return `<tr onclick="openIndentDetail('${esc(o.indentNo)}')" style="cursor:pointer;${!o.closed && overdue ? 'background:var(--color-danger-bg)' : ''}">
         <td style="font-weight:600">${esc(o.indentNo)}<div style="font-size:10.5px;color:var(--gray-400);font-weight:500">${esc(String(o.type || '').replace(/ for indent$/i, ''))}</div></td>
-        <td style="white-space:nowrap">${esc(fmtDateDMY(o.timestamp) || '—')}</td>
+        <td style="white-space:nowrap">${esc(fmtEntry(o.timestamp) || '—')}</td>
         <td>${esc(o.raisedBy || '—')}</td>
         <td style="max-width:260px;white-space:normal;padding-top:8px;padding-bottom:8px">${o.lines.map(l => `<div style="font-size:11.5px;line-height:1.5">${esc(l.productName)} × ${esc(l.qty)} ${esc(l.uom || '')} <span style="color:var(--gray-400)">· ${esc(l.vendorName || '')}</span>${l.rejected ? ' <span style="color:var(--color-danger);font-weight:700">✗ rejected</span>' : ''}</div>`).join('')}</td>
         <td style="font-weight:600">${o.closed ? esc([...new Set(o.lines.map(l => l.poNumber).filter(Boolean))].join(', ') || '—') : steps.map(s => `<div>${esc(s.label)}</div>`).join('')}</td>
@@ -16289,7 +16293,7 @@ function renderPurchaseFmsView() {
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openPurchaseDetail('${o.poNumber}')" style="cursor:pointer">
-          <td style="font-weight:600">${esc(o.poNumber || '—')}</td>
+          <td style="font-weight:600">${esc(o.poNumber || '—')}${entrySubHtml(o.timestamp)}</td>
           <td>${esc(o.indentNo || '—')}</td>
           <td>${esc(o.vendorName || '—')}</td>
           <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}${p.received ? '' : pfmsVendorChipHtml(o.poNumber, p.itemId)}</div>`).join('') || '—'}</td>
@@ -16321,7 +16325,7 @@ function renderPurchasePCView() {
         const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
         return `
         <tr onclick="openPurchaseDetail('${o.poNumber}')" style="cursor:pointer;${rowStyle}">
-          <td style="font-weight:600">${esc(o.poNumber || '—')}</td>
+          <td style="font-weight:600">${esc(o.poNumber || '—')}${entrySubHtml(o.timestamp)}</td>
           <td>${esc(o.indentNo || '—')}</td>
           <td>${esc(o.vendorName || '—')}</td>
           <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}${p.received ? '' : pfmsVendorChipHtml(o.poNumber, p.itemId)}</div>`).join('') || '—'}</td>
@@ -16863,6 +16867,10 @@ function renderPurchaseDetailBody(o) {
       <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>
       ${pfmsVendorHistoryHtml(o)}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        ${o.timestamp ? `<div>
+          <div style="${PFMS_FIELD_LABEL_STYLE}">Entry Date</div>
+          <div style="font-size:14px;color:var(--gray-800)">${esc(fmtEntry(o.timestamp))}</div>
+        </div>` : ''}
         <div>
           <div style="${PFMS_FIELD_LABEL_STYLE}">Vendor</div>
           <div style="font-size:14px;color:var(--gray-800)">${esc(o.vendorName || '—')}</div>
@@ -17056,7 +17064,7 @@ function renderChequeQueue() {
     const late = t.planned && t.planned < chqToday;
     const risk = chqRiskFor(c.partyName);
     return `<tr onclick="openChequeDetail(${c.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
-      <td style="font-weight:600;white-space:nowrap">${esc(c.code)}</td>
+      <td style="font-weight:600;white-space:nowrap">${esc(c.code)}${entrySubHtml(c.createdAt)}</td>
       <td>${esc(c.partyName || '— (fill from photo)')}${risk && risk.level === 'high' ? ' <span title="High bounce risk">⛔</span>' : risk && risk.level === 'watch' ? ' <span title="Has bounced before">⚠️</span>' : ''}</td>
       <td style="white-space:nowrap">${esc(c.chequeNo || '—')}</td>
       <td style="white-space:nowrap">${chqAmt(c.amount)}</td>
@@ -17089,7 +17097,7 @@ function renderChequeAll() {
     <thead><tr><th>Cheque</th><th>Received</th><th>Salesman</th><th>Party</th><th>Bank</th><th>Cheque No</th><th>Cheque Date</th><th>Amount</th><th>Deposit Date</th><th>Deposited</th><th>Status</th></tr></thead>
     <tbody>${shown.map(c => `<tr onclick="openChequeDetail(${c.id})" style="cursor:pointer">
       <td style="font-weight:600">${esc(c.code)}</td>
-      <td>${fmtDateDMY(String(c.createdAt || '').slice(0, 10))}</td>
+      <td style="white-space:nowrap">${esc(fmtEntry(c.createdAt))}</td>
       <td>${esc(c.salesmanName || '—')}</td>
       <td style="white-space:normal;min-width:140px">${esc(c.partyName || '—')}</td>
       <td>${esc(c.bankName || '—')}</td>
@@ -17629,6 +17637,7 @@ function buildChequeDashboardTasks() {
       <div style="font-weight:700;color:${bounceTask ? 'var(--color-danger-text)' : 'var(--gray-800)'};font-size:13px">${t.n ? t.n + '. ' : '🔔 '}${esc(t.label)}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(c.partyName || 'Details from photo')}${c.amount ? ' · ' + inr(c.amount) : ''}${c.chequeNo ? ' · #' + esc(c.chequeNo) : ''}</div>
       <div style="font-size:11.5px;color:var(--gray-500)">Salesman: ${esc(c.salesmanName || '—')}${c.bounceReason && bounceTask ? ' · ' + esc(c.bounceReason) : ''}</div>
+      ${c.createdAt ? fmsFieldRow('ENTRY', esc(fmtEntry(c.createdAt))) : ''}
       ${fmsFieldRow('PLANNED', `${t.planned ? fmtDateDMY(t.planned) : '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
     tasks.push({ id: c.id, type: 'cheque', status: 'pending', title: c.code, description,
       assignedToName: (t.doers || []).map(x => x.name).join(', ') || t.doer || '—',
@@ -17770,7 +17779,7 @@ function renderLeadQueue() {
   const row = ({ l, t }) => {
     const late = t.planned && t.planned < leadToday;
     return `<tr onclick="openLeadDetail(${l.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
-      <td style="font-weight:600;white-space:nowrap">${esc(l.code)} ${leadTypeBadge(l)}</td>
+      <td style="font-weight:600;white-space:nowrap">${esc(l.code)} ${leadTypeBadge(l)}${entrySubHtml(l.createdAt)}</td>
       <td style="min-width:160px"><b>${esc(leadName(l))}</b>${l.shopName && l.contactName ? `<div style="font-size:11.5px;color:var(--gray-500)">${esc(l.contactName)}</div>` : ''}</td>
       <td style="white-space:nowrap">${esc(l.mobile || '—')}</td>
       <td>${esc([l.area, l.city].filter(Boolean).join(', ') || '—')}</td>
@@ -17806,7 +17815,7 @@ function renderLeadAll() {
     <thead><tr><th>Lead</th><th>Date</th><th>Source</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Requirement</th><th>Brought by</th><th>Calls</th><th>Visit</th><th>Status</th></tr></thead>
     <tbody>${shown.map(l => `<tr onclick="openLeadDetail(${l.id})" style="cursor:pointer">
       <td style="font-weight:600">${esc(l.code)} ${leadTypeBadge(l)}</td>
-      <td>${fmtDateDMY(String(l.createdAt || '').slice(0, 10))}</td>
+      <td style="white-space:nowrap">${esc(fmtEntry(l.createdAt))}</td>
       <td>${esc(l.source || '—')}</td>
       <td style="white-space:normal;min-width:150px">${esc(leadName(l))}${l.shopName && l.contactName ? ` <span style="color:var(--gray-500)">· ${esc(l.contactName)}</span>` : ''}</td>
       <td>${esc(l.mobile || '—')}</td>
@@ -18519,6 +18528,7 @@ function buildLeadDashboardTasks() {
       <div style="font-weight:700;color:var(--gray-800);font-size:13px">${t.n}. ${esc(t.label)}${l.visitPurpose === 'Sample' && t.key !== 'call' ? ' · 🎁 Sample' : ''}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(l.shopName || l.contactName || '—')}${l.mobile ? ' · ' + esc(l.mobile) : ''}${l.area || l.city ? ' · ' + esc([l.area, l.city].filter(Boolean).join(', ')) : ''}</div>
       <div style="font-size:11.5px;color:var(--gray-500)">${l.leadType === 'Incoming' ? '⬇ Incoming' : '⬆ Outgoing'}${l.source ? ' · ' + esc(l.source) : ''}${l.requirement ? ' · ' + esc(l.requirement) : ''}</div>
+      ${l.createdAt ? fmsFieldRow('ENTRY', esc(fmtEntry(l.createdAt))) : ''}
       ${fmsFieldRow('PLANNED', `${t.planned ? fmtDateDMY(t.planned) : '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
     tasks.push({ id: l.id, type: 'lead', status: 'pending', title: l.code, description,
       assignedToName: (t.doers || []).map(x => x.name).join(', ') || t.doer || '—',
@@ -19494,7 +19504,7 @@ function renderReplQueue() {
     ${g.items.sort((a, b) => String(a.task.planned).localeCompare(String(b.task.planned))).map(r => {
       const late = rplIsLate(r.task);
       return `<tr onclick="openReplDetail(${r.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
-        <td style="font-weight:600;white-space:nowrap">${esc(r.code)}</td>
+        <td style="font-weight:600;white-space:nowrap">${esc(r.code)}${entrySubHtml(r.createdAt)}</td>
         <td>${esc(r.partyName)}</td>
         <td style="max-width:260px">${esc(r.items)}</td>
         <td>${rplCatChip(r) || '—'}${r.task.returning ? ' <span style="font-size:11px;color:var(--color-danger-text);font-weight:700">↩ Return</span>' : ''}</td>
@@ -20031,6 +20041,7 @@ function buildReplDashboardTasks() {
       <div style="font-weight:700;color:var(--gray-800);font-size:13px">${t.n}. ${esc(t.label)}${t.returning ? ' <span style="font-size:10px;color:var(--color-danger-text)">↩ Return</span>' : ''}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(r.partyName)}${r.category ? ' · ' + esc(r.category) : ''}${r.salesmanName ? ' · 🧑‍💼 ' + esc(r.salesmanName) : ''}</div>
       <div style="font-size:12px;color:var(--gray-600)">${esc(String(r.items).slice(0, 120))}</div>
+      ${r.createdAt ? fmsFieldRow('ENTRY', esc(fmtEntry(r.createdAt))) : ''}
       ${fmsFieldRow('PLANNED', `${fmtDateDMY(t.planned, true) || '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
     tasks.push({ id: r.id, type: 'repl', status: 'pending', title: r.code, description,
       assignedToName: stepDoerLabel(t), assignedByName: stepDoerLabel(t), assignedToDept: 'Replacement', start_date: String(r.createdAt || ''), planned: t.planned || '', plannedLate: !!late });
@@ -20056,6 +20067,7 @@ function buildPurchaseDashboardTasks() {
       <div style="font-weight:700;color:var(--gray-800);font-size:13px">${step.n}. ${esc(step.label)}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(o.vendorName) || '—'}${o.indentNo ? ' · ' + esc(o.indentNo) : ''}</div>
       <div style="font-size:12px;color:var(--gray-600)">${products || '—'}</div>
+      ${o.timestamp ? fmsFieldRow('ENTRY', esc(fmtEntry(o.timestamp))) : ''}
       ${step.nextFollowup ? fmsFieldRow('NEXT FOLLOWUP', esc(fmtDateDMY(step.nextFollowup) || step.nextFollowup)) : ''}
       ${fmsFieldRow('PLANNED', `${esc(fmtDateDMY(step.planned, true) || step.planned || '—')}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
     tasks.push({ id: o.poNumber, type: 'purchase', status: 'pending', title: o.poNumber, description,
@@ -20073,6 +20085,7 @@ function buildPurchaseDashboardTasks() {
       const description = `
         <div style="font-weight:700;color:var(--gray-800);font-size:13px">📝 ${esc(step.label)}</div>
         <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc([...new Set(lines.map(l => l.vendorName).filter(Boolean))].join(', ')) || '—'} · Raised by ${esc(o.raisedBy || '—')}</div>
+        ${o.timestamp ? fmsFieldRow('ENTRY', esc(fmtEntry(o.timestamp))) : ''}
         <div style="font-size:12px;color:var(--gray-600)">${lines.map(l => `${esc(l.productName)} × ${esc(l.qty)}`).join(', ')}</div>
         ${fmsFieldRow('PLANNED', `${esc(fmtDateDMY(step.planned, true) || '—')}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
       tasks.push({ id: o.indentNo, type: 'purchase', status: 'pending', title: o.indentNo, description,
