@@ -4002,7 +4002,7 @@ function renderDbmTable() {
     return `<tr>
       <td style="font-size:13px">${esc(t.description||'—')}</td>
       <td style="white-space:nowrap;font-size:13px">${esc(t.assignedToName||'—')}</td>
-      <td style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate(t.assigned_on||'')||'—'}</td>
+      <td style="white-space:nowrap;font-size:12px;color:var(--gray-500)">${fmtDate(t.assigned_on||'')||'—'}${entrySubHtml(t.created_at)}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}${isOverdue?' <span style="color:var(--color-danger);font-weight:600;font-size:10px">⏰ Overdue</span>':''}</td>
       <td style="font-size:12px;color:var(--gray-500)">${esc(t.remarks||'—')}</td>
       <td><span class="status-badge ${t.status}">${esc(t.status==='revised'?'Revision':t.status.charAt(0).toUpperCase()+t.status.slice(1))}</span></td>
@@ -5124,7 +5124,7 @@ function renderTasksTable() {
           <td><span class="priority-badge ${esc(t.priority||'low')}">${esc(t.priority||'low')}</span></td>
           ${freqTd}
           <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
-          <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}</td>
+          <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}${entrySubHtml(t.created_at)}</td>
           <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}</td>
           <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
           <td style="white-space:nowrap">${_taskActionBtns(t, true, isChecklist)}</td>
@@ -5172,7 +5172,7 @@ function renderTasksTable() {
       <td><span class="priority-badge ${esc(t.priority||'low')}">${esc(t.priority||'low')}</span></td>
       ${freqTd}
       <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
-      <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}</td>
+      <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}${entrySubHtml(t.created_at)}</td>
       <td style="white-space:nowrap">${fmtDate(t.due_date||'')||'—'}</td>
       <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
     </tr>`;
@@ -6395,7 +6395,7 @@ async function loadSfmsCashApprovals() {
           <td>${esc(a.mechanic || '—')}<div style="font-size:11px;color:var(--gray-400)">by ${esc(a.requestedByName || '—')}</div></td>
           <td style="font-size:12px">${esc(a.short_details || '—')}</td>
           <td style="font-weight:800;white-space:nowrap">₹${esc(Number(a.amount).toLocaleString('en-IN'))}</td>
-          <td style="color:var(--gray-500);font-size:12px;white-space:nowrap">${new Date(a.created_at).toLocaleDateString('en-IN')}${a.requestedToName ? `<div>to ${esc(a.requestedToName)}</div>` : ''}</td>
+          <td style="color:var(--gray-500);font-size:12px;white-space:nowrap">${esc(fmtEntry(a.created_at))}${a.requestedToName ? `<div>to ${esc(a.requestedToName)}</div>` : ''}</td>
           <td style="white-space:nowrap">
             <button class="action-btn done" onclick="handleSfmsCashApproval(${a.id},'approved')">Approve</button>
             <button class="action-btn delete" style="margin-left:6px" onclick="handleSfmsCashApproval(${a.id},'rejected')">Reject</button>
@@ -6443,7 +6443,7 @@ async function loadApprovals() {
                 ${isAdminOrPC ? `<td style="color:var(--gray-500);font-size:12px">${esc(a.requestedToName)}</td>` : ''}
                 <td>${esc(a.description||'—')}</td>
                 <td><span class="status-badge ${a.action_type}">${a.action_type==='completed'?'✅ Mark Complete':'🔄 Revision'}</span></td>
-                <td style="color:var(--gray-500);font-size:12px">${new Date(a.created_at).toLocaleDateString('en-IN')}</td>
+                <td style="color:var(--gray-500);font-size:12px">${esc(fmtEntry(a.created_at))}</td>
                 <td>
                   <button class="action-btn done" onclick="handleApproval(${a.id},'approved')">Approve</button>
                   <button class="action-btn delete" style="margin-left:6px" onclick="handleApproval(${a.id},'rejected')">Reject</button>
@@ -6628,7 +6628,7 @@ function renderTourList() {
   out.innerHTML = head + `<div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><table style="font-size:12.5px;white-space:nowrap">
     <thead><tr><th>Date</th>${_plAccess.viewer ? '<th>Employee</th>' : ''}<th>Kahan gaye</th><th>Mode</th><th>Kiraya</th><th>Stay</th><th>Khana</th><th>Local</th><th>Other</th><th>Total</th><th>Order value</th><th>Bills</th><th>Status</th><th></th></tr></thead>
     <tbody>${items.map(x => `<tr>
-      <td>${fmtDateDMY(x.date)}</td>${_plAccess.viewer ? `<td>${esc(x.userName)}</td>` : ''}
+      <td>${fmtDateDMY(x.date)}${entrySubHtml(x.createdAt)}</td>${_plAccess.viewer ? `<td>${esc(x.userName)}</td>` : ''}
       <td style="white-space:normal;min-width:180px">${x.legs.length
         ? `<b>${esc([x.legs[0].from].concat(x.legs.map(l => l.to)).filter(Boolean).join(' → '))}</b>${x.legs.length > 1 ? x.legs.map(l => `<div style="font-size:11px;color:var(--gray-500)">${esc(l.from || '?')} → ${esc(l.to)}${l.mode ? ' · ' + esc(l.mode) : ''} · ${money(l.fare)}</div>`).join('') : ''}`
         : `<b>${esc(x.fromPlace ? x.fromPlace + ' → ' : '')}${esc(x.places)}</b>`}${x.remark ? `<div style="font-size:11.5px;color:var(--gray-500)">${esc(x.remark)}</div>` : ''}</td>
@@ -7632,7 +7632,7 @@ function renderLeaveTable(rows, isAdmin) {
     </tr></thead>
     <tbody>${rows.map(r => `<tr>
       ${isAdmin ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
-      <td>${esc(r.leave_type||'—')}</td>
+      <td>${esc(r.leave_type||'—')}${entrySubHtml(r.created_at)}</td>
       <td>${fmtDate(r.start_date)}</td>
       <td>${fmtDate(r.end_date)}</td>
       <td>${r.days ?? '—'}</td>
@@ -22524,7 +22524,7 @@ async function loadTransferApprovals() {
           <td style="font-weight:600">${esc(t.fromUserName)}</td>
           <td style="color:var(--color-purple);font-weight:600">${esc(t.toUserName)}</td>
           <td style="color:var(--gray-500);font-size:12px">${esc(t.requestedByName)}</td>
-          <td style="color:var(--gray-500);font-size:12px">${new Date(t.created_at).toLocaleDateString('en-IN')}</td>
+          <td style="color:var(--gray-500);font-size:12px">${esc(fmtEntry(t.created_at))}</td>
           <td>
             <button class="action-btn done" onclick="handleTransfer(${t.id},'approved')">✅ Approve</button>
             <button class="action-btn delete" style="margin-left:4px" onclick="handleTransfer(${t.id},'rejected')">❌ Reject</button>
