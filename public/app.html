@@ -2049,11 +2049,19 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 
   <div id="page-meca" class="page">
-    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:14px 18px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📄 MECA</div>
-      <span id="lp_meca_btns"></span>
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🧭 MECA — Salesman market report</div>
+        <input type="date" id="mecaFrom" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/> to
+        <input type="date" id="mecaTo" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
+        <input id="mecaSearch" placeholder="🔍 Salesman…" oninput="renderMeca()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn btn-sm btn-outline" onclick="mecaPreset('yday')">Kal</button><button class="btn btn-sm btn-outline" onclick="mecaPreset('today')">Aaj</button>
+        <button class="btn btn-sm btn-outline" onclick="mecaPreset('week')">Is hafte</button><button class="btn btn-sm btn-outline" onclick="mecaPreset('month')">Is mahine</button>
+        <span style="width:12px"></span><span id="mecaTabs" style="display:flex;gap:6px"></span></div>
     </div>
-    <div id="lp_meca_body"><div class="empty">Loading…</div></div>
+    <div id="mecaWrap"><div class="empty">Loading…</div></div>
   </div>
   <div id="page-scot" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
@@ -4347,7 +4355,7 @@ function navigate(page, el) {
   if (page==='ows') loadOws();
   if (page==='vendor-ledger') loadVrl();
   if (page==='samples') loadSmp();
-  if (page==='meca') loadLinkPage(page);
+  if (page==='meca') loadMeca();
   if (page==='scot') loadScot();
   if (page==='sales-schedule') loadSalesSchedule();
   if (page==='employees') loadEmployeesPage();
@@ -6139,7 +6147,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'ows', label: 'OWS — Weekly product-wise sales' },
     { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
     { key: 'samples', label: 'Samples (salesman ko diye sample)' },
-    { key: 'meca', label: 'MECA (sheet)' },
+    { key: 'meca', label: 'MECA — salesman market report (visit / order / NBD)' },
     { key: 'scot', label: 'SCOT — Calling Plan (dealers ko call, order, conversion)' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'employees', label: 'Employees (details, documents)' },
@@ -17372,6 +17380,60 @@ function exportOws() {
 }
 
 // ══════════════════════════════════════════════════════
+// MECA — salesman market report (client voice note, 2026-10-14)
+// ══════════════════════════════════════════════════════
+let mecaData = null, mecaView = 'summary';
+async function loadMeca() {
+  const f = document.getElementById('mecaFrom'), t = document.getElementById('mecaTo');
+  if (!f.value) { const td = scotTodayYmd(); f.value = td.slice(0, 8) + '01'; t.value = td; }
+  document.getElementById('mecaWrap').innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api(`/api/meca?from=${f.value}&to=${t.value}`);
+  if (r.error) { document.getElementById('mecaWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  mecaData = r;
+  renderMeca();
+}
+function mecaPreset(k) {
+  const d = new Date(), f = document.getElementById('mecaFrom'), t = document.getElementById('mecaTo');
+  if (k === 'yday') { d.setDate(d.getDate() - 1); f.value = t.value = owsYmd(d); }
+  else if (k === 'today') f.value = t.value = owsYmd(d);
+  else if (k === 'week') { f.value = owsYmd(owsMonday(d)); t.value = owsYmd(d); }
+  else { f.value = owsYmd(d).slice(0, 8) + '01'; t.value = owsYmd(d); }
+  loadMeca();
+}
+function mecaSetView(v) { mecaView = v; renderMeca(); }
+function renderMeca() {
+  if (!mecaData) return;
+  const tab = (k, l) => `<button class="btn btn-sm ${mecaView === k ? 'btn-primary' : 'btn-outline'}" onclick="mecaSetView('${k}')">${l}</button>`;
+  document.getElementById('mecaTabs').innerHTML = tab('summary', '👥 Salesman-wise') + tab('days', '📅 Day-wise');
+  const q = document.getElementById('mecaSearch').value.trim().toLowerCase();
+  const rows = mecaData.rows.filter(r => !q || r.name.toLowerCase().includes(q));
+  const wrap = document.getElementById('mecaWrap');
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">Is samay me koi visit / plan nahi. Salesman Sales Schedule me counter ✓ karte hain — wahi yahan aata hai.</div>'; return; }
+  const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—';
+  const cells = r => `<td style="text-align:right">${r.planned}</td><td style="text-align:right;font-weight:700">${r.visited}</td><td style="text-align:right">${pct(r.visited, r.planned)}</td>
+    <td style="text-align:right;font-weight:700">${r.ordered}</td><td style="text-align:right;color:var(--color-success);font-weight:800">${pct(r.ordered, r.visited)}</td><td style="text-align:right">${inr(r.value)}</td>
+    <td style="text-align:right;border-left:2px solid var(--gray-200)">${r.nbdVisits}</td><td style="text-align:right;font-weight:700">${r.nbdWon}</td>`;
+  const head = first => `<thead><tr>${first}<th style="text-align:right">Counters plan</th><th style="text-align:right">Visit kiye</th><th style="text-align:right">Visit %</th><th style="text-align:right">Order diya</th><th style="text-align:right">Productivity</th><th style="text-align:right">Order ₹</th>
+    <th style="text-align:right;border-left:2px solid var(--gray-200)">NBD visits</th><th style="text-align:right">NBD won</th></tr></thead>`;
+  const sum = list => list.reduce((a, r) => ({ planned: a.planned + r.planned, visited: a.visited + r.visited, ordered: a.ordered + r.ordered, value: a.value + r.value, nbdVisits: a.nbdVisits + r.nbdVisits, nbdWon: a.nbdWon + r.nbdWon }),
+    { planned: 0, visited: 0, ordered: 0, value: 0, nbdVisits: 0, nbdWon: 0 });
+  const note = `<div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Old dealer MECA = Sales Schedule ki beat (✓ visited, 📝 me order value). Productivity = order diya ÷ visit kiye. NBD = Lead FMS ke naye dealer visit / order ya dealer bana.</div>`;
+  if (mecaView === 'days') {
+    wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px;white-space:nowrap">${head('<th>Date</th><th>Salesman</th><th>Plan</th>')}<tbody>
+      ${rows.slice().sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)).map(r => `<tr><td>${esc(fmtDateDMY(r.date))}</td><td style="font-weight:600">${esc(r.name)}</td>
+        <td>${esc({ full: 'Full', half: 'Half', none: 'No visit' }[r.plan] || r.plan || '—')}</td>${cells(r)}</tr>`).join('')}</tbody></table></div>${note}`;
+    return;
+  }
+  const by = {};
+  rows.forEach(r => { (by[r.userId] = by[r.userId] || { name: r.name, list: [] }).list.push(r); });
+  const list = Object.values(by).map(x => ({ name: x.name, days: x.list.length, ...sum(x.list) })).sort((a, b) => b.value - a.value);
+  const tot = sum(rows);
+  wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px;white-space:nowrap">${head('<th>Salesman</th><th style="text-align:right">Din</th>')}<tbody>
+    ${list.map(r => `<tr><td style="font-weight:700">${esc(r.name)}</td><td style="text-align:right">${r.days}</td>${cells(r)}</tr>`).join('')}
+    <tr style="font-weight:800;background:var(--gray-50)"><td>Total</td><td></td>${cells(tot)}</tr></tbody></table></div>${note}`;
+}
+
+// ══════════════════════════════════════════════════════
 // SCOT — Sales Coordinator calling plan (client's "Calling Plan" tool, 2026-10-14)
 // ══════════════════════════════════════════════════════
 let scotData = null, scotTab = 'calls', scotDate = null, scotFilter = 'all', scotSched = {}, scotCalled = new Set(), scotProducts = null;
@@ -17634,9 +17696,19 @@ async function scotSaveOrder(id, btn) {
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('scotOrderModal');
-  const canO2d = typeof canSee === 'function' && (canSee('o2d-fms') || canSee('o2d-new-order'));
-  showToast('✅ Order saved' + (canO2d ? ' — ab O2D New Order bhi bana dein' : ''));
   loadScot();
+  // Client: "SCOT se order seedha order sheet me chala jaye" — open O2D New
+  // Order with the dealer and the call's items filled in.
+  if (typeof canSee === 'function' && (canSee('o2d-fms') || canSee('o2d-new-order'))) {
+    showToast('✅ Order saved — ab O2D New Order me products bharein');
+    openNewO2dOrderModal();
+    const cn = document.getElementById('noCounterName');
+    cn.value = scotData.byId[id].name;
+    cn.dispatchEvent(new Event('input', { bubbles: true }));
+    cn.dispatchEvent(new Event('change', { bubbles: true }));
+    const items = document.getElementById('scotOItems').value.trim();
+    document.getElementById('noRemark').value = `SCOT call order${items ? ' — ' + items : ''}`;
+  } else showToast('✅ Order saved');
 }
 function scotOpenNewDealer() {
   vrlModal('scotNewModal', `${scotModalHead('scotNewModal', '＋ New Dealer')}

@@ -10905,6 +10905,65 @@ app.post('/api/sales-schedule/:id/visit', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// MECA (client voice note, 2026-10-14): what each salesman did in the market,
+// day by day — instead of asking every morning "kal kitne counter kiye, kitna
+// order mila". Old-dealer MECA comes from the Sales Schedule beat (planned =
+// that day's beat counters + any added by hand, same rule as the page);
+// NBD MECA from Lead FMS visits (new dealers visited / won).
+app.get('/api/meca', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'meca'))) return res.status(403).json({ error: 'No access to MECA' });
+    const isYmd = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+    const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const from = isYmd(req.query.from) ? req.query.from : today.slice(0, 8) + '01';
+    const to = isYmd(req.query.to) ? req.query.to : today;
+    if (from > to) return res.status(400).json({ error: 'From date To se pehle honi chahiye' });
+    const [[plans], [counters], [visits]] = await withSalesSchedule(() => Promise.all([
+      db.query("SELECT user_id, DATE_FORMAT(plan_date,'%Y-%m-%d') AS d, plan, place FROM sales_day_plan WHERE plan_date BETWEEN ? AND ?", [from, to]),
+      db.query('SELECT counter_name, city, user_id, beat_day FROM sales_counters'),
+      db.query("SELECT user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, dealer_name, status, order_value FROM sales_schedule WHERE visit_date BETWEEN ? AND ?", [from, to])
+    ]));
+    const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
+    const rows = {};
+    const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, plan: '', planned: new Set(), visited: 0, notVisited: 0, ordered: 0, value: 0, nbdVisits: 0, nbdWon: 0 };
+    for (const p of plans) {
+      const r = row(p.user_id, p.d);
+      r.plan = p.plan === 'up' ? p.place : p.plan;
+      if (p.plan === 'full' || p.plan === 'half') {
+        const dow = isoDow(p.d);
+        counters.filter(c => Number(c.user_id) === Number(p.user_id) && Number(c.beat_day) === dow).forEach(c => r.planned.add(c.counter_name.toLowerCase()));
+      } else if (p.plan === 'up') {
+        const places = String(p.place || '').toLowerCase().split(/[,/]+/).map(x => x.trim()).filter(Boolean);
+        const inPlace = c => places.some(pl => (c.city || '').toLowerCase().includes(pl) || c.counter_name.toLowerCase().includes(pl));
+        const mine = counters.filter(c => inPlace(c) && Number(c.user_id) === Number(p.user_id));
+        (mine.length ? mine : counters.filter(c => inPlace(c) && !c.user_id)).forEach(c => r.planned.add(c.counter_name.toLowerCase()));
+      }
+    }
+    for (const v of visits) {
+      const r = row(v.user_id, v.d);
+      r.planned.add(v.dealer_name.toLowerCase());
+      if (v.status === 'visited') { r.visited++; const ov = Number(v.order_value) || 0; if (ov > 0) { r.ordered++; r.value += ov; } }
+      else if (v.status === 'not_visited') r.notVisited++;
+    }
+    const [leadVisits] = await db.query(`SELECT user_id, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, detail FROM lead_events
+      WHERE event='visit' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+    for (const l of leadVisits) {
+      if (!l.user_id) continue;
+      const r = row(l.user_id, l.d);
+      r.nbdVisits++;
+      if (/^(Order Mil Gaya|New Dealer Bana)/.test(l.detail || '')) r.nbdWon++;
+    }
+    const ids = [...new Set(Object.values(rows).map(r => r.userId))];
+    const [users] = ids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [ids]) : [[]];
+    const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
+    const out = Object.values(rows).filter(r => r.plan !== 'none' || r.visited || r.nbdVisits)
+      .map(r => ({ ...r, planned: r.planned.size, name: nameOf[r.userId] || `User ${r.userId}` }))
+      .filter(r => r.planned || r.visited || r.nbdVisits)
+      .sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
+    res.json({ from, to, rows: out });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // ══════════════════════════════════════════════════════
 // GROSS PROFIT (client, 2026-10-06: "GP O2D aur Purchase FMS se nikalna
 // hai") — product-wise and dealer-wise, highest first, from the app's own FMS
