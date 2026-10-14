@@ -1116,6 +1116,18 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
         <span class="nav-label-text">Petty Cash</span>
       </div>
+      <div class="nav-item" id="nav-checklist-master" style="display:none" onclick="navigate('checklist-master',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+        <span class="nav-label-text">Checklist Master</span>
+      </div>
+      <div class="nav-item" id="nav-ows" style="display:none" onclick="navigate('ows',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span class="nav-label-text">OWS</span>
+      </div>
+      <div class="nav-item" id="nav-vendor-ledger" style="display:none" onclick="navigate('vendor-ledger',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+        <span class="nav-label-text">Vendor Replacement</span>
+      </div>
       </div>
     </div>
     <div class="nav-divider"></div>
@@ -1970,6 +1982,47 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 
   <!-- ── SALES SCHEDULE (client, 2026-10-12) ── -->
+  <div id="page-checklist-master" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">✅ Checklist Master</div>
+        <input id="clmSearch" placeholder="🔍 Search task…" oninput="renderChecklistMaster()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:180px"/>
+        <select id="clmDoer" onchange="renderChecklistMaster()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="">All employees</option></select>
+        <select id="clmShow" onchange="renderChecklistMaster()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="active">Running</option><option value="all">All (incl. finished)</option></select>
+        <button class="btn btn-outline" onclick="exportChecklistMaster()">⬇ Excel</button>
+        <button class="btn btn-primary" onclick="openChecklist()">+ New Checklist</button>
+      </div>
+      <div style="font-size:12px;color:var(--gray-500);margin-top:6px">Har employee ki har checklist ek line me. Edit / transfer / stop sirf aaj se aage ke pending din par lagta hai — jo ho chuka woh nahi badalta.</div>
+    </div>
+    <div id="clmWrap" class="table-wrap"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div id="page-ows" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📊 OWS — Weekly Sales (Product-wise)</div>
+        <input id="owsSearch" placeholder="🔍 Product…" oninput="renderOws()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:160px"/>
+        <select id="owsMetric" onchange="renderOws()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="qty">Qty</option><option value="amount">Sales ₹</option></select>
+        <select id="owsWeeks" onchange="loadOws()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="4">4 weeks</option><option value="8" selected>8 weeks</option><option value="12">12 weeks</option><option value="26">26 weeks</option></select>
+        <button class="btn btn-outline" onclick="exportOws()">⬇ Excel</button>
+      </div>
+      <div style="font-size:12px;color:var(--gray-500);margin-top:6px">O2D me bill bane orders (Make Bill date), hafta Monday–Sunday. Sabse naya hafta sabse pehle.</div>
+    </div>
+    <div id="owsWrap" class="table-wrap"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div id="page-vendor-ledger" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🔁 Vendor Replacement Ledger</div>
+        <input id="vrlSearch" placeholder="🔍 Vendor / item / challan…" oninput="renderVrl()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:180px"/>
+        <button class="btn btn-primary" onclick="openVrlNew()">+ New Challan</button>
+      </div>
+      <div id="vrlTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
+    </div>
+    <div id="vrlWrap"><div class="empty">Loading…</div></div>
+  </div>
+
   <div id="page-sales-schedule" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -4049,6 +4102,9 @@ async function init() {
     if (canSee('gross-profit')) document.getElementById('nav-gross-profit').style.display = 'flex';
     if (canSee('gross-profit') && !gpSalesOnly()) document.getElementById('nav-net-profit').style.display = 'flex';
     if (canSee('petty-cash')) document.getElementById('nav-petty-cash').style.display = 'flex';
+    if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
+    if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
+    if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
     if (canSee('sales-schedule')) document.getElementById('nav-sales-schedule').style.display = 'flex';
     if (canSee('users')) document.getElementById('nav-users').style.display = 'flex';
     if (canSee('employees')) document.getElementById('nav-employees').style.display = 'flex';
@@ -4086,7 +4142,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4186,7 +4242,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4207,7 +4263,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly())))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly())))) { showToast("You don't have access to this page", 'error'); return; }
   // Net Profit has its own sidebar item (client, 2026-10-12) but is the Gross Profit page's 💰 view.
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page === 'net-profit' ? 'gross-profit' : page;
   closeMobileSidebar();
@@ -4239,6 +4295,9 @@ function navigate(page, el) {
   if (page==='lead-fms') loadLeadFmsList();
   if (page==='gross-profit' || page==='net-profit') { gpView = page === 'net-profit' ? 'np' : (gpView === 'np' ? 'product' : gpView); loadGrossProfit(); }
   if (page==='petty-cash') loadPettyCash();
+  if (page==='checklist-master') loadChecklistMaster();
+  if (page==='ows') loadOws();
+  if (page==='vendor-ledger') loadVrl();
   if (page==='sales-schedule') loadSalesSchedule();
   if (page==='employees') loadEmployeesPage();
   if (page==='price-catalogue') loadPriceCataloguePage();
@@ -5730,6 +5789,7 @@ async function saveChecklist() {
 
   setTimeout(()=>{ closeModal('checklistModal'); }, 2000);
   scheduleDashboardRefresh();
+  if (document.getElementById('page-checklist-master').classList.contains('active')) loadChecklistMaster();
 }
 
 // ══════════════════════════════════════════════════════
@@ -6011,6 +6071,9 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'mis', label: 'MIS Report' },
     { key: 'gross-profit', label: 'Gross Profit' },
     { key: 'petty-cash', label: 'Petty Cash' },
+    { key: 'checklist-master', label: 'Checklist Master (sabki checklist banaye / badle / band kare)' },
+    { key: 'ows', label: 'OWS — Weekly product-wise sales' },
+    { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'employees', label: 'Employees (details, documents)' },
     { key: 'users', label: 'Users' },
@@ -13898,6 +13961,19 @@ let stockLoaded = false;
 let stockSearchQ = '';
 let stockTab = 'register'; // 'register' | 'report'
 let stockRegDate = '';      // YYYY-MM-DD shown in the Daily Register
+// Month-till-date / date range (client, 2026-10-14). 'day' keeps the old one-day view.
+let stockRegMode = 'day', stockRegFrom = '', stockRegTo = '';
+function stockRegRange() {
+  if (stockRegMode === 'mtd') { const t = stockTodayYmd(); return { from: t.slice(0, 8) + '01', to: t }; }
+  if (stockRegMode === 'range') return { from: stockRegFrom || stockRegDate, to: stockRegTo || stockRegDate };
+  return { from: stockRegDate, to: stockRegDate };
+}
+function setStockRegMode(m) {
+  stockRegMode = m; stockRegAddDir = '';
+  if (m === 'range' && !stockRegFrom) { stockRegTo = stockTodayYmd(); const d = new Date(); d.setDate(d.getDate() - 6); stockRegFrom = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  loadStockRegister(false);
+}
+function setStockRegRange(which, v) { if (!v) return; if (which === 'from') stockRegFrom = v; else stockRegTo = v; loadStockRegister(false); }
 let stockReg = null;        // last /api/stock/register response
 let stockRegAddDir = '';    // 'IN' | 'OUT' while the manual-entry form is open
 let stockUnlinked = null;   // /api/stock/unlinked rows while that view is open
@@ -13961,13 +14037,13 @@ function stockRowHtml(item) {
       <button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${String(item.description||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Remove">🗑</button>
     </div>` : '';
   const stock = Number(item.current_stock);
-  return `<tr>
+  return `<tr style="cursor:pointer" onclick="if(!event.target.closest('button'))openStockItemHistory('${esc(item.item_code)}')" title="IN / OUT history">
     <td style="font-weight:600">${esc(item.item_code)}</td>
     <td>${esc(item.description)}</td>
     <td>${item.std_pack !== null ? esc(item.std_pack) : '—'}</td>
     <td>${esc(item.uom || '—')}</td>
     <td style="white-space:nowrap;font-weight:700${stock < 0 ? ';color:var(--color-danger)' : ''}">${stock.toLocaleString('en-IN')}</td>
-    <td>${item.as_of_date ? esc(item.as_of_date.slice(0,10)) : '—'}</td>
+    <td>${item.as_of_date ? esc(fmtDateDMY(item.as_of_date.slice(0,10))) : '—'}</td>
     <td style="white-space:nowrap">${editBtns}</td>
   </tr>`;
 }
@@ -13994,6 +14070,40 @@ function renderStockGrid() {
     <div style="font-size:12px;color:var(--gray-400);padding:12px 4px">${filtered.length} item${filtered.length===1?'':'s'} · total stock ${totalStock.toLocaleString('en-IN')}</div>`;
 }
 
+// Report → click an item: when it came in and when it went out (client, 2026-10-14).
+async function openStockItemHistory(code) {
+  let m = document.getElementById('stockHistModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'stockHistModal';
+    m.innerHTML = `<div class="modal" style="max-width:760px;max-height:90dvh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 id="stockHistTitle" style="margin:0;font-size:16px"></h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('stockHistModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div id="stockHistBody" style="overflow-y:auto;flex:1"></div></div>`;
+    document.body.appendChild(m);
+  }
+  m.classList.add('open');
+  const body = document.getElementById('stockHistBody');
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api(`/api/stock/item/${encodeURIComponent(code)}/history`);
+  if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  document.getElementById('stockHistTitle').textContent = `${r.item.item_code} · ${r.item.description}`;
+  const badge = src => { const b = STOCK_SOURCE_BADGE[src || 'manual'] || STOCK_SOURCE_BADGE.manual; return `<span style="color:${b.color};font-weight:600">${b.label}</span>`; };
+  body.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:13px">
+      <div style="padding:8px 12px;border-radius:10px;background:var(--color-success-bg)">⬇ IN <b>${Number(r.totIn).toLocaleString('en-IN')}</b></div>
+      <div style="padding:8px 12px;border-radius:10px;background:var(--color-danger-bg)">⬆ OUT <b>${Number(r.totOut).toLocaleString('en-IN')}</b></div>
+      <div style="padding:8px 12px;border-radius:10px;background:var(--gray-100)">Current stock <b>${Number(r.item.current_stock).toLocaleString('en-IN')} ${esc(r.item.uom || '')}</b></div></div>
+    ${r.rows.length ? `<table style="font-size:12.5px"><thead><tr><th>Date</th><th>In / Out</th><th>Qty</th><th>From</th><th>Party / Ref</th><th>By</th></tr></thead><tbody>
+      ${r.rows.map(x => `<tr style="${x.status === 'Cancelled' ? 'opacity:.45;text-decoration:line-through' : ''}">
+        <td style="white-space:nowrap">${esc(fmtDateDMY(x.txn_date))}</td>
+        <td style="font-weight:700;color:${x.direction === 'IN' ? 'var(--color-success)' : 'var(--color-danger)'}">${x.direction === 'IN' ? '⬇ IN' : '⬆ OUT'}</td>
+        <td style="white-space:nowrap;font-weight:700">${Number(x.quantity).toLocaleString('en-IN')}${Number(x.rate) > 0 ? `<div style="font-size:11px;font-weight:400;color:var(--gray-500)">@ ₹${Number(x.rate).toLocaleString('en-IN')}</div>` : ''}</td>
+        <td>${badge(x.source)}${Number(x.applied) === 0 && x.status !== 'Cancelled' ? '<div style="font-size:11px;color:var(--color-warning)">not linked</div>' : ''}</td>
+        <td>${esc([x.party, x.ref_no].filter(Boolean).join(' · ') || x.remarks || '—')}</td>
+        <td style="font-size:11.5px;color:var(--gray-500)">${esc(x.created_by || '')}<div>${esc(fmtEntry(x.created_at))}</div></td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty">Abhi tak koi IN / OUT entry nahi</div>'}`;
+}
+
 function stockItemOptionsHtml() {
   return stockItems.slice().sort((a,b)=>a.description.localeCompare(b.description))
     .map(it => `<option value="${esc(it.item_code)}">${esc(it.item_code)} — ${esc(it.description)}</option>`).join('');
@@ -14005,9 +14115,10 @@ function stockItemOptionsHtml() {
 async function loadStockRegister(refresh) {
   const body = document.getElementById('stockTabBody');
   if (!body) return;
-  if (!stockReg || stockReg.date !== stockRegDate || refresh) {
+  const rg = stockRegRange();
+  if (!stockReg || stockReg.from !== rg.from || stockReg.to !== rg.to || refresh) {
     body.innerHTML = `<div class="empty">Loading register…</div>`;
-    const r = await api(`/api/stock/register?date=${stockRegDate}${refresh ? '&refresh=1' : ''}`);
+    const r = await api(`/api/stock/register?date=${stockRegDate}&from=${rg.from}&to=${rg.to}${refresh ? '&refresh=1' : ''}`);
     if (r && r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
     stockReg = r;
     if (refresh) await loadStock(true);
@@ -14048,7 +14159,7 @@ function stockRegEntryHtml(row, canEdit) {
   return `<div style="padding:10px 12px;border-bottom:1px solid var(--gray-100);${cancelled ? 'opacity:.5;text-decoration:line-through' : ''}">
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
       <div style="min-width:0">
-        <div style="font-weight:600;font-size:13px">${esc(row.item_name || row.source_item || '—')}</div>
+        <div style="font-weight:600;font-size:13px">${stockReg && stockReg.from !== stockReg.to ? `<span style="font-size:11px;font-weight:700;color:var(--gray-500);margin-right:6px">${esc(fmtDateDMY(row.txn_date))}</span>` : ''}${esc(row.item_name || row.source_item || '—')}</div>
         <div style="font-size:11px;color:var(--gray-500);margin-top:2px">
           ${row.item_code ? `<b>${esc(row.item_code)}</b> · ` : ''}<span style="color:${badge.color};font-weight:600">${badge.label}</span>${meta ? ' · ' + meta : ''}${row.remarks ? ' · ' + esc(row.remarks) : ''}
         </div>
@@ -14092,7 +14203,7 @@ function stockRegColumnHtml(dir, rows, canEdit) {
         <div style="font-size:11px;color:var(--gray-500)">${active.length} entr${active.length === 1 ? 'y' : 'ies'} · total qty <b>${total.toLocaleString('en-IN')}</b></div>
         <div style="font-size:12.5px;margin-top:3px;color:var(--gray-600)">💰 ${isIn ? 'Inward value' : 'Sale value'} <b style="font-size:14px;color:var(--gray-900)">${inr(saleValue)}</b>${priced.length < active.length ? ` <span style="font-size:11px;color:var(--color-warning)">(${active.length - priced.length} without rate)</span>` : ''}</div>
       </div>
-      <button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('${dir}')">+ Manual</button>
+      ${stockRegMode === 'day' ? `<button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('${dir}')">+ Manual</button>` : ''}
     </div>
     ${form}
     ${rows.map(r => stockRegEntryHtml(r, canEdit)).join('') || `<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">No ${isIn ? 'inward' : 'outward'} entries</div>`}
@@ -14106,13 +14217,23 @@ function renderStockRegister() {
   const r = stockReg;
   const isToday = stockRegDate === stockTodayYmd();
   const dLabel = new Date(stockRegDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-  body.innerHTML = `
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+  const modeBtn = (m, l) => `<button class="btn btn-sm ${stockRegMode === m ? 'btn-primary' : 'btn-outline'}" onclick="setStockRegMode('${m}')">${l}</button>`;
+  const dateCtl = stockRegMode === 'day' ? `
       <button class="btn btn-outline btn-sm" onclick="shiftStockRegDate(-1)" title="Previous day">◀</button>
       <input type="date" value="${stockRegDate}" onchange="setStockRegDate(this.value)" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
       <button class="btn btn-outline btn-sm" onclick="shiftStockRegDate(1)" title="Next day">▶</button>
       ${isToday ? '' : `<button class="btn btn-outline btn-sm" onclick="setStockRegDate(stockTodayYmd())">Today</button>`}
-      <span style="font-weight:700;font-size:13px;color:var(--gray-700)">${dLabel}</span>
+      <span style="font-weight:700;font-size:13px;color:var(--gray-700)">${dLabel}</span>`
+    : stockRegMode === 'range' ? `
+      <input type="date" value="${r.from}" onchange="setStockRegRange('from',this.value)" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
+      <span style="color:var(--gray-500)">to</span>
+      <input type="date" value="${r.to}" onchange="setStockRegRange('to',this.value)" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
+      <span style="font-weight:700;font-size:13px;color:var(--gray-700)">${fmtDateDMY(r.from)} – ${fmtDateDMY(r.to)}</span>`
+    : `<span style="font-weight:700;font-size:13px;color:var(--gray-700)">Month till date: ${fmtDateDMY(r.from)} – ${fmtDateDMY(r.to)}</span>`;
+  body.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      <div style="display:flex;gap:4px">${modeBtn('day', 'Day')}${modeBtn('mtd', 'Month till date')}${modeBtn('range', 'Date range')}</div>
+      ${dateCtl}
       <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="loadStockRegister(true)" title="Pull the latest Purchase / O2D FMS entries">🔄 Sync FMS</button>
     </div>
     ${r.syncError ? `<div class="alert error" style="display:block;margin-bottom:12px">⚠️ FMS sync failed: ${esc(r.syncError)} — showing entries already in the register.</div>` : ''}
@@ -14842,6 +14963,9 @@ async function submitNewO2dOrder() {
       rate: document.getElementById(`noProdRate_${id}`).value.trim()
     });
   }
+  // Qty and rate typed into each other's box (Ord-0111: qty 1850 @ ₹2) wrecked Gross Profit — ask first.
+  const swapped = products.filter(p => Number(p.rate) > 0 && Number(p.qty) > 100 && Number(p.rate) < 20);
+  if (swapped.length && !confirm(`${swapped.map(p => `${p.productName}: qty ${p.qty} @ ₹${p.rate}`).join('\n')}\n\nQty aur Rate ulte to nahi bhare? Sahi hai to OK dabayein.`)) return;
 
   const body = {
     counterType: document.getElementById('noCounterType').value,
@@ -16945,6 +17069,344 @@ function renderPurchaseDetailBody(o) {
     </details>`;
 
   body.innerHTML = infoHtml + actionHtml + checklistHtml;
+}
+
+// ══════════════════════════════════════════════════════
+// CHECKLIST MASTER (client, 2026-10-14)
+// ══════════════════════════════════════════════════════
+let clmData = [];
+const CLM_FREQ = { daily: 'Daily', weekly: 'Weekly', fortnightly: 'Fortnightly', monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly', '': 'One time' };
+async function loadChecklistMaster() {
+  const wrap = document.getElementById('clmWrap');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api('/api/checklist-master');
+  if (!Array.isArray(r)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error || 'Failed')}</div>`; return; }
+  clmData = r;
+  const sel = document.getElementById('clmDoer'), cur = sel.value;
+  const doers = [...new Map(r.map(x => [x.assignedTo, x.doerName])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  sel.innerHTML = '<option value="">All employees</option>' + doers.map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join('');
+  sel.value = cur;
+  renderChecklistMaster();
+}
+function clmFiltered() {
+  const q = document.getElementById('clmSearch').value.trim().toLowerCase();
+  const doer = document.getElementById('clmDoer').value;
+  const all = document.getElementById('clmShow').value === 'all';
+  return clmData.filter(x => (all || x.upcoming > 0) && (!doer || String(x.assignedTo) === doer)
+    && (!q || `${x.title} ${x.description} ${x.doerName}`.toLowerCase().includes(q)));
+}
+function renderChecklistMaster() {
+  const rows = clmFiltered();
+  window._clmRows = rows;
+  document.getElementById('clmWrap').innerHTML = rows.length ? `<table style="font-size:12.5px">
+    <thead><tr><th>Employee</th><th>Checklist</th><th>Frequency</th><th>From – To</th><th>Done</th><th>Missed</th><th>Next due</th><th>Last done</th><th></th></tr></thead><tbody>
+    ${rows.map((x, i) => `<tr>
+      <td style="white-space:nowrap"><b>${esc(x.doerName)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(x.department)}</div></td>
+      <td style="min-width:220px">${x.title ? `<b>${esc(x.title)}</b><div style="font-size:12px;color:var(--gray-600)">${esc(x.description)}</div>` : esc(x.description)}${x.assignedByName ? `<div style="font-size:11px;color:var(--gray-400)">by ${esc(x.assignedByName)}</div>` : ''}</td>
+      <td>${esc(CLM_FREQ[x.frequency] || x.frequency)}</td>
+      <td style="white-space:nowrap">${esc(fmtDateDMY(x.firstDate))} – ${esc(fmtDateDMY(x.lastDate))}</td>
+      <td style="white-space:nowrap">${x.done} / ${x.total}</td>
+      <td style="${x.missed ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-400)'}">${x.missed}</td>
+      <td style="white-space:nowrap">${x.nextDue ? esc(fmtDateDMY(x.nextDue)) : '<span style="color:var(--gray-400)">Finished</span>'}</td>
+      <td style="white-space:nowrap;font-size:11.5px;color:var(--gray-500)">${x.lastDone ? esc(fmtEntry(x.lastDone)) : '—'}</td>
+      <td style="white-space:nowrap">${x.upcoming ? `<button class="btn btn-outline btn-sm" onclick="openClmEdit(${i})">✏️ Edit</button> <button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="stopClm(${i})">⏹ Stop</button>` : ''}</td>
+    </tr>`).join('')}</tbody></table>
+    <div style="font-size:12px;color:var(--gray-400);padding:10px 4px">${rows.length} checklist${rows.length === 1 ? '' : 's'}</div>` : '<div class="empty">Koi checklist nahi</div>';
+}
+const clmKey = x => ({ assignedTo: x.assignedTo, title: x.title, description: x.description, frequency: x.frequency });
+async function openClmEdit(i) {
+  const x = window._clmRows[i];
+  let m = document.getElementById('clmEditModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'clmEditModal';
+    document.body.appendChild(m);
+  }
+  const users = await api('/api/users/roster');
+  const act = (Array.isArray(users) ? users : []).filter(u => u.is_active == null || +u.is_active === 1);
+  m.innerHTML = `<div class="modal" style="max-width:520px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">✏️ Edit Checklist</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('clmEditModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="form-group"><label>Employee (transfer)</label><select id="clmEdDoer">${act.map(u => `<option value="${u.id}" ${u.id === x.assignedTo ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
+    <div class="form-group"><label>Title</label><input id="clmEdTitle" value="${esc(x.title)}"/></div>
+    <div class="form-group"><label>Task description *</label><textarea id="clmEdDesc" rows="3">${esc(x.description)}</textarea></div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">${x.upcoming} pending din (aaj se aage) badlenge. Ho chuke din waise hi rahenge.</div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveClmEdit(${i},this)">Save</button></div>`;
+  m.classList.add('open');
+}
+async function saveClmEdit(i, btn) {
+  const x = window._clmRows[i];
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/checklist-master', 'PUT', { key: clmKey(x), assignedTo: document.getElementById('clmEdDoer').value,
+    title: document.getElementById('clmEdTitle').value.trim(), description: document.getElementById('clmEdDesc').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('clmEditModal');
+  showToast(`✅ ${r.updated} din update hue`);
+  loadChecklistMaster();
+}
+async function stopClm(i) {
+  const x = window._clmRows[i];
+  if (!confirm(`"${x.title || x.description}" — ${x.doerName}\n\nAaj se aage ke ${x.upcoming} pending din hata dein? (Ho chuke din rahenge)`)) return;
+  const r = await api('/api/checklist-master/stop', 'POST', { key: clmKey(x) });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`⏹ ${r.deleted} pending din hata diye`);
+  loadChecklistMaster();
+}
+function csvDownload(rows, filename) {
+  const cell = v => { const t = String(v == null ? '' : v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const blob = new Blob(['﻿' + rows.map(r => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function exportChecklistMaster() {
+  csvDownload([['Employee', 'Department', 'Title', 'Task', 'Frequency', 'From', 'To', 'Done', 'Total', 'Missed', 'Pending (from today)', 'Next due', 'Last done', 'Assigned by'],
+    ...clmFiltered().map(x => [x.doerName, x.department, x.title, x.description, CLM_FREQ[x.frequency] || x.frequency, fmtDateDMY(x.firstDate), fmtDateDMY(x.lastDate),
+      x.done, x.total, x.missed, x.upcoming, fmtDateDMY(x.nextDue), fmtEntry(x.lastDone), x.assignedByName])], `checklist-master-${stockTodayYmd()}.csv`);
+}
+
+// ══════════════════════════════════════════════════════
+// OWS — weekly product-wise sales (client, 2026-10-14)
+// ══════════════════════════════════════════════════════
+let owsData = null;
+async function loadOws() {
+  const wrap = document.getElementById('owsWrap');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api(`/api/reports/ows?weeks=${document.getElementById('owsWeeks').value}`);
+  if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  owsData = r;
+  renderOws();
+}
+function owsRows() {
+  const q = document.getElementById('owsSearch').value.trim().toLowerCase();
+  return (owsData.products || []).filter(p => !q || p.item.toLowerCase().includes(q));
+}
+function renderOws() {
+  if (!owsData) return;
+  const amt = document.getElementById('owsMetric').value === 'amount';
+  const v = w => !w ? '' : amt ? inr(w.amount) : Number(w.qty).toLocaleString('en-IN');
+  const wk = w => `${fmtDateDMY(w.start).slice(0, 5)}–${fmtDateDMY(w.end).slice(0, 5)}`;
+  const rows = owsRows();
+  document.getElementById('owsWrap').innerHTML = rows.length ? `<table style="font-size:12.5px;white-space:nowrap">
+    <thead><tr><th>Product</th>${owsData.weeks.map((w, i) => `<th style="text-align:right">${i === 0 ? 'This week<br/>' : ''}<span style="font-weight:500">${wk(w)}</span></th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
+    ${rows.map(p => `<tr><td style="white-space:normal;min-width:200px;font-weight:600">${esc(p.item)}</td>
+      ${owsData.weeks.map(w => `<td style="text-align:right">${v(p.weeks[w.start]) || '<span style="color:var(--gray-300)">—</span>'}</td>`).join('')}
+      <td style="text-align:right;font-weight:800">${v(p)}</td></tr>`).join('')}
+    <tr style="background:var(--gray-50);font-weight:800"><td>Total</td>${owsData.weeks.map(w => `<td style="text-align:right">${v(owsData.totals[w.start])}</td>`).join('')}
+      <td style="text-align:right">${v(rows.reduce((a, p) => ({ qty: a.qty + p.qty, amount: a.amount + p.amount }), { qty: 0, amount: 0 }))}</td></tr>
+    </tbody></table>` : '<div class="empty">Is samay me koi bill nahi</div>';
+}
+function exportOws() {
+  if (!owsData) return;
+  const head = ['Product', ...owsData.weeks.flatMap(w => [`${fmtDateDMY(w.start)}-${fmtDateDMY(w.end)} Qty`, `${fmtDateDMY(w.start)}-${fmtDateDMY(w.end)} Sales`]), 'Total Qty', 'Total Sales'];
+  csvDownload([head, ...owsRows().map(p => [p.item, ...owsData.weeks.flatMap(w => { const x = p.weeks[w.start]; return x ? [x.qty, Math.round(x.amount)] : ['', '']; }), p.qty, Math.round(p.amount)])],
+    `ows-weekly-sales-${stockTodayYmd()}.csv`);
+}
+
+// ══════════════════════════════════════════════════════
+// VENDOR REPLACEMENT LEDGER (client, 2026-10-14)
+// ══════════════════════════════════════════════════════
+let vrlData = null, vrlTab = 'open';
+const VRL_KIND_LABEL = { new: '🆕 New goods', repaired: '🔧 Repaired', credit: '🧾 Credit note' };
+async function loadVrl() {
+  const r = await api('/api/vendor-ledger');
+  if (r.error) { document.getElementById('vrlWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  vrlData = r;
+  renderVrl();
+}
+function vrlSetTab(t) { vrlTab = t; renderVrl(); }
+function renderVrl() {
+  if (!vrlData) return;
+  const all = vrlData.challans;
+  const open = all.filter(c => c.status === 'Open');
+  const old = open.filter(c => c.days > 30);
+  const tab = (k, l) => `<button class="btn btn-sm ${vrlTab === k ? 'btn-primary' : 'btn-outline'}" onclick="vrlSetTab('${k}')">${l}</button>`;
+  document.getElementById('vrlTabs').innerHTML = tab('open', `Open (${open.length})`) + tab('pending', `Pending with vendor${old.length ? ` · ⚠ ${old.length} over 30 days` : ''}`)
+    + tab('score', 'Vendor scorecard') + tab('all', `All (${all.length})`);
+  const q = document.getElementById('vrlSearch').value.trim().toLowerCase();
+  const match = c => !q || `${c.code} ${c.vendorName} ${c.billNo} ${c.lines.map(l => l.itemName + ' ' + l.serialNo).join(' ')}`.toLowerCase().includes(q);
+  const wrap = document.getElementById('vrlWrap');
+  if (vrlTab === 'pending') { wrap.innerHTML = vrlPendingHtml(open.filter(match)); return; }
+  if (vrlTab === 'score') { wrap.innerHTML = vrlScoreHtml(all.filter(c => !c.cancelledAt && match(c))); return; }
+  const list = (vrlTab === 'open' ? open : all).filter(match);
+  wrap.innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Challan</th><th>Vendor</th><th>Items</th><th>Sent</th><th>Settled</th><th>Pending</th><th>Days</th><th>Status</th></tr></thead><tbody>
+    ${list.map(c => { const sent = c.lines.reduce((a, l) => a + l.qty, 0); const late = c.status === 'Open' && c.days > 30;
+      return `<tr onclick="openVrlDetail(${c.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
+      <td style="font-weight:600;white-space:nowrap">${esc(c.code)}${entrySubHtml(c.createdAt)}</td>
+      <td>${esc(c.vendorName)}${c.billNo ? `<div style="font-size:11px;color:var(--gray-500)">Bill ${esc(c.billNo)}</div>` : ''}</td>
+      <td style="max-width:260px;font-size:12px">${c.lines.map(l => `${esc(l.itemName)} × ${l.qty}`).join('<br/>')}</td>
+      <td>${sent}</td><td>${sent - c.pending}</td><td style="font-weight:800;${c.pending ? 'color:var(--color-danger)' : ''}">${c.pending}</td>
+      <td style="${late ? 'color:var(--color-danger);font-weight:700' : ''}">${c.status === 'Open' ? c.days + 'd' + (late ? ' ⚠' : '') : '—'}</td>
+      <td>${c.status === 'Open' ? '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Open</span>' : c.status === 'Closed' ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Closed</span>' : '<span class="status-badge">Cancelled</span>'}</td></tr>`; }).join('')}
+    </tbody></table></div>` : '<div class="empty">Koi challan nahi</div>';
+}
+function vrlPendingHtml(open) {
+  const rows = [];
+  open.forEach(c => c.lines.filter(l => l.pending > 0).forEach(l => rows.push({ c, l })));
+  rows.sort((a, b) => b.c.days - a.c.days);
+  return rows.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Vendor</th><th>Item</th><th>Pending qty</th><th>Value</th><th>Challan</th><th>Days outstanding</th><th>Follow-up</th></tr></thead><tbody>
+    ${rows.map(({ c, l }) => `<tr onclick="openVrlDetail(${c.id})" style="cursor:pointer;${c.days > 30 ? 'background:var(--color-danger-bg)' : ''}">
+      <td>${esc(c.vendorName)}</td><td>${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}</td>
+      <td style="font-weight:800">${l.pending}</td><td>${l.rate ? inr(l.pending * l.rate) : '—'}</td><td style="white-space:nowrap">${esc(c.code)} · ${esc(fmtDateDMY(c.challanDate))}</td>
+      <td style="font-weight:700;${c.days > 30 ? 'color:var(--color-danger)' : ''}">${c.days} din${c.days > 30 ? ' ⚠' : ''}</td><td>${esc(c.followUpName || '—')}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">Vendor ke paas kuch pending nahi 🎉</div>';
+}
+function vrlScoreHtml(list) {
+  const by = {};
+  list.forEach(c => {
+    const v = by[c.vendorName] = by[c.vendorName] || { vendor: c.vendorName, challans: 0, sent: 0, value: 0, new: 0, repaired: 0, credit: 0, credit$: 0, pending: 0, tat: [] };
+    v.challans++;
+    c.lines.forEach(l => {
+      v.sent += l.qty; v.value += l.qty * (l.rate || 0); v.new += l.got.new; v.repaired += l.got.repaired; v.credit += l.got.credit; v.credit$ += l.creditAmount; v.pending += l.pending;
+      if (!l.pending && l.settlements.length) { const last = l.settlements.map(x => x.date).sort().pop(); v.tat.push((new Date(last) - new Date(c.challanDate)) / 86400000); }
+    });
+  });
+  const rows = Object.values(by).sort((a, b) => b.pending - a.pending);
+  const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—';
+  return rows.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Vendor</th><th>Challans</th><th>Sent</th><th>New goods</th><th>Repaired</th><th>Credit note</th><th>Credit ₹ vs value sent</th><th>Pending</th><th>Avg turnaround</th></tr></thead><tbody>
+    ${rows.map(v => { const settled = v.new + v.repaired + v.credit; return `<tr><td style="font-weight:600">${esc(v.vendor)}</td><td>${v.challans}</td><td>${v.sent}</td>
+      <td>${v.new} <span style="color:var(--gray-400)">${pct(v.new, settled)}</span></td><td>${v.repaired} <span style="color:var(--gray-400)">${pct(v.repaired, settled)}</span></td>
+      <td>${v.credit} <span style="color:var(--gray-400)">${pct(v.credit, settled)}</span></td><td>${inr(v.credit$)} / ${v.value ? inr(v.value) : '—'}</td>
+      <td style="font-weight:800;${v.pending ? 'color:var(--color-danger)' : ''}">${v.pending}</td><td>${v.tat.length ? Math.round(v.tat.reduce((a, b) => a + b, 0) / v.tat.length) + ' din' : '—'}</td></tr>`; }).join('')}
+    </tbody></table></div>` : '<div class="empty">Abhi koi data nahi</div>';
+}
+function vrlModal(id, inner, width) {
+  let m = document.getElementById(id);
+  if (!m) { m = document.createElement('div'); m.className = 'modal-overlay'; m.id = id; document.body.appendChild(m); }
+  m.innerHTML = `<div class="modal" style="max-width:${width || 640}px;max-height:92dvh;overflow-y:auto">${inner}</div>`;
+  m.classList.add('open');
+}
+const VRL_IN = 'width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box';
+let vrlLineSeq = 0;
+function vrlLineRowHtml() {
+  const i = ++vrlLineSeq;
+  return `<div class="vrl-line" id="vrlL_${i}" style="border:1px solid var(--gray-200);border-radius:10px;padding:10px;margin-bottom:8px">
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:6px">
+      <input list="vrlItemList" class="vrl-item" placeholder="Item name *" style="${VRL_IN}"/>
+      <input class="vrl-qty" type="number" min="1" placeholder="Qty *" style="${VRL_IN}"/>
+      <input class="vrl-rate" type="number" min="0" placeholder="Rate ₹" style="${VRL_IN}"/></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px">
+      <input class="vrl-serial" placeholder="Serial no. (optional)" style="${VRL_IN}"/>
+      <input class="vrl-defect" placeholder="Defect / reason" style="${VRL_IN}"/>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlL_${i}').remove()">✕</button></div></div>`;
+}
+async function openVrlNew() {
+  const users = await api('/api/users/roster');
+  const act = (Array.isArray(users) ? users : []).filter(u => u.is_active == null || +u.is_active === 1);
+  vrlModal('vrlNewModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">🔁 New Replacement Challan</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('vrlNewModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <datalist id="vrlVendorList">${(vrlData ? vrlData.vendors : []).map(v => `<option value="${esc(v)}">`).join('')}</datalist>
+    <datalist id="vrlItemList">${(typeof stockItems !== 'undefined' ? stockItems : []).map(i => `<option value="${esc(i.description)}">`).join('')}</datalist>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Vendor *</label><input id="vrlVendor" list="vrlVendorList" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Date</label><input id="vrlDate" type="date" value="${stockTodayYmd()}" style="${VRL_IN}"/></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Purchase Bill No. <span style="font-weight:400;color:var(--gray-400)">(agar bill se aaya tha)</span></label><input id="vrlBill" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Reason</label><select id="vrlReason" style="${VRL_IN}"><option>Defective</option><option>DOA (dead on arrival)</option><option>Warranty</option><option>Damaged in transit</option><option>Wrong item</option></select></div></div>
+    <label style="font-size:12px;font-weight:600">Items</label>
+    <div id="vrlLines">${vrlLineRowHtml()}</div>
+    <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlLines').insertAdjacentHTML('beforeend', vrlLineRowHtml())" style="margin-bottom:10px">+ Add item</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Follow-up person</label><select id="vrlFollow" style="${VRL_IN}"><option value="">—</option>${act.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
+      <div><label style="font-size:12px;font-weight:600">Remark</label><input id="vrlRemark" style="${VRL_IN}"/></div></div>
+    <label style="font-size:12px;font-weight:600">Photo — kharab maal / packed goods *</label>
+    <input type="file" id="vrlPhoto" accept="image/*" onchange="onChequePhotoSelected(this,'vrlPhotoPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlPhotoPv" style="font-size:12px;margin-bottom:10px"></div>
+    <div id="vrlErr" class="alert error" style="display:none;margin-bottom:10px"></div>
+    <button class="btn btn-primary" id="vrlSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="saveVrlNew()">Save & make Challan</button>`, 680);
+}
+async function saveVrlNew() {
+  const err = document.getElementById('vrlErr'); err.style.display = 'none';
+  const lines = [...document.querySelectorAll('#vrlLines .vrl-line')].map(el => ({ itemName: el.querySelector('.vrl-item').value.trim(), qty: el.querySelector('.vrl-qty').value,
+    rate: el.querySelector('.vrl-rate').value, serialNo: el.querySelector('.vrl-serial').value.trim(), defect: el.querySelector('.vrl-defect').value.trim() })).filter(l => l.itemName || l.qty);
+  const body = { vendorName: document.getElementById('vrlVendor').value.trim(), challanDate: document.getElementById('vrlDate').value, billNo: document.getElementById('vrlBill').value.trim(),
+    reason: document.getElementById('vrlReason').value, followUpUserId: document.getElementById('vrlFollow').value, remark: document.getElementById('vrlRemark').value.trim(),
+    photo: document.getElementById('vrlPhoto').dataset.compressed || '', lines };
+  const btn = document.getElementById('vrlSaveBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api('/api/vendor-ledger', 'POST', body);
+  btn.disabled = false; btn.textContent = 'Save & make Challan';
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  closeModal('vrlNewModal');
+  showToast(`✅ ${r.code} ban gaya`);
+  await loadVrl();
+  openVrlDetail(r.id);
+}
+function openVrlDetail(id) {
+  const c = vrlData.challans.find(x => x.id === id);
+  if (!c) return;
+  const open = c.status === 'Open';
+  vrlModal('vrlDetailModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">${esc(c.code)} · ${esc(c.vendorName)}</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('vrlDetailModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${esc(fmtDateDMY(c.challanDate))} · ${esc(c.reason)}${c.billNo ? ' · Bill ' + esc(c.billNo) : ''} · by ${esc(c.createdByName)}${c.followUpName ? ' · Follow-up: <b>' + esc(c.followUpName) + '</b>' : ''}${c.status === 'Open' ? ` · <b style="${c.days > 30 ? 'color:var(--color-danger)' : ''}">${c.days} din</b>` : ''}
+      ${c.remark ? `<div>${esc(c.remark)}</div>` : ''}${c.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(c.cancelReason)}</div>` : ''}</div>
+    ${c.photoUrl ? `<div style="margin-bottom:10px">${linkOrText(c.photoUrl, '📷 Photo')}</div>` : ''}
+    <table style="font-size:12.5px;margin-bottom:12px"><thead><tr><th>Item</th><th>Sent</th><th>New</th><th>Repaired</th><th>Credit</th><th>Pending</th>${open ? '<th>Receive now</th>' : ''}</tr></thead><tbody>
+    ${c.lines.map(l => `<tr><td>${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}${l.defect ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.defect)}</div>` : ''}${l.rate ? `<div style="font-size:11px;color:var(--gray-500)">@ ${inr(l.rate)}</div>` : ''}</td>
+      <td>${l.qty}</td><td>${l.got.new || ''}</td><td>${l.got.repaired || ''}</td><td>${l.got.credit || ''}${l.creditAmount ? `<div style="font-size:11px">${inr(l.creditAmount)}</div>` : ''}</td>
+      <td style="font-weight:800;${l.pending ? 'color:var(--color-danger)' : 'color:var(--color-success)'}">${l.pending || '✓'}</td>
+      ${open ? `<td style="min-width:200px">${l.pending ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">
+        ${['new', 'repaired', 'credit'].map(k => `<input type="number" min="0" max="${l.pending}" placeholder="${k === 'new' ? 'New' : k === 'repaired' ? 'Repaired' : 'Credit'}" class="vrl-set" data-line="${l.id}" data-kind="${k}" style="${VRL_IN};padding:6px"/>`).join('')}</div>` : ''}</td>` : ''}</tr>`).join('')}
+    </tbody></table>
+    ${open ? `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px">📥 Vendor se aaya (ek delivery me alag-alag item / tarike)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11.5px">Date</label><input id="vrlSetDate" type="date" value="${stockTodayYmd()}" style="${VRL_IN}"/></div>
+        <div><label style="font-size:11.5px">Credit Note No.</label><input id="vrlCnNo" style="${VRL_IN}"/></div>
+        <div><label style="font-size:11.5px">Credit Note ₹</label><input id="vrlCnAmt" type="number" min="0" style="${VRL_IN}"/></div></div>
+      <input id="vrlSetRemark" placeholder="Remark" style="${VRL_IN};margin-bottom:8px"/>
+      <input type="file" id="vrlSetPhoto" accept="image/*" onchange="onChequePhotoSelected(this,'vrlSetPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlSetPv" style="font-size:12px;margin-bottom:8px"></div>
+      <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveVrlSettle(${c.id},this)">✓ Save receipt</button></div>` : ''}
+    ${c.lines.some(l => l.settlements.length) ? `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;margin:6px 0">History</div>
+      ${c.lines.flatMap(l => l.settlements.map(x => ({ ...x, item: l.itemName }))).sort((a, b) => b.id - a.id).map(x => `<div style="font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
+        <b>${VRL_KIND_LABEL[x.kind]}</b> · ${esc(x.item)} × ${x.qty}${x.cnNo ? ` · CN ${esc(x.cnNo)}${x.cnAmount != null ? ' ' + inr(x.cnAmount) : ''}` : ''}${x.remark ? ' · ' + esc(x.remark) : ''}${x.photoUrl ? ' · ' + linkOrText(x.photoUrl, '📷') : ''}
+        <div style="font-size:11px;color:var(--gray-400)">${esc(fmtDateDMY(x.date))} · ${esc(x.by)}</div></div>`).join('')}` : ''}
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-outline" onclick="printVrlChallan(${c.id})">🖨 Print Challan</button>
+      ${vrlData.me.isAdmin && open ? `<button class="btn btn-outline" style="color:var(--color-danger)" onclick="cancelVrl(${c.id})">🚫 Cancel</button>` : ''}</div>`, 760);
+}
+async function saveVrlSettle(id, btn) {
+  const cnNo = document.getElementById('vrlCnNo').value.trim(), cnAmt = document.getElementById('vrlCnAmt').value;
+  const entries = [...document.querySelectorAll('#vrlDetailModal .vrl-set')].filter(el => Number(el.value) > 0)
+    .map(el => ({ lineId: Number(el.dataset.line), kind: el.dataset.kind, qty: Number(el.value), cnNo: el.dataset.kind === 'credit' ? cnNo : '', cnAmount: '' }));
+  const firstCredit = entries.find(e => e.kind === 'credit');
+  if (firstCredit && cnAmt !== '') firstCredit.cnAmount = cnAmt;
+  if (!entries.length) { showToast('Kitna aaya — qty bharein', 'error'); return; }
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/vendor-ledger/${id}/settle`, 'POST', { entries, date: document.getElementById('vrlSetDate').value,
+    remark: document.getElementById('vrlSetRemark').value.trim(), photo: document.getElementById('vrlSetPhoto').dataset.compressed || '' });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const i = vrlData.challans.findIndex(x => x.id === id);
+  if (i >= 0) vrlData.challans[i] = r.challan;
+  showToast(r.challan.status === 'Closed' ? '✅ Challan poora settle — closed' : '✅ Saved');
+  renderVrl();
+  openVrlDetail(id);
+}
+async function cancelVrl(id) {
+  const reason = (prompt('Cancel reason:') || '').trim();
+  if (!reason) return;
+  const r = await api(`/api/vendor-ledger/${id}/cancel`, 'POST', { reason });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('vrlDetailModal');
+  loadVrl();
+}
+function printVrlChallan(id) {
+  const c = vrlData.challans.find(x => x.id === id);
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Popup blocked — allow popups to print', 'error'); return; }
+  const e = t => String(t == null ? '' : t).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${e(c.code)}</title>
+    <style>body{font-family:Arial,sans-serif;margin:28px;color:#111}h1{font-size:20px;margin:0}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #444;padding:7px;font-size:13px;text-align:left}.r{text-align:right}.sig{margin-top:60px;display:flex;justify-content:space-between;font-size:13px}</style></head><body>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><h1>Ajanta Appliances</h1><div style="font-size:13px">Replacement / Return Challan</div></div>
+      <div style="text-align:right;font-size:13px"><b>${e(c.code)}</b><br/>Date: ${e(fmtDateDMY(c.challanDate))}${c.billNo ? '<br/>Against Bill: ' + e(c.billNo) : ''}</div></div>
+    <div style="margin-top:14px;font-size:14px">To: <b>${e(c.vendorName)}</b><br/>Reason: ${e(c.reason)}</div>
+    <table><thead><tr><th>#</th><th>Item</th><th>Serial No.</th><th>Defect</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Value</th></tr></thead><tbody>
+    ${c.lines.map((l, i) => `<tr><td>${i + 1}</td><td>${e(l.itemName)}</td><td>${e(l.serialNo)}</td><td>${e(l.defect)}</td><td class="r">${l.qty}</td><td class="r">${l.rate ? l.rate.toLocaleString('en-IN') : ''}</td><td class="r">${l.rate ? (l.qty * l.rate).toLocaleString('en-IN') : ''}</td></tr>`).join('')}
+    <tr><td colspan="4"><b>Total</b></td><td class="r"><b>${c.lines.reduce((a, l) => a + l.qty, 0)}</b></td><td></td><td class="r"><b>${c.value ? c.value.toLocaleString('en-IN') : ''}</b></td></tr></tbody></table>
+    ${c.remark ? `<p style="font-size:13px">Remark: ${e(c.remark)}</p>` : ''}
+    <p style="font-size:12px">Goods sent for replacement / repair / credit note. Not a sale.</p>
+    <div class="sig"><div>Prepared by: ${e(c.createdByName)}</div><div>Received by (vendor): ____________</div><div>Authorised signatory: ____________</div></div>
+    <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
 }
 
 // ══════════════════════════════════════════════════════
@@ -19773,7 +20235,7 @@ async function submitNewRepl() {
   btn.disabled = false; btn.textContent = 'Submit';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   closeModal('newReplModal');
-  showToast(`✅ ${r.code} saved — Diary me entry karke sticker lagayein${r.notified ? " · customer ko WhatsApp gaya" : " · mobile nahi tha, WhatsApp nahi gaya"}`);
+  showToast(`✅ ${r.code} saved — Diary me entry karke sticker lagayein${r.hasMobile ? ' · Diary No. bharte hi dealer ko WhatsApp jayega' : ' · mobile nahi hai, WhatsApp nahi jayega'}`);
   if (document.getElementById('page-replacement-fms').classList.contains('active')) loadReplFmsList();
 }
 

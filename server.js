@@ -533,7 +533,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -1499,7 +1499,15 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
-app.post('/api/tasks/bulk-checklist', requireAuth, requireAdmin, async (req, res) => {
+// Checklist Master grant (client, 2026-10-14): the owner hands "manage everyone's
+// checklists" to a user from Users → Access.
+async function requireChecklistManager(req, res, next) {
+  try {
+    if (req.session.role === 'admin' || req.session.role === 'hod' || await hasPageGrant(req, 'checklist-master')) return next();
+    res.status(403).json({ error: 'No access to manage checklists' });
+  } catch (e) { sendServerError(res, e); }
+}
+app.post('/api/tasks/bulk-checklist', requireAuth, requireChecklistManager, async (req, res) => {
   try {
     const { title, desc, assignedTo, priority, remarks, dates, frequency, startDate } = req.body;
     if (!desc || !assignedTo || !dates || !dates.length) return res.status(400).json({ error: 'Missing fields' });
@@ -1730,7 +1738,7 @@ app.delete('/api/tasks/delete-by-date', requireAuth, requireAdmin, async (req, r
 
 // Count checklist tasks for a user (all time or by year, optionally filtered by frequency).
 // v16: completed tasks are EXCLUDED — bulk delete only applies to pending/revised tasks.
-app.get('/api/tasks/checklist-year-count', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/tasks/checklist-year-count', requireAuth, requireChecklistManager, async (req, res) => {
   try {
     const { userId, year, frequency } = req.query;
     if (!userId) return res.status(400).json({ error: 'userId required' });
@@ -1746,7 +1754,7 @@ app.get('/api/tasks/checklist-year-count', requireAuth, requireAdmin, async (req
 
 // Delete checklist tasks for a user — optionally filtered by frequency.
 // v16: completed tasks NEVER deleted in bulk; frequency filter respected.
-app.post('/api/tasks/checklist-year-delete', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/tasks/checklist-year-delete', requireAuth, requireChecklistManager, async (req, res) => {
   try {
     const { userId, frequency } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId required' });
@@ -7075,16 +7083,20 @@ async function stockItemResolver() {
 app.get('/api/stock/register', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : new Date().toISOString().slice(0, 10);
+    const ymd = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : '';
+    const date = ymd(req.query.date) || new Date().toISOString().slice(0, 10);
+    // Month-till-date / date range (client, 2026-10-14): from..to, else the one day.
+    let from = ymd(req.query.from) || date, to = ymd(req.query.to) || from;
+    if (from > to) [from, to] = [to, from];
     let syncError = '';
     try { await syncStockFromFms(req.query.refresh === '1'); }
     catch (e) { syncError = e.message || 'FMS sync failed'; await ensureStockTxnSchema(); }
     const [rows] = await db.query(
-      "SELECT *, DATE_FORMAT(txn_date, '%Y-%m-%d') AS txn_date FROM ajanta_stock_transactions WHERE txn_date = ? ORDER BY id", [date]);
+      "SELECT *, DATE_FORMAT(txn_date, '%Y-%m-%d') AS txn_date FROM ajanta_stock_transactions WHERE txn_date BETWEEN ? AND ? ORDER BY txn_date, id LIMIT 5000", [from, to]);
     const [[unlinked]] = await db.query(
       "SELECT COUNT(*) AS c FROM ajanta_stock_transactions WHERE applied = 0 AND status <> 'Cancelled'");
     res.json({
-      date,
+      date, from, to,
       inward: rows.filter(r => r.direction === 'IN'),
       outward: rows.filter(r => r.direction === 'OUT'),
       unlinkedTotal: Number(unlinked.c) || 0,
@@ -7092,6 +7104,24 @@ app.get('/api/stock/register', requireAuth, async (req, res) => {
       canEdit: canEditStock(req),
       syncError
     });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// One item's movements (Report → click an item, client 2026-10-14): when it came
+// in and when it went out, newest first, with the running balance.
+app.get('/api/stock/item/:code/history', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessStock(req))) return res.status(403).json({ error: 'You do not have access to Stock' });
+    const [[item]] = await withStockTable(() => db.query('SELECT * FROM ajanta_stock_items WHERE item_code = ?', [req.params.code]));
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+    const [rows] = await withStockTxnTable(() => db.query(
+      `SELECT id, DATE_FORMAT(txn_date, '%Y-%m-%d') AS txn_date, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') AS created_at, direction, quantity, uom, rate,
+              source, party, ref_no, remarks, created_by, status, applied
+         FROM ajanta_stock_transactions WHERE item_code = ? ORDER BY txn_date DESC, id DESC LIMIT 1000`, [item.item_code]));
+    const live = rows.filter(r => r.status !== 'Cancelled' && Number(r.applied) !== 0);
+    const totIn = live.filter(r => r.direction === 'IN').reduce((a, r) => a + Number(r.quantity), 0);
+    const totOut = live.filter(r => r.direction === 'OUT').reduce((a, r) => a + Number(r.quantity), 0);
+    res.json({ item, rows, totIn, totOut });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -9979,21 +10009,22 @@ app.post('/api/replacement-fms', requireAuth, async (req, res) => {
       [code, req.session.userId, party, mobile || null, items, t(b.condition, 100) || null, t(b.productType, 50) || null, defect, photoUrl, t(b.broughtBy, 255) || null, t(b.remark, 2000) || null,
        salesman ? salesman.id : null, salesman ? salesman.name : null]);
     await logReplEvent(r.insertId, 'created', `${items} · ${defect}`, req.session.userId);
-    // Customer hears at once that the product reached us, with its R-number (client, 2026-10-13).
-    let notified = false;
-    if (sfmsNormalizeMobile(mobile)) {
-      sendWhatsAppInBackground(mobile, replReceivedMsg({ party_name: party, items, code }), undefined, `repl received ${code}`);
-      notified = true;
-    }
-    res.json({ success: true, id: r.insertId, code, notified });
+    // The dealer's "received" WhatsApp goes at the Diary step, once the Diary No. exists (client, 2026-10-14).
+    res.json({ success: true, id: r.insertId, code, hasMobile: !!sfmsNormalizeMobile(mobile) });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);
   }
 });
 
+// Client's own text (2026-10-14), English + Hindi.
 function replReceivedMsg(r) {
-  return `🙏 नमस्ते ${r.party_name} जी,\n\nआपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) जाँच / रिपेयर के लिए Ajanta Appliances में पहुँच गया है।\n📋 आपका Replacement No: *${r.code}*\n\nकृपया यह नंबर संभाल कर रखें — प्रोडक्ट तैयार होते ही आपको सूचना दी जाएगी।\nधन्यवाद 🙏\nAjanta Appliances`;
+  const product = String(r.items || '').slice(0, 120);
+  const m = String(r.created_at || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const date = m ? `${m[3]}/${m[2]}/${m[1]}` : new Date().toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' });
+  return `Dear ${r.party_name},\n\nYour product ${product} (Diary No. ${r.diary_no}) was received at our office on ${date} for repair. We will repair it and update you as soon as possible. Please quote the Diary No. for any query.\n\n`
+    + `प्रिय ${r.party_name}, आपका प्रोडक्ट ${product} (डायरी नं. ${r.diary_no}) मरम्मत के लिए ${date} को हमारे ऑफिस में प्राप्त हो गया है। हम इसे जल्द से जल्द ठीक करके आपको सूचित करेंगे। किसी भी जानकारी के लिए कृपया डायरी नंबर बताएँ।\n\n`
+    + `Thank you / धन्यवाद\nAjanta Appliances / अजंता अप्लायंसेज़`;
 }
 function replSalesmanReadyMsg(r) {
   return `🔔 ${r.salesman_name || ''} ji,\n\n${r.party_name} ka replacement *${r.code}* (${String(r.items || '').slice(0, 120)}) tayyar hai.\nParty ko bata dein — beat par gaadi jaaye to le jaaye / pick-up kar lein.\nAjanta Appliances`;
@@ -10032,7 +10063,9 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       if (!diary) return fail('Diary No. is required');
       if (!b.stickerPasted) return fail('Confirm the sticker (Diary No. + date) is pasted on the product');
       await db.query('UPDATE replacements SET diary_no=?, diary_at=NOW(), diary_by=? WHERE id=?', [diary, uid, r.id]);
-      await logReplEvent(r.id, 'diary', `Diary ${diary} · in/out register + sticker`, uid);
+      const sent = !!sfmsNormalizeMobile(r.customer_mobile);
+      if (sent) sendWhatsAppInBackground(r.customer_mobile, replReceivedMsg({ ...r, diary_no: diary }), undefined, `repl received ${r.code}`);
+      await logReplEvent(r.id, 'diary', `Diary ${diary} · in/out register + sticker${sent ? ' · received WhatsApp sent' : ' · no mobile, WhatsApp not sent'}`, uid);
     } else if (action === 'check') {
       if (!need('check')) return;
       if (b.ours === 'Yes') {
@@ -10953,7 +10986,7 @@ async function gpLoadData(start, end) {
     const qty = gpNum(get('O')), rate = gpNum(get('N'));
     const name = String(get('M') || '').trim();
     if (!name || !(qty > 0)) return;
-    sales.push({ party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), item: name, qty, rate, amount: qty * rate, code: mapTo(name) });
+    sales.push({ party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date });
   });
 
   // Cost per stock item from Purchase FMS PO lines (weighted by PO qty).
@@ -12852,6 +12885,224 @@ app.delete('/api/employees/documents/:docId', requireAuth, async (req, res) => {
 // PAGES
 // ══════════════════════════════════════════════════════
 app.get('/', (req, res) => { res.set('Cache-Control', CDN_CACHE); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
+// ══════════════════════════════════════════════════════
+// CHECKLIST MASTER (client, 2026-10-14) — one line per checklist (doer + task +
+// frequency) over the per-day rows in checklist_tasks. Edit / transfer / stop
+// touch only the not-done rows from today on; done history is never changed.
+// ══════════════════════════════════════════════════════
+const CL_KEY_WHERE = 'assigned_to=? AND COALESCE(title,\'\')=? AND COALESCE(description,\'\')=? AND COALESCE(frequency,\'\')=?';
+const clKeyParams = k => [Number(k.assignedTo), String(k.title || ''), String(k.description || ''), String(k.frequency || '')];
+app.get('/api/checklist-master', requireAuth, requireChecklistManager, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT c.assigned_to, COALESCE(c.title,'') AS title, COALESCE(c.description,'') AS description, COALESCE(c.frequency,'') AS frequency,
+             MAX(c.assigned_by) AS assigned_by, MAX(c.priority) AS priority,
+             DATE_FORMAT(MIN(c.due_date),'%Y-%m-%d') AS first_date, DATE_FORMAT(MAX(c.due_date),'%Y-%m-%d') AS last_date,
+             COUNT(*) AS total, SUM(c.status='completed') AS done,
+             SUM(c.status<>'completed' AND c.due_date < CURDATE()) AS missed,
+             SUM(c.status<>'completed' AND c.due_date >= CURDATE()) AS upcoming,
+             DATE_FORMAT(MIN(CASE WHEN c.status<>'completed' AND c.due_date >= CURDATE() THEN c.due_date END),'%Y-%m-%d') AS next_due,
+             DATE_FORMAT(MAX(c.completed_at),'%Y-%m-%d %H:%i') AS last_done
+        FROM checklist_tasks c
+       GROUP BY c.assigned_to, COALESCE(c.title,''), COALESCE(c.description,''), COALESCE(c.frequency,'')
+       ORDER BY c.assigned_to, title`);
+    const [users] = await db.query('SELECT id, name, department FROM users');
+    const u = Object.fromEntries(users.map(x => [x.id, x]));
+    res.json(rows.map(r => ({
+      assignedTo: r.assigned_to, doerName: (u[r.assigned_to] || {}).name || '—', department: (u[r.assigned_to] || {}).department || '',
+      assignedByName: (u[r.assigned_by] || {}).name || '', title: r.title, description: r.description, frequency: r.frequency, priority: r.priority || '',
+      firstDate: r.first_date, lastDate: r.last_date, total: Number(r.total), done: Number(r.done) || 0, missed: Number(r.missed) || 0,
+      upcoming: Number(r.upcoming) || 0, nextDue: r.next_due, lastDone: r.last_done
+    })));
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/checklist-master', requireAuth, requireChecklistManager, async (req, res) => {
+  try {
+    const { key, title, description, assignedTo } = req.body || {};
+    if (!key || !Number(key.assignedTo)) return res.status(400).json({ error: 'Checklist not found' });
+    const desc = String(description == null ? key.description : description).trim();
+    if (!desc) return res.status(400).json({ error: 'Task description is required' });
+    const to = Number(assignedTo || key.assignedTo);
+    const [[target]] = await db.query('SELECT id FROM users WHERE id=?', [to]);
+    if (!target) return res.status(400).json({ error: 'Employee not found' });
+    const [r] = await db.query(`UPDATE checklist_tasks SET title=?, description=?, assigned_to=? WHERE ${CL_KEY_WHERE} AND status<>'completed' AND due_date >= CURDATE()`,
+      [String(title == null ? key.title : title).trim().slice(0, 500), desc, to, ...clKeyParams(key)]);
+    res.json({ success: true, updated: r.affectedRows });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/checklist-master/stop', requireAuth, requireChecklistManager, async (req, res) => {
+  try {
+    const { key } = req.body || {};
+    if (!key || !Number(key.assignedTo)) return res.status(400).json({ error: 'Checklist not found' });
+    const [r] = await db.query(`DELETE FROM checklist_tasks WHERE ${CL_KEY_WHERE} AND status<>'completed' AND due_date >= CURDATE()`, clKeyParams(key));
+    res.json({ success: true, deleted: r.affectedRows });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// OWS — weekly product-wise sales (client, 2026-10-14). Billed O2D lines
+// (same source as Gross Profit), Monday–Sunday weeks, newest first.
+// ══════════════════════════════════════════════════════
+app.get('/api/reports/ows', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'ows'))) return res.status(403).json({ error: 'No access to OWS' });
+    const weeks = Math.min(26, Math.max(1, parseInt(req.query.weeks, 10) || 8));
+    const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const ymd = d => d.toISOString().slice(0, 10);
+    const monday = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()));
+    monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+    const starts = [];
+    for (let i = 0; i < weeks; i++) { const d = new Date(monday); d.setUTCDate(d.getUTCDate() - 7 * i); starts.push(ymd(d)); }
+    const end = ymd(new Date(monday.getTime() + 6 * 86400000));
+    const { sales, stockName } = await gpLoadData(starts[starts.length - 1], end);
+    const weekOf = date => starts.find(st => date >= st);
+    const prod = {};
+    for (const l of sales) {
+      const wk = weekOf(l.date); if (!wk) continue;
+      const key = l.code;
+      const p = prod[key] = prod[key] || { item: (key && !String(key).startsWith('name:') && stockName[key]) || l.item, qty: 0, amount: 0, weeks: {} };
+      const w = p.weeks[wk] = p.weeks[wk] || { qty: 0, amount: 0 };
+      w.qty += l.qty; w.amount += l.amount; p.qty += l.qty; p.amount += l.amount;
+    }
+    const totals = {};
+    starts.forEach(st => { totals[st] = { qty: 0, amount: 0 }; });
+    Object.values(prod).forEach(p => Object.entries(p.weeks).forEach(([wk, w]) => { totals[wk].qty += w.qty; totals[wk].amount += w.amount; }));
+    res.json({ weeks: starts.map(st => ({ start: st, end: ymd(new Date(new Date(st + 'T00:00:00Z').getTime() + 6 * 86400000)) })),
+      products: Object.values(prod).sort((a, b) => b.amount - a.amount), totals });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// VENDOR REPLACEMENT LEDGER (client, 2026-10-14) — defective goods sent back
+// to a vendor on a challan; each line settles (part or full) as new goods,
+// the same goods repaired, or a credit note. Pending = sent − settled.
+// ══════════════════════════════════════════════════════
+let _vrlOk = false;
+async function vrlTables() {
+  if (_vrlOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS vendor_repl_challans (
+    id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(20) UNIQUE, vendor_name VARCHAR(255) NOT NULL, challan_date DATE NOT NULL,
+    bill_no VARCHAR(100), reason VARCHAR(255), remark TEXT, photo_url VARCHAR(500), follow_up_user_id INT,
+    created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, cancelled_at DATETIME, cancel_reason VARCHAR(500)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS vendor_repl_lines (
+    id INT AUTO_INCREMENT PRIMARY KEY, challan_id INT NOT NULL, item_name VARCHAR(255) NOT NULL, serial_no VARCHAR(255),
+    qty DECIMAL(10,2) NOT NULL, rate DECIMAL(12,2), defect VARCHAR(255), KEY (challan_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS vendor_repl_settlements (
+    id INT AUTO_INCREMENT PRIMARY KEY, line_id INT NOT NULL, kind VARCHAR(10) NOT NULL, qty DECIMAL(10,2) NOT NULL,
+    settle_date DATE NOT NULL, cn_no VARCHAR(100), cn_amount DECIMAL(12,2), remark VARCHAR(500), photo_url VARCHAR(500),
+    created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (line_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _vrlOk = true;
+}
+async function vrlAccess(req, res) {
+  if (await hasPageGrant(req, 'vendor-ledger')) return true;
+  res.status(403).json({ error: 'No access to Vendor Replacement Ledger' });
+  return false;
+}
+const VRL_KINDS = { new: 'New goods', repaired: 'Repaired & returned', credit: 'Credit note' };
+async function vrlLoad(where = '', params = []) {
+  const [ch] = await db.query(`SELECT c.*, DATE_FORMAT(c.challan_date,'%Y-%m-%d') AS challan_date, DATE_FORMAT(c.created_at,'%Y-%m-%d %H:%i:%s') AS created_at,
+      DATEDIFF(CURDATE(), c.challan_date) AS days, u.name AS created_by_name, f.name AS follow_up_name
+    FROM vendor_repl_challans c LEFT JOIN users u ON u.id=c.created_by LEFT JOIN users f ON f.id=c.follow_up_user_id ${where} ORDER BY c.id DESC`, params);
+  if (!ch.length) return [];
+  const ids = ch.map(c => c.id);
+  const [lines] = await db.query('SELECT * FROM vendor_repl_lines WHERE challan_id IN (?) ORDER BY id', [ids]);
+  const [st] = lines.length ? await db.query(`SELECT s.*, DATE_FORMAT(s.settle_date,'%Y-%m-%d') AS settle_date, u.name AS created_by_name
+      FROM vendor_repl_settlements s LEFT JOIN users u ON u.id=s.created_by WHERE s.line_id IN (?) ORDER BY s.id`, [lines.map(l => l.id)]) : [[]];
+  const n = v => Number(v) || 0;
+  return ch.map(c => {
+    const ls = lines.filter(l => l.challan_id === c.id).map(l => {
+      const ss = st.filter(x => x.line_id === l.id);
+      const sum = k => ss.filter(x => x.kind === k).reduce((a, x) => a + n(x.qty), 0);
+      const got = { new: sum('new'), repaired: sum('repaired'), credit: sum('credit') };
+      const pending = Math.max(0, n(l.qty) - got.new - got.repaired - got.credit);
+      return { id: l.id, itemName: l.item_name, serialNo: l.serial_no || '', qty: n(l.qty), rate: l.rate == null ? null : n(l.rate), defect: l.defect || '',
+        got, pending, creditAmount: ss.reduce((a, x) => a + n(x.cn_amount), 0),
+        settlements: ss.map(x => ({ id: x.id, kind: x.kind, qty: n(x.qty), date: x.settle_date, cnNo: x.cn_no || '', cnAmount: x.cn_amount == null ? null : n(x.cn_amount), remark: x.remark || '', photoUrl: x.photo_url || '', by: x.created_by_name || '' })) };
+    });
+    const pending = ls.reduce((a, l) => a + l.pending, 0);
+    const value = ls.reduce((a, l) => a + l.qty * (l.rate || 0), 0);
+    return { id: c.id, code: c.code, vendorName: c.vendor_name, challanDate: c.challan_date, billNo: c.bill_no || '', reason: c.reason || '', remark: c.remark || '',
+      photoUrl: c.photo_url || '', followUpUserId: c.follow_up_user_id, followUpName: c.follow_up_name || '', createdAt: c.created_at, createdByName: c.created_by_name || '',
+      days: Number(c.days) || 0, cancelledAt: c.cancelled_at, cancelReason: c.cancel_reason || '', lines: ls, pending, value,
+      creditAmount: ls.reduce((a, l) => a + l.creditAmount, 0), status: c.cancelled_at ? 'Cancelled' : pending > 0 ? 'Open' : 'Closed' };
+  });
+}
+app.get('/api/vendor-ledger', requireAuth, async (req, res) => {
+  try {
+    if (!(await vrlAccess(req, res))) return;
+    await vrlTables();
+    const [vend] = await db.query(`SELECT DISTINCT vendor_name FROM (SELECT vendor_name FROM purchase_po_archive UNION SELECT vendor_name FROM vendor_repl_challans) v WHERE vendor_name<>'' ORDER BY vendor_name`).catch(() => [[]]);
+    res.json({ challans: await vrlLoad(), vendors: vend.map(v => v.vendor_name), me: { isAdmin: req.session.role === 'admin' } });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/vendor-ledger', requireAuth, async (req, res) => {
+  try {
+    if (!(await vrlAccess(req, res))) return;
+    await vrlTables();
+    const b = req.body || {};
+    const vendor = String(b.vendorName || '').trim().slice(0, 255);
+    if (!vendor) return res.status(400).json({ error: 'Vendor name is required' });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(b.challanDate || '') ? b.challanDate : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const lines = (Array.isArray(b.lines) ? b.lines : []).map(l => ({ item: String(l.itemName || '').trim().slice(0, 255), serial: String(l.serialNo || '').trim().slice(0, 255),
+      qty: Number(l.qty), rate: l.rate === '' || l.rate == null ? null : Number(l.rate), defect: String(l.defect || '').trim().slice(0, 255) }));
+    if (!lines.length) return res.status(400).json({ error: 'Add at least one item' });
+    const bad = lines.findIndex(l => !l.item || !(l.qty > 0));
+    if (bad >= 0) return res.status(400).json({ error: `Item ${bad + 1}: name and quantity are required` });
+    if (!b.photo) return res.status(400).json({ error: 'Photo of the defective / packed goods is required' });
+    const n = await claimNextSeqValue('vrl_code', 1);
+    const code = `VRC-${String(n).padStart(4, '0')}`;
+    const photoUrl = await uploadPhotoToDrive(b.photo, `${code}-${Date.now()}.jpg`);
+    const [r] = await db.query('INSERT INTO vendor_repl_challans (code, vendor_name, challan_date, bill_no, reason, remark, photo_url, follow_up_user_id, created_by) VALUES (?,?,?,?,?,?,?,?,?)',
+      [code, vendor, date, String(b.billNo || '').trim().slice(0, 100) || null, String(b.reason || '').trim().slice(0, 255) || null, String(b.remark || '').trim() || null, photoUrl,
+       Number(b.followUpUserId) || null, req.session.userId]);
+    await db.query('INSERT INTO vendor_repl_lines (challan_id, item_name, serial_no, qty, rate, defect) VALUES ?',
+      [lines.map(l => [r.insertId, l.item, l.serial || null, l.qty, Number.isFinite(l.rate) ? l.rate : null, l.defect || null])]);
+    res.json({ success: true, id: r.insertId, code });
+  } catch (err) { sendServerError(res, err); }
+});
+// One vendor delivery can settle several lines at once: [{ lineId, kind, qty, cnNo, cnAmount }].
+app.post('/api/vendor-ledger/:id/settle', requireAuth, async (req, res) => {
+  try {
+    if (!(await vrlAccess(req, res))) return;
+    await vrlTables();
+    const [ch] = await vrlLoad('WHERE c.id=?', [Number(req.params.id)]);
+    if (!ch) return res.status(404).json({ error: 'Challan not found' });
+    if (ch.cancelledAt) return res.status(400).json({ error: 'Challan is cancelled' });
+    const b = req.body || {};
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const entries = (Array.isArray(b.entries) ? b.entries : []).filter(e => Number(e.qty) > 0);
+    if (!entries.length) return res.status(400).json({ error: 'Enter the quantity received / credited' });
+    const left = Object.fromEntries(ch.lines.map(l => [l.id, l.pending]));
+    for (const e of entries) {
+      if (!VRL_KINDS[e.kind]) return res.status(400).json({ error: 'Choose New / Repaired / Credit note' });
+      if (!(Number(e.lineId) in left)) return res.status(400).json({ error: 'Item not on this challan' });
+      left[e.lineId] -= Number(e.qty);
+      if (left[e.lineId] < -1e-9) return res.status(400).json({ error: 'More than the pending quantity' });
+      if (e.kind === 'credit' && !String(e.cnNo || '').trim()) return res.status(400).json({ error: 'Credit note number is required' });
+    }
+    const photoUrl = b.photo ? await uploadPhotoToDrive(b.photo, `${ch.code}-settle-${Date.now()}.jpg`) : null;
+    await db.query('INSERT INTO vendor_repl_settlements (line_id, kind, qty, settle_date, cn_no, cn_amount, remark, photo_url, created_by) VALUES ?',
+      [entries.map(e => [Number(e.lineId), e.kind, Number(e.qty), date, e.kind === 'credit' ? String(e.cnNo).trim().slice(0, 100) : null,
+        e.kind === 'credit' && e.cnAmount !== '' && e.cnAmount != null ? Number(e.cnAmount) : null, String(b.remark || '').trim().slice(0, 500) || null, photoUrl, req.session.userId])]);
+    const [fresh] = await vrlLoad('WHERE c.id=?', [ch.id]);
+    res.json({ success: true, challan: fresh });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/vendor-ledger/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    if (!(await vrlAccess(req, res))) return;
+    if (req.session.role !== 'admin') return res.status(403).json({ error: 'Only admin can cancel a challan' });
+    const reason = String((req.body || {}).reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'Reason is required' });
+    await vrlTables();
+    await db.query('UPDATE vendor_repl_challans SET cancelled_at=NOW(), cancel_reason=? WHERE id=?', [reason.slice(0, 500), Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Auth check is handled client-side via /api/me in init() — removing server-side
 // requireAuth here prevents app.html from loading if cookie has any timing/domain issue
 // CDN_CACHE: browsers re-check every load (no stale JS), the CDN answers.
