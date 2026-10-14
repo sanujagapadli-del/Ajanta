@@ -1128,6 +1128,10 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
         <span class="nav-label-text">Vendor Replacement</span>
       </div>
+      <div class="nav-item" id="nav-samples" style="display:none" onclick="navigate('samples',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        <span class="nav-label-text">Samples</span>
+      </div>
       <div class="nav-item" id="nav-meca" style="display:none" onclick="navigate('meca',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         <span class="nav-label-text">MECA</span>
@@ -2029,6 +2033,18 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="vrlTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
     <div id="vrlWrap"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div id="page-samples" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🎁 Samples — salesman ko diye</div>
+        <input id="smpSearch" placeholder="🔍 Salesman / item / dealer…" oninput="renderSmp()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:180px"/>
+        <button class="btn btn-primary" onclick="openSmpNew()">+ Give Sample</button>
+      </div>
+      <div id="smpTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
+    </div>
+    <div id="smpWrap"><div class="empty">Loading…</div></div>
   </div>
 
   <div id="page-meca" class="page">
@@ -4127,6 +4143,7 @@ async function init() {
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
+    if (canSee('samples')) document.getElementById('nav-samples').style.display = 'flex';
     if (canSee('meca')) document.getElementById('nav-meca').style.display = 'flex';
     if (canSee('scot')) document.getElementById('nav-scot').style.display = 'flex';
     if (canSee('sales-schedule')) document.getElementById('nav-sales-schedule').style.display = 'flex';
@@ -4166,7 +4183,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'meca', 'scot'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4266,7 +4283,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',meca:'MECA',scot:'SCOT'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples',meca:'MECA',scot:'SCOT'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4287,7 +4304,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'meca', 'scot'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly())))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly())))) { showToast("You don't have access to this page", 'error'); return; }
   // Net Profit has its own sidebar item (client, 2026-10-12) but is the Gross Profit page's 💰 view.
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page === 'net-profit' ? 'gross-profit' : page;
   closeMobileSidebar();
@@ -4322,6 +4339,7 @@ function navigate(page, el) {
   if (page==='checklist-master') loadChecklistMaster();
   if (page==='ows') loadOws();
   if (page==='vendor-ledger') loadVrl();
+  if (page==='samples') loadSmp();
   if (page==='meca' || page==='scot') loadLinkPage(page);
   if (page==='sales-schedule') loadSalesSchedule();
   if (page==='employees') loadEmployeesPage();
@@ -6112,6 +6130,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'checklist-master', label: 'Checklist Master (sabki checklist banaye / badle / band kare)' },
     { key: 'ows', label: 'OWS — Weekly product-wise sales' },
     { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
+    { key: 'samples', label: 'Samples (salesman ko diye sample)' },
     { key: 'meca', label: 'MECA (sheet)' },
     { key: 'scot', label: 'SCOT (sheet)' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
@@ -7353,7 +7372,7 @@ async function uploadEmployeeDoc() {
   try {
     // Photos are shrunk first (a phone photo is often 4–8 MB); PDFs go as-is.
     const isImg = /^image\//.test(file.type);
-    const data = isImg ? await compressImageToDataURL(file, 1800, 0.8) : await readFileAsDataUrl(file);
+    const data = isImg ? await compressImageToDataURL(file, 1800, 0.8, true) : await readFileAsDataUrl(file);
     if (!isImg && file.size > 3 * 1024 * 1024) throw new Error('PDF 3 MB se bada hai');
     const name = isImg ? file.name.replace(/\.[^.]+$/, '') + '.jpg' : file.name;
     const r = await api(`/api/employees/${empCur.user.id}/documents`, 'POST', { docType: type, data, filename: name });
@@ -11469,7 +11488,31 @@ function onScCustomerTypeChange() {
   onScOwnershipChange();
 }
 
-function compressImageToDataURL(file, maxDim, quality) {
+// Date-time burned into every photo / video frame (client, 2026-10-14). A file
+// picked from the gallery keeps its own capture time (lastModified).
+function stampTimeText(d, withSec) {
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}${withSec ? ':' + p(d.getSeconds()) : ''}`;
+}
+function drawTimestamp(ctx, w, h, d, withSec) {
+  const txt = stampTimeText(d, withSec);
+  const fs = Math.max(11, Math.round(Math.min(w, h) * 0.04));
+  ctx.save();
+  ctx.font = `700 ${fs}px Arial, sans-serif`;
+  ctx.textBaseline = 'middle';
+  const padX = Math.round(fs * 0.55), bh = Math.round(fs * 1.5), bw = Math.ceil(ctx.measureText(txt).width) + padX * 2;
+  const x = w - bw - Math.round(fs * 0.4), y = h - bh - Math.round(fs * 0.4);
+  ctx.fillStyle = 'rgba(0,0,0,.6)';
+  ctx.fillRect(x, y, bw, bh);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(txt, x + padX, y + bh / 2 + 1);
+  ctx.restore();
+}
+function fileStampDate(file) {
+  const t = file && file.lastModified;
+  return t && t > 946684800000 && t <= Date.now() + 60000 ? new Date(t) : new Date();
+}
+function compressImageToDataURL(file, maxDim, quality, noStamp) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const reader = new FileReader();
@@ -11479,7 +11522,9 @@ function compressImageToDataURL(file, maxDim, quality) {
       else if (h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const cx = canvas.getContext('2d');
+      cx.drawImage(img, 0, 0, w, h);
+      if (!noStamp) drawTimestamp(cx, w, h, fileStampDate(file));
       resolve(canvas.toDataURL('image/jpeg', quality));
     }; img.onerror = reject; img.src = e.target.result; };
     reader.onerror = reject;
@@ -15817,6 +15862,7 @@ async function deleteO2dVideo(id, orderNo) {
 // takes as long as the video) to stay under the 4 MB upload limit.
 const O2D_VIDEO_DIRECT_MAX = 3.6 * 1024 * 1024;
 async function o2dShrinkVideo(file, onStatus) {
+  const stampAt = fileStampDate(file);
   const url = URL.createObjectURL(file);
   const v = document.createElement('video');
   v.src = url; v.muted = true; v.playsInline = true;
@@ -15838,6 +15884,7 @@ async function o2dShrinkVideo(file, onStatus) {
     await new Promise(ok => {
       const draw = () => {
         ctx.drawImage(v, 0, 0, cv.width, cv.height);
+        drawTimestamp(ctx, cv.width, cv.height, new Date(stampAt.getTime() + v.currentTime * 1000), true);
         if (onStatus) onStatus(`⏳ Video chhota ho raha hai… ${Math.round(v.currentTime)}/${Math.round(v.duration)}s (screen par hi rahein)`);
         if (v.ended) return ok();
         requestAnimationFrame(draw);
@@ -15856,7 +15903,7 @@ async function o2dUploadGalleryVideo(orderNo, input) {
   const say = (t, bad) => { if (st) { st.textContent = t; st.style.color = bad ? 'var(--color-danger)' : 'var(--gray-500)'; } };
   let blob = file, seconds = null;
   try {
-    if (file.size > O2D_VIDEO_DIRECT_MAX) ({ blob, seconds } = await o2dShrinkVideo(file, say));
+    ({ blob, seconds } = await o2dShrinkVideo(file, say)); // always re-encoded so the date-time is burned in
   } catch (e) { say('❌ ' + e.message, true); return; }
   if (blob.size > 3.9 * 1024 * 1024) { say('❌ Video abhi bhi bada hai — chhota video chunein', true); return; }
   const type = (blob.type || 'video/mp4').split(';')[0];
@@ -15928,9 +15975,19 @@ function o2dToggleRecording() {
   const opts = { videoBitsPerSecond: 300000, audioBitsPerSecond: 32000 };
   if (mime) opts.mimeType = mime;
   r.chunks = [];
-  r.recorder = new MediaRecorder(r.stream, opts);
+  // Record a canvas showing the camera with the date-time burned in.
+  const pv = document.getElementById('o2dVideoPreview');
+  const cv = document.createElement('canvas');
+  cv.width = pv.videoWidth || 640; cv.height = pv.videoHeight || 360;
+  const cx = cv.getContext('2d');
+  const draw = () => { cx.drawImage(pv, 0, 0, cv.width, cv.height); drawTimestamp(cx, cv.width, cv.height, new Date(), true); };
+  draw();
+  r.drawTimer = setInterval(draw, 50);
+  const recStream = cv.captureStream(20);
+  r.stream.getAudioTracks().forEach(t => recStream.addTrack(t));
+  r.recorder = new MediaRecorder(recStream, opts);
   r.recorder.ondataavailable = e => { if (e.data && e.data.size) r.chunks.push(e.data); };
-  r.recorder.onstop = () => { clearInterval(r.timer); o2dUploadRecording(); };
+  r.recorder.onstop = () => { clearInterval(r.timer); clearInterval(r.drawTimer); o2dUploadRecording(); };
   r.recorder.start(1000);
   r.started = Date.now();
   recBtn.textContent = '■ Stop & Upload';
@@ -15976,7 +16033,7 @@ function closeO2dVideoRecorder() {
   const r = _o2dRec;
   if (r) {
     if (r.recorder && r.recorder.state === 'recording') { r.recorder.onstop = null; r.recorder.stop(); }
-    clearInterval(r.timer);
+    clearInterval(r.timer); clearInterval(r.drawTimer);
     r.stream.getTracks().forEach(t => t.stop());
   }
   _o2dRec = null;
@@ -17267,6 +17324,103 @@ function exportOws() {
   const head = ['Product', ...owsData.weeks.flatMap(w => [`${fmtDateDMY(w.start)}-${fmtDateDMY(w.end)} Qty`, `${fmtDateDMY(w.start)}-${fmtDateDMY(w.end)} Sales`]), 'Total Qty', 'Total Sales'];
   csvDownload([head, ...owsRows().map(p => [p.item, ...owsData.weeks.flatMap(w => { const x = p.weeks[w.start]; return x ? [x.qty, Math.round(x.amount)] : ['', '']; }), p.qty, Math.round(p.amount)])],
     `ows-weekly-sales-${stockTodayYmd()}.csv`);
+}
+
+// ══════════════════════════════════════════════════════
+// SAMPLES (client, 2026-10-14) — stock OUT when given; returned qty goes back IN
+// ══════════════════════════════════════════════════════
+let smpData = null, smpTab = 'out';
+async function loadSmp() {
+  const r = await api('/api/samples');
+  if (r.error) { document.getElementById('smpWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  smpData = r;
+  renderSmp();
+}
+function smpSetTab(t) { smpTab = t; renderSmp(); }
+function renderSmp() {
+  if (!smpData) return;
+  const all = smpData.samples;
+  const out = all.filter(s => s.status === 'With salesman'), old = out.filter(s => s.days > 15);
+  const tab = (k, l) => `<button class="btn btn-sm ${smpTab === k ? 'btn-primary' : 'btn-outline'}" onclick="smpSetTab('${k}')">${l}</button>`;
+  document.getElementById('smpTabs').innerHTML = tab('out', `With salesman (${out.length})${old.length ? ` · ⚠ ${old.length} over 15 days` : ''}`) + tab('all', `All (${all.length})`);
+  const q = document.getElementById('smpSearch').value.trim().toLowerCase();
+  const list = (smpTab === 'out' ? out : all).filter(s => !q || `${s.code} ${s.salesmanName} ${s.itemName} ${s.dealerName} ${s.purpose}`.toLowerCase().includes(q));
+  const badge = s => s.status === 'With salesman' ? '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">With salesman</span>'
+    : s.status === 'Settled' ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Settled</span>' : '<span class="status-badge">Cancelled</span>';
+  document.getElementById('smpWrap').innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Sample</th><th>Salesman</th><th>Item</th><th>Qty</th><th>Dealer / purpose</th><th>Back</th><th>Days</th><th>Status</th></tr></thead><tbody>
+    ${list.map(s => { const late = s.status === 'With salesman' && s.days > 15; return `<tr onclick="openSmpDetail(${s.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
+      <td style="font-weight:600;white-space:nowrap">${esc(s.code)}<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(fmtDateDMY(s.issueDate))}</div>${entrySubHtml(s.createdAt)}</td>
+      <td>${esc(s.salesmanName)}</td><td>${esc(s.itemName)}</td><td style="font-weight:700">${s.qty}</td>
+      <td>${esc(s.dealerName || '—')}${s.purpose ? `<div style="font-size:11px;color:var(--gray-500)">${esc(s.purpose)}</div>` : ''}</td>
+      <td>${s.returnedQty == null ? '—' : s.returnedQty}${s.leftQty ? `<div style="font-size:11px;color:var(--gray-500)">${s.leftQty} chhoda</div>` : ''}</td>
+      <td style="${late ? 'color:var(--color-danger);font-weight:700' : ''}">${s.status === 'With salesman' ? s.days + 'd' + (late ? ' ⚠' : '') : '—'}</td><td>${badge(s)}</td></tr>`; }).join('')}
+    </tbody></table></div>` : '<div class="empty">Koi sample nahi</div>';
+}
+function smpModalX(id) { return `<button class="modal-close-x modal-close" onclick="closeModal('${id}')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`; }
+async function openSmpNew() {
+  const users = await api('/api/users/roster');
+  const act = (Array.isArray(users) ? users : []).filter(u => u.is_active == null || +u.is_active === 1);
+  vrlModal('smpNewModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">🎁 Give Sample</h3>${smpModalX('smpNewModal')}</div>
+    <datalist id="smpItemList">${smpData.items.map(i => `<option value="${esc(i.item_code + ' — ' + i.description)}">`).join('')}</datalist>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Salesman *</label><select id="smpSalesman" style="${VRL_IN}"><option value="">-- Select --</option>${act.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
+      <div><label style="font-size:12px;font-weight:600">Date</label><input id="smpDate" type="date" value="${stockTodayYmd()}" style="${VRL_IN}"/></div></div>
+    <div style="display:grid;grid-template-columns:3fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Item * <span style="font-weight:400;color:var(--gray-400)">(stock se)</span></label><input id="smpItem" list="smpItemList" placeholder="Type to search…" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Qty *</label><input id="smpQty" type="number" min="1" value="1" style="${VRL_IN}"/></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Dealer / party</label><input id="smpDealer" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Purpose</label><select id="smpPurpose" style="${VRL_IN}"><option>Demo to dealer</option><option>New dealer</option><option>Trial order</option><option>Customer complaint check</option><option>Other</option></select></div></div>
+    <label style="font-size:12px;font-weight:600">Remark</label><input id="smpRemark" style="${VRL_IN};margin-bottom:10px"/>
+    <div id="smpErr" class="alert error" style="display:none;margin-bottom:10px"></div>
+    <button class="btn btn-primary" id="smpSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="saveSmpNew()">Save — stock se OUT</button>`, 560);
+}
+async function saveSmpNew() {
+  const err = document.getElementById('smpErr'); err.style.display = 'none';
+  const itemCode = document.getElementById('smpItem').value.split(' — ')[0].trim();
+  const btn = document.getElementById('smpSaveBtn'); btn.disabled = true;
+  const r = await api('/api/samples', 'POST', { salesmanUserId: document.getElementById('smpSalesman').value, date: document.getElementById('smpDate').value, itemCode,
+    qty: document.getElementById('smpQty').value, dealerName: document.getElementById('smpDealer').value.trim(), purpose: document.getElementById('smpPurpose').value, remark: document.getElementById('smpRemark').value.trim() });
+  btn.disabled = false;
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  closeModal('smpNewModal');
+  showToast(`✅ ${r.code} — stock se OUT ho gaya`);
+  loadSmp();
+}
+function openSmpDetail(id) {
+  const s = smpData.samples.find(x => x.id === id);
+  if (!s) return;
+  const open = s.status === 'With salesman';
+  vrlModal('smpDetailModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">${esc(s.code)} · ${esc(s.itemName)} × ${s.qty}</h3>${smpModalX('smpDetailModal')}</div>
+    <div style="font-size:13px;color:var(--gray-700);line-height:1.7;margin-bottom:12px">
+      Salesman: <b>${esc(s.salesmanName)}</b> · ${esc(fmtDateDMY(s.issueDate))}${open ? ` · <b style="${s.days > 15 ? 'color:var(--color-danger)' : ''}">${s.days} din</b>` : ''}<br/>
+      ${s.dealerName ? 'Dealer: <b>' + esc(s.dealerName) + '</b><br/>' : ''}${s.purpose ? 'Purpose: ' + esc(s.purpose) + '<br/>' : ''}${s.remark ? esc(s.remark) + '<br/>' : ''}
+      <span style="font-size:11.5px;color:var(--gray-500)">Diya by ${esc(s.createdByName)} · ${esc(fmtDateDMY(s.createdAt, true))}</span>
+      ${s.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(s.cancelReason)}</div>` : ''}
+      ${s.outcomeAt ? `<div style="margin-top:6px">✅ Wapas aaya: <b>${s.returnedQty}</b>${s.leftQty ? ` · dealer ke paas chhoda: <b>${s.leftQty}</b>` : ''}${s.outcomeRemark ? ' · ' + esc(s.outcomeRemark) : ''}<br/><span style="font-size:11.5px;color:var(--gray-500)">${esc(s.outcomeByName)} · ${esc(fmtDateDMY(s.outcomeAt, true))}</span></div>` : ''}</div>
+    ${open ? `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px">Sample ka kya hua?</div>
+      <label style="font-size:11.5px">Kitna wapas aaya (stock me IN hoga)</label><input id="smpBack" type="number" min="0" max="${s.qty}" value="${s.qty}" style="${VRL_IN};margin-bottom:8px"/>
+      <label style="font-size:11.5px">Remark <span style="color:var(--gray-400)">(jo wapas nahi aaya — kisko diya / kahan gaya)</span></label><input id="smpOutRemark" style="${VRL_IN};margin-bottom:8px"/>
+      <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveSmpOutcome(${s.id},this)">✓ Save</button></div>` : ''}
+    ${smpData.me.isAdmin && open ? `<button class="btn btn-outline" style="color:var(--color-danger)" onclick="cancelSmp(${s.id})">🚫 Cancel (stock wapas)</button>` : ''}`, 520);
+}
+async function saveSmpOutcome(id, btn) {
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/samples/${id}/outcome`, 'POST', { returnedQty: document.getElementById('smpBack').value, remark: document.getElementById('smpOutRemark').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('smpDetailModal');
+  showToast('✅ Saved');
+  loadSmp();
+}
+async function cancelSmp(id) {
+  const reason = (prompt('Cancel reason:') || '').trim();
+  if (!reason) return;
+  const r = await api(`/api/samples/${id}/cancel`, 'POST', { reason });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('smpDetailModal');
+  loadSmp();
 }
 
 // ══════════════════════════════════════════════════════
@@ -20374,8 +20528,15 @@ function rplTaskFormHtml(r) {
       ${L('Remark (kya badla / spare)')}<input id="${id}_remark" style="${RPL_INPUT}"/>
       <div style="display:flex;gap:8px">${btn('✓ Repaired & Tested', 'repair')}</div>`;
   } else if (t.key === 'exchange') {
-    inner = `${L('Stock se diya naya item', true)}<input id="${id}_item" placeholder="e.g. Cooler pump 36W — 1 pc" style="${RPL_INPUT}"/>
-      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_bin"/> Purana pc Reject Bin me daal diya</label>
+    if (!window._rplStockItems) loadReplStockItems(r.id);
+    const stockOpts = (window._rplStockItems || []).map(x => `<option value="${esc(x.item_code + ' — ' + x.description)}">${esc(x.item_code + ' — ' + x.description)}</option>`).join('');
+    inner = `${L('Stock se diya naya item', true)}${window._rplStockItems && window._rplStockItems.length
+        ? `<div style="display:flex;gap:8px;margin-bottom:10px"><select id="${id}_item" style="${RPL_INPUT};flex:1;margin:0"><option value="">— item chuno —</option>${stockOpts}</select>
+            <input id="${id}_qty" type="number" min="1" value="1" title="Qty" style="${RPL_INPUT};width:70px;margin:0"/></div>`
+        : `<input id="${id}_item" placeholder="e.g. Cooler pump 36W — 1 pc" style="${RPL_INPUT}"/>`}
+      <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin:2px 0 6px">PURANA PC KA KYA KIYA (ek chuno)</div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:6px"><input type="checkbox" id="${id}_bin" onchange="if(this.checked)document.getElementById('${id}_okstock').checked=false"/> Purana pc Reject Bin me daal diya</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_okstock" onchange="if(this.checked)document.getElementById('${id}_bin').checked=false"/> Pc sahi hai — check karke stock me rakh diya</label>
       <div style="display:flex;gap:8px">${btn('✓ Exchange Done', 'exchange')}</div>`;
   } else if (t.key === 'inform') {
     const msg = r.warranty === 'Out of Warranty' && r.customerAgreed === 'No' ? 'Customer ne repair mana kiya — product bina repair wapas jayega.' : 'Product ready hai — beat route par gaadi jaaye to le jaaye / pick-up kar le.';
@@ -20444,7 +20605,7 @@ function renderReplDetailBody(r) {
       ${r.binAt ? f('Maal check', (r.returnCondition === 'OK' ? '✅ Sahi — ' : r.returnCondition === 'Damaged' ? '💥 Toota-phoota — ' : '') + esc(r.binRemark)) : ''}
       ${r.owReason && r.warranty === 'Out of Warranty' ? f('OW reason', esc(r.owReason)) : ''}
       ${f('Mechanic', esc(r.mechanicName) + (r.leadDays ? ` · ${r.leadDays} day(s)` : ''))}
-      ${f('Exchange item', esc(r.exchangeItem))}
+      ${f('Exchange item', esc(r.exchangeItem))}${r.exchangeOld ? f('Old piece', r.exchangeOld === 'stock' ? 'Checked OK — back in stock' : 'Reject Bin') : ''}
       ${r.cnNo ? f('Credit Note', esc(r.cnNo) + (r.cnAmount != null ? ` · ${inr(r.cnAmount)}` : '')) : ''}
       ${r.cnPhoto ? `<div>${rplPhoto(r.cnPhoto, 120)}</div>` : ''}${r.cnSentPhoto ? `<div>${rplPhoto(r.cnSentPhoto, 120)}</div>` : ''}
       ${r.deliveredAt ? f('Delivered', fmtDateDMY(r.deliveredAt, true) + (r.receiverName ? ' · ' + esc(r.receiverName) : '') + (r.chargesReceived != null ? ` · ${inr(r.chargesReceived)} recd` : '')) : ''}
@@ -20482,6 +20643,15 @@ async function sendReplOtp(id, btnEl) {
   showToast(r.pending ? 'OTP bhej rahe hain — 1 minute me aa jayega' : '✅ OTP customer ko bhej diya');
 }
 
+// Stock item list for the Instant Exchange drop-down (fetched once, then the open detail re-renders).
+async function loadReplStockItems(id) {
+  window._rplStockItems = [];
+  const r = await api('/api/replacement-fms/stock-items');
+  window._rplStockItems = (r && r.items) || [];
+  const it = rplData.find(x => x.id === id);
+  if (window._rplStockItems.length && it && document.getElementById('replDetailModal').classList.contains('open')) renderReplDetailBody(it);
+}
+
 async function submitReplAction(id, action, btnEl, preset) {
   const p = `rpl_${id}`;
   const val = s => { const el = document.getElementById(`${p}_${s}`); return el ? (el.type === 'checkbox' ? el.checked : el.value.trim()) : ''; };
@@ -20494,7 +20664,10 @@ async function submitReplAction(id, action, btnEl, preset) {
   else if (action === 'warranty') body = { warranty: radio('w'), owReason: val('owr'), charges: val('ch'), rateToldTo: radio('told'), customerAgreed: radio('ag') };
   else if (action === 'assign') body = { mechanicUserId: val('mech'), leadDays: val('lead') };
   else if (action === 'repair') body = { tested: val('tested'), remark: val('remark') };
-  else if (action === 'exchange') body = { newItem: val('item'), oldInBin: val('bin') };
+  else if (action === 'exchange') {
+    const qtyEl = document.getElementById(`${p}_qty`);
+    body = { newItem: val('item') && qtyEl ? `${val('item')} × ${Math.max(1, parseInt(qtyEl.value, 10) || 1)}` : val('item'), oldInBin: val('bin'), oldToStock: val('okstock') };
+  }
   else if (action === 'inform') body = { remark: val('remark'), sendWhatsApp: val('wa'), mobile: val('mobile'), notifySalesman: val('sm') };
   else if (action === 'bin') body = { condition: radio('cond'), remark: val('remark') };
   else if (action === 'cn') body = { cnNo: val('no'), cnAmount: val('amt'), cnPhoto: photo() };
@@ -20522,7 +20695,7 @@ async function submitReplAction(id, action, btnEl, preset) {
   };
   if (action === 'exchange') {
     if (!body.newItem) return stepErr('Stock se diya naya item likho (e.g. Cooler pump 36W — 1 pc)', 'item');
-    if (!body.oldInBin) return stepErr('Purana pc Reject Bin me daalne ka tick lagao', 'bin');
+    if (!body.oldInBin && !body.oldToStock) return stepErr('Purana pc kahan gaya: Reject Bin ya stock me rakha — ek tick lagao', 'bin');
   }
   const orig = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }

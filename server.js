@@ -533,7 +533,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'meca', 'scot'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -9780,7 +9780,8 @@ let _replColsOk = false;
 async function ensureReplCols() {
   await addMissingColumns('replacements', [['return_condition', 'VARCHAR(20)'], ['rate_told_to', 'VARCHAR(20)'], ['diary_at', 'DATETIME'], ['diary_by', 'INT'],
     ['salesman_user_id', 'INT'], ['salesman_name', 'VARCHAR(255)'],
-    ['cash_staff_name', 'VARCHAR(255)'], ['cash_staff_amount', 'DECIMAL(10,2)'], ['cash_staff_at', 'DATETIME'], ['cash_staff_by', 'INT']]);
+    ['cash_staff_name', 'VARCHAR(255)'], ['cash_staff_amount', 'DECIMAL(10,2)'], ['cash_staff_at', 'DATETIME'], ['cash_staff_by', 'INT'],
+    ['exchange_old', 'VARCHAR(10)']]);
   await replMigrateStepsV2();
   _replColsOk = true;
 }
@@ -9899,7 +9900,7 @@ function replOut(r, doersMap) {
     warranty: r.warranty || '', owReason: r.ow_reason || '', charges: num(r.charges), customerAgreed: r.customer_agreed || '', warrantyAt: r.warranty_at,
     mechanicUserId: r.mechanic_user_id, mechanicName: r.mechanic_name || '', leadDays: num(r.lead_days), assignedAt: r.assigned_at,
     repairedAt: r.repaired_at, repairRemark: r.repair_remark || '',
-    exchangeItem: r.exchange_item || '', exchangeAt: r.exchange_at,
+    exchangeItem: r.exchange_item || '', exchangeOld: r.exchange_old || '', exchangeAt: r.exchange_at,
     informedAt: r.informed_at, informRemark: r.inform_remark || '',
     binAt: r.bin_at, binRemark: r.bin_remark || '', returnCondition: r.return_condition || '', rateToldTo: r.rate_told_to || '', cnNo: r.cn_no || '', cnAmount: num(r.cn_amount), cnPhoto: r.cn_photo || '', cnAt: r.cn_at,
     cnSentPhoto: r.cn_sent_photo || '', cnSentAt: r.cn_sent_at,
@@ -9912,6 +9913,13 @@ function replOut(r, doersMap) {
   };
 }
 
+// Stock item names for the Instant Exchange drop-down — the step doer needn't have the Stock page.
+app.get('/api/replacement-fms/stock-items', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items ORDER BY description'));
+    res.json({ items: rows });
+  } catch (err) { sendServerError(res, err); }
+});
 app.get('/api/replacement-fms/step-doers', requireAuth, async (req, res) => {
   try {
     const map = await getReplStepDoersMap();
@@ -10119,9 +10127,11 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       if (!need('exchange')) return;
       const item = t(b.newItem);
       if (!item) return fail('Which new item was taken from stock?');
-      if (!b.oldInBin) return fail('Confirm the old piece is in the Reject Bin');
-      await db.query('UPDATE replacements SET exchange_item=?, exchange_at=NOW(), exchange_by=? WHERE id=?', [item, uid, r.id]);
-      await logReplEvent(r.id, 'exchange', `Old piece → reject bin · new from stock: ${item}`, uid);
+      if (b.oldInBin && b.oldToStock) return fail('Old piece: pick either Reject Bin or back to Stock, not both');
+      if (!b.oldInBin && !b.oldToStock) return fail('Confirm where the old piece went: Reject Bin, or checked OK and put back in stock');
+      const oldTo = b.oldToStock ? 'stock' : 'bin';
+      await db.query('UPDATE replacements SET exchange_item=?, exchange_old=?, exchange_at=NOW(), exchange_by=? WHERE id=?', [item, oldTo, uid, r.id]);
+      await logReplEvent(r.id, 'exchange', `Old piece → ${oldTo === 'stock' ? 'checked OK, back in stock' : 'reject bin'} · new from stock: ${item}`, uid);
     } else if (action === 'inform') {
       if (!need('inform')) return;
       const remark = t(b.remark);
@@ -13099,6 +13109,125 @@ app.post('/api/vendor-ledger/:id/cancel', requireAuth, async (req, res) => {
     if (!reason) return res.status(400).json({ error: 'Reason is required' });
     await vrlTables();
     await db.query('UPDATE vendor_repl_challans SET cancelled_at=NOW(), cancel_reason=? WHERE id=?', [reason.slice(0, 500), Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// SAMPLES (client, 2026-10-14) — samples a salesman takes to the market. Issuing
+// books a stock OUT; what comes back is booked as stock IN, the rest counts as
+// left with the dealer.
+// ══════════════════════════════════════════════════════
+let _smpOk = false;
+async function smpTables() {
+  if (_smpOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS sample_issues (
+    id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(20) UNIQUE, issue_date DATE NOT NULL, salesman_user_id INT, salesman_name VARCHAR(255),
+    item_code VARCHAR(32) NOT NULL, item_name VARCHAR(255), uom VARCHAR(16), qty DECIMAL(10,2) NOT NULL, dealer_name VARCHAR(255), purpose VARCHAR(255), remark VARCHAR(500),
+    created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    returned_qty DECIMAL(10,2), outcome_at DATETIME, outcome_by INT, outcome_remark VARCHAR(500), cancelled_at DATETIME, cancel_reason VARCHAR(500)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _smpOk = true;
+}
+async function smpAccess(req, res) {
+  if (await hasPageGrant(req, 'samples')) return true;
+  res.status(403).json({ error: 'No access to Samples' });
+  return false;
+}
+async function smpLoad(where = '', params = []) {
+  const [rows] = await db.query(`SELECT s.*, DATE_FORMAT(s.issue_date,'%Y-%m-%d') AS issue_date, DATE_FORMAT(s.created_at,'%Y-%m-%d %H:%i:%s') AS created_at,
+      DATE_FORMAT(s.outcome_at,'%Y-%m-%d %H:%i:%s') AS outcome_at, DATEDIFF(CURDATE(), s.issue_date) AS days, u.name AS created_by_name, o.name AS outcome_by_name
+    FROM sample_issues s LEFT JOIN users u ON u.id=s.created_by LEFT JOIN users o ON o.id=s.outcome_by ${where} ORDER BY s.id DESC`, params);
+  const n = v => Number(v) || 0;
+  return rows.map(s => ({ id: s.id, code: s.code, issueDate: s.issue_date, salesmanUserId: s.salesman_user_id, salesmanName: s.salesman_name || '', itemCode: s.item_code,
+    itemName: s.item_name || '', uom: s.uom || '', qty: n(s.qty), dealerName: s.dealer_name || '', purpose: s.purpose || '', remark: s.remark || '', createdAt: s.created_at,
+    createdByName: s.created_by_name || '', days: n(s.days), returnedQty: s.returned_qty == null ? null : n(s.returned_qty), leftQty: s.outcome_at ? n(s.qty) - n(s.returned_qty) : null,
+    outcomeAt: s.outcome_at, outcomeByName: s.outcome_by_name || '', outcomeRemark: s.outcome_remark || '', cancelledAt: s.cancelled_at, cancelReason: s.cancel_reason || '',
+    status: s.cancelled_at ? 'Cancelled' : s.outcome_at ? 'Settled' : 'With salesman' }));
+}
+app.get('/api/samples', requireAuth, async (req, res) => {
+  try {
+    if (!(await smpAccess(req, res))) return;
+    await smpTables();
+    const [items] = await withStockTable(() => db.query('SELECT item_code, description, uom, current_stock FROM ajanta_stock_items ORDER BY description'));
+    res.json({ samples: await smpLoad(), items, me: { isAdmin: req.session.role === 'admin' } });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/samples', requireAuth, async (req, res) => {
+  try {
+    if (!(await smpAccess(req, res))) return;
+    await smpTables();
+    await ensureStockTxnSchema();
+    const b = req.body || {};
+    const qty = Number(b.qty);
+    if (!(qty > 0)) return res.status(400).json({ error: 'Quantity must be more than 0' });
+    const [[sm]] = await db.query('SELECT id, name FROM users WHERE id=?', [Number(b.salesmanUserId) || 0]);
+    if (!sm) return res.status(400).json({ error: 'Choose the salesman' });
+    const [items] = await withStockTable(() => db.query('SELECT * FROM ajanta_stock_items WHERE item_code=?', [String(b.itemCode || '').trim()]));
+    const item = items[0];
+    if (!item) return res.status(400).json({ error: 'Choose the item from the list' });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const n = await claimNextSeqValue('smp_code', 1);
+    const code = `SMP-${String(n).padStart(4, '0')}`;
+    const [claim] = await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ? AND current_stock >= ?', [qty, date, item.item_code, qty]);
+    if (!claim.affectedRows) return res.status(400).json({ error: `Not enough stock — only ${item.current_stock} ${item.uom || ''} available` });
+    const dealer = String(b.dealerName || '').trim().slice(0, 255), purpose = String(b.purpose || '').trim().slice(0, 255);
+    try {
+      await withStockTxnTable(() => db.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
+        [date, 'OUT', item.item_code, item.description, qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '']));
+      const [r] = await db.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [code, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
+      res.json({ success: true, id: r.insertId, code });
+    } catch (e) {
+      await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?', [qty, item.item_code]);
+      throw e;
+    }
+  } catch (err) { sendServerError(res, err); }
+});
+// Outcome: how many came back (stock IN); the remainder stays with the dealer.
+app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
+  try {
+    if (!(await smpAccess(req, res))) return;
+    await smpTables();
+    await ensureStockTxnSchema();
+    const [s] = await smpLoad('WHERE s.id=?', [Number(req.params.id)]);
+    if (!s) return res.status(404).json({ error: 'Sample not found' });
+    if (s.status !== 'With salesman') return res.status(400).json({ error: 'Already settled or cancelled' });
+    const b = req.body || {};
+    const back = Number(b.returnedQty) || 0;
+    if (back < 0 || back > s.qty) return res.status(400).json({ error: `Returned qty must be between 0 and ${s.qty}` });
+    const remark = String(b.remark || '').trim().slice(0, 500);
+    if (back < s.qty && !remark) return res.status(400).json({ error: 'Kisko diya / kahan gaya — remark likhein' });
+    const [claim] = await db.query('UPDATE sample_issues SET returned_qty=?, outcome_at=NOW(), outcome_by=?, outcome_remark=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL',
+      [back, req.session.userId, remark || null, s.id]);
+    if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
+    if (back > 0) {
+      const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+      await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [back, date, s.itemCode]);
+      await withStockTxnTable(() => db.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
+        [date, 'IN', s.itemCode, s.itemName, back, s.uom, `Sample ${s.code} returned by ${s.salesmanName}`.slice(0, 500), req.session.name || '']));
+    }
+    const [fresh] = await smpLoad('WHERE s.id=?', [s.id]);
+    res.json({ success: true, sample: fresh });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/samples/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    if (!(await smpAccess(req, res))) return;
+    if (req.session.role !== 'admin') return res.status(403).json({ error: 'Only admin can cancel a sample entry' });
+    const reason = String((req.body || {}).reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'Reason is required' });
+    await smpTables();
+    await ensureStockTxnSchema();
+    const [s] = await smpLoad('WHERE s.id=?', [Number(req.params.id)]);
+    if (!s) return res.status(404).json({ error: 'Sample not found' });
+    if (s.status !== 'With salesman') return res.status(400).json({ error: 'Only an entry still with the salesman can be cancelled' });
+    const [claim] = await db.query('UPDATE sample_issues SET cancelled_at=NOW(), cancel_reason=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL', [reason.slice(0, 500), s.id]);
+    if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
+    const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [s.qty, date, s.itemCode]);
+    await withStockTxnTable(() => db.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
+      [date, 'IN', s.itemCode, s.itemName, s.qty, s.uom, `Sample ${s.code} cancelled — ${reason}`.slice(0, 500), req.session.name || '']));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
