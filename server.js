@@ -13251,9 +13251,156 @@ app.post('/api/samples/:id/cancel', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// ══════════════════════════════════════════════════════
+// SCOT — Sales Coordinator calling plan (client's own "Calling Plan" HTML +
+// voice note, 2026-10-14). Every dealer is called every `freq` days (Sundays
+// skipped); the month's schedule is built client-side exactly like their tool.
+// Onboarded NBD dealers (Lead FMS) join automatically as new converts.
+// ══════════════════════════════════════════════════════
+const SCOT_TIERS = ['A - Star', 'B - Regular', 'C - Occasional'];
+let _scotOk = false;
+async function scotTables() {
+  if (_scotOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS scot_dealers (
+    id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) COLLATE utf8mb4_bin NOT NULL UNIQUE, rank_no INT, bills INT, tier VARCHAR(20) NOT NULL DEFAULT 'B - Regular',
+    freq INT NOT NULL DEFAULT 30, freq_default INT NOT NULL DEFAULT 30, freq_updated_at DATETIME, person VARCHAR(255), phone VARCHAR(30), area VARCHAR(255),
+    source VARCHAR(50), notes VARCHAR(1000), products TEXT, is_new TINYINT NOT NULL DEFAULT 0, added_date DATE, onboarding_id INT UNIQUE,
+    active TINYINT NOT NULL DEFAULT 1, created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS scot_calls (
+    id INT AUTO_INCREMENT PRIMARY KEY, dealer_id INT NOT NULL, call_date DATE NOT NULL, called_by INT, called_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_scot_call (dealer_id, call_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS scot_orders (
+    id INT AUTO_INCREMENT PRIMARY KEY, dealer_id INT NOT NULL, order_date DATE NOT NULL, amount DECIMAL(12,2) NOT NULL, items VARCHAR(1000),
+    payment VARCHAR(30), notes VARCHAR(1000), created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (dealer_id), KEY (order_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _scotOk = true;
+}
+async function scotAccess(req, res) {
+  if (await hasPageGrant(req, 'scot')) return true;
+  res.status(403).json({ error: 'No access to SCOT' });
+  return false;
+}
+const scotYmd = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+// NBD dealers onboarded through Lead FMS join the calling plan as new converts.
+async function scotSyncOnboarded() {
+  let rows;
+  try {
+    [rows] = await db.query(`SELECT o.id, o.shop_name, o.owner_name, o.mobile, o.area, o.city, DATE_FORMAT(o.created_at,'%Y-%m-%d') AS added
+      FROM dealer_onboardings o LEFT JOIN scot_dealers s ON s.onboarding_id = o.id WHERE s.id IS NULL`);
+  } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return; throw e; }
+  for (const o of rows) {
+    const name = `${o.shop_name}${o.city ? ', ' + o.city : ''}`.slice(0, 255);
+    await db.query(`INSERT INTO scot_dealers (name, tier, freq, freq_default, person, phone, area, source, is_new, added_date, onboarding_id)
+      VALUES (?, 'B - Regular', 7, 7, ?, ?, ?, 'NBD (Lead FMS)', 1, ?, ?) ON DUPLICATE KEY UPDATE onboarding_id = COALESCE(onboarding_id, VALUES(onboarding_id))`,
+      [name, o.owner_name || null, o.mobile || null, o.area || null, o.added || scotYmd(), o.id]);
+  }
+}
+function scotDealerOut(d) {
+  let products = [];
+  try { products = JSON.parse(d.products || '[]'); } catch (e) { /* keep empty */ }
+  return { id: d.id, name: d.name, rank: d.rank_no, bills: d.bills, tier: d.tier, freq: d.freq, freqDefault: d.freq_default, freqUpdatedAt: d.freq_updated_at,
+    person: d.person || '', phone: d.phone || '', area: d.area || '', source: d.source || '', notes: d.notes || '', products, isNew: !!d.is_new, addedDate: d.added_date };
+}
+app.get('/api/scot', requireAuth, async (req, res) => {
+  try {
+    if (!(await scotAccess(req, res))) return;
+    await scotTables();
+    await scotSyncOnboarded();
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : scotYmd().slice(0, 7);
+    const [dealers] = await db.query("SELECT *, DATE_FORMAT(added_date,'%Y-%m-%d') AS added_date FROM scot_dealers WHERE active = 1 ORDER BY id");
+    const [calls] = await db.query(`SELECT dealer_id, DATE_FORMAT(call_date,'%Y-%m-%d') AS d FROM scot_calls WHERE call_date BETWEEN ? AND LAST_DAY(?)`, [month + '-01', month + '-01']);
+    const [orders] = await db.query(`SELECT o.*, DATE_FORMAT(o.order_date,'%Y-%m-%d') AS order_date, DATE_FORMAT(o.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, u.name AS by_name
+      FROM scot_orders o LEFT JOIN users u ON u.id = o.created_by ORDER BY o.id DESC LIMIT 2000`);
+    res.json({ month, dealers: dealers.map(scotDealerOut), calls: calls.map(c => [c.dealer_id, c.d]),
+      orders: orders.map(o => ({ id: o.id, dealerId: o.dealer_id, date: o.order_date, amount: Number(o.amount) || 0, items: o.items || '', payment: o.payment || '', notes: o.notes || '', createdAt: o.created_at, by: o.by_name || '' })),
+      me: { isAdmin: req.session.role === 'admin' } });
+  } catch (err) { sendServerError(res, err); }
+});
+// Mark / unmark one scheduled call as done.
+app.post('/api/scot/call', requireAuth, async (req, res) => {
+  try {
+    if (!(await scotAccess(req, res))) return;
+    await scotTables();
+    const b = req.body || {};
+    const id = Number(b.dealerId), date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : '';
+    if (!id || !date) return res.status(400).json({ error: 'Dealer and date are required' });
+    if (b.done) await db.query('INSERT IGNORE INTO scot_calls (dealer_id, call_date, called_by) VALUES (?,?,?)', [id, date, req.session.userId]);
+    else await db.query('DELETE FROM scot_calls WHERE dealer_id = ? AND call_date = ?', [id, date]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/scot/dealer', requireAuth, async (req, res) => {
+  try {
+    if (!(await scotAccess(req, res))) return;
+    await scotTables();
+    const b = req.body || {};
+    const name = String(b.name || '').trim().slice(0, 255), phone = String(b.phone || '').trim().slice(0, 30);
+    if (!name || !phone) return res.status(400).json({ error: 'Dealer name and phone are required' });
+    const tier = SCOT_TIERS.includes(b.tier) ? b.tier : 'B - Regular';
+    const [[dup]] = await db.query('SELECT id FROM scot_dealers WHERE name = ?', [name]);
+    if (dup) return res.status(400).json({ error: 'Ye dealer pehle se list me hai' });
+    const [r] = await db.query(`INSERT INTO scot_dealers (name, tier, freq, freq_default, person, phone, area, source, notes, is_new, added_date, created_by)
+      VALUES (?,?,7,7,?,?,?,?,?,1,?,?)`, [name, tier, String(b.person || '').trim().slice(0, 255) || null, phone, String(b.area || '').trim().slice(0, 255) || null,
+      String(b.source || '').trim().slice(0, 50) || null, String(b.notes || '').trim().slice(0, 1000) || null, scotYmd(), req.session.userId]);
+    res.json({ success: true, id: r.insertId });
+  } catch (err) { sendServerError(res, err); }
+});
+// Contact, products, or (admin) call frequency of one dealer.
+app.put('/api/scot/dealer/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await scotAccess(req, res))) return;
+    await scotTables();
+    const id = Number(req.params.id), b = req.body || {};
+    const [[d]] = await db.query('SELECT * FROM scot_dealers WHERE id = ?', [id]);
+    if (!d) return res.status(404).json({ error: 'Dealer not found' });
+    if ('person' in b || 'phone' in b) {
+      const person = String(b.person || '').trim().slice(0, 255), phone = String(b.phone || '').trim().slice(0, 30);
+      if (!person && !phone) return res.status(400).json({ error: 'Naam ya phone me se ek to bharein' });
+      await db.query('UPDATE scot_dealers SET person = ?, phone = ? WHERE id = ?', [person || null, phone || null, id]);
+    }
+    if (Array.isArray(b.products)) {
+      const prods = b.products.filter(p => p && p.model).slice(0, 300).map(p => ({ model: String(p.model).slice(0, 200), cat: String(p.cat || '').slice(0, 60) }));
+      await db.query('UPDATE scot_dealers SET products = ? WHERE id = ?', [JSON.stringify(prods), id]);
+    }
+    if ('freq' in b) {
+      if (req.session.role !== 'admin') return res.status(403).json({ error: 'Sirf admin frequency badal sakta hai' });
+      const f = b.freq === 'reset' ? d.freq_default : parseInt(b.freq, 10);
+      if (!(f >= 1 && f <= 366)) return res.status(400).json({ error: 'Frequency 1–366 din ke beech' });
+      await db.query('UPDATE scot_dealers SET freq = ?, freq_updated_at = ? WHERE id = ?', [f, b.freq === 'reset' ? null : new Date(), id]);
+    }
+    if ('tier' in b && SCOT_TIERS.includes(b.tier)) await db.query('UPDATE scot_dealers SET tier = ? WHERE id = ?', [b.tier, id]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/scot/order', requireAuth, async (req, res) => {
+  try {
+    if (!(await scotAccess(req, res))) return;
+    await scotTables();
+    const b = req.body || {};
+    const id = Number(b.dealerId), amount = Number(b.amount);
+    if (!id) return res.status(400).json({ error: 'Dealer is required' });
+    if (!(amount > 0)) return res.status(400).json({ error: 'Order amount bharein' });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : scotYmd();
+    const [r] = await db.query('INSERT INTO scot_orders (dealer_id, order_date, amount, items, payment, notes, created_by) VALUES (?,?,?,?,?,?,?)',
+      [id, date, amount, String(b.items || '').trim().slice(0, 1000) || null, String(b.payment || '').trim().slice(0, 30) || null, String(b.notes || '').trim().slice(0, 1000) || null, req.session.userId]);
+    // An order on a scheduled call day also counts the call as done.
+    await db.query('INSERT IGNORE INTO scot_calls (dealer_id, call_date, called_by) VALUES (?,?,?)', [id, date, req.session.userId]);
+    res.json({ success: true, id: r.insertId });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/scot/order/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await scotTables();
+    await db.query('DELETE FROM scot_orders WHERE id = ?', [Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // MECA / SCOT sidebar pages (client, 2026-10-14): each opens the sheet the team
 // fills daily. The admin sets the link on the page itself (app_settings).
-const LINK_PAGES = { meca: 'MECA', scot: 'SCOT' };
+const LINK_PAGES = { meca: 'MECA' };
 app.get('/api/link-page/:key', requireAuth, async (req, res) => {
   try {
     const key = req.params.key;
