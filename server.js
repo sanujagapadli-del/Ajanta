@@ -533,7 +533,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'meca', 'scot'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -13100,6 +13100,28 @@ app.post('/api/vendor-ledger/:id/cancel', requireAuth, async (req, res) => {
     await vrlTables();
     await db.query('UPDATE vendor_repl_challans SET cancelled_at=NOW(), cancel_reason=? WHERE id=?', [reason.slice(0, 500), Number(req.params.id)]);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// MECA / SCOT sidebar pages (client, 2026-10-14): each opens the sheet the team
+// fills daily. The admin sets the link on the page itself (app_settings).
+const LINK_PAGES = { meca: 'MECA', scot: 'SCOT' };
+app.get('/api/link-page/:key', requireAuth, async (req, res) => {
+  try {
+    const key = req.params.key;
+    if (!LINK_PAGES[key]) return res.status(404).json({ error: 'Not found' });
+    if (!(await hasPageGrant(req, key))) return res.status(403).json({ error: `No access to ${LINK_PAGES[key]}` });
+    res.json({ url: (await getAppSetting(`link_page_${key}`)) || '', canEdit: req.session.role === 'admin' });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/link-page/:key', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const key = req.params.key;
+    if (!LINK_PAGES[key]) return res.status(404).json({ error: 'Not found' });
+    const url = String((req.body || {}).url || '').trim();
+    if (url && !/^https:\/\/\S+$/i.test(url)) return res.status(400).json({ error: 'Link https:// se shuru hona chahiye' });
+    await setAppSetting(`link_page_${key}`, url);
+    res.json({ success: true, url });
   } catch (err) { sendServerError(res, err); }
 });
 

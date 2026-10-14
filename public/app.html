@@ -1128,6 +1128,14 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
         <span class="nav-label-text">Vendor Replacement</span>
       </div>
+      <div class="nav-item" id="nav-meca" style="display:none" onclick="navigate('meca',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span class="nav-label-text">MECA</span>
+      </div>
+      <div class="nav-item" id="nav-scot" style="display:none" onclick="navigate('scot',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span class="nav-label-text">SCOT</span>
+      </div>
       </div>
     </div>
     <div class="nav-divider"></div>
@@ -2023,6 +2031,20 @@ tbody tr:last-child td{border-bottom:none;}
     <div id="vrlWrap"><div class="empty">Loading…</div></div>
   </div>
 
+  <div id="page-meca" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:14px 18px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📄 MECA</div>
+      <span id="lp_meca_btns"></span>
+    </div>
+    <div id="lp_meca_body"><div class="empty">Loading…</div></div>
+  </div>
+  <div id="page-scot" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:14px 18px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📄 SCOT</div>
+      <span id="lp_scot_btns"></span>
+    </div>
+    <div id="lp_scot_body"><div class="empty">Loading…</div></div>
+  </div>
   <div id="page-sales-schedule" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -4105,6 +4127,8 @@ async function init() {
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
+    if (canSee('meca')) document.getElementById('nav-meca').style.display = 'flex';
+    if (canSee('scot')) document.getElementById('nav-scot').style.display = 'flex';
     if (canSee('sales-schedule')) document.getElementById('nav-sales-schedule').style.display = 'flex';
     if (canSee('users')) document.getElementById('nav-users').style.display = 'flex';
     if (canSee('employees')) document.getElementById('nav-employees').style.display = 'flex';
@@ -4142,7 +4166,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'meca', 'scot'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4242,7 +4266,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',meca:'MECA',scot:'SCOT'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4263,7 +4287,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly())))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'meca', 'scot'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly())))) { showToast("You don't have access to this page", 'error'); return; }
   // Net Profit has its own sidebar item (client, 2026-10-12) but is the Gross Profit page's 💰 view.
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page === 'net-profit' ? 'gross-profit' : page;
   closeMobileSidebar();
@@ -4298,6 +4322,7 @@ function navigate(page, el) {
   if (page==='checklist-master') loadChecklistMaster();
   if (page==='ows') loadOws();
   if (page==='vendor-ledger') loadVrl();
+  if (page==='meca' || page==='scot') loadLinkPage(page);
   if (page==='sales-schedule') loadSalesSchedule();
   if (page==='employees') loadEmployeesPage();
   if (page==='price-catalogue') loadPriceCataloguePage();
@@ -6074,6 +6099,8 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'checklist-master', label: 'Checklist Master (sabki checklist banaye / badle / band kare)' },
     { key: 'ows', label: 'OWS — Weekly product-wise sales' },
     { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
+    { key: 'meca', label: 'MECA (sheet)' },
+    { key: 'scot', label: 'SCOT (sheet)' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'employees', label: 'Employees (details, documents)' },
     { key: 'users', label: 'Users' },
@@ -17163,6 +17190,32 @@ function exportChecklistMaster() {
   csvDownload([['Employee', 'Department', 'Title', 'Task', 'Frequency', 'From', 'To', 'Done', 'Total', 'Missed', 'Pending (from today)', 'Next due', 'Last done', 'Assigned by'],
     ...clmFiltered().map(x => [x.doerName, x.department, x.title, x.description, CLM_FREQ[x.frequency] || x.frequency, fmtDateDMY(x.firstDate), fmtDateDMY(x.lastDate),
       x.done, x.total, x.missed, x.upcoming, fmtDateDMY(x.nextDue), fmtEntry(x.lastDone), x.assignedByName])], `checklist-master-${stockTodayYmd()}.csv`);
+}
+
+// ══════════════════════════════════════════════════════
+// MECA / SCOT (client, 2026-10-14) — the sheet opens inside the app; the
+// admin sets / changes its link here.
+// ══════════════════════════════════════════════════════
+const LINK_PAGE_LABEL = { meca: 'MECA', scot: 'SCOT' };
+async function loadLinkPage(key) {
+  const body = document.getElementById(`lp_${key}_body`), btns = document.getElementById(`lp_${key}_btns`);
+  const r = await api(`/api/link-page/${key}`);
+  if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; btns.innerHTML = ''; return; }
+  btns.innerHTML = (r.url ? `<a class="btn btn-primary" href="${esc(r.url)}" target="_blank" rel="noopener" style="text-decoration:none">↗ Nayi tab me kholo</a> ` : '')
+    + (r.canEdit ? `<button class="btn btn-outline" onclick="setLinkPage('${key}')">🔗 ${r.url ? 'Link badlo' : 'Link set karo'}</button>` : '');
+  body.innerHTML = r.url
+    ? `<iframe src="${esc(r.url)}" style="width:100%;height:calc(100dvh - 210px);min-height:420px;border:1px solid var(--gray-200);border-radius:12px;background:#fff" allow="clipboard-write"></iframe>
+       <div style="font-size:12px;color:var(--gray-500);margin-top:6px">Sheet yahan na dikhe (Google login maange) to "↗ Nayi tab me kholo" dabayein.</div>`
+    : `<div class="empty">${r.canEdit ? `${LINK_PAGE_LABEL[key]} sheet ka link abhi set nahi hai — upar "🔗 Link set karo" dabayein.` : `${LINK_PAGE_LABEL[key]} ka link admin ne abhi set nahi kiya.`}</div>`;
+}
+async function setLinkPage(key) {
+  const cur = ((await api(`/api/link-page/${key}`)) || {}).url || '';
+  const url = prompt(`${LINK_PAGE_LABEL[key]} sheet ka link (https://…):`, cur);
+  if (url === null) return;
+  const r = await api(`/api/link-page/${key}`, 'PUT', { url: url.trim() });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Link save ho gaya');
+  loadLinkPage(key);
 }
 
 // ══════════════════════════════════════════════════════
