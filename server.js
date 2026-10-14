@@ -12956,9 +12956,27 @@ app.post('/api/checklist-master/stop', requireAuth, requireChecklistManager, asy
 app.get('/api/reports/ows', requireAuth, async (req, res) => {
   try {
     if (!(await hasPageGrant(req, 'ows'))) return res.status(403).json({ error: 'No access to OWS' });
+    const ymd = d => d.toISOString().slice(0, 10);
+    // Product × current stock next to it (client voice note: OWS = what sold
+    // Monday–Saturday, with today's stock beside each product).
+    const [stockRows] = await withStockTable(() => db.query('SELECT item_code, current_stock FROM ajanta_stock_items'));
+    const stockOf = Object.fromEntries(stockRows.map(r => [r.item_code, Number(r.current_stock) || 0]));
+    const isYmd = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+    if (isYmd(req.query.from) && isYmd(req.query.to)) {
+      const from = req.query.from <= req.query.to ? req.query.from : req.query.to, to = req.query.from <= req.query.to ? req.query.to : req.query.from;
+      const { sales, stockName } = await gpLoadData(from, to);
+      const prod = {};
+      for (const l of sales) {
+        if (!l.date || l.date < from || l.date > to) continue;
+        const real = l.code && !String(l.code).startsWith('name:');
+        const p = prod[l.code] = prod[l.code] || { item: (real && stockName[l.code]) || l.item, stock: real && l.code in stockOf ? stockOf[l.code] : null, qty: 0, amount: 0 };
+        p.qty += l.qty; p.amount += l.amount;
+      }
+      const products = Object.values(prod).sort((a, b) => b.qty - a.qty);
+      return res.json({ range: { from, to }, products, totals: { qty: products.reduce((a, p) => a + p.qty, 0), amount: products.reduce((a, p) => a + p.amount, 0) } });
+    }
     const weeks = Math.min(26, Math.max(1, parseInt(req.query.weeks, 10) || 8));
     const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const ymd = d => d.toISOString().slice(0, 10);
     const monday = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()));
     monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
     const starts = [];
@@ -12970,7 +12988,8 @@ app.get('/api/reports/ows', requireAuth, async (req, res) => {
     for (const l of sales) {
       const wk = weekOf(l.date); if (!wk) continue;
       const key = l.code;
-      const p = prod[key] = prod[key] || { item: (key && !String(key).startsWith('name:') && stockName[key]) || l.item, qty: 0, amount: 0, weeks: {} };
+      const real = key && !String(key).startsWith('name:');
+      const p = prod[key] = prod[key] || { item: (real && stockName[key]) || l.item, stock: real && key in stockOf ? stockOf[key] : null, qty: 0, amount: 0, weeks: {} };
       const w = p.weeks[wk] = p.weeks[wk] || { qty: 0, amount: 0 };
       w.qty += l.qty; w.amount += l.amount; p.qty += l.qty; p.amount += l.amount;
     }

@@ -2015,7 +2015,8 @@ tbody tr:last-child td{border-bottom:none;}
         <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📊 OWS — Weekly Sales (Product-wise)</div>
         <input id="owsSearch" placeholder="🔍 Product…" oninput="renderOws()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:160px"/>
         <select id="owsMetric" onchange="renderOws()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="qty">Qty</option><option value="amount">Sales ₹</option></select>
-        <select id="owsWeeks" onchange="loadOws()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="4">4 weeks</option><option value="8" selected>8 weeks</option><option value="12">12 weeks</option><option value="26">26 weeks</option></select>
+        <select id="owsWeeks" onchange="owsModeChanged()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="lastweek" selected>Last week (Mon–Sat)</option><option value="thisweek">This week (Mon–today)</option><option value="range">Date range</option><option value="4">4 weeks side by side</option><option value="8">8 weeks side by side</option><option value="12">12 weeks side by side</option><option value="26">26 weeks side by side</option></select>
+        <span id="owsRange" style="display:none;align-items:center;gap:6px"><input type="date" id="owsFrom" onchange="loadOws()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/> to <input type="date" id="owsTo" onchange="loadOws()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/></span>
         <button class="btn btn-outline" onclick="exportOws()">⬇ Excel</button>
       </div>
       <div style="font-size:12px;color:var(--gray-500);margin-top:6px">O2D me bill bane orders (Make Bill date), hafta Monday–Sunday. Sabse naya hafta sabse pehle.</div>
@@ -17292,10 +17293,26 @@ async function setLinkPage(key) {
 // OWS — weekly product-wise sales (client, 2026-10-14)
 // ══════════════════════════════════════════════════════
 let owsData = null;
+// Monday of the week containing `d` (local date).
+function owsMonday(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function owsYmd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function owsModeChanged() {
+  const mode = document.getElementById('owsWeeks').value;
+  const f = document.getElementById('owsFrom'), t = document.getElementById('owsTo');
+  const mon = owsMonday(new Date());
+  if (mode === 'lastweek') { const a = new Date(mon); a.setDate(a.getDate() - 7); const b = new Date(a); b.setDate(b.getDate() + 5); f.value = owsYmd(a); t.value = owsYmd(b); }
+  else if (mode === 'thisweek') { f.value = owsYmd(mon); t.value = owsYmd(new Date()); }
+  else if (mode === 'range' && !f.value) { const a = new Date(mon); a.setDate(a.getDate() - 7); f.value = owsYmd(a); t.value = owsYmd(new Date()); }
+  document.getElementById('owsRange').style.display = mode === 'range' ? 'inline-flex' : 'none';
+  loadOws();
+}
 async function loadOws() {
   const wrap = document.getElementById('owsWrap');
+  const mode = document.getElementById('owsWeeks').value;
+  if (['lastweek', 'thisweek', 'range'].includes(mode) && !document.getElementById('owsFrom').value) return owsModeChanged();
   wrap.innerHTML = '<div class="empty">Loading…</div>';
-  const r = await api(`/api/reports/ows?weeks=${document.getElementById('owsWeeks').value}`);
+  const q = /^\d+$/.test(mode) ? `weeks=${mode}` : `from=${document.getElementById('owsFrom').value}&to=${document.getElementById('owsTo').value}`;
+  const r = await api(`/api/reports/ows?${q}`);
   if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   owsData = r;
   renderOws();
@@ -17304,25 +17321,46 @@ function owsRows() {
   const q = document.getElementById('owsSearch').value.trim().toLowerCase();
   return (owsData.products || []).filter(p => !q || p.item.toLowerCase().includes(q));
 }
+function owsStockCell(p) {
+  if (p.stock == null) return '<td style="text-align:right;color:var(--gray-300)">—</td>';
+  return `<td style="text-align:right;font-weight:700;${p.stock <= 0 ? 'color:var(--color-danger)' : ''}">${Number(p.stock).toLocaleString('en-IN')}</td>`;
+}
 function renderOws() {
   if (!owsData) return;
   const amt = document.getElementById('owsMetric').value === 'amount';
   const v = w => !w ? '' : amt ? inr(w.amount) : Number(w.qty).toLocaleString('en-IN');
-  const wk = w => `${fmtDateDMY(w.start).slice(0, 5)}–${fmtDateDMY(w.end).slice(0, 5)}`;
   const rows = owsRows();
-  document.getElementById('owsWrap').innerHTML = rows.length ? `<table style="font-size:12.5px;white-space:nowrap">
-    <thead><tr><th>Product</th>${owsData.weeks.map((w, i) => `<th style="text-align:right">${i === 0 ? 'This week<br/>' : ''}<span style="font-weight:500">${wk(w)}</span></th>`).join('')}<th style="text-align:right">Total</th></tr></thead><tbody>
+  const wrap = document.getElementById('owsWrap');
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">Is samay me koi bill nahi</div>'; return; }
+  if (owsData.range) {
+    const tq = rows.reduce((a, p) => a + p.qty, 0), ta = rows.reduce((a, p) => a + p.amount, 0);
+    wrap.innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin:4px 0 8px">${esc(fmtDateDMY(owsData.range.from))} se ${esc(fmtDateDMY(owsData.range.to))} tak bika maal · stock = aaj ka current stock</div>
+    <table style="font-size:12.5px;white-space:nowrap"><thead><tr><th>#</th><th>Product</th><th style="text-align:right">Qty bika</th><th style="text-align:right">Sales ₹</th><th style="text-align:right">Current stock</th></tr></thead><tbody>
+    ${rows.map((p, i) => `<tr><td style="color:var(--gray-400)">${i + 1}</td><td style="white-space:normal;min-width:200px;font-weight:600">${esc(p.item)}</td>
+      <td style="text-align:right;font-weight:800">${Number(p.qty).toLocaleString('en-IN')}</td><td style="text-align:right">${inr(p.amount)}</td>${owsStockCell(p)}</tr>`).join('')}
+    <tr style="background:var(--gray-50);font-weight:800"><td></td><td>Total</td><td style="text-align:right">${tq.toLocaleString('en-IN')}</td><td style="text-align:right">${inr(ta)}</td><td></td></tr>
+    </tbody></table>`;
+    return;
+  }
+  const wk = w => `${fmtDateDMY(w.start).slice(0, 5)}–${fmtDateDMY(w.end).slice(0, 5)}`;
+  wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
+    <thead><tr><th>Product</th>${owsData.weeks.map((w, i) => `<th style="text-align:right">${i === 0 ? 'This week<br/>' : ''}<span style="font-weight:500">${wk(w)}</span></th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Current stock</th></tr></thead><tbody>
     ${rows.map(p => `<tr><td style="white-space:normal;min-width:200px;font-weight:600">${esc(p.item)}</td>
       ${owsData.weeks.map(w => `<td style="text-align:right">${v(p.weeks[w.start]) || '<span style="color:var(--gray-300)">—</span>'}</td>`).join('')}
-      <td style="text-align:right;font-weight:800">${v(p)}</td></tr>`).join('')}
+      <td style="text-align:right;font-weight:800">${v(p)}</td>${owsStockCell(p)}</tr>`).join('')}
     <tr style="background:var(--gray-50);font-weight:800"><td>Total</td>${owsData.weeks.map(w => `<td style="text-align:right">${v(owsData.totals[w.start])}</td>`).join('')}
-      <td style="text-align:right">${v(rows.reduce((a, p) => ({ qty: a.qty + p.qty, amount: a.amount + p.amount }), { qty: 0, amount: 0 }))}</td></tr>
-    </tbody></table>` : '<div class="empty">Is samay me koi bill nahi</div>';
+      <td style="text-align:right">${v(rows.reduce((a, p) => ({ qty: a.qty + p.qty, amount: a.amount + p.amount }), { qty: 0, amount: 0 }))}</td><td></td></tr>
+    </tbody></table>`;
 }
 function exportOws() {
   if (!owsData) return;
-  const head = ['Product', ...owsData.weeks.flatMap(w => [`${fmtDateDMY(w.start)}-${fmtDateDMY(w.end)} Qty`, `${fmtDateDMY(w.start)}-${fmtDateDMY(w.end)} Sales`]), 'Total Qty', 'Total Sales'];
-  csvDownload([head, ...owsRows().map(p => [p.item, ...owsData.weeks.flatMap(w => { const x = p.weeks[w.start]; return x ? [x.qty, Math.round(x.amount)] : ['', '']; }), p.qty, Math.round(p.amount)])],
+  if (owsData.range) {
+    csvDownload([['Product', 'Qty sold', 'Sales', 'Current stock'], ...owsRows().map(p => [p.item, p.qty, Math.round(p.amount), p.stock == null ? '' : p.stock])],
+      `ows-${owsData.range.from}-to-${owsData.range.to}.csv`);
+    return;
+  }
+  const head = ['Product', ...owsData.weeks.flatMap(w => [`${fmtDateDMY(w.start)}-${fmtDateDMY(w.end)} Qty`, `${fmtDateDMY(w.start)}-${fmtDateDMY(w.end)} Sales`]), 'Total Qty', 'Total Sales', 'Current stock'];
+  csvDownload([head, ...owsRows().map(p => [p.item, ...owsData.weeks.flatMap(w => { const x = p.weeks[w.start]; return x ? [x.qty, Math.round(x.amount)] : ['', '']; }), p.qty, Math.round(p.amount), p.stock == null ? '' : p.stock])],
     `ows-weekly-sales-${stockTodayYmd()}.csv`);
 }
 
