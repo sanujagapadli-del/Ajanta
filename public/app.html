@@ -4762,6 +4762,16 @@ function dashPlannedKey(t) {
   return d && !isNaN(d) ? d.toISOString() : v;
 }
 
+// When a task reached the employee (ms). Delegation/Checklist carry created_at
+// (ISO); FMS rows carry start_date as ISO or as the sheet's display text.
+function dashArrivedMs(t) {
+  const v = t.created_at || t.start_date;
+  if (!v) return 0;
+  let ms = /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? Date.parse(v) : NaN;
+  if (isNaN(ms)) { const d = o2dParseDate(String(v)); ms = d ? d.getTime() : NaN; }
+  return isNaN(ms) ? 0 : ms;
+}
+
 function renderDashTable(tasks, type) {
   const dashFreqEl = document.getElementById('dashFreqFilter');
   if (dashFreqEl) dashFreqEl.style.display = type === 'checklist' ? '' : 'none';
@@ -4784,8 +4794,11 @@ function renderDashTable(tasks, type) {
     const matchFreq = type !== 'checklist' || dashFreq === 'all' || (t.frequency || '') === dashFreq;
     return matchType && matchFreq && (t.status === 'pending' || t.status === 'revised' || !t.status);
   });
-  // Apply date sort
-  if (_dashDateSortState === 1) {
+  // Default order: newest work first (by the time it arrived), so a task that
+  // was just assigned sits on top. The Planned-date arrows below override it.
+  if (_dashDateSortState === 0) {
+    allPending = [...allPending].sort((a,b) => dashArrivedMs(b) - dashArrivedMs(a));
+  } else if (_dashDateSortState === 1) {
     allPending = [...allPending].sort((a,b) => dashPlannedKey(a).localeCompare(dashPlannedKey(b)));
   } else if (_dashDateSortState === 2) {
     allPending = [...allPending].sort((a,b) => dashPlannedKey(b).localeCompare(dashPlannedKey(a)));
@@ -20488,11 +20501,34 @@ async function submitReplAction(id, action, btnEl, preset) {
   else if (action === 'cnsend') body = { photo: photo() };
   else if (action === 'handover') body = { otp: val('otp'), receiverName: val('recv'), chargesReceived: val('chr'), withoutOtp: val('nootp') };
   else if (action === 'cashstaff') body = { staffName: val('staff'), amount: val('amt') };
+  // The red toast sits at the far bottom-right, easy to miss on a modal — so a
+  // refused step also shows its reason right above the button, and a blank
+  // required field is focused.
+  const stepErr = (msg, fieldId) => {
+    showToast(msg, 'error');
+    const row = btnEl && btnEl.parentElement;
+    if (row) {
+      let e = row.previousElementSibling;
+      if (!e || !e.classList.contains('rpl-step-err')) {
+        e = document.createElement('div');
+        e.className = 'rpl-step-err';
+        e.style.cssText = 'color:var(--color-danger);background:var(--color-danger-bg);border:1px solid var(--color-danger-border);border-radius:8px;padding:7px 10px;font-size:12.5px;font-weight:600;margin-bottom:8px';
+        row.parentElement.insertBefore(e, row);
+      }
+      e.textContent = '⚠️ ' + msg;
+    }
+    const f = fieldId && document.getElementById(`${p}_${fieldId}`);
+    if (f) { f.focus(); f.style.borderColor = 'var(--color-danger)'; }
+  };
+  if (action === 'exchange') {
+    if (!body.newItem) return stepErr('Stock se diya naya item likho (e.g. Cooler pump 36W — 1 pc)', 'item');
+    if (!body.oldInBin) return stepErr('Purana pc Reject Bin me daalne ka tick lagao', 'bin');
+  }
   const orig = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }
   const r = await api(`/api/replacement-fms/${id}/action/${action}`, 'PUT', body);
   if (btnEl) { btnEl.disabled = false; btnEl.textContent = orig; }
-  if (r.error) { showToast(r.error, 'error'); return; }
+  if (r.error) { stepErr(r.error); return; }
   const i = rplData.findIndex(x => x.id === id);
   if (i >= 0 && r.item) rplData[i] = r.item;
   if (window._lastReplData) window._lastReplData.items = rplData;
