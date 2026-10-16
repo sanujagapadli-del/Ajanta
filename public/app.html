@@ -10290,7 +10290,7 @@ function renderSfmsField(f, row, compact) {
   return `<input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${finalStyle}"/>`;
 }
 function readSfmsField(f, row) {
-  const el = document.getElementById(`sfmsExtra_${row}_${f.key}`);
+  const el = sfmsById(`sfmsExtra_${row}_${f.key}`);
   return el ? el.value.trim() : '';
 }
 function renderSfmsStatusSelect(stepDef, row, compact) {
@@ -10298,15 +10298,15 @@ function renderSfmsStatusSelect(stepDef, row, compact) {
   return `<select id="sfmsStatusSelect_${row}" style="${compact ? SFMS_INPUT_STYLE_COMPACT : SFMS_INPUT_STYLE}"><option value="">-- Select --</option>${opts}</select>`;
 }
 function onSfmsMasterSelectChange(row, key) {
-  const sel = document.getElementById(`sfmsExtra_${row}_${key}`);
-  const wrap = document.getElementById(`sfmsAddNewWrap_${row}_${key}`);
+  const sel = sfmsById(`sfmsExtra_${row}_${key}`);
+  const wrap = sfmsById(`sfmsAddNewWrap_${row}_${key}`);
   wrap.style.display = sel.value === '__add_new__' ? 'flex' : 'none';
 }
 // Zone-wise assignment (point 8) — narrows the Mechanic dropdown on this same
 // card to whichever mechanics belong to the chosen zone; empty zone shows all.
 function onSfmsZoneChange(row) {
-  const zone = document.getElementById(`sfmsExtra_${row}_zone`).value;
-  const mechSel = document.getElementById(`sfmsExtra_${row}_mechanic`);
+  const zone = sfmsById(`sfmsExtra_${row}_zone`).value;
+  const mechSel = sfmsById(`sfmsExtra_${row}_mechanic`);
   if (!mechSel || zone === '__add_new__') return;
   // A mechanic with no zone recorded yet (the Mechanics sheet's Zone column
   // is blank for most existing entries) stays selectable for every zone,
@@ -10318,13 +10318,13 @@ function onSfmsZoneChange(row) {
     `<option value="__add_new__">+ Add New</option>`;
 }
 async function sfmsAddNewMasterItem(row, key, listName) {
-  const input = document.getElementById(`sfmsAddNewInput_${row}_${key}`);
+  const input = sfmsById(`sfmsAddNewInput_${row}_${key}`);
   const name = input.value.trim();
   if (!name) { showToast('Enter a name first', 'error'); return; }
   const endpoints = { items: '/api/service-fms/items', mechanics: '/api/service-fms/mechanics', zone: '/api/service-fms/zones' };
   const body = { name };
   if (listName === 'mechanics') {
-    const zoneSel = document.getElementById(`sfmsAddNewZone_${row}_${key}`);
+    const zoneSel = sfmsById(`sfmsAddNewZone_${row}_${key}`);
     if (zoneSel) body.zone = zoneSel.value;
   }
   const res = await api(endpoints[listName], 'POST', body);
@@ -10332,12 +10332,12 @@ async function sfmsAddNewMasterItem(row, key, listName) {
   if (listName === 'items') sfmsItemsList.push(name);
   else if (listName === 'zone') sfmsZoneList.push(name);
   else { sfmsMechanicsList.push(name); sfmsMechanicZones[name] = body.zone || ''; }
-  const sel = document.getElementById(`sfmsExtra_${row}_${key}`);
+  const sel = sfmsById(`sfmsExtra_${row}_${key}`);
   const list = sfmsMasterListFor(listName);
   sel.innerHTML = `<option value="">-- Select --</option>` +
     list.map(v => `<option value="${esc(v)}" ${v === name ? 'selected' : ''}>${esc(v)}</option>`).join('') +
     `<option value="__add_new__">+ Add New</option>`;
-  document.getElementById(`sfmsAddNewWrap_${row}_${key}`).style.display = 'none';
+  sfmsById(`sfmsAddNewWrap_${row}_${key}`).style.display = 'none';
   input.value = '';
   showToast('✅ Added!');
 }
@@ -10482,7 +10482,7 @@ function sfmsIsOnSpareHold(c) {
 }
 function sfmsPrefillSpareHold(c) {
   if (!sfmsIsOnSpareHold(c)) return;
-  const sel = document.getElementById(`sfmsStatusSelect_${c.row}`);
+  const sel = sfmsById(`sfmsStatusSelect_${c.row}`);
   if (sel && !sel.value) sel.value = 'Available';
 }
 
@@ -10664,7 +10664,7 @@ function renderSfmsStepView(n) {
 
   // Each row's hidden Zone field already carries its own Area-derived zone
   // (set at render time) — just cascade-filter that row's Mechanic list.
-  if (isAssignTab) rows.forEach(c => { if (document.getElementById(`sfmsExtra_${c.row}_zone`)) onSfmsZoneChange(c.row); });
+  if (isAssignTab) rows.forEach(c => { if (sfmsById(`sfmsExtra_${c.row}_zone`)) onSfmsZoneChange(c.row); });
   if (isSpareCheckTab) rows.forEach(sfmsPrefillSpareHold);
   if (n === SN.inout) rows.forEach(c => sfmsCheckSpareInShortage(c.row));
   // Pre-fill each row's Warranty Yes/No with the auto-computed status — still
@@ -10672,7 +10672,7 @@ function renderSfmsStepView(n) {
   if (isWarrantyTab) {
     rows.forEach(c => {
       const w = sfmsComputeWarrantyStatus(c);
-      const statusSel = document.getElementById(`sfmsStatusSelect_${c.row}`);
+      const statusSel = sfmsById(`sfmsStatusSelect_${c.row}`);
       if (w && statusSel) statusSel.value = w.inWarranty ? 'Yes' : 'No';
     });
   }
@@ -10710,14 +10710,14 @@ function sfmsBulkSetStatus(value) {
   if (!value) return;
   const rows = sfmsBulkChecked();
   if (!rows.length) { showToast('Pehle rows tick karo', 'error'); return; }
-  rows.forEach(r => { const sel = document.getElementById(`sfmsStatusSelect_${r}`); if (sel) sel.value = value; });
+  rows.forEach(r => { const sel = sfmsById(`sfmsStatusSelect_${r}`); if (sel) sel.value = value; });
 }
 function sfmsBulkSetMechanic(value) {
   if (!value) return;
   const rows = sfmsBulkChecked();
   if (!rows.length) { showToast('Pehle rows tick karo', 'error'); return; }
   rows.forEach(r => {
-    const sel = document.getElementById(`sfmsExtra_${r}_mechanic`);
+    const sel = sfmsById(`sfmsExtra_${r}_mechanic`);
     if (!sel) return;
     // The row's list may be zone-filtered — add the pick if it isn't there.
     if (![...sel.options].some(o => o.value === value)) sel.insertAdjacentHTML('afterbegin', `<option value="${esc(value)}">${esc(value)}</option>`);
@@ -10759,7 +10759,7 @@ async function sfmsBulkSubmit(n) {
 // half-typed into its own inline form) — used after an action that only
 // changes this one complaint's state, like sending its OTP.
 function refreshSfmsStepActionCell(row) {
-  const cell = document.getElementById(`sfmsStepAction_${row}`);
+  const cell = sfmsById(`sfmsStepAction_${row}`);
   const c = sfmsData.find(x => x.row === row);
   if (!cell || !c) return;
   cell.innerHTML = buildSfmsNextActionHtml(c, true);
@@ -12375,12 +12375,12 @@ function sfmsSpareOutRowHtml(row, id, item, qty) {
   </div>`;
 }
 function sfmsAddSpareOutRow(row) {
-  const wrap = document.getElementById(`sfmsSpareOutRows_${row}`);
+  const wrap = sfmsById(`sfmsSpareOutRows_${row}`);
   if (!wrap) return;
   wrap.insertAdjacentHTML('beforeend', sfmsSpareOutRowHtml(row, sfmsSpareOutRowSeq++, '', ''));
 }
 function sfmsRemoveSpareOutRow(row, id) {
-  const el = document.getElementById(`sfmsSpareOutRow_${row}_${id}`);
+  const el = sfmsById(`sfmsSpareOutRow_${row}_${id}`);
   if (el) el.remove();
 }
 async function sfmsAddNewSpareItem(row) {
@@ -12399,7 +12399,7 @@ async function sfmsAddNewSpareItem(row) {
     showToast(`"${finalName}" pehle se spare master mein hai`);
   }
   // Drop it into the first empty row (or a new one) so it's ready to use.
-  const wrap = document.getElementById(`sfmsSpareOutRows_${row}`);
+  const wrap = sfmsById(`sfmsSpareOutRows_${row}`);
   if (!wrap) return;
   let input = [...wrap.querySelectorAll('input[list="sfmsItemNameList"]')].find(i => !i.value.trim());
   if (!input) { sfmsAddSpareOutRow(row); input = wrap.lastElementChild.querySelector('input[list="sfmsItemNameList"]'); }
@@ -12441,13 +12441,22 @@ function sfmsSolveFormHtml(c, compact) {
     <select id="sfmsExtra_${c.row}_repairStatus" style="${st}"><option value="">-- Repair Status --</option>
       ${['Repaired at Location', 'Brought to Office'].map(o => `<option${o === d.repairStatus ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
 }
+// A complaint's step form is drawn twice when its detail popup is open — in
+// the list row behind and in the popup — with the same element ids. Read the
+// popup's copy then, or the typed value is missed ("Pehle likho kya kiya"
+// although it was filled — client screenshot, 2026-10-17).
+function sfmsById(id) {
+  const m = document.getElementById('complaintDetailModal');
+  const inModal = m && m.classList.contains('open') ? m.querySelector(`[id="${id}"]`) : null;
+  return inModal || document.getElementById(id);
+}
 function sfmsCollectSolve(row, c) {
-  const workDone = (document.getElementById(`sfmsExtra_${row}_workDone`)?.value || '').trim();
-  const repairStatus = document.getElementById(`sfmsExtra_${row}_repairStatus`)?.value || '';
+  const workDone = (sfmsById(`sfmsExtra_${row}_workDone`)?.value || '').trim();
+  const repairStatus = sfmsById(`sfmsExtra_${row}_repairStatus`)?.value || '';
   if (!workDone) return { error: 'Pehle likho kya kiya (kya kharab tha, kya badla)' };
   const used = {}, list = [];
   for (const [i, it] of sfmsTakeoutItems(c).filter(x => x.item).entries()) {
-    const el = document.getElementById(`sfmsSolveUsed_${row}_${i}`);
+    const el = sfmsById(`sfmsSolveUsed_${row}_${i}`);
     const v = el ? el.value.trim() : '';
     const taken = Number(it.qty) || 0, n = Number(v);
     if (v === '' || !Number.isInteger(n) || n < 0 || n > taken) return { error: `${it.item}: kitne lagaye (0 se ${taken}) bharo` };
@@ -12472,13 +12481,13 @@ function sfmsBuildSpareOutRowsHtml(c) {
   return (items.length ? items : [{ item: '', qty: '' }]).map((it, i) => sfmsSpareOutRowHtml(c.row, i, it.item, it.qty)).join('');
 }
 function sfmsCollectSpareOutRows(row) {
-  const wrap = document.getElementById(`sfmsSpareOutRows_${row}`);
+  const wrap = sfmsById(`sfmsSpareOutRows_${row}`);
   if (!wrap) return [];
   const result = [];
   for (const rowEl of wrap.children) {
     const idSuffix = rowEl.id.split('_').pop();
-    const item = (document.getElementById(`sfmsSpareOutItem_${row}_${idSuffix}`)?.value || '').trim();
-    const qty = (document.getElementById(`sfmsSpareOutQty_${row}_${idSuffix}`)?.value || '').trim();
+    const item = (sfmsById(`sfmsSpareOutItem_${row}_${idSuffix}`)?.value || '').trim();
+    const qty = (sfmsById(`sfmsSpareOutQty_${row}_${idSuffix}`)?.value || '').trim();
     if (item || qty) result.push({ item, qty });
   }
   return result;
@@ -12532,7 +12541,7 @@ function sfmsBuildSpareInRowsHtml(c) {
     </div>`;
 }
 function sfmsInReceiveTick(row, i, newBack, oldBack, on) {
-  const n = document.getElementById(`sfmsInNew_${row}_${i}`), o = document.getElementById(`sfmsInBad_${row}_${i}`);
+  const n = sfmsById(`sfmsInNew_${row}_${i}`), o = sfmsById(`sfmsInBad_${row}_${i}`);
   if (n) n.value = on ? newBack : '';
   if (o) o.value = on ? oldBack : '';
   sfmsCheckSpareInShortage(row);
@@ -12547,8 +12556,8 @@ function sfmsInSettleChoice(row) {
 function sfmsCollectSpareInRows(row, c) {
   return sfmsTakeoutItems(c).map((it, i) => {
     const takenQty = Number(it.qty) || 0;
-    const newEl = document.getElementById(`sfmsInNew_${row}_${i}`);
-    const badEl = document.getElementById(`sfmsInBad_${row}_${i}`);
+    const newEl = sfmsById(`sfmsInNew_${row}_${i}`);
+    const badEl = sfmsById(`sfmsInBad_${row}_${i}`);
     const newQty = Math.max(0, Math.floor(Number(newEl && newEl.value) || 0));
     const oldQty = Math.max(0, Math.floor(Number(badEl && badEl.value) || 0));
     const filled = !!((newEl && newEl.value !== '') || (badEl && badEl.value !== ''));
@@ -12560,17 +12569,17 @@ function sfmsCheckSpareInShortage(row) {
   if (!c) return;
   const rows = sfmsCollectSpareInRows(row, c);
   rows.forEach((r, i) => {
-    const el = document.getElementById(`sfmsInShort_${row}_${i}`);
+    const el = sfmsById(`sfmsInShort_${row}_${i}`);
     if (!el) return;
     el.textContent = !r.filled ? '' : r.shortQty > 0 ? `${r.shortQty} kam` : r.shortQty < 0 ? 'zyada!' : '✓';
     el.style.color = r.shortQty === 0 ? 'var(--color-success-text)' : 'var(--color-danger)';
   });
   const totalShort = rows.reduce((s, r) => s + Math.max(0, r.shortQty), 0);
-  const wrap = document.getElementById(`sfmsInShortWrap_${row}`);
+  const wrap = sfmsById(`sfmsInShortWrap_${row}`);
   if (wrap) wrap.style.display = rows.some(r => r.filled) && totalShort > 0 ? 'block' : 'none';
-  const msg = document.getElementById(`sfmsInShortMsg_${row}`);
+  const msg = sfmsById(`sfmsInShortMsg_${row}`);
   if (msg) msg.textContent = `⚠ ${totalShort} piece${totalShort === 1 ? '' : 's'} kam aaye (liye gaye se) — kya karna hai?`;
-  const cashWrap = document.getElementById(`sfmsInCashWrap_${row}`);
+  const cashWrap = sfmsById(`sfmsInCashWrap_${row}`);
   if (cashWrap) cashWrap.style.display = sfmsInSettleChoice(row) === 'cash' ? 'block' : 'none';
 }
 
@@ -12627,7 +12636,7 @@ function sfmsTransferHtml(c) {
 }
 async function sfmsTransferMechanic(row, btn) {
   const c = sfmsData.find(x => x.row === row);
-  const sel = document.getElementById(`sfmsTransferSel_${row}`);
+  const sel = sfmsById(`sfmsTransferSel_${row}`);
   const mechanic = sel ? sel.value : '';
   if (!c || !mechanic) { showToast('Mechanic select karo', 'error'); return; }
   if (!confirm(`${c.complainNo} — ${sfmsStep(c, 'assign').mechanic || '—'} se ${mechanic} ko transfer karein?`)) return;
@@ -12675,7 +12684,7 @@ function sfmsCollectStepBody(row, step, stage) {
   if (stage) body.stage = stage;
 
   if (stepDef.statusOptions) {
-    const statusEl = document.getElementById(`sfmsStatusSelect_${row}`);
+    const statusEl = sfmsById(`sfmsStatusSelect_${row}`);
     body.status = statusEl ? statusEl.value : '';
     if (!body.status) return { error: `Select ${stepDef.label}` };
   }
@@ -12710,8 +12719,8 @@ function sfmsCollectStepBody(row, step, stage) {
     if (over) return { error: `${over.item}: new + old (${over.newQty + over.oldQty}) liye gaye (${over.takenQty}) se zyada nahi ho sakte` };
     const totalShort = items.reduce((s, r) => s + r.shortQty, 0);
     const settleCash = totalShort > 0 && sfmsInSettleChoice(row) === 'cash';
-    const cashEl = document.getElementById(`sfmsInCash_${row}`);
-    const reasonEl = document.getElementById(`sfmsInReason_${row}`);
+    const cashEl = sfmsById(`sfmsInCash_${row}`);
+    const reasonEl = sfmsById(`sfmsInReason_${row}`);
     const cash = settleCash && cashEl ? cashEl.value.trim() : '';
     if (settleCash && !(Number(cash) > 0)) return { error: `${totalShort} piece kam hai — cash amount bharo (ya "Pending rakho" chuno)` };
     body.spareInJson = JSON.stringify(items.map(({ filled, ...r }) => r));
@@ -12739,7 +12748,7 @@ function sfmsCollectStepBody(row, step, stage) {
   // Where it was fixed must be picked — the OTP alone used to submit Solve.
   if (step === SN.solve && !body.repairStatus) return { error: 'Repair Status chuno — customer location par theek hua ya product office aaya' };
   if (stepDef.otpRequired) {
-    const otpEl = document.getElementById(`sfmsOtpInput_${row}`);
+    const otpEl = sfmsById(`sfmsOtpInput_${row}`);
     body.otp = otpEl ? otpEl.value.trim() : '';
     if (!body.otp) return { error: 'Pehle OTP bhejo aur customer se OTP lekar bharo' };
   }
@@ -12806,7 +12815,7 @@ function patchSfmsRowAfterUpdate(row) {
     const stepNum = Number(sfmsView.slice(4));
     const stillPendingHere = c && !c.closed && c.currentStep + 1 === stepNum;
     if (stillPendingHere) { refreshSfmsStepActionCell(row); return; }
-    const actionCell = document.getElementById(`sfmsStepAction_${row}`);
+    const actionCell = sfmsById(`sfmsStepAction_${row}`);
     const tr = actionCell ? actionCell.closest('tr') : null;
     if (tr) tr.remove();
     sfmsBulkUpdateCount();
