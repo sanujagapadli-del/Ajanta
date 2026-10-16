@@ -116,6 +116,15 @@ app.use((req, res, next) => {
 //    time, and a new deployment clears the CDN — users still get new code.
 const CDN_CACHE = 'public, max-age=0, s-maxage=31536000';
 
+// Basic browser hardening (vendor portal is used from outside the company):
+// no framing by other sites, no MIME sniffing, no full URLs leaked onward.
+app.use((req, res, next) => {
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 app.use(express.json({ limit: '100mb' }));
@@ -495,10 +504,12 @@ setTimeout(() => {
 // Login stays until the user logs out (client, 2026-10-17: staff were being
 // signed out every 7 days). A year-long token, renewed quietly once a day
 // while the app is used, so an active login never runs out.
-const LOGIN_TTL_DAYS = 365;
+// Outside vendors get a shorter (still self-renewing) login than staff.
+const LOGIN_TTL_DAYS = 365, VENDOR_LOGIN_TTL_DAYS = 30;
 function issueLoginCookie(res, user) {
-  const token = jwt.sign({ userId: user.id, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: `${LOGIN_TTL_DAYS}d` });
-  res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: LOGIN_TTL_DAYS * 86400000 });
+  const days = user.role === 'vendor' ? VENDOR_LOGIN_TTL_DAYS : LOGIN_TTL_DAYS;
+  const token = jwt.sign({ userId: user.id, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: `${days}d` });
+  res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: days * 86400000 });
   return token;
 }
 async function requireAuth(req, res, next) {
@@ -507,23 +518,27 @@ async function requireAuth(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.session = { userId: decoded.userId, role: decoded.role, name: decoded.name };
-    // Admin-triggered remote sign-out: any token issued before the user's
-    // force_logout_at gets rejected, even though its own JWT signature is still valid.
+    // One lookup per request: role / name / active come from the users row (a
+    // login lasts long, so a role change or deactivation applies at once), and
+    // an admin "sign out" / password reset (force_logout_at) rejects older
+    // tokens. The time comparison runs inside MySQL — force_logout_at is
+    // written with NOW() in the DB's IST clock, while Vercel runs in UTC; a JS
+    // comparison read it 5.5 h late and threw every fresh login straight out
+    // (vendor portal, 2026-10-17).
+    let u = null;
     try {
-      const [rows] = await db.query('SELECT force_logout_at FROM users WHERE id=?', [decoded.userId]);
-      const flAt = rows[0]?.force_logout_at;
-      if (flAt && decoded.iat && new Date(flAt).getTime() > decoded.iat * 1000) {
-        return res.status(401).json({ error: 'You were signed out remotely. Please sign in again.' });
-      }
-    } catch(e) {} // column not migrated yet / sheets-db — fail open rather than lock everyone out
-    // A login now lasts until logout, so a role change or deactivation must
-    // apply at once instead of waiting for the token to expire.
-    try {
-      const [[u]] = await db.query('SELECT role, name, is_active FROM users WHERE id=?', [decoded.userId]);
-      if (!u || (u.is_active != null && Number(u.is_active) === 0)) return res.status(401).json({ error: 'Account inactive — please contact admin.' });
+      [[u]] = await db.query('SELECT role, name, is_active, (force_logout_at IS NOT NULL AND force_logout_at > FROM_UNIXTIME(?)) AS kicked FROM users WHERE id=?',
+        [Number(decoded.iat) || 0, decoded.userId]);
+    } catch (e) {
+      try { [[u]] = await db.query('SELECT role, name, is_active FROM users WHERE id=?', [decoded.userId]); } catch (e2) { /* fail open — sheets-db / old schema */ }
+    }
+    if (u === undefined) return res.status(401).json({ error: 'Account not found — please sign in again.' });
+    if (u) {
+      if (Number(u.kicked) === 1) return res.status(401).json({ error: 'You were signed out remotely. Please sign in again.' });
+      if (u.is_active != null && Number(u.is_active) === 0) return res.status(401).json({ error: 'Account inactive — please contact admin.' });
       if (u.role) req.session.role = u.role;
       if (u.name) req.session.name = u.name;
-    } catch (e) { /* fail open like above */ }
+    }
     // Vendor accounts (Purchase FMS vendor page) are outside the company —
     // they may only reach their own vendor APIs, never staff data.
     if (req.session.role === 'vendor' && !VENDOR_ALLOWED_PATH.test(req.path)) {
