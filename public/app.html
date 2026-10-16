@@ -1124,6 +1124,10 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.4-4 8-9 8a9.8 9.8 0 01-4-.8L3 20l1.4-3.7A7.6 7.6 0 013 12c0-4.4 4-8 9-8s9 3.6 9 8z"/></svg>
         <span class="nav-label-text">Dealer WhatsApp</span>
       </div>
+      <div class="nav-item" id="nav-drip-marketing" style="display:none" onclick="navigate('drip-marketing',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.6m15.4 2A8 8 0 004.6 9m0 0H9m11 11v-5h-.6m0 0a8 8 0 01-15.4-2m15.4 2H15"/></svg>
+        <span class="nav-label-text">Drip Marketing</span>
+      </div>
       <div class="nav-item" id="nav-sales-schedule" style="display:none" onclick="navigate('sales-schedule',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
         <span class="nav-label-text">Sales Schedule</span>
@@ -2137,6 +2141,16 @@ tbody tr:last-child td{border-bottom:none;}
       
     </div>
     <div id="mhWrap"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div id="page-drip-marketing" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🔁 Drip Marketing — weekly plan</div>
+        <button class="btn btn-outline" onclick="loadDrip()">🔄 Refresh</button>
+      </div>
+    </div>
+    <div id="dripWrap"><div class="empty">Loading…</div></div>
   </div>
 
   <div id="page-dealer-whatsapp" class="page">
@@ -4267,6 +4281,7 @@ async function init() {
     if (canSee('samples')) document.getElementById('nav-samples').style.display = 'flex';
     if (canSee('market-holidays')) document.getElementById('nav-market-holidays').style.display = 'flex';
     if (canSee('dealer-whatsapp')) document.getElementById('nav-dealer-whatsapp').style.display = 'flex';
+    if (canSee('drip-marketing')) document.getElementById('nav-drip-marketing').style.display = 'flex';
     if (canSee('meca')) document.getElementById('nav-meca').style.display = 'flex';
     if (canSee('scot')) document.getElementById('nav-scot').style.display = 'flex';
     if (canSee('sales-schedule')) document.getElementById('nav-sales-schedule').style.display = 'flex';
@@ -4307,7 +4322,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4502,7 +4517,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp',meca:'MECA',scot:'SCOT'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',meca:'MECA',scot:'SCOT'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4523,7 +4538,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly() || !canForm('net-profit'))))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly() || !canForm('net-profit'))))) { showToast("You don't have access to this page", 'error'); return; }
   // Net Profit has its own sidebar item (client, 2026-10-12) but is the Gross Profit page's 💰 view.
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page === 'net-profit' ? 'gross-profit' : page;
   closeMobileSidebar();
@@ -4561,6 +4576,7 @@ function navigate(page, el) {
   if (page==='samples') loadSmp();
   if (page==='market-holidays') loadMh();
   if (page==='dealer-whatsapp') loadWa();
+  if (page==='drip-marketing') loadDrip();
   if (page==='meca') loadMeca();
   if (page==='scot') loadScot();
   if (page==='sales-schedule') loadSalesSchedule();
@@ -6365,7 +6381,8 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'lead-fms', label: 'Lead FMS + Dealer Onboarding' },
     { key: 'scot', label: 'SCOT — Calling Plan (dealers ko call, order, conversion)' },
     { key: 'dealers', label: 'Dealer Master' },
-    { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue, weekly drip)' },
+    { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue)' },
+    { key: 'drip-marketing', label: 'Drip Marketing (weekly plan dekhe; badle sirf Admin)' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'meca', label: 'MECA — salesman market report (visit / order / NBD)' },
     { key: 'samples', label: 'Samples (salesman ko diye sample)' },
@@ -17889,15 +17906,14 @@ async function loadWa() {
 }
 function renderWaTabs() {
   const tab = (k, l) => `<button class="btn btn-sm ${waTab === k ? 'btn-primary' : 'btn-outline'}" onclick="waShow('${k}')">${l}</button>`;
-  document.getElementById('waTabs').innerHTML = tab('new', '✉️ Naya message') + tab('sent', '📋 Bheje gaye') + tab('drip', '🔁 Weekly drip plan');
+  document.getElementById('waTabs').innerHTML = tab('new', '✉️ Naya message') + tab('sent', '📋 Bheje gaye');
 }
 async function waShow(t) {
   waTab = t; renderWaTabs();
   clearTimeout(_waPoll);
   const wrap = document.getElementById('waWrap');
   if (t === 'new') wrap.innerHTML = waComposeHtml('wa', {});
-  else if (t === 'sent') { wrap.innerHTML = '<div class="empty">Loading…</div>'; await waLoadCampaigns(); }
-  else { wrap.innerHTML = '<div class="empty">Loading…</div>'; const r = await api('/api/wa/drips'); waDrips = r.items || []; renderWaDrips(); }
+  else { wrap.innerHTML = '<div class="empty">Loading…</div>'; await waLoadCampaigns(); }
 }
 // Shared form for a one-off message and a drip-plan row.
 function waComposeHtml(p, d, drip) {
@@ -17927,7 +17943,7 @@ function waComposeHtml(p, d, drip) {
     <label style="font-size:12px;font-weight:600">PDF saath bhejein (Price List & Catalogue page se)</label>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px;margin:4px 0 12px">${docs || '<span style="color:var(--gray-500);font-size:12px">Koi PDF upload nahi</span>'}</div>
     ${drip ? `<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${p}Active" ${d.active === false ? '' : 'checked'}/> Chalu (active)</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="waSaveDrip(${d.id || 0},this)">✓ Save plan</button><button class="btn btn-outline" onclick="waShow('drip')">Cancel</button></div>`
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="waSaveDrip(${d.id || 0},this)">✓ Save plan</button><button class="btn btn-outline" onclick="renderWaDrips()">Cancel</button></div>`
       : `<div id="waCount" style="font-size:12.5px;color:var(--gray-600);margin-bottom:8px"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input id="waTestPhone" placeholder="Test mobile" value="${esc(ME.phone || '')}" inputmode="tel" style="${VRL_IN};width:160px"/>
@@ -18008,10 +18024,35 @@ async function waShowFailed(id) {
   vrlModal('waFailModal', `${scotModalHead('waFailModal', '❌ Nahi gaye')}<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Naam</th><th>Mobile</th><th>Kyun</th></tr></thead><tbody>
     ${(r.items || []).map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.phone)}</td><td style="font-size:11.5px">${esc(x.error || '')}</td></tr>`).join('')}</tbody></table></div>`, 600);
 }
+// ── 🔁 Drip Marketing page (client, 2026-10-17: its own sidebar page) ──
+let dripRecent = [];
+async function loadDrip() {
+  const wrap = document.getElementById('dripWrap');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (!waMeta) {
+    const m = await api('/api/wa/meta');
+    if (m.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(m.error)}</div>`; return; }
+    waMeta = m;
+  }
+  const [r, c] = await Promise.all([api('/api/wa/drips'), api('/api/wa/campaigns')]);
+  if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  waDrips = r.items || [];
+  dripRecent = (c.items || []).filter(x => x.source === 'drip').slice(0, 15);
+  renderWaDrips();
+}
+function dripRecentHtml() {
+  if (!dripRecent.length) return '';
+  const st = { queued: '⏳ Queue me', sending: '📤 Ja raha hai', done: '✓ Ho gaya', cancelled: 'Band kiya' };
+  return `<div style="font-weight:800;font-size:13px;margin:18px 0 8px">📋 Drip se bheje gaye (haal ke)</div>
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Plan</th><th>Kab</th><th>Kisko</th><th style="text-align:right">Sent</th><th>Status</th></tr></thead><tbody>
+    ${dripRecent.map(x => `<tr><td style="font-weight:600">${esc(x.title)}</td><td style="white-space:nowrap">${esc(fmtDateDMY(x.createdAt, true))}</td><td>${esc(waMeta.audiences[x.audience] || x.audience || '')}</td>
+      <td style="text-align:right">${x.sent}/${x.total}${x.failed ? ` <span style="color:var(--color-danger)">· ${x.failed} failed</span>` : ''}</td><td>${esc(st[x.status] || x.status)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
 function renderWaDrips() {
   const admin = waMeta.isAdmin;
   const byDay = [1, 2, 3, 4, 5, 6, 7].map(n => ({ n, list: waDrips.filter(d => d.weekday === n) })).filter(x => x.list.length);
-  document.getElementById('waWrap').innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px;max-width:760px">Har din subah ~11 baje, us din ke plan apne aap dealers ko chale jaate hain. Customer aur non-customer ke liye alag plan banayein.
+  document.getElementById('dripWrap').innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px;max-width:760px">Har din subah ~11 baje, us din ke plan apne aap dealers ko chale jaate hain. Customer aur non-customer ke liye alag plan banayein.
       ${admin ? '' : ' Plan sirf Admin badal sakta hai.'}</div>
     ${admin ? '<button class="btn btn-primary" style="margin-bottom:12px" onclick="waEditDrip(0)">＋ Plan jodein</button>' : ''}
     ${byDay.length ? byDay.map(({ n, list }) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:10px;overflow:hidden">
@@ -18021,11 +18062,12 @@ function renderWaDrips() {
           <div style="font-size:12px;color:var(--gray-600);margin-top:3px;white-space:pre-line">${esc(d.message.slice(0, 160))}</div>
           <div style="font-size:11.5px;color:var(--gray-500);margin-top:3px">${d.imageUrl ? '🖼 Photo · ' : ''}${d.docIds.length ? `📎 ${d.docIds.map(id => esc((waMeta.docs.find(x => x.id === id) || {}).filename || 'PDF')).join(', ')} · ` : ''}${d.lastRun ? 'Last: ' + esc(fmtDateDMY(d.lastRun)) : 'Abhi tak nahi chala'}</div></div>
         ${admin ? `<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn btn-sm btn-outline" onclick="waEditDrip(${d.id})">✏️</button><button class="btn btn-sm btn-outline" onclick="waRunDrip(${d.id})" title="Abhi bhejo">▶ Abhi</button><button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="waDeleteDrip(${d.id})">🗑</button></div>` : ''}</div>`).join('')}</div>`).join('')
-      : '<div class="empty">Abhi koi weekly plan nahi. Jaise: Mon — customers ko naya product photo, Thu — non-customers ko catalogue + scheme.</div>'}`;
+      : '<div class="empty">Abhi koi weekly plan nahi. Jaise: Mon — customers ko naya product photo, Thu — non-customers ko catalogue + scheme.</div>'}
+    ${dripRecentHtml()}`;
 }
 function waEditDrip(id) {
   const d = id ? waDrips.find(x => x.id === id) : { weekday: 1, audience: 'customers', weeks: [], docIds: [], active: true };
-  document.getElementById('waWrap').innerHTML = waComposeHtml('wd', d, true);
+  document.getElementById('dripWrap').innerHTML = waComposeHtml('wd', d, true);
 }
 async function waSaveDrip(id, btn) {
   const b = waFormBody('wd');
@@ -18040,20 +18082,20 @@ async function waSaveDrip(id, btn) {
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast('✅ Plan saved');
-  waShow('drip');
+  loadDrip();
 }
 async function waRunDrip(id) {
   if (!confirm('Ye plan abhi bhej dein?')) return;
   const r = await api(`/api/wa/drips/${id}/run-now`, 'POST', {});
   if (r.error) { showToast(r.error, 'error'); return; }
-  showToast(`📤 ${r.total} logon ko bhejna shuru`);
-  waShow('sent');
+  showToast(`📤 ${r.total} logon ko bhejna shuru — neeche progress dikhega`);
+  loadDrip();
 }
 async function waDeleteDrip(id) {
   if (!confirm('Ye plan hata dein?')) return;
   const r = await api(`/api/wa/drips/${id}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
-  waShow('drip');
+  loadDrip();
 }
 
 // ══════════════════════════════════════════════════════

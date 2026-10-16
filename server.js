@@ -553,7 +553,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -13772,7 +13772,7 @@ async function waTables() {
   _waOk = true;
 }
 async function waAccess(req, res) {
-  if (await hasPageGrant(req, 'dealer-whatsapp')) return true;
+  if (await hasPageGrant(req, 'dealer-whatsapp') || await hasPageGrant(req, 'drip-marketing')) return true;
   res.status(403).json({ error: 'No access to Dealer WhatsApp' });
   return false;
 }
