@@ -492,6 +492,15 @@ setTimeout(() => {
 // ══════════════════════════════════════════════════════
 // MIDDLEWARE
 // ══════════════════════════════════════════════════════
+// Login stays until the user logs out (client, 2026-10-17: staff were being
+// signed out every 7 days). A year-long token, renewed quietly once a day
+// while the app is used, so an active login never runs out.
+const LOGIN_TTL_DAYS = 365;
+function issueLoginCookie(res, user) {
+  const token = jwt.sign({ userId: user.id, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: `${LOGIN_TTL_DAYS}d` });
+  res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: LOGIN_TTL_DAYS * 86400000 });
+  return token;
+}
 async function requireAuth(req, res, next) {
   const token = req.cookies?.token || req.headers['authorization']?.replace('Bearer ','');
   if (!token) return res.status(401).json({ error: 'Not authenticated' });
@@ -507,10 +516,21 @@ async function requireAuth(req, res, next) {
         return res.status(401).json({ error: 'You were signed out remotely. Please sign in again.' });
       }
     } catch(e) {} // column not migrated yet / sheets-db — fail open rather than lock everyone out
+    // A login now lasts until logout, so a role change or deactivation must
+    // apply at once instead of waiting for the token to expire.
+    try {
+      const [[u]] = await db.query('SELECT role, name, is_active FROM users WHERE id=?', [decoded.userId]);
+      if (!u || (u.is_active != null && Number(u.is_active) === 0)) return res.status(401).json({ error: 'Account inactive — please contact admin.' });
+      if (u.role) req.session.role = u.role;
+      if (u.name) req.session.name = u.name;
+    } catch (e) { /* fail open like above */ }
     // Vendor accounts (Purchase FMS vendor page) are outside the company —
     // they may only reach their own vendor APIs, never staff data.
-    if (decoded.role === 'vendor' && !VENDOR_ALLOWED_PATH.test(req.path)) {
+    if (req.session.role === 'vendor' && !VENDOR_ALLOWED_PATH.test(req.path)) {
       return res.status(403).json({ error: 'Not available for vendor accounts' });
+    }
+    if (req.cookies?.token === token && decoded.iat && Date.now() - decoded.iat * 1000 > 86400000) {
+      try { issueLoginCookie(res, { id: decoded.userId, role: req.session.role, name: req.session.name }); } catch (e) { /* keep the current cookie */ }
     }
     next();
   } catch(e) { res.status(401).json({ error: 'Invalid token' }); }
@@ -1187,19 +1207,7 @@ app.post('/api/login',
       try { await db.query('UPDATE users SET password=? WHERE id=?', [hashPassword(password), user.id]); } catch(_) {}
     }
 
-    // Issue JWT token
-    const token = jwt.sign(
-      { userId: user.id, role: user.role, name: user.name },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    const token = issueLoginCookie(res, user);
     res.json({ id: user.id, name: user.name, email: user.email, role: user.role, token });
   } catch (err) { sendServerError(res, err); }
 });
@@ -8181,6 +8189,45 @@ async function ensureO2dOrderTables() {
       INDEX (order_no)
     )`);
 }
+// Customer delivery (client, 2026-10-17: "order kab diya, kab dispatch hua,
+// customer ko kab mila — poora record"). Order and dispatch dates come from
+// the O2D sheet; the delivered date is recorded here.
+let _o2dDelivOk = false;
+async function o2dDeliveryTable() {
+  if (_o2dDelivOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS o2d_deliveries (
+    order_no VARCHAR(60) PRIMARY KEY, delivered_on DATE NOT NULL, received_by VARCHAR(255), remark VARCHAR(500),
+    marked_by INT, marked_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _o2dDelivOk = true;
+}
+app.get('/api/o2d-fms/deliveries', requireAuth, async (req, res) => {
+  try {
+    await o2dDeliveryTable();
+    const [rows] = await db.query(`SELECT d.order_no, DATE_FORMAT(d.delivered_on,'%Y-%m-%d') AS delivered_on, d.received_by, d.remark,
+      DATE_FORMAT(d.marked_at,'%Y-%m-%d %H:%i:%s') AS marked_at, u.name AS marked_by FROM o2d_deliveries d LEFT JOIN users u ON u.id=d.marked_by`);
+    res.json({ items: rows });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/o2d-fms/order/:orderNo/delivered', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'o2d-fms'))) return res.status(403).json({ error: 'No access to O2D FMS' });
+    await o2dDeliveryTable();
+    const b = req.body || {};
+    if (b.undo) {
+      if (req.session.role !== 'admin') return res.status(403).json({ error: 'Sirf Admin delivery hata sakta hai' });
+      await db.query('DELETE FROM o2d_deliveries WHERE order_no=?', [req.params.orderNo]);
+      return res.json({ success: true });
+    }
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : null;
+    if (!date) return res.status(400).json({ error: 'Delivery ki tareekh chunein' });
+    if (date > new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10)) return res.status(400).json({ error: 'Aage ki tareekh nahi ho sakti' });
+    await db.query(`INSERT INTO o2d_deliveries (order_no, delivered_on, received_by, remark, marked_by) VALUES (?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE delivered_on=VALUES(delivered_on), received_by=VALUES(received_by), remark=VALUES(remark), marked_by=VALUES(marked_by), marked_at=NOW()`,
+      [String(req.params.orderNo).slice(0, 60), date, String(b.receivedBy || '').trim().slice(0, 255) || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 async function withO2dOrderTables(fn) {
   try { return await fn(); }
   catch (e) {
@@ -9060,14 +9107,32 @@ app.get('/api/vendor/items', requireAuth, async (req, res) => {
     const shape = o => ({
       poNumber: o.poNumber, indentNo: o.indentNo, poDate: o.timestamp, leadTime: o.leadTime,
       expectedBy: (o.steps[1] && o.steps[1].planned) || '',
-      items: o.products.map(p => ({ itemId: p.itemId, productName: p.productName, uom: p.uom, qty: p.qty, received: p.received,
-        updates: updates.filter(u => u.po_number === o.poNumber && String(u.item_id) === String(p.itemId)) }))
+      items: o.products.map(p => {
+        const ups = updates.filter(u => u.po_number === o.poNumber && String(u.item_id) === String(p.itemId));
+        const dispatchedQty = ups.filter(u => u.status === 'Dispatched').reduce((a, u) => a + (Number(u.dispatched_qty) || 0), 0);
+        const receivedQty = p.receivedQty != null ? p.receivedQty : (p.received ? p.qty : 0);
+        // Still owed by the vendor (client, 2026-10-17): ordered − what Ajanta received.
+        const pendingQty = p.received && !(p.pendingQty > 0) ? 0 : Math.max(0, p.pendingQty != null ? p.pendingQty : p.qty - receivedQty);
+        return { itemId: p.itemId, productName: p.productName, uom: p.uom, qty: p.qty, received: p.received, receivedQty, dispatchedQty, pendingQty, updates: ups };
+      })
     });
+    // Replacement pending with this vendor (Vendor Replacement Ledger challans).
+    let replacements = [];
+    try {
+      await vrlTables();
+      const challans = (await vrlLoad()).filter(c => vendorKey(c.vendorName) === vendorKey(vendor) && !c.cancelledAt);
+      const [vu] = await db.query(`SELECT line_id, status, qty, DATE_FORMAT(update_date,'%Y-%m-%d') AS update_date, cn_no, remark, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
+        FROM vrl_vendor_updates WHERE vendor_name=? ORDER BY id DESC`, [vendor]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+      replacements = challans.map(c => ({ id: c.id, code: c.code, date: c.challanDate, billNo: c.billNo, reason: c.reason, days: c.days, status: c.status,
+        lines: c.lines.map(l => ({ id: l.id, itemName: l.itemName, serialNo: l.serialNo, qty: l.qty, defect: l.defect, pending: l.pending, got: l.got,
+          updates: vu.filter(u => u.line_id === l.id) })) }));
+    } catch (e) { console.warn('vendor replacements:', e.message); }
     res.json({
       vendor,
       pending: pos.filter(o => o.products.some(p => !p.received)).map(shape),
       // Last few fully-received POs, so the vendor can see they were booked in.
-      received: pos.filter(o => o.products.every(p => p.received)).slice(0, 10).map(shape)
+      received: pos.filter(o => o.products.every(p => p.received)).slice(0, 10).map(shape),
+      replacements
     });
   } catch (err) { sendServerError(res, err); }
 });
@@ -9106,6 +9171,34 @@ app.post('/api/vendor/update', requireAuth, async (req, res) => {
       await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
     } catch (e) { sheetError = e.message; console.error('Vendor update sheet write failed:', e.message); }
     res.json({ success: true, sheetError });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Vendor's own update on a replacement line (client, 2026-10-17): repairing /
+// new or repaired goods sent / credit note given. Ajanta still books the
+// actual receipt in the Vendor Replacement Ledger.
+const VRL_VENDOR_STATUSES = ['Repair me hai', 'Naya maal bheja', 'Repair karke bheja', 'Credit note diya'];
+app.post('/api/vendor/replacement-update', requireAuth, async (req, res) => {
+  try {
+    if (req.session.role !== 'vendor') return res.status(403).json({ error: 'Vendor accounts only' });
+    const vendor = await vendorOf(req);
+    if (!vendor) return res.status(400).json({ error: 'This login is not linked to a vendor yet.' });
+    const b = req.body || {};
+    if (!VRL_VENDOR_STATUSES.includes(b.status)) return res.status(400).json({ error: 'Choose a status' });
+    await vrlTables();
+    const [[line]] = await db.query('SELECT l.id, l.item_name, c.vendor_name FROM vendor_repl_lines l JOIN vendor_repl_challans c ON c.id=l.challan_id WHERE l.id=? AND c.cancelled_at IS NULL', [Number(b.lineId)]);
+    if (!line || vendorKey(line.vendor_name) !== vendorKey(vendor)) return res.status(404).json({ error: 'This item was not found for your company' });
+    const qty = Number(b.qty);
+    if (b.status !== 'Repair me hai' && !(qty > 0)) return res.status(400).json({ error: 'Quantity likhein' });
+    if (b.status === 'Credit note diya' && !String(b.cnNo || '').trim()) return res.status(400).json({ error: 'Credit note number likhein' });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : null;
+    await db.query(`CREATE TABLE IF NOT EXISTS vrl_vendor_updates (
+      id INT AUTO_INCREMENT PRIMARY KEY, line_id INT NOT NULL, vendor_name VARCHAR(255) NOT NULL, status VARCHAR(40) NOT NULL, qty DECIMAL(10,2),
+      update_date DATE, cn_no VARCHAR(100), remark VARCHAR(500), user_id INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (line_id), KEY (vendor_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await db.query('INSERT INTO vrl_vendor_updates (line_id, vendor_name, status, qty, update_date, cn_no, remark, user_id) VALUES (?,?,?,?,?,?,?,?)',
+      [line.id, vendor, b.status, qty > 0 ? qty : null, date, String(b.cnNo || '').trim().slice(0, 100) || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
+    res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -13218,6 +13311,8 @@ async function vrlLoad(where = '', params = []) {
   const [lines] = await db.query('SELECT * FROM vendor_repl_lines WHERE challan_id IN (?) ORDER BY id', [ids]);
   const [st] = lines.length ? await db.query(`SELECT s.*, DATE_FORMAT(s.settle_date,'%Y-%m-%d') AS settle_date, u.name AS created_by_name
       FROM vendor_repl_settlements s LEFT JOIN users u ON u.id=s.created_by WHERE s.line_id IN (?) ORDER BY s.id`, [lines.map(l => l.id)]) : [[]];
+  const [vup] = lines.length ? await db.query(`SELECT line_id, status, qty, DATE_FORMAT(update_date,'%Y-%m-%d') AS update_date, cn_no, remark, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') AS created_at
+      FROM vrl_vendor_updates WHERE line_id IN (?) ORDER BY id DESC`, [lines.map(l => l.id)]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; }) : [[]];
   const n = v => Number(v) || 0;
   return ch.map(c => {
     const ls = lines.filter(l => l.challan_id === c.id).map(l => {
@@ -13227,7 +13322,8 @@ async function vrlLoad(where = '', params = []) {
       const pending = Math.max(0, n(l.qty) - got.new - got.repaired - got.credit);
       return { id: l.id, itemName: l.item_name, serialNo: l.serial_no || '', qty: n(l.qty), rate: l.rate == null ? null : n(l.rate), defect: l.defect || '',
         got, pending, creditAmount: ss.reduce((a, x) => a + n(x.cn_amount), 0),
-        settlements: ss.map(x => ({ id: x.id, kind: x.kind, qty: n(x.qty), date: x.settle_date, cnNo: x.cn_no || '', cnAmount: x.cn_amount == null ? null : n(x.cn_amount), remark: x.remark || '', photoUrl: x.photo_url || '', by: x.created_by_name || '' })) };
+        settlements: ss.map(x => ({ id: x.id, kind: x.kind, qty: n(x.qty), date: x.settle_date, cnNo: x.cn_no || '', cnAmount: x.cn_amount == null ? null : n(x.cn_amount), remark: x.remark || '', photoUrl: x.photo_url || '', by: x.created_by_name || '' })),
+        vendorUpdates: vup.filter(x => x.line_id === l.id).map(x => ({ status: x.status, qty: x.qty == null ? null : n(x.qty), date: x.update_date, cnNo: x.cn_no || '', remark: x.remark || '', at: x.created_at })) };
     });
     const pending = ls.reduce((a, l) => a + l.pending, 0);
     const value = ls.reduce((a, l) => a + l.qty * (l.rate || 0), 0);
@@ -13588,29 +13684,31 @@ async function mhTable() {
     weekdays VARCHAR(20), from_date DATE, to_date DATE, remark VARCHAR(500),
     created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_by INT, updated_at DATETIME, KEY (city)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // Frequency (client, 2026-10-17): weekly / every 15 days / monthly / yearly / one date.
+  await addMissingColumns('market_holidays', [['freq', "VARCHAR(10) NOT NULL DEFAULT 'weekly'"], ['on_date', 'DATE']]);
   _mhOk = true;
 }
+const MH_FREQS = ['weekly', '15days', 'monthly', 'yearly', 'once'];
 function mhClean(b) {
   const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
-  const ymd = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : null;
   const days = (Array.isArray(b.weekdays) ? b.weekdays : String(b.weekdays || '').split(','))
     .map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= 7);
-  const r = { city: str(b.city, 120), kind: b.kind === 'Shop' ? 'Shop' : 'Market', place: str(b.placeName, 255), weekdays: [...new Set(days)].sort().join(','),
-    from: ymd(b.fromDate), to: ymd(b.toDate) || ymd(b.fromDate), remark: str(b.remark, 500) };
+  const r = { city: str(b.city, 120), kind: b.kind === 'Shop' ? 'Shop' : 'Market', place: str(b.placeName, 255), freq: MH_FREQS.includes(b.freq) ? b.freq : 'weekly',
+    weekdays: [...new Set(days)].sort().join(','), onDate: /^\d{4}-\d{2}-\d{2}$/.test(String(b.onDate || '')) ? b.onDate : null, remark: str(b.remark, 500) };
   if (!r.city) return { error: 'City likhein' };
   if (!r.place) return { error: r.kind === 'Shop' ? 'Dukaan ka naam likhein' : 'Market ka naam likhein' };
-  if (!r.weekdays && !r.from) return { error: 'Kis din band hai — hafte ka din chunein ya tareekh daalein' };
-  if (r.from && r.to < r.from) return { error: 'To date From se pehle nahi ho sakti' };
+  if (r.freq === 'weekly') { if (!r.weekdays) return { error: 'Hafte ka din chunein' }; r.onDate = null; }
+  else { if (!r.onDate) return { error: r.freq === 'once' ? 'Tareekh chunein' : 'Pehli band tareekh chunein' }; r.weekdays = ''; }
   return r;
 }
 app.get('/api/market-holidays', requireAuth, async (req, res) => {
   try {
     if (!(await hasPageGrant(req, 'market-holidays'))) return res.status(403).json({ error: 'No access to Market Holidays' });
     await mhTable();
-    const [rows] = await db.query(`SELECT h.*, DATE_FORMAT(h.from_date,'%Y-%m-%d') AS from_date, DATE_FORMAT(h.to_date,'%Y-%m-%d') AS to_date,
+    const [rows] = await db.query(`SELECT h.*, DATE_FORMAT(h.on_date,'%Y-%m-%d') AS on_date, DATE_FORMAT(h.from_date,'%Y-%m-%d') AS from_date,
       DATE_FORMAT(h.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, u.name AS by_name FROM market_holidays h LEFT JOIN users u ON u.id=h.created_by ORDER BY h.city, h.place_name`);
     res.json({ items: rows.map(h => ({ id: h.id, city: h.city, kind: h.kind, placeName: h.place_name, weekdays: h.weekdays ? h.weekdays.split(',').map(Number) : [],
-      fromDate: h.from_date, toDate: h.to_date, remark: h.remark || '', createdAt: h.created_at, by: h.by_name || '' })), isAdmin: req.session.role === 'admin' });
+      freq: h.freq || 'weekly', onDate: h.on_date || h.from_date || null, remark: h.remark || '', createdAt: h.created_at, by: h.by_name || '' })), isAdmin: req.session.role === 'admin' });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/market-holidays', requireAuth, async (req, res) => {
@@ -13619,8 +13717,8 @@ app.post('/api/market-holidays', requireAuth, async (req, res) => {
     await mhTable();
     const r = mhClean(req.body || {});
     if (r.error) return res.status(400).json(r);
-    await db.query('INSERT INTO market_holidays (city, kind, place_name, weekdays, from_date, to_date, remark, created_by) VALUES (?,?,?,?,?,?,?,?)',
-      [r.city, r.kind, r.place, r.weekdays || null, r.from, r.to, r.remark || null, req.session.userId]);
+    await db.query('INSERT INTO market_holidays (city, kind, place_name, freq, weekdays, on_date, remark, created_by) VALUES (?,?,?,?,?,?,?,?)',
+      [r.city, r.kind, r.place, r.freq, r.weekdays || null, r.onDate, r.remark || null, req.session.userId]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -13629,8 +13727,8 @@ app.put('/api/market-holidays/:id', requireAuth, requireAdmin, async (req, res) 
     await mhTable();
     const r = mhClean(req.body || {});
     if (r.error) return res.status(400).json(r);
-    await db.query('UPDATE market_holidays SET city=?, kind=?, place_name=?, weekdays=?, from_date=?, to_date=?, remark=?, updated_by=?, updated_at=NOW() WHERE id=?',
-      [r.city, r.kind, r.place, r.weekdays || null, r.from, r.to, r.remark || null, req.session.userId, Number(req.params.id)]);
+    await db.query('UPDATE market_holidays SET city=?, kind=?, place_name=?, freq=?, weekdays=?, on_date=?, from_date=NULL, to_date=NULL, remark=?, updated_by=?, updated_at=NOW() WHERE id=?',
+      [r.city, r.kind, r.place, r.freq, r.weekdays || null, r.onDate, r.remark || null, req.session.userId, Number(req.params.id)]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });

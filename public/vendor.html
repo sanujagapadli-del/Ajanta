@@ -69,8 +69,10 @@ main{max-width:860px;margin:0 auto;padding:16px}
 <main>
   <div class="tabs">
     <div class="tab active" id="tabPending" onclick="setTab('pending')">Material to Send</div>
+    <div class="tab" id="tabRepl" onclick="setTab('repl')">Replacement pending</div>
     <div class="tab" id="tabReceived" onclick="setTab('received')">Received</div>
   </div>
+  <div id="summary" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
   <div id="list"><div class="empty">Loading…</div></div>
 </main>
 <div id="toast"></div>
@@ -106,6 +108,7 @@ function setTab(t) {
   TAB = t; OPEN = null;
   document.getElementById('tabPending').classList.toggle('active', t === 'pending');
   document.getElementById('tabReceived').classList.toggle('active', t === 'received');
+  document.getElementById('tabRepl').classList.toggle('active', t === 'repl');
   render();
 }
 function chip(item) {
@@ -116,8 +119,20 @@ function chip(item) {
   const extra = u.status === 'Dispatched' ? ` ${Number(u.dispatched_qty)} on ${dmy(u.update_date)}` : (u.update_date ? ` — by ${dmy(u.update_date)}` : '');
   return `<span class="chip ${cls}">${esc(u.status)}${esc(extra)}</span>`;
 }
+function renderSummary() {
+  const pend = (DATA.pending || []).flatMap(po => po.items.filter(i => !i.received));
+  const owed = pend.reduce((a, i) => a + (i.pendingQty || 0), 0);
+  const shipped = pend.filter(i => i.dispatchedQty > 0).length;
+  const repl = (DATA.replacements || []).flatMap(c => c.lines.filter(l => l.pending > 0));
+  const box = (n, l, c) => `<div style="flex:1;min-width:140px;background:#fff;border:1px solid var(--g200);border-radius:12px;padding:10px 12px"><div style="font-size:20px;font-weight:800;color:${c}">${n}</div><div style="font-size:12px;color:var(--g500)">${l}</div></div>`;
+  document.getElementById('summary').innerHTML = box((DATA.pending || []).length, 'PO pending', 'var(--primary)') + box(owed, 'Qty abhi bhejni hai', 'var(--warning)') +
+    box(shipped, 'Item dispatch kiye (Ajanta me aana baaki)', 'var(--success)') + box(repl.reduce((a, l) => a + l.pending, 0), 'Replacement pending (qty)', 'var(--danger)');
+}
 function render() {
   const list = document.getElementById('list');
+  if (!DATA) return;
+  renderSummary();
+  if (TAB === 'repl') return renderRepl();
   const pos = (DATA && DATA[TAB]) || [];
   if (!pos.length) {
     list.innerHTML = `<div class="empty">${TAB === 'pending' ? '🎉 Nothing pending — no material due from you right now.' : 'No received POs yet.'}</div>`;
@@ -139,6 +154,7 @@ function itemHtml(po, it) {
     <div class="item-top">
       <div><div class="item-name">${esc(it.productName)}</div>${chip(it)}</div>
       <div style="text-align:right"><div class="qty">${esc(it.qty)} ${esc(it.uom || '')}</div>
+        <div style="font-size:11.5px;color:var(--g500);margin-top:2px">Bheja ${Number(it.dispatchedQty) || 0} · Mila ${Number(it.receivedQty) || 0}${it.received ? '' : ` · <b style="color:var(--warning)">Pending ${Number(it.pendingQty) || 0}</b>`}</div>
         ${TAB === 'pending' && !it.received && !open ? `<button class="btn" style="margin-top:8px" onclick="openForm('${esc(key)}')">Update Status</button>` : ''}</div>
     </div>
     ${open ? formHtml(po, it) : ''}
@@ -191,6 +207,40 @@ async function save(poNumber, itemId) {
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   OPEN = null;
   toast('✅ Status updated — Ajanta Appliances can see it now');
+  await load();
+}
+// ── Replacement pending: goods Ajanta sent back to this vendor ──
+let ROPEN = null;
+function renderRepl() {
+  const list = document.getElementById('list');
+  const ch = (DATA.replacements || []).filter(c => c.lines.some(l => l.pending > 0));
+  if (!ch.length) { list.innerHTML = '<div class="empty">🎉 Koi replacement pending nahi.</div>'; return; }
+  list.innerHTML = ch.map(c => `<div class="po"><div class="po-head"><div><b>${esc(c.code)}</b><br><small>Challan ${esc(dmy(c.date))}${c.billNo ? ' · Bill ' + esc(c.billNo) : ''} · ${esc(c.reason || '')}</small></div>
+      <div style="text-align:right"><small>Din</small><br><b style="font-size:13px;${c.days > 30 ? 'color:var(--danger)' : ''}">${c.days}</b></div></div>
+    ${c.lines.filter(l => l.pending > 0).map(l => `<div class="item"><div class="item-top"><div><div class="item-name">${esc(l.itemName)}</div>
+        <div style="font-size:12px;color:var(--g500)">${l.serialNo ? 'S/N ' + esc(l.serialNo) + ' · ' : ''}${esc(l.defect || '')}</div>
+        ${l.updates[0] ? `<span class="chip ready">${esc(l.updates[0].status)}${l.updates[0].qty ? ' ' + Number(l.updates[0].qty) : ''}${l.updates[0].update_date ? ' · ' + esc(dmy(l.updates[0].update_date)) : ''}</span>` : '<span class="chip none">No update yet</span>'}</div>
+      <div style="text-align:right"><div class="qty">${l.pending} pending</div><div style="font-size:11.5px;color:var(--g500)">Bheja tha ${l.qty}</div>
+        ${ROPEN !== l.id ? `<button class="btn" style="margin-top:8px" onclick="ROPEN=${l.id};render()">Update</button>` : ''}</div></div>
+      ${ROPEN === l.id ? `<div class="form"><div><label>Status</label><select id="rStatus">${['Repair me hai', 'Naya maal bheja', 'Repair karke bheja', 'Credit note diya'].map(x => `<option>${x}</option>`).join('')}</select></div>
+        <div><label>Qty</label><input type="number" id="rQty" min="1" max="${l.pending}" value="${l.pending}"/></div>
+        <div><label>Date</label><input type="date" id="rDate"/></div><div><label>Credit note no. (agar diya)</label><input id="rCn"/></div>
+        <div class="full"><label>Remark (LR no. / vehicle / anything)</label><input id="rRemark" maxlength="400"/></div>
+        <div class="err full" id="rErr" style="display:none"></div>
+        <div class="actions"><button class="btn" onclick="ROPEN=null;render()">Cancel</button><button class="btn primary" id="rSave" onclick="saveRepl(${l.id})">Save</button></div></div>` : ''}
+      ${l.updates.length ? `<div class="hist">${l.updates.slice(0, 5).map(u => `<div>🕒 ${esc(u.created_at.slice(8, 10) + '/' + u.created_at.slice(5, 7))} — <b>${esc(u.status)}</b>${u.qty ? ' ' + Number(u.qty) : ''}${u.cn_no ? ' · CN ' + esc(u.cn_no) : ''}${u.remark ? ' · ' + esc(u.remark) : ''}</div>`).join('')}</div>` : ''}
+    </div>`).join('')}</div>`).join('');
+}
+async function saveRepl(lineId) {
+  const err = document.getElementById('rErr'), btn = document.getElementById('rSave');
+  const body = { lineId, status: document.getElementById('rStatus').value, qty: document.getElementById('rQty').value, date: document.getElementById('rDate').value,
+    cnNo: document.getElementById('rCn').value, remark: document.getElementById('rRemark').value };
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const r = await api('/api/vendor/replacement-update', 'POST', body);
+  btn.disabled = false; btn.textContent = 'Save';
+  if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
+  ROPEN = null;
+  toast('✅ Update saved — Ajanta Appliances can see it now');
   await load();
 }
 async function logout() {

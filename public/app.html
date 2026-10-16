@@ -1902,6 +1902,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="tab-group">
         <div class="tab active" id="o2dViewFms" onclick="switchO2dView('fms',this)">FMS View</div>
         <div class="tab" id="o2dViewPC" onclick="switchO2dView('pc',this)">PC View</div>
+        <div class="tab" id="o2dViewDelivery" onclick="switchO2dView('delivery',this)">🚚 Delivery Tracking</div>
         <div class="tab" id="o2dViewReports" onclick="switchO2dView('reports',this)">📊 Reports</div>
         <div class="tab" id="o2dViewBillsReceivable" onclick="switchO2dView('bills',this)">💰 Bills Receivable</div>
       </div>
@@ -12923,7 +12924,78 @@ function renderO2dActiveView() {
   if (o2dView === 'fms') return renderO2dFmsView();
   if (o2dView === 'pc') return renderO2dPCView();
   if (o2dView === 'bills') return renderBillsReceivableView();
+  if (o2dView === 'delivery') return renderO2dDeliveryView();
   return renderO2dReportsView();
+}
+
+// ── 🚚 Delivery Tracking: order date → dispatch (Load Goods) → delivered to customer ──
+let o2dDeliveries = null, o2dDelivFilter = 'transit';
+const O2D_DISPATCH_IDX = 8; // step 9 "Load Goods" = goods left the warehouse
+function o2dDispatchOf(o) { const st = (o.steps || [])[O2D_DISPATCH_IDX]; return st && st.actual ? st.actual : ''; }
+function o2dBillDateOf(o) { const st = (o.steps || [])[3]; return st && (st.billDate || st.actual) || ''; }
+function o2dDays(a, b) { if (!a || !b) return ''; const d = Math.round((new Date(b.slice(0, 10) + 'T00:00:00') - new Date(a.slice(0, 10) + 'T00:00:00')) / 86400000); return d >= 0 ? d : ''; }
+function o2dDeliveryRows() {
+  const q = (document.getElementById('o2dSearch').value || '').trim().toLowerCase();
+  const map = Object.fromEntries((o2dDeliveries || []).map(d => [d.order_no, d]));
+  return (o2dData || []).filter(o => !o.cancelled).map(o => ({ o, dispatch: o2dDispatchOf(o), deliv: map[o.orderNo] || null }))
+    .filter(r => o2dDelivFilter === 'all' || (o2dDelivFilter === 'transit' ? r.dispatch && !r.deliv : o2dDelivFilter === 'delivered' ? !!r.deliv : !r.dispatch))
+    .filter(r => !q || `${r.o.orderNo} ${r.o.counterName} ${r.o.area || ''}`.toLowerCase().includes(q))
+    .sort((a, b) => (b.dispatch || b.o.timestamp || '').localeCompare(a.dispatch || a.o.timestamp || ''));
+}
+async function renderO2dDeliveryView() {
+  const wrap = document.getElementById('o2dListWrap');
+  if (!o2dDeliveries) {
+    wrap.innerHTML = '<div class="empty">Loading…</div>';
+    const r = await api('/api/o2d-fms/deliveries');
+    if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+    o2dDeliveries = r.items || [];
+  }
+  const all = o2dDeliveryRows.call(null);
+  const cnt = f => { const keep = o2dDelivFilter; o2dDelivFilter = f; const n = o2dDeliveryRows().length; o2dDelivFilter = keep; return n; };
+  const fb = (k, l) => `<button class="btn btn-sm ${o2dDelivFilter === k ? 'btn-primary' : 'btn-outline'}" onclick="o2dDelivFilter='${k}';renderO2dDeliveryView()">${l} (${cnt(k)})</button>`;
+  const { pageRows, totalPages, total } = o2dPaginate(all);
+  wrap.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--gray-200)">
+      ${fb('transit', '🚚 Raste me (dispatch, delivery baaki)')}${fb('delivered', '✅ Deliver ho gaya')}${fb('pending', '⏳ Abhi dispatch nahi')}${fb('all', 'All')}
+      <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="exportO2dDeliveries()">⬇ Excel</button></div>
+    ${total ? `<table style="font-size:12.5px"><thead><tr><th>Order</th><th>Counter</th><th>Order date</th><th>Bill date</th><th>Dispatch</th><th>Delivered</th><th style="text-align:right">Order→Dispatch</th><th style="text-align:right">Dispatch→Delivery</th><th></th></tr></thead><tbody>
+    ${pageRows.map(({ o, dispatch, deliv }) => { const late = dispatch && !deliv && o2dDays(dispatch, o2dReportsFmtDate(new Date())) > 3; return `<tr${late ? ' style="background:var(--color-warning-bg)"' : ''}>
+      <td style="font-weight:600;white-space:nowrap">${esc(o.orderNo)}</td><td>${esc(o.counterName)}${o.area ? `<div style="font-size:11px;color:var(--gray-500)">${esc(o.area)}</div>` : ''}</td>
+      <td style="white-space:nowrap">${esc(fmtDateDMY(o.timestamp, true))}</td><td style="white-space:nowrap">${o2dBillDateOf(o) ? esc(fmtDateDMY(o2dBillDateOf(o))) : '—'}</td>
+      <td style="white-space:nowrap">${dispatch ? esc(fmtDateDMY(dispatch, true)) : '<span style="color:var(--gray-400)">—</span>'}</td>
+      <td style="white-space:nowrap">${deliv ? `<b style="color:var(--color-success)">${esc(fmtDateDMY(deliv.delivered_on))}</b>${deliv.received_by ? `<div style="font-size:11px;color:var(--gray-500)">${esc(deliv.received_by)}</div>` : ''}` : '—'}</td>
+      <td style="text-align:right">${o2dDays(o.timestamp, dispatch) === '' ? '—' : o2dDays(o.timestamp, dispatch) + ' din'}</td>
+      <td style="text-align:right;${late ? 'color:var(--color-danger);font-weight:700' : ''}">${deliv ? o2dDays(dispatch, deliv.delivered_on) + ' din' : dispatch ? o2dDays(dispatch, o2dReportsFmtDate(new Date())) + ' din se raste me' : '—'}</td>
+      <td style="white-space:nowrap">${dispatch ? `<button class="btn btn-sm ${deliv ? 'btn-outline' : 'btn-green'}" onclick="openO2dDelivered('${o2dJsEsc(o.orderNo)}')">${deliv ? '✏️' : '✓ Delivered'}</button>` : ''}</td></tr>`; }).join('')}
+    </tbody></table>${o2dPaginationHtml(totalPages, total)}` : '<div class="empty">Is list me koi order nahi</div>'}`;
+}
+function openO2dDelivered(orderNo) {
+  const d = (o2dDeliveries || []).find(x => x.order_no === orderNo) || {};
+  const o = o2dData.find(x => x.orderNo === orderNo) || {};
+  vrlModal('o2dDelivModal', `${scotModalHead('o2dDelivModal', '🚚 Customer ko mila')}<div style="font-weight:700;margin-bottom:10px">${esc(orderNo)} · ${esc(o.counterName || '')}</div>
+    <label style="font-size:12px;font-weight:600">Delivery ki tareekh *</label><input type="date" id="o2dDvDate" value="${esc(d.delivered_on || o2dReportsFmtDate(new Date()))}" max="${o2dReportsFmtDate(new Date())}" style="${VRL_IN};margin-bottom:8px"/>
+    <label style="font-size:12px;font-weight:600">Kisne liya</label><input id="o2dDvBy" value="${esc(d.received_by || '')}" placeholder="e.g. Dukaan malik / transport" style="${VRL_IN};margin-bottom:8px"/>
+    <label style="font-size:12px;font-weight:600">Remark</label><input id="o2dDvRemark" value="${esc(d.remark || '')}" style="${VRL_IN};margin-bottom:10px"/>
+    ${d.marked_by ? `<div style="font-size:11.5px;color:var(--gray-500);margin-bottom:8px">Mark kiya: ${esc(d.marked_by)} · ${esc(fmtDateDMY(d.marked_at, true))}</div>` : ''}
+    <div style="display:flex;gap:8px"><button class="btn btn-green" style="flex:1;justify-content:center" onclick="saveO2dDelivered('${o2dJsEsc(orderNo)}',this)">✓ Save</button>
+    ${d.order_no && ME.role === 'admin' ? `<button class="btn btn-outline" style="color:var(--color-danger)" onclick="saveO2dDelivered('${o2dJsEsc(orderNo)}',this,true)">Hatao</button>` : ''}</div>`, 440);
+}
+async function saveO2dDelivered(orderNo, btn, undo) {
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/delivered`, 'PUT', undo ? { undo: true } :
+    { date: document.getElementById('o2dDvDate').value, receivedBy: document.getElementById('o2dDvBy').value.trim(), remark: document.getElementById('o2dDvRemark').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('o2dDelivModal');
+  o2dDeliveries = null;
+  showToast(undo ? 'Delivery hata di' : '✅ Delivery saved');
+  renderO2dDeliveryView();
+}
+function exportO2dDeliveries() {
+  const rows = o2dDeliveryRows();
+  csvDownload([['Order No', 'Counter', 'Area', 'Order date', 'Bill date', 'Dispatch date', 'Delivered on', 'Received by', 'Order→Dispatch (days)', 'Dispatch→Delivery (days)', 'Remark'],
+    ...rows.map(({ o, dispatch, deliv }) => [o.orderNo, o.counterName, o.area || '', fmtDateDMY(o.timestamp, true), o2dBillDateOf(o) ? fmtDateDMY(o2dBillDateOf(o)) : '',
+      dispatch ? fmtDateDMY(dispatch, true) : '', deliv ? fmtDateDMY(deliv.delivered_on) : '', deliv ? deliv.received_by || '' : '',
+      o2dDays(o.timestamp, dispatch), deliv ? o2dDays(dispatch, deliv.delivered_on) : '', deliv ? deliv.remark || '' : ''])], `O2D-delivery-tracking-${stockTodayYmd()}.csv`);
 }
 
 // Thousands of orders would otherwise mean rendering tens of thousands of
@@ -17722,15 +17794,26 @@ async function loadMh() {
   sel.innerHTML = '<option value="">All cities</option>' + cities.map(c => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('');
   renderMh();
 }
+const MH_FREQ_LABEL = { weekly: 'Har hafte', '15days': 'Har 15 din', monthly: 'Har mahine', yearly: 'Har saal', once: 'Sirf ek din' };
 function mhClosedOn(h, ymd) {
   const d = new Date(ymd + 'T00:00:00'), dow = d.getDay() === 0 ? 7 : d.getDay();
-  return h.weekdays.includes(dow) || (h.fromDate && ymd >= h.fromDate && ymd <= (h.toDate || h.fromDate));
+  if (h.freq === 'weekly') return h.weekdays.includes(dow);
+  if (!h.onDate) return false;
+  const a = new Date(h.onDate + 'T00:00:00');
+  if (h.freq === 'once') return ymd === h.onDate;
+  if (h.freq === 'yearly') return ymd.slice(5) === h.onDate.slice(5);
+  if (h.freq === 'monthly') return d.getDate() === a.getDate();
+  if (h.freq === '15days') { const diff = Math.round((d - a) / 86400000); return diff >= 0 && diff % 15 === 0; }
+  return false;
 }
 function mhWhen(h) {
-  const parts = [];
-  if (h.weekdays.length) parts.push('Har ' + h.weekdays.map(n => MH_DAYS[n]).join(', '));
-  if (h.fromDate) parts.push(h.toDate && h.toDate !== h.fromDate ? `${fmtDateDMY(h.fromDate)} – ${fmtDateDMY(h.toDate)}` : fmtDateDMY(h.fromDate));
-  return parts.join(' · ');
+  if (h.freq === 'weekly') return 'Har ' + h.weekdays.map(n => MH_DAYS[n]).join(', ');
+  if (!h.onDate) return '—';
+  const a = new Date(h.onDate + 'T00:00:00');
+  if (h.freq === 'once') return fmtDateDMY(h.onDate);
+  if (h.freq === 'yearly') return `Har saal ${a.getDate()} ${a.toLocaleDateString('en-IN', { month: 'short' })}`;
+  if (h.freq === 'monthly') return `Har mahine ${a.getDate()} tareekh`;
+  return `Har 15 din (${fmtDateDMY(h.onDate)} se)`;
 }
 function renderMh() {
   if (!mhData) return;
@@ -17752,7 +17835,7 @@ function renderMh() {
       </tbody></table></div></div>`).join('') : '<div class="empty">Abhi koi holiday nahi daala gaya. "+ Add Holiday" se jodiye.</div>');
 }
 function openMhForm(id) {
-  const h = id ? mhData.items.find(x => x.id === id) : { city: document.getElementById('mhCity').value, kind: 'Market', placeName: '', weekdays: [], fromDate: '', toDate: '', remark: '' };
+  const h = id ? mhData.items.find(x => x.id === id) : { city: document.getElementById('mhCity').value, kind: 'Market', placeName: '', freq: 'weekly', weekdays: [], onDate: '', remark: '' };
   const cities = [...new Set(mhData.items.map(x => x.city))];
   vrlModal('mhModal', `${scotModalHead('mhModal', id ? '✏️ Holiday badlein' : '＋ Market / Shop holiday')}
     <datalist id="mhCityList">${cities.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
@@ -17760,16 +17843,24 @@ function openMhForm(id) {
       <div><label style="font-size:12px;font-weight:600">City *</label><input id="mhFCity" list="mhCityList" value="${esc(h.city)}" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Kya band hai?</label><select id="mhFKind" style="${VRL_IN}"><option value="Market" ${h.kind !== 'Shop' ? 'selected' : ''}>🛒 Poora market</option><option value="Shop" ${h.kind === 'Shop' ? 'selected' : ''}>🏪 Ek dukaan</option></select></div></div>
     <label style="font-size:12px;font-weight:600">Market / dukaan ka naam *</label><input id="mhFPlace" value="${esc(h.placeName)}" placeholder="e.g. Johari Bazar / Sharma Electricals" style="${VRL_IN};margin-bottom:10px"/>
-    <label style="font-size:12px;font-weight:600">Har hafte kis din band?</label>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5, 6, 7].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="mh-day" value="${n}" ${h.weekdays.includes(n) ? 'checked' : ''}/> ${MH_DAYS[n]}</label>`).join('')}</div>
-    <label style="font-size:12px;font-weight:600">Ya kisi tareekh ko band (tyohar / shaadi / chutti)</label>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0 8px"><input type="date" id="mhFFrom" value="${esc(h.fromDate || '')}" style="${VRL_IN}"/><input type="date" id="mhFTo" value="${esc(h.toDate || '')}" title="Kab tak (ek din ho to khaali chhodein)" style="${VRL_IN}"/></div>
+    <label style="font-size:12px;font-weight:600">Kitni baar band hota hai?</label>
+    <select id="mhFFreq" onchange="mhFreqChanged()" style="${VRL_IN};margin-bottom:10px">${Object.entries(MH_FREQ_LABEL).map(([k, l]) => `<option value="${k}" ${(h.freq || 'weekly') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <div id="mhFWeekly"><label style="font-size:12px;font-weight:600">Hafte ka din</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5, 6, 7].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="mh-day" value="${n}" ${h.weekdays.includes(n) ? 'checked' : ''}/> ${MH_DAYS[n]}</label>`).join('')}</div></div>
+    <div id="mhFDateWrap"><label style="font-size:12px;font-weight:600" id="mhFDateLabel">Tareekh</label><input type="date" id="mhFDate" value="${esc(h.onDate || '')}" style="${VRL_IN};margin:4px 0 10px"/></div>
     <label style="font-size:12px;font-weight:600">Remark</label><input id="mhFRemark" value="${esc(h.remark)}" style="${VRL_IN};margin-bottom:10px"/>
     <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveMh(${id || 0},this)">✓ Save</button>`, 520);
+  mhFreqChanged();
+}
+function mhFreqChanged() {
+  const f = document.getElementById('mhFFreq').value;
+  document.getElementById('mhFWeekly').style.display = f === 'weekly' ? '' : 'none';
+  document.getElementById('mhFDateWrap').style.display = f === 'weekly' ? 'none' : '';
+  document.getElementById('mhFDateLabel').textContent = f === 'once' ? 'Kis tareekh ko band hai?' : f === 'yearly' ? 'Kis tareekh ko (har saal isi din)' : f === 'monthly' ? 'Kis tareekh ko (har mahine isi tareekh)' : 'Pehli band tareekh (phir har 15 din)';
 }
 async function saveMh(id, btn) {
   const v = x => document.getElementById(x).value.trim();
-  const body = { city: v('mhFCity'), kind: v('mhFKind'), placeName: v('mhFPlace'), weekdays: [...document.querySelectorAll('.mh-day:checked')].map(c => Number(c.value)), fromDate: v('mhFFrom'), toDate: v('mhFTo'), remark: v('mhFRemark') };
+  const body = { city: v('mhFCity'), kind: v('mhFKind'), placeName: v('mhFPlace'), freq: v('mhFFreq'), weekdays: [...document.querySelectorAll('.mh-day:checked')].map(c => Number(c.value)), onDate: v('mhFDate'), remark: v('mhFRemark') };
   const restore = btnLoading(btn, 'Saving…');
   const r = await api(id ? `/api/market-holidays/${id}` : '/api/market-holidays', id ? 'PUT' : 'POST', body);
   restore();
@@ -18567,6 +18658,10 @@ function openVrlDetail(id) {
       <input id="vrlSetRemark" placeholder="Remark" style="${VRL_IN};margin-bottom:8px"/>
       <input type="file" id="vrlSetPhoto" accept="image/*" onchange="onChequePhotoSelected(this,'vrlSetPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlSetPv" style="font-size:12px;margin-bottom:8px"></div>
       <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveVrlSettle(${c.id},this)">✓ Save receipt</button></div>` : ''}
+    ${c.lines.some(l => (l.vendorUpdates || []).length) ? `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;margin:6px 0">Vendor ne bataya (Vendor Portal)</div>
+      ${c.lines.flatMap(l => (l.vendorUpdates || []).map(x => ({ ...x, item: l.itemName }))).map(x => `<div style="font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
+        🏭 <b>${esc(x.status)}</b> · ${esc(x.item)}${x.qty != null ? ' × ' + x.qty : ''}${x.cnNo ? ' · CN ' + esc(x.cnNo) : ''}${x.date ? ' · ' + esc(fmtDateDMY(x.date)) : ''}${x.remark ? ' · ' + esc(x.remark) : ''}
+        <div style="font-size:11px;color:var(--gray-400)">${esc(fmtDateDMY(x.at, true))}</div></div>`).join('')}` : ''}
     ${c.lines.some(l => l.settlements.length) ? `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;margin:6px 0">History</div>
       ${c.lines.flatMap(l => l.settlements.map(x => ({ ...x, item: l.itemName }))).sort((a, b) => b.id - a.id).map(x => `<div style="font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
         <b>${VRL_KIND_LABEL[x.kind]}</b> · ${esc(x.item)} × ${x.qty}${x.cnNo ? ` · CN ${esc(x.cnNo)}${x.cnAmount != null ? ' ' + inr(x.cnAmount) : ''}` : ''}${x.remark ? ' · ' + esc(x.remark) : ''}${x.photoUrl ? ' · ' + linkOrText(x.photoUrl, '📷') : ''}
