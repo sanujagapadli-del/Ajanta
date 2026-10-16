@@ -11034,19 +11034,16 @@ function renderSfmsSpareBalanceView() {
 // SERVICE FMS REPORTS
 // ══════════════════════════════════════════════════════
 let sfmsReportView = 'overview';
+// Client, 2026-10-17: only the Overview stays on the Reports tab.
 const SFMS_REPORT_TABS = [
-  { key: 'overview', label: '📊 Overview' },
-  { key: 'mechanic-wise', label: '🔧 Mechanic-Wise' },
-  { key: 'shortage', label: '⚠️ Spare Shortage' },
-  { key: 'spare-table', label: '📋 Spare In/Out Table' },
-  { key: 'pc', label: '🛒 PC Report' },
-  { key: 'item-wise', label: '📦 Item-Wise' }
+  { key: 'overview', label: '📊 Overview' }
 ];
 
 function renderSfmsReportsView() {
   const wrap = document.getElementById('sfmsListWrap');
   wrap.style.overflowX = '';
-  const tabsHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;padding:16px 16px 0">
+  if (!SFMS_REPORT_TABS.some(t => t.key === sfmsReportView)) sfmsReportView = SFMS_REPORT_TABS[0].key;
+  const tabsHtml = SFMS_REPORT_TABS.length < 2 ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;padding:16px 16px 0">
     ${SFMS_REPORT_TABS.map(t => `<button onclick="switchSfmsReport('${t.key}')" style="padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid ${sfmsReportView === t.key ? 'var(--color-primary)' : 'var(--gray-200)'};background:${sfmsReportView === t.key ? 'var(--color-primary-light)' : '#fff'};color:${sfmsReportView === t.key ? 'var(--color-primary)' : 'var(--gray-600)'}">${t.label}</button>`).join('')}
   </div>`;
   wrap.innerHTML = tabsHtml + `<div id="sfmsReportContent" style="padding:16px"></div>`;
