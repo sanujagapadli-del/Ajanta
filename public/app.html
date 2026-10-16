@@ -1876,6 +1876,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="page-header" id="o2dPageHeader">
       <button class="btn btn-primary" onclick="openNewO2dOrderModal()">+ New Order</button>
       <button class="btn btn-outline" onclick="loadO2dFmsList()">🔄 Refresh</button>
+      <button class="btn btn-outline" onclick="exportO2dPending()">⬇ Pending Excel</button>
       <button class="btn btn-outline" id="o2dStepDoersBtn" style="display:none" onclick="openStepDoersModal()">⚙ Step Doers</button>
       <button class="btn btn-outline" id="o2dTeamGroupBtn" style="display:none" onclick="openTeamGroupModal()">💬 WhatsApp Group</button>
     </div>
@@ -1921,6 +1922,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="tab" id="pfmsViewIndents" onclick="switchPurchaseFmsView('indents',this)">📝 Indents</div>
         <div class="tab active" id="pfmsViewFms" onclick="switchPurchaseFmsView('fms',this)">FMS View</div>
         <div class="tab" id="pfmsViewPC" onclick="switchPurchaseFmsView('pc',this)">PC View</div>
+        <div class="tab" id="pfmsViewShort" onclick="switchPurchaseFmsView('short',this)">⚠ Kam aaya maal</div>
         <div class="tab" id="pfmsViewReports" onclick="switchPurchaseFmsView('reports',this)">📊 Reports</div>
       </div>
     </div>
@@ -6291,17 +6293,23 @@ function switchUsersPageTab(tab, el) {
 
 // Locked pages are always on for every user (no per-user storage needed).
 // Restrictable pages mirror RESTRICTABLE_PAGES in server.js.
+// deny:true = on by default (for anyone with the `needs` page); unticking
+// stores 'deny:<key>' (DENY_KEYS in server.js). auto = decided elsewhere, shown for info.
 const PAGE_ACCESS_GROUPS = [
   { label: 'Basic', locked: true, pages: [
     { key: 'dashboard', label: 'Dashboard' },
     { key: 'alltasks', label: 'All Tasks' },
     { key: 'approvals', label: 'Approvals' },
+    { key: 'attendance', label: 'Attendance' },
+    { key: 'leave', label: 'Leave' },
+    { key: 'km', label: 'Kilometer' },
     { key: 'profile', label: 'Profile' },
   ]},
   { label: 'Tasks & HR', locked: false, pages: [
     { key: 'checklist-master', label: 'Checklist Master (sabki checklist banaye / badle / band kare)' },
     // Not a page: All Tasks → Delegation shows every employee's tasks (view + comment).
     { key: 'all-delegations', label: 'All Delegations (view everyone)' },
+    { key: 'tour', label: 'Tour Expense (salesman / Vishal-Ajay — auto)', auto: true },
     { key: 'employees', label: 'Employees (details, documents)' },
     { key: 'users', label: 'Users' },
     { key: 'records', label: 'Records' },
@@ -6330,18 +6338,37 @@ const PAGE_ACCESS_GROUPS = [
   { label: 'Reports', locked: false, pages: [
     { key: 'mis', label: 'MIS Report' },
     { key: 'gross-profit', label: 'Gross Profit' },
+    { key: 'net-profit', label: 'Net Profit (Gross Profit ke saath)', deny: true, needs: ['gross-profit'] },
     { key: 'petty-cash', label: 'Petty Cash' },
     { key: 'ows', label: 'OWS — Weekly product-wise sales' },
   ]},
+  { label: 'Forms', locked: false, pages: [
+    { key: 'form-sfms-complaint', label: '+ New Complaint (Service)', deny: true, needs: ['service-fms'] },
+    { key: 'form-o2d-order', label: '+ New Order (O2D)', deny: true, needs: ['o2d-fms', 'o2d-new-order'] },
+    { key: 'form-indent', label: '+ New Indent (Purchase)', deny: true, needs: ['purchase-fms'] },
+    { key: 'form-cheque', label: '+ New Cheque', deny: true, needs: ['cheque-fms'] },
+    { key: 'form-lead', label: '+ New Lead', deny: true, needs: ['lead-fms'] },
+    { key: 'form-replacement', label: '+ Replacement Form', deny: true, needs: ['replacement-fms'] },
+  ]},
 ];
+
+// Forms / Net Profit the logged-in user has been unticked from (deny keys).
+const canForm = key => !ME || ME.role === 'admin' || !(ME.page_access || []).includes('deny:' + key);
+function formBlocked(key) {
+  if (canForm(key)) return false;
+  showToast("You don't have access to this form", 'error');
+  return true;
+}
 
 function _renderAccessTableHeader() {
   const groupRow = document.querySelector('#accessTable .access-group-row');
   const pageRow = document.querySelector('#accessTable .access-page-row');
   groupRow.innerHTML = '<th class="access-user-th"></th>' + PAGE_ACCESS_GROUPS.map(g =>
-    `<th colspan="${g.pages.length}">${g.label}</th>`).join('');
+    `<th colspan="${g.pages.length}" class="access-group-start">${g.label}</th>`).join('');
   pageRow.innerHTML = '<th class="access-user-th">User</th>' + PAGE_ACCESS_GROUPS.map(g =>
-    g.pages.map(p => `<th>${p.label}</th>`).join('')).join('');
+    g.pages.map((p, i) => `<th class="${i === 0 ? 'access-group-start' : ''}" title="${esc(p.label)}">${esc(p.label)}</th>`).join('')).join('');
+  // Freeze both header rows: the page row sits right under the group row.
+  pageRow.querySelectorAll('th').forEach(th => { th.style.top = groupRow.offsetHeight + 'px'; });
 }
 
 let allAccessUsersData = [];
@@ -6372,10 +6399,18 @@ function renderAccessTable(users) {
   tbody.innerHTML = users.map(u => {
     const isAdmin = u.role === 'admin';
     const granted = new Set(isAdmin ? [] : (u.page_access||[]));
-    const cells = PAGE_ACCESS_GROUPS.map(g => g.pages.map(p => {
-      if (isAdmin || g.locked) return `<td><span class="access-check-lock">✓</span></td>`;
+    const cells = PAGE_ACCESS_GROUPS.map(g => g.pages.map((p, i) => {
+      const cls = i === 0 ? ' class="access-group-start"' : '';
+      if (isAdmin || g.locked) return `<td${cls}><span class="access-check-lock">✓</span></td>`;
+      if (p.auto) return `<td${cls}><span class="access-tag" title="Salesman profile / Vishal-Ajay se apne aap">auto</span></td>`;
+      if (p.deny) {
+        // Only meaningful once the parent page is ticked — dim it otherwise.
+        const hasParent = p.needs.some(k => granted.has(k));
+        return `<td${cls}><input type="checkbox" class="access-check" ${granted.has('deny:' + p.key) ? '' : 'checked'} style="${hasParent ? '' : 'opacity:.35'}"
+          title="${hasParent ? '' : 'Pehle page ka access do'}" onchange="toggleAccess(${u.id},'deny:${p.key}',!this.checked,this,true)"/></td>`;
+      }
       const checked = granted.has(p.key);
-      return `<td><input type="checkbox" class="access-check" ${checked?'checked':''} onchange="toggleAccess(${u.id},'${p.key}',this.checked,this)"/></td>`;
+      return `<td${cls}><input type="checkbox" class="access-check" ${checked?'checked':''} onchange="toggleAccess(${u.id},'${p.key}',this.checked,this)"/></td>`;
     }).join('')).join('');
     return `<tr>
       <td class="access-user-cell">
@@ -6388,7 +6423,9 @@ function renderAccessTable(users) {
   }).join('');
 }
 
-async function toggleAccess(userId, pageKey, checked, cbEl) {
+// `checked` = key present in page_access. For deny keys the checkbox is the
+// inverse (ticked = allowed), so the revert flips the box the other way.
+async function toggleAccess(userId, pageKey, checked, cbEl, inverted) {
   const user = allUsersData.find(u => u.id === userId);
   if (!user) return;
   const before = new Set(user.page_access||[]);
@@ -6399,8 +6436,13 @@ async function toggleAccess(userId, pageKey, checked, cbEl) {
   const r = await api(`/api/users/${userId}/access`, 'PUT', { pages: user.page_access });
   if (r.error) {
     user.page_access = [...before];
-    if (cbEl) cbEl.checked = !checked;
+    if (cbEl) cbEl.checked = inverted ? checked : !checked;
     showToast(r.error || 'Failed to update access', 'error');
+    return;
+  }
+  // A page tick changes whether its forms are dimmed — redraw that row's cells.
+  if (!inverted && cbEl && PAGE_ACCESS_GROUPS.some(g => g.pages.some(p => p.deny && p.needs.includes(pageKey)))) {
+    filterAccessUsers();
   }
 }
 
@@ -12856,6 +12898,26 @@ function o2dPaginationHtml(totalPages, total) {
 }
 function o2dGoToPage(p) { o2dPage = p; renderO2dActiveView(); }
 
+// Pending orders → Excel (client, 2026-10-16): one line per product, with the
+// step the order is waiting on, its doer and how late it is.
+function exportO2dPending() {
+  if (!Array.isArray(o2dData) || !o2dData.length) { showToast('Orders load ho rahe hain — thoda ruk kar dobara dabayein', 'error'); return; }
+  const list = o2dFilteredRows().filter(o => !o.closed);
+  if (!list.length) { showToast('Koi pending order nahi', 'error'); return; }
+  const rows = [['Order No', 'Order ID', 'Order Date', 'Counter', 'Area', 'Order By', 'Product', 'Qty', 'Rate', 'Pending Step', 'Doer', 'Planned', 'Days late', 'Status', 'Date to Send', 'Payment Terms', 'Remark']];
+  const now = Date.now();
+  list.forEach(o => {
+    const st = o.steps[o.currentStep] || {};
+    const pl = o2dParseDate(st.planned);
+    const late = pl && pl.getTime() < now ? Math.floor((now - pl.getTime()) / 86400000) : '';
+    const status = o.cancelled ? 'Cancelled' : o.onHold ? 'Hold' : '';
+    (o.products || []).filter(p => !p.cancelled).forEach(p => rows.push([o.orderNo, p.orderId || '', fmtDateDMY(o.timestamp, true), o.counterName, o.area || '', o.orderBy || '',
+      p.productName, p.qty, p.rate, `${o.currentStep + 1}. ${st.label || ''}`, (st.doers && st.doers.length ? st.doers.map(d => d.name || d).join(', ') : st.doer) || '',
+      st.planned ? fmtDateDMY(st.planned, true) : '', late, status, o.dateToSend ? fmtDateDMY(o.dateToSend) : '', o.paymentTerms || '', o.remark || '']));
+  });
+  csvDownload(rows, `O2D-pending-orders-${stockTodayYmd()}.csv`);
+  showToast(`⬇ ${list.length} pending orders`);
+}
 function o2dFilteredRows() {
   const q = (document.getElementById('o2dSearch').value || '').trim().toLowerCase();
   if (!q) return o2dData;
@@ -13626,9 +13688,13 @@ function openDealerDetailsModal(name) {
   _ddDealer = name;
   const L = t => `<div style="${CHQ_LABEL}">${t}</div>`;
   const inp = (id, label, val, attrs) => `<div>${L(label)}<input id="dd_${id}" value="${esc(val || '')}" ${attrs || ''} style="${CHQ_INPUT}"/></div>`;
-  document.getElementById('ddTitle').textContent = `✏️ ${name}`;
+  const admin = ME.role === 'admin';
+  document.getElementById('ddTitle').textContent = `${admin ? '✏️' : '🏪'} ${name}`;
   document.getElementById('ddBody').innerHTML = `
     <div class="alert error" id="ddErr" style="display:none"></div>
+    ${admin ? `${L('Dealer / dukaan ka naam (galat ho to yahan sudharein)')}<input id="dd_name" value="${esc(name)}" style="${CHQ_INPUT}"/>
+      <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Naam badalne par purane orders, payments aur beat naye naam me jud jaate hain.</div>`
+      : '<div style="font-size:12px;color:var(--color-warning-text);background:var(--color-warning-bg);padding:8px 10px;border-radius:8px;margin-bottom:10px">Sirf dekh sakte hain — galat detail ho to Admin ko batayein.</div>'}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
       ${inp('owner', 'Malik ka naam', x.ownerName)}
       ${inp('dob', 'Malik ki date of birth', x.dob, 'type="date"')}
@@ -13646,7 +13712,8 @@ function openDealerDetailsModal(name) {
     </div>
     ${L('Notes (kya bechta hai, kab milta hai, family…)')}<textarea id="dd_notes" rows="2" style="${CHQ_INPUT};resize:vertical">${esc(x.notes || '')}</textarea>
     ${x.updatedAt ? `<div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Last update: ${esc(fmtDateDMY(x.updatedAt, true))}${x.updatedBy ? ' · ' + esc(x.updatedBy) : ''}</div>` : ''}
-    <button class="btn btn-primary" id="ddSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerDetails()">Save</button>`;
+    ${admin ? '<button class="btn btn-primary" id="ddSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerDetails()">Save</button>' : ''}`;
+  if (!admin) document.querySelectorAll('#ddBody input, #ddBody textarea, #ddBody button').forEach(el => { el.disabled = true; });
   document.getElementById('dealerDetailsModal').classList.add('open');
 }
 function ddCaptureLocation(btn) {
@@ -13665,6 +13732,12 @@ async function submitDealerDetails() {
   const body = { ownerName: v('owner'), dob: v('dob'), phone: v('phone'), altPhone: v('alt'), city: v('city'), area: v('area'), anniversary: v('anniv'),
     gstNo: v('gst'), address: v('address'), notes: v('notes'), locationLat: loc ? loc.dataset.lat : null, locationLng: loc ? loc.dataset.lng : null };
   const btn = document.getElementById('ddSaveBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const newName = v('name');
+  if (newName && newName !== _ddDealer) {
+    const rn = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_ddDealer)}/rename`, 'PUT', { newName });
+    if (rn.error) { btn.disabled = false; btn.textContent = 'Save'; err.textContent = rn.error; err.style.display = 'block'; return; }
+    _ddDealer = newName;
+  }
   const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_ddDealer)}/details`, 'PUT', body);
   btn.disabled = false; btn.textContent = 'Save';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
@@ -14672,11 +14745,21 @@ function cataloguePdfRowHtml(item) {
     <td style="white-space:nowrap;color:var(--gray-500)">${esc(item.created_at || '—')}</td>
     <td style="white-space:nowrap;display:flex;gap:4px">
       <a class="btn btn-outline btn-sm" href="${esc(downloadUrl)}" target="_blank" title="Download">⬇ Download</a>
+      ${o2dCataloguePdfsCanEdit ? `<button class="btn btn-sm ${+item.send_on_welcome ? 'btn-green' : 'btn-outline'}" onclick="toggleCatalogueWelcome(${item.id}, ${+item.send_on_welcome ? 0 : 1})" title="Naye dealer ke welcome kit me ye PDF jaye">📲 ${+item.send_on_welcome ? 'Naye dealer ko ✓' : 'Naye dealer ko bhejo?'}</button>`
+        : (+item.send_on_welcome ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">📲 Welcome kit</span>' : '')}
       ${deleteBtn}
     </td>
   </tr>`;
 }
 
+async function toggleCatalogueWelcome(id, on) {
+  const r = await api(`/api/o2d-fms/catalogue-pdfs/${id}/welcome`, 'PUT', { on });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const it = o2dCataloguePdfs.find(x => x.id === id);
+  if (it) it.send_on_welcome = on;
+  renderCataloguePdfList();
+  showToast(on ? '📲 Ab ye PDF har naye dealer ko jayegi' : 'Welcome kit se hata di');
+}
 function renderCataloguePdfList() {
   CATALOGUE_PDF_TYPES.forEach(t => {
     const wrap = document.getElementById(t.wrapId);
@@ -16628,7 +16711,41 @@ function renderPurchaseFmsActiveView() {
   if (pfmsView === 'indents') return renderPurchaseIndentsView();
   if (pfmsView === 'fms') return renderPurchaseFmsView();
   if (pfmsView === 'pc') return renderPurchasePCView();
+  if (pfmsView === 'short') return renderPurchaseShortView();
   return renderPurchaseReportsView();
+}
+// Lines where the party sent less than the PO (client, 2026-10-16).
+function pfmsShortRows() {
+  const q = ((document.getElementById('pfmsSearch') || {}).value || '').trim().toLowerCase();
+  const rows = [];
+  (pfmsData || []).forEach(o => (o.products || []).forEach(p => {
+    if (p.receivedQty == null || !(p.receivedQty > 0)) return;
+    const short = p.pendingQty != null ? p.pendingQty : p.qty - p.receivedQty;
+    if (!(short > 0)) return;
+    if (q && !`${o.poNumber} ${o.vendorName} ${p.productName}`.toLowerCase().includes(q)) return;
+    rows.push({ o, p, short, value: short * (Number(p.finalRate) || 0) });
+  }));
+  return rows.sort((a, b) => b.value - a.value || b.short - a.short);
+}
+function renderPurchaseShortView() {
+  const wrap = document.getElementById('pfmsListWrap');
+  const rows = pfmsShortRows();
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">Kisi PO me maal kam nahi aaya 🎉</div>'; return; }
+  const tot = rows.reduce((a, r) => a + r.value, 0), vendors = new Set(rows.map(r => r.o.vendorName)).size;
+  wrap.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--gray-200)">
+      <div style="font-size:13px"><b>${rows.length}</b> item · <b>${vendors}</b> party · kam aaye maal ki value <b style="color:var(--color-danger)">${inr(tot)}</b></div>
+      <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="exportPurchaseShort()">⬇ Excel</button></div>
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>PO No</th><th>Product</th><th style="text-align:right">Order qty</th><th style="text-align:right">Aaya</th><th style="text-align:right">Kam aaya</th><th style="text-align:right">Value</th><th>Received on</th><th>Status</th></tr></thead><tbody>
+    ${rows.map(({ o, p, short, value }) => `<tr><td style="font-weight:600">${esc(o.vendorName || '—')}</td><td style="white-space:nowrap">${esc(o.poNumber)}${entrySubHtml(o.timestamp)}</td><td>${esc(p.productName)}</td>
+      <td style="text-align:right">${p.qty} ${esc(p.uom || '')}</td><td style="text-align:right">${p.receivedQty}</td><td style="text-align:right;font-weight:800;color:var(--color-danger)">${short}</td>
+      <td style="text-align:right">${value ? inr(value) : '—'}</td><td style="white-space:nowrap">${p.receivedAt ? esc(fmtDateDMY(p.receivedAt, true)) : '—'}</td>
+      <td>${p.forceClosed ? '<span class="status-badge">PO band (kam maal hi liya)</span>' : '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Baaki aana hai</span>'}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+function exportPurchaseShort() {
+  csvDownload([['Party', 'PO No', 'PO Date', 'Product', 'UOM', 'Order qty', 'Received', 'Short', 'Rate', 'Short value', 'Received on', 'Status'],
+    ...pfmsShortRows().map(({ o, p, short, value }) => [o.vendorName, o.poNumber, fmtDateDMY(o.timestamp), p.productName, p.uom, p.qty, p.receivedQty, short, p.finalRate, Math.round(value),
+      p.receivedAt ? fmtDateDMY(p.receivedAt, true) : '', p.forceClosed ? 'PO closed short' : 'Balance pending'])], `purchase-short-supply-${stockTodayYmd()}.csv`);
 }
 
 function pfmsPaginate(rows) {
@@ -19678,11 +19795,19 @@ async function openDealerOnboardModal(leadId) {
 
     ${sec('Photos')}
     <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
-      ${photo('gstPhoto', 'GST certificate *')}${photo('out', 'Bahar se (board) *')}${photo('aadhaar', 'Malik ka Aadhaar *')}
+      ${photo('gstPhoto', 'GST certificate *')}${photo('out', 'Bahar se (board) *')}${photo('aadhaar', 'Malik ka Aadhaar (optional)')}
       ${photo('cheque', 'Cheque (bank / A/c no.) *')}
       ${photo('in1', 'Andar 1 *')}${photo('in2', 'Andar 2 *')}${photo('in3', 'Andar 3 *')}${photo('in4', 'Andar 4 *')}
     </div>
     <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:8px 0"><input type="checkbox" id="onb_noGst"/> Dealer ke paas GST nahi hai</label>
+
+    ${sec('Transport (maal kis transport se jayega)')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      ${inp('tname', 'Transport ka naam', false, 'placeholder="e.g. Shree Ganesh Transport"')}
+      ${inp('tphone', 'Transport ka mobile', false, 'inputmode="tel"')}
+      ${inp('tstation', 'Delivery station / godown', false, 'placeholder="e.g. Kota — Nayapura godown"')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">${photo('bilty', 'Bilty / LR photo')}</div>
     ${L('Remark')}<input id="onb_remark" style="${CHQ_INPUT}"/>
     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px"><input type="checkbox" id="onb_welcome" checked/> Dealer ko WhatsApp par welcome kit bhejo (service number, warranty chart, T&amp;C, bank details, QR, catalogue)</label>
     <button class="btn btn-green" id="onbSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerOnboarding()">Submit Dealer</button>`;
@@ -19707,13 +19832,14 @@ async function submitDealerOnboarding() {
   const body = { leadId: v('leadId') ? Number(v('leadId')) : null, shopName: v('shop'), ownerName: v('owner'), mobile: v('mobile'), altMobile: v('alt'), city: v('city'), area: v('area'),
     pincode: v('pincode'), email: v('email'), address: v('address'), firmType: v('firm'), partners: v('partners'), gstNo: v('gst'), panNo: v('pan'), shopOwnership: v('own'),
     yearsInBusiness: v('years'), shopSize: v('size'), stockLevel: v('stock'), brandsDealt: v('brands'), monthlyPotential: v('potential'), suggestedCredit: v('credit'), remark: v('remark'),
-    gstPhoto: ph('gstPhoto'), noGst: document.getElementById('onb_noGst').checked, outsidePhoto: ph('out'), aadhaarPhoto: ph('aadhaar'), chequePhoto: ph('cheque'), insidePhotos: ['in1', 'in2', 'in3', 'in4'].map(ph),
+    gstPhoto: ph('gstPhoto'), noGst: document.getElementById('onb_noGst').checked, outsidePhoto: ph('out'), aadhaarPhoto: ph('aadhaar'), chequePhoto: ph('cheque'), biltyPhoto: ph('bilty'),
+    transportName: v('tname'), transportPhone: v('tphone'), transportStation: v('tstation'), insidePhotos: ['in1', 'in2', 'in3', 'in4'].map(ph),
     locationLat: loc ? loc.dataset.lat : null, locationLng: loc ? loc.dataset.lng : null, sendWelcome: document.getElementById('onb_welcome').checked };
   const missing = [];
   if (!body.shopName) missing.push('dukaan ka naam'); if (!body.ownerName) missing.push('dealer ka naam'); if (!body.mobile) missing.push('mobile');
   if (!body.firmType) missing.push('firm type'); if (!body.shopOwnership) missing.push('apni / kiraye ki'); if (!body.shopSize) missing.push('dukaan ka size'); if (!body.stockLevel) missing.push('maal kitna');
   if (!body.gstPhoto && !body.noGst) missing.push('GST photo'); if (!body.outsidePhoto) missing.push('bahar ki photo');
-  if (!body.aadhaarPhoto) missing.push('Aadhaar photo'); if (!body.chequePhoto) missing.push('cheque photo');
+  if (!body.chequePhoto) missing.push('cheque photo');
   const inCount = body.insidePhotos.filter(Boolean).length; if (inCount < 4) missing.push(`andar ki ${4 - inCount} photo`);
   if (missing.length) { err.textContent = 'Ye bharna baaki hai: ' + missing.join(', '); err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); return; }
   body.insidePhotos = body.insidePhotos.filter(Boolean);
@@ -19733,7 +19859,7 @@ async function openOnboardDetail(id) {
   const o = await api(`/api/dealer-onboarding/${id}`);
   if (!o || o.error) { showToast((o && o.error) || 'Not found', 'error'); return; }
   const f = (label, val) => val ? `<div><div style="${CHQ_LABEL}">${label}</div><div style="font-size:14px;color:var(--gray-800)">${val}</div></div>` : '';
-  const pics = [['GST', o.gstPhoto], ['Aadhaar', o.aadhaarPhoto], ['Cheque', o.chequePhoto], ['Bahar', o.outsidePhoto], ...o.insidePhotos.map((u, i) => [`Andar ${i + 1}`, u])].filter(p => p[1]);
+  const pics = [['GST', o.gstPhoto], ['Aadhaar', o.aadhaarPhoto], ['Cheque', o.chequePhoto], ['Bilty / LR', o.biltyPhoto], ['Bahar', o.outsidePhoto], ...o.insidePhotos.map((u, i) => [`Andar ${i + 1}`, u])].filter(p => p[1]);
   document.getElementById('onbDetailTitle').textContent = `${o.code} · ${o.shopName}`;
   document.getElementById('onbDetailBody').innerHTML = `
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px">
@@ -19742,6 +19868,7 @@ async function openOnboardDetail(id) {
       ${f('Firm', esc([o.firmType, o.partners].filter(Boolean).join(' — ')))}${f('GST / PAN', esc([o.gstNo, o.panNo].filter(Boolean).join(' · ')))}
       ${f('Dukaan', esc([o.shopOwnership, o.shopSize].filter(Boolean).join(' · ')))}${f('Maal', esc(o.stockLevel))}
       ${f('Business since', esc(o.yearsInBusiness ? o.yearsInBusiness + ' saal' : ''))}${f('Brands', esc(o.brandsDealt))}
+      ${f('Transport', esc([o.transportName, o.transportPhone, o.transportStation].filter(Boolean).join(' · ')))}
       ${f('Monthly kharid', o.monthlyPotential != null ? inr(o.monthlyPotential) : '')}${f('Suggested credit', o.suggestedCredit != null ? inr(o.suggestedCredit) : '')}
       ${f('Location', o.locationLat ? `<a href="https://maps.google.com/?q=${o.locationLat},${o.locationLng}" target="_blank">📍 Map</a>` : '')}
       ${f('Remark', esc(o.remark))}

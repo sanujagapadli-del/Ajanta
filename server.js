@@ -539,13 +539,23 @@ async function hasPageGrant(req, key) {
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
   return parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role).includes(key);
 }
+// "Deny" keys (Users → Access): on by default for anyone with the parent page,
+// unticking stores 'deny:<key>'. Lets existing users keep forms / Net Profit
+// without a data migration. Admins are never denied.
+const DENY_KEYS = ['net-profit', 'form-sfms-complaint', 'form-o2d-order', 'form-indent', 'form-cheque', 'form-lead', 'form-replacement'].map(k => 'deny:' + k);
+async function hasPageDeny(req, key) {
+  if (req.session.role === 'admin') return false;
+  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
+  return parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role).includes('deny:' + key);
+}
+const FORM_DENIED = { error: "You don't have access to this form" };
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
 function parsePageAccess(raw, role) {
   if (role === 'admin') return RESTRICTABLE_PAGES.slice();
   if (!raw) return DEFAULT_USER_PAGES.slice();
   try {
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter(p => RESTRICTABLE_PAGES.includes(p)) : DEFAULT_USER_PAGES.slice();
+    return Array.isArray(arr) ? arr.filter(p => RESTRICTABLE_PAGES.includes(p) || DENY_KEYS.includes(p)) : DEFAULT_USER_PAGES.slice();
   } catch(e) { return DEFAULT_USER_PAGES.slice(); }
 }
 function getTable(type) {
@@ -3319,7 +3329,7 @@ app.put('/api/users/:id/access', requireAuth, requireAdmin, async (req, res) => 
     const [rows] = await db.query('SELECT role FROM users WHERE id=?', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });
     if (rows[0].role === 'admin') return res.status(400).json({ error: 'Admins always have full access' });
-    const cleaned = pages.filter(p => RESTRICTABLE_PAGES.includes(p));
+    const cleaned = pages.filter(p => RESTRICTABLE_PAGES.includes(p) || DENY_KEYS.includes(p));
     await db.query('UPDATE users SET page_access=? WHERE id=?', [JSON.stringify(cleaned), req.params.id]);
     res.json({ success: true, page_access: cleaned });
   } catch (err) { sendServerError(res, err); }
@@ -4813,6 +4823,7 @@ app.get('/api/service-fms/daily.xlsx', requireAuth, async (req, res) => {
 
 app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
+    if (await hasPageDeny(req, 'form-sfms-complaint')) return res.status(403).json(FORM_DENIED);
     const {
       filledByName, mobile, customerType, dealerName,
       productLocation, address, area, productOwnership, billPhoto, remarks, products, urgent
@@ -6191,6 +6202,43 @@ function canEditDealers(req) {
   return req.session.role === 'admin';
 }
 
+// Admin fixes a wrongly typed dealer name. Old orders in the sheet keep the old
+// name, so it is kept as an alias that folds into the new one everywhere the
+// Dealer list merges by name; the app's own tables move to the new name.
+async function getDealerAliasMap() {
+  try {
+    const [rows] = await db.query('SELECT alias_key, counter_name FROM o2d_dealer_aliases');
+    return Object.fromEntries(rows.map(r => [r.alias_key, r.counter_name]));
+  } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return {}; throw e; }
+}
+app.put('/api/o2d-fms/dealers/:name/rename', requireAuth, async (req, res) => {
+  try {
+    if (!canEditDealers(req)) return res.status(403).json({ error: 'Dealer ka naam sirf Admin badal sakta hai' });
+    const oldName = String(req.params.name || '').trim();
+    const newName = String((req.body || {}).newName || '').trim().slice(0, 255);
+    if (!oldName || !newName) return res.status(400).json({ error: 'Naya naam likhein' });
+    if (oldName === newName) return res.json({ success: true });
+    await db.query(`CREATE TABLE IF NOT EXISTS o2d_dealer_aliases (alias_key VARCHAR(191) PRIMARY KEY, counter_name VARCHAR(255) NOT NULL,
+      created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    const [[clash]] = await withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers WHERE LOWER(counter_name)=LOWER(?) AND LOWER(counter_name)<>LOWER(?)', [newName, oldName]));
+    if (clash) return res.status(400).json({ error: `"${clash.counter_name}" naam ka dealer pehle se hai` });
+    const [[row]] = await db.query('SELECT counter_name FROM o2d_dealers WHERE LOWER(counter_name)=LOWER(?)', [oldName]);
+    if (row) await db.query('UPDATE o2d_dealers SET counter_name=? WHERE counter_name=?', [newName, row.counter_name]);
+    else await db.query('INSERT INTO o2d_dealers (counter_name) VALUES (?)', [newName]);
+    const move = async (sql, params) => { try { await db.query(sql, params); } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; } };
+    await move('UPDATE o2d_dealer_payments SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
+    await move('UPDATE sales_counters SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
+    await move('UPDATE sales_schedule SET dealer_name=? WHERE LOWER(dealer_name)=LOWER(?)', [newName, oldName]);
+    await move('UPDATE dealer_onboardings SET shop_name=? WHERE LOWER(shop_name)=LOWER(?)', [newName, oldName]);
+    // Old name (and anything that already pointed to it) now means the new one.
+    await db.query('UPDATE o2d_dealer_aliases SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
+    await db.query('DELETE FROM o2d_dealer_aliases WHERE alias_key=?', [newName.toLowerCase()]);
+    await db.query('INSERT INTO o2d_dealer_aliases (alias_key, counter_name, created_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE counter_name=VALUES(counter_name)',
+      [oldName.toLowerCase().slice(0, 191), newName, req.session.userId]);
+    res.json({ success: true, name: newName });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
@@ -6207,9 +6255,11 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     ]);
 
     const byKey = {}; // lowercased counter name -> merged dealer record
+    const aliasOf = await getDealerAliasMap();
     const ensure = (name) => {
-      const key = name.trim().toLowerCase();
+      let key = name.trim().toLowerCase();
       if (!key) return null;
+      if (aliasOf[key]) { name = aliasOf[key]; key = name.trim().toLowerCase(); }
       if (!byKey[key]) byKey[key] = { name: name.trim(), city: '', phone: '', creditLimit: null, outstanding: null,
         locationLat: null, locationLng: null, locationAddress: '', kyc: { aadhar: null, pan: null, gst: null, shop: null },
         lastOrder: null, payments: [] };
@@ -6363,7 +6413,8 @@ app.put('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
 
 app.put('/api/o2d-fms/dealers/:name/details', requireAuth, async (req, res) => {
   try {
-    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
+    // Client, 2026-10-16: only Admin edits a dealer's details.
+    if (!canEditDealers(req)) return res.status(403).json({ error: 'Dealer details sirf Admin badal sakta hai' });
     const name = req.params.name.trim();
     const b = req.body || {};
     const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n) || null;
@@ -7172,8 +7223,27 @@ app.put('/api/stock/transactions/:id/link', requireAuth, async (req, res) => {
 app.get('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to the catalogue' });
+    await ensureCatalogueWelcomeCol();
     const [rows] = await withCataloguePdfsTable(() => db.query('SELECT * FROM o2d_catalogue_pdfs ORDER BY created_at DESC'));
     res.json({ items: rows, canEdit: canEditPriceList(req) });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Which catalogue PDFs go to every newly onboarded dealer (client, 2026-10-16:
+// Ceiling Fans, Insect Killers, Coolers and Master catalogue).
+let _catWelcomeCol = false;
+async function ensureCatalogueWelcomeCol() {
+  if (_catWelcomeCol) return;
+  await withCataloguePdfsTable(() => db.query('SELECT 1 FROM o2d_catalogue_pdfs LIMIT 1'));
+  await addMissingColumns('o2d_catalogue_pdfs', [['send_on_welcome', 'TINYINT NOT NULL DEFAULT 0']]);
+  _catWelcomeCol = true;
+}
+app.put('/api/o2d-fms/catalogue-pdfs/:id/welcome', requireAuth, async (req, res) => {
+  try {
+    if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can change this' });
+    await ensureCatalogueWelcomeCol();
+    await db.query('UPDATE o2d_catalogue_pdfs SET send_on_welcome=? WHERE id=?', [req.body && req.body.on ? 1 : 0, Number(req.params.id)]);
+    res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -7710,6 +7780,7 @@ async function getTallyPaymentPerformanceByDealer() {
 
 app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   try {
+    if (await hasPageDeny(req, 'form-o2d-order')) return res.status(403).json(FORM_DENIED);
     const {
       counterType, counterName, area, orderBy, paymentTerms, channel, remark,
       deliverByTransport, makePerformaInvoice, whenToSend, dateToSend, products
@@ -8557,7 +8628,12 @@ async function getPurchasePOs() {
       amount: group.reduce((sum, l) => sum + l.qty * (Number(l.finalRate) || 0), 0),
       products: group.map(l => ({
         row: l.row, itemId: l.itemId, productName: l.productName, uom: l.uom, qty: l.qty, finalRate: l.finalRate,
-        received: !!(l.steps[1] && l.steps[1].done)
+        received: !!(l.steps[1] && l.steps[1].done),
+        // What actually came vs ordered (client, 2026-10-16: "maal aadha aaya — kitna kam aaya dikhe").
+        receivedQty: l.steps[1] && l.steps[1].receivedQty !== '' ? Number(l.steps[1].receivedQty) || 0 : null,
+        pendingQty: l.steps[1] && l.steps[1].pendingQty !== '' && isFinite(Number(l.steps[1].pendingQty)) ? Number(l.steps[1].pendingQty) : null,
+        forceClosed: !!(l.steps[1] && /^yes$/i.test(String(l.steps[1].forceFullClosed || ''))),
+        receivedAt: (l.steps[1] && l.steps[1].actual) || ''
       }))
     };
     o.steps = PURCHASE_STEPS.map((sd, idx) => {
@@ -8726,6 +8802,7 @@ app.get('/api/purchase-fms/indent-options', requireAuth, async (req, res) => {
 app.post('/api/purchase-fms/indents', requireAuth, async (req, res) => {
   try {
     if (!(await canRaiseIndent(req))) return res.status(403).json({ error: 'No access to Purchase FMS' });
+    if (await hasPageDeny(req, 'form-indent')) return res.status(403).json(FORM_DENIED);
     const b = req.body || {};
     const type = INDENT_TYPES.find(t => t.key === b.type);
     if (!type) return res.status(400).json({ error: 'Choose the Indent Type' });
@@ -9417,6 +9494,7 @@ app.post('/api/cheque-fms', requireAuth, async (req, res) => {
   try {
     const acc = await chequeUserAccess(req);
     if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Cheque FMS' });
+    if (await hasPageDeny(req, 'form-cheque')) return res.status(403).json(FORM_DENIED);
     const { photo, note, salesmanUserId } = req.body || {};
     if (!photo) return res.status(400).json({ error: 'Cheque photo is required' });
     let sid = req.session.userId;
@@ -9995,6 +10073,7 @@ app.post('/api/replacement-fms', requireAuth, async (req, res) => {
   try {
     const acc = await replUserAccess(req);
     if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Replacement FMS' });
+    if (await hasPageDeny(req, 'form-replacement')) return res.status(403).json(FORM_DENIED);
     const b = req.body || {};
     const t = (v, n = 500) => String(v || '').trim().slice(0, n);
     const party = t(b.partyName, 255), items = t(b.items, 2000), defect = t(b.defect, 1000);
@@ -11103,7 +11182,7 @@ async function getLedgerGroups() {
 }
 app.get('/api/reports/net-profit-expenses', requireAuth, async (req, res) => {
   try {
-    if (!(await hasPageGrant(req, 'gross-profit'))) return res.status(403).json({ error: 'You do not have access to Net Profit' });
+    if (!(await hasPageGrant(req, 'gross-profit')) || await hasPageDeny(req, 'net-profit')) return res.status(403).json({ error: 'You do not have access to Net Profit' });
     const { start, end } = req.query;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
       return res.status(400).json({ error: 'Valid start and end dates required' });
@@ -11738,7 +11817,9 @@ async function ensureLeadTables() {
   // Added later (client voice notes, 2026-10-09): requirement as a product
   // category (so leads can be sorted by it); Aadhaar + cheque photo at onboarding.
   await addMissingColumns('leads', [['req_category', 'VARCHAR(100)']]);
-  await addMissingColumns('dealer_onboardings', [['aadhaar_photo', 'VARCHAR(1000)'], ['cheque_photo', 'VARCHAR(1000)']]);
+  await addMissingColumns('dealer_onboardings', [['aadhaar_photo', 'VARCHAR(1000)'], ['cheque_photo', 'VARCHAR(1000)'],
+    // Transport the dealer's goods go by + the bilty / LR photo (client, 2026-10-16).
+    ['transport_name', 'VARCHAR(255)'], ['transport_phone', 'VARCHAR(30)'], ['transport_station', 'VARCHAR(255)'], ['bilty_photo', 'VARCHAR(1000)']]);
 }
 async function addMissingColumns(table, defs) {
   const [cols] = await db.query(`SHOW COLUMNS FROM ${table}`);
@@ -11881,6 +11962,35 @@ async function getLeadCatalogue(makePublic) {
   const fileName = /\.pdf$/i.test(c.filename) ? c.filename : `${c.filename}.pdf`;
   return { fileName, url: `https://drive.google.com/uc?export=download&id=${c.drive_file_id}` };
 }
+// Any catalogue / price list PDF by id, shared "anyone with the link" once so
+// the WhatsApp gateway can fetch it (they go to dealers anyway).
+async function getPublicCatalogueDocs(ids) {
+  if (!ids.length) return [];
+  const [rows] = await withCataloguePdfsTable(() => db.query('SELECT id, filename, drive_file_id FROM o2d_catalogue_pdfs WHERE id IN (?) AND drive_file_id IS NOT NULL', [ids]));
+  const s = await getLeadSettings();
+  const shared = new Set(s.sharedDocIds || []);
+  if (s.catalogueSharedId) shared.add(s.catalogueSharedId);
+  let changed = false, drive = null;
+  for (const r of rows) {
+    if (shared.has(r.drive_file_id)) continue;
+    drive = drive || await getDriveClient();
+    await drive.permissions.create({ fileId: r.drive_file_id, supportsAllDrives: true, requestBody: { role: 'reader', type: 'anyone' } });
+    shared.add(r.drive_file_id); changed = true;
+  }
+  if (changed) { const s2 = await getLeadSettings(); s2.sharedDocIds = [...shared]; await setAppSetting(LEAD_SETTINGS_KEY, JSON.stringify(s2)); }
+  return ids.map(id => rows.find(r => r.id === Number(id))).filter(Boolean).map(r => {
+    const fileName = /\.pdf$/i.test(r.filename) ? r.filename : `${r.filename}.pdf`;
+    return { id: r.id, fileName, url: `https://drive.google.com/uc?export=download&id=${r.drive_file_id}` };
+  });
+}
+// Welcome-kit catalogues: every PDF ticked "send to new dealers"; if none is
+// ticked yet, the latest catalogue (old behaviour).
+async function getWelcomeCatalogues() {
+  await ensureCatalogueWelcomeCol();
+  const [rows] = await db.query("SELECT id FROM o2d_catalogue_pdfs WHERE send_on_welcome=1 AND drive_file_id IS NOT NULL ORDER BY doc_type='catalogue' DESC, id");
+  if (!rows.length) { const c = await getLeadCatalogue(true); return c ? [c] : []; }
+  return getPublicCatalogueDocs(rows.map(r => r.id));
+}
 function leadCatalogueMessages(l, cat) {
   const name = l.contact_name || l.shop_name || '';
   const text = `🙏 नमस्ते ${name} जी,\n\nAjanta Appliances से बात करने के लिए धन्यवाद।${l.lead_type === 'Outgoing' ? ' हमारे प्रतिनिधि आपसे मिलने आए थे।' : ''}\n\nहमारा कैटलॉग साथ में भेज रहे हैं। कोई भी requirement हो तो इसी नंबर पर बताएं।\n\nधन्यवाद\nAjanta Appliances`;
@@ -11942,6 +12052,7 @@ app.post('/api/lead-fms', requireAuth, async (req, res) => {
   try {
     const acc = await leadUserAccess(req);
     if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Lead FMS' });
+    if (await hasPageDeny(req, 'form-lead')) return res.status(403).json(FORM_DENIED);
     const b = req.body || {};
     const leadType = LEAD_TYPES.includes(b.leadType) ? b.leadType : null;
     if (!leadType) return res.status(400).json({ error: 'Lead type (Incoming / Outgoing) is required' });
@@ -12123,20 +12234,21 @@ const ONB_FIRM_TYPES = ['Proprietorship', 'Partnership', 'Pvt Ltd', 'LLP', 'Othe
 async function canOnboardDealers(req) {
   return req.session.role === 'admin' || (await hasPageGrant(req, 'lead-fms')) || (await canAccessDealers(req));
 }
-function dealerWelcomeMessages(o, s, cat) {
+function dealerWelcomeMessages(o, s, cats) {
+  cats = (Array.isArray(cats) ? cats : [cats]).filter(Boolean);
   const lines = [`🙏 नमस्ते ${o.owner_name} जी,`, '', `*Ajanta Appliances* परिवार में ${o.shop_name} का स्वागत है! 🎉`];
   if (s.welcomeMessage) lines.push('', s.welcomeMessage);
   if (s.serviceNumber) lines.push('', `🛠️ Service Centre: ${s.serviceNumber}`);
   if (s.bankDetails) lines.push('', '🏦 Bank Details:', s.bankDetails);
   if (s.termsText) lines.push('', '📋 Terms & Conditions:', s.termsText);
-  const attach = [cat && 'Catalogue', s.warrantyUrl && 'Warranty Chart', s.termsUrl && 'Terms & Conditions', s.qrUrl && 'Payment QR'].filter(Boolean);
+  const attach = [cats.length && (cats.length > 1 ? `${cats.length} Catalogues` : 'Catalogue'), s.warrantyUrl && 'Warranty Chart', s.termsUrl && 'Terms & Conditions', s.qrUrl && 'Payment QR'].filter(Boolean);
   if (attach.length) lines.push('', `📎 ${attach.join(', ')} नीचे भेज रहे हैं — save करके रखें।`);
   lines.push('', 'धन्यवाद', 'Ajanta Appliances');
   const items = [{ text: lines.join('\n') }];
   if (s.warrantyUrl) items.push({ text: 'Warranty Chart', media: leadMediaFor(s.warrantyUrl, s.warrantyName) });
   if (s.termsUrl) items.push({ text: 'Terms & Conditions', media: leadMediaFor(s.termsUrl, s.termsName) });
   if (s.qrUrl) items.push({ text: 'Payment QR — isi QR par payment karein', media: leadMediaFor(s.qrUrl, s.qrName) });
-  if (cat) items.push({ text: '', media: { type: 'document', url: cat.url, mimetype: 'application/pdf', fileName: cat.fileName } });
+  cats.forEach(cat => items.push({ text: '', media: { type: 'document', url: cat.url, mimetype: 'application/pdf', fileName: cat.fileName } }));
   return items;
 }
 const ONB_SELECT = `SELECT o.*, DATE_FORMAT(o.created_at,'%Y-%m-%d %H:%i') AS created_fmt, u.name AS created_by_name FROM dealer_onboardings o LEFT JOIN users u ON u.id=o.created_by`;
@@ -12150,6 +12262,7 @@ function onboardingOut(o) {
     monthlyPotential: o.monthly_potential == null ? null : Number(o.monthly_potential), suggestedCredit: o.suggested_credit == null ? null : Number(o.suggested_credit),
     remark: o.remark || '', gstPhoto: o.gst_photo || '', insidePhotos: inside, outsidePhoto: o.outside_photo || '',
     aadhaarPhoto: o.aadhaar_photo || '', chequePhoto: o.cheque_photo || '',
+    transportName: o.transport_name || '', transportPhone: o.transport_phone || '', transportStation: o.transport_station || '', biltyPhoto: o.bilty_photo || '',
     locationLat: o.location_lat == null ? null : Number(o.location_lat), locationLng: o.location_lng == null ? null : Number(o.location_lng),
     salesmanName: o.salesman_name || '', createdAt: o.created_fmt, createdByName: o.created_by_name || '', welcomeSentAt: o.welcome_sent_at, welcomeNote: o.welcome_note || '' };
 }
@@ -12177,7 +12290,6 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
     if (!b.gstPhoto && !b.noGst) return res.status(400).json({ error: 'GST photo is required (or tick "GST nahi hai")' });
     if (inside.length < 4) return res.status(400).json({ error: 'Dukaan ke andar ki 4 photo chahiye' });
     if (!b.outsidePhoto) return res.status(400).json({ error: 'Dukaan ke bahar ki 1 photo chahiye' });
-    if (!b.aadhaarPhoto) return res.status(400).json({ error: 'Owner ke Aadhaar ki photo chahiye' });
     if (!b.chequePhoto) return res.status(400).json({ error: 'Dukaandar ke cheque ki photo chahiye (bank / account no. ke liye)' });
     if (inside.length > 6) return res.status(400).json({ error: 'Maximum 6 inside photos' });
     const num = v => (v === '' || v == null || !(Number(v) >= 0)) ? null : Number(v);
@@ -12193,20 +12305,22 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
     });
     // KYC + shop photos stay private (app login to view).
     const up = (img, kind) => img ? uploadPhotoToDrive(img, `${code}-${kind}-${Date.now()}.jpg`) : Promise.resolve(null);
-    const [gstUrl, outsideUrl, aadhaarUrl, chequeUrl, ...insideUrls] = await Promise.all([up(b.gstPhoto, 'gst'), up(b.outsidePhoto, 'outside'),
-      up(b.aadhaarPhoto, 'aadhaar'), up(b.chequePhoto, 'cheque'), ...inside.map((p, i) => up(p, `inside${i + 1}`))]);
+    const [gstUrl, outsideUrl, aadhaarUrl, chequeUrl, biltyUrl, ...insideUrls] = await Promise.all([up(b.gstPhoto, 'gst'), up(b.outsidePhoto, 'outside'),
+      up(b.aadhaarPhoto, 'aadhaar'), up(b.chequePhoto, 'cheque'), up(b.biltyPhoto, 'bilty'), ...inside.map((p, i) => up(p, `inside${i + 1}`))]);
     const lat = Number(b.locationLat), lng = Number(b.locationLng);
     const hasLoc = isFinite(lat) && isFinite(lng) && (lat || lng);
     const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
     const [r] = await db.query(`INSERT INTO dealer_onboardings (code, lead_id, shop_name, owner_name, mobile, alt_mobile, email, address, city, area, pincode, gst_no, pan_no,
         firm_type, partners, shop_ownership, years_in_business, shop_size, stock_level, brands_dealt, monthly_potential, suggested_credit, remark,
-        gst_photo, inside_photos, outside_photo, aadhaar_photo, cheque_photo, location_lat, location_lng, salesman_user_id, salesman_name, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        gst_photo, inside_photos, outside_photo, aadhaar_photo, cheque_photo, location_lat, location_lng, salesman_user_id, salesman_name, created_by,
+        transport_name, transport_phone, transport_station, bilty_photo)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [code, lead ? lead.id : null, shop, owner, mobile, leadStr(b.altMobile, 30), leadStr(b.email, 255), leadStr(b.address, 1000), leadStr(b.city, 255), leadStr(b.area, 255),
         leadStr(b.pincode, 10), leadStr(b.gstNo, 30) && leadStr(b.gstNo, 30).toUpperCase(), leadStr(b.panNo, 20) && leadStr(b.panNo, 20).toUpperCase(),
         ONB_FIRM_TYPES.includes(b.firmType) ? b.firmType : null, leadStr(b.partners, 1000), ['Own', 'Rented'].includes(b.shopOwnership) ? b.shopOwnership : null,
         leadStr(b.yearsInBusiness, 20), leadStr(b.shopSize, 30), leadStr(b.stockLevel, 30), leadStr(b.brandsDealt, 500), num(b.monthlyPotential), num(b.suggestedCredit),
-        leadStr(b.remark, 1000), gstUrl, JSON.stringify(insideUrls), outsideUrl, aadhaarUrl, chequeUrl, hasLoc ? lat : null, hasLoc ? lng : null, req.session.userId, me ? me.name : null, req.session.userId]);
+        leadStr(b.remark, 1000), gstUrl, JSON.stringify(insideUrls), outsideUrl, aadhaarUrl, chequeUrl, hasLoc ? lat : null, hasLoc ? lng : null, req.session.userId, me ? me.name : null, req.session.userId,
+        leadStr(b.transportName, 255), leadStr(b.transportPhone, 30), leadStr(b.transportStation, 255), biltyUrl]);
 
     // Dealer profile used by O2D (Dealers tab, New Order): fill what's known, keep the rest.
     await withDealerTables(() => db.query(
@@ -12229,11 +12343,11 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
     if (b.sendWelcome !== false) {
       const s = await getLeadSettings();
       const [[o]] = await db.query('SELECT * FROM dealer_onboardings WHERE id=?', [r.insertId]);
-      const cat = await getLeadCatalogue(true).catch(e => { console.warn('catalogue share failed:', e.message); return null; });
-      sendWhatsAppSequence(mobile, dealerWelcomeMessages(o, s, cat), `dealer-welcome ${code}`);
+      const cats = await getWelcomeCatalogues().catch(e => { console.warn('catalogue share failed:', e.message); return []; });
+      sendWhatsAppSequence(mobile, dealerWelcomeMessages(o, s, cats), `dealer-welcome ${code}`);
       welcome = 'sent';
       await db.query('UPDATE dealer_onboardings SET welcome_sent_at=NOW(), welcome_note=? WHERE id=?',
-        [[s.serviceNumber && 'service no', cat && 'catalogue', s.warrantyUrl && 'warranty', (s.termsUrl || s.termsText) && 'terms', s.bankDetails && 'bank', s.qrUrl && 'QR'].filter(Boolean).join(', ') || 'welcome text only', r.insertId]);
+        [[s.serviceNumber && 'service no', cats.length && `${cats.length} catalogue`, s.warrantyUrl && 'warranty', (s.termsUrl || s.termsText) && 'terms', s.bankDetails && 'bank', s.qrUrl && 'QR'].filter(Boolean).join(', ') || 'welcome text only', r.insertId]);
     }
     res.json({ success: true, id: r.insertId, code, welcome });
   } catch (err) {
@@ -12257,8 +12371,8 @@ app.post('/api/dealer-onboarding/:id/welcome', requireAuth, async (req, res) => 
     const [[o]] = await withLeadTables(() => db.query('SELECT * FROM dealer_onboardings WHERE id=?', [req.params.id]));
     if (!o) return res.status(404).json({ error: 'Not found' });
     const s = await getLeadSettings();
-    const cat = await getLeadCatalogue(true).catch(() => null);
-    sendWhatsAppSequence(o.mobile, dealerWelcomeMessages(o, s, cat), `dealer-welcome ${o.code}`);
+    const cats = await getWelcomeCatalogues().catch(() => []);
+    sendWhatsAppSequence(o.mobile, dealerWelcomeMessages(o, s, cats), `dealer-welcome ${o.code}`);
     await db.query('UPDATE dealer_onboardings SET welcome_sent_at=NOW() WHERE id=?', [o.id]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
