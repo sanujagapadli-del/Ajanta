@@ -395,6 +395,51 @@ tbody tr:last-child td{border-bottom:none;}
    PROFILE
 ═══════════════════════════════ */
 .profile-card{background:var(--surface);border-radius:var(--radius-xl);border:1px solid var(--color-primary-light);padding:30px;max-width:520px;box-shadow:0 2px 18px rgba(1,80,170,.08);}
+.pf-wrap{max-width:900px;}
+.pf-hero{background:var(--surface);border:1px solid var(--gray-200);border-radius:var(--radius-xl);overflow:hidden;box-shadow:0 4px 24px rgba(1,80,170,.08);margin-bottom:16px;}
+.pf-cover{height:110px;background:linear-gradient(120deg,var(--color-primary) 0%,#3b82f6 55%,#06b6d4 100%);position:relative;}
+.pf-cover::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 85% 20%,rgba(255,255,255,.25),transparent 45%),radial-gradient(circle at 10% 90%,rgba(255,255,255,.15),transparent 40%);}
+.pf-hero-body{display:flex;gap:20px;align-items:flex-start;padding:0 24px 20px;margin-top:-56px;position:relative;flex-wrap:wrap;}
+.pf-avatar-wrap{position:relative;flex-shrink:0;}
+.pf-avatar{width:120px;height:120px;border-radius:50%;background:var(--color-primary);display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:800;color:#fff;overflow:hidden;border:5px solid var(--surface);box-shadow:0 8px 24px rgba(1,80,170,.3);cursor:zoom-in;transition:transform .2s;}
+.pf-avatar:hover{transform:scale(1.03);}
+.pf-cam{position:absolute;bottom:6px;right:4px;width:36px;height:36px;border-radius:50%;border:3px solid var(--surface);background:var(--color-primary);color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.2);}
+.pf-id{flex:1;min-width:220px;padding-top:66px;}
+.pf-name{font-size:22px;font-weight:900;color:var(--gray-900);line-height:1.2;}
+.pf-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+.pf-chip{font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:20px;background:var(--gray-100);color:var(--gray-700);}
+.pf-chip-role{background:var(--color-primary-light);color:var(--color-primary);}
+.pf-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;}
+.pf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;}
+.pf-card{background:var(--surface);border:1px solid var(--gray-200);border-radius:var(--radius-xl);padding:20px 22px;box-shadow:0 2px 12px rgba(1,80,170,.05);}
+.pf-card-title{font-size:14px;font-weight:800;color:var(--gray-800);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+.pf-ic{width:30px;height:30px;border-radius:9px;background:var(--color-primary-light);display:inline-flex;align-items:center;justify-content:center;font-size:15px;}
+.pf-pw{position:relative;}
+.pf-pw input{padding-right:42px !important;}
+.pf-pw button{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:15px;opacity:.6;padding:4px 6px;}
+.pf-pw button:hover{opacity:1;}
+.pf-save{display:flex;justify-content:flex-end;margin-top:16px;}
+.pf-save .btn{min-width:200px;justify-content:center;padding:12px 20px;}
+@media (max-width:600px){
+  .pf-hero-body{flex-direction:column;align-items:center;text-align:center;padding:0 16px 18px;}
+  .pf-id{padding-top:0;min-width:0;}
+  .pf-chips,.pf-actions{justify-content:center;}
+  .pf-save .btn{width:100%;}
+}
+/* Photo viewer (zoom / pan) + photo editor (zoom / position before saving) */
+.pz-overlay{position:fixed;inset:0;z-index:3000;background:rgba(10,12,20,.92);display:none;flex-direction:column;}
+.pz-overlay.open{display:flex;}
+.pz-stage{flex:1;overflow:hidden;position:relative;touch-action:none;cursor:grab;display:flex;align-items:center;justify-content:center;}
+.pz-stage.dragging{cursor:grabbing;}
+.pz-stage img{max-width:90vw;max-height:78vh;user-select:none;-webkit-user-drag:none;transform-origin:center center;will-change:transform;border-radius:8px;}
+.pz-bar{display:flex;gap:8px;justify-content:center;align-items:center;padding:12px 16px calc(12px + env(safe-area-inset-bottom));flex-wrap:wrap;}
+.pz-btn{min-width:44px;height:44px;border-radius:22px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);color:#fff;font-size:18px;font-weight:700;cursor:pointer;padding:0 14px;}
+.pz-btn:hover{background:rgba(255,255,255,.2);}
+.pz-btn.pz-primary{background:var(--color-primary);border-color:var(--color-primary);font-size:14px;}
+.pz-pct{color:#fff;font-size:13px;min-width:52px;text-align:center;font-weight:700;}
+.pz-top{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;color:#fff;font-weight:800;font-size:15px;}
+.pz-crop{width:min(300px,80vw);height:min(300px,80vw);border-radius:50%;box-shadow:0 0 0 9999px rgba(10,12,20,.7);border:2px solid #fff;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;}
+.pz-range{width:min(260px,60vw);accent-color:var(--color-primary);}
 .profile-avatar-big{width:68px;height:68px;border-radius:50%;background:var(--color-primary);display:grid;place-items:center;font-size:24px;font-weight:800;color:#fff;margin-bottom:20px;box-shadow:var(--shadow-glow);}
 .section-title{font-size:11px;font-weight:800;margin-bottom:14px;padding-top:10px;border-top:1px solid var(--color-primary-light);margin-top:8px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.7px;}
 
@@ -1508,39 +1553,54 @@ tbody tr:last-child td{border-bottom:none;}
 
   <!-- ── PROFILE ── -->
   <div id="page-profile" class="page">
-    <div class="profile-card">
-
-      <!-- Profile Image Section -->
-      <div style="display:flex;align-items:center;gap:20px;margin-bottom:22px;">
-        <div style="position:relative;cursor:pointer" onclick="document.getElementById('profileImgInput').click()">
-          <div id="profileAvatar" style="width:80px;height:80px;border-radius:50%;background:var(--color-primary);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0;border:3px solid var(--color-primary-light);box-shadow:0 4px 16px rgba(1,80,170,.28);">?</div>
-          <div style="position:absolute;bottom:0;right:0;width:24px;height:24px;background:var(--color-primary);border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;">
-            <span style="color:#fff;font-size:12px">✏️</span>
+    <div class="pf-wrap">
+      <div class="pf-hero">
+        <div class="pf-cover"></div>
+        <div class="pf-hero-body">
+          <div class="pf-avatar-wrap">
+            <div id="profileAvatar" class="pf-avatar" onclick="openAvatarViewer()" title="Photo dekhein / zoom">?</div>
+            <button class="pf-cam" onclick="document.getElementById('profileImgInput').click()" title="Photo badlein" aria-label="Change photo">📷</button>
           </div>
-        </div>
-        <div>
-          <div style="font-size:14px;font-weight:600;color:var(--gray-800)" id="profileNameDisplay">—</div>
-          <div style="font-size:12px;color:var(--gray-500);margin-top:2px" id="profileRoleDisplay">—</div>
-          <button class="btn btn-outline" style="margin-top:8px;font-size:12px;padding:5px 12px" onclick="document.getElementById('profileImgInput').click()">📷 Change Photo</button>
-          <button class="btn btn-outline" style="margin-top:8px;margin-left:6px;font-size:12px;padding:5px 12px;color:var(--color-danger);border-color:var(--color-danger-border)" onclick="removeProfileImage()">✕ Remove</button>
+          <div class="pf-id">
+            <div class="pf-name" id="profileNameDisplay">—</div>
+            <div class="pf-chips">
+              <span class="pf-chip pf-chip-role" id="profileRoleDisplay">—</span>
+              <span class="pf-chip" id="profileDeptDisplay" style="display:none"></span>
+              <span class="pf-chip" id="profileWeekOffDisplay" style="display:none"></span>
+            </div>
+            <div class="pf-actions">
+              <button class="btn btn-outline btn-sm" onclick="openAvatarViewer()">🔍 Photo dekhein</button>
+              <button class="btn btn-outline btn-sm" onclick="document.getElementById('profileImgInput').click()">📷 Change Photo</button>
+              <button class="btn btn-outline btn-sm" style="color:var(--color-danger);border-color:var(--color-danger-border)" onclick="removeProfileImage()">✕ Remove</button>
+            </div>
+          </div>
         </div>
       </div>
       <input type="file" id="profileImgInput" accept="image/*" style="display:none" onchange="handleProfileImage(event)"/>
 
       <div class="alert success" id="profileSuccess"></div>
       <div class="alert error" id="profileError"></div>
-      <div class="form-group"><label>Full Name</label><input type="text" id="pName"/></div>
-      <div class="form-group"><label>Email Address</label><input type="email" id="pEmail"/></div>
-      <div class="form-group">
-        <label>Notification Email <span style="color:var(--gray-500);font-weight:400;font-size:12px">(real Gmail/Outlook for task notifications)</span></label>
-        <input type="email" id="pNotifEmail" placeholder="yourrealemail@gmail.com"/>
+
+      <div class="pf-grid">
+        <div class="pf-card">
+          <div class="pf-card-title"><span class="pf-ic">👤</span> Personal details</div>
+          <div class="form-group"><label>Full Name</label><input type="text" id="pName"/></div>
+          <div class="form-group"><label>Email Address</label><input type="email" id="pEmail"/></div>
+          <div class="form-group"><label>Phone Number</label><input type="tel" id="pPhone" placeholder="Enter phone number"/></div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Notification Email <span style="color:var(--gray-500);font-weight:500;text-transform:none;letter-spacing:0">(task alerts ke liye asli Gmail / Outlook)</span></label>
+            <input type="email" id="pNotifEmail" placeholder="yourrealemail@gmail.com"/>
+          </div>
+        </div>
+        <div class="pf-card">
+          <div class="pf-card-title"><span class="pf-ic">🔒</span> Change Password</div>
+          <div class="form-group"><label>Current Password</label><div class="pf-pw"><input type="password" id="pCurrent" placeholder="Enter current password"/><button type="button" onclick="pfTogglePw('pCurrent',this)" aria-label="Show password">👁</button></div></div>
+          <div class="form-group"><label>New Password</label><div class="pf-pw"><input type="password" id="pNew" placeholder="Enter new password"/><button type="button" onclick="pfTogglePw('pNew',this)" aria-label="Show password">👁</button></div></div>
+          <div class="form-group" style="margin-bottom:0"><label>Confirm Password</label><div class="pf-pw"><input type="password" id="pConfirm" placeholder="Confirm new password"/><button type="button" onclick="pfTogglePw('pConfirm',this)" aria-label="Show password">👁</button></div></div>
+          <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Password nahi badalna ho to ye khaali chhod dein.</div>
+        </div>
       </div>
-      <div class="form-group"><label>Phone Number</label><input type="tel" id="pPhone" placeholder="Enter phone number"/></div>
-      <div class="section-title">Change Password</div>
-      <div class="form-group"><label>Current Password</label><input type="password" id="pCurrent" placeholder="Enter current password"/></div>
-      <div class="form-group"><label>New Password</label><input type="password" id="pNew" placeholder="Enter new password"/></div>
-      <div class="form-group"><label>Confirm Password</label><input type="password" id="pConfirm" placeholder="Confirm new password"/></div>
-      <button class="btn btn-primary" onclick="saveProfile()">Save Changes</button>
+      <div class="pf-save"><button class="btn btn-primary" onclick="saveProfile()">💾 Save Changes</button></div>
     </div>
   </div>
 
@@ -4141,6 +4201,10 @@ async function init() {
     document.getElementById('pPhone').value = ME.phone || '';
     document.getElementById('profileNameDisplay').textContent = ME.name;
     document.getElementById('profileRoleDisplay').textContent = roleLabel;
+    const pfChip = (id, text) => { const el = document.getElementById(id); el.textContent = text; el.style.display = text ? '' : 'none'; };
+    pfChip('profileDeptDisplay', ME.department ? '🏢 ' + ME.department : '');
+    const pfOff = String(ME.week_off ?? '').split(',').map(x => parseInt(x, 10)).filter(n => n >= 0 && n <= 6).map(n => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][n]);
+    pfChip('profileWeekOffDisplay', pfOff.length ? '📅 Week off: ' + pfOff.join(', ') : '');
 
     setAvatarDisplay(ME.profile_image, initials);
 
@@ -4255,24 +4319,119 @@ function setAvatarDisplay(imageData, initials) {
   }
 }
 
-// Handle image file selection
+// Handle image file selection — opens the zoom / position editor.
 function handleProfileImage(event) {
   const file = event.target.files[0];
+  event.target.value = '';
   if (!file) return;
-  if (file.size > 2 * 1024 * 1024) { showToast('Image size must be under 2MB','error'); return; }
-
+  if (!/^image\//.test(file.type)) { showToast('Photo (image) chunein', 'error'); return; }
+  if (file.size > 15 * 1024 * 1024) { showToast('Photo 15MB se chhoti chunein', 'error'); return; }
   const reader = new FileReader();
-  reader.onload = async (e) => {
-    const imageData = e.target.result; // base64
-    // Save to DB immediately
-    const r = await api('/api/profile/image','POST',{image: imageData});
-    if (r.error) { showToast(r.error,'error'); return; }
-    ME.profile_image = imageData;
-    const initials = ME.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
-    setAvatarDisplay(imageData, initials);
-    showToast('Profile photo updated!');
-  };
+  reader.onload = e => openAvatarEditor(e.target.result);
   reader.readAsDataURL(file);
+}
+
+// ── Profile photo: zoom viewer + zoom/position editor (client, 2026-10-16) ──
+function pfTogglePw(id, btn) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+  btn.textContent = el.type === 'password' ? '👁' : '🙈';
+}
+// Pan + zoom on an <img>: wheel, +/- buttons, drag, two-finger pinch.
+function pzAttach(stage, img, opts) {
+  const st = { s: 1, x: 0, y: 0, min: opts.min || 1, max: opts.max || 6 };
+  const pointers = new Map();
+  let pinch = null, drag = null;
+  const apply = () => { img.style.transform = `translate(${st.x}px,${st.y}px) scale(${st.s})`; if (opts.onChange) opts.onChange(st); };
+  const zoomTo = (s, cx = 0, cy = 0) => {
+    const ns = Math.min(st.max, Math.max(st.min, s));
+    // keep the point under the cursor in place
+    st.x = cx - (cx - st.x) * ns / st.s; st.y = cy - (cy - st.y) * ns / st.s; st.s = ns;
+    if (st.s === 1 && !opts.keepPan) { st.x = 0; st.y = 0; }
+    apply();
+  };
+  const rel = e => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
+  stage.onwheel = e => { e.preventDefault(); const [cx, cy] = rel(e); zoomTo(st.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15), cx, cy); };
+  stage.onpointerdown = e => {
+    stage.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: st.s }; drag = null; }
+    else { drag = { x: e.clientX - st.x, y: e.clientY - st.y }; stage.classList.add('dragging'); }
+  };
+  stage.onpointermove = e => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pinch && pointers.size === 2) { const [a, b] = [...pointers.values()]; zoomTo(pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d); }
+    else if (drag) { st.x = e.clientX - drag.x; st.y = e.clientY - drag.y; apply(); }
+  };
+  stage.onpointerup = stage.onpointercancel = e => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (!pointers.size) { drag = null; stage.classList.remove('dragging'); }
+  };
+  stage.ondblclick = e => { const [cx, cy] = rel(e); zoomTo(st.s > 1.01 ? 1 : 2.5, cx, cy); };
+  apply();
+  return { st, zoomTo, reset: () => { st.s = 1; st.x = 0; st.y = 0; apply(); } };
+}
+function pzOverlay(id) {
+  let o = document.getElementById(id);
+  if (!o) { o = document.createElement('div'); o.id = id; o.className = 'pz-overlay'; document.body.appendChild(o); }
+  return o;
+}
+let _pzView = null;
+function openAvatarViewer() {
+  if (!ME.profile_image) { document.getElementById('profileImgInput').click(); return; }
+  const o = pzOverlay('pzViewer');
+  o.innerHTML = `<div class="pz-top"><span>${esc(ME.name)}</span><button class="pz-btn" onclick="closePz('pzViewer')" aria-label="Close">✕</button></div>
+    <div class="pz-stage" id="pzViewStage"><img id="pzViewImg" src="${ME.profile_image}" alt="Profile photo"/></div>
+    <div class="pz-bar"><button class="pz-btn" onclick="_pzView.zoomTo(_pzView.st.s/1.3)" aria-label="Zoom out">−</button><span class="pz-pct" id="pzViewPct">100%</span>
+      <button class="pz-btn" onclick="_pzView.zoomTo(_pzView.st.s*1.3)" aria-label="Zoom in">+</button><button class="pz-btn" onclick="_pzView.reset()">⟲ Reset</button>
+      <button class="pz-btn" onclick="closePz('pzViewer');document.getElementById('profileImgInput').click()">📷 Change</button></div>`;
+  o.classList.add('open');
+  _pzView = pzAttach(document.getElementById('pzViewStage'), document.getElementById('pzViewImg'), { min: 1, max: 8, onChange: s => { const p = document.getElementById('pzViewPct'); if (p) p.textContent = Math.round(s.s * 100) + '%'; } });
+}
+function closePz(id) { const o = document.getElementById(id); if (o) { o.classList.remove('open'); o.innerHTML = ''; } }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePz('pzViewer'); closePz('pzEditor'); } });
+
+// Editor: the picked photo is zoomed / moved inside a round frame, then the
+// frame is cut out as a 480×480 JPEG (small enough for the users table).
+let _pzEdit = null;
+function openAvatarEditor(dataUrl) {
+  const o = pzOverlay('pzEditor');
+  o.innerHTML = `<div class="pz-top"><span>📷 Photo set karein — zoom karke gol frame me laayein</span><button class="pz-btn" onclick="closePz('pzEditor')" aria-label="Close">✕</button></div>
+    <div class="pz-stage" id="pzEditStage"><img id="pzEditImg" src="${dataUrl}" alt=""/><div class="pz-crop" id="pzCrop"></div></div>
+    <div class="pz-bar"><button class="pz-btn" onclick="_pzEdit.zoomTo(_pzEdit.st.s/1.2)" aria-label="Zoom out">−</button>
+      <input type="range" class="pz-range" id="pzEditRange" min="1" max="5" step="0.01" value="1" oninput="_pzEdit.zoomTo(Number(this.value))"/>
+      <button class="pz-btn" onclick="_pzEdit.zoomTo(_pzEdit.st.s*1.2)" aria-label="Zoom in">+</button><button class="pz-btn" onclick="_pzEdit.reset()">⟲</button>
+      <button class="pz-btn pz-primary" id="pzEditSave" onclick="saveAvatarFromEditor()">✓ Save Photo</button></div>`;
+  o.classList.add('open');
+  const img = document.getElementById('pzEditImg');
+  const start = () => {
+    // fit so the shorter side fills the round frame
+    const frame = document.getElementById('pzCrop').getBoundingClientRect().width;
+    const k = frame / Math.min(img.naturalWidth, img.naturalHeight);
+    img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
+    img.style.width = img.naturalWidth * k + 'px'; img.style.height = img.naturalHeight * k + 'px';
+    _pzEdit = pzAttach(document.getElementById('pzEditStage'), img, { min: 1, max: 5, keepPan: true, onChange: s => { const r = document.getElementById('pzEditRange'); if (r) r.value = s.s; } });
+  };
+  if (img.complete && img.naturalWidth) start(); else img.onload = start;
+}
+async function saveAvatarFromEditor() {
+  const img = document.getElementById('pzEditImg'), crop = document.getElementById('pzCrop');
+  const ir = img.getBoundingClientRect(), cr = crop.getBoundingClientRect();
+  const scale = img.naturalWidth / ir.width;           // screen px → image px
+  const OUT = 480, c = document.createElement('canvas');
+  c.width = c.height = OUT;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, OUT, OUT);
+  g.drawImage(img, (cr.left - ir.left) * scale, (cr.top - ir.top) * scale, cr.width * scale, cr.height * scale, 0, 0, OUT, OUT);
+  const imageData = c.toDataURL('image/jpeg', 0.85);
+  const btn = document.getElementById('pzEditSave'); btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api('/api/profile/image', 'POST', { image: imageData });
+  if (r.error) { btn.disabled = false; btn.textContent = '✓ Save Photo'; showToast(r.error, 'error'); return; }
+  ME.profile_image = imageData;
+  setAvatarDisplay(imageData, ME.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase());
+  closePz('pzEditor');
+  showToast('Profile photo updated!');
 }
 
 // Remove profile image
