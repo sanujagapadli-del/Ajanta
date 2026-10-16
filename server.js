@@ -533,7 +533,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -2182,7 +2182,11 @@ app.get('/api/cron/attendance-alert', async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const slot = req.query.slot === 'evening' ? 'evening' : 'morning';
-    res.json(await runAttendanceAbsentAlert(slot));
+    // Same daily cron also starts the day's Dealer WhatsApp drip messages and
+    // nudges any queue that stopped (e.g. the gateway was offline).
+    let drips = 0;
+    try { if (slot === 'morning') drips = await waEnqueueDueDrips(); waKick(); } catch (e) { console.error('WA drip:', e.message); }
+    res.json({ ...(await runAttendanceAbsentAlert(slot)), drips });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2204,6 +2208,7 @@ if (!process.env.VERCEL) {
       for (const [slot, hour] of Object.entries(ATTENDANCE_ALERT_SLOTS)) {
         if (h >= hour && h < hour + 2) await runAttendanceAbsentAlert(slot);
       }
+      if (h >= ATTENDANCE_ALERT_SLOTS.morning) await waEnqueueDueDrips();
     } catch (e) { console.error('  ❌ Attendance alert tick:', e.message); }
   }, 60 * 1000).unref();
 }
@@ -13568,6 +13573,376 @@ app.delete('/api/scot/order/:id', requireAuth, requireAdmin, async (req, res) =>
     await scotTables();
     await db.query('DELETE FROM scot_orders WHERE id = ?', [Number(req.params.id)]);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// MARKET HOLIDAYS (client, 2026-10-16) — city-wise record of which market /
+// shop is closed on which day. Salesmen add; only Admin edits or deletes.
+// ══════════════════════════════════════════════════════
+let _mhOk = false;
+async function mhTable() {
+  if (_mhOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS market_holidays (
+    id INT AUTO_INCREMENT PRIMARY KEY, city VARCHAR(120) NOT NULL, kind VARCHAR(10) NOT NULL DEFAULT 'Market', place_name VARCHAR(255) NOT NULL,
+    weekdays VARCHAR(20), from_date DATE, to_date DATE, remark VARCHAR(500),
+    created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_by INT, updated_at DATETIME, KEY (city)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _mhOk = true;
+}
+function mhClean(b) {
+  const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const ymd = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : null;
+  const days = (Array.isArray(b.weekdays) ? b.weekdays : String(b.weekdays || '').split(','))
+    .map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= 7);
+  const r = { city: str(b.city, 120), kind: b.kind === 'Shop' ? 'Shop' : 'Market', place: str(b.placeName, 255), weekdays: [...new Set(days)].sort().join(','),
+    from: ymd(b.fromDate), to: ymd(b.toDate) || ymd(b.fromDate), remark: str(b.remark, 500) };
+  if (!r.city) return { error: 'City likhein' };
+  if (!r.place) return { error: r.kind === 'Shop' ? 'Dukaan ka naam likhein' : 'Market ka naam likhein' };
+  if (!r.weekdays && !r.from) return { error: 'Kis din band hai — hafte ka din chunein ya tareekh daalein' };
+  if (r.from && r.to < r.from) return { error: 'To date From se pehle nahi ho sakti' };
+  return r;
+}
+app.get('/api/market-holidays', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'market-holidays'))) return res.status(403).json({ error: 'No access to Market Holidays' });
+    await mhTable();
+    const [rows] = await db.query(`SELECT h.*, DATE_FORMAT(h.from_date,'%Y-%m-%d') AS from_date, DATE_FORMAT(h.to_date,'%Y-%m-%d') AS to_date,
+      DATE_FORMAT(h.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, u.name AS by_name FROM market_holidays h LEFT JOIN users u ON u.id=h.created_by ORDER BY h.city, h.place_name`);
+    res.json({ items: rows.map(h => ({ id: h.id, city: h.city, kind: h.kind, placeName: h.place_name, weekdays: h.weekdays ? h.weekdays.split(',').map(Number) : [],
+      fromDate: h.from_date, toDate: h.to_date, remark: h.remark || '', createdAt: h.created_at, by: h.by_name || '' })), isAdmin: req.session.role === 'admin' });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/market-holidays', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'market-holidays'))) return res.status(403).json({ error: 'No access to Market Holidays' });
+    await mhTable();
+    const r = mhClean(req.body || {});
+    if (r.error) return res.status(400).json(r);
+    await db.query('INSERT INTO market_holidays (city, kind, place_name, weekdays, from_date, to_date, remark, created_by) VALUES (?,?,?,?,?,?,?,?)',
+      [r.city, r.kind, r.place, r.weekdays || null, r.from, r.to, r.remark || null, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/market-holidays/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await mhTable();
+    const r = mhClean(req.body || {});
+    if (r.error) return res.status(400).json(r);
+    await db.query('UPDATE market_holidays SET city=?, kind=?, place_name=?, weekdays=?, from_date=?, to_date=?, remark=?, updated_by=?, updated_at=NOW() WHERE id=?',
+      [r.city, r.kind, r.place, r.weekdays || null, r.from, r.to, r.remark || null, req.session.userId, Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/market-holidays/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await mhTable();
+    await db.query('DELETE FROM market_holidays WHERE id=?', [Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// DEALER WHATSAPP — broadcasts + weekly drip plan (client, 2026-10-16:
+// "price change par naya catalogue sab dealers ko", "har hafte kaunsa
+// catalogue / photo / scheme jayega — admin tay kare"). Messages go out from
+// a queue, one dealer every few seconds; a run sends for ~45 s then starts
+// the next run itself, so hundreds of dealers go out without a page open.
+// ══════════════════════════════════════════════════════
+const WA_GAP_MS = 3000, WA_BUDGET_MS = 45000;
+const WA_AUDIENCES = { all: 'Sab dealers + leads', customers: 'Customers (1 saal me order kiya)', non_customers: 'Non-customers (order nahi kiya + leads)', selected: 'Chune hue dealers' };
+let _waOk = false;
+async function waTables() {
+  if (_waOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS wa_campaigns (
+    id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255) NOT NULL, message TEXT, doc_ids VARCHAR(500), image_url VARCHAR(1000),
+    audience VARCHAR(20), city VARCHAR(120), source VARCHAR(10) NOT NULL DEFAULT 'manual', drip_id INT,
+    total INT NOT NULL DEFAULT 0, sent INT NOT NULL DEFAULT 0, failed INT NOT NULL DEFAULT 0, status VARCHAR(12) NOT NULL DEFAULT 'queued', note VARCHAR(500),
+    created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, started_at DATETIME, finished_at DATETIME
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS wa_campaign_recipients (
+    id INT AUTO_INCREMENT PRIMARY KEY, campaign_id INT NOT NULL, name VARCHAR(255), phone VARCHAR(30) NOT NULL,
+    status VARCHAR(10) NOT NULL DEFAULT 'pending', error VARCHAR(300), sent_at DATETIME, KEY (status, campaign_id), KEY (campaign_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS wa_drip_plan (
+    id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255) NOT NULL, weekday TINYINT NOT NULL, weeks VARCHAR(20), audience VARCHAR(20) NOT NULL DEFAULT 'customers',
+    city VARCHAR(120), message TEXT, doc_ids VARCHAR(500), image_url VARCHAR(1000), active TINYINT NOT NULL DEFAULT 1, last_run DATE,
+    updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query('CREATE TABLE IF NOT EXISTS wa_lock (id INT PRIMARY KEY, until_at DATETIME) ENGINE=InnoDB');
+  await db.query('INSERT IGNORE INTO wa_lock (id, until_at) VALUES (1, NULL)');
+  _waOk = true;
+}
+async function waAccess(req, res) {
+  if (await hasPageGrant(req, 'dealer-whatsapp')) return true;
+  res.status(403).json({ error: 'No access to Dealer WhatsApp' });
+  return false;
+}
+const waYmd = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+// Who gets it. Customers = dealers with an O2D order in the last 365 days.
+async function waAudience(audience, city, names) {
+  const [dealers] = await withDealerTables(() => db.query("SELECT counter_name, owner_name, phone, city FROM o2d_dealers WHERE phone IS NOT NULL AND phone<>''"));
+  let list = dealers.map(d => ({ name: d.counter_name, greet: d.owner_name || d.counter_name, phone: d.phone, city: d.city || '', kind: 'dealer' }));
+  if (audience === 'selected') {
+    const want = new Set((names || []).map(n => String(n).trim().toLowerCase()));
+    list = list.filter(d => want.has(d.name.toLowerCase()));
+  } else {
+    if (audience === 'customers' || audience === 'non_customers') {
+      const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+      const orders = await getO2dOrders();
+      const bought = new Set(orders.filter(o => o.counterName && String(o.timestamp || '') >= cutoff).map(o => o.counterName.trim().toLowerCase()));
+      const alias = await getDealerAliasMap();
+      Object.entries(alias).forEach(([k, v]) => { if (bought.has(k)) bought.add(v.toLowerCase()); });
+      list = list.filter(d => bought.has(d.name.toLowerCase()) === (audience === 'customers'));
+    }
+    if (audience === 'all' || audience === 'non_customers') {
+      try {
+        const [leads] = await db.query("SELECT shop_name, contact_name, mobile, city FROM leads WHERE result IS NULL AND cancelled_at IS NULL AND mobile IS NOT NULL AND mobile<>''");
+        leads.forEach(l => list.push({ name: l.shop_name || l.contact_name, greet: l.contact_name || l.shop_name, phone: l.mobile, city: l.city || '', kind: 'lead' }));
+      } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE' && e.code !== 'ER_BAD_FIELD_ERROR') throw e; }
+    }
+  }
+  if (city) { const c = city.trim().toLowerCase(); list = list.filter(d => d.city.toLowerCase().includes(c) || d.name.toLowerCase().includes(c)); }
+  const seen = new Set();
+  return list.filter(d => { const p = sfmsNormalizeMobile(d.phone); if (!p || seen.has(p)) return false; seen.add(p); d.phone = p; return true; });
+}
+async function waUploadImage(dataUri, label) {
+  if (!dataUri || !/^data:image\//.test(dataUri)) return null;
+  const m = /^data:([^;]+);base64,(.+)$/.exec(dataUri);
+  const link = await uploadBufferToDrive(Buffer.from(m[2], 'base64'), `wa-${label}-${Date.now()}.jpg`, m[1], { public: true });
+  const id = (link.match(/[?&]id=([\w-]+)/) || [])[1];
+  return id ? `https://drive.google.com/uc?export=download&id=${id}` : link;
+}
+const waDocIds = v => String(v || '').split(',').map(n => parseInt(n, 10)).filter(n => n > 0).slice(0, 6);
+// One dealer's messages: the text (as the photo's caption when there is one), then each PDF.
+async function waItems(c, greet, docCache) {
+  const text = String(c.message || '').replace(/\{name\}/gi, greet || '').trim();
+  const items = [];
+  if (c.image_url) items.push({ text, media: { type: 'image', url: c.image_url } });
+  else if (text) items.push({ text });
+  const ids = waDocIds(c.doc_ids);
+  if (ids.length) {
+    const key = ids.join(',');
+    if (!docCache[key]) docCache[key] = await getPublicCatalogueDocs(ids);
+    docCache[key].forEach(d => items.push({ text: '', media: { type: 'document', url: d.url, mimetype: 'application/pdf', fileName: d.fileName } }));
+  }
+  return items;
+}
+async function waCreateCampaign({ title, message, docIds, imageUrl, audience, city, names, source, dripId, by }) {
+  await waTables();
+  const people = await waAudience(audience, city, names);
+  const [r] = await db.query(`INSERT INTO wa_campaigns (title, message, doc_ids, image_url, audience, city, source, drip_id, total, status, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [String(title || 'Message').slice(0, 255), message || '', waDocIds(docIds).join(',') || null, imageUrl || null,
+      audience, city || null, source || 'manual', dripId || null, people.length, people.length ? 'queued' : 'done', by || null]);
+  if (people.length) await db.query('INSERT INTO wa_campaign_recipients (campaign_id, name, phone) VALUES ?', [people.map(p => [r.insertId, String(p.greet || p.name || '').slice(0, 255), p.phone])]);
+  return { id: r.insertId, total: people.length };
+}
+async function waRefreshCampaign(id) {
+  await db.query(`UPDATE wa_campaigns c SET
+      sent = (SELECT COUNT(*) FROM wa_campaign_recipients WHERE campaign_id=c.id AND status='sent'),
+      failed = (SELECT COUNT(*) FROM wa_campaign_recipients WHERE campaign_id=c.id AND status='failed')
+    WHERE c.id=?`, [id]);
+  await db.query(`UPDATE wa_campaigns SET status='done', finished_at=NOW() WHERE id=? AND status IN ('queued','sending')
+    AND NOT EXISTS (SELECT 1 FROM wa_campaign_recipients WHERE campaign_id=? AND status IN ('pending','sending'))`, [id, id]);
+}
+async function waDrain() {
+  await waTables();
+  const [claim] = await db.query('UPDATE wa_lock SET until_at=DATE_ADD(NOW(), INTERVAL 58 SECOND) WHERE id=1 AND (until_at IS NULL OR until_at < NOW())');
+  if (!claim.affectedRows) return { busy: true };
+  const start = Date.now(), docCache = {};
+  let sent = 0, failed = 0, stopped = '';
+  try {
+    // Only one run at a time (the lock) — a row left "sending" is from a run that died.
+    await db.query("UPDATE wa_campaign_recipients SET status='pending' WHERE status='sending'");
+    while (Date.now() - start < WA_BUDGET_MS) {
+      const [[r]] = await db.query(`SELECT r.id, r.campaign_id, r.name, r.phone, c.message, c.doc_ids, c.image_url FROM wa_campaign_recipients r
+        JOIN wa_campaigns c ON c.id=r.campaign_id WHERE r.status='pending' AND c.status IN ('queued','sending') ORDER BY r.campaign_id, r.id LIMIT 1`);
+      if (!r) break;
+      await db.query("UPDATE wa_campaigns SET status='sending', started_at=COALESCE(started_at, NOW()) WHERE id=? AND status='queued'", [r.campaign_id]);
+      await db.query("UPDATE wa_campaign_recipients SET status='sending' WHERE id=?", [r.id]);
+      try {
+        for (const it of await waItems(r, r.name, docCache)) await sendWhatsApp(r.phone, it.text || '', it.media || null);
+        await db.query("UPDATE wa_campaign_recipients SET status='sent', sent_at=NOW(), error=NULL WHERE id=?", [r.id]);
+        sent++;
+      } catch (e) {
+        if (/disconnected|not connected|did not respond|unreachable/i.test(e.message)) {
+          // Gateway down — keep the dealer pending and stop; the next run retries.
+          await db.query("UPDATE wa_campaign_recipients SET status='pending' WHERE id=?", [r.id]);
+          await db.query('UPDATE wa_campaigns SET note=? WHERE id=?', [e.message.slice(0, 500), r.campaign_id]);
+          stopped = e.message;
+          break;
+        }
+        await db.query("UPDATE wa_campaign_recipients SET status='failed', error=? WHERE id=?", [e.message.slice(0, 300), r.id]);
+        failed++;
+      }
+      await waRefreshCampaign(r.campaign_id);
+      await new Promise(ok => setTimeout(ok, WA_GAP_MS));
+    }
+  } finally {
+    await db.query('UPDATE wa_lock SET until_at=NULL WHERE id=1');
+  }
+  const [[left]] = await db.query("SELECT COUNT(*) AS n FROM wa_campaign_recipients r JOIN wa_campaigns c ON c.id=r.campaign_id WHERE r.status='pending' AND c.status IN ('queued','sending')");
+  return { sent, failed, left: Number(left.n) || 0, stopped };
+}
+const waDrainSecret = () => crypto.createHash('sha256').update(`${JWT_SECRET}:wa-drain`).digest('hex');
+// Start (or continue) sending. On Vercel this calls the drain route as a new
+// request, so each run gets its own time limit.
+function waKick() {
+  if (!process.env.VERCEL || !process.env.APP_URL) {
+    setTimeout(async () => {
+      try { const r = await waDrain(); if (r.left && !r.stopped && !r.busy) waKick(); }
+      catch (e) { console.error('WA drain:', e.message); }
+    }, 200);
+    return;
+  }
+  const p = fetch(`${process.env.APP_URL}/api/wa/drain`, { method: 'POST', headers: { 'x-wa-drain': waDrainSecret() }, signal: AbortSignal.timeout(4000) }).catch(() => {});
+  vercelWaitUntil(p);
+}
+app.post('/api/wa/drain', async (req, res) => {
+  if (req.headers['x-wa-drain'] !== waDrainSecret()) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const r = await waDrain();
+    if (r.left && !r.stopped && !r.busy) waKick();
+    res.json(r);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Drip: every active plan row whose weekday (and week of the month, if set)
+// is today becomes a campaign once. Called from the daily morning cron.
+async function waEnqueueDueDrips() {
+  await waTables();
+  const today = waYmd();
+  const d = new Date(today + 'T00:00:00Z');
+  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay(), wom = Math.ceil(d.getUTCDate() / 7);
+  const [plans] = await db.query("SELECT * FROM wa_drip_plan WHERE active=1 AND weekday=? AND (last_run IS NULL OR last_run<>?)", [dow, today]);
+  let made = 0;
+  for (const p of plans) {
+    const weeks = String(p.weeks || '').split(',').map(n => parseInt(n, 10)).filter(Boolean);
+    if (weeks.length && !weeks.includes(wom)) continue;
+    const [claim] = await db.query('UPDATE wa_drip_plan SET last_run=? WHERE id=? AND (last_run IS NULL OR last_run<>?)', [today, p.id, today]);
+    if (!claim.affectedRows) continue;
+    await waCreateCampaign({ title: `🔁 ${p.title}`, message: p.message, docIds: p.doc_ids, imageUrl: p.image_url, audience: p.audience, city: p.city, source: 'drip', dripId: p.id });
+    made++;
+  }
+  if (made) waKick();
+  return made;
+}
+
+app.get('/api/wa/meta', requireAuth, async (req, res) => {
+  try {
+    if (!(await waAccess(req, res))) return;
+    await waTables();
+    const [docs] = await withCataloguePdfsTable(() => db.query("SELECT id, doc_type, filename, DATE_FORMAT(created_at,'%Y-%m-%d') AS d FROM o2d_catalogue_pdfs WHERE drive_file_id IS NOT NULL ORDER BY created_at DESC"));
+    const [cities] = await withDealerTables(() => db.query("SELECT DISTINCT city FROM o2d_dealers WHERE city IS NOT NULL AND city<>'' AND phone IS NOT NULL AND phone<>'' ORDER BY city"));
+    const [dealers] = await withDealerTables(() => db.query("SELECT counter_name FROM o2d_dealers WHERE phone IS NOT NULL AND phone<>'' ORDER BY counter_name"));
+    res.json({ docs, cities: cities.map(c => c.city), dealers: dealers.map(d => d.counter_name), audiences: WA_AUDIENCES, isAdmin: req.session.role === 'admin' });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/wa/preview', requireAuth, async (req, res) => {
+  try {
+    if (!(await waAccess(req, res))) return;
+    const b = req.body || {};
+    const people = await waAudience(WA_AUDIENCES[b.audience] ? b.audience : 'all', b.city, b.names);
+    res.json({ count: people.length, sample: people.slice(0, 8).map(p => p.name) });
+  } catch (err) { sendServerError(res, err); }
+});
+// Try it on one number first (usually your own) before sending to everyone.
+app.post('/api/wa/test', requireAuth, async (req, res) => {
+  try {
+    if (!(await waAccess(req, res))) return;
+    const b = req.body || {};
+    const phone = sfmsNormalizeMobile(b.phone);
+    if (!phone) return res.status(400).json({ error: 'Test ke liye sahi mobile number daalein' });
+    const imageUrl = b.imageUrl || await waUploadImage(b.image, 'test');
+    const items = await waItems({ message: b.message, doc_ids: waDocIds(b.docIds).join(','), image_url: imageUrl }, b.greet || 'Test', {});
+    if (!items.length) return res.status(400).json({ error: 'Message, photo ya PDF — kuch to daalein' });
+    for (const it of items) await sendWhatsApp(phone, it.text || '', it.media || null);
+    res.json({ success: true, imageUrl });
+  } catch (err) { if (err.isWhatsApp) return sendWhatsAppError(res, err); sendServerError(res, err); }
+});
+app.post('/api/wa/campaign', requireAuth, async (req, res) => {
+  try {
+    if (!(await waAccess(req, res))) return;
+    const b = req.body || {};
+    const audience = WA_AUDIENCES[b.audience] ? b.audience : 'all';
+    if (!String(b.message || '').trim() && !b.image && !b.imageUrl && !waDocIds(b.docIds).length) return res.status(400).json({ error: 'Message, photo ya PDF — kuch to daalein' });
+    if (audience === 'selected' && !(Array.isArray(b.names) && b.names.length)) return res.status(400).json({ error: 'Dealers chunein' });
+    const imageUrl = b.imageUrl || await waUploadImage(b.image, 'bc');
+    const r = await waCreateCampaign({ title: b.title, message: b.message, docIds: b.docIds, imageUrl, audience, city: b.city, names: b.names, source: 'manual', by: req.session.userId });
+    if (r.total) waKick();
+    res.json({ success: true, ...r });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/wa/campaigns', requireAuth, async (req, res) => {
+  try {
+    if (!(await waAccess(req, res))) return;
+    await waTables();
+    const [rows] = await db.query(`SELECT c.*, DATE_FORMAT(c.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, DATE_FORMAT(c.finished_at,'%Y-%m-%d %H:%i:%s') AS finished_at,
+      u.name AS by_name FROM wa_campaigns c LEFT JOIN users u ON u.id=c.created_by ORDER BY c.id DESC LIMIT 100`);
+    res.json({ items: rows.map(c => ({ id: c.id, title: c.title, message: c.message || '', docIds: waDocIds(c.doc_ids), imageUrl: c.image_url || '', audience: c.audience, city: c.city || '',
+      source: c.source, total: c.total, sent: c.sent, failed: c.failed, status: c.status, note: c.note || '', createdAt: c.created_at, finishedAt: c.finished_at, by: c.by_name || (c.source === 'drip' ? 'Drip plan' : '') })) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/wa/campaign/:id/failed', requireAuth, async (req, res) => {
+  try {
+    if (!(await waAccess(req, res))) return;
+    const [rows] = await db.query("SELECT name, phone, error FROM wa_campaign_recipients WHERE campaign_id=? AND status='failed' ORDER BY id", [Number(req.params.id)]);
+    res.json({ items: rows });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/wa/campaign/:id/:action', requireAuth, async (req, res) => {
+  try {
+    if (!(await waAccess(req, res))) return;
+    await waTables();
+    const id = Number(req.params.id);
+    if (req.params.action === 'cancel') {
+      await db.query("UPDATE wa_campaigns SET status='cancelled', finished_at=NOW() WHERE id=? AND status IN ('queued','sending')", [id]);
+    } else if (req.params.action === 'resume') {
+      await db.query("UPDATE wa_campaign_recipients SET status='pending', error=NULL WHERE campaign_id=? AND status='failed'", [id]);
+      await db.query("UPDATE wa_campaigns SET status='queued', note=NULL, finished_at=NULL WHERE id=? AND status<>'cancelled'", [id]);
+      await waRefreshCampaign(id);
+      waKick();
+    } else return res.status(404).json({ error: 'Unknown action' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/wa/drips', requireAuth, async (req, res) => {
+  try {
+    if (!(await waAccess(req, res))) return;
+    await waTables();
+    const [rows] = await db.query("SELECT *, DATE_FORMAT(last_run,'%Y-%m-%d') AS last_run FROM wa_drip_plan ORDER BY weekday, id");
+    res.json({ items: rows.map(p => ({ id: p.id, title: p.title, weekday: p.weekday, weeks: p.weeks ? p.weeks.split(',').map(Number) : [], audience: p.audience, city: p.city || '',
+      message: p.message || '', docIds: waDocIds(p.doc_ids), imageUrl: p.image_url || '', active: !!p.active, lastRun: p.last_run })) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/wa/drips', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await waTables();
+    const b = req.body || {};
+    const title = String(b.title || '').trim().slice(0, 255), weekday = parseInt(b.weekday, 10);
+    if (!title) return res.status(400).json({ error: 'Naam likhein (e.g. Week 1 — Ceiling fan scheme)' });
+    if (!(weekday >= 1 && weekday <= 7)) return res.status(400).json({ error: 'Hafte ka din chunein' });
+    const audience = ['all', 'customers', 'non_customers'].includes(b.audience) ? b.audience : 'customers';
+    const weeks = (Array.isArray(b.weeks) ? b.weeks : []).map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= 5);
+    if (!String(b.message || '').trim() && !b.image && !b.imageUrl && !waDocIds(b.docIds).length) return res.status(400).json({ error: 'Message, photo ya PDF — kuch to daalein' });
+    const imageUrl = b.image ? await waUploadImage(b.image, 'drip') : (b.imageUrl || null);
+    const vals = [title, weekday, weeks.join(',') || null, audience, String(b.city || '').trim().slice(0, 120) || null, String(b.message || ''), waDocIds(b.docIds).join(',') || null, imageUrl, b.active === false ? 0 : 1, req.session.userId];
+    if (b.id) await db.query('UPDATE wa_drip_plan SET title=?, weekday=?, weeks=?, audience=?, city=?, message=?, doc_ids=?, image_url=?, active=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, Number(b.id)]);
+    else await db.query('INSERT INTO wa_drip_plan (title, weekday, weeks, audience, city, message, doc_ids, image_url, active, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?)', vals);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/wa/drips/:id', requireAuth, requireAdmin, async (req, res) => {
+  try { await waTables(); await db.query('DELETE FROM wa_drip_plan WHERE id=?', [Number(req.params.id)]); res.json({ success: true }); }
+  catch (err) { sendServerError(res, err); }
+});
+app.post('/api/wa/drips/:id/run-now', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await waTables();
+    const [[p]] = await db.query('SELECT * FROM wa_drip_plan WHERE id=?', [Number(req.params.id)]);
+    if (!p) return res.status(404).json({ error: 'Not found' });
+    const r = await waCreateCampaign({ title: `🔁 ${p.title}`, message: p.message, docIds: p.doc_ids, imageUrl: p.image_url, audience: p.audience, city: p.city, source: 'drip', dripId: p.id, by: req.session.userId });
+    if (r.total) waKick();
+    res.json({ success: true, ...r });
   } catch (err) { sendServerError(res, err); }
 });
 

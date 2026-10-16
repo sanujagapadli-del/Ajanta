@@ -570,6 +570,15 @@ tbody tr:last-child td{border-bottom:none;}
 .access-table thead tr.access-group-row th{padding:6px 12px 2px;border-bottom:none;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--gray-400);}
 .access-table thead tr.access-page-row th{font-size:10.5px;font-weight:700;letter-spacing:.2px;text-transform:uppercase;color:var(--gray-500);border-bottom:1.5px solid var(--gray-200);}
 .access-table td.access-user-cell,.access-table th.access-user-th{text-align:left;position:sticky;left:0;background:var(--surface);z-index:1;}
+/* Own scroll box (both ways) so the header rows + user column stay frozen */
+.access-scroll{overflow:auto;max-height:calc(100dvh - 230px);min-height:260px;}
+.access-table{border-collapse:separate;border-spacing:0;}
+.access-table thead th{position:sticky;top:0;background:var(--surface);z-index:2;}
+.access-table thead th.access-user-th{z-index:3;}
+.access-table thead tr.access-page-row th{white-space:normal;min-width:92px;max-width:130px;vertical-align:bottom;line-height:1.25;}
+.access-table thead tr.access-page-row th.access-user-th{min-width:220px;max-width:none;}
+.access-table .access-group-start{border-left:1.5px solid var(--gray-200);}
+.access-table tbody tr:hover td{background:var(--gray-50);}
 .access-table td.access-user-cell{font-weight:600;color:var(--gray-900);}
 .access-table td.access-user-cell .access-email{display:block;font-weight:400;font-size:11.5px;color:var(--gray-500);}
 .access-check{width:16px;height:16px;accent-color:var(--color-primary);cursor:pointer;}
@@ -1111,6 +1120,10 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg>
         <span class="nav-label-text">Dealer Master</span>
       </div>
+      <div class="nav-item" id="nav-dealer-whatsapp" style="display:none" onclick="navigate('dealer-whatsapp',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.4-4 8-9 8a9.8 9.8 0 01-4-.8L3 20l1.4-3.7A7.6 7.6 0 013 12c0-4.4 4-8 9-8s9 3.6 9 8z"/></svg>
+        <span class="nav-label-text">Dealer WhatsApp</span>
+      </div>
       <div class="nav-item" id="nav-sales-schedule" style="display:none" onclick="navigate('sales-schedule',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
         <span class="nav-label-text">Sales Schedule</span>
@@ -1122,6 +1135,10 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="nav-item" id="nav-samples" style="display:none" onclick="navigate('samples',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
         <span class="nav-label-text">Samples</span>
+      </div>
+      <div class="nav-item" id="nav-market-holidays" style="display:none" onclick="navigate('market-holidays',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        <span class="nav-label-text">Market Holidays</span>
       </div>
       <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
@@ -1538,7 +1555,7 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
       </div>
       <div class="users-grid">
-        <div style="overflow-x:auto">
+        <div class="access-scroll">
         <table class="access-table" id="accessTable">
           <thead>
             <tr class="access-group-row"><th class="access-user-th"></th></tr>
@@ -1874,7 +1891,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── O2D FMS (Order to Dispatch) ── -->
   <div id="page-o2d-fms" class="page">
     <div class="page-header" id="o2dPageHeader">
-      <button class="btn btn-primary" onclick="openNewO2dOrderModal()">+ New Order</button>
+      <button class="btn btn-primary" data-form="form-o2d-order" onclick="openNewO2dOrderModal()">+ New Order</button>
       <button class="btn btn-outline" onclick="loadO2dFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" onclick="exportO2dPending()">⬇ Pending Excel</button>
       <button class="btn btn-outline" id="o2dStepDoersBtn" style="display:none" onclick="openStepDoersModal()">⚙ Step Doers</button>
@@ -1911,7 +1928,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="page-header">
       <!-- Indents are raised in the app itself (client, 2026-10-06) — replaces
            the separate Apps Script form; rows go to the same "Indent Data" tab. -->
-      <button class="btn btn-primary" onclick="openNewIndentForm()">+ New Indent</button>
+      <button class="btn btn-primary" data-form="form-indent" onclick="openNewIndentForm()">+ New Indent</button>
       <button class="btn btn-outline" onclick="loadPurchaseFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="purchaseVendorLoginsBtn" style="display:none" onclick="openVendorLoginsModal()">👤 Vendor Logins</button>
       <button class="btn btn-outline" id="purchaseStepDoersBtn" style="display:none" onclick="openPurchaseStepDoersModal()">⚙ Step Doers</button>
@@ -1939,7 +1956,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── CHEQUE FMS ── -->
   <div id="page-cheque-fms" class="page">
     <div class="page-header">
-      <button class="btn btn-primary" onclick="openNewChequeModal()">📷 + New Cheque</button>
+      <button class="btn btn-primary" data-form="form-cheque" onclick="openNewChequeModal()">📷 + New Cheque</button>
       <button class="btn btn-outline" onclick="loadChequeFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="chqStepDoersBtn" style="display:none" onclick="openChequeStepDoersModal()">⚙ Step Doers</button>
       <button class="btn btn-outline" id="chqImportBtn" style="display:none" onclick="importOldCheques()">📥 Import old sheet</button>
@@ -1974,7 +1991,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── LEAD FMS + DEALER ONBOARDING ── -->
   <div id="page-lead-fms" class="page">
     <div class="page-header">
-      <button class="btn btn-primary" onclick="openNewLeadModal()">+ New Lead</button>
+      <button class="btn btn-primary" data-form="form-lead" onclick="openNewLeadModal()">+ New Lead</button>
       <button class="btn btn-outline" onclick="loadLeadFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="leadStepDoersBtn" style="display:none" onclick="openLeadStepDoersModal()">⚙ Step Doers</button>
       <button class="btn btn-outline" id="leadSettingsBtn" style="display:none" onclick="openLeadSettingsModal()">💬 WhatsApp Kit</button>
@@ -2012,7 +2029,7 @@ tbody tr:last-child td{border-bottom:none;}
   <!-- ── CUSTOMER REPLACEMENT FMS ── -->
   <div id="page-replacement-fms" class="page">
     <div class="page-header">
-      <button class="btn btn-primary" onclick="openNewReplModal()">+ Replacement Form</button>
+      <button class="btn btn-primary" data-form="form-replacement" onclick="openNewReplModal()">+ Replacement Form</button>
       <button class="btn btn-outline" onclick="loadReplFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="rplStepDoersBtn" style="display:none" onclick="openReplStepDoersModal()">⚙ Step Doers</button>
       <button class="btn btn-outline" id="rplImportBtn" style="display:none" onclick="importOldRepl()">📥 Import old sheet</button>
@@ -2108,6 +2125,28 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="smpTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
     <div id="smpWrap"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div id="page-market-holidays" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📅 Market / Shop Holidays</div>
+        <select id="mhCity" onchange="renderMh()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="">All cities</option></select><input id="mhSearch" placeholder="🔍 Market / shop…" oninput="renderMh()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/><button class="btn btn-primary" onclick="openMhForm(0)">＋ Add Holiday</button>
+      </div>
+      
+    </div>
+    <div id="mhWrap"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div id="page-dealer-whatsapp" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">💬 Dealer WhatsApp</div>
+        
+      </div>
+      <div id="waTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
+    </div>
+    <div id="waWrap"><div class="empty">Loading…</div></div>
   </div>
 
   <div id="page-meca" class="page">
@@ -4219,12 +4258,14 @@ async function init() {
 
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
     if (canSee('gross-profit')) document.getElementById('nav-gross-profit').style.display = 'flex';
-    if (canSee('gross-profit') && !gpSalesOnly()) document.getElementById('nav-net-profit').style.display = 'flex';
+    if (canSee('gross-profit') && !gpSalesOnly() && canForm('net-profit')) document.getElementById('nav-net-profit').style.display = 'flex';
     if (canSee('petty-cash')) document.getElementById('nav-petty-cash').style.display = 'flex';
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
     if (canSee('samples')) document.getElementById('nav-samples').style.display = 'flex';
+    if (canSee('market-holidays')) document.getElementById('nav-market-holidays').style.display = 'flex';
+    if (canSee('dealer-whatsapp')) document.getElementById('nav-dealer-whatsapp').style.display = 'flex';
     if (canSee('meca')) document.getElementById('nav-meca').style.display = 'flex';
     if (canSee('scot')) document.getElementById('nav-scot').style.display = 'flex';
     if (canSee('sales-schedule')) document.getElementById('nav-sales-schedule').style.display = 'flex';
@@ -4232,7 +4273,8 @@ async function init() {
     if (canSee('employees')) document.getElementById('nav-employees').style.display = 'flex';
     if (canSee('service-fms')) document.getElementById('nav-service-fms').style.display = 'flex';
     if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
-    if (canSee('o2d-fms') || canSee('o2d-new-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
+    if ((canSee('o2d-fms') || canSee('o2d-new-order')) && canForm('form-o2d-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
+    document.querySelectorAll('[data-form]').forEach(b => { if (!canForm(b.dataset.form)) b.style.display = 'none'; }); // Users → Access → Forms
     if (canSee('purchase-fms')) document.getElementById('nav-purchase-fms').style.display = 'flex';
     if (canSee('cheque-fms')) document.getElementById('nav-cheque-fms').style.display = 'flex';
     if (canSee('replacement-fms')) document.getElementById('nav-replacement-fms').style.display = 'flex';
@@ -4264,7 +4306,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4459,7 +4501,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples',meca:'MECA',scot:'SCOT'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp',meca:'MECA',scot:'SCOT'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4480,7 +4522,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly())))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly() || !canForm('net-profit'))))) { showToast("You don't have access to this page", 'error'); return; }
   // Net Profit has its own sidebar item (client, 2026-10-12) but is the Gross Profit page's 💰 view.
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page === 'net-profit' ? 'gross-profit' : page;
   closeMobileSidebar();
@@ -4516,6 +4558,8 @@ function navigate(page, el) {
   if (page==='ows') loadOws();
   if (page==='vendor-ledger') loadVrl();
   if (page==='samples') loadSmp();
+  if (page==='market-holidays') loadMh();
+  if (page==='dealer-whatsapp') loadWa();
   if (page==='meca') loadMeca();
   if (page==='scot') loadScot();
   if (page==='sales-schedule') loadSalesSchedule();
@@ -4566,7 +4610,7 @@ function setupBottomNav() {
   if (bnO2d && canSee('o2d-fms')) bnO2d.style.display = '';
   if (bnUsers && canSee('users')) bnUsers.style.display = '';
   if (bnCatalogue && canSee('price-catalogue')) bnCatalogue.style.display = '';
-  if (bnNewOrder && (canSee('o2d-fms') || canSee('o2d-new-order'))) bnNewOrder.style.display = '';
+  if (bnNewOrder && (canSee('o2d-fms') || canSee('o2d-new-order')) && canForm('form-o2d-order')) bnNewOrder.style.display = '';
   if (bnPurchase && canSee('purchase-fms')) bnPurchase.style.display = '';
   const bnCheque = document.getElementById('bnCheque');
   if (bnCheque && canSee('cheque-fms')) bnCheque.style.display = '';
@@ -4579,7 +4623,7 @@ function setupBottomNav() {
   const bnGp = document.getElementById('bnGp');
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
   const bnNp = document.getElementById('bnNp');
-  if (bnNp && canSee('gross-profit') && !gpSalesOnly()) bnNp.style.display = '';
+  if (bnNp && canSee('gross-profit') && !gpSalesOnly() && canForm('net-profit')) bnNp.style.display = '';
   const bnPetty = document.getElementById('bnPetty');
   if (bnPetty && canSee('petty-cash')) bnPetty.style.display = '';
   const bnSs = document.getElementById('bnSalesSchedule');
@@ -6320,9 +6364,11 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'lead-fms', label: 'Lead FMS + Dealer Onboarding' },
     { key: 'scot', label: 'SCOT — Calling Plan (dealers ko call, order, conversion)' },
     { key: 'dealers', label: 'Dealer Master' },
+    { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue, weekly drip)' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'meca', label: 'MECA — salesman market report (visit / order / NBD)' },
     { key: 'samples', label: 'Samples (salesman ko diye sample)' },
+    { key: 'market-holidays', label: 'Market Holidays (city-wise market / shop band — add; edit sirf Admin)' },
     { key: 'price-catalogue', label: 'Price List & Catalogue' },
   ]},
   { label: 'Operations FMS', locked: false, pages: [
@@ -10315,7 +10361,7 @@ function renderSfmsTabs() {
   document.getElementById('sfmsTabGroup').innerHTML = tab('all', 'All Complaints') +
     visible.map(d => tab('step' + d.n, `${d.n}. ${esc(d.tab)}`)).join('') +
     extra.map(([v, l]) => tab(v, l)).join('');
-  document.getElementById('sfmsNewComplaintBtn').style.display = sfmsCanEdit() ? '' : 'none';
+  document.getElementById('sfmsNewComplaintBtn').style.display = sfmsCanEdit() && canForm('form-sfms-complaint') ? '' : 'none';
   sfmsMarkCompletedBtn();
 }
 // Completed complaints live in their own list (client, 2026-10-07) — the
@@ -11503,6 +11549,7 @@ function renderSfmsOverviewReport() {
 }
 
 function openNewComplaintModal() {
+  if (formBlocked('form-sfms-complaint')) return;
   document.getElementById('scComplaintDate').textContent = fmtDateDMY(new Date().toISOString().slice(0, 10));
   document.getElementById('scFilledByName').value = '';
   document.getElementById('scMobile').value = '';
@@ -15192,6 +15239,7 @@ function onNoOrderByChange() {
 }
 
 function openNewO2dOrderModal() {
+  if (formBlocked('form-o2d-order')) return;
   document.getElementById('newO2dOrderErr').style.display = 'none';
   document.getElementById('noCounterName').value = '';
   ['noArea','noOrderBy','noPaymentTerms','noWhenToSend','noDateToSend','noRemark'].forEach(id => document.getElementById(id).value = '');
@@ -16594,6 +16642,7 @@ let _indentOpts = null;
 let _indentType = '';
 const IND_INPUT = "width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:13px;box-sizing:border-box;background:var(--surface);color:var(--gray-900);font-family:'Inter',sans-serif";
 async function openNewIndentForm() {
+  if (formBlocked('form-indent')) return;
   let m = document.getElementById('newIndentModal');
   if (!m) {
     m = document.createElement('div');
@@ -17660,6 +17709,263 @@ function exportOws() {
 }
 
 // ══════════════════════════════════════════════════════
+// MARKET HOLIDAYS (client, 2026-10-16) — salesmen add, Admin edits / deletes
+// ══════════════════════════════════════════════════════
+const MH_DAYS = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+let mhData = null;
+async function loadMh() {
+  const r = await api('/api/market-holidays');
+  if (r.error) { document.getElementById('mhWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  mhData = r;
+  const sel = document.getElementById('mhCity'), cur = sel.value;
+  const cities = [...new Set(r.items.map(x => x.city))].sort((a, b) => a.localeCompare(b));
+  sel.innerHTML = '<option value="">All cities</option>' + cities.map(c => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  renderMh();
+}
+function mhClosedOn(h, ymd) {
+  const d = new Date(ymd + 'T00:00:00'), dow = d.getDay() === 0 ? 7 : d.getDay();
+  return h.weekdays.includes(dow) || (h.fromDate && ymd >= h.fromDate && ymd <= (h.toDate || h.fromDate));
+}
+function mhWhen(h) {
+  const parts = [];
+  if (h.weekdays.length) parts.push('Har ' + h.weekdays.map(n => MH_DAYS[n]).join(', '));
+  if (h.fromDate) parts.push(h.toDate && h.toDate !== h.fromDate ? `${fmtDateDMY(h.fromDate)} – ${fmtDateDMY(h.toDate)}` : fmtDateDMY(h.fromDate));
+  return parts.join(' · ');
+}
+function renderMh() {
+  if (!mhData) return;
+  const city = document.getElementById('mhCity').value, q = document.getElementById('mhSearch').value.trim().toLowerCase();
+  const today = scotTodayYmd(), tmr = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return owsYmd(d); })();
+  const list = mhData.items.filter(h => (!city || h.city === city) && (!q || `${h.city} ${h.placeName} ${h.remark}`.toLowerCase().includes(q)));
+  const todayClosed = list.filter(h => mhClosedOn(h, today)), tmrClosed = list.filter(h => mhClosedOn(h, tmr));
+  const chips = (arr, label, tone) => arr.length ? `<div style="background:${tone};border-radius:12px;padding:10px 14px;margin-bottom:10px;font-size:12.5px"><b>${label} (${arr.length}):</b> ${arr.map(h => `${esc(h.placeName)} <span style="color:var(--gray-500)">(${esc(h.city)})</span>`).join(' · ')}</div>` : '';
+  const byCity = {};
+  list.forEach(h => (byCity[h.city] = byCity[h.city] || []).push(h));
+  const admin = mhData.isAdmin;
+  document.getElementById('mhWrap').innerHTML = chips(todayClosed, '🔒 Aaj band', 'var(--color-danger-bg)') + chips(tmrClosed, '📅 Kal band', 'var(--color-warning-bg)') +
+    (list.length ? Object.entries(byCity).map(([c, items]) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:12px;overflow:hidden">
+      <div style="padding:10px 14px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">📍 ${esc(c)} <span style="font-weight:500;color:var(--gray-500);font-size:12px">· ${items.length}</span></div>
+      <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Market / Shop</th><th>Kab band</th><th>Remark</th><th>Added by</th>${admin ? '<th></th>' : ''}</tr></thead><tbody>
+      ${items.map(h => `<tr${mhClosedOn(h, today) ? ' style="background:var(--color-danger-bg)"' : ''}><td><span class="status-badge" style="margin-right:6px">${h.kind === 'Shop' ? '🏪 Shop' : '🛒 Market'}</span><b>${esc(h.placeName)}</b></td>
+        <td style="font-weight:700">${esc(mhWhen(h))}</td><td>${esc(h.remark || '—')}</td><td style="white-space:nowrap">${esc(h.by || '—')}${entrySubHtml(h.createdAt)}</td>
+        ${admin ? `<td style="white-space:nowrap"><button class="btn btn-sm btn-outline" onclick="openMhForm(${h.id})">✏️</button> <button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="deleteMh(${h.id})">🗑</button></td>` : ''}</tr>`).join('')}
+      </tbody></table></div></div>`).join('') : '<div class="empty">Abhi koi holiday nahi daala gaya. "+ Add Holiday" se jodiye.</div>');
+}
+function openMhForm(id) {
+  const h = id ? mhData.items.find(x => x.id === id) : { city: document.getElementById('mhCity').value, kind: 'Market', placeName: '', weekdays: [], fromDate: '', toDate: '', remark: '' };
+  const cities = [...new Set(mhData.items.map(x => x.city))];
+  vrlModal('mhModal', `${scotModalHead('mhModal', id ? '✏️ Holiday badlein' : '＋ Market / Shop holiday')}
+    <datalist id="mhCityList">${cities.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">City *</label><input id="mhFCity" list="mhCityList" value="${esc(h.city)}" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Kya band hai?</label><select id="mhFKind" style="${VRL_IN}"><option value="Market" ${h.kind !== 'Shop' ? 'selected' : ''}>🛒 Poora market</option><option value="Shop" ${h.kind === 'Shop' ? 'selected' : ''}>🏪 Ek dukaan</option></select></div></div>
+    <label style="font-size:12px;font-weight:600">Market / dukaan ka naam *</label><input id="mhFPlace" value="${esc(h.placeName)}" placeholder="e.g. Johari Bazar / Sharma Electricals" style="${VRL_IN};margin-bottom:10px"/>
+    <label style="font-size:12px;font-weight:600">Har hafte kis din band?</label>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5, 6, 7].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="mh-day" value="${n}" ${h.weekdays.includes(n) ? 'checked' : ''}/> ${MH_DAYS[n]}</label>`).join('')}</div>
+    <label style="font-size:12px;font-weight:600">Ya kisi tareekh ko band (tyohar / shaadi / chutti)</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0 8px"><input type="date" id="mhFFrom" value="${esc(h.fromDate || '')}" style="${VRL_IN}"/><input type="date" id="mhFTo" value="${esc(h.toDate || '')}" title="Kab tak (ek din ho to khaali chhodein)" style="${VRL_IN}"/></div>
+    <label style="font-size:12px;font-weight:600">Remark</label><input id="mhFRemark" value="${esc(h.remark)}" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveMh(${id || 0},this)">✓ Save</button>`, 520);
+}
+async function saveMh(id, btn) {
+  const v = x => document.getElementById(x).value.trim();
+  const body = { city: v('mhFCity'), kind: v('mhFKind'), placeName: v('mhFPlace'), weekdays: [...document.querySelectorAll('.mh-day:checked')].map(c => Number(c.value)), fromDate: v('mhFFrom'), toDate: v('mhFTo'), remark: v('mhFRemark') };
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(id ? `/api/market-holidays/${id}` : '/api/market-holidays', id ? 'PUT' : 'POST', body);
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('mhModal');
+  showToast('✅ Saved');
+  loadMh();
+}
+async function deleteMh(id) {
+  if (!confirm('Ye holiday hata dein?')) return;
+  const r = await api(`/api/market-holidays/${id}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  loadMh();
+}
+
+// ══════════════════════════════════════════════════════
+// DEALER WHATSAPP — broadcast + weekly drip plan (client, 2026-10-16)
+// ══════════════════════════════════════════════════════
+let waMeta = null, waTab = 'new', waCampaigns = [], waDrips = [], _waPoll = null;
+async function loadWa() {
+  const r = await api('/api/wa/meta');
+  if (r.error) { document.getElementById('waWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  waMeta = r;
+  renderWaTabs();
+  waShow(waTab);
+}
+function renderWaTabs() {
+  const tab = (k, l) => `<button class="btn btn-sm ${waTab === k ? 'btn-primary' : 'btn-outline'}" onclick="waShow('${k}')">${l}</button>`;
+  document.getElementById('waTabs').innerHTML = tab('new', '✉️ Naya message') + tab('sent', '📋 Bheje gaye') + tab('drip', '🔁 Weekly drip plan');
+}
+async function waShow(t) {
+  waTab = t; renderWaTabs();
+  clearTimeout(_waPoll);
+  const wrap = document.getElementById('waWrap');
+  if (t === 'new') wrap.innerHTML = waComposeHtml('wa', {});
+  else if (t === 'sent') { wrap.innerHTML = '<div class="empty">Loading…</div>'; await waLoadCampaigns(); }
+  else { wrap.innerHTML = '<div class="empty">Loading…</div>'; const r = await api('/api/wa/drips'); waDrips = r.items || []; renderWaDrips(); }
+}
+// Shared form for a one-off message and a drip-plan row.
+function waComposeHtml(p, d, drip) {
+  const docs = waMeta.docs.map(x => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;padding:5px 8px;border:1px solid var(--gray-200);border-radius:8px;cursor:pointer">
+    <input type="checkbox" class="${p}-doc" value="${x.id}" ${(d.docIds || []).includes(x.id) ? 'checked' : ''}/> ${x.doc_type === 'price_list' ? '💰' : '📘'} ${esc(x.filename)} <span style="color:var(--gray-400);font-size:11px">${esc(fmtDateDMY(x.d))}</span></label>`).join('');
+  const aud = Object.entries(waMeta.audiences).filter(([k]) => !drip || k !== 'selected');
+  return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:16px;max-width:760px">
+    ${drip ? `<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:12px;font-weight:600">Naam *</label><input id="${p}Title" value="${esc(d.title || '')}" placeholder="e.g. Week 1 — Ceiling fan scheme" style="${VRL_IN}"/></div>
+        <div><label style="font-size:12px;font-weight:600">Hafte ka din *</label><select id="${p}Weekday" style="${VRL_IN}">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${d.weekday === n ? 'selected' : ''}>${MH_DAYS[n]}</option>`).join('')}</select></div></div>
+      <label style="font-size:12px;font-weight:600">Mahine ke kaunse hafte? <span style="font-weight:400;color:var(--gray-500)">(kuch na chunein = har hafte)</span></label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px"><input type="checkbox" class="${p}-week" value="${n}" ${(d.weeks || []).includes(n) ? 'checked' : ''}/> Week ${n}</label>`).join('')}</div>`
+      : `<label style="font-size:12px;font-weight:600">Title <span style="font-weight:400;color:var(--gray-500)">(sirf list me dikhega)</span></label><input id="${p}Title" placeholder="e.g. Naya price list — Oct" style="${VRL_IN};margin-bottom:8px"/>`}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Kisko bhejna hai?</label><select id="${p}Aud" onchange="waAudChanged('${p}')" style="${VRL_IN}">${aud.map(([k, l]) => `<option value="${k}" ${d.audience === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      <div><label style="font-size:12px;font-weight:600">City <span style="font-weight:400;color:var(--gray-500)">(khaali = sab)</span></label><input id="${p}City" list="waCityList" value="${esc(d.city || '')}" style="${VRL_IN}"/></div></div>
+    <datalist id="waCityList">${waMeta.cities.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <div id="${p}SelWrap" style="display:none;margin-bottom:8px"><label style="font-size:12px;font-weight:600">Dealers (ek line me ek, ya list se)</label>
+      <datalist id="waDealerList">${waMeta.dealers.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+      <div style="display:flex;gap:6px"><input id="${p}SelOne" list="waDealerList" placeholder="Dealer ka naam…" style="${VRL_IN}"/><button class="btn btn-outline btn-sm" onclick="waAddSel('${p}')">+ Add</button></div>
+      <textarea id="${p}Sel" rows="3" style="${VRL_IN};margin-top:6px;resize:vertical"></textarea></div>
+    <label style="font-size:12px;font-weight:600">Message <span style="font-weight:400;color:var(--gray-500)">— {name} likhne par dealer ka naam aa jayega</span></label>
+    <textarea id="${p}Msg" rows="5" style="${VRL_IN};resize:vertical;margin-bottom:8px" placeholder="🙏 Namaste {name} ji,&#10;Naya price list 1 Nov se lagu hai — saath me bhej rahe hain.">${esc(d.message || '')}</textarea>
+    <label style="font-size:12px;font-weight:600">Photo <span style="font-weight:400;color:var(--gray-500)">(product / scheme — optional)</span></label>
+    ${d.imageUrl ? `<div style="font-size:12px;margin:2px 0 4px">Abhi: <a href="${esc(d.imageUrl)}" target="_blank">photo</a> <label><input type="checkbox" id="${p}KeepImg" checked/> rakhein</label></div>` : ''}
+    <input type="file" id="${p}Img" accept="image/*" onchange="onChequePhotoSelected(this,'${p}ImgPv')" style="${VRL_IN};margin-bottom:2px"/><div id="${p}ImgPv" style="font-size:12px;margin-bottom:8px"></div>
+    <label style="font-size:12px;font-weight:600">PDF saath bhejein (Price List & Catalogue page se)</label>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px;margin:4px 0 12px">${docs || '<span style="color:var(--gray-500);font-size:12px">Koi PDF upload nahi</span>'}</div>
+    ${drip ? `<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${p}Active" ${d.active === false ? '' : 'checked'}/> Chalu (active)</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="waSaveDrip(${d.id || 0},this)">✓ Save plan</button><button class="btn btn-outline" onclick="waShow('drip')">Cancel</button></div>`
+      : `<div id="waCount" style="font-size:12.5px;color:var(--gray-600);margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="waTestPhone" placeholder="Test mobile" value="${esc(ME.phone || '')}" inputmode="tel" style="${VRL_IN};width:160px"/>
+        <button class="btn btn-outline" onclick="waSendTest(this)">🧪 Pehle mujhe test bhejo</button>
+        <button class="btn btn-outline" onclick="waPreview()">👥 Kitne logon ko jayega?</button>
+        <button class="btn btn-green" onclick="waSend(this)">📤 Sabko bhejo</button></div>`}
+  </div>`;
+}
+function waAudChanged(p) { document.getElementById(p + 'SelWrap').style.display = document.getElementById(p + 'Aud').value === 'selected' ? '' : 'none'; }
+function waAddSel(p) {
+  const one = document.getElementById(p + 'SelOne'), ta = document.getElementById(p + 'Sel');
+  if (!one.value.trim()) return;
+  ta.value = (ta.value.trim() ? ta.value.trim() + '\n' : '') + one.value.trim(); one.value = '';
+}
+function waFormBody(p) {
+  const v = id => (document.getElementById(p + id) || {}).value || '';
+  return { title: v('Title').trim(), audience: v('Aud'), city: v('City').trim(), message: v('Msg'),
+    names: v('Sel').split('\n').map(s => s.trim()).filter(Boolean), docIds: [...document.querySelectorAll(`.${p}-doc:checked`)].map(c => Number(c.value)),
+    image: (document.getElementById(p + 'Img') || {}).dataset ? document.getElementById(p + 'Img').dataset.compressed || '' : '' };
+}
+async function waPreview() {
+  const b = waFormBody('wa');
+  document.getElementById('waCount').textContent = '⏳ Gin rahe hain…';
+  const r = await api('/api/wa/preview', 'POST', b);
+  document.getElementById('waCount').innerHTML = r.error ? `⚠️ ${esc(r.error)}` : `👥 <b>${r.count}</b> logon ko jayega${r.sample.length ? ` — jaise ${esc(r.sample.join(', '))}…` : ''} · lagbhag ${Math.ceil(r.count * 3.5 / 60)} min`;
+  return r;
+}
+async function waSendTest(btn) {
+  const b = waFormBody('wa');
+  b.phone = document.getElementById('waTestPhone').value.trim();
+  b.greet = ME.name;
+  const restore = btnLoading(btn, 'Bhej rahe…');
+  const r = await api('/api/wa/test', 'POST', b);
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Test bhej diya — apna WhatsApp dekhein');
+}
+async function waSend(btn) {
+  const b = waFormBody('wa');
+  if (!b.message.trim() && !b.image && !b.docIds.length) { showToast('Message, photo ya PDF — kuch to daalein', 'error'); return; }
+  const pv = await waPreview();
+  if (pv.error || !pv.count) { if (!pv.error) showToast('Is filter me koi dealer nahi', 'error'); return; }
+  if (!confirm(`${pv.count} logon ko WhatsApp bhejna hai?`)) return;
+  const restore = btnLoading(btn, 'Queue me daal rahe…');
+  const r = await api('/api/wa/campaign', 'POST', b);
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`📤 ${r.total} logon ko bhejna shuru — har dealer ko ~3 second`);
+  waShow('sent');
+}
+async function waLoadCampaigns() {
+  const r = await api('/api/wa/campaigns');
+  waCampaigns = r.items || [];
+  if (waTab !== 'sent') return;
+  const st = c => ({ queued: ['⏳ Queue me', 'var(--color-warning-bg)', 'var(--color-warning-text)'], sending: ['📤 Ja raha hai', 'var(--color-primary-light)', 'var(--color-primary)'],
+    done: ['✓ Ho gaya', 'var(--color-success-bg)', 'var(--color-success-text)'], cancelled: ['Band kiya', 'var(--gray-100)', 'var(--gray-600)'] }[c.status] || [c.status, 'var(--gray-100)', 'var(--gray-600)']);
+  document.getElementById('waWrap').innerHTML = waCampaigns.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Message</th><th>Kisko</th><th style="min-width:160px">Progress</th><th>Status</th><th></th></tr></thead><tbody>
+    ${waCampaigns.map(c => { const s = st(c), pct = c.total ? Math.round((c.sent + c.failed) * 100 / c.total) : 100; return `<tr>
+      <td style="max-width:300px"><b>${esc(c.title)}</b><div style="font-size:11.5px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.message.slice(0, 90))}</div>${entrySubHtml(c.createdAt)}<div style="font-size:11px;color:var(--gray-500)">${esc(c.by)}</div></td>
+      <td>${esc(waMeta.audiences[c.audience] || c.audience || '')}${c.city ? `<div style="font-size:11px;color:var(--gray-500)">📍 ${esc(c.city)}</div>` : ''}</td>
+      <td><div style="height:8px;background:var(--gray-100);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--color-success)"></div></div>
+        <div style="font-size:11.5px;margin-top:3px">${c.sent}/${c.total} sent${c.failed ? ` · <a href="#" onclick="waShowFailed(${c.id});return false" style="color:var(--color-danger)">${c.failed} failed</a>` : ''}</div>
+        ${c.note ? `<div style="font-size:11px;color:var(--color-danger)">${esc(c.note)}</div>` : ''}</td>
+      <td><span class="status-badge" style="background:${s[1]};color:${s[2]}">${s[0]}</span></td>
+      <td style="white-space:nowrap">${['queued', 'sending'].includes(c.status) ? `<button class="btn btn-sm btn-outline" onclick="waAction(${c.id},'resume')" title="Atka ho to dobara chalao">▶</button> <button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="waAction(${c.id},'cancel')">■ Stop</button>`
+        : c.failed && c.status === 'done' ? `<button class="btn btn-sm btn-outline" onclick="waAction(${c.id},'resume')">↻ Failed dobara</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Abhi koi message nahi bheja</div>';
+  // Refresh progress while something is going out and the page is in view.
+  if (waCampaigns.some(c => ['queued', 'sending'].includes(c.status))) _waPoll = setTimeout(() => { if (document.getElementById('page-dealer-whatsapp').classList.contains('active') && !document.hidden) waLoadCampaigns(); }, 15000);
+}
+async function waAction(id, action) {
+  if (action === 'cancel' && !confirm('Bacha hua bhejna band karein?')) return;
+  const r = await api(`/api/wa/campaign/${id}/${action}`, 'POST', {});
+  if (r.error) { showToast(r.error, 'error'); return; }
+  waLoadCampaigns();
+}
+async function waShowFailed(id) {
+  const r = await api(`/api/wa/campaign/${id}/failed`);
+  vrlModal('waFailModal', `${scotModalHead('waFailModal', '❌ Nahi gaye')}<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Naam</th><th>Mobile</th><th>Kyun</th></tr></thead><tbody>
+    ${(r.items || []).map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.phone)}</td><td style="font-size:11.5px">${esc(x.error || '')}</td></tr>`).join('')}</tbody></table></div>`, 600);
+}
+function renderWaDrips() {
+  const admin = waMeta.isAdmin;
+  const byDay = [1, 2, 3, 4, 5, 6, 7].map(n => ({ n, list: waDrips.filter(d => d.weekday === n) })).filter(x => x.list.length);
+  document.getElementById('waWrap').innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px;max-width:760px">Har din subah ~11 baje, us din ke plan apne aap dealers ko chale jaate hain. Customer aur non-customer ke liye alag plan banayein.
+      ${admin ? '' : ' Plan sirf Admin badal sakta hai.'}</div>
+    ${admin ? '<button class="btn btn-primary" style="margin-bottom:12px" onclick="waEditDrip(0)">＋ Plan jodein</button>' : ''}
+    ${byDay.length ? byDay.map(({ n, list }) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:10px;overflow:hidden">
+      <div style="padding:9px 14px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">📅 Har ${MH_DAYS[n]}</div>
+      ${list.map(d => `<div style="padding:10px 14px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;${d.active ? '' : 'opacity:.5'}">
+        <div style="flex:1;min-width:0"><b>${esc(d.title)}</b> <span class="status-badge">${esc(waMeta.audiences[d.audience] || d.audience)}</span>${d.weeks.length ? ` <span class="status-badge">Week ${d.weeks.join(', ')}</span>` : ''}${d.city ? ` <span class="status-badge">📍 ${esc(d.city)}</span>` : ''}${d.active ? '' : ' <span class="status-badge">Band</span>'}
+          <div style="font-size:12px;color:var(--gray-600);margin-top:3px;white-space:pre-line">${esc(d.message.slice(0, 160))}</div>
+          <div style="font-size:11.5px;color:var(--gray-500);margin-top:3px">${d.imageUrl ? '🖼 Photo · ' : ''}${d.docIds.length ? `📎 ${d.docIds.map(id => esc((waMeta.docs.find(x => x.id === id) || {}).filename || 'PDF')).join(', ')} · ` : ''}${d.lastRun ? 'Last: ' + esc(fmtDateDMY(d.lastRun)) : 'Abhi tak nahi chala'}</div></div>
+        ${admin ? `<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn btn-sm btn-outline" onclick="waEditDrip(${d.id})">✏️</button><button class="btn btn-sm btn-outline" onclick="waRunDrip(${d.id})" title="Abhi bhejo">▶ Abhi</button><button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="waDeleteDrip(${d.id})">🗑</button></div>` : ''}</div>`).join('')}</div>`).join('')
+      : '<div class="empty">Abhi koi weekly plan nahi. Jaise: Mon — customers ko naya product photo, Thu — non-customers ko catalogue + scheme.</div>'}`;
+}
+function waEditDrip(id) {
+  const d = id ? waDrips.find(x => x.id === id) : { weekday: 1, audience: 'customers', weeks: [], docIds: [], active: true };
+  document.getElementById('waWrap').innerHTML = waComposeHtml('wd', d, true);
+}
+async function waSaveDrip(id, btn) {
+  const b = waFormBody('wd');
+  b.id = id || undefined;
+  b.weekday = Number(document.getElementById('wdWeekday').value);
+  b.weeks = [...document.querySelectorAll('.wd-week:checked')].map(c => Number(c.value));
+  b.active = document.getElementById('wdActive').checked;
+  const old = id ? waDrips.find(x => x.id === id) : null, keep = document.getElementById('wdKeepImg');
+  if (!b.image && old && old.imageUrl && keep && keep.checked) b.imageUrl = old.imageUrl;
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/wa/drips', 'POST', b);
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Plan saved');
+  waShow('drip');
+}
+async function waRunDrip(id) {
+  if (!confirm('Ye plan abhi bhej dein?')) return;
+  const r = await api(`/api/wa/drips/${id}/run-now`, 'POST', {});
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`📤 ${r.total} logon ko bhejna shuru`);
+  waShow('sent');
+}
+async function waDeleteDrip(id) {
+  if (!confirm('Ye plan hata dein?')) return;
+  const r = await api(`/api/wa/drips/${id}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  waShow('drip');
+}
+
+// ══════════════════════════════════════════════════════
 // MECA — salesman market report (client voice note, 2026-10-14)
 // ══════════════════════════════════════════════════════
 let mecaData = null, mecaView = 'summary';
@@ -18712,6 +19018,7 @@ function renderChequeReports() {
 // ── New Cheque (salesman): photo only ──
 let _chqUsers = null;
 async function openNewChequeModal() {
+  if (formBlocked('form-cheque')) return;
   document.getElementById('ncPhoto').value = '';
   document.getElementById('ncPhoto').dataset.compressed = '';
   document.getElementById('ncPhotoPreview').innerHTML = '';
@@ -19427,6 +19734,7 @@ function renderLeadReports() {
 
 // ── New Lead ──
 async function openNewLeadModal() {
+  if (formBlocked('form-lead')) return;
   if (!leadMeta.sources.length) { const d = await api('/api/lead-fms'); if (d && Array.isArray(d.leads)) leadApplyData(d); }
   const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
   document.getElementById('nlBody').innerHTML = `
@@ -21114,6 +21422,7 @@ async function loadReplPartyNames() {
   document.getElementById('rplPartyList').innerHTML = [...names].filter(Boolean).sort((a, b) => a.localeCompare(b)).map(n => `<option value="${esc(n)}">`).join('');
 }
 function openNewReplModal() {
+  if (formBlocked('form-replacement')) return;
   ['rfParty', 'rfMobile', 'rfItems', 'rfDefect', 'rfBroughtBy', 'rfRemark'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('rfCondition').value = 'Full Product';
   document.getElementById('rfType').value = 'Used Product';
