@@ -5374,6 +5374,13 @@ function toggleEmpGroup(uid) {
   if (arrow) arrow.textContent = _empGroupOpen[uid] ? '▼' : '▶';
 }
 
+// Done / transferred time under a task's status (client, 2026-10-17).
+function taskTimesHtml(t) {
+  const bits = [];
+  if (t.status === 'completed' && t.completed_at) bits.push(`✅ Done ${esc(fmtEntry(t.completed_at))}`);
+  if (t.transferred_at) bits.push(`🔁 Transfer ${esc(fmtEntry(t.transferred_at))}${t.transferredFromName ? ` (${esc(t.transferredFromName)} se)` : ''}`);
+  return bits.length ? `<div style="font-size:10.5px;color:var(--gray-500);margin-top:3px;white-space:nowrap;line-height:1.5">${bits.join('<br>')}</div>` : '';
+}
 function renderTasksTable() {
   const isAdmin = ME.role==='admin' || ME.role==='hod';
   const isPC = ME.role==='pc';
@@ -5444,7 +5451,7 @@ function renderTasksTable() {
           <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
           <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}${entrySubHtml(t.created_at)}</td>
           <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}</td>
-          <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
+          <td><span class="status-badge ${t.status}">${statusLabel}</span>${taskTimesHtml(t)}</td>
           <td style="white-space:nowrap">${_taskActionBtns(t, true, isChecklist)}</td>
         </tr>`;
       }).join('');
@@ -5493,7 +5500,7 @@ function renderTasksTable() {
       <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}${entrySubHtml(t.created_at)}</td>
       <td style="white-space:nowrap">${fmtDate(t.due_date||'')||'—'}</td>
-      <td><span class="status-badge ${t.status}">${statusLabel}</span></td>
+      <td><span class="status-badge ${t.status}">${statusLabel}</span>${taskTimesHtml(t)}</td>
     </tr>`;
   }).join('');
   const paginationHtml = totalPages > 1 ? `
@@ -5543,10 +5550,10 @@ function exportAllTasks() {
   if (!list.length) { showToast('Export ke liye koi task nahi', 'error'); return; }
   const isChecklist = tasksType === 'checklist';
   const statusLabel = st => st === 'revised' ? 'Revision Requested' : String(st || '').charAt(0).toUpperCase() + String(st || '').slice(1);
-  const rows = [['Title', 'Description', 'Assigned To', 'Department', 'Priority', ...(isChecklist ? ['Frequency'] : []), 'Start Date', 'Due Date', 'Status', 'Remarks', 'Created At', 'Completed At'],
+  const rows = [['Title', 'Description', 'Assigned To', 'Department', 'Priority', ...(isChecklist ? ['Frequency'] : []), 'Start Date', 'Due Date', 'Status', 'Remarks', 'Created At', 'Completed At', 'Transferred At', 'Transferred From'],
     ...list.map(t => [t.title || '', t.description || '', t.assignedToName || '', t.assignedToDept || '', t.priority || '', ...(isChecklist ? [t.frequency || ''] : []),
       t.start_date ? fmtDateDMY(String(t.start_date).slice(0, 10)) : '', t.due_date ? fmtDateDMY(String(t.due_date).slice(0, 10)) : '', statusLabel(t.status), t.remarks || '',
-      t.created_at ? fmtDateDMY(t.created_at, true) : '', t.completed_at ? fmtDateDMY(t.completed_at, true) : ''])];
+      t.created_at ? fmtDateDMY(t.created_at, true) : '', t.completed_at ? fmtDateDMY(t.completed_at, true) : '', t.transferred_at ? fmtDateDMY(t.transferred_at, true) : '', t.transferredFromName || ''])];
   csvDownload(rows, `${isChecklist ? 'checklist' : 'delegation'}-tasks-${stockTodayYmd()}.csv`);
 }
 

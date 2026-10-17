@@ -1514,11 +1514,12 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
     allUsers.forEach(u => { uMap[u.id] = { name: u.name||'', dept: u.department||'' }; });
 
     const freqCol = isDeleg ? "'' AS frequency" : "COALESCE(t.frequency,'') AS frequency";
+    await ensureTaskTransferCols();
     // LIMIT is a safety ceiling (matches /api/dashboard's own cap), not a
     // real pagination UX — this endpoint's grouped-by-user response isn't
     // set up for paging without also changing the frontend's "All Tasks" view.
-    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,t.photo_link,t.ref_file_link,t.ref_file_name,t.audio_link,":"'no' AS approval,0 AS waiting_approval,t.remarks,'no' AS attachment_required,NULL AS attachment_link,NULL AS photo_link,NULL AS ref_file_link,NULL AS ref_file_name,NULL AS audio_link,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on,t.created_at FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
-    const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]?.name||'', assignedToDept: uMap[t.assigned_to]?.dept||'', assignedByName: uMap[t.assigned_by]?.name||'' }));
+    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,t.photo_link,t.ref_file_link,t.ref_file_name,t.audio_link,":"'no' AS approval,0 AS waiting_approval,t.remarks,'no' AS attachment_required,NULL AS attachment_link,NULL AS photo_link,NULL AS ref_file_link,NULL AS ref_file_name,NULL AS audio_link,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on,t.created_at,DATE_FORMAT(t.completed_at,'%Y-%m-%d %H:%i:%s') AS completed_at,DATE_FORMAT(t.transferred_at,'%Y-%m-%d %H:%i:%s') AS transferred_at,t.transferred_from FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
+    const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]?.name||'', assignedToDept: uMap[t.assigned_to]?.dept||'', assignedByName: uMap[t.assigned_by]?.name||'', transferredFromName: t.transferred_from ? uMap[t.transferred_from]?.name||'' : '' }));
 
     // mine=1 mode always returns flat tasks (not grouped)
     if (isMine) {
@@ -13064,15 +13065,26 @@ app.put('/api/transfers/:id', requireAuth, requireAdminOrHod, async (req, res) =
       }
     }
 
-    await db.query('UPDATE task_transfers SET status=?, note=? WHERE id=?', [action, note||'', req.params.id]);
+    await ensureTaskTransferCols();
+    await db.query('UPDATE task_transfers SET status=?, note=?, decided_at=NOW(), decided_by=? WHERE id=?', [action, note||'', req.session.userId, req.params.id]);
 
     if (action === 'approved') {
       const table = getTable(tr.task_type);
-      await db.query(`UPDATE ${table} SET assigned_to=? WHERE id=?`, [tr.to_user, tr.task_id]);
+      await db.query(`UPDATE ${table} SET assigned_to=?, transferred_at=NOW(), transferred_from=? WHERE id=?`, [tr.to_user, tr.from_user, tr.task_id]);
     }
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
+
+// When a task changed hands (client, 2026-10-17: "kab transfer hua ye show
+// karna chahiye") — the approval time on the transfer and on the task itself.
+let _taskTransferColsOk = false;
+async function ensureTaskTransferCols() {
+  if (_taskTransferColsOk) return;
+  await addMissingColumns('task_transfers', [['decided_at', 'DATETIME NULL'], ['decided_by', 'INT NULL']]);
+  for (const t of ['delegation_tasks', 'checklist_tasks']) await addMissingColumns(t, [['transferred_at', 'DATETIME NULL'], ['transferred_from', 'INT NULL']]);
+  _taskTransferColsOk = true;
+}
 
 // GET — My sent transfer requests (for users to track)
 app.get('/api/transfers/my', requireAuth, async (req, res) => {
