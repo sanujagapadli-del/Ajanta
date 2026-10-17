@@ -568,7 +568,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -2209,6 +2209,7 @@ app.get('/api/cron/attendance-alert', async (req, res) => {
     // nudges any queue that stopped (e.g. the gateway was offline).
     let drips = 0;
     try { if (slot === 'morning') drips = await waEnqueueDueDrips(); waKick(); } catch (e) { console.error('WA drip:', e.message); }
+    if (slot === 'morning') try { await collectSendReminders(); } catch (e) { console.error('Payment reminders:', e.message); }
     res.json({ ...(await runAttendanceAbsentAlert(slot)), drips });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2231,7 +2232,7 @@ if (!process.env.VERCEL) {
       for (const [slot, hour] of Object.entries(ATTENDANCE_ALERT_SLOTS)) {
         if (h >= hour && h < hour + 2) await runAttendanceAbsentAlert(slot);
       }
-      if (h >= ATTENDANCE_ALERT_SLOTS.morning) await waEnqueueDueDrips();
+      if (h >= ATTENDANCE_ALERT_SLOTS.morning) { await waEnqueueDueDrips(); await collectSendReminders().catch(e => console.error('Payment reminders:', e.message)); }
     } catch (e) { console.error('  ❌ Attendance alert tick:', e.message); }
   }, 60 * 1000).unref();
 }
@@ -13787,6 +13788,7 @@ async function waTables() {
     city VARCHAR(120), message TEXT, doc_ids VARCHAR(500), image_url VARCHAR(1000), active TINYINT NOT NULL DEFAULT 1, last_run DATE,
     updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await addMissingColumns('wa_campaign_recipients', [['message', 'TEXT']]);
   await db.query('CREATE TABLE IF NOT EXISTS wa_lock (id INT PRIMARY KEY, until_at DATETIME) ENGINE=InnoDB');
   await db.query('INSERT IGNORE INTO wa_lock (id, until_at) VALUES (1, NULL)');
   _waOk = true;
@@ -13873,7 +13875,7 @@ async function waDrain() {
     // Only one run at a time (the lock) — a row left "sending" is from a run that died.
     await db.query("UPDATE wa_campaign_recipients SET status='pending' WHERE status='sending'");
     while (Date.now() - start < WA_BUDGET_MS) {
-      const [[r]] = await db.query(`SELECT r.id, r.campaign_id, r.name, r.phone, c.message, c.doc_ids, c.image_url FROM wa_campaign_recipients r
+      const [[r]] = await db.query(`SELECT r.id, r.campaign_id, r.name, r.phone, COALESCE(r.message, c.message) AS message, c.doc_ids, c.image_url FROM wa_campaign_recipients r
         JOIN wa_campaigns c ON c.id=r.campaign_id WHERE r.status='pending' AND c.status IN ('queued','sending') ORDER BY r.campaign_id, r.id LIMIT 1`);
       if (!r) break;
       await db.query("UPDATE wa_campaigns SET status='sending', started_at=COALESCE(started_at, NOW()) WHERE id=? AND status='queued'", [r.campaign_id]);
@@ -14062,6 +14064,130 @@ app.post('/api/wa/drips/:id/run-now', requireAuth, requireAdmin, async (req, res
     if (r.total) waKick();
     res.json({ success: true, ...r });
   } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// PAYMENT FOLLOW-UP (client voice note, 2026-10-17: "15ve din message chala
+// jayega, 25ve din phone karenge, phir 30ve din phone") — per unpaid bill in
+// Tally's Bills Receivable sync. Day 15: WhatsApp reminder to the dealer,
+// automatic (daily cron). Day 25 and day 30: a call to make, ticked off here.
+// A bill that gets paid drops out of the sync, so its follow-ups stop by
+// themselves. Only bills that reach a step now are acted on — older dues
+// stay in the aging report instead of all firing on the first day.
+// ══════════════════════════════════════════════════════
+const COLLECT_STEPS = { msg15: { from: 15, to: 21 }, call25: { from: 25, to: 29 }, call30: { from: 30, to: 40 } };
+let _collectOk = false;
+async function collectTable() {
+  if (_collectOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS collect_actions (
+    id INT AUTO_INCREMENT PRIMARY KEY, bill_key VARCHAR(191) NOT NULL, step VARCHAR(10) NOT NULL, party VARCHAR(255), bill_ref VARCHAR(100),
+    outcome VARCHAR(60), remark VARCHAR(500), campaign_id INT, done_by INT, done_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_collect (bill_key, step)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _collectOk = true;
+}
+const collectKey = b => `${String(b.party).trim().toLowerCase()}|${String(b.billRef).trim()}`.slice(0, 191);
+// Unpaid bills with their age in days (IST today − bill date) and the dealer's phone.
+async function collectBills() {
+  const { bills, lastSynced } = await getBillsReceivable();
+  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  const t0 = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
+  const [dealers] = await withDealerTables(() => db.query("SELECT counter_name, owner_name, phone FROM o2d_dealers"));
+  const alias = await getDealerAliasMap();
+  const byKey = Object.fromEntries(dealers.map(d => [d.counter_name.trim().toLowerCase(), d]));
+  const out = [];
+  for (const b of bills) {
+    const d = parseAnyDate(b.billDate);
+    if (!d || !b.party) continue;
+    const ymd = toIsoDate(d);
+    const days = Math.round((t0 - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+    const k = b.party.trim().toLowerCase();
+    const dealer = byKey[k] || (alias[k] && byKey[alias[k].toLowerCase()]) || null;
+    out.push({ key: collectKey(b), party: b.party.trim(), billRef: b.billRef, billDate: ymd, amount: gpNum(b.amount), days,
+      phone: dealer && dealer.phone ? dealer.phone : '', owner: dealer && dealer.owner_name ? dealer.owner_name : '' });
+  }
+  return { bills: out, lastSynced };
+}
+const inrPlain = n => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+function collectMsg(party, owner, list, bank) {
+  const total = list.reduce((a, b) => a + b.amount, 0);
+  const lines = [`🙏 नमस्ते ${owner || party} जी,`, '', 'Ajanta Appliances की ओर से याद दिलाना है — नीचे दिए बिल का भुगतान बाकी है:',
+    ...list.map(b => `• Bill ${b.billRef} (${b.billDate.split('-').reverse().join('/')}) — ${inrPlain(b.amount)}`)];
+  if (list.length > 1) lines.push('', `कुल: ${inrPlain(total)}`);
+  lines.push('', 'कृपया जल्द भुगतान करें। भुगतान हो चुका हो तो इस संदेश को अनदेखा करें।');
+  if (bank) lines.push('', '🏦 Bank Details:', bank);
+  lines.push('', 'धन्यवाद', 'Ajanta Appliances');
+  return lines.join('\n');
+}
+// Daily: one WhatsApp per dealer for its bills that turned 15 days old.
+async function collectSendReminders() {
+  await collectTable(); await waTables();
+  const { bills, lastSynced } = await collectBills();
+  // Stale Tally data would remind dealers who already paid — skip until the sync runs again.
+  if (!lastSynced || Date.now() - new Date(lastSynced).getTime() > 2 * 86400000) { console.warn('Payment reminders skipped — Tally sync is older than 2 days:', lastSynced); return -1; }
+  const due = bills.filter(b => b.days >= COLLECT_STEPS.msg15.from && b.days <= COLLECT_STEPS.msg15.to && b.amount > 0 && b.phone);
+  if (!due.length) return 0;
+  const [done] = await db.query("SELECT bill_key FROM collect_actions WHERE step='msg15' AND bill_key IN (?)", [due.map(b => b.key)]);
+  const sent = new Set(done.map(d => d.bill_key));
+  const byParty = {};
+  due.filter(b => !sent.has(b.key)).forEach(b => (byParty[b.party.toLowerCase()] = byParty[b.party.toLowerCase()] || []).push(b));
+  const groups = Object.values(byParty);
+  if (!groups.length) return 0;
+  const bank = (await getLeadSettings()).bankDetails || '';
+  const [c] = await db.query("INSERT INTO wa_campaigns (title, message, audience, source, total, status) VALUES (?, '', 'selected', 'collect', ?, 'queued')",
+    [`💰 Payment reminder (15 din) — ${waYmd().split('-').reverse().join('/')}`, groups.length]);
+  for (const list of groups) {
+    const f = list[0];
+    await db.query('INSERT INTO wa_campaign_recipients (campaign_id, name, phone, message) VALUES (?,?,?,?)', [c.insertId, f.party, sfmsNormalizeMobile(f.phone) || f.phone, collectMsg(f.party, f.owner, list, bank)]);
+    for (const b of list) await db.query("INSERT IGNORE INTO collect_actions (bill_key, step, party, bill_ref, outcome, campaign_id) VALUES (?,'msg15',?,?,'WhatsApp queued',?)", [b.key, b.party, b.billRef, c.insertId]);
+  }
+  waKick();
+  return groups.length;
+}
+async function collectAccess(req, res) {
+  if (await hasPageGrant(req, 'collection')) return true;
+  res.status(403).json({ error: 'No access to Payment Follow-up' });
+  return false;
+}
+app.get('/api/collection-followup', requireAuth, async (req, res) => {
+  try {
+    if (!(await collectAccess(req, res))) return;
+    await collectTable();
+    const { bills, lastSynced } = await collectBills();
+    const [acts] = await db.query(`SELECT a.*, DATE_FORMAT(a.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name,
+        (SELECT r.status FROM wa_campaign_recipients r WHERE r.campaign_id=a.campaign_id AND LOWER(r.name)=LOWER(a.party) LIMIT 1) AS wa_status
+      FROM collect_actions a LEFT JOIN users u ON u.id=a.done_by`).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+    const actOf = {};
+    acts.forEach(a => { (actOf[a.bill_key] = actOf[a.bill_key] || {})[a.step] = { outcome: a.outcome || '', remark: a.remark || '', at: a.done_at, by: a.by_name || '', waStatus: a.wa_status || '' }; });
+    res.json({ lastSynced, steps: COLLECT_STEPS, bills: bills.filter(b => b.amount > 0 && b.days >= COLLECT_STEPS.msg15.from).map(b => ({ ...b, acts: actOf[b.key] || {} })) });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Bills Receivable sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+app.post('/api/collection-followup/call', requireAuth, async (req, res) => {
+  try {
+    if (!(await collectAccess(req, res))) return;
+    await collectTable();
+    const b = req.body || {};
+    if (!['call25', 'call30'].includes(b.step)) return res.status(400).json({ error: 'Invalid step' });
+    const outcome = String(b.outcome || '').trim().slice(0, 60);
+    if (!outcome) return res.status(400).json({ error: 'Call ka result chunein' });
+    const key = String(b.billKey || '').slice(0, 191);
+    if (!key) return res.status(400).json({ error: 'Bill missing' });
+    await db.query(`INSERT INTO collect_actions (bill_key, step, party, bill_ref, outcome, remark, done_by) VALUES (?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE outcome=VALUES(outcome), remark=VALUES(remark), done_by=VALUES(done_by), done_at=NOW()`,
+      [key, b.step, String(b.party || '').slice(0, 255), String(b.billRef || '').slice(0, 100), outcome, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Admin: send today's 15-day reminders now instead of waiting for the morning run.
+app.post('/api/collection-followup/send-now', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const n = await collectSendReminders();
+    if (n < 0) return res.status(400).json({ error: 'Tally sync 2 din se purana hai — paid bill bhi baaki dikh rahe honge. Pehle Tally PC par sync chalayein.' });
+    res.json({ success: true, dealers: n });
+  }
+  catch (err) { sendServerError(res, err); }
 });
 
 // MECA / SCOT sidebar pages (client, 2026-10-14): each opens the sheet the team
