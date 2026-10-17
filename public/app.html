@@ -2895,7 +2895,7 @@ tbody tr:last-child td{border-bottom:none;}
 <!-- ══════════════════════════════════════
      CONFIRM MODAL (replaces browser confirm())
 ══════════════════════════════════════ -->
-<div class="modal-overlay" id="confirmModal" onclick="if(event.target===this)_confirmReject()">
+<div class="modal-overlay" id="confirmModal" style="z-index:1100" onclick="if(event.target===this)_confirmReject()">
   <div class="modal" style="max-width:340px;text-align:center;padding:28px 24px">
     <div id="confirmIcon" style="font-size:38px;margin-bottom:10px">🗑️</div>
     <div id="confirmTitle" style="font-size:16px;font-weight:700;color:var(--gray-800);margin-bottom:6px">Delete Task?</div>
@@ -10289,7 +10289,8 @@ function renderSfmsZones() {
   const inp = 'padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)';
   const areaRow = a => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--gray-100)">
       <span style="flex:1;min-width:0;font-size:13px">${esc(a)}</span>
-      <select onchange="saveSfmsAreaZone('${o2dJsEsc(a)}', this.value, this)" style="${inp};max-width:160px">${zoneOpts(sfmsAreaZone(a))}</select></div>`;
+      <select onchange="saveSfmsAreaZone('${o2dJsEsc(a)}', this.value, this)" style="${inp};max-width:160px">${zoneOpts(sfmsAreaZone(a))}</select>
+      ${ME.role === 'admin' ? `<button type="button" class="btn btn-outline btn-sm" title="Galti se bana area delete karo" onclick="deleteSfmsArea('${jsArg(a)}')" style="color:var(--color-danger);padding:6px 9px">🗑</button>` : ''}</div>`;
   document.getElementById('sfmsZonesBody').innerHTML = `
     <div style="background:var(--gray-50);border-radius:12px;padding:12px;margin-bottom:14px">
       <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">➕ Naya area kisi zone mein jodo</div>
@@ -10322,6 +10323,20 @@ async function saveSfmsAreaZone(area, zone, el) {
   showToast(zone ? `✅ ${area} → ${zone}` : `${area} — zone hata diya`);
   renderSfmsZones();
   if (document.getElementById('page-service-fms').classList.contains('active')) renderServiceFmsList();
+}
+// Admin: remove an area added by mistake — deletes its row(s) in the sheet's
+// Area tab. Complaints already filed with it keep the area name.
+function deleteSfmsArea(area) {
+  showConfirm({ title: `"${area}" area delete karein?`, msg: 'Area list (aur uska zone) se hat jayega. Purani complaints mein area naam waise hi rahega.' }, async () => {
+    const r = await api(`/api/service-fms/areas?area=${encodeURIComponent(area)}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    const k = area.toLowerCase();
+    _sfmsZoneAreas = _sfmsZoneAreas.filter(a => a.toLowerCase() !== k);
+    Object.keys(sfmsAreaZoneMap).filter(x => x.toLowerCase() === k).forEach(x => delete sfmsAreaZoneMap[x]);
+    scAreaList = scAreaList.filter(a => String(a).toLowerCase() !== k);
+    showToast(`🗑 ${area} delete ho gaya`);
+    renderSfmsZones();
+  });
 }
 function addSfmsArea() {
   const area = document.getElementById('sfmsNewArea').value.trim(), zone = document.getElementById('sfmsNewAreaZone').value;
@@ -12207,7 +12222,8 @@ function buildSfmsNextActionHtml(c, compact) {
         ${wrapClose}`;
     }
   } else if (nextStepDef && nextStepDef.otpRequired) {
-    const extraInputsHtml = nextStepDef.n === SN.solve ? sfmsSolveFormHtml(c, compact) : nextStepDef.extraFields.map(f => renderSfmsField(f, c.row, compact)).join('');
+    // Step tab (compact): "+ Naya Spare" sits with the Solve form; the popup has it under Mechanic & Spares.
+    const extraInputsHtml = nextStepDef.n === SN.solve ? sfmsSolveFormHtml(c, compact) + (compact ? sfmsAddSparePanelHtml(c) : '') : nextStepDef.extraFields.map(f => renderSfmsField(f, c.row, compact)).join('');
     if (!sfmsOtpSentFor[c.row]) {
       const sendBtn = `<button onclick="sendSfmsOtp(${c.row},${nextStepDef.n},this)" class="btn btn-primary" style="${compact ? 'padding:8px 16px;font-size:13px;white-space:nowrap' : 'width:100%;justify-content:center;padding:13px;font-size:15px'}">Send OTP to Customer</button>`;
       actionHtml = compact
@@ -12395,6 +12411,7 @@ function renderComplaintDetailBody(c) {
           <div style="${SFMS_FIELD_LABEL_STYLE}">Mechanic & Spares</div>
           <div style="font-size:14px;color:var(--gray-800)">${sfmsMechanicSparesHtml(c).replace(/<a [^>]*>🔁 Transfer<\/a>/, '') || '—'}</div>
           ${sfmsTransferHtml(c)}
+          ${sfmsAddSparePanelHtml(c)}
         </div>` : ''}
       </div>
       <div style="margin-bottom:14px">
@@ -12466,20 +12483,21 @@ function renderComplaintDetailBody(c) {
 // a searchable text+datalist input (sfmsItemNameList) and must be a spare
 // from the master list — "+ New Spare Item" adds a genuinely new one. ──
 let sfmsSpareOutRowSeq = 1000; // offset so dynamically-added rows never collide with the initial indices (0,1,2..) built below
-function sfmsSpareOutRowHtml(row, id, item, qty) {
-  return `<div id="sfmsSpareOutRow_${row}_${id}" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
-    <input type="text" list="sfmsItemNameList" placeholder="Spare Name *" id="sfmsSpareOutItem_${row}_${id}" value="${esc(item || '')}" style="flex:1;min-width:110px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
-    <input type="number" min="1" step="1" placeholder="Qty *" id="sfmsSpareOutQty_${row}_${id}" value="${esc(qty || '')}" style="width:58px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
-    <button type="button" onclick="sfmsRemoveSpareOutRow(${row},${id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:0;flex-shrink:0">✕</button>
+// prefix: 'sfmsSpareOut' (Takeout form) or 'sfmsAddSpare' (+ Naya Spare panel).
+function sfmsSpareOutRowHtml(row, id, item, qty, prefix = 'sfmsSpareOut') {
+  return `<div id="${prefix}Row_${row}_${id}" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+    <input type="text" list="sfmsItemNameList" placeholder="Spare Name *" id="${prefix}Item_${row}_${id}" value="${esc(item || '')}" style="flex:1;min-width:110px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <input type="number" min="1" step="1" placeholder="Qty *" id="${prefix}Qty_${row}_${id}" value="${esc(qty || '')}" style="width:58px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/>
+    <button type="button" onclick="sfmsRemoveSpareOutRow(${row},${id},'${prefix}')" style="border:none;background:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:0;flex-shrink:0">✕</button>
   </div>`;
 }
-function sfmsAddSpareOutRow(row) {
-  const wrap = sfmsById(`sfmsSpareOutRows_${row}`);
+function sfmsAddSpareOutRow(row, prefix = 'sfmsSpareOut') {
+  const wrap = sfmsById(`${prefix}Rows_${row}`);
   if (!wrap) return;
-  wrap.insertAdjacentHTML('beforeend', sfmsSpareOutRowHtml(row, sfmsSpareOutRowSeq++, '', ''));
+  wrap.insertAdjacentHTML('beforeend', sfmsSpareOutRowHtml(row, sfmsSpareOutRowSeq++, '', '', prefix));
 }
-function sfmsRemoveSpareOutRow(row, id) {
-  const el = sfmsById(`sfmsSpareOutRow_${row}_${id}`);
+function sfmsRemoveSpareOutRow(row, id, prefix = 'sfmsSpareOut') {
+  const el = sfmsById(`${prefix}Row_${row}_${id}`);
   if (el) el.remove();
 }
 async function sfmsAddNewSpareItem(row) {
@@ -12579,14 +12597,14 @@ function sfmsBuildSpareOutRowsHtml(c) {
   const items = sfmsTakeoutItems(c);
   return (items.length ? items : [{ item: '', qty: '' }]).map((it, i) => sfmsSpareOutRowHtml(c.row, i, it.item, it.qty)).join('');
 }
-function sfmsCollectSpareOutRows(row) {
-  const wrap = sfmsById(`sfmsSpareOutRows_${row}`);
+function sfmsCollectSpareOutRows(row, prefix = 'sfmsSpareOut') {
+  const wrap = sfmsById(`${prefix}Rows_${row}`);
   if (!wrap) return [];
   const result = [];
   for (const rowEl of wrap.children) {
     const idSuffix = rowEl.id.split('_').pop();
-    const item = (sfmsById(`sfmsSpareOutItem_${row}_${idSuffix}`)?.value || '').trim();
-    const qty = (sfmsById(`sfmsSpareOutQty_${row}_${idSuffix}`)?.value || '').trim();
+    const item = (sfmsById(`${prefix}Item_${row}_${idSuffix}`)?.value || '').trim();
+    const qty = (sfmsById(`${prefix}Qty_${row}_${idSuffix}`)?.value || '').trim();
     if (item || qty) result.push({ item, qty });
   }
   return result;
@@ -12714,7 +12732,7 @@ function sfmsMechanicSparesHtml(c) {
   const mech = sfmsStep(c, 'assign').mechanic || '';
   const spares = sfmsTakeoutItems(c).filter(it => it.item);
   return (mech ? `<div style="margin-top:3px;color:var(--color-primary);font-weight:600">🔧 ${esc(mech)}${sfmsCanTransfer(c) ? ` <a href="#" onclick="event.preventDefault();event.stopPropagation();openComplaintDetail(${c.row})" style="font-size:11px">🔁 Transfer</a>` : ''}</div>` : '') +
-    (spares.length ? `<div style="margin-top:2px;color:var(--gray-700)">🧰 ${spares.map(it => `${esc(it.item)}${it.qty ? ` × ${esc(it.qty)}` : ''}`).join(', ')}</div>` : '');
+    (spares.length ? `<div style="margin-top:2px;color:var(--gray-700)">🧰 ${spares.map(it => `${esc(it.item)}${it.qty ? ` × ${esc(it.qty)}` : ''}${it.addedAt ? ` <span title="Baad mein add: ${esc(it.addedQty || '')} — ${esc(it.addedBy || '')}, ${esc(fmtDateDMY(it.addedAt, true))}" style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:1px 6px;border-radius:8px;font-weight:700">🆕 +${esc(it.addedQty || '')}</span>` : ''}`).join(', ')}</div>` : '');
 }
 // Assign doer / PC View / admin can move an assigned complaint to another
 // mechanic until the mechanic has solved it.
@@ -12744,6 +12762,69 @@ async function sfmsTransferMechanic(row, btn) {
   restore();
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast(`✅ ${c.complainNo} ab ${res.to} ke paas`);
+  await refreshSfmsDataQuietly();
+  const updated = sfmsData.find(x => x.row === row);
+  if (updated && document.getElementById('complaintDetailModal').classList.contains('open')) renderComplaintDetailBody(updated);
+  renderServiceFmsList();
+  window._lastSfmsData = sfmsData;
+  refreshDashboardSfmsLocally();
+}
+
+// ── "+ Naya Spare" (client, 2026-10-17): after Assign — even once Takeout is
+// done — the mechanic may find a different fault and need another spare.
+// Added to the same "spares taken" list, so Solve / Check In/Out / spare
+// balance treat it like any other. Open complaints only, until Solve. ──
+function sfmsCanAddSpare(c) {
+  if (c.closed || !sfmsStep(c, 'assign').status || sfmsStep(c, 'solve').status) return false;
+  if (!(sfmsCanAct(SN.takeout) || sfmsCanAct(SN.assign) || sfmsCanActOnComplaint(c, SN.solve))) return false;
+  // Takeout still pending and this user does it — its own form already adds spares.
+  return !(c.currentStep + 1 === SN.takeout && sfmsCanActOnComplaint(c, SN.takeout));
+}
+function sfmsAddSparePanelHtml(c) {
+  if (!sfmsCanAddSpare(c)) return '';
+  return `<div style="margin-top:8px">
+    <button type="button" class="btn btn-outline btn-sm" onclick="event.stopPropagation();sfmsToggleAddSpare(${c.row})">+ Naya Spare</button>
+    <div id="sfmsAddSpareWrap_${c.row}" style="display:none;margin-top:8px;background:var(--gray-50);border:1px dashed var(--gray-200);border-radius:10px;padding:8px">
+      <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px">Naya / alag problem mila? Jo spare aur chahiye woh add karo — pehle wale spares waise hi rahenge.</div>
+      <div id="sfmsAddSpareRows_${c.row}">${sfmsSpareOutRowHtml(c.row, 0, '', '', 'sfmsAddSpare')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" onclick="sfmsAddSpareOutRow(${c.row},'sfmsAddSpare')" class="btn btn-outline btn-sm">+ Aur Spare</button>
+        <button type="button" onclick="sfmsSaveAddedSpares(${c.row}, this)" class="btn btn-green btn-sm">Save Spare</button>
+      </div>
+    </div>
+  </div>`;
+}
+function sfmsToggleAddSpare(row) {
+  const w = sfmsById(`sfmsAddSpareWrap_${row}`);
+  if (w) w.style.display = w.style.display === 'none' ? 'block' : 'none';
+}
+async function sfmsSaveAddedSpares(row, btn) {
+  const c = sfmsData.find(x => x.row === row);
+  if (!c) return;
+  const items = sfmsCollectSpareOutRows(row, 'sfmsAddSpare');
+  if (!items.length) { showToast('Kam se kam ek spare (naam + qty) bharo', 'error'); return; }
+  await ensureSfmsMasterLists();
+  const known = new Map(sfmsItemsList.map(n => [n.toLowerCase(), n]));
+  for (const it of items) {
+    if (!it.item) { showToast('Har row mein spare ka naam bharo', 'error'); return; }
+    const qty = Number(it.qty);
+    if (!it.qty || !Number.isInteger(qty) || qty < 1) { showToast(`${it.item}: qty bharo (1 ya zyada)`, 'error'); return; }
+    const canonical = known.get(it.item.toLowerCase());
+    if (!canonical) { showToast(`"${it.item}" spare master mein nahi hai — list se chuno`, 'error'); return; }
+    it.item = canonical; it.qty = qty;
+  }
+  // Keep whatever was typed in this complaint's Solve form across the re-render.
+  const wd = sfmsById(`sfmsExtra_${row}_workDone`);
+  if (wd) {
+    const used = {};
+    sfmsTakeoutItems(c).filter(x => x.item).forEach((it, i) => { const el = sfmsById(`sfmsSolveUsed_${row}_${i}`); if (el && el.value.trim() !== '') used[it.item] = Number(el.value); });
+    sfmsSolveDraft[row] = { workDone: wd.value, repairStatus: sfmsById(`sfmsExtra_${row}_repairStatus`)?.value || '', used };
+  }
+  const restore = btnLoading(btn, 'Saving…');
+  const res = await api(`/api/service-fms/${row}/add-spare`, 'POST', { spareOutJson: JSON.stringify(items), expectComplainNo: c.complainNo });
+  restore();
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(`✅ ${items.map(it => `${it.item} × ${it.qty}`).join(', ')} add ho gaya`);
   await refreshSfmsDataQuietly();
   const updated = sfmsData.find(x => x.row === row);
   if (updated && document.getElementById('complaintDetailModal').classList.contains('open')) renderComplaintDetailBody(updated);
@@ -12804,6 +12885,9 @@ function sfmsCollectStepBody(row, step, stage) {
       it.item = canonical;
       it.qty = String(qty);
     }
+    // Spares added via "+ Naya Spare" before Takeout keep their added-by tag.
+    const prev = new Map(sfmsTakeoutItems(c).filter(x => x.addedAt).map(x => [String(x.item).toLowerCase(), x]));
+    items.forEach(it => { const p = prev.get(it.item.toLowerCase()); if (p) Object.assign(it, { addedQty: p.addedQty, addedAt: p.addedAt, addedBy: p.addedBy }); });
     body.itemName = items[0].item;
     body.spareTaken = items[0].qty;
     body.spareOutJson = JSON.stringify(items);

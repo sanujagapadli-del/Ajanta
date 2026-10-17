@@ -4784,7 +4784,7 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
       const takeout = st(SFMS_N.takeout), inout = st(SFMS_N.inout);
       const spares = parseJson(takeout.spareOutJson);
       const sparesText = (spares.length ? spares : (takeout.itemName ? [{ item: takeout.itemName, qty: takeout.spareTaken }] : []))
-        .map(x => `${x.item} × ${x.qty}`).join(', ');
+        .map(x => `${x.item} × ${x.qty}${x.addedAt ? ` (${x.addedQty || ''} baad mein add — ${x.addedBy || ''})` : ''}`).join(', ');
       const used = parseJson(inout.spareInJson).map(x => `${x.item}: new back ${x.newQty || 0}, old back ${x.oldQty || 0}${x.shortQty ? `, short ${x.shortQty}` : ''}`).join('; ');
       return {
         'Complaint No': c.complainNo,
@@ -5211,6 +5211,68 @@ async function sfmsTakenItems(sheetsApi, row) {
   return cell(1) ? [{ item: cell(1), qty: cell(2) }] : [];
 }
 
+// Naya spare after Assign (client, 2026-10-17): the mechanic visits, finds a
+// different problem and needs another spare next day — even when Takeout is
+// already done. Appends to the same BG "Spares Taken" list (existing items
+// kept), so Solve's "kitne lagaye", Check In/Out and the mechanic's spare
+// balance pick it up like any other taken spare. Added entries carry
+// addedAt/addedBy/addedQty; an item already on the list just gets its qty
+// raised (Solve / In-Out key spares by item name, so no duplicate names).
+// Allowed from Assign until the mechanic has solved it.
+app.post('/api/service-fms/:row(\\d+)/add-spare', requireAuth, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    if (!row || row < SFMS_DATA_START_ROW) return res.status(400).json({ error: 'Invalid row' });
+    let items;
+    try { items = JSON.parse(req.body.spareOutJson || '[]'); } catch (e) { items = null; }
+    if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Kam se kam ek spare (naam + qty) bharo' });
+    const clean = [];
+    for (const it of items) {
+      const item = String((it && it.item) || '').trim(), qty = Number(it && it.qty);
+      if (!item || !Number.isInteger(qty) || qty < 1) return res.status(400).json({ error: 'Har spare ka naam aur qty (1 ya zyada) bharo' });
+      clean.push({ item, qty });
+    }
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (await sfmsRowMoved(res, sheetsApi, row, req.body.expectComplainNo)) return;
+    const acc = await sfmsUserAccess(req);
+    const allowed = sfmsCanActOn(acc, SFMS_N.takeout) || sfmsCanActOn(acc, SFMS_N.assign)
+      || await sfmsCanActOnRow(req, acc, SFMS_N.solve, row, sheetsApi);
+    if (!allowed) return res.status(403).json({ error: 'Naya spare sirf Takeout / Assign doer ya is complaint ka mechanic add kar sakta hai' });
+    const assign = SFMS_STEPS.find(s => s.key === 'assign'), solve = SFMS_STEPS.find(s => s.key === 'solve');
+    const cur = await sheetsApi.spreadsheets.values.batchGet({
+      spreadsheetId: SFMS_SHEET_ID,
+      ranges: [`'${SFMS_TAB}'!${assign.status}${row}`, `'${SFMS_TAB}'!${solve.status}${row}`]
+    });
+    const [assignStatus, solveStatus] = cur.data.valueRanges.map(v => (v.values && v.values[0] && v.values[0][0]) || '');
+    if (!assignStatus) return res.status(400).json({ error: 'Complaint abhi mechanic ko assign nahi hui' });
+    if (solveStatus) return res.status(400).json({ error: 'Mechanic complaint solve kar chuka hai — ab naya spare add nahi ho sakta' });
+
+    const list = await sfmsTakenItems(sheetsApi, row); // BG list, or the old single BE/Z item
+    const addedAt = sfmsSerialToDate(sfmsDateToSerial(new Date())); // IST, same form as step actuals
+    const addedBy = req.session.name || '';
+    for (const it of clean) {
+      const ex = list.find(x => String(x.item).trim().toLowerCase() === it.item.toLowerCase());
+      if (ex) {
+        ex.qty = String((Number(ex.qty) || 0) + it.qty);
+        ex.addedQty = (Number(ex.addedQty) || 0) + it.qty;
+        ex.addedAt = addedAt; ex.addedBy = addedBy;
+      } else {
+        list.push({ item: it.item, qty: String(it.qty), addedQty: it.qty, addedAt, addedBy });
+      }
+    }
+    const data = [{ range: `'${SFMS_TAB}'!${SFMS_SPARE_OUT_COL}${row}`, values: [[JSON.stringify(list)]] }];
+    // BE/Z keep the first item's values (older reports read only those).
+    data.push({ range: `'${SFMS_TAB}'!BE${row}`, values: [[list[0].item]] }, { range: `'${SFMS_TAB}'!Z${row}`, values: [[list[0].qty]] });
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data }
+    });
+    res.json({ success: true, items: list });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
 // Sends a 6-digit OTP to the customer's WhatsApp; the mechanic must read it
 // from the customer and enter it to mark Step 6 (Complaint Solve) done.
 app.post('/api/service-fms/:row/step/:stepNum/send-otp',
@@ -5380,6 +5442,34 @@ app.put('/api/service-fms/area-zone', requireAuth, requireAdmin, async (req, res
       });
     }
     res.json({ success: true, updated: rows.length, added: rows.length ? 0 : 1 });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Admin: delete an area added by mistake (client, 2026-10-17). Removes every
+// Area-tab row with that name (case-insensitive) — the whole row, so its zone
+// in column B goes too. Complaints already filed with that area keep it.
+app.delete('/api/service-fms/areas', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const area = String((req.body && req.body.area) || req.query.area || '').trim();
+    if (!area) return res.status(400).json({ error: 'Area name is required' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const [meta, r] = await Promise.all([
+      sheetsApi.spreadsheets.get({ spreadsheetId: SFMS_SHEET_ID, fields: 'sheets(properties(sheetId,title))' }),
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_AREA_TAB}'!A2:A` })
+    ]);
+    const tab = meta.data.sheets.find(s => s.properties.title === SFMS_AREA_TAB);
+    if (!tab) return res.status(500).json({ error: `Tab "${SFMS_AREA_TAB}" not found` });
+    const rows = [];
+    (r.data.values || []).forEach((x, i) => { if (String(x[0] || '').trim().toLowerCase() === area.toLowerCase()) rows.push(i + 2); });
+    if (!rows.length) return res.status(404).json({ error: `"${area}" Area list mein nahi mila` });
+    // Bottom-up so earlier deletes don't shift the rows still to go.
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId: SFMS_SHEET_ID,
+      requestBody: { requests: rows.sort((a, b) => b - a).map(n => ({
+        deleteDimension: { range: { sheetId: tab.properties.sheetId, dimension: 'ROWS', startIndex: n - 1, endIndex: n } }
+      })) }
+    });
+    res.json({ success: true, deleted: rows.length });
   } catch (err) { sendServerError(res, err); }
 });
 
