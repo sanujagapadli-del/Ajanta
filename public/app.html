@@ -13251,22 +13251,58 @@ function o2dGoToPage(p) { o2dPage = p; renderO2dActiveView(); }
 
 // Pending orders → Excel (client, 2026-10-16): one line per product, with the
 // step the order is waiting on, its doer and how late it is.
-function exportO2dPending() {
+// Pending Excel in the client's own format (2026-10-17 screenshot): 10
+// columns, beige bold header, borders, wrapped + centred cells — so nobody
+// has to re-format it every time. Built in the browser with exceljs (loaded
+// on first use) to keep the server free.
+let _excelJsP = null;
+function loadExcelJs() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (!_excelJsP) _excelJsP = new Promise((ok, fail) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+    sc.onload = () => ok(window.ExcelJS);
+    sc.onerror = () => { _excelJsP = null; fail(new Error('Excel library load nahi hui — internet check karein')); };
+    document.head.appendChild(sc);
+  });
+  return _excelJsP;
+}
+async function exportO2dPending() {
   if (!Array.isArray(o2dData) || !o2dData.length) { showToast('Orders load ho rahe hain — thoda ruk kar dobara dabayein', 'error'); return; }
   const list = o2dFilteredRows().filter(o => !o.closed);
   if (!list.length) { showToast('Koi pending order nahi', 'error'); return; }
-  const rows = [['Order No', 'Order ID', 'Order Date', 'Counter', 'Area', 'Order By', 'Product', 'Qty', 'Rate', 'Pending Step', 'Doer', 'Planned', 'Days late', 'Status', 'Date to Send', 'Payment Terms', 'Remark']];
-  const now = Date.now();
+  const head = ['Order No', 'Order Date', 'Counter', 'Area', 'Order By', 'Product', 'Qty', 'Rate', 'Pending Step', 'Payment Terms'];
+  const num = v => { const n = Number(String(v ?? '').replace(/[,₹\s]/g, '')); return v !== '' && v != null && isFinite(n) ? n : (v ?? ''); };
+  const rows = [];
   list.forEach(o => {
     const st = o.steps[o.currentStep] || {};
-    const pl = o2dParseDate(st.planned);
-    const late = pl && pl.getTime() < now ? Math.floor((now - pl.getTime()) / 86400000) : '';
-    const status = o.cancelled ? 'Cancelled' : o.onHold ? 'Hold' : '';
-    (o.products || []).filter(p => !p.cancelled).forEach(p => rows.push([o.orderNo, p.orderId || '', fmtDateDMY(o.timestamp, true), o.counterName, o.area || '', o.orderBy || '',
-      p.productName, p.qty, p.rate, `${o.currentStep + 1}. ${st.label || ''}`, (st.doers && st.doers.length ? st.doers.map(d => d.name || d).join(', ') : st.doer) || '',
-      st.planned ? fmtDateDMY(st.planned, true) : '', late, status, o.dateToSend ? fmtDateDMY(o.dateToSend) : '', o.paymentTerms || '', o.remark || '']));
+    (o.products || []).filter(p => !p.cancelled).forEach(p => rows.push([o.orderNo, fmtDateDMY(o.timestamp), o.counterName || '', o.area || '', o.orderBy || '',
+      p.productName, num(p.qty), num(p.rate), `${o.currentStep + 1}. ${st.label || ''}`, o.paymentTerms || '']));
   });
-  csvDownload(rows, `O2D-pending-orders-${stockTodayYmd()}.csv`);
+  const name = `O2D-pending-orders-${stockTodayYmd()}`;
+  let ExcelJS;
+  try { ExcelJS = await loadExcelJs(); }
+  catch (e) { showToast(e.message + ' — CSV de rahe hain', 'error'); csvDownload([head, ...rows], name + '.csv'); return; }
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(name.slice(0, 31), { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = [16, 15, 18, 13, 11, 20, 7, 9, 12, 12].map(width => ({ width }));
+  ws.addRow(head);
+  rows.forEach(r => ws.addRow(r));
+  const thin = { style: 'thin', color: { argb: 'FF000000' } };
+  ws.eachRow((row, n) => {
+    row.eachCell({ includeEmpty: true }, cell => {
+      cell.border = { top: thin, left: thin, bottom: thin, right: thin };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.font = { name: 'Calibri', size: 12, bold: n === 1 };
+      if (n === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDD9C4' } };
+    });
+    if (n === 1) row.height = 36;
+  });
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = name + '.xlsx'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   showToast(`⬇ ${list.length} pending orders`);
 }
 function o2dFilteredRows() {
