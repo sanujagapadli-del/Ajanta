@@ -17817,25 +17817,31 @@ async function loadMh() {
   sel.innerHTML = '<option value="">All cities</option>' + cities.map(c => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('');
   renderMh();
 }
-const MH_FREQ_LABEL = { weekly: 'Har hafte', '15days': 'Har 15 din', monthly: 'Har mahine', yearly: 'Har saal', once: 'Sirf ek din' };
+const MH_FREQ_LABEL = { weekly: 'Har hafte (din chunein)', monthly: 'Har mahine (tareekh chunein — jaise 15 aur 30)', '15days': 'Har 15 din (kisi tareekh se gin kar)', yearly: 'Har saal', once: 'Sirf ek din' };
 function mhClosedOn(h, ymd) {
   const d = new Date(ymd + 'T00:00:00'), dow = d.getDay() === 0 ? 7 : d.getDay();
   if (h.freq === 'weekly') return h.weekdays.includes(dow);
+  if (h.freq === 'monthly') { const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); return (h.monthDays || []).some(n => Math.min(n, last) === d.getDate()); }
   if (!h.onDate) return false;
   const a = new Date(h.onDate + 'T00:00:00');
   if (h.freq === 'once') return ymd === h.onDate;
   if (h.freq === 'yearly') return ymd.slice(5) === h.onDate.slice(5);
-  if (h.freq === 'monthly') return d.getDate() === a.getDate();
+  if (h.freq === 'monthly') {
+    // A date the month doesn't have (30 in Feb) falls on its last day.
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    return (h.monthDays || []).some(n => Math.min(n, last) === d.getDate());
+  }
   if (h.freq === '15days') { const diff = Math.round((d - a) / 86400000); return diff >= 0 && diff % 15 === 0; }
   return false;
 }
 function mhWhen(h) {
   if (h.freq === 'weekly') return 'Har ' + h.weekdays.map(n => MH_DAYS[n]).join(', ');
+  if (h.freq === 'monthly') return `Har mahine ${(h.monthDays || []).join(' aur ')} tareekh`;
   if (!h.onDate) return '—';
   const a = new Date(h.onDate + 'T00:00:00');
   if (h.freq === 'once') return fmtDateDMY(h.onDate);
   if (h.freq === 'yearly') return `Har saal ${a.getDate()} ${a.toLocaleDateString('en-IN', { month: 'short' })}`;
-  if (h.freq === 'monthly') return `Har mahine ${a.getDate()} tareekh`;
+  if (h.freq === 'monthly') return `Har mahine ${(h.monthDays || []).join(' aur ')} tareekh`;
   return `Har 15 din (${fmtDateDMY(h.onDate)} se)`;
 }
 function renderMh() {
@@ -17858,18 +17864,20 @@ function renderMh() {
       </tbody></table></div></div>`).join('') : '<div class="empty">Abhi koi holiday nahi daala gaya. "+ Add Holiday" se jodiye.</div>');
 }
 function openMhForm(id) {
-  const h = id ? mhData.items.find(x => x.id === id) : { city: document.getElementById('mhCity').value, kind: 'Market', placeName: '', freq: 'weekly', weekdays: [], onDate: '', remark: '' };
+  const h = id ? mhData.items.find(x => x.id === id) : { city: document.getElementById('mhCity').value, kind: 'Market', placeName: '', freq: 'weekly', weekdays: [], monthDays: [], onDate: '', remark: '' };
   const cities = [...new Set(mhData.items.map(x => x.city))];
   vrlModal('mhModal', `${scotModalHead('mhModal', id ? '✏️ Holiday badlein' : '＋ Market / Shop holiday')}
     <datalist id="mhCityList">${cities.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <div><label style="font-size:12px;font-weight:600">City *</label><input id="mhFCity" list="mhCityList" value="${esc(h.city)}" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Kya band hai?</label><select id="mhFKind" style="${VRL_IN}"><option value="Market" ${h.kind !== 'Shop' ? 'selected' : ''}>🛒 Poora market</option><option value="Shop" ${h.kind === 'Shop' ? 'selected' : ''}>🏪 Ek dukaan</option></select></div></div>
-    <label style="font-size:12px;font-weight:600">Market / dukaan ka naam *</label><input id="mhFPlace" value="${esc(h.placeName)}" placeholder="e.g. Johari Bazar / Sharma Electricals" style="${VRL_IN};margin-bottom:10px"/>
+    <label style="font-size:12px;font-weight:600">Market / dukaan ka naam <span style="font-weight:400;color:var(--gray-500)">(poora shehar band ho to khaali chhodein)</span></label><input id="mhFPlace" value="${esc(h.placeName === 'Poora market' ? '' : h.placeName)}" placeholder="e.g. Johari Bazar / Sharma Electricals" style="${VRL_IN};margin-bottom:10px"/>
     <label style="font-size:12px;font-weight:600">Kitni baar band hota hai?</label>
     <select id="mhFFreq" onchange="mhFreqChanged()" style="${VRL_IN};margin-bottom:10px">${Object.entries(MH_FREQ_LABEL).map(([k, l]) => `<option value="${k}" ${(h.freq || 'weekly') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <div id="mhFWeekly"><label style="font-size:12px;font-weight:600">Hafte ka din</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5, 6, 7].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="mh-day" value="${n}" ${h.weekdays.includes(n) ? 'checked' : ''}/> ${MH_DAYS[n]}</label>`).join('')}</div></div>
+    <div id="mhFMonthly"><label style="font-size:12px;font-weight:600">Mahine ki kaunsi tareekh? <span style="font-weight:400;color:var(--gray-500)">(ek se zyada chun sakte hain, jaise 15 aur 30)</span></label>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:4px 0 10px">${Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<label style="display:flex;align-items:center;justify-content:center;gap:3px;font-size:12px;border:1px solid var(--gray-200);border-radius:7px;padding:5px 0;cursor:pointer"><input type="checkbox" class="mh-mday" value="${n}" ${(h.monthDays || []).includes(n) ? 'checked' : ''} style="margin:0"/>${n}</label>`).join('')}</div></div>
     <div id="mhFDateWrap"><label style="font-size:12px;font-weight:600" id="mhFDateLabel">Tareekh</label><input type="date" id="mhFDate" value="${esc(h.onDate || '')}" style="${VRL_IN};margin:4px 0 10px"/></div>
     <label style="font-size:12px;font-weight:600">Remark</label><input id="mhFRemark" value="${esc(h.remark)}" style="${VRL_IN};margin-bottom:10px"/>
     <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveMh(${id || 0},this)">✓ Save</button>`, 520);
@@ -17878,12 +17886,13 @@ function openMhForm(id) {
 function mhFreqChanged() {
   const f = document.getElementById('mhFFreq').value;
   document.getElementById('mhFWeekly').style.display = f === 'weekly' ? '' : 'none';
-  document.getElementById('mhFDateWrap').style.display = f === 'weekly' ? 'none' : '';
-  document.getElementById('mhFDateLabel').textContent = f === 'once' ? 'Kis tareekh ko band hai?' : f === 'yearly' ? 'Kis tareekh ko (har saal isi din)' : f === 'monthly' ? 'Kis tareekh ko (har mahine isi tareekh)' : 'Pehli band tareekh (phir har 15 din)';
+  document.getElementById('mhFMonthly').style.display = f === 'monthly' ? '' : 'none';
+  document.getElementById('mhFDateWrap').style.display = f === 'weekly' || f === 'monthly' ? 'none' : '';
+  document.getElementById('mhFDateLabel').textContent = f === 'once' ? 'Kis tareekh ko band hai?' : f === 'yearly' ? 'Kis tareekh ko (har saal isi din)' : 'Pehli band tareekh (phir har 15 din)';
 }
 async function saveMh(id, btn) {
   const v = x => document.getElementById(x).value.trim();
-  const body = { city: v('mhFCity'), kind: v('mhFKind'), placeName: v('mhFPlace'), freq: v('mhFFreq'), weekdays: [...document.querySelectorAll('.mh-day:checked')].map(c => Number(c.value)), onDate: v('mhFDate'), remark: v('mhFRemark') };
+  const body = { city: v('mhFCity'), kind: v('mhFKind'), placeName: v('mhFPlace'), freq: v('mhFFreq'), weekdays: [...document.querySelectorAll('.mh-day:checked')].map(c => Number(c.value)), onDate: v('mhFDate'), monthDays: [...document.querySelectorAll('.mh-mday:checked')].map(c => Number(c.value)), remark: v('mhFRemark') };
   const restore = btnLoading(btn, 'Saving…');
   const r = await api(id ? `/api/market-holidays/${id}` : '/api/market-holidays', id ? 'PUT' : 'POST', body);
   restore();

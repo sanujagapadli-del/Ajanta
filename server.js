@@ -13700,7 +13700,7 @@ async function mhTable() {
     created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_by INT, updated_at DATETIME, KEY (city)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   // Frequency (client, 2026-10-17): weekly / every 15 days / monthly / yearly / one date.
-  await addMissingColumns('market_holidays', [['freq', "VARCHAR(10) NOT NULL DEFAULT 'weekly'"], ['on_date', 'DATE']]);
+  await addMissingColumns('market_holidays', [['freq', "VARCHAR(10) NOT NULL DEFAULT 'weekly'"], ['on_date', 'DATE'], ['month_days', 'VARCHAR(100)']]);
   _mhOk = true;
 }
 const MH_FREQS = ['weekly', '15days', 'monthly', 'yearly', 'once'];
@@ -13709,11 +13709,15 @@ function mhClean(b) {
   const days = (Array.isArray(b.weekdays) ? b.weekdays : String(b.weekdays || '').split(','))
     .map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= 7);
   const r = { city: str(b.city, 120), kind: b.kind === 'Shop' ? 'Shop' : 'Market', place: str(b.placeName, 255), freq: MH_FREQS.includes(b.freq) ? b.freq : 'weekly',
-    weekdays: [...new Set(days)].sort().join(','), onDate: /^\d{4}-\d{2}-\d{2}$/.test(String(b.onDate || '')) ? b.onDate : null, remark: str(b.remark, 500) };
+    weekdays: [...new Set(days)].sort().join(','), onDate: /^\d{4}-\d{2}-\d{2}$/.test(String(b.onDate || '')) ? b.onDate : null, remark: str(b.remark, 500),
+    // Monthly: one or more dates of the month (client video, 2026-10-17: "every 15th and 30th").
+    monthDays: [...new Set((Array.isArray(b.monthDays) ? b.monthDays : String(b.monthDays || '').split(',')).map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= 31))].sort((x, y) => x - y).join(',') };
   if (!r.city) return { error: 'City likhein' };
-  if (!r.place) return { error: r.kind === 'Shop' ? 'Dukaan ka naam likhein' : 'Market ka naam likhein' };
-  if (r.freq === 'weekly') { if (!r.weekdays) return { error: 'Hafte ka din chunein' }; r.onDate = null; }
-  else { if (!r.onDate) return { error: r.freq === 'once' ? 'Tareekh chunein' : 'Pehli band tareekh chunein' }; r.weekdays = ''; }
+  // A whole-city market closure needs no market name.
+  if (!r.place) { if (r.kind === 'Shop') return { error: 'Dukaan ka naam likhein' }; r.place = 'Poora market'; }
+  if (r.freq === 'weekly') { if (!r.weekdays) return { error: 'Hafte ka din chunein' }; r.onDate = null; r.monthDays = ''; }
+  else if (r.freq === 'monthly') { if (!r.monthDays) return { error: 'Mahine ki tareekh chunein (jaise 15 aur 30)' }; r.onDate = null; r.weekdays = ''; }
+  else { if (!r.onDate) return { error: r.freq === 'once' ? 'Tareekh chunein' : 'Pehli band tareekh chunein' }; r.weekdays = ''; r.monthDays = ''; }
   return r;
 }
 app.get('/api/market-holidays', requireAuth, async (req, res) => {
@@ -13723,7 +13727,8 @@ app.get('/api/market-holidays', requireAuth, async (req, res) => {
     const [rows] = await db.query(`SELECT h.*, DATE_FORMAT(h.on_date,'%Y-%m-%d') AS on_date, DATE_FORMAT(h.from_date,'%Y-%m-%d') AS from_date,
       DATE_FORMAT(h.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, u.name AS by_name FROM market_holidays h LEFT JOIN users u ON u.id=h.created_by ORDER BY h.city, h.place_name`);
     res.json({ items: rows.map(h => ({ id: h.id, city: h.city, kind: h.kind, placeName: h.place_name, weekdays: h.weekdays ? h.weekdays.split(',').map(Number) : [],
-      freq: h.freq || 'weekly', onDate: h.on_date || h.from_date || null, remark: h.remark || '', createdAt: h.created_at, by: h.by_name || '' })), isAdmin: req.session.role === 'admin' });
+      freq: h.freq || 'weekly', onDate: h.on_date || h.from_date || null,
+      monthDays: h.month_days ? h.month_days.split(',').map(Number) : (h.freq === 'monthly' && h.on_date ? [Number(String(h.on_date).slice(8, 10))] : []), remark: h.remark || '', createdAt: h.created_at, by: h.by_name || '' })), isAdmin: req.session.role === 'admin' });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/market-holidays', requireAuth, async (req, res) => {
@@ -13732,8 +13737,8 @@ app.post('/api/market-holidays', requireAuth, async (req, res) => {
     await mhTable();
     const r = mhClean(req.body || {});
     if (r.error) return res.status(400).json(r);
-    await db.query('INSERT INTO market_holidays (city, kind, place_name, freq, weekdays, on_date, remark, created_by) VALUES (?,?,?,?,?,?,?,?)',
-      [r.city, r.kind, r.place, r.freq, r.weekdays || null, r.onDate, r.remark || null, req.session.userId]);
+    await db.query('INSERT INTO market_holidays (city, kind, place_name, freq, weekdays, on_date, month_days, remark, created_by) VALUES (?,?,?,?,?,?,?,?,?)',
+      [r.city, r.kind, r.place, r.freq, r.weekdays || null, r.onDate, r.monthDays || null, r.remark || null, req.session.userId]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -13742,8 +13747,8 @@ app.put('/api/market-holidays/:id', requireAuth, requireAdmin, async (req, res) 
     await mhTable();
     const r = mhClean(req.body || {});
     if (r.error) return res.status(400).json(r);
-    await db.query('UPDATE market_holidays SET city=?, kind=?, place_name=?, freq=?, weekdays=?, on_date=?, from_date=NULL, to_date=NULL, remark=?, updated_by=?, updated_at=NOW() WHERE id=?',
-      [r.city, r.kind, r.place, r.freq, r.weekdays || null, r.onDate, r.remark || null, req.session.userId, Number(req.params.id)]);
+    await db.query('UPDATE market_holidays SET city=?, kind=?, place_name=?, freq=?, weekdays=?, on_date=?, month_days=?, from_date=NULL, to_date=NULL, remark=?, updated_by=?, updated_at=NOW() WHERE id=?',
+      [r.city, r.kind, r.place, r.freq, r.weekdays || null, r.onDate, r.monthDays || null, r.remark || null, req.session.userId, Number(req.params.id)]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
