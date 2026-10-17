@@ -10384,10 +10384,14 @@ app.post('/api/replacement-fms', requireAuth, async (req, res) => {
     const t = (v, n = 500) => String(v || '').trim().slice(0, n);
     const party = t(b.partyName, 255), items = t(b.items, 2000), defect = t(b.defect, 1000);
     if (!party || !items || !defect) return res.status(400).json({ error: 'Party name, item & quantity and defect are required' });
-    if (!b.photo) return res.status(400).json({ error: 'Product photo is required' });
+    // Several product photos (client, 2026-10-17); old clients still send one `photo`.
+    const photos = (Array.isArray(b.photos) ? b.photos : [b.photo]).filter(p => typeof p === 'string' && p.startsWith('data:image/')).slice(0, 6);
+    if (!photos.length) return res.status(400).json({ error: 'Product photo is required' });
     await ensureReplTables();
     const code = await nextReplCode();
-    const photoUrl = await uploadPhotoToDrive(b.photo, `${code}-product-${Date.now()}.jpg`);
+    const urls = [];
+    for (const [i, p] of photos.entries()) urls.push(await uploadPhotoToDrive(p, `${code}-product-${Date.now()}-${i + 1}.jpg`));
+    const photoUrl = urls.join('\n').slice(0, 1000); // photo_url VARCHAR(1000); rplPhoto() splits on newlines
     const mobile = t(b.customerMobile, 30) || await replDealerPhone(party);
     // Whose counter it is (client, 2026-10-13) — told when the item is ready.
     let salesman = null;

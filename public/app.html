@@ -3808,7 +3808,8 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="form-group"><label>Product Defect <span style="color:var(--color-danger)">*</span></label>
       <input type="text" id="rfDefect" placeholder="प्रोडक्ट की खराबी — e.g. not working, tuta hua" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>Product Photo <span style="color:var(--color-danger)">*</span> <span style="font-weight:400;color:var(--gray-400)">(saare pcs ek saath rakh kar)</span></label>
-      <input type="file" id="rfPhoto" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'rfPhotoPreview')" style="width:100%;font-size:13px"/>
+      <input type="file" id="rfPhoto" accept="image/*" multiple onchange="onRfPhotosSelected(this)" style="width:100%;font-size:13px"/>
+      <div style="font-size:11px;color:var(--gray-400);margin-top:2px">Ek saath kai photos chun sakte hain (max 6) — camera ya gallery / PC se.</div>
       <div id="rfPhotoPreview" style="font-size:12px;margin-top:4px"></div></div>
     <div class="form-group"><label>Salesman <span style="font-weight:400;color:var(--gray-400)">(kiska counter hai)</span></label>
       <select id="rfSalesman" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"><option value="">-- Select --</option></select></div>
@@ -21756,7 +21757,7 @@ function openNewReplModal() {
   ['rfParty', 'rfMobile', 'rfItems', 'rfDefect', 'rfBroughtBy', 'rfRemark'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('rfCondition').value = 'Full Product';
   document.getElementById('rfType').value = 'Used Product';
-  const ph = document.getElementById('rfPhoto'); ph.value = ''; ph.dataset.compressed = '';
+  const ph = document.getElementById('rfPhoto'); ph.value = ''; _rfPhotos = [];
   document.getElementById('rfPhotoPreview').innerHTML = '';
   document.getElementById('rfErr').style.display = 'none';
   document.getElementById('newReplModal').classList.add('open');
@@ -21776,13 +21777,36 @@ async function loadReplSalesmen() {
   const sales = act.filter(isSales), rest = act.filter(u => !isSales(u));
   sel.innerHTML = '<option value="">-- Select --</option>' + (sales.length ? `<optgroup label="Sales">${sales.map(opt).join('')}</optgroup><optgroup label="Others">${rest.map(opt).join('')}</optgroup>` : rest.map(opt).join(''));
 }
+// Product photos (client, 2026-10-17): several at once, from camera, gallery or a
+// PC — the CRM desk gets them on WhatsApp, so the "fresh photo only" rule
+// (no capture attr here) doesn't apply. Kept small: the request must stay < 4.5 MB.
+const RF_MAX_PHOTOS = 6;
+let _rfPhotos = [];
+async function onRfPhotosSelected(input) {
+  const preview = document.getElementById('rfPhotoPreview');
+  const files = [...(input.files || [])].slice(0, RF_MAX_PHOTOS);
+  _rfPhotos = [];
+  if (!files.length) { preview.innerHTML = ''; return; }
+  if ((input.files || []).length > RF_MAX_PHOTOS) showToast(`Sirf pehli ${RF_MAX_PHOTOS} photos li gayi`, 'error');
+  preview.textContent = 'Compressing…';
+  const budget = 3400000 / files.length;
+  for (const f of files) {
+    try {
+      let d = await compressImageToDataURL(f, 1400, 0.72);
+      if (d.length > budget) d = await compressImageToDataURL(f, 1000, 0.6);
+      if (d.length > budget) d = await compressImageToDataURL(f, 800, 0.5);
+      _rfPhotos.push(d);
+    } catch (e) { showToast(`⚠️ ${f.name} padh nahi paaye`, 'error'); }
+  }
+  preview.innerHTML = _rfPhotos.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${_rfPhotos.map(d => `<img src="${d}" style="height:90px;border-radius:8px;border:1px solid var(--gray-200)"/>`).join('')}</div><div style="margin-top:4px;color:var(--gray-500)">${_rfPhotos.length} photo</div>` : '⚠️ Koi photo nahi padh paaye';
+}
 async function submitNewRepl() {
   const err = document.getElementById('rfErr');
   err.style.display = 'none';
   const v = id => document.getElementById(id).value.trim();
   const body = { partyName: v('rfParty'), customerMobile: v('rfMobile'), items: v('rfItems'), condition: v('rfCondition'), productType: v('rfType'),
-    defect: v('rfDefect'), broughtBy: v('rfBroughtBy'), remark: v('rfRemark'), salesmanUserId: v('rfSalesman'), photo: document.getElementById('rfPhoto').dataset.compressed || '' };
-  const miss = !body.partyName ? 'Party name' : !body.items ? 'Item name & quantity' : !body.defect ? 'Product defect' : !body.photo ? 'Product photo' : !body.broughtBy ? 'Who brought the product' : '';
+    defect: v('rfDefect'), broughtBy: v('rfBroughtBy'), remark: v('rfRemark'), salesmanUserId: v('rfSalesman'), photos: _rfPhotos.slice() };
+  const miss = !body.partyName ? 'Party name' : !body.items ? 'Item name & quantity' : !body.defect ? 'Product defect' : !body.photos.length ? 'Product photo' : !body.broughtBy ? 'Who brought the product' : '';
   if (miss) { err.textContent = `${miss} is required`; err.style.display = 'block'; return; }
   const btn = document.getElementById('rfSubmitBtn');
   btn.disabled = true; btn.textContent = '⏳ Saving…';
@@ -21805,6 +21829,8 @@ function openReplDetail(id) {
 }
 function rplPhoto(url, h) {
   if (!url) return '';
+  // Several product photos are stored newline-separated (client, 2026-10-17).
+  if (url.includes('\n')) return `<div style="display:flex;gap:8px;flex-wrap:wrap">${url.split('\n').filter(Boolean).map(u => `<div style="flex:0 1 160px">${rplPhoto(u, h || 140)}</div>`).join('')}</div>`;
   if (url.includes('/api/drive-file/')) return `<a href="${esc(url)}" target="_blank"><img src="${esc(url)}" loading="lazy" style="max-width:100%;max-height:${h || 200}px;border-radius:10px;border:1px solid var(--gray-200);display:block"/></a>`;
   return `<a href="${esc(url)}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">🖼 Open photo</a>`;
 }
