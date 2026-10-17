@@ -12192,6 +12192,7 @@ const LEAD_CALL_OUTCOMES = {
   'Order Mil Gaya': { close: 'Order' },
   'Salesman Bhejo': { visit: 'Visit' },
   'Sample Leke Bhejo': { visit: 'Sample' },
+  'Catalogue Manga': { recall: true },   // send catalogue (WhatsApp tick on the call form) + call back on the next-call date
   'Baad Me Call Karo': { recall: true },
   'Phone Nahi Utha': { recall: true },
   'Requirement Nahi': { close: 'No Requirement' }

@@ -19941,7 +19941,16 @@ const LEAD_STAGE = {
   lost:      { label: 'Closed',          bg: 'var(--gray-100)', fg: 'var(--gray-600)' },
   cancelled: { label: 'Cancelled',       bg: 'var(--gray-100)', fg: 'var(--gray-500)' }
 };
-const LEAD_RECALL = ['Baad Me Call Karo', 'Phone Nahi Utha'];
+const LEAD_RECALL = ['Catalogue Manga', 'Baad Me Call Karo', 'Phone Nahi Utha'];
+// 'Catalogue Manga' = catalogue bhejo + agli call fix karo. Ticks the existing
+// 'Catalogue WhatsApp par bhejo' box (server sends it) and shows a hint.
+function leadCallOutcomeChange(sel, id) {
+  const recall = LEAD_RECALL.includes(sel.value), cat = sel.value === 'Catalogue Manga';
+  const ncw = document.getElementById(id + '_ncw'); if (ncw) ncw.style.display = recall ? '' : 'none';
+  const send = document.getElementById(id + '_send'); if (send && cat) send.checked = true;
+  const hint = document.getElementById(id + '_cathint');
+  if (hint) { hint.style.display = cat ? '' : 'none'; hint.textContent = send ? '📚 Catalogue WhatsApp par chala jayega (niche tick hai) — agli call ki date daal dein.' : '📚 Catalogue bhej kar "Catalogue bhej diya" tick karein — agli call ki date daal dein.'; }
+}
 
 let leadData = [];
 let leadMe = { seeAll: false, mySteps: [], isAdmin: false, pageAccess: false };
@@ -20306,11 +20315,231 @@ function renderLeadReports() {
   }
 }
 
+// ── Visiting card OCR (client, 2026-10-17): card photo pick → free in-browser
+// OCR (tesseract.js, lazy-loaded from jsDelivr on first use) → fill the EMPTY
+// New Lead fields. Never blocks saving; failures only show a status line.
+// PARSER-START
+function parseVisitingCardText(text) {
+  const out = { mobiles: [], email: '', company: '', person: '', address: '', city: '', strong: false };
+  if (!text) return out;
+  const COMPANY_RX = /\b(enterprises?|traders?|trading|electricals?|electric|electronics?|agenc(?:y|ies)|appliances?|stores?|sales|corporation|corp|company|pvt|private|ltd|limited|llp|mart|house|emporium|distributors?|industries|centre|center|gallery|world|point|solutions?|marketing|brothers|bros|sons|hardware|sanitary|shoppe?|collections?|associates|international|impex|exports?|suppliers?|dealers?|bhandar|bhawan|udyog)\b|&\s*co\b|\bm\/s\b/i;
+  const ADDR_RX = /\b(road|rd|nagar|market|mkt|colony|street|st|marg|ward|sector|sec|plot|shop\s*no|no\.|near|nr|opp|opposite|bazar|bazaar|chowk|gali|mohalla|complex|tower|floor|chauraha|circle|puram|vihar|enclave|gate|lane|block|phase|dist|distt|district|tehsil|bypass|highway|nh|main|area|sadan|plaza|niwas|path|ganj|pura|garh|basti|mandi|kunj|park|scheme|raj\.?|rajasthan)\b/i;
+  const CONTACT_RX = /(@|www\.|\.com\b|\.in\b|https?:|\b(mob|mobile|ph|phone|tel|cell|contact|whatsapp|email|e-mail|gst|gstin)\b)/i;
+  const PERSON_PREFIX_RX = /^\s*(prop(?:rietor)?|propr|mr|mrs|ms|shri|sh|smt|owner|director|partner|manager|contact\s*person|name)(?![A-Za-z])\.?\s*[:\-.]*\s*/i;
+  const DESIG_RX = /\b(prop(?:rietor)?|propr|owner|director|partner|manager|proprietor|ceo|md|sales\s*executive)\b\.?/i;
+  const CITIES = ['Jaipur', 'Jodhpur', 'Udaipur', 'Kota', 'Ajmer', 'Bikaner', 'Alwar', 'Bhilwara', 'Sikar', 'Tonk', 'Dausa', 'Bharatpur', 'Jhunjhunu', 'Churu', 'Nagaur', 'Pali', 'Barmer', 'Jaisalmer', 'Chittorgarh', 'Sawai Madhopur', 'Hanumangarh', 'Sri Ganganagar', 'Ganganagar', 'Kishangarh', 'Beawar', 'Bundi', 'Jhalawar', 'Baran', 'Karauli', 'Dholpur', 'Rajsamand', 'Banswara', 'Dungarpur', 'Pratapgarh', 'Sirohi', 'Jalore', 'Chomu', 'Shahpura', 'Kotputli', 'Behror', 'Phulera', 'Bagru', 'Chaksu', 'Bassi', 'Niwai', 'Malpura', 'Hindaun', 'Gangapur', 'Lalsot', 'Fatehpur', 'Nawalgarh', 'Ratangarh', 'Sujangarh', 'Makrana', 'Kuchaman', 'Didwana', 'Merta', 'New Delhi', 'Delhi', 'Mumbai', 'Ahmedabad', 'Agra', 'Gurgaon', 'Gurugram', 'Noida', 'Indore', 'Bhopal', 'Lucknow', 'Kolkata', 'Chennai', 'Bangalore', 'Bengaluru', 'Hyderabad', 'Pune', 'Surat', 'Vadodara', 'Rajkot', 'Chandigarh', 'Ludhiana', 'Kanpur', 'Gwalior', 'Ghaziabad', 'Faridabad', 'Mathura', 'Aligarh', 'Meerut', 'Rewari', 'Hisar'];
+  const SLOGAN_RX = /\b(namah|ganesh(?:a|ay|aya)?|jai\s+(?:shree|shri|mata)|shri\s+ram|radhe|om\s+sai|swagatam|welcome|since\s+\d{4})\b/i;
+  const titleCase = s => s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+  const tidy = s => s.replace(/\s+/g, ' ').replace(/^[\s,;:|\-–.•*·]+|[\s,;:|\-–•*·&]+$/g, '').trim();
+  // OCR noise: O/o/l/I inside digit runs.
+  const fixDigits = s => { for (let k = 0; k < 2; k++) s = s.replace(/(\d[\s-]?)[Oo](?=[\d\s-]*\d)/g, (m, a) => a + '0').replace(/(\d)[lI|](?=\d)/g, (m, a) => a + '1'); return s; };
+  const lines = String(text).split(/\r?\n/).map(l => tidy(fixDigits(l))).filter(l => {
+    if (l.length < 2) return false;
+    const good = (l.match(/[A-Za-z0-9]/g) || []).length;
+    return good >= 2 && good / l.length >= 0.5;
+  });
+  const all = lines.join('\n');
+
+  // Mobiles: 10 digits starting 6-9, optional +91 / 91 / 0 prefix, spaces/dashes/dots allowed.
+  const seen = new Set();
+  const addMob = d => { if (/^[6-9]\d{9}$/.test(d) && !seen.has(d)) { seen.add(d); out.mobiles.push(d); } };
+  (all.match(/\+?\d[\d\s\-.()]{7,30}\d/g) || []).forEach(run => {
+    // A run can hold two numbers ("98290 12345 94140 54321") — split on wide gaps first.
+    run.split(/\s{2,}|\s*[\/,]\s*/).forEach(part => {
+      let d = part.replace(/\D/g, '');
+      if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+      else if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+      if (d.length === 10) return addMob(d);
+      if (d.length > 12) {
+        for (let i = 0; i + 10 <= d.length;) {
+          let s = d.slice(i);
+          if (s.startsWith('91') && /^[6-9]/.test(s[2] || '') && s.length >= 12) { i += 2; s = s.slice(2); }
+          else if (s.startsWith('0') && /^[6-9]/.test(s[1] || '')) { i += 1; s = s.slice(1); }
+          if (/^[6-9]\d{9}/.test(s)) { addMob(s.slice(0, 10)); i += 10; } else i += 1;
+        }
+      }
+    });
+  });
+
+  const em = all.match(/[A-Za-z0-9._%+-]+\s?@\s?[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+  if (em) out.email = em[0].replace(/\s/g, '').toLowerCase();
+
+  // Classify every line.
+  const pinRx = /\b[1-8]\d{2}\s?\d{3}\b/;
+  const info = lines.map((l, i) => {
+    const digits = (l.match(/\d/g) || []).length;
+    const letters = (l.match(/[A-Za-z]/g) || []).length;
+    const phoneHeavy = digits >= 8 && digits > letters;
+    const isContact = CONTACT_RX.test(l) || phoneHeavy;
+    const hasPin = pinRx.test(l.replace(/[6-9]\d{9}/g, ''));
+    const isAddr = !phoneHeavy && (hasPin || ADDR_RX.test(l) || /\b(add(?:ress)?|addr)\b\.?\s*[:\-]/i.test(l));
+    const isCompany = COMPANY_RX.test(l) && !/@|www\./i.test(l);
+    const hasPrefix = PERSON_PREFIX_RX.test(l) && !/^\s*(name)\b/i.test(l) || /\((?:prop|proprietor|owner|director|partner)\.?\)/i.test(l);
+    // Name-like after dropping phone numbers ("Sunil Agarwal 98290 12345").
+    const bare = tidy(l.replace(/\+?\d[\d\s\-]{7,}\d/g, ' ').replace(/\b(mob|mobile|ph|cell)\b\.?\s*:?/gi, ' '));
+    const words = bare.replace(/[.,]/g, ' ').trim().split(/\s+/);
+    const nameLike = !/\d/.test(bare) && words.length >= 2 && words.length <= 4 && words.every(w => /^[A-Za-z][A-Za-z'.-]*$/.test(w) && w.length <= 15) &&
+      words.filter(w => w.length > 1).every(w => /^[A-Z]/.test(w)) && !isCompany && !ADDR_RX.test(l) && !CONTACT_RX.test(l) && !SLOGAN_RX.test(l);
+    return { l, i, bare, digits, letters, isContact, hasPin, isAddr, isCompany, hasPrefix, nameLike };
+  });
+
+  // Company: line with a trade word (stronger if it is near the top), else topmost "clean" line.
+  const comp = info.find(x => x.isCompany && !x.isContact && !x.hasPin && x.letters >= 4 && !/^(deals?\s+in|dealers?\s+in|authori[sz]ed|all\s+kinds?)/i.test(x.l) && !SLOGAN_RX.test(x.l))
+    || info.find(x => !x.isContact && !x.isAddr && !x.hasPrefix && x.letters >= 4 && x.digits <= 2 && !/^(deals?\s+in|dealers?\s+in|authori[sz]ed)/i.test(x.l) && !SLOGAN_RX.test(x.l));
+  // "SHARMA" / "Home Appliances & Sales" printed on two lines → one name.
+  const above = comp && comp.isCompany && info[comp.i - 1];
+  const compText = above && !above.isContact && !above.isAddr && !above.hasPrefix && !above.digits && above.letters >= 3 && above.l.split(/\s+/).length <= 2 && above.l === above.l.toUpperCase()
+    ? above.l + ' ' + comp.l : comp && comp.l;
+  if (comp) out.company = tidy(compText.replace(/^\s*m\s*\/\s*s\.?\s*/i, '').replace(/\s*[|•].*$/, ''));
+
+  // Person: prefixed line > line just above a bare designation > name-like line.
+  let per = info.find(x => x.hasPrefix && x !== comp && !x.isAddr);
+  let perText = '';
+  if (per) {
+    perText = per.l.replace(PERSON_PREFIX_RX, '').replace(/\(.*?\)/g, '').replace(/[-–,:]\s*(prop(?:rietor)?|propr|owner|director|partner|manager)\.?\s*$/i, '').replace(DESIG_RX, '');
+    perText = perText.replace(/[\d+].*$/, '');
+    if (tidy(perText).length < 3) {
+      const prev = info[per.i - 1];
+      perText = prev && prev.nameLike ? prev.l : '';
+    }
+  }
+  if (!tidy(perText)) {
+    const bare = info.find(x => /^\(?\s*(prop(?:rietor)?|propr|owner|director|partner|manager)\.?\s*\)?$/i.test(x.l));
+    const prev = bare && info[bare.i - 1];
+    if (prev && !prev.isContact && !prev.isAddr && prev.digits === 0 && prev !== comp) perText = prev.l;
+  }
+  if (!tidy(perText)) {
+    const nl = info.find(x => x.nameLike && x !== comp);
+    if (nl) perText = nl.bare;
+  }
+  perText = tidy(perText.replace(DESIG_RX, ''));
+  if (perText && perText.length <= 40) out.person = perText === perText.toUpperCase() ? titleCase(perText) : perText;
+
+  // Address: every address-ish line (minus labels / phone bits), joined.
+  const addrParts = info.filter(x => x.isAddr && x !== comp && !x.hasPrefix).map(x => tidy(x.l
+    .replace(/\b(shop\s+)?add(?:ress)?\.?\s*[:\-]\s*/i, '').replace(/\baddr\.?\s*[:\-]\s*/i, '')
+    .replace(/\b(mob|mobile|ph|phone|tel|cell)\b\.?\s*(no\.?)?\s*[:\-]?\s*[\d\s+\-\/,]{8,}/gi, '')
+    .replace(/(\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}/g, '')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, ''))).filter(s => s.length >= 3);
+  out.address = addrParts.join(', ').replace(/,\s*,/g, ',').slice(0, 200);
+
+  // City: a known city on an address line (or anywhere), else the word before the PIN.
+  const hay = (addrParts.join(' ') + '\n' + all);
+  // Earliest known city wins, but "Distt. Jaipur", "(Tonk)" and "Tonk Road" lose to the town itself.
+  let best = null;
+  for (const c of CITIES) {
+    const rx = new RegExp('\\b' + c.replace(' ', '\\s*') + '\\b', 'gi');
+    let m;
+    while ((m = rx.exec(hay))) {
+      const before = hay.slice(Math.max(0, m.index - 12), m.index), after = hay.slice(m.index + m[0].length, m.index + m[0].length + 12);
+      const weak = /(dist(?:t|rict)?\.?|\()\s*$/i.test(before) || /^\s*(road|rd|bypass|marg|highway|\))/i.test(after);
+      const score = m.index + (weak ? 100000 : 0);
+      if (!best || score < best.score) best = { c, score };
+    }
+  }
+  if (best) out.city = best.c;
+  if (!out.city) {
+    const m = addrParts.join(', ').match(/([A-Za-z][A-Za-z]{2,20})\s*(?:\(\s*[A-Za-z.]+\s*\))?\s*[-–,:]?\s*[1-8]\d{2}\s?\d{3}\b/);
+    if (m && !ADDR_RX.test(m[1])) out.city = titleCase(m[1]);
+  }
+
+  out.strong = !!(out.mobiles.length || out.email || (comp && comp.isCompany) || info.some(x => x.hasPin));
+  return out;
+}
+// PARSER-END
+
+let _tessPromise = null, _tessWorker = null, _leadOcrSeq = 0;
+function loadTesseractWorker() {
+  if (_tessWorker) return Promise.resolve(_tessWorker);
+  if (!_tessPromise) {
+    _tessPromise = new Promise((resolve, reject) => {
+      if (window.Tesseract) return resolve();
+      const el = document.createElement('script');
+      el.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+      el.onload = resolve; el.onerror = () => reject(new Error('OCR library load nahi hui'));
+      document.head.appendChild(el);
+    }).then(() => window.Tesseract.createWorker('eng', 1, {
+      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+      corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+      langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int'
+    })).then(w => (_tessWorker = w)).catch(e => { _tessPromise = null; throw e; });
+  }
+  return _tessPromise;
+}
+// Downscale to ~1600px, grayscale + contrast stretch — Tesseract reads phone
+// photos of cards much better this way.
+function leadCardOcrCanvas(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.width, h = img.height;
+      const s = Math.min(1, 1600 / Math.max(w, h));
+      w = Math.round(w * s); h = Math.round(h * s);
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const cx = c.getContext('2d');
+      cx.drawImage(img, 0, 0, w, h);
+      const d = cx.getImageData(0, 0, w, h), p = d.data, hist = new Array(256).fill(0);
+      for (let i = 0; i < p.length; i += 4) { const g = (p[i] * 0.299 + p[i + 1] * 0.587 + p[i + 2] * 0.114) | 0; p[i] = g; hist[g]++; }
+      const n = p.length / 4; let lo = 0, hi = 255, acc = 0;
+      while (lo < 255 && (acc += hist[lo]) < n * 0.02) lo++;
+      acc = 0; while (hi > 0 && (acc += hist[hi]) < n * 0.02) hi--;
+      const span = Math.max(1, hi - lo);
+      for (let i = 0; i < p.length; i += 4) { const g = Math.max(0, Math.min(255, ((p[i] - lo) * 255 / span) | 0)); p[i] = p[i + 1] = p[i + 2] = g; }
+      cx.putImageData(d, 0, 0);
+      resolve(c);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image')); };
+    img.src = url;
+  });
+}
+async function leadCardOcr(input) {
+  const st = document.getElementById('nlCardOcr');
+  const file = input.files && input.files[0];
+  const seq = ++_leadOcrSeq;
+  if (!st) return;
+  if (!file) { st.textContent = ''; return; }
+  st.style.color = 'var(--gray-500)';
+  st.textContent = '🔍 Card padh rahe hain… (pehli baar thoda time lagega)';
+  try {
+    const [worker, canvas] = await Promise.all([loadTesseractWorker(), leadCardOcrCanvas(file)]);
+    if (seq !== _leadOcrSeq) return;
+    const { data } = await worker.recognize(canvas);
+    if (seq !== _leadOcrSeq || !document.getElementById('nlCardOcr')) return;
+    // Low-confidence lines are usually logo / background noise.
+    const text = Array.isArray(data.lines) && data.lines.length ? data.lines.filter(l => l.confidence >= 45).map(l => l.text).join('\n') : (data.text || '');
+    const p = parseVisitingCardText(text);
+    if (!p.strong) { st.textContent = 'ℹ️ Card se details nahi mili — khud bhar dein'; return; }
+    const filled = [];
+    const fill = (id, val, label) => {
+      const el = document.getElementById(id);
+      if (!el || !val || el.value.trim()) return;
+      el.value = val; filled.push(label);
+      el.style.transition = 'background .4s'; el.style.background = '#fff6cc';
+      setTimeout(() => { el.style.background = ''; }, 3000);
+    };
+    fill('nlShop', p.company, 'Shop');
+    fill('nlContact', p.person, 'Contact');
+    fill('nlMobile', p.mobiles[0], 'Mobile');
+    fill('nlCity', p.city, 'City');
+    fill('nlArea', p.address, 'Address');
+    const extra = [p.mobiles.slice(1).length ? 'Alt mob: ' + p.mobiles.slice(1).join(', ') : '', p.email ? 'Email: ' + p.email : ''].filter(Boolean).join(' · ');
+    fill('nlReq', extra, 'Note');
+    st.style.color = filled.length ? 'var(--color-success-text)' : 'var(--gray-500)';
+    st.textContent = filled.length ? `✨ Card se bhara (${filled.join(', ')}) — check kar lein` : 'ℹ️ Card padh liya — sab fields pehle se bhare hain';
+  } catch (e) {
+    if (seq === _leadOcrSeq && document.getElementById('nlCardOcr')) st.textContent = '⚠️ Card auto-read nahi hua — details khud bhar dein';
+  }
+}
+
 // ── New Lead ──
 async function openNewLeadModal() {
   if (formBlocked('form-lead')) return;
   if (!leadMeta.sources.length) { const d = await api('/api/lead-fms'); if (d && Array.isArray(d.leads)) leadApplyData(d); }
   const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
+  _leadOcrSeq++; // a card still being read for the previous form must not fill this one
   document.getElementById('nlBody').innerHTML = `
     <div class="alert error" id="nlErr" style="display:none"></div>
     ${L('Lead kahan se aayi?', true)}
@@ -20319,6 +20548,8 @@ async function openNewLeadModal() {
       <div class="tab" data-v="Outgoing" onclick="leadPickType(this)">⬆ Outgoing — market visit</div>
     </div>
     ${L('Source')}<select id="nlSource" style="${CHQ_INPUT}">${leadMeta.sources.map(s => `<option>${esc(s)}</option>`).join('')}</select>
+    ${L('Visiting Card / Shop Photo')}<input type="file" id="nlCard" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'nlCardPv');leadCardOcr(this)" style="${CHQ_INPUT}"/><div id="nlCardPv" style="font-size:12px;margin:-6px 0 8px"></div>
+    <div id="nlCardOcr" style="font-size:12px;margin:-4px 0 10px;color:var(--gray-500)">💡 Visiting card ki photo lagate hi naam, mobile, address apne aap bhar jayenge.</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
       <div>${L('Shop / Firm Name')}<input id="nlShop" style="${CHQ_INPUT}"/></div>
       <div>${L('Contact Person')}<input id="nlContact" style="${CHQ_INPUT}"/></div>
@@ -20328,7 +20559,6 @@ async function openNewLeadModal() {
     ${L('Area / Market')}<input id="nlArea" placeholder="e.g. Mansarovar, Jhotwara" style="${CHQ_INPUT}"/>
     ${L('Requirement (product)')}${leadReqSelectHtml('nlReqCat', '')}
     ${L('Note')}<textarea id="nlReq" rows="2" placeholder="e.g. 10 piece chahiye · catalogue maanga" style="${CHQ_INPUT};resize:vertical"></textarea>
-    ${L('Visiting Card / Shop Photo')}<input type="file" id="nlCard" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'nlCardPv')" style="${CHQ_INPUT}"/><div id="nlCardPv" style="font-size:12px;margin:-6px 0 8px"></div>
     <div id="nlSalesmanWrap" style="display:${leadMe.seeAll ? '' : 'none'}">${L('Salesman (jo dealer se mila / us area ka)')}<select id="nlSalesman" style="${CHQ_INPUT}"><option value="">— None —</option></select></div>
     <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Mobile ya card photo me se ek zaroori hai. Lead save hote hi SC-NBD ke dashboard par call aa jayegi.</div>
     <button class="btn btn-primary" id="nlSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitNewLead()">Save Lead</button>`;
@@ -20443,8 +20673,9 @@ function leadTaskFormHtml(l, t) {
   if (t.key === 'call') {
     const canSend = leadMeta.catalogue && l.mobile;
     inner = `<div style="font-size:13px;margin-bottom:10px;color:var(--gray-700)">Bolein: <i>"${l.leadType === 'Outgoing' ? 'Hamare salesman aapke paas aaye the. ' : 'Aapne Ajanta Appliances ke baare me enquiry ki thi. '}Ye hamara catalogue hai — koi requirement ho to bataiye."</i>${l.callCount ? `<div style="font-size:12px;color:var(--gray-500);margin-top:4px">Pichhli call: ${esc(l.callOutcome)}${l.callRemark ? ' — ' + esc(l.callRemark) : ''}</div>` : ''}</div>
-      ${L('Dealer ne kya kaha?', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="document.getElementById('${id}_ncw').style.display=${JSON.stringify(LEAD_RECALL).replace(/"/g, "'")}.includes(this.value)?'':'none'">
+      ${L('Dealer ne kya kaha?', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="leadCallOutcomeChange(this,'${jsArg(id)}')">
         <option value="">-- Select --</option>${leadMeta.callOutcomes.map(o => `<option>${esc(o)}</option>`).join('')}</select>
+      <div id="${id}_cathint" style="display:none;font-size:12px;color:var(--color-purple);background:var(--surface);border-radius:8px;padding:6px 10px;margin:-4px 0 10px"></div>
       <div id="${id}_ncw" style="display:none">${L('Agli call kab?')}<input id="${id}_nc" type="date" min="${leadToday}" value="${ymdAddDaysLocal(leadToday, 1)}" style="${CHQ_INPUT}"/></div>
       ${L('Remark')}<input id="${id}_remark" placeholder="e.g. 20 fan chahiye, rate puch rahe the" style="${CHQ_INPUT}"/>
       ${canSend ? `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_send" ${l.catalogueSent ? '' : 'checked'}/> Catalogue WhatsApp par bhejo (${esc(leadMeta.catalogue)}) → ${esc(l.mobile)}</label>`
