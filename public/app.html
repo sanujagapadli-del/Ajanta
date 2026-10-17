@@ -4279,6 +4279,7 @@ async function init() {
     pfChip('profileWeekOffDisplay', pfOff.length ? '📅 Week off: ' + pfOff.join(', ') : '');
 
     setAvatarDisplay(ME.profile_image, initials);
+    if (ME.role === 'admin') setTimeout(checkTallySyncHealth, 4000);
 
     // MIS Report: admin, hod, and regular users all see it
     // Per-user page access (Users → Access tab). Admins always see everything.
@@ -4372,6 +4373,16 @@ async function init() {
   } catch(e) { console.error('Init error:', e); window.location.replace('/'); }
 }
 
+// Admin: say so once per login when the Tally PC hasn't sent data for a while.
+async function checkTallySyncHealth() {
+  const r = await api('/api/tally/status');
+  if (!r || r.error) return;
+  const bills = (r.tabs || []).find(t => t.tab === 'Sheet1');
+  const lastRun = (r.runs || [])[0];
+  if (!bills) return; // still on the old Google-Sheet sync
+  const hrs = Math.floor((Number(bills.mins) || 0) / 60);
+  if (hrs >= 3) showToast(`⚠️ Tally sync ${hrs >= 24 ? Math.floor(hrs / 24) + ' din' : hrs + ' ghante'} se nahi hua${lastRun && !Number(lastRun.ok) ? ' — last error: ' + String(lastRun.message).slice(0, 80) : ''}. Tally PC check karein.`, 'error');
+}
 // Set avatar in sidebar + profile page
 function setAvatarDisplay(imageData, initials) {
   const sidebar = document.getElementById('sidebarAvatar');

@@ -7392,15 +7392,100 @@ app.delete('/api/o2d-fms/catalogue-pdfs/:id', requireAuth, async (req, res) => {
 // permission as Price List & Catalogue.
 // ══════════════════════════════════════════════════════
 const BILLS_RECEIVABLE_SHEET_ID = '1uXHUmSzX7nAM2fYS3lf5NzIgfVDEbccgHXQuTODHS1Y'; // "O2D Bills Receivable (Tally Sync)" — switched here 24-Sep-2026
+// ── Tally data straight from the Tally PC (client, 2026-10-17: "bina sheet ke
+// direct"). tally-sync.js pushes every tab (same rows it used to write to the
+// Google Sheet, header first) to /api/tally/push in parts; readers below go
+// through tallyValuesGet(), which serves the latest pushed copy and falls
+// back to the old sheet until the first push arrives. Auth = a key whose
+// sha256 is in app_settings 'tally_push_key_hash' (no user login on that PC).
+const TALLY_TABS = ['Sheet1', 'Payments', 'BillRegistry', 'LedgerBalances', 'SalesItems', 'PurchaseItems', 'LedgerVouchers', 'LedgerGroups'];
+let _tallyTblOk = false;
+async function tallyTables() {
+  if (_tallyTblOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS tally_tabs (tab VARCHAR(40) PRIMARY KEY, batch_id BIGINT NOT NULL, row_count INT NOT NULL DEFAULT 0,
+    synced_at DATETIME) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS tally_rows (tab VARCHAR(40) NOT NULL, batch_id BIGINT NOT NULL, idx INT NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (tab, batch_id, idx)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS tally_runs (id INT AUTO_INCREMENT PRIMARY KEY, ok TINYINT NOT NULL, message VARCHAR(2000),
+    at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _tallyTblOk = true;
+}
+async function tallyKeyOk(req) {
+  const key = String(req.headers['x-tally-key'] || '');
+  if (key.length < 20) return false;
+  const want = await getAppSetting('tally_push_key_hash');
+  return !!want && crypto.createHash('sha256').update(key).digest('hex') === want;
+}
+async function tallyValuesGet(range) {
+  const m = /^'([^']+)'!A(\d+):/.exec(range);
+  if (m && TALLY_TABS.includes(m[1])) {
+    try {
+      const [[t]] = await db.query('SELECT batch_id FROM tally_tabs WHERE tab=?', [m[1]]);
+      if (t) {
+        const [rows] = await db.query('SELECT data FROM tally_rows WHERE tab=? AND batch_id=? AND idx>=? ORDER BY idx', [m[1], t.batch_id, Number(m[2]) - 1]);
+        return { data: { values: rows.map(r => JSON.parse(r.data)) } };
+      }
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+  }
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  return sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range });
+}
+// One part of a tab: { tab, batch, part, parts, offset, rows } — rows are arrays, row 0 of part 0 is the header.
+app.post('/api/tally/push', async (req, res) => {
+  try {
+    if (!(await tallyKeyOk(req))) return res.status(401).json({ error: 'Wrong Tally key' });
+    await tallyTables();
+    const b = req.body || {};
+    const tab = String(b.tab || ''), batch = Number(b.batch), part = Number(b.part), parts = Number(b.parts), offset = Number(b.offset) || 0;
+    if (!TALLY_TABS.includes(tab) || !(batch > 0) || !(parts >= 1) || !(part >= 0 && part < parts) || !Array.isArray(b.rows)) return res.status(400).json({ error: 'Bad push' });
+    const rows = b.rows.slice(0, 5000).map((r, i) => [tab, batch, offset + i, JSON.stringify((Array.isArray(r) ? r : []).map(v => v == null ? '' : String(v)))]);
+    if (rows.length) await db.query('INSERT INTO tally_rows (tab, batch_id, idx, data) VALUES ? ON DUPLICATE KEY UPDATE data=VALUES(data)', [rows]);
+    if (part === parts - 1) {
+      const [[c]] = await db.query('SELECT COUNT(*) AS n FROM tally_rows WHERE tab=? AND batch_id=?', [tab, batch]);
+      await db.query('INSERT INTO tally_tabs (tab, batch_id, row_count, synced_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE batch_id=VALUES(batch_id), row_count=VALUES(row_count), synced_at=NOW()', [tab, batch, Number(c.n) || 0]);
+      await db.query('DELETE FROM tally_rows WHERE tab=? AND batch_id<>?', [tab, batch]);
+      if (tab === 'Sheet1') _billsReceivableCache = null;
+    }
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Current copy of one tab (the Tally PC merges BillRegistry with it).
+app.get('/api/tally/tab/:tab', async (req, res) => {
+  try {
+    if (!(await tallyKeyOk(req))) return res.status(401).json({ error: 'Wrong Tally key' });
+    if (!TALLY_TABS.includes(req.params.tab)) return res.status(400).json({ error: 'Unknown tab' });
+    const r = await tallyValuesGet(`'${req.params.tab}'!A1:Z200000`).catch(() => ({ data: { values: [] } }));
+    res.json({ values: r.data.values || [] });
+  } catch (err) { sendServerError(res, err); }
+});
+// Every run reports how it went — even a failed one (Tally closed etc.).
+app.post('/api/tally/log', async (req, res) => {
+  try {
+    if (!(await tallyKeyOk(req))) return res.status(401).json({ error: 'Wrong Tally key' });
+    await tallyTables();
+    const b = req.body || {};
+    await db.query('INSERT INTO tally_runs (ok, message) VALUES (?,?)', [b.ok ? 1 : 0, String(b.message || '').slice(0, 2000)]);
+    await db.query('DELETE FROM tally_runs WHERE id < (SELECT m FROM (SELECT MAX(id) - 200 AS m FROM tally_runs) x)');
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// For the app: when each tab last arrived and how the last runs went.
+app.get('/api/tally/status', requireAuth, async (req, res) => {
+  try {
+    await tallyTables();
+    const [tabs] = await db.query("SELECT tab, row_count, DATE_FORMAT(synced_at,'%Y-%m-%d %H:%i:%s') AS synced_at, TIMESTAMPDIFF(MINUTE, synced_at, NOW()) AS mins FROM tally_tabs ORDER BY tab");
+    const [runs] = await db.query("SELECT ok, message, DATE_FORMAT(at,'%Y-%m-%d %H:%i:%s') AS at, TIMESTAMPDIFF(MINUTE, at, NOW()) AS mins FROM tally_runs ORDER BY id DESC LIMIT 10");
+    res.json({ tabs, runs });
+  } catch (err) { sendServerError(res, err); }
+});
+
 let _billsReceivableCache = null; // { bills, lastSynced, ts }
 const BILLS_RECEIVABLE_CACHE_TTL_MS = 5 * 60 * 1000; // the local sync only writes at most a few times a day
 
 async function getBillsReceivable() {
   if (_billsReceivableCache && (Date.now() - _billsReceivableCache.ts) < BILLS_RECEIVABLE_CACHE_TTL_MS) return _billsReceivableCache;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-  const r = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'Sheet1'!A2:H10000`
-  });
+  const r = await tallyValuesGet(`'Sheet1'!A2:H10000`);
   const rows = (r.data.values || []).filter(row => row[0]);
   const bills = rows.map(row => ({
     party: row[0] || '', billRef: row[1] || '', billDate: row[2] || '', dueDate: row[3] || '',
@@ -7465,9 +7550,7 @@ const LEDGER_BALANCES_CACHE_TTL_MS = 5 * 60 * 1000;
 async function getLedgerBalancesByDealer() {
   if (_ledgerBalancesCache && (Date.now() - _ledgerBalancesCache.ts) < LEDGER_BALANCES_CACHE_TTL_MS) return _ledgerBalancesCache.byParty;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-  const r = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerBalances'!A2:D10000`
-  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const r = await tallyValuesGet(`'LedgerBalances'!A2:D10000`).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
   const byParty = {}; // lowercased party name -> { name, closingBalance, syncedAt, drCr }
   (r.data.values || []).forEach(row => {
     const name = (row[0] || '').trim();
@@ -7491,9 +7574,7 @@ const SALES_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000;
 async function getSalesItemsByBillKey() {
   if (_salesItemsCache && (Date.now() - _salesItemsCache.ts) < SALES_ITEMS_CACHE_TTL_MS) return _salesItemsCache.byKey;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-  const r = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'SalesItems'!A2:H100000`
-  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const r = await tallyValuesGet(`'SalesItems'!A2:H100000`).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
   const byKey = {}; // "party|||billref" (lowercased party) -> [{itemName, qty, rate, amount}]
   (r.data.values || []).forEach(row => {
     const party = (row[0] || '').trim(), billRef = (row[1] || '').trim();
@@ -7515,9 +7596,7 @@ const LEDGER_VOUCHERS_CACHE_TTL_MS = 5 * 60 * 1000;
 async function getLedgerVouchers() {
   if (_ledgerVouchersCache && (Date.now() - _ledgerVouchersCache.ts) < LEDGER_VOUCHERS_CACHE_TTL_MS) return _ledgerVouchersCache;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-  const r = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerVouchers'!A2:G200000`
-  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const r = await tallyValuesGet(`'LedgerVouchers'!A2:G200000`).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
   const byKey = {};    // voucher key -> { date, vchType, vchNo, legs: [{ ledgerName, ledgerKey, amount }] }
   const legIndex = {}; // lowercased ledger name -> Set of voucher keys
   (r.data.values || []).forEach(row => {
@@ -7677,9 +7756,7 @@ const TALLY_PAYMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
 async function getTallyPaymentsByDealer() {
   if (_tallyPaymentsCache && (Date.now() - _tallyPaymentsCache.ts) < TALLY_PAYMENTS_CACHE_TTL_MS) return _tallyPaymentsCache.byParty;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-  const r = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'Payments'!A2:E20000`
-  }).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
+  const r = await tallyValuesGet(`'Payments'!A2:E20000`).catch(() => ({ data: { values: [] } })); // tab may not exist yet on an older sync
   const rows = (r.data.values || []).filter(row => row[0]);
   const byParty = {};
   rows.forEach(row => {
@@ -7777,8 +7854,8 @@ async function getTallyPaymentPerformanceByDealer() {
   if (_tallyRatingCache && (Date.now() - _tallyRatingCache.ts) < TALLY_PAYMENTS_CACHE_TTL_MS) return _tallyRatingCache.byParty;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   const [registryResp, paymentsResp] = await Promise.all([
-    sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'BillRegistry'!A2:D100000` }).catch(() => ({ data: { values: [] } })),
-    sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'Payments'!A2:E100000` }).catch(() => ({ data: { values: [] } }))
+    tallyValuesGet(`'BillRegistry'!A2:D100000`).catch(() => ({ data: { values: [] } })),
+    tallyValuesGet(`'Payments'!A2:E100000`).catch(() => ({ data: { values: [] } }))
   ]);
   const dueDateByBill = new Map(); // "party|||billref" -> due date string
   (registryResp.data.values || []).forEach(row => {
@@ -11286,7 +11363,7 @@ let _ledgerGroupsCache = null;
 async function getLedgerGroups() {
   if (_ledgerGroupsCache && Date.now() - _ledgerGroupsCache.ts < LEDGER_VOUCHERS_CACHE_TTL_MS) return _ledgerGroupsCache;
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-  const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range: `'LedgerGroups'!A2:D20000` })
+  const r = await tallyValuesGet(`'LedgerGroups'!A2:D20000`)
     .catch(() => ({ data: { values: null } })); // tab only exists once the updated Tally sync has run
   const rows = r.data.values;
   const map = {};
