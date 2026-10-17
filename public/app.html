@@ -16300,13 +16300,16 @@ function renderO2dDetailBody(o, hideProgress) {
   }
 }
 
+// Uploaded PDFs (credit notes, 2026-10-17) carry a "#pdf" marker on their
+// /api/drive-file link — the id alone doesn't say what the file is.
+function isPdfUrl(u) { return /(\.pdf(\?|#|$)|#pdf$)/i.test(String(u || '')); }
 // Any http(s) or /api/drive-file link → a clickable "View" link (photos,
 // invoices, videos); anything else as plain text (client, 2026-10-12).
 function linkOrText(v) {
   const t = String(v == null ? '' : v).trim();
   if (/^(https?:\/\/|\/api\/drive-file\/)\S+$/i.test(t)) {
-    const icon = /\.pdf(\?|$)/i.test(t) ? '📄' : /video|\.(mp4|webm)/i.test(t) ? '🎥' : '📷';
-    return `<a href="${esc(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--color-primary);font-weight:600;text-decoration:underline">${icon} View</a>`;
+    const label = isPdfUrl(t) ? '📄 Open PDF' : (/video|\.(mp4|webm)/i.test(t) ? '🎥' : '📷') + ' View';
+    return `<a href="${esc(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--color-primary);font-weight:600;text-decoration:underline">${label}</a>`;
   }
   return esc(t);
 }
@@ -16609,7 +16612,9 @@ function o2dVideoMime() {
   const types = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
   return types.find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
 }
-async function openO2dVideoRecorder(orderNo, step) {
+// opts (Vendor Replacement Ledger, 2026-10-17): { title, url: seconds => upload URL, onSaved: (res, seconds) => {} }
+// — without opts it uploads to the O2D order as before.
+async function openO2dVideoRecorder(orderNo, step, opts) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
     showToast('Is browser mein video record nahi ho sakta — phone par Chrome se kholiye', 'error'); return;
   }
@@ -16619,7 +16624,7 @@ async function openO2dVideoRecorder(orderNo, step) {
     modal.className = 'modal-overlay';
     modal.id = 'o2dVideoModal';
     modal.innerHTML = `<div class="modal" style="max-width:480px">
-      <h3 style="margin:0 0 10px">🎥 Dispatch Video</h3>
+      <h3 id="o2dVideoTitle" style="margin:0 0 10px">🎥 Dispatch Video</h3>
       <video id="o2dVideoPreview" playsinline muted autoplay style="width:100%;max-height:55dvh;background:#000;border-radius:10px"></video>
       <div id="o2dVideoStatus" style="font-size:13px;margin:8px 0;color:var(--gray-600)"></div>
       <div style="display:flex;gap:8px">
@@ -16629,6 +16634,7 @@ async function openO2dVideoRecorder(orderNo, step) {
     document.body.appendChild(modal);
   }
   modal.classList.add('open');
+  document.getElementById('o2dVideoTitle').textContent = (opts && opts.title) || '🎥 Dispatch Video';
   const status = document.getElementById('o2dVideoStatus');
   const recBtn = document.getElementById('o2dVideoRecBtn');
   status.textContent = 'Camera khul raha hai…';
@@ -16638,7 +16644,7 @@ async function openO2dVideoRecorder(orderNo, step) {
     const video = { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } };
     const stream = await navigator.mediaDevices.getUserMedia({ video, audio: true })
       .catch(() => navigator.mediaDevices.getUserMedia({ video, audio: false }));
-    _o2dRec = { stream, orderNo, step, chunks: [], recorder: null, timer: null, started: 0 };
+    _o2dRec = { stream, orderNo, step, opts: opts || null, chunks: [], recorder: null, timer: null, started: 0 };
     document.getElementById('o2dVideoPreview').srcObject = stream;
     status.textContent = `Ready — max ${O2D_VIDEO_MAX_SEC} sec`;
     recBtn.disabled = false;
@@ -16694,7 +16700,8 @@ async function o2dUploadRecording() {
   for (let attempt = 1; attempt <= 3; attempt++) {
     status.textContent = attempt === 1 ? `⏳ Uploading (${(blob.size / 1048576).toFixed(1)} MB)…` : `⏳ Uploading… (try ${attempt}/3)`;
     try {
-      const resp = await fetch(`/api/o2d-fms/order/${encodeURIComponent(r.orderNo)}/video?step=${r.step}&seconds=${seconds}`, {
+      const upUrl = r.opts && r.opts.url ? r.opts.url(seconds) : `/api/o2d-fms/order/${encodeURIComponent(r.orderNo)}/video?step=${r.step}&seconds=${seconds}`;
+      const resp = await fetch(upUrl, {
         method: 'POST', headers: { 'Content-Type': type }, body: blob, credentials: 'include'
       });
       res = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
@@ -16705,6 +16712,7 @@ async function o2dUploadRecording() {
   recBtn.disabled = false;
   if (res.error) { status.textContent = '❌ ' + res.error; return; }
   status.textContent = '✅ Video saved — aur record karein ya Close dabayein';
+  if (r.opts) { if (r.opts.onSaved) r.opts.onSaved(res, seconds); return; }
   const o = o2dData.find(x => x.orderNo === r.orderNo);
   if (o) {
     o.videos = [...(o.videos || []), { id: res.id, url: res.url, seconds, created_by: ME.name, created_at: o2dReportsFmtDate(new Date()) + ' ' + new Date().toTimeString().slice(0, 5) }];
@@ -19011,12 +19019,13 @@ function renderVrl() {
   if (vrlTab === 'pending') { wrap.innerHTML = vrlPendingHtml(open.filter(match)); return; }
   if (vrlTab === 'score') { wrap.innerHTML = vrlScoreHtml(all.filter(c => !c.cancelledAt && match(c))); return; }
   const list = (vrlTab === 'open' ? open : all).filter(match);
-  wrap.innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Challan</th><th>Vendor</th><th>Items</th><th>Sent</th><th>Settled</th><th>Pending</th><th>Days</th><th>Status</th></tr></thead><tbody>
+  wrap.innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Challan</th><th>Vendor</th><th>Items</th><th>Value</th><th>Sent</th><th>Settled</th><th>Pending</th><th>Days</th><th>Status</th></tr></thead><tbody>
     ${list.map(c => { const sent = c.lines.reduce((a, l) => a + l.qty, 0); const late = c.status === 'Open' && c.days > 30;
       return `<tr onclick="openVrlDetail(${c.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
       <td style="font-weight:600;white-space:nowrap">${esc(c.code)}${entrySubHtml(c.createdAt)}</td>
       <td>${esc(c.vendorName)}${c.billNo ? `<div style="font-size:11px;color:var(--gray-500)">Bill ${esc(c.billNo)}</div>` : ''}</td>
-      <td style="max-width:260px;font-size:12px">${c.lines.map(l => `${esc(l.itemName)} × ${l.qty}`).join('<br/>')}</td>
+      <td style="max-width:260px;font-size:12px">${c.lines.map(l => `${esc(l.itemName)} × ${l.qty}`).join('<br/>')}${(c.videos || []).length ? `<div style="font-size:11px;color:var(--gray-500)">🎥 ${c.videos.length}</div>` : ''}</td>
+      <td style="white-space:nowrap">${c.value ? vrlInr(c.value) : '—'}</td>
       <td>${sent}</td><td>${sent - c.pending}</td><td style="font-weight:800;${c.pending ? 'color:var(--color-danger)' : ''}">${c.pending}</td>
       <td style="${late ? 'color:var(--color-danger);font-weight:700' : ''}">${c.status === 'Open' ? c.days + 'd' + (late ? ' ⚠' : '') : '—'}</td>
       <td>${c.status === 'Open' ? '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Open</span>' : c.status === 'Closed' ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Closed</span>' : '<span class="status-badge">Cancelled</span>'}</td></tr>`; }).join('')}
@@ -19029,7 +19038,7 @@ function vrlPendingHtml(open) {
   return rows.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Vendor</th><th>Item</th><th>Pending qty</th><th>Value</th><th>Challan</th><th>Days outstanding</th><th>Follow-up</th></tr></thead><tbody>
     ${rows.map(({ c, l }) => `<tr onclick="openVrlDetail(${c.id})" style="cursor:pointer;${c.days > 30 ? 'background:var(--color-danger-bg)' : ''}">
       <td>${esc(c.vendorName)}</td><td>${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}</td>
-      <td style="font-weight:800">${l.pending}</td><td>${l.rate ? inr(l.pending * l.rate) : '—'}</td><td style="white-space:nowrap">${esc(c.code)} · ${esc(fmtDateDMY(c.challanDate))}</td>
+      <td style="font-weight:800">${l.pending}</td><td>${l.total && l.qty ? vrlInr(l.pending * l.total / l.qty) : '—'}</td><td style="white-space:nowrap">${esc(c.code)} · ${esc(fmtDateDMY(c.challanDate))}</td>
       <td style="font-weight:700;${c.days > 30 ? 'color:var(--color-danger)' : ''}">${c.days} din${c.days > 30 ? ' ⚠' : ''}</td><td>${esc(c.followUpName || '—')}</td></tr>`).join('')}
     </tbody></table></div>` : '<div class="empty">Vendor ke paas kuch pending nahi 🎉</div>';
 }
@@ -19039,7 +19048,7 @@ function vrlScoreHtml(list) {
     const v = by[c.vendorName] = by[c.vendorName] || { vendor: c.vendorName, challans: 0, sent: 0, value: 0, new: 0, repaired: 0, credit: 0, credit$: 0, pending: 0, tat: [] };
     v.challans++;
     c.lines.forEach(l => {
-      v.sent += l.qty; v.value += l.qty * (l.rate || 0); v.new += l.got.new; v.repaired += l.got.repaired; v.credit += l.got.credit; v.credit$ += l.creditAmount; v.pending += l.pending;
+      v.sent += l.qty; v.value += l.total || 0; v.new += l.got.new; v.repaired += l.got.repaired; v.credit += l.got.credit; v.credit$ += l.creditAmount; v.pending += l.pending;
       if (!l.pending && l.settlements.length) { const last = l.settlements.map(x => x.date).sort().pop(); v.tat.push((new Date(last) - new Date(c.challanDate)) / 86400000); }
     });
   });
@@ -19060,17 +19069,52 @@ function vrlModal(id, inner, width) {
 }
 const VRL_IN = 'width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box';
 let vrlLineSeq = 0;
+// Rate basis (client, 2026-10-17): Basic rate → GST added on top; GST paid →
+// the rate already includes GST and the split is backed out. Same formula as
+// vrlLineValue() in server.js; old lines (no basis) count as basic, no GST.
+const VRL_GST_SLABS = [0, 5, 12, 18, 28];
+function vrlLineCalc(qty, rate, basis, gstPct) {
+  const r2 = v => Math.round(v * 100) / 100;
+  const gross = (Number(qty) || 0) * (Number(rate) || 0), p = Number(gstPct) || 0;
+  if (basis === 'gst') { const taxable = p ? gross / (1 + p / 100) : gross; return { taxable: r2(taxable), gst: r2(gross - taxable), total: r2(gross) }; }
+  return { taxable: r2(gross), gst: r2(gross * p / 100), total: r2(gross * (1 + p / 100)) };
+}
+function vrlInr(n) { return '₹' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
+function vrlBasisLabel(l) { return l.rateBasis === 'gst' ? `incl. GST${l.gstPct != null ? ' ' + l.gstPct + '%' : ''}` : l.gstPct != null ? `Basic + ${l.gstPct}% GST` : 'Basic'; }
 function vrlLineRowHtml() {
   const i = ++vrlLineSeq;
   return `<div class="vrl-line" id="vrlL_${i}" style="border:1px solid var(--gray-200);border-radius:10px;padding:10px;margin-bottom:8px">
-    <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:6px">
-      <input list="vrlItemList" class="vrl-item" placeholder="Item name *" style="${VRL_IN}"/>
-      <input class="vrl-qty" type="number" min="1" placeholder="Qty *" style="${VRL_IN}"/>
-      <input class="vrl-rate" type="number" min="0" placeholder="Rate ₹" style="${VRL_IN}"/></div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:6px">
+      <input list="vrlItemList" class="vrl-item" placeholder="Item name *" onchange="vrlItemGst(this)" style="${VRL_IN}"/>
+      <input class="vrl-qty" type="number" min="1" placeholder="Qty *" oninput="vrlCalc()" style="${VRL_IN}"/></div>
+    <div style="display:grid;grid-template-columns:1fr 1.3fr 0.8fr;gap:8px;margin-bottom:6px">
+      <input class="vrl-rate" type="number" min="0" placeholder="Rate ₹" oninput="vrlCalc()" style="${VRL_IN}"/>
+      <select class="vrl-basis" onchange="vrlCalc()" title="Rate kis par hai" style="${VRL_IN}"><option value="basic">Basic rate (+GST)</option><option value="gst">GST paid (incl. GST)</option></select>
+      <select class="vrl-gst" onchange="this.dataset.touched='1';vrlCalc()" title="GST %" style="${VRL_IN}">${VRL_GST_SLABS.map(g => `<option value="${g}" ${g === 18 ? 'selected' : ''}>GST ${g}%</option>`).join('')}</select></div>
     <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px">
       <input class="vrl-serial" placeholder="Serial no. (optional)" style="${VRL_IN}"/>
       <input class="vrl-defect" placeholder="Defect / reason" style="${VRL_IN}"/>
-      <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlL_${i}').remove()">✕</button></div></div>`;
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlL_${i}').remove();vrlCalc()">✕</button></div>
+    <div class="vrl-val" style="font-size:12px;color:var(--gray-600);margin-top:6px"></div></div>`;
+}
+// GST % from the Price Catalogue for a known item (unless picked by hand).
+function vrlItemGst(el) {
+  const sel = el.closest('.vrl-line').querySelector('.vrl-gst');
+  const g = vrlData && vrlData.gstMap ? vrlData.gstMap[el.value.trim()] : undefined;
+  if (g != null && !sel.dataset.touched) sel.value = String(g);
+  vrlCalc();
+}
+function vrlCalc() {
+  let tx = 0, gst = 0, tot = 0;
+  document.querySelectorAll('#vrlLines .vrl-line').forEach(el => {
+    const qty = el.querySelector('.vrl-qty').value, rate = el.querySelector('.vrl-rate').value;
+    const v = vrlLineCalc(qty, rate, el.querySelector('.vrl-basis').value, el.querySelector('.vrl-gst').value);
+    tx += v.taxable; gst += v.gst; tot += v.total;
+    el.querySelector('.vrl-val').innerHTML = Number(qty) > 0 && Number(rate) > 0
+      ? `${qty} × ${vrlInr(rate)} → Taxable ${vrlInr(v.taxable)} + GST ${vrlInr(v.gst)} = <b style="color:var(--gray-800)">${vrlInr(v.total)}</b>` : '';
+  });
+  const g = document.getElementById('vrlGrand');
+  if (g) g.innerHTML = tot ? `Taxable ${vrlInr(tx)} + GST ${vrlInr(gst)} = <b style="font-size:15px">Total ${vrlInr(tot)}</b>` : '';
 }
 async function openVrlNew() {
   const users = await api('/api/users/roster');
@@ -19087,7 +19131,9 @@ async function openVrlNew() {
       <div><label style="font-size:12px;font-weight:600">Reason</label><select id="vrlReason" style="${VRL_IN}"><option>Defective</option><option>DOA (dead on arrival)</option><option>Warranty</option><option>Damaged in transit</option><option>Wrong item</option></select></div></div>
     <label style="font-size:12px;font-weight:600">Items</label>
     <div id="vrlLines">${vrlLineRowHtml()}</div>
-    <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlLines').insertAdjacentHTML('beforeend', vrlLineRowHtml())" style="margin-bottom:10px">+ Add item</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlLines').insertAdjacentHTML('beforeend', vrlLineRowHtml())">+ Add item</button>
+      <div id="vrlGrand" style="font-size:13px;text-align:right"></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <div><label style="font-size:12px;font-weight:600">Follow-up person</label><select id="vrlFollow" style="${VRL_IN}"><option value="">—</option>${act.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
       <div><label style="font-size:12px;font-weight:600">Remark</label><input id="vrlRemark" style="${VRL_IN}"/></div></div>
@@ -19099,7 +19145,8 @@ async function openVrlNew() {
 async function saveVrlNew() {
   const err = document.getElementById('vrlErr'); err.style.display = 'none';
   const lines = [...document.querySelectorAll('#vrlLines .vrl-line')].map(el => ({ itemName: el.querySelector('.vrl-item').value.trim(), qty: el.querySelector('.vrl-qty').value,
-    rate: el.querySelector('.vrl-rate').value, serialNo: el.querySelector('.vrl-serial').value.trim(), defect: el.querySelector('.vrl-defect').value.trim() })).filter(l => l.itemName || l.qty);
+    rate: el.querySelector('.vrl-rate').value, rateBasis: el.querySelector('.vrl-basis').value, gstPct: el.querySelector('.vrl-gst').value,
+    serialNo: el.querySelector('.vrl-serial').value.trim(), defect: el.querySelector('.vrl-defect').value.trim() })).filter(l => l.itemName || l.qty);
   const body = { vendorName: document.getElementById('vrlVendor').value.trim(), challanDate: document.getElementById('vrlDate').value, billNo: document.getElementById('vrlBill').value.trim(),
     reason: document.getElementById('vrlReason').value, followUpUserId: document.getElementById('vrlFollow').value, remark: document.getElementById('vrlRemark').value.trim(),
     photo: document.getElementById('vrlPhoto').dataset.compressed || '', lines };
@@ -19122,12 +19169,14 @@ function openVrlDetail(id) {
       ${c.remark ? `<div>${esc(c.remark)}</div>` : ''}${c.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(c.cancelReason)}</div>` : ''}</div>
     ${c.photoUrl ? `<div style="margin-bottom:10px">${linkOrText(c.photoUrl, '📷 Photo')}</div>` : ''}
     <table style="font-size:12.5px;margin-bottom:12px"><thead><tr><th>Item</th><th>Sent</th><th>New</th><th>Repaired</th><th>Credit</th><th>Pending</th>${open ? '<th>Receive now</th>' : ''}</tr></thead><tbody>
-    ${c.lines.map(l => `<tr><td>${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}${l.defect ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.defect)}</div>` : ''}${l.rate ? `<div style="font-size:11px;color:var(--gray-500)">@ ${inr(l.rate)}</div>` : ''}</td>
+    ${c.lines.map(l => `<tr><td>${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}${l.defect ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.defect)}</div>` : ''}${l.rate ? `<div style="font-size:11px;color:var(--gray-500)">@ ${vrlInr(l.rate)} (${esc(vrlBasisLabel(l))}) · <b>${vrlInr(l.total)}</b>${l.gst ? ` <span title="Taxable + GST">(${vrlInr(l.taxable)} + ${vrlInr(l.gst)})</span>` : ''}</div>` : ''}</td>
       <td>${l.qty}</td><td>${l.got.new || ''}</td><td>${l.got.repaired || ''}</td><td>${l.got.credit || ''}${l.creditAmount ? `<div style="font-size:11px">${inr(l.creditAmount)}</div>` : ''}</td>
       <td style="font-weight:800;${l.pending ? 'color:var(--color-danger)' : 'color:var(--color-success)'}">${l.pending || '✓'}</td>
       ${open ? `<td style="min-width:200px">${l.pending ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">
         ${['new', 'repaired', 'credit'].map(k => `<input type="number" min="0" max="${l.pending}" placeholder="${k === 'new' ? 'New' : k === 'repaired' ? 'Repaired' : 'Credit'}" class="vrl-set" data-line="${l.id}" data-kind="${k}" style="${VRL_IN};padding:6px"/>`).join('')}</div>` : ''}</td>` : ''}</tr>`).join('')}
     </tbody></table>
+    ${c.value ? `<div style="font-size:13px;text-align:right;margin:-4px 0 12px">Taxable ${vrlInr(c.taxable)} + GST ${vrlInr(c.gst)} = <b style="font-size:15px">Total ${vrlInr(c.value)}</b></div>` : ''}
+    ${vrlVideosHtml(c)}
     ${open ? `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
       <div style="font-weight:700;font-size:13px;margin-bottom:8px">📥 Vendor se aaya (ek delivery me alag-alag item / tarike)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
@@ -19135,7 +19184,8 @@ function openVrlDetail(id) {
         <div><label style="font-size:11.5px">Credit Note No.</label><input id="vrlCnNo" style="${VRL_IN}"/></div>
         <div><label style="font-size:11.5px">Credit Note ₹</label><input id="vrlCnAmt" type="number" min="0" style="${VRL_IN}"/></div></div>
       <input id="vrlSetRemark" placeholder="Remark" style="${VRL_IN};margin-bottom:8px"/>
-      <input type="file" id="vrlSetPhoto" accept="image/*" onchange="onChequePhotoSelected(this,'vrlSetPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlSetPv" style="font-size:12px;margin-bottom:8px"></div>
+      <label style="font-size:11.5px">Photo / Credit Note PDF</label>
+      <input type="file" id="vrlSetPhoto" accept="image/*,application/pdf" onchange="onChequePhotoSelected(this,'vrlSetPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlSetPv" style="font-size:12px;margin-bottom:8px"></div>
       <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveVrlSettle(${c.id},this)">✓ Save receipt</button></div>` : ''}
     ${c.lines.some(l => (l.vendorUpdates || []).length) ? `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;margin:6px 0">Vendor ne bataya (Vendor Portal)</div>
       ${c.lines.flatMap(l => (l.vendorUpdates || []).map(x => ({ ...x, item: l.itemName }))).map(x => `<div style="font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
@@ -19148,6 +19198,64 @@ function openVrlDetail(id) {
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
       <button class="btn btn-outline" onclick="printVrlChallan(${c.id})">🖨 Print Challan</button>
       ${vrlData.me.isAdmin && open ? `<button class="btn btn-outline" style="color:var(--color-danger)" onclick="cancelVrl(${c.id})">🚫 Cancel</button>` : ''}</div>`, 760);
+}
+// Challan videos (client, 2026-10-17) — same recorder / shrink as O2D dispatch videos.
+function vrlVideosHtml(c) {
+  const vids = c.videos || [];
+  const canAdd = !c.cancelledAt;
+  if (!vids.length && !canAdd) return '';
+  return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:10px 12px;margin-bottom:12px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:4px">🎥 Videos (${vids.length})</div>
+    ${vids.map((v, i) => `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;flex-wrap:wrap">
+      <a href="${esc(v.url)}" target="_blank" rel="noopener" style="color:var(--color-primary);font-weight:600;text-decoration:underline">▶ Video ${i + 1}</a>
+      <span style="color:var(--gray-400)">${v.seconds ? v.seconds + 's · ' : ''}${esc(v.by)} · ${esc(fmtDateDMY(v.at, true))}</span>
+      ${ME.role === 'admin' || Number(v.byId) === Number(ME.id) ? `<button type="button" onclick="deleteVrlVideo(${c.id},${v.id})" style="border:none;background:none;color:var(--gray-400);cursor:pointer;margin-left:auto" title="Remove">✕</button>` : ''}</div>`).join('') || '<div style="font-size:12px;color:var(--gray-400)">Abhi koi video nahi</div>'}
+    ${canAdd ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button type="button" class="btn btn-outline btn-sm" onclick="recordVrlVideo(${c.id})">🎥 Record Video</button>
+      <label class="btn btn-outline btn-sm" style="cursor:pointer;margin:0">📁 Gallery se video<input type="file" accept="video/*" style="display:none" onchange="vrlUploadGalleryVideo(${c.id}, this)"/></label></div>
+      <div id="vrlVidStatus" style="font-size:11.5px;color:var(--gray-500);margin-top:4px">Bada video apne aap chhota ho jaata hai (max 3 min)</div>` : ''}</div>`;
+}
+function vrlVideoSaved(id, res, seconds) {
+  const c = vrlData.challans.find(x => x.id === id);
+  if (!c) return;
+  c.videos = [...(c.videos || []), { id: res.id, url: res.url, seconds, byId: ME.id, by: ME.name, at: new Date(Date.now() + 5.5 * 3600000).toISOString().slice(0, 16).replace('T', ' ') }];
+  renderVrl();
+  if (document.getElementById('vrlDetailModal').classList.contains('open')) openVrlDetail(id);
+}
+function recordVrlVideo(id) {
+  const c = vrlData.challans.find(x => x.id === id);
+  openO2dVideoRecorder(c ? c.code : '', 0, { title: `🎥 ${c ? c.code : ''} Video`, url: sec => `/api/vendor-ledger/${id}/video?seconds=${sec}`, onSaved: (res, sec) => vrlVideoSaved(id, res, sec) });
+}
+async function vrlUploadGalleryVideo(id, input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  const say = (t, bad) => { const st = document.getElementById('vrlVidStatus'); if (st) { st.textContent = t; st.style.color = bad ? 'var(--color-danger)' : 'var(--gray-500)'; } };
+  let blob, seconds;
+  try { ({ blob, seconds } = await o2dShrinkVideo(file, say)); } catch (e) { say('❌ ' + e.message, true); return; }
+  if (blob.size > 3.9 * 1024 * 1024) { say('❌ Video abhi bhi bada hai — chhota video chunein', true); return; }
+  const type = (blob.type || 'video/webm').split(';')[0];
+  let res;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    say(attempt === 1 ? `⏳ Uploading (${(blob.size / 1048576).toFixed(1)} MB)…` : `⏳ Uploading… (try ${attempt}/3)`);
+    try {
+      const resp = await fetch(`/api/vendor-ledger/${id}/video${seconds ? `?seconds=${seconds}` : ''}`, { method: 'POST', headers: { 'Content-Type': type }, body: blob, credentials: 'include' });
+      res = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+    } catch (e) { res = { error: 'Network error' }; }
+    if (!res.error || /too large|413|access|not found|cancelled/i.test(res.error)) break;
+    await new Promise(ok => setTimeout(ok, 1500 * attempt));
+  }
+  if (res.error) { say('❌ ' + res.error, true); return; }
+  showToast('✅ Video saved');
+  vrlVideoSaved(id, res, seconds);
+}
+async function deleteVrlVideo(id, mediaId) {
+  if (!confirm('Remove this video?')) return;
+  const r = await api(`/api/vendor-ledger/media/${mediaId}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const c = vrlData.challans.find(x => x.id === id);
+  if (c) c.videos = (c.videos || []).filter(v => v.id !== mediaId);
+  renderVrl();
+  openVrlDetail(id);
 }
 async function saveVrlSettle(id, btn) {
   const cnNo = document.getElementById('vrlCnNo').value.trim(), cnAmt = document.getElementById('vrlCnAmt').value;
@@ -19185,9 +19293,9 @@ function printVrlChallan(id) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><h1>Ajanta Appliances</h1><div style="font-size:13px">Replacement / Return Challan</div></div>
       <div style="text-align:right;font-size:13px"><b>${e(c.code)}</b><br/>Date: ${e(fmtDateDMY(c.challanDate))}${c.billNo ? '<br/>Against Bill: ' + e(c.billNo) : ''}</div></div>
     <div style="margin-top:14px;font-size:14px">To: <b>${e(c.vendorName)}</b><br/>Reason: ${e(c.reason)}</div>
-    <table><thead><tr><th>#</th><th>Item</th><th>Serial No.</th><th>Defect</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Value</th></tr></thead><tbody>
-    ${c.lines.map((l, i) => `<tr><td>${i + 1}</td><td>${e(l.itemName)}</td><td>${e(l.serialNo)}</td><td>${e(l.defect)}</td><td class="r">${l.qty}</td><td class="r">${l.rate ? l.rate.toLocaleString('en-IN') : ''}</td><td class="r">${l.rate ? (l.qty * l.rate).toLocaleString('en-IN') : ''}</td></tr>`).join('')}
-    <tr><td colspan="4"><b>Total</b></td><td class="r"><b>${c.lines.reduce((a, l) => a + l.qty, 0)}</b></td><td></td><td class="r"><b>${c.value ? c.value.toLocaleString('en-IN') : ''}</b></td></tr></tbody></table>
+    <table><thead><tr><th>#</th><th>Item</th><th>Serial No.</th><th>Defect</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Taxable</th><th class="r">GST</th><th class="r">Value</th></tr></thead><tbody>
+    ${c.lines.map((l, i) => `<tr><td>${i + 1}</td><td>${e(l.itemName)}</td><td>${e(l.serialNo)}</td><td>${e(l.defect)}</td><td class="r">${l.qty}</td><td class="r">${l.rate ? l.rate.toLocaleString('en-IN') + '<div style="font-size:10px">' + e(vrlBasisLabel(l)) + '</div>' : ''}</td><td class="r">${l.rate ? l.taxable.toLocaleString('en-IN') : ''}</td><td class="r">${l.rate && l.gst ? l.gst.toLocaleString('en-IN') : ''}</td><td class="r">${l.rate ? l.total.toLocaleString('en-IN') : ''}</td></tr>`).join('')}
+    <tr><td colspan="4"><b>Total</b></td><td class="r"><b>${c.lines.reduce((a, l) => a + l.qty, 0)}</b></td><td></td><td class="r"><b>${c.value ? c.taxable.toLocaleString('en-IN') : ''}</b></td><td class="r"><b>${c.gst ? c.gst.toLocaleString('en-IN') : ''}</b></td><td class="r"><b>${c.value ? c.value.toLocaleString('en-IN') : ''}</b></td></tr></tbody></table>
     ${c.remark ? `<p style="font-size:13px">Remark: ${e(c.remark)}</p>` : ''}
     <p style="font-size:12px">Goods sent for replacement / repair / credit note. Not a sale.</p>
     <div class="sig"><div>Prepared by: ${e(c.createdByName)}</div><div>Received by (vendor): ____________</div><div>Authorised signatory: ____________</div></div>
@@ -19611,6 +19719,19 @@ async function onChequePhotoSelected(input, previewId) {
   const file = input.files[0];
   input.dataset.compressed = '';
   if (!file) { preview.innerHTML = ''; return; }
+  // PDF (credit note from Tally / PC, 2026-10-17) — only on inputs whose accept allows it.
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+    if (!/pdf/i.test(input.accept || '')) { input.value = ''; preview.textContent = '⚠️ Yahan sirf photo chalegi'; return; }
+    // Sent base64 in JSON, which grows ~33% — 3 MB keeps the request under Vercel's 4.5 MB limit.
+    if (file.size > 3 * 1024 * 1024) { input.value = ''; preview.textContent = `⚠️ PDF bahut bada hai (${(file.size / 1048576).toFixed(1)} MB) — 3 MB tak ka PDF chunein, ya screenshot / photo lagayein`; return; }
+    try {
+      let dataUrl = await readFileAsDataUrl(file);
+      dataUrl = String(dataUrl).replace(/^data:[^;,]*(;[^,]*)?,/, 'data:application/pdf;base64,');
+      input.dataset.compressed = dataUrl;
+      preview.innerHTML = `<div style="margin-top:6px;font-weight:600">📄 ${esc(file.name)} <span style="font-weight:400;color:var(--gray-500)">${(file.size / 1024).toFixed(0)} KB</span></div>`;
+    } catch (e) { preview.textContent = '⚠️ Could not read this PDF'; }
+    return;
+  }
   preview.textContent = 'Compressing…';
   try {
     let dataUrl = await compressImageToDataURL(file, 1600, 0.75);
@@ -22318,6 +22439,7 @@ function rplPhoto(url, h) {
   if (!url) return '';
   // Several product photos are stored newline-separated (client, 2026-10-17).
   if (url.includes('\n')) return `<div style="display:flex;gap:8px;flex-wrap:wrap">${url.split('\n').filter(Boolean).map(u => `<div style="flex:0 1 160px">${rplPhoto(u, h || 140)}</div>`).join('')}</div>`;
+  if (isPdfUrl(url)) return `<a href="${esc(url)}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">📄 Open PDF</a>`;
   if (url.includes('/api/drive-file/')) return `<a href="${esc(url)}" target="_blank"><img src="${esc(url)}" loading="lazy" style="max-width:100%;max-height:${h || 200}px;border-radius:10px;border:1px solid var(--gray-200);display:block"/></a>`;
   return `<a href="${esc(url)}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">🖼 Open photo</a>`;
 }
@@ -22458,12 +22580,12 @@ function rplTaskFormHtml(r) {
     inner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
         <div>${L('Credit Note No.', true)}<input id="${id}_no" style="${RPL_INPUT}"/></div>
         <div>${L('Amount (₹)')}<input id="${id}_amt" type="number" min="0" style="${RPL_INPUT}"/></div></div>
-      ${L('Credit note photo', true)}<input id="${id}_photo" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${RPL_INPUT}"/><div id="${id}_pv" style="margin:-6px 0 8px"></div>
+      ${L('Credit note — photo ya PDF', true)}<input id="${id}_photo" type="file" accept="image/*,application/pdf" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${RPL_INPUT}"/><div id="${id}_pv" style="margin:-6px 0 8px"></div>
       <div style="display:flex;gap:8px">${btn('Save Credit Note', 'cn')}</div>`;
   } else if (t.key === 'cnsend') {
     inner = `<div style="font-size:13px;margin-bottom:10px">Credit Note <b>${esc(r.cnNo)}</b> party ko WhatsApp par share karein, phir uska screenshot lagayein.</div>
       ${rplPhoto(r.cnPhoto, 140)}
-      ${L('WhatsApp screenshot', true)}<input id="${id}_photo" type="file" accept="image/*" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${RPL_INPUT};margin-top:8px"/><div id="${id}_pv" style="margin:-6px 0 8px"></div>
+      ${L('WhatsApp screenshot', true)}<input id="${id}_photo" type="file" accept="image/*,application/pdf" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${RPL_INPUT};margin-top:8px"/><div id="${id}_pv" style="margin:-6px 0 8px"></div>
       <div style="display:flex;gap:8px">${btn('✓ Sent — Close', 'cnsend')}</div>`;
   } else if (t.key === 'cashstaff') {
     inner = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Customer se <b>${inr(r.chargesReceived)}</b> liye gaye the${r.receiverName ? ` (receiver: ${esc(r.receiverName)})` : ''}. Jis staff ne paise liye, unse paise lekar yahan entry karein.</div>

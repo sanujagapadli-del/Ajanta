@@ -824,6 +824,26 @@ async function uploadPhotoToDrive(dataUri, filename, opts) {
   return uploadBufferToDrive(Buffer.from(base64Data, 'base64'), filename, mimeType, opts);
 }
 
+// Photo-or-PDF upload (credit notes come from Tally / the PC as PDF, client
+// 2026-10-17). The extension follows the data-URI MIME, and a PDF's link gets
+// a "#pdf" marker: /api/drive-file/<id> links don't reveal the file type, the
+// fragment never reaches the server (so the link still opens), and the app's
+// display helpers (rplPhoto / linkOrText) show "📄 Open PDF" instead of an <img>.
+function docDataUriKind(dataUri) {
+  const m = /^data:([^;,]+);base64,/.exec(String(dataUri || ''));
+  if (!m) return null;
+  const mime = m[1].toLowerCase();
+  if (mime === 'application/pdf') return { mime, ext: 'pdf', pdf: true };
+  if (/^image\/(jpeg|jpg|png|webp)$/.test(mime)) return { mime, ext: mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg', pdf: false };
+  return null;
+}
+async function uploadDocToDrive(dataUri, baseName, opts) {
+  const k = docDataUriKind(dataUri);
+  if (!k) throw new Error('Photo or PDF only');
+  const url = await uploadPhotoToDrive(dataUri, `${baseName}.${k.ext}`, opts);
+  return k.pdf ? `${url}#pdf` : url;
+}
+
 // Generic upload — any "photo" extra field (O2D's invoice photo, etc.) can
 // upload straight away and just carry the resulting link like any other
 // text field, instead of needing its own bespoke endpoint per feature.
@@ -10707,15 +10727,17 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       if (!need('cn')) return;
       const no = t(b.cnNo, 50);
       if (!no) return fail('Credit Note No. is required');
-      if (!b.cnPhoto) return fail('Upload the credit note photo');
-      const photo = await uploadPhotoToDrive(b.cnPhoto, `${r.code}-credit-note-${Date.now()}.jpg`);
+      if (!b.cnPhoto) return fail('Upload the credit note photo / PDF');
+      if (!docDataUriKind(b.cnPhoto)) return fail('Credit note: photo or PDF only');
+      const photo = await uploadDocToDrive(b.cnPhoto, `${r.code}-credit-note-${Date.now()}`);
       const amt = b.cnAmount === '' || b.cnAmount == null ? null : Number(b.cnAmount);
       await db.query('UPDATE replacements SET cn_no=?, cn_amount=?, cn_photo=?, cn_at=NOW(), cn_by=? WHERE id=?', [no, amt, photo, uid, r.id]);
       await logReplEvent(r.id, 'cn', `Credit Note ${no}${amt != null ? ' · ₹' + amt : ''}`, uid);
     } else if (action === 'cnsend') {
       if (!need('cnsend')) return;
       if (!b.photo) return fail('Upload the WhatsApp screenshot of the credit note sent to the dealer');
-      const photo = await uploadPhotoToDrive(b.photo, `${r.code}-cn-sent-${Date.now()}.jpg`);
+      if (!docDataUriKind(b.photo)) return fail('Screenshot: photo or PDF only');
+      const photo = await uploadDocToDrive(b.photo, `${r.code}-cn-sent-${Date.now()}`);
       await db.query('UPDATE replacements SET cn_sent_photo=?, cn_sent_at=NOW(), cn_sent_by=? WHERE id=?', [photo, uid, r.id]);
       await logReplEvent(r.id, 'cnsend', 'Credit note shared with party — closed', uid);
     } else if (action === 'send-otp') {
@@ -13705,8 +13727,30 @@ async function vrlTables() {
     settle_date DATE NOT NULL, cn_no VARCHAR(100), cn_amount DECIMAL(12,2), remark VARCHAR(500), photo_url VARCHAR(500),
     created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (line_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // Videos of the goods sent back (client, 2026-10-17) — same low-quality
+  // in-browser recording / shrink as O2D dispatch videos.
+  await db.query(`CREATE TABLE IF NOT EXISTS vrl_media (
+    id INT AUTO_INCREMENT PRIMARY KEY, challan_id INT NOT NULL, url VARCHAR(500) NOT NULL, kind VARCHAR(10) DEFAULT 'video',
+    seconds INT, created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (challan_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // Rate basis per line (client, 2026-10-17): 'basic' (GST added on top at
+  // gst_pct) or 'gst' (rate already includes GST). NULL = old row = basic, no GST.
+  for (const col of ["rate_basis VARCHAR(10) DEFAULT NULL", "gst_pct DECIMAL(5,2) DEFAULT NULL"]) {
+    try { await db.query(`ALTER TABLE vendor_repl_lines ADD COLUMN ${col}`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  }
   _vrlOk = true;
 }
+// Line value: basic → taxable = qty×rate, GST on top; gst → qty×rate is the
+// total and the split is backed out of it. Same formula as vrlLineCalc() in app.html.
+function vrlLineValue(qty, rate, basis, gstPct) {
+  const r2 = v => Math.round(v * 100) / 100;
+  const gross = (Number(qty) || 0) * (Number(rate) || 0);
+  const p = Number(gstPct) || 0;
+  if (basis === 'gst') { const taxable = p ? gross / (1 + p / 100) : gross; return { taxable: r2(taxable), gst: r2(gross - taxable), total: r2(gross) }; }
+  return { taxable: r2(gross), gst: r2(gross * p / 100), total: r2(gross * (1 + p / 100)) };
+}
+const VRL_GST_SLABS = [0, 5, 12, 18, 28];
 async function vrlAccess(req, res) {
   if (await hasPageGrant(req, 'vendor-ledger')) return true;
   res.status(403).json({ error: 'No access to Vendor Replacement Ledger' });
@@ -13724,6 +13768,8 @@ async function vrlLoad(where = '', params = []) {
       FROM vendor_repl_settlements s LEFT JOIN users u ON u.id=s.created_by WHERE s.line_id IN (?) ORDER BY s.id`, [lines.map(l => l.id)]) : [[]];
   const [vup] = lines.length ? await db.query(`SELECT line_id, status, qty, DATE_FORMAT(update_date,'%Y-%m-%d') AS update_date, cn_no, remark, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') AS created_at
       FROM vrl_vendor_updates WHERE line_id IN (?) ORDER BY id DESC`, [lines.map(l => l.id)]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; }) : [[]];
+  const [media] = await db.query(`SELECT m.id, m.challan_id, m.url, m.seconds, m.created_by, DATE_FORMAT(m.created_at,'%Y-%m-%d %H:%i') AS created_at, u.name AS created_by_name
+      FROM vrl_media m LEFT JOIN users u ON u.id=m.created_by WHERE m.challan_id IN (?) ORDER BY m.id`, [ids]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
   const n = v => Number(v) || 0;
   return ch.map(c => {
     const ls = lines.filter(l => l.challan_id === c.id).map(l => {
@@ -13731,16 +13777,24 @@ async function vrlLoad(where = '', params = []) {
       const sum = k => ss.filter(x => x.kind === k).reduce((a, x) => a + n(x.qty), 0);
       const got = { new: sum('new'), repaired: sum('repaired'), credit: sum('credit') };
       const pending = Math.max(0, n(l.qty) - got.new - got.repaired - got.credit);
+      const rateBasis = l.rate_basis === 'gst' ? 'gst' : 'basic';
+      const gstPct = l.gst_pct == null ? null : n(l.gst_pct);
+      const val = vrlLineValue(l.qty, l.rate, rateBasis, gstPct);
       return { id: l.id, itemName: l.item_name, serialNo: l.serial_no || '', qty: n(l.qty), rate: l.rate == null ? null : n(l.rate), defect: l.defect || '',
+        rateBasis, gstPct, taxable: val.taxable, gst: val.gst, total: val.total,
         got, pending, creditAmount: ss.reduce((a, x) => a + n(x.cn_amount), 0),
         settlements: ss.map(x => ({ id: x.id, kind: x.kind, qty: n(x.qty), date: x.settle_date, cnNo: x.cn_no || '', cnAmount: x.cn_amount == null ? null : n(x.cn_amount), remark: x.remark || '', photoUrl: x.photo_url || '', by: x.created_by_name || '' })),
         vendorUpdates: vup.filter(x => x.line_id === l.id).map(x => ({ status: x.status, qty: x.qty == null ? null : n(x.qty), date: x.update_date, cnNo: x.cn_no || '', remark: x.remark || '', at: x.created_at })) };
     });
     const pending = ls.reduce((a, l) => a + l.pending, 0);
-    const value = ls.reduce((a, l) => a + l.qty * (l.rate || 0), 0);
+    const r2 = v => Math.round(v * 100) / 100;
+    const value = r2(ls.reduce((a, l) => a + l.total, 0));
+    const taxable = r2(ls.reduce((a, l) => a + l.taxable, 0));
+    const gst = r2(ls.reduce((a, l) => a + l.gst, 0));
+    const videos = media.filter(m => m.challan_id === c.id).map(m => ({ id: m.id, url: m.url, seconds: m.seconds, byId: m.created_by, by: m.created_by_name || '', at: m.created_at }));
     return { id: c.id, code: c.code, vendorName: c.vendor_name, challanDate: c.challan_date, billNo: c.bill_no || '', reason: c.reason || '', remark: c.remark || '',
       photoUrl: c.photo_url || '', followUpUserId: c.follow_up_user_id, followUpName: c.follow_up_name || '', createdAt: c.created_at, createdByName: c.created_by_name || '',
-      days: Number(c.days) || 0, cancelledAt: c.cancelled_at, cancelReason: c.cancel_reason || '', lines: ls, pending, value,
+      days: Number(c.days) || 0, cancelledAt: c.cancelled_at, cancelReason: c.cancel_reason || '', lines: ls, pending, value, taxable, gst, videos,
       creditAmount: ls.reduce((a, l) => a + l.creditAmount, 0), status: c.cancelled_at ? 'Cancelled' : pending > 0 ? 'Open' : 'Closed' };
   });
 }
@@ -13749,7 +13803,11 @@ app.get('/api/vendor-ledger', requireAuth, async (req, res) => {
     if (!(await vrlAccess(req, res))) return;
     await vrlTables();
     const [vend] = await db.query(`SELECT DISTINCT vendor_name FROM (SELECT vendor_name FROM purchase_po_archive UNION SELECT vendor_name FROM vendor_repl_challans) v WHERE vendor_name<>'' ORDER BY vendor_name`).catch(() => [[]]);
-    res.json({ challans: await vrlLoad(), vendors: vend.map(v => v.vendor_name), me: { isAdmin: req.session.role === 'admin' } });
+    // GST % per product from the Price Catalogue — pre-fills the line's GST select.
+    const [gl] = await db.query("SELECT product_name, gst_percent FROM o2d_price_list WHERE gst_percent IS NOT NULL AND gst_percent<>''").catch(() => [[]]);
+    const gstMap = {};
+    gl.forEach(g => { const p = parseFloat(String(g.gst_percent).replace(/[^\d.]/g, '')); if (VRL_GST_SLABS.includes(p)) gstMap[g.product_name] = p; });
+    res.json({ challans: await vrlLoad(), vendors: vend.map(v => v.vendor_name), gstMap, me: { isAdmin: req.session.role === 'admin' } });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/vendor-ledger', requireAuth, async (req, res) => {
@@ -13761,10 +13819,13 @@ app.post('/api/vendor-ledger', requireAuth, async (req, res) => {
     if (!vendor) return res.status(400).json({ error: 'Vendor name is required' });
     const date = /^\d{4}-\d{2}-\d{2}$/.test(b.challanDate || '') ? b.challanDate : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
     const lines = (Array.isArray(b.lines) ? b.lines : []).map(l => ({ item: String(l.itemName || '').trim().slice(0, 255), serial: String(l.serialNo || '').trim().slice(0, 255),
-      qty: Number(l.qty), rate: l.rate === '' || l.rate == null ? null : Number(l.rate), defect: String(l.defect || '').trim().slice(0, 255) }));
+      qty: Number(l.qty), rate: l.rate === '' || l.rate == null ? null : Number(l.rate), defect: String(l.defect || '').trim().slice(0, 255),
+      basis: l.rateBasis === 'gst' ? 'gst' : 'basic', gstPct: l.gstPct === '' || l.gstPct == null ? null : Number(l.gstPct) }));
     if (!lines.length) return res.status(400).json({ error: 'Add at least one item' });
     const bad = lines.findIndex(l => !l.item || !(l.qty > 0));
     if (bad >= 0) return res.status(400).json({ error: `Item ${bad + 1}: name and quantity are required` });
+    const badGst = lines.findIndex(l => l.gstPct != null && !VRL_GST_SLABS.includes(l.gstPct));
+    if (badGst >= 0) return res.status(400).json({ error: `Item ${badGst + 1}: GST % must be 0 / 5 / 12 / 18 / 28` });
     if (!b.photo) return res.status(400).json({ error: 'Photo of the defective / packed goods is required' });
     const n = await claimNextSeqValue('vrl_code', 1);
     const code = `VRC-${String(n).padStart(4, '0')}`;
@@ -13772,8 +13833,8 @@ app.post('/api/vendor-ledger', requireAuth, async (req, res) => {
     const [r] = await db.query('INSERT INTO vendor_repl_challans (code, vendor_name, challan_date, bill_no, reason, remark, photo_url, follow_up_user_id, created_by) VALUES (?,?,?,?,?,?,?,?,?)',
       [code, vendor, date, String(b.billNo || '').trim().slice(0, 100) || null, String(b.reason || '').trim().slice(0, 255) || null, String(b.remark || '').trim() || null, photoUrl,
        Number(b.followUpUserId) || null, req.session.userId]);
-    await db.query('INSERT INTO vendor_repl_lines (challan_id, item_name, serial_no, qty, rate, defect) VALUES ?',
-      [lines.map(l => [r.insertId, l.item, l.serial || null, l.qty, Number.isFinite(l.rate) ? l.rate : null, l.defect || null])]);
+    await db.query('INSERT INTO vendor_repl_lines (challan_id, item_name, serial_no, qty, rate, defect, rate_basis, gst_pct) VALUES ?',
+      [lines.map(l => [r.insertId, l.item, l.serial || null, l.qty, Number.isFinite(l.rate) ? l.rate : null, l.defect || null, l.basis, l.gstPct])]);
     res.json({ success: true, id: r.insertId, code });
   } catch (err) { sendServerError(res, err); }
 });
@@ -13797,12 +13858,51 @@ app.post('/api/vendor-ledger/:id/settle', requireAuth, async (req, res) => {
       if (left[e.lineId] < -1e-9) return res.status(400).json({ error: 'More than the pending quantity' });
       if (e.kind === 'credit' && !String(e.cnNo || '').trim()) return res.status(400).json({ error: 'Credit note number is required' });
     }
-    const photoUrl = b.photo ? await uploadPhotoToDrive(b.photo, `${ch.code}-settle-${Date.now()}.jpg`) : null;
+    if (b.photo && !docDataUriKind(b.photo)) return res.status(400).json({ error: 'Photo or PDF only' });
+    const photoUrl = b.photo ? await uploadDocToDrive(b.photo, `${ch.code}-settle-${Date.now()}`) : null;
     await db.query('INSERT INTO vendor_repl_settlements (line_id, kind, qty, settle_date, cn_no, cn_amount, remark, photo_url, created_by) VALUES ?',
       [entries.map(e => [Number(e.lineId), e.kind, Number(e.qty), date, e.kind === 'credit' ? String(e.cnNo).trim().slice(0, 100) : null,
         e.kind === 'credit' && e.cnAmount !== '' && e.cnAmount != null ? Number(e.cnAmount) : null, String(b.remark || '').trim().slice(0, 500) || null, photoUrl, req.session.userId])]);
     const [fresh] = await vrlLoad('WHERE c.id=?', [ch.id]);
     res.json({ success: true, challan: fresh });
+  } catch (err) { sendServerError(res, err); }
+});
+// Challan videos (client, 2026-10-17) — recorded / shrunk in the browser like
+// O2D dispatch videos and posted as raw bytes (no base64) to stay under
+// Vercel's 4.5 MB request limit.
+app.post('/api/vendor-ledger/:id/video', requireAuth,
+  express.raw({ type: ['video/*', 'application/octet-stream'], limit: '4mb' }), async (req, res) => {
+  try {
+    if (!(await vrlAccess(req, res))) return;
+    await vrlTables();
+    const [[ch]] = await db.query('SELECT id, code, cancelled_at FROM vendor_repl_challans WHERE id=?', [Number(req.params.id)]);
+    if (!ch) return res.status(404).json({ error: 'Challan not found' });
+    if (ch.cancelled_at) return res.status(400).json({ error: 'Challan is cancelled' });
+    if (!Buffer.isBuffer(req.body) || req.body.length < 1000) return res.status(400).json({ error: 'Video is empty — record again' });
+    const mime = String(req.headers['content-type'] || 'video/webm').split(';')[0];
+    const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+    // Public + Drive's own player, same as O2D videos (the /api/drive-file proxy
+    // doesn't serve byte ranges, which some phones need to seek/play video).
+    const link = await uploadBufferToDrive(req.body, `${ch.code}-video-${Date.now()}.${ext}`, mime, { public: true });
+    const fid = (link.match(/[?&]id=([\w-]+)/) || [])[1];
+    const url = fid ? `https://drive.google.com/file/d/${fid}/view` : link;
+    const seconds = parseInt(req.query.seconds, 10) || null;
+    const [ins] = await db.query('INSERT INTO vrl_media (challan_id, url, kind, seconds, created_by) VALUES (?,?,?,?,?)', [ch.id, url, 'video', seconds, req.session.userId]);
+    res.json({ success: true, id: ins.insertId, url });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+app.delete('/api/vendor-ledger/media/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await vrlAccess(req, res))) return;
+    await vrlTables();
+    const [[m]] = await db.query('SELECT id, created_by FROM vrl_media WHERE id=?', [Number(req.params.id)]);
+    if (!m) return res.status(404).json({ error: 'Not found' });
+    if (req.session.role !== 'admin' && Number(m.created_by) !== Number(req.session.userId)) return res.status(403).json({ error: 'Only the person who recorded it can remove it' });
+    await db.query('DELETE FROM vrl_media WHERE id=?', [m.id]);
+    res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/vendor-ledger/:id/cancel', requireAuth, async (req, res) => {
