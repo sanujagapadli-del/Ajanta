@@ -1420,7 +1420,7 @@ tbody tr:last-child td{border-bottom:none;}
             </div>
             <!-- One FMS tab (client, 2026-10-05) — which FMS is picked here. -->
             <select id="dashFmsFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)">
-              <option value="all">All FMS</option><option value="o2d">🚚 O2D</option><option value="fms">🛠️ Service</option><option value="cheque">🧾 Cheque</option><option value="repl">♻️ Replacement</option><option value="lead">📞 Lead</option><option value="purchase">🛒 Purchase</option>
+              <option value="all">All FMS</option><option value="o2d">🚚 O2D</option><option value="fms">🛠️ Service</option><option value="cheque">🧾 Cheque</option><option value="repl">♻️ Replacement</option><option value="lead">📞 Lead</option><option value="purchase">🛒 Purchase</option><option value="collect">💰 Payment</option>
             </select>
             <select id="dashFreqFilter" onchange="renderDashFreq()" style="display:none;padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt)"><option value="all">All Frequencies</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="alternative_week">Alternative Week</option><option value="every_10_days">Every 10 Days</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
           </div>
@@ -2158,8 +2158,8 @@ tbody tr:last-child td{border-bottom:none;}
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">💰 Payment Follow-up</div>
-        <span style="font-size:12px;color:var(--gray-500)">15 din: WhatsApp · 25 din: call · 30 din: call</span>
-        <button class="btn btn-outline" onclick="loadCollection()">🔄 Refresh</button>
+        <span style="font-size:12px;color:var(--gray-500)">15 din: WhatsApp · 25 din: call · 30 din: call · Delivery dues: payment terms se</span>
+        <button class="btn btn-outline" onclick="loadCollection(true)">🔄 Refresh</button>
       </div>
       <div id="colTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
@@ -3560,7 +3560,18 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
         <div class="form-group">
           <label>Payment Terms</label>
-          <input type="text" id="noPaymentTerms" placeholder="e.g. 30 Days, Cash on Delivery" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <select id="noPaymentTermsSel" onchange="onNoPaymentTermsChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--surface)">
+            <option value="">-- Select --</option>
+            <option>Advance</option>
+            <option>7 Days</option>
+            <option>15 Days</option>
+            <option>30 Days</option>
+            <option>45 Days</option>
+            <option>60 Days</option>
+            <option value="__other__">+ Other</option>
+          </select>
+          <input type="text" id="noPaymentTerms" placeholder="e.g. 20 Days, Cash on Delivery" style="display:none;width:100%;padding:9px 12px;margin-top:6px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <div style="font-size:11px;color:var(--gray-500);margin-top:3px">Delivery ke baad itne din me payment due — reminder isi se jaata hai</div>
         </div>
         <div class="form-group">
           <label>Channel (Freight / Rent)</label>
@@ -4857,7 +4868,8 @@ async function loadDashboard() {
     api('/api/replacement-fms').catch(() => null),
     api('/api/lead-fms').catch(() => null),
     (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms').catch(() => null) : null,
-    (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms/indents').catch(() => null) : null
+    (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms/indents').catch(() => null) : null,
+    api('/api/delivery-dues/mine').catch(() => null)
   ]);
   const [dDel, dChl] = await Promise.all([
     api(baseUrl + 'delegation'),
@@ -4928,7 +4940,7 @@ async function loadDashboard() {
   // data is in hand (no network call).
   const renderDash = () => {
     renderDashO2dHold();
-    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks(), ...buildChequeDashboardTasks(), ...buildReplDashboardTasks(), ...buildLeadDashboardTasks(), ...buildPurchaseDashboardTasks()];
+    const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks(), ...buildChequeDashboardTasks(), ...buildReplDashboardTasks(), ...buildLeadDashboardTasks(), ...buildPurchaseDashboardTasks(), ...buildDdDashboardTasks()];
 
 
     // Pending count/chart use allTodayPending's actual length — it's the same
@@ -4968,7 +4980,7 @@ async function loadDashboard() {
   // update, so a step just done there shows here without waiting on the
   // sheet re-read — then repaint once the fresh read lands.
   renderDash();
-  const [o2d, sfms, chq, repl, lead, pur, ind] = await fmsPromise;
+  const [o2d, sfms, chq, repl, lead, pur, ind, ddMine] = await fmsPromise;
   if (loadSeq !== _dashLoadSeq) return;
   // A failed read keeps the last good data instead of blanking the FMS rows,
   // and a read older than a step just done here keeps the local (done) state.
@@ -4980,6 +4992,7 @@ async function loadDashboard() {
   if (lead && Array.isArray(lead.leads) && fresh('lead')) window._lastLeadData = lead;
   if (Array.isArray(pur) && fresh('purchase')) window._lastPurchaseData = pur;
   if (ind && Array.isArray(ind.indents) && fresh('purchase')) window._lastIndentData = ind;
+  if (ddMine && Array.isArray(ddMine.items) && fresh('collect')) window._lastDdMine = ddMine;
   renderDash();
 }
 
@@ -5084,7 +5097,7 @@ function renderDashTable(tasks, type) {
   // Filter by selected tab: all / delegation / checklist / FMS. The single
   // FMS tab ('fmsall') covers O2D (t.type 'o2d'), Service (t.type 'fms') and
   // Cheque (t.type 'cheque'), narrowed by the #dashFmsFilter dropdown.
-  const FMS_TYPES = ['o2d', 'fms', 'cheque', 'repl', 'lead', 'purchase'];
+  const FMS_TYPES = ['o2d', 'fms', 'cheque', 'repl', 'lead', 'purchase', 'collect'];
   let allPending = tasks.filter(t => {
     const matchType = (!type || type === 'all') ? true
       : type === 'fmsall' ? (fmsPick === 'all' ? FMS_TYPES.includes(t.type) : t.type === fmsPick)
@@ -5106,6 +5119,8 @@ function renderDashTable(tasks, type) {
     ? `<span style="font-size:9px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-success-border)">✅ Che</span>`
     : t.type==='fms'
     ? `<span style="font-size:9px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-purple-border)">🛠️ Service</span>`
+    : t.type==='collect'
+    ? `<span style="font-size:9px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-success-border)">💰 Payment</span>`
     : t.type==='purchase'
     ? `<span style="font-size:9px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-warning-border)">🛒 Purchase</span>`
     : t.type==='lead'
@@ -5128,7 +5143,7 @@ function renderDashTable(tasks, type) {
     // literally instead of rendering them. Delegation/Checklist descriptions
     // are raw user-typed text straight from the DB and still need escaping.
     const rawDesc = t.description || t.desc || '';
-    const descCell = `${(t.type === 'o2d' || t.type === 'fms' || t.type === 'cheque' || t.type === 'repl' || t.type === 'lead' || t.type === 'purchase') ? rawDesc : esc(rawDesc)}${linkBtn}`;
+    const descCell = `${(t.type === 'o2d' || t.type === 'fms' || t.type === 'cheque' || t.type === 'repl' || t.type === 'lead' || t.type === 'purchase' || t.type === 'collect') ? rawDesc : esc(rawDesc)}${linkBtn}`;
     let actions = '';
     let rowStyle = '';
     // Someone else's delegation, visible through the "All Delegations" grant — view + comment only.
@@ -5146,6 +5161,9 @@ function renderDashTable(tasks, type) {
       actions = `<button class="action-btn done" onclick="openReplQuickAction(${t.id})">Done</button>`;
     } else if (t.type === 'lead') {
       actions = `<button class="action-btn done" onclick="openLeadQuickAction(${t.id})">Done</button>`;
+    } else if (t.type === 'collect') {
+      actions = `<button class="action-btn done" onclick="openDdCall('${jsArg(t.id)}')">📞 Call</button>`
+        + (window._lastDdMine && window._lastDdMine.canOpen ? ` <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary)" onclick="openCollectionDues()">Open</button>` : '');
     } else if (t.type === 'purchase') {
       actions = `<button class="action-btn done" onclick="openPurchaseQuickAction('${jsArg(t.id)}')">Done</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
@@ -5173,7 +5191,7 @@ function renderDashTable(tasks, type) {
     // Mobile shows each row as a compact card (see the #dashTable rules in the
     // phone media query): empty cells and a description that just repeats the
     // title get class dt-empty and are hidden there.
-    const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque'||t.type==='repl'||t.type==='lead'||t.type==='purchase';
+    const isFmsRow = t.type==='fms'||t.type==='o2d'||t.type==='cheque'||t.type==='repl'||t.type==='lead'||t.type==='purchase'||t.type==='collect';
     const doerName = (isAdmin||isPC) ? t.assignedToName : othersDeleg ? `${t.assignedByName} → ${t.assignedToName}` : t.assignedByName;
     // Planned date for every row — Delegation/Checklist due date, or the
     // planned time of the FMS step that's pending (client, 2026-10-05).
@@ -6470,7 +6488,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'dealers', label: 'Dealer Master' },
     { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue)' },
     { key: 'drip-marketing', label: 'Drip Marketing (weekly plan dekhe; badle sirf Admin)' },
-    { key: 'collection', label: 'Payment Follow-up (15 din WhatsApp, 25/30 din call)' },
+    { key: 'collection', label: 'Payment Follow-up (15 din WhatsApp, 25/30 din call, Delivery dues)' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'meca', label: 'MECA — salesman market report (visit / order / NBD)' },
     { key: 'samples', label: 'Samples (salesman ko diye sample)' },
@@ -8487,7 +8505,7 @@ async function saveProfile() {
 // is dropped so a just-done step doesn't pop back as pending (client bug,
 // 2026-10-12: "task complete kr rhe hai but vapis aa jata hai").
 const _fmsWriteAt = {};
-const FMS_WRITE_KEYS = [['/api/o2d-fms', 'o2d'], ['/api/service-fms', 'sfms'], ['/api/cheque-fms', 'cheque'], ['/api/replacement-fms', 'repl'], ['/api/lead-fms', 'lead'], ['/api/purchase-fms', 'purchase']];
+const FMS_WRITE_KEYS = [['/api/o2d-fms', 'o2d'], ['/api/service-fms', 'sfms'], ['/api/cheque-fms', 'cheque'], ['/api/replacement-fms', 'repl'], ['/api/lead-fms', 'lead'], ['/api/purchase-fms', 'purchase'], ['/api/delivery-dues', 'collect']];
 async function api(url,method='GET',body=null) {
   if (method !== 'GET') { const k = FMS_WRITE_KEYS.find(([pre]) => url.startsWith(pre)); if (k) _fmsWriteAt[k[1]] = Date.now(); }
   const opts={method, headers:{'Content-Type':'application/json'}, credentials:'include'};
@@ -15538,6 +15556,12 @@ function removeO2dProductRow(id) {
   if (wrap.children.length <= 1) { showToast('At least one product is required', 'error'); return; }
   document.getElementById(`noProductRow_${id}`).remove();
 }
+function onNoPaymentTermsChange() {
+  const isOther = document.getElementById('noPaymentTermsSel').value === '__other__';
+  const other = document.getElementById('noPaymentTerms');
+  other.style.display = isOther ? 'block' : 'none';
+  if (isOther) other.focus(); else other.value = '';
+}
 function onNoChannelChange() {
   const isOther = document.getElementById('noChannel').value === '__other__';
   const other = document.getElementById('noChannelOther');
@@ -15559,6 +15583,8 @@ function openNewO2dOrderModal() {
   document.getElementById('noChannel').value = '';
   document.getElementById('noChannelOther').value = '';
   document.getElementById('noChannelOther').style.display = 'none';
+  document.getElementById('noPaymentTermsSel').value = '';
+  document.getElementById('noPaymentTerms').style.display = 'none';
   document.getElementById('noOrderByOther').value = '';
   document.getElementById('noOrderByOther').style.display = 'none';
   document.getElementById('noCounterType').value = 'Old Counter';
@@ -15680,7 +15706,7 @@ async function submitNewO2dOrder() {
     counterName,
     area: document.getElementById('noArea').value.trim(),
     orderBy: document.getElementById('noOrderBy').value === '__other__' ? document.getElementById('noOrderByOther').value.trim() : document.getElementById('noOrderBy').value,
-    paymentTerms: document.getElementById('noPaymentTerms').value.trim(),
+    paymentTerms: document.getElementById('noPaymentTermsSel').value === '__other__' ? document.getElementById('noPaymentTerms').value.trim() : document.getElementById('noPaymentTermsSel').value,
     channel: document.getElementById('noChannel').value === '__other__' ? document.getElementById('noChannelOther').value.trim() : document.getElementById('noChannel').value,
     deliverByTransport: document.getElementById('noDeliverByTransport').value,
     makePerformaInvoice: document.getElementById('noMakePI').value,
@@ -18096,13 +18122,20 @@ function exportOws() {
 // ══════════════════════════════════════════════════════
 // PAYMENT FOLLOW-UP (client voice note, 2026-10-17) — day 15 WhatsApp, day 25 / 30 calls
 // ══════════════════════════════════════════════════════
-let colData = null, colTab = 'calls';
-async function loadCollection() {
+let colData = null, colErr = '', colTab = 'calls', ddData = null, ddErr = '', ddFilter = 'open';
+async function loadCollection(refreshDues) {
   document.getElementById('colWrap').innerHTML = '<div class="empty">Loading…</div>';
-  const r = await api('/api/collection-followup');
-  if (r.error) { document.getElementById('colWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
-  colData = r;
+  const [r, d] = await Promise.all([api('/api/collection-followup').catch(e => ({ error: e.message || 'Load failed' })),
+    api('/api/delivery-dues' + (refreshDues ? '?refresh=1' : '')).catch(e => ({ error: e.message || 'Load failed' }))]);
+  colData = r && !r.error ? r : null; colErr = r && r.error ? r.error : '';
+  ddData = d && !d.error ? d : null; ddErr = d && d.error ? d.error : '';
+  if (!colData && ddData && colTab !== 'dues') colTab = 'dues';
   renderCollection();
+}
+// Dashboard "Open" → Collection page, Delivery dues tab.
+function openCollectionDues() {
+  colTab = 'dues';
+  navigate('collection', document.getElementById('nav-collection'));
 }
 function colSetTab(t) { colTab = t; renderCollection(); }
 function colCallsDue() {
@@ -18113,15 +18146,23 @@ function colCallsDue() {
   return out.sort((x, y) => y.b.days - x.b.days);
 }
 function renderCollection() {
-  if (!colData) return;
+  const tab = (k, l) => `<button class="btn btn-sm ${colTab === k ? 'btn-primary' : 'btn-outline'}" onclick="colSetTab('${jsArg(k)}')">${l}</button>`;
+  const ddOpen = ddData ? ddData.items.filter(x => x.status !== 'paid') : [];
+  const ddTab = tab('dues', `🚚 Delivery dues (${ddOpen.filter(x => x.daysLeft <= 0).length}/${ddOpen.length})`);
+  if (!colData) {
+    document.getElementById('colTabs').innerHTML = ddTab;
+    if (colTab === 'dues') return renderDeliveryDues();
+    document.getElementById('colWrap').innerHTML = `<div class="empty">⚠️ ${esc(colErr || 'Load failed')}</div>`;
+    return;
+  }
   const S = colData.steps;
   const calls = colCallsDue();
   const msgs = colData.bills.filter(b => b.days >= S.msg15.from && b.days <= S.msg15.to);
   const done = [];
   colData.bills.forEach(b => ['call25', 'call30'].forEach(step => { if (b.acts[step]) done.push({ b, step, a: b.acts[step] }); }));
   done.sort((x, y) => String(y.a.at).localeCompare(String(x.a.at)));
-  const tab = (k, l) => `<button class="btn btn-sm ${colTab === k ? 'btn-primary' : 'btn-outline'}" onclick="colSetTab('${jsArg(k)}')">${l}</button>`;
-  document.getElementById('colTabs').innerHTML = tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`);
+  document.getElementById('colTabs').innerHTML = tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`) + ddTab;
+  if (colTab === 'dues') return renderDeliveryDues();
   const synced = colData.lastSynced ? new Date(colData.lastSynced) : null;
   const stale = synced ? Math.floor((Date.now() - synced.getTime()) / 86400000) : null;
   const note = `<div style="font-size:12px;color:${stale != null && stale >= 2 ? 'var(--color-danger)' : 'var(--gray-500)'};margin-bottom:10px">Tally se baaki bill — last sync ${synced ? esc(fmtDateDMY(o2dReportsFmtDate(synced))) : '—'}${stale != null && stale >= 2 ? ` · ⚠️ <b>${stale} din purana</b> — Tally PC par sync check karein. Jab tak sync nahi hota, WhatsApp reminder apne aap nahi jayenge (paid dealers ko galat message na jaye).` : ''}. Payment aate hi bill Tally se hat jaata hai aur follow-up apne aap band.</div>`;
@@ -18177,6 +18218,133 @@ async function colSendNow(btn) {
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast(r.dealers ? `📤 ${r.dealers} dealers ko reminder queue me` : 'Koi naya reminder nahi (sab pehle hi bhej diye ya phone nahi)');
   loadCollection();
+}
+
+// ── Delivery dues (client, 2026-10-17): due = delivered on + payment-terms
+// days. WhatsApp to the dealer N days before and on the due date (server
+// cron); the salesman gets due/overdue ones on his Dashboard to call. ──
+const DD_STATUS = { pending: ['Pending', 'var(--gray-100)', 'var(--gray-700)'], reminded: ['💬 Reminded', 'var(--color-warning-bg)', 'var(--color-warning-text)'],
+  'call done': ['📞 Call done', 'var(--color-primary-light)', 'var(--color-primary)'], paid: ['✅ Paid', 'var(--color-success-bg)', 'var(--color-success-text)'] };
+const ddStatusBadge = s => { const x = DD_STATUS[s] || DD_STATUS.pending; return `<span class="status-badge" style="background:${x[1]};color:${x[2]}">${x[0]}</span>`; };
+const ddDaysText = x => x.status === 'paid' ? '—' : x.daysLeft < 0 ? `<b style="color:var(--color-danger)">${-x.daysLeft} din overdue</b>`
+  : x.daysLeft === 0 ? '<b style="color:var(--color-danger)">Aaj due</b>' : `<span style="color:${x.daysLeft <= 2 ? 'var(--color-warning-text)' : 'var(--gray-700)'};font-weight:700">${x.daysLeft} din baaki</span>`;
+function ddSetFilter(f) { ddFilter = f; renderDeliveryDues(); }
+function renderDeliveryDues() {
+  const wrap = document.getElementById('colWrap');
+  if (!ddData) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(ddErr || 'Load failed')}</div>`; return; }
+  const all = ddData.items;
+  const pick = { open: x => x.status !== 'paid', overdue: x => x.status !== 'paid' && x.daysLeft <= 0, paid: x => x.status === 'paid', all: () => true };
+  const list = all.filter(pick[ddFilter] || pick.open);
+  const chip = (k, l) => `<button class="btn btn-sm ${ddFilter === k ? 'btn-primary' : 'btn-outline'}" onclick="ddSetFilter('${jsArg(k)}')">${l} (${all.filter(pick[k]).length})</button>`;
+  const n = ddData.remindDays;
+  const admin = ddData.canEdit ? `<span style="white-space:nowrap">Due se <input id="ddRemindDays" type="number" min="0" max="15" value="${n}" style="width:52px;padding:3px 6px;border:1.5px solid var(--gray-200);border-radius:6px"/> din pehle
+      <button class="btn btn-sm btn-outline" onclick="ddSaveDays(this)">Save</button> <button class="btn btn-sm btn-outline" onclick="ddSendNow(this)">📤 Abhi bhejo</button></span>` : '';
+  const head = `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span style="margin-right:auto">O2D me <b>Delivered</b> mark hue orders — due date = delivery + payment terms ke din. Dealer ko WhatsApp ${n ? `due se <b>${n} din pehle</b> aur ` : ''}<b>due date</b> par subah ~11 baje apne aap jaata hai. Aaj/overdue wale salesman ke Dashboard par call ke liye dikhte hain.</span>${admin}</div>
+    ${ddData.unknownTerms ? `<div style="font-size:12px;color:var(--color-warning-text);margin-bottom:8px">⚠️ ${ddData.unknownTerms} delivered order(s) ki payment terms samajh nahi aayi (blank / bina din) — unka reminder nahi jayega.</div>` : ''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('open', 'Baaki')}${chip('overdue', 'Aaj / overdue')}${chip('paid', 'Paid')}${chip('all', 'Sab')}</div>`;
+  if (!list.length) { wrap.innerHTML = head + '<div class="empty">Koi due nahi 🎉</div>'; return; }
+  const sent = x => [x.preSentAt ? `💬 Pehle: ${esc(fmtDateDMY(x.preSentAt))}` : '', x.dueSentAt ? `💬 Due: ${esc(fmtDateDMY(x.dueSentAt))}` : ''].filter(Boolean).join('<br>');
+  wrap.innerHTML = head + `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Order</th><th>Dealer</th><th style="text-align:right">Amount</th><th>Delivered</th><th>Terms</th><th>Due date</th><th>Din</th><th>Responsible</th><th>Status</th><th></th></tr></thead><tbody>
+    ${list.map(x => `<tr><td style="white-space:nowrap;font-weight:700">${esc(x.orderNo)}${x.billNo ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">Bill ${esc(x.billNo)}</div>` : ''}</td>
+      <td style="font-weight:600">${esc(x.dealer || '—')}</td><td style="text-align:right;font-weight:800">${inr(x.amount)}</td>
+      <td style="white-space:nowrap">${esc(fmtDateDMY(x.deliveredOn))}</td><td>${esc(x.terms)}</td><td style="white-space:nowrap">${esc(fmtDateDMY(x.dueDate))}</td>
+      <td style="white-space:nowrap">${ddDaysText(x)}</td><td>${esc(x.responsible || '—')}</td>
+      <td>${ddStatusBadge(x.status)}${sent(x) ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px">${sent(x)}</div>` : ''}
+        ${x.callOutcome ? `<div style="font-size:11px;margin-top:2px"><b>${esc(x.callOutcome)}</b>${x.callRemark ? ' — ' + esc(x.callRemark) : ''}<br><span style="color:var(--gray-500)">${esc(fmtDateDMY(x.callAt, true))} · ${esc(x.callBy)}</span></div>` : ''}
+        ${x.status === 'paid' ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px">${esc(fmtDateDMY(x.paidAt, true))} · ${esc(x.paidBy)}${x.paidRemark ? ' — ' + esc(x.paidRemark) : ''}</div>` : ''}</td>
+      <td style="white-space:nowrap">${x.status === 'paid'
+        ? `<button class="btn btn-sm btn-outline" onclick="ddMarkPaid('${jsArg(x.orderNo)}',true,this)">↩ Undo</button>`
+        : `<button class="btn btn-sm btn-outline" onclick="openDdCall('${jsArg(x.orderNo)}')">📞 Call</button> <button class="btn btn-sm btn-green" onclick="ddMarkPaid('${jsArg(x.orderNo)}',false,this)">✓ Paid</button>`}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+const DD_OUTCOMES = ['Payment ka promise kiya', 'Payment bhej diya (check karna hai)', 'Phone nahi uthaya', 'Baad me call karna hai', 'Dispute / issue hai'];
+function ddFind(orderNo) {
+  return (ddData && ddData.items.find(x => x.orderNo === orderNo)) || (window._lastDdMine && window._lastDdMine.items.find(x => x.orderNo === orderNo)) || null;
+}
+function openDdCall(orderNo) {
+  const x = ddFind(orderNo);
+  if (!x) return;
+  vrlModal('ddCallModal', `${scotModalHead('ddCallModal', '📞 Payment follow-up call')}
+    <div style="font-weight:700">${esc(x.dealer || '—')}</div><div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Order ${esc(x.orderNo)}${x.billNo ? ' · Bill ' + esc(x.billNo) : ''} · ${inr(x.amount)} · due ${esc(fmtDateDMY(x.dueDate))} (${esc(x.terms)})</div>
+    <label style="font-size:12px;font-weight:600">Kya hua? *</label><select id="ddOutcome" style="${VRL_IN};margin-bottom:8px">${DD_OUTCOMES.map(o => `<option${o === x.callOutcome ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>
+    <label style="font-size:12px;font-weight:600">Remark</label><input id="ddRemark" value="${esc(x.callRemark || '')}" placeholder="e.g. 20 tareekh tak payment karega" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveDdCall('${jsArg(orderNo)}',this)">✓ Save</button>`, 460);
+}
+async function saveDdCall(orderNo, btn) {
+  const outcome = document.getElementById('ddOutcome').value, remark = document.getElementById('ddRemark').value.trim();
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/delivery-dues/${encodeURIComponent(orderNo)}/call`, 'POST', { outcome, remark });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('ddCallModal');
+  const now = o2dReportsFmtDate(new Date()) + ' ' + new Date().toTimeString().slice(0, 8);
+  [ddData && ddData.items, window._lastDdMine && window._lastDdMine.items].forEach(arr => (arr || []).filter(x => x.orderNo === orderNo).forEach(x => {
+    Object.assign(x, { callOutcome: outcome, callRemark: remark, callAt: now, callBy: ME.name });
+    if (x.status !== 'paid') x.status = 'call done';
+  }));
+  showToast('✅ Call record ho gaya');
+  // Off the Dashboard till tomorrow (the server does the same).
+  if (window._lastDdMine) window._lastDdMine.items = window._lastDdMine.items.filter(x => x.orderNo !== orderNo);
+  if (document.getElementById('page-collection').classList.contains('active')) renderCollection();
+  refreshDashboardDdLocally();
+}
+async function ddMarkPaid(orderNo, undo, btn) {
+  if (!undo && !confirm(`Order ${orderNo} ka payment aa gaya? Iske reminder band ho jayenge.`)) return;
+  const remark = undo ? '' : (prompt('Remark (optional) — e.g. UTR / cheque no.') || '').trim();
+  const restore = btnLoading(btn, '…');
+  const r = await api(`/api/delivery-dues/${encodeURIComponent(orderNo)}/paid`, 'POST', { undo: !!undo, remark });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(undo ? 'Paid hata diya' : '✅ Paid mark ho gaya');
+  if (window._lastDdMine && !undo) window._lastDdMine.items = window._lastDdMine.items.filter(x => x.orderNo !== orderNo);
+  refreshDashboardDdLocally();
+  loadCollection();
+}
+async function ddSaveDays(btn) {
+  const restore = btnLoading(btn, '…');
+  const r = await api('/api/delivery-dues/settings', 'PUT', { remindDays: document.getElementById('ddRemindDays').value });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  ddData.remindDays = r.remindDays;
+  showToast('✅ Save ho gaya');
+  renderDeliveryDues();
+}
+async function ddSendNow(btn) {
+  if (!confirm('Aaj ke delivery due reminders (pehle wale + due date wale) abhi WhatsApp par bhejein?')) return;
+  const restore = btnLoading(btn, 'Bhej rahe…');
+  const r = await api('/api/delivery-dues/send-now', 'POST', {});
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(r.dealers ? `📤 ${r.dealers} dealers ko reminder queue me` : 'Koi naya reminder nahi (sab pehle hi bhej diye ya phone nahi)');
+  loadCollection();
+}
+// Dashboard rows (from window._lastDdMine — server already scoped it to this user).
+function buildDdDashboardTasks() {
+  const d = window._lastDdMine;
+  if (!d || !Array.isArray(d.items)) return [];
+  const empFilter = document.getElementById('dashEmployeeFilter');
+  const empVal = empFilter ? empFilter.value : 'all';
+  const isManager = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
+  return d.items.filter(x => x.status !== 'paid' && (!isManager || empVal === 'all' || Number(x.salesmanUserId) === Number(empVal))).map(x => {
+    const late = x.daysLeft < 0;
+    const description = `
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">💰 Payment follow-up — ${inr(x.amount)}</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(x.dealer || '—')}${x.billNo ? ' · Bill ' + esc(x.billNo) : ''}</div>
+      <div style="font-size:11.5px;color:var(--gray-500)">Delivered ${esc(fmtDateDMY(x.deliveredOn))} · ${esc(x.terms)}${x.callOutcome ? ' · 📞 ' + esc(x.callOutcome) : ''}</div>
+      ${fmsFieldRow('DUE', `${esc(fmtDateDMY(x.dueDate))}${late ? ` — ${-x.daysLeft} din overdue` : ' — Aaj'}`, 'color:var(--color-danger);font-weight:700')}`;
+    return { id: x.orderNo, type: 'collect', status: 'pending', title: x.orderNo, description,
+      assignedToName: x.responsible || '—', assignedByName: 'Payment Follow-up', assignedToDept: 'Sales',
+      start_date: x.deliveredOn, planned: x.dueDate, plannedLate: late };
+  });
+}
+function refreshDashboardDdLocally() {
+  if (!window._lastDashTasks || !document.getElementById('page-dashboard').classList.contains('active')) return;
+  const merged = [...window._lastDashTasks.filter(t => t.type !== 'collect'), ...buildDdDashboardTasks()];
+  window._lastDashTasks = merged;
+  const pendingEl = document.getElementById('dPending');
+  if (pendingEl) pendingEl.textContent = merged.length;
+  renderDashTable(merged, dashType);
 }
 
 // ══════════════════════════════════════════════════════

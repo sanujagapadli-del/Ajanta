@@ -2303,6 +2303,7 @@ app.get('/api/cron/attendance-alert', async (req, res) => {
     let drips = 0;
     try { if (slot === 'morning') drips = await waEnqueueDueDrips(); waKick(); } catch (e) { console.error('WA drip:', e.message); }
     if (slot === 'morning') try { await collectSendReminders(); } catch (e) { console.error('Payment reminders:', e.message); }
+    if (slot === 'morning') try { await deliveryDuesSendReminders(); } catch (e) { console.error('Delivery due reminders:', e.message); }
     res.json({ ...(await runAttendanceAbsentAlert(slot)), drips });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2325,7 +2326,7 @@ if (!process.env.VERCEL) {
       for (const [slot, hour] of Object.entries(ATTENDANCE_ALERT_SLOTS)) {
         if (h >= hour && h < hour + 2) await runAttendanceAbsentAlert(slot);
       }
-      if (h >= ATTENDANCE_ALERT_SLOTS.morning) { await waEnqueueDueDrips(); await collectSendReminders().catch(e => console.error('Payment reminders:', e.message)); }
+      if (h >= ATTENDANCE_ALERT_SLOTS.morning) { await waEnqueueDueDrips(); await collectSendReminders().catch(e => console.error('Payment reminders:', e.message)); await ddDailyOnce().catch(e => console.error('Delivery due reminders:', e.message)); }
     } catch (e) { console.error('  ❌ Attendance alert tick:', e.message); }
   }, 60 * 1000).unref();
 }
@@ -8523,6 +8524,7 @@ app.put('/api/o2d-fms/order/:orderNo/delivered', requireAuth, async (req, res) =
     await db.query(`INSERT INTO o2d_deliveries (order_no, delivered_on, received_by, remark, marked_by) VALUES (?,?,?,?,?)
       ON DUPLICATE KEY UPDATE delivered_on=VALUES(delivered_on), received_by=VALUES(received_by), remark=VALUES(remark), marked_by=VALUES(marked_by), marked_at=NOW()`,
       [String(req.params.orderNo).slice(0, 60), date, String(b.receivedBy || '').trim().slice(0, 255) || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
+    _ddSyncAt = 0; // Collection → Delivery dues picks this order up on its next open
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -14592,11 +14594,8 @@ async function collectTable() {
   _collectOk = true;
 }
 const collectKey = b => `${String(b.party).trim().toLowerCase()}|${String(b.billRef).trim()}`.slice(0, 191);
-// Unpaid bills with their age in days (IST today − bill date) and the dealer's phone.
-async function collectBills() {
-  const { bills, lastSynced } = await getBillsReceivable();
-  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-  const t0 = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
+// Party name (Tally / O2D) → its Dealer Master row ({counter_name, owner_name, phone}) or null.
+async function dealerResolver() {
   const [dealers] = await withDealerTables(() => db.query("SELECT counter_name, owner_name, phone FROM o2d_dealers"));
   const alias = await getDealerAliasMap();
   const byKey = Object.fromEntries(dealers.map(d => [d.counter_name.trim().toLowerCase(), d]));
@@ -14608,14 +14607,25 @@ async function collectBills() {
   const byLoose = {};
   dealers.forEach(d => { const k = loose(d.counter_name); if (k) byLoose[k] = byLoose[k] === undefined ? d : null; });
   Object.entries(alias).forEach(([a, target]) => { const k = loose(a), d = byKey[String(target).toLowerCase()]; if (k && d && byLoose[k] === undefined) byLoose[k] = d; });
+  return name => {
+    const k = String(name || '').trim().toLowerCase();
+    if (!k) return null;
+    return byKey[k] || (alias[k] && byKey[alias[k].toLowerCase()]) || byLoose[loose(k)] || null;
+  };
+}
+// Unpaid bills with their age in days (IST today − bill date) and the dealer's phone.
+async function collectBills() {
+  const { bills, lastSynced } = await getBillsReceivable();
+  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  const t0 = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
+  const findDealer = await dealerResolver();
   const out = [];
   for (const b of bills) {
     const d = parseAnyDate(b.billDate);
     if (!d || !b.party) continue;
     const ymd = toIsoDate(d);
     const days = Math.round((t0 - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
-    const k = b.party.trim().toLowerCase();
-    const dealer = byKey[k] || (alias[k] && byKey[alias[k].toLowerCase()]) || byLoose[loose(k)] || null;
+    const dealer = findDealer(b.party);
     out.push({ key: collectKey(b), party: b.party.trim(), billRef: b.billRef, billDate: ymd, amount: gpNum(b.amount), days,
       phone: dealer && dealer.phone ? dealer.phone : '', owner: dealer && dealer.owner_name ? dealer.owner_name : '' });
   }
@@ -14703,6 +14713,242 @@ app.post('/api/collection-followup/send-now', requireAuth, requireAdmin, async (
     if (n < 0) return res.status(400).json({ error: 'Tally sync 2 din se purana hai — paid bill bhi baaki dikh rahe honge. Pehle Tally PC par sync chalayein.' });
     res.json({ success: true, dealers: n });
   }
+  catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// DELIVERY → COLLECTION (client, 2026-10-17: "delivery hone ke baad payment
+// terms ke according (7, 15 ya 30 din) reminder — due se pehle / due date par
+// client ko message, responsible person ko Home Screen par call reminder").
+// Due date = O2D delivered_on (o2d_deliveries) + the order's credit days
+// (parsed from its Payment Terms text, sheet column K). One delivery_dues row
+// per order keeps the bill snapshot from the O2D sheet plus what was done
+// (WhatsApp sent before / on due, call outcome, paid). The O2D sheet is read
+// only by the morning cron and when the Collection page's dues tab opens —
+// the Dashboard reads just this table.
+// ══════════════════════════════════════════════════════
+const DD_REMIND_KEY = 'delivery_due_remind_days', DD_REMIND_DEFAULT = 2;
+// "15 Days" → 15, "Advance" / "Cash" → 0, blank / unreadable → null.
+function parseCreditDays(text) {
+  const s = String(text == null ? '' : text).toLowerCase().trim();
+  if (!s) return null;
+  if (/advance|\badv\b|cash|\bcod\b|immediate|against\s+(delivery|order)/.test(s)) return 0;
+  const m = s.match(/(\d{1,3})/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 0 && n <= 180 ? n : null;
+}
+let _ddOk = false;
+async function ddTables() {
+  if (_ddOk) return;
+  await o2dDeliveryTable();
+  await db.query(`CREATE TABLE IF NOT EXISTS delivery_dues (
+    order_no VARCHAR(60) PRIMARY KEY, dealer VARCHAR(255), order_by VARCHAR(255), salesman_user_id INT, bill_no VARCHAR(100),
+    amount DECIMAL(14,2) NOT NULL DEFAULT 0, terms_text VARCHAR(255), terms_days INT,
+    status VARCHAR(10) NOT NULL DEFAULT 'pending', paid_at DATETIME, paid_by INT, paid_remark VARCHAR(500),
+    pre_sent_at DATETIME, due_sent_at DATETIME, campaign_id INT,
+    call_outcome VARCHAR(60), call_remark VARCHAR(500), call_at DATETIME, call_by INT,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (salesman_user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _ddOk = true;
+}
+async function ddRemindDays() {
+  const v = parseInt(await getAppSetting(DD_REMIND_KEY), 10);
+  return v >= 0 && v <= 15 ? v : DD_REMIND_DEFAULT;
+}
+// O2D "Order By" name → user id: the salesman profile's O2D names first
+// (same link as the Profit Center), else a user with that exact name.
+async function ddSalesmanMap() {
+  const [[profiles], [users]] = await Promise.all([
+    withPlTables(() => db.query("SELECT p.user_id, p.o2d_names FROM salesman_profiles p JOIN users u ON u.id=p.user_id WHERE u.is_active=1 AND p.o2d_names IS NOT NULL AND p.o2d_names<>''")),
+    db.query('SELECT id, name FROM users WHERE is_active=1')
+  ]);
+  const map = {};
+  users.forEach(u => { const k = plNameKey(u.name); if (k && map[k] === undefined) map[k] = u.id; });
+  profiles.forEach(p => String(p.o2d_names || '').split(',').map(plNameKey).filter(Boolean).forEach(k => { map[k] = p.user_id; }));
+  return name => map[plNameKey(name)] || null;
+}
+// Refresh the bill snapshot of every delivered order from the O2D sheet.
+// Never touches what was done (status / sent / call). At most once per 5 min per instance.
+let _ddSyncAt = 0;
+async function deliveryDuesSync(force) {
+  await ddTables();
+  if (!force && Date.now() - _ddSyncAt < 5 * 60 * 1000) return;
+  const [dels] = await db.query('SELECT order_no FROM o2d_deliveries');
+  if (!dels.length) { _ddSyncAt = Date.now(); return; }
+  const [orders, salesmanOf] = await Promise.all([getO2dOrders(), ddSalesmanMap()]);
+  const byNo = Object.fromEntries(orders.map(o => [String(o.orderNo), o]));
+  const rows = [];
+  dels.forEach(d => {
+    const o = byNo[d.order_no];
+    if (!o || o.cancelled) return;
+    const amount = Number(o.amount) || (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + gpNum(p.rate) * gpNum(p.qty), 0);
+    rows.push([String(o.orderNo).slice(0, 60), String(o.counterName || '').trim().slice(0, 255), String(o.orderBy || '').trim().slice(0, 255),
+      salesmanOf(o.orderBy), String(o.billNo || '').slice(0, 100), Math.round(amount * 100) / 100,
+      String(o.paymentTerms || '').trim().slice(0, 255) || null, parseCreditDays(o.paymentTerms)]);
+  });
+  for (let i = 0; i < rows.length; i += 300) {
+    await db.query(`INSERT INTO delivery_dues (order_no, dealer, order_by, salesman_user_id, bill_no, amount, terms_text, terms_days) VALUES ?
+      ON DUPLICATE KEY UPDATE dealer=VALUES(dealer), order_by=VALUES(order_by), salesman_user_id=VALUES(salesman_user_id), bill_no=VALUES(bill_no),
+      amount=VALUES(amount), terms_text=VALUES(terms_text), terms_days=VALUES(terms_days), synced_at=NOW()`, [rows.slice(i, i + 300)]);
+  }
+  _ddSyncAt = Date.now();
+}
+// Dues of delivered orders on credit, with due date / days left worked out in
+// SQL (MySQL clock is IST). `where` narrows it (extra SQL, already safe).
+async function ddList(where = '', params = []) {
+  await ddTables();
+  const [rows] = await db.query(`SELECT dd.*, DATE_FORMAT(d.delivered_on,'%Y-%m-%d') AS delivered_on,
+      DATE_FORMAT(DATE_ADD(d.delivered_on, INTERVAL dd.terms_days DAY),'%Y-%m-%d') AS due_date,
+      DATEDIFF(DATE_ADD(d.delivered_on, INTERVAL dd.terms_days DAY), CURDATE()) AS days_left,
+      DATE_FORMAT(dd.pre_sent_at,'%Y-%m-%d %H:%i:%s') AS pre_sent, DATE_FORMAT(dd.due_sent_at,'%Y-%m-%d %H:%i:%s') AS due_sent,
+      DATE_FORMAT(dd.call_at,'%Y-%m-%d %H:%i:%s') AS call_time, DATE_FORMAT(dd.paid_at,'%Y-%m-%d %H:%i:%s') AS paid_time,
+      su.name AS salesman_name, cu.name AS call_by_name, pu.name AS paid_by_name
+    FROM delivery_dues dd JOIN o2d_deliveries d ON d.order_no=dd.order_no
+    LEFT JOIN users su ON su.id=dd.salesman_user_id LEFT JOIN users cu ON cu.id=dd.call_by LEFT JOIN users pu ON pu.id=dd.paid_by
+    WHERE dd.terms_days > 0 ${where} ORDER BY due_date`, params);
+  return rows.map(r => ({
+    orderNo: r.order_no, dealer: r.dealer || '', orderBy: r.order_by || '', salesmanUserId: r.salesman_user_id || null,
+    responsible: r.salesman_name || r.order_by || '', billNo: r.bill_no || '', amount: Number(r.amount) || 0,
+    terms: r.terms_text || '', termsDays: r.terms_days, deliveredOn: r.delivered_on, dueDate: r.due_date, daysLeft: Number(r.days_left),
+    preSentAt: r.pre_sent || '', dueSentAt: r.due_sent || '', callOutcome: r.call_outcome || '', callRemark: r.call_remark || '',
+    callAt: r.call_time || '', callBy: r.call_by_name || '', paidAt: r.paid_time || '', paidBy: r.paid_by_name || '', paidRemark: r.paid_remark || '',
+    status: r.status === 'paid' ? 'paid' : r.call_outcome ? 'call done' : (r.pre_sent || r.due_sent) ? 'reminded' : 'pending'
+  }));
+}
+function ddMsg(name, list, kind, bank) {
+  const dmy = ymd => String(ymd || '').split('-').reverse().join('/');
+  const left = list[0].daysLeft;
+  const when = kind === 'due' ? (left < 0 ? 'due ho chuka hai' : 'aaj due hai') : `${left} din me due hai`;
+  const lines = [`🙏 Namaste ${name} ji,`, '', `Ajanta Appliances ki taraf se yaad dilana hai — aapke order ka payment ${when}:`,
+    ...list.map(x => `• Order ${x.orderNo}${x.billNo ? ` (Bill ${x.billNo})` : ''} — ${inrPlain(x.amount)} — due ${dmy(x.dueDate)}`)];
+  if (list.length > 1) lines.push('', `Kul: ${inrPlain(list.reduce((a, x) => a + x.amount, 0))}`);
+  lines.push('', kind === 'due' ? 'Kripya aaj payment kar dein.' : 'Kripya due date tak payment kar dein.', 'Payment ho chuka ho to is message ko ignore karein.');
+  if (bank) lines.push('', '🏦 Bank Details:', bank);
+  lines.push('', 'Dhanyavaad', 'Ajanta Appliances');
+  return lines.join('\n');
+}
+// Daily (morning cron): WhatsApp N days before due, and on the due date (or
+// the day after, if a cron run was missed). Each kind goes once per order —
+// the conditional UPDATE claims it, so a second run never re-sends.
+async function deliveryDuesSendReminders() {
+  await ddTables(); await waTables();
+  await deliveryDuesSync(true);
+  const n = await ddRemindDays();
+  const list = (await ddList("AND dd.status<>'paid' AND dd.amount>0")).filter(x =>
+    (x.daysLeft <= 0 && x.daysLeft >= -1 && !x.dueSentAt) || (n > 0 && x.daysLeft > 0 && x.daysLeft <= n && !x.preSentAt && !x.dueSentAt));
+  if (!list.length) return 0;
+  const findDealer = await dealerResolver();
+  const groups = {};
+  list.forEach(x => {
+    const dealer = findDealer(x.dealer);
+    const phone = dealer && dealer.phone ? (sfmsNormalizeMobile(dealer.phone) || dealer.phone) : '';
+    if (!phone) return; // no number yet — tried again tomorrow while still in the window
+    const kind = x.daysLeft <= 0 ? 'due' : 'pre';
+    const k = `${phone}|${kind}`;
+    (groups[k] = groups[k] || { phone, kind, name: (dealer.owner_name || x.dealer), items: [] }).items.push(x);
+  });
+  const bank = (await getLeadSettings()).bankDetails || '';
+  let queued = 0;
+  await withTx(async conn => {
+    let campaignId = null;
+    for (const g of Object.values(groups)) {
+      const col = g.kind === 'due' ? 'due_sent_at' : 'pre_sent_at';
+      const claimed = [];
+      for (const x of g.items) {
+        const [u] = await conn.query(`UPDATE delivery_dues SET ${col}=NOW() WHERE order_no=? AND ${col} IS NULL AND status<>'paid'`, [x.orderNo]);
+        if (u.affectedRows) claimed.push(x);
+      }
+      if (!claimed.length) continue;
+      if (!campaignId) {
+        const [c] = await conn.query("INSERT INTO wa_campaigns (title, message, audience, source, total, status) VALUES (?, '', 'selected', 'collect', 0, 'queued')",
+          [`💰 Delivery payment reminder — ${waYmd().split('-').reverse().join('/')}`]);
+        campaignId = c.insertId;
+      }
+      await conn.query('INSERT INTO wa_campaign_recipients (campaign_id, name, phone, message) VALUES (?,?,?,?)', [campaignId, claimed[0].dealer, g.phone, ddMsg(g.name, claimed, g.kind, bank)]);
+      await conn.query('UPDATE delivery_dues SET campaign_id=? WHERE order_no IN (?)', [campaignId, claimed.map(x => x.orderNo)]);
+      queued++;
+    }
+    if (campaignId) await conn.query('UPDATE wa_campaigns SET total=? WHERE id=?', [queued, campaignId]);
+  });
+  if (queued) waKick();
+  return queued;
+}
+// Local long-lived server ticks every minute — read the O2D sheet once a day there.
+let _ddDailyDay = '';
+async function ddDailyOnce() {
+  if (_ddDailyDay === waYmd()) return;
+  _ddDailyDay = waYmd();
+  await deliveryDuesSendReminders();
+}
+// Who may act on one due: Payment Follow-up access, or the order's own salesman.
+async function ddCanAct(req, orderNo) {
+  if (await hasPageGrant(req, 'collection')) return true;
+  const [[r]] = await db.query('SELECT salesman_user_id FROM delivery_dues WHERE order_no=?', [orderNo]);
+  return !!(r && Number(r.salesman_user_id) === Number(req.session.userId));
+}
+app.get('/api/delivery-dues', requireAuth, async (req, res) => {
+  try {
+    if (!(await collectAccess(req, res))) return;
+    await deliveryDuesSync(req.query.refresh === '1');
+    const [items, remindDays, [[unk]]] = await Promise.all([ddList(), ddRemindDays(),
+      db.query("SELECT COUNT(*) AS n FROM delivery_dues dd JOIN o2d_deliveries d ON d.order_no=dd.order_no WHERE dd.terms_days IS NULL")]);
+    res.json({ items, remindDays, unknownTerms: Number(unk.n) || 0, canEdit: req.session.role === 'admin' });
+  } catch (err) { sendServerError(res, err); }
+});
+// Dashboard: unpaid dues that are due today or overdue, for the person who
+// follows them up — the order's salesman; dues with no linked salesman go to
+// Payment Follow-up users; Admin / PC see all. DB only, no sheet read.
+app.get('/api/delivery-dues/mine', requireAuth, async (req, res) => {
+  try {
+    const all = req.session.role === 'admin' || req.session.role === 'pc';
+    const coll = all || await hasPageGrant(req, 'collection');
+    const uid = Number(req.session.userId);
+    // A call logged today takes it off until tomorrow (still unpaid → back again).
+    let where = "AND dd.status<>'paid' AND DATE_ADD(d.delivered_on, INTERVAL dd.terms_days DAY) <= CURDATE() AND (dd.call_at IS NULL OR dd.call_at < CURDATE())";
+    const params = [];
+    if (!all) { where += coll ? ' AND (dd.salesman_user_id=? OR dd.salesman_user_id IS NULL)' : ' AND dd.salesman_user_id=?'; params.push(uid); }
+    res.json({ items: await ddList(where, params), canOpen: coll });
+  } catch (err) { sendServerError(res, err); }
+});
+const DD_OUTCOMES = ['Payment ka promise kiya', 'Payment bhej diya (check karna hai)', 'Phone nahi uthaya', 'Baad me call karna hai', 'Dispute / issue hai'];
+app.post('/api/delivery-dues/:orderNo/call', requireAuth, async (req, res) => {
+  try {
+    await ddTables();
+    const orderNo = String(req.params.orderNo).slice(0, 60);
+    if (!(await ddCanAct(req, orderNo))) return res.status(403).json({ error: 'No access' });
+    const b = req.body || {};
+    const outcome = String(b.outcome || '').trim().slice(0, 60);
+    if (!outcome) return res.status(400).json({ error: 'Call ka result chunein' });
+    const [u] = await db.query('UPDATE delivery_dues SET call_outcome=?, call_remark=?, call_at=NOW(), call_by=? WHERE order_no=?',
+      [outcome, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, orderNo]);
+    if (!u.affectedRows) return res.status(404).json({ error: 'Order nahi mila' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/delivery-dues/:orderNo/paid', requireAuth, async (req, res) => {
+  try {
+    if (!(await collectAccess(req, res))) return;
+    await ddTables();
+    const b = req.body || {};
+    const orderNo = String(req.params.orderNo).slice(0, 60);
+    const [u] = b.undo
+      ? await db.query("UPDATE delivery_dues SET status='pending', paid_at=NULL, paid_by=NULL, paid_remark=NULL WHERE order_no=?", [orderNo])
+      : await db.query("UPDATE delivery_dues SET status='paid', paid_at=NOW(), paid_by=?, paid_remark=? WHERE order_no=?",
+        [req.session.userId, String(b.remark || '').trim().slice(0, 500) || null, orderNo]);
+    if (!u.affectedRows) return res.status(404).json({ error: 'Order nahi mila' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/delivery-dues/settings', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const n = parseInt((req.body || {}).remindDays, 10);
+    if (!(n >= 0 && n <= 15)) return res.status(400).json({ error: '0 se 15 din ke beech' });
+    await setAppSetting(DD_REMIND_KEY, String(n));
+    res.json({ success: true, remindDays: n });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/delivery-dues/send-now', requireAuth, requireAdmin, async (req, res) => {
+  try { res.json({ success: true, dealers: await deliveryDuesSendReminders() }); }
   catch (err) { sendServerError(res, err); }
 });
 
