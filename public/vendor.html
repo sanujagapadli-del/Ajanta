@@ -54,6 +54,40 @@ main{max-width:980px;margin:-54px auto 0;padding:0 16px 40px;position:relative;z
 .tab.active .cnt{background:rgba(255,255,255,.22);color:#fff}
 
 .sm{display:none}
+.layout{display:block}
+.list-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:2px 2px 12px}
+.list-head:empty{display:none}
+.list-head h2{margin:0;font-size:17px;font-weight:800}
+.list-head p{margin:3px 0 0;font-size:12.5px;color:var(--g500);max-width:640px}
+.list-head .upd{font-size:11.5px;color:var(--g400);white-space:nowrap}
+.item{display:flex;flex-wrap:wrap;gap:0 12px;align-items:flex-start}
+.c-name{flex:1;min-width:0}
+.c-qty{flex:0 0 auto}
+.c-prog{flex:0 0 100%}
+.c-act{flex:0 0 100%;display:flex;justify-content:flex-end}
+.c-act:empty{display:none}
+.c-act .btn{margin-top:10px}
+.item .form,.item .hist{flex:0 0 100%}
+@media(min-width:900px){
+  .hero-in,main{max-width:1180px}
+  .layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:20px;align-items:start}
+  .side{position:sticky;top:16px}
+  .stats{grid-template-columns:1fr;gap:10px}
+  .stat{padding:13px 15px}
+  .tabs{flex-direction:column;gap:4px;padding:6px}
+  .tab{text-align:left;display:flex;align-items:center;padding:11px 12px}
+  .tab .cnt{margin-left:auto}
+  .content{min-width:0}
+  .list-head{margin-top:0;background:#fff;border-radius:var(--radius);padding:14px 18px;box-shadow:var(--shadow);align-items:center}
+  .item{display:grid;grid-template-columns:minmax(0,1.7fr) 110px minmax(0,1.5fr) 150px;gap:18px;align-items:center;padding:14px 18px}
+  .item .form,.item .hist{grid-column:1/-1}
+  .c-act{justify-content:flex-end}
+  .c-act:empty{display:block}
+  .c-act .btn{margin:0;width:100%}
+  .c-prog .bar{margin-top:0}
+  .chip{margin-top:6px}
+  .po-head{padding:14px 18px}
+}
 .hint{font-size:12.5px;color:var(--g500);margin:-4px 2px 12px}
 
 /* PO / challan cards */
@@ -149,7 +183,9 @@ footer{text-align:center;font-size:12px;color:var(--g400);padding:10px 0 24px}
   .item{padding:12px}
   .item-name{font-size:13.5px}
   .qty{font-size:15px}
-  .actions-row .btn{width:100%}
+  .actions-row .btn,.c-act .btn{width:100%}
+  .list-head h2{font-size:15px}
+  .list-head p,.list-head .upd{display:none}
 }
 </style>
 </head>
@@ -160,14 +196,17 @@ footer{text-align:center;font-size:12px;color:var(--g400);padding:10px 0 24px}
   <button onclick="load()" title="Refresh" aria-label="Refresh">⟳</button>
   <button onclick="logout()" title="Logout"><span class="lg">Logout</span><span class="sm"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="display:block"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg></span></button>
 </div></div>
-<main>
+<main><div class="layout">
+  <aside class="side">
   <div class="stats" id="summary"></div>
   <div class="tabs">
     <div class="tab active" id="tabPending" onclick="setTab('pending')"><span class="ti">📦</span><span class="tl"><span class="lg">Material to Send</span><span class="sm">To Send</span></span><span class="cnt" id="cntPending">–</span></div>
     <div class="tab" id="tabRepl" onclick="setTab('repl')"><span class="ti">🔁</span><span class="tl"><span class="lg">Replacement</span><span class="sm">Replace</span></span><span class="cnt" id="cntRepl">–</span></div>
     <div class="tab" id="tabReceived" onclick="setTab('received')"><span class="ti">✅</span><span class="tl">Received</span><span class="cnt" id="cntReceived">–</span></div>
   </div>
-  <div id="list"><div class="skel"></div><div class="skel"></div></div>
+  </aside>
+  <section class="content"><div id="listHead" class="list-head"></div><div id="list"><div class="skel"></div><div class="skel"></div></div></section>
+  </div>
   <footer>Kisi bhi sawaal ke liye Ajanta Appliances purchase team se sampark karein.</footer>
 </main>
 <div id="toast"></div>
@@ -234,10 +273,17 @@ function chip(item) {
   const extra = u.status === 'Dispatched' ? ` ${num(u.dispatched_qty)} · ${dmy(u.update_date)}` : (u.update_date ? ` · by ${dmy(u.update_date)}` : '');
   return `<span class="chip ${cls}">${ic} ${esc(u.status)}${esc(extra)}</span>`;
 }
+const LIST_HEAD = {
+  pending: ['📦 Material to Send', 'Har item par "Update Status" se batayein — production me hai, ready hai, ya dispatch kar diya (qty + date).'],
+  repl: ['🔁 Replacement pending', 'Ye maal Ajanta ne aapko replacement / repair ke liye bheja hai — repair me hai, naya / repaired maal bheja, ya credit note diya, batayein.'],
+  received: ['✅ Received', 'Ye PO Ajanta Appliances ko poore mil chuke hain.']
+};
 function render() {
   const list = document.getElementById('list');
   if (!DATA) return;
   renderSummary();
+  const h = LIST_HEAD[TAB];
+  document.getElementById('listHead').innerHTML = `<div><h2>${h[0]}</h2><p>${h[1]}</p></div><span class="upd">Updated ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>`;
   if (TAB === 'repl') return renderRepl();
   const pos = DATA[TAB] || [];
   if (!pos.length) {
@@ -245,8 +291,7 @@ function render() {
     return;
   }
   const today = todayYmd();
-  list.innerHTML = (TAB === 'pending' ? '<div class="hint">Har item par "Update Status" se batayein — production me hai, ready hai, ya dispatch kar diya (qty + date).</div>' : '') +
-    pos.map(po => { const late = TAB === 'pending' && po.expectedBy && po.expectedBy.slice(0, 10) < today; return `
+  list.innerHTML = pos.map(po => { const late = TAB === 'pending' && po.expectedBy && po.expectedBy.slice(0, 10) < today; return `
     <div class="po">
       <div class="po-head">
         <div class="po-title"><div class="po-badge">📋</div><div><b>${esc(po.poNumber)}</b><small>PO date ${esc(dmy(po.poDate) || '—')}${po.indentNo ? ' · ' + esc(po.indentNo) : ''}</small></div></div>
@@ -260,14 +305,12 @@ function itemHtml(po, it) {
   const open = OPEN === key;
   const q = num(it.qty) || 1, rc = Math.min(num(it.receivedQty), q), dp = Math.max(0, Math.min(num(it.dispatchedQty), q) - rc);
   return `<div class="item">
-    <div class="item-top">
-      <div style="min-width:0"><div class="item-name">${esc(it.productName)}</div>${chip(it)}</div>
-      <div class="qty">${esc(it.qty)} <small>${esc(it.uom || 'qty')} ordered</small></div>
-    </div>
-    <div class="bar"><i class="recv" style="width:${rc * 100 / q}%"></i><i class="disp" style="width:${dp * 100 / q}%"></i></div>
-    <div class="legend"><span><i class="dot" style="background:#60a5fa"></i>Bheja <b>${num(it.dispatchedQty)}</b></span><span><i class="dot" style="background:var(--success)"></i>Mila <b>${num(it.receivedQty)}</b></span>
-      ${it.received ? '' : `<span><i class="dot" style="background:var(--warning)"></i>Pending <b style="color:var(--warning)">${num(it.pendingQty)}</b></span>`}</div>
-    ${TAB === 'pending' && !it.received && !open ? `<div class="actions-row"><button class="btn" onclick="openForm('${esc(key)}')">✏️ Update Status</button></div>` : ''}
+    <div class="c-name"><div class="item-name">${esc(it.productName)}</div>${chip(it)}</div>
+    <div class="c-qty qty">${esc(it.qty)} <small>${esc(it.uom || 'qty')} ordered</small></div>
+    <div class="c-prog"><div class="bar"><i class="recv" style="width:${rc * 100 / q}%"></i><i class="disp" style="width:${dp * 100 / q}%"></i></div>
+      <div class="legend"><span><i class="dot" style="background:#60a5fa"></i>Bheja <b>${num(it.dispatchedQty)}</b></span><span><i class="dot" style="background:var(--success)"></i>Mila <b>${num(it.receivedQty)}</b></span>
+      ${it.received ? '' : `<span><i class="dot" style="background:var(--warning)"></i>Pending <b style="color:var(--warning)">${num(it.pendingQty)}</b></span>`}</div></div>
+    <div class="c-act">${TAB === 'pending' && !it.received && !open ? `<button class="btn" onclick="openForm('${esc(key)}')">✏️ Update Status</button>` : ''}</div>
     ${open ? formHtml(po, it) : ''}
     ${it.updates.length ? `<div class="hist">${it.updates.slice(0, 5).map(u => `<div>🕒 ${esc(u.created_at.slice(8, 10) + '/' + u.created_at.slice(5, 7))} ${esc(u.created_at.slice(11))} — <b>${esc(u.status)}</b>${u.status === 'Dispatched' ? ' ' + num(u.dispatched_qty) : ''}${u.update_date ? ' · ' + esc(dmy(u.update_date)) : ''}${u.remark ? ' · ' + esc(u.remark) : ''}</div>`).join('')}</div>` : ''}
   </div>`;
@@ -326,16 +369,16 @@ function renderRepl() {
   const list = document.getElementById('list');
   const ch = openRepl();
   if (!ch.length) { list.innerHTML = '<div class="empty"><div class="big">🎉</div>Koi replacement pending nahi.</div>'; return; }
-  list.innerHTML = '<div class="hint">Ye maal Ajanta ne aapko replacement / repair ke liye bheja hai. Har item par batayein — repair me hai, naya / repaired maal bheja, ya credit note diya.</div>' +
-    ch.map(c => `<div class="po"><div class="po-head">
+  list.innerHTML = ch.map(c => `<div class="po"><div class="po-head">
       <div class="po-title"><div class="po-badge" style="background:var(--danger-bg);color:var(--danger)">🔁</div><div><b>${esc(c.code)}</b><small>Challan ${esc(dmy(c.date))}${c.billNo ? ' · Bill ' + esc(c.billNo) : ''}${c.reason ? ' · ' + esc(c.reason) : ''}</small></div></div>
       <div class="due${c.days > 30 ? ' late' : ''}">Pending since<b>${c.days} din</b></div></div>
-    ${c.lines.filter(l => l.pending > 0).map(l => { const q = num(l.qty) || 1, done = q - l.pending; return `<div class="item"><div class="item-top"><div style="min-width:0"><div class="item-name">${esc(l.itemName)}</div>
+    ${c.lines.filter(l => l.pending > 0).map(l => { const q = num(l.qty) || 1, done = q - l.pending; return `<div class="item">
+      <div class="c-name"><div class="item-name">${esc(l.itemName)}</div>
         <div class="item-sub">${l.serialNo ? 'S/N ' + esc(l.serialNo) + ' · ' : ''}${esc(l.defect || '')}</div>
         ${l.updates[0] ? `<span class="chip ready">🏭 ${esc(l.updates[0].status)}${l.updates[0].qty ? ' ' + num(l.updates[0].qty) : ''}${l.updates[0].update_date ? ' · ' + esc(dmy(l.updates[0].update_date)) : ''}</span>` : '<span class="chip none">● Abhi koi update nahi</span>'}</div>
-      <div class="qty" style="color:var(--danger)">${l.pending} <small>pending (bheja tha ${l.qty})</small></div></div>
-      <div class="bar"><i class="recv" style="width:${done * 100 / q}%"></i></div>
-      ${ROPEN !== l.id ? `<div class="actions-row"><button class="btn" onclick="ROPEN=${l.id};render()">✏️ Update</button></div>` : ''}
+      <div class="c-qty qty" style="color:var(--danger)">${l.pending} <small>pending (bheja tha ${l.qty})</small></div>
+      <div class="c-prog"><div class="bar"><i class="recv" style="width:${done * 100 / q}%"></i></div><div class="legend"><span><i class="dot" style="background:var(--success)"></i>Settle <b>${done}</b></span><span><i class="dot" style="background:var(--danger)"></i>Pending <b style="color:var(--danger)">${l.pending}</b></span></div></div>
+      <div class="c-act">${ROPEN !== l.id ? `<button class="btn" onclick="ROPEN=${l.id};render()">✏️ Update</button>` : ''}</div>
       ${ROPEN === l.id ? `<div class="form"><div><label>Status</label><select id="rStatus">${['Repair me hai', 'Naya maal bheja', 'Repair karke bheja', 'Credit note diya'].map(x => `<option>${x}</option>`).join('')}</select></div>
         <div><label>Qty</label><input type="number" id="rQty" min="1" max="${l.pending}" value="${l.pending}"/></div>
         <div><label>Date</label><input type="date" id="rDate" value="${todayYmd()}"/></div><div><label>Credit note no. (agar diya)</label><input id="rCn"/></div>
