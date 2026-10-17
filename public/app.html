@@ -1198,10 +1198,6 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 17l6-6 4 4 8-8M14 7h7v7"/></svg>
         <span class="nav-label-text">Gross Profit</span>
       </div>
-      <div class="nav-item" id="nav-net-profit" style="display:none" onclick="navigate('net-profit',this)">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        <span class="nav-label-text">Net Profit</span>
-      </div>
       <div class="nav-item" id="nav-petty-cash" style="display:none" onclick="navigate('petty-cash',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
         <span class="nav-label-text">Petty Cash</span>
@@ -1327,10 +1323,6 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="gross-profit" onclick="navigate('gross-profit',null)" id="bnGp" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M14 7h7v7"/></svg>
     <span>Gross Profit</span>
-  </div>
-  <div class="bn-item" data-page="net-profit" onclick="navigate('net-profit',null)" id="bnNp" style="display:none">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    <span>Net Profit</span>
   </div>
   <div class="bn-item" data-page="petty-cash" onclick="navigate('petty-cash',null)" id="bnPetty" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
@@ -4300,7 +4292,6 @@ async function init() {
 
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
     if (canSee('gross-profit')) document.getElementById('nav-gross-profit').style.display = 'flex';
-    if (canSee('gross-profit') && !gpSalesOnly() && canForm('net-profit')) document.getElementById('nav-net-profit').style.display = 'flex';
     if (canSee('petty-cash')) document.getElementById('nav-petty-cash').style.display = 'flex';
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
@@ -4570,15 +4561,15 @@ function closeMobileSidebar() {
 // 2026-10-09) but live as panels inside #page-attendance.
 const ATTN_SUB_PAGES = ['leave', 'km', 'tour'];
 function navigate(page, el) {
+  if (page === 'net-profit') { gpView = 'np'; page = 'gross-profit'; } // old saved page: Net Profit is a Gross Profit tab now
   const noAccess = ME && ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page))
     || (page === 'dealers' && !MY_PAGES.has('dealers')));
   if (noAccess) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection'].includes(page) && !MY_PAGES.has(page)) || (page === 'net-profit' && (!MY_PAGES.has('gross-profit') || gpSalesOnly() || !canForm('net-profit'))))) { showToast("You don't have access to this page", 'error'); return; }
-  // Net Profit has its own sidebar item (client, 2026-10-12) but is the Gross Profit page's 💰 view.
-  const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page === 'net-profit' ? 'gross-profit' : page;
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
+  const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -4606,7 +4597,7 @@ function navigate(page, el) {
   if (page==='cheque-fms') loadChequeFmsList();
   if (page==='replacement-fms') loadReplFmsList();
   if (page==='lead-fms') loadLeadFmsList();
-  if (page==='gross-profit' || page==='net-profit') { gpView = page === 'net-profit' ? 'np' : (gpView === 'np' ? 'product' : gpView); loadGrossProfit(); }
+  if (page==='gross-profit') loadGrossProfit();
   if (page==='petty-cash') loadPettyCash();
   if (page==='checklist-master') loadChecklistMaster();
   if (page==='ows') loadOws();
@@ -4678,8 +4669,6 @@ function setupBottomNav() {
   if (bnDealers && canSee('dealers')) bnDealers.style.display = '';
   const bnGp = document.getElementById('bnGp');
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
-  const bnNp = document.getElementById('bnNp');
-  if (bnNp && canSee('gross-profit') && !gpSalesOnly() && canForm('net-profit')) bnNp.style.display = '';
   const bnPetty = document.getElementById('bnPetty');
   if (bnPetty && canSee('petty-cash')) bnPetty.style.display = '';
   const bnSs = document.getElementById('bnSalesSchedule');
@@ -6442,7 +6431,7 @@ const PAGE_ACCESS_GROUPS = [
   { label: 'Reports', locked: false, pages: [
     { key: 'mis', label: 'MIS Report' },
     { key: 'gross-profit', label: 'Gross Profit' },
-    { key: 'net-profit', label: 'Net Profit (Gross Profit ke saath)', deny: true, needs: ['gross-profit'] },
+    { key: 'net-profit', label: 'Net Profit tab (Gross Profit page me)', deny: true, needs: ['gross-profit'] },
     { key: 'petty-cash', label: 'Petty Cash' },
     { key: 'ows', label: 'OWS — Weekly product-wise sales' },
   ]},
@@ -22214,8 +22203,10 @@ const gpSalesOnly = () => ME && ME.role !== 'admin' && !(ME.page_access || []).i
 const gpShowSalesman = () => ME && (ME.pl_viewer || ME.sales_profile || !gpSalesOnly());
 function gpTabsHtml() {
   const t = (v, label) => `<div class="tab ${gpView === v ? 'active' : ''}" onclick="gpSetView('${jsArg(v)}')">${label}</div>`;
-  return `<div class="tab-group">${gpSalesOnly() ? '' : t('product', '📦 Product-wise') + t('dealer', '🏪 Dealer-wise') + t('vendor', '🏭 Vendor-wise')}${gpShowSalesman() ? t('salesman', '👤 Salesman-wise') : ''}${gpSalesOnly() ? '' : t('np', '💰 Net Profit')}</div>`;
+  // Net Profit lives only here as a tab (client, 2026-10-17: sidebar page removed); Users → Access can untick it.
+  return `<div class="tab-group">${gpSalesOnly() ? '' : t('product', '📦 Product-wise') + t('dealer', '🏪 Dealer-wise') + t('vendor', '🏭 Vendor-wise')}${gpShowSalesman() ? t('salesman', '👤 Salesman-wise') : ''}${gpCanNp() ? t('np', '💰 Net Profit') : ''}</div>`;
 }
+const gpCanNp = () => !gpSalesOnly() && canForm('net-profit');
 // ── Net Profit (client, 2026-10-12) = Gross Profit − expenses from Tally
 // (Indirect Expenses = office expenses, + Direct Expenses). Petty cash is
 // shown for reference only — the client confirmed it's already entered in
@@ -22241,33 +22232,94 @@ function renderNetProfit() {
   const card = 'background:var(--surface);border:1px solid var(--gray-200);border-radius:16px;box-shadow:0 2px 12px rgba(1,80,170,.05)';
   const expTally = ex.groups.reduce((s, g) => s + g.total, 0);
   const np = t.gp - expTally;
-  const npPct = t.costedSales ? Math.round(np * 1000 / t.costedSales) / 10 : null;
-  const line = (label, value, sub, bold, color) => `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:10px 0;border-top:1px solid var(--gray-100)">
-      <div><div style="font-size:13.5px;font-weight:${bold ? 900 : 600};color:var(--gray-900)">${label}</div>${sub ? `<div style="font-size:11.5px;color:var(--gray-500)">${sub}</div>` : ''}</div>
-      <div style="font-size:${bold ? 22 : 15}px;font-weight:900;color:${color || 'var(--gray-900)'};white-space:nowrap">${value}</div></div>`;
+  const base = t.costedSales || 0; // margins are on sales with a known cost — the same sales GP is worked on
+  const pct = v => base ? Math.round(v * 1000 / base) / 10 : null;
+  const npPct = pct(np), gpPct = pct(t.gp), expPct = pct(expTally);
+  const good = 'var(--color-success-text)', bad = 'var(--color-danger)';
+  const kpi = (icon, label, value, sub, color, hero) => `<div style="${card};padding:14px 16px;${hero ? `border:2px solid ${color};` : ''}">
+      <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${icon} ${label}</div>
+      <div style="font-size:${hero ? 26 : 21}px;font-weight:900;color:${color || 'var(--gray-900)'};margin-top:4px;white-space:nowrap">${value}</div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">${sub}</div></div>`;
   const warn = !ex.groupsSynced
     ? `<div style="padding:12px 14px;border-radius:12px;background:var(--color-warning-bg);color:var(--color-warning-text);font-size:12.5px;margin-bottom:12px">⚠️ Tally se expenses abhi nahi aaye — Tally PC par naya <b>tally-sync.js</b> copy karna hai (LedgerGroups tab banega). Tab tak expenses ₹0 dikhenge.</div>`
-    : (ex.tallyTo && ex.tallyTo < ex.end ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tally data ${esc(fmtDateDMY(ex.tallyTo))} tak ka hai${ex.groupsSyncedAt ? ` · last sync ${esc(fmtDateDMY(String(ex.groupsSyncedAt).slice(0, 10)))}` : ''}.</div>` : '');
+    : (ex.tallyTo && ex.tallyTo < ex.end ? `<div style="padding:10px 14px;border-radius:12px;background:var(--gray-50);color:var(--gray-600);font-size:12px;margin-bottom:12px">ℹ️ Tally data ${esc(fmtDateDMY(ex.tallyTo))} tak ka hai${ex.groupsSyncedAt ? ` · last sync ${esc(fmtDateDMY(String(ex.groupsSyncedAt).slice(0, 10)))}` : ''} — uske baad ke expenses abhi shaamil nahi.</div>` : '');
+
+  // Where each ₹100 of sales went: cost → expenses → net profit (or loss).
+  let flow = '';
+  if (base > 0) {
+    const w = v => Math.max(0, Math.min(100, v * 100 / base));
+    const seg = (v, color, label) => w(v) ? `<div title="${label}: ${gpInr(v)}" style="width:${w(v)}%;background:${color};display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;overflow:hidden;white-space:nowrap">${w(v) >= 9 ? Math.round(w(v)) + '%' : ''}</div>` : '';
+    const leg = (color, label, v) => `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--gray-600)"><span style="width:10px;height:10px;border-radius:3px;background:${color}"></span>${label} <b style="color:var(--gray-900)">${gpInr(v)}</b></span>`;
+    const expShown = Math.min(expTally, Math.max(0, t.gp));
+    flow = `<div style="${card};padding:16px 18px;margin-bottom:14px">
+      <div style="font-size:13.5px;font-weight:800;color:var(--gray-900);margin-bottom:10px">Har ₹100 ki bikri me se kahan gaya</div>
+      <div style="display:flex;height:30px;border-radius:9px;overflow:hidden;background:var(--gray-100)">
+        ${seg(t.cost, '#94a3b8', 'Cost')}${seg(expShown, '#f59e0b', 'Expenses')}${seg(Math.max(0, np), '#16a34a', 'Net Profit')}
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+        ${leg('#94a3b8', 'Maal ki laagat', t.cost)}${leg('#f59e0b', 'Kharcha (Tally)', expTally)}${leg('#16a34a', 'Net Profit', Math.max(0, np))}
+      </div>
+      ${np < 0 ? `<div style="font-size:12px;color:${bad};margin-top:8px;font-weight:700">⚠️ Kharcha Gross Profit se ${gpInr(-np)} zyada hai — is period me loss.</div>` : ''}
+    </div>`;
+  }
+
+  const maxGroup = Math.max(1, ...ex.groups.map(g => g.total));
   const groupHtml = g => {
     const open = npOpenGroup === g.group;
+    const share = expTally ? Math.round(g.total * 1000 / expTally) / 10 : 0;
+    const maxLed = Math.max(1, ...g.ledgers.map(l => l.amount));
     return `<div style="border-top:1px solid var(--gray-100)">
-      <div onclick="npOpenGroup=npOpenGroup==='${jsArg(g.group)}'?'':'${jsArg(g.group)}';renderNetProfit()" style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:10px 0;cursor:pointer">
-        <div><div style="font-size:13.5px;font-weight:600;color:var(--gray-900)">− ${esc(g.group)} ${g.group === 'Indirect Expenses' ? '<span style="font-size:11.5px;color:var(--gray-500)">(office expenses)</span>' : ''} <span style="color:var(--color-primary);font-size:12px">${open ? '▾' : '▸'} ${g.ledgers.length} ledgers</span></div></div>
-        <div style="font-size:15px;font-weight:900;color:var(--color-danger);white-space:nowrap">${gpInr(g.total)}</div></div>
-      ${open ? `<div style="padding:0 0 10px 14px">${g.ledgers.length ? g.ledgers.map(l => `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:4px 0;border-bottom:1px dashed var(--gray-100)"><span>${esc(l.ledger)}${l.group && l.group !== g.group ? ` <span style="color:var(--gray-400);font-size:11px">· ${esc(l.group)}</span>` : ''}</span><b>${gpInr(l.amount)}</b></div>`).join('') : '<div style="font-size:12px;color:var(--gray-400)">No entries</div>'}</div>` : ''}
+      <div onclick="npOpenGroup=npOpenGroup==='${jsArg(g.group)}'?'':'${jsArg(g.group)}';renderNetProfit()" style="padding:12px 0;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+          <div style="font-size:13.5px;font-weight:700;color:var(--gray-900)"><span style="color:var(--color-primary);display:inline-block;width:14px">${open ? '▾' : '▸'}</span>${esc(g.group)} ${g.group === 'Indirect Expenses' ? '<span style="font-size:11.5px;font-weight:500;color:var(--gray-500)">(office expenses)</span>' : ''}
+            <span style="font-size:11.5px;font-weight:500;color:var(--gray-500)">· ${g.ledgers.length} ledgers · ${share}%</span></div>
+          <div style="font-size:15px;font-weight:900;color:${bad};white-space:nowrap">${gpInr(g.total)}</div>
+        </div>
+        <div style="height:6px;border-radius:99px;background:var(--gray-100);margin:7px 0 0 14px;overflow:hidden"><div style="height:100%;width:${Math.max(0, g.total) * 100 / maxGroup}%;background:#f59e0b;border-radius:99px"></div></div>
+      </div>
+      ${open ? `<div style="padding:0 0 12px 14px">${g.ledgers.length ? g.ledgers.map(l => `<div style="padding:6px 0;border-bottom:1px dashed var(--gray-100)">
+          <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px"><span>${esc(l.ledger)}${l.group && l.group !== g.group ? ` <span style="color:var(--gray-400);font-size:11px">· ${esc(l.group)}</span>` : ''}${l.entries ? ` <span style="color:var(--gray-400);font-size:11px">· ${l.entries} entries</span>` : ''}</span><b style="white-space:nowrap">${gpInr(l.amount)}</b></div>
+          <div style="height:4px;border-radius:99px;background:var(--gray-100);margin-top:4px;overflow:hidden"><div style="height:100%;width:${Math.max(0, l.amount) * 100 / maxLed}%;background:#fcd34d"></div></div>
+        </div>`).join('') : '<div style="font-size:12px;color:var(--gray-400)">No entries</div>'}</div>` : ''}
     </div>`;
   };
-  out.innerHTML = `<div style="margin-bottom:12px">${gpTabsHtml()}</div><div style="${card};padding:16px 18px;max-width:720px">
-      ${warn}
-      <div style="font-size:15px;font-weight:900;color:var(--gray-900);margin-bottom:4px">💰 Net Profit <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${esc(fmtDateDMY(ex.start))} – ${esc(fmtDateDMY(ex.end))}</span></div>
-      ${line('Gross Profit', gpInr(t.gp), `Sales ${gpInr(t.sales)} − cost ${gpInr(t.cost)} (only sales with a known cost)`, false, t.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)')}
+
+  out.innerHTML = `<div style="margin-bottom:12px">${gpTabsHtml()}</div>
+    ${warn}
+    <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:10px">📅 ${esc(fmtDateDMY(ex.start))} – ${esc(fmtDateDMY(ex.end))}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px">
+      ${kpi('🧾', 'Sales', gpInr(base), t.uncostedSales ? `+ ${gpInr(t.uncostedSales)} bina laagat (GP me nahi)` : 'sab bikri ki laagat pata hai')}
+      ${kpi('📈', 'Gross Profit', gpInr(t.gp), gpPct == null ? '' : `${gpPct}% margin · laagat ${gpInr(t.cost)}`, t.gp >= 0 ? good : bad)}
+      ${kpi('💸', 'Expenses (Tally)', gpInr(expTally), expPct == null ? '' : `bikri ka ${expPct}%`, bad)}
+      ${kpi('💰', 'Net Profit', gpInr(np), npPct == null ? '' : `${npPct}% net margin`, np >= 0 ? good : bad, true)}
+    </div>
+    ${flow}
+    <div style="${card};padding:16px 18px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:4px">
+        <div style="font-size:13.5px;font-weight:800;color:var(--gray-900)">💸 Kharcha — Tally se</div>
+        <div style="font-size:11.5px;color:var(--gray-500)">group par click = ledgers</div>
+      </div>
       ${ex.groups.map(groupHtml).join('')}
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--gray-100);font-size:12px;color:var(--gray-500)">
-        <span>Petty cash in these dates (${ex.pettyCash.entries} entries) — already inside Tally expenses above, not deducted again</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0 0;border-top:1px solid var(--gray-100);font-size:12px;color:var(--gray-500)">
+        <span>🪙 Petty cash (${ex.pettyCash.entries} entries) — Tally ke kharche me pehle se shaamil, dobara nahi ghataya</span>
         <span style="white-space:nowrap">${gpInr(ex.pettyCash.amount)}</span></div>
-      <div style="border-top:2px solid var(--gray-300);margin-top:4px">${line('Net Profit', gpInr(np), npPct == null ? '' : `${npPct}% of sales with a known cost`, true, np >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)')}</div>
-      ${t.uncostedSales ? `<div style="font-size:11.5px;color:var(--color-warning-text);margin-top:6px">⚠️ ${gpInr(t.uncostedSales)} sales have no cost yet, so they are not in GP — set their cost in 📦 Product-wise.</div>` : ''}
-    </div>`;
+    </div>
+    ${t.uncostedSales ? `<div style="font-size:12px;color:var(--color-warning-text);margin-top:10px">⚠️ ${gpInr(t.uncostedSales)} ki bikri ki laagat abhi pata nahi, isliye GP / NP me nahi — 📦 Product-wise me cost daalein.</div>` : ''}`;
+}
+function exportNetProfit() {
+  if (!gpData || !npData) return;
+  const q = v => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const t = gpData.totals, expTally = npData.groups.reduce((s, g) => s + g.total, 0);
+  const lines = [['Line', 'Group', 'Amount'].join(','),
+    ['Sales (with known cost)', '', t.costedSales].map(q).join(','),
+    ['Cost', '', t.cost].map(q).join(','),
+    ['Gross Profit', '', t.gp].map(q).join(',')]
+    .concat(...npData.groups.map(g => [['Expense: ' + g.group, g.group, -g.total].map(q).join(',')].concat(g.ledgers.map(l => ['  ' + l.ledger, l.group || g.group, -l.amount].map(q).join(',')))))
+    .concat([['Net Profit', '', t.gp - expTally].map(q).join(',')]);
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
+  a.download = `Net_Profit_${npData.start}_to_${npData.end}.csv`;
+  a.click();
 }
 
 async function loadGrossProfit() {
@@ -22275,6 +22327,7 @@ async function loadGrossProfit() {
   if (!s.value || !e.value) { const [a, b] = plMonthRange('month'); setDmyDate('gpStart', a); setDmyDate('gpEnd', b); } // client: open on this month
   if (s.value > e.value) { showToast('Start date End date se pehle honi chahiye', 'error'); return; }
   if (gpSalesOnly()) gpView = 'salesman';
+  if (gpView === 'np' && !gpCanNp()) gpView = 'product';
   if (gpView === 'salesman') return loadSalesmanPl();
   if (gpView === 'np') return loadNetProfit();
   const out = document.getElementById('gpResults');
@@ -22400,6 +22453,7 @@ function renderGrossProfit() {
 }
 function exportGrossProfit() {
   if (gpView === 'salesman') return exportSalesmanPl();
+  if (gpView === 'np') return exportNetProfit();
   if (!gpData) return;
   const q = v => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lines = gpView === 'product'
