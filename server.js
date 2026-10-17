@@ -11529,6 +11529,37 @@ app.get('/api/reports/net-profit-expenses', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Net Profit → click a ledger: its Tally entries in the range (expense ledgers only).
+app.get('/api/reports/net-profit-ledger', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'gross-profit')) || await hasPageDeny(req, 'net-profit')) return res.status(403).json({ error: 'You do not have access to Net Profit' });
+    const { start, end } = req.query;
+    const ledgerKey = String(req.query.ledger || '').trim().toLowerCase();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end || !ledgerKey) {
+      return res.status(400).json({ error: 'Valid start, end and ledger required' });
+    }
+    const [groups, vouchers] = await Promise.all([getLedgerGroups(), getLedgerVouchers()]);
+    const g = groups.map[ledgerKey];
+    if (!g || !NP_EXPENSE_GROUPS.includes(g.primary)) return res.status(404).json({ error: 'Not an expense ledger' });
+    const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const entries = [];
+    [...(vouchers.legIndex[ledgerKey] || [])].forEach(k => {
+      const v = vouchers.byKey[k];
+      const d = parseAnyDate(v.date);
+      if (!d) return;
+      const day = ymd(d);
+      if (day < start || day > end) return;
+      const other = v.legs.filter(l => l.ledgerKey !== ledgerKey).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))[0];
+      v.legs.filter(l => l.ledgerKey === ledgerKey).forEach(l => entries.push({
+        date: day, vchType: v.vchType, vchNo: v.vchNo, particulars: other ? other.ledgerName : '',
+        amount: Math.round(-l.amount * 100) / 100 // Tally export: negative = Dr = expense booked
+      }));
+    });
+    entries.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    res.json({ ledger: String(req.query.ledger).trim(), group: g.group, entries });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
   try {
     if (!(await canSeeGrossProfit(req))) return res.status(403).json({ error: 'You do not have access to Gross Profit' });

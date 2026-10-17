@@ -564,6 +564,15 @@ tbody tr:last-child td{border-bottom:none;}
 .role-badge.hod{background:var(--color-purple-bg);color:var(--color-purple-text);}
 .role-badge.user{background:var(--color-success-bg);color:var(--color-success-text);}
 
+/* Net Profit tab: everything clickable */
+.np-click{cursor:pointer;transition:transform .12s,box-shadow .12s;}
+.np-click:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(1,80,170,.12) !important;}
+.np-seg{cursor:pointer;transition:filter .12s;}
+.np-seg:hover{filter:brightness(1.12);}
+.np-link{cursor:pointer;}
+.np-link:hover{text-decoration:underline;}
+.np-row{cursor:pointer;border-radius:8px;}
+.np-row:hover{background:var(--gray-50);}
 .access-tag{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;background:var(--gray-100);color:var(--gray-500);}
 .access-table{width:100%;border-collapse:collapse;min-width:1000px;}
 .access-table th,.access-table td{padding:9px 12px;text-align:center;border-bottom:1px solid var(--gray-100);white-space:nowrap;}
@@ -22236,8 +22245,8 @@ function renderNetProfit() {
   const pct = v => base ? Math.round(v * 1000 / base) / 10 : null;
   const npPct = pct(np), gpPct = pct(t.gp), expPct = pct(expTally);
   const good = 'var(--color-success-text)', bad = 'var(--color-danger)';
-  const kpi = (icon, label, value, sub, color, hero) => `<div style="${card};padding:14px 16px;${hero ? `border:2px solid ${color};` : ''}">
-      <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${icon} ${label}</div>
+  const kpi = (icon, label, value, sub, color, hero, onclick, hint) => `<div class="np-click" onclick="${onclick}" title="${hint}" style="${card};padding:14px 16px;${hero ? `border:2px solid ${color};` : ''}">
+      <div style="display:flex;justify-content:space-between;gap:6px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px"><span>${icon} ${label}</span><span style="color:var(--color-primary)">→</span></div>
       <div style="font-size:${hero ? 26 : 21}px;font-weight:900;color:${color || 'var(--gray-900)'};margin-top:4px;white-space:nowrap">${value}</div>
       <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">${sub}</div></div>`;
   const warn = !ex.groupsSynced
@@ -22248,16 +22257,16 @@ function renderNetProfit() {
   let flow = '';
   if (base > 0) {
     const w = v => Math.max(0, Math.min(100, v * 100 / base));
-    const seg = (v, color, label) => w(v) ? `<div title="${label}: ${gpInr(v)}" style="width:${w(v)}%;background:${color};display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;overflow:hidden;white-space:nowrap">${w(v) >= 9 ? Math.round(w(v)) + '%' : ''}</div>` : '';
-    const leg = (color, label, v) => `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--gray-600)"><span style="width:10px;height:10px;border-radius:3px;background:${color}"></span>${label} <b style="color:var(--gray-900)">${gpInr(v)}</b></span>`;
+    const seg = (v, color, label, onclick) => w(v) ? `<div class="np-seg" onclick="${onclick}" title="${label}: ${gpInr(v)} — click" style="width:${w(v)}%;background:${color};display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;overflow:hidden;white-space:nowrap">${w(v) >= 9 ? Math.round(w(v)) + '%' : ''}</div>` : '';
+    const leg = (color, label, v, onclick) => `<span class="np-link" onclick="${onclick}" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--gray-600)"><span style="width:10px;height:10px;border-radius:3px;background:${color}"></span>${label} <b style="color:var(--gray-900)">${gpInr(v)}</b></span>`;
     const expShown = Math.min(expTally, Math.max(0, t.gp));
     flow = `<div style="${card};padding:16px 18px;margin-bottom:14px">
       <div style="font-size:13.5px;font-weight:800;color:var(--gray-900);margin-bottom:10px">Har ₹100 ki bikri me se kahan gaya</div>
       <div style="display:flex;height:30px;border-radius:9px;overflow:hidden;background:var(--gray-100)">
-        ${seg(t.cost, '#94a3b8', 'Cost')}${seg(expShown, '#f59e0b', 'Expenses')}${seg(Math.max(0, np), '#16a34a', 'Net Profit')}
+        ${seg(t.cost, '#94a3b8', 'Cost', "npGoProduct('cost')")}${seg(expShown, '#f59e0b', 'Expenses', 'npShowExpenses()')}${seg(Math.max(0, np), '#16a34a', 'Net Profit', 'npOpenBreakdown()')}
       </div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
-        ${leg('#94a3b8', 'Maal ki laagat', t.cost)}${leg('#f59e0b', 'Kharcha (Tally)', expTally)}${leg('#16a34a', 'Net Profit', Math.max(0, np))}
+        ${leg('#94a3b8', 'Maal ki laagat', t.cost, "npGoProduct('cost')")}${leg('#f59e0b', 'Kharcha (Tally)', expTally, 'npShowExpenses()')}${leg('#16a34a', 'Net Profit', Math.max(0, np), 'npOpenBreakdown()')}
       </div>
       ${np < 0 ? `<div style="font-size:12px;color:${bad};margin-top:8px;font-weight:700">⚠️ Kharcha Gross Profit se ${gpInr(-np)} zyada hai — is period me loss.</div>` : ''}
     </div>`;
@@ -22277,7 +22286,7 @@ function renderNetProfit() {
         </div>
         <div style="height:6px;border-radius:99px;background:var(--gray-100);margin:7px 0 0 14px;overflow:hidden"><div style="height:100%;width:${Math.max(0, g.total) * 100 / maxGroup}%;background:#f59e0b;border-radius:99px"></div></div>
       </div>
-      ${open ? `<div style="padding:0 0 12px 14px">${g.ledgers.length ? g.ledgers.map(l => `<div style="padding:6px 0;border-bottom:1px dashed var(--gray-100)">
+      ${open ? `<div style="padding:0 0 12px 14px">${g.ledgers.length ? g.ledgers.map(l => `<div class="np-row" onclick="npOpenLedger('${jsArg(l.ledger)}')" title="Entries dekho" style="padding:6px 4px;border-bottom:1px dashed var(--gray-100)">
           <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px"><span>${esc(l.ledger)}${l.group && l.group !== g.group ? ` <span style="color:var(--gray-400);font-size:11px">· ${esc(l.group)}</span>` : ''}${l.entries ? ` <span style="color:var(--gray-400);font-size:11px">· ${l.entries} entries</span>` : ''}</span><b style="white-space:nowrap">${gpInr(l.amount)}</b></div>
           <div style="height:4px;border-radius:99px;background:var(--gray-100);margin-top:4px;overflow:hidden"><div style="height:100%;width:${Math.max(0, l.amount) * 100 / maxLed}%;background:#fcd34d"></div></div>
         </div>`).join('') : '<div style="font-size:12px;color:var(--gray-400)">No entries</div>'}</div>` : ''}
@@ -22288,23 +22297,77 @@ function renderNetProfit() {
     ${warn}
     <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:10px">📅 ${esc(fmtDateDMY(ex.start))} – ${esc(fmtDateDMY(ex.end))}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px">
-      ${kpi('🧾', 'Sales', gpInr(base), t.uncostedSales ? `+ ${gpInr(t.uncostedSales)} bina laagat (GP me nahi)` : 'sab bikri ki laagat pata hai')}
-      ${kpi('📈', 'Gross Profit', gpInr(t.gp), gpPct == null ? '' : `${gpPct}% margin · laagat ${gpInr(t.cost)}`, t.gp >= 0 ? good : bad)}
-      ${kpi('💸', 'Expenses (Tally)', gpInr(expTally), expPct == null ? '' : `bikri ka ${expPct}%`, bad)}
-      ${kpi('💰', 'Net Profit', gpInr(np), npPct == null ? '' : `${npPct}% net margin`, np >= 0 ? good : bad, true)}
+      ${kpi('🧾', 'Sales', gpInr(base), t.uncostedSales ? `+ ${gpInr(t.uncostedSales)} bina laagat (GP me nahi)` : 'sab bikri ki laagat pata hai', '', false, "npGoProduct('sales')", 'Product-wise bikri dekho')}
+      ${kpi('📈', 'Gross Profit', gpInr(t.gp), gpPct == null ? '' : `${gpPct}% margin · laagat ${gpInr(t.cost)}`, t.gp >= 0 ? good : bad, false, "npGoProduct('gp')", 'Product-wise GP dekho')}
+      ${kpi('💸', 'Expenses (Tally)', gpInr(expTally), expPct == null ? '' : `bikri ka ${expPct}%`, bad, false, 'npShowExpenses()', 'Kharcha ke ledgers dekho')}
+      ${kpi('💰', 'Net Profit', gpInr(np), npPct == null ? '' : `${npPct}% net margin`, np >= 0 ? good : bad, true, 'npOpenBreakdown()', 'Net Profit ka hisaab dekho')}
     </div>
     ${flow}
-    <div style="${card};padding:16px 18px">
+    <div id="npExpCard" style="${card};padding:16px 18px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:4px">
         <div style="font-size:13.5px;font-weight:800;color:var(--gray-900)">💸 Kharcha — Tally se</div>
         <div style="font-size:11.5px;color:var(--gray-500)">group par click = ledgers</div>
       </div>
       ${ex.groups.map(groupHtml).join('')}
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0 0;border-top:1px solid var(--gray-100);font-size:12px;color:var(--gray-500)">
+      <div ${ME.role === 'admin' || MY_PAGES.has('petty-cash') ? `class="np-row" onclick="navigate('petty-cash',document.getElementById('nav-petty-cash'))" title="Petty Cash page kholo"` : ''} style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 4px 0;border-top:1px solid var(--gray-100);font-size:12px;color:var(--gray-500)">
         <span>🪙 Petty cash (${ex.pettyCash.entries} entries) — Tally ke kharche me pehle se shaamil, dobara nahi ghataya</span>
         <span style="white-space:nowrap">${gpInr(ex.pettyCash.amount)}</span></div>
     </div>
-    ${t.uncostedSales ? `<div style="font-size:12px;color:var(--color-warning-text);margin-top:10px">⚠️ ${gpInr(t.uncostedSales)} ki bikri ki laagat abhi pata nahi, isliye GP / NP me nahi — 📦 Product-wise me cost daalein.</div>` : ''}`;
+    ${t.uncostedSales ? `<div class="np-link" onclick="npGoProduct('nocost')" style="font-size:12px;color:var(--color-warning-text);margin-top:10px">⚠️ ${gpInr(t.uncostedSales)} ki bikri ki laagat abhi pata nahi, isliye GP / NP me nahi — <u>bina laagat wale products dikhao →</u></div>` : ''}`;
+}
+// ── Net Profit clicks ──
+function npGoProduct(what) {
+  gpOnlyNoCost = what === 'nocost';
+  gpSortBy = what === 'sales' ? 'sales' : what === 'cost' ? 'cost' : 'gp';
+  gpSortDir = 'desc';
+  gpSetView('product');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function npShowExpenses() {
+  if (!npOpenGroup && npData) { const top = npData.groups.slice().sort((a, b) => b.total - a.total)[0]; if (top) npOpenGroup = top.group; }
+  renderNetProfit();
+  document.getElementById('npExpCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function npModal(title, html) {
+  let m = document.getElementById('npModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'npModal';
+    m.innerHTML = `<div class="modal" style="max-width:640px;max-height:88dvh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px"><h3 id="npModalTitle" style="margin:0"></h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('npModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div id="npModalBody" style="overflow-y:auto;flex:1"></div></div>`;
+    document.body.appendChild(m);
+  }
+  document.getElementById('npModalTitle').textContent = title;
+  document.getElementById('npModalBody').innerHTML = html;
+  m.classList.add('open');
+}
+function npOpenBreakdown() {
+  const t = gpData.totals, groups = npData.groups;
+  const exp = groups.reduce((s, g) => s + g.total, 0), np = t.gp - exp;
+  const row = (label, v, opts = {}) => `<div ${opts.click ? `class="np-row" onclick="${opts.click}"` : ''} style="display:flex;justify-content:space-between;gap:12px;padding:9px 4px;border-top:1px solid var(--gray-100);${opts.bold ? 'font-weight:900;font-size:15px;border-top:2px solid var(--gray-300)' : 'font-size:13px'}">
+      <span>${label}</span><b style="white-space:nowrap;color:${opts.color || 'var(--gray-900)'}">${v}</b></div>`;
+  npModal('💰 Net Profit ka hisaab', `<div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">${esc(fmtDateDMY(npData.start))} – ${esc(fmtDateDMY(npData.end))} · line par click = detail</div>
+    ${row('🧾 Sales (laagat pata hai)', gpInr(t.costedSales), { click: "closeModal('npModal');npGoProduct('sales')" })}
+    ${row('− Maal ki laagat', gpInr(t.cost), { color: 'var(--color-danger)', click: "closeModal('npModal');npGoProduct('cost')" })}
+    ${row('= Gross Profit', gpInr(t.gp), { color: 'var(--color-success-text)', click: "closeModal('npModal');npGoProduct('gp')" })}
+    ${groups.map(g => row(`− ${esc(g.group)}`, gpInr(g.total), { color: 'var(--color-danger)', click: `closeModal('npModal');npOpenGroup='${jsArg(g.group)}';npShowExpenses()` })).join('')}
+    ${row('= Net Profit', gpInr(np), { bold: true, color: np >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)' })}`);
+}
+async function npOpenLedger(ledger) {
+  npModal('📒 ' + ledger, '<div class="empty">Loading…</div>');
+  const d = await api(`/api/reports/net-profit-ledger?start=${npData.start}&end=${npData.end}&ledger=${encodeURIComponent(ledger)}`);
+  const body = document.getElementById('npModalBody');
+  if (!d || d.error) { body.innerHTML = `<div class="empty">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
+  const total = d.entries.reduce((s, e) => s + e.amount, 0);
+  body.innerHTML = `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">${esc(d.group || '')} · ${d.entries.length} entries · ${esc(fmtDateDMY(npData.start))} – ${esc(fmtDateDMY(npData.end))}</div>
+    ${d.entries.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Voucher</th><th>Particulars</th><th style="text-align:right">Amount</th></tr></thead>
+      <tbody>${d.entries.map(e => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(e.date))}</td><td>${esc(e.vchType)}${e.vchNo ? ` #${esc(e.vchNo)}` : ''}</td><td>${esc(e.particulars)}</td>
+        <td style="text-align:right;font-weight:700;white-space:nowrap;color:${e.amount < 0 ? 'var(--color-success-text)' : 'var(--gray-900)'}">${gpInr(e.amount)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="3" style="font-weight:800">Total</td><td style="text-align:right;font-weight:900">${gpInr(total)}</td></tr></tfoot>
+    </table></div>` : '<div class="empty">Is period me koi entry nahi</div>'}`;
 }
 function exportNetProfit() {
   if (!gpData || !npData) return;
