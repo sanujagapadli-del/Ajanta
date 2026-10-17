@@ -1456,6 +1456,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
     </div>
 
+    <div id="dashO2dHold" style="margin-top:16px"></div>
   </div>
 
   <!-- ── ALL TASKS ── -->
@@ -1910,6 +1911,7 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="btn btn-outline" id="o2dStepDoersBtn" style="display:none" onclick="openStepDoersModal()">⚙ Step Doers</button>
       <button class="btn btn-outline" id="o2dTeamGroupBtn" style="display:none" onclick="openTeamGroupModal()">💬 WhatsApp Group</button>
     </div>
+    <div id="o2dHoldStrip"></div>
 
     <div style="display:flex;gap:6px;margin-bottom:16px;">
       <div class="tab-group">
@@ -3955,7 +3957,6 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div style="overflow-y:auto;flex:1;padding-right:2px">
       <input type="hidden" id="plItemId"/>
-      <input type="hidden" id="plImageUrl"/>
       <div class="form-group"><label>Product Name <span style="color:var(--color-danger)">*</span></label><input type="text" id="plProductName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div class="form-group"><label>Category</label><input type="text" id="plCategory" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
@@ -3967,6 +3968,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="form-group"><label>Catalogue Photo</label>
         <input type="file" accept="image/*" onchange="onPriceListPhotoSelected(event)" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <div id="plPhotoStatus" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+        <input type="text" id="plImageUrl" placeholder="…ya Google Drive photo link paste karein" style="width:100%;margin-top:6px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12.5px;box-sizing:border-box"/>
       </div>
       <div class="form-group"><label>Remarks</label><input type="text" id="plRemarks" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     </div>
@@ -4815,6 +4817,7 @@ function refreshDashboardO2dLocally() {
   if (!window._lastDashTasks) return;
   const merged = [...window._lastDashTasks.filter(t => t.type !== 'o2d'), ...buildO2dDashboardTasks()];
   window._lastDashTasks = merged;
+  renderDashO2dHold();
   const pendingEl = document.getElementById('dPending');
   if (pendingEl) pendingEl.textContent = merged.length;
   renderDashTable(merged, dashType);
@@ -4924,6 +4927,7 @@ async function loadDashboard() {
   // Paints the table, cards and chart from taskRows plus whatever O2D/SFMS
   // data is in hand (no network call).
   const renderDash = () => {
+    renderDashO2dHold();
     const allTodayPending = [...taskRows, ...buildO2dDashboardTasks(), ...buildSfmsDashboardTasks(), ...buildChequeDashboardTasks(), ...buildReplDashboardTasks(), ...buildLeadDashboardTasks(), ...buildPurchaseDashboardTasks()];
 
 
@@ -5385,6 +5389,7 @@ function renderTasksTable() {
 
   const _badge = document.getElementById('tasksCountBadge');
   if (_badge) { _badge.textContent = `${tasks.length} task${tasks.length===1?'':'s'}`; _badge.style.display = ''; }
+  _tasksFiltered = tasks;
 
   if (!tasks.length) {
     const hasFilter = (dateFrom || dateTo || search || userFilterVal !== 'all' || (isChecklist && freqFilterVal !== 'all'));
@@ -5412,6 +5417,7 @@ function renderTasksTable() {
         const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>` : '';
         const statusLabel = t.status==='revised'?'Revision Req':t.status.charAt(0).toUpperCase()+t.status.slice(1);
         return `<tr>
+          <td>${_taskSelCb(t)}</td>
           <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(t.assignedToDept||'—')}</td>
           <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${esc(t.title||'—')}</td>
           <td style="max-width:240px;font-size:12px;color:var(--gray-600)">${esc(t.description||'')}${taskAttachmentsHtml(t)}</td>
@@ -5439,7 +5445,7 @@ function renderTasksTable() {
         <div id="empBody_${uid}" style="overflow-x:auto;${isSelf?'':'display:none'}">
           <table style="min-width:760px">
             <thead><tr style="background:var(--surface-alt)">
-              <th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}
+              <th style="width:28px"></th><th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}
               <th>Assigned To</th><th>Start Date</th><th>Due Date</th><th>Status</th><th>Action</th>
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -5447,7 +5453,7 @@ function renderTasksTable() {
         </div>
       </div>`;
     }).join('');
-    container.innerHTML = groupHtml;
+    container.innerHTML = _tasksToolbarHtml() + groupHtml;
     return;
   }
 
@@ -5459,6 +5465,7 @@ function renderTasksTable() {
     const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600">${esc(t.frequency||'—')}</td>` : '';
     const statusLabel = t.status==='revised'?'Revision Requested':t.status.charAt(0).toUpperCase()+t.status.slice(1);
     return `<tr>
+      <td>${_taskSelCb(t)}</td>
       <td style="white-space:nowrap">${_taskActionBtns(t, false, isChecklist)}</td>
       <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(t.assignedToDept||'—')}</td>
       <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${esc(t.title||'—')}</td>
@@ -5477,10 +5484,52 @@ function renderTasksTable() {
       <span>Page <strong>${allTasksPage}</strong> of <strong>${totalPages}</strong> &nbsp;(${tasks.length} tasks)</span>
       <button onclick="if(allTasksPage<${totalPages}){allTasksPage++;renderTasksTable();}" style="padding:4px 12px;border:1.5px solid var(--gray-200);border-radius:6px;background:var(--surface);cursor:pointer;font-size:12px;${allTasksPage===totalPages?'opacity:.4;cursor:not-allowed;pointer-events:none;':''}">Next ▶</button>
     </div>` : '';
-  container.innerHTML = `<div class="flat-tasks-table"><div style="overflow-x:auto">
+  container.innerHTML = _tasksToolbarHtml() + `<div class="flat-tasks-table"><div style="overflow-x:auto">
     <table style="min-width:760px"><thead><tr>
-      <th>Action</th><th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}<th>Assigned To</th><th>Start Date</th><th>Due Date</th><th>Status</th>
+      <th style="width:28px"></th><th>Action</th><th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}<th>Assigned To</th><th>Start Date</th><th>Due Date</th><th>Status</th>
     </tr></thead><tbody>${pageRows}</tbody></table></div>${paginationHtml}</div>`;
+}
+
+// Select All + Export with the current filters (client, 2026-10-17). The
+// selection survives paging / group toggles; Export takes the ticked tasks,
+// or every filtered task when nothing is ticked.
+let _tasksFiltered = [];
+const _taskSel = new Set();
+const _taskSelKey = t => `${tasksType}:${t.id}`;
+function _taskSelCb(t) {
+  return `<input type="checkbox" class="task-sel-cb" ${_taskSel.has(_taskSelKey(t)) ? 'checked' : ''} onchange="taskSelToggle('${jsArg(_taskSelKey(t))}',this.checked)" style="width:16px;height:16px;accent-color:var(--color-primary);cursor:pointer"/>`;
+}
+function _tasksToolbarHtml() {
+  const n = _tasksFiltered.filter(t => _taskSel.has(_taskSelKey(t))).length, all = _tasksFiltered.length;
+  return `<div id="tasksSelBar" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 12px;margin-bottom:10px;background:var(--surface);border:1px solid var(--gray-200);border-radius:12px">
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0;margin:0">
+      <input type="checkbox" ${all && n === all ? 'checked' : ''} onchange="taskSelAll(this.checked)" style="width:16px;height:16px;accent-color:var(--color-primary)"/> Select All (${all})</label>
+    <span style="font-size:12px;color:var(--gray-500)">${n ? `${n} selected` : 'kuch select nahi — Export me saare filtered tasks aayenge'}</span>
+    ${n ? `<button class="btn btn-outline btn-sm" onclick="taskSelAll(false)">Clear</button>` : ''}
+    <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="exportAllTasks()">⬇ Export ${n ? `(${n})` : `(${all})`}</button>
+  </div>`;
+}
+function _tasksRefreshSelBar() {
+  const bar = document.getElementById('tasksSelBar');
+  if (bar) bar.outerHTML = _tasksToolbarHtml();
+}
+function taskSelToggle(key, on) { if (on) _taskSel.add(key); else _taskSel.delete(key); _tasksRefreshSelBar(); }
+function taskSelAll(on) {
+  _tasksFiltered.forEach(t => { if (on) _taskSel.add(_taskSelKey(t)); else _taskSel.delete(_taskSelKey(t)); });
+  document.querySelectorAll('#tasksContent .task-sel-cb').forEach(cb => { cb.checked = on; });
+  _tasksRefreshSelBar();
+}
+function exportAllTasks() {
+  const picked = _tasksFiltered.filter(t => _taskSel.has(_taskSelKey(t)));
+  const list = picked.length ? picked : _tasksFiltered;
+  if (!list.length) { showToast('Export ke liye koi task nahi', 'error'); return; }
+  const isChecklist = tasksType === 'checklist';
+  const statusLabel = st => st === 'revised' ? 'Revision Requested' : String(st || '').charAt(0).toUpperCase() + String(st || '').slice(1);
+  const rows = [['Title', 'Description', 'Assigned To', 'Department', 'Priority', ...(isChecklist ? ['Frequency'] : []), 'Start Date', 'Due Date', 'Status', 'Remarks', 'Created At', 'Completed At'],
+    ...list.map(t => [t.title || '', t.description || '', t.assignedToName || '', t.assignedToDept || '', t.priority || '', ...(isChecklist ? [t.frequency || ''] : []),
+      t.start_date ? fmtDateDMY(String(t.start_date).slice(0, 10)) : '', t.due_date ? fmtDateDMY(String(t.due_date).slice(0, 10)) : '', statusLabel(t.status), t.remarks || '',
+      t.created_at ? fmtDateDMY(t.created_at, true) : '', t.completed_at ? fmtDateDMY(t.completed_at, true) : ''])];
+  csvDownload(rows, `${isChecklist ? 'checklist' : 'delegation'}-tasks-${stockTodayYmd()}.csv`);
 }
 
 function tasksTab(type, el) {
@@ -12990,6 +13039,7 @@ function switchO2dView(view, el) {
   // actually working the FMS grid — everywhere else (PC View, Reports,
   // Dealers, Bills Receivable) they're just clutter above the tabs.
   document.getElementById('o2dPageHeader').style.display = view === 'fms' ? '' : 'none';
+  document.getElementById('o2dHoldStrip').style.display = view === 'fms' ? '' : 'none';
   renderO2dActiveView();
 }
 
@@ -13134,6 +13184,8 @@ let o2dFmsSubView = 'pending';
 function switchO2dFmsSubView(sub) { o2dFmsSubView = sub; o2dPage = 1; renderO2dFmsView(); }
 
 function renderO2dFmsView() {
+  const strip = document.getElementById('o2dHoldStrip');
+  if (strip) strip.innerHTML = o2dHoldListHtml((o2dData || []).filter(o => o.onHold && !o.closed), 'o2d');
   const wrap = document.getElementById('o2dListWrap');
   const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200)">
     <button onclick="switchO2dFmsSubView('pending')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='pending'?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView==='pending'?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView==='pending'?'var(--color-primary)':'var(--gray-600)'}">Pending</button>
@@ -14380,6 +14432,12 @@ async function loadO2dPriceList(force) {
 
 function onPriceListSearchInput(v) { o2dPriceListSearchQ = v; renderPriceListGrid(); }
 
+// Drive share links (client's product-photo sheet, 2026-10-17) can't be an
+// <img> src — show Drive's thumbnail and open the original link on click.
+function plThumbUrl(url) {
+  const m = String(url || '').match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=|thumbnail\?id=)([\w-]{20,})/);
+  return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w200` : url;
+}
 function priceListRowHtml(item) {
   const editBtns = o2dPriceListCanEdit ? `
     <div style="display:flex;gap:4px">
@@ -14387,7 +14445,7 @@ function priceListRowHtml(item) {
       <button class="btn btn-outline btn-sm" onclick="deletePriceListItem(${item.id},'${jsArg(item.product_name)}')" title="Remove">🗑</button>
     </div>` : '';
   const photoHtml = item.image_url
-    ? `<img src="${esc(item.image_url)}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--gray-200)"/>`
+    ? `<a href="${esc(item.image_url)}" target="_blank" rel="noopener" title="Photo kholo"><img src="${esc(plThumbUrl(item.image_url))}" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--gray-200)" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🖼 Open'}))"/></a>`
     : `<div style="width:36px;height:36px;border-radius:6px;background:var(--gray-100);display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:16px">📦</div>`;
   return `<tr>
     <td>${photoHtml}</td>
@@ -14430,6 +14488,7 @@ function openAddPriceModal() {
   ['plProductName','plCategory','plUom','plHsn','plGst','plPrice','plRemarks'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('plProductName').disabled = false;
   document.getElementById('plPhotoStatus').textContent = '';
+  document.getElementById('plImageUrl').value = '';
   document.getElementById('priceListModal').classList.add('open');
 }
 
@@ -14447,6 +14506,7 @@ function openEditPriceModal(id) {
   document.getElementById('plPrice').value = item.price !== null ? item.price : '';
   document.getElementById('plRemarks').value = item.remarks || '';
   document.getElementById('plPhotoStatus').textContent = item.image_url ? '✅ Photo already set — pick a file to replace it' : '';
+  document.getElementById('plImageUrl').value = item.image_url || '';
   document.getElementById('priceListModal').classList.add('open');
 }
 
@@ -16252,6 +16312,49 @@ async function o2dSaveHold(orderNo, btn) {
   closeModal('o2dHoldModal');
   o2dReloadAfterControl(holdType === 'stock' ? '⏸ Hold — stock not available' : '⏸ Order put on hold');
 }
+// Held orders get their own list (client, 2026-10-17) — on the Dashboard
+// and above the O2D FMS grid — since the pending lists leave them out.
+let _o2dHoldOpen = { o2d: true, dash: true };
+function o2dHoldListHtml(list, where) {
+  if (!list.length) return '';
+  const open = _o2dHoldOpen[where];
+  const days = at => { const d = at ? Math.floor((Date.now() - new Date(String(at).replace(' ', 'T')).getTime()) / 86400000) : null; return d == null || isNaN(d) ? '' : d <= 0 ? 'aaj' : `${d} din`; };
+  const stockN = list.filter(o => o.holdType === 'stock').length;
+  const rows = list.slice().sort((a, b) => String(a.holdAt).localeCompare(String(b.holdAt))).map(o => `
+    <tr onclick="o2dOpenHeld('${jsArg(o.orderNo)}')" style="cursor:pointer">
+      <td style="font-weight:700;white-space:nowrap">${esc(o.orderNo)}${o2dHoldBadge(o)}</td>
+      <td>${esc(o.counterName || '—')}</td>
+      <td style="white-space:normal;max-width:260px;font-size:11.5px">${(o.products || []).map(p => `${esc(p.productName)} × ${esc(p.qty)}`).join(', ') || '—'}</td>
+      <td style="white-space:normal;max-width:220px">${esc(o.holdType === 'stock' ? 'Stock not available' + (o.holdReason ? ' — ' + o.holdReason : '') : o.holdReason || '—')}</td>
+      <td style="white-space:nowrap">${esc(o.holdBy || '—')}</td>
+      <td style="white-space:nowrap">${o.holdAt ? esc(fmtDateDMY(o.holdAt)) : '—'} <span style="color:var(--gray-400)">${days(o.holdAt)}</span></td>
+      <td style="white-space:nowrap">${esc((o.steps[o.currentStep] || {}).label || '')}</td>
+    </tr>`).join('');
+  return `<div style="background:var(--surface);border:1.5px solid var(--color-warning-border, #fcd34d);border-radius:14px;margin-bottom:14px;overflow:hidden">
+    <div onclick="_o2dHoldOpen['${where}']=!_o2dHoldOpen['${where}'];${where === 'dash' ? 'renderDashO2dHold()' : 'renderO2dFmsView()'}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;background:var(--color-warning-bg)">
+      <b style="color:var(--color-warning-text)">⏸ Hold pe orders (${list.length})</b>
+      ${stockN ? `<span style="font-size:12px;color:var(--color-danger-text)">${stockN} stock nahi</span>` : ''}
+      <span style="margin-left:auto;font-size:12px;color:var(--color-warning-text)">${open ? '▾ chhupao' : '▸ dikhao'}</span>
+    </div>
+    ${open ? `<div style="overflow-x:auto"><table style="font-size:12px;white-space:nowrap"><thead><tr><th>Order</th><th>Counter</th><th>Items</th><th>Reason</th><th>Hold by</th><th>Since</th><th>Ruka step</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+  </div>`;
+}
+function o2dOpenHeld(orderNo) {
+  if (!o2dData.some(o => o.orderNo === orderNo)) o2dData = window._lastO2dData || [];
+  openO2dDetail(orderNo);
+}
+// Dashboard copy: admin / PC see every held order (or the picked employee's);
+// a doer sees the held orders waiting on a step they do.
+function renderDashO2dHold() {
+  const el = document.getElementById('dashO2dHold');
+  if (!el) return;
+  const empVal = (document.getElementById('dashEmployeeFilter') || {}).value || 'all';
+  const boss = ['admin', 'hod', 'pc'].includes(ME.role);
+  const who = boss ? (empVal !== 'all' ? Number(empVal) : null) : ME.id;
+  const list = (window._lastO2dData || []).filter(o => o.onHold && !o.closed &&
+    (!who || ((o.steps[o.currentStep] || {}).doers || []).some(d => d.id === who)));
+  el.innerHTML = o2dHoldListHtml(list, 'dash');
+}
 const o2dHoldBadge = o => o.onHold ? ` <span class="status-badge" style="background:${o.holdType === 'stock' ? 'var(--color-danger-bg);color:var(--color-danger-text)' : 'var(--color-warning-bg);color:var(--color-warning-text)'}" title="${esc(o.holdReason || '')}">⏸ ${o.holdType === 'stock' ? 'Stock nahi' : 'Hold'}</span>` : '';
 const o2dOrderValue = o => (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0);
 async function o2dCancelOrder(orderNo) {
@@ -17851,7 +17954,9 @@ async function loadOws() {
 }
 function owsRows() {
   const q = document.getElementById('owsSearch').value.trim().toLowerCase();
-  return (owsData.products || []).filter(p => !q || p.item.toLowerCase().includes(q));
+  // Sorted by the metric on screen (Qty / ₹) so both modes rank the same way.
+  const key = document.getElementById('owsMetric').value === 'amount' ? 'amount' : 'qty';
+  return (owsData.products || []).filter(p => !q || p.item.toLowerCase().includes(q)).sort((a, b) => b[key] - a[key] || b.amount - a.amount);
 }
 function owsStockCell(p) {
   if (p.stock == null) return '<td style="text-align:right;color:var(--gray-300)">—</td>';
@@ -17880,7 +17985,7 @@ function renderOws() {
     ${rows.map(p => `<tr><td style="white-space:normal;min-width:200px;font-weight:600">${esc(p.item)}</td>
       ${owsData.weeks.map(w => `<td style="text-align:right">${v(p.weeks[w.start]) || '<span style="color:var(--gray-300)">—</span>'}</td>`).join('')}
       <td style="text-align:right;font-weight:800">${v(p)}</td>${owsStockCell(p)}</tr>`).join('')}
-    <tr style="background:var(--gray-50);font-weight:800"><td>Total</td>${owsData.weeks.map(w => `<td style="text-align:right">${v(owsData.totals[w.start])}</td>`).join('')}
+    <tr style="background:var(--gray-50);font-weight:800"><td>Total</td>${owsData.weeks.map(w => `<td style="text-align:right">${v(rows.reduce((a, p) => { const x = p.weeks[w.start]; return x ? { qty: a.qty + x.qty, amount: a.amount + x.amount } : a; }, { qty: 0, amount: 0 }))}</td>`).join('')}
       <td style="text-align:right">${v(rows.reduce((a, p) => ({ qty: a.qty + p.qty, amount: a.amount + p.amount }), { qty: 0, amount: 0 }))}</td><td></td></tr>
     </tbody></table>`;
 }
@@ -18036,48 +18141,102 @@ function renderMh() {
   document.getElementById('mhWrap').innerHTML = chips(todayClosed, '🔒 Aaj band', 'var(--color-danger-bg)') + chips(tmrClosed, '📅 Kal band', 'var(--color-warning-bg)') +
     (list.length ? Object.entries(byCity).map(([c, items]) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:12px;overflow:hidden">
       <div style="padding:10px 14px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">📍 ${esc(c)} <span style="font-weight:500;color:var(--gray-500);font-size:12px">· ${items.length}</span></div>
-      <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Market / Shop</th><th>Kab band</th><th>Remark</th><th>Added by</th>${admin ? '<th></th>' : ''}</tr></thead><tbody>
-      ${items.map(h => `<tr${mhClosedOn(h, today) ? ' style="background:var(--color-danger-bg)"' : ''}><td><span class="status-badge" style="margin-right:6px">${h.kind === 'Shop' ? '🏪 Shop' : '🛒 Market'}</span><b>${esc(h.placeName)}</b></td>
-        <td style="font-weight:700">${esc(mhWhen(h))}</td><td>${esc(h.remark || '—')}</td><td style="white-space:nowrap">${esc(h.by || '—')}${entrySubHtml(h.createdAt)}</td>
-        ${admin ? `<td style="white-space:nowrap"><button class="btn btn-sm btn-outline" onclick="openMhForm(${h.id})">✏️</button> <button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="deleteMh(${h.id})">🗑</button></td>` : ''}</tr>`).join('')}
+      <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Market / Shop</th><th>Kab band</th><th>Remark</th><th>Added by</th><th></th></tr></thead><tbody>
+      ${mhGroupPlaces(items).map(g => `<tr${g.items.some(h => mhClosedOn(h, today)) ? ' style="background:var(--color-danger-bg)"' : ''}><td style="vertical-align:top"><span class="status-badge" style="margin-right:6px">${g.kind === 'Shop' ? '🏪 Shop' : '🛒 Market'}</span><b>${esc(g.placeName)}</b>${g.items.length > 1 ? ` <span style="color:var(--gray-500);font-size:11.5px">· ${g.items.length} chhutti</span>` : ''}</td>
+        <td>${g.items.map(h => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-weight:700">${esc(mhWhen(h))}${admin ? ` <button class="btn btn-sm btn-outline" style="padding:1px 6px" onclick="openMhForm(${h.id})" title="Badlein">✏️</button><button class="btn btn-sm btn-outline" style="padding:1px 6px;color:var(--color-danger)" onclick="deleteMh(${h.id})" title="Hatao">🗑</button>` : ''}</div>`).join('')}</td>
+        <td style="vertical-align:top">${g.items.map(h => h.remark).filter(Boolean).map(esc).join('<br>') || '—'}</td>
+        <td style="white-space:nowrap;vertical-align:top">${esc(g.items[0].by || '—')}${entrySubHtml(g.items[0].createdAt)}</td>
+        <td style="white-space:nowrap;vertical-align:top"><button class="btn btn-sm btn-outline" onclick="openMhForm(0,${g.items[0].id})" title="Isi market ki aur chhutti jodo">＋ Chhutti</button></td></tr>`).join('')}
       </tbody></table></div></div>`).join('') : '<div class="empty">Abhi koi holiday nahi daala gaya. "+ Add Holiday" se jodiye.</div>');
 }
-function openMhForm(id) {
-  const h = id ? mhData.items.find(x => x.id === id) : { city: document.getElementById('mhCity').value, kind: 'Market', placeName: '', freq: 'weekly', weekdays: [], monthDays: [], onDate: '', remark: '' };
+// One row per market / shop — a market can have several holidays (client, 2026-10-17).
+function mhGroupPlaces(items) {
+  const by = {};
+  items.forEach(h => { const k = `${h.kind}|${h.placeName.toLowerCase()}`; (by[k] = by[k] || { kind: h.kind, placeName: h.placeName, items: [] }).items.push(h); });
+  return Object.values(by);
+}
+// Add form takes several holiday rules for the same market at once, and
+// "Sirf ek din" takes several dates (client video, 2026-10-17). Editing an
+// existing row stays one rule.
+let _mhRuleN = 0;
+function openMhForm(id, likeId) {
+  const like = likeId ? mhData.items.find(x => x.id === likeId) : null;
+  const h = id ? mhData.items.find(x => x.id === id) : { city: like ? like.city : document.getElementById('mhCity').value, kind: like ? like.kind : 'Market', placeName: like ? like.placeName : '', freq: 'weekly', weekdays: [], monthDays: [], onDate: '', remark: '' };
   const cities = [...new Set(mhData.items.map(x => x.city))];
-  vrlModal('mhModal', `${scotModalHead('mhModal', id ? '✏️ Holiday badlein' : '＋ Market / Shop holiday')}
+  _mhRuleN = 0;
+  vrlModal('mhModal', `${scotModalHead('mhModal', id ? '✏️ Holiday badlein' : like ? `＋ ${esc(like.placeName)} — aur chhutti` : '＋ Market / Shop holiday')}
     <datalist id="mhCityList">${cities.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <div><label style="font-size:12px;font-weight:600">City *</label><input id="mhFCity" list="mhCityList" value="${esc(h.city)}" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Kya band hai?</label><select id="mhFKind" style="${VRL_IN}"><option value="Market" ${h.kind !== 'Shop' ? 'selected' : ''}>🛒 Poora market</option><option value="Shop" ${h.kind === 'Shop' ? 'selected' : ''}>🏪 Ek dukaan</option></select></div></div>
     <label style="font-size:12px;font-weight:600">Market / dukaan ka naam <span style="font-weight:400;color:var(--gray-500)">(poora shehar band ho to khaali chhodein)</span></label><input id="mhFPlace" value="${esc(h.placeName === 'Poora market' ? '' : h.placeName)}" placeholder="e.g. Johari Bazar / Sharma Electricals" style="${VRL_IN};margin-bottom:10px"/>
-    <label style="font-size:12px;font-weight:600">Kitni baar band hota hai?</label>
-    <select id="mhFFreq" onchange="mhFreqChanged()" style="${VRL_IN};margin-bottom:10px">${Object.entries(MH_FREQ_LABEL).map(([k, l]) => `<option value="${k}" ${(h.freq || 'weekly') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    <div id="mhFWeekly"><label style="font-size:12px;font-weight:600">Hafte ka din</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5, 6, 7].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="mh-day" value="${n}" ${h.weekdays.includes(n) ? 'checked' : ''}/> ${MH_DAYS[n]}</label>`).join('')}</div></div>
-    <div id="mhFMonthly"><label style="font-size:12px;font-weight:600">Mahine ki kaunsi tareekh? <span style="font-weight:400;color:var(--gray-500)">(ek se zyada chun sakte hain, jaise 15 aur 30)</span></label>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:4px 0 10px">${Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<label style="display:flex;align-items:center;justify-content:center;gap:3px;font-size:12px;border:1px solid var(--gray-200);border-radius:7px;padding:5px 0;cursor:pointer"><input type="checkbox" class="mh-mday" value="${n}" ${(h.monthDays || []).includes(n) ? 'checked' : ''} style="margin:0"/>${n}</label>`).join('')}</div></div>
-    <div id="mhFDateWrap"><label style="font-size:12px;font-weight:600" id="mhFDateLabel">Tareekh</label><input type="date" id="mhFDate" value="${esc(h.onDate || '')}" style="${VRL_IN};margin:4px 0 10px"/></div>
+    <div id="mhRules">${mhRuleHtml(h, !id)}</div>
+    ${id ? '' : `<button type="button" class="btn btn-outline btn-sm" style="margin:-2px 0 12px" onclick="mhAddRule()">＋ Aur chhutti jodo <span style="font-weight:400;color:var(--gray-500)">(isi market ki)</span></button>`}
     <label style="font-size:12px;font-weight:600">Remark</label><input id="mhFRemark" value="${esc(h.remark)}" style="${VRL_IN};margin-bottom:10px"/>
     <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveMh(${id || 0},this)">✓ Save</button>`, 520);
-  mhFreqChanged();
+  document.querySelectorAll('#mhRules .mh-rule').forEach(el => mhFreqChanged(el.dataset.i));
 }
-function mhFreqChanged() {
-  const f = document.getElementById('mhFFreq').value;
-  document.getElementById('mhFWeekly').style.display = f === 'weekly' ? '' : 'none';
-  document.getElementById('mhFMonthly').style.display = f === 'monthly' ? '' : 'none';
-  document.getElementById('mhFDateWrap').style.display = f === 'weekly' || f === 'monthly' ? 'none' : '';
-  document.getElementById('mhFDateLabel').textContent = f === 'once' ? 'Kis tareekh ko band hai?' : f === 'yearly' ? 'Kis tareekh ko (har saal isi din)' : 'Pehli band tareekh (phir har 15 din)';
+function mhRuleHtml(h, multiDate) {
+  const i = ++_mhRuleN;
+  return `<div class="mh-rule" data-i="${i}" style="border:1px solid var(--gray-200);border-radius:12px;padding:10px 12px;margin-bottom:10px;position:relative">
+    ${i > 1 ? `<button type="button" onclick="this.closest('.mh-rule').remove()" title="Hatao" style="position:absolute;top:6px;right:8px;border:none;background:none;color:var(--color-danger);cursor:pointer;font-size:15px">✕</button>` : ''}
+    <label style="font-size:12px;font-weight:600">Kitni baar band hota hai?</label>
+    <select id="mhFFreq${i}" onchange="mhFreqChanged(${i})" style="${VRL_IN};margin-bottom:10px">${Object.entries(MH_FREQ_LABEL).map(([k, l]) => `<option value="${k}" ${(h.freq || 'weekly') === k ? 'selected' : ''}>${k === 'once' && multiDate ? 'Kuch tareekhon par (ek ya zyada)' : l}</option>`).join('')}</select>
+    <div id="mhFWeekly${i}"><label style="font-size:12px;font-weight:600">Hafte ka din</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px">${[1, 2, 3, 4, 5, 6, 7].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="mh-day${i}" value="${n}" ${h.weekdays.includes(n) ? 'checked' : ''}/> ${MH_DAYS[n]}</label>`).join('')}</div></div>
+    <div id="mhFMonthly${i}"><label style="font-size:12px;font-weight:600">Mahine ki kaunsi tareekh? <span style="font-weight:400;color:var(--gray-500)">(ek se zyada chun sakte hain, jaise 15 aur 30)</span></label>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:4px 0 6px">${Array.from({ length: 31 }, (_, k) => k + 1).map(n => `<label style="display:flex;align-items:center;justify-content:center;gap:3px;font-size:12px;border:1px solid var(--gray-200);border-radius:7px;padding:5px 0;cursor:pointer"><input type="checkbox" class="mh-mday${i}" value="${n}" ${(h.monthDays || []).includes(n) ? 'checked' : ''} style="margin:0"/>${n}</label>`).join('')}</div></div>
+    <div id="mhFDateWrap${i}"><label style="font-size:12px;font-weight:600" id="mhFDateLabel${i}">Tareekh</label>
+      <div style="display:flex;gap:6px;margin:4px 0 6px"><input type="date" id="mhFDate${i}" value="${esc(h.onDate || '')}" style="${VRL_IN}"/>
+        ${multiDate ? `<button type="button" id="mhFDateAdd${i}" class="btn btn-outline btn-sm" onclick="mhAddDate(${i})">＋ Tareekh</button>` : ''}</div>
+      <div id="mhFDates${i}" style="display:flex;gap:6px;flex-wrap:wrap"></div></div>
+  </div>`;
+}
+function mhAddRule() {
+  document.getElementById('mhRules').insertAdjacentHTML('beforeend', mhRuleHtml({ freq: 'once', weekdays: [], monthDays: [], onDate: '' }, true));
+  mhFreqChanged(_mhRuleN);
+}
+function mhAddDate(i) {
+  const inp = document.getElementById('mhFDate' + i);
+  if (!inp.value) { showToast('Pehle tareekh chunein', 'error'); return; }
+  const box = document.getElementById('mhFDates' + i);
+  if (![...box.querySelectorAll('[data-d]')].some(x => x.dataset.d === inp.value)) {
+    box.insertAdjacentHTML('beforeend', `<span data-d="${esc(inp.value)}" style="display:inline-flex;align-items:center;gap:4px;background:var(--color-primary-light);color:var(--color-primary);border-radius:99px;padding:3px 10px;font-size:12px;font-weight:700">${esc(fmtDateDMY(inp.value))}<button type="button" onclick="this.parentElement.remove()" style="border:none;background:none;color:inherit;cursor:pointer;padding:0">✕</button></span>`);
+  }
+  inp.value = '';
+}
+function mhFreqChanged(i) {
+  const f = document.getElementById('mhFFreq' + i).value;
+  document.getElementById('mhFWeekly' + i).style.display = f === 'weekly' ? '' : 'none';
+  document.getElementById('mhFMonthly' + i).style.display = f === 'monthly' ? '' : 'none';
+  document.getElementById('mhFDateWrap' + i).style.display = f === 'weekly' || f === 'monthly' ? 'none' : '';
+  const add = document.getElementById('mhFDateAdd' + i);
+  if (add) add.style.display = f === 'once' ? '' : 'none';
+  document.getElementById('mhFDates' + i).style.display = f === 'once' ? 'flex' : 'none';
+  document.getElementById('mhFDateLabel' + i).textContent = f === 'once' ? 'Kis tareekh ko band hai? (zyada ho to ＋ Tareekh)' : f === 'yearly' ? 'Kis tareekh ko (har saal isi din)' : 'Pehli band tareekh (phir har 15 din)';
+}
+function mhReadRules() {
+  const rules = [];
+  document.querySelectorAll('#mhRules .mh-rule').forEach(el => {
+    const i = el.dataset.i, freq = document.getElementById('mhFFreq' + i).value;
+    const base = { freq, weekdays: [...el.querySelectorAll(`.mh-day${i}:checked`)].map(c => Number(c.value)), monthDays: [...el.querySelectorAll(`.mh-mday${i}:checked`)].map(c => Number(c.value)) };
+    const typed = document.getElementById('mhFDate' + i).value;
+    const dates = freq === 'once' ? [...new Set([...el.querySelectorAll('[data-d]')].map(x => x.dataset.d).concat(typed ? [typed] : []))] : [typed];
+    (dates.length ? dates : ['']).forEach(d => rules.push({ ...base, onDate: d }));
+  });
+  return rules;
 }
 async function saveMh(id, btn) {
   const v = x => document.getElementById(x).value.trim();
-  const body = { city: v('mhFCity'), kind: v('mhFKind'), placeName: v('mhFPlace'), freq: v('mhFFreq'), weekdays: [...document.querySelectorAll('.mh-day:checked')].map(c => Number(c.value)), onDate: v('mhFDate'), monthDays: [...document.querySelectorAll('.mh-mday:checked')].map(c => Number(c.value)), remark: v('mhFRemark') };
+  const rules = mhReadRules();
+  const body = { city: v('mhFCity'), kind: v('mhFKind'), placeName: v('mhFPlace'), remark: v('mhFRemark'), ...rules[0] };
+  if (!id) body.rules = rules;
   const restore = btnLoading(btn, 'Saving…');
   const r = await api(id ? `/api/market-holidays/${id}` : '/api/market-holidays', id ? 'PUT' : 'POST', body);
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('mhModal');
-  showToast('✅ Saved');
+  showToast(r.added > 1 ? `✅ ${r.added} chhuttiyan save` : '✅ Saved');
   loadMh();
 }
 async function deleteMh(id) {

@@ -6753,13 +6753,14 @@ app.get('/api/o2d-fms/price-list', requireAuth, async (req, res) => {
 app.post('/api/o2d-fms/price-list', requireAuth, async (req, res) => {
   try {
     if (!canEditPriceList(req)) return res.status(403).json({ error: 'Only Ajay and admins can edit the price list' });
-    const { productName, category, uom, hsnCode, gstPercent, price, remarks } = req.body;
+    const { productName, category, uom, hsnCode, gstPercent, price, remarks, imageUrl } = req.body;
     if (!productName || !productName.trim()) return res.status(400).json({ error: 'Product name is required' });
     await withPriceListTable(() => db.query(
-      `INSERT INTO o2d_price_list (product_name, category, uom, hsn_code, gst_percent, price, remarks) VALUES (?,?,?,?,?,?,?)
-       ON DUPLICATE KEY UPDATE category=VALUES(category), uom=VALUES(uom), hsn_code=VALUES(hsn_code), gst_percent=VALUES(gst_percent), price=VALUES(price), remarks=VALUES(remarks)`,
+      `INSERT INTO o2d_price_list (product_name, category, uom, hsn_code, gst_percent, price, remarks, image_url) VALUES (?,?,?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE category=VALUES(category), uom=VALUES(uom), hsn_code=VALUES(hsn_code), gst_percent=VALUES(gst_percent), price=VALUES(price), remarks=VALUES(remarks),
+         image_url=COALESCE(VALUES(image_url), image_url)`,
       [productName.trim(), category || null, uom || null, hsnCode || null, gstPercent || null,
-       (price === '' || price === undefined || price === null) ? null : Number(price), remarks || null]
+       (price === '' || price === undefined || price === null) ? null : Number(price), remarks || null, String(imageUrl || '').trim().slice(0, 1000) || null]
     ));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
@@ -11419,15 +11420,19 @@ async function gpLoadData(start, end) {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   await ensureProductCosts();
   const bill = O2D_STEPS.find(s => s.n === 4); // Make Bill
-  const [o2dRes, poRes, [manual], mapTo, [stockItems], poArchive] = await Promise.all([
+  const [o2dRes, poRes, [manual], mapTo, [stockItems], poArchive, [cancelledRows]] = await Promise.all([
     sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }),
     sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }),
     db.query('SELECT item_key, item_name, cost_rate FROM product_costs'),
     gpProductMapper(),
     withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items')),
-    purchasePoArchiveRows()
+    purchasePoArchiveRows(),
+    withO2dOrderTables(() => db.query('SELECT order_no FROM o2d_order_flags WHERE cancelled=1')).catch(() => [[]])
   ]);
   const stockName = Object.fromEntries(stockItems.map(i => [i.item_code, i.description]));
+  // An order cancelled after billing keeps "Yes" on Make Bill (cancel writes
+  // "No" on the later pending step only) — it is not a sale (OWS / GP).
+  const cancelledOrders = new Set(cancelledRows.map(c => String(c.order_no)));
 
   // Sales lines from O2D (billed).
   const sales = [];
@@ -11435,7 +11440,7 @@ async function gpLoadData(start, end) {
   (o2dRes.data.values || []).forEach(r => {
     const get = col => r[colToIdx(col)];
     const status = String(get(bill.status) || '');
-    if (!get('R') || !status || /^no$/i.test(status) || /cancel/i.test(status)) return;
+    if (!get('R') || !status || /^no$/i.test(status) || /cancel/i.test(status) || cancelledOrders.has(String(get('Q') || ''))) return;
     const date = stockSerialToYmd(get(bill.actual));
     if (!date) return;
     if (!firstBill || date < firstBill) firstBill = date;
@@ -13971,11 +13976,17 @@ app.post('/api/market-holidays', requireAuth, async (req, res) => {
   try {
     if (!(await hasPageGrant(req, 'market-holidays'))) return res.status(403).json({ error: 'No access to Market Holidays' });
     await mhTable();
-    const r = mhClean(req.body || {});
-    if (r.error) return res.status(400).json(r);
-    await db.query('INSERT INTO market_holidays (city, kind, place_name, freq, weekdays, on_date, month_days, remark, created_by) VALUES (?,?,?,?,?,?,?,?,?)',
-      [r.city, r.kind, r.place, r.freq, r.weekdays || null, r.onDate, r.monthDays || null, r.remark || null, req.session.userId]);
-    res.json({ success: true });
+    // Several holidays for one market in one go (client, 2026-10-17): `rules`
+    // share the city / market / remark; an old client sends one rule inline.
+    const b = req.body || {};
+    const list = (Array.isArray(b.rules) && b.rules.length ? b.rules.slice(0, 40) : [b]).map(rule => mhClean({ ...b, ...rule }));
+    const bad = list.find(r => r.error);
+    if (bad) return res.status(400).json(bad);
+    for (const r of list) {
+      await db.query('INSERT INTO market_holidays (city, kind, place_name, freq, weekdays, on_date, month_days, remark, created_by) VALUES (?,?,?,?,?,?,?,?,?)',
+        [r.city, r.kind, r.place, r.freq, r.weekdays || null, r.onDate, r.monthDays || null, r.remark || null, req.session.userId]);
+    }
+    res.json({ success: true, added: list.length });
   } catch (err) { sendServerError(res, err); }
 });
 app.put('/api/market-holidays/:id', requireAuth, requireAdmin, async (req, res) => {
