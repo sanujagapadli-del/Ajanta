@@ -5,218 +5,190 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Vendor Portal — Ajanta Appliances</title>
 <link rel="icon" type="image/png" href="/logo-mark.png"/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <!--
-  Purchase FMS vendor page (2026-10-03, redesigned 2026-10-17). Opened by a
+  Purchase FMS vendor page (2026-10-03; redesigned 2026-10-17). Opened by a
   vendor login (role 'vendor' — /app redirects here). Shows the PO lines still
   due from this vendor and the goods Ajanta sent back for replacement, and lets
   the vendor post a status update per line; see "PURCHASE FMS — VENDOR PAGE"
   in server.js. Vendor tokens can only reach /api/me and /api/vendor/*.
+  Wide screens: one table per PO. Phones: one card per item.
 -->
 <style>
 :root{
-  --primary:#1e3a8a; --primary-2:#2563eb; --primary-light:#eff4ff;
-  --success:#047857; --success-bg:#ecfdf5; --warning:#b45309; --warning-bg:#fff7e6; --danger:#dc2626; --danger-bg:#fef2f2;
-  --g50:#f6f8fb; --g100:#eef2f7; --g200:#e2e8f0; --g300:#cbd5e1; --g400:#94a3b8; --g500:#64748b; --g700:#334155; --g900:#0f172a;
-  --radius:16px; --shadow:0 1px 2px rgba(15,23,42,.04),0 6px 20px rgba(15,23,42,.06);
+  --primary:#1d4ed8; --primary-dark:#1e3a8a; --primary-light:#eff6ff;
+  --success:#047857; --success-bg:#ecfdf5; --warning:#b45309; --warning-bg:#fffbeb; --danger:#b91c1c; --danger-bg:#fef2f2;
+  --g50:#f8fafc; --g100:#f1f5f9; --g200:#e2e8f0; --g300:#cbd5e1; --g400:#94a3b8; --g500:#64748b; --g600:#475569; --g700:#334155; --g900:#0f172a;
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:'Inter',sans-serif;background:var(--g50);color:var(--g900);font-size:14px;-webkit-font-smoothing:antialiased}
+svg.i{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.wrap{max-width:1200px;margin:0 auto;padding:0 24px}
 
-/* Header */
-.hero{background:linear-gradient(135deg,#0b1f5c 0%,var(--primary) 45%,var(--primary-2) 100%);color:#fff;padding:18px 16px 70px;position:relative;overflow:hidden}
-.hero::after{content:'';position:absolute;right:-60px;top:-80px;width:260px;height:260px;border-radius:50%;background:rgba(255,255,255,.07)}
-.hero-in{max-width:980px;margin:0 auto;display:flex;align-items:center;gap:14px;position:relative;z-index:1}
-.hero img{height:44px;width:44px;object-fit:contain;background:#fff;border-radius:12px;padding:5px;box-shadow:0 4px 12px rgba(0,0,0,.15)}
-.hero .who{flex:1;min-width:0}
-.hero .who small{display:block;font-size:12px;opacity:.75;font-weight:500}
-.hero .who b{display:block;font-size:19px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.2px}
-.hero .who span{font-size:12px;opacity:.75}
-.hero button{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:9px 14px;font:600 13px 'Inter';cursor:pointer;backdrop-filter:blur(4px)}
-.hero button:hover{background:rgba(255,255,255,.24)}
+/* Top bar */
+.top{background:#fff;border-bottom:1px solid var(--g200);position:sticky;top:0;z-index:5}
+.top .wrap{display:flex;align-items:center;gap:14px;height:64px}
+.top img{height:36px;width:36px;object-fit:contain}
+.brand{flex:1;min-width:0;line-height:1.25}
+.brand b{display:block;font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand span{font-size:12px;color:var(--g500)}
+.tbtn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border:1px solid var(--g200);background:#fff;color:var(--g700);border-radius:8px;font:600 13px 'Inter';cursor:pointer}
+.tbtn:hover{background:var(--g50);border-color:var(--g300)}
 
-main{max-width:980px;margin:-54px auto 0;padding:0 16px 40px;position:relative;z-index:2}
+.page{padding-top:24px;padding-bottom:40px}
+.page-title{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:18px}
+.page-title h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.3px}
+.page-title p{margin:4px 0 0;color:var(--g500);font-size:13px}
+.page-title .upd{font-size:12px;color:var(--g400);white-space:nowrap}
 
-/* Summary cards */
-.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
-.stat{background:#fff;border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);display:flex;gap:12px;align-items:center;min-width:0}
-.stat .ic{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
-.stat b{display:block;font-size:22px;font-weight:900;line-height:1.1}
-.stat span{display:block;font-size:12px;color:var(--g500);margin-top:2px;line-height:1.3}
+/* KPI row */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px}
+.kpi{background:#fff;border:1px solid var(--g200);border-radius:12px;padding:16px 18px;display:flex;align-items:center;gap:14px}
+.kpi .ic{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kpi .ic svg.i{width:20px;height:20px}
+.kpi b{display:block;font-size:24px;font-weight:800;line-height:1}
+.kpi span{display:block;font-size:12.5px;color:var(--g500);margin-top:5px}
 
 /* Tabs */
-.tabs{display:flex;gap:6px;background:#fff;padding:6px;border-radius:14px;box-shadow:var(--shadow);margin-bottom:16px;overflow-x:auto}
-.tab{flex:1;min-width:max-content;text-align:center;padding:10px 14px;border-radius:10px;font-weight:700;color:var(--g500);cursor:pointer;white-space:nowrap;transition:.15s}
-.tab:hover{background:var(--g50)}
-.tab.active{background:var(--primary);color:#fff;box-shadow:0 4px 12px rgba(30,58,138,.25)}
-.tab .ti{margin-right:6px}
-.tab .cnt{display:inline-block;min-width:20px;padding:1px 7px;border-radius:10px;background:var(--g100);color:var(--g700);font-size:11.5px;margin-left:6px}
-.tab.active .cnt{background:rgba(255,255,255,.22);color:#fff}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--g200);margin-bottom:18px}
+.tab{display:inline-flex;align-items:center;gap:8px;padding:11px 16px;font-weight:600;color:var(--g500);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab:hover{color:var(--g900)}
+.tab.active{color:var(--primary);border-color:var(--primary)}
+.tab .cnt{min-width:22px;text-align:center;padding:1px 7px;border-radius:10px;background:var(--g100);color:var(--g600);font-size:12px;font-weight:700}
+.tab.active .cnt{background:var(--primary-light);color:var(--primary)}
 
-.sm{display:none}
-.layout{display:block}
-.list-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:2px 2px 12px}
-.list-head:empty{display:none}
-.list-head h2{margin:0;font-size:17px;font-weight:800}
-.list-head p{margin:3px 0 0;font-size:12.5px;color:var(--g500);max-width:640px}
-.list-head .upd{font-size:11.5px;color:var(--g400);white-space:nowrap}
-.item{display:flex;flex-wrap:wrap;gap:0 12px;align-items:flex-start}
-.c-name{flex:1;min-width:0}
-.c-qty{flex:0 0 auto}
-.c-prog{flex:0 0 100%}
-.c-act{flex:0 0 100%;display:flex;justify-content:flex-end}
-.c-act:empty{display:none}
-.c-act .btn{margin-top:10px}
-.item .form,.item .hist{flex:0 0 100%}
-@media(min-width:900px){
-  .hero-in,main{max-width:1180px}
-  .layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:20px;align-items:start}
-  .side{position:sticky;top:16px}
-  .stats{grid-template-columns:1fr;gap:10px}
-  .stat{padding:13px 15px}
-  .tabs{flex-direction:column;gap:4px;padding:6px}
-  .tab{text-align:left;display:flex;align-items:center;padding:11px 12px}
-  .tab .cnt{margin-left:auto}
-  .content{min-width:0}
-  .list-head{margin-top:0;background:#fff;border-radius:var(--radius);padding:14px 18px;box-shadow:var(--shadow);align-items:center}
-  .item{display:grid;grid-template-columns:minmax(0,1.7fr) 110px minmax(0,1.5fr) 150px;gap:18px;align-items:center;padding:14px 18px}
-  .item .form,.item .hist{grid-column:1/-1}
-  .c-act{justify-content:flex-end}
-  .c-act:empty{display:block}
-  .c-act .btn{margin:0;width:100%}
-  .c-prog .bar{margin-top:0}
-  .chip{margin-top:6px}
-  .po-head{padding:14px 18px}
-}
-.hint{font-size:12.5px;color:var(--g500);margin:-4px 2px 12px}
+/* PO block */
+.po{background:#fff;border:1px solid var(--g200);border-radius:12px;margin-bottom:18px;overflow:hidden}
+.po-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;background:var(--g50);border-bottom:1px solid var(--g200)}
+.po-head b{font-size:15px;font-weight:800}
+.po-head .meta{color:var(--g500);font-size:12.5px;margin-left:10px}
+.po-head .due{font-size:12.5px;color:var(--g600)}
+.po-head .due b{font-size:13px;margin-left:4px}
+.po-head .due.late{color:var(--danger)}
 
-/* PO / challan cards */
-.po{background:#fff;border-radius:var(--radius);margin-bottom:14px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--g100)}
-.po-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--g100)}
-.po-title{display:flex;align-items:center;gap:10px}
-.po-badge{width:38px;height:38px;border-radius:10px;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:18px}
-.po-head b{font-size:15.5px;font-weight:800}
-.po-head small{display:block;color:var(--g500);font-size:12px;margin-top:2px}
-.due{text-align:right;font-size:12px;color:var(--g500)}
-.due b{display:block;font-size:13.5px;color:var(--g900)}
-.due.late b{color:var(--danger)}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+td .pname,td .psub{overflow-wrap:anywhere}
+th{text-align:left;font-size:11.5px;font-weight:700;color:var(--g500);text-transform:uppercase;letter-spacing:.4px;padding:10px 18px;border-bottom:1px solid var(--g200);background:#fff}
+td{padding:13px 18px;border-bottom:1px solid var(--g100);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.n b{font-size:15px}
+.pname{font-weight:600;color:var(--g900)}
+.psub{font-size:12px;color:var(--g500);margin-top:2px}
+.pend{color:var(--warning);font-weight:800}
+.zero{color:var(--g300)}
+tr.form-row td{background:var(--g50);padding:14px 18px}
+tr.hist-row td{padding:0 18px 12px;border-bottom:1px solid var(--g100)}
 
-.item{padding:14px 16px;border-top:1px solid var(--g100)}
-.item:first-of-type{border-top:0}
-.item-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
-.item-name{font-weight:700;font-size:14.5px}
-.item-sub{font-size:12px;color:var(--g500);margin-top:2px}
-.qty{font-weight:900;white-space:nowrap;font-size:16px;text-align:right}
-.qty small{display:block;font-size:11px;font-weight:600;color:var(--g500)}
-
-.bar{height:8px;border-radius:6px;background:var(--g100);overflow:hidden;display:flex;margin:10px 0 6px}
-.bar i{display:block;height:100%}
-.bar .recv{background:var(--success)}
-.bar .disp{background:#60a5fa}
-.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--g500)}
-.legend b{color:var(--g900)}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle}
-
-.chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:20px;margin-top:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.chip::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
 .chip.none{background:var(--g100);color:var(--g500)}
 .chip.prod{background:var(--warning-bg);color:var(--warning)}
 .chip.ready{background:var(--primary-light);color:var(--primary)}
 .chip.disp,.chip.recv{background:var(--success-bg);color:var(--success)}
 
-.btn{border:1.5px solid var(--primary);background:#fff;color:var(--primary);border-radius:10px;padding:8px 14px;font:700 13px 'Inter';cursor:pointer;transition:.15s;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--primary);background:#fff;color:var(--primary);border-radius:8px;font:600 13px 'Inter';cursor:pointer;white-space:nowrap}
 .btn:hover{background:var(--primary-light)}
 .btn.primary{background:var(--primary);color:#fff}
-.btn.primary:hover{background:#172f74}
+.btn.primary:hover{background:var(--primary-dark)}
 .btn:disabled{opacity:.6;cursor:wait}
-.actions-row{display:flex;justify-content:flex-end;margin-top:10px}
 
-.form{margin-top:12px;background:var(--g50);border:1px solid var(--g200);border-radius:12px;padding:14px;display:grid;gap:12px;grid-template-columns:1fr 1fr}
-.form label{display:block;font-size:11px;font-weight:700;color:var(--g500);text-transform:uppercase;letter-spacing:.3px;margin-bottom:5px}
-.form input,.form select{width:100%;padding:10px 11px;border:1.5px solid var(--g200);border-radius:9px;font:14px 'Inter';background:#fff;outline:none}
-.form input:focus,.form select:focus{border-color:var(--primary-2);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.form{display:grid;gap:12px;grid-template-columns:repeat(4,minmax(0,1fr))}
+.form label{display:block;font-size:11.5px;font-weight:600;color:var(--g600);margin-bottom:5px}
+.form input,.form select{width:100%;height:38px;padding:0 10px;border:1px solid var(--g300);border-radius:8px;font:14px 'Inter';background:#fff;outline:none}
+.form input:focus,.form select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(29,78,216,.12)}
+.form .wide{grid-column:span 2}
 .form .full{grid-column:1/-1}
 .form .actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end}
-
-.hist{margin-top:10px;border-left:2px solid var(--g200);padding-left:10px;font-size:12px;color:var(--g500)}
-.hist div{padding:3px 0}
-.hist b{color:var(--g700)}
-
-.empty{text-align:center;color:var(--g500);padding:46px 16px;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow)}
-.empty .big{font-size:38px;margin-bottom:8px}
 .err{color:var(--danger);font-size:13px}
-.skel{height:120px;border-radius:var(--radius);background:linear-gradient(90deg,#eef2f7 25%,#f6f8fb 50%,#eef2f7 75%);background-size:200% 100%;animation:sk 1.2s infinite;margin-bottom:14px}
-@keyframes sk{to{background-position:-200% 0}}
-footer{text-align:center;font-size:12px;color:var(--g400);padding:10px 0 24px}
-#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--g900);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;display:none;z-index:10;max-width:90vw;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.hist{font-size:12px;color:var(--g500);border-left:2px solid var(--g200);padding-left:10px}
+.hist div{padding:2px 0}
+.hist b{color:var(--g700);font-weight:600}
 
-@media(max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:560px){
-  .form{grid-template-columns:1fr}
-  .lg{display:none}.sm{display:inline}
-  .hint{display:none}
-  /* compact header */
-  .hero{padding:14px 14px 58px}
-  .hero-in{gap:10px}
-  .hero img{height:36px;width:36px;border-radius:10px;padding:4px}
-  .hero .who small{font-size:11px}
-  .hero .who b{font-size:16px}
-  .hero .who span{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hero button{padding:0;width:36px;height:36px;border-radius:10px;font-size:15px;display:flex;align-items:center;justify-content:center}
-  main{margin-top:-46px;padding:0 12px 32px}
-  /* slim stat tiles */
-  .stats{gap:8px;margin-bottom:12px}
-  .stat{padding:10px;gap:9px;border-radius:12px}
-  .stat .ic{width:32px;height:32px;font-size:15px;border-radius:9px}
-  .stat b{font-size:18px}
-  .stat span{font-size:11px;line-height:1.25}
-  /* equal tabs: icon, label, count stacked */
-  .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:12px;margin-bottom:12px}
-  .tab{min-width:0;padding:7px 4px;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.2}
-  .tab .ti{margin:0;font-size:16px}
-  .tab .tl{max-width:100%;overflow:hidden;text-overflow:ellipsis}
-  .tab .cnt{margin:0;font-size:10.5px;padding:0 6px}
-  /* cards */
-  .po{border-radius:12px;margin-bottom:12px}
-  .po-head{padding:12px}
-  .po-badge{width:32px;height:32px;font-size:15px}
-  .po-head b{font-size:14.5px}
-  .item{padding:12px}
-  .item-name{font-size:13.5px}
-  .qty{font-size:15px}
-  .actions-row .btn,.c-act .btn{width:100%}
-  .list-head h2{font-size:15px}
-  .list-head p,.list-head .upd{display:none}
+.empty{text-align:center;color:var(--g500);padding:56px 16px;background:#fff;border:1px dashed var(--g300);border-radius:12px}
+.empty b{display:block;color:var(--g900);font-size:15px;margin-bottom:4px}
+.skel{height:140px;border-radius:12px;background:linear-gradient(90deg,var(--g100) 25%,var(--g50) 50%,var(--g100) 75%);background-size:200% 100%;animation:sk 1.2s infinite;margin-bottom:16px}
+@keyframes sk{to{background-position:-200% 0}}
+footer{text-align:center;font-size:12px;color:var(--g400);padding:8px 0 28px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--g900);color:#fff;padding:11px 18px;border-radius:10px;font-weight:600;display:none;z-index:10;max-width:90vw}
+
+/* Cards (phones) — same data as the table rows */
+.cards{display:none}
+.card{padding:14px 16px;border-bottom:1px solid var(--g100)}
+.card:last-child{border-bottom:0}
+.card .row1{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.card .nums{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0;text-align:center}
+.card .nums div{background:var(--g50);border-radius:8px;padding:7px 4px}
+.card .nums small{display:block;font-size:10.5px;color:var(--g500);font-weight:600;text-transform:uppercase}
+.card .nums b{font-size:15px}
+.card .btn{width:100%;height:40px}
+.card .form{margin-top:10px;grid-template-columns:1fr}
+.card .form .wide{grid-column:auto}
+.card .hist{margin-top:10px}
+
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){
+  .wrap{padding:0 14px}
+  .top .wrap{height:56px;gap:10px}
+  .top img{height:30px;width:30px}
+  .brand b{font-size:15px}
+  .tbtn{padding:0 10px}
+  .tbtn .lbl{display:none}
+  .page{padding-top:16px;padding-bottom:32px}
+  .page-title h1{font-size:18px}
+  .page-title p,.page-title .upd{display:none}
+  .page-title{margin-bottom:12px}
+  .kpis{gap:10px;margin-bottom:16px}
+  .kpi{padding:12px;gap:10px}
+  .kpi .ic{width:34px;height:34px}
+  .kpi b{font-size:19px}
+  .kpi span{font-size:11.5px;margin-top:3px}
+  .tabs{margin-bottom:14px}
+  .tab{flex:1;justify-content:center;padding:10px 4px;font-size:13px;gap:6px}
+  .tab .full-l{display:none}
+  .po-head{padding:12px 14px}
+  .po-head .meta{display:block;margin:2px 0 0}
+  table{display:none}
+  .cards{display:block}
 }
+@media(min-width:701px){.tab .short-l{display:none}}
 </style>
 </head>
 <body>
-<div class="hero"><div class="hero-in">
-  <img src="/logo-mark.png" alt=""/>
-  <div class="who"><small id="greet">Namaste 🙏</small><b id="vName">Loading…</b><span>Ajanta Appliances · Vendor Portal</span></div>
-  <button onclick="load()" title="Refresh" aria-label="Refresh">⟳</button>
-  <button onclick="logout()" title="Logout"><span class="lg">Logout</span><span class="sm"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="display:block"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg></span></button>
+<div class="top"><div class="wrap">
+  <img src="/logo-mark.png" alt="Ajanta"/>
+  <div class="brand"><b id="vName">Loading…</b><span>Ajanta Appliances · Vendor Portal</span></div>
+  <button class="tbtn" onclick="load()" title="Refresh"><svg class="i" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg><span class="lbl">Refresh</span></button>
+  <button class="tbtn" onclick="logout()" title="Logout"><svg class="i" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg><span class="lbl">Logout</span></button>
 </div></div>
-<main><div class="layout">
-  <aside class="side">
-  <div class="stats" id="summary"></div>
+
+<div class="wrap page">
+  <div class="page-title"><div><h1 id="pageH">Material to Send</h1><p id="pageP"></p></div><span class="upd" id="upd"></span></div>
+  <div class="kpis" id="summary"></div>
   <div class="tabs">
-    <div class="tab active" id="tabPending" onclick="setTab('pending')"><span class="ti">📦</span><span class="tl"><span class="lg">Material to Send</span><span class="sm">To Send</span></span><span class="cnt" id="cntPending">–</span></div>
-    <div class="tab" id="tabRepl" onclick="setTab('repl')"><span class="ti">🔁</span><span class="tl"><span class="lg">Replacement</span><span class="sm">Replace</span></span><span class="cnt" id="cntRepl">–</span></div>
-    <div class="tab" id="tabReceived" onclick="setTab('received')"><span class="ti">✅</span><span class="tl">Received</span><span class="cnt" id="cntReceived">–</span></div>
+    <div class="tab active" id="tabPending" onclick="setTab('pending')"><span class="full-l">Material to Send</span><span class="short-l">To Send</span><span class="cnt" id="cntPending">–</span></div>
+    <div class="tab" id="tabRepl" onclick="setTab('repl')"><span class="full-l">Replacement</span><span class="short-l">Replace</span><span class="cnt" id="cntRepl">–</span></div>
+    <div class="tab" id="tabReceived" onclick="setTab('received')">Received<span class="cnt" id="cntReceived">–</span></div>
   </div>
-  </aside>
-  <section class="content"><div id="listHead" class="list-head"></div><div id="list"><div class="skel"></div><div class="skel"></div></div></section>
-  </div>
-  <footer>Kisi bhi sawaal ke liye Ajanta Appliances purchase team se sampark karein.</footer>
-</main>
+  <div id="list"><div class="skel"></div><div class="skel"></div></div>
+  <footer>Koi sawaal ho to Ajanta Appliances purchase team se sampark karein.</footer>
+</div>
 <div id="toast"></div>
 <script>
 let DATA = null, TAB = 'pending', OPEN = null, ROPEN = null;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dmy = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
 const num = v => Number(v) || 0;
+const nfmt = v => num(v).toLocaleString('en-IN');
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', 3500); }
 function todayYmd() { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; }
+const ICON = {
+  po: '<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>',
+  box: '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
+  truck: '<path d="M3 7h11v9H3z"/><path d="M14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
+  repl: '<path d="M4 9a8 8 0 0 1 14-3l2 2"/><path d="M20 4v4h-4"/><path d="M20 15a8 8 0 0 1-14 3l-2-2"/><path d="M4 20v-4h4"/>'
+};
+const ic = k => `<svg class="i" viewBox="0 0 24 24">${ICON[k]}</svg>`;
 
 async function api(url, method = 'GET', body) {
   const opts = { method, credentials: 'include', headers: { 'Content-Type': 'application/json' } };
@@ -227,10 +199,7 @@ async function api(url, method = 'GET', body) {
   try { const d = await r.json(); if (!r.ok && !d.error) d.error = 'HTTP ' + r.status; return d; }
   catch (e) { return { error: 'HTTP ' + r.status }; }
 }
-
 async function init() {
-  const h = new Date().getHours();
-  document.getElementById('greet').textContent = (h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening') + ' 🙏';
   const me = await api('/api/me');
   if (me && me.role && me.role !== 'vendor') { location.replace('/app'); return; }
   await load();
@@ -238,166 +207,175 @@ async function init() {
 async function load() {
   if (!DATA) document.getElementById('list').innerHTML = '<div class="skel"></div><div class="skel"></div>';
   const d = await api('/api/vendor/items');
-  if (d.error) { document.getElementById('list').innerHTML = `<div class="empty"><div class="big">⚠️</div>${esc(d.error)}</div>`; return; }
+  if (d.error) { document.getElementById('list').innerHTML = `<div class="empty"><b>Data load nahi hua</b>${esc(d.error)}</div>`; return; }
   DATA = d;
   document.getElementById('vName').textContent = d.vendor;
+  document.getElementById('upd').textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   render();
 }
 function setTab(t) {
   TAB = t; OPEN = null; ROPEN = null;
-  ['Pending', 'Repl', 'Received'].forEach(k => document.getElementById('tab' + k).classList.toggle('active', t === k.toLowerCase() || (k === 'Repl' && t === 'repl')));
+  document.getElementById('tabPending').classList.toggle('active', t === 'pending');
+  document.getElementById('tabRepl').classList.toggle('active', t === 'repl');
+  document.getElementById('tabReceived').classList.toggle('active', t === 'received');
   render();
 }
 const openRepl = () => (DATA.replacements || []).filter(c => c.lines.some(l => l.pending > 0));
+const HEAD = {
+  pending: ['Material to Send', 'Har item ka status update karein — production me hai, ready hai, ya dispatch kar diya (qty + date).'],
+  repl: ['Replacement pending', 'Ajanta ne ye maal replacement / repair ke liye bheja hai. Har item par batayein ki aapki taraf se kya hua.'],
+  received: ['Received', 'Ye PO Ajanta Appliances ko poore mil chuke hain.']
+};
 function renderSummary() {
   const pend = (DATA.pending || []).flatMap(po => po.items.filter(i => !i.received));
   const owed = pend.reduce((a, i) => a + num(i.pendingQty), 0);
-  const inTransit = pend.filter(i => num(i.dispatchedQty) > num(i.receivedQty)).length;
-  const repl = openRepl().flatMap(c => c.lines.filter(l => l.pending > 0)).reduce((a, l) => a + l.pending, 0);
-  const card = (ic, bg, color, n, l) => `<div class="stat"><div class="ic" style="background:${bg};color:${color}">${ic}</div><div style="min-width:0"><b style="color:${color}">${n}</b><span>${l}</span></div></div>`;
+  const transit = pend.filter(i => num(i.dispatchedQty) > num(i.receivedQty)).length;
+  const repl = openRepl().flatMap(c => c.lines).reduce((a, l) => a + num(l.pending), 0);
+  const k = (icon, bg, color, n, l) => `<div class="kpi"><div class="ic" style="background:${bg};color:${color}">${ic(icon)}</div><div><b>${n}</b><span>${l}</span></div></div>`;
   document.getElementById('summary').innerHTML =
-    card('📋', 'var(--primary-light)', 'var(--primary)', (DATA.pending || []).length, 'Purchase orders pending') +
-    card('📦', 'var(--warning-bg)', 'var(--warning)', owed.toLocaleString('en-IN'), 'Qty abhi bhejni hai') +
-    card('🚚', '#e0f2fe', '#0369a1', inTransit, 'Item raste me (bheja, mila nahi)') +
-    card('🔁', 'var(--danger-bg)', 'var(--danger)', repl.toLocaleString('en-IN'), 'Replacement qty pending');
+    k('po', 'var(--primary-light)', 'var(--primary)', (DATA.pending || []).length, 'Open purchase orders') +
+    k('box', 'var(--warning-bg)', 'var(--warning)', nfmt(owed), 'Qty abhi bhejni hai') +
+    k('truck', '#e0f2fe', '#0369a1', transit, 'Item raste me') +
+    k('repl', 'var(--danger-bg)', 'var(--danger)', nfmt(repl), 'Replacement qty pending');
   document.getElementById('cntPending').textContent = (DATA.pending || []).length;
   document.getElementById('cntRepl').textContent = openRepl().length;
   document.getElementById('cntReceived').textContent = (DATA.received || []).length;
 }
 function chip(item) {
-  if (item.received) return '<span class="chip recv">✅ Ajanta ko mil gaya</span>';
+  if (item.received) return '<span class="chip recv">Received</span>';
   const u = item.updates[0];
-  if (!u) return '<span class="chip none">● Abhi koi update nahi</span>';
+  if (!u) return '<span class="chip none">No update</span>';
   const cls = { 'In Production': 'prod', 'Ready to Dispatch': 'ready', 'Dispatched': 'disp' }[u.status] || 'none';
-  const ic = { 'In Production': '🏭', 'Ready to Dispatch': '📦', 'Dispatched': '🚚' }[u.status] || '●';
-  const extra = u.status === 'Dispatched' ? ` ${num(u.dispatched_qty)} · ${dmy(u.update_date)}` : (u.update_date ? ` · by ${dmy(u.update_date)}` : '');
-  return `<span class="chip ${cls}">${ic} ${esc(u.status)}${esc(extra)}</span>`;
+  const extra = u.status === 'Dispatched' ? ` · ${dmy(u.update_date)}` : (u.update_date ? ` · by ${dmy(u.update_date)}` : '');
+  return `<span class="chip ${cls}">${esc(u.status)}${esc(extra)}</span>`;
 }
-const LIST_HEAD = {
-  pending: ['📦 Material to Send', 'Har item par "Update Status" se batayein — production me hai, ready hai, ya dispatch kar diya (qty + date).'],
-  repl: ['🔁 Replacement pending', 'Ye maal Ajanta ne aapko replacement / repair ke liye bheja hai — repair me hai, naya / repaired maal bheja, ya credit note diya, batayein.'],
-  received: ['✅ Received', 'Ye PO Ajanta Appliances ko poore mil chuke hain.']
-};
+const cell = v => num(v) ? `<b>${nfmt(v)}</b>` : '<span class="zero">0</span>';
+function histHtml(list, fmt) { return list.length ? `<div class="hist">${list.slice(0, 5).map(fmt).join('')}</div>` : ''; }
+function poHist(u) { return `<div>${esc(u.created_at.slice(8, 10) + '/' + u.created_at.slice(5, 7))} ${esc(u.created_at.slice(11))} — <b>${esc(u.status)}</b>${u.status === 'Dispatched' ? ' ' + num(u.dispatched_qty) : ''}${u.update_date ? ' · ' + esc(dmy(u.update_date)) : ''}${u.remark ? ' · ' + esc(u.remark) : ''}</div>`; }
+
 function render() {
-  const list = document.getElementById('list');
   if (!DATA) return;
   renderSummary();
-  const h = LIST_HEAD[TAB];
-  document.getElementById('listHead').innerHTML = `<div><h2>${h[0]}</h2><p>${h[1]}</p></div><span class="upd">Updated ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>`;
+  document.getElementById('pageH').textContent = HEAD[TAB][0];
+  document.getElementById('pageP').textContent = HEAD[TAB][1];
   if (TAB === 'repl') return renderRepl();
+  const list = document.getElementById('list');
   const pos = DATA[TAB] || [];
   if (!pos.length) {
-    list.innerHTML = `<div class="empty"><div class="big">${TAB === 'pending' ? '🎉' : '📭'}</div>${TAB === 'pending' ? 'Abhi aapki taraf se koi maal pending nahi.' : 'Abhi tak koi PO poora receive nahi hua.'}</div>`;
+    list.innerHTML = `<div class="empty"><b>${TAB === 'pending' ? 'Sab bhej diya 🎉' : 'Abhi kuch nahi'}</b>${TAB === 'pending' ? 'Abhi aapki taraf se koi maal pending nahi.' : 'Abhi tak koi PO poora receive nahi hua.'}</div>`;
     return;
   }
-  const today = todayYmd();
-  list.innerHTML = pos.map(po => { const late = TAB === 'pending' && po.expectedBy && po.expectedBy.slice(0, 10) < today; return `
-    <div class="po">
-      <div class="po-head">
-        <div class="po-title"><div class="po-badge">📋</div><div><b>${esc(po.poNumber)}</b><small>PO date ${esc(dmy(po.poDate) || '—')}${po.indentNo ? ' · ' + esc(po.indentNo) : ''}</small></div></div>
-        ${po.expectedBy ? `<div class="due${late ? ' late' : ''}">${late ? '⚠️ Late — expected' : 'Expected by'}<b>${esc(dmy(po.expectedBy))}</b></div>` : ''}
-      </div>
-      ${po.items.filter(it => TAB === 'received' || !it.received).map(it => itemHtml(po, it)).join('')}
-    </div>`; }).join('');
+  const today = todayYmd(), editable = TAB === 'pending';
+  list.innerHTML = pos.map(po => {
+    const items = po.items.filter(it => TAB === 'received' || !it.received);
+    const late = editable && po.expectedBy && po.expectedBy.slice(0, 10) < today;
+    const rows = items.map(it => {
+      const key = `${po.poNumber}|${it.itemId}`, open = OPEN === key;
+      return `<tr><td><div class="pname">${esc(it.productName)}</div><div class="psub">${esc(it.uom || '')}</div></td>
+        <td class="n"><b>${nfmt(it.qty)}</b></td><td class="n">${cell(it.dispatchedQty)}</td><td class="n">${cell(it.receivedQty)}</td>
+        <td class="n">${it.received ? '<span class="zero">—</span>' : `<span class="pend">${nfmt(it.pendingQty)}</span>`}</td>
+        <td>${chip(it)}</td>
+        <td style="text-align:right">${editable && !it.received && !open ? `<button class="btn" onclick="openForm('${esc(key)}')">Update</button>` : ''}</td></tr>
+        ${open ? `<tr class="form-row"><td colspan="7">${formHtml(po, it)}</td></tr>` : ''}
+        ${it.updates.length ? `<tr class="hist-row"><td colspan="7">${histHtml(it.updates, poHist)}</td></tr>` : ''}`;
+    }).join('');
+    const cards = items.map(it => {
+      const key = `${po.poNumber}|${it.itemId}`, open = OPEN === key;
+      return `<div class="card"><div class="row1"><div><div class="pname">${esc(it.productName)}</div><div class="psub">${esc(it.uom || '')}</div></div>${chip(it)}</div>
+        <div class="nums"><div><small>Order</small><b>${nfmt(it.qty)}</b></div><div><small>Bheja</small><b>${nfmt(it.dispatchedQty)}</b></div><div><small>Mila</small><b>${nfmt(it.receivedQty)}</b></div><div><small>Pending</small><b class="pend">${it.received ? 0 : nfmt(it.pendingQty)}</b></div></div>
+        ${editable && !it.received && !open ? `<button class="btn" onclick="openForm('${esc(key)}')">Update Status</button>` : ''}
+        ${open ? formHtml(po, it) : ''}${histHtml(it.updates, poHist)}</div>`;
+    }).join('');
+    return `<div class="po"><div class="po-head"><div><b>${esc(po.poNumber)}</b><span class="meta">PO date ${esc(dmy(po.poDate) || '—')}${po.indentNo ? ' · ' + esc(po.indentNo) : ''}</span></div>
+        ${po.expectedBy ? `<div class="due${late ? ' late' : ''}">${late ? 'Late — expected' : 'Expected by'}<b>${esc(dmy(po.expectedBy))}</b></div>` : ''}</div>
+      <table><colgroup><col/><col style="width:110px"/><col style="width:100px"/><col style="width:100px"/><col style="width:110px"/><col style="width:210px"/><col style="width:110px"/></colgroup><thead><tr><th>Product</th><th class="n">Ordered</th><th class="n">Bheja</th><th class="n">Mila</th><th class="n">Pending</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="cards">${cards}</div></div>`;
+  }).join('');
+  if (OPEN) onStatus();
 }
-function itemHtml(po, it) {
-  const key = `${po.poNumber}|${it.itemId}`;
-  const open = OPEN === key;
-  const q = num(it.qty) || 1, rc = Math.min(num(it.receivedQty), q), dp = Math.max(0, Math.min(num(it.dispatchedQty), q) - rc);
-  return `<div class="item">
-    <div class="c-name"><div class="item-name">${esc(it.productName)}</div>${chip(it)}</div>
-    <div class="c-qty qty">${esc(it.qty)} <small>${esc(it.uom || 'qty')} ordered</small></div>
-    <div class="c-prog"><div class="bar"><i class="recv" style="width:${rc * 100 / q}%"></i><i class="disp" style="width:${dp * 100 / q}%"></i></div>
-      <div class="legend"><span><i class="dot" style="background:#60a5fa"></i>Bheja <b>${num(it.dispatchedQty)}</b></span><span><i class="dot" style="background:var(--success)"></i>Mila <b>${num(it.receivedQty)}</b></span>
-      ${it.received ? '' : `<span><i class="dot" style="background:var(--warning)"></i>Pending <b style="color:var(--warning)">${num(it.pendingQty)}</b></span>`}</div></div>
-    <div class="c-act">${TAB === 'pending' && !it.received && !open ? `<button class="btn" onclick="openForm('${esc(key)}')">✏️ Update Status</button>` : ''}</div>
-    ${open ? formHtml(po, it) : ''}
-    ${it.updates.length ? `<div class="hist">${it.updates.slice(0, 5).map(u => `<div>🕒 ${esc(u.created_at.slice(8, 10) + '/' + u.created_at.slice(5, 7))} ${esc(u.created_at.slice(11))} — <b>${esc(u.status)}</b>${u.status === 'Dispatched' ? ' ' + num(u.dispatched_qty) : ''}${u.update_date ? ' · ' + esc(dmy(u.update_date)) : ''}${u.remark ? ' · ' + esc(u.remark) : ''}</div>`).join('')}</div>` : ''}
-  </div>`;
-}
+// The open form is drawn twice (table + phone cards, one hidden) — read the visible one.
+function vis(id) { return [...document.querySelectorAll(`[id="${id}"]`)].find(el => el.offsetParent !== null) || document.getElementById(id); }
 function formHtml(po, it) {
   return `<div class="form">
     <div><label>Status</label>
-      <select id="fStatus" onchange="onStatus()">
-        <option value="In Production">🏭 In Production</option>
-        <option value="Ready to Dispatch">📦 Ready to Dispatch</option>
-        <option value="Dispatched">🚚 Dispatched</option>
-      </select></div>
-    <div><label><span id="fDateLabel">Expected dispatch date</span> <span id="fDateDmy" style="color:var(--primary);text-transform:none"></span></label><input type="date" id="fDate" oninput="showDmy()" onchange="showDmy()"/></div>
+      <select id="fStatus" onchange="onStatus()"><option value="In Production">In Production</option><option value="Ready to Dispatch">Ready to Dispatch</option><option value="Dispatched">Dispatched</option></select></div>
+    <div><label><span id="fDateLabel">Expected dispatch date</span> <span id="fDateDmy" style="color:var(--primary)"></span></label><input type="date" id="fDate" oninput="showDmy()" onchange="showDmy()"/></div>
     <div id="fQtyWrap" style="display:none"><label>Dispatched qty</label><input type="number" id="fQty" min="1" placeholder="${esc(it.pendingQty || it.qty)}"/></div>
-    <div class="full"><label>Remark (vehicle / LR no. / anything)</label><input type="text" id="fRemark" maxlength="400"/></div>
+    <div class="wide"><label>Remark (vehicle / LR no.)</label><input type="text" id="fRemark" maxlength="400"/></div>
     <div class="err full" id="fErr" style="display:none"></div>
-    <div class="actions"><button class="btn" onclick="closeForm()">Cancel</button>
-      <button class="btn primary" id="fSave" onclick="save('${esc(po.poNumber)}','${esc(it.itemId)}')">Save</button></div>
+    <div class="actions"><button class="btn" onclick="closeForm()">Cancel</button><button class="btn primary" id="fSave" onclick="save('${esc(po.poNumber)}','${esc(it.itemId)}')">Save update</button></div>
   </div>`;
 }
-// Phones show a native date box in their own locale (often MM/DD) — echo
-// the picked date as DD/MM/YYYY next to the label so there's no confusion.
-function showDmy() { const v = document.getElementById('fDate').value; document.getElementById('fDateDmy').textContent = v ? '— ' + dmy(v) : ''; }
-function openForm(key) { OPEN = key; render(); onStatus(); }
+// Phones show the native date box in their own locale (often MM/DD) — echo
+// the picked date as DD/MM/YYYY next to the label.
+function showDmy() { const v = vis('fDate').value; vis('fDateDmy').textContent = v ? '(' + dmy(v) + ')' : ''; }
+function openForm(key) { OPEN = key; render(); }
 function closeForm() { OPEN = null; render(); }
 function onStatus() {
-  const st = document.getElementById('fStatus').value;
-  const disp = st === 'Dispatched';
-  document.getElementById('fQtyWrap').style.display = disp ? '' : 'none';
-  document.getElementById('fDateLabel').textContent = disp ? 'Dispatch date' : 'Expected dispatch date';
-  const d = document.getElementById('fDate');
+  const st = vis('fStatus');
+  if (!st) return;
+  const disp = st.value === 'Dispatched';
+  vis('fQtyWrap').style.display = disp ? '' : 'none';
+  vis('fDateLabel').textContent = disp ? 'Dispatch date' : 'Expected dispatch date';
+  const d = vis('fDate');
   if (disp && !d.value) d.value = todayYmd();
   showDmy();
 }
 async function save(poNumber, itemId) {
-  const err = document.getElementById('fErr'), btn = document.getElementById('fSave');
-  const body = {
-    poNumber, itemId,
-    status: document.getElementById('fStatus').value,
-    date: document.getElementById('fDate').value,
-    dispatchedQty: document.getElementById('fQty').value,
-    remark: document.getElementById('fRemark').value
-  };
+  const err = vis('fErr'), btn = vis('fSave');
+  const body = { poNumber, itemId, status: vis('fStatus').value, date: vis('fDate').value, dispatchedQty: vis('fQty').value, remark: vis('fRemark').value };
   if (body.status === 'Dispatched' && !(Number(body.dispatchedQty) > 0)) { err.textContent = 'Dispatched quantity likhein'; err.style.display = 'block'; return; }
   btn.disabled = true; btn.textContent = 'Saving…';
   const r = await api('/api/vendor/update', 'POST', body);
-  btn.disabled = false; btn.textContent = 'Save';
+  btn.disabled = false; btn.textContent = 'Save update';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   OPEN = null;
-  toast('✅ Status update ho gaya — Ajanta Appliances ko dikh raha hai');
+  toast('Status update ho gaya — Ajanta Appliances ko dikh raha hai');
   await load();
 }
 
 // ── Replacement: goods Ajanta sent back to this vendor ──
+const R_STATUSES = ['Repair me hai', 'Naya maal bheja', 'Repair karke bheja', 'Credit note diya'];
+function rChip(l) { const u = l.updates[0]; return u ? `<span class="chip ready">${esc(u.status)}${u.qty ? ' · ' + num(u.qty) : ''}</span>` : '<span class="chip none">No update</span>'; }
+function rForm(l) {
+  return `<div class="form"><div><label>Status</label><select id="rStatus">${R_STATUSES.map(x => `<option>${x}</option>`).join('')}</select></div>
+    <div><label>Qty</label><input type="number" id="rQty" min="1" max="${l.pending}" value="${l.pending}"/></div>
+    <div><label>Date</label><input type="date" id="rDate" value="${todayYmd()}"/></div>
+    <div><label>Credit note no. (agar diya)</label><input id="rCn"/></div>
+    <div class="full"><label>Remark (LR no. / vehicle)</label><input id="rRemark" maxlength="400"/></div>
+    <div class="err full" id="rErr" style="display:none"></div>
+    <div class="actions"><button class="btn" onclick="ROPEN=null;render()">Cancel</button><button class="btn primary" id="rSave" onclick="saveRepl(${l.id})">Save update</button></div></div>`;
+}
+function rHist(u) { return `<div>${esc(u.created_at.slice(8, 10) + '/' + u.created_at.slice(5, 7))} — <b>${esc(u.status)}</b>${u.qty ? ' ' + num(u.qty) : ''}${u.cn_no ? ' · CN ' + esc(u.cn_no) : ''}${u.remark ? ' · ' + esc(u.remark) : ''}</div>`; }
 function renderRepl() {
   const list = document.getElementById('list');
   const ch = openRepl();
-  if (!ch.length) { list.innerHTML = '<div class="empty"><div class="big">🎉</div>Koi replacement pending nahi.</div>'; return; }
-  list.innerHTML = ch.map(c => `<div class="po"><div class="po-head">
-      <div class="po-title"><div class="po-badge" style="background:var(--danger-bg);color:var(--danger)">🔁</div><div><b>${esc(c.code)}</b><small>Challan ${esc(dmy(c.date))}${c.billNo ? ' · Bill ' + esc(c.billNo) : ''}${c.reason ? ' · ' + esc(c.reason) : ''}</small></div></div>
-      <div class="due${c.days > 30 ? ' late' : ''}">Pending since<b>${c.days} din</b></div></div>
-    ${c.lines.filter(l => l.pending > 0).map(l => { const q = num(l.qty) || 1, done = q - l.pending; return `<div class="item">
-      <div class="c-name"><div class="item-name">${esc(l.itemName)}</div>
-        <div class="item-sub">${l.serialNo ? 'S/N ' + esc(l.serialNo) + ' · ' : ''}${esc(l.defect || '')}</div>
-        ${l.updates[0] ? `<span class="chip ready">🏭 ${esc(l.updates[0].status)}${l.updates[0].qty ? ' ' + num(l.updates[0].qty) : ''}${l.updates[0].update_date ? ' · ' + esc(dmy(l.updates[0].update_date)) : ''}</span>` : '<span class="chip none">● Abhi koi update nahi</span>'}</div>
-      <div class="c-qty qty" style="color:var(--danger)">${l.pending} <small>pending (bheja tha ${l.qty})</small></div>
-      <div class="c-prog"><div class="bar"><i class="recv" style="width:${done * 100 / q}%"></i></div><div class="legend"><span><i class="dot" style="background:var(--success)"></i>Settle <b>${done}</b></span><span><i class="dot" style="background:var(--danger)"></i>Pending <b style="color:var(--danger)">${l.pending}</b></span></div></div>
-      <div class="c-act">${ROPEN !== l.id ? `<button class="btn" onclick="ROPEN=${l.id};render()">✏️ Update</button>` : ''}</div>
-      ${ROPEN === l.id ? `<div class="form"><div><label>Status</label><select id="rStatus">${['Repair me hai', 'Naya maal bheja', 'Repair karke bheja', 'Credit note diya'].map(x => `<option>${x}</option>`).join('')}</select></div>
-        <div><label>Qty</label><input type="number" id="rQty" min="1" max="${l.pending}" value="${l.pending}"/></div>
-        <div><label>Date</label><input type="date" id="rDate" value="${todayYmd()}"/></div><div><label>Credit note no. (agar diya)</label><input id="rCn"/></div>
-        <div class="full"><label>Remark (LR no. / vehicle / anything)</label><input id="rRemark" maxlength="400"/></div>
-        <div class="err full" id="rErr" style="display:none"></div>
-        <div class="actions"><button class="btn" onclick="ROPEN=null;render()">Cancel</button><button class="btn primary" id="rSave" onclick="saveRepl(${l.id})">Save</button></div></div>` : ''}
-      ${l.updates.length ? `<div class="hist">${l.updates.slice(0, 5).map(u => `<div>🕒 ${esc(u.created_at.slice(8, 10) + '/' + u.created_at.slice(5, 7))} — <b>${esc(u.status)}</b>${u.qty ? ' ' + num(u.qty) : ''}${u.cn_no ? ' · CN ' + esc(u.cn_no) : ''}${u.remark ? ' · ' + esc(u.remark) : ''}</div>`).join('')}</div>` : ''}
-    </div>`; }).join('')}</div>`).join('');
+  if (!ch.length) { list.innerHTML = '<div class="empty"><b>Sab clear 🎉</b>Koi replacement pending nahi.</div>'; return; }
+  list.innerHTML = ch.map(c => {
+    const lines = c.lines.filter(l => l.pending > 0);
+    const rows = lines.map(l => `<tr><td><div class="pname">${esc(l.itemName)}</div><div class="psub">${l.serialNo ? 'S/N ' + esc(l.serialNo) + ' · ' : ''}${esc(l.defect || '')}</div></td>
+        <td class="n"><b>${nfmt(l.qty)}</b></td><td class="n">${cell(l.qty - l.pending)}</td><td class="n"><span class="pend" style="color:var(--danger)">${nfmt(l.pending)}</span></td>
+        <td>${rChip(l)}</td><td style="text-align:right">${ROPEN !== l.id ? `<button class="btn" onclick="ROPEN=${l.id};render()">Update</button>` : ''}</td></tr>
+        ${ROPEN === l.id ? `<tr class="form-row"><td colspan="6">${rForm(l)}</td></tr>` : ''}
+        ${l.updates.length ? `<tr class="hist-row"><td colspan="6">${histHtml(l.updates, rHist)}</td></tr>` : ''}`).join('');
+    const cards = lines.map(l => `<div class="card"><div class="row1"><div><div class="pname">${esc(l.itemName)}</div><div class="psub">${l.serialNo ? 'S/N ' + esc(l.serialNo) + ' · ' : ''}${esc(l.defect || '')}</div></div>${rChip(l)}</div>
+        <div class="nums" style="grid-template-columns:repeat(3,1fr)"><div><small>Bheja tha</small><b>${nfmt(l.qty)}</b></div><div><small>Settle</small><b>${nfmt(l.qty - l.pending)}</b></div><div><small>Pending</small><b style="color:var(--danger)">${nfmt(l.pending)}</b></div></div>
+        ${ROPEN !== l.id ? `<button class="btn" onclick="ROPEN=${l.id};render()">Update</button>` : rForm(l)}${histHtml(l.updates, rHist)}</div>`).join('');
+    return `<div class="po"><div class="po-head"><div><b>${esc(c.code)}</b><span class="meta">Challan ${esc(dmy(c.date))}${c.billNo ? ' · Bill ' + esc(c.billNo) : ''}${c.reason ? ' · ' + esc(c.reason) : ''}</span></div>
+        <div class="due${c.days > 30 ? ' late' : ''}">Pending since<b>${c.days} din</b></div></div>
+      <table><colgroup><col/><col style="width:120px"/><col style="width:110px"/><col style="width:110px"/><col style="width:210px"/><col style="width:110px"/></colgroup><thead><tr><th>Item</th><th class="n">Bheja tha</th><th class="n">Settle</th><th class="n">Pending</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="cards">${cards}</div></div>`;
+  }).join('');
 }
 async function saveRepl(lineId) {
-  const err = document.getElementById('rErr'), btn = document.getElementById('rSave');
-  const body = { lineId, status: document.getElementById('rStatus').value, qty: document.getElementById('rQty').value, date: document.getElementById('rDate').value,
-    cnNo: document.getElementById('rCn').value, remark: document.getElementById('rRemark').value };
+  const err = vis('rErr'), btn = vis('rSave');
+  const body = { lineId, status: vis('rStatus').value, qty: vis('rQty').value, date: vis('rDate').value, cnNo: vis('rCn').value, remark: vis('rRemark').value };
   btn.disabled = true; btn.textContent = 'Saving…';
   const r = await api('/api/vendor/replacement-update', 'POST', body);
-  btn.disabled = false; btn.textContent = 'Save';
+  btn.disabled = false; btn.textContent = 'Save update';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   ROPEN = null;
-  toast('✅ Update save ho gaya — Ajanta Appliances ko dikh raha hai');
+  toast('Update save ho gaya — Ajanta Appliances ko dikh raha hai');
   await load();
 }
 async function logout() {
