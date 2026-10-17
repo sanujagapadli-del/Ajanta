@@ -1623,6 +1623,10 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="form-group"><label>New Password</label><div class="pf-pw"><input type="password" id="pNew" placeholder="Enter new password"/><button type="button" onclick="pfTogglePw('pNew',this)" aria-label="Show password">👁</button></div></div>
           <div class="form-group" style="margin-bottom:0"><label>Confirm Password</label><div class="pf-pw"><input type="password" id="pConfirm" placeholder="Confirm new password"/><button type="button" onclick="pfTogglePw('pConfirm',this)" aria-label="Show password">👁</button></div></div>
           <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Password nahi badalna ho to ye khaali chhod dein.</div>
+          <div style="border-top:1px solid var(--gray-200);margin-top:16px;padding-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="font-size:12px;color:var(--gray-600)">Phone kho gaya ya kisi aur ke phone par login hai? Sab jagah se logout karein.</div>
+            <button class="btn btn-outline btn-sm" style="color:var(--color-danger);border-color:var(--color-danger-border)" onclick="signOutAllDevices()">⎋ Sab devices se logout</button>
+          </div>
         </div>
       </div>
       <div class="pf-save"><button class="btn btn-primary" onclick="saveProfile()">💾 Save Changes</button></div>
@@ -4209,6 +4213,12 @@ function esc(v) {
     .replace(/'/g, '&#39;');
 }
 function escAttr(v) { return esc(v); }
+// A value placed inside a quoted JS string in an inline handler, e.g.
+// onclick="fn('${jsArg(name)}')". The browser HTML-decodes the attribute
+// before running it, so esc() alone ('→&#39;→') lets a name like
+// "Raj's" break out of the string. Backslash-escape for JS first, then
+// HTML-escape for the attribute. (QA audit 2026-10-17.)
+function jsArg(v) { return esc(String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, ' ')); }
 
 // ══════════════════════════════════════════════════════
 // STATE
@@ -5126,7 +5136,7 @@ function renderDashTable(tasks, type) {
     } else if (t.type === 'fms') {
       actions = `<button class="action-btn done" onclick="openFmsQuickAction(${t.id})">Fill Details</button>`;
     } else if (t.type === 'o2d') {
-      actions = `<button class="action-btn done" onclick="openO2dQuickAction('${t.id}')">Done</button>`;
+      actions = `<button class="action-btn done" onclick="openO2dQuickAction('${jsArg(t.id)}')">Done</button>`;
     } else if (t.type === 'cheque') {
       actions = `<button class="action-btn done" onclick="openChequeQuickAction(${t.id})">Done</button>`;
     } else if (t.type === 'repl') {
@@ -5134,28 +5144,28 @@ function renderDashTable(tasks, type) {
     } else if (t.type === 'lead') {
       actions = `<button class="action-btn done" onclick="openLeadQuickAction(${t.id})">Done</button>`;
     } else if (t.type === 'purchase') {
-      actions = `<button class="action-btn done" onclick="openPurchaseQuickAction('${esc(t.id)}')">Done</button>`;
+      actions = `<button class="action-btn done" onclick="openPurchaseQuickAction('${jsArg(t.id)}')">Done</button>`;
     } else if (t.waiting_approval == 1 || rs === 'pending') {
       rowStyle = 'background:var(--color-warning-bg)';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">⏳ Awaiting Decision</span>`;
     } else if (rs === 'approved') {
       rowStyle = 'background:var(--color-success-bg)';
       actions = `<span style="font-size:11px;background:var(--color-success-bg);color:var(--color-success-text);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-success-border)">✅ Revision Granted</span>`;
-      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
+      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${jsArg(t.type)}',${t.attachment_required==='yes'})">Done</button>`;
     } else if (rs === 'rejected') {
       rowStyle = 'background:var(--color-danger-bg)';
       actions = `<span style="font-size:11px;background:var(--color-danger-bg);color:var(--color-danger);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-danger-border)">❌ Revision Rejected</span>`;
       if (!isPC) {
-        actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
-        actions += ` <button class="action-btn revise" style="margin-left:4px" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
+        actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${jsArg(t.type)}',${t.attachment_required==='yes'})">Done</button>`;
+        actions += ` <button class="action-btn revise" style="margin-left:4px" onclick="openReviseModal(${t.id},'${jsArg(t.type)}')">Revise</button>`;
       }
     } else if (isRevised) {
       rowStyle = 'background:#fffdf0';
       actions = `<span style="font-size:11px;background:var(--color-warning-bg);color:var(--color-warning);padding:3px 9px;border-radius:12px;font-weight:700;border:1px solid var(--color-warning-border)">🔄 Revision Applied</span>`;
-      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
+      if (!isPC) actions += ` <button class="action-btn done" style="margin-left:4px" onclick="updateStatus(${t.id},'completed','dashboard','${jsArg(t.type)}',${t.attachment_required==='yes'})">Done</button>`;
     } else {
-      if (!isPC || t.type==='checklist') actions += `<button class="action-btn done" onclick="updateStatus(${t.id},'completed','dashboard','${t.type}',${t.attachment_required==='yes'})">Done</button>`;
-      if (!isPC && t.type!=='checklist') actions += ` <button class="action-btn revise" onclick="openReviseModal(${t.id},'${t.type}')">Revise</button>`;
+      if (!isPC || t.type==='checklist') actions += `<button class="action-btn done" onclick="updateStatus(${t.id},'completed','dashboard','${jsArg(t.type)}',${t.attachment_required==='yes'})">Done</button>`;
+      if (!isPC && t.type!=='checklist') actions += ` <button class="action-btn revise" onclick="openReviseModal(${t.id},'${jsArg(t.type)}')">Revise</button>`;
     }
     // Mobile shows each row as a compact card (see the #dashTable rules in the
     // phone media query): empty cells and a description that just repeats the
@@ -5315,23 +5325,23 @@ function _taskActionBtns(t, isAdmin, isChecklist) {
   const isCompleted = t.status === 'completed';
   const isWaiting = t.waiting_approval == 1;
   if (isAdmin) return `
-    <button class="action-btn edit" style="padding:4px 7px" onclick="openEditTask(${t.id},'${tasksType}')" title="Edit">✏️</button>
-    <button class="action-btn delete" style="padding:4px 7px;margin-left:3px" onclick="deleteTask(${t.id},'${tasksType}')" title="Delete">🗑</button>
-    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px;margin-left:3px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
-    ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button>` : ''}
-    ${!isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${tasksType}')">Revise</button>` : ''}
+    <button class="action-btn edit" style="padding:4px 7px" onclick="openEditTask(${t.id},'${jsArg(tasksType)}')" title="Edit">✏️</button>
+    <button class="action-btn delete" style="padding:4px 7px;margin-left:3px" onclick="deleteTask(${t.id},'${jsArg(tasksType)}')" title="Delete">🗑</button>
+    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px;margin-left:3px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>
+    ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${jsArg(tasksType)}',${t.attachment_required==='yes'})">Done</button>` : ''}
+    ${!isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${jsArg(tasksType)}')">Revise</button>` : ''}
     ${isWaiting ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
   if (ME.role !== 'pc' && String(t.assigned_to) !== String(ME.id)) return `
-    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
+    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>
     ${t.waiting_approval == 1 ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
   if (ME.role==='pc') return `
-    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
-    ${isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button>` : ''}
+    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>
+    ${isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${jsArg(tasksType)}',${t.attachment_required==='yes'})">Done</button>` : ''}
     ${isWaiting ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
   return `
-    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${tasksType}')" title="Comments">💬</button>
-    ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button>${!isChecklist?`<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${tasksType}')">Revise</button>`:''}` : ''}
-    ${isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${tasksType}',${t.attachment_required==='yes'})">Done</button><span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
+    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>
+    ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${jsArg(tasksType)}',${t.attachment_required==='yes'})">Done</button>${!isChecklist?`<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${jsArg(tasksType)}')">Revise</button>`:''}` : ''}
+    ${isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${jsArg(tasksType)}',${t.attachment_required==='yes'})">Done</button><span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
 }
 
 const _empGroupOpen = {};
@@ -5418,7 +5428,7 @@ function renderTasksTable() {
       const isSelf = String(uid) === String(ME.id);
       _empGroupOpen[uid] = isSelf;
       return `<div class="emp-group" style="background:var(--surface);border:1.5px solid ${isSelf?'var(--color-primary-ring)':'#e8ecf4'};border-radius:14px;margin-bottom:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.04)">
-        <div onclick="toggleEmpGroup('${uid}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;background:linear-gradient(90deg,${isSelf?'var(--color-primary-light)':'var(--surface-alt)'},#fff);border-bottom:1px solid var(--color-primary-light)">
+        <div onclick="toggleEmpGroup('${jsArg(uid)}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;background:linear-gradient(90deg,${isSelf?'var(--color-primary-light)':'var(--surface-alt)'},#fff);border-bottom:1px solid var(--color-primary-light)">
           <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),#818cf8);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${esc(initials)}</div>
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:14px;color:var(--gray-800)">${esc(g.name)}${isSelf?' <span style="font-size:10px;font-weight:600;color:var(--color-primary);background:var(--color-primary-light);padding:2px 6px;border-radius:8px;margin-left:6px">Me</span>':''}</div>
@@ -5899,7 +5909,7 @@ function renderDelegateExtraDoers() {
   _delegateExtraDoers = _delegateExtraDoers.filter(id => id !== main);
   const users = (_delegateUsers || []).filter(u => u.is_active == null || +u.is_active === 1);
   const name = id => (users.find(u => String(u.id) === id) || {}).name || id;
-  document.getElementById('dDoerChips').innerHTML = _delegateExtraDoers.map(id => `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 6px 4px 10px;border-radius:999px;background:var(--color-primary-light);color:var(--color-primary);font-size:12px;font-weight:700">${esc(name(id))}<button type="button" onclick="_delegateExtraDoers=_delegateExtraDoers.filter(x=>x!=='${id}');renderDelegateExtraDoers()" style="border:none;background:none;color:inherit;cursor:pointer;font-size:13px;padding:0 2px">✕</button></span>`).join('');
+  document.getElementById('dDoerChips').innerHTML = _delegateExtraDoers.map(id => `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 6px 4px 10px;border-radius:999px;background:var(--color-primary-light);color:var(--color-primary);font-size:12px;font-weight:700">${esc(name(id))}<button type="button" onclick="_delegateExtraDoers=_delegateExtraDoers.filter(x=>x!=='${jsArg(id)}');renderDelegateExtraDoers()" style="border:none;background:none;color:inherit;cursor:pointer;font-size:13px;padding:0 2px">✕</button></span>`).join('');
   const taken = new Set([main, ..._delegateExtraDoers]);
   const add = document.getElementById('dDoerAdd');
   add.innerHTML = `<option value="">${_delegateExtraDoers.length ? `+ Aur doer jodo (${_delegateExtraDoers.length + (main ? 1 : 0)} selected)` : '+ Aur doer jodo (optional)'}</option>` +
@@ -6504,7 +6514,7 @@ function renderAccessTable(users) {
           title="${hasParent ? '' : 'Pehle page ka access do'}" onchange="toggleAccess(${u.id},'deny:${p.key}',!this.checked,this,true)"/></td>`;
       }
       const checked = granted.has(p.key);
-      return `<td${cls}><input type="checkbox" class="access-check" ${checked?'checked':''} onchange="toggleAccess(${u.id},'${p.key}',this.checked,this)"/></td>`;
+      return `<td${cls}><input type="checkbox" class="access-check" ${checked?'checked':''} onchange="toggleAccess(${u.id},'${jsArg(p.key)}',this.checked,this)"/></td>`;
     }).join('')).join('');
     return `<tr>
       <td class="access-user-cell">
@@ -7042,7 +7052,7 @@ function tourAddLeg(from) {
     <label style="display:inline-block;border:1.5px dashed var(--gray-300);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px;color:var(--gray-500);margin-bottom:8px">📷 Ticket
       <input type="file" data-k="ticket" accept="image/*" capture="environment" style="display:none" onchange="tourPhotoSelected(this,'${id}_pv')"/></label>
     <span id="${id}_pv"></span>
-    ${legs.length ? `<button type="button" class="row-action-btn" onclick="document.getElementById('${id}').remove();tourTotal()" title="Hatao" style="position:absolute;top:6px;right:6px">✕</button>` : ''}
+    ${legs.length ? `<button type="button" class="row-action-btn" onclick="document.getElementById('${jsArg(id)}').remove();tourTotal()" title="Hatao" style="position:absolute;top:6px;right:6px">✕</button>` : ''}
   </div>`);
   document.getElementById('tr_addLeg').style.display = legs.length + 1 >= TOUR_MAX_LEGS ? 'none' : '';
 }
@@ -7506,7 +7516,7 @@ function renderEmployeeModal() {
     <div style="font-size:12.5px;color:var(--gray-500)">${esc([p.designation, u.department].filter(Boolean).join(' · ') || u.role || '—')}${p.joining_date ? ` · joined ${esc(fmtDateDMY(p.joining_date))} (${esc(empTenure(p.joining_date, r.today))})` : ''}</div>
     <div style="font-size:12.5px;color:var(--gray-600)">${u.phone ? `📞 <a href="tel:${esc(u.phone)}" style="color:var(--color-primary)">${esc(u.phone)}</a> · ` : ''}✉ ${esc(u.email)}</div></div></div>`;
   const tabs = [['details', '📋 Details'], ...(r.viewer ? [['salary', '💰 Salary']] : []), ['leave', '🏖 Leave'], ['attendance', '🕘 Attendance'], ['docs', `📁 Documents${r.documents.length ? ` (${r.documents.length})` : ''}`]];
-  document.getElementById('empTabs').innerHTML = `<div class="tab-group">${tabs.map(([k, l]) => `<div class="tab ${empTab === k ? 'active' : ''}" onclick="empSwitchTab('${k}')">${l}</div>`).join('')}</div>`;
+  document.getElementById('empTabs').innerHTML = `<div class="tab-group">${tabs.map(([k, l]) => `<div class="tab ${empTab === k ? 'active' : ''}" onclick="empSwitchTab('${jsArg(k)}')">${l}</div>`).join('')}</div>`;
   const body = document.getElementById('empBody');
   if (empTab === 'details') body.innerHTML = empDetailsHtml(r);
   else if (empTab === 'salary') body.innerHTML = empSalaryHtml(r);
@@ -8500,6 +8510,17 @@ function logout() {
   window.location.replace('/');
 }
 
+async function signOutAllDevices() {
+  if (!confirm('Is account se har phone / computer par logout ho jayega (yahan bhi). Aage badhein?')) return;
+  try {
+    const t = localStorage.getItem('authToken');
+    const r = await fetch('/api/me/signout-all', { method: 'POST', credentials: 'include', headers: t ? { Authorization: 'Bearer ' + t } : {} });
+    if (!r.ok) throw new Error();
+  } catch (_) { showToast('Logout nahi ho paya — dobara try karein', 'error'); return; }
+  localStorage.removeItem('authToken');
+  window.location.replace('/');
+}
+
 function showToast(msg,type='success') {
   const t=document.createElement('div');
   const bg=type==='error'?'var(--color-danger)':'var(--gray-800)';
@@ -8549,9 +8570,9 @@ function fmtDateDMY(d, withTime) {
 // `onchangeJs` runs whenever that ISO value changes (typed or picked).
 function dmyDateFieldHtml(id, onchangeJs, inputStyle) {
   return `<div style="display:flex;gap:6px;align-items:center;position:relative">
-    <input type="text" id="${id}_dmy" inputmode="numeric" placeholder="DD/MM/YY" maxlength="10" autocomplete="off" oninput="onDmyTyped('${id}')" style="${inputStyle};flex:1;min-width:0;margin-bottom:0"/>
-    <button type="button" class="btn btn-outline btn-sm" onclick="openDmyPicker('${id}')" title="Pick from calendar" style="flex-shrink:0">📅</button>
-    <input type="date" id="${id}" tabindex="-1" aria-hidden="true" onchange="onDmyPicked('${id}');${onchangeJs || ''}" style="position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;pointer-events:none"/>
+    <input type="text" id="${id}_dmy" inputmode="numeric" placeholder="DD/MM/YY" maxlength="10" autocomplete="off" oninput="onDmyTyped('${jsArg(id)}')" style="${inputStyle};flex:1;min-width:0;margin-bottom:0"/>
+    <button type="button" class="btn btn-outline btn-sm" onclick="openDmyPicker('${jsArg(id)}')" title="Pick from calendar" style="flex-shrink:0">📅</button>
+    <input type="date" id="${id}" tabindex="-1" aria-hidden="true" onchange="onDmyPicked('${jsArg(id)}');${onchangeJs || ''}" style="position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;pointer-events:none"/>
   </div>`;
 }
 function onDmyTyped(id) {
@@ -8869,7 +8890,7 @@ function renderWeeklyMIS() {
         <div><div style="font-size:16px;font-weight:800;color:var(--gray-900)">📅 Weekly MIS</div>
           <div style="font-size:12px;color:var(--gray-500)">Week <b>${dmy(d.weekStart)} – ${dmy(d.weekEnd)}</b> · last week from ${dmy(d.lastWeekStart)} · next week from ${dmy(d.nextWeekStart)}</div></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <div class="tab-group">${views.map(([k, l]) => `<div class="tab ${misWeeklyView === k ? 'active' : ''}" onclick="setMisWeeklyView('${k}')">${l}</div>`).join('')}</div>
+          <div class="tab-group">${views.map(([k, l]) => `<div class="tab ${misWeeklyView === k ? 'active' : ''}" onclick="setMisWeeklyView('${jsArg(k)}')">${l}</div>`).join('')}</div>
           <button class="btn btn-outline btn-sm" onclick="setMisWeeklyAllOpen(true)">⊕ Sab kholo</button>
           <button class="btn btn-outline btn-sm" onclick="setMisWeeklyAllOpen(false)">⊖ Sab band</button>
         </div>
@@ -8886,7 +8907,7 @@ function renderWeeklyMIS() {
 
   const th = 'padding:9px 10px;font-size:11px;font-weight:800;color:var(--gray-600);text-transform:uppercase;letter-spacing:.3px;text-align:center;border-bottom:2px solid var(--gray-200);background:var(--gray-50)';
   const td = 'padding:9px 10px;font-size:12.5px;text-align:center;border-bottom:1px solid var(--gray-100)';
-  const clickAttr = g => g.key && g.children && g.children.length ? `onclick="toggleMisWeeklySteps('${g.key.replace(/'/g, "\\'")}')"` : '';
+  const clickAttr = g => g.key && g.children && g.children.length ? `onclick="toggleMisWeeklySteps('${jsArg(g.key)}')"` : '';
   const caret = g => g.key && g.children && g.children.length
     ? ` <span style="font-size:11px;font-weight:700;color:var(--color-primary);white-space:nowrap">${wmIsOpen(g) ? '▾' : '▸'} ${g.childLabel}</span>` : '';
   const DEPTH_BG = ['var(--gray-50)', 'var(--surface)', 'var(--surface-alt)', 'var(--surface)'];
@@ -9045,7 +9066,7 @@ function taEmpBreakdownHtml(rows, card, th, td) {
   list.sort((a, b) => taEmpSort === 'name' ? a.e.name.localeCompare(b.e.name)
     : ['done', 'ontime', 'att', 'score'].includes(taEmpSort) ? (val(a, taEmpSort) - val(b, taEmpSort)) || b.c.planned - a.c.planned
     : (val(b, taEmpSort) - val(a, taEmpSort)) || a.e.name.localeCompare(b.e.name));
-  const sh = (k, label, right) => `<th style="${th};cursor:pointer;${right ? 'text-align:center;' : ''}color:${taEmpSort === k ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="taEmpSort='${k}';renderTaskAnalytics()">${label} ${taEmpSort === k ? '▾' : '⇅'}</th>`;
+  const sh = (k, label, right) => `<th style="${th};cursor:pointer;${right ? 'text-align:center;' : ''}color:${taEmpSort === k ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="taEmpSort='${jsArg(k)}';renderTaskAnalytics()">${label} ${taEmpSort === k ? '▾' : '⇅'}</th>`;
   const pill = (v, good) => v === null ? '—' : `<span style="display:inline-block;min-width:52px;padding:3px 9px;border-radius:999px;font-weight:800;font-size:12px;background:${v >= good ? 'var(--color-success-bg)' : v >= good - 25 ? 'var(--color-warning-bg)' : 'var(--color-danger-bg)'};color:${v >= good ? 'var(--color-success-text)' : v >= good - 25 ? 'var(--color-warning-text)' : 'var(--color-danger-text)'}">${v}%</span>`;
   const num = (v, color) => `<td style="${td};text-align:center;font-weight:800;font-size:14px;color:${v ? color : 'var(--gray-300)'}">${v}</td>`;
   const tot = taCount(rows);
@@ -9058,7 +9079,7 @@ function taEmpBreakdownHtml(rows, card, th, td) {
       </div>
       ${list.length ? `<div class="mis-table-wrap" style="overflow:auto;max-height:640px"><table style="width:100%;border-collapse:separate;border-spacing:0">
         <thead><tr>${sh('name', 'Employee')}${sh('planned', 'Planned', 1)}${sh('completed', 'Completed', 1)}${sh('onTime', 'On Time', 1)}${sh('late', 'Delay Completed', 1)}${sh('pending', 'Pending', 1)}${sh('overdue', 'Overdue', 1)}${sh('done', 'Done %', 1)}${sh('ontime', 'On Time %', 1)}${sh('att', 'Attendance', 1)}${sh('km', taData.kmWeek ? `KM ${fmtDateDMY(taData.kmWeek.start).slice(0, 5)}–${fmtDateDMY(taData.kmWeek.end).slice(0, 5)}` : 'KM last week', 1)}${sh('score', 'MIS Score', 1)}</tr></thead>
-        <tbody>${list.map((x, i) => `<tr onclick="taSetFilter('emp','${x.e.id}')" style="cursor:pointer;background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}" title="${esc(x.e.name)} ke tasks dekhein">
+        <tbody>${list.map((x, i) => `<tr onclick="taSetFilter('emp','${jsArg(x.e.id)}')" style="cursor:pointer;background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}" title="${esc(x.e.name)} ke tasks dekhein">
           <td style="${td};white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${esc(taInitials(x.e.name))}</span>
             <span><b style="color:var(--gray-900);font-size:13px">${esc(x.e.name)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(x.e.department || '—')}</div></span></span></td>
           ${num(x.c.planned, 'var(--gray-800)')}${num(x.c.completed, 'var(--color-primary)')}${num(x.c.onTime, 'var(--color-success-text)')}${num(x.c.late, 'var(--color-warning-text)')}
@@ -9129,7 +9150,7 @@ function renderTaskAnalytics() {
     </div>`;
   const countCard = (key, label, value, color, icon) => {
     const active = taFilter.status === key;
-    return `<div onclick="taSetFilter('status','${active ? '' : key}')" title="Click to ${active ? 'clear' : 'show only these'}" style="flex:1;min-width:150px;cursor:pointer;${card};padding:12px 14px;display:flex;align-items:center;gap:12px;${active ? `border:2px solid ${color};background:var(--surface-alt)` : ''}">
+    return `<div onclick="taSetFilter('status','${jsArg(active ? '' : key)}')" title="Click to ${active ? 'clear' : 'show only these'}" style="flex:1;min-width:150px;cursor:pointer;${card};padding:12px 14px;display:flex;align-items:center;gap:12px;${active ? `border:2px solid ${color};background:var(--surface-alt)` : ''}">
       <div style="width:40px;height:40px;border-radius:12px;background:${color}1a;color:${color};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${icon}</div>
       <div><div style="font-size:10.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
         <div style="font-size:23px;font-weight:900;color:var(--gray-900);line-height:1.1">${value}</div></div></div>`;
@@ -9143,7 +9164,7 @@ function renderTaskAnalytics() {
   const page = sorted.slice(0, taShown);
   const th = 'padding:11px 12px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;text-align:left;background:var(--gray-50);white-space:nowrap;position:sticky;top:0;z-index:1';
   const td = 'padding:10px 12px;font-size:12.5px;border-top:1px solid var(--gray-100);vertical-align:top';
-  const sortTh = (key, label) => `<th style="${th};cursor:pointer;color:${taSort === key ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="taSort='${key}';renderTaskAnalytics()">${label} ${taSort === key ? '▾' : '⇅'}</th>`;
+  const sortTh = (key, label) => `<th style="${th};cursor:pointer;color:${taSort === key ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="taSort='${jsArg(key)}';renderTaskAnalytics()">${label} ${taSort === key ? '▾' : '⇅'}</th>`;
   const table = `
     <div style="${card};overflow:hidden;margin-top:14px">
       <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
@@ -9362,7 +9383,7 @@ function renderMIS(data) {
     const barColor = score === 0 ? 'var(--gray-400)' : score < 0 ? 'var(--color-danger)' : 'var(--color-success)';
     const scoreLabel = score === 0 ? '✅ Perfect' : score < 0 ? '⚠️ Needs Improvement' : '✅ Good';
 
-    return `<tr style="cursor:pointer" onclick="openMISDetail('${r.userId||r.id}','${String(r.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Click to see task details">
+    return `<tr style="cursor:pointer" onclick="openMISDetail('${jsArg(r.userId||r.id)}','${jsArg(r.name)}')" title="Click to see task details">
       <td>
         <span style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${esc(r.name)}</span>
       </td>
@@ -9648,7 +9669,7 @@ function renderAllMIS(data, fmsData) {
         <div>${improvBadge}</div>`;
     }
 
-    return `<tr style="cursor:pointer" onclick="openAllMISDetail('${emp.userId}','${String(emp.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
+    return `<tr style="cursor:pointer" onclick="openAllMISDetail('${jsArg(emp.userId)}','${jsArg(emp.name)}')">
       <td>
         <div style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${esc(emp.name)}</div>
         <div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(emp.department||'—')}</div>
@@ -9915,20 +9936,20 @@ function renderRecords(fmsErrors) {
     }
 
     return `<tr>
-      <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer">
+      <td onclick="openRecordDetail('${jsArg(r.userId)}')" style="cursor:pointer">
         <div style="font-weight:600;color:var(--color-primary);text-decoration:underline dotted">${esc(r.name)}</div>
         <div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(r.department||'—')}</div>
       </td>
       <td>${committedHtml}</td>
-      <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer;font-weight:700">${r.total}</td>
-      <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer;color:var(--color-success);font-weight:700">${r.done}</td>
-      <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer;color:var(--color-danger);font-weight:700">${r.pending}</td>
-      <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer;color:var(--color-danger);font-weight:600">${r.overdue}</td>
-      <td onclick="openRecordDetail('${r.userId}')" style="cursor:pointer">
+      <td onclick="openRecordDetail('${jsArg(r.userId)}')" style="cursor:pointer;font-weight:700">${r.total}</td>
+      <td onclick="openRecordDetail('${jsArg(r.userId)}')" style="cursor:pointer;color:var(--color-success);font-weight:700">${r.done}</td>
+      <td onclick="openRecordDetail('${jsArg(r.userId)}')" style="cursor:pointer;color:var(--color-danger);font-weight:700">${r.pending}</td>
+      <td onclick="openRecordDetail('${jsArg(r.userId)}')" style="cursor:pointer;color:var(--color-danger);font-weight:600">${r.overdue}</td>
+      <td onclick="openRecordDetail('${jsArg(r.userId)}')" style="cursor:pointer">
         <div style="font-size:15px;font-weight:800;color:${scoreColor}">${scoreTxt}</div>
       </td>
       <td><button class="btn btn-outline" style="padding:5px 10px;font-size:12px;white-space:nowrap"
-            onclick="openSetPlanModal('${r.userId}', document.getElementById('recStart').value)">📅 Set Plan</button></td>
+            onclick="openSetPlanModal('${jsArg(r.userId)}', document.getElementById('recStart').value)">📅 Set Plan</button></td>
     </tr>`;
   }).join('');
 
@@ -10176,7 +10197,7 @@ async function openSfmsDeleted() {
   body.innerHTML = list.length ? list.map(d => `<div style="display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-100)">
       <div style="flex:1;min-width:0"><b>${esc(d.complainNo)}</b> · ${esc(d.customer || '')} · ${esc(d.product || '')}
         <div style="font-size:12px;color:var(--gray-500)">${esc(d.reason || '')} — ${esc(d.deletedBy || '')}, ${esc(fmtDateDMY(d.deletedAt, true))}</div></div>
-      <button class="btn btn-outline btn-sm" onclick="sfmsRestoreComplaint('${esc(d.complainNo)}')">↩ Restore</button></div>`).join('') : '<div class="empty">Koi deleted complaint nahi</div>';
+      <button class="btn btn-outline btn-sm" onclick="sfmsRestoreComplaint('${jsArg(d.complainNo)}')">↩ Restore</button></div>`).join('') : '<div class="empty">Koi deleted complaint nahi</div>';
 }
 async function sfmsRestoreComplaint(no) {
   const res = await api(`/api/service-fms/deleted/${encodeURIComponent(no)}/restore`, 'POST', {});
@@ -10299,7 +10320,7 @@ function renderSfmsField(f, row, compact) {
          </select>`
       : '';
     return `
-      <select id="${id}" onchange="onSfmsMasterSelectChange('${row}','${f.key}'); ${extraOnchange}" style="${inputStyle}">
+      <select id="${id}" onchange="onSfmsMasterSelectChange('${jsArg(row)}','${jsArg(f.key)}'); ${extraOnchange}" style="${inputStyle}">
         <option value="">-- ${f.label} --</option>
         ${options}
         <option value="__add_new__">+ Add New</option>
@@ -10307,7 +10328,7 @@ function renderSfmsField(f, row, compact) {
       <div id="sfmsAddNewWrap_${row}_${f.key}" style="display:none;gap:6px;margin-bottom:10px">
         <input type="text" id="sfmsAddNewInput_${row}_${f.key}" placeholder="New ${f.label}" style="flex:1;padding:10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;box-sizing:border-box"/>
         ${zoneAddNewField}
-        <button type="button" onclick="sfmsAddNewMasterItem('${row}','${f.key}','${f.masterList}')" class="btn btn-primary btn-sm">Add</button>
+        <button type="button" onclick="sfmsAddNewMasterItem('${jsArg(row)}','${jsArg(f.key)}','${jsArg(f.masterList)}')" class="btn btn-primary btn-sm">Add</button>
       </div>`;
   }
   if (f.options) {
@@ -10405,7 +10426,7 @@ function renderSfmsTabs() {
   const extra = sfmsCanEdit() ? [['balance', '🧰 Spare Balance'], ['reports', '📊 Reports']] : [];
   const allowed = new Set(['all', 'completed', ...visible.map(d => 'step' + d.n), ...extra.map(e => e[0])]);
   if (!allowed.has(sfmsView)) sfmsView = 'all';
-  const tab = (view, label) => `<div class="tab${sfmsView === view ? ' active' : ''}" onclick="switchSfmsView('${view}',this)">${label}</div>`;
+  const tab = (view, label) => `<div class="tab${sfmsView === view ? ' active' : ''}" onclick="switchSfmsView('${jsArg(view)}',this)">${label}</div>`;
   document.getElementById('sfmsTabGroup').innerHTML = tab('all', 'All Complaints') +
     visible.map(d => tab('step' + d.n, `${d.n}. ${esc(d.tab)}`)).join('') +
     extra.map(([v, l]) => tab(v, l)).join('');
@@ -10656,7 +10677,7 @@ function renderSfmsStepView(n) {
       lastZone = group;
       const inGroup = rows.filter(x => (isMechTab ? mechOf(x) : sfmsZoneOf(x)) === group).length;
       zoneRow = `<tr class="sfms-zone-row"><td colspan="${colCount}" style="background:var(--surface-alt);padding:6px 8px;font-weight:700;font-size:12px;color:var(--color-primary)">
-        ${canAct && !isMechTab ? `<input type="checkbox" onchange="sfmsBulkToggleZone(this, '${esc(zone).replace(/'/g, "\\'")}')" title="Select this whole zone" style="margin-right:6px;vertical-align:middle"/>` : ''}${isMechTab ? `🔧 ${esc(group || 'No mechanic')}` : `📍 ${esc(zone || 'No Zone')}`} <span style="font-weight:500;color:var(--gray-500)">· ${inGroup} complaint${inGroup === 1 ? '' : 's'}</span>
+        ${canAct && !isMechTab ? `<input type="checkbox" onchange="sfmsBulkToggleZone(this, '${jsArg(zone)}')" title="Select this whole zone" style="margin-right:6px;vertical-align:middle"/>` : ''}${isMechTab ? `🔧 ${esc(group || 'No mechanic')}` : `📍 ${esc(zone || 'No Zone')}`} <span style="font-weight:500;color:var(--gray-500)">· ${inGroup} complaint${inGroup === 1 ? '' : 's'}</span>
       </td></tr>`;
     }
     const daysPending = Math.max(0, Math.floor((Date.now() - new Date(c.timestamp).getTime()) / 86400000));
@@ -10909,8 +10930,8 @@ function renderMechanicWiseView() {
             </div>`).join('')}
         </div>
         <div style="display:flex;gap:8px">
-          <button onclick="copyMechanicList('${mech.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;')}')" style="flex:1;padding:13px;background:var(--surface);color:var(--color-success-text);border:1.5px solid var(--color-success-text);border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📋 Copy</button>
-          <button onclick="sendMechanicListWhatsApp('${mech.replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;')}', this)" style="flex:1;padding:13px;background:var(--color-success-text);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📤 Send via WhatsApp</button>
+          <button onclick="copyMechanicList('${jsArg(mech)}')" style="flex:1;padding:13px;background:var(--surface);color:var(--color-success-text);border:1.5px solid var(--color-success-text);border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📋 Copy</button>
+          <button onclick="sendMechanicListWhatsApp('${jsArg(mech)}', this)" style="flex:1;padding:13px;background:var(--color-success-text);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📤 Send via WhatsApp</button>
         </div>
       </div>`;
     }).join('')}
@@ -11005,7 +11026,7 @@ function renderSfmsSpareBalanceView() {
     const names = Object.keys(balances).sort((a, b) => a.localeCompare(b));
     wrap.innerHTML = picker + (names.length ? tableWrap(`<table>
       <thead><tr><th>Mechanic</th><th>Complaints</th><th style="text-align:right">Pieces Pending</th></tr></thead>
-      <tbody>${names.map(m => `<tr style="cursor:pointer" onclick="onSfmsBalanceMechChange('${esc(m).replace(/'/g, "\\'")}')">
+      <tbody>${names.map(m => `<tr style="cursor:pointer" onclick="onSfmsBalanceMechChange('${jsArg(m)}')">
         <td style="font-weight:600">🔧 ${esc(m)}</td>
         <td>${balances[m].complaints.length}</td>
         <td style="text-align:right;font-weight:800;color:var(--color-danger-text)">${balances[m].total}</td>
@@ -11074,7 +11095,7 @@ function renderSfmsReportsView() {
   wrap.style.overflowX = '';
   if (!SFMS_REPORT_TABS.some(t => t.key === sfmsReportView)) sfmsReportView = SFMS_REPORT_TABS[0].key;
   const tabsHtml = SFMS_REPORT_TABS.length < 2 ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;padding:16px 16px 0">
-    ${SFMS_REPORT_TABS.map(t => `<button onclick="switchSfmsReport('${t.key}')" style="padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid ${sfmsReportView === t.key ? 'var(--color-primary)' : 'var(--gray-200)'};background:${sfmsReportView === t.key ? 'var(--color-primary-light)' : '#fff'};color:${sfmsReportView === t.key ? 'var(--color-primary)' : 'var(--gray-600)'}">${t.label}</button>`).join('')}
+    ${SFMS_REPORT_TABS.map(t => `<button onclick="switchSfmsReport('${jsArg(t.key)}')" style="padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid ${sfmsReportView === t.key ? 'var(--color-primary)' : 'var(--gray-200)'};background:${sfmsReportView === t.key ? 'var(--color-primary-light)' : '#fff'};color:${sfmsReportView === t.key ? 'var(--color-primary)' : 'var(--gray-600)'}">${t.label}</button>`).join('')}
   </div>`;
   wrap.innerHTML = tabsHtml + `<div id="sfmsReportContent" style="padding:16px"></div>`;
   renderActiveSfmsReport();
@@ -11105,7 +11126,7 @@ function renderActiveSfmsReport() {
 function sfmsReportHeader(description, tableId) {
   return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px">
     <div style="font-size:13px;color:var(--gray-500)">${description}</div>
-    <button onclick="exportSfmsReportCsv('${tableId}')" class="btn btn-outline btn-sm" style="white-space:nowrap">⬇ Export CSV</button>
+    <button onclick="exportSfmsReportCsv('${jsArg(tableId)}')" class="btn btn-outline btn-sm" style="white-space:nowrap">⬇ Export CSV</button>
   </div>`;
 }
 
@@ -12386,7 +12407,7 @@ function renderComplaintDetailBody(c) {
       </div>
     </details>` : '';
 
-  const deleteHtml = ME.role === 'admin' ? `<div style="margin-top:14px;text-align:right"><button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="sfmsDeleteComplaint(${c.row},'${esc(c.complainNo)}')">🗑 Delete complaint</button></div>` : '';
+  const deleteHtml = ME.role === 'admin' ? `<div style="margin-top:14px;text-align:right"><button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="sfmsDeleteComplaint(${c.row},'${jsArg(c.complainNo)}')">🗑 Delete complaint</button></div>` : '';
   body.innerHTML = siblingsTableHtml + infoHtml + actionHtml + checklistHtml + deleteHtml;
   body.querySelectorAll('.mis-table-wrap').forEach(attachScrollHint);
   sfmsPrefillSpareHold(c);
@@ -13005,7 +13026,7 @@ async function renderO2dDeliveryView() {
   }
   const all = o2dDeliveryRows.call(null);
   const cnt = f => { const keep = o2dDelivFilter; o2dDelivFilter = f; const n = o2dDeliveryRows().length; o2dDelivFilter = keep; return n; };
-  const fb = (k, l) => `<button class="btn btn-sm ${o2dDelivFilter === k ? 'btn-primary' : 'btn-outline'}" onclick="o2dDelivFilter='${k}';renderO2dDeliveryView()">${l} (${cnt(k)})</button>`;
+  const fb = (k, l) => `<button class="btn btn-sm ${o2dDelivFilter === k ? 'btn-primary' : 'btn-outline'}" onclick="o2dDelivFilter='${jsArg(k)}';renderO2dDeliveryView()">${l} (${cnt(k)})</button>`;
   const { pageRows, totalPages, total } = o2dPaginate(all);
   wrap.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--gray-200)">
       ${fb('transit', '🚚 Raste me (dispatch, delivery baaki)')}${fb('delivered', '✅ Deliver ho gaya')}${fb('pending', '⏳ Abhi dispatch nahi')}${fb('all', 'All')}
@@ -13135,7 +13156,7 @@ function renderO2dFmsView() {
     </thead>
     <tbody>
       ${pageRows.map(o => `
-        <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer">
+        <tr onclick="openO2dDetail('${jsArg(o.orderNo)}')" style="cursor:pointer">
           <td style="font-weight:600">${esc(o.orderNo || '—')}${entrySubHtml(o.timestamp)}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td>${esc(o.counterName || '—')}</td>
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
@@ -13191,7 +13212,7 @@ function renderO2dPCView() {
         const rowStyle = overdue ? 'background:var(--color-danger-bg)' : '';
         const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
         return `
-        <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer;${rowStyle}">
+        <tr onclick="openO2dDetail('${jsArg(o.orderNo)}')" style="cursor:pointer;${rowStyle}">
           <td style="font-weight:600">${esc(o.orderNo || '—')}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td style="white-space:nowrap;color:var(--gray-500)">${esc(fmtEntry(o.timestamp)) || '—'}</td>
           <td>${esc(o.counterName || '—')}</td>
@@ -13272,7 +13293,7 @@ function o2dReportsShowDrill(title, key) {
   const body = document.getElementById('o2dReportsDrillBody');
   body.innerHTML = list.length ? list.map(o => {
     const items = (o.products || []).map(p => esc(p.productName) + ' × ' + esc(p.qty)).join(', ') || '—';
-    return `<div class="o2d-drill-row" onclick="closeModal('o2dReportsDrillModal');openO2dDetail('${o.orderNo}')" title="Click to open this order">
+    return `<div class="o2d-drill-row" onclick="closeModal('o2dReportsDrillModal');openO2dDetail('${jsArg(o.orderNo)}')" title="Click to open this order">
       <div class="o2d-drill-row-main">
         <div class="o2d-drill-row-title">${esc(o.orderNo || '—')} ${o2dOrderStatusBadge(o)}</div>
         <div class="o2d-drill-row-sub">${esc(o.counterName || '—')} · ${items}</div>
@@ -13285,7 +13306,7 @@ function o2dReportsShowDrill(title, key) {
 
 // Same escaping every onclick-embedded name/label needs (single-quoted JS
 // string attribute) — shared so each drill function doesn't redeclare it.
-function o2dJsEsc(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+function o2dJsEsc(s) { return jsArg(s || ''); }
 
 // "Good Check" is the step's process name, not a reason anyone reading a
 // business report would recognise — what actually happened there is the
@@ -13342,7 +13363,7 @@ function o2dReportsShowLostSalesItems(reason) {
   const items = data ? data.items : [];
   document.getElementById('o2dReportsDrillTitle').innerHTML = `<span style="cursor:pointer;color:var(--color-primary)" onclick="o2dReportsShowLostSalesDrill()" title="Back">‹</span> ${esc(o2dReportsLostReasonLabel(reason))}`;
   const body = document.getElementById('o2dReportsDrillBody');
-  body.innerHTML = items.length ? items.map(it => `<div class="o2d-drill-row" onclick="closeModal('o2dReportsDrillModal');openO2dDetail('${it.orderNo}')" title="Click to open this order">
+  body.innerHTML = items.length ? items.map(it => `<div class="o2d-drill-row" onclick="closeModal('o2dReportsDrillModal');openO2dDetail('${jsArg(it.orderNo)}')" title="Click to open this order">
       <div class="o2d-drill-row-main">
         <div class="o2d-drill-row-title">${esc(it.orderNo || '—')}</div>
         <div class="o2d-drill-row-sub">${esc(it.counterName || '—')} · ${esc(it.productName)} × ${esc(it.qty)}</div>
@@ -13532,7 +13553,7 @@ function renderO2dReportsBody() {
 
   // Row-name → onclick-safe string (same escaping used everywhere else a
   // name goes inside a single-quoted onclick attribute, e.g. dealerCardHtml).
-  const jsEsc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  const jsEsc = s => jsArg(s || '');
   const dealerPhone = name => { const d = o2dDealers.find(x => x.name === name); return d ? d.phone : ''; };
   const dealerRow = (name, phone, cells) => `<tr class="o2d-clickable-row" onclick="openDealerLedgerModal('${jsEsc(name)}','${jsEsc(phone)}')" title="Click to view Statement">${cells}<td class="o2d-row-arrow">›</td></tr>`;
 
@@ -13740,7 +13761,7 @@ function renderDealerGridResults() {
 }
 
 function dealerRowHtml(d) {
-  const nameEsc = String(d.name||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
+  const nameEsc = jsArg(d.name);
   const phoneEsc = String(d.phone||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
@@ -13776,7 +13797,7 @@ function dealerRowHtml(d) {
         <button class="btn btn-outline btn-sm" title="Dealer ki details — malik, birthday, address, location" onclick="openDealerDetailsModal('${nameEsc}')">✏️</button>
         <button class="btn btn-outline btn-sm" title="Upload KYC" onclick="openKycModal('${nameEsc}')">📎</button>
         <button class="btn btn-outline btn-sm" title="Location set karo" onclick="openLocationModal('${nameEsc}')">📍</button>
-        <button class="btn btn-outline btn-sm" title="View Statement" onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')">📋</button>
+        <button class="btn btn-outline btn-sm" title="View Statement" onclick="openDealerLedgerModal('${nameEsc}','${jsArg(phoneEsc)}')">📋</button>
         ${locHtml}
       </div>
     </td>
@@ -13784,7 +13805,7 @@ function dealerRowHtml(d) {
 }
 
 function dealerCardHtml(d) {
-  const nameEsc = String(d.name||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
+  const nameEsc = jsArg(d.name);
   const phoneEsc = String(d.phone||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
@@ -13850,11 +13871,11 @@ function dealerCardHtml(d) {
         <button class="btn btn-outline btn-sm" onclick="openDealerDetailsModal('${nameEsc}')">✏️ Details</button>
         <button class="btn btn-outline btn-sm" onclick="openKycModal('${nameEsc}')">Upload KYC</button>
         <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
-        <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')">📋 View Statement</button>
+        <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}','${jsArg(phoneEsc)}')">📋 View Statement</button>
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">💳 Payment Overview</div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
-        <div onclick="openDealerLedgerModal('${nameEsc}','${phoneEsc}')" style="cursor:pointer;flex:1;min-width:90px" title="Poori statement dekho">${statTile('Total Dues', outstandingStr, 'var(--gray-800)')}</div>
+        <div onclick="openDealerLedgerModal('${nameEsc}','${jsArg(phoneEsc)}')" style="cursor:pointer;flex:1;min-width:90px" title="Poori statement dekho">${statTile('Total Dues', outstandingStr, 'var(--gray-800)')}</div>
         <div onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})" style="cursor:pointer;flex:1;min-width:90px">${statTile('Credit Limit', creditStr, 'var(--gray-800)')}</div>
         ${available !== null ? statTile('Available', inr(available), overLimit ? 'var(--color-danger-text)' : 'var(--color-success-text)') : ''}
       </div>
@@ -13991,7 +14012,7 @@ function renderKycRows() {
         <div style="display:flex;gap:6px;align-items:center">
           ${url ? `<a href="${esc(url)}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">View</a>` : ''}
           <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('kycFile_${t.key}').click()">${url ? 'Replace' : 'Upload'}</button>
-          <input type="file" id="kycFile_${t.key}" accept="image/*" style="display:none" onchange="handleKycFile('${t.key}', event)"/>
+          <input type="file" id="kycFile_${t.key}" accept="image/*" style="display:none" onchange="handleKycFile('${jsArg(t.key)}', event)"/>
         </div>
       </div>`;
   }).join('');
@@ -14364,7 +14385,7 @@ function priceListRowHtml(item) {
   const editBtns = o2dPriceListCanEdit ? `
     <div style="display:flex;gap:4px">
       <button class="btn btn-outline btn-sm" onclick="openEditPriceModal(${item.id})">✎ Edit</button>
-      <button class="btn btn-outline btn-sm" onclick="deletePriceListItem(${item.id},'${String(item.product_name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Remove">🗑</button>
+      <button class="btn btn-outline btn-sm" onclick="deletePriceListItem(${item.id},'${jsArg(item.product_name)}')" title="Remove">🗑</button>
     </div>` : '';
   const photoHtml = item.image_url
     ? `<img src="${esc(item.image_url)}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--gray-200)"/>`
@@ -14567,10 +14588,10 @@ function stockRowHtml(item) {
   const editBtns = stockCanEdit ? `
     <div style="display:flex;gap:4px">
       <button class="btn btn-outline btn-sm" onclick="openEditStockModal(${item.id})">✎ Edit</button>
-      <button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${String(item.description||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Remove">🗑</button>
+      <button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${jsArg(item.description)}')" title="Remove">🗑</button>
     </div>` : '';
   const stock = Number(item.current_stock);
-  return `<tr style="cursor:pointer" onclick="if(!event.target.closest('button'))openStockItemHistory('${esc(item.item_code)}')" title="IN / OUT history">
+  return `<tr style="cursor:pointer" onclick="if(!event.target.closest('button'))openStockItemHistory('${jsArg(item.item_code)}')" title="IN / OUT history">
     <td style="font-weight:600">${esc(item.item_code)}</td>
     <td>${esc(item.description)}</td>
     <td>${item.std_pack !== null ? esc(item.std_pack) : '—'}</td>
@@ -14726,7 +14747,7 @@ function stockRegColumnHtml(dir, rows, canEdit) {
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('')">Close</button>
-        <button class="btn btn-primary btn-sm" id="stkRegSaveBtn" onclick="submitStockRegEntry('${dir}')">Save ${isIn ? 'Inward' : 'Outward'}</button>
+        <button class="btn btn-primary btn-sm" id="stkRegSaveBtn" onclick="submitStockRegEntry('${jsArg(dir)}')">Save ${isIn ? 'Inward' : 'Outward'}</button>
       </div>
     </div>` : '';
   return `<div style="flex:1;min-width:280px;background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;overflow:hidden;border-top:3px solid ${color}">
@@ -14736,7 +14757,7 @@ function stockRegColumnHtml(dir, rows, canEdit) {
         <div style="font-size:11px;color:var(--gray-500)">${active.length} entr${active.length === 1 ? 'y' : 'ies'} · total qty <b>${total.toLocaleString('en-IN')}</b></div>
         <div style="font-size:12.5px;margin-top:3px;color:var(--gray-600)">💰 ${isIn ? 'Inward value' : 'Sale value'} <b style="font-size:14px;color:var(--gray-900)">${inr(saleValue)}</b>${priced.length < active.length ? ` <span style="font-size:11px;color:var(--color-warning)">(${active.length - priced.length} without rate)</span>` : ''}</div>
       </div>
-      ${stockRegMode === 'day' ? `<button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('${dir}')">+ Manual</button>` : ''}
+      ${stockRegMode === 'day' ? `<button class="btn btn-outline btn-sm" onclick="toggleStockRegAdd('${jsArg(dir)}')">+ Manual</button>` : ''}
     </div>
     ${form}
     ${rows.map(r => stockRegEntryHtml(r, canEdit)).join('') || `<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">No ${isIn ? 'inward' : 'outward'} entries</div>`}
@@ -14750,7 +14771,7 @@ function renderStockRegister() {
   const r = stockReg;
   const isToday = stockRegDate === stockTodayYmd();
   const dLabel = new Date(stockRegDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-  const modeBtn = (m, l) => `<button class="btn btn-sm ${stockRegMode === m ? 'btn-primary' : 'btn-outline'}" onclick="setStockRegMode('${m}')">${l}</button>`;
+  const modeBtn = (m, l) => `<button class="btn btn-sm ${stockRegMode === m ? 'btn-primary' : 'btn-outline'}" onclick="setStockRegMode('${jsArg(m)}')">${l}</button>`;
   const dateCtl = stockRegMode === 'day' ? `
       <button class="btn btn-outline btn-sm" onclick="shiftStockRegDate(-1)" title="Previous day">◀</button>
       <input type="date" value="${stockRegDate}" onchange="setStockRegDate(this.value)" style="padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
@@ -14927,7 +14948,7 @@ async function loadCataloguePdfs(force) {
 
 function cataloguePdfRowHtml(item) {
   const deleteBtn = o2dCataloguePdfsCanEdit
-    ? `<button class="btn btn-outline btn-sm" onclick="deleteCataloguePdf(${item.id},'${String(item.filename||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="Remove">🗑</button>` : '';
+    ? `<button class="btn btn-outline btn-sm" onclick="deleteCataloguePdf(${item.id},'${jsArg(item.filename)}')" title="Remove">🗑</button>` : '';
   // Files are no longer publicly shared on Drive (see server.js), so a raw
   // drive.google.com link would 403 — go through our own authenticated
   // proxy instead, with ?download=1 to force a Save-As.
@@ -14965,7 +14986,7 @@ function renderCataloguePdfList() {
       <div style="padding:16px">
         ${o2dCataloguePdfsCanEdit ? `
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-          <input type="file" accept="application/pdf" multiple id="cataloguePdfFile_${t.type}" onchange="onCataloguePdfSelected(event,'${t.type}')" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+          <input type="file" accept="application/pdf" multiple id="cataloguePdfFile_${t.type}" onchange="onCataloguePdfSelected(event,'${jsArg(t.type)}')" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
           <span id="cataloguePdfUploadStatus_${t.type}" style="font-size:12px;color:var(--gray-500)"></span>
         </div>` : ''}
         <table>
@@ -15181,14 +15202,14 @@ function renderStepDoerMatrix(containerId, stepDefs, users, assignments, prefix)
       <td class="sdm-user">${esc(u.name)} <span class="sdm-ucount"></span></td>
       ${stepDefs.map(sd => {
         const on = assigned[sd.n].has(Number(u.id));
-        return `<td class="sdm-cell${on ? ' on' : ''}"><label title="${esc(u.name)} → ${esc(sd.label)}"><input type="checkbox" class="${prefix}${sd.n}" data-step="${sd.n}" value="${u.id}" ${on ? 'checked' : ''} onchange="onStepDoerMatrixChange('${containerId}')"/></label></td>`;
+        return `<td class="sdm-cell${on ? ' on' : ''}"><label title="${esc(u.name)} → ${esc(sd.label)}"><input type="checkbox" class="${prefix}${sd.n}" data-step="${sd.n}" value="${u.id}" ${on ? 'checked' : ''} onchange="onStepDoerMatrixChange('${jsArg(containerId)}')"/></label></td>`;
       }).join('')}
     </tr>`).join('')
     : `<tr><td colspan="${stepDefs.length + 1}" class="empty">No users found</td></tr>`;
   document.getElementById(containerId).innerHTML = `
     <div class="sdm-tools">
-      <input type="text" class="sdm-search" placeholder="🔍 Search user…" oninput="filterStepDoerMatrix('${containerId}')"/>
-      <label class="sdm-only"><input type="checkbox" onchange="filterStepDoerMatrix('${containerId}')"/> Sirf assigned users</label>
+      <input type="text" class="sdm-search" placeholder="🔍 Search user…" oninput="filterStepDoerMatrix('${jsArg(containerId)}')"/>
+      <label class="sdm-only"><input type="checkbox" onchange="filterStepDoerMatrix('${jsArg(containerId)}')"/> Sirf assigned users</label>
     </div>
     <div class="sdm-wrap"><table class="sdm-table">${head}<tbody>${body}</tbody></table></div>`;
   attachScrollHint(document.querySelector(`#${containerId} .sdm-wrap`));
@@ -15560,14 +15581,14 @@ function renderO2dField(f, orderNo) {
     // short camera-only spell). The Make Bill invoice can also be a PDF.
     const isDoc = f.key === 'photoLink';
     return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
-      <input type="file" accept="${isDoc ? 'image/*,.pdf,application/pdf' : 'image/*'}" id="${id}_file" onchange="onO2dPhotoSelected('${orderNo}','${f.key}',event)" style="${O2D_INPUT_STYLE}"/>
+      <input type="file" accept="${isDoc ? 'image/*,.pdf,application/pdf' : 'image/*'}" id="${id}_file" onchange="onO2dPhotoSelected('${jsArg(orderNo)}','${jsArg(f.key)}',event)" style="${O2D_INPUT_STYLE}"/>
       <input type="hidden" id="${id}"/>
       <div id="${id}_status" style="font-size:11px;color:var(--gray-500);margin-top:-6px;margin-bottom:10px"></div>`;
   }
   if (f.type === 'doerSelect') {
     const optionsHtml = O2D_DOER_OPTIONS.map(n => `<option>${n}</option>`).join('');
     return `<div style="${O2D_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
-      <select id="${id}" onchange="onO2dDoerSelectChange('${orderNo}','${f.key}')" style="${O2D_INPUT_STYLE};background:var(--surface)">
+      <select id="${id}" onchange="onO2dDoerSelectChange('${jsArg(orderNo)}','${jsArg(f.key)}')" style="${O2D_INPUT_STYLE};background:var(--surface)">
         <option value="">-- Select --</option>
         ${optionsHtml}
         <option value="__other__">+ Add Other</option>
@@ -16070,14 +16091,14 @@ function renderO2dDetailBody(o, hideProgress) {
         ${nextStepDef.n === 4 ? o2dItemEditorHtml(o) : ''}
         ${extraInputsHtml}
         ${nextStepDef.n === 5 ? o2dVideosHtml(o, true) : ''}
-        <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${o.orderNo}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
+        <button id="o2dMarkDoneBtn_${o.orderNo}" onclick="advanceO2dStep('${jsArg(o.orderNo)}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
         ${nextStepDef.allowAddOrder ? `
         <div style="border-top:1px dashed var(--color-purple-border);margin-top:14px;padding-top:14px">
-          <button type="button" onclick="toggleO2dAddOrder('${o.orderNo}')" class="btn btn-outline btn-sm" id="o2dAddOrderToggleBtn_${o.orderNo}">+ Add Order</button>
+          <button type="button" onclick="toggleO2dAddOrder('${jsArg(o.orderNo)}')" class="btn btn-outline btn-sm" id="o2dAddOrderToggleBtn_${o.orderNo}">+ Add Order</button>
           <div id="o2dAddOrderSection_${o.orderNo}" style="display:none;margin-top:12px">
             <div id="o2dAddOrderRows_${o.orderNo}"></div>
-            <button type="button" class="btn btn-outline btn-sm" onclick="addO2dAddOrderRow('${o.orderNo}')">+ Add Product</button>
-            <button type="button" class="btn btn-primary" id="o2dAddOrderSubmitBtn_${o.orderNo}" style="width:100%;margin-top:8px" onclick="submitO2dAddOrder('${o.orderNo}')">Add Items &amp; Mark Done</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="addO2dAddOrderRow('${jsArg(o.orderNo)}')">+ Add Product</button>
+            <button type="button" class="btn btn-primary" id="o2dAddOrderSubmitBtn_${o.orderNo}" style="width:100%;margin-top:8px" onclick="submitO2dAddOrder('${jsArg(o.orderNo)}')">Add Items &amp; Mark Done</button>
           </div>
         </div>` : ''}
       </div>`;
@@ -16162,18 +16183,18 @@ function o2dOrderControlsHtml(o) {
   const no = o2dJsEsc(o.orderNo);
   if (!o.closed && o2dCanControl()) {
     btns.push(o.onHold
-      ? `<button class="btn btn-outline btn-sm" onclick="o2dSetHold('${no}', false)">▶ Resume Order</button>`
-      : `<button class="btn btn-outline btn-sm" onclick="o2dSetHold('${no}', true)">⏸ Hold</button>`);
-    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="o2dCancelOrder('${no}')">✖ Cancel Order</button>`);
+      ? `<button class="btn btn-outline btn-sm" onclick="o2dSetHold('${jsArg(no)}', false)">▶ Resume Order</button>`
+      : `<button class="btn btn-outline btn-sm" onclick="o2dSetHold('${jsArg(no)}', true)">⏸ Hold</button>`);
+    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="o2dCancelOrder('${jsArg(no)}')">✖ Cancel Order</button>`);
   }
   if (['admin', 'pc'].includes(ME.role) && (o.currentStep > 0 || o.cancelled)) {
-    btns.push(`<button class="btn btn-outline btn-sm" onclick="o2dRestartOrder('${no}')" title="Clears every step — the order starts again from step 1">🔁 Restart from Step 1</button>`);
+    btns.push(`<button class="btn btn-outline btn-sm" onclick="o2dRestartOrder('${jsArg(no)}')" title="Clears every step — the order starts again from step 1">🔁 Restart from Step 1</button>`);
   }
   // Accountant: party's goods go with the salesman (client, 2026-10-13).
   if (!o.closed && (['admin', 'pc'].includes(ME.role) || o2dIsStepDoer(4))) {
     btns.push(o.carriedBy
-      ? `<button class="btn btn-outline btn-sm" onclick="o2dSetCarry('${no}', false)" title="Mark hatao">🧍 ${esc(o.carriedBy)} le jaayega ✕</button>`
-      : `<button class="btn btn-outline btn-sm" onclick="o2dSetCarry('${no}', true)">🧍 Salesman goods le jaayega</button>`);
+      ? `<button class="btn btn-outline btn-sm" onclick="o2dSetCarry('${jsArg(no)}', false)" title="Mark hatao">🧍 ${esc(o.carriedBy)} le jaayega ✕</button>`
+      : `<button class="btn btn-outline btn-sm" onclick="o2dSetCarry('${jsArg(no)}', true)">🧍 Salesman goods le jaayega</button>`);
   }
   if (!btns.length) return '';
   return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin:-4px 0 16px">${btns.join('')}${o.restartCount ? `<span style="font-size:11px;color:var(--gray-400);align-self:center">Restarted ${o.restartCount}×</span>` : ''}</div>`;
@@ -16609,7 +16630,7 @@ function switchPfmsIndentSub(sub) { pfmsIndentSub = sub; pfmsPage = 1; renderPur
 
 function renderPurchaseIndentsView() {
   const wrap = document.getElementById('pfmsListWrap');
-  const btn = (k, label) => `<button onclick="switchPfmsIndentSub('${k}')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${pfmsIndentSub===k?'var(--color-primary)':'var(--gray-200)'};background:${pfmsIndentSub===k?'var(--color-primary-light)':'var(--surface)'};color:${pfmsIndentSub===k?'var(--color-primary)':'var(--gray-600)'}">${label}</button>`;
+  const btn = (k, label) => `<button onclick="switchPfmsIndentSub('${jsArg(k)}')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${pfmsIndentSub===k?'var(--color-primary)':'var(--gray-200)'};background:${pfmsIndentSub===k?'var(--color-primary-light)':'var(--surface)'};color:${pfmsIndentSub===k?'var(--color-primary)':'var(--gray-600)'}">${label}</button>`;
   const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200);flex-wrap:wrap">
     ${btn('pending', 'Pending (PO not made)')}${btn('done', 'PO Made')}</div>`;
   const rows = pfmsFilteredIndents().filter(o => pfmsIndentSub === 'pending' ? !o.closed : o.closed);
@@ -16620,7 +16641,7 @@ function renderPurchaseIndentsView() {
     <tbody>${pageRows.map(o => {
       const steps = o.pendingSteps.map(i => o.steps[i]);
       const overdue = steps.some(s => pfmsIsOverdue(s.planned));
-      return `<tr onclick="openIndentDetail('${esc(o.indentNo)}')" style="cursor:pointer;${!o.closed && overdue ? 'background:var(--color-danger-bg)' : ''}">
+      return `<tr onclick="openIndentDetail('${jsArg(o.indentNo)}')" style="cursor:pointer;${!o.closed && overdue ? 'background:var(--color-danger-bg)' : ''}">
         <td style="font-weight:600">${esc(o.indentNo)}<div style="font-size:10.5px;color:var(--gray-400);font-weight:500">${esc(String(o.type || '').replace(/ for indent$/i, ''))}</div></td>
         <td style="white-space:nowrap">${esc(fmtEntry(o.timestamp) || '—')}</td>
         <td>${esc(o.raisedBy || '—')}</td>
@@ -16694,7 +16715,7 @@ function renderIndentDetailBody(o) {
     }
     const action = sd.key === 'po'
       ? `<button onclick="openPoGenerator()" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">🧾 Generate PO</button>`
-      : `<button id="indDoneBtn_${idx}" onclick="submitIndentStep('${esc(o.indentNo)}', ${idx})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px;margin-top:12px">Mark Done</button>`;
+      : `<button id="indDoneBtn_${idx}" onclick="submitIndentStep('${jsArg(o.indentNo)}', ${idx})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px;margin-top:12px">Mark Done</button>`;
     return `<div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:16px;margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Next Action</div>
       <div style="font-weight:700;font-size:16px;color:var(--gray-800)">${esc(sd.label)}</div>
@@ -16838,7 +16859,7 @@ function renderNewIndentForm() {
     <div class="alert error" id="indErr" style="display:none"></div>
     <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Indent Type <span style="color:var(--color-danger)">*</span></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px">
-      ${o.types.map(t => `<button type="button" class="ind-type" data-key="${t.key}" onclick="pickIndentType('${t.key}')" style="padding:12px 10px;border-radius:12px;border:1.5px solid var(--gray-200);background:var(--surface);cursor:pointer;font-size:13.5px;font-weight:700;color:var(--gray-700)">${typeIcon[t.key] || ''} ${esc(t.label)}</button>`).join('')}
+      ${o.types.map(t => `<button type="button" class="ind-type" data-key="${t.key}" onclick="pickIndentType('${jsArg(t.key)}')" style="padding:12px 10px;border-radius:12px;border:1.5px solid var(--gray-200);background:var(--surface);cursor:pointer;font-size:13.5px;font-weight:700;color:var(--gray-700)">${typeIcon[t.key] || ''} ${esc(t.label)}</button>`).join('')}
     </div>
     <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Raised By <span style="color:var(--color-danger)">*</span></div>
     <input id="indRaisedBy" list="indRaisedList" value="${esc(o.myName)}" style="${IND_INPUT};margin-bottom:14px;max-width:280px"/>
@@ -17023,7 +17044,7 @@ function renderPurchaseFmsView() {
     </thead>
     <tbody>
       ${pageRows.map(o => `
-        <tr onclick="openPurchaseDetail('${o.poNumber}')" style="cursor:pointer">
+        <tr onclick="openPurchaseDetail('${jsArg(o.poNumber)}')" style="cursor:pointer">
           <td style="font-weight:600">${esc(o.poNumber || '—')}${entrySubHtml(o.timestamp)}</td>
           <td>${esc(o.indentNo || '—')}</td>
           <td>${esc(o.vendorName || '—')}</td>
@@ -17055,7 +17076,7 @@ function renderPurchasePCView() {
         const rowStyle = overdue ? 'background:var(--color-danger-bg)' : '';
         const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
         return `
-        <tr onclick="openPurchaseDetail('${o.poNumber}')" style="cursor:pointer;${rowStyle}">
+        <tr onclick="openPurchaseDetail('${jsArg(o.poNumber)}')" style="cursor:pointer;${rowStyle}">
           <td style="font-weight:600">${esc(o.poNumber || '—')}${entrySubHtml(o.timestamp)}</td>
           <td>${esc(o.indentNo || '—')}</td>
           <td>${esc(o.vendorName || '—')}</td>
@@ -17481,7 +17502,10 @@ async function advancePurchaseStep(poNumber, step) {
   const originalBtnText = btn ? btn.textContent : '';
   if (btn) { btn.textContent = '⏳ Saving...'; btn.disabled = true; }
 
-  const res = await api(`/api/purchase-fms/po/${encodeURIComponent(poNumber)}/step/${step}`, 'PUT', body);
+  let res = await api(`/api/purchase-fms/po/${encodeURIComponent(poNumber)}/step/${step}`, 'PUT', body);
+  if (res.needsConfirm && confirm(`${res.error}.\n\nKya sach mein ordered se zyada maal aaya hai? OK = haan, save karo`)) {
+    res = await api(`/api/purchase-fms/po/${encodeURIComponent(poNumber)}/step/${step}`, 'PUT', { ...body, confirmOver: true });
+  }
 
   if (res.error) {
     if (/No pending rows/i.test(res.error)) {
@@ -17556,7 +17580,7 @@ async function renderVendorLogins() {
       <td><input id="vlEmail_${i}" style="${inp}" value="${esc(v.login ? v.login.email : '')}" placeholder="e.g. mrindustries"/></td>
       <td><input id="vlPass_${i}" style="${inp}" type="text" placeholder="${v.login ? 'new password to reset' : 'min 6 characters'}"/></td>
       <td style="white-space:nowrap">
-        <button class="btn btn-primary btn-sm" onclick="saveVendorLogin(${i}, '${esc(v.vendorName).replace(/'/g, "\\'")}')">${v.login ? 'Update' : 'Create'}</button>
+        <button class="btn btn-primary btn-sm" onclick="saveVendorLogin(${i}, '${jsArg(v.vendorName)}')">${v.login ? 'Update' : 'Create'}</button>
         ${v.login ? `<button class="btn btn-outline btn-sm" onclick="deleteVendorLogin(${v.login.id})" title="Remove login">🗑</button>` : ''}
       </td></tr>`).join('')}</tbody></table></div>`;
 }
@@ -17592,7 +17616,7 @@ function renderPurchaseDetailBody(o) {
       <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.poNumber)} · ${esc(o.indentNo || '—')}</div>
       ${pfmsPoLinks[o.poNumber] ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
         <a class="btn btn-outline btn-sm" href="${esc(pfmsPoLinks[o.poNumber])}" target="_blank" rel="noopener">📄 View PO</a>
-        <button class="btn btn-green btn-sm" onclick="sendPoToVendor('${esc(o.poNumber)}')">📤 Send PO to vendor (WhatsApp)</button>
+        <button class="btn btn-green btn-sm" onclick="sendPoToVendor('${jsArg(o.poNumber)}')">📤 Send PO to vendor (WhatsApp)</button>
       </div>` : ''}
       <div style="${PFMS_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
       <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>
@@ -17631,7 +17655,7 @@ function renderPurchaseDetailBody(o) {
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${esc(nextStepDef.label)}</div>
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')}</div>
         ${extraInputsHtml}
-        <button id="pfmsMarkDoneBtn_${o.poNumber}" onclick="advancePurchaseStep('${o.poNumber}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
+        <button id="pfmsMarkDoneBtn_${o.poNumber}" onclick="advancePurchaseStep('${jsArg(o.poNumber)}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
       </div>`;
   } else {
     actionHtml = `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All steps complete — PO closed</div>`;
@@ -17782,7 +17806,7 @@ async function loadLinkPage(key) {
   const r = await api(`/api/link-page/${key}`);
   if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; btns.innerHTML = ''; return; }
   btns.innerHTML = (r.url ? `<a class="btn btn-primary" href="${esc(r.url)}" target="_blank" rel="noopener" style="text-decoration:none">↗ Nayi tab me kholo</a> ` : '')
-    + (r.canEdit ? `<button class="btn btn-outline" onclick="setLinkPage('${key}')">🔗 ${r.url ? 'Link badlo' : 'Link set karo'}</button>` : '');
+    + (r.canEdit ? `<button class="btn btn-outline" onclick="setLinkPage('${jsArg(key)}')">🔗 ${r.url ? 'Link badlo' : 'Link set karo'}</button>` : '');
   body.innerHTML = r.url
     ? `<iframe src="${esc(r.url)}" style="width:100%;height:calc(100dvh - 210px);min-height:420px;border:1px solid var(--gray-200);border-radius:12px;background:#fff" allow="clipboard-write"></iframe>
        <div style="font-size:12px;color:var(--gray-500);margin-top:6px">Sheet yahan na dikhe (Google login maange) to "↗ Nayi tab me kholo" dabayein.</div>`
@@ -17900,7 +17924,7 @@ function renderCollection() {
   const done = [];
   colData.bills.forEach(b => ['call25', 'call30'].forEach(step => { if (b.acts[step]) done.push({ b, step, a: b.acts[step] }); }));
   done.sort((x, y) => String(y.a.at).localeCompare(String(x.a.at)));
-  const tab = (k, l) => `<button class="btn btn-sm ${colTab === k ? 'btn-primary' : 'btn-outline'}" onclick="colSetTab('${k}')">${l}</button>`;
+  const tab = (k, l) => `<button class="btn btn-sm ${colTab === k ? 'btn-primary' : 'btn-outline'}" onclick="colSetTab('${jsArg(k)}')">${l}</button>`;
   document.getElementById('colTabs').innerHTML = tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`);
   const synced = colData.lastSynced ? new Date(colData.lastSynced) : null;
   const stale = synced ? Math.floor((Date.now() - synced.getTime()) / 86400000) : null;
@@ -17913,7 +17937,7 @@ function renderCollection() {
       ${calls.map(({ b, step }) => `<tr><td style="font-weight:700">${esc(b.party)}${b.owner ? `<div style="font-size:11px;color:var(--gray-500)">${esc(b.owner)}</div>` : ''}</td>
         <td style="white-space:nowrap">${esc(b.billRef)}<div style="font-size:11px;color:var(--gray-500)">${esc(fmtDateDMY(b.billDate))}</div></td><td style="text-align:right;font-weight:800">${inr(b.amount)}</td>
         <td>${day(b.days)}</td><td><span class="status-badge" style="background:${step === 'call30' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${step === 'call30' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'}">${step === 'call30' ? '30 din call' : '25 din call'}</span></td>
-        <td>${tel(b)}</td><td><button class="btn btn-sm btn-green" onclick="openColCall('${o2dJsEsc(b.key)}','${step}')">✓ Call ho gaya</button></td></tr>`).join('')}</tbody></table></div>`
+        <td>${tel(b)}</td><td><button class="btn btn-sm btn-green" onclick="openColCall('${o2dJsEsc(b.key)}','${jsArg(step)}')">✓ Call ho gaya</button></td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">Aaj koi call due nahi 🎉</div>');
   } else if (colTab === 'msgs') {
     const st = b => { const a = b.acts.msg15; if (!a) return b.phone ? `<span class="status-badge">${stale != null && stale >= 2 ? 'Tally sync ke baad jayega' : 'Subah ~11 baje jayega'}</span>` : '<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)">Phone nahi</span>';
@@ -17936,7 +17960,7 @@ function openColCall(key, step) {
     <div style="font-weight:700">${esc(b.party)}</div><div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Bill ${esc(b.billRef)} · ${esc(fmtDateDMY(b.billDate))} · ${inr(b.amount)} · ${b.days} din</div>
     <label style="font-size:12px;font-weight:600">Kya hua? *</label><select id="colOutcome" style="${VRL_IN};margin-bottom:8px">${COL_OUTCOMES.map(o => `<option>${esc(o)}</option>`).join('')}</select>
     <label style="font-size:12px;font-weight:600">Remark</label><input id="colRemark" placeholder="e.g. 20 tareekh tak payment karega" style="${VRL_IN};margin-bottom:10px"/>
-    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveColCall('${o2dJsEsc(key)}','${step}',this)">✓ Save</button>`, 460);
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveColCall('${o2dJsEsc(key)}','${jsArg(step)}',this)">✓ Save</button>`, 460);
 }
 async function saveColCall(key, step, btn) {
   const b = colData.bills.find(x => x.key === key);
@@ -18076,7 +18100,7 @@ async function loadWa() {
   waShow(waTab);
 }
 function renderWaTabs() {
-  const tab = (k, l) => `<button class="btn btn-sm ${waTab === k ? 'btn-primary' : 'btn-outline'}" onclick="waShow('${k}')">${l}</button>`;
+  const tab = (k, l) => `<button class="btn btn-sm ${waTab === k ? 'btn-primary' : 'btn-outline'}" onclick="waShow('${jsArg(k)}')">${l}</button>`;
   document.getElementById('waTabs').innerHTML = tab('new', '✉️ Naya message') + tab('sent', '📋 Bheje gaye');
 }
 async function waShow(t) {
@@ -18099,12 +18123,12 @@ function waComposeHtml(p, d, drip) {
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px"><input type="checkbox" class="${p}-week" value="${n}" ${(d.weeks || []).includes(n) ? 'checked' : ''}/> Week ${n}</label>`).join('')}</div>`
       : `<label style="font-size:12px;font-weight:600">Title <span style="font-weight:400;color:var(--gray-500)">(sirf list me dikhega)</span></label><input id="${p}Title" placeholder="e.g. Naya price list — Oct" style="${VRL_IN};margin-bottom:8px"/>`}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-      <div><label style="font-size:12px;font-weight:600">Kisko bhejna hai?</label><select id="${p}Aud" onchange="waAudChanged('${p}')" style="${VRL_IN}">${aud.map(([k, l]) => `<option value="${k}" ${d.audience === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      <div><label style="font-size:12px;font-weight:600">Kisko bhejna hai?</label><select id="${p}Aud" onchange="waAudChanged('${jsArg(p)}')" style="${VRL_IN}">${aud.map(([k, l]) => `<option value="${k}" ${d.audience === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
       <div><label style="font-size:12px;font-weight:600">City <span style="font-weight:400;color:var(--gray-500)">(khaali = sab)</span></label><input id="${p}City" list="waCityList" value="${esc(d.city || '')}" style="${VRL_IN}"/></div></div>
     <datalist id="waCityList">${waMeta.cities.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <div id="${p}SelWrap" style="display:none;margin-bottom:8px"><label style="font-size:12px;font-weight:600">Dealers (ek line me ek, ya list se)</label>
       <datalist id="waDealerList">${waMeta.dealers.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
-      <div style="display:flex;gap:6px"><input id="${p}SelOne" list="waDealerList" placeholder="Dealer ka naam…" style="${VRL_IN}"/><button class="btn btn-outline btn-sm" onclick="waAddSel('${p}')">+ Add</button></div>
+      <div style="display:flex;gap:6px"><input id="${p}SelOne" list="waDealerList" placeholder="Dealer ka naam…" style="${VRL_IN}"/><button class="btn btn-outline btn-sm" onclick="waAddSel('${jsArg(p)}')">+ Add</button></div>
       <textarea id="${p}Sel" rows="3" style="${VRL_IN};margin-top:6px;resize:vertical"></textarea></div>
     <label style="font-size:12px;font-weight:600">Message <span style="font-weight:400;color:var(--gray-500)">— {name} likhne par dealer ka naam aa jayega</span></label>
     <textarea id="${p}Msg" rows="5" style="${VRL_IN};resize:vertical;margin-bottom:8px" placeholder="🙏 Namaste {name} ji,&#10;Naya price list 1 Nov se lagu hai — saath me bhej rahe hain.">${esc(d.message || '')}</textarea>
@@ -18293,7 +18317,7 @@ function mecaPreset(k) {
 function mecaSetView(v) { mecaView = v; renderMeca(); }
 function renderMeca() {
   if (!mecaData) return;
-  const tab = (k, l) => `<button class="btn btn-sm ${mecaView === k ? 'btn-primary' : 'btn-outline'}" onclick="mecaSetView('${k}')">${l}</button>`;
+  const tab = (k, l) => `<button class="btn btn-sm ${mecaView === k ? 'btn-primary' : 'btn-outline'}" onclick="mecaSetView('${jsArg(k)}')">${l}</button>`;
   document.getElementById('mecaTabs').innerHTML = tab('summary', '👥 Salesman-wise') + tab('days', '📅 Day-wise');
   const q = document.getElementById('mecaSearch').value.trim().toLowerCase();
   const rows = mecaData.rows.filter(r => !q || r.name.toLowerCase().includes(q));
@@ -18379,7 +18403,7 @@ function scotTierBadge(t) { const u = SCOT_TIER_UI[t] || SCOT_TIER_UI['C - Occas
 function renderScot() {
   if (!scotData) return;
   const isAdmin = scotData.me.isAdmin;
-  const tab = (k, l) => `<button class="btn btn-sm ${scotTab === k ? 'btn-primary' : 'btn-outline'}" onclick="scotSetTab('${k}')">${l}</button>`;
+  const tab = (k, l) => `<button class="btn btn-sm ${scotTab === k ? 'btn-primary' : 'btn-outline'}" onclick="scotSetTab('${jsArg(k)}')">${l}</button>`;
   document.getElementById('scotTabs').innerHTML = tab('calls', '📞 Calls') + tab('report', '📊 Report') + tab('orders', '🛒 Orders') + tab('new', '🆕 New Dealers') + (isAdmin ? tab('freq', '⏱ Frequency') : '');
   const total = Object.values(scotSched).reduce((a, l) => a + l.length, 0);
   const done = Object.entries(scotSched).reduce((a, [k, l]) => a + l.filter(id => scotCalled.has(`${id}|${k}`)).length, 0);
@@ -18402,12 +18426,12 @@ function scotCallsHtml() {
     const list = scotSched[key] || [], dn = list.filter(id => scotCalled.has(`${id}|${key}`)).length;
     const sun = dow === 0, act = key === scotDate;
     const st = !sun && list.length && key <= today ? (dn === list.length ? 'var(--color-success)' : 'var(--color-danger)') : 'var(--gray-300)';
-    strip += `<div ${sun ? '' : `onclick="scotSelectDate('${key}')"`} style="flex:0 0 auto;min-width:54px;text-align:center;padding:6px 4px;border-radius:10px;cursor:${sun ? 'default' : 'pointer'};opacity:${sun ? .35 : 1};
+    strip += `<div ${sun ? '' : `onclick="scotSelectDate('${jsArg(key)}')"`} style="flex:0 0 auto;min-width:54px;text-align:center;padding:6px 4px;border-radius:10px;cursor:${sun ? 'default' : 'pointer'};opacity:${sun ? .35 : 1};
       border:2px solid ${act ? 'var(--color-primary)' : 'var(--gray-200)'};border-bottom:4px solid ${st};background:${act ? 'var(--color-primary-light)' : 'var(--surface)'}">
       <div style="font-weight:900;font-size:16px">${d}</div><div style="font-size:10px;color:var(--gray-500)">${SCOT_WD[dow]}${key === today ? ' · <b style="color:var(--color-primary)">Aaj</b>' : ''}</div>
       ${!sun && list.length ? `<div style="font-size:10.5px;font-weight:700;color:${st === 'var(--gray-300)' ? 'var(--gray-500)' : st}">${dn}/${list.length}</div>` : ''}</div>`;
   }
-  const fb = (k, l) => `<button class="btn btn-sm ${scotFilter === k ? 'btn-primary' : 'btn-outline'}" onclick="scotSetFilter('${k}')">${l}</button>`;
+  const fb = (k, l) => `<button class="btn btn-sm ${scotFilter === k ? 'btn-primary' : 'btn-outline'}" onclick="scotSetFilter('${jsArg(k)}')">${l}</button>`;
   const q = document.getElementById('scotSearch').value.trim().toLowerCase();
   const lastOrder = {};
   scotData.orders.forEach(o => { if (!lastOrder[o.dealerId] || o.date > lastOrder[o.dealerId].date) lastOrder[o.dealerId] = o; });
@@ -18546,7 +18570,7 @@ async function scotOpenProducts(id) {
   let n = 0;
   const body = Object.entries(scotProducts).map(([cat, subs]) => `<div style="margin-bottom:10px"><div style="font-weight:800;color:var(--color-primary);font-size:13px;margin-bottom:4px">${esc(cat)}</div>
     ${Object.entries(subs).map(([sub, models]) => { const gid = 'scotG' + (n++); return `<details ${models.some(has) ? 'open' : ''} style="margin:0 0 4px 6px"><summary style="cursor:pointer;font-size:12.5px;font-weight:600">${esc(sub)} <span style="color:var(--gray-400)">(${models.length})</span>
-      <a onclick="event.preventDefault();scotSelAll('${gid}')" style="margin-left:8px;font-size:11px;color:var(--color-primary);cursor:pointer">Select all</a></summary>
+      <a onclick="event.preventDefault();scotSelAll('${jsArg(gid)}')" style="margin-left:8px;font-size:11px;color:var(--color-primary);cursor:pointer">Select all</a></summary>
       <div id="${gid}" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px;padding:4px 0 4px 10px">${models.map(mo => `<label style="display:flex;gap:6px;align-items:center;font-size:12px;padding:4px 6px;border:1px solid var(--gray-200);border-radius:6px;cursor:pointer">
         <input type="checkbox" data-model="${esc(mo)}" data-cat="${esc(cat)}" ${has(mo) ? 'checked' : ''} onchange="scotProdTick(this)"/> ${esc(mo)}</label>`).join('')}</div></details>`; }).join('')}</div>`).join('');
   vrlModal('scotProdModal', `${scotModalHead('scotProdModal', '📦 Ye dealer kya leta hai?')}<div style="font-weight:700;margin-bottom:4px">${esc(d.name)}</div>
@@ -18637,7 +18661,7 @@ function renderSmp() {
   if (!smpData) return;
   const all = smpData.samples;
   const out = all.filter(s => s.status === 'With salesman'), old = out.filter(s => s.days > 15);
-  const tab = (k, l) => `<button class="btn btn-sm ${smpTab === k ? 'btn-primary' : 'btn-outline'}" onclick="smpSetTab('${k}')">${l}</button>`;
+  const tab = (k, l) => `<button class="btn btn-sm ${smpTab === k ? 'btn-primary' : 'btn-outline'}" onclick="smpSetTab('${jsArg(k)}')">${l}</button>`;
   document.getElementById('smpTabs').innerHTML = tab('out', `With salesman (${out.length})${old.length ? ` · ⚠ ${old.length} over 15 days` : ''}`) + tab('all', `All (${all.length})`);
   const q = document.getElementById('smpSearch').value.trim().toLowerCase();
   const list = (smpTab === 'out' ? out : all).filter(s => !q || `${s.code} ${s.salesmanName} ${s.itemName} ${s.dealerName} ${s.purpose}`.toLowerCase().includes(q));
@@ -18652,7 +18676,7 @@ function renderSmp() {
       <td style="${late ? 'color:var(--color-danger);font-weight:700' : ''}">${s.status === 'With salesman' ? s.days + 'd' + (late ? ' ⚠' : '') : '—'}</td><td>${badge(s)}</td></tr>`; }).join('')}
     </tbody></table></div>` : '<div class="empty">Koi sample nahi</div>';
 }
-function smpModalX(id) { return `<button class="modal-close-x modal-close" onclick="closeModal('${id}')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`; }
+function smpModalX(id) { return `<button class="modal-close-x modal-close" onclick="closeModal('${jsArg(id)}')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`; }
 async function openSmpNew() {
   const users = await api('/api/users/roster');
   const act = (Array.isArray(users) ? users : []).filter(u => u.is_active == null || +u.is_active === 1);
@@ -18736,7 +18760,7 @@ function renderVrl() {
   const all = vrlData.challans;
   const open = all.filter(c => c.status === 'Open');
   const old = open.filter(c => c.days > 30);
-  const tab = (k, l) => `<button class="btn btn-sm ${vrlTab === k ? 'btn-primary' : 'btn-outline'}" onclick="vrlSetTab('${k}')">${l}</button>`;
+  const tab = (k, l) => `<button class="btn btn-sm ${vrlTab === k ? 'btn-primary' : 'btn-outline'}" onclick="vrlSetTab('${jsArg(k)}')">${l}</button>`;
   document.getElementById('vrlTabs').innerHTML = tab('open', `Open (${open.length})`) + tab('pending', `Pending with vendor${old.length ? ` · ⚠ ${old.length} over 30 days` : ''}`)
     + tab('score', 'Vendor scorecard') + tab('all', `All (${all.length})`);
   const q = document.getElementById('vrlSearch').value.trim().toLowerCase();
@@ -19170,7 +19194,7 @@ function renderChequeReports() {
   const ageBase = c => c.chequeDate || chqRepRecv(c);
   const expired = inHand.filter(c => fmsRepDays(ageBase(c), today) > 90);
 
-  const dateTab = (k, l) => `<div class="tab ${chqRepDateBy === k ? 'active' : ''}" onclick="chqRepSetDateBy('${k}')">${l}</div>`;
+  const dateTab = (k, l) => `<div class="tab ${chqRepDateBy === k ? 'active' : ''}" onclick="chqRepSetDateBy('${jsArg(k)}')">${l}</div>`;
   const head = t => `<div style="${CHQ_LABEL};margin:2px 0 8px">${t}</div>`;
   const cards1 = [
     fmsRepStat('Cheques received', R.length, { icon: '🧾', sub: inr(chqRepSum(R)), drill: drill('chqR_all', 'Cheques received', R) }),
@@ -19393,7 +19417,7 @@ function openChequeDetail(id) {
 function chqTaskFormHtml(c, t) {
   const id = `chq_${c.id}_${t.key}`;
   const L = (txt, req) => `<div style="${CHQ_LABEL}">${txt}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
-  const btn = (label, action, cls) => `<button class="btn ${cls || 'btn-green'}" style="flex:1;justify-content:center;padding:12px" onclick="submitChequeAction(${c.id},'${action}',this)">${label}</button>`;
+  const btn = (label, action, cls) => `<button class="btn ${cls || 'btn-green'}" style="flex:1;justify-content:center;padding:12px" onclick="submitChequeAction(${c.id},'${jsArg(action)}',this)">${label}</button>`;
   let inner = '';
   if (t.key === 'details') {
     inner = `${L('Party / Counter Name', true)}<input id="${id}_party" list="chqPartyNameList" style="${CHQ_INPUT}" oninput="document.getElementById('${id}_risk').innerHTML=chqRiskBannerHtml(this.value)"/>
@@ -19951,7 +19975,7 @@ function renderLeadReports() {
   // ── Funnel (CSS, each step drills) ──
   const funnel = [['Leads', F.all], ['Call hua', F.called], ['Catalogue gaya', F.catalogue], ['Visit chahiye', F.needVisit], ['Visit fix hua', F.fixed], ['Visit hua', F.visited], ['Won', F.won]];
   const maxF = Math.max(1, total);
-  const funnelHtml = total ? funnel.map(([k, items], i) => `<div class="o2d-clickable-row" onclick="fmsRepShowDrill('${leadRepDrill('lead_f' + i, 'Funnel — ' + k, items)}')" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12.5px;cursor:pointer">
+  const funnelHtml = total ? funnel.map(([k, items], i) => `<div class="o2d-clickable-row" onclick="fmsRepShowDrill('${jsArg(leadRepDrill('lead_f' + i, 'Funnel — ' + k, items))}')" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12.5px;cursor:pointer">
       <div style="width:96px;flex-shrink:0;color:var(--gray-600)">${k}</div>
       <div style="flex:1;min-width:0;background:var(--gray-100);border-radius:6px;height:20px;overflow:hidden"><div style="width:${Math.round(items.length * 100 / maxF)}%;height:100%;background:${k === 'Won' ? 'var(--color-success)' : 'var(--color-primary)'};opacity:.85"></div></div>
       <div style="width:76px;flex-shrink:0;text-align:right;font-weight:700">${items.length} <span style="color:var(--gray-400);font-weight:500">${pct(items.length, total)}</span></div></div>`).join('') : '<div class="empty">No leads in this range</div>';
@@ -20159,7 +20183,7 @@ function leadScheduleFormHtml(l, key) {
     <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 8px">Salesman ki agli beat ka din chuniye (aam taur par ~7 din baad).${l.visitPurpose === 'Sample' ? ' <b>Sample leke jaana hai.</b>' : ''}</div>
     ${L('Note for salesman')}<input id="${id}_remark" placeholder="e.g. 48 inch fan ka sample le jaana" style="${CHQ_INPUT}"/>
     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_notify" checked/> Salesman ko WhatsApp par visit ki details bhejo</label>
-    <div style="display:flex;gap:8px"><button class="btn btn-green" style="flex:1;justify-content:center;padding:12px" onclick="submitLeadAction(${l.id},'${key}',this)">${key === 'resched' ? 'Update Visit' : 'Fix Visit'}</button></div>`;
+    <div style="display:flex;gap:8px"><button class="btn btn-green" style="flex:1;justify-content:center;padding:12px" onclick="submitLeadAction(${l.id},'${jsArg(key)}',this)">${key === 'resched' ? 'Update Visit' : 'Fix Visit'}</button></div>`;
 }
 const ymdAddDaysLocal = (ymd, n) => { const d = new Date((ymd || new Date().toISOString().slice(0, 10)) + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 async function leadFillSalesmen() {
@@ -20172,7 +20196,7 @@ async function leadFillSalesmen() {
 function leadTaskFormHtml(l, t) {
   const id = `lead_${l.id}_${t.key}`;
   const L = (txt, req) => `<div style="${CHQ_LABEL}">${txt}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
-  const btn = label => `<button class="btn btn-green" style="flex:1;justify-content:center;padding:12px" onclick="submitLeadAction(${l.id},'${t.key}',this)">${label}</button>`;
+  const btn = label => `<button class="btn btn-green" style="flex:1;justify-content:center;padding:12px" onclick="submitLeadAction(${l.id},'${jsArg(t.key)}',this)">${label}</button>`;
   let inner = '';
   if (t.key === 'call') {
     const canSend = leadMeta.catalogue && l.mobile;
@@ -20465,7 +20489,7 @@ async function submitDealerOnboarding() {
   btn.disabled = false; btn.textContent = 'Submit Dealer';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); return; }
   closeModal('dealerOnboardModal');
-  showToast(`✅ ${r.code} — ${body.shopName} onboarded (O2D → Dealers)${r.welcome === 'sent' ? ' · welcome kit WhatsApp par ja raha hai' : ''}`);
+  showToast(`✅ ${r.code} — ${body.shopName} onboarded (O2D → Dealers)${r.welcome === 'sending' ? ' · welcome kit WhatsApp par ja raha hai' : ''}`);
   if (document.getElementById('page-lead-fms').classList.contains('active')) loadLeadFmsList();
   if (o2dDealersLoaded) { await loadO2dDealers(true); refreshDealerViews(); }
 }
@@ -20489,7 +20513,7 @@ async function openOnboardDetail(id) {
       ${f('Location', o.locationLat ? `<a href="https://maps.google.com/?q=${o.locationLat},${o.locationLng}" target="_blank">📍 Map</a>` : '')}
       ${f('Remark', esc(o.remark))}
       ${f('Onboarded', `${fmtDateDMY(o.createdAt, true)} · ${esc(o.createdByName)}`)}
-      ${f('Welcome kit', o.welcomeSentAt ? `✅ ${fmtDateDMY(String(o.welcomeSentAt), true)}${o.welcomeNote ? ' · ' + esc(o.welcomeNote) : ''}` : 'Not sent')}
+      ${f('Welcome kit', /^FAILED:/.test(o.welcomeNote || '') ? `<span style="color:var(--color-danger-text,#c00)">❌ Nahi gaya — ${esc(o.welcomeNote.slice(7).trim())}</span>` : o.welcomeSentAt ? `✅ ${fmtDateDMY(String(o.welcomeSentAt), true)}${o.welcomeNote ? ' · ' + esc(o.welcomeNote) : ''}` : 'Not sent')}
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px">${pics.map(([t, u]) => `<div><div style="${CHQ_LABEL}">${t}</div>${chqPhotoHtml(u, 140)}</div>`).join('')}</div>
     <button class="btn btn-outline" onclick="resendDealerWelcome(${o.id},this)">💬 Welcome kit dobara bhejo</button>`;
@@ -20575,10 +20599,10 @@ function fmsRepRange(key) {
 function fmsRepFilterBar(key, renderFnName) {
   const r = fmsRepRange(key);
   r.render = renderFnName;
-  const tab = (k, label) => `<div class="tab ${r.quick === k ? 'active' : ''}" onclick="fmsRepQuick('${key}','${k}')">${label}</div>`;
+  const tab = (k, label) => `<div class="tab ${r.quick === k ? 'active' : ''}" onclick="fmsRepQuick('${jsArg(key)}','${jsArg(k)}')">${label}</div>`;
   return `<div class="o2d-report-filterbar">
-      <div><label>From</label><input type="date" id="fmsRepFrom_${key}" value="${r.from}" onchange="fmsRepApply('${key}')"/></div>
-      <div><label>To</label><input type="date" id="fmsRepTo_${key}" value="${r.to}" onchange="fmsRepApply('${key}')"/></div>
+      <div><label>From</label><input type="date" id="fmsRepFrom_${key}" value="${r.from}" onchange="fmsRepApply('${jsArg(key)}')"/></div>
+      <div><label>To</label><input type="date" id="fmsRepTo_${key}" value="${r.to}" onchange="fmsRepApply('${jsArg(key)}')"/></div>
       <div class="tab-group" style="margin-left:auto">${tab('today', 'Today')}${tab('week', 'Last 7 Days')}${tab('month', 'This Month')}${tab('lastmonth', 'Last Month')}${tab('all', 'All Time')}</div>
     </div>`;
 }
@@ -20618,7 +20642,7 @@ const FMS_REP_TONES = {
 };
 function fmsRepStat(label, value, o = {}) {
   const [accent, bg] = FMS_REP_TONES[o.tone || 'neutral'];
-  const click = o.drill ? ` onclick="fmsRepShowDrill('${o.drill}')"` : '';
+  const click = o.drill ? ` onclick="fmsRepShowDrill('${jsArg(o.drill)}')"` : '';
   return `<div class="o2d-stat-card${o.drill ? ' o2d-clickable-row' : ''}" style="--accent:${accent};--accent-bg:${bg};--accent-bar:${o.tone && o.tone !== 'neutral' ? accent : 'transparent'}"${o.title ? ` title="${esc(o.title)}"` : ''}${click}>
       ${o.icon ? `<div class="o2d-stat-icon">${o.icon}</div>` : ''}
       <div class="o2d-stat-label">${label}</div>
@@ -20817,7 +20841,7 @@ function renderSalesSchedule() {
     const done = list.filter(c => c.visit && c.visit.status === 'visited').length;
     const dow = new Date(y, m - 1, day).toLocaleDateString('en-IN', { weekday: 'short' });
     const style = p ? SS_PLAN[p.plan] : null;
-    cells.push(`<div class="ss-cell${date === ssToday() ? ' ss-today' : ''}${p || list.length ? '' : ' ss-empty'}" onclick="openSsDay('${date}')" title="Click — us din ke counters">
+    cells.push(`<div class="ss-cell${date === ssToday() ? ' ss-today' : ''}${p || list.length ? '' : ' ss-empty'}" onclick="openSsDay('${jsArg(date)}')" title="Click — us din ke counters">
         <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:800;color:var(--gray-600)"><span>${day} <span class="ss-dow">${dow}</span></span>${list.length ? `<span style="color:${done === list.length ? 'var(--color-success-text)' : 'var(--gray-500)'}">✓${done}/${list.length}</span>` : ''}</div>
         ${p ? `<div style="margin-top:5px;background:${style[1]};color:${style[2]};border-radius:6px;padding:4px 6px;font-size:12px;font-weight:800;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ssPlanLabel(p))}</div>` : ''}</div>`);
   }
@@ -20832,7 +20856,7 @@ function ssModal(id, title, body) {
     m.className = 'modal-overlay'; m.id = id;
     m.innerHTML = `<div class="modal" style="max-width:520px;max-height:88dvh;display:flex;flex-direction:column">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 class="ss-mtitle" style="margin:0"></h3>
-        <button class="modal-close-x modal-close" onclick="closeModal('${id}')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+        <button class="modal-close-x modal-close" onclick="closeModal('${jsArg(id)}')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
       <div class="ss-mbody" style="overflow-y:auto;flex:1"></div></div>`;
     document.body.appendChild(m);
   }
@@ -20848,7 +20872,7 @@ function openSsDay(date) {
   const p = ssPlanOf(date, uid);
   const list = ssDayCounters(date);
   const wd = SS_WEEKDAYS[ssIsoDow(date)];
-  const planBtn = (k, label) => `<button class="btn ${p && p.plan === k ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="ssSetDayPlan('${k}')">${label}</button>`;
+  const planBtn = (k, label) => `<button class="btn ${p && p.plan === k ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="ssSetDayPlan('${jsArg(k)}')">${label}</button>`;
   const manager = ssData.isManager ? `
     <div style="${SS_LABEL}">Din ka plan</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${planBtn('full', 'Full visit')}${planBtn('half', 'Half visit')}${planBtn('none', 'No visit')}${p ? `<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="ssSetDayPlan('')">Clear</button>` : ''}</div>
@@ -20861,8 +20885,8 @@ function openSsDay(date) {
     const n = o2dJsEsc(c.name);
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--gray-100)">
       <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px">${esc(c.name)}</div><div style="font-size:11px;color:var(--gray-500)">${esc(c.city || '')}${c.visit && c.visit.order_value ? ` · 💰 ${inr(c.visit.order_value)}` : ''}${c.visit && c.visit.remark ? ` · ${esc(c.visit.remark)}` : ''}</div></div>
-      <button class="btn btn-sm ${st === 'visited' ? 'btn-green' : 'btn-outline'}" onclick="ssMark('${n}','${st === 'visited' ? 'planned' : 'visited'}')" title="Visited">✓</button>
-      <button class="btn btn-sm ${st === 'not_visited' ? 'btn-danger' : 'btn-outline'}" onclick="ssMark('${n}','${st === 'not_visited' ? 'planned' : 'not_visited'}')" title="Not visited">✗</button>
+      <button class="btn btn-sm ${st === 'visited' ? 'btn-green' : 'btn-outline'}" onclick="ssMark('${jsArg(n)}','${jsArg(st === 'visited' ? 'planned' : 'visited')}')" title="Visited">✓</button>
+      <button class="btn btn-sm ${st === 'not_visited' ? 'btn-danger' : 'btn-outline'}" onclick="ssMark('${jsArg(n)}','${jsArg(st === 'not_visited' ? 'planned' : 'not_visited')}')" title="Not visited">✗</button>
       ${c.visit ? `<button class="btn btn-outline btn-sm" onclick="openSsVisit(${c.visit.id})" title="Photo / order / remark">📝</button>` : ''}
     </div>`;
   }).join('');
@@ -21131,7 +21155,7 @@ function pettyActionsHtml(e) {
   if (e.type === 'expense' && pettyIsOwner && e.status !== 'approved') b.push(`<button class="btn btn-green btn-sm" onclick="pettyDecide(${e.id},'approved')">✓ Approve</button>`);
   if (e.type === 'expense' && pettyIsOwner && e.status !== 'rejected') b.push(`<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="pettyDecide(${e.id},'rejected')">✕ Reject</button>`);
   if (e.type === 'advance' && e.status === 'pending' && Number(e.recorded_by_id) !== Number(ME.id)) b.push(`<button class="btn btn-green btn-sm" onclick="pettyDecide(${e.id},'accepted')">✓ Mila (Accept)</button>`);
-  if (pettyCanEdit(e)) b.push(`<button class="btn btn-outline btn-sm" onclick="openPettyEntry('${e.type}',${e.id})" title="Edit">✏️</button>`, `<button class="btn btn-outline btn-sm" onclick="deletePetty(${e.id})" title="Delete">🗑</button>`);
+  if (pettyCanEdit(e)) b.push(`<button class="btn btn-outline btn-sm" onclick="openPettyEntry('${jsArg(e.type)}',${e.id})" title="Edit">✏️</button>`, `<button class="btn btn-outline btn-sm" onclick="deletePetty(${e.id})" title="Delete">🗑</button>`);
   return `<div style="display:flex;gap:4px;flex-wrap:wrap">${b.join('')}</div>`;
 }
 
@@ -21248,7 +21272,7 @@ function openPettyEntry(type, id) {
     <select id="peMode" style="${PETTY_INPUT}"><option value="cash"${e && e.mode === 'online' ? '' : ' selected'}>Cash</option><option value="online"${e && e.mode === 'online' ? ' selected' : ''}>Online</option></select>
     ${!isAdv && !e ? `<div style="${PETTY_LABEL}">Bill / receipt photo (optional)</div><input type="file" id="pePhoto" accept="image/*" capture="environment" style="${PETTY_INPUT}"/>` : ''}
     ${!isAdv && !pettyIsOwner && !e ? '<div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Owner approve karenge.</div>' : ''}
-    <button class="btn btn-primary" id="peSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="savePettyEntry('${type}',${e ? e.id : 'null'})">Save</button>`;
+    <button class="btn btn-primary" id="peSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="savePettyEntry('${jsArg(type)}',${e ? e.id : 'null'})">Save</button>`;
   m.classList.add('open');
 }
 async function savePettyEntry(type, id) {
@@ -21680,7 +21704,7 @@ function renderReplReports() {
   const owReasons = fmsRepGroup(outW.filter(r => r.owReason), r => rplRepKey(r.owReason)).slice(0, 5);
   fmsRepSetDrill('rplW_in', 'In warranty', rplRepItems(inW));
   fmsRepSetDrill('rplW_out', 'Out of warranty', rplRepItems(outW, r => `${r.customerAgreed === 'Yes' ? '✅' : r.customerAgreed === 'No' ? '❌' : '…'} ${r.charges != null ? inr(r.charges) : '—'}`));
-  const line = (label, val, drillKey) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--gray-100);font-size:12.5px${drillKey ? ';cursor:pointer' : ''}"${drillKey ? ` onclick="fmsRepShowDrill('${drillKey}')"` : ''}><span style="color:var(--gray-600)">${label}</span><b>${val}</b></div>`;
+  const line = (label, val, drillKey) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--gray-100);font-size:12.5px${drillKey ? ';cursor:pointer' : ''}"${drillKey ? ` onclick="fmsRepShowDrill('${jsArg(drillKey)}')"` : ''}><span style="color:var(--gray-600)">${label}</span><b>${val}</b></div>`;
   const warrantyHtml = wr.length ? `<div style="height:170px;position:relative"><canvas id="rplRepWarranty"></canvas></div>
     <div style="margin-top:10px">
       ${line('In warranty (free repair)', `${inW.length} · ${fmsRepPct(inW.length, wr.length)}% ›`, 'rplW_in')}
@@ -21801,7 +21825,7 @@ function rplTaskFormHtml(r) {
   const t = r.task;
   const id = `rpl_${r.id}`;
   const L = (txt, req) => `<div style="${RPL_LABEL}">${txt}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
-  const btn = (label, action, cls) => `<button class="btn ${cls || 'btn-green'}" style="flex:1;justify-content:center;padding:12px" onclick="submitReplAction(${r.id},'${action}',this)">${label}</button>`;
+  const btn = (label, action, cls) => `<button class="btn ${cls || 'btn-green'}" style="flex:1;justify-content:center;padding:12px" onclick="submitReplAction(${r.id},'${jsArg(action)}',this)">${label}</button>`;
   const radio = (name, opts, onchange) => `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${opts.map(o => `<label style="flex:1;min-width:120px;display:flex;align-items:center;gap:6px;padding:10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer"><input type="radio" name="${name}" value="${o.v}" onchange="${onchange || ''}"/> ${o.l}</label>`).join('')}</div>`;
   let inner = '';
   if (t.key === 'diary') {
@@ -22189,7 +22213,7 @@ function gpDefaultRange() {
 const gpSalesOnly = () => ME && ME.role !== 'admin' && !(ME.page_access || []).includes('gross-profit');
 const gpShowSalesman = () => ME && (ME.pl_viewer || ME.sales_profile || !gpSalesOnly());
 function gpTabsHtml() {
-  const t = (v, label) => `<div class="tab ${gpView === v ? 'active' : ''}" onclick="gpSetView('${v}')">${label}</div>`;
+  const t = (v, label) => `<div class="tab ${gpView === v ? 'active' : ''}" onclick="gpSetView('${jsArg(v)}')">${label}</div>`;
   return `<div class="tab-group">${gpSalesOnly() ? '' : t('product', '📦 Product-wise') + t('dealer', '🏪 Dealer-wise') + t('vendor', '🏭 Vendor-wise')}${gpShowSalesman() ? t('salesman', '👤 Salesman-wise') : ''}${gpSalesOnly() ? '' : t('np', '💰 Net Profit')}</div>`;
 }
 // ── Net Profit (client, 2026-10-12) = Gross Profit − expenses from Tally
@@ -22227,7 +22251,7 @@ function renderNetProfit() {
   const groupHtml = g => {
     const open = npOpenGroup === g.group;
     return `<div style="border-top:1px solid var(--gray-100)">
-      <div onclick="npOpenGroup=npOpenGroup==='${g.group}'?'':'${g.group}';renderNetProfit()" style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:10px 0;cursor:pointer">
+      <div onclick="npOpenGroup=npOpenGroup==='${jsArg(g.group)}'?'':'${jsArg(g.group)}';renderNetProfit()" style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:10px 0;cursor:pointer">
         <div><div style="font-size:13.5px;font-weight:600;color:var(--gray-900)">− ${esc(g.group)} ${g.group === 'Indirect Expenses' ? '<span style="font-size:11.5px;color:var(--gray-500)">(office expenses)</span>' : ''} <span style="color:var(--color-primary);font-size:12px">${open ? '▾' : '▸'} ${g.ledgers.length} ledgers</span></div></div>
         <div style="font-size:15px;font-weight:900;color:var(--color-danger);white-space:nowrap">${gpInr(g.total)}</div></div>
       ${open ? `<div style="padding:0 0 10px 14px">${g.ledgers.length ? g.ledgers.map(l => `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:4px 0;border-bottom:1px dashed var(--gray-100)"><span>${esc(l.ledger)}${l.group && l.group !== g.group ? ` <span style="color:var(--gray-400);font-size:11px">· ${esc(l.group)}</span>` : ''}</span><b>${gpInr(l.amount)}</b></div>`).join('') : '<div style="font-size:12px;color:var(--gray-400)">No entries</div>'}</div>` : ''}
@@ -22318,7 +22342,7 @@ function renderGrossProfit() {
         <td style="${td};font-weight:700">${gpInr(p.sales)}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.avgRate)}</td>
         <td style="${td}">${d.canEditCost
-          ? `<input type="number" min="0" step="0.01" value="${p.costRate == null ? '' : p.costRate}" placeholder="enter cost" onchange="gpSaveCost('${esc(p.item).replace(/'/g, "\\'")}', this)" style="width:92px;padding:5px 7px;border:1.5px solid ${p.costRate == null ? 'var(--color-warning-border)' : 'var(--gray-200)'};border-radius:7px;font-size:12px;text-align:right;background:var(--surface);color:var(--gray-900)"/>`
+          ? `<input type="number" min="0" step="0.01" value="${p.costRate == null ? '' : p.costRate}" placeholder="enter cost" onchange="gpSaveCost('${jsArg(p.item)}', this)" style="width:92px;padding:5px 7px;border:1.5px solid ${p.costRate == null ? 'var(--color-warning-border)' : 'var(--gray-200)'};border-radius:7px;font-size:12px;text-align:right;background:var(--surface);color:var(--gray-900)"/>`
           : gpInr(p.costRate)}${p.costSource ? `<div style="font-size:10px;color:var(--gray-400)">${esc(p.costSource)}</div>` : ''}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
         <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
@@ -23315,7 +23339,7 @@ function buildFMSTrain(steps, sheet) {
     const doerNamesJs = String(doerNames||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     return `
       <div class="fms-coach ${isMine ? 'mine' : 'not-mine'}"
-           onclick="${isMine ? `selectFMSStep(${s.id},'${stepNameJs}','${doerNamesJs}')` : ''}"
+           onclick="${isMine ? `selectFMSStep(${s.id},'${jsArg(stepNameJs)}','${jsArg(doerNamesJs)}')` : ''}"
            title="${isMine ? 'Click to view tasks' : 'Not your step'}">
         <div class="fms-coach-num">Step ${s.step_order}</div>
         <div class="fms-coach-name">${esc(s.step_name)}</div>

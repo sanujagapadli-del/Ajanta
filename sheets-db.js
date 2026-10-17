@@ -16,7 +16,11 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const alasql = require('alasql');
+// alasql was dropped from package.json (2026-10-17 audit: it pulled in react-native / shell-quote
+// with critical advisories). Production runs on MySQL; this Sheets fallback needs `npm i alasql`.
+let alasql;
+try { alasql = require('alasql'); }
+catch (e) { throw new Error('sheets-db fallback needs alasql — set DB_HOST for MySQL, or run: npm i alasql'); }
 const bcrypt = require('bcryptjs');
 const { google } = require('googleapis');
 

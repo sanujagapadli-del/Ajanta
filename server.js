@@ -602,8 +602,23 @@ function getTable(type) {
 // fragments, column names, driver-specific messages) to the client, unlike
 // a raw `sendServerError(res, err)`.
 function sendServerError(res, err) {
-  console.error(err);
+  const rq = res.req || {};
+  console.error(`[500] ${rq.method || ''} ${rq.originalUrl || rq.url || ''} user=${rq.session ? rq.session.userId : '-'}`, err);
   res.status(500).json({ error: 'Something went wrong. Please try again.' });
+}
+
+// Runs fn(conn) in one MySQL transaction — all of its writes land, or none.
+async function withTx(fn) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const out = await fn(conn);
+    await conn.commit();
+    return out;
+  } catch (e) {
+    try { await conn.rollback(); } catch (_) { /* connection already gone */ }
+    throw e;
+  } finally { conn.release(); }
 }
 
 // Enforce that only an assigned "doer" for this step (or an admin) can act
@@ -774,6 +789,13 @@ app.get('/api/drive-file/:fileId', requireAuth, async (req, res) => {
   try {
     const drive = await getDriveClient();
     const meta = await drive.files.get({ fileId: req.params.fileId, fields: 'name,mimeType', supportsAllDrives: true });
+    // Sensitive uploads are recognised by the name they were saved under:
+    // employee papers ("emp-<id>-…") need the Employees page, dealer KYC
+    // ("<dealer>-kyc-<type>-…") needs Dealer access. Everything else
+    // (task proofs, bills, product photos) stays open to logged-in staff.
+    const fname = String(meta.data.name || '');
+    if (/^emp-\d+-/.test(fname) && !(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to this file' });
+    if (/-kyc-(aadhar|pan|gst|shop)-\d+\.jpg$/.test(fname) && !(await canAccessDealers(req))) return res.status(403).json({ error: 'No access to this file' });
     const resp = await drive.files.get(
       { fileId: req.params.fileId, alt: 'media', supportsAllDrives: true },
       { responseType: 'stream' }
@@ -1179,12 +1201,50 @@ async function addBespokeFmsStats(result, hodDept, collectPending, today) {
 // ══════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════
+// Failed logins are counted in MySQL, not only in memory — on Vercel every
+// request can land on a fresh instance, so the in-memory limiter alone can be
+// bypassed by spreading guesses. 10 wrong passwords per login ID or 30 per IP
+// in 15 minutes locks that key until the window passes.
+const LOGIN_FAIL_WINDOW_MIN = 15, LOGIN_FAIL_MAX_ID = 10, LOGIN_FAIL_MAX_IP = 30;
+let _loginFailsReady = null;
+function loginFailsTable() {
+  if (!_loginFailsReady) _loginFailsReady = db.query(`CREATE TABLE IF NOT EXISTS login_failures (
+      id INT AUTO_INCREMENT PRIMARY KEY, fail_key VARCHAR(255) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_key_time (fail_key, created_at))`)
+    .catch(e => { _loginFailsReady = null; throw e; });
+  return _loginFailsReady;
+}
+// Without 'trust proxy', req.ip on Vercel is the proxy's address (shared by
+// everyone); Vercel puts the real caller in x-real-ip and overwrites any
+// value the client sends.
+const loginClientIp = req => String((process.env.VERCEL && req.headers['x-real-ip']) || req.ip || '').slice(0, 60);
+async function loginLocked(email, ip) {
+  try {
+    await loginFailsTable();
+    const [[r]] = await db.query(`SELECT SUM(fail_key=?) AS byId, SUM(fail_key=?) AS byIp FROM login_failures
+      WHERE fail_key IN (?, ?) AND created_at > DATE_SUB(NOW(), INTERVAL ${LOGIN_FAIL_WINDOW_MIN} MINUTE)`,
+      [`id:${email}`, `ip:${ip}`, `id:${email}`, `ip:${ip}`]);
+    return Number(r.byId) >= LOGIN_FAIL_MAX_ID || Number(r.byIp) >= LOGIN_FAIL_MAX_IP;
+  } catch (e) { console.error('login lock check failed:', e.message); return false; }
+}
+async function loginFailed(email, ip) {
+  try {
+    await loginFailsTable();
+    await db.query('INSERT INTO login_failures (fail_key) VALUES (?), (?)', [`id:${email}`, `ip:${ip}`]);
+    if (Math.random() < 0.05) await db.query('DELETE FROM login_failures WHERE created_at < DATE_SUB(NOW(), INTERVAL 1 DAY)');
+  } catch (e) { console.error('login failure log failed:', e.message); }
+}
+
 app.post('/api/login',
   rateLimit(req => `login:${req.ip}`, 20, 5 * 60 * 1000),
   rateLimit(req => `login:${(req.body?.email || '').toLowerCase()}`, 10, 5 * 60 * 1000),
   async (req, res) => {
   try {
     const { email, password, name } = req.body;
+    const failKeyId = String(email || '').trim().toLowerCase().slice(0, 200);
+    if (await loginLocked(failKeyId, loginClientIp(req))) {
+      return res.status(429).json({ error: `Too many wrong passwords — please wait ${LOGIN_FAIL_WINDOW_MIN} minutes and try again.` });
+    }
 
     let [rows] = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
 
@@ -1199,7 +1259,10 @@ app.post('/api/login',
     // Narrow to the accounts whose password actually matches before deciding.
     let matches = rows.filter(r => checkPassword(password, r.password).ok);
 
-    if (!matches.length) return res.status(401).json({ error: 'Invalid email or password' });
+    if (!matches.length) {
+      await loginFailed(failKeyId, loginClientIp(req));
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
 
     if (matches.length > 1) {
       if (name && name.trim()) {
@@ -1219,7 +1282,7 @@ app.post('/api/login',
 
     // Legacy plaintext row → migrate to a bcrypt hash now that we know the real password.
     if (check.legacy) {
-      try { await db.query('UPDATE users SET password=? WHERE id=?', [hashPassword(password), user.id]); } catch(_) {}
+      try { await db.query('UPDATE users SET password=? WHERE id=?', [hashPassword(password), user.id]); } catch(e) { console.error('Password re-hash failed:', e.message); }
     }
 
     const token = issueLoginCookie(res, user);
@@ -1230,6 +1293,16 @@ app.post('/api/login',
 app.post('/api/logout', (req, res) => {
   res.clearCookie('token');
   res.json({ success: true });
+});
+
+// "Log out on all devices" — e.g. after a lost phone. Every login cookie
+// issued before now stops working (same check as an admin sign-out).
+app.post('/api/me/signout-all', requireAuth, async (req, res) => {
+  try {
+    await db.query('UPDATE users SET force_logout_at=NOW() WHERE id=?', [req.session.userId]);
+    res.clearCookie('token');
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
 });
 
 app.post('/api/sync-db', requireAuth, async (req, res) => {
@@ -1258,7 +1331,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
     try {
       const [pa] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
       rawAccess = pa[0]?.page_access;
-    } catch(e) {}
+    } catch(e) { console.error('page_access read (me) failed:', e.message); }
     rows[0].page_access = parsePageAccess(rawAccess, rows[0].role);
     // Salesman profit center: a salesman with a salary set sees his own row on
     // the Gross Profit page; pl_viewer (Vishal / Ajay) sees all and sets salaries.
@@ -3340,7 +3413,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
     try {
       const [pa] = await db.query('SELECT id, page_access FROM users');
       accessById = Object.fromEntries(pa.map(r => [r.id, r.page_access]));
-    } catch(e) {}
+    } catch(e) { console.error('page_access read (users) failed:', e.message); }
     // Treat null/empty string as active (1) — existing users before is_active column had '' in sheet
     res.json(rows.map(r => ({
       ...r,
@@ -6251,19 +6324,23 @@ app.put('/api/o2d-fms/dealers/:name/rename', requireAuth, async (req, res) => {
       created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     const [[clash]] = await withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers WHERE LOWER(counter_name)=LOWER(?) AND LOWER(counter_name)<>LOWER(?)', [newName, oldName]));
     if (clash) return res.status(400).json({ error: `"${clash.counter_name}" naam ka dealer pehle se hai` });
-    const [[row]] = await db.query('SELECT counter_name FROM o2d_dealers WHERE LOWER(counter_name)=LOWER(?)', [oldName]);
-    if (row) await db.query('UPDATE o2d_dealers SET counter_name=? WHERE counter_name=?', [newName, row.counter_name]);
-    else await db.query('INSERT INTO o2d_dealers (counter_name) VALUES (?)', [newName]);
-    const move = async (sql, params) => { try { await db.query(sql, params); } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; } };
-    await move('UPDATE o2d_dealer_payments SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
-    await move('UPDATE sales_counters SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
-    await move('UPDATE sales_schedule SET dealer_name=? WHERE LOWER(dealer_name)=LOWER(?)', [newName, oldName]);
-    await move('UPDATE dealer_onboardings SET shop_name=? WHERE LOWER(shop_name)=LOWER(?)', [newName, oldName]);
-    // Old name (and anything that already pointed to it) now means the new one.
-    await db.query('UPDATE o2d_dealer_aliases SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
-    await db.query('DELETE FROM o2d_dealer_aliases WHERE alias_key=?', [newName.toLowerCase()]);
-    await db.query('INSERT INTO o2d_dealer_aliases (alias_key, counter_name, created_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE counter_name=VALUES(counter_name)',
-      [oldName.toLowerCase().slice(0, 191), newName, req.session.userId]);
+    // One transaction: a failure half-way must not leave the dealer renamed
+    // in some tables and not others.
+    await withTx(async conn => {
+      const [[row]] = await conn.query('SELECT counter_name FROM o2d_dealers WHERE LOWER(counter_name)=LOWER(?)', [oldName]);
+      if (row) await conn.query('UPDATE o2d_dealers SET counter_name=? WHERE counter_name=?', [newName, row.counter_name]);
+      else await conn.query('INSERT INTO o2d_dealers (counter_name) VALUES (?)', [newName]);
+      const move = async (sql, params) => { try { await conn.query(sql, params); } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; } };
+      await move('UPDATE o2d_dealer_payments SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
+      await move('UPDATE sales_counters SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
+      await move('UPDATE sales_schedule SET dealer_name=? WHERE LOWER(dealer_name)=LOWER(?)', [newName, oldName]);
+      await move('UPDATE dealer_onboardings SET shop_name=? WHERE LOWER(shop_name)=LOWER(?)', [newName, oldName]);
+      // Old name (and anything that already pointed to it) now means the new one.
+      await conn.query('UPDATE o2d_dealer_aliases SET counter_name=? WHERE LOWER(counter_name)=LOWER(?)', [newName, oldName]);
+      await conn.query('DELETE FROM o2d_dealer_aliases WHERE alias_key=?', [newName.toLowerCase()]);
+      await conn.query('INSERT INTO o2d_dealer_aliases (alias_key, counter_name, created_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE counter_name=VALUES(counter_name)',
+        [oldName.toLowerCase().slice(0, 191), newName, req.session.userId]);
+    });
     res.json({ success: true, name: newName });
   } catch (err) { sendServerError(res, err); }
 });
@@ -7441,9 +7518,27 @@ app.post('/api/tally/push', async (req, res) => {
     const rows = b.rows.slice(0, 5000).map((r, i) => [tab, batch, offset + i, JSON.stringify((Array.isArray(r) ? r : []).map(v => v == null ? '' : String(v)))]);
     if (rows.length) await db.query('INSERT INTO tally_rows (tab, batch_id, idx, data) VALUES ? ON DUPLICATE KEY UPDATE data=VALUES(data)', [rows]);
     if (part === parts - 1) {
+      // Only switch to the new copy when it is complete and looks sane — a
+      // half-sent or broken export must not replace good data. Parts arrive
+      // in order, so the last part's offset + length is the full row count.
+      const expected = offset + rows.length;
       const [[c]] = await db.query('SELECT COUNT(*) AS n FROM tally_rows WHERE tab=? AND batch_id=?', [tab, batch]);
-      await db.query('INSERT INTO tally_tabs (tab, batch_id, row_count, synced_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE batch_id=VALUES(batch_id), row_count=VALUES(row_count), synced_at=NOW()', [tab, batch, Number(c.n) || 0]);
-      await db.query('DELETE FROM tally_rows WHERE tab=? AND batch_id<>?', [tab, batch]);
+      const got = Number(c.n) || 0;
+      const [[head]] = await db.query('SELECT data FROM tally_rows WHERE tab=? AND batch_id=? AND idx=0', [tab, batch]);
+      const [[prev]] = await db.query('SELECT row_count FROM tally_tabs WHERE tab=?', [tab]);
+      let reject = '';
+      if (got !== expected) reject = `incomplete push (${got} of ${expected} rows arrived)`;
+      else if (!head || !JSON.parse(head.data).some(v => String(v).trim())) reject = 'header row is empty';
+      else if (prev && prev.row_count > 50 && got < prev.row_count * 0.1 && !b.allowShrink) reject = `only ${got} rows (last time ${prev.row_count}) — looks like a broken export`;
+      if (reject) {
+        await db.query('DELETE FROM tally_rows WHERE tab=? AND batch_id=?', [tab, batch]);
+        console.error(`Tally push ${tab} rejected:`, reject);
+        return res.status(409).json({ error: `${tab}: ${reject} — old data kept` });
+      }
+      await withTx(async conn => {
+        await conn.query('INSERT INTO tally_tabs (tab, batch_id, row_count, synced_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE batch_id=VALUES(batch_id), row_count=VALUES(row_count), synced_at=NOW()', [tab, batch, got]);
+        await conn.query('DELETE FROM tally_rows WHERE tab=? AND batch_id<>?', [tab, batch]);
+      });
       if (tab === 'Sheet1') _billsReceivableCache = null;
     }
     res.json({ success: true });
@@ -8849,6 +8944,17 @@ async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
   });
   if (!targetRows.length) return { rowsUpdated: 0 };
 
+  // Received Qty: a real number, and more than ordered only when confirmed
+  // (a typo like 104 for 24 otherwise flows straight into stock).
+  if (body.receivedQty !== undefined && body.receivedQty !== '') {
+    const rq = Number(body.receivedQty);
+    if (!Number.isFinite(rq) || rq < 0) return { badQty: true };
+    if (!body.confirmOver) {
+      const over = targetRows.map(rn => Number(keyRows[rn - PURCHASE_DATA_START_ROW][colToIdx('G') - bOffset]) || 0).filter(q => q > 0 && rq > q);
+      if (over.length) return { overOrdered: Math.max(...over) };
+    }
+  }
+
   const now = sfmsDateToSerial(new Date());
   const defaultStatus = body.status || 'Yes';
   const batchData = [];
@@ -8877,7 +8983,9 @@ app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req,
     const stepNum = parseInt(req.params.stepNum, 10);
     if (!(await assertIsStepDoer(res, 'purchase_step_doers', stepNum, req.session.userId, req.session.role))) return;
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    const { rowsUpdated } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, req.body);
+    const { rowsUpdated, badQty, overOrdered } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, req.body);
+    if (badQty) return res.status(400).json({ error: 'Received Qty must be a number (0 or more)' });
+    if (overOrdered) return res.status(409).json({ needsConfirm: true, orderedQty: overOrdered, error: `Received Qty ${Number(req.body.receivedQty)} is more than the ordered qty (${overOrdered})` });
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
     if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under PO ${poNumber}` });
     res.json({ success: true, rowsUpdated });
@@ -9267,7 +9375,9 @@ app.post('/api/vendor/update', requireAuth, async (req, res) => {
       const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
       await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
     } catch (e) { sheetError = e.message; console.error('Vendor update sheet write failed:', e.message); }
-    res.json({ success: true, sheetError });
+    // The update is saved in the app either way; only the sheet copy may lag.
+    // The internal error text stays in the log, not with the outside vendor.
+    res.json({ success: true, sheetSynced: !sheetError });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -9331,7 +9441,8 @@ app.post('/api/purchase-fms/vendor-logins', requireAuth, requireAdmin, async (re
     const password = String(req.body.password || '');
     if (!vendorName) return res.status(400).json({ error: 'Vendor name missing' });
     if (!/^\S+@\S+\.\S+$/.test(email) && !/^[a-z0-9._-]{3,}$/.test(email)) return res.status(400).json({ error: 'Enter a login ID (email or simple username)' });
-    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // Vendors are outside the company and log in from anywhere — longer minimum.
+    if (password.length < 10) return res.status(400).json({ error: 'Password must be at least 10 characters' });
     const [existing] = await withVendorTables(() => db.query("SELECT id FROM users WHERE role='vendor' AND vendor_name=?", [vendorName]));
     const [clash] = await db.query('SELECT id FROM users WHERE LOWER(email)=? AND id<>?', [email, existing[0] ? existing[0].id : 0]);
     if (clash.length) return res.status(400).json({ error: 'That login ID is already used by another account' });
@@ -12123,7 +12234,9 @@ const leadMediaFor = (url, fileName) => {
   return isPdf ? { type: 'document', url, mimetype: 'application/pdf', fileName } : { type: 'image', url };
 };
 // Several messages to one number, in order (parallel sends can arrive shuffled).
-function sendWhatsAppSequence(mobile, items, label) {
+// Resolves to { ok, error } (never rejects). `onDone` runs after the last
+// message, inside the same waitUntil, so callers can record the real result.
+function sendWhatsAppSequence(mobile, items, label, onDone) {
   const p = (async () => {
     for (const it of items) {
       try { await sendWhatsApp(mobile, it.text || '', it.media || null); }
@@ -12133,10 +12246,16 @@ function sendWhatsAppSequence(mobile, items, label) {
         await sendWhatsApp(mobile, it.text || '', it.media || null);
       }
     }
-  })().catch(e => console.error(`WhatsApp (${label}) failed:`, e.message));
+    return { ok: true };
+  })().catch(e => { console.error(`WhatsApp (${label}) failed:`, e.message); return { ok: false, error: e.message }; })
+    .then(async r => { if (onDone) { try { await onDone(r); } catch (e) { console.error(`WhatsApp (${label}) result save failed:`, e.message); } } return r; });
   vercelWaitUntil(p);
   return p;
 }
+// Welcome kit outcome on the onboarding row: on failure the "sent" time is
+// cleared and the note says why, so the page shows it as not delivered.
+const welcomeResultSaver = id => r => r.ok ? null
+  : db.query('UPDATE dealer_onboardings SET welcome_sent_at=NULL, welcome_note=? WHERE id=?', [`FAILED: ${String(r.error || '').slice(0, 200)}`, id]);
 // The catalogue is the latest one uploaded on the Price List & Catalogue page.
 // Those files are private; the one we send gets an "anyone with the link"
 // permission (it goes to dealers anyway) so the WhatsApp gateway can fetch it.
@@ -12539,10 +12658,10 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
       const s = await getLeadSettings();
       const [[o]] = await db.query('SELECT * FROM dealer_onboardings WHERE id=?', [r.insertId]);
       const cats = await getWelcomeCatalogues().catch(e => { console.warn('catalogue share failed:', e.message); return []; });
-      sendWhatsAppSequence(mobile, dealerWelcomeMessages(o, s, cats), `dealer-welcome ${code}`);
-      welcome = 'sent';
       await db.query('UPDATE dealer_onboardings SET welcome_sent_at=NOW(), welcome_note=? WHERE id=?',
         [[s.serviceNumber && 'service no', cats.length && `${cats.length} catalogue`, s.warrantyUrl && 'warranty', (s.termsUrl || s.termsText) && 'terms', s.bankDetails && 'bank', s.qrUrl && 'QR'].filter(Boolean).join(', ') || 'welcome text only', r.insertId]);
+      sendWhatsAppSequence(mobile, dealerWelcomeMessages(o, s, cats), `dealer-welcome ${code}`, welcomeResultSaver(r.insertId));
+      welcome = 'sending';
     }
     res.json({ success: true, id: r.insertId, code, welcome });
   } catch (err) {
@@ -12566,9 +12685,9 @@ app.post('/api/dealer-onboarding/:id/welcome', requireAuth, async (req, res) => 
     const [[o]] = await withLeadTables(() => db.query('SELECT * FROM dealer_onboardings WHERE id=?', [req.params.id]));
     if (!o) return res.status(404).json({ error: 'Not found' });
     const s = await getLeadSettings();
-    const cats = await getWelcomeCatalogues().catch(() => []);
-    sendWhatsAppSequence(o.mobile, dealerWelcomeMessages(o, s, cats), `dealer-welcome ${o.code}`);
-    await db.query('UPDATE dealer_onboardings SET welcome_sent_at=NOW() WHERE id=?', [o.id]);
+    const cats = await getWelcomeCatalogues().catch(e => { console.warn('catalogue share failed:', e.message); return []; });
+    await db.query("UPDATE dealer_onboardings SET welcome_sent_at=NOW(), welcome_note=IF(welcome_note LIKE 'FAILED:%', 'resent', welcome_note) WHERE id=?", [o.id]);
+    sendWhatsAppSequence(o.mobile, dealerWelcomeMessages(o, s, cats), `dealer-welcome ${o.code}`, welcomeResultSaver(o.id));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -13559,19 +13678,19 @@ app.post('/api/samples', requireAuth, async (req, res) => {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
     const n = await claimNextSeqValue('smp_code', 1);
     const code = `SMP-${String(n).padStart(4, '0')}`;
-    const [claim] = await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ? AND current_stock >= ?', [qty, date, item.item_code, qty]);
-    if (!claim.affectedRows) return res.status(400).json({ error: `Not enough stock — only ${item.current_stock} ${item.uom || ''} available` });
     const dealer = String(b.dealerName || '').trim().slice(0, 255), purpose = String(b.purpose || '').trim().slice(0, 255);
-    try {
-      await withStockTxnTable(() => db.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
-        [date, 'OUT', item.item_code, item.description, qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '']));
-      const [r] = await db.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+    await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1')); // table must exist before the transaction
+    const id = await withTx(async conn => {
+      const [claim] = await conn.query('UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ? AND current_stock >= ?', [qty, date, item.item_code, qty]);
+      if (!claim.affectedRows) return null;
+      await conn.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
+        [date, 'OUT', item.item_code, item.description, qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '']);
+      const [r] = await conn.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
         [code, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
-      res.json({ success: true, id: r.insertId, code });
-    } catch (e) {
-      await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?', [qty, item.item_code]);
-      throw e;
-    }
+      return r.insertId;
+    });
+    if (!id) return res.status(400).json({ error: `Not enough stock — only ${item.current_stock} ${item.uom || ''} available` });
+    res.json({ success: true, id, code });
   } catch (err) { sendServerError(res, err); }
 });
 // Outcome: how many came back (stock IN); the remainder stays with the dealer.
@@ -13932,11 +14051,13 @@ async function waItems(c, greet, docCache) {
 async function waCreateCampaign({ title, message, docIds, imageUrl, audience, city, names, source, dripId, by }) {
   await waTables();
   const people = await waAudience(audience, city, names);
-  const [r] = await db.query(`INSERT INTO wa_campaigns (title, message, doc_ids, image_url, audience, city, source, drip_id, total, status, created_by)
+  return withTx(async conn => {
+  const [r] = await conn.query(`INSERT INTO wa_campaigns (title, message, doc_ids, image_url, audience, city, source, drip_id, total, status, created_by)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [String(title || 'Message').slice(0, 255), message || '', waDocIds(docIds).join(',') || null, imageUrl || null,
       audience, city || null, source || 'manual', dripId || null, people.length, people.length ? 'queued' : 'done', by || null]);
-  if (people.length) await db.query('INSERT INTO wa_campaign_recipients (campaign_id, name, phone) VALUES ?', [people.map(p => [r.insertId, String(p.greet || p.name || '').slice(0, 255), p.phone])]);
+  if (people.length) await conn.query('INSERT INTO wa_campaign_recipients (campaign_id, name, phone) VALUES ?', [people.map(p => [r.insertId, String(p.greet || p.name || '').slice(0, 255), p.phone])]);
   return { id: r.insertId, total: people.length };
+  });
 }
 async function waRefreshCampaign(id) {
   await db.query(`UPDATE wa_campaigns c SET
@@ -13996,7 +14117,10 @@ function waKick() {
     }, 200);
     return;
   }
-  const p = fetch(`${process.env.APP_URL}/api/wa/drain`, { method: 'POST', headers: { 'x-wa-drain': waDrainSecret() }, signal: AbortSignal.timeout(4000) }).catch(() => {});
+  const p = fetch(`${process.env.APP_URL}/api/wa/drain`, { method: 'POST', headers: { 'x-wa-drain': waDrainSecret() }, signal: AbortSignal.timeout(4000) })
+    .then(r => { if (!r.ok) console.error('WA kick: drain answered', r.status); })
+    // A timeout is expected — the drain keeps running after we stop waiting.
+    .catch(e => { if (e.name !== 'TimeoutError' && e.name !== 'AbortError') console.error('WA kick failed:', e.message); });
   vercelWaitUntil(p);
 }
 app.post('/api/wa/drain', async (req, res) => {
@@ -14175,6 +14299,14 @@ async function collectBills() {
   const [dealers] = await withDealerTables(() => db.query("SELECT counter_name, owner_name, phone FROM o2d_dealers"));
   const alias = await getDealerAliasMap();
   const byKey = Object.fromEntries(dealers.map(d => [d.counter_name.trim().toLowerCase(), d]));
+  // Tally writes names a little differently ("M/s. Sharma Elect." vs
+  // "Sharma Elect") — second try on a punctuation/space-free key, used only
+  // when exactly one dealer has that key so a reminder never goes to the
+  // wrong number.
+  const loose = n => String(n || '').toLowerCase().replace(/^\s*m\s*\/\s*s\.?\s*/, '').replace(/[^\p{L}\p{N}]+/gu, '');
+  const byLoose = {};
+  dealers.forEach(d => { const k = loose(d.counter_name); if (k) byLoose[k] = byLoose[k] === undefined ? d : null; });
+  Object.entries(alias).forEach(([a, target]) => { const k = loose(a), d = byKey[String(target).toLowerCase()]; if (k && d && byLoose[k] === undefined) byLoose[k] = d; });
   const out = [];
   for (const b of bills) {
     const d = parseAnyDate(b.billDate);
@@ -14182,7 +14314,7 @@ async function collectBills() {
     const ymd = toIsoDate(d);
     const days = Math.round((t0 - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
     const k = b.party.trim().toLowerCase();
-    const dealer = byKey[k] || (alias[k] && byKey[alias[k].toLowerCase()]) || null;
+    const dealer = byKey[k] || (alias[k] && byKey[alias[k].toLowerCase()]) || byLoose[loose(k)] || null;
     out.push({ key: collectKey(b), party: b.party.trim(), billRef: b.billRef, billDate: ymd, amount: gpNum(b.amount), days,
       phone: dealer && dealer.phone ? dealer.phone : '', owner: dealer && dealer.owner_name ? dealer.owner_name : '' });
   }
@@ -14214,13 +14346,15 @@ async function collectSendReminders() {
   const groups = Object.values(byParty);
   if (!groups.length) return 0;
   const bank = (await getLeadSettings()).bankDetails || '';
-  const [c] = await db.query("INSERT INTO wa_campaigns (title, message, audience, source, total, status) VALUES (?, '', 'selected', 'collect', ?, 'queued')",
-    [`💰 Payment reminder (15 din) — ${waYmd().split('-').reverse().join('/')}`, groups.length]);
-  for (const list of groups) {
-    const f = list[0];
-    await db.query('INSERT INTO wa_campaign_recipients (campaign_id, name, phone, message) VALUES (?,?,?,?)', [c.insertId, f.party, sfmsNormalizeMobile(f.phone) || f.phone, collectMsg(f.party, f.owner, list, bank)]);
-    for (const b of list) await db.query("INSERT IGNORE INTO collect_actions (bill_key, step, party, bill_ref, outcome, campaign_id) VALUES (?,'msg15',?,?,'WhatsApp queued',?)", [b.key, b.party, b.billRef, c.insertId]);
-  }
+  await withTx(async conn => {
+    const [c] = await conn.query("INSERT INTO wa_campaigns (title, message, audience, source, total, status) VALUES (?, '', 'selected', 'collect', ?, 'queued')",
+      [`💰 Payment reminder (15 din) — ${waYmd().split('-').reverse().join('/')}`, groups.length]);
+    for (const list of groups) {
+      const f = list[0];
+      await conn.query('INSERT INTO wa_campaign_recipients (campaign_id, name, phone, message) VALUES (?,?,?,?)', [c.insertId, f.party, sfmsNormalizeMobile(f.phone) || f.phone, collectMsg(f.party, f.owner, list, bank)]);
+      for (const b of list) await conn.query("INSERT IGNORE INTO collect_actions (bill_key, step, party, bill_ref, outcome, campaign_id) VALUES (?,'msg15',?,?,'WhatsApp queued',?)", [b.key, b.party, b.billRef, c.insertId]);
+    }
+  });
   waKick();
   return groups.length;
 }
