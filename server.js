@@ -10166,13 +10166,21 @@ app.post('/api/cheque-fms/import-old', requireAuth, requireAdmin, async (req, re
 // 2026-10-13 (client voice note): Diary Entry and Ownership Check are two
 // separate steps — every later step moved up by one (doers migrated once,
 // replMigrateStepsV2).
+// 2026-10-17 (client): the repair path gets Service-FMS-style spare control —
+// Spare Issue (Niranjan) before the mechanic, then Spare Takeout (used /
+// returned) and Niranjan's Spare Check after the repair. `n` is the stable id
+// saved in replacement_step_doers (so the new steps are 14-16, no renumbering);
+// the array order is the flow order and `no` (array position) is what's shown.
 const REPL_STEPS = [
   { n: 1,  key: 'diary',    label: 'Diary Entry',                   doer: 'Priyanka', tatH: 4 },
   { n: 2,  key: 'check',    label: 'Ownership Check',               doer: 'Priyanka', tatH: 4 },
   { n: 3,  key: 'category', label: 'Decide Category',               doer: 'Priyanka', tatH: 4 },
   { n: 4,  key: 'warranty', label: 'Warranty & Charges',            doer: 'Priyanka / Aziz', tatH: 8 },
   { n: 5,  key: 'assign',   label: 'Give to Mechanic',              doer: 'Priyanka', tatH: 4 },
+  { n: 14, key: 'spareissue', label: 'Spare Issue to Mechanic',     doer: 'Niranjan', tatH: 4 },
   { n: 6,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tatH: 48 },
+  { n: 15, key: 'takeout',  label: 'Spare Takeout (Used / Return)', doer: 'Mechanic', tatH: 4 },
+  { n: 16, key: 'sparecheck', label: 'Spare Check (Niranjan)',      doer: 'Niranjan', tatH: 4 },
   { n: 7,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tatH: 6 },
   { n: 8,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tatH: 4 },
   { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tatH: 4 },
@@ -10183,6 +10191,7 @@ const REPL_STEPS = [
   // staff who took them (client, 2026-10-13).
   { n: 13, key: 'cashstaff', label: 'Cash from Staff',              doer: 'Accountant', tatH: 24 }
 ];
+REPL_STEPS.forEach((s, i) => { s.no = i + 1; });
 const REPL_N = Object.fromEntries(REPL_STEPS.map(s => [s.key, s.n]));
 // 'Credit Note' = goods returned (shown as "Maal Wapas (Return)"); value kept for old records.
 // 'Out of Warranty' (client, 2026-10-13): our product, out of warranty — rate
@@ -10256,7 +10265,12 @@ async function ensureReplCols() {
   await addMissingColumns('replacements', [['return_condition', 'VARCHAR(20)'], ['rate_told_to', 'VARCHAR(20)'], ['diary_at', 'DATETIME'], ['diary_by', 'INT'],
     ['salesman_user_id', 'INT'], ['salesman_name', 'VARCHAR(255)'],
     ['cash_staff_name', 'VARCHAR(255)'], ['cash_staff_amount', 'DECIMAL(10,2)'], ['cash_staff_at', 'DATETIME'], ['cash_staff_by', 'INT'],
-    ['exchange_old', 'VARCHAR(10)']]);
+    ['exchange_old', 'VARCHAR(10)'],
+    // Spare control on the repair path (2026-10-17): JSON [{ item, qty }] issued,
+    // JSON [{ item, qty, used, returned }] after the repair, then Niranjan's check.
+    ['spare_issue_items', 'TEXT'], ['spare_issue_remark', 'VARCHAR(500)'], ['spare_issue_at', 'DATETIME'], ['spare_issue_by', 'INT'],
+    ['takeout_items', 'TEXT'], ['takeout_remark', 'VARCHAR(500)'], ['takeout_at', 'DATETIME'], ['takeout_by', 'INT'],
+    ['spare_check_status', 'VARCHAR(10)'], ['spare_check_remark', 'VARCHAR(500)'], ['spare_check_at', 'DATETIME'], ['spare_check_by', 'INT']]);
   await replMigrateStepsV2();
   _replColsOk = true;
 }
@@ -10304,6 +10318,9 @@ async function replUserAccess(req) {
   return { isAdmin, mySteps, seeAll: isAdmin || mySteps.size > 0, pageAccess, doersMap: map };
 }
 
+function replJson(v) { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+// "R-12 (D-45)" — the Diary No. shown in brackets after the code (client, 2026-10-17).
+function replCodeLabel(r) { return r.diary_no ? `${r.code} (${r.diary_no})` : r.code; }
 function replStage(r) {
   if (r.cancelled_at) return 'cancelled';
   if (!r.diary_at && !r.check_at) return 'diary'; // older records did both in one step
@@ -10327,7 +10344,15 @@ function replStage(r) {
     if (declined) return 'handover';
     if (!declined) {
       if (!r.assigned_at) return 'assign';
-      if (!r.repaired_at) return 'repair';
+      // Repaired before the spare steps existed (no Spare Issue) → straight on to Inform.
+      const legacy = r.repaired_at && !r.spare_issue_at;
+      if (!legacy) {
+        if (!r.spare_issue_at) return 'spareissue';
+        if (!r.repaired_at) return 'repair';
+        // No spare issued → nothing to take out; Niranjan still checks the product.
+        if (!r.takeout_at && replJson(r.spare_issue_items).length) return 'takeout';
+        if (!r.spare_check_at) return 'sparecheck';
+      }
     }
   }
   if (!r.informed_at) return 'inform';
@@ -10348,8 +10373,9 @@ function replTask(r, doersMap) {
   if (!step) return null;
   const base = {
     diary: r.created_at, check: r.diary_at || r.created_at, category: r.check_at, warranty: r.category_at, assign: r.warranty_at,
-    repair: r.assigned_at, exchange: r.category_at,
-    inform: r.repaired_at || r.exchange_at || r.warranty_at,
+    spareissue: r.assigned_at, repair: r.spare_issue_at || r.assigned_at, takeout: r.repaired_at, sparecheck: r.takeout_at || r.repaired_at,
+    exchange: r.category_at,
+    inform: r.spare_check_at || r.repaired_at || r.exchange_at || r.warranty_at,
     bin: r.category_at, cn: r.bin_at, cnsend: r.cn_at,
     handover: r.ours === 'No' ? r.check_at : (r.informed_at || r.warranty_at),
     cashstaff: r.delivered_at
@@ -10358,7 +10384,9 @@ function replTask(r, doersMap) {
   let doers = doersMap[step.n] || [];
   // Repair belongs to the mechanic it was handed to.
   if (stage === 'repair' && r.mechanic_user_id) doers = [{ id: r.mechanic_user_id, name: r.mechanic_name || '' }];
-  return { key: stage, n: step.n, label: step.label, planned: replAddHours(base, hours), doers, doer: step.doer,
+  // Takeout: the mechanic (returns the spares) or the step's own doers.
+  if (stage === 'takeout' && r.mechanic_user_id && !doers.some(d => Number(d.id) === Number(r.mechanic_user_id))) doers = [{ id: r.mechanic_user_id, name: r.mechanic_name || '' }, ...doers];
+  return { key: stage, n: step.n, no: step.no, label: step.label, planned: replAddHours(base, hours), doers, doer: step.doer,
     returning: stage === 'handover' && (r.ours === 'No' || (r.warranty === 'Out of Warranty' && r.customer_agreed === 'No')) };
 }
 
@@ -10367,7 +10395,7 @@ const REPL_SELECT = `SELECT r.*, DATE_FORMAT(r.created_at,'%Y-%m-%d %H:%i:%s') A
 function replOut(r, doersMap) {
   const num = v => v == null ? null : Number(v);
   return {
-    id: r.id, code: r.code, source: r.source, createdAt: r.created_at, createdByName: r.created_by_name || '',
+    id: r.id, code: r.code, codeLabel: replCodeLabel(r), source: r.source, createdAt: r.created_at, createdByName: r.created_by_name || '',
     partyName: r.party_name, customerMobile: r.customer_mobile || '', items: r.items || '', condition: r.product_condition || '',
     productType: r.product_type || '', defect: r.defect || '', photoUrl: r.photo_url || '', broughtBy: r.brought_by || '',
     remark: r.remark || '', diaryNo: r.diary_no || '', diaryAt: r.diary_at || null, ours: r.ours || '', notOursReason: r.not_ours_reason || '', checkAt: r.check_at,
@@ -10375,6 +10403,9 @@ function replOut(r, doersMap) {
     warranty: r.warranty || '', owReason: r.ow_reason || '', charges: num(r.charges), customerAgreed: r.customer_agreed || '', warrantyAt: r.warranty_at,
     mechanicUserId: r.mechanic_user_id, mechanicName: r.mechanic_name || '', leadDays: num(r.lead_days), assignedAt: r.assigned_at,
     repairedAt: r.repaired_at, repairRemark: r.repair_remark || '',
+    spareIssueItems: replJson(r.spare_issue_items), spareIssueRemark: r.spare_issue_remark || '', spareIssueAt: r.spare_issue_at || null,
+    takeoutItems: replJson(r.takeout_items), takeoutRemark: r.takeout_remark || '', takeoutAt: r.takeout_at || null,
+    spareCheckStatus: r.spare_check_status || '', spareCheckRemark: r.spare_check_remark || '', spareCheckAt: r.spare_check_at || null,
     exchangeItem: r.exchange_item || '', exchangeOld: r.exchange_old || '', exchangeAt: r.exchange_at,
     informedAt: r.informed_at, informRemark: r.inform_remark || '',
     binAt: r.bin_at, binRemark: r.bin_remark || '', returnCondition: r.return_condition || '', rateToldTo: r.rate_told_to || '', cnNo: r.cn_no || '', cnAmount: num(r.cn_amount), cnPhoto: r.cn_photo || '', cnAt: r.cn_at,
@@ -10515,16 +10546,16 @@ function replReceivedMsg(r) {
     + `Thank you / धन्यवाद\nAjanta Appliances / अजंता अप्लायंसेज़`;
 }
 function replSalesmanReadyMsg(r) {
-  return `🔔 ${r.salesman_name || ''} ji,\n\n${r.party_name} ka replacement *${r.code}* (${String(r.items || '').slice(0, 120)}) tayyar hai.\nParty ko bata dein — beat par gaadi jaaye to le jaaye / pick-up kar lein.\nAjanta Appliances`;
+  return `🔔 ${r.salesman_name || ''} ji,\n\n${r.party_name} ka replacement *${replCodeLabel(r)}* (${String(r.items || '').slice(0, 120)}) tayyar hai.\nParty ko bata dein — beat par gaadi jaaye to le jaaye / pick-up kar lein.\nAjanta Appliances`;
 }
 function replOtpMsg(r, otp) {
-  return `🙏 नमस्ते ${r.party_name} जी,\n\nAjanta Appliances से आपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) आपको दिया जा रहा है।\n📋 Replacement No: *${r.code}*\n\nप्रोडक्ट मिलने की पुष्टि के लिए यह OTP देने वाले व्यक्ति को बताएं: *${otp}*\n\nधन्यवाद 🙏\nAjanta Appliances`;
+  return `🙏 नमस्ते ${r.party_name} जी,\n\nAjanta Appliances से आपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) आपको दिया जा रहा है।\n📋 Replacement No: *${replCodeLabel(r)}*\n\nप्रोडक्ट मिलने की पुष्टि के लिए यह OTP देने वाले व्यक्ति को बताएं: *${otp}*\n\nधन्यवाद 🙏\nAjanta Appliances`;
 }
 function replDeliveredMsg(r) {
-  return `✅ नमस्ते ${r.party_name} जी,\n\nआपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) आपको मिल गया है।\n📋 Replacement No: *${r.code}*\n\nAjanta Appliances पर भरोसा करने के लिए धन्यवाद 🙏`;
+  return `✅ नमस्ते ${r.party_name} जी,\n\nआपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) आपको मिल गया है।\n📋 Replacement No: *${replCodeLabel(r)}*\n\nAjanta Appliances पर भरोसा करने के लिए धन्यवाद 🙏`;
 }
 function replReadyMsg(r) {
-  return `🙏 नमस्ते ${r.party_name} जी,\n\nआपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) तैयार है।\n📋 Replacement No: *${r.code}*\n\nहमारी गाड़ी आपके रूट पर आते ही इसे पहुँचा दिया जाएगा, या आप इसे शॉप से ले सकते हैं।\nAjanta Appliances`;
+  return `🙏 नमस्ते ${r.party_name} जी,\n\nआपका प्रोडक्ट (${String(r.items || '').slice(0, 120)}) तैयार है।\n📋 Replacement No: *${replCodeLabel(r)}*\n\nहमारी गाड़ी आपके रूट पर आते ही इसे पहुँचा दिया जाएगा, या आप इसे शॉप से ले सकते हैं।\nAjanta Appliances`;
 }
 
 app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res) => {
@@ -10540,7 +10571,7 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
     const stage = replStage(r);
     const need = key => {
       if (stage !== key) { fail('This step is not pending any more — please refresh'); return false; }
-      const isMech = key === 'repair' && Number(r.mechanic_user_id) === Number(uid);
+      const isMech = (key === 'repair' || key === 'takeout') && Number(r.mechanic_user_id) === Number(uid);
       if (acc.mySteps.has(REPL_N[key]) || isMech) return true;
       fail('You are not assigned to this step (admin: Replacement FMS → Step Doers)', 403); return false;
     };
@@ -10598,6 +10629,39 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       if (!m) return fail('Mechanic not found');
       await db.query('UPDATE replacements SET mechanic_user_id=?, mechanic_name=?, lead_days=?, assigned_at=NOW(), assigned_by=? WHERE id=?', [mid, m.name, lead, uid, r.id]);
       await logReplEvent(r.id, 'assign', `${m.name} · lead time ${lead} day${lead === 1 ? '' : 's'}`, uid);
+    } else if (action === 'spareissue') {
+      if (!need('spareissue')) return;
+      const rows = (Array.isArray(b.items) ? b.items : []).map(x => ({ item: t(x && x.item, 200), qty: Number(x && x.qty) }))
+        .filter(x => x.item);
+      if (rows.some(x => !(x.qty > 0))) return fail('Har spare ki qty likhein');
+      if (!rows.length && !b.noSpare) return fail('Kaunse spare diye — item aur qty likhein (ya "Koi spare nahi diya" tick karein)');
+      if (rows.length > 30) return fail('Too many rows');
+      const remark = t(b.remark) || null;
+      await db.query('UPDATE replacements SET spare_issue_items=?, spare_issue_remark=?, spare_issue_at=NOW(), spare_issue_by=? WHERE id=?',
+        [JSON.stringify(rows), remark, uid, r.id]);
+      await logReplEvent(r.id, 'spareissue', `${rows.length ? rows.map(x => `${x.item} × ${x.qty}`).join(', ') : 'Koi spare nahi diya'}${r.mechanic_name ? ' → ' + r.mechanic_name : ''}${remark ? ' · ' + remark : ''}`, uid);
+    } else if (action === 'takeout') {
+      if (!need('takeout')) return;
+      const issued = replJson(r.spare_issue_items);
+      const given = Array.isArray(b.items) ? b.items : [];
+      const rows = [];
+      for (const [i, x] of issued.entries()) {
+        const g = given[i] || {};
+        const used = Number(g.used), ret = Number(g.returned);
+        if (g.used === '' || g.used == null || g.returned === '' || g.returned == null || !(used >= 0) || !(ret >= 0)) return fail(`${x.item}: kitne lagaye aur kitne wapas — dono likhein`);
+        if (used + ret !== Number(x.qty)) return fail(`${x.item}: ${x.qty} diye the — lagaye (${used}) + wapas (${ret}) = ${x.qty} hona chahiye`);
+        rows.push({ item: x.item, qty: Number(x.qty), used, returned: ret });
+      }
+      const remark = t(b.remark) || null;
+      await db.query('UPDATE replacements SET takeout_items=?, takeout_remark=?, takeout_at=NOW(), takeout_by=? WHERE id=?', [JSON.stringify(rows), remark, uid, r.id]);
+      await logReplEvent(r.id, 'takeout', `${rows.map(x => `${x.item}: lagaye ${x.used}, wapas ${x.returned}`).join(' · ')}${remark ? ' · ' + remark : ''}`, uid);
+    } else if (action === 'sparecheck') {
+      if (!need('sparecheck')) return;
+      if (!['OK', 'Short'].includes(b.status)) return fail('Wapas aaye spare / product check karke batayein — sab mila ya short?');
+      const remark = t(b.remark);
+      if (b.status === 'Short' && !remark) return fail('Kya short hai — remark likhein');
+      await db.query('UPDATE replacements SET spare_check_status=?, spare_check_remark=?, spare_check_at=NOW(), spare_check_by=? WHERE id=?', [b.status, remark || null, uid, r.id]);
+      await logReplEvent(r.id, 'sparecheck', `${b.status === 'OK' ? 'Spare / product sab mil gaya' : 'Short'}${remark ? ' · ' + remark : ''}`, uid);
     } else if (action === 'repair') {
       if (!need('repair')) return;
       if (!b.tested) return fail('Test the repaired product and tick "Tested OK"');

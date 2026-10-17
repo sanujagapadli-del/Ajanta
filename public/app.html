@@ -21672,7 +21672,12 @@ const REPL_STEP_DEFS = [
   { n: 3,  key: 'category', label: 'Decide Category',               doer: 'Priyanka', tat: '4 hours' },
   { n: 4,  key: 'warranty', label: 'Warranty & Charges',            doer: 'Priyanka / Aziz', tat: '8 hours' },
   { n: 5,  key: 'assign',   label: 'Give to Mechanic',              doer: 'Priyanka', tat: '4 hours' },
+  // 2026-10-17: spare control on the repair path. `n` = stable id (step doers are
+  // saved by it), list order = flow order, `no` = the number shown.
+  { n: 14, key: 'spareissue', label: 'Spare Issue to Mechanic',     doer: 'Niranjan', tat: '4 hours' },
   { n: 6,  key: 'repair',   label: 'Repair & Test',                 doer: 'Mechanic', tat: 'Lead time' },
+  { n: 15, key: 'takeout',  label: 'Spare Takeout (Used / Return)', doer: 'Mechanic', tat: '4 hours' },
+  { n: 16, key: 'sparecheck', label: 'Spare Check (Niranjan)',      doer: 'Niranjan', tat: '4 hours' },
   { n: 7,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tat: '6 hours' },
   { n: 8,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tat: '4 hours' },
   { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tat: '4 hours' },
@@ -21681,13 +21686,21 @@ const REPL_STEP_DEFS = [
   { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tat: '2 days' },
   { n: 13, key: 'cashstaff', label: 'Cash from Staff',              doer: 'Accountant', tat: '1 day' }
 ];
+REPL_STEP_DEFS.forEach((sd, i) => { sd.no = i + 1; sd.disp = `${i + 1}.`; });
+// Display number of a step / task (older cached tasks have no `no`).
+const rplStepNo = t => t.no || ((REPL_STEP_DEFS.find(sd => sd.key === t.key) || {}).no) || t.n;
+// "R-12 (A1-42)" — Diary No. in brackets after the code (client, 2026-10-17).
+const rplCodeLabel = r => r.diaryNo ? `${r.code} (${r.diaryNo})` : String(r.code || '');
 const RPL_STAGE = {
   diary:    { label: 'Diary entry', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
   check:    { label: 'Ownership check', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
   category: { label: 'Category?', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
   warranty: { label: 'Warranty check', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
   assign:   { label: 'To mechanic', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
+  spareissue: { label: 'Spare issue', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
   repair:   { label: 'In repair', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
+  takeout:  { label: 'Spare takeout', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
+  sparecheck: { label: 'Spare check', bg: 'var(--color-purple-bg)', fg: 'var(--color-purple)' },
   exchange: { label: 'Exchange', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
   inform:   { label: 'Inform party', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
   bin:      { label: 'Maal check', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
@@ -21740,7 +21753,7 @@ const rplCatChip = r => r.category ? `<span style="font-size:11px;font-weight:70
 function rplCanDo(r) {
   const t = r.task;
   if (!t) return false;
-  if (t.key === 'repair' && Number(r.mechanicUserId) === Number(ME.id)) return true;
+  if ((t.key === 'repair' || t.key === 'takeout') && Number(r.mechanicUserId) === Number(ME.id)) return true;
   return rplMe.mySteps.includes(t.n);
 }
 function rplSearchMatch(r, q) {
@@ -21759,12 +21772,12 @@ function renderReplQueue() {
     wrap.innerHTML = `<div class="empty">${rplMe.seeAll || rplMe.mySteps.length ? 'Abhi aapke liye koi kaam pending nahi 🎉' : 'Naya product aaye to "+ Replacement Form" bhariye.'}</div>`;
     return;
   }
-  wrap.innerHTML = nonEmpty.map(g => `<div style="padding:14px 16px 4px;font-size:13px;font-weight:800;color:var(--gray-800)">${g.n}. ${esc(g.label)} <span style="color:var(--gray-400);font-weight:600">(${g.items.length})</span></div>
+  wrap.innerHTML = nonEmpty.map(g => `<div style="padding:14px 16px 4px;font-size:13px;font-weight:800;color:var(--gray-800)">${g.no}. ${esc(g.label)} <span style="color:var(--gray-400);font-weight:600">(${g.items.length})</span></div>
     <table style="font-size:12.5px"><thead><tr><th>Repl. No</th><th>Party</th><th>Items</th><th>Category</th><th>Diary</th><th>Planned</th></tr></thead><tbody>
     ${g.items.sort((a, b) => String(a.task.planned).localeCompare(String(b.task.planned))).map(r => {
       const late = rplIsLate(r.task);
       return `<tr onclick="openReplDetail(${r.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
-        <td style="font-weight:600;white-space:nowrap">${esc(r.code)}${entrySubHtml(r.createdAt)}</td>
+        <td style="font-weight:600;white-space:nowrap">${esc(rplCodeLabel(r))}${entrySubHtml(r.createdAt)}</td>
         <td>${esc(r.partyName)}</td>
         <td style="max-width:260px">${esc(r.items)}</td>
         <td>${rplCatChip(r) || '—'}${r.task.returning ? ' <span style="font-size:11px;color:var(--color-danger-text);font-weight:700">↩ Return</span>' : ''}</td>
@@ -21783,7 +21796,7 @@ function renderReplAll() {
   wrap.innerHTML = `<table style="font-size:12.5px">
     <thead><tr><th>Repl. No</th><th>Date</th><th>Party</th><th>Items</th><th>Category</th><th>Diary</th><th>Status</th><th>Pending With</th></tr></thead>
     <tbody>${rows.slice(0, 300).map(r => `<tr onclick="openReplDetail(${r.id})" style="cursor:pointer">
-      <td style="font-weight:600;white-space:nowrap">${esc(r.code)}</td>
+      <td style="font-weight:600;white-space:nowrap">${esc(rplCodeLabel(r))}</td>
       <td style="white-space:nowrap">${fmtDateDMY(r.createdAt)}<div style="font-size:10.5px;color:var(--gray-500)">${fmtTimeOfDay(r.createdAt)}</div></td>
       <td>${esc(r.partyName)}</td>
       <td style="max-width:240px">${esc(r.items)}</td>
@@ -21811,7 +21824,7 @@ function rplRepNow() {
 // Drill rows for a list of records; each opens the record.
 function rplRepItems(list, valueFn, valueColor) {
   return list.map(r => ({
-    title: `${esc(r.code)} · ${esc(r.partyName || '—')}`,
+    title: `${esc(rplCodeLabel(r))} · ${esc(r.partyName || '—')}`,
     sub: [esc(String(r.items || '').slice(0, 80)), r.category ? esc(RPL_CAT_LABEL[r.category] || r.category) : '', esc((RPL_STAGE[r.stage] || {}).label || r.stage || ''),
       r.createdAt ? fmtDateDMY(r.createdAt) : ''].filter(Boolean).join(' · '),
     value: valueFn ? valueFn(r) : undefined,
@@ -21890,9 +21903,9 @@ function renderReplReports() {
     const list = open.filter(r => r.task.key === sd.key).sort((a, b) => String(a.task.planned).localeCompare(String(b.task.planned)));
     const lt = list.filter(r => rplIsLate(r.task)).length;
     const old = list.reduce((m, r) => Math.max(m, age(r)), 0);
-    const row = { cells: [`<span style="font-weight:600">${sd.n}. ${esc(sd.label)}</span>`, esc(stepDoerLabel(sd)), `<span style="color:var(--gray-500)">${esc(sd.tat || '—')}</span>`,
+    const row = { cells: [`<span style="font-weight:600">${sd.no}. ${esc(sd.label)}</span>`, esc(stepDoerLabel(sd)), `<span style="color:var(--gray-500)">${esc(sd.tat || '—')}</span>`,
       `<b>${list.length}</b>`, `<span style="${lt ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-400)'}">${lt}</span>`, list.length ? `${old}d` : '—'] };
-    if (list.length) row.drill = drill('rplStep' + sd.n, `Pending At — ${sd.n}. ${sd.label}`, list, r => `${rplIsLate(r.task) ? '⚠️ ' : ''}${fmtDateDMY(r.task.planned, true)}`);
+    if (list.length) row.drill = drill('rplStep' + sd.n, `Pending At — ${sd.no}. ${sd.label}`, list, r => `${rplIsLate(r.task) ? '⚠️ ' : ''}${fmtDateDMY(r.task.planned, true)}`);
     return row;
   });
 
@@ -22057,7 +22070,7 @@ async function submitNewRepl() {
   btn.disabled = false; btn.textContent = 'Submit';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   closeModal('newReplModal');
-  showToast(`✅ ${r.code} saved — Diary me entry karke sticker lagayein${r.hasMobile ? ' · Diary No. bharte hi dealer ko WhatsApp jayega' : ' · mobile nahi hai, WhatsApp nahi jayega'}`);
+  showToast(`✅ ${rplCodeLabel(r)} saved — Diary me entry karke sticker lagayein${r.hasMobile ? ' · Diary No. bharte hi dealer ko WhatsApp jayega' : ' · mobile nahi hai, WhatsApp nahi jayega'}`);
   if (document.getElementById('page-replacement-fms').classList.contains('active')) loadReplFmsList();
 }
 
@@ -22065,7 +22078,7 @@ async function submitNewRepl() {
 function openReplDetail(id) {
   const r = rplData.find(x => x.id === id);
   if (!r) { showToast('Not found — please refresh', 'error'); return; }
-  document.getElementById('rplTitle').textContent = `${r.code} · ${r.partyName}`;
+  document.getElementById('rplTitle').textContent = `${rplCodeLabel(r)} · ${r.partyName}`;
   document.getElementById('replDetailModal').classList.add('open');
   renderReplDetailBody(r);
   loadReplEvents(r.id);
@@ -22086,6 +22099,38 @@ async function rplMechanicOptions() {
     if (!_rplMechanics.length) { const u = await api('/api/users/roster'); _rplMechanics = Array.isArray(u) ? u.filter(x => +x.is_active !== 0) : []; }
   }
   return _rplMechanics;
+}
+// Spare control on the repair path (client, 2026-10-17) — item names suggested
+// from the Service FMS spare list (Spare Parts Master + ad-hoc items); free text OK.
+let _rplSpareNamesLoaded = false;
+async function rplLoadSpareNames() {
+  if (_rplSpareNamesLoaded) return;
+  _rplSpareNamesLoaded = true;
+  let dl = document.getElementById('rplSpareList');
+  if (!dl) { dl = document.createElement('datalist'); dl.id = 'rplSpareList'; document.body.appendChild(dl); }
+  const [parts, items] = await Promise.all([api('/api/service-fms/spare-parts').catch(() => null), api('/api/service-fms/items').catch(() => null)]);
+  const names = new Set();
+  (Array.isArray(parts) ? parts : []).forEach(p => p && p.name && names.add(String(p.name)));
+  (Array.isArray(items) ? items : []).forEach(n => n && names.add(String(n)));
+  dl.innerHTML = [...names].sort((a, b) => a.localeCompare(b)).map(n => `<option value="${esc(n)}">`).join('');
+}
+const rplSpareRowHtml = () => `<div class="rpl-spare-row" style="display:flex;gap:8px;margin-bottom:8px">
+    <input class="rpl-spare-item" list="rplSpareList" placeholder="Spare ka naam" style="${RPL_INPUT};flex:1;margin:0"/>
+    <input class="rpl-spare-qty" type="number" min="1" value="1" title="Qty" style="${RPL_INPUT};width:70px;margin:0"/></div>`;
+function rplAddSpareRow(id) {
+  const box = document.getElementById(`${id}_spares`);
+  if (box) box.insertAdjacentHTML('beforeend', rplSpareRowHtml());
+}
+// Issued spares (and, once taken out, used / returned) — shown on the repair,
+// check and detail views like Service FMS.
+function rplSparesHtml(r) {
+  if (!r.spareIssueAt) return '';
+  const out = r.takeoutItems || [], iss = r.spareIssueItems || [];
+  if (!iss.length) return `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">🔩 Koi spare nahi diya${r.spareIssueRemark ? ' · ' + esc(r.spareIssueRemark) : ''}</div>`;
+  return `<div style="${RPL_LABEL}">🔩 Spare diye${r.mechanicName ? ' — ' + esc(r.mechanicName) : ''}</div>
+    <table style="font-size:12.5px;margin-bottom:10px"><thead><tr><th>Spare</th><th>Diye</th>${out.length ? '<th>Lagaye</th><th>Wapas</th>' : ''}</tr></thead><tbody>
+    ${iss.map((x, i) => { const o = out[i] || {}; return `<tr><td>${esc(x.item)}</td><td>${esc(x.qty)}</td>${out.length ? `<td>${esc(o.used ?? '—')}</td><td>${esc(o.returned ?? '—')}</td>` : ''}</tr>`; }).join('')}</tbody></table>
+    ${r.spareIssueRemark ? `<div style="font-size:12px;color:var(--gray-500);margin:-6px 0 10px">${esc(r.spareIssueRemark)}</div>` : ''}${r.takeoutRemark ? `<div style="font-size:12px;color:var(--gray-500);margin:-6px 0 10px">Takeout: ${esc(r.takeoutRemark)}</div>` : ''}`;
 }
 
 function rplTaskFormHtml(r) {
@@ -22126,8 +22171,31 @@ function rplTaskFormHtml(r) {
       <div style="display:flex;gap:8px">${btn('Give to Mechanic', 'assign')}</div>`;
     setTimeout(async () => { const sel = document.getElementById(`${id}_mech`); if (!sel) return; const list = await rplMechanicOptions();
       sel.innerHTML = '<option value="">-- Select --</option>' + list.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join(''); }, 0);
+  } else if (t.key === 'spareissue') {
+    rplLoadSpareNames();
+    inner = `<div style="font-size:13px;margin-bottom:10px">Mechanic: <b>${esc(r.mechanicName || '—')}</b> — repair se pehle kaunse spare diye, yahan likhein.</div>
+      ${L('Spare diye (item + qty)', true)}<div id="${id}_spares">${rplSpareRowHtml()}</div>
+      <button type="button" class="btn btn-outline btn-sm" style="margin:-4px 0 10px" onclick="rplAddSpareRow('${jsArg(id)}')">+ Aur spare</button>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_nospare"/> Koi spare nahi diya (bina spare repair)</label>
+      ${L('Remark')}<input id="${id}_remark" style="${RPL_INPUT}"/>
+      <div style="display:flex;gap:8px">${btn('✓ Spare Diye — Mechanic ko', 'spareissue')}</div>`;
+  } else if (t.key === 'takeout') {
+    const iss = r.spareIssueItems || [];
+    inner = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Har spare ke liye: kitne lagaye aur kitne wapas kiye (lagaye + wapas = diye).</div>
+      <table style="font-size:12.5px;margin-bottom:10px"><thead><tr><th>Spare</th><th>Diye</th><th>Lagaye</th><th>Wapas</th></tr></thead><tbody>
+      ${iss.map((x, i) => `<tr><td>${esc(x.item)}</td><td><b>${esc(x.qty)}</b></td>
+        <td><input id="${id}_used_${i}" type="number" min="0" value="${esc(x.qty)}" oninput="const q=${Number(x.qty) || 0},u=Number(this.value)||0,e=document.getElementById('${id}_ret_${i}');if(e)e.value=Math.max(0,q-u)" style="${RPL_INPUT};width:70px;margin:0"/></td>
+        <td><input id="${id}_ret_${i}" type="number" min="0" value="0" style="${RPL_INPUT};width:70px;margin:0"/></td></tr>`).join('')}</tbody></table>
+      ${L('Remark')}<input id="${id}_remark" placeholder="e.g. purana kharab part bhi wapas diya" style="${RPL_INPUT}"/>
+      <div style="display:flex;gap:8px">${btn('✓ Takeout Save — Niranjan ko', 'takeout')}</div>`;
+  } else if (t.key === 'sparecheck') {
+    inner = `${rplSparesHtml(r)}
+      ${L('Wapas aaye spare / repaired product check karo', true)}${radio(`${id}_sc`, [{ v: 'OK', l: '✅ Sab mil gaya — OK' }, { v: 'Short', l: '⚠️ Short / kami hai' }])}
+      ${L('Remark')}<input id="${id}_remark" placeholder="Short ho to kya kam hai" style="${RPL_INPUT}"/>
+      <div style="display:flex;gap:8px">${btn('✓ Checked — aage Inform', 'sparecheck')}</div>`;
   } else if (t.key === 'repair') {
     inner = `<div style="font-size:13px;margin-bottom:10px">Mechanic: <b>${esc(r.mechanicName || '—')}</b>${r.leadDays ? ` · lead time ${r.leadDays} day(s)` : ''}</div>
+      ${rplSparesHtml(r)}
       <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_tested"/> Repair ho gaya aur test karke OK hai</label>
       ${L('Remark (kya badla / spare)')}<input id="${id}_remark" style="${RPL_INPUT}"/>
       <div style="display:flex;gap:8px">${btn('✓ Repaired & Tested', 'repair')}</div>`;
@@ -22185,7 +22253,7 @@ function rplTaskFormHtml(r) {
   }
   const doers = stepDoerLabel(t);
   return `<div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:16px;margin-bottom:12px">
-    <div style="font-weight:700;font-size:15px;margin-bottom:2px;color:var(--gray-800)">${t.n}. ${esc(t.label)}</div>
+    <div style="font-weight:700;font-size:15px;margin-bottom:2px;color:var(--gray-800)">${rplStepNo(t)}. ${esc(t.label)}</div>
     <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Doer: ${esc(doers)}${t.planned ? ` · Planned ${fmtDateDMY(t.planned, true)}${rplIsLate(t) ? ' <b style="color:var(--color-danger)">— Overdue</b>' : ''}` : ''}</div>
     ${rplCanDo(r) ? inner : `<div style="font-size:12.5px;color:var(--gray-500)">Waiting on ${esc(doers)}.</div>`}
   </div>`;
@@ -22209,6 +22277,8 @@ function renderReplDetailBody(r) {
       ${r.binAt ? f('Maal check', (r.returnCondition === 'OK' ? '✅ Sahi — ' : r.returnCondition === 'Damaged' ? '💥 Toota-phoota — ' : '') + esc(r.binRemark)) : ''}
       ${r.owReason && r.warranty === 'Out of Warranty' ? f('OW reason', esc(r.owReason)) : ''}
       ${f('Mechanic', esc(r.mechanicName) + (r.leadDays ? ` · ${r.leadDays} day(s)` : ''))}
+      ${r.spareIssueAt ? `<div style="grid-column:1/-1">${rplSparesHtml(r)}</div>` : ''}
+      ${r.spareCheckAt ? f('Spare check', (r.spareCheckStatus === 'Short' ? '⚠️ Short' : '✅ OK') + (r.spareCheckRemark ? ' · ' + esc(r.spareCheckRemark) : '') + ` · ${fmtDateDMY(r.spareCheckAt, true)}`) : ''}
       ${f('Exchange item', esc(r.exchangeItem))}${r.exchangeOld ? f('Old piece', r.exchangeOld === 'stock' ? 'Checked OK — back in stock' : 'Reject Bin') : ''}
       ${r.cnNo ? f('Credit Note', esc(r.cnNo) + (r.cnAmount != null ? ` · ${inr(r.cnAmount)}` : '')) : ''}
       ${r.cnPhoto ? `<div>${rplPhoto(r.cnPhoto, 120)}</div>` : ''}${r.cnSentPhoto ? `<div>${rplPhoto(r.cnSentPhoto, 120)}</div>` : ''}
@@ -22224,7 +22294,7 @@ function renderReplDetailBody(r) {
   document.getElementById('rplBody').innerHTML = info + action + `<div style="${RPL_LABEL};margin:6px 0 8px">History</div><div id="rplEvents_${r.id}" style="font-size:12.5px"><div class="empty">Loading…</div></div>`;
 }
 const RPL_EVENT_LABEL = { created: '📝 Form filled', imported: '📥 Imported', check: '📒 Diary / ownership', category: '🗂 Category', warranty: '🛡 Warranty',
-  assign: '🔧 Given to mechanic', repair: '✅ Repaired & tested', exchange: '🔄 Exchanged', inform: '📞 Informed', bin: '🔍 Maal check', cn: '🧾 Credit note',
+  assign: '🔧 Given to mechanic', spareissue: '🔩 Spare issued', repair: '✅ Repaired & tested', takeout: '📦 Spare takeout', sparecheck: '🔍 Spare check', exchange: '🔄 Exchanged', inform: '📞 Informed', bin: '🔍 Maal check', cn: '🧾 Credit note',
   cnsend: '📤 CN shared', otp: '🔐 OTP', handover: '🤝 Handed over', cashstaff: '💵 Cash from staff', cancelled: '🚫 Cancelled' };
 async function loadReplEvents(id) {
   const r = await api(`/api/replacement-fms/${id}/events`);
@@ -22267,6 +22337,16 @@ async function submitReplAction(id, action, btnEl, preset) {
   else if (action === 'category') body = { category: radio('cat') };
   else if (action === 'warranty') body = { warranty: radio('w'), owReason: val('owr'), charges: val('ch'), rateToldTo: radio('told'), customerAgreed: radio('ag') };
   else if (action === 'assign') body = { mechanicUserId: val('mech'), leadDays: val('lead') };
+  else if (action === 'spareissue') {
+    const items = [...document.querySelectorAll(`#${p}_spares .rpl-spare-row`)].map(row => ({
+      item: row.querySelector('.rpl-spare-item').value.trim(), qty: row.querySelector('.rpl-spare-qty').value.trim() })).filter(x => x.item);
+    body = { items, noSpare: val('nospare'), remark: val('remark') };
+  }
+  else if (action === 'takeout') {
+    const it = rplData.find(x => x.id === id);
+    body = { items: ((it && it.spareIssueItems) || []).map((x, i) => ({ used: val(`used_${i}`), returned: val(`ret_${i}`) })), remark: val('remark') };
+  }
+  else if (action === 'sparecheck') body = { status: radio('sc'), remark: val('remark') };
   else if (action === 'repair') body = { tested: val('tested'), remark: val('remark') };
   else if (action === 'exchange') {
     const qtyEl = document.getElementById(`${p}_qty`);
@@ -22366,12 +22446,12 @@ function buildReplDashboardTasks() {
     if (!seeAll && !(t.doers || []).some(x => Number(x.id) === doerId)) return;
     const late = t.planned && d.now && t.planned < d.now;
     const description = `
-      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${t.n}. ${esc(t.label)}${t.returning ? ' <span style="font-size:10px;color:var(--color-danger-text)">↩ Return</span>' : ''}</div>
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${rplStepNo(t)}. ${esc(t.label)}${t.returning ? ' <span style="font-size:10px;color:var(--color-danger-text)">↩ Return</span>' : ''}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(r.partyName)}${r.category ? ' · ' + esc(r.category) : ''}${r.salesmanName ? ' · 🧑‍💼 ' + esc(r.salesmanName) : ''}</div>
       <div style="font-size:12px;color:var(--gray-600)">${esc(String(r.items).slice(0, 120))}</div>
       ${r.createdAt ? fmsFieldRow('ENTRY', esc(fmtEntry(r.createdAt))) : ''}
       ${fmsFieldRow('PLANNED', `${fmtDateDMY(t.planned, true) || '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
-    tasks.push({ id: r.id, type: 'repl', status: 'pending', title: r.code, description,
+    tasks.push({ id: r.id, type: 'repl', status: 'pending', title: rplCodeLabel(r), description,
       assignedToName: stepDoerLabel(t), assignedByName: stepDoerLabel(t), assignedToDept: 'Replacement', start_date: String(r.createdAt || ''), planned: t.planned || '', plannedLate: !!late });
   });
   return tasks;
