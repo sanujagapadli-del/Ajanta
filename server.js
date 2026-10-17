@@ -6020,7 +6020,7 @@ async function getO2dOrders() {
       if (f.carried_by) Object.assign(o, { carriedBy: f.carried_by, carriedSetBy: f.carried_set_by || '' });
       if (f.cancelled && !o.closed) { o.cancelled = true; o.closed = true; o.cancelledStepLabel = o.cancelledStepLabel || 'Cancelled'; }
       if (f.cancelled) Object.assign(o, { cancelReason: f.cancel_reason || '', cancelledBy: f.cancelled_by || '', cancelledAt: f.cancelled_at || '' });
-      if (f.on_hold && !o.closed) Object.assign(o, { onHold: true, holdReason: f.hold_reason || '', holdBy: f.hold_by || '', holdAt: f.hold_at || '' });
+      if (f.on_hold && !o.closed) Object.assign(o, { onHold: true, holdType: f.hold_type || 'other', holdReason: f.hold_reason || '', holdBy: f.hold_by || '', holdAt: f.hold_at || '' });
     });
 
     orders.reverse(); // newest first
@@ -8326,7 +8326,7 @@ async function withO2dOrderTables(fn) {
   catch (e) {
     if (e.code === 'ER_BAD_FIELD_ERROR') {
       // carried_by* came after the table (client, 2026-10-13) — add them once.
-      for (const col of ['carried_by VARCHAR(255)', 'carried_set_by VARCHAR(255)', 'carried_at DATETIME']) {
+      for (const col of ['carried_by VARCHAR(255)', 'carried_set_by VARCHAR(255)', 'carried_at DATETIME', 'hold_type VARCHAR(20)']) {
         await db.query(`ALTER TABLE o2d_order_flags ADD COLUMN ${col}`).catch(err => { if (err.code !== 'ER_DUP_FIELDNAME') throw err; });
       }
       return await fn();
@@ -8342,7 +8342,7 @@ async function o2dOrderOnHold(orderNo) {
 // Both tables are tiny — one query each per O2D read is cheaper than any cache.
 async function getO2dOrderExtras() {
   const [[flags], [media]] = await withO2dOrderTables(() => Promise.all([
-    db.query(`SELECT order_no, on_hold, hold_reason, hold_by, DATE_FORMAT(hold_at,'%Y-%m-%d %H:%i') AS hold_at,
+    db.query(`SELECT order_no, on_hold, hold_reason, hold_type, hold_by, DATE_FORMAT(hold_at,'%Y-%m-%d %H:%i') AS hold_at,
                 cancelled, cancel_reason, cancelled_by, DATE_FORMAT(cancelled_at,'%Y-%m-%d %H:%i') AS cancelled_at, restart_count,
                 carried_by, carried_set_by
               FROM o2d_order_flags`),
@@ -8376,12 +8376,16 @@ app.post('/api/o2d-fms/order/:orderNo/hold', requireAuth, async (req, res) => {
     if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Only O2D step doers / admin can hold an order' });
     const orderNo = req.params.orderNo;
     const hold = !!req.body.hold;
-    const reason = String(req.body.reason || '').trim().slice(0, 500);
-    if (hold && !reason) return res.status(400).json({ error: 'Hold ka reason likhein' });
+    // Two kinds (client video, 2026-10-17): "Stock not available" is counted
+    // separately as sale held for stock; "other" needs a reason.
+    const holdType = req.body.holdType === 'stock' ? 'stock' : 'other';
+    let reason = String(req.body.reason || '').trim().slice(0, 500);
+    if (hold && holdType === 'other' && !reason) return res.status(400).json({ error: 'Hold ka reason likhein' });
+    if (hold && holdType === 'stock' && !reason) reason = 'Stock not available';
     await withO2dOrderTables(() => db.query(
-      `INSERT INTO o2d_order_flags (order_no, on_hold, hold_reason, hold_by, hold_at) VALUES (?,?,?,?,NOW())
-       ON DUPLICATE KEY UPDATE on_hold=VALUES(on_hold), hold_reason=VALUES(hold_reason), hold_by=VALUES(hold_by), hold_at=VALUES(hold_at)`,
-      [orderNo, hold ? 1 : 0, hold ? reason : null, req.session.name || '']));
+      `INSERT INTO o2d_order_flags (order_no, on_hold, hold_reason, hold_type, hold_by, hold_at) VALUES (?,?,?,?,?,NOW())
+       ON DUPLICATE KEY UPDATE on_hold=VALUES(on_hold), hold_reason=VALUES(hold_reason), hold_type=VALUES(hold_type), hold_by=VALUES(hold_by), hold_at=VALUES(hold_at)`,
+      [orderNo, hold ? 1 : 0, hold ? reason : null, hold ? holdType : null, req.session.name || '']));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });

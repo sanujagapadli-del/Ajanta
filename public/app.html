@@ -13136,7 +13136,7 @@ function renderO2dFmsView() {
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer">
-          <td style="font-weight:600">${esc(o.orderNo || '—')}${entrySubHtml(o.timestamp)}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o.onHold ? ` <span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)" title="${esc(o.holdReason || '')}">⏸ Hold</span>` : ''}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
+          <td style="font-weight:600">${esc(o.orderNo || '—')}${entrySubHtml(o.timestamp)}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td>${esc(o.counterName || '—')}</td>
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
@@ -13156,12 +13156,33 @@ function renderO2dFmsView() {
 // ── PC View: pending orders only — where each is stuck, that step's planned
 // time, and the doer responsible. Overdue (planned time already passed) is
 // highlighted red so it reads at a glance. ──
+// PC View filters (client video, 2026-10-17: "doer name se sort, kis step pe pending hai").
+let o2dPcDoer = '', o2dPcStep = '', o2dPcHold = '', o2dPcSort = 'planned';
+function o2dPcSet(k, v) { if (k === 'doer') o2dPcDoer = v; else if (k === 'step') o2dPcStep = v; else if (k === 'hold') o2dPcHold = v; else o2dPcSort = v; o2dPage = 1; renderO2dPCView(); }
 function renderO2dPCView() {
   const wrap = document.getElementById('o2dListWrap');
-  const rows = o2dFilteredRows().filter(o => !o.closed);
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending orders — everything is dispatched 🎉</div>'; return; }
+  const open = o2dFilteredRows().filter(o => !o.closed);
+  if (!open.length) { wrap.innerHTML = '<div class="empty">No pending orders — everything is dispatched 🎉</div>'; return; }
+  const doerOf = o => stepDoerLabel(o.steps[o.currentStep]) || '—';
+  const doers = [...new Set(open.map(doerOf))].sort((a, b) => a.localeCompare(b));
+  let rows = open.filter(o => (!o2dPcDoer || doerOf(o) === o2dPcDoer) && (!o2dPcStep || String(o.currentStep + 1) === o2dPcStep)
+    && (!o2dPcHold || (o2dPcHold === 'hold' ? o.onHold : o2dPcHold === 'stock' ? o.onHold && o.holdType === 'stock' : !o.onHold)));
+  const pl = o => String(o.steps[o.currentStep].planned || '9999');
+  const sorters = { planned: (a, b) => pl(a).localeCompare(pl(b)), newest: (a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')),
+    doer: (a, b) => doerOf(a).localeCompare(doerOf(b)) || pl(a).localeCompare(pl(b)), step: (a, b) => a.currentStep - b.currentStep || pl(a).localeCompare(pl(b)) };
+  rows = rows.slice().sort(sorters[o2dPcSort] || sorters.planned);
+  const stepCount = n => open.filter(o => o.currentStep + 1 === n).length;
+  const sel = 'padding:7px 9px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12.5px;background:var(--surface);color:var(--gray-800)';
+  const bar = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--gray-200)">
+    <select style="${sel}" onchange="o2dPcSet('doer',this.value)"><option value="">👤 Sab doer</option>${doers.map(d => `<option ${d === o2dPcDoer ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>
+    <select style="${sel}" onchange="o2dPcSet('step',this.value)"><option value="">Sab step</option>${O2D_STEP_DEFS.map(sd => `<option value="${sd.n}" ${String(sd.n) === o2dPcStep ? 'selected' : ''}>${sd.n}. ${esc(sd.label)} (${stepCount(sd.n)})</option>`).join('')}</select>
+    <select style="${sel}" onchange="o2dPcSet('hold',this.value)"><option value="">Sab orders</option><option value="active" ${o2dPcHold === 'active' ? 'selected' : ''}>▶ Chalu (hold nahi)</option><option value="hold" ${o2dPcHold === 'hold' ? 'selected' : ''}>⏸ Hold wale</option><option value="stock" ${o2dPcHold === 'stock' ? 'selected' : ''}>📦 Hold — stock nahi</option></select>
+    <select style="${sel}" onchange="o2dPcSet('sort',this.value)"><option value="planned" ${o2dPcSort === 'planned' ? 'selected' : ''}>↕ Planned (purana pehle)</option><option value="newest" ${o2dPcSort === 'newest' ? 'selected' : ''}>↕ Order date (naya pehle)</option><option value="doer" ${o2dPcSort === 'doer' ? 'selected' : ''}>↕ Doer naam</option><option value="step" ${o2dPcSort === 'step' ? 'selected' : ''}>↕ Step</option></select>
+    ${o2dPcDoer || o2dPcStep || o2dPcHold ? `<button class="btn btn-outline btn-sm" onclick="o2dPcDoer='';o2dPcStep='';o2dPcHold='';o2dPcSet('sort',o2dPcSort)">✕ Clear</button>` : ''}
+    <span style="margin-left:auto;font-size:12px;color:var(--gray-500)">${rows.length} / ${open.length} pending</span></div>`;
+  if (!rows.length) { wrap.innerHTML = bar + '<div class="empty">Is filter me koi order nahi</div>'; return; }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
-  wrap.innerHTML = `<table>
+  wrap.innerHTML = bar + `<table>
     <thead><tr><th>Order No</th><th>Date</th><th>Counter Name</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
     <tbody>
       ${pageRows.map(o => {
@@ -13171,7 +13192,7 @@ function renderO2dPCView() {
         const plannedStyle = overdue ? 'color:var(--color-danger);font-weight:700' : 'color:var(--gray-800)';
         return `
         <tr onclick="openO2dDetail('${o.orderNo}')" style="cursor:pointer;${rowStyle}">
-          <td style="font-weight:600">${esc(o.orderNo || '—')}${o.onHold ? ` <span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)" title="${esc(o.holdReason || '')}">⏸ Hold</span>` : ''}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
+          <td style="font-weight:600">${esc(o.orderNo || '—')}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td style="white-space:nowrap;color:var(--gray-500)">${esc(fmtEntry(o.timestamp)) || '—'}</td>
           <td>${esc(o.counterName || '—')}</td>
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
@@ -13486,7 +13507,9 @@ function renderO2dReportsBody() {
   // in Bills Receivable / Dealer Master. "Pending At" step rows drill into
   // the orders waiting at that step (live, not date-ranged).
   const onHoldOrders = o2dData.filter(o => o.onHold && !o.closed);
-  _o2dReportsDrillData = { all: orders, dispatched, cancelled, pending: pendingOrders, overdue: overdueOrders, crm: crmOrders, lostByReason, onHold: onHoldOrders };
+  const stockHold = onHoldOrders.filter(o => o.holdType === 'stock');
+  const stockHoldValue = stockHold.reduce((a, o) => a + o2dOrderValue(o), 0);
+  _o2dReportsDrillData = { all: orders, dispatched, cancelled, pending: pendingOrders, overdue: overdueOrders, crm: crmOrders, lostByReason, onHold: onHoldOrders, stockHold };
   O2D_STEP_DEFS.forEach(sd => { _o2dReportsDrillData['step' + sd.n] = o2dData.filter(o => !o.closed && o.currentStep === sd.n - 1); });
 
   // A restrained palette on purpose — a different colour per card just
@@ -13523,6 +13546,7 @@ function renderO2dReportsBody() {
       ${statCard('Cancelled', cancelled.length, cancelled.length > 0 ? BAD : NEUTRAL, cancelled.length > 0 ? BAD_BG : NEUTRAL_BG, '❌', null, `o2dReportsShowDrill('Cancelled Orders','cancelled')`)}
       ${statCard('Overdue', overdueCount, overdueCount > 0 ? BAD : NEUTRAL, overdueCount > 0 ? BAD_BG : NEUTRAL_BG, '⚠️', null, `o2dReportsShowDrill('Overdue Orders','overdue')`)}
       ${statCard('On Hold', onHoldOrders.length, onHoldOrders.length > 0 ? BAD : NEUTRAL, onHoldOrders.length > 0 ? BAD_BG : NEUTRAL_BG, '⏸', null, `o2dReportsShowDrill('Orders On Hold','onHold')`)}
+      ${statCard('Hold — Stock nahi', `${stockHold.length} · ${inrShort(stockHoldValue)}`, stockHold.length ? BAD : NEUTRAL, stockHold.length ? BAD_BG : NEUTRAL_BG, '📦', `${inr(stockHoldValue)} ki sale stock na hone se ruki`, `o2dReportsShowDrill('Hold — Stock not available (sale ruki)','stockHold')`)}
       ${statCard('Sale By CRM', inrShort(crmSales), NEUTRAL, NEUTRAL_BG, '📞', inr(crmSales), `o2dReportsShowDrill('Sale By CRM','crm')`)}
     </div>
 
@@ -16185,15 +16209,31 @@ async function o2dReloadAfterControl(msg) {
   refreshO2dAfterAction();
 }
 async function o2dSetHold(orderNo, hold) {
-  let reason = '';
-  if (hold) {
-    reason = (prompt(`Hold ${orderNo} — reason?`) || '').trim();
-    if (!reason) return;
+  if (!hold) {
+    const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/hold`, 'POST', { hold: false });
+    if (res.error) { showToast(res.error, 'error'); return; }
+    return o2dReloadAfterControl('▶ Order resumed');
   }
-  const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/hold`, 'POST', { hold, reason });
-  if (res.error) { showToast(res.error, 'error'); return; }
-  o2dReloadAfterControl(hold ? '⏸ Order put on hold' : '▶ Order resumed');
+  vrlModal('o2dHoldModal', `${scotModalHead('o2dHoldModal', '⏸ Hold ' + esc(orderNo))}
+    <label style="display:flex;gap:8px;align-items:center;padding:10px;border:1.5px solid var(--gray-200);border-radius:10px;margin-bottom:8px;cursor:pointer"><input type="radio" name="o2dHoldType" value="stock" checked onchange="document.getElementById('o2dHoldReasonLbl').textContent='Kaunsa item nahi hai (optional)'"/> <b>📦 Stock not available</b> <span style="font-size:12px;color:var(--gray-500)">— Reports me "sale on hold for stock" alag dikhega</span></label>
+    <label style="display:flex;gap:8px;align-items:center;padding:10px;border:1.5px solid var(--gray-200);border-radius:10px;margin-bottom:10px;cursor:pointer"><input type="radio" name="o2dHoldType" value="other" onchange="document.getElementById('o2dHoldReasonLbl').textContent='Reason *'"/> <b>Other reason</b></label>
+    <label id="o2dHoldReasonLbl" style="font-size:12px;font-weight:600">Kaunsa item nahi hai (optional)</label>
+    <input id="o2dHoldReason" placeholder="e.g. 48&quot; Runner brown khatam" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="o2dSaveHold('${o2dJsEsc(orderNo)}',this)">⏸ Hold karo</button>`, 460);
 }
+async function o2dSaveHold(orderNo, btn) {
+  const holdType = (document.querySelector('input[name="o2dHoldType"]:checked') || {}).value || 'other';
+  const reason = document.getElementById('o2dHoldReason').value.trim();
+  if (holdType === 'other' && !reason) { showToast('Hold ka reason likhein', 'error'); return; }
+  const restore = btnLoading(btn, 'Saving…');
+  const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/hold`, 'POST', { hold: true, holdType, reason });
+  restore();
+  if (res.error) { showToast(res.error, 'error'); return; }
+  closeModal('o2dHoldModal');
+  o2dReloadAfterControl(holdType === 'stock' ? '⏸ Hold — stock not available' : '⏸ Order put on hold');
+}
+const o2dHoldBadge = o => o.onHold ? ` <span class="status-badge" style="background:${o.holdType === 'stock' ? 'var(--color-danger-bg);color:var(--color-danger-text)' : 'var(--color-warning-bg);color:var(--color-warning-text)'}" title="${esc(o.holdReason || '')}">⏸ ${o.holdType === 'stock' ? 'Stock nahi' : 'Hold'}</span>` : '';
+const o2dOrderValue = o => (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0);
 async function o2dCancelOrder(orderNo) {
   const reason = (prompt(`Cancel ${orderNo}? It stops at the current step.\n\nReason:`) || '').trim();
   if (!reason) return;
