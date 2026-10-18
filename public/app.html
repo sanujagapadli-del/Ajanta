@@ -1141,6 +1141,10 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
         <span class="nav-label-text">Payment Follow-up</span>
       </div>
+      <div class="nav-item" id="nav-call-reports" style="display:none" onclick="navigate('call-reports',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.3a1 1 0 01.9.7l1.5 4.5a1 1 0 01-.5 1.2l-2.3 1.1a11 11 0 005.5 5.5l1.1-2.3a1 1 0 011.2-.5l4.5 1.5a1 1 0 01.7.9V19a2 2 0 01-2 2h-1C9.7 21 3 14.3 3 6V5z"/></svg>
+        <span class="nav-label-text">Call Reports</span>
+      </div>
       <div class="nav-item" id="nav-sales-schedule" style="display:none" onclick="navigate('sales-schedule',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
         <span class="nav-label-text">Sales Schedule</span>
@@ -2164,6 +2168,27 @@ tbody tr:last-child td{border-bottom:none;}
       <div id="colTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
     <div id="colWrap"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div id="page-call-reports" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📞 Call Reports</div>
+        <button class="btn btn-outline btn-sm" id="crSetupBtn" style="display:none" onclick="openCallSetup()">⚙️ Setup</button>
+        <button class="btn btn-outline" onclick="loadCallReports()">🔄 Refresh</button>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div><div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase">📅 From</div><input type="date" id="crFrom" onchange="loadCallReports()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)"/></div>
+        <div><div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase">📅 To</div><input type="date" id="crTo" onchange="loadCallReports()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)"/></div>
+        <button class="btn btn-outline btn-sm" onclick="callQuick(0)">Aaj</button>
+        <button class="btn btn-outline btn-sm" onclick="callQuick(1)">Kal</button>
+        <button class="btn btn-outline btn-sm" onclick="callQuick(7)">7 din</button>
+        <select id="crSalesman" onchange="renderCallReports()" style="display:none;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)"></select>
+        <select id="crType" onchange="renderCallReports()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)"></select>
+        <input type="text" id="crSearch" oninput="renderCallReports()" placeholder="🔍 Dealer / item / number / baat" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;flex:1;min-width:160px;background:var(--surface);color:var(--gray-800)"/>
+      </div>
+    </div>
+    <div id="crWrap"><div class="empty">Loading…</div></div>
   </div>
 
   <div id="page-drip-marketing" class="page">
@@ -4311,6 +4336,7 @@ async function init() {
     MY_PAGES = new Set(ME.role === 'admin' ? [] : (Array.isArray(ME.page_access) ? ME.page_access : ['mis']));
     if (ME.sales_profile && ME.role !== 'admin') MY_PAGES.add('gross-profit'); // own Salesman-wise row only
     if (ME.sales_profile || ME.pl_viewer) MY_PAGES.add('sales-schedule'); // salesmen see their own plan; Vishal / Ajay plan
+    if (ME.sales_profile || ME.pl_viewer) MY_PAGES.add('call-reports'); // salesmen see their own calls; Vishal / Ajay everyone's
     const canSee = page => ME.role === 'admin' || MY_PAGES.has(page);
 
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
@@ -4324,6 +4350,7 @@ async function init() {
     if (canSee('dealer-whatsapp')) document.getElementById('nav-dealer-whatsapp').style.display = 'flex';
     if (canSee('drip-marketing')) document.getElementById('nav-drip-marketing').style.display = 'flex';
     if (canSee('collection')) document.getElementById('nav-collection').style.display = 'flex';
+    if (canSee('call-reports')) document.getElementById('nav-call-reports').style.display = 'flex';
     if (canSee('meca')) document.getElementById('nav-meca').style.display = 'flex';
     if (canSee('scot')) document.getElementById('nav-scot').style.display = 'flex';
     if (canSee('sales-schedule')) document.getElementById('nav-sales-schedule').style.display = 'flex';
@@ -4364,7 +4391,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4569,7 +4596,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up',meca:'MECA',scot:'SCOT'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',meca:'MECA',scot:'SCOT'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4591,7 +4618,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -4630,6 +4657,7 @@ function navigate(page, el) {
   if (page==='dealer-whatsapp') loadWa();
   if (page==='drip-marketing') loadDrip();
   if (page==='collection') loadCollection();
+  if (page==='call-reports') loadCallReports();
   if (page==='meca') loadMeca();
   if (page==='scot') loadScot();
   if (page==='sales-schedule') loadSalesSchedule();
@@ -6496,6 +6524,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue)' },
     { key: 'drip-marketing', label: 'Drip Marketing (weekly plan dekhe; badle sirf Admin)' },
     { key: 'collection', label: 'Payment Follow-up (15 din WhatsApp, 25/30 din call, Delivery dues)' },
+    { key: 'call-reports', label: 'Call Reports — SAB salesmen ki call recordings (salesman ko apni calls iske bina bhi dikhti hain)' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'meca', label: 'MECA — salesman market report (visit / order / NBD)' },
     { key: 'samples', label: 'Samples (salesman ko diye sample)' },
@@ -21898,6 +21927,203 @@ async function saveSsVisit(id) {
   showToast('✅ Visit saved');
   closeModal('ssVisitModal');
   loadSalesSchedule();
+}
+
+// ══════════════════════════════════════════════════════
+// CALL REPORTS (client, 2026-10-18) — salesmen's phone call recordings as
+// text + summary. Filled by apps-script/call-recordings.gs on the company
+// Google account (Groq transcript + Claude summary); this page only reads.
+// Admin / Vishal & Ajay / 'call-reports' grant see everyone, a salesman his own.
+// ══════════════════════════════════════════════════════
+let crData = null, crDealers = null;
+const CR_TYPE_STYLE = {
+  Order: ['var(--color-success-bg)', 'var(--color-success-text)', '🛒'], Payment: ['var(--color-info-bg)', 'var(--color-info-text)', '💰'],
+  Complaint: ['var(--color-danger-bg)', 'var(--color-danger-text)', '⚠️'], Enquiry: ['var(--color-warning-bg)', 'var(--color-warning-text)', '❓'],
+  'Follow-up': ['var(--gray-100)', 'var(--gray-700)', '🔁'], Other: ['var(--gray-100)', 'var(--gray-600)', '📞']
+};
+const crWho = c => c.salesman_user_id ? 'u' + c.salesman_user_id : 'd:' + c.drive_name;
+const crDur = s => { s = Number(s) || 0; return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : ''; };
+function callQuick(days) {
+  const to = new Date();
+  if (days === 1) to.setDate(to.getDate() - 1);
+  const from = new Date(to);
+  if (days > 1) from.setDate(from.getDate() - (days - 1));
+  document.getElementById('crFrom').value = o2dReportsFmtDate(from);
+  document.getElementById('crTo').value = o2dReportsFmtDate(to);
+  loadCallReports();
+}
+async function loadCallReports() {
+  const wrap = document.getElementById('crWrap');
+  const fromEl = document.getElementById('crFrom'), toEl = document.getElementById('crTo');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const q = new URLSearchParams();
+  if (fromEl.value) q.set('from', fromEl.value);
+  if (toEl.value) q.set('to', toEl.value);
+  const r = await api('/api/call-reports?' + q);
+  if (!r || !Array.isArray(r.calls)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed to load')}</div>`; return; }
+  crData = r;
+  fromEl.value = r.from; toEl.value = r.to;
+  document.getElementById('crSetupBtn').style.display = ME.role === 'admin' ? '' : 'none';
+  const sel = document.getElementById('crSalesman');
+  if (r.seesAll) {
+    const cur = sel.value;
+    const who = [...new Map(r.calls.map(c => [crWho(c), c.salesman_name || c.drive_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    sel.innerHTML = '<option value="">Sab salesmen</option>' + who.map(([k, n]) => `<option value="${esc(k)}"${k === cur ? ' selected' : ''}>${esc(n)}</option>`).join('');
+    sel.style.display = '';
+  } else { sel.innerHTML = ''; sel.style.display = 'none'; }
+  const tSel = document.getElementById('crType'), curT = tSel.value;
+  tSel.innerHTML = '<option value="">Sab type</option>' + r.types.map(t => `<option value="${esc(t)}"${t === curT ? ' selected' : ''}>${CR_TYPE_STYLE[t][2]} ${esc(t)}</option>`).join('');
+  renderCallReports();
+}
+function crFiltered() {
+  const who = document.getElementById('crSalesman').value, type = document.getElementById('crType').value;
+  const q = (document.getElementById('crSearch').value || '').trim().toLowerCase();
+  return crData.calls.filter(c => (!who || crWho(c) === who) && (!type || c.call_type === type)
+    && (!q || [c.dealer_name, c.contact_name, c.phone, c.summary, c.items, c.payment, c.followup_note, c.salesman_name, c.drive_name].some(v => String(v || '').toLowerCase().includes(q))));
+}
+function crCardHtml(c) {
+  const [bg, fg, icon] = CR_TYPE_STYLE[c.call_type] || CR_TYPE_STYLE.Other;
+  const badge = c.call_type ? `<span class="status-badge" style="background:${bg};color:${fg}">${icon} ${esc(c.call_type)}</span>` : '';
+  const who = c.contact_name || c.phone || '';
+  const dealer = c.dealer_name
+    ? `<b>🏪 ${esc(c.dealer_name)}</b>${who && who !== c.dealer_name ? ` <span style="color:var(--gray-500)">· ${esc(who)}</span>` : ''}`
+    : `<span style="color:var(--gray-500)">❔ ${esc(who || 'Unknown number')}</span>`;
+  const line = (label, v) => v ? `<div style="font-size:13px;margin-top:3px"><span style="color:var(--gray-500)">${label}</span> ${esc(v)}</div>` : '';
+  const due = c.followup_date ? `${c.followup_date === crData.today ? '<b style="color:var(--color-danger)">Aaj</b> ' : ''}${esc(c.followup_date)}${c.followup_note ? ' — ' + esc(c.followup_note) : ''}` : '';
+  return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:12px 14px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--gray-500)">
+      <span>🕐 ${esc(c.call_at || '')}</span>${crData.seesAll ? `<span>· 👤 ${esc(c.salesman_name || c.drive_name)}</span>` : ''}${c.duration_sec ? `<span>· ⏱ ${crDur(c.duration_sec)}</span>` : ''}
+      <span style="margin-left:auto">${badge}</span></div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:14px">${dealer}
+      <button class="btn btn-outline btn-sm" onclick="openCallDealer(${c.id})" title="Dealer jodo / badlo">🔗 ${c.dealer_name ? 'Badlo' : 'Dealer jodo'}</button></div>
+    ${c.summary ? `<div style="font-size:14px;color:var(--gray-800);margin-top:6px">${esc(c.summary)}</div>` : ''}
+    ${line('📦 Items:', c.items)}${line('💰 Payment:', c.payment)}${due ? `<div style="font-size:13px;margin-top:3px"><span style="color:var(--gray-500)">📅 Follow-up:</span> ${due}</div>` : ''}
+    ${c.error ? `<div style="font-size:12px;color:var(--color-danger);margin-top:6px">⚠️ ${esc(c.error)}</div>` : ''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      ${c.transcript_len ? `<button class="btn btn-outline btn-sm" onclick="openCallTranscript(${c.id})">📄 Poori baat (text)</button>` : ''}
+      ${c.audio_url ? `<a class="btn btn-outline btn-sm" href="${esc(c.audio_url)}" target="_blank" rel="noopener">▶ Recording suno</a>` : ''}
+    </div></div>`;
+}
+function renderCallReports() {
+  const wrap = document.getElementById('crWrap');
+  if (!wrap || !crData) return;
+  const list = crFiltered();
+  const mins = Math.round(list.reduce((s, c) => s + (Number(c.duration_sec) || 0), 0) / 60);
+  const count = t => list.filter(c => c.call_type === t).length;
+  const card = (label, value, sub) => `<div class="o2d-stat-card" style="--accent:var(--gray-900);--accent-bg:var(--gray-100);--accent-bar:transparent">
+      <div class="o2d-stat-label">${label}</div><div class="o2d-stat-value">${value}</div>${sub ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px">${sub}</div>` : ''}</div>`;
+  let html = `<div class="o2d-stat-grid" style="margin-bottom:14px;grid-template-columns:repeat(auto-fill,minmax(110px,1fr))">
+    ${card('📞 Calls', list.length, `${mins} min`)}${card('🛒 Order', count('Order'))}${card('💰 Payment', count('Payment'))}
+    ${card('⚠️ Complaint', count('Complaint'))}${card('📅 Follow-up', list.filter(c => c.followup_date).length)}${card('❔ Dealer pata nahi', list.filter(c => !c.dealer_name).length)}</div>`;
+  if (crData.silent.length) html += `<div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">
+    🔴 <b>Aaj koi recording nahi aayi:</b> ${crData.silent.map(s => `${esc(s.name)} <span style="opacity:.75">(last ${esc(s.last_call)})</span>`).join(', ')} — phone pe recording / Autosync band to nahi?</div>`;
+  if (ME.role === 'admin' && crData.unmapped.length) html += `<div style="background:var(--color-warning-bg);color:var(--color-warning-text);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">
+    ⚠️ In drives ka salesman set nahi hai: ${crData.unmapped.map(u => `${esc(u.drive_name)} (${u.n})`).join(', ')} — <a href="#" onclick="openCallSetup();return false">⚙️ Setup</a> me salesman chuno.</div>`;
+  // Salesman-wise summary (owner view, no salesman picked).
+  if (crData.seesAll && !document.getElementById('crSalesman').value && list.length) {
+    const by = {};
+    list.forEach(c => {
+      const k = crWho(c), b = by[k] = by[k] || { k, name: c.salesman_name || c.drive_name, n: 0, sec: 0, order: 0, payment: 0, complaint: 0, last: '' };
+      b.n++; b.sec += Number(c.duration_sec) || 0;
+      if (c.call_type === 'Order') b.order++; else if (c.call_type === 'Payment') b.payment++; else if (c.call_type === 'Complaint') b.complaint++;
+      if ((c.call_at || '') > b.last) b.last = c.call_at || '';
+    });
+    html += `<div class="table-wrap" style="margin-bottom:14px"><table><thead><tr><th>Salesman</th><th>Calls</th><th>Minutes</th><th>Order</th><th>Payment</th><th>Complaint</th><th>Last call</th></tr></thead><tbody>
+      ${Object.values(by).sort((a, b) => b.n - a.n).map(b => `<tr style="cursor:pointer" onclick="document.getElementById('crSalesman').value='${jsArg(b.k)}';renderCallReports()">
+        <td><b>${esc(b.name)}</b></td><td>${b.n}</td><td>${Math.round(b.sec / 60)}</td><td>${b.order}</td><td>${b.payment}</td><td>${b.complaint}</td><td>${esc(b.last)}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  html += list.length ? list.slice(0, 500).map(crCardHtml).join('') + (list.length > 500 ? `<div class="empty">Pehli 500 calls dikh rahi hain — search / filter se chhota karo.</div>` : '')
+    : `<div class="empty">In dates me koi call nahi.${crData.calls.length ? ' Filter / search hatao.' : ''}</div>`;
+  wrap.innerHTML = html;
+}
+function crModal(id, title, maxW) {
+  let m = document.getElementById(id);
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay';
+    m.id = id;
+    m.innerHTML = `<div class="modal" style="max-width:${maxW}px;max-height:88dvh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 class="cr-modal-title" style="margin:0"></h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('${id}')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div class="cr-modal-body" style="overflow-y:auto;flex:1"></div></div>`;
+    document.body.appendChild(m);
+  }
+  m.querySelector('.cr-modal-title').textContent = title;
+  m.classList.add('open');
+  return m.querySelector('.cr-modal-body');
+}
+async function openCallTranscript(id) {
+  const c = crData && crData.calls.find(x => x.id === id);
+  const body = crModal('crTextModal', `📄 ${c ? (c.dealer_name || c.contact_name || c.phone || 'Call') : 'Call'}${c && c.call_at ? ' · ' + c.call_at : ''}`, 640);
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api(`/api/call-reports/${id}`);
+  body.innerHTML = r && typeof r.transcript === 'string'
+    ? `<div style="white-space:pre-wrap;font-size:14px;line-height:1.6;color:var(--gray-800)">${esc(r.transcript || '(khali)')}</div>`
+    : `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`;
+}
+async function openCallDealer(id) {
+  const c = crData && crData.calls.find(x => x.id === id);
+  if (!c) return;
+  const body = crModal('crDealerModal', '🔗 Is call ka dealer', 440);
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  if (!crDealers) {
+    const r = await api('/api/call-reports/dealers');
+    if (!r || !Array.isArray(r.dealers)) { body.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
+    crDealers = r.dealers;
+  }
+  body.innerHTML = `<div style="font-size:13px;color:var(--gray-500);margin-bottom:10px">${esc(c.contact_name || '')} ${esc(c.phone || '')}${c.summary ? `<br>${esc(c.summary)}` : ''}</div>
+    <input id="crDealerInput" list="crDealerList" value="${esc(c.dealer_name || '')}" placeholder="Dealer ka naam likho…" style="${PETTY_INPUT}"/>
+    <datalist id="crDealerList">${crDealers.map(d => `<option value="${esc(d)}">`).join('')}</datalist>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      ${c.dealer_name ? `<button class="btn btn-outline" onclick="saveCallDealer(${id}, true)">Hatao</button>` : ''}
+      <button class="btn btn-primary" onclick="saveCallDealer(${id})">Save</button></div>`;
+  document.getElementById('crDealerInput').focus();
+}
+async function saveCallDealer(id, clear) {
+  const dealer = clear ? '' : document.getElementById('crDealerInput').value.trim();
+  if (!clear && !dealer) { showToast('Dealer chuno', 'error'); return; }
+  const r = await api(`/api/call-reports/${id}/dealer`, 'PUT', { dealer });
+  if (!r || !r.success) { showToast((r && r.error) || 'Save failed', 'error'); return; }
+  const c = crData.calls.find(x => x.id === id);
+  if (c) { c.dealer_name = r.dealer; c.dealer_linked_by = r.dealer ? ME.name : null; }
+  closeModal('crDealerModal');
+  showToast(r.dealer ? 'Dealer jud gaya' : 'Dealer hata diya');
+  renderCallReports();
+}
+async function openCallSetup() {
+  const body = crModal('crSetupModal', '⚙️ Call Reports — Setup', 620);
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api('/api/call-reports-admin/setup');
+  if (!r || !Array.isArray(r.drives)) { body.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
+  const userOpts = sel => '<option value="">— naam se apne-aap —</option>' + r.users.map(u => `<option value="${u.id}"${Number(sel) === u.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('');
+  body.innerHTML = `
+    <div style="font-size:13px;color:var(--gray-600);line-height:1.6;margin-bottom:14px">Har salesman ki Shared Drive <b>"Calls - &lt;naam&gt;"</b> company Google account pe. Script: <code>apps-script/call-recordings.gs</code> (company account, har 10 min).</div>
+    <div style="${PETTY_LABEL}">🔑 Script key (Apps Script → ERP_KEY)</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <span class="status-badge" style="background:${r.keySet ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${r.keySet ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${r.keySet ? '✅ Key set hai' : '⏳ Key nahi bani'}</span>
+      <button class="btn btn-outline btn-sm" onclick="newCallKey(${r.keySet ? 'true' : 'false'})">${r.keySet ? '♻️ Nayi key banao' : '🔑 Key banao'}</button></div>
+    <div id="crKeyOut" style="margin-bottom:14px"></div>
+    <div style="${PETTY_LABEL}">👤 Drive → Salesman</div>
+    ${r.drives.length ? `<div class="table-wrap"><table><thead><tr><th>Drive</th><th>Salesman</th><th>Calls</th><th>Last aayi</th></tr></thead><tbody>
+      ${r.drives.map(d => `<tr><td>${esc(d.drive_name)}${Number(d.errors) ? ` <span style="color:var(--color-danger);font-size:11px">(${d.errors} error)</span>` : ''}</td>
+        <td><select onchange="saveCallDriveMap('${jsArg(d.drive_name)}', this.value)" style="padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)">${userOpts(r.map[d.drive_name] || '')}</select>
+          ${!r.map[d.drive_name] && d.user_id ? `<div style="font-size:11px;color:var(--gray-500)">abhi: ${esc((r.users.find(u => u.id === Number(d.user_id)) || {}).name || '')}</div>` : ''}</td>
+        <td>${d.n}</td><td>${esc(d.last_in || '—')}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty" style="padding:12px">Abhi koi recording nahi aayi. Script chalne ke baad drives yahan dikhengi.</div>'}`;
+}
+async function newCallKey(replace) {
+  if (replace && !confirm('Nayi key banane se purani key band ho jayegi — Apps Script me nayi key daalni padegi. Banayein?')) return;
+  const r = await api('/api/call-reports-admin/key', 'POST', {});
+  if (!r || !r.key) { showToast((r && r.error) || 'Failed', 'error'); return; }
+  document.getElementById('crKeyOut').innerHTML = `<input readonly value="${esc(r.key)}" onclick="this.select()" style="${PETTY_INPUT};font-family:monospace;margin-bottom:4px"/>
+    <div style="font-size:12px;color:var(--color-danger)">Ye key abhi copy karke Apps Script → Project Settings → Script Properties → <b>ERP_KEY</b> me daalo. Ye dobara nahi dikhegi.</div>`;
+}
+async function saveCallDriveMap(drive, userId) {
+  const r = await api('/api/call-reports-admin/drive-map', 'PUT', { drive, userId: userId || null });
+  if (!r || !r.success) { showToast((r && r.error) || 'Save failed', 'error'); return; }
+  showToast('Salesman set ho gaya');
+  if (document.getElementById('page-call-reports').classList.contains('active')) loadCallReports();
 }
 
 // ══════════════════════════════════════════════════════

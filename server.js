@@ -568,7 +568,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -11089,6 +11089,269 @@ app.post('/api/petty-cash/import-sheet', requireAuth, requireAdmin, async (req, 
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the petty cash sheet with the service account.' });
     sendServerError(res, err);
   }
+});
+
+// ══════════════════════════════════════════════════════
+// CALL REPORTS (client, 2026-10-18: "sales person ki rec se text nikal ke
+// dashboard pe dikhaye"). Each salesman's phone records his calls and the
+// Autosync app uploads them to his own Shared Drive "Calls - <name>" on the
+// company Workspace (Contributor: can add files, can't delete them or see
+// anyone else's drive). apps-script/call-recordings.gs runs on the company
+// account every 10 min: Groq Whisper → transcript, Claude Haiku → summary,
+// then POSTs batches here. The heavy work stays on Google — this side only
+// stores and shows rows (Vercel free plan). Script auth = a key whose sha256
+// is app_settings 'call_rec_key_hash' (generated from the page's ⚙️ Setup).
+// Who sees what: admin / Vishal & Ajay (pl viewers) / 'call-reports' grant =
+// every call; anyone else only the calls from the drive mapped to him.
+// ══════════════════════════════════════════════════════
+const CALL_TYPES = ['Order', 'Payment', 'Complaint', 'Enquiry', 'Follow-up', 'Other'];
+const CALL_DRIVE_MAP_KEY = 'call_rec_drive_map';
+async function ensureCallTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS call_recordings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      drive_name VARCHAR(120) NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      file_id VARCHAR(100),
+      audio_url VARCHAR(500),
+      salesman_user_id INT,
+      call_at DATETIME,
+      duration_sec INT,
+      phone VARCHAR(20),
+      contact_name VARCHAR(255),
+      dealer_name VARCHAR(255),
+      dealer_linked_by VARCHAR(255),
+      call_type VARCHAR(20),
+      summary VARCHAR(1000),
+      items VARCHAR(1000),
+      payment VARCHAR(500),
+      followup_date DATE,
+      followup_note VARCHAR(500),
+      transcript MEDIUMTEXT,
+      error VARCHAR(500),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_file (drive_name, file_name),
+      INDEX idx_call_at (call_at),
+      INDEX idx_user_at (salesman_user_id, call_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+}
+async function withCallTable(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureCallTable(); return await fn(); }
+}
+async function callKeyOk(req) {
+  const key = String(req.headers['x-calls-key'] || '');
+  if (key.length < 20) return false;
+  const want = await getAppSetting('call_rec_key_hash');
+  return !!want && crypto.createHash('sha256').update(key).digest('hex') === want;
+}
+async function callSeesAll(req) {
+  return req.session.role === 'admin' || await plIsViewer(req) || await hasPageGrant(req, 'call-reports');
+}
+async function callDriveMap() {
+  try { const m = JSON.parse((await getAppSetting(CALL_DRIVE_MAP_KEY)) || '{}'); return m && typeof m === 'object' ? m : {}; }
+  catch (e) { return {}; }
+}
+// "Calls - Ramesh" → the user Ramesh: the admin's mapping first, else the
+// one active user whose full name or first name matches the drive's name.
+async function callResolveSalesmen(drives) {
+  const map = await callDriveMap();
+  const [users] = await db.query("SELECT id, name FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor')");
+  const out = {};
+  drives.forEach(d => {
+    if (map[d]) { out[d] = Number(map[d]) || null; return; }
+    const k = plNameKey(String(d).replace(/^calls?\s*[-–:]?\s*/i, ''));
+    if (!k) { out[d] = null; return; }
+    const full = users.filter(u => plNameKey(u.name) === k);
+    const first = users.filter(u => plNameKey(String(u.name || '').split(/\s+/)[0]) === k);
+    out[d] = full.length === 1 ? full[0].id : (first.length === 1 ? first[0].id : null);
+  });
+  return out;
+}
+const callPhone10 = v => { const d = String(v || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
+async function callDealerIndex() {
+  const [rows] = await withDealerTables(() => db.query('SELECT counter_name, phone, alt_phone FROM o2d_dealers'));
+  const byPhone = new Map(), byName = new Map();
+  rows.forEach(r => {
+    [r.phone, r.alt_phone].forEach(p => String(p || '').split(/[,/;|]/).forEach(x => { const p10 = callPhone10(x); if (p10 && !byPhone.has(p10)) byPhone.set(p10, r.counter_name); }));
+    byName.set(plNameKey(r.counter_name), r.counter_name);
+  });
+  return { byPhone, byName };
+}
+// Dealer of a call: the number on the recording, else the saved contact name,
+// else the shop name the summary heard in the call.
+function callMatchDealer(idx, phone, contact, heard) {
+  const p10 = callPhone10(phone);
+  if (p10 && idx.byPhone.has(p10)) return idx.byPhone.get(p10);
+  for (const n of [contact, heard]) {
+    const k = plNameKey(n);
+    if (k.length >= 4 && idx.byName.has(k)) return idx.byName.get(k);
+  }
+  return null;
+}
+const callStr = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+const CALL_DT_RX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/;
+
+// Apps Script: which of these files are already saved (Autosync can upload
+// the same recording again — never pay to transcribe it twice).
+app.post('/api/calls/known', async (req, res) => {
+  try {
+    if (!(await callKeyOk(req))) return res.status(401).json({ error: 'Wrong calls key' });
+    const drive = callStr(req.body && req.body.drive, 120);
+    const names = (Array.isArray(req.body && req.body.names) ? req.body.names : []).slice(0, 1000).map(n => callStr(n, 255)).filter(Boolean);
+    if (!drive || !names.length) return res.json({ known: [] });
+    const [rows] = await withCallTable(() => db.query('SELECT file_name FROM call_recordings WHERE drive_name=? AND file_name IN (?)', [drive, names]));
+    res.json({ known: rows.map(r => r.file_name) });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Apps Script: a batch of processed calls (transcript + summary, or an error).
+app.post('/api/calls/ingest', async (req, res) => {
+  try {
+    if (!(await callKeyOk(req))) return res.status(401).json({ error: 'Wrong calls key' });
+    const list = (Array.isArray(req.body && req.body.calls) ? req.body.calls : []).slice(0, 100);
+    const drives = [...new Set(list.map(c => callStr(c && c.drive, 120)).filter(Boolean))];
+    if (!drives.length) return res.json({ success: true, saved: 0 });
+    const [users, idx] = await Promise.all([callResolveSalesmen(drives), callDealerIndex()]);
+    const rows = [];
+    list.forEach(c => {
+      const drive = callStr(c && c.drive, 120), fileName = callStr(c && c.fileName, 255);
+      if (!drive || !fileName) return;
+      const s = c.summary && typeof c.summary === 'object' ? c.summary : {};
+      const phone = callStr(String(c.phone || '').replace(/[^\d+]/g, ''), 20);
+      const contact = callStr(c.contactName, 255);
+      const type = s.type ? (CALL_TYPES.includes(s.type) ? s.type : 'Other') : null;
+      rows.push([drive, fileName, callStr(c.fileId, 100) || null, callStr(c.audioUrl, 500) || null, users[drive] || null,
+        CALL_DT_RX.test(c.callAt || '') ? c.callAt : null, Math.max(0, Math.round(Number(c.durationSec) || 0)) || null,
+        phone || null, contact || null, callMatchDealer(idx, phone, contact, s.dealer), type,
+        callStr(s.summary, 1000) || null, callStr(s.items, 1000) || null, callStr(s.payment, 500) || null,
+        plYmd(s.followupDate), callStr(s.followupNote, 500) || null,
+        String(c.transcript || '').slice(0, 200000) || null, callStr(c.error, 500) || null]);
+    });
+    if (rows.length) await withCallTable(() => db.query(
+      `INSERT INTO call_recordings (drive_name, file_name, file_id, audio_url, salesman_user_id, call_at, duration_sec, phone, contact_name, dealer_name,
+         call_type, summary, items, payment, followup_date, followup_note, transcript, error) VALUES ?
+       ON DUPLICATE KEY UPDATE file_id=VALUES(file_id), audio_url=VALUES(audio_url), salesman_user_id=VALUES(salesman_user_id), call_at=VALUES(call_at),
+         duration_sec=VALUES(duration_sec), phone=VALUES(phone), contact_name=VALUES(contact_name),
+         dealer_name=IF(dealer_linked_by IS NULL, VALUES(dealer_name), dealer_name), call_type=VALUES(call_type), summary=VALUES(summary),
+         items=VALUES(items), payment=VALUES(payment), followup_date=VALUES(followup_date), followup_note=VALUES(followup_note),
+         transcript=VALUES(transcript), error=VALUES(error)`, [rows]));
+    res.json({ success: true, saved: rows.length });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Apps Script cleanup deleted these old recordings from Drive — the text stays.
+app.post('/api/calls/audio-removed', async (req, res) => {
+  try {
+    if (!(await callKeyOk(req))) return res.status(401).json({ error: 'Wrong calls key' });
+    const drive = callStr(req.body && req.body.drive, 120);
+    const names = (Array.isArray(req.body && req.body.names) ? req.body.names : []).slice(0, 1000).map(n => callStr(n, 255)).filter(Boolean);
+    if (drive && names.length) await withCallTable(() => db.query('UPDATE call_recordings SET audio_url=NULL WHERE drive_name=? AND file_name IN (?)', [drive, names]));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+const CALL_SELECT = `SELECT c.id, c.drive_name, c.file_name, c.audio_url, c.salesman_user_id, u.name AS salesman_name,
+  DATE_FORMAT(COALESCE(c.call_at, c.created_at),'%Y-%m-%d %H:%i') AS call_at, c.duration_sec, c.phone, c.contact_name, c.dealer_name,
+  c.dealer_linked_by, c.call_type, c.summary, c.items, c.payment, DATE_FORMAT(c.followup_date,'%Y-%m-%d') AS followup_date, c.followup_note,
+  c.error, CHAR_LENGTH(c.transcript) AS transcript_len FROM call_recordings c LEFT JOIN users u ON u.id=c.salesman_user_id`;
+
+app.get('/api/call-reports', requireAuth, async (req, res) => {
+  try {
+    const all = await callSeesAll(req);
+    const today = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    let from = plYmd(req.query.from) || today, to = plYmd(req.query.to) || today;
+    if (to < from) [from, to] = [to, from];
+    if (ymdAddDays(from, 62) < to) from = ymdAddDays(to, -62);
+    const userId = all ? (Number(req.query.userId) || null) : Number(req.session.userId);
+    const where = ['COALESCE(c.call_at, c.created_at) >= ?', 'COALESCE(c.call_at, c.created_at) < ?'];
+    const params = [from, ymdAddDays(to, 1)];
+    if (userId) { where.push('c.salesman_user_id=?'); params.push(userId); }
+    const [calls] = await withCallTable(() => db.query(`${CALL_SELECT} WHERE ${where.join(' AND ')} ORDER BY COALESCE(c.call_at, c.created_at) DESC LIMIT 5000`, params));
+    // Red flag (today, after 2 pm IST — the DB clock is IST): a salesman whose
+    // recordings came in during the last 7 days but none today → sync is off?
+    let silent = [], unmapped = [];
+    if (all) {
+      [silent] = await db.query(`SELECT u.id, u.name, DATE_FORMAT(MAX(COALESCE(c.call_at, c.created_at)),'%Y-%m-%d %H:%i') AS last_call
+        FROM call_recordings c JOIN users u ON u.id=c.salesman_user_id
+        WHERE COALESCE(c.call_at, c.created_at) >= CURDATE() - INTERVAL 7 DAY AND HOUR(NOW()) >= 14
+        GROUP BY u.id, u.name HAVING MAX(COALESCE(c.call_at, c.created_at)) < CURDATE()`);
+      [unmapped] = await db.query('SELECT drive_name, COUNT(*) AS n FROM call_recordings WHERE salesman_user_id IS NULL GROUP BY drive_name');
+    }
+    res.json({ from, to, today, seesAll: all, calls, silent: to === today ? silent : [], unmapped, types: CALL_TYPES });
+  } catch (err) { sendServerError(res, err); }
+});
+
+async function callRowForUser(req, id) {
+  const [[c]] = await withCallTable(() => db.query('SELECT * FROM call_recordings WHERE id=?', [id]));
+  if (!c) return { code: 404, error: 'Call not found' };
+  if (Number(c.salesman_user_id) !== Number(req.session.userId) && !(await callSeesAll(req))) return { code: 403, error: 'Not your call' };
+  return { c };
+}
+app.get('/api/call-reports/dealers', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers ORDER BY counter_name'));
+    res.json({ dealers: rows.map(r => r.counter_name) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/call-reports/:id', requireAuth, async (req, res) => {
+  try {
+    const chk = await callRowForUser(req, req.params.id);
+    if (chk.error) return res.status(chk.code).json({ error: chk.error });
+    res.json({ id: chk.c.id, transcript: chk.c.transcript || '' });
+  } catch (err) { sendServerError(res, err); }
+});
+// Link (or unlink) the dealer of a call by hand — later script re-runs keep it.
+app.put('/api/call-reports/:id/dealer', requireAuth, async (req, res) => {
+  try {
+    const chk = await callRowForUser(req, req.params.id);
+    if (chk.error) return res.status(chk.code).json({ error: chk.error });
+    const name = callStr(req.body && req.body.dealer, 255);
+    let dealer = null;
+    if (name) {
+      const [[d]] = await withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers WHERE counter_name=?', [name]));
+      if (!d) return res.status(400).json({ error: 'Ye dealer Dealer Master me nahi hai' });
+      dealer = d.counter_name;
+    }
+    await db.query('UPDATE call_recordings SET dealer_name=?, dealer_linked_by=? WHERE id=?', [dealer, dealer ? (req.session.name || 'user') : null, chk.c.id]);
+    res.json({ success: true, dealer });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Admin ⚙️ Setup: script key, drive → salesman mapping, last arrival.
+app.get('/api/call-reports-admin/setup', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [map, keyHash] = await Promise.all([callDriveMap(), getAppSetting('call_rec_key_hash')]);
+    const [drives] = await withCallTable(() => db.query(`SELECT drive_name, MAX(salesman_user_id) AS user_id, COUNT(*) AS n,
+      DATE_FORMAT(MAX(created_at),'%Y-%m-%d %H:%i') AS last_in, SUM(error IS NOT NULL) AS errors FROM call_recordings GROUP BY drive_name ORDER BY drive_name`));
+    const [users] = await db.query("SELECT id, name FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor') ORDER BY name");
+    Object.keys(map).forEach(d => { if (!drives.some(x => x.drive_name === d)) drives.push({ drive_name: d, user_id: map[d], n: 0, last_in: null, errors: 0 }); });
+    res.json({ keySet: !!keyHash, map, drives, users });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/call-reports-admin/key', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const key = crypto.randomBytes(24).toString('hex');
+    await setAppSetting('call_rec_key_hash', crypto.createHash('sha256').update(key).digest('hex'));
+    res.json({ success: true, key });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/call-reports-admin/drive-map', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const drive = callStr(req.body && req.body.drive, 120);
+    const userId = Number(req.body && req.body.userId) || null;
+    if (!drive) return res.status(400).json({ error: 'Drive name chahiye' });
+    if (userId) {
+      const [[u]] = await db.query('SELECT id FROM users WHERE id=?', [userId]);
+      if (!u) return res.status(400).json({ error: 'User not found' });
+    }
+    const map = await callDriveMap();
+    if (userId) map[drive] = userId; else delete map[drive];
+    await setAppSetting(CALL_DRIVE_MAP_KEY, JSON.stringify(map));
+    const resolved = userId || (await callResolveSalesmen([drive]))[drive] || null;
+    await withCallTable(() => db.query('UPDATE call_recordings SET salesman_user_id=? WHERE drive_name=?', [resolved, drive]));
+    res.json({ success: true, userId: resolved });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
