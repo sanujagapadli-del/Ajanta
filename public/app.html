@@ -2174,6 +2174,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
         <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📞 Call Reports</div>
+        <button class="btn btn-primary" id="crUploadBtn" style="display:none" onclick="openCallUpload()">📤 Recordings upload</button>
         <button class="btn btn-outline btn-sm" id="crSetupBtn" style="display:none" onclick="openCallSetup()">⚙️ Setup</button>
         <button class="btn btn-outline" onclick="loadCallReports()">🔄 Refresh</button>
       </div>
@@ -21964,6 +21965,7 @@ async function loadCallReports() {
   crData = r;
   fromEl.value = r.from; toEl.value = r.to;
   document.getElementById('crSetupBtn').style.display = ME.role === 'admin' ? '' : 'none';
+  document.getElementById('crUploadBtn').style.display = r.seesAll || ME.sales_profile ? '' : 'none';
   const sel = document.getElementById('crSalesman');
   if (r.seesAll) {
     const cur = sel.value;
@@ -22098,7 +22100,11 @@ async function openCallSetup() {
   if (!r || !Array.isArray(r.drives)) { body.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
   const userOpts = sel => '<option value="">— naam se apne-aap —</option>' + r.users.map(u => `<option value="${u.id}"${Number(sel) === u.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('');
   body.innerHTML = `
-    <div style="font-size:13px;color:var(--gray-600);line-height:1.6;margin-bottom:14px">"Call Recordings" folder me har salesman ka apna sub-folder (FolderSync phone se usi me daalta hai). Sub-folder ka naam = salesman. Script: <code>apps-script/call-recordings.gs</code> (company account, har 10 min).</div>
+    <div style="font-size:13px;color:var(--gray-600);line-height:1.6;margin-bottom:14px">Salesman "📤 Recordings upload" se files bhejta hai → seedha Google Drive ke recordings folder me uske naam ke sub-folder me. Script <code>apps-script/call-recordings.gs</code> (company account, har 10 min) unka text + summary yahan bhejti hai.</div>
+    <div style="${PETTY_LABEL}">📁 Recordings folder (Shared Drive ke andar)</div>
+    <div style="display:flex;gap:8px;align-items:center"><input id="crFolderIn" value="${esc(r.folderId)}" placeholder="drive.google.com/drive/folders/… ka link" style="${PETTY_INPUT};margin-bottom:0;flex:1"/>
+      <button class="btn btn-primary btn-sm" onclick="saveCallFolder()">Save</button></div>
+    <div style="font-size:12px;color:var(--gray-500);margin:4px 0 14px">Us Shared Drive me service account (akhileshvyas@reactwebappav…) Content manager aur company account member hona chahiye. Apps Script me <b>CALLS_FOLDER_ID</b> = isi folder ki ID.</div>
     <div style="${PETTY_LABEL}">🔑 Script key (Apps Script → ERP_KEY)</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
       <span class="status-badge" style="background:${r.keySet ? 'var(--color-success-bg)' : 'var(--color-warning-bg)'};color:${r.keySet ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${r.keySet ? '✅ Key set hai' : '⏳ Key nahi bani'}</span>
@@ -22111,6 +22117,80 @@ async function openCallSetup() {
           ${!r.map[d.drive_name] && d.user_id ? `<div style="font-size:11px;color:var(--gray-500)">abhi: ${esc((r.users.find(u => u.id === Number(d.user_id)) || {}).name || '')}</div>` : ''}</td>
         <td>${d.n}</td><td>${esc(d.last_in || '—')}</td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty" style="padding:12px">Abhi koi recording nahi aayi. Script chalne ke baad drives yahan dikhengi.</div>'}`;
+}
+async function saveCallFolder() {
+  const r = await api('/api/call-reports-admin/folder', 'PUT', { folder: document.getElementById('crFolderIn').value.trim() });
+  if (!r || !r.success) { showToast((r && r.error) || 'Save failed', 'error'); return; }
+  document.getElementById('crFolderIn').value = r.folder.id;
+  showToast(`Folder set: ${r.folder.name}`);
+}
+// ── Upload: phone → Google Drive directly (the server only opens the session) ──
+let crUploading = false;
+const crUpName = n => String(n || '').replace(/[\\/]/g, '_').trim().slice(0, 255);
+const crIst = ms => { const d = new Date(ms || Date.now()), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+function openCallUpload() {
+  const body = crModal('crUploadModal', '📤 Call recordings upload', 480);
+  if (crUploading) return; // keep the running upload's progress on screen
+  body.innerHTML = `<div style="font-size:13px;color:var(--gray-600);line-height:1.7;margin-bottom:12px">
+      1. Neeche button dabao → phone ka <b>call recording folder</b> kholo (aksar <i>Recordings → Call</i>).<br>
+      2. <b>Saari files select karo</b> — jo pehle bhej chuke ho wo apne-aap chhoot jayengi.<br>
+      3. Upload poora hone tak ye page khula rakho (WiFi ho to behtar).</div>
+    <input type="file" id="crUpFiles" multiple accept="audio/*,.m4a,.mp3,.amr,.aac,.wav,.ogg,.opus,.3gp,.awb" onchange="startCallUpload(this.files)" style="display:none"/>
+    <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('crUpFiles').click()">📂 Recordings chuno</button>
+    <div id="crUpStatus" style="margin-top:12px;font-size:13px"></div>`;
+}
+async function startCallUpload(fileList) {
+  const files = [...(fileList || [])].filter(f => f.size > 0);
+  const st = document.getElementById('crUpStatus');
+  if (!files.length || crUploading) return;
+  crUploading = true;
+  let done = 0, failed = 0, skipped = 0, todo = [];
+  const render = note => {
+    const pct = todo.length ? Math.round((done + failed) / todo.length * 100) : 100;
+    st.innerHTML = `${skipped ? `${skipped} pehle se bheji hui · ` : ''}<b>${done} / ${todo.length}</b> upload${failed ? ` · <span style="color:var(--color-danger)">${failed} fail</span>` : ''}
+      <div style="height:8px;background:var(--gray-100);border-radius:6px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--color-success-text);transition:width .3s"></div></div>
+      ${note ? `<div style="margin-top:8px">${note}</div>` : ''}`;
+  };
+  try {
+    st.textContent = 'Check kar rahe hain…';
+    const chk = await api('/api/call-uploads/check', 'POST', { names: files.map(f => crUpName(f.name)) });
+    if (!chk || !Array.isArray(chk.fresh)) throw new Error((chk && chk.error) || 'Check failed');
+    const fresh = new Set(chk.fresh);
+    todo = files.filter(f => fresh.has(crUpName(f.name)));
+    skipped = files.length - todo.length;
+    render();
+    for (let i = 0; i < todo.length; i += 10) {
+      const chunk = todo.slice(i, i + 10);
+      const s = await api('/api/call-uploads/start', 'POST', { files: chunk.map(f => ({ name: crUpName(f.name), size: f.size, type: f.type, recordedAt: crIst(f.lastModified) })) });
+      if (!s || !Array.isArray(s.sessions)) throw new Error((s && s.error) || 'Upload start failed');
+      const jobs = chunk.map((f, k) => ({ f, sess: s.sessions[k] })), sent = [];
+      let next = 0;
+      await Promise.all([0, 1, 2].map(async () => { // 3 files at a time
+        while (next < jobs.length) {
+          const { f, sess } = jobs[next++];
+          try {
+            if (!sess || !sess.url) throw new Error((sess && sess.error) || 'no session');
+            const r = await fetch(sess.url, { method: 'PUT', body: f });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j.id) throw new Error('HTTP ' + r.status);
+            sent.push({ name: crUpName(f.name), size: f.size, fileId: j.id });
+            done++;
+          } catch (e) { failed++; console.warn('call upload', f.name, e.message); }
+          render();
+        }
+      }));
+      if (sent.length) await api('/api/call-uploads/done', 'POST', { files: sent });
+    }
+    render(!todo.length ? '✅ Koi nayi recording nahi thi — sab pehle se bheji hui hain.'
+      : failed ? '⚠️ Kuch files nahi gayi — dobara saari select karke upload karo (jo chali gayi wo dobara nahi jayengi).'
+      : '✅ Ho gaya! Text + summary 10–20 min me yahan Call Reports me aa jayegi.');
+  } catch (e) {
+    st.innerHTML = `<span style="color:var(--color-danger)">⚠️ ${esc(e.message)}</span>`;
+  } finally {
+    crUploading = false;
+    const inp = document.getElementById('crUpFiles');
+    if (inp) inp.value = '';
+  }
 }
 async function newCallKey(replace) {
   if (replace && !confirm('Nayi key banane se purani key band ho jayegi — Apps Script me nayi key daalni padegi. Banayein?')) return;

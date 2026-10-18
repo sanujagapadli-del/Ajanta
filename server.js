@@ -11134,6 +11134,16 @@ async function ensureCallTable() {
       INDEX idx_call_at (call_at),
       INDEX idx_user_at (salesman_user_id, call_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS call_uploads (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      size_bytes BIGINT,
+      drive_file_id VARCHAR(100),
+      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_user_file (user_id, file_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 }
 async function withCallTable(fn) {
   try { return await fn(); }
@@ -11221,7 +11231,7 @@ app.post('/api/calls/ingest', async (req, res) => {
       const phone = callStr(String(c.phone || '').replace(/[^\d+]/g, ''), 20);
       const contact = callStr(c.contactName, 255);
       const type = s.type ? (CALL_TYPES.includes(s.type) ? s.type : 'Other') : null;
-      rows.push([drive, fileName, callStr(c.fileId, 100) || null, callStr(c.audioUrl, 500) || null, users[drive] || null,
+      rows.push([drive, fileName, callStr(c.fileId, 100) || null, callStr(c.audioUrl, 500) || null, (Number(c.userId) > 0 ? Number(c.userId) : null) || users[drive] || null,
         CALL_DT_RX.test(c.callAt || '') ? c.callAt : null, Math.max(0, Math.round(Number(c.durationSec) || 0)) || null,
         phone || null, contact || null, callMatchDealer(idx, phone, contact, s.dealer), type,
         callStr(s.summary, 1000) || null, callStr(s.items, 1000) || null, callStr(s.payment, 500) || null,
@@ -11321,12 +11331,12 @@ app.put('/api/call-reports/:id/dealer', requireAuth, async (req, res) => {
 // Admin ⚙️ Setup: script key, drive → salesman mapping, last arrival.
 app.get('/api/call-reports-admin/setup', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const [map, keyHash] = await Promise.all([callDriveMap(), getAppSetting('call_rec_key_hash')]);
+    const [map, keyHash, folderId] = await Promise.all([callDriveMap(), getAppSetting('call_rec_key_hash'), getAppSetting(CALL_FOLDER_KEY)]);
     const [drives] = await withCallTable(() => db.query(`SELECT drive_name, MAX(salesman_user_id) AS user_id, COUNT(*) AS n,
       DATE_FORMAT(MAX(created_at),'%Y-%m-%d %H:%i') AS last_in, SUM(error IS NOT NULL) AS errors FROM call_recordings GROUP BY drive_name ORDER BY drive_name`));
     const [users] = await db.query("SELECT id, name FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor') ORDER BY name");
     Object.keys(map).forEach(d => { if (!drives.some(x => x.drive_name === d)) drives.push({ drive_name: d, user_id: map[d], n: 0, last_in: null, errors: 0 }); });
-    res.json({ keySet: !!keyHash, map, drives, users });
+    res.json({ keySet: !!keyHash, map, drives, users, folderId: folderId || '' });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/call-reports-admin/key', requireAuth, requireAdmin, async (req, res) => {
@@ -11351,6 +11361,121 @@ app.put('/api/call-reports-admin/drive-map', requireAuth, requireAdmin, async (r
     const resolved = userId || (await callResolveSalesmen([drive]))[drive] || null;
     await withCallTable(() => db.query('UPDATE call_recordings SET salesman_user_id=? WHERE drive_name=?', [resolved, drive]));
     res.json({ success: true, userId: resolved });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ── Upload from the ERP (client, 2026-10-18: no third-party sync app) ──
+// The salesman picks his recordings on the phone; each file goes straight
+// from the browser to Google Drive through a resumable session this server
+// opens with the service account (Origin passed, so Google allows the
+// browser's PUT) — the audio never passes through Vercel. Files land in
+// "<root folder>/<salesman name>/", which the Apps Script reads (folder mode).
+const CALL_FOLDER_KEY = 'call_rec_folder_id', CALL_USER_FOLDERS_KEY = 'call_rec_user_folders';
+let _callDriveAuth = null;
+async function callDriveToken() {
+  if (!_callDriveAuth) {
+    const { google } = require('googleapis');
+    _callDriveAuth = new google.auth.GoogleAuth({ credentials: loadGoogleCreds(), scopes: ['https://www.googleapis.com/auth/drive'] });
+  }
+  const t = await (await _callDriveAuth.getClient()).getAccessToken();
+  return t && t.token ? t.token : t;
+}
+async function callCanUpload(req) {
+  if (await callSeesAll(req)) return true;
+  const [[sp]] = await withPlTables(() => db.query("SELECT user_id FROM salesman_profiles WHERE user_id=? AND o2d_names IS NOT NULL AND o2d_names<>''", [req.session.userId]));
+  return !!sp;
+}
+// The user's own sub-folder (made on first upload, or an existing one with
+// his name), remembered per root so a changed root gets new sub-folders.
+async function callUserFolder(userId, userName) {
+  const root = await getAppSetting(CALL_FOLDER_KEY);
+  if (!root) { const e = new Error('Recordings ka folder abhi set nahi hai — Admin: Call Reports → ⚙️ Setup'); e.status = 400; throw e; }
+  let map = {};
+  try { map = JSON.parse((await getAppSetting(CALL_USER_FOLDERS_KEY)) || '{}') || {}; } catch (e) { map = {}; }
+  if (map[userId] && map[userId].root === root) return map[userId];
+  const drive = await getDriveClient();
+  const name = String(userName || `User ${userId}`).replace(/['\\]/g, '').trim().slice(0, 100);
+  const found = await drive.files.list({ corpora: 'allDrives', includeItemsFromAllDrives: true, supportsAllDrives: true, fields: 'files(id)',
+    q: `'${root}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder' and name='${name}'` });
+  let id = found.data.files[0] && found.data.files[0].id;
+  if (!id) id = (await drive.files.create({ supportsAllDrives: true, fields: 'id', requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [root] } })).data.id;
+  map[userId] = { root, id, name };
+  await setAppSetting(CALL_USER_FOLDERS_KEY, JSON.stringify(map));
+  // The script names each call's source after this folder — tie it to the user.
+  const dmap = await callDriveMap();
+  if (Number(dmap[name]) !== Number(userId)) { dmap[name] = Number(userId); await setAppSetting(CALL_DRIVE_MAP_KEY, JSON.stringify(dmap)); }
+  return map[userId];
+}
+const callUploadName = n => callStr(String(n || '').replace(/[\\/]/g, '_'), 255);
+// Which of the picked files are new (re-picking the whole folder every day is fine).
+app.post('/api/call-uploads/check', requireAuth, async (req, res) => {
+  try {
+    if (!(await callCanUpload(req))) return res.status(403).json({ error: 'Upload sirf salesmen ke liye' });
+    const names = [...new Set((Array.isArray(req.body && req.body.names) ? req.body.names : []).slice(0, 2000).map(callUploadName).filter(Boolean))];
+    if (!names.length) return res.json({ fresh: [] });
+    const uid = Number(req.session.userId);
+    const [[up], [rec]] = await withCallTable(() => Promise.all([
+      db.query('SELECT file_name FROM call_uploads WHERE user_id=? AND file_name IN (?)', [uid, names]),
+      db.query('SELECT file_name FROM call_recordings WHERE salesman_user_id=? AND file_name IN (?)', [uid, names])
+    ]));
+    const have = new Set([...up, ...rec].map(r => r.file_name));
+    res.json({ fresh: names.filter(n => !have.has(n)) });
+  } catch (err) { sendServerError(res, err); }
+});
+// Open Drive upload sessions for up to 10 files; the browser PUTs each file to its url.
+app.post('/api/call-uploads/start', requireAuth, async (req, res) => {
+  try {
+    if (!(await callCanUpload(req))) return res.status(403).json({ error: 'Upload sirf salesmen ke liye' });
+    const files = (Array.isArray(req.body && req.body.files) ? req.body.files : []).slice(0, 10);
+    const folder = await callUserFolder(req.session.userId, req.session.name);
+    const token = await callDriveToken();
+    const origin = req.headers.origin || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+    const sessions = await Promise.all(files.map(async f => {
+      const name = callUploadName(f && f.name), size = Number(f && f.size) || 0;
+      if (!name || !(size > 0) || size > 50 * 1024 * 1024) return { name, error: 'File khali ya 50 MB se badi' };
+      // Public `properties` (appProperties would be private to this service
+      // account — the Apps Script, another app, couldn't read them).
+      const properties = { erpUser: String(req.session.userId) };
+      if (CALL_DT_RX.test((f && f.recordedAt) || '')) properties.recordedAt = f.recordedAt;
+      const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', Origin: origin,
+          'X-Upload-Content-Type': callStr(f.type, 100) || 'application/octet-stream', 'X-Upload-Content-Length': String(size) },
+        body: JSON.stringify({ name, parents: [folder.id], properties })
+      });
+      const url = r.headers.get('location');
+      return r.ok && url ? { name, url } : { name, error: `Drive ${r.status}: ${(await r.text()).slice(0, 200)}` };
+    }));
+    res.json({ sessions });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    if (err.code === 404 || err.code === 403) return res.status(400).json({ error: 'Recordings folder tak access nahi — service account ko us Shared Drive me Content manager banao' });
+    sendServerError(res, err);
+  }
+});
+app.post('/api/call-uploads/done', requireAuth, async (req, res) => {
+  try {
+    const files = (Array.isArray(req.body && req.body.files) ? req.body.files : []).slice(0, 200)
+      .map(f => [Number(req.session.userId), callUploadName(f && f.name), Number(f && f.size) || null, callStr(f && f.fileId, 100) || null]).filter(r => r[1]);
+    if (files.length) await withCallTable(() => db.query('INSERT IGNORE INTO call_uploads (user_id, file_name, size_bytes, drive_file_id) VALUES ?', [files]));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Admin: the "Call Recordings" folder (link or id) the uploads go into.
+app.put('/api/call-reports-admin/folder', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const raw = callStr(req.body && req.body.folder, 300);
+    const id = (/\/folders\/([\w-]{10,})/.exec(raw) || /^([\w-]{10,})$/.exec(raw) || [])[1];
+    if (!id) return res.status(400).json({ error: 'Folder ka link ya ID daalo' });
+    const drive = await getDriveClient();
+    let meta;
+    try { meta = (await drive.files.get({ fileId: id, supportsAllDrives: true, fields: 'id, name, mimeType, driveId, capabilities(canAddChildren)' })).data; }
+    catch (e) { return res.status(400).json({ error: 'Ye folder service account ko nahi dikh raha — Shared Drive me akhileshvyas@reactwebappav.iam.gserviceaccount.com ko Content manager banao' }); }
+    if (meta.mimeType !== 'application/vnd.google-apps.folder') return res.status(400).json({ error: 'Ye folder nahi hai' });
+    if (!meta.driveId) return res.status(400).json({ error: 'Folder kisi Shared Drive ke andar hona chahiye (My Drive me service account file nahi bana sakta)' });
+    if (!meta.capabilities || !meta.capabilities.canAddChildren) return res.status(400).json({ error: 'Service account is folder me file nahi daal sakta — Content manager banao' });
+    await setAppSetting(CALL_FOLDER_KEY, id);
+    res.json({ success: true, folder: { id, name: meta.name } });
   } catch (err) { sendServerError(res, err); }
 });
 

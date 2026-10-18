@@ -1,11 +1,13 @@
 /**
  * Call recordings → Ajanta ERP "Call Reports" page.
  *
- * Runs on the COMPANY Google Workspace account. Recordings arrive (FolderSync
- * on each salesman's phone, "To remote folder") in ONE of two layouts:
+ * Runs on the COMPANY Google Workspace account. Recordings arrive in ONE of two layouts:
  *   a) CALLS_FOLDER_ID set: one folder in a Shared Drive with a sub-folder per
- *      salesman ("Ramesh", "Suresh"…). Each sub-folder: "Limit access" ticked
- *      and only that salesman added, as Contributor.
+ *      salesman ("Ramesh", "Suresh"…). The ERP's "📤 Upload" (Call Reports
+ *      page) creates the sub-folder and puts the salesman's files there
+ *      (same folder as ⚙️ Setup → Recordings folder). A sync app (FolderSync,
+ *      "To remote folder") can write there too: "Limit access" on the
+ *      sub-folder, only that salesman added, as Contributor.
  *   b) otherwise: one Shared Drive per salesman named "Calls - <name>".
  * The sub-folder / drive name is the salesman (ERP matches it to the user by
  * name; ⚙️ Setup can map it by hand). Every 10 minutes:
@@ -77,8 +79,11 @@ function processCalls() {
 }
 
 function processOne_(drive, f) {
-  const meta = parseFileName_(f.name, f.createdTime);
-  const call = { drive, fileName: f.name, fileId: f.id, audioUrl: f.webViewLink || '', callAt: meta.callAt, phone: meta.phone, contactName: meta.contact };
+  // Uploaded from the ERP: properties carry the salesman's user id and the
+  // file's time on the phone (≈ when the call was recorded).
+  const ap = f.properties || {};
+  const meta = parseFileName_(f.name, ap.recordedAt || f.createdTime);
+  const call = { drive, userId: Number(ap.erpUser) || null, fileName: f.name, fileId: f.id, audioUrl: f.webViewLink || '', callAt: meta.callAt, phone: meta.phone, contactName: meta.contact };
   if (!GROQ_OK_RX.test(f.name)) { call.error = 'Ye recording format (' + f.name.split('.').pop() + ') text me nahi badalta — phone recorder ko m4a / mp3 pe set karo'; return call; }
   if (Number(f.size) > MAX_BYTES) { call.error = 'Recording 24 MB se badi hai'; return call; }
   const blob = DriveApp.getFileById(f.id).getBlob().setName(f.name);
@@ -146,7 +151,7 @@ function listNewRecordings_(src) {
     const r = Drive.Files.list(Object.assign(scope_(src.driveId), {
       pageSize: 200, pageToken: token,
       q: "trashed=false and mimeType!='application/vnd.google-apps.folder' and not appProperties has { key='erp' and value='done' }" + inSource_(src),
-      orderBy: 'createdTime', fields: 'nextPageToken, files(id, name, size, createdTime, webViewLink)'
+      orderBy: 'createdTime', fields: 'nextPageToken, files(id, name, size, createdTime, webViewLink, properties)'
     }));
     (r.files || []).forEach(f => { if (AUDIO_RX.test(f.name)) out.push(f); });
     token = r.nextPageToken;
@@ -161,7 +166,7 @@ function markDone_(fileId) {
 // Phones name recordings differently ("Call recording Sharma Electricals_241018_103022.m4a",
 // "9876543210_20241018103022.mp3", "Rec_+919876543210 2024-10-18 10-30-22.m4a" …). Anything not found falls back to
 // the upload time. Adjust here once the real file names are known.
-function parseFileName_(name, createdTime) {
+function parseFileName_(name, fallbackTime) {
   let base = String(name).replace(/\.[^.]+$/, '');
   let callAt = '';
   const pats = [
@@ -177,7 +182,9 @@ function parseFileName_(name, createdTime) {
     base = base.replace(m[0], ' ');
     break;
   }
-  if (!callAt) callAt = Utilities.formatDate(new Date(createdTime || Date.now()), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm:ss');
+  // No date in the name: the phone's file time ("YYYY-MM-DD HH:mm:ss", IST) or the Drive upload time.
+  if (!callAt && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(fallbackTime || '')) callAt = fallbackTime;
+  if (!callAt) callAt = Utilities.formatDate(new Date(fallbackTime || Date.now()), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm:ss');
   let phone = '';
   const pm = /\+?\d[\d\s-]{8,15}\d/.exec(base);
   if (pm && pm[0].replace(/\D/g, '').length >= 10) { phone = pm[0].replace(/[^\d+]/g, ''); base = base.replace(pm[0], ' '); }
