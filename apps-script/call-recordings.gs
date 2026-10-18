@@ -1,12 +1,17 @@
 /**
  * Call recordings → Ajanta ERP "Call Reports" page.
  *
- * Runs on the COMPANY Google Workspace account — the Manager of every
- * salesman's Shared Drive "Calls - <name>" (salesmen are Contributors: they
- * can upload, can't delete or see each other's drives). Every 10 minutes:
- *   new recording in a drive → Groq Whisper (text) → Claude Haiku (summary)
+ * Runs on the COMPANY Google Workspace account. Recordings arrive (FolderSync
+ * on each salesman's phone, "To remote folder") in ONE of two layouts:
+ *   a) CALLS_FOLDER_ID set: one folder in a Shared Drive with a sub-folder per
+ *      salesman ("Ramesh", "Suresh"…). Each sub-folder: "Limit access" ticked
+ *      and only that salesman added, as Contributor.
+ *   b) otherwise: one Shared Drive per salesman named "Calls - <name>".
+ * The sub-folder / drive name is the salesman (ERP matches it to the user by
+ * name; ⚙️ Setup can map it by hand). Every 10 minutes:
+ *   new recording → Groq Whisper (text) → Claude Haiku (summary)
  *   → POST to the ERP in small batches → file marked done (appProperties).
- * Files are never moved, so Autosync never uploads them again; the ERP also
+ * Files are never moved, so the phone never uploads them again; the ERP also
  * tells us which names it already has, so nothing is paid for twice.
  *
  * SETUP (once):
@@ -18,6 +23,9 @@
  *       CLAUDE_KEY  platform.claude.com API key
  *       ERP_KEY     from ERP → Call Reports → ⚙️ Setup → Key banao
  *       ERP_URL     https://ajanta-erp.vercel.app   (optional, this is the default)
+ *       CALLS_FOLDER_ID  id of the "Call Recordings" folder (from its URL
+ *                   drive.google.com/drive/folders/<id>) — layout (a); leave
+ *                   empty for layout (b)
  *     Optional: DRIVE_PREFIX ("Calls - "), KEEP_DAYS (60), LANGUAGE ("hi"),
  *               GROQ_MODEL ("whisper-large-v3-turbo"), CLAUDE_MODEL ("claude-haiku-5-5")
  *  3. Run checkSetup() once (approve the permissions) and read the log.
@@ -41,9 +49,9 @@ function processCalls() {
   const timeLeft = () => Date.now() - started < RUN_BUDGET_MS;
   let pending = [], stop = false, done = 0;
   try {
-    for (const d of listCallDrives_()) {
+    for (const d of listSources_()) {
       if (stop || !timeLeft()) break;
-      const files = listNewRecordings_(d.id);
+      const files = listNewRecordings_(d);
       if (!files.length) continue;
       const known = erpPost_('/api/calls/known', { drive: d.name, names: files.map(f => f.name) }).known || [];
       for (const f of files) {
@@ -101,26 +109,45 @@ function flush_(items) {
 }
 
 // ── Drive ────────────────────────────────────────────────────────────────
-function listCallDrives_() {
-  const prefix = cfg('DRIVE_PREFIX', 'Calls - ').toLowerCase();
+// One source per salesman: { name, driveId, folderId } — folderId null = the whole Shared Drive.
+function listSources_() {
   const out = [];
   let token;
+  const rootId = cfg('CALLS_FOLDER_ID');
+  if (rootId) {
+    const root = Drive.Files.get(rootId, { supportsAllDrives: true, fields: 'id, name, driveId' });
+    do {
+      const r = Drive.Files.list(Object.assign(scope_(root.driveId), {
+        pageSize: 200, pageToken: token, fields: 'nextPageToken, files(id, name)',
+        q: `'${rootId}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`
+      }));
+      (r.files || []).forEach(f => out.push({ name: f.name, driveId: root.driveId, folderId: f.id }));
+      token = r.nextPageToken;
+    } while (token);
+    return out;
+  }
+  const prefix = cfg('DRIVE_PREFIX', 'Calls - ').toLowerCase();
   do {
     const r = Drive.Drives.list({ pageSize: 100, pageToken: token });
-    (r.drives || []).forEach(d => { if (d.name.toLowerCase().indexOf(prefix) === 0) out.push({ id: d.id, name: d.name }); });
+    (r.drives || []).forEach(d => { if (d.name.toLowerCase().indexOf(prefix) === 0) out.push({ name: d.name, driveId: d.id, folderId: null }); });
     token = r.nextPageToken;
   } while (token);
   return out;
 }
-function listNewRecordings_(driveId) {
+function scope_(driveId) {
+  return driveId ? { corpora: 'drive', driveId, includeItemsFromAllDrives: true, supportsAllDrives: true }
+    : { corpora: 'user', includeItemsFromAllDrives: true, supportsAllDrives: true };
+}
+const inSource_ = src => src.folderId ? ` and '${src.folderId}' in parents` : '';
+function listNewRecordings_(src) {
   const out = [];
   let token;
   do {
-    const r = Drive.Files.list({
-      corpora: 'drive', driveId, includeItemsFromAllDrives: true, supportsAllDrives: true, pageSize: 200, pageToken: token,
-      q: "trashed=false and mimeType!='application/vnd.google-apps.folder' and not appProperties has { key='erp' and value='done' }",
+    const r = Drive.Files.list(Object.assign(scope_(src.driveId), {
+      pageSize: 200, pageToken: token,
+      q: "trashed=false and mimeType!='application/vnd.google-apps.folder' and not appProperties has { key='erp' and value='done' }" + inSource_(src),
       orderBy: 'createdTime', fields: 'nextPageToken, files(id, name, size, createdTime, webViewLink)'
-    });
+    }));
     (r.files || []).forEach(f => { if (AUDIO_RX.test(f.name)) out.push(f); });
     token = r.nextPageToken;
   } while (token && out.length < 300);
@@ -237,14 +264,14 @@ function cleanupOldAudio() {
   const keep = Number(cfg('KEEP_DAYS', '60')) || 60;
   const cutoff = new Date(Date.now() - keep * 86400000).toISOString();
   const started = Date.now();
-  for (const d of listCallDrives_()) {
+  for (const d of listSources_()) {
     const names = [];
     let token;
     do {
-      const r = Drive.Files.list({
-        corpora: 'drive', driveId: d.id, includeItemsFromAllDrives: true, supportsAllDrives: true, pageSize: 200, pageToken: token,
-        q: `trashed=false and createdTime < '${cutoff}' and appProperties has { key='erp' and value='done' }`, fields: 'nextPageToken, files(id, name)'
-      });
+      const r = Drive.Files.list(Object.assign(scope_(d.driveId), {
+        pageSize: 200, pageToken: token, fields: 'nextPageToken, files(id, name)',
+        q: `trashed=false and createdTime < '${cutoff}' and appProperties has { key='erp' and value='done' }` + inSource_(d)
+      }));
       (r.files || []).forEach(f => { Drive.Files.remove(f.id, { supportsAllDrives: true }); names.push(f.name); });
       token = r.nextPageToken;
     } while (token && Date.now() - started < RUN_BUDGET_MS);
@@ -257,9 +284,11 @@ function cleanupOldAudio() {
 // ── One-time helpers ─────────────────────────────────────────────────────
 function checkSetup() {
   ['GROQ_KEY', 'CLAUDE_KEY', 'ERP_KEY'].forEach(k => console.log(`${k}: ${cfg(k) ? 'set' : 'MISSING'}`));
-  const drives = listCallDrives_();
-  console.log(`Drives found (${drives.length}): ${drives.map(d => d.name).join(', ') || 'none — names must start with "' + cfg('DRIVE_PREFIX', 'Calls - ') + '"'}`);
-  drives.forEach(d => console.log(`  ${d.name}: ${listNewRecordings_(d.id).length} new recording(s)`));
+  const rootId = cfg('CALLS_FOLDER_ID');
+  const srcs = listSources_();
+  console.log(rootId ? `Salesman folders in CALLS_FOLDER_ID (${srcs.length}): ${srcs.map(d => d.name).join(', ') || 'none — make one sub-folder per salesman'}`
+    : `Drives found (${srcs.length}): ${srcs.map(d => d.name).join(', ') || 'none — names must start with "' + cfg('DRIVE_PREFIX', 'Calls - ') + '" (or set CALLS_FOLDER_ID)'}`);
+  srcs.forEach(d => console.log(`  ${d.name}: ${listNewRecordings_(d).length} new recording(s)`));
   try { erpPost_('/api/calls/known', { drive: 'test', names: ['test'] }); console.log('ERP: key OK'); }
   catch (e) { console.log('ERP: ' + e.message); }
   const sample = ['Call recording Sharma Electricals_241018_103022.m4a', '919876543210_20241018103022.mp3'];
