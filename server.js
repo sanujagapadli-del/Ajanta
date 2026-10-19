@@ -568,7 +568,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -11087,6 +11087,221 @@ app.post('/api/petty-cash/import-sheet', requireAuth, requireAdmin, async (req, 
     res.json({ success: true, imported, skipped });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the petty cash sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// TEA REGISTER (client, 2026-10-19) — replaces the separate "Ajanta Tea
+// Register" Apps Script app. Morning + Evening rounds; each staff name can be
+// logged once per round per day (no third tea — UNIQUE on staff_key, which is
+// NULL for guests). The ERP login replaces the old MDO PINs: anyone with the
+// 'tea' page grant makes entries. The owner (Petty Cash owners + admins) keeps
+// the staff list, rate and the vendor's monthly bill, which the report checks
+// against cups × rate.
+// ══════════════════════════════════════════════════════
+const TEA_SHEET_ID = '1jOGX3YzArBNmqKAoWGOIzkrVYXKGsA7ReCwBW_FI7Sw';
+const TEA_SLOTS = ['Morning', 'Evening'];
+const TEA_DEFAULT_CATS = ['Dealer', 'Auto wala', 'Transporter', 'Bank', 'Courier', 'Vendor/Supplier', 'Other Guest'];
+async function ensureTeaTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tea_staff (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tea_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      ext_key VARCHAR(255) UNIQUE,
+      log_date DATE NOT NULL,
+      slot VARCHAR(10) NOT NULL,
+      type VARCHAR(10) NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      category VARCHAR(60),
+      staff_key VARCHAR(100),
+      entered_by_id INT,
+      entered_by_name VARCHAR(255),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY one_cup (log_date, slot, staff_key),
+      INDEX (log_date)
+    )`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tea_bills (
+      month CHAR(7) PRIMARY KEY,
+      amount DECIMAL(12,2) NOT NULL,
+      updated_by VARCHAR(255),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )`);
+}
+async function withTeaTables(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensureTeaTables(); return await fn(); }
+}
+async function teaCats() {
+  const raw = await getAppSetting('tea_categories');
+  const list = String(raw || '').split('\n').map(s => s.trim()).filter(Boolean);
+  return list.length ? list : TEA_DEFAULT_CATS;
+}
+async function teaRate() { return Number(await getAppSetting('tea_rate')) || 5.5; }
+
+// One call per page open: masters, today's locks and the chosen month's log.
+app.get('/api/tea', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'tea'))) return res.status(403).json({ error: 'No access to Tea Register' });
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : null;
+    const [[staff], [[t]]] = await withTeaTables(() => Promise.all([
+      db.query('SELECT id, name, active FROM tea_staff ORDER BY id'),
+      db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today")
+    ]));
+    const m = month || t.today.slice(0, 7);
+    const [[log], [bills], cats, rate, isOwner] = await Promise.all([
+      db.query(`SELECT id, DATE_FORMAT(log_date,'%Y-%m-%d') AS d, slot, type, name, category, entered_by_id, entered_by_name,
+        DATE_FORMAT(created_at,'%H:%i') AS t FROM tea_log WHERE (log_date BETWEEN ? AND LAST_DAY(?)) OR log_date=CURDATE() ORDER BY created_at, id`, [m + '-01', m + '-01']),
+      db.query('SELECT amount FROM tea_bills WHERE month=?', [m]),
+      teaCats(), teaRate(), pettyIsOwner(req)
+    ]);
+    res.json({ today: t.today, month: m, staff: staff.map(s => ({ ...s, active: !!s.active })), cats, rate, isOwner,
+      log, bill: bills[0] ? Number(bills[0].amount) : null, me: req.session.name || '' });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Save one round. Staff already logged for today's round are skipped
+// (UNIQUE one_cup), so two phones saving at once can't double-count.
+app.post('/api/tea/entry', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'tea'))) return res.status(403).json({ error: 'No access to Tea Register' });
+    const slot = String(req.body.slot || '');
+    if (!TEA_SLOTS.includes(slot)) return res.status(400).json({ error: 'Morning / Evening chunein' });
+    const [staffRows] = await withTeaTables(() => db.query('SELECT name FROM tea_staff WHERE active=1'));
+    const known = new Set(staffRows.map(s => s.name));
+    const cats = await teaCats();
+    const names = [...new Set((Array.isArray(req.body.staffNames) ? req.body.staffNames : []).map(n => String(n).trim()))].filter(n => known.has(n));
+    const guests = (Array.isArray(req.body.guests) ? req.body.guests : []).slice(0, 10)
+      .map(g => ({ name: String((g && g.name) || '').trim().slice(0, 150), category: cats.includes(g && g.category) ? g.category : 'Other Guest' }))
+      .filter(g => g.name);
+    if (!names.length && !guests.length) return res.status(400).json({ error: 'Kisi ko toh select karo!' });
+    const by = [req.session.userId, req.session.name || ''];
+    const skipped = [];
+    let saved = 0;
+    for (const n of names) {
+      const [r] = await db.query("INSERT IGNORE INTO tea_log (log_date, slot, type, name, staff_key, entered_by_id, entered_by_name) VALUES (CURDATE(),?,'Staff',?,?,?,?)", [slot, n, n, ...by]);
+      if (r.affectedRows) saved++; else skipped.push(n);
+    }
+    if (guests.length) {
+      // CURDATE() (MySQL is IST), not a JS date — Vercel runs in UTC.
+      await db.query(`INSERT INTO tea_log (log_date, slot, type, name, category, entered_by_id, entered_by_name) VALUES ${guests.map(() => "(CURDATE(),?,'Guest',?,?,?,?)").join(',')}`,
+        guests.flatMap(g => [slot, g.name, g.category, ...by]));
+      saved += guests.length;
+    }
+    res.json({ success: true, saved, skipped });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// A wrong tap: whoever entered it can remove it the same day; owner any time.
+app.delete('/api/tea/entry/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'tea'))) return res.status(403).json({ error: 'No access to Tea Register' });
+    const [[e]] = await withTeaTables(() => db.query('SELECT id, entered_by_id, log_date=CURDATE() AS is_today FROM tea_log WHERE id=?', [req.params.id]));
+    if (!e) return res.status(404).json({ error: 'Entry not found' });
+    if (!(await pettyIsOwner(req)) && !(Number(e.entered_by_id) === Number(req.session.userId) && e.is_today))
+      return res.status(403).json({ error: 'Sirf aaj ki apni entry hata sakte ho' });
+    await db.query('DELETE FROM tea_log WHERE id=?', [e.id]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Owner: staff list (add / switch off — never delete, old cups keep the name).
+app.post('/api/tea/staff', requireAuth, async (req, res) => {
+  try {
+    if (!(await pettyIsOwner(req))) return res.status(403).json({ error: 'Sirf owner staff badal sakte hain' });
+    const name = String(req.body.name || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+    if (!name) return res.status(400).json({ error: 'Naam daalo' });
+    const [[dup]] = await withTeaTables(() => db.query('SELECT id, active FROM tea_staff WHERE LOWER(name)=LOWER(?)', [name]));
+    if (dup && dup.active) return res.status(400).json({ error: 'Yeh naam pehle se list mein hai' });
+    if (dup) await db.query('UPDATE tea_staff SET active=1 WHERE id=?', [dup.id]);
+    else await db.query('INSERT INTO tea_staff (name) VALUES (?)', [name]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/tea/staff/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await pettyIsOwner(req))) return res.status(403).json({ error: 'Sirf owner staff badal sakte hain' });
+    await withTeaTables(() => db.query('UPDATE tea_staff SET active=? WHERE id=?', [req.body.active ? 1 : 0, req.params.id]));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Owner: vendor's bill for a month, and the per-cup rate.
+app.post('/api/tea/bill', requireAuth, async (req, res) => {
+  try {
+    if (!(await pettyIsOwner(req))) return res.status(403).json({ error: 'Sirf owner bill daal sakte hain' });
+    const month = String(req.body.month || '');
+    const amount = Number(req.body.amount);
+    if (!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: 'Month chunein' });
+    if (!(amount >= 0) || req.body.amount === '' || req.body.amount == null) return res.status(400).json({ error: 'Amount daalo' });
+    await withTeaTables(() => db.query('INSERT INTO tea_bills (month, amount, updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE amount=VALUES(amount), updated_by=VALUES(updated_by)',
+      [month, amount, req.session.name || '']));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/tea/rate', requireAuth, async (req, res) => {
+  try {
+    if (!(await pettyIsOwner(req))) return res.status(403).json({ error: 'Sirf owner rate badal sakte hain' });
+    const rate = Number(req.body.rate);
+    if (!(rate > 0 && rate < 1000)) return res.status(400).json({ error: 'Sahi rate daalo' });
+    await setAppSetting('tea_rate', String(rate));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Re-runnable import of the old Tea Register sheet (Settings / TeaLog /
+// VendorBills). Log rows are keyed by date|slot|type|name|timestamp, so a
+// second run only adds what was entered in the old app since the last one.
+app.post('/api/tea/import-sheet', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await ensureTeaTables();
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const resp = await sheetsApi.spreadsheets.values.batchGet({ spreadsheetId: TEA_SHEET_ID, ranges: ["'Settings'!A2:D", "'TeaLog'!A2:G", "'VendorBills'!A2:B"] });
+    const [settings, logRows, billRows] = resp.data.valueRanges.map(v => v.values || []);
+    const staffNames = settings.map(r => String(r[0] || '').trim()).filter(Boolean);
+    const cats = settings.map(r => String(r[2] || '').trim()).filter(Boolean);
+    const rate = Number(settings[0] && settings[0][3]);
+    if (staffNames.length) await db.query('INSERT IGNORE INTO tea_staff (name) VALUES ?', [staffNames.map(n => [n.slice(0, 100)])]);
+    if (cats.length) await setAppSetting('tea_categories', cats.join('\n'));
+    if (rate > 0) await setAppSetting('tea_rate', String(rate));
+    const [users] = await db.query('SELECT id, name FROM users');
+    const userId = name => { const u = users.find(x => x.name.trim().toLowerCase() === String(name || '').trim().toLowerCase()); return u ? u.id : null; };
+    const values = [], seen = {};
+    let skipped = 0;
+    for (const r of logRows) {
+      const d = String(r[0] || '').trim(), slot = String(r[1] || '').trim(), type = String(r[2] || '').trim(), name = String(r[3] || '').trim();
+      const ts = String(r[6] || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !TEA_SLOTS.includes(slot) || !['Staff', 'Guest'].includes(type) || !name) { skipped++; continue; }
+      const when = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(ts) ? ts : d + ' 00:00:00';
+      // Two guests with the same name in one save ("Maal wale" ×2) are two cups.
+      const key = `${d}|${slot}|${type}|${name}|${ts}`;
+      const n = seen[key.toLowerCase()] = (seen[key.toLowerCase()] || 0) + 1; // ext_key compares case-insensitively ("driver" / "Driver")
+      values.push([(n > 1 ? `${key}#${n}` : key).slice(0, 255), d, slot, type, name.slice(0, 150), type === 'Guest' ? (String(r[4] || '').trim() || 'Other Guest') : null,
+        type === 'Staff' ? name.slice(0, 100) : null, userId(r[5]), String(r[5] || '').trim().slice(0, 255), when]);
+    }
+    let imported = 0;
+    for (let i = 0; i < values.length; i += 500) {
+      const [ins] = await db.query('INSERT IGNORE INTO tea_log (ext_key, log_date, slot, type, name, category, staff_key, entered_by_id, entered_by_name, created_at) VALUES ?', [values.slice(i, i + 500)]);
+      imported += ins.affectedRows;
+    }
+    skipped += values.length - imported;
+    let bills = 0;
+    for (const r of billRows) {
+      const m = String(r[0] || '').trim().slice(0, 7), amt = Number(String(r[1] || '').replace(/[^\d.]/g, ''));
+      if (!/^\d{4}-\d{2}$/.test(m) || !(amt >= 0)) continue;
+      await db.query('INSERT IGNORE INTO tea_bills (month, amount, updated_by) VALUES (?,?,?)', [m, amt, 'old sheet']);
+      bills++;
+    }
+    res.json({ success: true, imported, skipped, staff: staffNames.length, bills });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Tea Register sheet with the service account.' });
     sendServerError(res, err);
   }
 });

@@ -1215,6 +1215,10 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
         <span class="nav-label-text">Petty Cash</span>
       </div>
+      <div class="nav-item" id="nav-tea" style="display:none" onclick="navigate('tea',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 9h12v5a5 5 0 01-5 5H9a5 5 0 01-5-5V9zm12 1h1.5a2.5 2.5 0 010 5H16M8 3v3m4-3v3"/></svg>
+        <span class="nav-label-text">Tea Register</span>
+      </div>
       <div class="nav-item" id="nav-ows" style="display:none" onclick="navigate('ows',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         <span class="nav-label-text">OWS</span>
@@ -1340,6 +1344,10 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="bn-item" data-page="petty-cash" onclick="navigate('petty-cash',null)" id="bnPetty" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
     <span>Petty Cash</span>
+  </div>
+  <div class="bn-item" data-page="tea" onclick="navigate('tea',null)" id="bnTea" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h12v5a5 5 0 01-5 5H9a5 5 0 01-5-5V9zm12 1h1.5a2.5 2.5 0 010 5H16M8 3v3m4-3v3"/></svg>
+    <span>Tea</span>
   </div>
   <div class="bn-item" data-page="profile" onclick="navigate('profile',null)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -2290,6 +2298,23 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="tab" onclick="switchPettyTab('summary',this)">📊 Summary</div>
     </div>
     <div id="pettyResults"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- ── TEA REGISTER ── -->
+  <div id="page-tea" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900)">☕ Tea Register</div>
+      <div id="teaToday" style="font-size:12px;color:var(--gray-500)"></div>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" id="teaImportBtn" style="display:none" onclick="importTeaSheet()" title="Purani Tea Register sheet se staff + entries laao (jo pehle aa chuki hain wo dobara nahi aayengi)">⬇ Import old sheet</button>
+      </div>
+    </div>
+    <div class="tab-group" style="margin-bottom:12px">
+      <div class="tab active" onclick="switchTeaTab('entry',this)">Entry</div>
+      <div class="tab" onclick="switchTeaTab('report',this)">📊 Monthly Report</div>
+      <div class="tab" id="teaTabStaff" style="display:none" onclick="switchTeaTab('staff',this)">👥 Staff</div>
+    </div>
+    <div id="teaResults"><div class="empty">Loading…</div></div>
   </div>
 
   <!-- ── PRICE LIST & CATALOGUE ── -->
@@ -4343,6 +4368,7 @@ async function init() {
     if (canSee('mis')) document.getElementById('nav-mis').style.display = 'flex';
     if (canSee('gross-profit')) document.getElementById('nav-gross-profit').style.display = 'flex';
     if (canSee('petty-cash')) document.getElementById('nav-petty-cash').style.display = 'flex';
+    if (canSee('tea')) document.getElementById('nav-tea').style.display = 'flex';
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
@@ -4392,7 +4418,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4597,7 +4623,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',meca:'MECA',scot:'SCOT'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4619,7 +4645,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -4650,6 +4676,7 @@ function navigate(page, el) {
   if (page==='lead-fms') loadLeadFmsList();
   if (page==='gross-profit') loadGrossProfit();
   if (page==='petty-cash') loadPettyCash();
+  if (page==='tea') loadTea();
   if (page==='checklist-master') loadChecklistMaster();
   if (page==='ows') loadOws();
   if (page==='vendor-ledger') loadVrl();
@@ -4723,6 +4750,8 @@ function setupBottomNav() {
   if (bnGp && canSee('gross-profit')) bnGp.style.display = '';
   const bnPetty = document.getElementById('bnPetty');
   if (bnPetty && canSee('petty-cash')) bnPetty.style.display = '';
+  const bnTea = document.getElementById('bnTea');
+  if (bnTea && canSee('tea')) bnTea.style.display = '';
   const bnSs = document.getElementById('bnSalesSchedule');
   if (bnSs && canSee('sales-schedule')) bnSs.style.display = '';
   const bnEmp = document.getElementById('bnEmp');
@@ -6547,6 +6576,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'gross-profit', label: 'Gross Profit' },
     { key: 'net-profit', label: 'Net Profit tab (Gross Profit page me)', deny: true, needs: ['gross-profit'] },
     { key: 'petty-cash', label: 'Petty Cash' },
+    { key: 'tea', label: 'Tea Register — chai entry + monthly report (owner = Petty Cash owners)' },
     { key: 'ows', label: 'OWS — Weekly product-wise sales' },
   ]},
   { label: 'Forms', locked: false, pages: [
@@ -22440,6 +22470,231 @@ async function importPettySheet() {
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast(`✅ ${r.imported} imported · ${r.skipped} skipped`);
   loadPettyCash();
+}
+
+// ══════════════════════════════════════════════════════
+// TEA REGISTER (client, 2026-10-19) — replaces the "Ajanta Tea Register"
+// Apps Script app. Morning / Evening round: tap who took chai + guests, save.
+// A name is locked once per round per day. Report = cups × rate vs the
+// vendor's bill, plus odd entries (same round saved at two times).
+// ══════════════════════════════════════════════════════
+let teaData = null, teaTab = 'entry', teaSlot = null, teaSel = new Set(), teaMonth = '';
+const TEA_INPUT = "padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;background:var(--surface);color:var(--gray-800);font-family:inherit;box-sizing:border-box";
+const TEA_CARD = 'background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:14px;margin-bottom:12px';
+const TEA_LABEL = 'font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px';
+
+async function loadTea() {
+  const wrap = document.getElementById('teaResults');
+  if (!teaData) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api('/api/tea' + (teaMonth ? `?month=${teaMonth}` : ''));
+  if (!r || !Array.isArray(r.log)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed to load')}</div>`; return; }
+  teaData = r;
+  teaMonth = r.month;
+  if (!teaSlot) teaSlot = new Date().getHours() < 15 ? 'Morning' : 'Evening';
+  document.getElementById('teaToday').textContent = new Date(r.today + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  document.getElementById('teaTabStaff').style.display = r.isOwner ? '' : 'none';
+  document.getElementById('teaImportBtn').style.display = ME.role === 'admin' ? '' : 'none';
+  renderTea();
+}
+function switchTeaTab(tab, el) {
+  teaTab = tab;
+  document.querySelectorAll('#page-tea .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderTea();
+}
+function renderTea() {
+  if (!teaData) return;
+  if (teaTab === 'report') renderTeaReport();
+  else if (teaTab === 'staff') renderTeaStaff();
+  else renderTeaEntry();
+}
+
+function teaTodayRows() { return teaData.log.filter(e => e.d === teaData.today); }
+function renderTeaEntry() {
+  const today = teaTodayRows();
+  const locked = new Set(today.filter(e => e.type === 'Staff' && e.slot === teaSlot).map(e => e.name));
+  [...teaSel].forEach(n => { if (locked.has(n)) teaSel.delete(n); });
+  const staff = teaData.staff.filter(s => s.active);
+  const slotBtn = s => `<button class="btn ${teaSlot === s ? 'btn-primary' : 'btn-outline'}" style="flex:1;justify-content:center;padding:12px;font-size:15px" onclick="teaSetSlot('${s}')">${s === 'Morning' ? '🌅 Morning' : '🌆 Evening'}</button>`;
+  const chip = s => {
+    const on = teaSel.has(s.name), done = locked.has(s.name);
+    const st = done ? 'background:var(--gray-100);color:var(--gray-400);border-color:var(--gray-100);text-decoration:line-through'
+      : on ? 'background:var(--color-success);color:#fff;border-color:var(--color-success)' : 'background:var(--surface);color:var(--gray-800);border-color:var(--gray-200)';
+    return `<button ${done ? 'disabled' : `onclick="teaToggle('${jsArg(s.name)}')"`} style="padding:12px 6px;font-size:14px;font-weight:600;border-radius:11px;border:2px solid;cursor:${done ? 'default' : 'pointer'};${st}">${esc(s.name)}${done ? '<div style="font-size:10px;font-weight:700;color:var(--color-success-text);text-decoration:none;display:block">✓ ho gaya</div>' : ''}</button>`;
+  };
+  const catOpts = teaData.cats.map(c => `<option>${esc(c)}</option>`).join('');
+  const own = today.filter(e => e.slot === teaSlot);
+  const canDel = e => teaData.isOwner || Number(e.entered_by_id) === Number(ME.id);
+  document.getElementById('teaResults').innerHTML = `<div style="max-width:560px">
+    <div style="${TEA_CARD}"><div style="${TEA_LABEL}">Tea round / चाय का समय</div><div style="display:flex;gap:10px">${slotBtn('Morning')}${slotBtn('Evening')}</div></div>
+    <div style="${TEA_CARD}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="${TEA_LABEL};margin:0">Chai kisne li? (tap karo)</span><span style="font-size:13px;color:var(--gray-500)"><b id="teaCups" style="font-size:20px;color:var(--gray-900)">0</b> cups</span></div>
+      ${staff.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">${staff.map(chip).join('')}</div>`
+        : `<div class="empty">Staff list khaali hai${ME.role === 'admin' ? ' — upar “⬇ Import old sheet” dabao' : teaData.isOwner ? ' — 👥 Staff tab mein naam jodo' : ''}</div>`}
+    </div>
+    <div style="${TEA_CARD}"><div style="${TEA_LABEL}">Guest / Dealer / Auto wala</div>
+      <div id="teaGuests"></div>
+      <button class="btn btn-outline" style="width:100%;justify-content:center;border-style:dashed" onclick="teaAddGuest()">+ Add guest</button>
+    </div>
+    <button class="btn btn-primary" id="teaSaveBtn" style="width:100%;justify-content:center;padding:14px;font-size:16px;margin-bottom:16px" onclick="saveTea()">Save Entry</button>
+    ${own.length ? `<div style="${TEA_CARD}"><div style="${TEA_LABEL}">Aaj — ${teaSlot} (${own.length} cups)</div>
+      ${own.map(e => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px dashed var(--gray-200);font-size:13px">
+        <span style="flex:1"><b>${esc(e.name)}</b>${e.type === 'Guest' ? ` <span style="color:var(--gray-500)">· ${esc(e.category || 'Guest')}</span>` : ''}</span>
+        <span style="color:var(--gray-500);font-size:12px">${esc(e.t)} · ${esc(e.entered_by_name || '')}</span>
+        ${canDel(e) ? `<button class="btn btn-outline btn-sm" title="Galti se lagi — hatao" onclick="deleteTea(${e.id})">🗑</button>` : ''}</div>`).join('')}</div>` : ''}
+  </div>`;
+  document.getElementById('teaGuests').dataset.cats = catOpts;
+  teaAddGuest();
+  teaCount();
+}
+function teaSetSlot(s) { teaSlot = s; teaSel = new Set(); renderTeaEntry(); }
+function teaToggle(name) { teaSel.has(name) ? teaSel.delete(name) : teaSel.add(name); renderTeaEntryKeepGuests(); }
+// Re-render the grid without losing guest names already typed.
+function renderTeaEntryKeepGuests() {
+  const guests = teaReadGuests();
+  renderTeaEntry();
+  const box = document.getElementById('teaGuests');
+  box.innerHTML = '';
+  (guests.length ? guests : [{}]).forEach(g => teaAddGuest(g));
+  teaCount();
+}
+function teaAddGuest(g) {
+  const box = document.getElementById('teaGuests');
+  if (box.children.length >= 10) { showToast('Max 10 guests per round', 'error'); return; }
+  const row = document.createElement('div');
+  row.className = 'tea-guest';
+  row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px';
+  row.innerHTML = `<input class="tea-gname" placeholder="Guest ka naam" oninput="teaCount()" style="${TEA_INPUT};flex:1.4;min-width:0"/><select class="tea-gcat" style="${TEA_INPUT};flex:1;min-width:0">${box.dataset.cats}</select>`;
+  if (g && g.name) { row.querySelector('.tea-gname').value = g.name; row.querySelector('.tea-gcat').value = g.category; }
+  box.appendChild(row);
+}
+function teaReadGuests() {
+  return [...document.querySelectorAll('#teaGuests .tea-guest')].map(r => ({ name: r.querySelector('.tea-gname').value.trim(), category: r.querySelector('.tea-gcat').value }))
+    .filter(g => g.name);
+}
+function teaCount() {
+  const el = document.getElementById('teaCups');
+  if (el) el.textContent = teaSel.size + teaReadGuests().length;
+}
+async function saveTea() {
+  const guests = teaReadGuests();
+  if (!teaSel.size && !guests.length) { showToast('Kisi ko toh select karo!', 'error'); return; }
+  const restore = btnLoading(document.getElementById('teaSaveBtn'), 'Saving…');
+  const r = await api('/api/tea/entry', 'POST', { slot: teaSlot, staffNames: [...teaSel], guests });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ ${r.saved} cups saved${r.skipped.length ? ` (${r.skipped.join(', ')} pehle se — skip)` : ''}`);
+  teaSel = new Set();
+  loadTea();
+}
+async function deleteTea(id) {
+  if (!confirm('Yeh entry hatani hai?')) return;
+  const r = await api(`/api/tea/entry/${id}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  loadTea();
+}
+
+function renderTeaReport() {
+  const d = teaData, rows = d.log.filter(e => e.d.slice(0, 7) === d.month);
+  const total = rows.length, value = Math.round(total * d.rate * 100) / 100;
+  const days = new Set(rows.map(e => e.d)).size;
+  const count = (list, key) => list.reduce((o, e) => { const k = key(e); o[k] = (o[k] || 0) + 1; return o; }, {});
+  const perPerson = count(rows.filter(e => e.type === 'Staff'), e => e.name);
+  const guests = rows.filter(e => e.type === 'Guest');
+  // "Shalu" / "shalu" typed on different days are one guest — first spelling wins.
+  const guestLabel = {};
+  guests.forEach(e => { const k = e.name.trim().toLowerCase(); if (!guestLabel[k]) guestLabel[k] = e.name.trim(); });
+  const perGuest = count(guests, e => guestLabel[e.name.trim().toLowerCase()]), perCat = count(guests, e => e.category || 'Other Guest');
+  // A round is one save — two different save times for one date+slot means someone went separately.
+  const batches = {};
+  rows.forEach(e => { const k = e.d + '|' + e.slot; (batches[k] = batches[k] || {})[e.t] = e.entered_by_name || ''; });
+  const odd = Object.keys(batches).sort().filter(k => Object.keys(batches[k]).length > 1);
+  const zero = d.staff.filter(s => s.active && !perPerson[s.name]).map(s => s.name);
+  const rs = n => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const stat = (l, v) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed var(--gray-200);font-size:13.5px"><span>${l}</span><b>${v}</b></div>`;
+  const section = (title, obj) => {
+    const keys = Object.keys(obj).sort((a, b) => obj[b] - obj[a]);
+    return keys.length ? `<div style="${TEA_CARD}"><div style="${TEA_LABEL}">${title}</div>${keys.map(k => stat(esc(k), obj[k])).join('')}</div>` : '';
+  };
+  let billHtml;
+  if (d.bill !== null) {
+    const diff = Math.round((d.bill - value) * 100) / 100, ok = diff <= 0;
+    billHtml = stat('Vendor bill', rs(d.bill)) + stat('App total', rs(value))
+      + `<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13.5px"><span>Difference</span><b style="color:${ok ? 'var(--color-success-text)' : 'var(--color-danger)'}">${ok ? '✓ ' : '⚠ +'}${rs(Math.abs(diff))}${ok ? '' : ' EXTRA claimed'}</b></div>`;
+  } else billHtml = '<div style="font-size:13px;color:var(--gray-500);margin-bottom:8px">Vendor ka bill amount abhi nahi daala — app se compare hoga.</div>';
+  const ownerRow = d.isOwner ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <input type="number" id="teaBillAmt" min="0" step="any" placeholder="Bill amount ₹" value="${d.bill !== null ? d.bill : ''}" style="${TEA_INPUT};flex:1;min-width:120px"/>
+      <button class="btn btn-primary" id="teaBillBtn" onclick="saveTeaBill()">Save bill</button></div>` : '';
+  document.getElementById('teaResults').innerHTML = `<div style="max-width:620px">
+    <input type="month" value="${d.month}" onchange="teaMonth=this.value;loadTea()" style="${TEA_INPUT};width:100%;margin-bottom:12px;font-weight:600"/>
+    <div style="${TEA_CARD}"><div style="${TEA_LABEL}">Month summary — ${esc(d.month)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 8px;border-bottom:1px dashed var(--gray-200)"><span>Total cups</span><span style="font-size:26px;font-weight:800">${total}</span></div>
+      ${stat('Rate per cup', rs(d.rate) + (d.isOwner ? ` <a href="#" style="font-size:12px;font-weight:600" onclick="event.preventDefault();teaSetRate()">badlo</a>` : ''))}
+      ${stat('Total value (app)', rs(value))}${stat('Days logged', days)}${stat('Avg cups/day', days ? Math.round(total / days * 10) / 10 : 0)}
+    </div>
+    <div style="${TEA_CARD}"><div style="${TEA_LABEL}">Vendor bill check</div>${billHtml}${ownerRow}</div>
+    ${odd.length ? `<div style="${TEA_CARD};border-color:var(--color-danger-border)"><div style="${TEA_LABEL};color:var(--color-danger)">⚠ Alag time par entry — check karo</div>
+      ${odd.map(k => { const [dt, sl] = k.split('|'); return stat(`${esc(dt)} · ${esc(sl)}`, `<span style="font-size:12px;font-weight:500">${Object.keys(batches[k]).sort().map(t => `${esc(t)} (${esc(batches[k][t])})`).join(', ')}</span>`); }).join('')}
+      <div style="font-size:12px;color:var(--gray-500);margin-top:8px">Ek round = ek entry. Do alag time matlab koi alag se chai lene gaya.</div></div>` : ''}
+    ${zero.length ? `<div style="${TEA_CARD}"><div style="${TEA_LABEL}">Zero chai (is mahine ek bhi nahi)</div><div style="font-size:14px;line-height:1.7">${zero.map(esc).join(', ')}</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-top:6px">In logon ke naam ka cup vendor bill mein kabhi nahi aana chahiye.</div></div>` : ''}
+    ${section('Staff-wise cups', perPerson)}${section('Guest-wise cups (kaun roz aa raha hai?)', perGuest)}${section('Guest category-wise', perCat)}
+    ${!total ? '<div class="empty">Is mahine koi entry nahi</div>' : ''}
+  </div>`;
+}
+async function saveTeaBill() {
+  const amount = document.getElementById('teaBillAmt').value;
+  if (amount === '') { showToast('Amount daalo', 'error'); return; }
+  const restore = btnLoading(document.getElementById('teaBillBtn'), 'Saving…');
+  const r = await api('/api/tea/bill', 'POST', { month: teaData.month, amount });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Bill saved');
+  loadTea();
+}
+async function teaSetRate() {
+  const v = prompt('Ek cup ka rate (₹)?', teaData.rate);
+  if (v === null) return;
+  const r = await api('/api/tea/rate', 'POST', { rate: v });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  loadTea();
+}
+
+function renderTeaStaff() {
+  const list = teaData.staff;
+  document.getElementById('teaResults').innerHTML = `<div style="max-width:560px">
+    <div style="${TEA_CARD}"><div style="${TEA_LABEL}">➕ Naya naam jodo</div>
+      <div style="display:flex;gap:8px"><input id="teaNewName" placeholder="Employee ka naam" style="${TEA_INPUT};flex:1;min-width:0" onkeydown="if(event.key==='Enter')addTeaStaff()"/><button class="btn btn-primary" id="teaAddBtn" onclick="addTeaStaff()">Add</button></div>
+      <div style="font-size:12px;color:var(--gray-500);margin-top:8px">Entry wahi kar sakte hain jinhe Users → Access mein “Tea Register” diya hai — PIN ki zaroorat nahi.</div></div>
+    <div style="${TEA_CARD}"><div style="${TEA_LABEL}">Staff list (${list.filter(s => s.active).length} active)</div>
+      ${list.map(s => `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px dashed var(--gray-200);font-size:14px">
+        <span style="flex:1;${s.active ? '' : 'color:var(--gray-400);text-decoration:line-through'}">${esc(s.name)}</span>
+        <button class="btn btn-outline btn-sm" onclick="setTeaStaff(${s.id},${s.active ? 0 : 1})">${s.active ? 'Hatao' : 'Wapas lao'}</button></div>`).join('') || '<div class="empty">Koi naam nahi</div>'}
+    </div></div>`;
+}
+async function addTeaStaff() {
+  const name = document.getElementById('teaNewName').value.trim();
+  if (!name) { showToast('Naam daalo', 'error'); return; }
+  const restore = btnLoading(document.getElementById('teaAddBtn'), '…');
+  const r = await api('/api/tea/staff', 'POST', { name });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ ${name} add ho gaya`);
+  loadTea();
+}
+async function setTeaStaff(id, active) {
+  const r = await api(`/api/tea/staff/${id}`, 'PUT', { active });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  loadTea();
+}
+async function importTeaSheet() {
+  if (!confirm('Purani Tea Register sheet se staff, entries aur vendor bills import karein? Jo pehle aa chuki hain wo dobara nahi aayengi.')) return;
+  const restore = btnLoading(document.getElementById('teaImportBtn'), 'Importing…');
+  const r = await api('/api/tea/import-sheet', 'POST', {});
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ ${r.imported} entries imported · ${r.skipped} skipped · ${r.staff} staff`);
+  loadTea();
 }
 
 // ══════════════════════════════════════════════════════
