@@ -71,11 +71,35 @@ function processCalls() {
         if (pending.length >= BATCH) { done += flush_(pending); pending = []; }
       }
     }
+    if (pending.length) { done += flush_(pending); pending = []; }
+    // Calls whose summary failed earlier (e.g. before CLAUDE_KEY was added).
+    if (!stop && timeLeft() && cfg('CLAUDE_KEY')) {
+      const fixed = retrySummaries_(timeLeft);
+      if (fixed) console.log(`${fixed} old call(s) got their summary`);
+    }
   } finally {
     try { if (pending.length) done += flush_(pending); }
     finally { lock.releaseLock(); }
   }
   if (done) console.log(`${done} call(s) sent to the ERP`);
+}
+
+function retrySummaries_(timeLeft) {
+  const list = erpPost_('/api/calls/missing-summary', {}).calls || [];
+  const fixed = [];
+  for (const c of list) {
+    if (!timeLeft()) break;
+    try {
+      c.summary = claudeSummary_(c, { contact: c.contactName || '', phone: c.phone || '' });
+      c.error = '';
+      fixed.push(c);
+    } catch (e) {
+      console.warn(`summary retry ${c.fileName}: ${e.message}`);
+      if (e.code === 401 || e.code === 429) break;   // wrong key / busy: try next run
+    }
+  }
+  if (fixed.length) erpPost_('/api/calls/ingest', { calls: fixed });
+  return fixed.length;
 }
 
 function processOne_(drive, f) {
@@ -100,6 +124,7 @@ function processOne_(drive, f) {
     call.summary = { type: 'Other', summary: 'Bahut chhoti call — koi baat record nahi hui' };
     return call;
   }
+  if (!cfg('CLAUDE_KEY')) { call.error = 'Summary nahi bani: CLAUDE_KEY abhi set nahi hai (key daalte hi apne-aap ban jayegi)'; return call; }
   try { call.summary = claudeSummary_(call, meta); }
   catch (e) { call.error = 'Summary nahi bani: ' + e.message; }
   return call;
@@ -224,7 +249,8 @@ Owner ke liye chhoti report banao, Roman Hinglish me (jaise "Dealer ne 20 geyser
 - followupNote: follow-up me kya karna hai, warna "".`;
 
 function claudeSummary_(call, meta) {
-  const day = Utilities.formatDate(new Date(call.callAt.replace(' ', 'T') + '+05:30'), 'Asia/Kolkata', 'yyyy-MM-dd EEEE');
+  const when = call.callAt ? new Date(String(call.callAt).replace(' ', 'T') + '+05:30') : new Date();
+  const day = Utilities.formatDate(isNaN(when) ? new Date() : when, 'Asia/Kolkata', 'yyyy-MM-dd EEEE');
   const res = fetch_('Claude', 'https://api.anthropic.com/v1/messages', {
     method: 'post',
     contentType: 'application/json',

@@ -11693,6 +11693,19 @@ app.post('/api/calls/ingest', async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Apps Script: calls that have text but whose summary failed (no / wrong Claude
+// key, Claude down) — it summarises them again and sends them back via ingest.
+app.post('/api/calls/missing-summary', async (req, res) => {
+  try {
+    if (!(await callKeyOk(req))) return res.status(401).json({ error: 'Wrong calls key' });
+    const [rows] = await withCallTable(() => db.query(`SELECT drive_name AS drive, salesman_user_id AS userId, file_name AS fileName, file_id AS fileId,
+        audio_url AS audioUrl, DATE_FORMAT(call_at,'%Y-%m-%d %H:%i:%s') AS callAt, duration_sec AS durationSec, phone, contact_name AS contactName, transcript
+      FROM call_recordings WHERE summary IS NULL AND error LIKE 'Summary nahi bani%' AND CHAR_LENGTH(transcript) >= 15
+      AND created_at >= NOW() - INTERVAL 30 DAY ORDER BY id LIMIT 40`));
+    res.json({ calls: rows });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Apps Script cleanup deleted these old recordings from Drive — the text stays.
 app.post('/api/calls/audio-removed', async (req, res) => {
   try {

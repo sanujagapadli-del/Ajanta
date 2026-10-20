@@ -22559,30 +22559,51 @@ function openCallUpload() {
   const body = crModal('crUploadModal', '📤 Call recordings upload', 480);
   if (crUploading) return; // keep the running upload's progress on screen
   body.innerHTML = `<div style="font-size:13px;color:var(--gray-600);line-height:1.7;margin-bottom:12px">
-      1. Neeche button dabao → phone ka <b>call recording folder</b> kholo (aksar <i>Recordings → Call</i>).<br>
-      2. <b>Saari files select karo</b> — jo pehle bhej chuke ho wo apne-aap chhoot jayengi.<br>
+      1. <b>📁 Poora folder chuno</b> → phone ka <b>call recording folder</b> (aksar <i>Recordings → Call</i>) → "Use this folder" / Allow.<br>
+      2. Sirf nayi recordings jayengi — jo pehle bhej chuke ho wo apne-aap chhoot jayengi.<br>
       3. Upload poora hone tak ye page khula rakho (WiFi ho to behtar).</div>
+    <div style="${PETTY_LABEL}">Kitne din ki recordings</div>
+    <select id="crUpDays" style="${PETTY_INPUT}">
+      <option value="2">Pichhle 2 din</option><option value="7" selected>Pichhle 7 din</option><option value="30">Pichhle 30 din</option><option value="0">Sab (purani bhi)</option></select>
+    <input type="file" id="crUpDir" webkitdirectory multiple onchange="startCallUpload(this.files)" style="display:none"/>
     <input type="file" id="crUpFiles" multiple accept="audio/*,.m4a,.mp3,.amr,.aac,.wav,.ogg,.opus,.3gp,.awb" onchange="startCallUpload(this.files)" style="display:none"/>
-    <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('crUpFiles').click()">📂 Recordings chuno</button>
+    <button class="btn btn-primary" style="width:100%;margin-bottom:8px" onclick="document.getElementById('crUpDir').click()">📁 Poora folder chuno</button>
+    <button class="btn btn-outline" style="width:100%" onclick="document.getElementById('crUpFiles').click()">🎵 Ya kuch files chuno</button>
+    <div style="font-size:11px;color:var(--gray-500);margin-top:6px">Folder wala button phone pe na chale (purana Chrome) to "files chuno" se folder kholke sab select karo.</div>
     <div id="crUpStatus" style="margin-top:12px;font-size:13px"></div>`;
 }
+const CR_AUDIO_RX = /\.(m4a|mp3|mp4|wav|ogg|opus|flac|webm|mpeg|mpga|aac|amr|3gp|3gpp|awb)$/i;
 async function startCallUpload(fileList) {
-  const files = [...(fileList || [])].filter(f => f.size > 0);
   const st = document.getElementById('crUpStatus');
-  if (!files.length || crUploading) return;
+  if (crUploading) return;
+  const all = [...(fileList || [])];
+  // A whole folder brings everything in it — keep audio files from the chosen days only.
+  const days = Number((document.getElementById('crUpDays') || {}).value || 0);
+  const since = days ? Date.now() - days * 86400000 : 0;
+  const audio = all.filter(f => f.size > 0 && (CR_AUDIO_RX.test(f.name) || /^audio\//.test(f.type)));
+  const seen = new Set();
+  const files = audio.filter(f => (!since || (f.lastModified || Date.now()) >= since) && !seen.has(crUpName(f.name)) && seen.add(crUpName(f.name)));
+  if (!files.length) {
+    st.innerHTML = `<span style="color:var(--color-danger)">⚠️ ${all.length ? `${all.length} files me se ${days ? `pichhle ${days} din ki ` : ''}koi recording nahi mili${audio.length ? ` (${audio.length} purani hain — "Sab" chuno)` : ''}` : 'Koi file nahi chuni'}</span>`;
+    return;
+  }
   crUploading = true;
   let done = 0, failed = 0, skipped = 0, todo = [];
+  const older = audio.length - files.length;
   const render = note => {
     const pct = todo.length ? Math.round((done + failed) / todo.length * 100) : 100;
-    st.innerHTML = `${skipped ? `${skipped} pehle se bheji hui · ` : ''}<b>${done} / ${todo.length}</b> upload${failed ? ` · <span style="color:var(--color-danger)">${failed} fail</span>` : ''}
+    st.innerHTML = `${older ? `${older} purani chhodi · ` : ''}${skipped ? `${skipped} pehle se bheji hui · ` : ''}<b>${done} / ${todo.length}</b> upload${failed ? ` · <span style="color:var(--color-danger)">${failed} fail</span>` : ''}
       <div style="height:8px;background:var(--gray-100);border-radius:6px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--color-success-text);transition:width .3s"></div></div>
       ${note ? `<div style="margin-top:8px">${note}</div>` : ''}`;
   };
   try {
-    st.textContent = 'Check kar rahe hain…';
-    const chk = await api('/api/call-uploads/check', 'POST', { names: files.map(f => crUpName(f.name)) });
-    if (!chk || !Array.isArray(chk.fresh)) throw new Error((chk && chk.error) || 'Check failed');
-    const fresh = new Set(chk.fresh);
+    st.textContent = `${files.length} recordings check kar rahe hain…`;
+    const fresh = new Set();
+    for (let i = 0; i < files.length; i += 1000) {
+      const chk = await api('/api/call-uploads/check', 'POST', { names: files.slice(i, i + 1000).map(f => crUpName(f.name)) });
+      if (!chk || !Array.isArray(chk.fresh)) throw new Error((chk && chk.error) || 'Check failed');
+      chk.fresh.forEach(n => fresh.add(n));
+    }
     todo = files.filter(f => fresh.has(crUpName(f.name)));
     skipped = files.length - todo.length;
     render();
@@ -22615,8 +22636,7 @@ async function startCallUpload(fileList) {
     st.innerHTML = `<span style="color:var(--color-danger)">⚠️ ${esc(e.message)}</span>`;
   } finally {
     crUploading = false;
-    const inp = document.getElementById('crUpFiles');
-    if (inp) inp.value = '';
+    ['crUpFiles', 'crUpDir'].forEach(id => { const inp = document.getElementById(id); if (inp) inp.value = ''; });
   }
 }
 async function newCallKey(replace) {
