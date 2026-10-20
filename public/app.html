@@ -1203,6 +1203,10 @@ tbody tr:last-child td{border-bottom:none;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6m3 6V7m3 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg><span class="nav-label-text">Reports</span><svg class="nav-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
       </div>
       <div class="nav-group-items">
+      <div class="nav-item" id="nav-md-summary" style="display:none" onclick="navigate('md-summary',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/></svg>
+        <span class="nav-label-text">MD Summary</span>
+      </div>
       <div class="nav-item" id="nav-mis" style="display:none" onclick="navigate('mis',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         <span class="nav-label-text">MIS Report</span>
@@ -1381,6 +1385,7 @@ tbody tr:last-child td{border-bottom:none;}
   <div id="page-dashboard" class="page active">
     <div class="dash-topbar" style="flex-wrap:wrap;row-gap:10px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <button id="dashMdBtn" class="btn btn-outline btn-sm" style="display:none" onclick="navigate('md-summary', document.getElementById('nav-md-summary'))">📊 MD Summary</button>
         <select id="dashEmployeeFilter" onchange="onPCFilterChange()"
           style="padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt);display:none">
           <option value="all">All Employees</option>
@@ -2225,6 +2230,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🧭 MECA — Salesman market report</div>
+        <button class="btn btn-green" onclick="openMecaVisit()">➕ Visit entry</button>
         <input type="date" id="mecaFrom" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/> to
         <input type="date" id="mecaTo" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
         <input id="mecaSearch" placeholder="🔍 Salesman…" oninput="renderMeca()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
@@ -2301,6 +2307,17 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 
   <!-- ── TEA REGISTER ── -->
+  <div id="page-md-summary" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📊 MD Summary <span style="font-size:12px;font-weight:600;color:var(--gray-500)">— sab kuch ek page par</span></div>
+        <input type="date" id="mdFrom" onchange="loadMdSummary()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/> to
+        <input type="date" id="mdTo" onchange="loadMdSummary()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
+      </div>
+      <div id="mdPresets" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
+    </div>
+    <div id="mdWrap"><div class="empty">Loading…</div></div>
+  </div>
   <div id="page-tea" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div style="font-size:19px;font-weight:900;color:var(--gray-900)">☕ Tea Register</div>
@@ -3757,6 +3774,24 @@ tbody tr:last-child td{border-bottom:none;}
 </div>
 
 <!-- ── TOUR EXPENSE: ADD ── -->
+<div class="modal-overlay" id="mecaVisitModal">
+  <div class="modal" style="max-width:440px;max-height:92vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin:0">📍 Aaj ka visit</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('mecaVisitModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="overflow-y:auto;flex:1">
+      <div class="alert error" id="mvErr" style="display:none"></div>
+      <div class="form-group"><label>Dealer / counter *</label><input id="mvDealer" list="mvDealerList" placeholder="Kis counter par gaye" autocomplete="off"/><datalist id="mvDealerList"></datalist></div>
+      <div class="form-group"><label>Order mila (₹)</label><input id="mvOrder" type="number" min="0" inputmode="decimal" placeholder="0 = order nahi mila"/></div>
+      <div class="form-group"><label>Remark</label><input id="mvRemark" placeholder="e.g. next week order dega, stock check kiya"/></div>
+      <div class="form-group"><label>Next visit (optional)</label><input id="mvNext" type="date"/></div>
+      <div class="form-group"><label>📷 Counter photo</label><input id="mvPhoto" type="file" accept="image/*" capture="environment" onchange="mecaVisitPhoto(this)"/><div id="mvPhotoPv" style="font-size:12px;margin-top:4px"></div></div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Location (GPS) apne aap judegi. Ye entry Sales Schedule aur MECA dono mein dikhegi.</div>
+      <button class="btn btn-green" id="mvSave" style="width:100%;justify-content:center;padding:12px" onclick="saveMecaVisit()">Save visit</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="tourModal">
   <div class="modal" style="max-width:520px;max-height:92vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -3972,10 +4007,11 @@ tbody tr:last-child td{border-bottom:none;}
 <div class="modal-overlay" id="creditLimitModal">
   <div class="modal" style="max-width:360px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <h3 style="margin:0">💳 Set Credit Limit</h3>
+      <h3 style="margin:0">💳 Credit Limit & Days</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('creditLimitModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="form-group"><label>Credit Limit (₹)</label><input type="number" id="clAmount" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
+    <div class="form-group"><label>Credit Days</label><input type="number" id="clDays" min="0" max="365" placeholder="e.g. 30" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <button class="btn btn-primary" style="width:100%" onclick="submitCreditLimit()">Save</button>
   </div>
 </div>
@@ -4369,6 +4405,7 @@ async function init() {
     if (canSee('gross-profit')) document.getElementById('nav-gross-profit').style.display = 'flex';
     if (canSee('petty-cash')) document.getElementById('nav-petty-cash').style.display = 'flex';
     if (canSee('tea')) document.getElementById('nav-tea').style.display = 'flex';
+    if (canSee('md-summary')) { document.getElementById('nav-md-summary').style.display = 'flex'; document.getElementById('dashMdBtn').style.display = ''; }
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
@@ -4418,7 +4455,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
@@ -4623,7 +4660,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT'};
+const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4645,7 +4682,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -4677,6 +4714,7 @@ function navigate(page, el) {
   if (page==='gross-profit') loadGrossProfit();
   if (page==='petty-cash') loadPettyCash();
   if (page==='tea') loadTea();
+  if (page==='md-summary') loadMdSummary();
   if (page==='checklist-master') loadChecklistMaster();
   if (page==='ows') loadOws();
   if (page==='vendor-ledger') loadVrl();
@@ -4767,6 +4805,14 @@ function setupBottomNav() {
 // later instead of immediately, so counts reflect the write actually landing.
 function scheduleDashboardRefresh() { setTimeout(loadDashboard, 10000); }
 
+// When the task reached this doer (client 2026-10-19: "kisi ke paas abhi abhi
+// aaya aur bolte hain time pe nahi kiya") = the latest finished earlier step,
+// else the entry time.
+function fmsReachedAt(steps, idx, fallback) {
+  const done = (steps || []).slice(0, idx).map(x => x && x.actual).filter(Boolean).map(String).sort();
+  return done.length ? done[done.length - 1] : (fallback || '');
+}
+const fmsReachedRow = at => at ? `<div style="font-size:11px;margin-top:2px"><span style="color:var(--color-primary);font-weight:700;letter-spacing:.3px">⏱ AAPKE PAAS AAYA:</span> <span style="color:var(--gray-800);font-weight:700">${esc(fmtEntry(at))}</span></div>` : '';
 const fmsFieldRow = (label, value, valueStyle) => `<div style="font-size:11px;margin-top:2px"><span style="color:var(--gray-400);font-weight:700;letter-spacing:.3px">${label}:</span> <span style="color:var(--gray-700);${valueStyle||''}">${value}</span></div>`;
 
 // Builds the O2D rows of the Dashboard's pending-tasks list from whatever's
@@ -4809,6 +4855,7 @@ function buildO2dDashboardTasks() {
       ${extraBitsText ? `<div style="font-size:11.5px;color:var(--gray-500)">${extraBitsText}</div>` : ''}
       ${o.remark ? `<div style="font-size:11.5px;color:var(--gray-500);font-style:italic">"${esc(o.remark)}"</div>` : ''}
       ${o.timestamp ? fmsFieldRow('ENTRY', esc(fmtEntry(o.timestamp))) : ''}
+      ${o.currentStep > 0 ? fmsReachedRow(fmsReachedAt(o.steps, o.currentStep, o.timestamp)) : ''}
       ${fmsFieldRow('PLANNED', `${esc(pendingStep.planned) || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
     `;
     tasks.push({
@@ -4853,6 +4900,7 @@ function buildSfmsDashboardTasks() {
       ${(place || c.address) ? `<div style="font-size:11.5px;color:var(--gray-500)">📍 ${[c.address ? esc(c.address) : '', place].filter(Boolean).join(' · ')} ${sfmsMapLink(c)}</div>` : ''}
       ${c.currentStep >= SN.assign ? `<div style="font-size:11.5px">${sfmsMechanicSparesHtml(c)}</div>` : ''}
       ${fmsFieldRow('REGISTERED', `${fmtDateDMY(c.timestamp) || '—'} ${fmtTimeOfDay(c.timestamp)}`)}
+      ${c.currentStep > 0 ? fmsReachedRow(fmsReachedAt(c.steps, c.currentStep, c.timestamp)) : ''}
       ${fmsFieldRow('PENDING', `${daysPending} day${daysPending === 1 ? '' : 's'}${late ? ' — Late' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}
     `;
     tasks.push({
@@ -5207,7 +5255,7 @@ function renderDashTable(tasks, type) {
     // Someone else's delegation, visible through the "All Delegations" grant — view + comment only.
     const othersDeleg = t.type === 'delegation' && !isAdmin && !isPC && String(t.assigned_to) !== String(ME.id);
     if (othersDeleg) {
-      actions = `<button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'delegation')" title="Comments">💬</button>`
+      actions = `<button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'delegation')" title="Comments">💬</button>` + taskRemindBtn(t.id)
         + (t.waiting_approval == 1 ? ` <span style="font-size:11px;color:var(--color-warning);font-weight:600">⏳ Waiting</span>` : '');
     } else if (t.type === 'fms') {
       actions = `<button class="action-btn done" onclick="openFmsQuickAction(${t.id})">Fill Details</button>`;
@@ -5400,18 +5448,55 @@ function taskAttachmentsHtml(t) {
     + (t.audio_link ? `<div style="margin-top:4px"><audio controls preload="none" src="${esc(t.audio_link)}" style="height:30px;max-width:230px"></audio></div>` : '');
 }
 
+// 🔔 Remind (client 2026-10-19): Priyanka follows up on Sir's delegations and
+// logs each reminder — the button shows how many times and the last time.
+function taskRemindBtn(id) {
+  return ` <button class="action-btn" data-trm="${id}" style="background:var(--color-warning-bg);color:var(--color-warning-text);padding:4px 7px;margin-left:3px" onclick="taskRemind(${id}, this)" title="Doer ko yaad dilaya — log karo">🔔 Remind</button>`;
+}
+let _trmTimer = null;
+const _trmCache = {};
+function taskRemPaint(btn, list) {
+  if (!list || !list.length) return;
+  const last = list[list.length - 1];
+  btn.innerHTML = `🔔 ${list.length}× <span style="font-weight:500;font-size:10.5px">· ${esc(fmtDateDMY(last.at.slice(0, 10)))} ${esc(last.at.slice(11))}</span>`;
+  btn.title = list.map(x => `${fmtDateDMY(x.at.slice(0, 10))} ${x.at.slice(11)} — ${x.by}${x.note ? ': ' + x.note : ''}`).join('\n') + '\n\nClick = ek aur reminder log karo';
+}
+async function taskRemFill() {
+  const btns = [...document.querySelectorAll('[data-trm]:not([data-trm-done])')];
+  if (!btns.length) return;
+  btns.forEach(b => b.setAttribute('data-trm-done', '1'));
+  const need = [...new Set(btns.map(b => b.dataset.trm))].filter(id => !(id in _trmCache));
+  if (need.length) {
+    const r = await api(`/api/task-reminders?ids=${need.join(',')}`);
+    if (r.error) return;
+    need.forEach(id => { _trmCache[id] = r[id] || []; });
+  }
+  btns.forEach(b => taskRemPaint(b, _trmCache[b.dataset.trm]));
+}
+new MutationObserver(() => { clearTimeout(_trmTimer); _trmTimer = setTimeout(taskRemFill, 300); }).observe(document.documentElement, { childList: true, subtree: true });
+function taskRemind(id, btn) {
+  const note = prompt('Reminder log karein — kaise yaad dilaya? (optional, e.g. call kiya / WhatsApp)');
+  if (note === null) return;
+  api(`/api/tasks/delegation/${id}/remind`, 'POST', { note }).then(r => {
+    if (r.error) { showToast(r.error, 'error'); return; }
+    const now = new Date(), p = n => String(n).padStart(2, '0');
+    (_trmCache[id] = _trmCache[id] || []).push({ at: `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())}`, by: ME.name || '', note });
+    document.querySelectorAll(`[data-trm="${id}"]`).forEach(b => taskRemPaint(b, _trmCache[id]));
+    showToast('🔔 Reminder logged');
+  });
+}
 function _taskActionBtns(t, isAdmin, isChecklist) {
   const isCompleted = t.status === 'completed';
   const isWaiting = t.waiting_approval == 1;
   if (isAdmin) return `
     <button class="action-btn edit" style="padding:4px 7px" onclick="openEditTask(${t.id},'${jsArg(tasksType)}')" title="Edit">✏️</button>
     <button class="action-btn delete" style="padding:4px 7px;margin-left:3px" onclick="deleteTask(${t.id},'${jsArg(tasksType)}')" title="Delete">🗑</button>
-    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px;margin-left:3px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>
+    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px;margin-left:3px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>${!isChecklist && !isCompleted ? taskRemindBtn(t.id) : ''}
     ${!isCompleted && !isWaiting ? `<button class="action-btn done" style="margin-left:3px" onclick="updateStatus(${t.id},'completed','alltasks','${jsArg(tasksType)}',${t.attachment_required==='yes'})">Done</button>` : ''}
     ${!isChecklist && !isCompleted && !isWaiting ? `<button class="action-btn revise" style="margin-left:3px" onclick="openReviseModal(${t.id},'${jsArg(tasksType)}')">Revise</button>` : ''}
     ${isWaiting ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
   if (ME.role !== 'pc' && String(t.assigned_to) !== String(ME.id)) return `
-    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>
+    <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>${!isChecklist && t.status !== 'completed' ? taskRemindBtn(t.id) : ''}
     ${t.waiting_approval == 1 ? `<span style="font-size:11px;color:var(--color-warning);font-weight:600;margin-left:4px">⏳ Waiting</span>` : ''}`;
   if (ME.role==='pc') return `
     <button class="action-btn" style="background:var(--color-primary-light);color:var(--color-primary);padding:4px 7px" onclick="openComments(${t.id},'${jsArg(tasksType)}')" title="Comments">💬</button>
@@ -6572,6 +6657,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'stock', label: 'Stock' },
   ]},
   { label: 'Reports', locked: false, pages: [
+    { key: 'md-summary', label: 'MD Summary (attendance, tasks, sales, service… ek page par)' },
     { key: 'mis', label: 'MIS Report' },
     { key: 'gross-profit', label: 'Gross Profit' },
     { key: 'net-profit', label: 'Net Profit tab (Gross Profit page me)', deny: true, needs: ['gross-profit'] },
@@ -7115,7 +7201,7 @@ function renderTourList() {
       <td>${money(x.orderValue)}</td>
       <td>${x.bills.length ? x.bills.map(bl => `<a href="${esc(bl.url)}" target="_blank" title="${esc(bl.label)}">🧾</a>`).join(' ') : '—'}</td>
       <td>${badge(x.status)}${x.decisionRemark ? `<div style="font-size:11px;color:var(--gray-500)">${esc(x.decisionRemark)}</div>` : ''}</td>
-      <td>${_plAccess.viewer && x.status !== 'approved' ? `<button class="row-action-btn" style="color:var(--color-success-text)" onclick="decideTour(${x.id},'approved')">✓ Approve</button> ` : ''}${_plAccess.viewer && x.status === 'pending' ? `<button class="row-action-btn" style="color:var(--color-danger)" onclick="decideTour(${x.id},'rejected')">✗ Reject</button> ` : ''}${_plAccess.viewer || (x.status === 'pending' && Number(x.userId) === Number(ME.id)) ? `<button class="row-action-btn" onclick="deleteTour(${x.id})" title="Delete">🗑</button>` : ''}</td>
+      <td>${_plAccess.viewer && x.status !== 'approved' ? `<button class="row-action-btn" style="color:var(--color-success-text)" onclick="decideTour(${x.id},'approved')">✓ Approve</button> ` : ''}${_plAccess.viewer && x.status === 'pending' ? `<button class="row-action-btn" style="color:var(--color-danger)" onclick="decideTour(${x.id},'rejected')">✗ Reject</button> ` : ''}${x.status !== 'approved' && (_plAccess.viewer || Number(x.userId) === Number(ME.id)) ? `<button class="row-action-btn" onclick="openTourModal(${x.id})" title="Edit">✏️ Edit</button> ` : ''}${_plAccess.viewer || (x.status === 'pending' && Number(x.userId) === Number(ME.id)) ? `<button class="row-action-btn" onclick="deleteTour(${x.id})" title="Delete">🗑</button>` : ''}</td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 async function decideTour(id, status) {
@@ -7137,7 +7223,10 @@ function deleteTour(id) {
 // Tonk → Jaipur) each with its own fare + ticket; extra bills (parking…);
 // say what "Other" was for; and the day's total order value.
 const TOUR_MAX_LEGS = 5, TOUR_MAX_EXTRA_BILLS = 4;
-function openTourModal() {
+let _tourEditId = null;
+function openTourModal(editId) {
+  const ed = editId && tourData ? tourData.items.find(x => x.id === editId) : null;
+  _tourEditId = ed ? ed.id : null;
   const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
   const today = plYmdLocal(new Date());
   const amt = (id, label) => `<div>${L(label)}<input id="tr_${id}" type="number" min="0" inputmode="decimal" oninput="tourTotal()" placeholder="0" style="${CHQ_INPUT}"/></div>`;
@@ -7163,8 +7252,35 @@ function openTourModal() {
     <button class="btn btn-outline btn-sm" type="button" id="tr_addBill" onclick="tourAddBill()" style="margin-bottom:10px">+ Aur bill</button>
     <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Petrol (KM) yahan mat daalein — woh Morning/Evening KM se apne aap judta hai. Entry Vishal / Ajay approve karenge.</div>
     <button class="btn btn-green" id="trSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitTour()">Save</button>`;
-  tourAddLeg('Jaipur');
-  tourAddBill();
+  const title = document.querySelector('#tourModal h3');
+  if (title) { title.dataset.t = title.dataset.t || title.textContent; title.textContent = ed ? '✏️ Tour expense edit' : title.dataset.t; }
+  if (!ed) { tourAddLeg('Jaipur'); tourAddBill(); }
+  else {
+    // Fill the saved entry; its photos stay unless a new one is picked.
+    document.getElementById('tr_date').value = ed.date;
+    const legs = ed.legs.length ? ed.legs : [{ from: ed.fromPlace, to: ed.places, mode: ed.mode, fare: ed.fare, ticket: '' }];
+    legs.forEach(l => {
+      tourAddLeg(l.from || '');
+      const el = [...document.querySelectorAll('#tr_legs .tr-leg')].pop();
+      el.querySelector('[data-k="to"]').value = l.to || '';
+      if (l.mode) el.querySelector('[data-k="mode"]').value = l.mode;
+      el.querySelector('[data-k="fare"]').value = l.fare || '';
+      if (l.ticket) { const t = el.querySelector('[data-k="ticket"]'); t.dataset.compressed = l.ticket; document.getElementById(el.id + '_pv').innerHTML = `<a href="${esc(l.ticket)}" target="_blank" style="font-size:11px">🧾 saved</a>`; }
+    });
+    ['stay', 'food', 'local', 'other'].forEach(k => { document.getElementById('tr_' + k).value = ed[k] || ''; });
+    document.getElementById('tr_otherNote').value = ed.otherNote || '';
+    document.getElementById('tr_orderValue').value = ed.orderValue == null ? '' : ed.orderValue;
+    document.getElementById('tr_remark').value = ed.remark || '';
+    const tickets = new Set(ed.legs.map(l => l.ticket).filter(Boolean));
+    ed.bills.filter(b => !tickets.has(b.url)).forEach(b => {
+      tourAddBill();
+      const inp = [...document.querySelectorAll('#tr_bills input[type=file]')].pop();
+      inp.dataset.compressed = b.url;
+      inp.closest('div').querySelector('span').innerHTML = `<a href="${esc(b.url)}" target="_blank" style="font-size:11px">🧾 saved</a>`;
+    });
+    if (document.querySelectorAll('#tr_bills input[type=file]').length < TOUR_MAX_EXTRA_BILLS) tourAddBill();
+    tourTotal();
+  }
   document.getElementById('tourModal').classList.add('open');
 }
 let _tourSeq = 0;
@@ -7238,10 +7354,10 @@ async function submitTour() {
   if (!(tourTotal() > 0)) return fail('Kam se kam ek kharcha daalein');
   if (Number(body.other) > 0 && !body.otherNote) return fail('Other kharcha kis cheez ka hai — likhein');
   const btn = document.getElementById('trSubmitBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
-  const r = await api('/api/tour-expenses', 'POST', body);
+  const r = _tourEditId ? await api(`/api/tour-expenses/${_tourEditId}`, 'PUT', body) : await api('/api/tour-expenses', 'POST', body);
   btn.disabled = false; btn.textContent = 'Save';
   if (r.error) return fail(r.error);
-  closeModal('tourModal'); showToast('✅ Tour expense saved — approval ke liye gaya');
+  closeModal('tourModal'); showToast(_tourEditId ? '✅ Tour expense update ho gaya' : '✅ Tour expense saved — approval ke liye gaya');
   if (attnView === 'tour') loadTourList();
 }
 
@@ -8281,7 +8397,7 @@ function renderKmWeekly(rows) {
   rows.forEach(r => {
     const wk = weekStartOf(r.date);
     const key = `${wk}|${r.user_id}`;
-    const g = groups[key] || (groups[key] = { wk, name: r.name, days: {}, total: 0, logged: 0 });
+    const g = groups[key] || (groups[key] = { wk, userId: r.user_id, name: r.name, days: {}, total: 0, logged: 0 });
     const dow = (new Date(r.date + 'T00:00:00').getDay() + 6) % 7; // 0 = Mon
     if (r.day_km != null) { g.days[dow] = Number(r.day_km); g.total += Number(r.day_km); g.logged++; }
     else g.days[dow] = null;
@@ -8292,7 +8408,7 @@ function renderKmWeekly(rows) {
   const weekLabel = wk => { const s = new Date(wk + 'T00:00:00'); const e = new Date(s); e.setDate(e.getDate() + 6); const f = d => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); return `${f(s)} – ${f(e)}`; };
   return `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Weekly Kilometer Report</div>
   <div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:760px">
-    <thead><tr><th>Week</th><th>Employee</th>${dayNames.map(d => `<th style="text-align:right">${d}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Avg / Day</th><th style="text-align:right">Amount</th></tr></thead>
+    <thead><tr><th>Week</th><th>Employee</th>${dayNames.map(d => `<th style="text-align:right">${d}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Avg / Day</th><th style="text-align:right">Amount</th><th>Paid</th></tr></thead>
     <tbody>${list.map(g => `<tr>
       <td style="white-space:nowrap">${weekLabel(g.wk)}</td>
       <td style="font-weight:600;white-space:nowrap">${esc(g.name)}</td>
@@ -8300,8 +8416,33 @@ function renderKmWeekly(rows) {
       <td style="text-align:right;font-weight:800;color:var(--color-success-text)">${fmtKm(g.total)} km</td>
       <td style="text-align:right;color:var(--gray-500)">${g.logged ? fmtKm(Math.round(g.total / g.logged * 10) / 10) : '—'}</td>
       <td style="text-align:right;font-weight:800">${kmAmt(g.total)}</td>
+      <td style="white-space:nowrap">${kmPaidCell(g)}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
+}
+// Weekly KM money — "💰 Paid" freezes that week's km × rate (client 2026-10-19).
+let _kmPay = { canPay: false, byKey: {} };
+function kmPaidCell(g) {
+  const p = _kmPay.byKey[`${g.userId}|${g.wk}`];
+  if (p) return `<span style="color:var(--color-success-text);font-weight:700" title="${esc(p.paidBy ? 'By ' + p.paidBy : '')}${p.note ? ' · ' + esc(p.note) : ''}">✅ ₹${Math.round(p.amount).toLocaleString('en-IN')}</span><div style="font-size:10.5px;color:var(--gray-500)">${fmtDateDMY(p.paidAt.slice(0, 10))}${_kmPay.canPay ? ` · <a href="#" onclick="kmUnpay(${g.userId},'${g.wk}');return false" style="color:var(--gray-400)">undo</a>` : ''}</div>`;
+  const weekOver = new Date(g.wk + 'T00:00:00').getTime() + 7 * 86400000 <= Date.now();
+  if (!_kmPay.canPay) return '<span style="color:var(--gray-400)">Pending</span>';
+  return `<button class="row-action-btn" style="color:var(--color-success-text)" onclick="kmPay(${g.userId},'${g.wk}',${weekOver})">💰 Paid</button>`;
+}
+function kmPay(userId, wk, weekOver) {
+  const msg = weekOver ? 'Is hafte ka KM paisa de diya — mark karein?' : 'Ye hafta abhi poora nahi hua — fir bhi paid mark karein? (baad ki entries is amount mein nahi judengi)';
+  showConfirm({ icon: '💰', title: 'KM Paid', msg, okLabel: 'Paid' }, async () => {
+    const r = await api('/api/km/payments', 'POST', { userId, weekStart: wk });
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast(`✅ Paid — ₹${Math.round(r.amount).toLocaleString('en-IN')}`); loadKmHistory();
+  });
+}
+function kmUnpay(userId, wk) {
+  showConfirm({ title: 'Paid hata dein?', okLabel: 'Hatao', okColor: 'var(--color-danger)' }, async () => {
+    const r = await api(`/api/km/payments/${userId}/${wk}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    loadKmHistory();
+  });
 }
 
 function deleteKmEntry(id) {
@@ -8324,7 +8465,8 @@ async function loadKmHistory() {
   const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
   wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
   weeklyWrap.innerHTML = '';
-  const [rows, rate] = await Promise.all([api(`/api/km/history?from=${from}&to=${to}&employee=${employee}`), api('/api/km/rate')]);
+  const [rows, rate, pays] = await Promise.all([api(`/api/km/history?from=${from}&to=${to}&employee=${employee}`), api('/api/km/rate'), api(`/api/km/payments?from=${from}&to=${to}`)]);
+  _kmPay = { canPay: !!(pays && pays.canPay), byKey: Object.fromEntries(((pays && pays.payments) || []).map(p => [`${p.userId}|${p.weekStart}`, p])) };
   if (rate && rate.rate) kmRateInfo = rate;
   if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
   if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No kilometer entries in this range.</div>`; return; }
@@ -12495,7 +12637,7 @@ function renderComplaintDetailBody(c) {
         ${sfmsStep(c, 'assign').mechanic ? `<div style="grid-column:1 / -1">
           <div style="${SFMS_FIELD_LABEL_STYLE}">Mechanic & Spares</div>
           <div style="font-size:14px;color:var(--gray-800)">${sfmsMechanicSparesHtml(c).replace(/<a [^>]*>🔁 Transfer<\/a>/, '') || '—'}</div>
-          ${sfmsTransferHtml(c)}
+          ${sfmsTransferHtml(c)}${sfmsBackOrReplHtml(c)}
           ${sfmsAddSparePanelHtml(c)}
         </div>` : ''}
       </div>
@@ -12835,6 +12977,82 @@ function sfmsTransferHtml(c) {
     </select>
     <button class="btn btn-outline btn-sm" onclick="sfmsTransferMechanic(${c.row}, this)">🔁 Transfer</button>
   </div>`;
+}
+// Client 2026-10-19 (Solve tab): mechanic didn't do it → back to Assign;
+// product came back to the office → Replacement FMS, complaint ends here.
+function sfmsBackOrReplHtml(c) {
+  if (c.closed || sfmsStep(c, 'solve').status) return '';
+  const back = sfmsCanAct(SN.assign) && !!sfmsStep(c, 'assign').status;
+  const repl = sfmsCanAct(SN.assign) || sfmsCanAct(SN.takeout);
+  if (!back && !repl) return '';
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+    ${back ? `<button class="btn btn-outline btn-sm" onclick="sfmsBackToAssign(${c.row}, this)">↩ Assign par wapas</button>` : ''}
+    ${repl ? `<button class="btn btn-outline btn-sm" style="color:var(--color-primary)" onclick="sfmsToReplacement(${c.row})">↪ Replacement mein bhejo</button>` : ''}
+  </div>`;
+}
+async function sfmsAfterRowChange(row, close) {
+  await refreshSfmsDataQuietly();
+  const updated = sfmsData.find(x => x.row === row);
+  if (close || !updated) closeModal('complaintDetailModal');
+  else if (document.getElementById('complaintDetailModal').classList.contains('open')) renderComplaintDetailBody(updated);
+  renderServiceFmsList();
+  window._lastSfmsData = sfmsData;
+  refreshDashboardSfmsLocally();
+}
+async function sfmsBackToAssign(row, btn) {
+  const c = sfmsData.find(x => x.row === row);
+  if (!c) return;
+  const reason = (prompt(`${c.complainNo} — wapas Assign par kyun? (mechanic ne kyun nahi kiya)`) || '').trim();
+  if (!reason) return;
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/service-fms/${row}/back-to-assign`, 'PUT', { reason, expectComplainNo: c.complainNo });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`↩ ${c.complainNo} wapas Assign tab mein`);
+  sfmsAfterRowChange(row, true);
+}
+function sfmsToReplacement(row) {
+  const c = sfmsData.find(x => x.row === row);
+  if (!c) return;
+  const IN = 'width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:8px';
+  const spares = sfmsTakeoutItems(c).filter(it => it.item);
+  vrlModal('sfmsReplModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">↪ ${esc(c.complainNo)} → Replacement FMS</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('sfmsReplModal')" aria-label="Close">✕</button></div>
+    <div style="font-size:12px;color:var(--gray-600);margin-bottom:10px">Product office wapas aa gaya — Replacement FMS mein entry banegi aur ye complaint yahan band ho jayegi.</div>
+    <label style="font-size:12px;font-weight:600">Party / customer *</label><input id="srParty" value="${esc(c.dealerName || c.filledByName || '')}" style="${IN}"/>
+    <label style="font-size:12px;font-weight:600">Mobile</label><input id="srMobile" value="${esc(c.mobile || '')}" style="${IN}"/>
+    <label style="font-size:12px;font-weight:600">Item & qty *</label><input id="srItems" value="${esc(c.productName || '')}" style="${IN}"/>
+    <label style="font-size:12px;font-weight:600">Defect *</label><input id="srDefect" value="${esc(c.problemDescription || '')}" style="${IN}"/>
+    <label style="font-size:12px;font-weight:600">📷 Product photo *</label><input id="srPhoto" type="file" accept="image/*" capture="environment" style="${IN}" onchange="smpPhotoPickTo(this,'srPhotoPv')"/><div id="srPhotoPv" style="font-size:12px;margin:-4px 0 8px"></div>
+    <label style="font-size:12px;font-weight:600">Remark</label><input id="srRemark" style="${IN}"/>
+    ${spares.length ? `<div class="alert" style="background:var(--color-warning-bg);color:var(--color-warning-text);font-size:12px;margin-bottom:8px">🧰 Spare mechanic ke paas hai: ${spares.map(it => esc(it.item) + (it.qty ? ' × ' + esc(it.qty) : '')).join(', ')} — complaint band hone ke baad bhi ye note mein rahega, spare wapas le lena.</div>` : ''}
+    <div id="srErr" class="alert error" style="display:none;margin-bottom:8px"></div>
+    <button class="btn btn-primary" id="srSave" style="width:100%;justify-content:center;padding:12px" onclick="sfmsSaveToReplacement(${c.row})">↪ Replacement mein bhejo</button>`, 520);
+}
+async function smpPhotoPickTo(input, pvId) {
+  const pv = document.getElementById(pvId);
+  input.dataset.compressed = '';
+  if (!input.files[0]) { pv.textContent = ''; return; }
+  pv.textContent = '…';
+  try { input.dataset.compressed = await compressImageToDataURL(input.files[0], 1100, 0.6); pv.textContent = '✅ Photo ready'; }
+  catch (e) { pv.textContent = '⚠️ image error'; }
+}
+async function sfmsSaveToReplacement(row) {
+  const c = sfmsData.find(x => x.row === row);
+  const err = document.getElementById('srErr'); err.style.display = 'none';
+  const v = id => document.getElementById(id).value.trim();
+  const photo = document.getElementById('srPhoto').dataset.compressed || '';
+  const fail = m => { err.textContent = m; err.style.display = 'block'; };
+  if (!v('srParty') || !v('srItems') || !v('srDefect')) return fail('Party, item aur defect bharo');
+  if (!photo) return fail('Product ki photo lo');
+  const btn = document.getElementById('srSave'); btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api(`/api/service-fms/${row}/to-replacement`, 'POST', { expectComplainNo: c.complainNo, partyName: v('srParty'), customerMobile: v('srMobile'),
+    items: v('srItems'), defect: v('srDefect'), remark: v('srRemark'), photos: [photo] });
+  btn.disabled = false; btn.textContent = '↪ Replacement mein bhejo';
+  if (r.error) return fail(r.error);
+  closeModal('sfmsReplModal');
+  showToast(`✅ ${r.complainNo} → Replacement ${r.code}`);
+  sfmsAfterRowChange(row, true);
 }
 async function sfmsTransferMechanic(row, btn) {
   const c = sfmsData.find(x => x.row === row);
@@ -14022,7 +14240,7 @@ function dealerRowHtml(d) {
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
   const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '<span style="color:var(--gray-400)">—</span>';
-  const creditStr = d.creditLimit !== null ? inr(d.creditLimit) : `<span style="color:var(--gray-400);font-size:11px">set nahi</span>`;
+  const creditStr = (d.creditLimit !== null ? inr(d.creditLimit) : `<span style="color:var(--gray-400);font-size:11px">set nahi</span>`) + (d.creditDays != null ? `<div style="font-size:11px;color:var(--gray-500)">${d.creditDays} din</div>` : '');
   const ratingHtml = d.rating.total > 0
     ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span><div style="font-size:11px;color:var(--gray-500)">${d.rating.label} · ${d.rating.total} pmt, ${d.rating.late} late, avg ${d.rating.avgLateDays}d${d.rating.source==='tally' ? ' <span style="color:var(--color-primary)">(Tally)</span>' : ''}</div>`
     : `<span style="color:var(--gray-400);font-size:11px">No history</span>`;
@@ -14045,7 +14263,7 @@ function dealerRowHtml(d) {
     <td>${tierCellHtml}</td>
     <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${kycBg};color:${kycColor};white-space:nowrap">${d.kycCount}/4</span></td>
     <td style="white-space:nowrap">${outstandingStr}</td>
-    <td style="white-space:nowrap;cursor:pointer;text-decoration:underline dotted" onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})">${creditStr}</td>
+    <td style="white-space:nowrap;cursor:pointer;text-decoration:underline dotted" onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0}, ${d.creditDays == null ? 'null' : d.creditDays})">${creditStr}</td>
     <td style="white-space:nowrap">${ratingHtml}</td>
     <td style="white-space:nowrap">${lastOrderHtml}</td>
     <td style="white-space:nowrap">
@@ -14132,7 +14350,8 @@ function dealerCardHtml(d) {
       <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">💳 Payment Overview</div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
         <div onclick="openDealerLedgerModal('${nameEsc}','${jsArg(phoneEsc)}')" style="cursor:pointer;flex:1;min-width:90px" title="Poori statement dekho">${statTile('Total Dues', outstandingStr, 'var(--gray-800)')}</div>
-        <div onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0})" style="cursor:pointer;flex:1;min-width:90px">${statTile('Credit Limit', creditStr, 'var(--gray-800)')}</div>
+        <div onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0}, ${d.creditDays == null ? 'null' : d.creditDays})" style="cursor:pointer;flex:1;min-width:90px">${statTile('Credit Limit', creditStr, 'var(--gray-800)')}</div>
+        <div onclick="openCreditLimitModal('${nameEsc}', ${d.creditLimit || 0}, ${d.creditDays == null ? 'null' : d.creditDays})" style="cursor:pointer;flex:1;min-width:90px">${statTile('Credit Days', d.creditDays != null ? d.creditDays + ' din' : 'set nahi', 'var(--gray-800)')}</div>
         ${available !== null ? statTile('Available', inr(available), overLimit ? 'var(--color-danger-text)' : 'var(--color-success-text)') : ''}
       </div>
       ${agingHtml}
@@ -14364,19 +14583,20 @@ async function submitLogPayment() {
 }
 
 let _clCurrentDealer = null;
-function openCreditLimitModal(name, current) {
+function openCreditLimitModal(name, current, days) {
   _clCurrentDealer = name;
   document.getElementById('clAmount').value = current || '';
+  document.getElementById('clDays').value = days == null ? '' : days;
   document.getElementById('creditLimitModal').classList.add('open');
 }
 async function submitCreditLimit() {
   const val = document.getElementById('clAmount').value;
   const btn = document.querySelector('[onclick="submitCreditLimit()"]');
   if (btn) btn.disabled = true;
-  const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_clCurrentDealer)}`, 'PUT', { creditLimit: val });
+  const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_clCurrentDealer)}`, 'PUT', { creditLimit: val, creditDays: document.getElementById('clDays').value });
   if (btn) btn.disabled = false;
   if (r.error) { showToast(r.error, 'error'); return; }
-  showToast('Credit limit updated!');
+  showToast('Credit limit / days saved!');
   closeModal('creditLimitModal');
   await loadO2dDealers(true);
   refreshDealerViews();
@@ -14408,6 +14628,8 @@ async function openDealerLedgerModal(name, phone) {
 
   const ledgerHtml = renderDlLedgerHtml(r.ledger);
   const bills = r.entries.filter(e => e.type === 'bill');
+  const linkHtml = dlTallyLinkHtml(r);
+  if (!ledgerHtml && !bills.length && r.outstanding === null) { body.innerHTML = outstandingHtml + linkHtml; return; }
   if (!ledgerHtml && !bills.length) {
     const note = r.outstanding
       ? `Outstanding upar Tally ke real ledger balance se hai (sahi hai) — lekin is financial year mein is dealer ka koi voucher sync nahi mila, aur bill-wise bills bhi nahi hain.`
@@ -14459,8 +14681,44 @@ async function openDealerLedgerModal(name, phone) {
     </div>
     <div style="font-size:10.5px;color:var(--gray-400);margin-top:6px">Kisi BILL row par click karo uske items dekhne ke liye.</div>` : '';
 
-  body.innerHTML = outstandingHtml + ledgerHtml + billsHtml +
+  body.innerHTML = outstandingHtml + linkHtml + ledgerHtml + billsHtml +
     (r.syncedAt ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:8px">Last synced: ${new Date(r.syncedAt).toLocaleString('en-IN')}</div>` : '');
+}
+
+// The dealer's name is often written differently in Tally ("Bhagwati
+// Electricals & Sainitary" = "BHAGWATI SANITARY AND ELECTRICALS"). Linking
+// once makes Statement, dues, ageing and payment reminders use Tally's name.
+function dlTallyLinkHtml(r) {
+  const n = jsArg(r.name);
+  if (r.tallyName) return `<div class="dl-no-print" style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">🔗 Tally naam: <b>${esc(r.tallyName)}</b> · <a href="#" onclick="dlTallyPicker('${n}');return false">badlein</a></div>`;
+  if (r.outstanding !== null) return '';
+  const sug = (r.tallySuggestions || []).map(t => `<button class="btn btn-outline btn-sm" style="margin:0 6px 6px 0" onclick="dlLinkTally('${n}','${jsArg(t)}')">${esc(t)}</button>`).join('');
+  return `<div class="dl-no-print" style="border:1.5px dashed var(--color-warning-text);background:var(--color-warning-bg);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+    <div style="font-weight:700;color:var(--gray-800);margin-bottom:4px">🔗 Tally mein is naam se koi data nahi mila</div>
+    <div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">Tally mein ye dealer kis naam se hai? Ek baar chun lo — phir Statement, dues aur reminders sahi aayenge.</div>
+    ${sug ? `<div style="font-size:11px;font-weight:700;color:var(--gray-500);margin-bottom:6px">Milte-julte naam:</div>${sug}` : ''}
+    <div><a href="#" onclick="dlTallyPicker('${n}');return false" style="font-size:12px">🔍 Poori Tally list mein dhoondo</a></div>
+    <div id="dlTallyPick"></div>
+  </div>`;
+}
+let _tallyParties = null;
+async function dlTallyPicker(name) {
+  let box = document.getElementById('dlTallyPick');
+  if (!box) { document.getElementById('dlBody').insertAdjacentHTML('afterbegin', '<div id="dlTallyPick" class="dl-no-print"></div>'); box = document.getElementById('dlTallyPick'); }
+  box.innerHTML = 'Loading…';
+  if (!_tallyParties) { const r = await api('/api/o2d-fms/tally-parties'); if (r.error) { box.innerHTML = esc(r.error); return; } _tallyParties = r.parties; }
+  box.innerHTML = `<div style="display:flex;gap:6px;margin-top:8px"><input id="dlTallyInput" list="dlTallyList" placeholder="Tally naam likho…" style="flex:1;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
+    <button class="btn btn-primary btn-sm" onclick="dlLinkTally('${jsArg(name)}', document.getElementById('dlTallyInput').value)">Link</button>
+    <button class="btn btn-outline btn-sm" title="Link hatao" onclick="dlLinkTally('${jsArg(name)}', '')">✕</button></div>
+    <datalist id="dlTallyList">${_tallyParties.map(p => `<option value="${esc(p)}">`).join('')}</datalist>`;
+  document.getElementById('dlTallyInput').focus();
+}
+async function dlLinkTally(name, tallyName) {
+  const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(name)}/tally-name`, 'PUT', { tallyName: String(tallyName || '').trim() });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(tallyName ? '🔗 Tally naam jud gaya' : 'Link hata diya');
+  openDealerLedgerModal(name, _dlCurrent.phone);
+  if (typeof loadO2dDealers === 'function') { await loadO2dDealers(true); if (typeof refreshDealerViews === 'function') refreshDealerViews(); }
 }
 
 // Tally "Ledger Vouchers"-style table for the current FY: Opening → every
@@ -18836,10 +19094,60 @@ function mecaPreset(k) {
   loadMeca();
 }
 function mecaSetView(v) { mecaView = v; renderMeca(); }
+// Every visit: where the salesman went, when, what order, photo.
+function renderMecaVisits() {
+  const q = document.getElementById('mecaSearch').value.trim().toLowerCase();
+  const list = (mecaData.visits || []).filter(v => !q || v.name.toLowerCase().includes(q) || v.dealer.toLowerCase().includes(q));
+  const wrap = document.getElementById('mecaWrap');
+  if (!list.length) { wrap.innerHTML = '<div class="empty">Is samay me koi visit nahi. Salesman "➕ Visit entry" se daale.</div>'; return; }
+  const total = list.reduce((a, v) => a + (v.orderValue || 0), 0);
+  wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Date</th><th>Salesman</th><th>Dealer / counter</th><th style="text-align:right">Order ₹</th><th>Remark</th><th>Photo</th></tr></thead><tbody>
+    ${list.map(v => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(v.date))}${v.at ? `<div style="font-size:11px;color:var(--gray-500)">${esc(v.at)}</div>` : ''}</td>
+      <td style="font-weight:600;white-space:nowrap">${esc(v.name)}</td>
+      <td>${esc(v.dealer)}${v.distance != null ? `<div style="font-size:11px;color:${v.distance > 300 ? 'var(--color-danger-text)' : 'var(--gray-500)'}">📍 shop se ${v.distance > 999 ? (v.distance / 1000).toFixed(1) + ' km' : v.distance + ' m'}</div>` : ''}</td>
+      <td style="text-align:right;font-weight:700">${v.orderValue ? inr(v.orderValue) : '<span style="color:var(--gray-400)">—</span>'}</td>
+      <td style="white-space:normal;min-width:160px">${esc(v.remark)}</td>
+      <td>${v.photo ? `<a href="${esc(v.photo)}" target="_blank">📷</a>` : ''}</td></tr>`).join('')}
+    <tr style="font-weight:800;background:var(--gray-50)"><td colspan="3">Total — ${list.length} visit</td><td style="text-align:right">${inr(total)}</td><td colspan="2"></td></tr></tbody></table></div>`;
+}
+function openMecaVisit() {
+  ['mvDealer', 'mvOrder', 'mvRemark', 'mvNext'].forEach(id => { document.getElementById(id).value = ''; });
+  const ph = document.getElementById('mvPhoto'); ph.value = ''; ph.dataset.compressed = '';
+  document.getElementById('mvPhotoPv').textContent = '';
+  document.getElementById('mvErr').style.display = 'none';
+  document.getElementById('mvDealerList').innerHTML = ((mecaData && mecaData.dealers) || []).map(n => `<option value="${esc(n)}">`).join('');
+  document.getElementById('mecaVisitModal').classList.add('open');
+}
+async function mecaVisitPhoto(input) {
+  const pv = document.getElementById('mvPhotoPv');
+  input.dataset.compressed = '';
+  if (!input.files[0]) { pv.textContent = ''; return; }
+  pv.textContent = '…';
+  try { input.dataset.compressed = await compressImageToDataURL(input.files[0], 1100, 0.6); pv.textContent = '✅ Photo ready'; }
+  catch (e) { pv.textContent = '⚠️ image error'; }
+}
+async function saveMecaVisit() {
+  const err = document.getElementById('mvErr'); err.style.display = 'none';
+  const fail = m => { err.textContent = m; err.style.display = 'block'; };
+  const body = { dealerName: document.getElementById('mvDealer').value.trim(), orderValue: document.getElementById('mvOrder').value,
+    remark: document.getElementById('mvRemark').value.trim(), nextVisitDate: document.getElementById('mvNext').value,
+    photo: document.getElementById('mvPhoto').dataset.compressed || '' };
+  if (!body.dealerName) return fail('Dealer / counter ka naam likhein');
+  const btn = document.getElementById('mvSave'); btn.disabled = true; btn.textContent = '📍 Location…';
+  const gps = await getPunchGps();
+  if (gps) { body.lat = gps.lat; body.lng = gps.lng; }
+  btn.textContent = '⏳ Saving…';
+  const r = await api('/api/meca/visit', 'POST', body);
+  btn.disabled = false; btn.textContent = 'Save visit';
+  if (r.error) return fail(r.error);
+  closeModal('mecaVisitModal'); showToast('✅ Visit saved');
+  mecaView = 'visits'; loadMeca();
+}
 function renderMeca() {
   if (!mecaData) return;
   const tab = (k, l) => `<button class="btn btn-sm ${mecaView === k ? 'btn-primary' : 'btn-outline'}" onclick="mecaSetView('${jsArg(k)}')">${l}</button>`;
-  document.getElementById('mecaTabs').innerHTML = tab('summary', '👥 Salesman-wise') + tab('days', '📅 Day-wise');
+  document.getElementById('mecaTabs').innerHTML = tab('summary', '👥 Salesman-wise') + tab('days', '📅 Day-wise') + tab('visits', `📍 Visits (${(mecaData.visits || []).length})`);
+  if (mecaView === 'visits') return renderMecaVisits();
   const q = document.getElementById('mecaSearch').value.trim().toLowerCase();
   const rows = mecaData.rows.filter(r => !q || r.name.toLowerCase().includes(q));
   const wrap = document.getElementById('mecaWrap');
@@ -18866,6 +19174,82 @@ function renderMeca() {
   wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px;white-space:nowrap">${head('<th>Salesman</th><th style="text-align:right">Din</th>')}<tbody>
     ${list.map(r => `<tr><td style="font-weight:700">${esc(r.name)}</td><td style="text-align:right">${r.days}</td>${cells(r)}</tr>`).join('')}
     <tr style="font-weight:800;background:var(--gray-50)"><td>Total</td><td></td>${cells(tot)}</tr></tbody></table></div>${note}`;
+}
+
+// ══════════════════════════════════════════════════════
+// MD SUMMARY — one page: attendance, tasks, field work, sales, service…
+// ══════════════════════════════════════════════════════
+let mdPreset = 'lastweek';
+function mdRange(k) {
+  const d = new Date(), y = x => owsYmd(x);
+  if (k === 'today') return [y(d), y(d)];
+  if (k === 'yday') { d.setDate(d.getDate() - 1); return [y(d), y(d)]; }
+  if (k === 'week') return [y(owsMonday(new Date())), y(d)];
+  if (k === 'lastweek') { const m = owsMonday(new Date()); m.setDate(m.getDate() - 7); const e = new Date(m); e.setDate(e.getDate() + 6); return [y(m), y(e)]; }
+  if (k === 'month') return [y(d).slice(0, 8) + '01', y(d)];
+  if (k === 'lastmonth') { const s0 = new Date(d.getFullYear(), d.getMonth() - 1, 1), e = new Date(d.getFullYear(), d.getMonth(), 0); return [y(s0), y(e)]; }
+  return null;
+}
+function mdSetPreset(k) { mdPreset = k; const r = mdRange(k); document.getElementById('mdFrom').value = r[0]; document.getElementById('mdTo').value = r[1]; loadMdSummary(true); }
+async function loadMdSummary(fromPreset) {
+  const f = document.getElementById('mdFrom'), t = document.getElementById('mdTo');
+  if (!f.value || !t.value) { const r = mdRange(mdPreset); f.value = r[0]; t.value = r[1]; }
+  if (!fromPreset && f.value && t.value) { const hit = ['today', 'yday', 'week', 'lastweek', 'month', 'lastmonth'].find(k => { const r = mdRange(k); return r[0] === f.value && r[1] === t.value; }); mdPreset = hit || ''; }
+  const labels = { today: 'Aaj', yday: 'Kal', week: 'Is hafte', lastweek: 'Pichhla hafta', month: 'Is mahine', lastmonth: 'Pichhla mahina' };
+  document.getElementById('mdPresets').innerHTML = Object.entries(labels).map(([k, l]) => `<button class="btn btn-sm ${mdPreset === k ? 'btn-primary' : 'btn-outline'}" onclick="mdSetPreset('${k}')">${l}</button>`).join('');
+  const wrap = document.getElementById('mdWrap');
+  wrap.innerHTML = '<div class="empty">Loading… (O2D / Service sheet padhne me thoda time lagta hai)</div>';
+  const r = await api(`/api/md-summary?from=${f.value}&to=${t.value}`);
+  if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  renderMdSummary(r);
+}
+function renderMdSummary(r) {
+  const n = v => Number(v || 0).toLocaleString('en-IN');
+  const tile = (icon, label, value, sub, color) => `<div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:12px 14px;min-width:150px;flex:1">
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">${icon} ${label}</div>
+    <div style="font-size:21px;font-weight:800;color:${color || 'var(--gray-900)'}">${value}</div><div style="font-size:11.5px;color:var(--gray-500)">${sub || ''}</div></div>`;
+  const box = (title, inner) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:14px 16px;margin-bottom:14px">
+    <div style="font-size:14px;font-weight:800;color:var(--gray-800);margin-bottom:10px">${title}</div>${inner}</div>`;
+  const bad = v => v ? `<b style="color:var(--color-danger-text)">${v}</b>` : '<span style="color:var(--gray-300)">0</span>';
+  const dl = list => list.map(d => fmtDateDMY(d).slice(0, 5)).join(', ');
+  const o = r.o2d, sv = r.service;
+  const tiles = [
+    o ? tile('🛒', 'Orders', n(o.orders), `₹${n(o.value)} · ${n(o.pending)} pending${o.onHold ? ' · ' + o.onHold + ' hold' : ''}`) : tile('🛒', 'Orders', '—', 'O2D sheet nahi padh paye'),
+    o ? tile('🧾', 'Billed', n(o.billed), `₹${n(o.billedAmount)}`, 'var(--color-success-text)') : '',
+    sv ? tile('🔧', 'Complaints', n(sv.registered), `${n(sv.solved)} solved · ${n(sv.open)} open`) : tile('🔧', 'Complaints', '—', 'Service sheet nahi padh paye'),
+    r.replacement ? tile('♻️', 'Replacement', n(r.replacement.received), `${n(r.replacement.delivered)} delivered · ${n(r.replacement.open)} open`) : '',
+    tile('🎯', 'Leads', n(r.leads.incoming + r.leads.outgoing), `${r.leads.incoming} in · ${r.leads.outgoing} out · ${r.leads.onboarded} onboarded`),
+    r.cheques ? tile('🏦', 'Cheques', n(r.cheques.received), `₹${n(r.cheques.amount)} · ${r.cheques.cleared} pass${r.cheques.bounced ? ` · <b style="color:var(--color-danger-text)">${r.cheques.bounced} bounce</b>` : ''}`) : '',
+    tile('💸', 'Petty kharcha', '₹' + n(r.petty.spent), `${n(r.petty.entries)} entries`),
+    r.samples ? tile('🎁', 'Samples', n(r.samples.given), `${n(r.samples.qty)} pcs · ${r.samples.open} wapas baaki`) : ''
+  ].join('');
+  const att = r.attendance;
+  const attTot = att.reduce((a, x) => ({ absent: a.absent + x.absent, missedOut: a.missedOut + x.missedOut, leave: a.leave + x.leave }), { absent: 0, missedOut: 0, leave: 0 });
+  const attHtml = att.length ? `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">Total: <b style="color:var(--color-danger-text)">${attTot.absent}</b> din absent (bina punch) · <b style="color:var(--color-warning-text)">${attTot.missedOut}</b> punch-out miss · ${attTot.leave} leave</div>
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Employee</th><th style="text-align:right">Working din</th><th style="text-align:right">Punch In</th><th style="text-align:right">Punch Out</th><th style="text-align:right">Absent</th><th style="text-align:right">Out miss</th><th style="text-align:right">Leave</th><th>Kab nahi kiya</th></tr></thead><tbody>
+    ${att.slice().sort((a, b) => (b.absent + b.missedOut) - (a.absent + a.missedOut) || a.name.localeCompare(b.name)).map(x => `<tr>
+      <td style="font-weight:600;white-space:nowrap">${esc(x.name)}<div style="font-size:11px;color:var(--gray-400);font-weight:400">${esc(x.department)}</div></td>
+      <td style="text-align:right">${x.working}</td><td style="text-align:right">${x.punchIn}</td><td style="text-align:right">${x.punchOut}</td>
+      <td style="text-align:right">${bad(x.absent)}</td><td style="text-align:right">${x.missedOut ? `<b style="color:var(--color-warning-text)">${x.missedOut}</b>` : '<span style="color:var(--gray-300)">0</span>'}</td><td style="text-align:right">${x.leave || ''}</td>
+      <td style="font-size:11.5px;color:var(--gray-600);min-width:160px">${x.absentDays.length ? '❌ ' + esc(dl(x.absentDays)) : ''}${x.noOutDays.length ? `${x.absentDays.length ? '<br/>' : ''}⏏ out nahi: ${esc(dl(x.noOutDays))}` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi attendance data nahi</div>';
+  const tk = r.tasks;
+  const tkHtml = tk.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Employee</th><th style="text-align:right">Naye diye</th><th style="text-align:right">Done</th><th style="text-align:right">Late done</th><th style="text-align:right">Pending</th><th style="text-align:right">Overdue</th><th style="text-align:right">Checklist</th></tr></thead><tbody>
+    ${tk.map(x => `<tr><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${x.given}</td><td style="text-align:right;color:var(--color-success-text);font-weight:700">${x.done}</td>
+      <td style="text-align:right">${x.doneLate ? `<span style="color:var(--color-warning-text)">${x.doneLate}</span>` : '0'}</td><td style="text-align:right">${x.pending}</td><td style="text-align:right">${bad(x.overdue)}</td>
+      <td style="text-align:right">${x.checklist ? `${x.checklistDone}/${x.checklist}` : '—'}</td></tr>`).join('')}</tbody></table></div>
+    ${r.reminders ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:6px">🔔 Is samay ${r.reminders} delegation reminder log hue.</div>` : ''}` : '<div class="empty">Koi task nahi</div>';
+  const fd = r.field;
+  const fdHtml = fd.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Employee</th><th style="text-align:right">KM</th><th style="text-align:right">Petrol ₹</th><th style="text-align:right">Tour ₹ (approved)</th><th style="text-align:right">Tour pending</th><th style="text-align:right">Visits</th><th style="text-align:right">Order mila</th><th style="text-align:right">Order ₹</th></tr></thead><tbody>
+    ${fd.map(x => `<tr><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${n(x.km)}${x.kmDays ? `<div style="font-size:10.5px;color:var(--gray-400)">${x.kmDays} din</div>` : ''}</td>
+      <td style="text-align:right">${r.kmRate ? '₹' + n(Math.round(x.km * r.kmRate)) : '—'}</td><td style="text-align:right">${x.tourApproved ? '₹' + n(x.tourApproved) : '—'}</td><td style="text-align:right">${x.tourPending ? '₹' + n(x.tourPending) : '—'}</td>
+      <td style="text-align:right">${x.visits || '—'}</td><td style="text-align:right">${x.ordered || '—'}</td><td style="text-align:right;font-weight:700">${x.orderValue ? '₹' + n(x.orderValue) : '—'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi field data nahi</div>';
+  const salesHtml = o && o.bySalesman.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Order By</th><th style="text-align:right">Orders</th><th style="text-align:right">Value ₹</th></tr></thead><tbody>
+    ${o.bySalesman.map(x => `<tr><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${x.orders}</td><td style="text-align:right;font-weight:700">₹${n(x.value)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Is samay koi order nahi</div>';
+  document.getElementById('mdWrap').innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${tiles}</div>`
+    + box(`🕘 Attendance — ${esc(fmtDateDMY(r.from))} se ${esc(fmtDateDMY(r.to > r.today ? r.today : r.to))}`, attHtml)
+    + box('✅ Tasks (Delegation / Checklist)', tkHtml)
+    + box('🛣️ Field — KM, Tour, Visits', fdHtml)
+    + box('🛒 Sales — salesman-wise orders (O2D)', salesHtml);
 }
 
 // ══════════════════════════════════════════════════════
@@ -19213,15 +19597,28 @@ async function openSmpNew() {
       <div><label style="font-size:12px;font-weight:600">Dealer / party</label><input id="smpDealer" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Purpose</label><select id="smpPurpose" style="${VRL_IN}"><option>Demo to dealer</option><option>New dealer</option><option>Trial order</option><option>Customer complaint check</option><option>Other</option></select></div></div>
     <label style="font-size:12px;font-weight:600">Remark</label><input id="smpRemark" style="${VRL_IN};margin-bottom:10px"/>
+    <label style="font-size:12px;font-weight:600">📷 Photo <span style="font-weight:400;color:var(--gray-400)">(sample / challan)</span></label>
+    <input id="smpPhoto" type="file" accept="image/*" capture="environment" onchange="smpPhotoPick(this)" style="${VRL_IN};margin-bottom:4px"/><div id="smpPhotoPv" style="font-size:12px;margin-bottom:10px"></div>
     <div id="smpErr" class="alert error" style="display:none;margin-bottom:10px"></div>
     <button class="btn btn-primary" id="smpSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="saveSmpNew()">Save — stock se OUT</button>`, 560);
+}
+async function smpPhotoPick(input) {
+  const pv = document.getElementById('smpPhotoPv');
+  input.dataset.compressed = '';
+  if (!input.files[0]) { pv.textContent = ''; return; }
+  pv.textContent = '…';
+  try { input.dataset.compressed = await compressImageToDataURL(input.files[0], 1100, 0.6); pv.innerHTML = `<img src="${input.dataset.compressed}" style="height:40px;border-radius:6px;vertical-align:middle"/> ✓`; }
+  catch (e) { pv.textContent = '⚠️ image error'; }
 }
 async function saveSmpNew() {
   const err = document.getElementById('smpErr'); err.style.display = 'none';
   const itemCode = document.getElementById('smpItem').value.split(' — ')[0].trim();
   const btn = document.getElementById('smpSaveBtn'); btn.disabled = true;
-  const r = await api('/api/samples', 'POST', { salesmanUserId: document.getElementById('smpSalesman').value, date: document.getElementById('smpDate').value, itemCode,
-    qty: document.getElementById('smpQty').value, dealerName: document.getElementById('smpDealer').value.trim(), purpose: document.getElementById('smpPurpose').value, remark: document.getElementById('smpRemark').value.trim() });
+  const body = { salesmanUserId: document.getElementById('smpSalesman').value, date: document.getElementById('smpDate').value, itemCode,
+    qty: document.getElementById('smpQty').value, dealerName: document.getElementById('smpDealer').value.trim(), purpose: document.getElementById('smpPurpose').value, remark: document.getElementById('smpRemark').value.trim(),
+    photo: document.getElementById('smpPhoto').dataset.compressed || '' };
+  let r = await api('/api/samples', 'POST', body);
+  if (r.needsConfirm && confirm(`${r.error}.\n\nStock register galat ho sakta hai (opening / purchase entry baaki). Fir bhi sample dena hai?`)) r = await api('/api/samples', 'POST', { ...body, allowShort: true });
   btn.disabled = false;
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   closeModal('smpNewModal');
@@ -19235,7 +19632,7 @@ function openSmpDetail(id) {
   vrlModal('smpDetailModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">${esc(s.code)} · ${esc(s.itemName)} × ${s.qty}</h3>${smpModalX('smpDetailModal')}</div>
     <div style="font-size:13px;color:var(--gray-700);line-height:1.7;margin-bottom:12px">
       Salesman: <b>${esc(s.salesmanName)}</b> · ${esc(fmtDateDMY(s.issueDate))}${open ? ` · <b style="${s.days > 15 ? 'color:var(--color-danger)' : ''}">${s.days} din</b>` : ''}<br/>
-      ${s.dealerName ? 'Dealer: <b>' + esc(s.dealerName) + '</b><br/>' : ''}${s.purpose ? 'Purpose: ' + esc(s.purpose) + '<br/>' : ''}${s.remark ? esc(s.remark) + '<br/>' : ''}
+      ${s.photo ? `<a href="${esc(s.photo)}" target="_blank">📷 Photo dekho</a><br/>` : ''}${s.dealerName ? 'Dealer: <b>' + esc(s.dealerName) + '</b><br/>' : ''}${s.purpose ? 'Purpose: ' + esc(s.purpose) + '<br/>' : ''}${s.remark ? esc(s.remark) + '<br/>' : ''}
       <span style="font-size:11.5px;color:var(--gray-500)">Diya by ${esc(s.createdByName)} · ${esc(fmtDateDMY(s.createdAt, true))}</span>
       ${s.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(s.cancelReason)}</div>` : ''}
       ${s.outcomeAt ? `<div style="margin-top:6px">✅ Wapas aaya: <b>${s.returnedQty}</b>${s.leftQty ? ` · dealer ke paas chhoda: <b>${s.leftQty}</b>` : ''}${s.outcomeRemark ? ' · ' + esc(s.outcomeRemark) : ''}<br/><span style="font-size:11.5px;color:var(--gray-500)">${esc(s.outcomeByName)} · ${esc(fmtDateDMY(s.outcomeAt, true))}</span></div>` : ''}</div>
@@ -23575,6 +23972,7 @@ function buildReplDashboardTasks() {
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(r.partyName)}${r.category ? ' · ' + esc(r.category) : ''}${r.salesmanName ? ' · 🧑‍💼 ' + esc(r.salesmanName) : ''}</div>
       <div style="font-size:12px;color:var(--gray-600)">${esc(String(r.items).slice(0, 120))}</div>
       ${r.createdAt ? fmsFieldRow('ENTRY', esc(fmtEntry(r.createdAt))) : ''}
+      ${t.since && String(t.since) !== String(r.createdAt) ? fmsReachedRow(t.since) : ''}
       ${fmsFieldRow('PLANNED', `${fmtDateDMY(t.planned, true) || '—'}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
     tasks.push({ id: r.id, type: 'repl', status: 'pending', title: rplCodeLabel(r), description,
       assignedToName: stepDoerLabel(t), assignedByName: stepDoerLabel(t), assignedToDept: 'Replacement', start_date: String(r.createdAt || ''), planned: t.planned || '', plannedLate: !!late });
@@ -23601,6 +23999,7 @@ function buildPurchaseDashboardTasks() {
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(o.vendorName) || '—'}${o.indentNo ? ' · ' + esc(o.indentNo) : ''}</div>
       <div style="font-size:12px;color:var(--gray-600)">${products || '—'}</div>
       ${o.timestamp ? fmsFieldRow('ENTRY', esc(fmtEntry(o.timestamp))) : ''}
+      ${o.currentStep > 0 ? fmsReachedRow(fmsReachedAt(o.steps, o.currentStep, o.timestamp)) : ''}
       ${step.nextFollowup ? fmsFieldRow('NEXT FOLLOWUP', esc(fmtDateDMY(step.nextFollowup) || step.nextFollowup)) : ''}
       ${fmsFieldRow('PLANNED', `${esc(fmtDateDMY(step.planned, true) || step.planned || '—')}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
     tasks.push({ id: o.poNumber, type: 'purchase', status: 'pending', title: o.poNumber, description,
@@ -23619,6 +24018,7 @@ function buildPurchaseDashboardTasks() {
         <div style="font-weight:700;color:var(--gray-800);font-size:13px">📝 ${esc(step.label)}</div>
         <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc([...new Set(lines.map(l => l.vendorName).filter(Boolean))].join(', ')) || '—'} · Raised by ${esc(o.raisedBy || '—')}</div>
         ${o.timestamp ? fmsFieldRow('ENTRY', esc(fmtEntry(o.timestamp))) : ''}
+        ${idx > 0 ? fmsReachedRow(fmsReachedAt(o.steps, idx, o.timestamp)) : ''}
         <div style="font-size:12px;color:var(--gray-600)">${lines.map(l => `${esc(l.productName)} × ${esc(l.qty)}`).join(', ')}</div>
         ${fmsFieldRow('PLANNED', `${esc(fmtDateDMY(step.planned, true) || '—')}${late ? ' — Overdue' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}`;
       tasks.push({ id: o.indentNo, type: 'purchase', status: 'pending', title: o.indentNo, description,

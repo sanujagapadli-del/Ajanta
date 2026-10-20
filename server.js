@@ -568,7 +568,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -1455,6 +1455,41 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
       checklistPending = rows.map(t => ({ ...t, type: 'checklist', approval: 'no', waiting_approval: 0, attachment_required: 'no', assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
     }
     res.json({ pending, revised, completed, todayPending: [...delegationPending, ...checklistPending] });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Delegation reminders (client 2026-10-19): Priyanka sees all of Sir's
+// delegations and follows up with the doer — she logs each reminder here, so
+// everyone sees how many times and when the doer was reminded.
+let _taskRemReady = null;
+function taskRemTable() {
+  if (!_taskRemReady) _taskRemReady = db.query(`CREATE TABLE IF NOT EXISTS task_reminders (
+      id INT AUTO_INCREMENT PRIMARY KEY, task_id INT NOT NULL, reminded_by INT, note VARCHAR(255),
+      reminded_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_task (task_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+    .catch(e => { _taskRemReady = null; throw e; });
+  return _taskRemReady;
+}
+app.post('/api/tasks/delegation/:id/remind', requireAuth, async (req, res) => {
+  try {
+    const [[t]] = await db.query('SELECT id, assigned_by, assigned_to, status FROM delegation_tasks WHERE id=?', [Number(req.params.id)]);
+    if (!t) return res.status(404).json({ error: 'Task not found' });
+    const ok = ['admin', 'hod', 'pc'].includes(req.session.role) || Number(t.assigned_by) === Number(req.session.userId) || await hasPageGrant(req, 'all-delegations');
+    if (!ok) return res.status(403).json({ error: 'No access' });
+    await taskRemTable();
+    await db.query('INSERT INTO task_reminders (task_id, reminded_by, note) VALUES (?,?,?)', [t.id, req.session.userId, String((req.body || {}).note || '').trim().slice(0, 255) || null]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/task-reminders', requireAuth, async (req, res) => {
+  try {
+    const ids = String(req.query.ids || '').split(',').map(Number).filter(n => n > 0).slice(0, 600);
+    if (!ids.length) return res.json({});
+    await taskRemTable();
+    const [rows] = await db.query(`SELECT r.task_id, DATE_FORMAT(r.reminded_at,'%Y-%m-%d %H:%i') AS at, r.note, u.name FROM task_reminders r
+      LEFT JOIN users u ON u.id=r.reminded_by WHERE r.task_id IN (?) ORDER BY r.id`, [ids]);
+    const out = {};
+    rows.forEach(r => { (out[r.task_id] = out[r.task_id] || []).push({ at: r.at, by: r.name || '', note: r.note || '' }); });
+    res.json(out);
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -2356,7 +2391,7 @@ app.get('/api/km/today', requireAuth, async (req, res) => {
 });
 
 // :slot is 'morning' or 'evening' — both need the reading AND an odometer photo.
-app.post('/api/km/:slot', requireAuth, async (req, res) => {
+app.post('/api/km/:slot(morning|evening)', requireAuth, async (req, res) => {
   try {
     const slot = req.params.slot;
     if (slot !== 'morning' && slot !== 'evening') return res.status(400).json({ error: 'Invalid slot' });
@@ -2452,6 +2487,59 @@ app.get('/api/km/history', requireAuth, async (req, res) => {
       return r;
     });
     res.json(rows);
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Weekly KM money (client 2026-10-19: "weekly paisa de rahe hain — Paid ka
+// option"). One row per employee per week (Monday); km and amount are worked
+// out here from daily_km at the current rate and frozen when marked paid.
+let _kmPayReady = null;
+function kmPayTable() {
+  if (!_kmPayReady) _kmPayReady = db.query(`CREATE TABLE IF NOT EXISTS km_payments (
+      id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, week_start DATE NOT NULL,
+      km DECIMAL(10,1) NOT NULL DEFAULT 0, rate DECIMAL(8,2), amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      note VARCHAR(255), paid_by INT, paid_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_user_week (user_id, week_start)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+    .catch(e => { _kmPayReady = null; throw e; });
+  return _kmPayReady;
+}
+const kmCanPay = async req => req.session.role === 'admin' || await plIsViewer(req);
+app.get('/api/km/payments', requireAuth, async (req, res) => {
+  try {
+    await kmPayTable();
+    const { from, to } = req.query;
+    const mine = !(await kmCanPay(req));
+    // a week that started up to 6 days before "from" still overlaps the range
+    const [rows] = await db.query(`SELECT p.user_id, DATE_FORMAT(p.week_start,'%Y-%m-%d') AS week_start, p.km, p.amount, p.note,
+        DATE_FORMAT(p.paid_at,'%Y-%m-%d %H:%i') AS paid_at, u.name AS paid_by_name
+      FROM km_payments p LEFT JOIN users u ON u.id=p.paid_by
+      WHERE p.week_start BETWEEN DATE_SUB(?, INTERVAL 6 DAY) AND ?${mine ? ' AND p.user_id=?' : ''}`,
+      mine ? [from || '1970-01-01', to || '2999-12-31', req.session.userId] : [from || '1970-01-01', to || '2999-12-31']);
+    res.json({ canPay: !mine, payments: rows.map(r => ({ userId: r.user_id, weekStart: r.week_start, km: Number(r.km), amount: Number(r.amount), note: r.note || '', paidAt: r.paid_at, paidBy: r.paid_by_name || '' })) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/km/payments', requireAuth, async (req, res) => {
+  try {
+    if (!(await kmCanPay(req))) return res.status(403).json({ error: 'Only admin / Vishal / Ajay can mark KM paid' });
+    await kmPayTable();
+    const userId = Number(req.body.userId), week = plYmd(req.body.weekStart);
+    if (!userId || !week || new Date(week + 'T00:00:00Z').getUTCDay() !== 1) return res.status(400).json({ error: 'Week (Monday) and employee required' });
+    const [[k]] = await withAttendanceTables(() => db.query(`SELECT SUM(GREATEST(evening_km - morning_km, 0)) AS km FROM daily_km
+      WHERE user_id=? AND date BETWEEN ? AND DATE_ADD(?, INTERVAL 6 DAY) AND morning_km IS NOT NULL AND evening_km IS NOT NULL`, [userId, week, week]));
+    const km = Math.round((Number(k.km) || 0) * 10) / 10, rate = await getKmRate();
+    const amount = rate != null ? plRound(km * rate) : 0;
+    const [r] = await db.query('INSERT IGNORE INTO km_payments (user_id, week_start, km, rate, amount, note, paid_by) VALUES (?,?,?,?,?,?,?)',
+      [userId, week, km, rate, amount, String(req.body.note || '').trim().slice(0, 255) || null, req.session.userId]);
+    if (!r.affectedRows) return res.status(400).json({ error: 'Is hafte ka KM pehle hi paid mark hai' });
+    res.json({ success: true, km, amount });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/km/payments/:userId/:week', requireAuth, async (req, res) => {
+  try {
+    if (!(await kmCanPay(req))) return res.status(403).json({ error: 'Only admin / Vishal / Ajay' });
+    await kmPayTable();
+    await db.query('DELETE FROM km_payments WHERE user_id=? AND week_start=?', [Number(req.params.userId), plYmd(req.params.week)]);
+    res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -5177,6 +5265,69 @@ app.put('/api/service-fms/:row(\\d+)/urgent', requireAuth, requireSfmsEditor, as
   } catch (err) { sendServerError(res, err); }
 });
 
+// Client 2026-10-19 (Solve tab video): "complain assign but not done — back
+// before assign": the Assign step is opened again (status + time cleared);
+// mechanic, Takeout and spares stay as they are, so a re-assign can keep or
+// change the mechanic. Allowed until the mechanic has solved it.
+app.put('/api/service-fms/:row(\\d+)/back-to-assign', requireAuth, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    const reason = String(req.body.reason || '').trim().slice(0, 300);
+    if (!reason) return res.status(400).json({ error: 'Wapas bhejne ka reason likhein' });
+    if (!sfmsCanActOn(await sfmsUserAccess(req), SFMS_N.assign)) return res.status(403).json({ error: 'Only the Assign step doer can send a complaint back' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    if (await sfmsRowMoved(res, sheetsApi, row, req.body.expectComplainNo)) return;
+    const assign = SFMS_STEPS.find(x => x.key === 'assign'), solve = SFMS_STEPS.find(x => x.key === 'solve');
+    const cur = await sheetsApi.spreadsheets.values.batchGet({ spreadsheetId: SFMS_SHEET_ID,
+      ranges: [`'${SFMS_TAB}'!${assign.status}${row}`, `'${SFMS_TAB}'!${solve.status}${row}`, `'${SFMS_TAB}'!${SFMS_REMARKS_COL}${row}`] });
+    const [assignStatus, solveStatus, remarks] = cur.data.valueRanges.map(v => (v.values && v.values[0] && v.values[0][0]) || '');
+    if (!assignStatus) return res.status(400).json({ error: 'Ye complaint abhi assign hi nahi hui' });
+    if (solveStatus) return res.status(400).json({ error: 'Mechanic solve kar chuka hai — ab wapas nahi bhej sakte' });
+    const stamp = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ');
+    const note = `[${stamp} ${req.session.name || ''}: wapas Assign par — ${reason}]`;
+    await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: SFMS_SHEET_ID, requestBody: { valueInputOption: 'RAW', data: [
+      { range: `'${SFMS_TAB}'!${assign.actual}${row}`, values: [['']] },
+      { range: `'${SFMS_TAB}'!${assign.status}${row}`, values: [['']] },
+      { range: `'${SFMS_TAB}'!${SFMS_REMARKS_COL}${row}`, values: [[(String(remarks) ? String(remarks) + '\n' : '') + note]] }
+    ] } });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Client 2026-10-19: "product got back — enter into Replacement, end the
+// complaint here". Makes the Replacement FMS entry from the complaint and
+// closes the complaint (kept in the admin "Deleted" list with the reason, so
+// it can be restored). Spares already taken out are written into the reason.
+app.post('/api/service-fms/:row(\\d+)/to-replacement', requireAuth, async (req, res) => {
+  try {
+    const row = parseInt(req.params.row, 10);
+    const acc = await sfmsUserAccess(req);
+    if (!sfmsCanActOn(acc, SFMS_N.assign) && !sfmsCanActOn(acc, SFMS_N.takeout)) return res.status(403).json({ error: 'Only the Assign / Takeout doer can move a complaint to Replacement' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${row}:N${row}` });
+    const v = (r.data.values && r.data.values[0]) || [];
+    const no = String(v[0] || '').trim();
+    if (!no) return res.status(404).json({ error: 'Complaint not found' });
+    if (req.body.expectComplainNo && no !== String(req.body.expectComplainNo).trim()) return res.status(409).json({ error: 'Complaint list has changed — please refresh and try again.' });
+    const b = req.body || {};
+    const customer = String(v[1] || '').trim(), mobile = String(v[2] || '').trim(), dealer = String(v[4] || '').trim(), product = String(v[5] || '').trim(), problem = String(v[7] || '').trim();
+    const taken = await sfmsTakenItems(sheetsApi, row).catch(() => []);
+    const out = await replCreate({
+      partyName: b.partyName || dealer || customer, customerMobile: b.customerMobile || mobile, items: b.items || product, defect: b.defect || problem,
+      condition: b.condition, productType: b.productType, photos: b.photos, broughtBy: b.broughtBy,
+      remark: `Service complaint ${no} se aaya${b.remark ? ' — ' + b.remark : ''}`, salesmanUserId: b.salesmanUserId
+    }, req.session.userId);
+    if (out.error) return res.status(400).json({ error: out.error });
+    const spares = taken.length ? ` · spare mechanic ke paas: ${taken.map(t => `${t.item} × ${t.qty}`).join(', ')}` : '';
+    await sfmsDeletedTable(() => db.query('INSERT INTO sfms_deleted (complain_no, reason, snapshot, deleted_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE reason=VALUES(reason), deleted_by=VALUES(deleted_by), deleted_at=NOW()',
+      [no, `↪ Replacement ${out.code} mein bheja${spares}`.slice(0, 500), JSON.stringify({ customer, mobile, product, problem, replacement: out.code }), req.session.name || '']));
+    res.json({ success: true, code: out.code, complainNo: no });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
 // Transfer an assigned complaint to another mechanic (client, 2026-10-07) —
 // whoever can do Assign may change the Mechanic Name (AF) any time after
 // Assign until the mechanic has solved it. The Solve step follows AF, so
@@ -6347,7 +6498,9 @@ async function withDealerTables(fn) {
 // (client, 2026-10-09: "jaisa employees ka banaya hai, aisa hi dealer ka" —
 // owner, date of birth, address, location…). Same one dealer list, O2D → Dealers.
 const DEALER_DETAIL_COLS = [['owner_name', 'VARCHAR(255)'], ['alt_phone', 'VARCHAR(50)'], ['area', 'VARCHAR(255)'], ['address', 'VARCHAR(1000)'],
-  ['dob', 'DATE'], ['anniversary', 'DATE'], ['gst_no', 'VARCHAR(30)'], ['notes', 'VARCHAR(1000)'], ['details_updated_by', 'INT'], ['details_updated_at', 'DATETIME']];
+  ['dob', 'DATE'], ['anniversary', 'DATE'], ['gst_no', 'VARCHAR(30)'], ['notes', 'VARCHAR(1000)'], ['details_updated_by', 'INT'], ['details_updated_at', 'DATETIME'],
+  // credit_days: payment terms; tally_name: the party's name in Tally when it is written differently
+  ['credit_days', 'INT'], ['tally_name', 'VARCHAR(255)']];
 let _dealerDetailColsOk = false;
 async function ensureDealerDetailCols() {
   await addMissingColumns('o2d_dealers', DEALER_DETAIL_COLS);
@@ -6493,6 +6646,8 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       d.city = row.city || '';
       d.phone = row.phone || '';
       d.creditLimit = row.credit_limit !== null && row.credit_limit !== undefined ? Number(row.credit_limit) : null;
+      d.creditDays = row.credit_days != null ? Number(row.credit_days) : null;
+      d.tallyName = row.tally_name || '';
       d.locationLat = row.location_lat !== null ? Number(row.location_lat) : null;
       d.locationLng = row.location_lng !== null ? Number(row.location_lng) : null;
       d.locationAddress = row.location_address || '';
@@ -6531,10 +6686,15 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     // Balance below (when available) overrides this with the true total.
     // The bucket breakdown itself stays as-is either way — it can only ever
     // reflect whatever portion was bill-tracked.
+    // Tally party name -> dealers: the dealer's own name, or the Tally name
+    // linked to it ("🔗 Tally naam jodo" on the Statement) when Tally spells it
+    // differently. A linked name also matches a duplicate row with that name.
+    const byTally = {};
+    Object.values(byKey).forEach(d => { d.tallyKey = (d.tallyName || d.name).trim().toLowerCase(); (byTally[d.tallyKey] = byTally[d.tallyKey] || []).push(d); });
+    const tallyDealers = key => byTally[key] || [];
     Object.values(billsAgingByParty).forEach(agg => {
       const key = agg.name.trim().toLowerCase();
-      const d = byKey[key];
-      if (d) { d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count }; d.outstanding = agg.total; }
+      for (const d of tallyDealers(key)) { d.aging = { buckets: agg.buckets, total: agg.total, billCount: agg.count }; d.outstanding = agg.total; }
     });
 
     // Real ledger balance — the source of truth for Outstanding whenever
@@ -6543,8 +6703,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     // above and the legacy debtors-sheet fallback.
     Object.values(ledgerBalancesByParty).forEach(lb => {
       const key = lb.name.trim().toLowerCase();
-      const d = byKey[key];
-      if (d) d.outstanding = lb.closingBalance;
+      for (const d of tallyDealers(key)) d.outstanding = lb.closingBalance;
     });
 
     // Tally's own "Bills Receivable" bill-wise matching turned out
@@ -6559,7 +6718,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     // own FIFO aging (computeFifoAging) replaces the bill-wise buckets
     // entirely instead of trying to patch or merely distrust them.
     Object.values(byKey).forEach(d => {
-      const key = d.name.trim().toLowerCase();
+      const key = d.tallyKey;
       const ledger = ledgerBalancesByParty[key];
       const fifo = vouchers.legIndex[key] ? computeFifoAging(key, vouchers, ledger || null) : null;
       if (fifo && fifo.billCount) {
@@ -6572,21 +6731,19 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
 
     // Same matching rule — only for dealers we already know, most recent 5.
     Object.entries(tallyPaymentsByParty).forEach(([key, list]) => {
-      const d = byKey[key];
-      if (d) d.tallyPayments = list.slice(-5).reverse();
+      for (const d of tallyDealers(key)) d.tallyPayments = list.slice(-5).reverse();
     });
 
     const dealers = Object.values(byKey).map(d => {
       // Real Tally-derived on-time/late (bill-by-bill payments joined
       // against BillRegistry due dates) wins when there's enough of it to
       // mean something; otherwise falls back to manually logged payments.
-      const tallyKey = d.name.trim().toLowerCase();
-      const tallyRating = tallyRatingByParty[tallyKey];
+      const tallyRating = tallyRatingByParty[d.tallyKey];
       const manualRating = computeDealerRating(d.payments);
       const rating = (tallyRating && tallyRating.total > 0) ? { ...tallyRating, source: 'tally' } : { ...manualRating, source: 'manual' };
       const creditTier = computeCreditTier(d.aging ? d.aging.buckets : {}, d.aging ? d.aging.total : 0, rating.source === 'tally' ? rating : null);
       const kycCount = Object.values(d.kyc).filter(Boolean).length;
-      delete d.payments;
+      delete d.payments; delete d.tallyKey;
       return { ...d, kycCount, rating, creditTier };
     }).sort((a, b) => a.name.localeCompare(b.name));
 
@@ -6611,9 +6768,15 @@ app.put('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
   try {
     if (!canEditDealers(req)) return res.status(403).json({ error: 'Only admins can set a dealer\'s credit limit' });
     const name = req.params.name.trim();
-    const { city, phone, creditLimit } = req.body;
+    const { city, phone, creditLimit, creditDays } = req.body;
     if (creditLimit !== '' && creditLimit !== undefined && creditLimit !== null && !(Number(creditLimit) >= 0)) {
       return res.status(400).json({ error: 'Credit limit must be a non-negative number' });
+    }
+    if (creditDays !== undefined) {
+      const cd = creditDays === '' || creditDays === null ? null : Number(creditDays);
+      if (cd !== null && !(Number.isInteger(cd) && cd >= 0 && cd <= 365)) return res.status(400).json({ error: 'Credit days 0 se 365 ke beech likhein' });
+      await withDealerTables(async () => { await ensureDealerDetailCols(); await db.query('INSERT INTO o2d_dealers (counter_name, credit_days) VALUES (?,?) ON DUPLICATE KEY UPDATE credit_days=VALUES(credit_days)', [name, cd]); });
+      if (creditLimit === undefined && city === undefined && phone === undefined) return res.json({ success: true });
     }
     await withDealerTables(() => db.query(
       `INSERT INTO o2d_dealers (counter_name, city, phone, credit_limit) VALUES (?,?,?,?)
@@ -7983,12 +8146,67 @@ async function getTallyPaymentsByDealer() {
 // replica of Tally's own ledger screen (a bill that's already fully paid
 // off drops out of Bills Receivable and we don't keep its amount anywhere
 // once that happens) — it's everything the sync actually has on hand.
+async function dealerTallyName(name) {
+  try {
+    await ensureDealerDetailCols();
+    const [[r]] = await db.query('SELECT tally_name FROM o2d_dealers WHERE LOWER(counter_name)=LOWER(?)', [name]);
+    return r && r.tally_name ? r.tally_name.trim() : '';
+  } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return ''; throw e; }
+}
+// "Bhagwati Electricals & Sainitary" vs Tally's "BHAGWATI SANITARY AND
+// ELECTRICALS": same words in another order, a typo, "&" for "and". Compare
+// the sorted words letter-pair by letter-pair (Dice score).
+function tallyNameScore(a, b) {
+  const norm = v => String(v || '').toLowerCase().replace(/&/g, ' and ').replace(/^\s*m\s*\/\s*s\.?\s*/, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter(w => w && !['and', 'the', 'ms', 'shri', 'shree', 'sri'].includes(w)).sort().join('');
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  const pairs = t => { const m = new Map(); for (let i = 0; i < t.length - 1; i++) { const p = t.slice(i, i + 2); m.set(p, (m.get(p) || 0) + 1); } return m; };
+  const px = pairs(x), py = pairs(y);
+  let both = 0;
+  px.forEach((n, p) => { both += Math.min(n, py.get(p) || 0); });
+  return (2 * both) / (x.length + y.length - 2);
+}
+function tallyPartySuggestions(name, parties, n) {
+  return parties.map(p => ({ name: p, score: tallyNameScore(name, p) })).filter(p => p.score >= 0.45)
+    .sort((a, b) => b.score - a.score).slice(0, n).map(p => p.name);
+}
+// All Tally party names, for the link picker (search box).
+app.get('/api/o2d-fms/tally-parties', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
+    const ledger = await getLedgerBalancesByDealer();
+    res.json({ parties: Object.values(ledger).map(l => l.name).sort((a, b) => a.localeCompare(b)) });
+  } catch (err) { sendServerError(res, err); }
+});
+// Link a dealer to its Tally party name (empty = unlink).
+app.put('/api/o2d-fms/dealers/:name/tally-name', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
+    const name = String(req.params.name || '').trim();
+    const tallyName = String((req.body || {}).tallyName || '').trim().slice(0, 255);
+    if (!name) return res.status(400).json({ error: 'Dealer name missing' });
+    if (tallyName) {
+      const ledger = await getLedgerBalancesByDealer();
+      if (!ledger[tallyName.toLowerCase()]) return res.status(400).json({ error: 'Ye naam Tally mein nahi mila — list se chunein' });
+    }
+    await withDealerTables(async () => {
+      await ensureDealerDetailCols();
+      await db.query('INSERT INTO o2d_dealers (counter_name, tally_name) VALUES (?,?) ON DUPLICATE KEY UPDATE tally_name=VALUES(tally_name)', [name, tallyName || null]);
+    });
+    _billsReceivableCache = null;
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const name = (req.query.name || '').trim();
     if (!name) return res.status(400).json({ error: 'name is required' });
-    const key = name.toLowerCase();
+    const tallyName = await dealerTallyName(name);
+    const key = (tallyName || name).toLowerCase();
     const [{ bills }, paymentsByParty, ledgerByParty, itemsByKey, vouchers] = await Promise.all([
       getBillsReceivable(),
       getTallyPaymentsByDealer(),
@@ -8037,8 +8255,12 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
       return 0;
     });
 
+    const matched = !!(ledger || vouchers.legIndex[key] || dealerBills.length || payments.length);
     res.json({
       name,
+      tallyName: tallyName || '',
+      // nothing in Tally under this name: suggest the closest Tally parties to link
+      tallySuggestions: matched ? [] : tallyPartySuggestions(name, Object.values(ledgerByParty).map(l => l.name), 6),
       outstanding: ledger ? ledger.closingBalance : null,
       syncedAt: ledger ? ledger.syncedAt : (dealerBills[0] ? dealerBills[0].syncedAt : null),
       billCount: openBillEntries.length,
@@ -10409,7 +10631,7 @@ function replTask(r, doersMap) {
   if (stage === 'repair' && r.mechanic_user_id) doers = [{ id: r.mechanic_user_id, name: r.mechanic_name || '' }];
   // Takeout: the mechanic (returns the spares) or the step's own doers.
   if (stage === 'takeout' && r.mechanic_user_id && !doers.some(d => Number(d.id) === Number(r.mechanic_user_id))) doers = [{ id: r.mechanic_user_id, name: r.mechanic_name || '' }, ...doers];
-  return { key: stage, n: step.n, no: step.no, label: step.label, planned: replAddHours(base, hours), doers, doer: step.doer,
+  return { key: stage, n: step.n, no: step.no, label: step.label, planned: replAddHours(base, hours), since: base ? String(base).slice(0, 19) : '', doers, doer: step.doer,
     returning: stage === 'handover' && (r.ours === 'No' || (r.warranty === 'Out of Warranty' && r.customer_agreed === 'No')) };
 }
 
@@ -10520,39 +10742,45 @@ async function replDealerPhone(party) {
 }
 
 // Replacement Form — anyone with the page (salesman / purchase assistant).
+// New replacement entry — the Replacement form, and a Service FMS complaint
+// sent over (product came back to the office). Returns { error } or { id, code }.
+async function replCreate(b, userId) {
+  const t = (v, n = 500) => String(v || '').trim().slice(0, n);
+  const party = t(b.partyName, 255), items = t(b.items, 2000), defect = t(b.defect, 1000);
+  if (!party || !items || !defect) return { error: 'Party name, item & quantity and defect are required' };
+  // Several product photos (client, 2026-10-17); old clients still send one `photo`.
+  const photos = (Array.isArray(b.photos) ? b.photos : [b.photo]).filter(p => typeof p === 'string' && p.startsWith('data:image/')).slice(0, 6);
+  if (!photos.length) return { error: 'Product photo is required' };
+  await ensureReplTables();
+  const code = await nextReplCode();
+  const urls = [];
+  for (const [i, p] of photos.entries()) urls.push(await uploadPhotoToDrive(p, `${code}-product-${Date.now()}-${i + 1}.jpg`));
+  const photoUrl = urls.join('\n').slice(0, 1000); // photo_url VARCHAR(1000); rplPhoto() splits on newlines
+  const mobile = t(b.customerMobile, 30) || await replDealerPhone(party);
+  // Whose counter it is (client, 2026-10-13) — told when the item is ready.
+  let salesman = null;
+  if (Number(b.salesmanUserId)) {
+    const [[u]] = await db.query('SELECT id, name FROM users WHERE id=?', [Number(b.salesmanUserId)]);
+    if (!u) return { error: 'Salesman not found' };
+    salesman = u;
+  }
+  if (!_replColsOk) await ensureReplCols();
+  const [r] = await db.query(`INSERT INTO replacements (code, created_by, party_name, customer_mobile, items, product_condition, product_type, defect, photo_url, brought_by, remark, salesman_user_id, salesman_name)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [code, userId, party, mobile || null, items, t(b.condition, 100) || null, t(b.productType, 50) || null, defect, photoUrl, t(b.broughtBy, 255) || null, t(b.remark, 2000) || null,
+     salesman ? salesman.id : null, salesman ? salesman.name : null]);
+  await logReplEvent(r.insertId, 'created', `${items} · ${defect}`, userId);
+  // The dealer's "received" WhatsApp goes at the Diary step, once the Diary No. exists (client, 2026-10-14).
+  return { id: r.insertId, code, hasMobile: !!sfmsNormalizeMobile(mobile) };
+}
 app.post('/api/replacement-fms', requireAuth, async (req, res) => {
   try {
     const acc = await replUserAccess(req);
     if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Replacement FMS' });
     if (await hasPageDeny(req, 'form-replacement')) return res.status(403).json(FORM_DENIED);
-    const b = req.body || {};
-    const t = (v, n = 500) => String(v || '').trim().slice(0, n);
-    const party = t(b.partyName, 255), items = t(b.items, 2000), defect = t(b.defect, 1000);
-    if (!party || !items || !defect) return res.status(400).json({ error: 'Party name, item & quantity and defect are required' });
-    // Several product photos (client, 2026-10-17); old clients still send one `photo`.
-    const photos = (Array.isArray(b.photos) ? b.photos : [b.photo]).filter(p => typeof p === 'string' && p.startsWith('data:image/')).slice(0, 6);
-    if (!photos.length) return res.status(400).json({ error: 'Product photo is required' });
-    await ensureReplTables();
-    const code = await nextReplCode();
-    const urls = [];
-    for (const [i, p] of photos.entries()) urls.push(await uploadPhotoToDrive(p, `${code}-product-${Date.now()}-${i + 1}.jpg`));
-    const photoUrl = urls.join('\n').slice(0, 1000); // photo_url VARCHAR(1000); rplPhoto() splits on newlines
-    const mobile = t(b.customerMobile, 30) || await replDealerPhone(party);
-    // Whose counter it is (client, 2026-10-13) — told when the item is ready.
-    let salesman = null;
-    if (Number(b.salesmanUserId)) {
-      const [[u]] = await db.query('SELECT id, name FROM users WHERE id=?', [Number(b.salesmanUserId)]);
-      if (!u) return res.status(400).json({ error: 'Salesman not found' });
-      salesman = u;
-    }
-    if (!_replColsOk) await ensureReplCols();
-    const [r] = await db.query(`INSERT INTO replacements (code, created_by, party_name, customer_mobile, items, product_condition, product_type, defect, photo_url, brought_by, remark, salesman_user_id, salesman_name)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [code, req.session.userId, party, mobile || null, items, t(b.condition, 100) || null, t(b.productType, 50) || null, defect, photoUrl, t(b.broughtBy, 255) || null, t(b.remark, 2000) || null,
-       salesman ? salesman.id : null, salesman ? salesman.name : null]);
-    await logReplEvent(r.insertId, 'created', `${items} · ${defect}`, req.session.userId);
-    // The dealer's "received" WhatsApp goes at the Diary step, once the Diary No. exists (client, 2026-10-14).
-    res.json({ success: true, id: r.insertId, code, hasMobile: !!sfmsNormalizeMobile(mobile) });
+    const out = await replCreate(req.body || {}, req.session.userId);
+    if (out.error) return res.status(400).json({ error: out.error });
+    res.json({ success: true, id: out.id, code: out.code, hasMobile: out.hasMobile });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);
@@ -12041,19 +12269,15 @@ app.delete('/api/sales-schedule/:id', requireAuth, async (req, res) => {
 
 // Salesman (or a manager for him): record the visit. Any one of photo,
 // order value, remark or next visit date is enough (client's choice).
-app.post('/api/sales-schedule/:id/visit', requireAuth, async (req, res) => {
-  try {
-    const [[v]] = await withSalesSchedule(() => db.query('SELECT * FROM sales_schedule WHERE id=?', [req.params.id]));
-    if (!v) return res.status(404).json({ error: 'Visit not found' });
-    if (Number(v.user_id) !== Number(req.session.userId) && !(await ssIsManager(req))) return res.status(403).json({ error: 'This visit is not yours' });
-    const b = req.body;
+// Marks one schedule row visited (photo / GPS / order / remark / next visit).
+async function ssMarkVisited(v, b, req) {
     const orderValue = b.orderValue === '' || b.orderValue == null ? null : Number(b.orderValue);
-    if (orderValue !== null && !(orderValue >= 0)) return res.status(400).json({ error: 'Order value must be a number' });
+    if (orderValue !== null && !(orderValue >= 0)) return { error: 'Order value must be a number' };
     const remark = String(b.remark || '').trim().slice(0, 500);
     const next = /^\d{4}-\d{2}-\d{2}$/.test(b.nextVisitDate || '') ? b.nextVisitDate : null;
     const lat = Number(b.lat), lng = Number(b.lng);
     const hasGps = isFinite(lat) && isFinite(lng) && (lat || lng);
-    if (!b.photo && orderValue === null && !remark && !next) return res.status(400).json({ error: 'Photo, order, remark ya next visit — koi ek bharein' });
+    if (!b.photo && orderValue === null && !remark && !next) return { error: 'Photo, order, remark ya next visit — koi ek bharein' };
     const photo = b.photo && /^data:image\//.test(b.photo) ? await uploadPhotoToDrive(b.photo, `visit-${v.id}-${Date.now()}.jpg`) : null;
     // Distance from the dealer's saved shop location (Dealer Master), when both exist.
     let distance = null;
@@ -12072,8 +12296,169 @@ app.post('/api/sales-schedule/:id/visit', requireAuth, async (req, res) => {
       const [dup] = await db.query('SELECT 1 FROM sales_schedule WHERE user_id=? AND visit_date=? AND LOWER(dealer_name)=LOWER(?)', [v.user_id, next, v.dealer_name]);
       if (!dup.length) await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES (?,?,?,?,?)', [v.user_id, next, v.dealer_name, 'Next visit', req.session.name || '']);
     }
+  return { ok: true };
+}
+app.post('/api/sales-schedule/:id/visit', requireAuth, async (req, res) => {
+  try {
+    const [[v]] = await withSalesSchedule(() => db.query('SELECT * FROM sales_schedule WHERE id=?', [req.params.id]));
+    if (!v) return res.status(404).json({ error: 'Visit not found' });
+    if (Number(v.user_id) !== Number(req.session.userId) && !(await ssIsManager(req))) return res.status(403).json({ error: 'This visit is not yours' });
+    const r = await ssMarkVisited(v, req.body || {}, req);
+    if (r.error) return res.status(400).json({ error: r.error });
     const [[row]] = await db.query(`${SS_SELECT} WHERE s.id=?`, [v.id]);
     res.json({ success: true, visit: row });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// MECA "➕ Visit entry" (client 2026-10-19: "salesman jahan gaya, kya order
+// laya — entry kaise hogi"): the salesman's own visit today, planned or not.
+// Goes into the same Sales Schedule row the beat uses, so MECA counts it.
+app.post('/api/meca/visit', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'meca'))) return res.status(403).json({ error: 'No access to MECA' });
+    const dealer = String((req.body || {}).dealerName || '').trim().slice(0, 255);
+    if (!dealer) return res.status(400).json({ error: 'Dealer / counter ka naam likhein' });
+    const uid = req.session.userId;
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    let [[v]] = await withSalesSchedule(() => db.query('SELECT * FROM sales_schedule WHERE user_id=? AND visit_date=? AND LOWER(dealer_name)=LOWER(?)', [uid, today, dealer]));
+    let created = false;
+    if (!v) {
+      const [ins] = await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES (?,?,?,?,?)', [uid, today, dealer, 'MECA entry', req.session.name || '']);
+      [[v]] = await db.query('SELECT * FROM sales_schedule WHERE id=?', [ins.insertId]);
+      created = true;
+    }
+    const r = await ssMarkVisited(v, req.body || {}, req);
+    if (r.error) { if (created) await db.query('DELETE FROM sales_schedule WHERE id=?', [v.id]); return res.status(400).json({ error: r.error }); }
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+
+// ══════════════════════════════════════════════════════
+// MD SUMMARY (client voice note 2026-10-19: "mere dashboard par har cheez ka
+// synopsis — pichhle hafte kis employee ne kitni baar punch in / out kiya, kisne
+// nahi kiya — ek window par, week / day / month wise"). Read-only roll-up of
+// every module for a date range; heavy sheet reads (O2D / Service) are the
+// app's existing readers and are skipped quietly if a sheet is slow.
+// ══════════════════════════════════════════════════════
+app.get('/api/md-summary', requireAuth, async (req, res) => {
+  try {
+    if (req.session.role !== 'admin' && !(await hasPageGrant(req, 'md-summary'))) return res.status(403).json({ error: 'No access to MD Summary' });
+    const isYmd = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    const from = isYmd(req.query.from) ? req.query.from : today, to = isYmd(req.query.to) ? req.query.to : today;
+    if (from > to) return res.status(400).json({ error: 'From date To se pehle honi chahiye' });
+    const end = to > today ? today : to; // attendance only counts days that have happened
+    const q = (sql, p) => db.query(sql, p).then(([r]) => r).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return []; throw e; });
+    const range = [from, to];
+    const dtRange = [from, to]; // DATETIME columns: >= from AND < to + 1 day
+    const [users, att, leaves, hol, dlg, chk, km, tour, petty, smp, visits, leads, onb, chq, repl, rem] = await Promise.all([
+      q("SELECT id, name, department, week_off, role FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor') ORDER BY name"),
+      q("SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d, time_in, time_out FROM attendance WHERE date BETWEEN ? AND ?", [from, end]),
+      q("SELECT user_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS s, DATE_FORMAT(end_date,'%Y-%m-%d') AS e FROM leave_requests WHERE status='approved' AND start_date <= ? AND end_date >= ?", [end, from]),
+      q("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [from, end]),
+      q(`SELECT assigned_to, assigned_by, status, DATE_FORMAT(due_date,'%Y-%m-%d') AS due, DATE_FORMAT(completed_at,'%Y-%m-%d') AS done_on,
+          created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY) AS new_in_range
+        FROM delegation_tasks WHERE (created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)) OR (completed_at >= ? AND completed_at < DATE_ADD(?, INTERVAL 1 DAY)) OR status IN ('pending','revised')`, [...dtRange, ...dtRange, ...dtRange]),
+      q(`SELECT assigned_to, status, DATE_FORMAT(due_date,'%Y-%m-%d') AS due FROM checklist_tasks WHERE due_date BETWEEN ? AND ?`, [from, end]),
+      q("SELECT user_id, SUM(GREATEST(evening_km - morning_km, 0)) AS km, COUNT(*) AS days FROM daily_km WHERE date BETWEEN ? AND ? AND morning_km IS NOT NULL AND evening_km IS NOT NULL GROUP BY user_id", range),
+      q("SELECT user_id, status, SUM(total) AS amt, COUNT(*) AS n FROM tour_expenses WHERE tour_date BETWEEN ? AND ? GROUP BY user_id, status", range),
+      q("SELECT type, status, SUM(amount) AS amt, COUNT(*) AS n FROM petty_cash WHERE entry_date BETWEEN ? AND ? GROUP BY type, status", range),
+      q("SELECT COUNT(*) AS n, SUM(qty) AS qty, SUM(outcome_at IS NULL AND cancelled_at IS NULL) AS open FROM sample_issues WHERE issue_date BETWEEN ? AND ?", range),
+      q("SELECT user_id, COUNT(*) AS n, SUM(order_value > 0) AS ordered, SUM(order_value) AS value FROM sales_schedule WHERE status='visited' AND visit_date BETWEEN ? AND ? GROUP BY user_id", range),
+      q("SELECT lead_type, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY) GROUP BY lead_type", dtRange),
+      q("SELECT COUNT(*) AS n FROM dealer_onboardings WHERE created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)", dtRange),
+      q(`SELECT SUM(created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)) AS received, SUM(IF(created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY), amount, 0)) AS amount,
+          SUM(clearance='Bounce' AND clearance_at >= ? AND clearance_at < DATE_ADD(?, INTERVAL 1 DAY)) AS bounced,
+          SUM(clearance='Pass' AND clearance_at >= ? AND clearance_at < DATE_ADD(?, INTERVAL 1 DAY)) AS cleared FROM cheques WHERE cancelled_at IS NULL`, [...dtRange, ...dtRange, ...dtRange, ...dtRange]),
+      q(`SELECT SUM(created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)) AS received, SUM(delivered_at >= ? AND delivered_at < DATE_ADD(?, INTERVAL 1 DAY)) AS delivered,
+          SUM(delivered_at IS NULL AND cancelled_at IS NULL) AS open FROM replacements`, [...dtRange, ...dtRange]),
+      q("SELECT COUNT(*) AS n FROM task_reminders WHERE reminded_at >= ? AND reminded_at < DATE_ADD(?, INTERVAL 1 DAY)", dtRange)
+    ]);
+    // ── Attendance per employee: working days (minus Sundays/week-off, holidays, leave) vs punches
+    const holidays = new Set(hol.map(h => h.d));
+    const days = [];
+    for (let d = new Date(from + 'T00:00:00Z'); d.toISOString().slice(0, 10) <= end; d.setUTCDate(d.getUTCDate() + 1)) days.push(d.toISOString().slice(0, 10));
+    const attBy = {};
+    att.forEach(a => { (attBy[a.user_id] = attBy[a.user_id] || {})[a.d] = a; });
+    const leaveDays = uid => new Set(leaves.filter(l => Number(l.user_id) === Number(uid)).flatMap(l => days.filter(d => d >= l.s && d <= l.e)));
+    const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
+    const attendance = users.filter(u => u.role !== 'admin').map(u => {
+      const offs = String(u.week_off == null || u.week_off === '' ? '0' : u.week_off).split(',').map(x => Number(x.trim())).filter(n => n >= 0 && n <= 6);
+      const lv = leaveDays(u.id);
+      const mine = attBy[u.id] || {};
+      let working = 0, inN = 0, outN = 0, missedOut = 0, absent = 0, leave = 0;
+      const absentDays = [], noOutDays = [];
+      days.forEach(d => {
+        const dow = new Date(d + 'T00:00:00Z').getUTCDay();
+        const a = mine[d];
+        if (a && a.time_in) inN++;
+        if (a && a.time_out) outN++;
+        if (offs.includes(dow) || holidays.has(d)) return;
+        working++;
+        if (lv.has(d)) { leave++; return; }
+        if (!a || !a.time_in) { absent++; absentDays.push(d); }
+        else if (!a.time_out && d < today) { missedOut++; noOutDays.push(d); }
+      });
+      return { userId: u.id, name: u.name, department: u.department || '', working, punchIn: inN, punchOut: outN, missedOut, absent, leave, absentDays, noOutDays };
+    }).filter(r => r.working || r.punchIn);
+    // ── Delegation per doer
+    const tasks = {};
+    const T = uid => tasks[uid] = tasks[uid] || { userId: uid, name: nameOf[uid] || '—', given: 0, done: 0, doneLate: 0, pending: 0, overdue: 0, checklist: 0, checklistDone: 0 };
+    dlg.forEach(t => {
+      const r = T(t.assigned_to);
+      if (Number(t.new_in_range)) r.given++;
+      if (t.status === 'completed' && t.done_on && t.done_on >= from && t.done_on <= to) { r.done++; if (t.due && t.done_on > t.due) r.doneLate++; }
+      if (t.status === 'pending' || t.status === 'revised') { r.pending++; if (t.due && t.due < today) r.overdue++; }
+    });
+    chk.forEach(t => { const r = T(t.assigned_to); r.checklist++; if (t.status === 'completed') r.checklistDone++; });
+    // ── KM / tour / MECA per employee
+    const field = {};
+    const F = uid => field[uid] = field[uid] || { userId: uid, name: nameOf[uid] || '—', km: 0, kmDays: 0, tourApproved: 0, tourPending: 0, visits: 0, ordered: 0, orderValue: 0 };
+    km.forEach(k => { const r = F(k.user_id); r.km = Math.round(Number(k.km) || 0); r.kmDays = Number(k.days) || 0; });
+    tour.forEach(t => { const r = F(t.user_id); if (t.status === 'approved') r.tourApproved += Number(t.amt) || 0; else if (t.status === 'pending') r.tourPending += Number(t.amt) || 0; });
+    visits.forEach(v => { const r = F(v.user_id); r.visits = Number(v.n) || 0; r.ordered = Number(v.ordered) || 0; r.orderValue = Number(v.value) || 0; });
+    const kmRate = await getKmRate().catch(() => null);
+    // ── O2D and Service (Google Sheets) — best effort
+    const inRange = ts => { const d = String(ts || '').slice(0, 10); return d >= from && d <= to; };
+    let o2d = null, service = null;
+    // both Google Sheets at once
+    const [o2dP, sfmsP] = [getO2dOrders(), sfmsFetchComplaints()];
+    o2dP.catch(() => {}); sfmsP.catch(() => {});
+    try {
+      const orders = await o2dP;
+      const mk = orders.filter(o => inRange(o.timestamp));
+      const value = o => (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0);
+      const by = {};
+      mk.forEach(o => { const k = o.orderBy || '—'; const r = by[k] = by[k] || { name: k, orders: 0, value: 0 }; r.orders++; r.value += value(o); });
+      const billStep = O2D_STEPS.findIndex(x => /make bill/i.test(x.label));
+      const billed = orders.filter(o => billStep >= 0 && o.steps[billStep] && inRange(o.steps[billStep].actual));
+      o2d = { orders: mk.length, value: Math.round(mk.reduce((a, o) => a + value(o), 0)), billed: billed.length, billedAmount: Math.round(billed.reduce((a, o) => a + (Number(o.amount) || 0), 0)),
+        pending: orders.filter(o => !o.closed).length, onHold: orders.filter(o => !o.closed && o.onHold).length,
+        bySalesman: Object.values(by).sort((a, b) => b.value - a.value).map(r => ({ ...r, value: Math.round(r.value) })) };
+    } catch (e) { console.warn('md-summary o2d:', e.message); }
+    try {
+      const list = await sfmsP;
+      const all = Array.isArray(list) ? list : (list.complaints || []);
+      const solveN = SFMS_N.solve;
+      service = { registered: all.filter(c => inRange(c.timestamp)).length,
+        solved: all.filter(c => { const st = (c.steps || []).find(x => x.n === solveN); return st && st.status && inRange(st.actual); }).length,
+        open: all.filter(c => !c.closed).length };
+    } catch (e) { console.warn('md-summary service:', e.message); }
+    const pettyOut = petty.filter(p => p.type === 'expense' && p.status !== 'rejected').reduce((a, p) => a + (Number(p.amt) || 0), 0);
+    res.json({ from, to, today,
+      attendance, tasks: Object.values(tasks).filter(r => r.given || r.done || r.pending || r.checklist).sort((a, b) => b.overdue - a.overdue || a.name.localeCompare(b.name)),
+      field: Object.values(field).sort((a, b) => b.orderValue - a.orderValue || b.km - a.km), kmRate,
+      o2d, service,
+      replacement: repl[0] ? { received: Number(repl[0].received) || 0, delivered: Number(repl[0].delivered) || 0, open: Number(repl[0].open) || 0 } : null,
+      leads: { incoming: Number((leads.find(l => l.lead_type === 'Incoming') || {}).n) || 0, outgoing: Number((leads.find(l => l.lead_type === 'Outgoing') || {}).n) || 0, onboarded: Number((onb[0] || {}).n) || 0 },
+      cheques: chq[0] ? { received: Number(chq[0].received) || 0, amount: Math.round(Number(chq[0].amount) || 0), cleared: Number(chq[0].cleared) || 0, bounced: Number(chq[0].bounced) || 0 } : null,
+      petty: { spent: Math.round(pettyOut), entries: petty.reduce((a, p) => a + (Number(p.n) || 0), 0) },
+      samples: smp[0] ? { given: Number(smp[0].n) || 0, qty: Number(smp[0].qty) || 0, open: Number(smp[0].open) || 0 } : null,
+      reminders: Number((rem[0] || {}).n) || 0 });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -12093,7 +12478,7 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     const [[plans], [counters], [visits]] = await withSalesSchedule(() => Promise.all([
       db.query("SELECT user_id, DATE_FORMAT(plan_date,'%Y-%m-%d') AS d, plan, place FROM sales_day_plan WHERE plan_date BETWEEN ? AND ?", [from, to]),
       db.query('SELECT counter_name, city, user_id, beat_day FROM sales_counters'),
-      db.query("SELECT user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, dealer_name, status, order_value FROM sales_schedule WHERE visit_date BETWEEN ? AND ?", [from, to])
+      db.query("SELECT user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, dealer_name, status, order_value, DATE_FORMAT(visited_at,'%H:%i') AS at, photo, distance_m, remark FROM sales_schedule WHERE visit_date BETWEEN ? AND ?", [from, to])
     ]));
     const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
     const rows = {};
@@ -12132,7 +12517,13 @@ app.get('/api/meca', requireAuth, async (req, res) => {
       .map(r => ({ ...r, planned: r.planned.size, name: nameOf[r.userId] || `User ${r.userId}` }))
       .filter(r => r.planned || r.visited || r.nbdVisits)
       .sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
-    res.json({ from, to, rows: out });
+    const [vu] = visits.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [[...new Set(visits.map(v => v.user_id))]]) : [[]];
+    const vName = Object.fromEntries(vu.map(u => [u.id, u.name]));
+    const visitList = visits.filter(v => v.status === 'visited')
+      .map(v => ({ date: v.d, at: v.at || '', name: vName[v.user_id] || '', dealer: v.dealer_name, orderValue: v.order_value == null ? null : Number(v.order_value), remark: v.remark || '', photo: v.photo || '', distance: v.distance_m }))
+      .sort((a, b) => (b.date + b.at).localeCompare(a.date + a.at));
+    const [dl] = await withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers ORDER BY counter_name')).catch(() => [[]]);
+    res.json({ from, to, rows: out, visits: visitList, dealers: dl.map(d => d.counter_name) });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -12726,47 +13117,75 @@ app.get('/api/tour-expenses', requireAuth, async (req, res) => {
     res.json({ items: rows.map(tourOut), viewer, km });
   } catch (err) { sendServerError(res, err); }
 });
+// Validates a tour entry and uploads its new photos (links already on Drive
+// are kept) — shared by add and edit. Returns { error } or the row values.
+async function tourBuild(b, userId) {
+  const date = plYmd(b.date);
+  const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  // Legs: Jaipur → Niwai, Niwai → Tonk, Tonk → Jaipur — each with its fare (+ ticket).
+  const legsIn = (Array.isArray(b.legs) ? b.legs : []).slice(0, TOUR_MAX_LEGS)
+    .map(l => ({ from: str(l && l.from, 100), to: str(l && l.to, 100), mode: TOUR_MODES.includes(l && l.mode) ? l.mode : '', fare: plMoney(l && l.fare), ticket: l && l.ticket || '' }))
+    .filter(l => l.from || l.to || l.fare);
+  if (legsIn.some(l => !l.to)) return { error: 'Har safar me "kahan gaye" likhein' };
+  const places = legsIn.length ? legsIn.map(l => l.to).join(', ').slice(0, 500) : str(b.places, 500);
+  if (!date || !places) return { error: 'Date and places visited are required' };
+  const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+  if (date > today) return { error: 'Tour date cannot be in the future' };
+  const heads = Object.fromEntries(TOUR_HEADS.map(h => [h, plMoney(b[h])]));
+  if (legsIn.length) heads.fare = plRound(legsIn.reduce((s, l) => s + l.fare, 0));
+  const total = plRound(TOUR_HEADS.reduce((s, h) => s + heads[h], 0));
+  if (!(total > 0)) return { error: 'Enter at least one expense amount' };
+  const otherNote = str(b.otherNote, 255);
+  if (heads.other > 0 && !otherNote) return { error: 'Other kharcha kis cheez ka hai — likhein (parking, courier…)' };
+  // Tickets: one per leg + extra bills (parking etc.), plus the old single photo field.
+  const extra = (Array.isArray(b.billPhotos) ? b.billPhotos : []).filter(Boolean).slice(0, TOUR_MAX_EXTRA_BILLS);
+  if (b.billPhoto) extra.unshift(b.billPhoto);
+  const stamp = `tour-${userId}-${date}-${Date.now()}`;
+  const up = (img, tag) => !img ? Promise.resolve(null) : /^https?:\/\//.test(img) ? Promise.resolve(img) : uploadPhotoToDrive(img, `${stamp}-${tag}.jpg`);
+  const [legUrls, extraUrls] = await Promise.all([
+    Promise.all(legsIn.map((l, i) => up(l.ticket, `leg${i + 1}`))),
+    Promise.all(extra.map((p, i) => up(p, `bill${i + 1}`)))
+  ]);
+  const legs = legsIn.map((l, i) => ({ from: l.from, to: l.to, mode: l.mode, fare: l.fare, ticket: legUrls[i] || '' }));
+  const bills = legs.filter(l => l.ticket).map(l => ({ label: `${l.from || '?'} → ${l.to}`, url: l.ticket }))
+    .concat(extraUrls.filter(Boolean).map((url, i) => ({ label: `Bill ${i + 1}`, url })));
+  const mode = legs.length ? (legs.find(l => l.mode) || {}).mode : (TOUR_MODES.includes(b.mode) ? b.mode : null);
+  const orderValue = b.orderValue === '' || b.orderValue == null ? null : plMoney(b.orderValue);
+  return { values: [date, (legs.length ? legs[0].from : str(b.fromPlace, 255)) || null, places, mode || null,
+    heads.fare, heads.stay, heads.food, heads.local, heads.other, total, str(b.remark, 1000) || null, bills.length ? bills[0].url : null,
+    legs.length ? JSON.stringify(legs) : null, bills.length ? JSON.stringify(bills) : null, otherNote || null, orderValue] };
+}
+const TOUR_COLS = 'tour_date, from_place, places, travel_mode, fare, stay, food, local, other, total, remark, bill_photo, legs, bill_photos, other_note, order_value';
 app.post('/api/tour-expenses', requireAuth, async (req, res) => {
   try {
-    const b = req.body || {};
-    const date = plYmd(b.date);
-    const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
-    // Legs: Jaipur → Niwai, Niwai → Tonk, Tonk → Jaipur — each with its fare (+ ticket).
-    const legsIn = (Array.isArray(b.legs) ? b.legs : []).slice(0, TOUR_MAX_LEGS)
-      .map(l => ({ from: str(l && l.from, 100), to: str(l && l.to, 100), mode: TOUR_MODES.includes(l && l.mode) ? l.mode : '', fare: plMoney(l && l.fare), ticket: l && l.ticket || '' }))
-      .filter(l => l.from || l.to || l.fare);
-    if (legsIn.some(l => !l.to)) return res.status(400).json({ error: 'Har safar me "kahan gaye" likhein' });
-    const places = legsIn.length ? legsIn.map(l => l.to).join(', ').slice(0, 500) : str(b.places, 500);
-    if (!date || !places) return res.status(400).json({ error: 'Date and places visited are required' });
-    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
-    if (date > today) return res.status(400).json({ error: 'Tour date cannot be in the future' });
-    const heads = Object.fromEntries(TOUR_HEADS.map(h => [h, plMoney(b[h])]));
-    if (legsIn.length) heads.fare = plRound(legsIn.reduce((s, l) => s + l.fare, 0));
-    const total = plRound(TOUR_HEADS.reduce((s, h) => s + heads[h], 0));
-    if (!(total > 0)) return res.status(400).json({ error: 'Enter at least one expense amount' });
-    const otherNote = str(b.otherNote, 255);
-    if (heads.other > 0 && !otherNote) return res.status(400).json({ error: 'Other kharcha kis cheez ka hai — likhein (parking, courier…)' });
-    // Tickets: one per leg + extra bills (parking etc.), plus the old single photo field.
-    const extra = (Array.isArray(b.billPhotos) ? b.billPhotos : []).filter(Boolean).slice(0, TOUR_MAX_EXTRA_BILLS);
-    if (b.billPhoto) extra.unshift(b.billPhoto);
-    const stamp = `tour-${req.session.userId}-${date}-${Date.now()}`;
-    const up = (img, tag) => img ? uploadPhotoToDrive(img, `${stamp}-${tag}.jpg`) : Promise.resolve(null);
-    const [legUrls, extraUrls] = await Promise.all([
-      Promise.all(legsIn.map((l, i) => up(l.ticket, `leg${i + 1}`))),
-      Promise.all(extra.map((p, i) => up(p, `bill${i + 1}`)))
-    ]);
-    const legs = legsIn.map((l, i) => ({ from: l.from, to: l.to, mode: l.mode, fare: l.fare, ticket: legUrls[i] || '' }));
-    const bills = legs.filter(l => l.ticket).map(l => ({ label: `${l.from || '?'} → ${l.to}`, url: l.ticket }))
-      .concat(extraUrls.filter(Boolean).map((url, i) => ({ label: `Bill ${i + 1}`, url })));
-    const mode = legs.length ? (legs.find(l => l.mode) || {}).mode : (TOUR_MODES.includes(b.mode) ? b.mode : null);
-    const orderValue = b.orderValue === '' || b.orderValue == null ? null : plMoney(b.orderValue);
-    const [r] = await withPlTables(() => db.query(`INSERT INTO tour_expenses (user_id, tour_date, from_place, places, travel_mode, fare, stay, food, local, other, total, remark, bill_photo,
-        legs, bill_photos, other_note, order_value)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [req.session.userId, date, (legs.length ? legs[0].from : str(b.fromPlace, 255)) || null, places, mode || null,
-        heads.fare, heads.stay, heads.food, heads.local, heads.other, total, str(b.remark, 1000) || null, bills.length ? bills[0].url : null,
-        legs.length ? JSON.stringify(legs) : null, bills.length ? JSON.stringify(bills) : null, otherNote || null, orderValue]));
+    const t = await tourBuild(req.body || {}, req.session.userId);
+    if (t.error) return res.status(400).json({ error: t.error });
+    const [r] = await withPlTables(() => db.query(`INSERT INTO tour_expenses (user_id, ${TOUR_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [req.session.userId, ...t.values]));
     res.json({ success: true, id: r.insertId });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
+});
+
+// Edit (client 2026-10-19: amount bharna bhool gaye) — own entry until it is
+// approved; Vishal / Ajay can fix any entry that is not approved yet. Once
+// approved it is locked. A rejected entry that is fixed goes back to pending.
+app.put('/api/tour-expenses/:id', requireAuth, async (req, res) => {
+  try {
+    const [[old]] = await withPlTables(() => db.query('SELECT user_id, status FROM tour_expenses WHERE id=?', [req.params.id]));
+    if (!old) return res.status(404).json({ error: 'Not found' });
+    if (old.status === 'approved') return res.status(400).json({ error: 'Approve ho chuki entry edit nahi ho sakti' });
+    const viewer = await plIsViewer(req);
+    if (!viewer && Number(old.user_id) !== Number(req.session.userId)) return res.status(403).json({ error: 'Sirf apni entry edit kar sakte hain' });
+    const t = await tourBuild(req.body || {}, old.user_id);
+    if (t.error) return res.status(400).json({ error: t.error });
+    const sets = TOUR_COLS.split(', ').map(c => `${c}=?`).join(', ');
+    const [r] = await db.query(`UPDATE tour_expenses SET ${sets}, status='pending', decided_by=NULL, decided_at=NULL, decision_remark=NULL WHERE id=? AND status<>'approved'`,
+      [...t.values, req.params.id]);
+    if (!r.affectedRows) return res.status(400).json({ error: 'Approve ho chuki entry edit nahi ho sakti' });
+    res.json({ success: true });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);
@@ -14548,6 +14967,7 @@ async function smpTables() {
     created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     returned_qty DECIMAL(10,2), outcome_at DATETIME, outcome_by INT, outcome_remark VARCHAR(500), cancelled_at DATETIME, cancel_reason VARCHAR(500)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await addMissingColumns('sample_issues', [['photo', 'VARCHAR(500)']]);
   _smpOk = true;
 }
 async function smpAccess(req, res) {
@@ -14562,7 +14982,7 @@ async function smpLoad(where = '', params = []) {
   const n = v => Number(v) || 0;
   return rows.map(s => ({ id: s.id, code: s.code, issueDate: s.issue_date, salesmanUserId: s.salesman_user_id, salesmanName: s.salesman_name || '', itemCode: s.item_code,
     itemName: s.item_name || '', uom: s.uom || '', qty: n(s.qty), dealerName: s.dealer_name || '', purpose: s.purpose || '', remark: s.remark || '', createdAt: s.created_at,
-    createdByName: s.created_by_name || '', days: n(s.days), returnedQty: s.returned_qty == null ? null : n(s.returned_qty), leftQty: s.outcome_at ? n(s.qty) - n(s.returned_qty) : null,
+    createdByName: s.created_by_name || '', photo: s.photo || '', days: n(s.days), returnedQty: s.returned_qty == null ? null : n(s.returned_qty), leftQty: s.outcome_at ? n(s.qty) - n(s.returned_qty) : null,
     outcomeAt: s.outcome_at, outcomeByName: s.outcome_by_name || '', outcomeRemark: s.outcome_remark || '', cancelledAt: s.cancelled_at, cancelReason: s.cancel_reason || '',
     status: s.cancelled_at ? 'Cancelled' : s.outcome_at ? 'Settled' : 'With salesman' }));
 }
@@ -14588,22 +15008,31 @@ app.post('/api/samples', requireAuth, async (req, res) => {
     const item = items[0];
     if (!item) return res.status(400).json({ error: 'Choose the item from the list' });
     const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    // Stock register short (often minus — opening never entered): ask first,
+    // then the sample can still go out (client 2026-10-19, TapGeyser "-21").
+    if (Number(item.current_stock) < qty && !b.allowShort) {
+      return res.status(409).json({ needsConfirm: true, error: `Stock register mein sirf ${Number(item.current_stock)} ${item.uom || ''} hai` });
+    }
+    const photo = b.photo && /^data:image\//.test(b.photo) ? await uploadPhotoToDrive(b.photo, `sample-${Date.now()}.jpg`) : null;
     const n = await claimNextSeqValue('smp_code', 1);
     const code = `SMP-${String(n).padStart(4, '0')}`;
     const dealer = String(b.dealerName || '').trim().slice(0, 255), purpose = String(b.purpose || '').trim().slice(0, 255);
     await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1')); // table must exist before the transaction
     const id = await withTx(async conn => {
-      const [claim] = await conn.query('UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ? AND current_stock >= ?', [qty, date, item.item_code, qty]);
+      const [claim] = await conn.query(`UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ?${b.allowShort ? '' : ' AND current_stock >= ?'}`, [qty, date, item.item_code, qty]);
       if (!claim.affectedRows) return null;
       await conn.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
         [date, 'OUT', item.item_code, item.description, qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '']);
-      const [r] = await conn.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        [code, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
+      const [r] = await conn.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by, photo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [code, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, photo]);
       return r.insertId;
     });
-    if (!id) return res.status(400).json({ error: `Not enough stock — only ${item.current_stock} ${item.uom || ''} available` });
+    if (!id) return res.status(409).json({ needsConfirm: true, error: `Stock register mein sirf ${Number(item.current_stock)} ${item.uom || ''} hai` });
     res.json({ success: true, id, code });
-  } catch (err) { sendServerError(res, err); }
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
+    sendServerError(res, err);
+  }
 });
 // Outcome: how many came back (stock IN); the remainder stays with the dealer.
 app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
@@ -15211,9 +15640,10 @@ async function collectTable() {
 const collectKey = b => `${String(b.party).trim().toLowerCase()}|${String(b.billRef).trim()}`.slice(0, 191);
 // Party name (Tally / O2D) → its Dealer Master row ({counter_name, owner_name, phone}) or null.
 async function dealerResolver() {
-  const [dealers] = await withDealerTables(() => db.query("SELECT counter_name, owner_name, phone FROM o2d_dealers"));
+  const [dealers] = await withDealerTables(async () => { await ensureDealerDetailCols(); return db.query("SELECT counter_name, owner_name, phone, tally_name FROM o2d_dealers"); });
   const alias = await getDealerAliasMap();
   const byKey = Object.fromEntries(dealers.map(d => [d.counter_name.trim().toLowerCase(), d]));
+  dealers.filter(d => d.tally_name).forEach(d => { byKey[d.tally_name.trim().toLowerCase()] = d; });
   // Tally writes names a little differently ("M/s. Sharma Elect." vs
   // "Sharma Elect") — second try on a punctuation/space-free key, used only
   // when exactly one dealer has that key so a reminder never goes to the
