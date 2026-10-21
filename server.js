@@ -7606,6 +7606,69 @@ app.put('/api/stock/transactions/:id/link', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Single product photos (client list 10-21 #1): the client's sheet of
+// products with Drive photo links, shown on the Catalogue page. The admin
+// pastes the sheet link there; the first tab (or the tab in the link's #gid)
+// is read with each cell's hyperlink, so "Link" chips stay clickable. 10 min cache.
+const CAT_PHOTOS_KEY = 'catalogue_photos_sheet';
+let _catPhotosCache = null; // { url, ts, data }
+async function readCataloguePhotoSheet(url) {
+  const id = (String(url).match(/\/spreadsheets\/d\/([\w-]{20,})/) || [])[1];
+  if (!id) throw Object.assign(new Error('Google Sheet ka link sahi nahi'), { status: 400 });
+  const gid = (String(url).match(/[#&?]gid=(\d+)/) || [])[1];
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  let meta;
+  try { meta = await sheetsApi.spreadsheets.get({ spreadsheetId: id, fields: 'sheets(properties(sheetId,title))' }); }
+  catch (e) {
+    if (e.code === 403 || e.code === 404) throw Object.assign(new Error(`Sheet khul nahi rahi — sheet ko ${loadGoogleCreds().client_email} ke saath share karein (Viewer)`), { status: 400 });
+    throw e;
+  }
+  const tabs = meta.data.sheets || [];
+  const tab = (gid && tabs.find(s => String(s.properties.sheetId) === gid)) || tabs[0];
+  const r = await sheetsApi.spreadsheets.get({ spreadsheetId: id, ranges: [`'${tab.properties.title.replace(/'/g, "''")}'!A1:Z3000`],
+    fields: 'sheets(data(rowData(values(formattedValue,hyperlink,textFormatRuns(format(link(uri)))))))' });
+  const cells = ((((r.data.sheets || [])[0] || {}).data || [])[0] || {}).rowData || [];
+  const rows = cells.map(rd => (rd.values || []).map(v => {
+    const link = v.hyperlink || ((v.textFormatRuns || []).map(t => t.format && t.format.link && t.format.link.uri).find(Boolean)) || '';
+    return { text: v.formattedValue || '', link };
+  }));
+  // Header = first row that has text; blank rows are dropped.
+  const hi = rows.findIndex(row => row.some(c => c.text.trim()));
+  if (hi < 0) return { tab: tab.properties.title, headers: [], rows: [] };
+  const headers = rows[hi].map(c => c.text.trim());
+  const body = rows.slice(hi + 1).filter(row => row.some(c => c.text.trim() || c.link))
+    .map(row => headers.map((_, i) => row[i] || { text: '', link: '' }));
+  return { tab: tab.properties.title, headers, rows: body };
+}
+app.get('/api/catalogue-photos', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to the catalogue' });
+    const url = (await getAppSetting(CAT_PHOTOS_KEY)) || '';
+    const canEdit = req.session.role === 'admin';
+    if (!url) return res.json({ url, canEdit, headers: [], rows: [] });
+    if (!_catPhotosCache || _catPhotosCache.url !== url || req.query.refresh === '1' || Date.now() - _catPhotosCache.ts > 10 * 60 * 1000) {
+      _catPhotosCache = { url, ts: Date.now(), data: await readCataloguePhotoSheet(url) };
+    }
+    res.json({ url, canEdit, ..._catPhotosCache.data });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+app.put('/api/catalogue-photos', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const url = String((req.body || {}).url || '').trim();
+    if (url && !/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]{20,}/i.test(url)) return res.status(400).json({ error: 'Google Sheet ka link daalein (https://docs.google.com/spreadsheets/d/…)' });
+    if (url) await readCataloguePhotoSheet(url); // fails here if the sheet isn't shared yet
+    await setAppSetting(CAT_PHOTOS_KEY, url);
+    _catPhotosCache = null;
+    res.json({ success: true, url });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+
 // Catalogue PDFs — full upload history kept (not just the latest), same
 // viewing permission as the price list above.
 app.get('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
@@ -15823,9 +15886,45 @@ async function dealerResolver() {
     return byKey[k] || (alias[k] && byKey[alias[k].toLowerCase()]) || byLoose[loose(k)] || null;
   };
 }
+// Payments the team enters here (client list 10-21 #8, part payments) until
+// Tally shows them: a Tally receipt for the same party, same amount (±₹1),
+// dated from 3 days before to 15 days after takes the entry out of the sum.
+let _collectPayOk = false;
+async function collectPayTable() {
+  if (_collectPayOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS collect_payments (
+    id INT AUTO_INCREMENT PRIMARY KEY, party VARCHAR(255) NOT NULL, amount DECIMAL(14,2) NOT NULL, paid_on DATE NOT NULL,
+    mode VARCHAR(40), remark VARCHAR(500), done_by INT, done_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (party)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _collectPayOk = true;
+}
+async function collectAppPayments() {
+  await collectPayTable();
+  const [[rows], tally] = await Promise.all([
+    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
+      FROM collect_payments p LEFT JOIN users u ON u.id=p.done_by ORDER BY p.paid_on DESC, p.id DESC`),
+    getTallyPaymentsByDealer()]);
+  const used = new Set();
+  return rows.map(p => {
+    const amt = Number(p.amount) || 0, t = Date.parse(p.paid_on + 'T00:00:00Z');
+    const hit = (tally[p.party.trim().toLowerCase()] || []).find(x => {
+      const d = parseAnyDate(x.paidDate);
+      if (!d || used.has(x) || Math.abs(x.amount - amt) > 1) return false;
+      const days = (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - t) / 86400000;
+      return days >= -3 && days <= 15;
+    });
+    if (hit) used.add(hit);
+    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', at: p.done_at, by: p.by_name || '', inTally: !!hit };
+  });
+}
 // Unpaid bills with their age in days (IST today − bill date) and the dealer's phone.
+// Tally's Bills Receivable keeps a bill at its full amount when a receipt was
+// entered "on account" instead of against the bill (client list 10-21 #2:
+// AAVAS PORTABLE CABIN showed ₹1,85,000 while the ledger said ₹1,28,756). The
+// party's Ledger Closing Balance is the real figure, so when the bills add up
+// to more than that, the extra is taken off the oldest bills first — same for
+// payments entered here that Tally doesn't show yet.
 async function collectBills() {
-  const { bills, lastSynced } = await getBillsReceivable();
+  const [{ bills, lastSynced }, ledger, appPays] = await Promise.all([getBillsReceivable(), getLedgerBalancesByDealer().catch(() => ({})), collectAppPayments()]);
   const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
   const t0 = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
   const findDealer = await dealerResolver();
@@ -15836,10 +15935,30 @@ async function collectBills() {
     const ymd = toIsoDate(d);
     const days = Math.round((t0 - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
     const dealer = findDealer(b.party);
-    out.push({ key: collectKey(b), party: b.party.trim(), billRef: b.billRef, billDate: ymd, amount: gpNum(b.amount), days,
+    const amount = gpNum(b.amount);
+    out.push({ key: collectKey(b), party: b.party.trim(), billRef: b.billRef, billDate: ymd, amount, billAmount: amount, days,
       phone: dealer && dealer.phone ? dealer.phone : '', owner: dealer && dealer.owner_name ? dealer.owner_name : '' });
   }
-  return { bills: out, lastSynced };
+  const byParty = {};
+  out.forEach(b => (byParty[b.party.toLowerCase()] = byParty[b.party.toLowerCase()] || []).push(b));
+  const pending = {};
+  appPays.filter(p => !p.inTally).forEach(p => { const k = p.party.trim().toLowerCase(); pending[k] = (pending[k] || 0) + p.amount; });
+  const parties = {};
+  Object.entries(byParty).forEach(([k, list]) => {
+    const billSum = list.reduce((a, b) => a + Math.max(b.amount, 0), 0);
+    const l = ledger[k];
+    let outstanding = l ? (l.drCr === 'Cr' ? -1 : 1) * l.closingBalance : billSum;
+    outstanding -= pending[k] || 0;
+    let extra = billSum - Math.max(outstanding, 0);
+    list.slice().sort((a, b) => b.days - a.days).forEach(b => {
+      if (extra <= 0 || b.amount <= 0) return;
+      const cut = Math.min(b.amount, extra);
+      b.amount = Math.round((b.amount - cut) * 100) / 100;
+      extra -= cut;
+    });
+    parties[k] = { outstanding: Math.round(outstanding * 100) / 100, ledger: !!l, appPaid: pending[k] || 0 };
+  });
+  return { bills: out, lastSynced, parties, appPays };
 }
 const inrPlain = n => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 function collectMsg(party, owner, list, bank) {
@@ -15888,13 +16007,21 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
   try {
     if (!(await collectAccess(req, res))) return;
     await collectTable();
-    const { bills, lastSynced } = await collectBills();
+    const { bills, lastSynced, parties, appPays } = await collectBills();
     const [acts] = await db.query(`SELECT a.*, DATE_FORMAT(a.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name,
         (SELECT r.status FROM wa_campaign_recipients r WHERE r.campaign_id=a.campaign_id AND LOWER(r.name)=LOWER(a.party) LIMIT 1) AS wa_status
       FROM collect_actions a LEFT JOIN users u ON u.id=a.done_by`).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
     const actOf = {};
     acts.forEach(a => { (actOf[a.bill_key] = actOf[a.bill_key] || {})[a.step] = { outcome: a.outcome || '', remark: a.remark || '', at: a.done_at, by: a.by_name || '', waStatus: a.wa_status || '' }; });
-    res.json({ lastSynced, steps: COLLECT_STEPS, bills: bills.filter(b => b.amount > 0 && b.days >= COLLECT_STEPS.msg15.from).map(b => ({ ...b, acts: actOf[b.key] || {} })) });
+    // Every unpaid bill (the party view and the total need the young ones too);
+    // the tabs pick their own day ranges.
+    const open = bills.filter(b => b.amount > 0);
+    const keys = new Set(open.map(b => b.party.toLowerCase()));
+    const partyList = Object.entries(parties).filter(([k]) => keys.has(k)).map(([k, p]) => ({ key: k, ...p }));
+    res.json({ lastSynced, steps: COLLECT_STEPS, bills: open.map(b => ({ ...b, acts: actOf[b.key] || {} })),
+      parties: Object.fromEntries(partyList.map(p => [p.key, { outstanding: p.outstanding, ledger: p.ledger, appPaid: p.appPaid }])),
+      totalOutstanding: Math.round(partyList.reduce((a, p) => a + Math.max(p.outstanding, 0), 0)),
+      payments: appPays.filter(p => keys.has(p.party.trim().toLowerCase()) || !p.inTally) });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Bills Receivable sheet with the service account.' });
     sendServerError(res, err);
@@ -15914,6 +16041,52 @@ app.post('/api/collection-followup/call', requireAuth, async (req, res) => {
       ON DUPLICATE KEY UPDATE outcome=VALUES(outcome), remark=VALUES(remark), done_by=VALUES(done_by), done_at=NOW()`,
       [key, b.step, String(b.party || '').slice(0, 255), String(b.billRef || '').slice(0, 100), outcome, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Payment received from a party (full or part) — counts until Tally shows it.
+app.post('/api/collection-followup/payment', requireAuth, async (req, res) => {
+  try {
+    if (!(await collectAccess(req, res))) return;
+    await collectPayTable();
+    const b = req.body || {};
+    const party = String(b.party || '').trim().slice(0, 255);
+    const amount = Math.round(gpNum(b.amount) * 100) / 100;
+    const paidOn = /^\d{4}-\d{2}-\d{2}$/.test(String(b.paidOn || '')) ? b.paidOn : '';
+    if (!party) return res.status(400).json({ error: 'Party missing' });
+    if (!(amount > 0)) return res.status(400).json({ error: 'Amount daalein' });
+    if (!paidOn) return res.status(400).json({ error: 'Tareekh daalein' });
+    await db.query('INSERT INTO collect_payments (party, amount, paid_on, mode, remark, done_by) VALUES (?,?,?,?,?,?)',
+      [party, amount, paidOn, String(b.mode || '').trim().slice(0, 40) || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/collection-followup/payment/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await collectAccess(req, res))) return;
+    await collectPayTable();
+    const id = Number(req.params.id);
+    const [[p]] = await db.query('SELECT done_by FROM collect_payments WHERE id=?', [id]);
+    if (!p) return res.status(404).json({ error: 'Entry nahi mili' });
+    if (req.session.role !== 'admin' && Number(p.done_by) !== Number(req.session.userId)) return res.status(403).json({ error: 'Sirf jisne entry ki ya admin hata sakta hai' });
+    await db.query('DELETE FROM collect_payments WHERE id=?', [id]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Party phone missing (client list 10-21 #5) — CRM fills it here; it goes to
+// the Dealer Master row (found the same way reminders find it, else a new row
+// under the Tally name), so reminders and calls pick it up.
+app.post('/api/collection-followup/phone', requireAuth, async (req, res) => {
+  try {
+    if (!(await collectAccess(req, res))) return;
+    const b = req.body || {};
+    const party = String(b.party || '').trim().slice(0, 255);
+    const phone = (sfmsNormalizeMobile(String(b.phone || '').trim()) || '').slice(2);
+    if (!party) return res.status(400).json({ error: 'Party missing' });
+    if (!phone) return res.status(400).json({ error: 'Sahi 10 digit mobile number daalein' });
+    const dealer = (await dealerResolver())(party);
+    if (dealer) await db.query('UPDATE o2d_dealers SET phone=? WHERE counter_name=?', [phone, dealer.counter_name]);
+    else await withDealerTables(async () => { await ensureDealerDetailCols(); await db.query('INSERT INTO o2d_dealers (counter_name, phone, tally_name) VALUES (?,?,?) ON DUPLICATE KEY UPDATE phone=VALUES(phone)', [party, phone, party]); });
+    res.json({ success: true, phone });
   } catch (err) { sendServerError(res, err); }
 });
 // Admin: send today's 15-day reminders now instead of waiting for the morning run.

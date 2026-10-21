@@ -1930,6 +1930,7 @@ tbody tr:last-child td{border-bottom:none;}
   <div id="page-o2d-fms" class="page">
     <div class="page-header" id="o2dPageHeader">
       <button class="btn btn-primary" data-form="form-o2d-order" onclick="openNewO2dOrderModal()">+ New Order</button>
+      <button class="btn btn-outline" id="o2dPendingBox" onclick="o2dShowPending()" style="border-color:var(--color-primary);color:var(--color-primary);font-weight:700">⏳ Pending orders</button>
       <button class="btn btn-outline" onclick="loadO2dFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" onclick="exportO2dPending()">⬇ Pending Excel</button>
       <button class="btn btn-outline" id="o2dStepDoersBtn" style="display:none" onclick="openStepDoersModal()">⚙ Step Doers</button>
@@ -2350,7 +2351,12 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📖 Catalogue PDF</div>
-    <div id="cataloguePdfWrap_catalogue" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+    <div id="cataloguePdfWrap_catalogue" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
+      <div class="empty">Loading…</div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📷 Single Product Photos</div>
+    <div id="catPhotosWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty">Loading…</div>
     </div>
   </div>
@@ -13616,19 +13622,33 @@ function o2dIsOverdue(plannedStr) {
 // sheet — Planned/Actual/Status per step, side by side. ──
 let o2dFmsSubView = 'pending';
 function switchO2dFmsSubView(sub) { o2dFmsSubView = sub; o2dPage = 1; renderO2dFmsView(); }
+// "⏳ Pending orders" box next to New Order (client list 10-21 #7): running
+// orders that are not on hold, newest first, so new orders stand out.
+function o2dShowPending() {
+  _o2dHoldOpen.o2d = false;
+  if (o2dView !== 'fms') switchO2dView('fms', document.getElementById('o2dViewFms'));
+  switchO2dFmsSubView('fresh');
+  document.getElementById('o2dListWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 function renderO2dFmsView() {
   const strip = document.getElementById('o2dHoldStrip');
   if (strip) strip.innerHTML = o2dHoldListHtml((o2dData || []).filter(o => o.onHold && !o.closed), 'o2d');
+  const today = o2dReportsFmtDate(new Date());
+  const fresh = (o2dData || []).filter(o => !o.closed && !o.cancelled && !o.onHold);
+  const box = document.getElementById('o2dPendingBox');
+  if (box) { const n = fresh.filter(o => String(o.timestamp || '').startsWith(today)).length; box.innerHTML = `⏳ Pending orders <b>${fresh.length}</b>${n ? ` <span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">🆕 ${n} aaj</span>` : ''}`; }
   const wrap = document.getElementById('o2dListWrap');
-  const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200)">
-    <button onclick="switchO2dFmsSubView('pending')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='pending'?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView==='pending'?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView==='pending'?'var(--color-primary)':'var(--gray-600)'}">Pending</button>
-    <button onclick="switchO2dFmsSubView('completed')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView==='completed'?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView==='completed'?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView==='completed'?'var(--color-primary)':'var(--gray-600)'}">Completed (All Steps)</button>
+  const subBtn = (k, l) => `<button onclick="switchO2dFmsSubView('${k}')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView===k?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView===k?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView===k?'var(--color-primary)':'var(--gray-600)'}">${l}</button>`;
+  const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200);flex-wrap:wrap">
+    ${subBtn('fresh', `⏳ Pending — naye pehle (${fresh.length})`)}${subBtn('pending', 'Sab pending (hold bhi)')}${subBtn('completed', 'Completed (All Steps)')}
   </div>`;
 
-  const rows = o2dFilteredRows().filter(o => o2dFmsSubView === 'pending' ? !o.closed : o.closed);
+  const rows = o2dFmsSubView === 'fresh'
+    ? o2dFilteredRows().filter(o => !o.closed && !o.cancelled && !o.onHold).sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
+    : o2dFilteredRows().filter(o => o2dFmsSubView === 'pending' ? !o.closed : o.closed);
   if (!rows.length) {
-    wrap.innerHTML = subTabsHtml + `<div class="empty">${o2dFmsSubView === 'pending' ? 'No pending orders.' : 'No completed orders yet.'}</div>`;
+    wrap.innerHTML = subTabsHtml + `<div class="empty">${o2dFmsSubView === 'completed' ? 'No completed orders yet.' : 'No pending orders.'}</div>`;
     return;
   }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
@@ -13642,7 +13662,7 @@ function renderO2dFmsView() {
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openO2dDetail('${jsArg(o.orderNo)}')" style="cursor:pointer">
-          <td style="font-weight:600">${esc(o.orderNo || '—')}${entrySubHtml(o.timestamp)}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
+          <td style="font-weight:600">${esc(o.orderNo || '—')}${!o.closed && String(o.timestamp || '').startsWith(today) ? ' <span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">🆕 Aaj</span>' : ''}${entrySubHtml(o.timestamp)}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td>${esc(o.counterName || '—')}</td>
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
@@ -14917,8 +14937,60 @@ let o2dPriceListLoaded = false;
 let o2dPriceListSearchQ = '';
 
 async function loadPriceCataloguePage() {
+  loadCatPhotos();
   await loadCataloguePdfs(false);
   renderCataloguePdfList();
+}
+
+// ── Single product photos (client list 10-21 #1): the client's sheet of
+// products + Drive photo links, searchable, links open in a new tab. ──
+let catPhotos = null, catPhotosQ = '';
+async function loadCatPhotos(refresh) {
+  const wrap = document.getElementById('catPhotosWrap');
+  if (!catPhotos || refresh) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await api('/api/catalogue-photos' + (refresh ? '?refresh=1' : ''));
+  catPhotos = r && !r.error ? r : { error: (r && r.error) || 'Load failed', canEdit: ME.role === 'admin', url: '' };
+  renderCatPhotos();
+}
+function catPhotoCell(c) {
+  const link = c.link || (/^https?:\/\//i.test(c.text) ? c.text : '');
+  if (!link) return esc(c.text);
+  const thumb = /drive\.google\.com/.test(link) ? plThumbUrl(link) : '';
+  return `<a href="${esc(link)}" target="_blank" rel="noopener" style="font-weight:600;display:inline-flex;align-items:center;gap:6px">${thumb && thumb !== link
+    ? `<img src="${esc(thumb)}" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--gray-200)" onerror="this.remove()"/>` : ''}${esc(c.text && c.text !== link ? c.text : '🖼 Photo kholo')}</a>`;
+}
+function renderCatPhotos() {
+  const wrap = document.getElementById('catPhotosWrap');
+  const d = catPhotos;
+  const admin = d.canEdit ? `<button class="btn btn-sm btn-outline" onclick="setCatPhotosSheet()">${d.url ? '🔗 Sheet badlo' : '🔗 Sheet link daalo'}</button>` : '';
+  if (d.error || !d.url) {
+    wrap.innerHTML = `<div class="empty">${d.error ? '⚠️ ' + esc(d.error) : 'Abhi product photos ki sheet nahi judi.'}<div style="margin-top:10px">${admin}</div></div>`;
+    return;
+  }
+  wrap.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 14px;border-bottom:1px solid var(--gray-200)">
+      <input id="catPhotosSearch" value="${esc(catPhotosQ)}" oninput="catPhotosQ=this.value;renderCatPhotosBody()" placeholder="🔍 Product search…" style="flex:1;min-width:160px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
+      <a class="btn btn-sm btn-outline" href="${esc(d.url)}" target="_blank" rel="noopener" style="text-decoration:none">📄 Sheet kholo</a>
+      <button class="btn btn-sm btn-outline" onclick="loadCatPhotos(true)">🔄</button>${admin}</div>
+    <div id="catPhotosBody"></div>`;
+  renderCatPhotosBody();
+}
+function renderCatPhotosBody() {
+  const d = catPhotos, q = catPhotosQ.trim().toLowerCase();
+  const rows = q ? d.rows.filter(r => r.some(c => c.text.toLowerCase().includes(q))) : d.rows;
+  document.getElementById('catPhotosBody').innerHTML = rows.length
+    ? `<table style="font-size:12.5px"><thead><tr>${d.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>
+      ${rows.map(r => `<tr>${r.map(c => `<td>${catPhotoCell(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      <div style="padding:8px 14px;font-size:11.5px;color:var(--gray-500)">${rows.length} / ${d.rows.length} products</div>`
+    : '<div class="empty">Koi product nahi mila</div>';
+}
+async function setCatPhotosSheet() {
+  const url = prompt('Product photos wali Google Sheet ka link (sheet service account ke saath share honi chahiye):', (catPhotos && catPhotos.url) || '');
+  if (url === null) return;
+  showToast('Sheet check kar rahe…');
+  const r = await api('/api/catalogue-photos', 'PUT', { url: url.trim() });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Sheet jud gayi');
+  loadCatPhotos(true);
 }
 
 async function loadO2dPriceList(force) {
@@ -16842,7 +16914,8 @@ async function o2dSaveHold(orderNo, btn) {
 }
 // Held orders get their own list (client, 2026-10-17) — on the Dashboard
 // and above the O2D FMS grid — since the pending lists leave them out.
-let _o2dHoldOpen = { o2d: true, dash: true };
+// O2D page: hold list starts folded so the order list comes first (client list 10-21 #7).
+let _o2dHoldOpen = { o2d: false, dash: true };
 function o2dHoldListHtml(list, where) {
   if (!list.length) return '';
   const open = _o2dHoldOpen[where];
@@ -18681,34 +18754,143 @@ function renderCollection() {
   const done = [];
   colData.bills.forEach(b => ['call25', 'call30'].forEach(step => { if (b.acts[step]) done.push({ b, step, a: b.acts[step] }); }));
   done.sort((x, y) => String(y.a.at).localeCompare(String(x.a.at)));
-  document.getElementById('colTabs').innerHTML = tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`) + ddTab;
+  const parties = colParties();
+  document.getElementById('colTabs').innerHTML = tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`) + tab('parties', `👥 Parties (${parties.length})`) + ddTab;
   if (colTab === 'dues') return renderDeliveryDues();
   const synced = colData.lastSynced ? new Date(colData.lastSynced) : null;
   const stale = synced ? Math.floor((Date.now() - synced.getTime()) / 86400000) : null;
-  const note = `<div style="font-size:12px;color:${stale != null && stale >= 2 ? 'var(--color-danger)' : 'var(--gray-500)'};margin-bottom:10px">Tally se baaki bill — last sync ${synced ? esc(fmtDateDMY(o2dReportsFmtDate(synced))) : '—'}${stale != null && stale >= 2 ? ` · ⚠️ <b>${stale} din purana</b> — Tally PC par sync check karein. Jab tak sync nahi hota, WhatsApp reminder apne aap nahi jayenge (paid dealers ko galat message na jaye).` : ''}. Payment aate hi bill Tally se hat jaata hai aur follow-up apne aap band.</div>`;
+  const sum = f => parties.filter(f).reduce((a, p) => a + Math.max(p.outstanding, 0), 0);
+  const card = (l, v, c) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:10px;padding:8px 14px;min-width:130px"><div style="font-size:11px;color:var(--gray-500);font-weight:600">${l}</div><div style="font-size:17px;font-weight:800;color:${c || 'var(--gray-800)'}">${v}</div></div>`;
+  const note = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${card('💰 Total outstanding', inr(colData.totalOutstanding || 0), 'var(--color-primary)')}${card(`${parties.length} parties`, '')}${card('15+ din wale bill', inr(sum(p => p.maxDays >= 15)), 'var(--color-warning-text)')}${card('30+ din wale bill', inr(sum(p => p.maxDays >= 30)), 'var(--color-danger)')}</div>
+    <div style="font-size:12px;color:${stale != null && stale >= 2 ? 'var(--color-danger)' : 'var(--gray-500)'};margin-bottom:10px">Tally se baaki bill — last sync ${synced ? esc(fmtDateDMY(o2dReportsFmtDate(synced))) : '—'}${stale != null && stale >= 2 ? ` · ⚠️ <b>${stale} din purana</b> — Tally PC par sync check karein. Jab tak sync nahi hota, WhatsApp reminder apne aap nahi jayenge (paid dealers ko galat message na jaye).` : ''}. Amount = party ka Tally ledger balance (on-account payment purane bill se kat jaata hai). Party ke naam par click karke payment / phone daalein.</div>`;
   const wrap = document.getElementById('colWrap');
   const day = n => `<b style="color:${n >= 30 ? 'var(--color-danger)' : n >= 25 ? 'var(--color-warning-text)' : 'var(--gray-800)'}">${n} din</b>`;
-  const tel = b => b.phone ? `<a href="tel:${esc(b.phone)}" style="font-weight:700">📞 ${esc(b.phone)}</a>` : '<span style="color:var(--color-danger);font-size:12px">Phone nahi (Dealer Master me daalein)</span>';
+  // "Bill ko" → bill date with the days in brackets (client list 10-21 #3).
+  const billAge = b => `<span style="white-space:nowrap">${esc(fmtDateDMY(b.billDate))} (${day(b.days)})</span>`;
+  const amt = b => `${inr(b.amount)}${b.billAmount && Math.round(b.billAmount) !== Math.round(b.amount) ? `<div style="font-size:10.5px;color:var(--gray-500);font-weight:400" title="Tally bill me itna dikhta hai — baaki on-account payment se kat gaya">bill ${inr(b.billAmount)}</div>` : ''}`;
+  const partyCell = b => `<a href="#" onclick="openColParty('${o2dJsEsc(b.party)}');return false" style="font-weight:700">${esc(b.party)}</a>${b.owner ? `<div style="font-size:11px;color:var(--gray-500)">${esc(b.owner)}</div>` : ''}`;
+  const tel = b => b.phone ? `<a href="tel:${esc(b.phone)}" style="font-weight:700">📞 ${esc(b.phone)}</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(b.party)}')">➕ Phone daalo</button>`;
   if (colTab === 'calls') {
-    wrap.innerHTML = note + (calls.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill ko</th><th>Kaunsa call</th><th>Phone</th><th></th></tr></thead><tbody>
-      ${calls.map(({ b, step }) => `<tr><td style="font-weight:700">${esc(b.party)}${b.owner ? `<div style="font-size:11px;color:var(--gray-500)">${esc(b.owner)}</div>` : ''}</td>
-        <td style="white-space:nowrap">${esc(b.billRef)}<div style="font-size:11px;color:var(--gray-500)">${esc(fmtDateDMY(b.billDate))}</div></td><td style="text-align:right;font-weight:800">${inr(b.amount)}</td>
-        <td>${day(b.days)}</td><td><span class="status-badge" style="background:${step === 'call30' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${step === 'call30' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'}">${step === 'call30' ? '30 din call' : '25 din call'}</span></td>
+    wrap.innerHTML = note + (calls.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th style="text-align:right">Party total</th><th>Kaunsa call</th><th>Phone</th><th></th></tr></thead><tbody>
+      ${calls.map(({ b, step }) => `<tr><td>${partyCell(b)}</td>
+        <td style="white-space:nowrap">${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td>
+        <td>${billAge(b)}</td><td style="text-align:right">${inr(colPartyOf(b.party).outstanding)}</td><td><span class="status-badge" style="background:${step === 'call30' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${step === 'call30' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'}">${step === 'call30' ? '30 din call' : '25 din call'}</span></td>
         <td>${tel(b)}</td><td><button class="btn btn-sm btn-green" onclick="openColCall('${o2dJsEsc(b.key)}','${jsArg(step)}')">✓ Call ho gaya</button></td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">Aaj koi call due nahi 🎉</div>');
+  } else if (colTab === 'parties') {
+    wrap.innerHTML = note + `<input placeholder="🔍 Party search…" value="${esc(colPartyQ)}" oninput="colPartyQ=this.value;colRenderPartyRows()" style="${VRL_IN};margin-bottom:8px;max-width:340px"/><div id="colPartyRows"></div>`;
+    colRenderPartyRows();
   } else if (colTab === 'msgs') {
     const st = b => { const a = b.acts.msg15; if (!a) return b.phone ? `<span class="status-badge">${stale != null && stale >= 2 ? 'Tally sync ke baad jayega' : 'Subah ~11 baje jayega'}</span>` : '<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)">Phone nahi</span>';
       const ws = a.waStatus; return ws === 'sent' ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Bhej diya</span>' : ws === 'failed' ? '<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)">❌ Nahi gaya</span>' : '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">⏳ Queue me</span>'; };
     wrap.innerHTML = note + `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">Jo bill ${S.msg15.from} din ke ho gaye, unke dealer ko subah ~11 baje apne aap WhatsApp reminder jaata hai (ek dealer ko ek message, saare bill ek saath).${ME.role === 'admin' ? ' <button class="btn btn-sm btn-outline" style="margin-left:6px" onclick="colSendNow(this)">📤 Abhi bhejo</button>' : ''}</div>` +
-      (msgs.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill ko</th><th>Phone</th><th>WhatsApp</th></tr></thead><tbody>
-      ${msgs.map(b => `<tr><td style="font-weight:700">${esc(b.party)}</td><td>${esc(b.billRef)}<div style="font-size:11px;color:var(--gray-500)">${esc(fmtDateDMY(b.billDate))}</div></td><td style="text-align:right;font-weight:800">${inr(b.amount)}</td>
-        <td>${day(b.days)}</td><td>${tel(b)}</td><td>${st(b)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Abhi koi bill 15 din ka nahi hua</div>');
+      (msgs.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th>Phone</th><th>WhatsApp</th></tr></thead><tbody>
+      ${msgs.map(b => `<tr><td>${partyCell(b)}</td><td>${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td>
+        <td>${billAge(b)}</td><td>${tel(b)}</td><td>${st(b)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Abhi koi bill 15 din ka nahi hua</div>');
   } else {
     wrap.innerHTML = note + (done.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Call</th><th>Result</th><th>Kab / kisne</th></tr></thead><tbody>
-      ${done.map(({ b, step, a }) => `<tr><td style="font-weight:700">${esc(b.party)}</td><td>${esc(b.billRef)}</td><td style="text-align:right">${inr(b.amount)}</td><td>${step === 'call30' ? '30 din' : '25 din'}</td>
+      ${done.map(({ b, step, a }) => `<tr><td>${partyCell(b)}</td><td>${esc(b.billRef)}</td><td style="text-align:right">${inr(b.amount)}</td><td>${step === 'call30' ? '30 din' : '25 din'}</td>
         <td><b>${esc(a.outcome)}</b>${a.remark ? `<div style="font-size:11.5px;color:var(--gray-600)">${esc(a.remark)}</div>` : ''}</td><td style="white-space:nowrap">${esc(fmtDateDMY(a.at, true))}<div style="font-size:11px;color:var(--gray-500)">${esc(a.by)}</div></td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">Abhi koi call record nahi</div>');
   }
+}
+// One line per party with unpaid bills: outstanding (ledger based), bills, oldest bill.
+let colPartyQ = '';
+function colParties() {
+  const m = {};
+  colData.bills.forEach(b => {
+    const k = b.party.toLowerCase();
+    const p = m[k] = m[k] || { key: k, party: b.party, phone: b.phone, owner: b.owner, bills: [], maxDays: 0, outstanding: 0 };
+    p.bills.push(b); p.maxDays = Math.max(p.maxDays, b.days);
+  });
+  Object.values(m).forEach(p => {
+    const s = (colData.parties || {})[p.key];
+    p.outstanding = s ? s.outstanding : p.bills.reduce((a, b) => a + b.amount, 0);
+    p.appPaid = s ? s.appPaid : 0;
+  });
+  return Object.values(m).sort((a, b) => b.outstanding - a.outstanding);
+}
+function colPartyOf(party) { return colParties().find(p => p.key === String(party).toLowerCase()) || { outstanding: 0, bills: [], maxDays: 0 }; }
+function colRenderPartyRows() {
+  const q = colPartyQ.trim().toLowerCase();
+  const list = colParties().filter(p => !q || p.party.toLowerCase().includes(q) || (p.owner || '').toLowerCase().includes(q));
+  document.getElementById('colPartyRows').innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th style="text-align:right">Outstanding</th><th>Bills</th><th>Sabse purana</th><th>Phone</th></tr></thead><tbody>
+    ${list.map(p => `<tr style="cursor:pointer" onclick="openColParty('${o2dJsEsc(p.party)}')"><td style="font-weight:700">${esc(p.party)}${p.owner ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(p.owner)}</div>` : ''}</td>
+      <td style="text-align:right;font-weight:800">${inr(p.outstanding)}${p.appPaid ? `<div style="font-size:10.5px;color:var(--color-success-text);font-weight:600">−${inr(p.appPaid)} yahan entry</div>` : ''}</td>
+      <td>${p.bills.length}</td><td><b style="color:${p.maxDays >= 30 ? 'var(--color-danger)' : p.maxDays >= 15 ? 'var(--color-warning-text)' : 'var(--gray-700)'}">${p.maxDays} din</b></td>
+      <td onclick="event.stopPropagation()">${p.phone ? `<a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(p.party)}')">➕ Phone daalo</button>`}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">Koi party nahi mili</div>';
+}
+// Party detail (client list 10-21 #8): bills, payments entered here, and a
+// form for a full / part payment the party made.
+function openColParty(party) {
+  const p = colPartyOf(party);
+  if (!p.party) return;
+  const pays = (colData.payments || []).filter(x => x.party.toLowerCase() === p.key);
+  const today = o2dReportsFmtDate(new Date());
+  vrlModal('colPartyModal', `${scotModalHead('colPartyModal', '👤 ' + esc(p.party))}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <div><div style="font-size:11px;color:var(--gray-500)">Outstanding</div><div style="font-size:20px;font-weight:800;color:var(--color-primary)">${inr(p.outstanding)}</div></div>
+      <div style="margin-left:auto;text-align:right">${p.phone ? `<a href="tel:${esc(p.phone)}" style="font-weight:700">📞 ${esc(p.phone)}</a>` : '<span style="color:var(--color-danger);font-size:12px">Phone nahi</span>'}
+        <div><button class="btn btn-sm btn-outline" style="margin-top:4px" onclick="colSetPhone('${o2dJsEsc(p.party)}')">✏️ Phone</button></div></div></div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:4px">Baaki bill</div>
+    <div class="table-wrap" style="margin-bottom:12px"><table style="font-size:12px"><thead><tr><th>Bill</th><th>Bill date (din)</th><th style="text-align:right">Baaki</th></tr></thead><tbody>
+      ${p.bills.slice().sort((a, b) => b.days - a.days).map(b => `<tr><td>${esc(b.billRef)}</td><td>${esc(fmtDateDMY(b.billDate))} (${b.days} din)</td><td style="text-align:right;font-weight:700">${inr(b.amount)}${Math.round(b.billAmount) !== Math.round(b.amount) ? `<div style="font-size:10.5px;color:var(--gray-500);font-weight:400">bill ${inr(b.billAmount)}</div>` : ''}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:4px">💰 Payment aaya (poora ya thoda)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+      <input id="colPayAmt" type="number" min="1" step="any" placeholder="Amount ₹" style="${VRL_IN}"/>
+      <input id="colPayDate" type="date" value="${today}" max="${today}" style="${VRL_IN}"/>
+      <select id="colPayMode" style="${VRL_IN}">${['UPI', 'NEFT / RTGS', 'Cheque', 'Cash', 'Other'].map(m => `<option>${m}</option>`).join('')}</select>
+      <input id="colPayRemark" placeholder="UTR / cheque no. / remark" style="${VRL_IN}"/>
+    </div>
+    <button class="btn btn-green" style="width:100%;justify-content:center;margin-bottom:12px" onclick="saveColPayment('${o2dJsEsc(p.party)}',this)">✓ Payment save karo</button>
+    ${pays.length ? `<div style="font-size:12px;font-weight:700;margin-bottom:4px">Yahan ki gayi payment entries</div>
+    <div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Tareekh</th><th style="text-align:right">Amount</th><th>Mode / remark</th><th>Tally</th><th></th></tr></thead><tbody>
+      ${pays.map(x => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(x.paidOn))}<div style="font-size:10.5px;color:var(--gray-500)">${esc(x.by)}</div></td><td style="text-align:right;font-weight:700">${inr(x.amount)}</td>
+        <td>${esc(x.mode)}${x.remark ? `<div style="font-size:11px;color:var(--gray-600)">${esc(x.remark)}</div>` : ''}</td>
+        <td>${x.inTally ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Tally me aa gaya</span>' : '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Tally me aana baaki</span>'}</td>
+        <td>${x.inTally ? '' : `<button class="btn btn-sm btn-outline" title="Hatao" onclick="deleteColPayment(${Number(x.id)},'${o2dJsEsc(p.party)}',this)">🗑</button>`}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}
+    <div style="font-size:11px;color:var(--gray-500);margin-top:8px">Yahan daali payment outstanding se turant kat jaati hai. Jab Tally me wahi receipt (same amount) aa jaati hai, to Tally ka figure use hota hai — double minus nahi hota.</div>`, 560);
+}
+async function saveColPayment(party, btn) {
+  const amount = document.getElementById('colPayAmt').value;
+  if (!(Number(amount) > 0)) { showToast('Amount daalein', 'error'); return; }
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/collection-followup/payment', 'POST', { party, amount, paidOn: document.getElementById('colPayDate').value,
+    mode: document.getElementById('colPayMode').value, remark: document.getElementById('colPayRemark').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Payment save ho gaya');
+  await colReloadKeepParty(party);
+}
+async function deleteColPayment(id, party, btn) {
+  if (!confirm('Ye payment entry hatayein?')) return;
+  const restore = btnLoading(btn, '…');
+  const r = await api(`/api/collection-followup/payment/${id}`, 'DELETE');
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Entry hata di');
+  await colReloadKeepParty(party);
+}
+async function colSetPhone(party) {
+  const cur = colPartyOf(party).phone || '';
+  const phone = prompt(`${party} — mobile number (Dealer Master me bhi save hoga):`, cur);
+  if (phone === null || !phone.trim()) return;
+  const r = await api('/api/collection-followup/phone', 'POST', { party, phone: phone.trim() });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  colData.bills.filter(b => b.party.toLowerCase() === party.toLowerCase()).forEach(b => { b.phone = r.phone; });
+  showToast('✅ Phone save ho gaya');
+  renderCollection();
+  const pm = document.getElementById('colPartyModal');
+  if (pm && pm.classList.contains('open')) openColParty(party);
+}
+async function colReloadKeepParty(party) {
+  const r = await api('/api/collection-followup');
+  if (r && !r.error) colData = r;
+  renderCollection();
+  openColParty(party);
 }
 const COL_OUTCOMES = ['Payment ka promise kiya', 'Payment bhej diya (Tally me aana baaki)', 'Phone nahi uthaya', 'Baad me call karna hai', 'Dispute / issue hai'];
 function openColCall(key, step) {
