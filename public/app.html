@@ -992,6 +992,13 @@ tbody tr:last-child td{border-bottom:none;}
 
   /* Tables → stacked cards (labels filled in by mobileTableCards()) */
   table.mcards{min-width:0 !important;width:100% !important;border-collapse:separate;border-spacing:0}
+  /* Statement ledger stays a real Debit | Credit table on phones, squeezed to fit */
+  table.dl-ledger{min-width:0 !important;table-layout:fixed}
+  table.dl-ledger th, table.dl-ledger td{padding:5px 3px !important;font-size:10.5px !important;word-break:break-word}
+  table.dl-ledger th:nth-child(1), table.dl-ledger td:nth-child(1){width:58px;white-space:normal !important}
+  table.dl-ledger th:nth-child(3), table.dl-ledger th:nth-child(4), table.dl-ledger td:nth-child(3), table.dl-ledger td:nth-child(4){width:62px}
+  table.dl-ledger th:nth-child(5), table.dl-ledger td:nth-child(5){width:74px}
+  table.dl-ledger td[colspan]{width:auto}
   table.mcards thead{display:none}
   table.mcards tfoot{display:none} /* a footer row keeps table layout and squeezes the cards */
   table.mcards tbody{display:block}
@@ -12419,7 +12426,7 @@ function buildSfmsNextActionHtml(c, compact) {
 
   const nextStepDef = SFMS_STEP_DEFS.find(d => d.n === c.currentStep + 1);
   const doerHtml = (!compact && nextStepDef && nextStepDef.doer)
-    ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">👤 Doer: <b>${esc(stepDoerLabel(nextStepDef))}</b></div>` : '';
+    ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">👤 Doer: <b>${esc(stepDoerLabel(nextStepDef))}</b>${c.currentStep > 0 ? fmsReachedRow(fmsReachedAt(c.steps, c.currentStep, c.timestamp)) : ''}</div>` : '';
   // Only the step's doer (or PC View / admin, or the complaint's own
   // mechanic for Solve / Check In/Out) gets the form — everyone else just
   // sees where the complaint is and who has it.
@@ -13682,7 +13689,7 @@ function renderO2dPCView() {
   if (!rows.length) { wrap.innerHTML = bar + '<div class="empty">Is filter me koi order nahi</div>'; return; }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
   wrap.innerHTML = bar + `<table>
-    <thead><tr><th>Order No</th><th>Date</th><th>Counter Name</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
+    <thead><tr><th>Order No</th><th>Date</th><th>Counter Name</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>⏱ Doer ke paas aaya</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
     <tbody>
       ${pageRows.map(o => {
         const pendingStep = o.steps[o.currentStep]; // 0-indexed: next step after currentStep
@@ -13697,6 +13704,7 @@ function renderO2dPCView() {
           <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
           <td style="font-weight:600">${pendingStep.n}. ${esc(pendingStep.label)}</td>
+          <td style="white-space:nowrap;font-weight:600;color:var(--color-primary)">${esc(fmtEntry(fmsReachedAt(o.steps, o.currentStep, o.timestamp)) || '—')}</td>
           <td style="${plannedStyle}">${esc(pendingStep.planned || '—')}${overdue ? ' ⚠️' : ''}</td>
           <td>${esc(stepDoerLabel(pendingStep))}</td>
           <td style="color:var(--gray-500)">${esc(pendingStep.tat || '—')}</td>
@@ -14656,7 +14664,7 @@ async function openDealerLedgerModal(name, phone) {
       return `<tr onclick="toggleDlItems(${i})" style="cursor:pointer">
         <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap">${esc(e.date || '—')}</td>
         <td style="padding:7px 8px"><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--color-danger-bg);color:var(--color-danger-text)">BILL</span></td>
-        <td style="padding:7px 8px;font-size:12.5px">${esc(e.ref || '—')}${e.dueDate ? `<div style="font-size:10.5px;color:var(--gray-500)">Due ${esc(e.dueDate)}</div>` : ''}</td>
+        <td style="padding:7px 8px;font-size:12.5px">${esc(e.ref || '—')}${e.dueDate ? `<div style="font-size:10.5px;color:${e.daysOverdue > 0 ? 'var(--color-danger-text)' : 'var(--gray-500)'}">Due ${esc(e.dueDate)}${e.daysOverdue > 0 ? ` · ${e.daysOverdue} din late` : ''}</div>` : ''}</td>
         <td style="padding:7px 8px;font-size:12.5px;font-weight:700;text-align:right;color:${lateColor}">${inr(e.amount)} <span id="dlChevron_${i}" style="display:inline-block;color:var(--gray-400);transition:transform .15s">▸</span></td>
       </tr>
       <tr id="dlItems_${i}" style="display:none;background:var(--gray-50)">
@@ -14674,7 +14682,7 @@ async function openDealerLedgerModal(name, phone) {
   }).join('');
 
   const billsHtml = bills.length ? `
-    <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px">🧾 Open bills (bill-wise) — ${bills.length}</div>
+    <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px">🧾 Open bills (bill-wise) — ${bills.length}${r.creditDays != null ? ` · due = bill date + ${r.creditDays} din credit` : ''}</div>
     <div class="mis-table-wrap" style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse">
         <thead><tr style="text-align:left;font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">
@@ -14734,9 +14742,9 @@ function renderDlLedgerHtml(L) {
   const cell = 'padding:6px 8px;font-size:12px';
   return `
     <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin:4px 0 6px">📒 Ledger — ${L.fyLabel}</div>
-    <div class="mis-table-wrap" style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr style="text-align:left;font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase">
+    <div class="mis-table-wrap no-mcards" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--gray-200);border-radius:10px">
+      <table class="no-mcards dl-ledger" style="width:100%;min-width:560px;border-collapse:collapse">
+        <thead><tr style="text-align:left;font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;background:var(--gray-100)">
           <th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Particulars</th><th style="padding:6px 8px;text-align:right">Debit</th><th style="padding:6px 8px;text-align:right">Credit</th><th style="padding:6px 8px;text-align:right">Balance</th>
         </tr></thead>
         <tbody>
@@ -14747,8 +14755,8 @@ function renderDlLedgerHtml(L) {
           ${L.rows.map(x => `<tr>
             <td style="${cell};white-space:nowrap">${esc(x.date || '—')}</td>
             <td style="${cell}">${esc(x.particulars)}<div style="font-size:10.5px;color:var(--gray-500)">${esc(x.vchType)}${x.vchNo ? ' · ' + esc(x.vchNo) : ''}</div></td>
-            <td style="${cell};text-align:right">${x.debit ? inr(x.debit) : ''}</td>
-            <td style="${cell};text-align:right;color:var(--color-success-text)">${x.credit ? inr(x.credit) : ''}</td>
+            <td style="${cell};text-align:right;border-left:1px solid var(--gray-200)">${x.debit ? inr(x.debit) : ''}</td>
+            <td style="${cell};text-align:right;color:var(--color-success-text);border-left:1px solid var(--gray-200)">${x.credit ? inr(x.credit) : ''}</td>
             <td style="${cell};text-align:right;font-weight:600">${fmtBal(x.balance)}</td>
           </tr>`).join('')}
           <tr style="background:var(--gray-50);font-weight:700">
@@ -14840,6 +14848,31 @@ async function buildDealerStatementPdf() {
   }
   return doc.output('datauristring').replace(/^data:application\/pdf;[^,]*,/, 'data:application/pdf;base64,');
 }
+// Server WhatsApp down (gateway) → share the PDF from this phone's own
+// WhatsApp, or download it + open the chat on a computer.
+let _dlShare = null;
+function dlOwnWhatsapp(pdf, caption, why) {
+  const bin = atob(String(pdf).split(',')[1] || '');
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const file = new File([bytes], `Statement-${_dlCurrent.name.replace(/[^\w]+/g, '-')}.pdf`, { type: 'application/pdf' });
+  _dlShare = { file, caption: caption.replace(/\*/g, ''), phone: String(_dlCurrent.phone || '').replace(/\D/g, '').slice(-10) };
+  vrlModal('dlShareModal', `<h3 style="margin:0 0 8px">📲 WhatsApp</h3>
+    <div style="font-size:13px;color:var(--gray-600);margin-bottom:12px">App se WhatsApp abhi nahi ja raha (${esc(why)}). PDF ban gaya hai — apne WhatsApp se bhej do:</div>
+    <button class="btn btn-green" style="width:100%;justify-content:center;padding:12px;margin-bottom:8px" onclick="dlShareNow()">📲 Apne WhatsApp se bhejo</button>
+    <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="closeModal('dlShareModal')">Band karo</button>`, 420);
+}
+async function dlShareNow() {
+  const sh = _dlShare; if (!sh) return;
+  if (navigator.canShare && navigator.canShare({ files: [sh.file] })) {
+    try { await navigator.share({ files: [sh.file], text: sh.caption }); closeModal('dlShareModal'); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  // Computer: download the PDF, open the dealer's chat — attach it there.
+  const a = document.createElement('a'); a.href = URL.createObjectURL(sh.file); a.download = sh.file.name; a.click();
+  window.open(`https://wa.me/${sh.phone ? '91' + sh.phone : ''}?text=${encodeURIComponent(sh.caption)}`, '_blank');
+  showToast('PDF download ho gaya — WhatsApp chat mein attach kar do');
+  closeModal('dlShareModal');
+}
 async function sendDealerLedgerWhatsapp() {
   if (!_dlCurrent.data) { showToast('Pehle Statement load hone do', 'error'); return; }
   if (!_dlCurrent.phone) {
@@ -14862,7 +14895,7 @@ async function sendDealerLedgerWhatsapp() {
     const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_dlCurrent.name)}/statement-whatsapp`, 'POST', {
       mobile: _dlCurrent.phone, pdf, caption
     });
-    if (r.error) { showToast(r.error, 'error'); return; }
+    if (r.error) { dlOwnWhatsapp(pdf, caption, r.error); return; }
     showToast('Statement PDF WhatsApp pe bhej diya!');
   } catch (e) {
     showToast(e.message || 'Statement PDF nahi ban paya', 'error');
@@ -16629,6 +16662,7 @@ function renderO2dDetailBody(o, hideProgress) {
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action — whole order</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${esc(nextStepDef.label)}</div>
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')}</div>
+        ${o.currentStep > 0 ? fmsReachedRow(fmsReachedAt(o.steps, o.currentStep, o.timestamp)).replace('margin-top:2px', 'margin:-6px 0 12px') : ''}
         ${showItemsInAction ? `
         <div style="${O2D_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length}) — pick Available/Not Available per item</div>
         <div style="margin-bottom:14px;background:var(--surface);border-radius:10px;padding:2px 10px">${productsActionListHtml || '—'}</div>` : ''}
@@ -17743,7 +17777,7 @@ function renderPurchasePCView() {
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No pending POs — sab clear hai 🎉</div>'; return; }
   const { pageRows, totalPages, total } = pfmsPaginate(rows);
   wrap.innerHTML = `<table>
-    <thead><tr><th>PO Number</th><th>Indent No</th><th>Vendor</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
+    <thead><tr><th>PO Number</th><th>Indent No</th><th>Vendor</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>⏱ Doer ke paas aaya</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
     <tbody>
       ${pageRows.map(o => {
         const pendingStep = o.steps[o.currentStep];
@@ -17758,6 +17792,7 @@ function renderPurchasePCView() {
           <td style="max-width:220px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)} ${esc(p.uom||'')}${p.received ? '' : pfmsVendorChipHtml(o.poNumber, p.itemId)}</div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
           <td style="font-weight:600">${pendingStep.n}. ${esc(pendingStep.label)}</td>
+          <td style="white-space:nowrap;font-weight:600;color:var(--color-primary)">${esc(fmtEntry(fmsReachedAt(o.steps, o.currentStep, o.timestamp)) || '—')}</td>
           <td style="${plannedStyle}">${esc(pendingStep.planned || '—')}${overdue ? ' ⚠️' : ''}</td>
           <td>${esc(stepDoerLabel(pendingStep))}</td>
           <td style="color:var(--gray-500)">${esc(pendingStep.tat || '—')}</td>
@@ -18357,6 +18392,7 @@ function renderPurchaseDetailBody(o) {
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
         <div style="font-weight:700;font-size:16px;margin-bottom:4px;color:var(--gray-800)">${esc(nextStepDef.label)}</div>
         <div style="font-size:12px;color:var(--gray-400);margin-bottom:12px">Doer: ${esc(stepDoerLabel(nextStepDef))} · TAT: ${esc(nextStepDef.tat || '—')}</div>
+        ${o.currentStep > 0 ? fmsReachedRow(fmsReachedAt(o.steps, o.currentStep, o.timestamp)).replace('margin-top:2px', 'margin:-6px 0 12px') : ''}
         ${extraInputsHtml}
         <button id="pfmsMarkDoneBtn_${o.poNumber}" onclick="advancePurchaseStep('${jsArg(o.poNumber)}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
       </div>`;

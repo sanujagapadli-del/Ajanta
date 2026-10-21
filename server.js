@@ -8212,6 +8212,19 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
     const name = (req.query.name || '').trim();
     if (!name) return res.status(400).json({ error: 'name is required' });
     const tallyName = await dealerTallyName(name);
+    // Due date = bill date + the dealer's Credit Days (client 2026-10-21); without
+    // credit days set, the bill date as before.
+    const [[cdRow]] = await withDealerTables(() => db.query('SELECT credit_days FROM o2d_dealers WHERE LOWER(counter_name)=LOWER(?)', [name]));
+    const creditDays = cdRow && cdRow.credit_days != null ? Number(cdRow.credit_days) : null;
+    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dueByTerms = (billDate, sinceBill) => {
+      const d = parseAnyDate(billDate);
+      if (!d || creditDays == null) return { dueDate: billDate, daysOverdue: sinceBill };
+      const due = new Date(d.getFullYear(), d.getMonth(), d.getDate() + creditDays);
+      const today = new Date(Date.now() + 5.5 * 3600 * 1000);
+      const late = Math.floor((Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()) - Date.UTC(due.getFullYear(), due.getMonth(), due.getDate())) / 86400000);
+      return { dueDate: `${due.getDate()}-${MON[due.getMonth()]}-${String(due.getFullYear()).slice(2)}`, daysOverdue: Math.max(0, late) };
+    };
     const key = (tallyName || name).toLowerCase();
     const [{ bills }, paymentsByParty, ledgerByParty, itemsByKey, vouchers] = await Promise.all([
       getBillsReceivable(),
@@ -8246,8 +8259,8 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
     // when this dealer has no FY voucher data synced yet at all.
     const fifo = vouchers.legIndex[key] ? computeFifoAging(key, vouchers, ledger) : null;
     const openBillEntries = fifo
-      ? fifo.openBills.map(b => ({ type: 'bill', date: b.date, ref: b.vchNo, amount: b.remaining, dueDate: b.date, daysOverdue: b.daysOverdue, bucket: b.bucket, items: itemsByKey[`${key}|||${b.vchNo}`] || null }))
-      : dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, dueDate: b.dueDate, daysOverdue: b.daysOverdue, bucket: b.bucket, items: itemsByKey[`${key}|||${b.billRef}`] || null }));
+      ? fifo.openBills.map(b => ({ type: 'bill', date: b.date, ref: b.vchNo, amount: b.remaining, ...dueByTerms(b.date, b.daysOverdue), bucket: b.bucket, items: itemsByKey[`${key}|||${b.vchNo}`] || null }))
+      : dealerBills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billRef, amount: Number(b.amount) || 0, ...(creditDays != null ? dueByTerms(b.billDate, b.daysOverdue) : { dueDate: b.dueDate, daysOverdue: b.daysOverdue }), bucket: b.bucket, items: itemsByKey[`${key}|||${b.billRef}`] || null }));
 
     const entries = [
       ...openBillEntries,
@@ -8265,6 +8278,7 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
     res.json({
       name,
       tallyName: tallyName || '',
+      creditDays,
       // nothing in Tally under this name: suggest the closest Tally parties to link
       tallySuggestions: matched ? [] : tallyPartySuggestions(name, Object.values(ledgerByParty).map(l => l.name), 6),
       outstanding: ledger ? ledger.closingBalance : null,
