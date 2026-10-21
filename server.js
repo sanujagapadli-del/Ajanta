@@ -909,7 +909,7 @@ async function getMasterWorkbookData() {
   const XLSX = require('xlsx'); // lazy — a fairly heavy lib, no reason to pay its load cost on every cold start
   const [drive, warrantyMap] = [await getDriveClient(), await getWarrantyMonthsMap()];
   const resp = await drive.files.get({ fileId: MASTER_WORKBOOK_FILE_ID, alt: 'media' }, { responseType: 'arraybuffer' });
-  const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer', sheets: ['2. Product Master', '5. Dealer Master', '8. Spare Parts Master'] });
+  const wb = XLSX.read(Buffer.from(resp.data), { type: 'buffer', sheets: ['2. Product Master', '3. Vendor Master', '5. Dealer Master', '8. Spare Parts Master'] });
 
   const productSheet = wb.Sheets['2. Product Master'];
   const productRows = productSheet ? XLSX.utils.sheet_to_json(productSheet, { header: 1, raw: false, defval: '' }) : [];
@@ -941,7 +941,13 @@ async function getMasterWorkbookData() {
     .filter(r => (r[1] || '').trim() && (r[11] || '').trim().toLowerCase() !== 'discontinued')
     .map(r => ({ code: (r[0] || '').trim(), name: (r[1] || '').trim(), category: (r[4] || '').trim() }));
 
-  _masterWorkbookCache = { products, dealerNames, spareParts, ts: Date.now() };
+  // Vendor Master — the Indent form's vendor dropdown (client 2026-10-21).
+  const vendorSheet = wb.Sheets['3. Vendor Master'];
+  const vendorRows = vendorSheet ? XLSX.utils.sheet_to_json(vendorSheet, { header: 1, raw: false, defval: '' }) : [];
+  const vendors = vendorRows.slice(2)
+    .filter(r => (r[1] || '').trim() && !/^(inactive|discontinued|closed)$/i.test((r[15] || '').trim()))
+    .map(r => ({ code: (r[0] || '').trim(), name: (r[1] || '').trim() }));
+  _masterWorkbookCache = { products, dealerNames, spareParts, vendors, ts: Date.now() };
   return _masterWorkbookCache;
 }
 
@@ -9313,6 +9319,59 @@ async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
   return { rowsUpdated: targetRows.length };
 }
 
+// Follow-up is not one-shot (client 2026-10-21: "PO ke baad pehle follow-up
+// aana chahiye, direct material received nahi"): until the material comes,
+// every follow-up call is logged here and mirrored to the Follow step's
+// Remark / Next Followup cells (O / P) of the PO's open rows.
+let _poFollowReady = null;
+function poFollowTable() {
+  if (!_poFollowReady) _poFollowReady = db.query(`CREATE TABLE IF NOT EXISTS purchase_followups (
+      id INT AUTO_INCREMENT PRIMARY KEY, po_number VARCHAR(40) NOT NULL, remark VARCHAR(500), next_date DATE,
+      created_by INT, created_by_name VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_po (po_number)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+    .catch(e => { _poFollowReady = null; throw e; });
+  return _poFollowReady;
+}
+app.get('/api/purchase-fms/followups', requireAuth, async (req, res) => {
+  try {
+    await poFollowTable();
+    const [rows] = await db.query("SELECT po_number, remark, DATE_FORMAT(next_date,'%Y-%m-%d') AS next_date, created_by_name, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS at FROM purchase_followups ORDER BY id");
+    const out = {};
+    rows.forEach(r => { (out[r.po_number] = out[r.po_number] || []).push({ remark: r.remark || '', next: r.next_date || '', by: r.created_by_name || '', at: r.at }); });
+    res.json(out);
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/purchase-fms/po/:poNumber/followup', requireAuth, async (req, res) => {
+  try {
+    const poNumber = String(req.params.poNumber || '').trim();
+    if (!(await assertIsStepDoer(res, 'purchase_step_doers', 1, req.session.userId, req.session.role))) return;
+    const remark = String((req.body || {}).remark || '').trim().slice(0, 500);
+    const next = /^\d{4}-\d{2}-\d{2}$/.test((req.body || {}).nextFollowup || '') ? req.body.nextFollowup : null;
+    if (!remark) return res.status(400).json({ error: 'Vendor ne kya bola — remark likhein' });
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const follow = PURCHASE_STEPS.find(sd => sd.n === 1), recv = PURCHASE_STEPS.find(sd => sd.n === 2);
+    const remarkCol = follow.extra.find(e => e.key === 'remark').col, nextCol = follow.extra.find(e => e.key === 'nextFollowup').col;
+    const keyRows = (await sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!B${PURCHASE_DATA_START_ROW}:${recv.status}`, valueRenderOption: 'UNFORMATTED_VALUE' })).data.values || [];
+    const bOff = colToIdx('B');
+    const rowsOpen = [];
+    keyRows.forEach((r, i) => { if ((r[0] || '') === poNumber && !r[colToIdx(recv.status) - bOff]) rowsOpen.push(PURCHASE_DATA_START_ROW + i); });
+    if (!rowsOpen.length) return res.status(404).json({ error: `PO ${poNumber} mein koi khula item nahi` });
+    const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    const stamp = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ');
+    const data = [];
+    rowsOpen.forEach(rn => {
+      data.push({ range: `'${PURCHASE_TAB}'!${remarkCol}${rn}`, values: [[`${remark} (${stamp}${u ? ' ' + u.name : ''})`]] });
+      if (next) data.push({ range: `'${PURCHASE_TAB}'!${nextCol}${rn}`, values: [[sfmsDateToSerial(new Date(next + 'T00:00:00'))]] });
+    });
+    await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
+    await poFollowTable();
+    await db.query('INSERT INTO purchase_followups (po_number, remark, next_date, created_by, created_by_name) VALUES (?,?,?,?,?)', [poNumber, remark, next, req.session.userId, u ? u.name : '']);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
 app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req, res) => {
   try {
     const poNumber = req.params.poNumber;
@@ -9362,10 +9421,19 @@ app.get('/api/purchase-fms/indent-options', requireAuth, async (req, res) => {
   try {
     if (!(await canRaiseIndent(req))) return res.status(403).json({ error: 'No access to Purchase FMS' });
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-    const [rows, stock] = await Promise.all([
+    const [rows, stock, master, poVend] = await Promise.all([
       readIndentData(sheetsApi),
-      withStockTable(() => db.query('SELECT description FROM ajanta_stock_items ORDER BY description')).then(([r]) => r).catch(() => [])
+      withStockTable(() => db.query('SELECT description FROM ajanta_stock_items ORDER BY description')).then(([r]) => r).catch(() => []),
+      getMasterWorkbookData().catch(e => { console.warn('indent master:', e.message); return { products: [], spareParts: [], vendors: [] }; }),
+      db.query("SELECT DISTINCT vendor_name FROM purchase_po_archive WHERE vendor_name<>''").then(([r]) => r.map(x => x.vendor_name)).catch(() => [])
     ]);
+    // Vendor dropdown = Vendor Master; where the same vendor already has POs,
+    // keep the PO's spelling — the PO Apps Script matches indents by exact
+    // vendor name ("Suman Enetrprises" never showed up there).
+    const vkey = v => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const poByKey = Object.fromEntries(poVend.map(v => [vkey(v), v]));
+    const masterVendors = (master.vendors || []).map(v => poByKey[vkey(v.name)] || v.name);
+    const sfmsItems = await sfmsGetList(SFMS_ITEMS_TAB).catch(() => []);
     const uniq = list => [...new Set(list.map(v => String(v || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
     const myName = String((me && me.name) || '').replace(/\([^)]*\)/g, '').trim().split(/\s+/)[0] || '';
@@ -9379,8 +9447,14 @@ app.get('/api/purchase-fms/indent-options', requireAuth, async (req, res) => {
     }
     res.json({
       types: INDENT_TYPES,
-      vendors: uniq(rows.map(x => x[7])),
+      vendors: masterVendors.length ? uniq(masterVendors) : uniq(rows.map(x => x[7])),
       products: uniq([...rows.map(x => x[4]), ...stock.map(s => s.description)]),
+      // per indent type (client 2026-10-21): Finished Goods → Product Master + stock list,
+      // Spare Part → Spare Parts Master + Service FMS items; others keep free text
+      productsByType: {
+        finished: uniq([...(master.products || []).map(p => p.name), ...stock.map(s => s.description)]),
+        spare: uniq([...(master.spareParts || []).map(p => p.name), ...(Array.isArray(sfmsItems) ? sfmsItems.map(i => typeof i === 'string' ? i : (i && i.name) || '') : [])])
+      },
       uoms: uniq(['PCS', 'SET', 'KG', 'BOX', 'PKT', 'LTR', 'MTR', 'ROLL', 'DOZEN', ...rows.map(x => x[5])]),
       raisedBy: uniq([...rows.map(x => x[8]), myName]),
       myName,
@@ -14788,6 +14862,15 @@ async function vrlTables() {
     try { await db.query(`ALTER TABLE vendor_repl_lines ADD COLUMN ${col}`); }
     catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   }
+  // Client 2026-10-21: Spare / Finished goods, and the 3-step flow —
+  // 1 follow-up with the vendor, 2 material / credit note received, 3 the
+  // vendor's statement received (after he has adjusted the replacement).
+  await addMissingColumns('vendor_repl_challans', [['item_type', 'VARCHAR(20)'], ['statement_at', 'DATETIME'], ['statement_by', 'INT'],
+    ['statement_note', 'VARCHAR(500)'], ['statement_photo', 'VARCHAR(500)']]);
+  await db.query(`CREATE TABLE IF NOT EXISTS vrl_followups (
+    id INT AUTO_INCREMENT PRIMARY KEY, challan_id INT NOT NULL, remark VARCHAR(500), next_date DATE,
+    created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (challan_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   _vrlOk = true;
 }
 // Line value: basic → taxable = qty×rate, GST on top; gst → qty×rate is the
@@ -14819,6 +14902,10 @@ async function vrlLoad(where = '', params = []) {
       FROM vrl_vendor_updates WHERE line_id IN (?) ORDER BY id DESC`, [lines.map(l => l.id)]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; }) : [[]];
   const [media] = await db.query(`SELECT m.id, m.challan_id, m.url, m.seconds, m.created_by, DATE_FORMAT(m.created_at,'%Y-%m-%d %H:%i') AS created_at, u.name AS created_by_name
       FROM vrl_media m LEFT JOIN users u ON u.id=m.created_by WHERE m.challan_id IN (?) ORDER BY m.id`, [ids]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+  const [fups] = await db.query(`SELECT f.challan_id, f.remark, DATE_FORMAT(f.next_date,'%Y-%m-%d') AS next_date, DATE_FORMAT(f.created_at,'%Y-%m-%d %H:%i') AS at, u.name AS by_name
+      FROM vrl_followups f LEFT JOIN users u ON u.id=f.created_by WHERE f.challan_id IN (?) ORDER BY f.id`, [ids]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+  const [stBy] = await db.query('SELECT id, name FROM users WHERE id IN (?)', [[0, ...ch.map(c => c.statement_by).filter(Boolean)]]);
+  const stName = Object.fromEntries(stBy.map(u => [u.id, u.name]));
   const n = v => Number(v) || 0;
   return ch.map(c => {
     const ls = lines.filter(l => l.challan_id === c.id).map(l => {
@@ -14844,7 +14931,9 @@ async function vrlLoad(where = '', params = []) {
     return { id: c.id, code: c.code, vendorName: c.vendor_name, challanDate: c.challan_date, billNo: c.bill_no || '', reason: c.reason || '', remark: c.remark || '',
       photoUrl: c.photo_url || '', followUpUserId: c.follow_up_user_id, followUpName: c.follow_up_name || '', createdAt: c.created_at, createdByName: c.created_by_name || '',
       days: Number(c.days) || 0, cancelledAt: c.cancelled_at, cancelReason: c.cancel_reason || '', lines: ls, pending, value, taxable, gst, videos,
-      creditAmount: ls.reduce((a, l) => a + l.creditAmount, 0), status: c.cancelled_at ? 'Cancelled' : pending > 0 ? 'Open' : 'Closed' };
+      creditAmount: ls.reduce((a, l) => a + l.creditAmount, 0), status: c.cancelled_at ? 'Cancelled' : pending > 0 ? 'Open' : 'Closed',
+      itemType: c.item_type || '', followups: fups.filter(f => f.challan_id === c.id).map(f => ({ remark: f.remark || '', next: f.next_date || '', at: f.at, by: f.by_name || '' })),
+      statement: c.statement_at ? { at: String(c.statement_at).slice(0, 16), by: stName[c.statement_by] || '', note: c.statement_note || '', photo: c.statement_photo || '' } : null };
   });
 }
 app.get('/api/vendor-ledger', requireAuth, async (req, res) => {
@@ -14856,7 +14945,16 @@ app.get('/api/vendor-ledger', requireAuth, async (req, res) => {
     const [gl] = await db.query("SELECT product_name, gst_percent FROM o2d_price_list WHERE gst_percent IS NOT NULL AND gst_percent<>''").catch(() => [[]]);
     const gstMap = {};
     gl.forEach(g => { const p = parseFloat(String(g.gst_percent).replace(/[^\d.]/g, '')); if (VRL_GST_SLABS.includes(p)) gstMap[g.product_name] = p; });
-    res.json({ challans: await vrlLoad(), vendors: vend.map(v => v.vendor_name), gstMap, me: { isAdmin: req.session.role === 'admin' } });
+    // Vendor dropdown = Vendor Master (+ names already used here); items by type.
+    const master = await getMasterWorkbookData().catch(e => { console.warn('vrl master:', e.message); return { products: [], spareParts: [], vendors: [] }; });
+    const vk = v => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const used = vend.map(v => v.vendor_name);
+    const usedByKey = Object.fromEntries(used.map(v => [vk(v), v]));
+    const vendors = [...new Set([...(master.vendors || []).map(v => usedByKey[vk(v.name)] || v.name), ...used])].sort((a, b) => a.localeCompare(b));
+    const [stk] = await db.query('SELECT description FROM ajanta_stock_items ORDER BY description').catch(() => [[]]);
+    const uniq = l => [...new Set(l.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    res.json({ challans: await vrlLoad(), vendors, gstMap, me: { isAdmin: req.session.role === 'admin' },
+      items: { spare: uniq((master.spareParts || []).map(p => p.name)), finished: uniq([...(master.products || []).map(p => p.name), ...stk.map(x => x.description)]) } });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/vendor-ledger', requireAuth, async (req, res) => {
@@ -14875,16 +14973,56 @@ app.post('/api/vendor-ledger', requireAuth, async (req, res) => {
     if (bad >= 0) return res.status(400).json({ error: `Item ${bad + 1}: name and quantity are required` });
     const badGst = lines.findIndex(l => l.gstPct != null && !VRL_GST_SLABS.includes(l.gstPct));
     if (badGst >= 0) return res.status(400).json({ error: `Item ${badGst + 1}: GST % must be 0 / 5 / 12 / 18 / 28` });
-    if (!b.photo) return res.status(400).json({ error: 'Photo of the defective / packed goods is required' });
+    // A video (uploaded right after, to the /video route) can stand in for the photo.
+    if (!b.photo && !b.hasVideo) return res.status(400).json({ error: 'Kharab / packed maal ki photo ya video zaroori hai' });
+    const itemType = ['spare', 'finished'].includes(b.itemType) ? b.itemType : null;
+    if (!itemType) return res.status(400).json({ error: 'Spare part hai ya Finished goods — chunein' });
     const n = await claimNextSeqValue('vrl_code', 1);
     const code = `VRC-${String(n).padStart(4, '0')}`;
-    const photoUrl = await uploadPhotoToDrive(b.photo, `${code}-${Date.now()}.jpg`);
-    const [r] = await db.query('INSERT INTO vendor_repl_challans (code, vendor_name, challan_date, bill_no, reason, remark, photo_url, follow_up_user_id, created_by) VALUES (?,?,?,?,?,?,?,?,?)',
+    const photoUrl = b.photo ? await uploadPhotoToDrive(b.photo, `${code}-${Date.now()}.jpg`) : null;
+    const [r] = await db.query('INSERT INTO vendor_repl_challans (code, vendor_name, challan_date, bill_no, reason, remark, photo_url, follow_up_user_id, created_by, item_type) VALUES (?,?,?,?,?,?,?,?,?,?)',
       [code, vendor, date, String(b.billNo || '').trim().slice(0, 100) || null, String(b.reason || '').trim().slice(0, 255) || null, String(b.remark || '').trim() || null, photoUrl,
-       Number(b.followUpUserId) || null, req.session.userId]);
+       Number(b.followUpUserId) || null, req.session.userId, itemType]);
     await db.query('INSERT INTO vendor_repl_lines (challan_id, item_name, serial_no, qty, rate, defect, rate_basis, gst_pct) VALUES ?',
       [lines.map(l => [r.insertId, l.item, l.serial || null, l.qty, Number.isFinite(l.rate) ? l.rate : null, l.defect || null, l.basis, l.gstPct])]);
     res.json({ success: true, id: r.insertId, code });
+  } catch (err) { sendServerError(res, err); }
+});
+// Step 1 — follow-up with the vendor (repeatable): what he said, next date.
+app.post('/api/vendor-ledger/:id/followup', requireAuth, async (req, res) => {
+  try {
+    if (!(await vrlAccess(req, res))) return;
+    await vrlTables();
+    const [[ch]] = await db.query('SELECT id, cancelled_at FROM vendor_repl_challans WHERE id=?', [Number(req.params.id)]);
+    if (!ch) return res.status(404).json({ error: 'Challan not found' });
+    if (ch.cancelled_at) return res.status(400).json({ error: 'Challan is cancelled' });
+    const remark = String((req.body || {}).remark || '').trim().slice(0, 500);
+    if (!remark) return res.status(400).json({ error: 'Vendor ne kya bola — likhein' });
+    const next = /^\d{4}-\d{2}-\d{2}$/.test((req.body || {}).nextDate || '') ? req.body.nextDate : null;
+    await db.query('INSERT INTO vrl_followups (challan_id, remark, next_date, created_by) VALUES (?,?,?,?)', [ch.id, remark, next, req.session.userId]);
+    const [fresh] = await vrlLoad('WHERE c.id=?', [ch.id]);
+    res.json({ success: true, challan: fresh });
+  } catch (err) { sendServerError(res, err); }
+});
+// Step 3 — the vendor's statement (after adjusting the replacement) received.
+app.post('/api/vendor-ledger/:id/statement', requireAuth, async (req, res) => {
+  try {
+    if (!(await vrlAccess(req, res))) return;
+    await vrlTables();
+    const [[ch]] = await db.query('SELECT id, code, cancelled_at FROM vendor_repl_challans WHERE id=?', [Number(req.params.id)]);
+    if (!ch) return res.status(404).json({ error: 'Challan not found' });
+    const b = req.body || {};
+    if (b.undo) {
+      if (req.session.role !== 'admin') return res.status(403).json({ error: 'Only admin can undo' });
+      await db.query('UPDATE vendor_repl_challans SET statement_at=NULL, statement_by=NULL, statement_note=NULL, statement_photo=NULL WHERE id=?', [ch.id]);
+    } else {
+      if (b.photo && !docDataUriKind(b.photo)) return res.status(400).json({ error: 'Photo or PDF only' });
+      const url = b.photo ? await uploadDocToDrive(b.photo, `${ch.code}-statement-${Date.now()}`) : null;
+      await db.query('UPDATE vendor_repl_challans SET statement_at=NOW(), statement_by=?, statement_note=?, statement_photo=COALESCE(?, statement_photo) WHERE id=?',
+        [req.session.userId, String(b.note || '').trim().slice(0, 500) || null, url, ch.id]);
+    }
+    const [fresh] = await vrlLoad('WHERE c.id=?', [ch.id]);
+    res.json({ success: true, challan: fresh });
   } catch (err) { sendServerError(res, err); }
 });
 // One vendor delivery can settle several lines at once: [{ lineId, kind, qty, cnNo, cnAmount }].

@@ -1969,8 +1969,9 @@ tbody tr:last-child td{border-bottom:none;}
 
     <div style="display:flex;gap:6px;margin-bottom:16px;">
       <div class="tab-group">
+        <div class="tab active" id="pfmsViewStatus" onclick="switchPurchaseFmsView('status',this)">🔎 Sab status</div>
         <div class="tab" id="pfmsViewIndents" onclick="switchPurchaseFmsView('indents',this)">📝 Indents</div>
-        <div class="tab active" id="pfmsViewFms" onclick="switchPurchaseFmsView('fms',this)">FMS View</div>
+        <div class="tab" id="pfmsViewFms" onclick="switchPurchaseFmsView('fms',this)">FMS View</div>
         <div class="tab" id="pfmsViewPC" onclick="switchPurchaseFmsView('pc',this)">PC View</div>
         <div class="tab" id="pfmsViewShort" onclick="switchPurchaseFmsView('short',this)">⚠ Kam aaya maal</div>
         <div class="tab" id="pfmsViewReports" onclick="switchPurchaseFmsView('reports',this)">📊 Reports</div>
@@ -3688,8 +3689,11 @@ tbody tr:last-child td{border-bottom:none;}
       <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 4px">Products</div>
       <div style="font-size:11.5px;color:var(--gray-400);margin-bottom:8px">List mein nahi hai? Naya product naam yahin type kar do.</div>
       <datalist id="noProductNameList"></datalist>
-      <div id="noProductRows"></div>
-      <button type="button" class="btn btn-outline btn-sm" onclick="addO2dProductRow()">+ Add Product</button>
+      <div id="noProductRows" oninput="o2dNoTotal()"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-outline btn-sm" onclick="addO2dProductRow()">+ Add Product</button>
+        <div id="noOrderTotal" style="font-size:14px;font-weight:800;color:var(--gray-900)"></div>
+      </div>
     </div>
     <div id="noFooterButtons" style="display:none;flex-direction:column;gap:8px;margin-top:16px">
       <button class="btn btn-primary" id="noSubmitBtn" onclick="submitNewO2dOrder()">Save Order</button>
@@ -15911,11 +15915,26 @@ function onO2dProductNameChanged(id) {
   const productName = document.getElementById(`noProdName_${id}`).value;
   const rate = findLastRateForDealerProduct(dealerName, productName);
   if (rate !== null) document.getElementById(`noProdRate_${id}`).value = rate;
+  o2dNoTotal();
 }
 function removeO2dProductRow(id) {
   const wrap = document.getElementById('noProductRows');
   if (wrap.children.length <= 1) { showToast('At least one product is required', 'error'); return; }
   document.getElementById(`noProductRow_${id}`).remove();
+  o2dNoTotal();
+}
+// Order total before Save (client 2026-10-21) — Σ rate × qty of the rows.
+function o2dNoTotal() {
+  const el = document.getElementById('noOrderTotal');
+  if (!el) return;
+  let total = 0, pcs = 0, noRate = 0;
+  document.querySelectorAll('#noProductRows > div').forEach(row => {
+    const q = Number((row.querySelector('[id^="noProdQty_"]') || {}).value) || 0;
+    const r = Number((row.querySelector('[id^="noProdRate_"]') || {}).value) || 0;
+    pcs += q; total += q * r;
+    if (q && !r) noRate++;
+  });
+  el.innerHTML = pcs ? `Order Total: ₹${Math.round(total).toLocaleString('en-IN')} <span style="font-size:12px;font-weight:600;color:var(--gray-500)">· ${pcs} pcs${noRate ? ` · <span style="color:var(--color-warning-text)">${noRate} item ka rate nahi</span>` : ''}</span>` : '';
 }
 function onNoPaymentTermsChange() {
   const isOther = document.getElementById('noPaymentTermsSel').value === '__other__';
@@ -15954,6 +15973,7 @@ function openNewO2dOrderModal() {
   document.getElementById('noProductRows').innerHTML = '';
   o2dProductRowCount = 0;
   addO2dProductRow();
+  o2dNoTotal();
   document.getElementById('noDealerDetailBox').innerHTML = '';
   document.getElementById('newO2dOrderModal').classList.add('open');
   goToO2dOrderStep1();
@@ -17152,7 +17172,8 @@ const PFMS_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:var(--gray-
 const PFMS_INPUT_STYLE = "width:100%;padding:10px 12px;border:1.5px solid var(--border-base);border-radius:var(--radius-sm);font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:'Inter',sans-serif";
 
 let pfmsData = [];
-let pfmsView = 'fms';
+let pfmsView = 'status';
+let pfmsFollowups = {};
 let pfmsPage = 1;
 const PFMS_PAGE_SIZE = 50;
 
@@ -17160,7 +17181,8 @@ async function loadPurchaseFmsList() {
   const wrap = document.getElementById('pfmsListWrap');
   wrap.innerHTML = '<div class="empty">Loading…</div>';
   if (!_pfmsStepDoersMerged) await mergePurchaseStepDoersIntoDefs();
-  const [data, vu, ind] = await Promise.all([api('/api/purchase-fms'), api('/api/purchase-fms/vendor-updates'), api('/api/purchase-fms/indents')]);
+  const [data, vu, ind, fu] = await Promise.all([api('/api/purchase-fms'), api('/api/purchase-fms/vendor-updates'), api('/api/purchase-fms/indents'), api('/api/purchase-fms/followups')]);
+  pfmsFollowups = fu && !fu.error ? fu : {};
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   pfmsData = data;
   window._lastPurchaseData = data;
@@ -17209,6 +17231,64 @@ function pfmsFilteredIndents() {
 }
 function switchPfmsIndentSub(sub) { pfmsIndentSub = sub; pfmsPage = 1; renderPurchaseIndentsView(); }
 
+// 🔎 Sab status (client 2026-10-21: "PO bana hai ya nahi — sab ek jagah dikhna
+// chahiye"): one row per item, indent → PO → follow-up → material received.
+let pfmsStatusFilter = 'all';
+function pfmsStatusRows() {
+  const rows = [];
+  const poByNo = Object.fromEntries((pfmsData || []).map(o => [o.poNumber, o]));
+  const norm = v => String(v || '').trim().toLowerCase();
+  const seenPo = new Set();
+  const poRow = (o, p, base) => {
+    const fu = (pfmsFollowups[o.poNumber] || []).slice(-1)[0];
+    const short = p.receivedQty > 0 && p.pendingQty > 0;
+    const stage = p.received && !short ? 'received' : 'po';
+    const label = p.received && !short ? '✅ Maal aa gaya' : short ? `⚠ Kam aaya — ${p.pendingQty} baaki` : o.currentStep === 0 ? '📞 Follow-up baaki' : '📦 Maal aana baaki';
+    rows.push({ ...base, poNumber: o.poNumber, stage, label, next: fu && fu.next ? fu.next : (o.steps[0] && o.steps[0].nextFollowup) || '', note: fu ? fu.remark : '', click: `openPurchaseDetail('${jsArg(o.poNumber)}')` });
+  };
+  (pfmsIndents || []).forEach(ind => ind.lines.forEach(l => {
+    const base = { indentNo: ind.indentNo, date: ind.timestamp, product: l.productName, qty: l.qty, uom: l.uom, vendor: l.vendorName };
+    const o = l.poNumber && poByNo[l.poNumber];
+    if (o) {
+      const p = (o.products || []).find(x => norm(x.productName) === norm(l.productName)) || (o.products || [])[0] || {};
+      seenPo.add(o.poNumber + '|' + norm(p.productName));
+      return poRow(o, p, base);
+    }
+    if (l.poNumber) return rows.push({ ...base, poNumber: l.poNumber, stage: 'po', label: '🧾 PO bana (list refresh karein)', next: '', note: '', click: `openIndentDetail('${jsArg(ind.indentNo)}')` });
+    if (l.rejected) return rows.push({ ...base, poNumber: '', stage: 'rejected', label: '✗ Rejected', next: '', note: '', click: `openIndentDetail('${jsArg(ind.indentNo)}')` });
+    const st = INDENT_STEP_DEFS[l.currentStep];
+    rows.push({ ...base, poNumber: '', stage: 'nopo', label: `⏳ PO nahi bana — ${st ? st.label : ''}`, next: '', note: '', click: `openIndentDetail('${jsArg(ind.indentNo)}')` });
+  }));
+  // POs whose indent isn't in the indent list (older ones)
+  (pfmsData || []).forEach(o => (o.products || []).forEach(p => {
+    if (seenPo.has(o.poNumber + '|' + norm(p.productName))) return;
+    poRow(o, p, { indentNo: o.indentNo || '', date: o.timestamp, product: p.productName, qty: p.qty, uom: p.uom, vendor: o.vendorName });
+  }));
+  return rows.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+}
+function renderPurchaseStatusView() {
+  const wrap = document.getElementById('pfmsListWrap');
+  const q = ((document.getElementById('pfmsSearch') || {}).value || '').trim().toLowerCase();
+  const all = pfmsStatusRows().filter(r => !q || [r.indentNo, r.poNumber, r.product, r.vendor].some(v => String(v || '').toLowerCase().includes(q)));
+  const cnt = k => all.filter(r => r.stage === k).length;
+  const chip = (k, label) => `<button onclick="pfmsStatusFilter='${k}';renderPurchaseStatusView()" style="padding:8px 14px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${pfmsStatusFilter === k ? 'var(--color-primary)' : 'var(--gray-200)'};background:${pfmsStatusFilter === k ? 'var(--color-primary-light)' : 'var(--surface)'};color:${pfmsStatusFilter === k ? 'var(--color-primary)' : 'var(--gray-600)'}">${label}</button>`;
+  const head = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200);flex-wrap:wrap">
+    ${chip('all', `Sab (${all.length})`)}${chip('nopo', `⏳ PO nahi bana (${cnt('nopo')})`)}${chip('po', `📦 PO bana — maal baaki (${cnt('po')})`)}${chip('received', `✅ Maal aa gaya (${cnt('received')})`)}</div>`;
+  const rows = pfmsStatusFilter === 'all' ? all : all.filter(r => r.stage === pfmsStatusFilter);
+  if (!rows.length) { wrap.innerHTML = head + '<div class="empty">Kuch nahi mila</div>'; return; }
+  const color = { nopo: 'var(--color-warning-text)', po: 'var(--color-primary)', received: 'var(--color-success-text)', rejected: 'var(--color-danger)' };
+  const { pageRows, totalPages, total } = pfmsPaginate(rows);
+  wrap.innerHTML = head + `<table><thead><tr><th>Indent</th><th>Date</th><th>Item</th><th>Vendor</th><th>PO No.</th><th>Status</th><th>Agla follow-up</th></tr></thead><tbody>
+    ${pageRows.map(r => `<tr onclick="${r.click}" style="cursor:pointer">
+      <td style="font-weight:600;white-space:nowrap">${esc(r.indentNo || '—')}</td>
+      <td style="white-space:nowrap">${esc(fmtDateDMY(r.date) || '—')}</td>
+      <td style="white-space:normal;min-width:180px">${esc(r.product)} <span style="color:var(--gray-500)">× ${esc(r.qty)} ${esc(r.uom || '')}</span></td>
+      <td>${esc(r.vendor || '—')}</td>
+      <td style="font-weight:700;white-space:nowrap">${r.poNumber ? esc(r.poNumber) : '<span style="color:var(--gray-400)">—</span>'}</td>
+      <td style="font-weight:700;color:${color[r.stage] || 'var(--gray-700)'};white-space:nowrap">${esc(r.label)}${r.note ? `<div style="font-size:11px;font-weight:500;color:var(--gray-500);white-space:normal;max-width:220px">${esc(r.note)}</div>` : ''}</td>
+      <td style="white-space:nowrap">${r.next ? esc(fmtDateDMY(r.next)) : '—'}</td></tr>`).join('')}</tbody></table>
+    ${pfmsPaginationHtml(totalPages, total, 'status')}`;
+}
 function renderPurchaseIndentsView() {
   const wrap = document.getElementById('pfmsListWrap');
   const btn = (k, label) => `<button onclick="switchPfmsIndentSub('${jsArg(k)}')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${pfmsIndentSub===k?'var(--color-primary)':'var(--gray-200)'};background:${pfmsIndentSub===k?'var(--color-primary-light)':'var(--surface)'};color:${pfmsIndentSub===k?'var(--color-primary)':'var(--gray-600)'}">${label}</button>`;
@@ -17444,7 +17524,7 @@ function renderNewIndentForm() {
     </div>
     <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Raised By <span style="color:var(--color-danger)">*</span></div>
     <input id="indRaisedBy" list="indRaisedList" value="${esc(o.myName)}" style="${IND_INPUT};margin-bottom:14px;max-width:280px"/>
-    ${dl('indRaisedList', o.raisedBy)}${dl('indProductList', o.products)}${dl('indVendorList', o.vendors)}${dl('indUomList', o.uoms)}
+    ${dl('indRaisedList', o.raisedBy)}${dl('indProductList', o.products)}${dl('indUomList', o.uoms)}
     <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Items</div>
     <div id="indItems"></div>
     <button type="button" class="btn btn-outline btn-sm" onclick="addIndentItem()" style="margin:4px 0 14px">+ Add item</button>
@@ -17457,6 +17537,12 @@ function renderNewIndentForm() {
 }
 function pickIndentType(key) {
   _indentType = key;
+  // Product suggestions follow the type: spares → Spare Parts Master, finished → Product Master.
+  const byType = (_indentOpts.productsByType || {})[key];
+  const list = byType && byType.length ? byType : _indentOpts.products;
+  const dlEl = document.getElementById('indProductList');
+  if (dlEl) dlEl.innerHTML = list.map(v => `<option value="${esc(v)}">`).join('');
+  document.querySelectorAll('#indItems .ind-product').forEach(i => { i.placeholder = key === 'spare' ? 'Spare part ka naam' : key === 'finished' ? 'Product name' : 'Item name'; });
   document.querySelectorAll('#newIndentBody .ind-type').forEach(b => {
     const on = b.dataset.key === key;
     b.style.borderColor = on ? 'var(--color-primary)' : 'var(--gray-200)';
@@ -17476,13 +17562,20 @@ function addIndentItem() {
     <input class="ind-product" list="indProductList" placeholder="Product name" style="${IND_INPUT}"/>
     <input class="ind-qty" type="number" min="0" step="any" placeholder="Qty" style="${IND_INPUT}"/>
     <input class="ind-uom" list="indUomList" value="PCS" style="${IND_INPUT}"/>
-    <input class="ind-vendor" list="indVendorList" placeholder="Vendor" style="${IND_INPUT}"/>
+    <select class="ind-vendor" onchange="indentVendorOther(this)" style="${IND_INPUT}"><option value="">-- Vendor --</option>${(_indentOpts.vendors || []).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}<option value="__other__">➕ Doosra vendor (likho)</option></select>
     <button type="button" onclick="removeIndentItem(this)" title="Remove" style="border:none;background:none;cursor:pointer;color:var(--gray-400);font-size:18px">×</button>`;
   box.appendChild(row);
   // Same vendor as the line above is the common case — prefill it.
   const prev = row.previousElementSibling && row.previousElementSibling.querySelector('.ind-vendor');
   if (prev && prev.value) row.querySelector('.ind-vendor').value = prev.value;
   row.querySelector('.ind-product').focus();
+}
+// Vendor not in the Vendor Master (local stationery shop etc.) → type it.
+function indentVendorOther(sel) {
+  if (sel.value !== '__other__') return;
+  const inp = document.createElement('input');
+  inp.className = 'ind-vendor'; inp.placeholder = 'Vendor ka naam'; inp.style.cssText = sel.style.cssText;
+  sel.replaceWith(inp); inp.focus();
 }
 function removeIndentItem(btn) {
   const box = document.getElementById('indItems');
@@ -17524,6 +17617,7 @@ function switchPurchaseFmsView(view, el) {
 }
 
 function renderPurchaseFmsActiveView() {
+  if (pfmsView === 'status') return renderPurchaseStatusView();
   if (pfmsView === 'indents') return renderPurchaseIndentsView();
   if (pfmsView === 'fms') return renderPurchaseFmsView();
   if (pfmsView === 'pc') return renderPurchasePCView();
@@ -18183,6 +18277,20 @@ function deleteVendorLogin(id) {
   });
 }
 
+async function savePoFollowup(poNumber, btn) {
+  const remark = (document.getElementById(`pfmsFuRemark_${poNumber}`) || {}).value || '';
+  const next = (document.getElementById(`pfmsFuNext_${poNumber}`) || {}).value || '';
+  if (!remark.trim()) { showToast('Vendor ne kya bola — likhein', 'error'); return; }
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/purchase-fms/po/${encodeURIComponent(poNumber)}/followup`, 'POST', { remark: remark.trim(), nextFollowup: next });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Follow-up saved');
+  const fu = await api('/api/purchase-fms/followups');
+  if (fu && !fu.error) pfmsFollowups = fu;
+  const o = pfmsData.find(x => x.poNumber === poNumber);
+  if (o) renderPurchaseDetailBody(o);
+}
 function renderPurchaseDetailBody(o) {
   const body = document.getElementById('pfmsBody');
 
@@ -18227,6 +18335,20 @@ function renderPurchaseDetailBody(o) {
     </div>`;
 
   const nextStepDef = PURCHASE_STEP_DEFS.find(d => d.n === o.currentStep + 1);
+  // Follow-up first, every time, until the material comes (client 2026-10-21).
+  const fuList = pfmsFollowups[o.poNumber] || [];
+  const fuHistory = fuList.length ? `<div style="margin-top:10px;font-size:12px;color:var(--gray-600)"><b>Follow-up history (${fuList.length})</b>${fuList.slice().reverse().map(f => `<div style="padding:4px 0;border-bottom:1px solid var(--gray-100)">${esc(fmtDateDMY(f.at.slice(0, 10)))} ${esc(f.at.slice(11))} · ${esc(f.by)} — ${esc(f.remark)}${f.next ? ` <span style="color:var(--color-primary)">→ agla ${esc(fmtDateDMY(f.next))}</span>` : ''}</div>`).join('')}</div>` : '';
+  const followBoxHtml = nextStepDef && nextStepDef.n === 2 ? `
+      <div style="border:1.5px solid var(--color-primary-ring,#bfdbfe);background:var(--color-primary-light);border-radius:14px;padding:18px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--color-primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">1 · Follow-up</div>
+        <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:var(--gray-800)">📞 Vendor se baat hui — kab bhejega?</div>
+        <input id="pfmsFuRemark_${esc(o.poNumber)}" placeholder="Vendor ne kya bola (e.g. 4 din baad dispatch)" style="${PFMS_INPUT_STYLE}"/>
+        <div style="${PFMS_FIELD_LABEL_STYLE}">Agla follow-up</div>
+        <input id="pfmsFuNext_${esc(o.poNumber)}" type="date" style="${PFMS_INPUT_STYLE}"/>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px" onclick="savePoFollowup('${jsArg(o.poNumber)}', this)">💾 Follow-up save</button>
+        ${fuHistory}
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px 4px">2 · Maal aa gaya?</div>` : (fuHistory ? `<div style="margin-bottom:12px">${fuHistory}</div>` : '');
   let actionHtml;
   if (nextStepDef) {
     const extraInputsHtml = nextStepDef.extraFields.filter(f => !f.readOnly).map(f => renderPurchaseField(f, o.poNumber)).join('');
@@ -18238,6 +18360,7 @@ function renderPurchaseDetailBody(o) {
         ${extraInputsHtml}
         <button id="pfmsMarkDoneBtn_${o.poNumber}" onclick="advancePurchaseStep('${jsArg(o.poNumber)}',${nextStepDef.n})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">Mark Done</button>
       </div>`;
+    actionHtml = followBoxHtml + actionHtml;
   } else {
     actionHtml = `<div style="text-align:center;color:var(--color-success-text);font-weight:700;font-size:15px;padding:18px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:16px">All steps complete — PO closed</div>`;
   }
@@ -19680,23 +19803,23 @@ function renderVrl() {
   const old = open.filter(c => c.days > 30);
   const tab = (k, l) => `<button class="btn btn-sm ${vrlTab === k ? 'btn-primary' : 'btn-outline'}" onclick="vrlSetTab('${jsArg(k)}')">${l}</button>`;
   document.getElementById('vrlTabs').innerHTML = tab('open', `Open (${open.length})`) + tab('pending', `Pending with vendor${old.length ? ` · ⚠ ${old.length} over 30 days` : ''}`)
-    + tab('score', 'Vendor scorecard') + tab('all', `All (${all.length})`);
+    + tab('stmt', `📄 Statement baaki (${all.filter(c => c.status === 'Closed' && !c.statement).length})`) + tab('score', 'Vendor scorecard') + tab('all', `All (${all.length})`);
   const q = document.getElementById('vrlSearch').value.trim().toLowerCase();
   const match = c => !q || `${c.code} ${c.vendorName} ${c.billNo} ${c.lines.map(l => l.itemName + ' ' + l.serialNo).join(' ')}`.toLowerCase().includes(q);
   const wrap = document.getElementById('vrlWrap');
   if (vrlTab === 'pending') { wrap.innerHTML = vrlPendingHtml(open.filter(match)); return; }
   if (vrlTab === 'score') { wrap.innerHTML = vrlScoreHtml(all.filter(c => !c.cancelledAt && match(c))); return; }
-  const list = (vrlTab === 'open' ? open : all).filter(match);
+  const list = (vrlTab === 'open' ? open : vrlTab === 'stmt' ? all.filter(c => c.status === 'Closed' && !c.statement) : all).filter(match);
   wrap.innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Challan</th><th>Vendor</th><th>Items</th><th>Value</th><th>Sent</th><th>Settled</th><th>Pending</th><th>Days</th><th>Status</th></tr></thead><tbody>
     ${list.map(c => { const sent = c.lines.reduce((a, l) => a + l.qty, 0); const late = c.status === 'Open' && c.days > 30;
       return `<tr onclick="openVrlDetail(${c.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
       <td style="font-weight:600;white-space:nowrap">${esc(c.code)}${entrySubHtml(c.createdAt)}</td>
       <td>${esc(c.vendorName)}${c.billNo ? `<div style="font-size:11px;color:var(--gray-500)">Bill ${esc(c.billNo)}</div>` : ''}</td>
-      <td style="max-width:260px;font-size:12px">${c.lines.map(l => `${esc(l.itemName)} × ${l.qty}`).join('<br/>')}${(c.videos || []).length ? `<div style="font-size:11px;color:var(--gray-500)">🎥 ${c.videos.length}</div>` : ''}</td>
+      <td style="max-width:260px;font-size:12px">${c.itemType ? `<span style="font-size:10px;font-weight:700;color:var(--gray-500)">${c.itemType === 'spare' ? '🔩 SPARE' : '📦 FINISHED'}</span><br/>` : ''}${c.lines.map((l, i) => `${i + 1}. ${esc(l.itemName)} × ${l.qty}`).join('<br/>')}${(c.videos || []).length ? `<div style="font-size:11px;color:var(--gray-500)">🎥 ${c.videos.length}</div>` : ''}</td>
       <td style="white-space:nowrap">${c.value ? vrlInr(c.value) : '—'}</td>
       <td>${sent}</td><td>${sent - c.pending}</td><td style="font-weight:800;${c.pending ? 'color:var(--color-danger)' : ''}">${c.pending}</td>
       <td style="${late ? 'color:var(--color-danger);font-weight:700' : ''}">${c.status === 'Open' ? c.days + 'd' + (late ? ' ⚠' : '') : '—'}</td>
-      <td>${c.status === 'Open' ? '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Open</span>' : c.status === 'Closed' ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Closed</span>' : '<span class="status-badge">Cancelled</span>'}</td></tr>`; }).join('')}
+      <td>${vrlStageBadge(c)}</td></tr>`; }).join('')}
     </tbody></table></div>` : '<div class="empty">Koi challan nahi</div>';
 }
 function vrlPendingHtml(open) {
@@ -19752,6 +19875,7 @@ function vrlBasisLabel(l) { return l.rateBasis === 'gst' ? `incl. GST${l.gstPct 
 function vrlLineRowHtml() {
   const i = ++vrlLineSeq;
   return `<div class="vrl-line" id="vrlL_${i}" style="border:1px solid var(--gray-200);border-radius:10px;padding:10px;margin-bottom:8px">
+    <div class="vrl-no" style="font-size:12px;font-weight:800;color:var(--color-primary);margin-bottom:6px">Item 1</div>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:6px">
       <input list="vrlItemList" class="vrl-item" placeholder="Item name *" onchange="vrlItemGst(this)" style="${VRL_IN}"/>
       <input class="vrl-qty" type="number" min="1" placeholder="Qty *" oninput="vrlCalc()" style="${VRL_IN}"/></div>
@@ -19759,10 +19883,9 @@ function vrlLineRowHtml() {
       <input class="vrl-rate" type="number" min="0" placeholder="Rate ₹" oninput="vrlCalc()" style="${VRL_IN}"/>
       <select class="vrl-basis" onchange="vrlCalc()" title="Rate kis par hai" style="${VRL_IN}"><option value="basic">Basic rate (+GST)</option><option value="gst">GST paid (incl. GST)</option></select>
       <select class="vrl-gst" onchange="this.dataset.touched='1';vrlCalc()" title="GST %" style="${VRL_IN}">${VRL_GST_SLABS.map(g => `<option value="${g}" ${g === 18 ? 'selected' : ''}>GST ${g}%</option>`).join('')}</select></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px">
+    <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
       <input class="vrl-serial" placeholder="Serial no. (optional)" style="${VRL_IN}"/>
-      <input class="vrl-defect" placeholder="Defect / reason" style="${VRL_IN}"/>
-      <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlL_${i}').remove();vrlCalc()">✕</button></div>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlL_${i}').remove();vrlCalc();vrlRenumber()">✕</button></div>
     <div class="vrl-val" style="font-size:12px;color:var(--gray-600);margin-top:6px"></div></div>`;
 }
 // GST % from the Price Catalogue for a known item (unless picked by hand).
@@ -19784,29 +19907,98 @@ function vrlCalc() {
   const g = document.getElementById('vrlGrand');
   if (g) g.innerHTML = tot ? `Taxable ${vrlInr(tx)} + GST ${vrlInr(gst)} = <b style="font-size:15px">Total ${vrlInr(tot)}</b>` : '';
 }
+let _vrlNewVideo = null;
+function vrlRenumber() { document.querySelectorAll('#vrlLines .vrl-line').forEach((el, i) => { const n = el.querySelector('.vrl-no'); if (n) n.textContent = 'Item ' + (i + 1); }); }
+function vrlTypeChanged() {
+  const t = (document.querySelector('input[name="vrlType"]:checked') || {}).value;
+  const list = (vrlData && vrlData.items && vrlData.items[t]) || [];
+  document.getElementById('vrlItemList').innerHTML = list.map(v => `<option value="${esc(v)}">`).join('');
+  document.querySelectorAll('#vrlLines .vrl-item').forEach(i => { i.placeholder = t === 'spare' ? 'Spare part ka naam *' : 'Product name *'; });
+}
+// Photo or video: a photo is compressed now; a video is uploaded right after the challan is made.
+function vrlNewMediaPicked(input) {
+  const f = input.files[0];
+  _vrlNewVideo = null;
+  input.dataset.compressed = '';
+  if (f && /^video\//.test(f.type)) { _vrlNewVideo = f; document.getElementById('vrlPhotoPv').textContent = '🎥 Video chuna — challan save hote hi upload hoga'; return; }
+  onChequePhotoSelected(input, 'vrlPhotoPv');
+}
+function vrlStageBadge(c) {
+  if (c.cancelledAt) return '<span class="status-badge">Cancelled</span>';
+  const b = (bg, fg, t) => `<span class="status-badge" style="background:${bg};color:${fg}">${t}</span>`;
+  if (c.status === 'Open') return c.followups && c.followups.length ? b('var(--color-warning-bg)', 'var(--color-warning-text)', `2 · Maal aana baaki`) : b('var(--color-warning-bg)', 'var(--color-warning-text)', '1 · Follow-up baaki');
+  return c.statement ? b('var(--color-success-bg)', 'var(--color-success-text)', '✓ Statement mila') : b('var(--color-primary-light)', 'var(--color-primary)', '3 · Statement baaki');
+}
+// 1 Follow-up → 2 Material / Credit note → 3 Statement (client 2026-10-21)
+function vrlFlowHtml(c) {
+  if (c.cancelledAt) return '';
+  const fu = c.followups || [];
+  const step = (n, label, done, cur) => `<div style="flex:1;min-width:120px;padding:8px 10px;border-radius:10px;font-size:12.5px;font-weight:700;background:${done ? 'var(--color-success-bg)' : cur ? 'var(--color-primary-light)' : 'var(--gray-50)'};color:${done ? 'var(--color-success-text)' : cur ? 'var(--color-primary)' : 'var(--gray-400)'}">${done ? '✓' : n + '.'} ${label}</div>`;
+  const recvDone = c.status === 'Closed';
+  const steps = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${step(1, `Follow-up${fu.length ? ` (${fu.length})` : ''}`, fu.length > 0, !fu.length)}${step(2, 'Maal aaya / Credit note', recvDone, fu.length > 0 && !recvDone)}${step(3, 'Statement mila', !!c.statement, recvDone && !c.statement)}</div>`;
+  const fuHist = fu.length ? fu.slice().reverse().map(f => `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--gray-100)">${esc(fmtDateDMY(f.at.slice(0, 10)))} ${esc(f.at.slice(11))} · ${esc(f.by)} — ${esc(f.remark)}${f.next ? ` <span style="color:var(--color-primary)">→ agla ${esc(fmtDateDMY(f.next))}</span>` : ''}</div>`).join('') : '';
+  const fuBox = c.status === 'Open' ? `<div style="background:var(--color-primary-light);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px">📞 1 · Follow-up — vendor ko maal mila? kab bhejega?</div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px"><input id="vrlFuRemark" placeholder="Vendor ne kya bola" style="${VRL_IN}"/><input id="vrlFuNext" type="date" title="Agla follow-up" style="${VRL_IN}"/></div>
+      <button class="btn btn-primary btn-sm" onclick="saveVrlFollowup(${c.id}, this)">💾 Follow-up save</button>
+      ${fuHist ? `<div style="margin-top:8px">${fuHist}</div>` : ''}</div>` : (fuHist ? `<details style="margin-bottom:10px"><summary style="font-size:12px;cursor:pointer;color:var(--gray-500)">Follow-up history (${fu.length})</summary>${fuHist}</details>` : '');
+  const st = c.statement;
+  const stBox = recvDone ? (st ? `<div style="background:var(--color-success-bg);border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:12.5px">📄 <b>3 · Statement mila</b> — ${esc(fmtDateDMY(st.at.slice(0, 10)))} · ${esc(st.by)}${st.note ? ' · ' + esc(st.note) : ''}${st.photo ? ' · ' + linkOrText(st.photo, 'Dekho') : ''}${ME.role === 'admin' ? ` <a href="#" onclick="vrlStatement(${c.id}, true);return false" style="font-size:11px;color:var(--gray-400)">undo</a>` : ''}</div>`
+    : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px">📄 3 · Vendor se statement mila?</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Vendor ko bolo replacement adjust karke statement bheje — mil jaye to yahan mark karo.</div>
+      <input id="vrlStNote" placeholder="Remark (optional)" style="${VRL_IN};margin-bottom:6px"/>
+      <input type="file" id="vrlStPhoto" accept="image/*,application/pdf" onchange="onChequePhotoSelected(this,'vrlStPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlStPv" style="font-size:12px;margin-bottom:6px"></div>
+      <button class="btn btn-green btn-sm" onclick="vrlStatement(${c.id}, false, this)">✓ Statement mila</button></div>`) : '';
+  return steps + fuBox + stBox;
+}
+async function saveVrlFollowup(id, btn) {
+  const remark = document.getElementById('vrlFuRemark').value.trim();
+  if (!remark) { showToast('Vendor ne kya bola — likhein', 'error'); return; }
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/vendor-ledger/${id}/followup`, 'POST', { remark, nextDate: document.getElementById('vrlFuNext').value });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const i = vrlData.challans.findIndex(x => x.id === id); if (i >= 0) vrlData.challans[i] = r.challan;
+  showToast('✅ Follow-up saved'); renderVrl(); openVrlDetail(id);
+}
+async function vrlStatement(id, undo, btn) {
+  const body = undo ? { undo: true } : { note: (document.getElementById('vrlStNote') || {}).value || '', photo: (document.getElementById('vrlStPhoto') || { dataset: {} }).dataset.compressed || '' };
+  const restore = btn ? btnLoading(btn, 'Saving…') : () => {};
+  const r = await api(`/api/vendor-ledger/${id}/statement`, 'POST', body);
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  const i = vrlData.challans.findIndex(x => x.id === id); if (i >= 0) vrlData.challans[i] = r.challan;
+  showToast(undo ? 'Hata diya' : '✅ Statement mila — challan poora'); renderVrl(); openVrlDetail(id);
+}
 async function openVrlNew() {
+  _vrlNewVideo = null;
   const users = await api('/api/users/roster');
   const act = (Array.isArray(users) ? users : []).filter(u => u.is_active == null || +u.is_active === 1);
   vrlModal('vrlNewModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">🔁 New Replacement Challan</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('vrlNewModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
     <datalist id="vrlVendorList">${(vrlData ? vrlData.vendors : []).map(v => `<option value="${esc(v)}">`).join('')}</datalist>
-    <datalist id="vrlItemList">${(typeof stockItems !== 'undefined' ? stockItems : []).map(i => `<option value="${esc(i.description)}">`).join('')}</datalist>
+    <datalist id="vrlItemList">${((vrlData && vrlData.items && vrlData.items.finished) || (typeof stockItems !== 'undefined' ? stockItems.map(i => i.description) : [])).map(v => `<option value="${esc(v)}">`).join('')}</datalist>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
-      <div><label style="font-size:12px;font-weight:600">Vendor *</label><input id="vrlVendor" list="vrlVendorList" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Vendor *</label><select id="vrlVendor" style="${VRL_IN}"><option value="">-- Vendor chunein --</option>${(vrlData ? vrlData.vendors : []).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select></div>
       <div><label style="font-size:12px;font-weight:600">Date</label><input id="vrlDate" type="date" value="${stockTodayYmd()}" style="${VRL_IN}"/></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-      <div><label style="font-size:12px;font-weight:600">Purchase Bill No. <span style="font-weight:400;color:var(--gray-400)">(agar bill se aaya tha)</span></label><input id="vrlBill" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Sale Bill / Challan No.</label><input id="vrlBill" placeholder="Jis bill / challan se bhej rahe hain" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Reason</label><select id="vrlReason" style="${VRL_IN}"><option>Defective</option><option>DOA (dead on arrival)</option><option>Warranty</option><option>Damaged in transit</option><option>Wrong item</option></select></div></div>
+    <label style="font-size:12px;font-weight:600">Kya bhej rahe hain? *</label>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <label style="flex:1;border:1.5px solid var(--gray-200);border-radius:10px;padding:10px;cursor:pointer;font-size:13px;font-weight:700"><input type="radio" name="vrlType" value="spare" onchange="vrlTypeChanged()"/> 🔩 Spare parts</label>
+      <label style="flex:1;border:1.5px solid var(--gray-200);border-radius:10px;padding:10px;cursor:pointer;font-size:13px;font-weight:700"><input type="radio" name="vrlType" value="finished" onchange="vrlTypeChanged()"/> 📦 Finished goods</label></div>
     <label style="font-size:12px;font-weight:600">Items</label>
     <div id="vrlLines">${vrlLineRowHtml()}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlLines').insertAdjacentHTML('beforeend', vrlLineRowHtml())">+ Add item</button>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('vrlLines').insertAdjacentHTML('beforeend', vrlLineRowHtml());vrlRenumber()">+ Add item</button>
       <div id="vrlGrand" style="font-size:13px;text-align:right"></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <div><label style="font-size:12px;font-weight:600">Follow-up person</label><select id="vrlFollow" style="${VRL_IN}"><option value="">—</option>${act.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
       <div><label style="font-size:12px;font-weight:600">Remark</label><input id="vrlRemark" style="${VRL_IN}"/></div></div>
-    <label style="font-size:12px;font-weight:600">Photo — kharab maal / packed goods *</label>
-    <input type="file" id="vrlPhoto" accept="image/*" onchange="onChequePhotoSelected(this,'vrlPhotoPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlPhotoPv" style="font-size:12px;margin-bottom:10px"></div>
+    <label style="font-size:12px;font-weight:600">Photo ya Video — kharab maal / packed goods *</label>
+    <input type="file" id="vrlPhoto" accept="image/*,video/*" onchange="vrlNewMediaPicked(this)" style="${VRL_IN};margin-bottom:4px"/><div id="vrlPhotoPv" style="font-size:12px;margin-bottom:10px"></div>
     <div id="vrlErr" class="alert error" style="display:none;margin-bottom:10px"></div>
     <button class="btn btn-primary" id="vrlSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="saveVrlNew()">Save & make Challan</button>`, 680);
 }
@@ -19814,10 +20006,13 @@ async function saveVrlNew() {
   const err = document.getElementById('vrlErr'); err.style.display = 'none';
   const lines = [...document.querySelectorAll('#vrlLines .vrl-line')].map(el => ({ itemName: el.querySelector('.vrl-item').value.trim(), qty: el.querySelector('.vrl-qty').value,
     rate: el.querySelector('.vrl-rate').value, rateBasis: el.querySelector('.vrl-basis').value, gstPct: el.querySelector('.vrl-gst').value,
-    serialNo: el.querySelector('.vrl-serial').value.trim(), defect: el.querySelector('.vrl-defect').value.trim() })).filter(l => l.itemName || l.qty);
+    serialNo: el.querySelector('.vrl-serial').value.trim(), defect: '' })).filter(l => l.itemName || l.qty);
+  const typeEl = document.querySelector('input[name="vrlType"]:checked');
   const body = { vendorName: document.getElementById('vrlVendor').value.trim(), challanDate: document.getElementById('vrlDate').value, billNo: document.getElementById('vrlBill').value.trim(),
     reason: document.getElementById('vrlReason').value, followUpUserId: document.getElementById('vrlFollow').value, remark: document.getElementById('vrlRemark').value.trim(),
-    photo: document.getElementById('vrlPhoto').dataset.compressed || '', lines };
+    photo: document.getElementById('vrlPhoto').dataset.compressed || '', lines, itemType: typeEl ? typeEl.value : '', hasVideo: !!_vrlNewVideo };
+  if (!body.vendorName) { err.textContent = 'Vendor chunein'; err.style.display = 'block'; return; }
+  if (!body.itemType) { err.textContent = 'Spare parts ya Finished goods — chunein'; err.style.display = 'block'; return; }
   const btn = document.getElementById('vrlSaveBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
   const r = await api('/api/vendor-ledger', 'POST', body);
   btn.disabled = false; btn.textContent = 'Save & make Challan';
@@ -19826,6 +20021,7 @@ async function saveVrlNew() {
   showToast(`✅ ${r.code} ban gaya`);
   await loadVrl();
   openVrlDetail(r.id);
+  if (_vrlNewVideo) { const f = _vrlNewVideo; _vrlNewVideo = null; vrlUploadGalleryVideo(r.id, { files: [f], value: '' }); }
 }
 function openVrlDetail(id) {
   const c = vrlData.challans.find(x => x.id === id);
@@ -19836,8 +20032,9 @@ function openVrlDetail(id) {
     <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${esc(fmtDateDMY(c.challanDate))} · ${esc(c.reason)}${c.billNo ? ' · Bill ' + esc(c.billNo) : ''} · by ${esc(c.createdByName)}${c.followUpName ? ' · Follow-up: <b>' + esc(c.followUpName) + '</b>' : ''}${c.status === 'Open' ? ` · <b style="${c.days > 30 ? 'color:var(--color-danger)' : ''}">${c.days} din</b>` : ''}
       ${c.remark ? `<div>${esc(c.remark)}</div>` : ''}${c.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(c.cancelReason)}</div>` : ''}</div>
     ${c.photoUrl ? `<div style="margin-bottom:10px">${linkOrText(c.photoUrl, '📷 Photo')}</div>` : ''}
+    ${vrlFlowHtml(c)}
     <table style="font-size:12.5px;margin-bottom:12px"><thead><tr><th>Item</th><th>Sent</th><th>New</th><th>Repaired</th><th>Credit</th><th>Pending</th>${open ? '<th>Receive now</th>' : ''}</tr></thead><tbody>
-    ${c.lines.map(l => `<tr><td>${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}${l.defect ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.defect)}</div>` : ''}${l.rate ? `<div style="font-size:11px;color:var(--gray-500)">@ ${vrlInr(l.rate)} (${esc(vrlBasisLabel(l))}) · <b>${vrlInr(l.total)}</b>${l.gst ? ` <span title="Taxable + GST">(${vrlInr(l.taxable)} + ${vrlInr(l.gst)})</span>` : ''}</div>` : ''}</td>
+    ${c.lines.map((l, li) => `<tr><td><b>${li + 1}.</b> ${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}${l.defect ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.defect)}</div>` : ''}${l.rate ? `<div style="font-size:11px;color:var(--gray-500)">@ ${vrlInr(l.rate)} (${esc(vrlBasisLabel(l))}) · <b>${vrlInr(l.total)}</b>${l.gst ? ` <span title="Taxable + GST">(${vrlInr(l.taxable)} + ${vrlInr(l.gst)})</span>` : ''}</div>` : ''}</td>
       <td>${l.qty}</td><td>${l.got.new || ''}</td><td>${l.got.repaired || ''}</td><td>${l.got.credit || ''}${l.creditAmount ? `<div style="font-size:11px">${inr(l.creditAmount)}</div>` : ''}</td>
       <td style="font-weight:800;${l.pending ? 'color:var(--color-danger)' : 'color:var(--color-success)'}">${l.pending || '✓'}</td>
       ${open ? `<td style="min-width:200px">${l.pending ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">
@@ -19846,7 +20043,7 @@ function openVrlDetail(id) {
     ${c.value ? `<div style="font-size:13px;text-align:right;margin:-4px 0 12px">Taxable ${vrlInr(c.taxable)} + GST ${vrlInr(c.gst)} = <b style="font-size:15px">Total ${vrlInr(c.value)}</b></div>` : ''}
     ${vrlVideosHtml(c)}
     ${open ? `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:8px">📥 Vendor se aaya (ek delivery me alag-alag item / tarike)</div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px">📥 2 · Maal aaya (New / Repaired) ya Credit Note — advance mein aaya ho to bhi yahin</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
         <div><label style="font-size:11.5px">Date</label><input id="vrlSetDate" type="date" value="${stockTodayYmd()}" style="${VRL_IN}"/></div>
         <div><label style="font-size:11.5px">Credit Note No.</label><input id="vrlCnNo" style="${VRL_IN}"/></div>
@@ -24053,6 +24250,7 @@ async function openPurchaseQuickAction(poNumber) {
   if (pfmsIndents.some(x => x.indentNo === poNumber)) return openIndentDetail(poNumber);
   if (window._lastPurchaseData) pfmsData = window._lastPurchaseData;
   if (!pfmsData.find(x => x.poNumber === poNumber)) { const d = await api('/api/purchase-fms'); if (Array.isArray(d)) { pfmsData = d; window._lastPurchaseData = d; } }
+  if (!Object.keys(pfmsFollowups).length) { const fu = await api('/api/purchase-fms/followups'); if (fu && !fu.error) pfmsFollowups = fu; }
   openPurchaseDetail(poNumber);
 }
 function refreshDashboardReplLocally() {
