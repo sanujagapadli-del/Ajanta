@@ -568,7 +568,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -1607,7 +1607,8 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     // Admin, HOD and regular users can all assign to others; fallback to self if not specified.
     // A delegation can go to several doers at once (client, 2026-10-12) —
     // each gets their own copy of the task, marked done independently.
-    const canAssign = isAdmin || isHod || isUser;
+    // A delegation needs the 'delegate' grant (checked below), so it may always name other doers.
+    const canAssign = isAdmin || isHod || isUser || type === 'delegation';
     const requested = Array.isArray(assignedTo) ? assignedTo : (assignedTo ? [assignedTo] : []);
     const targets = canAssign && requested.length ? [...new Set(requested.map(v => parseInt(v, 10)))] : [req.session.userId];
     if (!desc || !date) return res.status(400).json({ error: 'Description and date required' });
@@ -1621,6 +1622,7 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     if ((type||'checklist') !== 'delegation' && targets.length > 1) return res.status(400).json({ error: 'A checklist task has one doer' });
     const targetUser = targets[0];
     if ((type||'checklist') === 'delegation') {
+      if (!(await hasPageGrant(req, 'delegate'))) return res.status(403).json({ error: 'Aapke paas task delegate karne ka access nahi hai' });
       // Approver: if approverEmail is provided look up that user, otherwise use logged-in user
       let assignedBy = req.session.userId;
       if (approverEmail) {

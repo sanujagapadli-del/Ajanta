@@ -5046,18 +5046,18 @@ async function loadDashboard() {
       document.getElementById('dashBtns').innerHTML = `
         <button class="btn btn-pill btn-amber" onclick="openHoliday()">🗓 Holidays</button>
         <button class="btn btn-pill btn-green" onclick="openChecklist()">✓ Checklist</button>
-        <button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>`;
+        ${canDelegate() ? '<button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>' : ''}`;
     } else if (isHod) {
       document.getElementById('dashBtns').innerHTML = `
         <button class="btn btn-pill btn-green" onclick="openChecklist()">✓ Checklist</button>
-        <button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>`;
+        ${canDelegate() ? '<button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>' : ''}`;
     }
   }
 
   if (ME.role === 'user') {
     document.getElementById('dashBtns').innerHTML = `
       <button class="btn btn-pill btn-green" onclick="openChecklist()">✓ Checklist</button>
-      <button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>`;
+      ${canDelegate() ? '<button class="btn btn-pill btn-primary" onclick="openDelegate()">+ Delegate</button>' : ''}`;
   }
 
   if (loadSeq !== _dashLoadSeq) return; // a newer load (or a Done) happened during the dropdown fetch
@@ -5368,11 +5368,11 @@ async function loadAllTasks() {
 
   // Show/hide assign task button based on role
   const assignBtn = document.getElementById('tasksAssignBtn');
-  if (assignBtn) assignBtn.style.display = (isAdmin || isHod || isUser) ? '' : 'none';
+  if (assignBtn) assignBtn.style.display = canDelegate() ? '' : 'none';
 
   // Delegate by Me button — sirf un users ko dikhao jo task assign kar sakte hain
   const dbmBtn = document.getElementById('delegateByMeBtn');
-  if (dbmBtn) dbmBtn.style.display = (isAdmin || isHod || isUser) ? '' : 'none';
+  if (dbmBtn) dbmBtn.style.display = canDelegate() ? '' : 'none';
 
   // PC desktop: show user filter + date range
   const filtersDiv = document.getElementById('tasksUserDateFilters');
@@ -6038,7 +6038,11 @@ async function deleteComment(id) {
 // ══════════════════════════════════════════════════════
 // DELEGATE MODAL
 // ══════════════════════════════════════════════════════
+// Delegating to others is a grant (client, 2026-10-22: "delegate sirf admin
+// aur Priyanka ji ke paas") — Users → Access → "+ Delegate".
+const canDelegate = () => ME && (ME.role === 'admin' || MY_PAGES.has('delegate'));
 async function openDelegate() {
+  if (!canDelegate()) { showToast("Aapke paas task delegate karne ka access nahi hai", 'error'); return; }
   document.getElementById('delegateErr').style.display='none';
   document.getElementById('dTitle').value='';
   document.getElementById('dDesc').value='';
@@ -6648,6 +6652,7 @@ const PAGE_ACCESS_GROUPS = [
   { label: 'Tasks & HR', locked: false, pages: [
     { key: 'checklist-master', label: 'Checklist Master (sabki checklist banaye / badle / band kare)' },
     // Not a page: All Tasks → Delegation shows every employee's tasks (view + comment).
+    { key: 'delegate', label: '+ Delegate (dusron ko task dena)' },
     { key: 'all-delegations', label: 'All Delegations (view everyone)' },
     { key: 'tour', label: 'Tour Expense (salesman / Vishal-Ajay — auto)', auto: true },
     { key: 'employees', label: 'Employees (details, documents)' },
