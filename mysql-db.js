@@ -16,7 +16,14 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
+  // Every Vercel instance has its own pool, and the host's firewall blocks
+  // AWS IPs that open too many MySQL connections (2026-10-22 outage) — so
+  // keep each pool small and let idle connections close.
+  connectionLimit: 4,
+  maxIdle: 1,
+  idleTimeout: 60000,
+  enableKeepAlive: true,
+  connectTimeout: 8000,
   queueLimit: 0,
   dateStrings: true, // DATE/DATETIME come back as 'YYYY-MM-DD[ HH:MM:SS]' strings, matching sheets-db.js's shape
   charset: 'utf8mb4_general_ci'
