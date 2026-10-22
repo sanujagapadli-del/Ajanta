@@ -3447,6 +3447,10 @@ tbody tr:last-child td{border-bottom:none;}
         <label>Bill Photo <span id="scBillPhotoRequiredMark" style="color:var(--color-danger);display:none">*</span></label>
         <input type="file" id="scBillPhoto" accept="image/*" onchange="onScPhotoSelected(this,'scBillPhotoPreview')"/>
         <div id="scBillPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
+        <label style="display:flex;align-items:flex-start;gap:7px;margin-top:8px;padding:8px 10px;background:#fff3cd;border:1px solid #ffe08a;border-radius:8px;font-size:12.5px;color:#8a6100;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="scNoBill" onchange="onScNoBillChange()" style="margin-top:2px"/>
+          <span>🧾 Bill nahi hai — product Out of Warranty, customer service charges dega<br><span style="font-weight:400">Bill photo aur purchase date skip ho jayenge</span></span>
+        </label>
       </div>
       <div class="form-group">
         <label>Where is the Product Currently?</label>
@@ -10830,7 +10834,7 @@ function sfmsWarrantyDetailHtml(c) {
     : checked === 'No' ? `<div style="color:var(--color-danger);font-weight:700;font-size:12px">⚠️ Out of Warranty</div>`
     : `<span style="color:var(--gray-400);font-size:12px">Not checked yet</span>`;
   if (checked) html += `<div style="font-size:11px;color:var(--gray-400)">Warranty step: ${esc(checked)}</div>`;
-  if (c.warrantyChargesAgreed === 'Yes') html += `<div style="font-size:11px;color:var(--color-warning-text);font-weight:600">Customer agreed to pay charges</div>`;
+  if (c.warrantyChargesAgreed) html += `<div style="font-size:11px;color:var(--color-warning-text);font-weight:600">${c.noBill ? '🧾 Bill nahi — customer' : 'Customer'} agreed to pay charges</div>`;
   return html;
 }
 
@@ -11672,7 +11676,7 @@ function renderSfmsOverviewReport() {
     if (!c.closed) { open.push(c); if (sfmsOvDaysPending(c, nowStr) >= 2) late.push(c); }
     if (c.urgent) urgent.push(c);
     if (wa.status === 'Yes') inW.push(c); else if (wa.status === 'No') outW.push(c); else wUnknown.push(c);
-    if (wa.status === 'No' && c.warrantyChargesAgreed === 'Yes') agreedN++;
+    if (wa.status === 'No' && c.warrantyChargesAgreed) agreedN++;
     if (!c.closed && sc.status === 'Need to be Purchased') needBuy.push(c);
     if (sv.repairStatus === 'Brought to Office') office.push(c);
     const cash = Number(io.cashAmount) || 0;
@@ -11751,7 +11755,7 @@ function renderSfmsOverviewReport() {
   D('speed', 'Solved — slowest first', solved.filter(c => sfmsOvSolveDays(c) != null).sort((a, b) => sfmsOvSolveDays(b) - sfmsOvSolveDays(a)).map(c => item(c, daysCol(c), 'var(--gray-700)')));
   D('sameday', 'Solved Same Day', speed[0].map(c => item(c, 'Same day', 'var(--color-success-text)')));
   D('inw', 'In Warranty (Warranty step = Yes)', inW.map(c => item(c)));
-  D('outw', 'Out of Warranty (Warranty step = No)', outW.map(c => item(c, c.warrantyChargesAgreed === 'Yes' ? 'Paid' : undefined, c.warrantyChargesAgreed === 'Yes' ? 'var(--color-warning-text)' : undefined)));
+  D('outw', 'Out of Warranty (Warranty step = No)', outW.map(c => item(c, c.warrantyChargesAgreed ? (c.noBill ? 'Paid · No bill' : 'Paid') : undefined, c.warrantyChargesAgreed ? 'var(--color-warning-text)' : undefined)));
   D('needbuy', 'On Hold — Spare to Purchase', needBuy.map(c => item(c)));
   D('office', 'Brought to Office (not repaired on site)', office.map(c => item(c)));
   D('cash', 'Cash for Short Pieces — Approved', cashOk.map(c => item(c, inr(Number(sfmsStep(c, 'inout').cashAmount) || 0), 'var(--color-success-text)'))
@@ -11931,6 +11935,7 @@ function openNewComplaintModal() {
   document.getElementById('scBillPhoto').value = '';
   document.getElementById('scBillPhotoPreview').textContent = '';
   document.getElementById('scBillPhoto').dataset.compressed = '';
+  document.getElementById('scNoBill').checked = false;
   onScCustomerTypeChange(); // resets Dealer wrap visibility + auto-sets Product Ownership
   document.getElementById('scAddress').value = '';
   document.getElementById('scRemarks').value = '';
@@ -11956,7 +11961,23 @@ function onScOwnershipChange() {
     document.getElementById('scBillPhoto').value = '';
     document.getElementById('scBillPhotoPreview').textContent = '';
     document.getElementById('scBillPhoto').dataset.compressed = '';
+    document.getElementById('scNoBill').checked = false;
   }
+  onScNoBillChange();
+}
+
+// "Bill nahi hai" — out of warranty and the customer pays, so the bill photo
+// and every product's purchase date are hidden and skipped.
+function scNoBillOn() {
+  const el = document.getElementById('scNoBill');
+  return !!(el && el.checked && document.getElementById('scProductOwnership').value === 'Customer Purchased Piece');
+}
+function onScNoBillChange() {
+  const on = scNoBillOn();
+  document.getElementById('scBillPhoto').style.display = on ? 'none' : '';
+  document.getElementById('scBillPhotoPreview').style.display = on ? 'none' : '';
+  document.querySelectorAll('#scProductRows .sc-pdate').forEach(el => { el.style.display = on ? 'none' : ''; });
+  document.querySelectorAll('#scProductRows > div').forEach(row => onScProductLineChanged(row.id.split('_')[1]));
 }
 
 // ── Multi-product complaint table (point 2) ──────────────────────────
@@ -11971,8 +11992,10 @@ function addScProductRow() {
     <div style="display:grid;grid-template-columns:minmax(0,1fr) 20px;gap:6px;align-items:start">
       <div style="min-width:0">
         <input type="text" placeholder="Product Name / Model *" id="scProdName_${id}" list="scProductNameList" oninput="onScProductLineChanged(${id})" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+        <div class="sc-pdate"${scNoBillOn() ? ' style="display:none"' : ''}>
         <label style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:4px">Product Purchase Date (DD/MM/YY)</label>
         <div style="margin-bottom:6px">${dmyDateFieldHtml(`scProdPurchaseDate_${id}`, `onScProductLineChanged(${id})`, 'padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box')}</div>
+        </div>
         <textarea placeholder="Problem Description *" id="scProdProblem_${id}" rows="2" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;font-family:'Inter',sans-serif;margin-bottom:6px"></textarea>
         <input type="file" accept="image/*" id="scProdPhoto_${id}" onchange="onScProdPhotoSelected(${id})"/>
         <div id="scProdPhotoPreview_${id}" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
@@ -12016,7 +12039,7 @@ function onScProductLineChanged(id) {
   const name = document.getElementById(`scProdName_${id}`).value.trim().toLowerCase();
   const purchaseDate = document.getElementById(`scProdPurchaseDate_${id}`).value;
   const product = (_scProductNames || []).find(p => p.name.trim().toLowerCase() === name);
-  const w = product ? sfmsWarrantyInfo(product.name, purchaseDate, product.warrantyMonths) : null;
+  const w = product && !scNoBillOn() ? sfmsWarrantyInfo(product.name, purchaseDate, product.warrantyMonths) : null;
   if (!w) { banner.style.display = 'none'; okEl.style.display = 'none'; return; }
   const expiry = w.expiry;
   const outOfWarranty = new Date() > expiry;
@@ -12202,7 +12225,8 @@ async function submitNewComplaint() {
   const customerType = document.querySelector('input[name="scCustomerType"]:checked').value;
   const dealerName = document.getElementById('scDealerName').value.trim();
   const productOwnership = document.getElementById('scProductOwnership').value;
-  const billPhoto = document.getElementById('scBillPhoto').dataset.compressed || '';
+  const noBill = scNoBillOn();
+  const billPhoto = noBill ? '' : (document.getElementById('scBillPhoto').dataset.compressed || '');
   const productLocation = document.getElementById('scProductLocation').value;
   const address = document.getElementById('scAddress').value.trim();
   const area = document.getElementById('scArea').value === '__add_new__' ? '' : document.getElementById('scArea').value;
@@ -12244,10 +12268,10 @@ async function submitNewComplaint() {
     }
     products.push({
       productName,
-      purchaseDate: document.getElementById(`scProdPurchaseDate_${id}`).value,
+      purchaseDate: noBill ? '' : document.getElementById(`scProdPurchaseDate_${id}`).value,
       problemDescription,
       productPhoto: document.getElementById(`scProdPhoto_${id}`).dataset.compressed || '',
-      warrantyChargesAgreed: outOfWarranty && warrantyAgree ? 'Yes' : ''
+      warrantyChargesAgreed: noBill || (outOfWarranty && warrantyAgree) ? 'Yes' : ''
     });
   }
   if (products.length === 0) {
@@ -12260,7 +12284,7 @@ async function submitNewComplaint() {
   btn.disabled = true; btn.textContent = 'Saving…';
   const res = await api('/api/service-fms', 'POST', {
     filledByName, mobile, customerType, dealerName, productOwnership,
-    productLocation, address, area, billPhoto, remarks, products, urgent
+    productLocation, address, area, billPhoto, remarks, products, urgent, noBill
   });
   btn.disabled = false; btn.textContent = 'Save Complaint';
 
@@ -12543,7 +12567,7 @@ function buildSfmsNextActionHtml(c, compact) {
     // spare, for older complaints) until its bill is on file — the server
     // enforces this too; shown plainly here instead of failing on submit.
     const billMissing = (nextStepDef.n === SN.spareCheck || nextStepDef.n === SN.takeout)
-      && c.productOwnership === 'Customer Purchased Piece' && !c.billPhoto;
+      && c.productOwnership === 'Customer Purchased Piece' && !c.billPhoto && !c.noBill;
     const billWarningHtml = billMissing
       ? `<div style="background:var(--color-danger-bg);border:1px solid var(--color-danger-border);color:var(--color-danger-text);border-radius:10px;padding:${compact ? '6px 8px' : '10px 12px'};font-size:${compact ? '11.5px' : '13px'};font-weight:600;margin-bottom:${compact ? '0' : '12px'}">⛔ Bill upload zaroori hai — bill ke bina aage nahi jayega. <button type="button" onclick="openEditComplaintModal(${c.row})" class="btn btn-outline btn-sm" style="margin-top:6px">✏️ Upload Bill</button></div>`
       : '';

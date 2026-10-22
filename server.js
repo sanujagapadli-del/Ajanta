@@ -4122,6 +4122,9 @@ const SFMS_ZONE_TAB = 'Zone';
 const SFMS_ZONE_COL = 'BC';
 const SFMS_OWNERSHIP_COL = 'BD';
 const SFMS_WARRANTY_CHARGES_AGREED_COL = 'BF';
+// "Bill nahi hai" at intake: out of warranty, customer pays — written into the
+// same column so the bill rule at Spare Check can let it through.
+const SFMS_NO_BILL_VALUE = 'Yes - No Bill';
 // Multi-spare Takeout/In-Out (points 1/3) — a complaint can need more than
 // one different spare item, and In/Out now tracks new (unused, back to
 // stock) vs old (faulty, removed from the product) returned counts per
@@ -4823,6 +4826,7 @@ async function sfmsFetchComplaints() {
         zone: get(SFMS_ZONE_COL) || '',
         productOwnership: get(SFMS_OWNERSHIP_COL) || '',
         warrantyChargesAgreed: get(SFMS_WARRANTY_CHARGES_AGREED_COL) || '',
+        noBill: get(SFMS_WARRANTY_CHARGES_AGREED_COL) === SFMS_NO_BILL_VALUE,
         remarks: get(SFMS_REMARKS_COL) || '',
         urgent: get(SFMS_URGENT_COL) === 'Yes'
       };
@@ -5044,8 +5048,9 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
     if (await hasPageDeny(req, 'form-sfms-complaint')) return res.status(403).json(FORM_DENIED);
     const {
       filledByName, mobile, customerType, dealerName,
-      productLocation, address, area, productOwnership, billPhoto, remarks, products, urgent
+      productLocation, address, area, productOwnership, remarks, products, urgent, noBill
     } = req.body;
+    const billPhoto = noBill ? '' : req.body.billPhoto;
     if (!filledByName || !mobile) {
       return res.status(400).json({ error: 'Name and mobile are required' });
     }
@@ -5093,6 +5098,7 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
     const rows = [];
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
+      if (noBill) p.purchaseDate = '';
       const purchaseDateSerial = p.purchaseDate ? sfmsDateToSerial(new Date(p.purchaseDate + 'T00:00:00Z')) : '';
       const productPhotoLink = p.productPhoto ? await uploadPhotoToDrive(p.productPhoto, `${complainNos[i]}-product.jpg`) : '';
       rows.push([
@@ -5135,10 +5141,10 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
       const r = firstRow + i;
       const p = products[i];
       const expiry = sfmsWarrantyExpiry(p.productName, p.purchaseDate, warrantyMonthsByName);
-      if (expiry) {
+      if (expiry || noBill) {
         formulaData.push(
           { range: `'${SFMS_TAB}'!P${r}`, values: [[timestamp]] },
-          { range: `'${SFMS_TAB}'!Q${r}`, values: [[new Date() <= expiry ? 'Yes' : 'No']] }
+          { range: `'${SFMS_TAB}'!Q${r}`, values: [[!noBill && new Date() <= expiry ? 'Yes' : 'No']] }
         );
       }
       formulaData.push(
@@ -5158,8 +5164,8 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
       // Out-of-warranty-but-customer-agreed-to-pay flag (point 5) — written only
       // when the frontend determined the product was out of warranty and the
       // customer explicitly agreed to be charged.
-      if (p.warrantyChargesAgreed) {
-        formulaData.push({ range: `'${SFMS_TAB}'!${SFMS_WARRANTY_CHARGES_AGREED_COL}${r}`, values: [['Yes']] });
+      if (p.warrantyChargesAgreed || noBill) {
+        formulaData.push({ range: `'${SFMS_TAB}'!${SFMS_WARRANTY_CHARGES_AGREED_COL}${r}`, values: [[noBill ? SFMS_NO_BILL_VALUE : 'Yes']] });
       }
     }
     await sheetsApi.spreadsheets.values.batchUpdate({
@@ -5945,10 +5951,12 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
     if (stepNum === SFMS_N.spareCheck || stepNum === SFMS_N.takeout) {
       const ownAndBill = await sheetsApi.spreadsheets.values.batchGet({
         spreadsheetId: SFMS_SHEET_ID,
-        ranges: [`'${SFMS_TAB}'!J${row}:J${row}`, `'${SFMS_TAB}'!${SFMS_OWNERSHIP_COL}${row}:${SFMS_OWNERSHIP_COL}${row}`]
+        ranges: [`'${SFMS_TAB}'!J${row}:J${row}`, `'${SFMS_TAB}'!${SFMS_OWNERSHIP_COL}${row}:${SFMS_OWNERSHIP_COL}${row}`,
+          `'${SFMS_TAB}'!${SFMS_WARRANTY_CHARGES_AGREED_COL}${row}:${SFMS_WARRANTY_CHARGES_AGREED_COL}${row}`]
       });
-      const [billRange, ownRange] = ownAndBill.data.valueRanges;
-      const hasBill = !!(billRange.values && billRange.values[0] && billRange.values[0][0]);
+      const [billRange, ownRange, agreedRange] = ownAndBill.data.valueRanges;
+      const noBillAgreed = ((agreedRange.values && agreedRange.values[0] && agreedRange.values[0][0]) || '') === SFMS_NO_BILL_VALUE;
+      const hasBill = noBillAgreed || !!(billRange.values && billRange.values[0] && billRange.values[0][0]);
       const ownership = (ownRange.values && ownRange.values[0] && ownRange.values[0][0]) || '';
       if (ownership === 'Customer Purchased Piece' && !hasBill) {
         return res.status(400).json({ error: 'Bill photo is required for a Customer Purchased Piece before it can move past Spare Check — upload it via Edit Complaint first.' });
