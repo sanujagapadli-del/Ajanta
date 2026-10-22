@@ -4395,6 +4395,9 @@ async function init() {
     // ── ROLE FEATURE FLAGS ──────────────────────────────
     // To re-enable hod/pc: remove or comment the next 2 lines
     if (ME.role === 'hod' || ME.role === 'pc') ME.role = 'user';
+    // A designation typed into the role column by the CSV import ("Accountant",
+    // "Vendor and office coordination executive", '') is just a user.
+    if (!['admin', 'user'].includes(ME.role)) ME.role = 'user';
     // ────────────────────────────────────────────────────
     const initials = ME.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
     document.getElementById('sidebarName').textContent = ME.name;
@@ -6869,7 +6872,7 @@ function openEditUser(id) {
   document.getElementById('uDepartment').value=u.department||'';
   document.getElementById('uTrackKm').checked=!!(+u.track_km);
   document.getElementById('uPassword').value='';
-  document.getElementById('uRole').value=u.role||'user';
+  document.getElementById('uRole').value=u.role==='admin'?'admin':'user'; // a CSV-imported job title isn't an option here
   document.getElementById('pwdOptional').style.display='inline';
   document.getElementById('userErr').style.display='none';
   document.getElementById('userSuccess').style.display='none';

@@ -3553,6 +3553,10 @@ app.put('/api/users/:id/access', requireAuth, requireAdmin, async (req, res) => 
   } catch (err) { sendServerError(res, err); }
 });
 
+// Only real app roles go in users.role — the CSV import used to store a job
+// title there ("Accountant"), which hid the Delegate / Checklist buttons.
+const USER_ROLES = ['admin', 'hod', 'pc', 'user'];
+const cleanRole = r => USER_ROLES.includes(String(r || '').trim().toLowerCase()) ? String(r).trim().toLowerCase() : 'user';
 app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { name, email, notification_email, password, role, phone, department, week_off, extra_off, track_km } = req.body;
@@ -3560,7 +3564,7 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
     const [ex] = await db.query('SELECT id FROM users WHERE email=?', [email]);
     if (ex[0]) return res.status(400).json({ error: 'Email already exists' });
     await db.query('INSERT INTO users (name,email,notification_email,password,role,phone,department,week_off,extra_off,track_km) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [name, email, notification_email||'', hashPassword(password), role||'user', phone||null, department||'', week_off||'', extra_off||'', track_km ? 1 : 0]);
+      [name, email, notification_email||'', hashPassword(password), cleanRole(role), phone||null, department||'', week_off||'', extra_off||'', track_km ? 1 : 0]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -3569,9 +3573,9 @@ app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { name, email, notification_email, role, password, phone, department, week_off, extra_off, track_km } = req.body;
     if (password) await db.query('UPDATE users SET name=?,email=?,notification_email=?,role=?,password=?,phone=?,department=?,week_off=?,extra_off=?,track_km=? WHERE id=?',
-      [name,email,notification_email||'',role,hashPassword(password),phone||null,department||'',week_off||'',extra_off||'',track_km?1:0,req.params.id]);
+      [name,email,notification_email||'',cleanRole(role),hashPassword(password),phone||null,department||'',week_off||'',extra_off||'',track_km?1:0,req.params.id]);
     else await db.query('UPDATE users SET name=?,email=?,notification_email=?,role=?,phone=?,department=?,week_off=?,extra_off=?,track_km=? WHERE id=?',
-      [name,email,notification_email||'',role,phone||null,department||'',week_off||'',extra_off||'',track_km?1:0,req.params.id]);
+      [name,email,notification_email||'',cleanRole(role),phone||null,department||'',week_off||'',extra_off||'',track_km?1:0,req.params.id]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -3663,7 +3667,7 @@ app.post('/api/users/bulk', requireAuth, requireAdmin, async (req, res) => {
       const [ex] = await db.query('SELECT id FROM users WHERE email=?', [u.email]);
       if (ex[0]) { skipped++; continue; }
       await db.query('INSERT INTO users (name,email,password,role,phone,department,week_off,extra_off) VALUES (?,?,?,?,?,?,?,?)',
-        [u.name, u.email, hashPassword(u.password), u.role||'user', u.phone||null, u.department||'', u.week_off||'', u.extra_off||'']);
+        [u.name, u.email, hashPassword(u.password), cleanRole(u.role), u.phone||null, u.department||'', u.week_off||'', u.extra_off||'']);
       added++;
     }
     res.json({ success: true, added, skipped, errors });
