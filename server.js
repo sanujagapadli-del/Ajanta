@@ -11145,7 +11145,8 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
         if (!o.otp_hash || hash !== o.otp_hash) return fail('Wrong OTP — check with the customer');
         if (!+o.fresh) return fail('OTP expired — send a new one');
         how = 'OTP verified';
-      } else if (acc.isAdmin && b.withoutOtp && receiver) {
+      } else if (acc.isAdmin && b.withoutOtp) {
+        if (!receiver) return fail('Bina OTP close karne ke liye Receiver Name likhein');
         how = 'Without OTP (admin)';
       } else return fail('Enter the OTP from the customer');
       await db.query('UPDATE replacements SET delivered_at=NOW(), delivered_by=?, receiver_name=?, charges_received=?, handover_remark=?, otp_hash=NULL WHERE id=?',

@@ -24351,6 +24351,10 @@ async function submitReplAction(id, action, btnEl, preset) {
     if (!body.newItem) return stepErr('Stock se diya naya item likho (e.g. Cooler pump 36W — 1 pc)', 'item');
     if (!body.oldInBin && !body.oldToStock) return stepErr('Purana pc kahan gaya: Reject Bin ya stock me rakha — ek tick lagao', 'bin');
   }
+  if (action === 'handover' && !body.otp) {
+    if (body.withoutOtp && !body.receiverName) return stepErr('Bina OTP close karne ke liye Receiver Name likhein', 'recv');
+    if (!body.withoutOtp) return stepErr('Customer se OTP lekar daalein', 'otp');
+  }
   const orig = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }
   const r = await api(`/api/replacement-fms/${id}/action/${action}`, 'PUT', body);
