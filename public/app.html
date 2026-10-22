@@ -20251,25 +20251,28 @@ function openVrlDetail(id) {
       ${c.remark ? `<div>${esc(c.remark)}</div>` : ''}${c.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(c.cancelReason)}</div>` : ''}</div>
     ${c.photoUrl ? `<div style="margin-bottom:10px">${linkOrText(c.photoUrl, '📷 Photo')}</div>` : ''}
     ${vrlFlowHtml(c)}
-    <table style="font-size:12.5px;margin-bottom:12px"><thead><tr><th>Item</th><th>Sent</th><th>New</th><th>Repaired</th><th>Credit</th><th>Pending</th>${open ? '<th>Receive now</th>' : ''}</tr></thead><tbody>
+    <table style="font-size:12.5px;margin-bottom:12px"><thead><tr><th>Item</th><th>Sent</th><th>New</th><th>Repaired</th><th>Credit</th><th>Pending</th></tr></thead><tbody>
     ${c.lines.map((l, li) => `<tr><td><b>${li + 1}.</b> ${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}${l.defect ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.defect)}</div>` : ''}${l.rate ? `<div style="font-size:11px;color:var(--gray-500)">@ ${vrlInr(l.rate)} (${esc(vrlBasisLabel(l))}) · <b>${vrlInr(l.total)}</b>${l.gst ? ` <span title="Taxable + GST">(${vrlInr(l.taxable)} + ${vrlInr(l.gst)})</span>` : ''}</div>` : ''}</td>
       <td>${l.qty}</td><td>${l.got.new || ''}</td><td>${l.got.repaired || ''}</td><td>${l.got.credit || ''}${l.creditAmount ? `<div style="font-size:11px">${inr(l.creditAmount)}</div>` : ''}</td>
-      <td style="font-weight:800;${l.pending ? 'color:var(--color-danger)' : 'color:var(--color-success)'}">${l.pending || '✓'}</td>
-      ${open ? `<td style="min-width:200px">${l.pending ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">
-        ${['new', 'repaired', 'credit'].map(k => `<input type="number" min="0" max="${l.pending}" placeholder="${k === 'new' ? 'New' : k === 'repaired' ? 'Repaired' : 'Credit'}" class="vrl-set" data-line="${l.id}" data-kind="${k}" style="${VRL_IN};padding:6px"/>`).join('')}</div>` : ''}</td>` : ''}</tr>`).join('')}
+      <td style="font-weight:800;${l.pending ? 'color:var(--color-danger)' : 'color:var(--color-success)'}">${l.pending || '✓'}</td></tr>`).join('')}
     </tbody></table>
     ${c.value ? `<div style="font-size:13px;text-align:right;margin:-4px 0 12px">Taxable ${vrlInr(c.taxable)} + GST ${vrlInr(c.gst)} = <b style="font-size:15px">Total ${vrlInr(c.value)}</b></div>` : ''}
-    ${vrlVideosHtml(c)}
     ${open ? `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
       <div style="font-weight:700;font-size:13px;margin-bottom:8px">📥 2 · Maal aaya (New / Repaired) ya Credit Note — advance mein aaya ho to bhi yahin</div>
+      <div style="font-size:12px;font-weight:700;margin-bottom:4px">Kitne pcs aaye? <span style="font-weight:400;color:var(--gray-500)">— har item ke aage qty likhein: naya maal / repair hokar / credit note</span></div>
+      <div style="overflow-x:auto;margin-bottom:10px"><table style="font-size:12.5px;min-width:420px"><thead><tr><th>Item</th><th style="text-align:center">Pending</th><th style="text-align:center">🆕 New pcs</th><th style="text-align:center">🔧 Repaired pcs</th><th style="text-align:center">🧾 Credit pcs</th></tr></thead><tbody>
+        ${c.lines.filter(l => l.pending).map(l => `<tr><td>${esc(l.itemName)}${l.serialNo ? ` <span style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</span>` : ''}</td><td style="text-align:center;font-weight:800;color:var(--color-danger)">${l.pending}</td>
+          ${['new', 'repaired', 'credit'].map(k => `<td><input type="number" min="0" max="${l.pending}" placeholder="0" class="vrl-set" data-line="${l.id}" data-kind="${k}" inputmode="numeric" style="${VRL_IN};padding:6px;text-align:center;min-width:70px"/></td>`).join('')}</tr>`).join('')}
+      </tbody></table></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
         <div><label style="font-size:11.5px">Date</label><input id="vrlSetDate" type="date" value="${stockTodayYmd()}" style="${VRL_IN}"/></div>
-        <div><label style="font-size:11.5px">Credit Note No.</label><input id="vrlCnNo" style="${VRL_IN}"/></div>
-        <div><label style="font-size:11.5px">Credit Note ₹</label><input id="vrlCnAmt" type="number" min="0" style="${VRL_IN}"/></div></div>
+        <div><label style="font-size:11.5px">Credit Note No. <span style="color:var(--gray-400)">(credit ho to)</span></label><input id="vrlCnNo" style="${VRL_IN}"/></div>
+        <div><label style="font-size:11.5px">Credit Note ₹ <span style="color:var(--gray-400)">(credit ho to)</span></label><input id="vrlCnAmt" type="number" min="0" style="${VRL_IN}"/></div></div>
       <input id="vrlSetRemark" placeholder="Remark" style="${VRL_IN};margin-bottom:8px"/>
       <label style="font-size:11.5px">Photo / Credit Note PDF</label>
       <input type="file" id="vrlSetPhoto" accept="image/*,application/pdf" onchange="onChequePhotoSelected(this,'vrlSetPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlSetPv" style="font-size:12px;margin-bottom:8px"></div>
       <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveVrlSettle(${c.id},this)">✓ Save receipt</button></div>` : ''}
+    ${vrlVideosHtml(c)}
     ${c.lines.some(l => (l.vendorUpdates || []).length) ? `<div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;margin:6px 0">Vendor ne bataya (Vendor Portal)</div>
       ${c.lines.flatMap(l => (l.vendorUpdates || []).map(x => ({ ...x, item: l.itemName }))).map(x => `<div style="font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
         🏭 <b>${esc(x.status)}</b> · ${esc(x.item)}${x.qty != null ? ' × ' + x.qty : ''}${x.cnNo ? ' · CN ' + esc(x.cnNo) : ''}${x.date ? ' · ' + esc(fmtDateDMY(x.date)) : ''}${x.remark ? ' · ' + esc(x.remark) : ''}
