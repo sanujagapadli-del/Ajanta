@@ -11895,7 +11895,7 @@ app.get('/api/call-reports', requireAuth, async (req, res) => {
         GROUP BY u.id, u.name HAVING MAX(COALESCE(c.call_at, c.created_at)) < CURDATE()`);
       [unmapped] = await db.query('SELECT drive_name, COUNT(*) AS n FROM call_recordings WHERE salesman_user_id IS NULL GROUP BY drive_name');
     }
-    res.json({ from, to, today, seesAll: all, calls, silent: to === today ? silent : [], unmapped, types: CALL_TYPES });
+    res.json({ from, to, today, seesAll: all, canDelete: await callCanDelete(req), calls, silent: to === today ? silent : [], unmapped, types: CALL_TYPES });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -11919,6 +11919,28 @@ app.get('/api/call-reports/:id', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 // Link (or unlink) the dealer of a call by hand — later script re-runs keep it.
+// Delete a call (client, 2026-10-22): admin / owners (Vishal, Ajay) only — a
+// salesman must not be able to hide his own calls. The text goes, the audio
+// goes to Drive's trash (30 days), and the upload record goes so the same
+// file can be sent again if needed.
+async function callCanDelete(req) {
+  return req.session.role === 'admin' || await plIsViewer(req);
+}
+app.delete('/api/call-reports/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await callCanDelete(req))) return res.status(403).json({ error: 'Call delete sirf Admin / owner kar sakte hain' });
+    const [[c]] = await withCallTable(() => db.query('SELECT id, file_id, file_name, salesman_user_id FROM call_recordings WHERE id=?', [req.params.id]));
+    if (!c) return res.status(404).json({ error: 'Call not found' });
+    let audioLeft = false;
+    if (c.file_id) {
+      try { await (await getDriveClient()).files.update({ fileId: c.file_id, supportsAllDrives: true, requestBody: { trashed: true } }); }
+      catch (e) { audioLeft = e.code !== 404; }   // e.g. a file the service account may not trash
+    }
+    await db.query('DELETE FROM call_recordings WHERE id=?', [c.id]);
+    if (c.salesman_user_id) await db.query('DELETE FROM call_uploads WHERE user_id=? AND file_name=?', [c.salesman_user_id, c.file_name]);
+    res.json({ success: true, audioLeft });
+  } catch (err) { sendServerError(res, err); }
+});
 app.put('/api/call-reports/:id/dealer', requireAuth, async (req, res) => {
   try {
     const chk = await callRowForUser(req, req.params.id);

@@ -22846,6 +22846,7 @@ function crCardHtml(c) {
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
       ${c.transcript_len ? `<button class="btn btn-outline btn-sm" onclick="openCallTranscript(${c.id})">📄 Poori baat (text)</button>` : ''}
       ${c.audio_url ? `<a class="btn btn-outline btn-sm" href="${esc(c.audio_url)}" target="_blank" rel="noopener">▶ Recording suno</a>` : ''}
+      ${crData.canDelete ? `<button class="btn btn-outline btn-sm" style="margin-left:auto;color:var(--color-danger)" onclick="deleteCallRec(${c.id})" title="Ye call delete karo">🗑 Delete</button>` : ''}
     </div></div>`;
 }
 function renderCallReports() {
@@ -22923,6 +22924,15 @@ async function openCallDealer(id) {
       ${c.dealer_name ? `<button class="btn btn-outline" onclick="saveCallDealer(${id}, true)">Hatao</button>` : ''}
       <button class="btn btn-primary" onclick="saveCallDealer(${id})">Save</button></div>`;
   document.getElementById('crDealerInput').focus();
+}
+async function deleteCallRec(id) {
+  const c = crData && crData.calls.find(x => x.id === id);
+  if (!c || !confirm(`Ye call delete karein?\n\n${c.call_at || ''} · ${c.dealer_name || c.contact_name || c.phone || c.file_name}\n\nText hat jayega aur recording Drive ke trash me chali jayegi (30 din tak wapas la sakte ho).`)) return;
+  const r = await api(`/api/call-reports/${id}`, 'DELETE');
+  if (!r || !r.success) { showToast((r && r.error) || 'Delete failed', 'error'); return; }
+  crData.calls = crData.calls.filter(x => x.id !== id);
+  showToast(r.audioLeft ? 'Call delete ho gayi (recording Drive me reh gayi)' : 'Call delete ho gayi');
+  renderCallReports();
 }
 async function saveCallDealer(id, clear) {
   const dealer = clear ? '' : document.getElementById('crDealerInput').value.trim();
