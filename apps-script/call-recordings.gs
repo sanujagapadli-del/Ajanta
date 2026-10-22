@@ -11,8 +11,13 @@
  *   b) otherwise: one Shared Drive per salesman named "Calls - <name>".
  * The sub-folder / drive name is the salesman (ERP matches it to the user by
  * name; ⚙️ Setup can map it by hand). Every 10 minutes:
- *   new recording → Groq Whisper (text) → Claude Haiku (summary)
+ *   new recording → speech-to-text → Claude Haiku (summary)
  *   → POST to the ERP in small batches → file marked done (appProperties).
+ * Speech-to-text: Sarvam (SARVAM_KEY set) or Groq Whisper (GROQ_KEY).
+ *   Sarvam's instant API only takes 30 s of audio, so calls go through its
+ *   Batch API: one run sends up to 20 files as a job (files marked erp=job),
+ *   a later run collects the text when the job is done (job kept in Script
+ *   Properties as SJOB_<id>). Groq answers in the same run.
  * Files are never moved, so the phone never uploads them again; the ERP also
  * tells us which names it already has, so nothing is paid for twice.
  *
@@ -21,7 +26,8 @@
  *     Paste this file and appsscript.json (Project Settings → "Show
  *     appsscript.json manifest file in editor").
  *  2. Project Settings → Script Properties:
- *       GROQ_KEY    console.groq.com API key
+ *       SARVAM_KEY  dashboard.sarvam.ai API key  — OR —
+ *       GROQ_KEY    console.groq.com API key (used when SARVAM_KEY is empty)
  *       CLAUDE_KEY  platform.claude.com API key
  *       ERP_KEY     from ERP → Call Reports → ⚙️ Setup → Key banao
  *       ERP_URL     https://ajanta-erp.vercel.app   (optional, this is the default)
@@ -29,7 +35,8 @@
  *                   drive.google.com/drive/folders/<id>) — layout (a); leave
  *                   empty for layout (b)
  *     Optional: DRIVE_PREFIX ("Calls - "), KEEP_DAYS (60), LANGUAGE ("hi"),
- *               GROQ_MODEL ("whisper-large-v3-turbo"), CLAUDE_MODEL ("claude-haiku-5-5")
+ *               GROQ_MODEL ("whisper-large-v3-turbo"), CLAUDE_MODEL ("claude-haiku-5-5"),
+ *               SARVAM_MODEL ("saaras:v4"), SARVAM_LANGUAGE ("hi-IN"; "unknown" = auto)
  *  3. Run checkSetup() once (approve the permissions) and read the log.
  *  4. Run installTriggers() once.
  */
@@ -51,7 +58,9 @@ function processCalls() {
   const timeLeft = () => Date.now() - started < RUN_BUDGET_MS;
   let pending = [], stop = false, done = 0;
   try {
-    for (const d of listSources_()) {
+    if (useSarvam_()) {
+      done += sarvamCycle_(timeLeft);
+    } else for (const d of listSources_()) {
       if (stop || !timeLeft()) break;
       const files = listNewRecordings_(d);
       if (!files.length) continue;
@@ -102,12 +111,31 @@ function retrySummaries_(timeLeft) {
   return fixed.length;
 }
 
-function processOne_(drive, f) {
+// The call row for a file, before any text: salesman, time, number, contact.
+function baseCall_(drive, f) {
   // Uploaded from the ERP: properties carry the salesman's user id and the
   // file's time on the phone (≈ when the call was recorded).
   const ap = f.properties || {};
   const meta = parseFileName_(f.name, ap.recordedAt || f.createdTime);
-  const call = { drive, userId: Number(ap.erpUser) || null, fileName: f.name, fileId: f.id, audioUrl: f.webViewLink || '', callAt: meta.callAt, phone: meta.phone, contactName: meta.contact };
+  const call = { drive, userId: Number(ap.erpUser) || null, fileName: f.name, fileId: f.id,
+    audioUrl: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, callAt: meta.callAt, phone: meta.phone, contactName: meta.contact };
+  return { call, meta };
+}
+// Text is in call.transcript → add the Claude summary (or the reason there is none).
+function addSummary_(call, meta) {
+  call.transcript = String(call.transcript || '').trim();
+  if (call.transcript.length < 15) {
+    call.summary = { type: 'Other', summary: 'Bahut chhoti call — koi baat record nahi hui' };
+    return call;
+  }
+  if (!cfg('CLAUDE_KEY')) { call.error = 'Summary nahi bani: CLAUDE_KEY abhi set nahi hai (key daalte hi apne-aap ban jayegi)'; return call; }
+  try { call.summary = claudeSummary_(call, meta); }
+  catch (e) { call.error = 'Summary nahi bani: ' + e.message; }
+  return call;
+}
+
+function processOne_(drive, f) {
+  const { call, meta } = baseCall_(drive, f);
   if (!GROQ_OK_RX.test(f.name)) { call.error = 'Ye recording format (' + f.name.split('.').pop() + ') text me nahi badalta — phone recorder ko m4a / mp3 pe set karo'; return call; }
   if (Number(f.size) > MAX_BYTES) { call.error = 'Recording 24 MB se badi hai'; return call; }
   const blob = DriveApp.getFileById(f.id).getBlob().setName(f.name);
@@ -118,16 +146,110 @@ function processOne_(drive, f) {
     call.error = e.message.slice(0, 500);
     return call;
   }
-  call.transcript = String(tr.text || '').trim();
+  call.transcript = tr.text;
   call.durationSec = Math.round(Number(tr.duration) || 0);
-  if (call.transcript.length < 15) {
-    call.summary = { type: 'Other', summary: 'Bahut chhoti call — koi baat record nahi hui' };
-    return call;
+  return addSummary_(call, meta);
+}
+
+// ── Sarvam (Batch API) ───────────────────────────────────────────────────
+const SARVAM_MAX_BYTES = 45 * 1024 * 1024;   // UrlFetch payload limit is 50 MB
+const SARVAM_KEYTERMS = ['Ajanta', 'geyser', 'dealer', 'order', 'payment', 'bill', 'rate', 'stock', 'cheque', 'heater', 'fan', 'mixer'];
+const useSarvam_ = () => !!cfg('SARVAM_KEY');
+function sarvamApi_(method, path, body) {
+  const opts = { method, headers: { 'api-subscription-key': cfg('SARVAM_KEY') } };
+  if (body) { opts.contentType = 'application/json'; opts.payload = JSON.stringify(body); }
+  return JSON.parse(fetch_('Sarvam', 'https://api.sarvam.ai' + path, opts).getContentText() || '{}');
+}
+function setErpMark_(fileId, value) {   // value null = not sent anywhere yet
+  Drive.Files.update({ appProperties: { erp: value } }, fileId, null, { supportsAllDrives: true });
+}
+function sarvamCycle_(timeLeft) {
+  let done = 0, started = 0;
+  // 1) Collect jobs sent in earlier runs.
+  CFG.getKeys().filter(k => k.indexOf('SJOB_') === 0).forEach(k => {
+    if (timeLeft()) {
+      try { done += sarvamCollect_(k); }
+      catch (e) { console.warn(`${k}: ${e.message}`); }
+    }
+  });
+  // 2) Send new recordings as jobs of up to 20 (max 3 jobs a run).
+  for (const d of listSources_()) {
+    if (!timeLeft() || started >= 3) break;
+    let files = listNewRecordings_(d);
+    if (!files.length) continue;
+    const known = erpPost_('/api/calls/known', { drive: d.name, names: files.map(f => f.name) }).known || [];
+    const big = [];
+    files = files.filter(f => {
+      if (known.indexOf(f.name) >= 0) { markDone_(f.id); return false; }
+      if (Number(f.size) > SARVAM_MAX_BYTES) { big.push({ id: f.id, call: Object.assign(baseCall_(d.name, f).call, { error: 'Recording 45 MB se badi hai' }) }); return false; }
+      return true;
+    });
+    if (big.length) done += flush_(big);
+    for (let i = 0; i < files.length && timeLeft() && started < 3; i += 20) {
+      try { sarvamStart_(d.name, files.slice(i, i + 20)); started++; }
+      catch (e) { console.warn(`Sarvam job for ${d.name}: ${e.message}`); if (e.code === 429 || e.code === 401 || e.code === 403) return done; }
+    }
   }
-  if (!cfg('CLAUDE_KEY')) { call.error = 'Summary nahi bani: CLAUDE_KEY abhi set nahi hai (key daalte hi apne-aap ban jayegi)'; return call; }
-  try { call.summary = claudeSummary_(call, meta); }
-  catch (e) { call.error = 'Summary nahi bani: ' + e.message; }
-  return call;
+  return done;
+}
+function sarvamStart_(drive, files) {
+  const params = { model: cfg('SARVAM_MODEL', 'saaras:v4'), language_code: cfg('SARVAM_LANGUAGE', 'hi-IN'), with_timestamps: true };
+  let job;
+  try { job = sarvamApi_('post', '/speech-to-text/job/v1', { job_parameters: Object.assign({ keyterms: SARVAM_KEYTERMS }, params) }); }
+  catch (e) { if (e.code !== 422 && e.code !== 400) throw e; job = sarvamApi_('post', '/speech-to-text/job/v1', { job_parameters: params }); }
+  // Plain names on Sarvam's side ("0.m4a"…); the real names stay in our job record.
+  const names = files.map((f, i) => `${i}.${(String(f.name).split('.').pop() || 'm4a').toLowerCase()}`);
+  const up = sarvamApi_('post', '/speech-to-text/job/v1/upload-files', { job_id: job.job_id, files: names });
+  files.forEach((f, i) => {
+    const blob = DriveApp.getFileById(f.id).getBlob();
+    fetch_('Sarvam upload', up.upload_urls[names[i]].file_url, {
+      method: 'put', contentType: blob.getContentType() || 'application/octet-stream', headers: { 'x-ms-blob-type': 'BlockBlob' }, payload: blob.getBytes()
+    });
+  });
+  sarvamApi_('post', `/speech-to-text/job/v1/${job.job_id}/start`);
+  CFG.setProperty('SJOB_' + job.job_id, JSON.stringify({ at: Date.now(), drive,
+    files: files.map((f, i) => ({ n: names[i], id: f.id, name: f.name, ct: f.createdTime, p: f.properties || {} })) }));
+  files.forEach(f => setErpMark_(f.id, 'job'));
+  console.log(`Sarvam job ${job.job_id}: ${files.length} recording(s) of ${drive}`);
+}
+function sarvamCollect_(key) {
+  const jobId = key.slice(5), st = JSON.parse(CFG.getProperty(key));
+  const ageH = (Date.now() - st.at) / 3600000;
+  const s = sarvamApi_('get', `/speech-to-text/job/v1/${jobId}/status`);
+  if (['Accepted', 'Pending', 'Running'].indexOf(s.job_state) >= 0) {
+    if (ageH < 6) return 0;               // still working — look again next run
+    st.files.forEach(f => setErpMark_(f.id, null));   // stuck: send these again
+    CFG.deleteProperty(key);
+    return 0;
+  }
+  const outByIn = {}, errByIn = {};
+  (s.job_details || []).forEach(dt => {
+    const inName = dt.inputs && dt.inputs[0] && dt.inputs[0].file_name;
+    if (!inName) return;
+    if (dt.state === 'Success' && dt.outputs && dt.outputs[0]) outByIn[inName] = dt.outputs[0].file_name;
+    else errByIn[inName] = dt.error_message || dt.state || 'failed';
+  });
+  const outs = Object.keys(outByIn).map(k => outByIn[k]);
+  const urls = outs.length ? (sarvamApi_('post', '/speech-to-text/job/v1/download-files', { job_id: jobId, files: outs }).download_urls || {}) : {};
+  let items = [], done = 0;
+  st.files.forEach(f => {
+    const { call, meta } = baseCall_(st.drive, { id: f.id, name: f.name, createdTime: f.ct, properties: f.p });
+    const out = outByIn[f.n];
+    if (out && urls[out]) {
+      const r = JSON.parse(fetch_('Sarvam download', urls[out].file_url, { method: 'get' }).getContentText());
+      call.transcript = r.transcript;
+      const ends = (r.timestamps && r.timestamps.end_time_seconds) || [];
+      call.durationSec = Math.round(ends.length ? Math.max.apply(null, ends) : 0);
+      addSummary_(call, meta);
+    } else {
+      call.error = 'Text nahi bana (Sarvam): ' + String(errByIn[f.n] || s.job_state).slice(0, 300);
+    }
+    items.push({ id: f.id, call });
+    if (items.length >= BATCH) { done += flush_(items); items = []; }
+  });
+  if (items.length) done += flush_(items);
+  CFG.deleteProperty(key);
+  return done;
 }
 
 // Send a batch; mark files done only after the ERP saved them.
@@ -176,9 +298,10 @@ function listNewRecordings_(src) {
     const r = Drive.Files.list(Object.assign(scope_(src.driveId), {
       pageSize: 200, pageToken: token,
       q: "trashed=false and mimeType!='application/vnd.google-apps.folder' and not appProperties has { key='erp' and value='done' }" + inSource_(src),
-      orderBy: 'createdTime', fields: 'nextPageToken, files(id, name, size, createdTime, webViewLink, properties)'
+      orderBy: 'createdTime', fields: 'nextPageToken, files(id, name, size, createdTime, webViewLink, properties, appProperties)'
     }));
-    (r.files || []).forEach(f => { if (AUDIO_RX.test(f.name)) out.push(f); });
+    // erp=job: already with Sarvam, waiting for its text.
+    (r.files || []).forEach(f => { if (AUDIO_RX.test(f.name) && !(f.appProperties && f.appProperties.erp)) out.push(f); });
     token = r.nextPageToken;
   } while (token && out.length < 300);
   return out;
@@ -316,7 +439,13 @@ function cleanupOldAudio() {
 
 // ── One-time helpers ─────────────────────────────────────────────────────
 function checkSetup() {
-  ['GROQ_KEY', 'CLAUDE_KEY', 'ERP_KEY'].forEach(k => console.log(`${k}: ${cfg(k) ? 'set' : 'MISSING'}`));
+  ['SARVAM_KEY', 'GROQ_KEY', 'CLAUDE_KEY', 'ERP_KEY'].forEach(k => console.log(`${k}: ${cfg(k) ? 'set' : 'MISSING'}`));
+  console.log(`Speech-to-text: ${useSarvam_() ? 'Sarvam (' + cfg('SARVAM_MODEL', 'saaras:v4') + ', batch — text comes ~1 run later)' : 'Groq (' + cfg('GROQ_MODEL', 'whisper-large-v3-turbo') + ')'}`);
+  if (useSarvam_()) {
+    try { const j = sarvamApi_('post', '/speech-to-text/job/v1', { job_parameters: { model: cfg('SARVAM_MODEL', 'saaras:v4'), language_code: cfg('SARVAM_LANGUAGE', 'hi-IN') } }); console.log('Sarvam: key OK (test job ' + j.job_id + ' created, never started — costs nothing)'); }
+    catch (e) { console.log('Sarvam: ' + e.message); }
+  }
+  console.log(`Sarvam jobs waiting: ${CFG.getKeys().filter(k => k.indexOf('SJOB_') === 0).length}`);
   const rootId = cfg('CALLS_FOLDER_ID');
   const srcs = listSources_();
   console.log(rootId ? `Salesman folders in CALLS_FOLDER_ID (${srcs.length}): ${srcs.map(d => d.name).join(', ') || 'none — make one sub-folder per salesman'}`
