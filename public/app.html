@@ -4488,6 +4488,7 @@ async function init() {
     loadApprovalBadge();
     loadTransferBadge();
     loadLeaveBadge();
+    setTimeout(onbResumeAfterReload, 2500); // phone reloaded mid onboarding form (camera) → reopen it with what was filled
     // Background refresh — only while the tab is actually on screen. Every
     // dashboard load reads several FMS sheets on the server, and office PCs
     // keep the app open all day; polling every 30s used up Vercel's monthly
@@ -14260,6 +14261,7 @@ function renderDealerGrid() {
           <option value="onb" ${o2dDealerOnbFilter === 'onb' ? 'selected' : ''}>🏪 Onboarding form bhara</option>
           <option value="noonb" ${o2dDealerOnbFilter === 'noonb' ? 'selected' : ''}>Form nahi bhara</option>
         </select>
+        <button class="btn btn-outline" onclick="openOnboardingList()">📋 Onboarding forms</button>
         <button class="btn btn-green" onclick="openDealerOnboardModal()">+ New Dealer (Onboarding form)</button>
       </div>
       <div id="dealerGridResults"></div>
@@ -22102,9 +22104,82 @@ async function onOnbPhotoSelected(input, previewId) {
     if (dataUrl.length > 500000) dataUrl = await compressImageToDataURL(file, 900, 0.5);
     input.dataset.compressed = dataUrl;
     preview.innerHTML = `<img src="${dataUrl}" style="width:100%;height:70px;object-fit:cover;border-radius:8px;margin-top:4px"/>`;
+    onbSaveDraft();
   } catch (e) { preview.textContent = '⚠️ image error'; }
 }
-async function openDealerOnboardModal(leadId) {
+
+// Draft of the onboarding form (client 2026-10-23: "form refresh ho jata hai,
+// sab detail gayab"). On phones the browser often reloads the page while the
+// camera is open for one of the 9 photos — so every field and photo is kept
+// in IndexedDB (photos are too big for localStorage) and brought back.
+const ONB_DRAFT_MAX_AGE_MS = 24 * 3600 * 1000;
+function onbDraftStore(mode, fn) {
+  return new Promise(resolve => {
+    try {
+      const rq = indexedDB.open('ajanta-drafts', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('drafts');
+      rq.onerror = () => resolve(null);
+      rq.onsuccess = () => {
+        try {
+          const tx = rq.result.transaction('drafts', mode);
+          const r = fn(tx.objectStore('drafts'));
+          tx.oncomplete = () => resolve(r && 'result' in r ? r.result : null);
+          tx.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+      };
+    } catch (e) { resolve(null); }
+  });
+}
+let _onbDraftTimer = null;
+function onbSaveDraft() {
+  clearTimeout(_onbDraftTimer);
+  _onbDraftTimer = setTimeout(() => {
+    const body = document.getElementById('onbBody');
+    if (!body || !document.getElementById('dealerOnboardModal').classList.contains('open')) return;
+    const fields = {}, photos = {};
+    body.querySelectorAll('input[id^="onb_"], select[id^="onb_"], textarea[id^="onb_"]').forEach(el => {
+      if (el.type === 'file') { if (el.dataset.compressed) photos[el.id] = el.dataset.compressed; }
+      else if (el.type === 'checkbox') fields[el.id] = el.checked;
+      else fields[el.id] = el.value;
+    });
+    const loc = document.getElementById('onb_locBtn');
+    const draft = { at: Date.now(), fields, photos, loc: loc ? { lat: loc.dataset.lat, lng: loc.dataset.lng } : null };
+    onbDraftStore('readwrite', st => st.put(draft, 'dealerOnboarding'));
+  }, 400);
+}
+const onbClearDraft = () => onbDraftStore('readwrite', st => st.delete('dealerOnboarding'));
+const onbLoadDraft = async () => {
+  const d = await onbDraftStore('readonly', st => st.get('dealerOnboarding'));
+  return d && Date.now() - d.at < ONB_DRAFT_MAX_AGE_MS && (Object.keys(d.photos || {}).length || Object.entries(d.fields || {}).some(([k, v]) => typeof v === 'string' && k !== 'onb_leadId' && v.trim())) ? d : null;
+};
+function onbApplyDraft(d) {
+  Object.entries(d.fields || {}).forEach(([id, v]) => { const el = document.getElementById(id); if (!el) return; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; });
+  Object.entries(d.photos || {}).forEach(([id, url]) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.dataset.compressed = url;
+    const pv = document.getElementById(id + '_pv');
+    if (pv) pv.innerHTML = `<img src="${url}" style="width:100%;height:70px;object-fit:cover;border-radius:8px;margin-top:4px"/>`;
+  });
+  if (d.loc && d.loc.lat) {
+    const btn = document.querySelector('#onbBody button[onclick^="onbCaptureLocation"]');
+    if (btn) { btn.id = 'onb_locBtn'; btn.dataset.lat = d.loc.lat; btn.dataset.lng = d.loc.lng; btn.textContent = '📍 Location li gayi'; }
+    const t = document.getElementById('onb_locText'); if (t) t.textContent = `${Number(d.loc.lat).toFixed(5)}, ${Number(d.loc.lng).toFixed(5)}`;
+  }
+}
+function onbDiscardDraft() {
+  onbClearDraft();
+  const lead = document.getElementById('onb_leadId');
+  openDealerOnboardModal(lead && lead.value ? Number(lead.value) : null, true);
+}
+// After a reload with a half-filled form: open it again by itself.
+async function onbResumeAfterReload() {
+  const d = await onbLoadDraft();
+  if (!d) return;
+  const leadId = d.fields && d.fields.onb_leadId ? Number(d.fields.onb_leadId) : null;
+  if (leadId && !(typeof leadData !== 'undefined' && Array.isArray(leadData) && leadData.some(x => x.id === leadId))) return; // resumes when opened from the lead
+  openDealerOnboardModal(leadId);
+}
+async function openDealerOnboardModal(leadId, fresh) {
   const l = leadId ? leadData.find(x => x.id === leadId) : null;
   let firmTypes = ['Proprietorship', 'Partnership', 'Pvt Ltd', 'LLP', 'Other'];
   const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
@@ -22172,6 +22247,15 @@ async function openDealerOnboardModal(leadId) {
     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px"><input type="checkbox" id="onb_welcome" checked/> Dealer ko WhatsApp par welcome kit bhejo (service number, warranty chart, T&amp;C, bank details, QR, catalogue)</label>
     <button class="btn btn-green" id="onbSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerOnboarding()">Submit Dealer</button>`;
   document.getElementById('dealerOnboardModal').classList.add('open');
+  const bodyEl = document.getElementById('onbBody');
+  bodyEl.oninput = bodyEl.onchange = onbSaveDraft;
+  const d = fresh ? null : await onbLoadDraft();
+  if (d && String((d.fields || {}).onb_leadId || '') === String(l ? l.id : '')) {
+    onbApplyDraft(d);
+    bodyEl.insertAdjacentHTML('afterbegin', `<div id="onbDraftNote" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-radius:10px;background:var(--color-success-bg);color:var(--color-success-text);font-size:12.5px;margin-bottom:10px">
+      ↩️ Pehle bhara hua form wapas aa gaya (${Object.keys(d.photos || {}).length} photo) — aage bhariye.
+      <a href="#" onclick="onbDiscardDraft();return false" style="margin-left:auto;font-weight:700">Naya form shuru karo</a></div>`);
+  }
 }
 function onbCaptureLocation(btn) {
   if (!navigator.geolocation) { showToast('Location not supported on this device', 'error'); return; }
@@ -22208,6 +22292,7 @@ async function submitDealerOnboarding() {
   const r = await api('/api/dealer-onboarding', 'POST', body);
   btn.disabled = false; btn.textContent = 'Submit Dealer';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); return; }
+  onbClearDraft();
   closeModal('dealerOnboardModal');
   showToast(`✅ ${r.code} — ${body.shopName} onboarded (O2D → Dealers)${r.welcome === 'sending' ? ' · welcome kit WhatsApp par ja raha hai' : ''}`);
   if (document.getElementById('page-lead-fms').classList.contains('active')) loadLeadFmsList();
@@ -22236,8 +22321,51 @@ async function openOnboardDetail(id) {
       ${f('Welcome kit', /^FAILED:/.test(o.welcomeNote || '') ? `<span style="color:var(--color-danger-text,#c00)">❌ Nahi gaya — ${esc(o.welcomeNote.slice(7).trim())}</span>` : o.welcomeSentAt ? `✅ ${fmtDateDMY(String(o.welcomeSentAt), true)}${o.welcomeNote ? ' · ' + esc(o.welcomeNote) : ''}` : 'Not sent')}
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px">${pics.map(([t, u]) => `<div><div style="${CHQ_LABEL}">${t}</div>${chqPhotoHtml(u, 140)}</div>`).join('')}</div>
-    <button class="btn btn-outline" onclick="resendDealerWelcome(${o.id},this)">💬 Welcome kit dobara bhejo</button>`;
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-outline" onclick="resendDealerWelcome(${o.id},this)">💬 Welcome kit dobara bhejo</button>
+      ${ME.role === 'admin' ? `<button class="btn btn-outline" style="margin-left:auto;color:var(--color-danger);border-color:var(--color-danger)" onclick="deleteOnboarding(${o.id},'${jsArg(o.code + ' · ' + o.shopName)}')">🗑 Delete</button>` : ''}
+    </div>`;
   document.getElementById('onbDetailModal').classList.add('open');
+}
+function deleteOnboarding(id, label) {
+  showConfirm({ icon: '🗑️', title: `Delete ${label}?`, okLabel: 'Delete', msg: 'Onboarding form hamesha ke liye hat jayega.' }, async () => {
+    const alsoDealer = (document.getElementById('onbDelDealer') || {}).checked;
+    const r = await api(`/api/dealer-onboarding/${id}${alsoDealer ? '?dealer=1' : ''}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    closeModal('onbDetailModal');
+    showToast(`🗑 Delete ho gaya${r.dealer === 'deleted' ? ' — Dealer Master se bhi hata' : r.dealer === 'has orders' ? ' — dealer ke O2D order hain, isliye Dealer Master me rakha' : ''}`);
+    const lm = document.getElementById('onbListModal');
+    if (lm && lm.classList.contains('open')) openOnboardingList();
+    if (o2dDealersLoaded) { await loadO2dDealers(true); refreshDealerViews(); }
+  });
+  document.getElementById('confirmMsg').insertAdjacentHTML('beforeend', '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;text-align:left"><input type="checkbox" id="onbDelDealer" checked/> Dealer Master se ye dealer bhi hatao (sirf jab iska koi O2D order nahi hai)</label>');
+}
+
+// All onboarding forms in one list (client 2026-10-23: "bhari hui details /
+// photos baad me dekh sakein") — opened from Dealer Master.
+async function openOnboardingList() {
+  let m = document.getElementById('onbListModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'onbListModal';
+    m.innerHTML = `<div class="modal" style="max-width:860px;width:96vw;max-height:90vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">🏪 Dealer Onboarding forms</h3>
+        <button class="modal-close-x modal-close" onclick="closeModal('onbListModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div id="onbListBody" style="overflow-y:auto;flex:1"><div class="empty">Loading…</div></div></div>`;
+    document.body.appendChild(m);
+  }
+  m.classList.add('open');
+  const r = await api('/api/dealer-onboarding');
+  const body = document.getElementById('onbListBody');
+  if (!r || r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
+  const items = r.items || [];
+  if (!items.length) { body.innerHTML = '<div class="empty">Abhi koi onboarding form nahi bhara gaya</div>'; return; }
+  body.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Code</th><th>Dukaan</th><th>Malik / Mobile</th><th>City</th><th>Photos</th><th>Kisne bhara</th><th>Date</th></tr></thead><tbody>
+    ${items.map(o => { const n = [o.gstPhoto, o.outsidePhoto, o.aadhaarPhoto, o.chequePhoto, o.biltyPhoto, ...o.insidePhotos].filter(Boolean).length;
+      return `<tr onclick="openOnboardDetail(${o.id})" style="cursor:pointer"><td style="font-weight:700;white-space:nowrap">${esc(o.code)}</td><td style="font-weight:600">${esc(o.shopName)}</td>
+        <td>${esc(o.ownerName)}<div style="font-size:11px;color:var(--gray-500)">${esc(o.mobile)}</div></td><td>${esc([o.area, o.city].filter(Boolean).join(', ') || '—')}</td>
+        <td>📷 ${n}</td><td>${esc(o.createdByName || '—')}</td><td style="white-space:nowrap">${esc(fmtDateDMY(o.createdAt, true))}</td></tr>`; }).join('')}
+    </tbody></table></div>`;
 }
 async function resendDealerWelcome(id, btn) {
   btn.disabled = true;

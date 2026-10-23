@@ -14184,6 +14184,30 @@ app.post('/api/dealer-onboarding/:id/welcome', requireAuth, async (req, res) => 
   } catch (err) { sendServerError(res, err); }
 });
 
+// Admin removes a test / wrong onboarding (client 2026-10-23). ?dealer=1 also
+// drops the Dealer Master profile the form created — only while that dealer
+// has no O2D order, so a real dealer's record can't vanish with it.
+app.delete('/api/dealer-onboarding/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [[o]] = await withLeadTables(() => db.query('SELECT id, code, shop_name FROM dealer_onboardings WHERE id=?', [req.params.id]));
+    if (!o) return res.status(404).json({ error: 'Not found' });
+    let dealer = 'kept';
+    if (req.query.dealer === '1') {
+      const key = String(o.shop_name || '').trim().toLowerCase();
+      const orders = await getO2dOrders();
+      if (orders.some(x => String(x.counterName || '').trim().toLowerCase() === key)) dealer = 'has orders';
+      else {
+        const [d] = await withDealerTables(() => db.query('DELETE FROM o2d_dealers WHERE LOWER(TRIM(counter_name))=?', [key]));
+        dealer = d.affectedRows ? 'deleted' : 'kept';
+      }
+    }
+    await db.query('UPDATE leads SET onboarding_id=NULL WHERE onboarding_id=?', [o.id]);
+    await db.query('DELETE FROM dealer_onboardings WHERE id=?', [o.id]);
+    console.log(`dealer onboarding ${o.code} (${o.shop_name}) deleted by user ${req.session.userId}, dealer ${dealer}`);
+    res.json({ success: true, dealer });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // ══════════════════════════════════════════════════════
 // TASK TRANSFERS
 // ══════════════════════════════════════════════════════
