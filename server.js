@@ -7386,19 +7386,34 @@ async function _syncStockFromFms() {
     events.push({ ref: `o2d|${get('R')}`, direction: 'OUT', source: 'o2d', date, qty, rate,
       name: String(get('M') || ''), party: String(get('C') || ''), refNo: String(get('Q') || '') });
   });
+  const [existing] = await db.query('SELECT source_ref, quantity FROM ajanta_stock_transactions WHERE source_ref IS NOT NULL');
+  const seen = new Set(existing.map(r => r.source_ref));
+  // A PO line can arrive in parts (S = running total, step still open), so a
+  // line books what came beyond what it already booked: the first receipt
+  // under the line's own ref, each later one under `<ref>|+<running total>`.
+  const lineKey = ref => ref.split('|+')[0].slice(0, 170);
+  const bookedIn = {};
+  existing.forEach(r => {
+    if (!r.source_ref.startsWith('purchase|')) return;
+    const k = lineKey(r.source_ref);
+    bookedIn[k] = (bookedIn[k] || 0) + (Number(r.quantity) || 0);
+  });
   (purRes.data.values || []).forEach(r => {
     const get = col => r[colToIdx(col)];
-    if (!get('B') || !get(inStep.status) || String(get(inStep.status)) === 'No') return;
-    const date = stockSerialToYmd(get(inStep.actual));
+    const done = !!get(inStep.status);
+    if (!get('B') || String(get(inStep.status)) === 'No') return;
     const received = Number(get('S'));
-    const qty = received > 0 ? received : (Number(get('G')) || 0);
-    if (!date || date < fromDate || qty <= 0) return;
+    if (!done && !(received > 0)) return;
+    const date = stockSerialToYmd(get(inStep.actual));
+    const total = received > 0 ? received : (Number(get('G')) || 0);
+    if (!date || date < fromDate || total <= 0) return;
     const rate = parseFloat(String(get('H') == null ? '' : get('H')).replace(/[^\d.]/g, '')) || null; // PO Final Rate per unit
-    events.push({ ref: `purchase|${get('B')}|${get('D') || ''}|${stockNameKey(get('E'))}`.slice(0, 191), direction: 'IN', source: 'purchase', date, qty, rate,
+    const base = `purchase|${get('B')}|${get('D') || ''}|${stockNameKey(get('E'))}`.slice(0, 191);
+    const booked = bookedIn[lineKey(base)] || 0;
+    if (total <= booked) return;
+    events.push({ ref: booked ? `${base.slice(0, 170)}|+${total}` : base, direction: 'IN', source: 'purchase', date, qty: total - booked, rate,
       name: String(get('E') || ''), party: String(get('I') || ''), refNo: String(get('B') || '') });
   });
-  const [existing] = await db.query('SELECT source_ref FROM ajanta_stock_transactions WHERE source_ref IS NOT NULL');
-  const seen = new Set(existing.map(r => r.source_ref));
   const fresh = events.filter(e => !seen.has(e.ref));
   // Rate for lines booked before it was stored (O2D sale rate / PO Final Rate).
   const [noRate] = await db.query("SELECT source_ref FROM ajanta_stock_transactions WHERE source IN ('o2d','purchase') AND rate IS NULL");
@@ -9377,14 +9392,27 @@ async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
   });
   if (!targetRows.length) return { rowsUpdated: 0 };
 
+  // Material comes in parts (client 2026-10-23: PO 200, 104 aaye, "PO close?
+  // Nahi" — baaki 96 baad me). Received Qty is what came THIS time; it adds
+  // to the row's earlier receipts (S), and the step only completes — closing
+  // the PO — once everything ordered has come or "Force Full Closed" = Yes.
+  const cell = (rn, col) => keyRows[rn - PURCHASE_DATA_START_ROW][colToIdx(col) - bOffset];
+  const isReceive = stepNum === STOCK_PURCHASE_IN_STEP;
+  const forceClose = /^yes$/i.test(String(body.forceFullClosed || ''));
+  const recv = {}; // rowNum -> { total, ordered, close }
   // Received Qty: a real number, and more than ordered only when confirmed
   // (a typo like 104 for 24 otherwise flows straight into stock).
   if (body.receivedQty !== undefined && body.receivedQty !== '') {
     const rq = Number(body.receivedQty);
     if (!Number.isFinite(rq) || rq < 0) return { badQty: true };
+    targetRows.forEach(rn => {
+      const ordered = Number(cell(rn, 'G')) || 0;
+      const total = (isReceive ? Number(cell(rn, 'S')) || 0 : 0) + rq;
+      recv[rn] = { total, ordered, close: !isReceive || forceClose || !ordered || total >= ordered };
+    });
     if (!body.confirmOver) {
-      const over = targetRows.map(rn => Number(keyRows[rn - PURCHASE_DATA_START_ROW][colToIdx('G') - bOffset]) || 0).filter(q => q > 0 && rq > q);
-      if (over.length) return { overOrdered: Math.max(...over) };
+      const over = Object.values(recv).filter(x => x.ordered > 0 && x.total > x.ordered);
+      if (over.length) return { overOrdered: Math.max(...over.map(x => x.ordered)) };
     }
   }
 
@@ -9392,10 +9420,16 @@ async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
   const defaultStatus = body.status || 'Yes';
   const batchData = [];
   targetRows.forEach(rowNum => {
+    const r = recv[rowNum];
     if (stepDef.actual) batchData.push({ range: `'${PURCHASE_TAB}'!${stepDef.actual}${rowNum}`, values: [[now]] });
-    if (stepDef.status && stepDef.status !== stepDef.actual) batchData.push({ range: `'${PURCHASE_TAB}'!${stepDef.status}${rowNum}`, values: [[defaultStatus]] });
+    if (stepDef.status && stepDef.status !== stepDef.actual && (!r || r.close)) batchData.push({ range: `'${PURCHASE_TAB}'!${stepDef.status}${rowNum}`, values: [[defaultStatus]] });
+    if (isReceive && r) {
+      batchData.push({ range: `'${PURCHASE_TAB}'!S${rowNum}`, values: [[r.total]] });
+      if (r.ordered) batchData.push({ range: `'${PURCHASE_TAB}'!T${rowNum}`, values: [[Math.max(0, r.ordered - r.total)]] });
+    }
     stepDef.extra.forEach(f => {
       if (f.readOnly) return; // e.g. Pending Qty — display-only, may be formula-driven
+      if (isReceive && recv[rowNum] && f.key === 'receivedQty') return; // running total written above
       const val = body[f.key];
       if (val === undefined || val === '') return;
       const writeVal = f.isDate ? sfmsDateToSerial(new Date(val + 'T00:00:00')) : val;
@@ -9407,7 +9441,8 @@ async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
     spreadsheetId: PURCHASE_SHEET_ID,
     requestBody: { valueInputOption: 'RAW', data: batchData }
   });
-  return { rowsUpdated: targetRows.length };
+  const open = Object.values(recv).filter(x => !x.close);
+  return { rowsUpdated: targetRows.length, stillOpen: open.length ? Math.max(...open.map(x => x.ordered - x.total)) : 0 };
 }
 
 // Follow-up is not one-shot (client 2026-10-21: "PO ke baad pehle follow-up
@@ -9469,12 +9504,12 @@ app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req,
     const stepNum = parseInt(req.params.stepNum, 10);
     if (!(await assertIsStepDoer(res, 'purchase_step_doers', stepNum, req.session.userId, req.session.role))) return;
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    const { rowsUpdated, badQty, overOrdered } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, req.body);
+    const { rowsUpdated, badQty, overOrdered, stillOpen } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, req.body);
     if (badQty) return res.status(400).json({ error: 'Received Qty must be a number (0 or more)' });
     if (overOrdered) return res.status(409).json({ needsConfirm: true, orderedQty: overOrdered, error: `Received Qty ${Number(req.body.receivedQty)} is more than the ordered qty (${overOrdered})` });
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
     if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under PO ${poNumber}` });
-    res.json({ success: true, rowsUpdated });
+    res.json({ success: true, rowsUpdated, stillOpen });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
     sendServerError(res, err);

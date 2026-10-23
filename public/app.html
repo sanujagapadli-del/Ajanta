@@ -17302,9 +17302,9 @@ const PURCHASE_STEP_DEFS = [
       { key: 'nextFollowup', label: 'Next Followup', type: 'date' }
     ] },
   { n: 2, label: 'Material Received', doer: 'Priyanka (SCCRR)', tat: '—', extraFields: [
-      { key: 'receivedQty', label: 'Received Qty', type: 'number', required: true },
+      { key: 'receivedQty', label: 'Received Qty', formLabel: 'Is baar kitne pcs aaye (Received Qty)', type: 'number', required: true },
       { key: 'pendingQty', label: 'Pending Qty', readOnly: true },
-      { key: 'forceFullClosed', label: 'Force Full Closed PO', type: 'select', options: ['Yes', 'No'] }
+      { key: 'forceFullClosed', label: 'Force Full Closed PO', formLabel: 'PO close karna hai? (Yes = baaki maal nahi aayega)', type: 'select', options: ['Yes', 'No'] }
     ] }
 ];
 const PFMS_FIELD_LABEL_STYLE = "font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px";
@@ -18285,13 +18285,13 @@ function renderPurchaseField(f, poNumber) {
   const id = `pfmsExtra_${poNumber}_${f.key}`;
   const reqMark = f.required ? ` <span style="color:var(--color-danger)">*</span>` : '';
   if (f.type === 'select') {
-    return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div>
+    return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.formLabel || f.label}${reqMark}</div>
       <select id="${id}" style="${PFMS_INPUT_STYLE};background:var(--surface)">
         <option value="">-- Select --</option>
         ${(f.options||[]).map(o => `<option>${o}</option>`).join('')}
       </select>`;
   }
-  return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.label}${reqMark}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${PFMS_INPUT_STYLE}"/>`;
+  return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.formLabel || f.label}${reqMark}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${PFMS_INPUT_STYLE}"/>`;
 }
 function readPurchaseField(f, poNumber) {
   const el = document.getElementById(`pfmsExtra_${poNumber}_${f.key}`);
@@ -18334,7 +18334,7 @@ async function advancePurchaseStep(poNumber, step) {
     return;
   }
 
-  showToast('✅ Step recorded!');
+  showToast(res.stillOpen ? `✅ Maal receive ho gaya — PO khula hai, ${res.stillOpen} pcs baaki` : '✅ Step recorded!');
   closeModal('purchaseDetailModal');
   refreshPurchaseAfterAction();
 }
@@ -18491,7 +18491,13 @@ function renderPurchaseDetailBody(o) {
       <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px 4px">2 · Maal aa gaya?</div>` : (fuHistory ? `<div style="margin-bottom:12px">${fuHistory}</div>` : '');
   let actionHtml;
   if (nextStepDef) {
-    const extraInputsHtml = nextStepDef.extraFields.filter(f => !f.readOnly).map(f => renderPurchaseField(f, o.poNumber)).join('');
+    // Part receipts (client 2026-10-23): earlier pcs stay on the line until it is full or force-closed.
+    const partHtml = nextStepDef.n === 2 && (o.products || []).some(p => p.receivedQty > 0)
+      ? `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12.5px">
+          <div style="font-weight:700;margin-bottom:4px">📦 Pehle aa chuka</div>
+          ${(o.products || []).map(p => `<div>${esc(p.productName)} — <b>${p.receivedQty || 0}</b> / ${esc(p.qty)} aaye · <b style="color:var(--color-danger)">${Math.max(0, (p.pendingQty != null ? p.pendingQty : p.qty - (p.receivedQty || 0)))} baaki</b></div>`).join('')}
+          <div style="color:var(--gray-500);margin-top:4px">Ab sirf is baar aaye pcs likhein — pehle wale apne aap jud jayenge.</div></div>` : '';
+    const extraInputsHtml = partHtml + nextStepDef.extraFields.filter(f => !f.readOnly).map(f => renderPurchaseField(f, o.poNumber)).join('');
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
