@@ -9533,6 +9533,16 @@ const INDENT_TYPES = [
   { key: 'stationery', label: 'Office Stationery', value: 'Office Stationery For Indent' },
   { key: 'housekeeping', label: 'Housekeeping', value: 'Housekeeping For Indent' }
 ];
+// Always in the vendor dropdown (Priyanka 2026-10-23): office things come from
+// any local stationery shop, and Ajanta Electrical — not in the Vendor Master.
+const INDENT_EXTRA_VENDORS = ['Ajanta Electrical', 'Stationery Shop'];
+const INDENT_STATIONERY_ITEMS = ['A4 Paper Rim', 'Ball Pen', 'Gel Pen', 'Marker Pen', 'Highlighter', 'Pencil', 'Eraser', 'Sharpener', 'Register',
+  'Notebook', 'Diary', 'File Folder', 'Box File', 'L Folder', 'Stapler', 'Stapler Pins', 'Paper Clips', 'Binder Clips', 'Punching Machine',
+  'Fevistick', 'Cello Tape', 'Brown Tape', 'Scissors', 'Cutter', 'Envelope', 'Sticky Notes', 'Calculator', 'Printer Toner', 'Printer Ink',
+  'Bill Book', 'Challan Book', 'Stamp Pad', 'Rubber Stamp', 'Whiteboard Marker'];
+const INDENT_HOUSEKEEPING_ITEMS = ['Phenyl', 'Floor Cleaner', 'Toilet Cleaner', 'Harpic', 'Hand Wash', 'Dish Wash Liquid', 'Detergent',
+  'Broom (Jhadu)', 'Mop (Pocha)', 'Dustbin', 'Garbage Bags', 'Tissue Paper', 'Room Freshener', 'Glass Cleaner', 'Duster Cloth', 'Naphthalene Balls',
+  'Drinking Water Jar', 'Tea', 'Sugar', 'Milk', 'Disposable Glass'];
 async function canRaiseIndent(req) {
   return req.session.role === 'admin' || (await hasPageGrant(req, 'purchase-fms'));
 }
@@ -9571,15 +9581,19 @@ app.get('/api/purchase-fms/indent-options', requireAuth, async (req, res) => {
       seen.add(x[1]);
       recent.push({ indentNo: x[1], timestamp: x[0], type: x[2], raisedBy: x[8], items: [{ product: x[4], qty: x[6], uom: x[5], vendor: x[7] }] });
     }
+    // Products typed by hand before come back as suggestions for the same type.
+    const usedFor = key => { const t = INDENT_TYPES.find(x => x.key === key); return rows.filter(x => x[2] === t.value).map(x => x[4]); };
     res.json({
       types: INDENT_TYPES,
-      vendors: masterVendors.length ? uniq(masterVendors) : uniq(rows.map(x => x[7])),
+      vendors: uniq([...(masterVendors.length ? masterVendors : rows.map(x => x[7])), ...INDENT_EXTRA_VENDORS]),
       products: uniq([...rows.map(x => x[4]), ...stock.map(s => s.description)]),
       // per indent type (client 2026-10-21): Finished Goods → Product Master + stock list,
       // Spare Part → Spare Parts Master + Service FMS items; others keep free text
       productsByType: {
-        finished: uniq([...(master.products || []).map(p => p.name), ...stock.map(s => s.description)]),
-        spare: uniq([...(master.spareParts || []).map(p => p.name), ...(Array.isArray(sfmsItems) ? sfmsItems.map(i => typeof i === 'string' ? i : (i && i.name) || '') : [])])
+        finished: uniq([...(master.products || []).map(p => p.name), ...stock.map(s => s.description), ...usedFor('finished')]),
+        spare: uniq([...(master.spareParts || []).map(p => p.name), ...(Array.isArray(sfmsItems) ? sfmsItems.map(i => typeof i === 'string' ? i : (i && i.name) || '') : []), ...usedFor('spare')]),
+        stationery: uniq([...INDENT_STATIONERY_ITEMS, ...usedFor('stationery')]),
+        housekeeping: uniq([...INDENT_HOUSEKEEPING_ITEMS, ...usedFor('housekeeping')])
       },
       uoms: uniq(['PCS', 'SET', 'KG', 'BOX', 'PKT', 'LTR', 'MTR', 'ROLL', 'DOZEN', ...rows.map(x => x[5])]),
       raisedBy: uniq([...rows.map(x => x[8]), myName]),

@@ -17664,7 +17664,8 @@ function renderNewIndentForm() {
     <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Raised By <span style="color:var(--color-danger)">*</span></div>
     <input id="indRaisedBy" list="indRaisedList" value="${esc(o.myName)}" style="${IND_INPUT};margin-bottom:14px;max-width:280px"/>
     ${dl('indRaisedList', o.raisedBy)}${dl('indProductList', o.products)}${dl('indUomList', o.uoms)}
-    <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Items</div>
+    <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Items</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">✏️ List me na mile to product ka naam <b>khud likh dein</b> (jaise Bajaj LED, FIR) — agli baar wo list me apne aap aa jayega.</div>
     <div id="indItems"></div>
     <button type="button" class="btn btn-outline btn-sm" onclick="addIndentItem()" style="margin:4px 0 14px">+ Add item</button>
     <button id="indSubmitBtn" class="btn btn-primary" onclick="submitNewIndent()" style="width:100%;justify-content:center;padding:12px;font-size:14px">Submit Indent</button>
@@ -17681,7 +17682,7 @@ function pickIndentType(key) {
   const list = byType && byType.length ? byType : _indentOpts.products;
   const dlEl = document.getElementById('indProductList');
   if (dlEl) dlEl.innerHTML = list.map(v => `<option value="${esc(v)}">`).join('');
-  document.querySelectorAll('#indItems .ind-product').forEach(i => { i.placeholder = key === 'spare' ? 'Spare part ka naam' : key === 'finished' ? 'Product name' : 'Item name'; });
+  document.querySelectorAll('#indItems .ind-product').forEach(i => { i.placeholder = indentProductPlaceholder(); });
   document.querySelectorAll('#newIndentBody .ind-type').forEach(b => {
     const on = b.dataset.key === key;
     b.style.borderColor = on ? 'var(--color-primary)' : 'var(--gray-200)';
@@ -17689,6 +17690,7 @@ function pickIndentType(key) {
     b.style.color = on ? 'var(--color-primary)' : 'var(--gray-700)';
   });
 }
+const indentProductPlaceholder = () => (_indentType === 'spare' ? 'Spare part' : _indentType === 'finished' ? 'Product' : 'Item') + ' — chuno ya likho';
 let _indentLineSeq = 0;
 function addIndentItem() {
   const box = document.getElementById('indItems');
@@ -17698,7 +17700,7 @@ function addIndentItem() {
   row.className = 'ind-line';
   row.style.cssText = 'display:grid;grid-template-columns:28px minmax(180px,2.2fr) 90px 90px minmax(150px,1.6fr) 32px;gap:8px;align-items:center;margin-bottom:8px';
   row.innerHTML = `<div class="ind-n" style="font-weight:800;color:var(--gray-400);text-align:center">${n}</div>
-    <input class="ind-product" list="indProductList" placeholder="Product name" style="${IND_INPUT}"/>
+    <input class="ind-product" list="indProductList" placeholder="${indentProductPlaceholder()}" style="${IND_INPUT}"/>
     <input class="ind-qty" type="number" min="0" step="any" placeholder="Qty" style="${IND_INPUT}"/>
     <input class="ind-uom" list="indUomList" value="PCS" style="${IND_INPUT}"/>
     <select class="ind-vendor" onchange="indentVendorOther(this)" style="${IND_INPUT}"><option value="">-- Vendor --</option>${(_indentOpts.vendors || []).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}<option value="__other__">➕ Doosra vendor (likho)</option></select>
