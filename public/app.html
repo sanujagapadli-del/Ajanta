@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<link rel="manifest" href="/manifest.json"/>
+<meta name="theme-color" content="#010371"/>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="Ajanta ERP"/>
 <title>Ajanta Appliances Task Manager</title>
 <link rel="icon" type="image/png" href="/logo-mark.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet"/>
@@ -1123,6 +1129,64 @@ body{font-family:var(--font-sans);}
 #confirmModal button:active,#promptModal button:active{transform:scale(.97);}
 #promptTitle{white-space:pre-line;line-height:1.4;}
 #promptModal{z-index:1100;}
+/* ── App shell (UI Phase B) ── */
+@supports (padding:max(0px)){ .topbar{padding-top:max(0px,env(safe-area-inset-top));} }
+.tb-search{display:flex;align-items:center;gap:8px;margin:0 12px 0 auto;padding:7px 8px 7px 12px;min-width:280px;border:1.5px solid var(--n-200);border-radius:var(--r-sm);
+  background:rgba(248,250,252,.8);color:var(--n-500);font-size:13px;cursor:pointer;transition:border-color var(--dur-2),box-shadow var(--dur-2),transform var(--dur-1);}
+.tb-search:hover{border-color:rgba(var(--brand-rgb),.35);box-shadow:var(--sh-2);}
+.tb-search:active{transform:scale(.98);}
+.tb-search-text{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tb-search-ico,.cmdk-ico{display:inline-flex;color:var(--n-400);}
+kbd,.tb-kbd{font-family:inherit;font-size:11px;font-weight:600;color:var(--n-500);background:var(--n-0);border:1px solid var(--n-200);border-bottom-width:2px;border-radius:6px;padding:1px 6px;line-height:1.5;}
+@media (max-width:768px){.tb-search{min-width:0;padding:8px;margin-right:4px;border:none;background:transparent;}.tb-search-text,.tb-search .tb-kbd{display:none;}}
+/* Command palette — centred on desktop, bottom sheet on phones */
+.cmdk-overlay{position:fixed;inset:0;z-index:1150;display:none;align-items:flex-start;justify-content:center;padding-top:12vh;background:rgba(10,14,26,.45);
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
+.cmdk-overlay.open{display:flex;animation:ui-fade var(--dur-2) var(--ease-standard) both;}
+.cmdk{width:min(640px,calc(100vw - 32px));background:var(--n-0);border-radius:var(--r-lg);box-shadow:var(--sh-4);overflow:hidden;display:flex;flex-direction:column;
+  animation:ui-pop-in var(--dur-3) var(--ease-spring) both;}
+.cmdk-in{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--n-100);}
+.cmdk-in input{flex:1;border:none !important;box-shadow:none !important;outline:none;font-size:16px;background:transparent;color:var(--n-900);min-width:0;}
+.cmdk-in .tb-kbd{cursor:pointer;}
+.cmdk-list{max-height:min(440px,58vh);overflow-y:auto;padding:6px;}
+.cmdk-group{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--n-400);padding:10px 10px 4px;}
+.cmdk-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;color:var(--n-800);font-size:14px;min-height:44px;
+  animation:ui-fade-up var(--dur-2) var(--ease-standard) both;animation-delay:calc(var(--i,0) * 18ms);}
+.cmdk-item .ci-ico{width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;background:var(--n-100);color:var(--n-600);flex-shrink:0;}
+.cmdk-item .ci-sub{font-size:12px;color:var(--n-500);margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%;}
+.cmdk-item.sel{background:var(--brand-50);}
+.cmdk-item.sel .ci-ico{background:var(--brand-600);color:#fff;}
+.cmdk-empty{padding:28px 16px;text-align:center;color:var(--n-500);font-size:13px;}
+.cmdk-foot{display:flex;gap:16px;padding:9px 16px;border-top:1px solid var(--n-100);font-size:11.5px;color:var(--n-500);background:var(--n-50);}
+.cmdk-foot kbd{margin-right:3px;}
+@media (max-width:768px){
+  .cmdk-overlay{align-items:flex-end;padding-top:0;}
+  .cmdk{width:100%;border-radius:20px 20px 0 0;max-height:86dvh;padding-bottom:env(safe-area-inset-bottom);animation:ui-sheet-in var(--dur-3) var(--ease-spring) both;}
+  .cmdk-list{max-height:62dvh;}
+  .cmdk-foot{display:none;}
+}
+@keyframes ui-sheet-in{from{transform:translateY(100%);}to{transform:none;}}
+/* Floating + (phones only) */
+.ui-fab{display:none;}
+@media (max-width:768px){
+  .ui-fab{display:flex;align-items:center;justify-content:center;position:fixed;right:16px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:190;width:52px;height:52px;border-radius:50%;border:none;
+    color:#fff;background:linear-gradient(135deg,#1c2a9c,var(--brand-600));box-shadow:0 10px 24px -6px rgba(var(--brand-rgb),.55);transition:transform var(--dur-1) var(--ease-standard);}
+  .ui-fab:active{transform:scale(.92);}
+  body:has(.modal-overlay.open) .ui-fab,body:has(.cmdk-overlay.open) .ui-fab{opacity:0;pointer-events:none;}
+}
+/* Sidebar: one active pill that glides between items */
+.nav.has-pill{position:relative;}
+.nav.has-pill .nav-item{z-index:1;}
+.nav.has-pill .nav-item.active{background:transparent;box-shadow:none;}
+.nav.has-pill .nav-item.active::before{opacity:0;}
+.nav-pill{position:absolute;top:0;left:0;height:0;border-radius:9px;pointer-events:none;z-index:0;opacity:0;
+  background:linear-gradient(90deg,rgba(var(--accent-rgb),.24),rgba(var(--accent-rgb),.06));box-shadow:inset 0 0 0 1px rgba(var(--accent-rgb),.24);
+  transition:transform var(--dur-3) var(--ease-standard),opacity var(--dur-2);will-change:transform;}
+.nav-pill::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:3px;border-radius:0 3px 3px 0;background:var(--accent-600);box-shadow:0 0 10px rgba(var(--accent-rgb),.7);}
+.nav-pill.no-anim{transition:none;}
+/* Bottom nav press feedback */
+.bn-item{transition:transform var(--dur-1) var(--ease-standard),color var(--dur-2);}
+.bn-item:active{transform:scale(.94);}
 /* Button busy state: <button class="btn is-busy"> */
 .btn.is-busy{pointer-events:none;opacity:.85;}
 .btn.is-busy::before{content:'';width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:ui-spin .7s linear infinite;}
@@ -1461,6 +1525,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
 <!-- ══════════════════════════════════════
      BOTTOM NAV (mobile only)
 ══════════════════════════════════════ -->
+<button type="button" class="ui-fab" id="uiFab" onclick="openCmdk({ actions: true })" aria-label="Naya banao — quick actions"></button>
+<div class="cmdk-overlay" id="cmdkOverlay" onclick="if(event.target===this)closeCmdk()">
+  <div class="cmdk" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="cmdk-in"><span class="cmdk-ico"></span><input id="cmdkInput" type="text" autocomplete="off" spellcheck="false" placeholder="Page, kaam ya dealer ka naam likhein…" oninput="cmdkRender()" onkeydown="cmdkKey(event)"/><kbd class="tb-kbd" onclick="closeCmdk()">Esc</kbd></div>
+    <div class="cmdk-list" id="cmdkList" role="listbox"></div>
+    <div class="cmdk-foot"><span><kbd>↑</kbd><kbd>↓</kbd> chuno</span><span><kbd>Enter</kbd> kholo</span><span><kbd>Ctrl</kbd><kbd>K</kbd> kahin se bhi</span></div>
+  </div>
+</div>
 <nav class="bottom-nav" id="bottomNav">
   <div class="bn-item active" data-page="dashboard" onclick="navigate('dashboard',null)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -1476,7 +1548,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
   </div>
   <div class="bn-item" data-page="o2d-fms" onclick="navigate('o2d-fms',null)" id="bnO2d" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-1.5 5.5a2 2 0 01-1.94 1.5H7.44a2 2 0 01-1.94-1.5L4 13m16 0H4"/></svg>
-    <span>O2D</span>
+    <span>Orders</span>
   </div>
   <div class="bn-item" id="bnNewOrder" style="display:none" onclick="openNewO2dOrderModal()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
@@ -1578,6 +1650,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <span></span><span></span><span></span>
     </button>
     <div class="topbar-title" id="topbarTitle">Dashboard</div>
+    <button type="button" class="tb-search" id="tbSearch" onclick="openCmdk()" aria-label="Search — page, kaam ya dealer (Ctrl+K)">
+      <span class="tb-search-ico"></span><span class="tb-search-text">Search — page, kaam, dealer…</span><kbd class="tb-kbd">Ctrl K</kbd>
+    </button>
 
 
     <div class="topbar-right" id="topbarActions"></div>
@@ -5055,6 +5130,7 @@ function setupBottomNav() {
   if (bnSs && canSee('sales-schedule')) bnSs.style.display = '';
   const bnEmp = document.getElementById('bnEmp');
   if (bnEmp && canSee('employees')) bnEmp.style.display = '';
+  BN_PRIMARY = ['dashboard', 'alltasks', canSee('o2d-fms') ? 'o2d-fms' : 'attendance', 'approvals'];
   arrangeBottomNavMore();
   attachScrollHint(document.getElementById('bottomNav'));
 }
@@ -9195,6 +9271,180 @@ function icon(name, size = 18, cls = '') {
   if (!body) return '';
   return `<svg class="lucide lucide-${name} ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
+
+// ── Command palette (UI Phase B): Ctrl/Cmd+K, "/" or the top-bar search.
+// Jumps to any page the user can open, runs a quick action ("New Order",
+// "Punch In"…) or opens a dealer's statement. Pages come from the sidebar
+// itself, so access rules stay exactly as they are there.
+let _cmdk = { items: [], sel: 0, dealers: [], dealerQ: '', timer: null, actionsOnly: false };
+function cmdkPages() {
+  return [...document.querySelectorAll('#sidebar .nav-item[onclick^="navigate("]')].filter(el => {
+    if (el.style.display === 'none') return false;
+    const g = el.closest('.nav-group');
+    return !g || g.style.display !== 'none';
+  }).map(el => {
+    const page = (el.getAttribute('onclick').match(/navigate\('([^']+)'/) || [])[1];
+    const group = el.closest('.nav-group');
+    const gl = group ? (group.querySelector('.nav-group-head') || {}).title || '' : '';
+    return { kind: 'page', label: (el.querySelector('.nav-label-text') || el).textContent.trim(), sub: gl, icon: 'arrow-up-right', run: () => navigate(page, el), page };
+  }).filter(x => x.page && x.label);
+}
+function cmdkActions() {
+  const admin = ME && ME.role === 'admin';
+  const pg = p => admin || (typeof MY_PAGES !== 'undefined' && MY_PAGES.has(p));
+  const vis = id => { const el = document.getElementById(id); return !!el && el.style.display !== 'none'; };
+  // Page-bound forms open after their page has loaded its data.
+  const onPage = (page, fn) => () => { const nav = document.getElementById('nav-' + page); if (nav) navigate(page, nav); setTimeout(fn, 450); };
+  return [
+    ['New Order', 'shopping-cart', () => openNewO2dOrderModal(), (pg('o2d-fms') || pg('o2d-new-order')) && canForm('form-o2d-order'), 'order banao'],
+    ['New Complaint (Service)', 'wrench', onPage('service-fms', () => openNewComplaintModal()), pg('service-fms'), 'shikayat'],
+    ['+ Delegate task', 'send', () => openDelegate(), typeof canDelegate === 'function' && canDelegate(), 'kaam do'],
+    ['+ Checklist', 'list-checks', () => openChecklist(), true, ''],
+    ['Punch In / Out', 'clock', () => doAttendancePunch(), vis('dashAttnPunchBtn') || true, 'attendance haziri'],
+    ['KM reading', 'truck', () => openKmModal(), vis('dashKmBtn'), 'kilometer'],
+    ['New Lead', 'users', onPage('lead-fms', () => openNewLeadModal()), pg('lead-fms') && canForm('form-lead'), ''],
+    ['New Cheque', 'receipt', onPage('cheque-fms', () => openNewChequeModal()), pg('cheque-fms') && canForm('form-cheque'), ''],
+    ['Cash Receipt', 'indian-rupee', onPage('cheque-fms', () => openCashReceiptModal()), pg('cheque-fms'), 'nakad paisa'],
+    ['Replacement Form', 'refresh-cw', onPage('replacement-fms', () => openNewReplModal()), pg('replacement-fms') && canForm('form-replacement'), ''],
+    ['New Indent (Purchase)', 'package', onPage('purchase-fms', () => openNewIndentForm()), pg('purchase-fms') && canForm('form-indent'), 'kharid'],
+    ['New Dealer (Onboarding)', 'store', () => openDealerOnboardModal(), pg('dealers') || pg('lead-fms'), 'naya dealer'],
+    ['Petty Cash kharcha', 'wallet', onPage('petty-cash', () => openPettyEntry('expense')), pg('petty-cash'), 'expense'],
+    ['Holidays', 'calendar', () => openHoliday(), true, 'chhutti']
+  ].filter(a => a[3]).map(([label, ic, run, , kw]) => ({ kind: 'action', label, icon: ic, run, kw }));
+}
+function cmdkRecent(q) {
+  const out = [];
+  if (q.length < 2) return out;
+  const ql = q.toLowerCase();
+  if (typeof o2dData !== 'undefined' && Array.isArray(o2dData) && typeof openO2dDetail === 'function') {
+    o2dData.filter(o => `${o.orderNo} ${o.counterName}`.toLowerCase().includes(ql)).slice(0, 5)
+      .forEach(o => out.push({ kind: 'order', label: `${o.orderNo} · ${o.counterName || ''}`, sub: o.closed ? 'Done' : 'O2D', icon: 'shopping-cart', run: () => openO2dDetail(o.orderNo) }));
+  }
+  if (typeof sfmsData !== 'undefined' && Array.isArray(sfmsData) && typeof openComplaintDetail === 'function') {
+    sfmsData.filter(c => `${c.complainNo} ${c.filledByName} ${c.mobile}`.toLowerCase().includes(ql)).slice(0, 5)
+      .forEach(c => out.push({ kind: 'complaint', label: `${c.complainNo} · ${c.filledByName || ''}`, sub: c.closed ? 'Closed' : 'Service', icon: 'wrench', run: () => openComplaintDetail(c.row) }));
+  }
+  return out;
+}
+function cmdkScore(item, q) {
+  if (!q) return 1;
+  const hay = `${item.label} ${item.sub || ''} ${item.kw || ''}`.toLowerCase();
+  const toks = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!toks.every(t => hay.includes(t))) return 0;
+  return (item.label.toLowerCase().startsWith(toks[0]) ? 3 : 1) + (item.kind === 'action' ? 0.5 : 0);
+}
+function openCmdk(opts = {}) {
+  _cmdk.actionsOnly = !!opts.actions;
+  const ov = document.getElementById('cmdkOverlay');
+  ov.classList.add('open');
+  const inp = document.getElementById('cmdkInput');
+  inp.value = ''; _cmdk.dealers = []; _cmdk.dealerQ = '';
+  inp.placeholder = _cmdk.actionsOnly ? 'Kya banana hai? (order, complaint, lead…)' : 'Page, kaam ya dealer ka naam likhein…';
+  cmdkRender();
+  setTimeout(() => inp.focus(), 30);
+}
+function closeCmdk() { document.getElementById('cmdkOverlay').classList.remove('open'); }
+function cmdkRender() {
+  const q = document.getElementById('cmdkInput').value.trim();
+  const groups = [];
+  const acts = cmdkActions().map(x => ({ x, s: cmdkScore(x, q) })).filter(o => o.s).sort((a, b) => b.s - a.s).map(o => o.x);
+  if (_cmdk.actionsOnly && !q) groups.push(['Naya banao', acts]);
+  else {
+    const pages = cmdkPages().map(x => ({ x, s: cmdkScore(x, q) })).filter(o => o.s).sort((a, b) => b.s - a.s).map(o => o.x);
+    const recent = cmdkRecent(q);
+    if (q) { if (acts.length) groups.push(['Kaam', acts.slice(0, 6)]); if (pages.length) groups.push(['Pages', pages.slice(0, 8)]); }
+    else { groups.push(['Kaam', acts.slice(0, 6)]); groups.push(['Pages', pages]); }
+    if (recent.length) groups.push(['Orders / Complaints', recent]);
+    if (_cmdk.dealers.length && _cmdk.dealerQ === q) groups.push(['Dealers', _cmdk.dealers]);
+  }
+  _cmdk.items = groups.flatMap(g => g[1]);
+  _cmdk.sel = Math.min(_cmdk.sel, Math.max(0, _cmdk.items.length - 1));
+  if (!q) _cmdk.sel = 0;
+  let i = 0;
+  document.getElementById('cmdkList').innerHTML = _cmdk.items.length ? groups.filter(g => g[1].length).map(([title, list]) => `<div class="cmdk-group">${esc(title)}</div>` + list.map(it => {
+    const n = i++;
+    return `<div class="cmdk-item${n === _cmdk.sel ? ' sel' : ''}" role="option" data-i="${n}" style="--i:${Math.min(n, 12)}" onmousemove="cmdkHover(${n})" onclick="cmdkRun(${n})"><span class="ci-ico">${icon(it.icon, 16)}</span><span>${esc(it.label)}</span>${it.sub ? `<span class="ci-sub">${esc(it.sub)}</span>` : ''}</div>`;
+  }).join('')).join('') : `<div class="cmdk-empty">Kuch nahi mila${q.length >= 2 ? ' — dealers dhoondh rahe hain…' : ''}</div>`;
+  // Dealers come from the server (MySQL), a moment after typing stops.
+  clearTimeout(_cmdk.timer);
+  if (!_cmdk.actionsOnly && q.length >= 2 && _cmdk.dealerQ !== q) {
+    _cmdk.timer = setTimeout(async () => {
+      const r = await api('/api/quick-search?q=' + encodeURIComponent(q));
+      if (document.getElementById('cmdkInput').value.trim() !== q) return;
+      _cmdk.dealerQ = q;
+      _cmdk.dealers = ((r && r.dealers) || []).map(d => ({ kind: 'dealer', label: d.name, sub: [d.city, d.phone].filter(Boolean).join(' · '), icon: 'store',
+        run: () => (typeof openDealerLedgerModal === 'function' ? openDealerLedgerModal(d.name, d.phone) : navigate('dealers', document.getElementById('nav-dealers'))) }));
+      cmdkRender();
+    }, 220);
+  }
+}
+function cmdkHover(n) {
+  if (_cmdk.sel === n) return;
+  _cmdk.sel = n;
+  document.querySelectorAll('#cmdkList .cmdk-item').forEach(el => el.classList.toggle('sel', +el.dataset.i === n));
+}
+function cmdkRun(n) {
+  const it = _cmdk.items[n];
+  if (!it) return;
+  closeCmdk();
+  try { it.run(); } catch (e) { showToast(e.message || 'Nahi khula', 'error'); }
+}
+function cmdkKey(e) {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!_cmdk.items.length) return;
+    cmdkHover((_cmdk.sel + (e.key === 'ArrowDown' ? 1 : -1) + _cmdk.items.length) % _cmdk.items.length);
+    const el = document.querySelector(`#cmdkList .cmdk-item[data-i="${_cmdk.sel}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') { e.preventDefault(); cmdkRun(_cmdk.sel); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCmdk(); }
+}
+document.addEventListener('keydown', e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target || {}).tagName || '') || (e.target && e.target.isContentEditable);
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    if (typeof ME === 'undefined' || !ME) return;
+    e.preventDefault();
+    const ov = document.getElementById('cmdkOverlay');
+    if (ov && ov.classList.contains('open')) closeCmdk(); else openCmdk();
+  } else if (e.key === '/' && !typing && !document.querySelector('.modal-overlay.open') && typeof ME !== 'undefined' && ME) {
+    e.preventDefault(); openCmdk();
+  }
+});
+
+// ── Sidebar active pill (UI Phase B): one highlight that glides to the active
+// item (transform only); hides when the active item sits in a closed group.
+function navPillUpdate(instant) {
+  const nav = document.querySelector('#sidebar .nav');
+  if (!nav) return;
+  let pill = nav.querySelector('.nav-pill');
+  if (!pill) { pill = document.createElement('div'); pill.className = 'nav-pill no-anim'; nav.prepend(pill); nav.classList.add('has-pill'); instant = true; }
+  const act = nav.querySelector('.nav-item.active');
+  if (!act || !act.offsetParent) { pill.style.opacity = '0'; return; }
+  if (instant) pill.classList.add('no-anim');
+  pill.style.left = act.offsetLeft + 'px';
+  pill.style.width = act.offsetWidth + 'px';
+  pill.style.height = act.offsetHeight + 'px';
+  pill.style.transform = `translateY(${act.offsetTop}px)`;
+  pill.style.opacity = '1';
+  if (instant) requestAnimationFrame(() => requestAnimationFrame(() => pill.classList.remove('no-anim')));
+}
+(function navPillWatch() {
+  const start = () => {
+    const nav = document.querySelector('#sidebar .nav');
+    if (!nav) return;
+    let q = false;
+    const tick = () => { if (q) return; q = true; requestAnimationFrame(() => { q = false; navPillUpdate(false); }); };
+    new MutationObserver(tick).observe(nav, { subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+    if (window.ResizeObserver) new ResizeObserver(() => navPillUpdate(true)).observe(nav);
+    navPillUpdate(true);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
+document.addEventListener('DOMContentLoaded', () => {
+  const si = document.querySelector('#tbSearch .tb-search-ico'); if (si) si.innerHTML = icon('search', 16);
+  const ci = document.querySelector('#cmdkOverlay .cmdk-ico'); if (ci) ci.innerHTML = icon('search', 18);
+  const fab = document.getElementById('uiFab'); if (fab) fab.innerHTML = icon('plus', 26);
+});
 
 // ── Toasts (Phase A): stacked, icon + progress bar (pauses on hover), close,
 // optional Undo. showToast(msg, 'success'|'error'|'info', { undo, undoLabel, duration }).
@@ -24701,7 +24951,8 @@ if (_mcPhone.addEventListener) _mcPhone.addEventListener('change', mobileTableCa
 
 // 2) Bottom nav: only Dashboard / Tasks / Attendance / Approvals stay in the
 //    bar; every other page the user can open goes into the "More" sheet.
-const BN_PRIMARY = ['dashboard', 'alltasks', 'attendance', 'approvals'];
+// Home, Tasks, Orders (O2D), Approvals + More (UI Phase B); no O2D access → Attendance.
+let BN_PRIMARY = ['dashboard', 'alltasks', 'attendance', 'approvals'];
 function arrangeBottomNavMore() {
   const nav = document.getElementById('bottomNav');
   const grid = document.getElementById('bnMoreGrid');

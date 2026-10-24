@@ -6845,6 +6845,21 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Command palette (UI Phase B): a few dealers by name / city / phone, straight
+// from MySQL — no sheet reads, so typing in Ctrl+K stays cheap.
+app.get('/api/quick-search', requireAuth, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().slice(0, 60);
+    if (q.length < 2 || !(await canAccessDealers(req))) return res.json({ dealers: [] });
+    const safe = q.replace(/[\\%_]/g, '\\$&'); // LIKE wildcards typed by the user match literally
+    const like = `%${safe}%`;
+    const [rows] = await withDealerTables(() => db.query(
+      'SELECT counter_name, city, phone FROM o2d_dealers WHERE counter_name LIKE ? OR city LIKE ? OR phone LIKE ? ORDER BY (counter_name LIKE ?) DESC, counter_name LIMIT 8',
+      [like, like, like, `${safe}%`]));
+    res.json({ dealers: rows.map(r => ({ name: r.counter_name, city: r.city || '', phone: r.phone || '' })) });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.post('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
