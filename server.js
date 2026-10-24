@@ -125,6 +125,53 @@ app.use((req, res, next) => {
   next();
 });
 
+// 3) Sheet-backed FMS reads (O2D, Service, Purchase) are cached per instance,
+//    but kept right across Vercel instances: every successful write under the
+//    routes below bumps a version in app_settings ('ver_<key>') BEFORE its
+//    response goes out, and a cached copy is used only while the version still
+//    matches. (A plain TTL cache made "Mark Done" look lost on other
+//    instances.) The TTL only bounds edits made straight in the sheet / forms.
+//    Re-reading these sheets on every call was most of the CPU (2026-10-24).
+const SHEET_VER_ROUTES = [
+  ['/api/o2d-fms', 'o2d'], ['/api/service-fms', 'sfms'],
+  ['/api/purchase-fms', 'purchase'], ['/api/stock', 'purchase'], ['/api/vendor', 'purchase'],
+];
+const SHEET_CACHE_TTL_MS = 3 * 60 * 1000;
+const _sheetVerCache = new Map(); // key -> { ver, ts, data }
+async function sheetVer(key) {
+  const [[r]] = await db.query('SELECT setting_value AS v FROM app_settings WHERE setting_key=?', [`ver_${key}`]);
+  return r ? String(r.v) : '';
+}
+function bumpSheetVer(key) {
+  _sheetVerCache.delete(key);
+  return db.query(
+    'INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)',
+    [`ver_${key}`, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`]);
+}
+// load() runs on a miss. clone=true when callers mutate what they get back.
+async function cachedBySheetVer(key, load, clone = false) {
+  let ver = null;
+  try { ver = await sheetVer(key); } catch (e) { console.error(`ver_${key} read:`, e.message); }
+  const c = _sheetVerCache.get(key);
+  if (ver !== null && c && c.ver === ver && Date.now() - c.ts < SHEET_CACHE_TTL_MS) return clone ? structuredClone(c.data) : c.data;
+  const data = await load();
+  if (ver !== null) _sheetVerCache.set(key, { ver, ts: Date.now(), data: clone ? structuredClone(data) : data });
+  return data;
+}
+app.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  const keys = [...new Set(SHEET_VER_ROUTES.filter(([p]) => req.path === p || req.path.startsWith(p + '/')).map(([, k]) => k))];
+  if (!keys.length) return next();
+  keys.forEach(k => _sheetVerCache.delete(k));
+  const json = res.json.bind(res);
+  res.json = body => {
+    if (res.statusCode >= 400) return json(body);
+    Promise.all(keys.map(bumpSheetVer)).catch(e => console.error('sheet ver bump:', e.message)).finally(() => json(body));
+    return res;
+  };
+  next();
+});
+
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 app.use(express.json({ limit: '100mb' }));
@@ -4800,13 +4847,16 @@ async function sfmsDeletedSet() {
 }
 async function sfmsFetchComplaints() {
     const [stepDoersMap, mechUsers, deleted] = await Promise.all([getSfmsStepDoersMap(), sfmsMechanicUsers(), sfmsDeletedSet()]);
-    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-    const result = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: SFMS_SHEET_ID,
-      range: `'${SFMS_TAB}'!A${SFMS_DATA_START_ROW}:${SFMS_LAST_COL}`,
-      valueRenderOption: 'UNFORMATTED_VALUE'
+    // Raw rows only are cached (by version, bumped by writes under /api/service-fms).
+    const rows = await cachedBySheetVer('sfms', async () => {
+      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+      const result = await sheetsApi.spreadsheets.values.get({
+        spreadsheetId: SFMS_SHEET_ID,
+        range: `'${SFMS_TAB}'!A${SFMS_DATA_START_ROW}:${SFMS_LAST_COL}`,
+        valueRenderOption: 'UNFORMATTED_VALUE'
+      });
+      return result.data.values || [];
     });
-    const rows = result.data.values || [];
     const complaints = rows.map((r, i) => {
       const rowNum = SFMS_DATA_START_ROW + i;
       const get = col => r[colToIdx(col)];
@@ -6187,13 +6237,31 @@ app.put('/api/o2d-fms/step-doers', requireAuth, requireAdmin, async (req, res) =
   } catch (err) { sendServerError(res, err); }
 });
 
-// No caching here — Vercel runs this across multiple serverless instances,
-// each with its own memory, so a TTL cache led to "Mark Done" writes not
-// showing up until some later request happened to land on an instance whose
-// cache had already expired. The sheet's small now (a handful of rows, not
-// the 2300+ it briefly held), so a fresh read on every request is fast
-// enough that the cache wasn't worth that inconsistency.
+// Sheet read is cached by version (see cachedBySheetVer near the top) — every
+// write under /api/o2d-fms bumps it. Cloned: callers and the extras below
+// mutate orders.
 async function getO2dOrders() {
+  const orders = await cachedBySheetVer('o2d', readO2dOrdersFromSheet, true);
+
+  // Hold / app-side Cancel / dispatch videos (o2d_order_flags, o2d_media).
+  let extras = { flagBy: {}, mediaBy: {} };
+  try { extras = await getO2dOrderExtras(); } catch (e) { console.error('O2D extras:', e.message); }
+  orders.forEach(o => {
+    const f = extras.flagBy[o.orderNo];
+    o.videos = extras.mediaBy[o.orderNo] || [];
+    if (!f) return;
+    o.restartCount = f.restart_count || 0;
+    if (f.carried_by) Object.assign(o, { carriedBy: f.carried_by, carriedSetBy: f.carried_set_by || '' });
+    if (f.cancelled && !o.closed) { o.cancelled = true; o.closed = true; o.cancelledStepLabel = o.cancelledStepLabel || 'Cancelled'; }
+    if (f.cancelled) Object.assign(o, { cancelReason: f.cancel_reason || '', cancelledBy: f.cancelled_by || '', cancelledAt: f.cancelled_at || '' });
+    if (f.on_hold && !o.closed) Object.assign(o, { onHold: true, holdType: f.hold_type || 'other', holdReason: f.hold_reason || '', holdBy: f.hold_by || '', holdAt: f.hold_at || '' });
+  });
+
+  orders.reverse(); // newest first
+  return orders;
+}
+
+async function readO2dOrdersFromSheet() {
   {
     const stepDoersMap = await getO2dStepDoersMap();
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
@@ -6374,21 +6442,6 @@ async function getO2dOrders() {
       return o;
     });
 
-    // Hold / app-side Cancel / dispatch videos (o2d_order_flags, o2d_media).
-    let extras = { flagBy: {}, mediaBy: {} };
-    try { extras = await getO2dOrderExtras(); } catch (e) { console.error('O2D extras:', e.message); }
-    orders.forEach(o => {
-      const f = extras.flagBy[o.orderNo];
-      o.videos = extras.mediaBy[o.orderNo] || [];
-      if (!f) return;
-      o.restartCount = f.restart_count || 0;
-      if (f.carried_by) Object.assign(o, { carriedBy: f.carried_by, carriedSetBy: f.carried_set_by || '' });
-      if (f.cancelled && !o.closed) { o.cancelled = true; o.closed = true; o.cancelledStepLabel = o.cancelledStepLabel || 'Cancelled'; }
-      if (f.cancelled) Object.assign(o, { cancelReason: f.cancel_reason || '', cancelledBy: f.cancelled_by || '', cancelledAt: f.cancelled_at || '' });
-      if (f.on_hold && !o.closed) Object.assign(o, { onHold: true, holdType: f.hold_type || 'other', holdReason: f.hold_reason || '', holdBy: f.hold_by || '', holdAt: f.hold_at || '' });
-    });
-
-    orders.reverse(); // newest first
     return orders;
   }
 }
@@ -9270,28 +9323,27 @@ app.put('/api/purchase-fms/step-doers', requireAuth, requireAdmin, async (req, r
   } catch (err) { sendServerError(res, err); }
 });
 
-// No caching on the sheet read itself — same reasoning as getO2dOrders
-// above (multi-instance serverless deploys make a TTL cache show stale
-// "Mark Done" results).
+// Raw rows are cached by version, like getO2dOrders — bumped by writes under
+// /api/purchase-fms, /api/stock and /api/vendor (the ones that touch this sheet).
 async function getPurchasePOs() {
   const stepDoersMap = await getPurchaseStepDoersMap();
-  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
-  let result;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      result = await sheetsApi.spreadsheets.values.get({
-        spreadsheetId: PURCHASE_SHEET_ID,
-        range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:${PURCHASE_LAST_COL}`,
-        valueRenderOption: 'UNFORMATTED_VALUE'
-      });
-      break;
-    } catch (e) {
-      const isRateLimit = e.code === 429 || (e.message || '').includes('Quota exceeded');
-      if (!isRateLimit || attempt >= 2) throw e;
-      await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+  const sheetRows = await cachedBySheetVer('purchase', async () => {
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const result = await sheetsApi.spreadsheets.values.get({
+          spreadsheetId: PURCHASE_SHEET_ID,
+          range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:${PURCHASE_LAST_COL}`,
+          valueRenderOption: 'UNFORMATTED_VALUE'
+        });
+        return result.data.values || [];
+      } catch (e) {
+        const isRateLimit = e.code === 429 || (e.message || '').includes('Quota exceeded');
+        if (!isRateLimit || attempt >= 2) throw e;
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      }
     }
-  }
-  const sheetRows = result.data.values || [];
+  });
   const lines = sheetRows.map((r, i) => {
     const rowNum = PURCHASE_DATA_START_ROW + i;
     const get = col => r[colToIdx(col)];
