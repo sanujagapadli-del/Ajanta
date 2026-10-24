@@ -13186,7 +13186,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       const vi = v.items[s.item] = v.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: cost == null ? null : 0 };
       vi.qty += qty; vi.sales += amount; if (cost != null) vi.cost = (vi.cost || 0) + cost;
     };
-    const byItem = {}, byParty = {};
+    const byItem = {}, byParty = {}, byOrder = {}; // byOrder: Sales card → order-wise detail (2026-10-24)
     const totals = { sales: 0, qty: 0, costedSales: 0, cost: 0, uncostedSales: 0, lines: sales.length };
     for (const s of sales) {
       const c = costFor(s);
@@ -13201,6 +13201,11 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       if (c) { p.costedSales += s.amount; p.cost += cost; } else p.uncostedSales += s.amount;
       const pi = p.items[s.item] = p.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: c ? 0 : null };
       pi.qty += s.qty; pi.sales += s.amount; if (c) pi.cost += cost;
+      const ok = s.orderNo || `${s.party}|${s.date}`;
+      const o = byOrder[ok] = byOrder[ok] || { orderNo: s.orderNo, date: s.date, party: s.party, orderBy: s.orderBy, qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: [] };
+      o.qty += s.qty; o.sales += s.amount; if (s.date > o.date) o.date = s.date;
+      if (c) { o.costedSales += s.amount; o.cost += cost; o.hasCost = true; } else o.uncostedSales += s.amount;
+      o.items.push({ item: s.item, qty: round(s.qty), rate: round(s.rate), sales: round(s.amount), cost: c ? round(cost) : null });
       const pc = poCost[s.code];
       const vendors = pc ? Object.values(pc.vendors) : [];
       if (!vendors.length) addVendor(NO_PO_VENDOR, s, 1, c ? cost : null);
@@ -13232,12 +13237,18 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
         items: Object.values(v.items).map(i => ({ item: i.item, qty: round(i.qty), sales: round(i.sales), cost: i.cost == null ? null : round(i.cost),
           gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
+    const orders = Object.values(byOrder).map(o => {
+      // a ₹0 line with a known cost (free piece) still counts, so orders add up to the GP card
+      const g = o.hasCost ? o.costedSales - o.cost : null;
+      return { orderNo: o.orderNo, date: o.date, party: o.party, orderBy: o.orderBy, qty: round(o.qty), sales: round(o.sales), cost: round(o.cost),
+        uncostedSales: round(o.uncostedSales), gp: g == null ? null : round(g), gpPct: g == null || !o.costedSales ? null : round(g * 100 / o.costedSales), items: o.items };
+    }).sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.orderNo).localeCompare(String(a.orderNo)));
     const gp = totals.costedSales - totals.cost;
     res.json({
       start, end, source: 'fms',
       totals: { sales: round(totals.sales), qty: round(totals.qty), costedSales: round(totals.costedSales), cost: round(totals.cost),
         uncostedSales: round(totals.uncostedSales), gp: round(gp), gpPct: totals.costedSales ? round(gp * 100 / totals.costedSales) : null, lines: totals.lines },
-      products, dealers, vendors: vendorRows,
+      products, dealers, vendors: vendorRows, orders,
       dataRange: { from: firstBill, to: lastBill },
       canEditCost: req.session.role === 'admin'
     });
