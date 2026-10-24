@@ -4480,7 +4480,14 @@ async function init() {
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
       && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
-    if (savedPageExists && savedNavEl && !savedPageBlocked) {
+    // MD (Ajay sir, 2026-10-24): MD Summary is the home page whenever the app
+    // is opened fresh; a refresh in the same tab still restores the last page.
+    let freshOpen = false;
+    try { freshOpen = !sessionStorage.getItem('appOpened'); sessionStorage.setItem('appOpened', '1'); } catch (e) {}
+    const mdHome = /^md$/i.test(String(ME.department || '').trim()) && canSee('md-summary');
+    if (mdHome && freshOpen) {
+      navigate('md-summary', document.getElementById('nav-md-summary'));
+    } else if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
       loadDashboard();
