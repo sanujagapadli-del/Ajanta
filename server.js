@@ -5993,7 +5993,11 @@ app.put('/api/service-fms/:row/step/:stepNum', requireAuth, async (req, res) => 
       await sfmsEnsureColumns(sheetsApi);
     }
 
-    if (stepDef.otpRequired) {
+    // Admin only (client 2026-10-24): complete without the customer's OTP —
+    // noted on the record so it is visible who skipped it.
+    const adminNoOtp = stepDef.otpRequired && req.session.role === 'admin' && req.body.withoutOtp === true;
+    if (adminNoOtp) req.body.workDone = `${req.body.workDone || ''} [Bina OTP — admin ${req.session.name || ''}]`.trim();
+    if (stepDef.otpRequired && !adminNoOtp) {
       // A 6-digit code is guessable given enough attempts — cap attempts per
       // row rather than relying on the TTL alone.
       if (isRateLimited(`sfms-otp-verify:${row}`, 8, 15 * 60 * 1000)) {
