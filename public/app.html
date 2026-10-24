@@ -4498,6 +4498,7 @@ async function init() {
     loadTransferBadge();
     loadLeaveBadge();
     setTimeout(onbResumeAfterReload, 2500); // phone reloaded mid onboarding form (camera) → reopen it with what was filled
+    injectDatePresets();
     // Background refresh — only while the tab is actually on screen. Every
     // dashboard load reads several FMS sheets on the server, and office PCs
     // keep the app open all day; polling every 30s used up Vercel's monthly
@@ -14035,7 +14036,9 @@ async function renderO2dReportsView() {
         <button class="btn btn-primary" onclick="applyO2dReportsRange()">Generate</button>
         <div class="tab-group" id="o2dReportsQuickTabs" style="margin-left:auto">
           <div class="tab" onclick="quickO2dReportsRange('today',this)">Today</div>
-          <div class="tab" onclick="quickO2dReportsRange('week',this)">This Week</div>
+          <div class="tab" onclick="quickO2dReportsRange('yday',this)">Yesterday</div>
+          <div class="tab" onclick="quickO2dReportsRange('thisweek',this)">This Week</div>
+          <div class="tab" onclick="quickO2dReportsRange('week',this)">Last 7 Days</div>
           <div class="tab active" onclick="quickO2dReportsRange('month',this)">This Month</div>
           <div class="tab" onclick="quickO2dReportsRange('all',this)">All Time</div>
         </div>
@@ -14057,6 +14060,7 @@ function quickO2dReportsRange(kind, el) {
   if (el) el.classList.add('active');
   const now = new Date();
   if (kind === 'today') { o2dReportsFrom = o2dReportsFmtDate(now); o2dReportsTo = o2dReportsFmtDate(now); }
+  else if (kind === 'yday' || kind === 'thisweek') { [o2dReportsFrom, o2dReportsTo] = datePresetRange(kind); }
   else if (kind === 'week') { const d = new Date(now); d.setDate(d.getDate() - 6); o2dReportsFrom = o2dReportsFmtDate(d); o2dReportsTo = o2dReportsFmtDate(now); }
   else if (kind === 'month') { o2dReportsFrom = o2dReportsFmtDate(new Date(now.getFullYear(), now.getMonth(), 1)); o2dReportsTo = o2dReportsFmtDate(now); }
   else if (kind === 'all') { o2dReportsFrom = ''; o2dReportsTo = ''; }
@@ -22738,6 +22742,41 @@ async function openLeadQuickAction(id) {
 const _fmsRep = {};       // key -> { from, to, render }
 const _fmsRepDrills = {}; // drill key -> { title, items }
 const _fmsRepCharts = {}; // canvas id -> Chart
+// Yesterday / This week / This month on every date filter (Ajay sir, 2026-10-24: "sab jagah").
+function datePresetRange(k) {
+  const d = new Date(), y = x => owsYmd(x);
+  if (k === 'today') return [y(d), y(d)];
+  if (k === 'yday') { d.setDate(d.getDate() - 1); return [y(d), y(d)]; }
+  if (k === 'thisweek') { const m = new Date(); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return [y(m), y(d)]; }
+  if (k === 'month') return [y(new Date(d.getFullYear(), d.getMonth(), 1)), y(d)];
+  if (k === 'lastmonth') return [y(new Date(d.getFullYear(), d.getMonth() - 1, 1)), y(new Date(d.getFullYear(), d.getMonth(), 0))];
+  return null;
+}
+// [from input, to input, what reloads that page]
+const DATE_PRESET_PAIRS = [['attnHistFrom', 'attnHistTo', 'loadAttendanceHistory'], ['attnKmFrom', 'attnKmTo', 'loadKmHistory'], ['crFrom', 'crTo', 'loadCallReports'],
+  ['gpStart', 'gpEnd', 'loadGrossProfit'], ['mecaFrom', 'mecaTo', 'loadMeca'], ['misStart', 'misEnd', 'generateMIS'], ['pcDateFrom', 'pcDateTo', 'onPCFilterChange'],
+  ['pettyFrom', 'pettyTo', 'renderPettyCash'], ['recStart', 'recEnd', 'generateRecords'], ['tasksDateFrom', 'tasksDateTo', 'filterTasks'], ['tourFrom', 'tourTo', 'loadTourList']];
+function datePresetApply(fromId, toId, fn, k) {
+  const r = datePresetRange(k), f = document.getElementById(fromId), t = document.getElementById(toId);
+  if (!r || !f || !t) return;
+  f.value = r[0]; t.value = r[1];
+  document.querySelectorAll(`[data-dp="${fromId}"] button`).forEach(b => b.classList.toggle('btn-primary', b.dataset.k === k));
+  if (typeof window[fn] === 'function') window[fn]();
+}
+function injectDatePresets() {
+  DATE_PRESET_PAIRS.forEach(([fromId, toId, fn]) => {
+    const t = document.getElementById(toId);
+    if (!t || document.querySelector(`[data-dp="${fromId}"]`)) return;
+    const bar = document.createElement('div');
+    bar.dataset.dp = fromId;
+    bar.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;align-items:flex-end;align-self:flex-end';
+    bar.innerHTML = [['today', 'Aaj'], ['yday', 'Kal'], ['thisweek', 'Is hafte'], ['month', 'Is mahine'], ['lastmonth', 'Pichhla mahina']]
+      .map(([k, l]) => `<button type="button" class="btn btn-sm btn-outline" data-k="${k}" style="padding:5px 9px;font-size:11.5px" onclick="datePresetApply('${fromId}','${toId}','${fn}','${k}')">${l}</button>`).join('');
+    // after the "To" field's own wrapper when it has one, else right after the input
+    const host = t.parentElement && t.parentElement.children.length <= 3 && t.parentElement !== document.getElementById(fromId).parentElement ? t.parentElement : t;
+    host.insertAdjacentElement('afterend', bar);
+  });
+}
 function fmsRepRange(key) {
   if (!_fmsRep[key]) {
     const now = new Date();
@@ -22752,7 +22791,7 @@ function fmsRepFilterBar(key, renderFnName) {
   return `<div class="o2d-report-filterbar">
       <div><label>From</label><input type="date" id="fmsRepFrom_${key}" value="${r.from}" onchange="fmsRepApply('${jsArg(key)}')"/></div>
       <div><label>To</label><input type="date" id="fmsRepTo_${key}" value="${r.to}" onchange="fmsRepApply('${jsArg(key)}')"/></div>
-      <div class="tab-group" style="margin-left:auto">${tab('today', 'Today')}${tab('week', 'Last 7 Days')}${tab('month', 'This Month')}${tab('lastmonth', 'Last Month')}${tab('all', 'All Time')}</div>
+      <div class="tab-group" style="margin-left:auto;flex-wrap:wrap">${tab('today', 'Today')}${tab('yday', 'Yesterday')}${tab('thisweek', 'This Week')}${tab('week', 'Last 7 Days')}${tab('month', 'This Month')}${tab('lastmonth', 'Last Month')}${tab('all', 'All Time')}</div>
     </div>`;
 }
 function fmsRepApply(key) {
@@ -22765,6 +22804,7 @@ function fmsRepApply(key) {
 function fmsRepQuick(key, kind) {
   const r = fmsRepRange(key), now = new Date();
   if (kind === 'today') { r.from = r.to = o2dReportsFmtDate(now); }
+  else if (kind === 'yday' || kind === 'thisweek') { [r.from, r.to] = datePresetRange(kind); }
   else if (kind === 'week') { const d = new Date(now); d.setDate(d.getDate() - 6); r.from = o2dReportsFmtDate(d); r.to = o2dReportsFmtDate(now); }
   else if (kind === 'month') { r.from = o2dReportsFmtDate(new Date(now.getFullYear(), now.getMonth(), 1)); r.to = o2dReportsFmtDate(now); }
   else if (kind === 'lastmonth') { r.from = o2dReportsFmtDate(new Date(now.getFullYear(), now.getMonth() - 1, 1)); r.to = o2dReportsFmtDate(new Date(now.getFullYear(), now.getMonth(), 0)); }
