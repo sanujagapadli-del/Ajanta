@@ -1071,6 +1071,10 @@ tbody tr:last-child td{border-bottom:none;}
       <span id="approvalBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
       <span id="transferBadge" style="display:none;position:absolute;top:6px;right:26px;background:var(--color-purple);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
     </div>
+    <div class="nav-item" id="nav-dropdown-master" style="display:none" onclick="navigate('dropdown-master',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7m5-2l3 3 3-3"/></svg>
+      <span class="nav-label-text">Dropdown Master</span>
+    </div>
     <div class="nav-item" id="nav-checklist-master" style="display:none" onclick="navigate('checklist-master',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
       <span class="nav-label-text">Checklist Master</span>
@@ -2117,6 +2121,13 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 
   <!-- ── SALES SCHEDULE (client, 2026-10-12) ── -->
+  <div id="page-dropdown-master" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900)">🔽 Dropdown Master</div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px">Yahan ki lists app ke text khaanon me dropdown ban kar aati hain. List me na ho to log "➕ Doosra (likho)" chun kar likh sakte hain. Ek line = ek option.</div>
+    </div>
+    <div id="ddmWrap"><div class="empty">Loading…</div></div>
+  </div>
   <div id="page-checklist-master" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -4433,6 +4444,7 @@ async function init() {
     if (canSee('tea')) document.getElementById('nav-tea').style.display = 'flex';
     if (canSee('md-summary')) { document.getElementById('nav-md-summary').style.display = 'flex'; document.getElementById('dashMdBtn').style.display = ''; }
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
+    if (ME.role === 'admin') document.getElementById('nav-dropdown-master').style.display = 'flex';
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
     if (canSee('samples')) document.getElementById('nav-samples').style.display = 'flex';
@@ -4499,6 +4511,7 @@ async function init() {
     loadLeaveBadge();
     setTimeout(onbResumeAfterReload, 2500); // phone reloaded mid onboarding form (camera) → reopen it with what was filled
     injectDatePresets();
+    loadDdLists();
     // Background refresh — only while the tab is actually on screen. Every
     // dashboard load reads several FMS sheets on the server, and office PCs
     // keep the app open all day; polling every 30s used up Vercel's monthly
@@ -4695,7 +4708,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
+const pageTitles = {'dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4751,6 +4764,7 @@ function navigate(page, el) {
   if (page==='tea') loadTea();
   if (page==='md-summary') loadMdSummary();
   if (page==='checklist-master') loadChecklistMaster();
+  if (page==='dropdown-master') loadDropdownMaster();
   if (page==='ows') loadOws();
   if (page==='vendor-ledger') loadVrl();
   if (page==='samples') loadSmp();
@@ -22742,6 +22756,79 @@ async function openLeadQuickAction(id) {
 const _fmsRep = {};       // key -> { from, to, render }
 const _fmsRepDrills = {}; // drill key -> { title, items }
 const _fmsRepCharts = {}; // canvas id -> Chart
+// ── Dropdown Master (Ajay sir, 2026-10-24: "90% text se dropdown pe leke jane hai").
+// Each text box listed here becomes a dropdown of its master list; the box
+// itself stays (hidden) and keeps the value, so every form reads it as before.
+const DD_LABELS = { city: 'City / Shehar', area: 'Area / Market', transport: 'Transport', vehicle: 'Vehicle (petty cash)', payee: 'Payee — kisko diya (petty cash)',
+  department: 'Department', uom: 'UOM', gst: 'GST %', brought_by: 'Replacement — kaun laaya', repl_defect: 'Replacement — kharabi', repl_not_ours: 'Replacement — apna kyun nahi',
+  ow_reason: 'Out of warranty — reason', hold_reason: 'O2D hold — reason', delay_reason: 'Late done — delay reason', inout_reason: 'Spare In/Out — kam kyun', received_by: 'Delivery — kisne liya', staff: 'Staff (cash from staff)' };
+const DD_FIELDS = [['#uDepartment', 'department'], ['#plUom', 'uom'], ['#stkUom', 'uom'], ['#plGst', 'gst'], ['#nlArea', 'area'], ['#fmsDoneDelayReason', 'delay_reason'],
+  ['#rfDefect', 'repl_defect'], ['#rfBroughtBy', 'brought_by'], ['#pePayee', 'payee'], ['#peVehicle', 'vehicle'], ['#dd_city', 'city'], ['#dd_area', 'area'],
+  ['#onb_city', 'city'], ['#onb_area', 'area'], ['#onb_tname', 'transport'], ['#o2dHoldReason', 'hold_reason'], ['[id^="sfmsInReason_"]', 'inout_reason'],
+  ['#o2dDvBy', 'received_by'], ['#ssNewCounterCity', 'city'], ['#ssUpPlace', 'city'], ['[id^="rpl_"][id$="_reason"]', 'repl_not_ours'], ['[id^="rpl_"][id$="_owr"]', 'ow_reason'],
+  ['[id^="rpl_"][id$="_staff"]', 'staff']];
+let ddLists = {};
+async function loadDdLists() {
+  const r = await api('/api/dd-lists');
+  if (r && r.lists) { ddLists = r.lists; ddScan(); }
+}
+function ddEnhance(inp, key) {
+  if (inp.dataset.ddDone || inp.type === 'hidden') return;
+  const items = (ddLists[key] && ddLists[key].items) || [];
+  if (!items.length) return;
+  inp.dataset.ddDone = '1';
+  inp.removeAttribute('list');
+  const sel = document.createElement('select');
+  sel.className = inp.className;
+  sel.style.cssText = inp.style.cssText;
+  const cur = inp.value.trim(), known = items.some(v => v.toLowerCase() === cur.toLowerCase());
+  sel.innerHTML = `<option value="">-- Chunein --</option>${items.map(v => `<option ${cur && v.toLowerCase() === cur.toLowerCase() ? 'selected' : ''}>${esc(v)}</option>`).join('')}<option value="__dd_other__" ${cur && !known ? 'selected' : ''}>➕ Doosra (likho)</option>`;
+  if (!cur || known) inp.style.display = 'none';
+  else inp.style.marginTop = '4px';
+  // A form filling the box later (edit user, edit dealer…) moves the dropdown with it.
+  const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  Object.defineProperty(inp, 'value', { configurable: true, get() { return native.get.call(this); }, set(v) {
+    native.set.call(this, v);
+    const s = String(v || '').trim(), hit = items.find(x => x.toLowerCase() === s.toLowerCase());
+    if (!s || hit) { sel.value = hit || ''; inp.style.display = 'none'; } else { sel.value = '__dd_other__'; inp.style.display = ''; }
+  } });
+  sel.addEventListener('change', () => {
+    if (sel.value === '__dd_other__') { inp.style.display = ''; inp.style.marginTop = '4px'; native.set.call(inp, ''); inp.focus(); }
+    else { inp.style.display = 'none'; native.set.call(inp, sel.value); }
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  inp.insertAdjacentElement('beforebegin', sel);
+}
+let _ddScanQueued = false;
+function ddScan() {
+  _ddScanQueued = false;
+  DD_FIELDS.forEach(([selector, key]) => document.querySelectorAll(`input${selector}:not([data-dd-done])`).forEach(el => ddEnhance(el, key)));
+}
+new MutationObserver(() => { if (!_ddScanQueued && Object.keys(ddLists).length) { _ddScanQueued = true; requestAnimationFrame(ddScan); } })
+  .observe(document.documentElement, { childList: true, subtree: true });
+// Admin page: one box per list, a line per option.
+async function loadDropdownMaster() {
+  const wrap = document.getElementById('ddmWrap');
+  const r = await api('/api/dd-lists');
+  if (!r || r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
+  ddLists = r.lists;
+  wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${Object.entries(r.lists).map(([k, l]) => `
+    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b style="flex:1">${esc(DD_LABELS[k] || k)}</b><span style="font-size:11px;color:var(--gray-500)">${l.items.length}${l.saved ? '' : ' · purane data se'}</span></div>
+      <textarea id="ddm_${k}" rows="8" style="${VRL_IN};resize:vertical;font-size:12.5px">${esc(l.items.join('\n'))}</textarea>
+      <button class="btn btn-sm btn-primary" style="margin-top:6px" onclick="saveDropdownList('${k}',this)">✓ Save</button></div>`).join('')}</div>`;
+}
+async function saveDropdownList(key, btn) {
+  const items = document.getElementById(`ddm_${key}`).value.split('\n').map(v => v.trim()).filter(Boolean);
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/dd-lists/${key}`, 'PUT', { items });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  ddLists[key] = { items: r.items, saved: true };
+  showToast(`✅ ${DD_LABELS[key] || key} — ${r.items.length} options`);
+}
+
 // Yesterday / This week / This month on every date filter (Ajay sir, 2026-10-24: "sab jagah").
 function datePresetRange(k) {
   const d = new Date(), y = x => owsYmd(x);

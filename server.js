@@ -15021,6 +15021,66 @@ app.get('/', (req, res) => { res.set('Cache-Control', CDN_CACHE); res.sendFile(p
 // ══════════════════════════════════════════════════════
 const CL_KEY_WHERE = 'assigned_to=? AND COALESCE(title,\'\')=? AND COALESCE(description,\'\')=? AND COALESCE(frequency,\'\')=?';
 const clKeyParams = k => [Number(k.assignedTo), String(k.title || ''), String(k.description || ''), String(k.frequency || '')];
+// ══════════════════════════════════════════════════════
+// DROPDOWN MASTER (Ajay sir, 2026-10-24: "90% text se dropdown pe leke jane
+// hai"). One list per kind of field; a text box tagged data-dd="<key>" in the
+// app turns into a dropdown of that list (+ "Doosra (likho)"). A list nobody
+// has saved yet starts from the values already used in the data.
+// ══════════════════════════════════════════════════════
+let _ddListOk = false;
+async function ddListTable() {
+  if (_ddListOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS dd_lists (list_key VARCHAR(40) PRIMARY KEY, items TEXT NOT NULL, updated_by INT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _ddListOk = true;
+}
+const DD_STATIC = {
+  uom: ['PCS', 'SET', 'BOX', 'PKT', 'KG', 'LTR', 'MTR', 'ROLL', 'DOZEN', 'PAIR'],
+  gst: ['0%', '5%', '12%', '18%', '28%'],
+  brought_by: ['Salesman', 'Courier', 'Transport', 'Customer khud', 'Dealer khud'],
+  repl_defect: ['Not working', 'Tuta hua (broken)', 'Noise / awaaz', 'Motor jal gaya', 'Speed kam', 'Body damage', 'Wiring problem'],
+  repl_not_ours: ['Doosri company ka product', 'Warranty khatam', 'Customer damage', 'Bill nahi hai'],
+  ow_reason: ['Bill 1 saal se purana', 'Bill nahi hai', 'Pani gaya', 'Jala hua / burn', 'Physical damage', 'Customer ne khola'],
+  hold_reason: ['Stock nahi hai', 'Payment pending', 'Party ne roka', 'Credit limit cross', 'Rate confirm baaki'],
+  delay_reason: ['Stock nahi tha', 'Party available nahi', 'Transport nahi mila', 'Payment pending', 'Staff chhutti par'],
+  inout_reason: ['Spare kam aaya', 'Purana piece nahi mila', 'Customer ke paas reh gaya'],
+  received_by: ['Dukaan malik', 'Staff', 'Transport', 'Counter boy'],
+  staff: []
+};
+async function ddSeed(key) {
+  const q = (sql, p) => db.query(sql, p).then(([r]) => r.map(x => String(x.v || '').trim()).filter(Boolean)).catch(() => []);
+  if (key === 'department') return q("SELECT DISTINCT department AS v FROM users WHERE is_active=1 AND department<>'' ORDER BY v");
+  if (key === 'city') return q("SELECT city AS v FROM o2d_dealers WHERE city<>'' GROUP BY city ORDER BY COUNT(*) DESC LIMIT 150");
+  if (key === 'area') return q("SELECT v FROM (SELECT area AS v FROM o2d_dealers WHERE area<>'' UNION ALL SELECT area FROM leads WHERE area<>'') a GROUP BY v ORDER BY COUNT(*) DESC LIMIT 200");
+  if (key === 'transport') return q("SELECT transport_name AS v FROM dealer_onboardings WHERE transport_name<>'' GROUP BY v ORDER BY COUNT(*) DESC LIMIT 100");
+  if (key === 'vehicle') return q("SELECT vehicle AS v FROM petty_cash WHERE vehicle<>'' GROUP BY v ORDER BY COUNT(*) DESC LIMIT 60");
+  if (key === 'payee') return q("SELECT payee AS v FROM petty_cash WHERE payee<>'' GROUP BY v ORDER BY COUNT(*) DESC LIMIT 80");
+  return DD_STATIC[key] ? DD_STATIC[key].slice() : [];
+}
+const DD_KEYS = ['city', 'area', 'transport', 'vehicle', 'payee', 'department', ...Object.keys(DD_STATIC)];
+app.get('/api/dd-lists', requireAuth, async (req, res) => {
+  try {
+    await ddListTable();
+    const [rows] = await db.query('SELECT list_key, items FROM dd_lists');
+    const saved = {};
+    rows.forEach(r => { try { saved[r.list_key] = JSON.parse(r.items); } catch (e) { /* bad row — reseed */ } });
+    const out = {};
+    for (const k of DD_KEYS) out[k] = { items: Array.isArray(saved[k]) ? saved[k] : await ddSeed(k), saved: Array.isArray(saved[k]) };
+    res.json({ lists: out });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/dd-lists/:key', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await ddListTable();
+    const key = String(req.params.key);
+    if (!DD_KEYS.includes(key)) return res.status(400).json({ error: 'Unknown list' });
+    const seen = new Set();
+    const items = (Array.isArray(req.body.items) ? req.body.items : []).map(v => String(v || '').trim().slice(0, 120)).filter(v => v && !seen.has(v.toLowerCase()) && seen.add(v.toLowerCase())).slice(0, 500);
+    await db.query('INSERT INTO dd_lists (list_key, items, updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE items=VALUES(items), updated_by=VALUES(updated_by)', [key, JSON.stringify(items), req.session.userId]);
+    res.json({ success: true, items });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.get('/api/checklist-master', requireAuth, requireChecklistManager, async (req, res) => {
   try {
     const [rows] = await db.query(`
