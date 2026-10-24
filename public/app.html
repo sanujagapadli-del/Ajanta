@@ -1187,6 +1187,13 @@ kbd,.tb-kbd{font-family:inherit;font-size:11px;font-weight:600;color:var(--n-500
 /* Bottom nav press feedback */
 .bn-item{transition:transform var(--dur-1) var(--ease-standard),color var(--dur-2);}
 .bn-item:active{transform:scale(.94);}
+/* Gross Profit summary cards — click sorts the table (2026-10-24) */
+.gp-kpi{cursor:pointer;transition:transform var(--dur-2) var(--ease-standard),box-shadow var(--dur-2),border-color var(--dur-2);}
+.gp-kpi:hover{transform:translateY(-2px);box-shadow:var(--sh-3);}
+.gp-kpi:active{transform:scale(.98);}
+.gp-kpi.on{border-color:rgba(var(--brand-rgb),.45) !important;box-shadow:0 0 0 3px rgba(var(--brand-rgb),.10),var(--sh-2);}
+.gp-kpi-hint{font-size:11px;font-weight:700;color:var(--brand-500);margin-top:6px;opacity:.75;}
+.gp-kpi.on .gp-kpi-hint{opacity:1;}
 /* Button busy state: <button class="btn is-busy"> */
 .btn.is-busy{pointer-events:none;opacity:.85;}
 .btn.is-busy::before{content:'';width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:ui-spin .7s linear infinite;}
@@ -25990,6 +25997,14 @@ function renderNetProfit() {
     </div>
     ${t.uncostedSales ? `<div class="np-link" onclick="npGoProduct('nocost')" style="font-size:12px;color:var(--color-warning-text);margin-top:10px">⚠️ ${gpInr(t.uncostedSales)} ki bikri ki laagat abhi pata nahi, isliye GP / NP me nahi — <u>bina laagat wale products dikhao →</u></div>` : ''}`;
 }
+// Gross Profit summary cards → sort the open tab's table by that figure and scroll to it.
+function gpCardSort(key, dir) {
+  gpSortBy = key; gpSortDir = dir; gpShown = 60;
+  if (gpView === 'np') gpView = 'product';
+  renderGrossProfit();
+  const tbl = document.querySelector('#gpResults table');
+  if (tbl) tbl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 // ── Net Profit clicks ──
 function npGoProduct(what) {
   gpOnlyNoCost = what === 'nocost';
@@ -26130,9 +26145,14 @@ function renderGrossProfit() {
   if (!d) return;
   const t = d.totals;
   const card = 'background:var(--surface);border:1px solid var(--gray-200);border-radius:16px;box-shadow:0 2px 12px rgba(1,80,170,.05)';
-  const kpi = (label, value, sub, color) => `<div style="${card};flex:1;min-width:170px;padding:14px 16px">
+  // Clickable (client 2026-10-24): a card sorts the table below by its figure.
+  const kpi = (label, value, sub, color, sortKey, dir) => {
+    const on = sortKey && gpSortBy === sortKey && gpSortDir === dir;
+    return `<div ${sortKey ? `class="gp-kpi${on ? ' on' : ''}" onclick="gpCardSort('${sortKey}','${dir}')" title="Click — table ${dir === 'asc' ? 'sabse kam' : 'sabse zyada'} ${esc(label)} se sort"` : ''} style="${card};flex:1;min-width:170px;padding:14px 16px">
     <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
-    <div style="font-size:24px;font-weight:900;color:${color};margin:2px 0">${value}</div><div style="font-size:11.5px;color:var(--gray-500)">${sub}</div></div>`;
+    <div style="font-size:24px;font-weight:900;color:${color};margin:2px 0">${value}</div><div style="font-size:11.5px;color:var(--gray-500)">${sub}</div>
+    ${sortKey ? `<div class="gp-kpi-hint">${on ? '✓ is se sorted' : dir === 'asc' ? 'Kam margin wale pehle →' : 'Sabse zyada pehle →'}</div>` : ''}</div>`;
+  };
   const costPct = t.sales ? Math.round(t.costedSales * 100 / t.sales) : 0;
   const q = gpQuery.trim().toLowerCase();
   const th = 'padding:10px 12px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;text-align:right;background:var(--gray-50);white-space:nowrap;position:sticky;top:0;z-index:1';
@@ -26186,10 +26206,10 @@ function renderGrossProfit() {
   const noCost = d.products.filter(p => p.costRate == null).length;
   out.innerHTML = `
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-      ${kpi('Sales (O2D billed)', gpInr(t.sales), `${t.lines.toLocaleString('en-IN')} order lines · ${t.qty.toLocaleString('en-IN')} pcs`, 'var(--gray-900)')}
-      ${kpi('Cost', gpInr(t.cost), `on ${gpInr(t.costedSales)} of sales (${costPct}%)`, 'var(--gray-700)')}
-      ${kpi('Gross Profit', gpInr(t.gp), 'sales with a known cost − cost', t.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)')}
-      ${kpi('GP %', t.gpPct == null ? '—' : t.gpPct + '%', 'of sales with a known cost', 'var(--color-primary)')}
+      ${kpi('Sales (O2D billed)', gpInr(t.sales), `${t.lines.toLocaleString('en-IN')} order lines · ${t.qty.toLocaleString('en-IN')} pcs`, 'var(--gray-900)', 'sales', 'desc')}
+      ${kpi('Cost', gpInr(t.cost), `on ${gpInr(t.costedSales)} of sales (${costPct}%)`, 'var(--gray-700)', 'cost', 'desc')}
+      ${kpi('Gross Profit', gpInr(t.gp), 'sales with a known cost − cost', t.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)', 'gp', 'desc')}
+      ${kpi('GP %', t.gpPct == null ? '—' : t.gpPct + '%', 'of sales with a known cost', 'var(--color-primary)', 'gpPct', 'asc')}
     </div>
     ${t.uncostedSales ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">ℹ️ ${gpInr(t.uncostedSales)} ki bikri (${noCost} products) ki laagat abhi pata nahi — woh GP me shaamil nahi.${d.canEditCost ? ` <a href="#" onclick="gpView='product';gpOnlyNoCost=!gpOnlyNoCost;renderGrossProfit();return false" style="font-weight:700">${gpOnlyNoCost ? 'Sab products dikhao' : 'Bina laagat wale products dikhao →'}</a>` : ''}</div>` : ''}
     <div style="${card};overflow:hidden">
