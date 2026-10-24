@@ -18791,6 +18791,22 @@ function openCollectionDues() {
   navigate('collection', document.getElementById('nav-collection'));
 }
 function colSetTab(t) { colTab = t; renderCollection(); }
+let colAge = 45;
+function colShowAge(n) { colAge = n; colTab = 'age'; renderCollection(); }
+// When the 15-day WhatsApp went (or is due: bill date + 15 days, ~11 AM).
+function colMsgDate(b) {
+  const a = b.acts && b.acts.msg15;
+  if (a && a.at) return `${esc(fmtDateDMY(a.at, true))}${a.waStatus === 'sent' ? '' : ' <span style="font-size:11px;color:var(--gray-500)">(queue)</span>'}`;
+  const d = new Date(b.billDate + 'T00:00:00'); d.setDate(d.getDate() + colData.steps.msg15.from);
+  return `<span style="color:var(--gray-500)">${esc(fmtDateDMY(owsYmd(d)))}${d <= new Date() ? ' (agli subah)' : ''}</span>`;
+}
+// Dealer statement (Tally ledger + open bills) with its PDF / WhatsApp buttons (Ajay sir, 2026-10-24).
+function colOpenStatement(party) {
+  const p = colPartyOf(party);
+  const pm = document.getElementById('colPartyModal');
+  if (pm) closeModal('colPartyModal'); // otherwise it sits on top of the statement
+  openDealerLedgerModal(p.party || party, p.phone || '');
+}
 function colCallsDue() {
   const S = colData.steps, out = [];
   colData.bills.forEach(b => ['call25', 'call30'].forEach(step => {
@@ -18819,9 +18835,12 @@ function renderCollection() {
   if (colTab === 'dues') return renderDeliveryDues();
   const synced = colData.lastSynced ? new Date(colData.lastSynced) : null;
   const stale = synced ? Math.floor((Date.now() - synced.getTime()) / 86400000) : null;
-  const sum = f => parties.filter(f).reduce((a, p) => a + Math.max(p.outstanding, 0), 0);
-  const card = (l, v, c) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:10px;padding:8px 14px;min-width:130px"><div style="font-size:11px;color:var(--gray-500);font-weight:600">${l}</div><div style="font-size:17px;font-weight:800;color:${c || 'var(--gray-800)'}">${v}</div></div>`;
-  const note = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${card('💰 Total outstanding', inr(colData.totalOutstanding || 0), 'var(--color-primary)')}${card(`${parties.length} parties`, '')}${card('15+ din wale bill', inr(sum(p => p.maxDays >= 15)), 'var(--color-warning-text)')}${card('30+ din wale bill', inr(sum(p => p.maxDays >= 30)), 'var(--color-danger)')}</div>
+  // Age buckets (Ajay sir, 2026-10-24): sum of the bills at least N days old; click → those bills.
+  const ageSum = n => colData.bills.filter(b => b.days >= n).reduce((a, b) => a + Math.max(b.amount, 0), 0);
+  const ageCnt = n => colData.bills.filter(b => b.days >= n && b.amount > 0).length;
+  const card = (l, v, c, click, on) => `<div ${click ? `onclick="${click}" title="Click — ye bill dekho"` : ''} style="background:${on ? 'var(--color-primary-light)' : 'var(--surface)'};border:1.5px solid ${on ? 'var(--color-primary)' : 'var(--gray-200)'};border-radius:10px;padding:8px 14px;min-width:120px${click ? ';cursor:pointer' : ''}"><div style="font-size:11px;color:var(--gray-500);font-weight:600">${l}</div><div style="font-size:17px;font-weight:800;color:${c || 'var(--gray-800)'}">${v}</div></div>`;
+  const ageCard = (n, c) => card(`${n}+ din wale bill (${ageCnt(n)})`, inr(ageSum(n)), c, `colShowAge(${n})`, colTab === 'age' && colAge === n);
+  const note = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${card('💰 Total outstanding', inr(colData.totalOutstanding || 0), 'var(--color-primary)')}${card(`${parties.length} parties`, '', '', "colSetTab('parties')")}${ageCard(15, 'var(--color-warning-text)')}${ageCard(30, 'var(--color-danger)')}${ageCard(45, 'var(--color-danger)')}${ageCard(60, 'var(--color-danger)')}${ageCard(75, 'var(--color-danger)')}${ageCard(90, '#7f1d1d')}</div>
     <div style="font-size:12px;color:${stale != null && stale >= 2 ? 'var(--color-danger)' : 'var(--gray-500)'};margin-bottom:10px">Tally se baaki bill — last sync ${synced ? esc(fmtDateDMY(o2dReportsFmtDate(synced))) : '—'}${stale != null && stale >= 2 ? ` · ⚠️ <b>${stale} din purana</b> — Tally PC par sync check karein. Jab tak sync nahi hota, WhatsApp reminder apne aap nahi jayenge (paid dealers ko galat message na jaye).` : ''}. Amount = party ka Tally ledger balance (on-account payment purane bill se kat jaata hai). Party ke naam par click karke payment / phone daalein.</div>`;
   const wrap = document.getElementById('colWrap');
   const day = n => `<b style="color:${n >= 30 ? 'var(--color-danger)' : n >= 25 ? 'var(--color-warning-text)' : 'var(--gray-800)'}">${n} din</b>`;
@@ -18830,7 +18849,12 @@ function renderCollection() {
   const amt = b => `${inr(b.amount)}${b.billAmount && Math.round(b.billAmount) !== Math.round(b.amount) ? `<div style="font-size:10.5px;color:var(--gray-500);font-weight:400" title="Tally bill me itna dikhta hai — baaki on-account payment se kat gaya">bill ${inr(b.billAmount)}</div>` : ''}`;
   const partyCell = b => `<a href="#" onclick="openColParty('${o2dJsEsc(b.party)}');return false" style="font-weight:700">${esc(b.party)}</a>${b.owner ? `<div style="font-size:11px;color:var(--gray-500)">${esc(b.owner)}</div>` : ''}`;
   const tel = b => b.phone ? `<a href="tel:${esc(b.phone)}" style="font-weight:700">📞 ${esc(b.phone)}</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(b.party)}')">➕ Phone daalo</button>`;
-  if (colTab === 'calls') {
+  if (colTab === 'age') {
+    const list = colData.bills.filter(b => b.days >= colAge && b.amount > 0).sort((a, b) => b.days - a.days);
+    wrap.innerHTML = note + `<div style="font-size:13px;font-weight:700;margin-bottom:8px">${colAge}+ din purane bill — ${list.length} · ${inr(list.reduce((a, b) => a + b.amount, 0))}</div>` + (list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th style="text-align:right">Party total</th><th>Phone</th><th></th></tr></thead><tbody>
+      ${list.map(b => `<tr><td>${partyCell(b)}</td><td style="white-space:nowrap">${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td><td>${billAge(b)}</td>
+        <td style="text-align:right">${inr(colPartyOf(b.party).outstanding)}</td><td>${tel(b)}</td><td><button class="btn btn-sm btn-outline" onclick="colOpenStatement('${o2dJsEsc(b.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi bill nahi</div>');
+  } else if (colTab === 'calls') {
     wrap.innerHTML = note + (calls.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th style="text-align:right">Party total</th><th>Kaunsa call</th><th>Phone</th><th></th></tr></thead><tbody>
       ${calls.map(({ b, step }) => `<tr><td>${partyCell(b)}</td>
         <td style="white-space:nowrap">${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td>
@@ -18844,9 +18868,9 @@ function renderCollection() {
     const st = b => { const a = b.acts.msg15; if (!a) return b.phone ? `<span class="status-badge">${stale != null && stale >= 2 ? 'Tally sync ke baad jayega' : 'Subah ~11 baje jayega'}</span>` : '<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)">Phone nahi</span>';
       const ws = a.waStatus; return ws === 'sent' ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Bhej diya</span>' : ws === 'failed' ? '<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)">❌ Nahi gaya</span>' : '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">⏳ Queue me</span>'; };
     wrap.innerHTML = note + `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">Jo bill ${S.msg15.from} din ke ho gaye, unke dealer ko subah ~11 baje apne aap WhatsApp reminder jaata hai (ek dealer ko ek message, saare bill ek saath).${ME.role === 'admin' ? ' <button class="btn btn-sm btn-outline" style="margin-left:6px" onclick="colSendNow(this)">📤 Abhi bhejo</button>' : ''}</div>` +
-      (msgs.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th>Phone</th><th>WhatsApp</th></tr></thead><tbody>
+      (msgs.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th>Phone</th><th>WhatsApp</th><th>WhatsApp date</th></tr></thead><tbody>
       ${msgs.map(b => `<tr><td>${partyCell(b)}</td><td>${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td>
-        <td>${billAge(b)}</td><td>${tel(b)}</td><td>${st(b)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Abhi koi bill 15 din ka nahi hua</div>');
+        <td>${billAge(b)}</td><td>${tel(b)}</td><td>${st(b)}</td><td style="white-space:nowrap">${colMsgDate(b)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Abhi koi bill 15 din ka nahi hua</div>');
   } else {
     wrap.innerHTML = note + (done.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Call</th><th>Result</th><th>Kab / kisne</th></tr></thead><tbody>
       ${done.map(({ b, step, a }) => `<tr><td>${partyCell(b)}</td><td>${esc(b.billRef)}</td><td style="text-align:right">${inr(b.amount)}</td><td>${step === 'call30' ? '30 din' : '25 din'}</td>
@@ -18878,7 +18902,8 @@ function colRenderPartyRows() {
     ${list.map(p => `<tr style="cursor:pointer" onclick="openColParty('${o2dJsEsc(p.party)}')"><td style="font-weight:700">${esc(p.party)}${p.owner ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(p.owner)}</div>` : ''}</td>
       <td style="text-align:right;font-weight:800">${inr(p.outstanding)}${p.appPaid ? `<div style="font-size:10.5px;color:var(--color-success-text);font-weight:600">−${inr(p.appPaid)} yahan entry</div>` : ''}</td>
       <td>${p.bills.length}</td><td><b style="color:${p.maxDays >= 30 ? 'var(--color-danger)' : p.maxDays >= 15 ? 'var(--color-warning-text)' : 'var(--gray-700)'}">${p.maxDays} din</b></td>
-      <td onclick="event.stopPropagation()">${p.phone ? `<a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(p.party)}')">➕ Phone daalo</button>`}</td></tr>`).join('')}
+      <td onclick="event.stopPropagation()" style="white-space:nowrap">${p.phone ? `<a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(p.party)}')">➕ Phone daalo</button>`}
+        <button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="colOpenStatement('${o2dJsEsc(p.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`).join('')}
     </tbody></table></div>` : '<div class="empty">Koi party nahi mili</div>';
 }
 // Party detail (client list 10-21 #8): bills, payments entered here, and a
@@ -18892,7 +18917,8 @@ function openColParty(party) {
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
       <div><div style="font-size:11px;color:var(--gray-500)">Outstanding</div><div style="font-size:20px;font-weight:800;color:var(--color-primary)">${inr(p.outstanding)}</div></div>
       <div style="margin-left:auto;text-align:right">${p.phone ? `<a href="tel:${esc(p.phone)}" style="font-weight:700">📞 ${esc(p.phone)}</a>` : '<span style="color:var(--color-danger);font-size:12px">Phone nahi</span>'}
-        <div><button class="btn btn-sm btn-outline" style="margin-top:4px" onclick="colSetPhone('${o2dJsEsc(p.party)}')">✏️ Phone</button></div></div></div>
+        <div style="display:flex;gap:4px;justify-content:flex-end;margin-top:4px;flex-wrap:wrap"><button class="btn btn-sm btn-outline" onclick="colSetPhone('${o2dJsEsc(p.party)}')">✏️ Phone</button>
+          <button class="btn btn-sm btn-green" onclick="colOpenStatement('${o2dJsEsc(p.party)}')">📒 Statement (PDF / WhatsApp)</button></div></div></div>
     <div style="font-size:12px;font-weight:700;margin-bottom:4px">Baaki bill</div>
     <div class="table-wrap" style="margin-bottom:12px"><table style="font-size:12px"><thead><tr><th>Bill</th><th>Bill date (din)</th><th style="text-align:right">Baaki</th></tr></thead><tbody>
       ${p.bills.slice().sort((a, b) => b.days - a.days).map(b => `<tr><td>${esc(b.billRef)}</td><td>${esc(fmtDateDMY(b.billDate))} (${b.days} din)</td><td style="text-align:right;font-weight:700">${inr(b.amount)}${Math.round(b.billAmount) !== Math.round(b.amount) ? `<div style="font-size:10.5px;color:var(--gray-500);font-weight:400">bill ${inr(b.billAmount)}</div>` : ''}</td></tr>`).join('')}
@@ -21412,7 +21438,7 @@ function renderLeadAll() {
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No leads found.</div>'; return; }
   const shown = rows.slice(0, 300);
   wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
-    <thead><tr><th>Lead</th><th>Date</th><th>Source</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Requirement</th><th>Brought by</th><th>Calls</th><th>Visit</th><th>Status</th></tr></thead>
+    <thead><tr><th>Lead</th><th>Date</th><th>Source</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Requirement</th><th>Brought by</th><th>Calls</th><th>📍 Market visit date</th><th>Visit hua</th><th>Status</th></tr></thead>
     <tbody>${shown.map(l => `<tr onclick="openLeadDetail(${l.id})" style="cursor:pointer">
       <td style="font-weight:600">${esc(l.code)} ${leadTypeBadge(l)}</td>
       <td style="white-space:nowrap">${esc(fmtEntry(l.createdAt))}</td>
@@ -21423,7 +21449,8 @@ function renderLeadAll() {
       <td>${esc(l.reqCategory || '—')}</td>
       <td>${esc(l.salesmanName || l.createdByName || '—')}</td>
       <td>${l.callCount || '—'}${l.catalogueSent ? ' <span title="Catalogue sent">📘</span>' : ''}</td>
-      <td>${l.visitDate ? `${fmtDateDMY(l.visitDate)} · ${esc(l.visitUserName)}` : l.visitCount ? `${l.visitCount} done` : '—'}</td>
+      <td>${l.visitDate ? `<b style="color:${leadIsMissed(l) ? 'var(--color-danger)' : 'var(--color-primary)'}">${fmtDateDMY(l.visitDate)}</b> · ${esc(l.visitUserName)}` : '—'}</td>
+      <td>${l.visitedAt ? `${fmtDateDMY(String(l.visitedAt).slice(0, 10))}${l.visitCount > 1 ? ` <span style="color:var(--gray-500)">(${l.visitCount})</span>` : ''}${l.visitOutcome ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.visitOutcome)}</div>` : ''}` : l.visitCount ? `${l.visitCount} done` : '—'}</td>
       <td>${leadStageBadge(l)}</td>
     </tr>`).join('')}</tbody></table>
     <div style="padding:10px 16px;font-size:12px;color:var(--gray-400)">${rows.length} leads${rows.length > shown.length ? ` — showing first ${shown.length}, search to narrow` : ''}</div>`;
