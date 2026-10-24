@@ -15393,7 +15393,9 @@ function renderStockPage() {
   else renderStockGrid();
 }
 
-function onStockSearchInput(v) { stockSearchQ = v; renderStockGrid(); }
+// Typing only refreshes the list — rebuilding the search box itself lost the
+// cursor after every letter (client 2026-10-24, urgent).
+function onStockSearchInput(v) { stockSearchQ = v; renderStockGridRows(); }
 
 function stockRowHtml(item) {
   const editBtns = stockCanEdit ? `
@@ -15416,16 +15418,22 @@ function stockRowHtml(item) {
 function renderStockGrid() {
   const body = document.getElementById('stockTabBody');
   if (!body) return;
-  const q = stockSearchQ.trim().toLowerCase();
-  const filtered = q ? stockItems.filter(it => it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)) : stockItems;
-  const totalStock = filtered.reduce((s, it) => s + Number(it.current_stock), 0);
-
   body.innerHTML = `
     <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <input type="text" placeholder="🔍 Search item code or description…" value="${esc(stockSearchQ)}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      <input type="text" id="stockSearchInput" placeholder="🔍 Search item code or description…" value="${esc(stockSearchQ)}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
       ${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
     </div>
+    <div id="stockGridRows"></div>`;
+  renderStockGridRows();
+}
+function renderStockGridRows() {
+  const wrap = document.getElementById('stockGridRows');
+  if (!wrap) return renderStockGrid();
+  const q = stockSearchQ.trim().toLowerCase();
+  const filtered = q ? stockItems.filter(it => it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)) : stockItems;
+  const totalStock = filtered.reduce((s, it) => s + Number(it.current_stock), 0);
+  wrap.innerHTML = `
     <table>
       <thead><tr><th>Item Code</th><th>Description</th><th>Std. Pack</th><th>UOM</th><th>Current Stock</th><th>As Of</th><th>Actions</th></tr></thead>
       <tbody>
@@ -15924,7 +15932,13 @@ async function renderBillsReceivableView() {
   renderBillsReceivableGrid();
 }
 
-function onBillsSearchInput(v) { o2dBillsSearchQ = v; renderBillsReceivableGrid(); }
+// The grid redraw replaces the search box too — put the cursor back where it was.
+function onBillsSearchInput(v) {
+  const pos = document.activeElement && document.activeElement.selectionStart;
+  o2dBillsSearchQ = v; renderBillsReceivableGrid();
+  const el = document.getElementById('billsSearchInput');
+  if (el) { el.focus(); if (pos != null) el.setSelectionRange(pos, pos); }
+}
 
 function renderBillsReceivableGrid() {
   const wrap = document.getElementById('o2dListWrap');
@@ -15949,7 +15963,7 @@ function renderBillsReceivableGrid() {
           </div>`).join('')}
       </div>
       <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-        <input type="text" placeholder="🔍 Search party name…" value="${esc(o2dBillsSearchQ)}" oninput="onBillsSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <input type="text" id="billsSearchInput" placeholder="🔍 Search party name…" value="${esc(o2dBillsSearchQ)}" oninput="onBillsSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <button class="btn btn-outline" onclick="renderBillsReceivableView()">🔄 Refresh</button>
         <span style="font-size:11.5px;color:var(--gray-400)">${syncedNote}</span>
       </div>
