@@ -11512,8 +11512,10 @@ app.post('/api/petty-cash/approve-many', requireAuth, async (req, res) => {
 });
 
 // One-time (re-runnable) import of the old "petty cash tracker" sheet's
-// Entries tab. Keyed by the sheet's own ID, so running it again only adds
-// rows that aren't in the app yet. A few early rows lack the vehicle column
+// Entries tab. Keyed by the sheet's own ID, so running it again adds new rows
+// and brings over edits made in the old app since (amount, details — a ₹150
+// balance gap on 2026-10-24); a status only moves on while the app still has
+// the row pending, so an approval done in the ERP is never undone. A few early rows lack the vehicle column
 // — detected by Mode not being where it should be.
 app.post('/api/petty-cash/import-sheet', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -11523,7 +11525,9 @@ app.post('/api/petty-cash/import-sheet', requireAuth, requireAdmin, async (req, 
     const STATUSES = ['pending', 'approved', 'accepted', 'rejected'];
     const [users] = await db.query('SELECT id, name FROM users');
     const userId = name => { const u = users.find(x => x.name.trim().toLowerCase() === String(name || '').trim().toLowerCase()); return u ? u.id : null; };
-    let imported = 0, skipped = 0;
+    const [had] = await db.query('SELECT ext_id FROM petty_cash WHERE ext_id IS NOT NULL');
+    const known = new Set(had.map(x => x.ext_id));
+    let imported = 0, updated = 0, skipped = 0;
     for (const r of resp.data.values || []) {
       const extId = String(r[0] || '').trim();
       const type = String(r[2] || '').trim().toLowerCase();
@@ -11542,14 +11546,17 @@ app.post('/api/petty-cash/import-sheet', requireAuth, requireAdmin, async (req, 
       // Sheet times are UTC (ISO "Z") — stored as India time like the rest of the app.
       const ist = new Date(when.getTime() + 330 * 60000).toISOString().slice(0, 19).replace('T', ' ');
       const [ins] = await db.query(
-        `INSERT IGNORE INTO petty_cash (ext_id, entry_date, type, amount, description, payee, vehicle, mode, note, goods_value, status, owner_remark, recorded_by_id, recorded_by_name)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO petty_cash (ext_id, entry_date, type, amount, description, payee, vehicle, mode, note, goods_value, status, owner_remark, recorded_by_id, recorded_by_name)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE amount=VALUES(amount), description=VALUES(description), payee=VALUES(payee), vehicle=VALUES(vehicle), mode=VALUES(mode),
+           note=VALUES(note), goods_value=VALUES(goods_value), owner_remark=COALESCE(VALUES(owner_remark), owner_remark),
+           status=IF(status='pending', VALUES(status), status)`,
         [extId, ist, type, amount, String(r[4] || '').trim().slice(0, 500), String(r[5] || '').trim().slice(0, 255), String(f.vehicle || '').trim().slice(0, 100),
          String(f.mode || '').trim().toLowerCase() === 'online' ? 'online' : 'cash', String(f.note || '').trim().slice(0, 500), goods > 0 ? goods : null,
          status, remark || null, userId(f.by), String(f.by || '').trim().slice(0, 255)]);
-      if (ins.affectedRows) imported++; else skipped++;
+      if (!known.has(extId)) imported++; else if (ins.affectedRows === 2) updated++; else skipped++; // 2 = an existing row changed
     }
-    res.json({ success: true, imported, skipped });
+    res.json({ success: true, imported, updated, skipped });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the petty cash sheet with the service account.' });
     sendServerError(res, err);
