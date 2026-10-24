@@ -1071,6 +1071,14 @@ tbody tr:last-child td{border-bottom:none;}
       <span id="approvalBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
       <span id="transferBadge" style="display:none;position:absolute;top:6px;right:26px;background:var(--color-purple);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
     </div>
+    <div class="nav-item" id="nav-my-expense" style="display:none" onclick="navigate('my-expense',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+      <span class="nav-label-text">My Expense</span>
+    </div>
+    <div class="nav-item" id="nav-rental" style="display:none" onclick="navigate('rental',this)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      <span class="nav-label-text">Rental</span>
+    </div>
     <div class="nav-item" id="nav-dropdown-master" style="display:none" onclick="navigate('dropdown-master',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7m5-2l3 3 3-3"/></svg>
       <span class="nav-label-text">Dropdown Master</span>
@@ -2121,6 +2129,23 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 
   <!-- ── SALES SCHEDULE (client, 2026-10-12) ── -->
+  <div id="page-my-expense" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">💸 My Expense <span style="font-size:12px;font-weight:600;color:var(--gray-500)">— sirf aapko dikhta hai</span></div>
+      <div><div style="font-size:11px;font-weight:700;color:var(--gray-500)">FROM</div><input type="date" id="myExpFrom" onchange="loadMyExpense()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/></div>
+      <div><div style="font-size:11px;font-weight:700;color:var(--gray-500)">TO</div><input type="date" id="myExpTo" onchange="loadMyExpense()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/></div>
+      <button class="btn btn-green" onclick="openMyExpense(0)">＋ Kharcha</button>
+    </div>
+    <div id="myExpWrap"><div class="empty">Loading…</div></div>
+  </div>
+  <div id="page-rental" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🏠 Rental <span style="font-size:12px;font-weight:600;color:var(--gray-500)">— jo kiraya hume milta hai</span></div>
+      <button class="btn btn-outline" onclick="openRentUnit(0)">＋ Kiraayedaar</button>
+      <button class="btn btn-green" onclick="openRentPay(0)">💰 Kiraya aaya</button>
+    </div>
+    <div id="rentWrap"><div class="empty">Loading…</div></div>
+  </div>
   <div id="page-dropdown-master" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
       <div style="font-size:19px;font-weight:900;color:var(--gray-900)">🔽 Dropdown Master</div>
@@ -4445,6 +4470,8 @@ async function init() {
     if (canSee('md-summary')) { document.getElementById('nav-md-summary').style.display = 'flex'; document.getElementById('dashMdBtn').style.display = ''; }
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
     if (ME.role === 'admin') document.getElementById('nav-dropdown-master').style.display = 'flex';
+    if (ME.role === 'admin') document.getElementById('nav-rental').style.display = 'flex';
+    if (/^md$/i.test(String(ME.department || '').trim())) document.getElementById('nav-my-expense').style.display = 'flex'; // personal — MD (Ajay sir)
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
     if (canSee('samples')) document.getElementById('nav-samples').style.display = 'flex';
@@ -4708,7 +4735,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {'dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
+const pageTitles = {'my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -4765,6 +4792,8 @@ function navigate(page, el) {
   if (page==='md-summary') loadMdSummary();
   if (page==='checklist-master') loadChecklistMaster();
   if (page==='dropdown-master') loadDropdownMaster();
+  if (page==='my-expense') loadMyExpense();
+  if (page==='rental') loadRental();
   if (page==='ows') loadOws();
   if (page==='vendor-ledger') loadVrl();
   if (page==='samples') loadSmp();
@@ -22829,6 +22858,173 @@ async function saveDropdownList(key, btn) {
   showToast(`✅ ${DD_LABELS[key] || key} — ${r.items.length} options`);
 }
 
+// ── 💸 My Expense (Ajay sir's own daily kharcha, 2026-10-24) — server returns only the user's own rows.
+let myExp = { items: [], categories: [] };
+async function loadMyExpense() {
+  const f = document.getElementById('myExpFrom'), t = document.getElementById('myExpTo');
+  if (!f.value || !t.value) { const r = datePresetRange('month'); f.value = r[0]; t.value = r[1]; }
+  const wrap = document.getElementById('myExpWrap');
+  const r = await api(`/api/my-expenses?from=${f.value}&to=${t.value}`);
+  if (!r || r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
+  myExp = r;
+  const total = r.items.reduce((a, x) => a + x.amount, 0);
+  const byCat = {}, byDay = {};
+  r.items.forEach(x => { const c = x.category || 'Other'; byCat[c] = (byCat[c] || 0) + x.amount; byDay[x.date] = (byDay[x.date] || 0) + x.amount; });
+  const days = Object.keys(byDay).length;
+  const card = (l, v, sub) => `<div style="flex:1;min-width:140px;background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:10px 14px"><div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase">${l}</div><div style="font-size:21px;font-weight:800">${v}</div>${sub ? `<div style="font-size:11px;color:var(--gray-500)">${sub}</div>` : ''}</div>`;
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  wrap.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${card('Kul kharcha', inr(total), `${r.items.length} entries`)}${card('Roz ka average', days ? inr(Math.round(total / days)) : '—', `${days} din`)}${card('Sabse zyada', cats[0] ? esc(cats[0][0]) : '—', cats[0] ? inr(cats[0][1]) : '')}</div>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:12px;align-items:start" class="o2d-report-grid-2-even">
+      <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px"><b>Category-wise</b>
+        ${cats.length ? cats.map(([c, v]) => `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-top:6px"><span style="flex:1">${esc(c)}</span><b>${inr(v)}</b><span style="color:var(--gray-500);width:38px;text-align:right">${total ? Math.round(v * 100 / total) : 0}%</span></div>`).join('') : '<div class="empty">—</div>'}</div>
+      <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden">${r.items.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Tareekh</th><th>Category</th><th style="text-align:right">Amount</th><th>Mode</th><th>Note</th><th></th></tr></thead><tbody>
+        ${r.items.map(x => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(x.date))}</td><td>${esc(x.category || '—')}</td><td style="text-align:right;font-weight:700">${inr(x.amount)}</td><td>${esc(x.mode)}</td><td style="font-size:12px;color:var(--gray-600)">${esc(x.note)}</td>
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-outline" onclick="openMyExpense(${x.id})">✏️</button> <button class="btn btn-sm btn-outline" onclick="deleteMyExpense(${x.id})">🗑</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">In dates me koi kharcha nahi — "＋ Kharcha" se daalein</div>'}</div></div>`;
+}
+function openMyExpense(id) {
+  const x = id ? myExp.items.find(e => e.id === id) : null, today = owsYmd(new Date());
+  vrlModal('myExpModal', `${scotModalHead('myExpModal', x ? '✏️ Kharcha' : '＋ Kharcha')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Tareekh</label><input id="meDate" type="date" value="${x ? x.date : today}" max="${today}" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Amount ₹ *</label><input id="meAmt" type="number" min="1" step="any" inputmode="decimal" value="${x ? x.amount : ''}" style="${VRL_IN}"/></div></div>
+    <label style="font-size:12px;font-weight:600">Category</label>
+    <input id="meCat" list="meCatList" value="${esc(x ? x.category : '')}" placeholder="Chuno ya likho" style="${VRL_IN};margin-bottom:8px"/>
+    <datalist id="meCatList">${myExp.categories.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <label style="font-size:12px;font-weight:600">Mode</label>
+    <select id="meMode" style="${VRL_IN};margin-bottom:8px">${['Cash', 'UPI', 'Card', 'Bank'].map(m => `<option ${x && x.mode === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
+    <label style="font-size:12px;font-weight:600">Note</label><input id="meNote" value="${esc(x ? x.note : '')}" placeholder="Kis cheez ka" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveMyExpense(${id || 0},this)">✓ Save</button>`, 440);
+  setTimeout(() => { const a = document.getElementById('meAmt'); if (a && !x) a.focus(); }, 50);
+}
+async function saveMyExpense(id, btn) {
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/my-expenses', 'POST', { id: id || undefined, date: document.getElementById('meDate').value, amount: document.getElementById('meAmt').value,
+    category: document.getElementById('meCat').value.trim(), mode: document.getElementById('meMode').value, note: document.getElementById('meNote').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('myExpModal');
+  showToast('✅ Save ho gaya');
+  loadMyExpense();
+}
+async function deleteMyExpense(id) {
+  if (!confirm('Ye kharcha hatayein?')) return;
+  const r = await api(`/api/my-expenses/${id}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  loadMyExpense();
+}
+
+// ── 🏠 Rental — rent we receive (Ajay sir, 2026-10-24). Each month from the
+// start month to now is due on the tenant's due day; payments are per month.
+let rentData = null;
+const rentYm = d => d.slice(0, 7);
+function rentMonths(u, todayYm) {
+  const out = [], end = u.endMonth && u.endMonth < todayYm ? u.endMonth : todayYm;
+  let [y, m] = u.startMonth.split('-').map(Number);
+  while (`${y}-${String(m).padStart(2, '0')}` <= end && out.length < 240) { out.push(`${y}-${String(m).padStart(2, '0')}`); m++; if (m > 12) { m = 1; y++; } }
+  return out;
+}
+function rentStatus(u) {
+  const today = rentData.today, ym = rentYm(today);
+  const pays = rentData.payments.filter(p => p.unitId === u.id);
+  const paidBy = {}; pays.forEach(p => { paidBy[p.month] = (paidBy[p.month] || 0) + p.amount; });
+  const months = rentMonths(u, ym);
+  let due = 0, late = 0;
+  months.forEach(mo => { const left = u.rent - (paidBy[mo] || 0); if (left > 0.5) { due += left; if (mo < ym || +today.slice(8) > u.dueDay) late++; } });
+  return { pays, paidBy, months, due, late, thisMonth: paidBy[ym] || 0 };
+}
+async function loadRental() {
+  const wrap = document.getElementById('rentWrap');
+  const r = await api('/api/rental');
+  if (!r || r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
+  rentData = r;
+  const ym = rentYm(r.today), act = r.units.filter(u => u.active);
+  const st = act.map(u => ({ u, s: rentStatus(u) }));
+  const monthRent = act.reduce((a, u) => a + u.rent, 0), gotThis = st.reduce((a, x) => a + Math.min(x.s.thisMonth, x.u.rent), 0), dueAll = st.reduce((a, x) => a + x.s.due, 0);
+  const card = (l, v, c) => `<div style="flex:1;min-width:140px;background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:10px 14px"><div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase">${l}</div><div style="font-size:21px;font-weight:800;color:${c || 'var(--gray-900)'}">${v}</div></div>`;
+  wrap.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${card('Har mahine ka kiraya', inr(monthRent))}${card('Is mahine aaya', inr(gotThis), 'var(--color-success-text)')}${card('Kul baaki', inr(dueAll), dueAll ? 'var(--color-danger)' : '')}${card('Kiraayedaar', act.length)}</div>` +
+    (r.units.length ? `<div class="table-wrap" style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px"><table style="font-size:12.5px"><thead><tr><th>Property</th><th>Kiraayedaar</th><th style="text-align:right">Kiraya / mahina</th><th>Due date</th><th>Is mahine</th><th style="text-align:right">Kul baaki</th><th></th></tr></thead><tbody>
+    ${r.units.map(u => { const s = rentStatus(u), full = s.thisMonth >= u.rent - 0.5, overdue = !full && +r.today.slice(8) > u.dueDay;
+      return `<tr style="${u.active ? '' : 'opacity:.5'}"><td style="font-weight:700">${esc(u.property)}${u.notes ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(u.notes)}</div>` : ''}</td>
+        <td>${esc(u.tenant)}${u.phone ? `<div><a href="tel:${esc(u.phone)}" style="font-size:12px">📞 ${esc(u.phone)}</a></div>` : ''}</td>
+        <td style="text-align:right;font-weight:700">${inr(u.rent)}${u.deposit ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">deposit ${inr(u.deposit)}</div>` : ''}</td>
+        <td>Har ${u.dueDay} tareekh</td>
+        <td>${!u.active ? 'Band' : full ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Aa gaya</span>' : s.thisMonth ? `<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">${inr(s.thisMonth)} aaya</span>` : `<span class="status-badge" style="background:${overdue ? 'var(--color-danger-bg);color:var(--color-danger-text)' : 'var(--gray-100);color:var(--gray-600)'}">${overdue ? 'Late' : 'Baaki'}</span>`}</td>
+        <td style="text-align:right;font-weight:800;color:${s.due ? 'var(--color-danger)' : 'var(--color-success-text)'}">${s.due ? inr(s.due) : '✓'}${s.late > 1 ? `<div style="font-size:11px;font-weight:600">${s.late} mahine</div>` : ''}</td>
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-green" onclick="openRentPay(${u.id})">💰</button> <button class="btn btn-sm btn-outline" onclick="openRentHistory(${u.id})">📒</button> <button class="btn btn-sm btn-outline" onclick="openRentUnit(${u.id})">✏️</button></td></tr>`; }).join('')}
+    </tbody></table></div>` : '<div class="empty">Abhi koi kiraayedaar nahi — "＋ Kiraayedaar" se jodein</div>');
+}
+function openRentUnit(id) {
+  const u = id ? rentData.units.find(x => x.id === id) : null;
+  const L = t => `<label style="font-size:12px;font-weight:600">${t}</label>`;
+  vrlModal('rentUnitModal', `${scotModalHead('rentUnitModal', u ? '✏️ Kiraayedaar' : '＋ Kiraayedaar')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div>${L('Property / dukaan *')}<input id="ruProp" value="${esc(u ? u.property : '')}" placeholder="e.g. Shop 2, Sanganer" style="${VRL_IN}"/></div>
+      <div>${L('Kiraayedaar *')}<input id="ruTenant" value="${esc(u ? u.tenant : '')}" style="${VRL_IN}"/></div>
+      <div>${L('Mobile')}<input id="ruPhone" value="${esc(u ? u.phone : '')}" inputmode="tel" style="${VRL_IN}"/></div>
+      <div>${L('Kiraya / mahina ₹ *')}<input id="ruRent" type="number" min="1" value="${u ? u.rent : ''}" style="${VRL_IN}"/></div>
+      <div>${L('Har mahine kis tareekh tak')}<input id="ruDue" type="number" min="1" max="28" value="${u ? u.dueDay : 5}" style="${VRL_IN}"/></div>
+      <div>${L('Deposit ₹')}<input id="ruDep" type="number" min="0" value="${u && u.deposit != null ? u.deposit : ''}" style="${VRL_IN}"/></div>
+      <div>${L('Kab se (mahina) *')}<input id="ruStart" type="month" value="${u ? u.startMonth : rentYm(rentData.today)}" style="${VRL_IN}"/></div>
+      <div>${L('Kab tak (khaali = chal raha hai)')}<input id="ruEnd" type="month" value="${u ? u.endMonth : ''}" style="${VRL_IN}"/></div></div>
+    ${L('Note')}<input id="ruNotes" value="${esc(u ? u.notes : '')}" placeholder="e.g. har saal 10% badhega" style="${VRL_IN};margin-bottom:8px"/>
+    ${u ? `<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:8px"><input type="checkbox" id="ruActive" ${u.active ? 'checked' : ''}/> Chalu hai</label>` : ''}
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveRentUnit(${id || 0},this)">✓ Save</button>`, 560);
+}
+async function saveRentUnit(id, btn) {
+  const g = i => document.getElementById(i).value.trim(), act = document.getElementById('ruActive');
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/rental/unit', 'POST', { id: id || undefined, property: g('ruProp'), tenant: g('ruTenant'), phone: g('ruPhone'), rent: g('ruRent'), dueDay: g('ruDue'),
+    deposit: g('ruDep'), startMonth: g('ruStart'), endMonth: g('ruEnd'), notes: g('ruNotes'), active: act ? act.checked : true });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('rentUnitModal');
+  showToast('✅ Save ho gaya');
+  loadRental();
+}
+function openRentPay(id) {
+  const act = rentData.units.filter(u => u.active);
+  if (!act.length) { showToast('Pehle kiraayedaar jodein', 'error'); return; }
+  const u = id ? rentData.units.find(x => x.id === id) : act[0], s = rentStatus(u);
+  const firstDue = s.months.find(m => (s.paidBy[m] || 0) < u.rent - 0.5) || rentYm(rentData.today);
+  vrlModal('rentPayModal', `${scotModalHead('rentPayModal', '💰 Kiraya aaya')}
+    <label style="font-size:12px;font-weight:600">Kiraayedaar</label>
+    <select id="rpUnit" onchange="openRentPay(Number(this.value))" style="${VRL_IN};margin-bottom:8px">${act.map(x => `<option value="${x.id}" ${x.id === u.id ? 'selected' : ''}>${esc(x.property)} — ${esc(x.tenant)}</option>`).join('')}</select>
+    <div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">Kiraya ${inr(u.rent)} / mahina · kul baaki <b style="color:${s.due ? 'var(--color-danger)' : 'var(--color-success-text)'}">${inr(s.due)}</b></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Kis mahine ka</label><input id="rpMonth" type="month" value="${firstDue}" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Amount ₹</label><input id="rpAmt" type="number" min="1" value="${Math.max(0, u.rent - (s.paidBy[firstDue] || 0))}" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Kab aaya</label><input id="rpDate" type="date" value="${rentData.today}" max="${rentData.today}" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Mode</label><select id="rpMode" style="${VRL_IN}">${['Cash', 'UPI', 'Bank', 'Cheque'].map(m => `<option>${m}</option>`).join('')}</select></div></div>
+    <input id="rpNote" placeholder="Note (optional)" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveRentPay(this)">✓ Save</button>`, 460);
+}
+async function saveRentPay(btn) {
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/rental/payment', 'POST', { unitId: document.getElementById('rpUnit').value, month: document.getElementById('rpMonth').value, amount: document.getElementById('rpAmt').value,
+    paidOn: document.getElementById('rpDate').value, mode: document.getElementById('rpMode').value, note: document.getElementById('rpNote').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('rentPayModal');
+  showToast('✅ Kiraya save ho gaya');
+  loadRental();
+}
+function openRentHistory(id) {
+  const u = rentData.units.find(x => x.id === id), s = rentStatus(u);
+  vrlModal('rentHistModal', `${scotModalHead('rentHistModal', '📒 ' + esc(u.property) + ' — ' + esc(u.tenant))}
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Mahina</th><th style="text-align:right">Kiraya</th><th style="text-align:right">Aaya</th><th style="text-align:right">Baaki</th></tr></thead><tbody>
+    ${s.months.slice().reverse().map(m => { const got = s.paidBy[m] || 0, left = Math.max(0, u.rent - got); return `<tr><td>${esc(DRIP_MONTHS[+m.slice(5) - 1])} ${m.slice(0, 4)}</td><td style="text-align:right">${inr(u.rent)}</td><td style="text-align:right;color:var(--color-success-text)">${got ? inr(got) : '—'}</td><td style="text-align:right;font-weight:700;color:${left ? 'var(--color-danger)' : 'var(--color-success-text)'}">${left ? inr(left) : '✓'}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    ${s.pays.length ? `<div style="font-weight:700;font-size:12.5px;margin:12px 0 4px">Payments</div><div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Kab</th><th>Mahina</th><th style="text-align:right">Amount</th><th>Mode / note</th><th></th></tr></thead><tbody>
+    ${s.pays.map(p => `<tr><td>${esc(fmtDateDMY(p.paidOn))}</td><td>${esc(p.month)}</td><td style="text-align:right;font-weight:700">${inr(p.amount)}</td><td>${esc(p.mode)}${p.note ? ' · ' + esc(p.note) : ''}</td><td><button class="btn btn-sm btn-outline" onclick="deleteRentPay(${p.id},${u.id})">🗑</button></td></tr>`).join('')}</tbody></table></div>` : ''}`, 560);
+}
+async function deleteRentPay(pid, uid) {
+  if (!confirm('Ye payment hatayein?')) return;
+  const r = await api(`/api/rental/payment/${pid}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  await loadRental();
+  openRentHistory(uid);
+}
+
 // Yesterday / This week / This month on every date filter (Ajay sir, 2026-10-24: "sab jagah").
 function datePresetRange(k) {
   const d = new Date(), y = x => owsYmd(x);
@@ -22842,7 +23038,7 @@ function datePresetRange(k) {
 // [from input, to input, what reloads that page]
 const DATE_PRESET_PAIRS = [['attnHistFrom', 'attnHistTo', 'loadAttendanceHistory'], ['attnKmFrom', 'attnKmTo', 'loadKmHistory'], ['crFrom', 'crTo', 'loadCallReports'],
   ['gpStart', 'gpEnd', 'loadGrossProfit'], ['mecaFrom', 'mecaTo', 'loadMeca'], ['misStart', 'misEnd', 'generateMIS'], ['pcDateFrom', 'pcDateTo', 'onPCFilterChange'],
-  ['pettyFrom', 'pettyTo', 'renderPettyCash'], ['recStart', 'recEnd', 'generateRecords'], ['tasksDateFrom', 'tasksDateTo', 'filterTasks'], ['tourFrom', 'tourTo', 'loadTourList']];
+  ['pettyFrom', 'pettyTo', 'renderPettyCash'], ['recStart', 'recEnd', 'generateRecords'], ['tasksDateFrom', 'tasksDateTo', 'filterTasks'], ['tourFrom', 'tourTo', 'loadTourList'], ['myExpFrom', 'myExpTo', 'loadMyExpense']];
 function datePresetApply(fromId, toId, fn, k) {
   const r = datePresetRange(k), f = document.getElementById(fromId), t = document.getElementById(toId);
   if (!r || !f || !t) return;

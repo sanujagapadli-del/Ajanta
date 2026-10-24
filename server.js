@@ -15081,6 +15081,116 @@ app.put('/api/dd-lists/:key', requireAuth, requireAdmin, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// ══════════════════════════════════════════════════════
+// MY EXPENSE (Ajay sir, 2026-10-24: "my daily expense sheet" — there was no
+// sheet, so it starts here). Personal: every user only ever sees their own
+// rows; the page itself is shown to MD-department users.
+// ══════════════════════════════════════════════════════
+let _myExpOk = false;
+async function myExpTable() {
+  if (_myExpOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS my_expenses (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, exp_date DATE NOT NULL,
+    category VARCHAR(80), amount DECIMAL(12,2) NOT NULL, mode VARCHAR(20), note VARCHAR(500), created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY (user_id, exp_date)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _myExpOk = true;
+}
+const MY_EXP_CATS = ['Ghar ka saamaan', 'Khana / Restaurant', 'Petrol / Gaadi', 'Bijli / Paani / Gas', 'Mobile / Internet', 'Medical', 'Bachchon ki padhai', 'Kapde / Shopping', 'Safar / Travel', 'Gift / Shaadi', 'Daan / Pooja', 'Bank / EMI', 'Other'];
+app.get('/api/my-expenses', requireAuth, async (req, res) => {
+  try {
+    await myExpTable();
+    const ymd = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null;
+    const from = ymd(req.query.from) || '1970-01-01', to = ymd(req.query.to) || '2999-12-31';
+    const [rows] = await db.query("SELECT id, DATE_FORMAT(exp_date,'%Y-%m-%d') AS d, category, amount, mode, note FROM my_expenses WHERE user_id=? AND exp_date BETWEEN ? AND ? ORDER BY exp_date DESC, id DESC",
+      [req.session.userId, from, to]);
+    const [cats] = await db.query("SELECT DISTINCT category AS c FROM my_expenses WHERE user_id=? AND category<>''", [req.session.userId]);
+    res.json({ items: rows.map(r => ({ id: r.id, date: r.d, category: r.category || '', amount: Number(r.amount), mode: r.mode || '', note: r.note || '' })),
+      categories: [...new Set([...MY_EXP_CATS, ...cats.map(c => c.c)])] });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/my-expenses', requireAuth, async (req, res) => {
+  try {
+    await myExpTable();
+    const b = req.body || {};
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : null, amount = Math.round(Number(b.amount) * 100) / 100;
+    if (!date) return res.status(400).json({ error: 'Tareekh daalein' });
+    if (!(amount > 0)) return res.status(400).json({ error: 'Amount daalein' });
+    const vals = [date, String(b.category || '').trim().slice(0, 80) || null, amount, String(b.mode || '').trim().slice(0, 20) || null, String(b.note || '').trim().slice(0, 500) || null];
+    if (b.id) {
+      const [r] = await db.query('UPDATE my_expenses SET exp_date=?, category=?, amount=?, mode=?, note=? WHERE id=? AND user_id=?', [...vals, Number(b.id), req.session.userId]);
+      if (!r.affectedRows) return res.status(404).json({ error: 'Entry nahi mili' });
+    } else await db.query('INSERT INTO my_expenses (exp_date, category, amount, mode, note, user_id) VALUES (?,?,?,?,?,?)', [...vals, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/my-expenses/:id', requireAuth, async (req, res) => {
+  try {
+    await myExpTable();
+    await db.query('DELETE FROM my_expenses WHERE id=? AND user_id=?', [Number(req.params.id), req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// RENTAL (Ajay sir, 2026-10-24) — rent WE RECEIVE: tenants, monthly rent,
+// due day, deposit; payments per month. Dues run from the start month to the
+// current month; admin only.
+// ══════════════════════════════════════════════════════
+let _rentOk = false;
+async function rentTables() {
+  if (_rentOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS rental_units (id INT AUTO_INCREMENT PRIMARY KEY, property VARCHAR(255) NOT NULL, tenant VARCHAR(255) NOT NULL,
+    phone VARCHAR(30), rent DECIMAL(12,2) NOT NULL, due_day TINYINT NOT NULL DEFAULT 5, start_month CHAR(7) NOT NULL, end_month CHAR(7), deposit DECIMAL(12,2),
+    notes VARCHAR(500), active TINYINT NOT NULL DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS rental_payments (id INT AUTO_INCREMENT PRIMARY KEY, unit_id INT NOT NULL, for_month CHAR(7) NOT NULL,
+    amount DECIMAL(12,2) NOT NULL, paid_on DATE NOT NULL, mode VARCHAR(20), note VARCHAR(500), created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY (unit_id, for_month)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _rentOk = true;
+}
+app.get('/api/rental', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await rentTables();
+    const [units] = await db.query('SELECT * FROM rental_units ORDER BY active DESC, property, tenant');
+    const [pays] = await db.query("SELECT id, unit_id, for_month, amount, DATE_FORMAT(paid_on,'%Y-%m-%d') AS paid_on, mode, note FROM rental_payments ORDER BY paid_on DESC, id DESC");
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    res.json({ today, units: units.map(u => ({ id: u.id, property: u.property, tenant: u.tenant, phone: u.phone || '', rent: Number(u.rent), dueDay: u.due_day,
+      startMonth: u.start_month, endMonth: u.end_month || '', deposit: u.deposit == null ? null : Number(u.deposit), notes: u.notes || '', active: !!u.active })),
+      payments: pays.map(p => ({ id: p.id, unitId: p.unit_id, month: p.for_month, amount: Number(p.amount), paidOn: p.paid_on, mode: p.mode || '', note: p.note || '' })) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/rental/unit', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await rentTables();
+    const b = req.body || {}, m = v => /^\d{4}-\d{2}$/.test(v || '') ? v : null;
+    const property = String(b.property || '').trim().slice(0, 255), tenant = String(b.tenant || '').trim().slice(0, 255), rent = Number(b.rent);
+    if (!property || !tenant) return res.status(400).json({ error: 'Property aur kiraayedaar ka naam likhein' });
+    if (!(rent > 0)) return res.status(400).json({ error: 'Mahine ka kiraya daalein' });
+    if (!m(b.startMonth)) return res.status(400).json({ error: 'Kab se (mahina) chunein' });
+    const dueDay = Math.min(28, Math.max(1, parseInt(b.dueDay, 10) || 5));
+    const vals = [property, tenant, String(b.phone || '').trim().slice(0, 30) || null, rent, dueDay, m(b.startMonth), m(b.endMonth),
+      b.deposit === '' || b.deposit == null ? null : Number(b.deposit) || 0, String(b.notes || '').trim().slice(0, 500) || null, b.active === false ? 0 : 1];
+    if (b.id) await db.query('UPDATE rental_units SET property=?, tenant=?, phone=?, rent=?, due_day=?, start_month=?, end_month=?, deposit=?, notes=?, active=? WHERE id=?', [...vals, Number(b.id)]);
+    else await db.query('INSERT INTO rental_units (property, tenant, phone, rent, due_day, start_month, end_month, deposit, notes, active) VALUES (?,?,?,?,?,?,?,?,?,?)', vals);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/rental/payment', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await rentTables();
+    const b = req.body || {};
+    const unitId = Number(b.unitId), amount = Math.round(Number(b.amount) * 100) / 100;
+    const month = /^\d{4}-\d{2}$/.test(b.month || '') ? b.month : null, paidOn = /^\d{4}-\d{2}-\d{2}$/.test(b.paidOn || '') ? b.paidOn : null;
+    if (!unitId || !month || !paidOn) return res.status(400).json({ error: 'Kiraayedaar, mahina aur tareekh chahiye' });
+    if (!(amount > 0)) return res.status(400).json({ error: 'Amount daalein' });
+    await db.query('INSERT INTO rental_payments (unit_id, for_month, amount, paid_on, mode, note, created_by) VALUES (?,?,?,?,?,?,?)',
+      [unitId, month, amount, paidOn, String(b.mode || '').trim().slice(0, 20) || null, String(b.note || '').trim().slice(0, 500) || null, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/rental/payment/:id', requireAuth, requireAdmin, async (req, res) => {
+  try { await rentTables(); await db.query('DELETE FROM rental_payments WHERE id=?', [Number(req.params.id)]); res.json({ success: true }); }
+  catch (err) { sendServerError(res, err); }
+});
+
 app.get('/api/checklist-master', requireAuth, requireChecklistManager, async (req, res) => {
   try {
     const [rows] = await db.query(`
