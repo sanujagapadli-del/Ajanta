@@ -10580,6 +10580,50 @@ function chequeSheetDate(v) {
   }
   return null;
 }
+// Cash receipts (Ajay sir, 2026-10-24): cash collected from a party is
+// entered here; it is a Payment Follow-up payment (collect_payments), so the
+// party's outstanding drops at once and Tally's own receipt replaces it later.
+async function chqCashAccess(req, res) {
+  if (req.session.role === 'admin' || await hasPageGrant(req, 'cheque-fms')) return true;
+  res.status(403).json({ error: 'No access to Cheque FMS' });
+  return false;
+}
+app.get('/api/cheque-fms/cash-receipts', requireAuth, async (req, res) => {
+  try {
+    if (!(await chqCashAccess(req, res))) return;
+    const [items, ledger] = await Promise.all([collectAppPayments(), getLedgerBalancesByDealer().catch(() => ({}))]);
+    res.json({ items: items.filter(p => p.source === 'cheque-fms'), parties: Object.values(ledger).map(l => l.name).sort((a, b) => a.localeCompare(b)),
+      me: { id: req.session.userId, isAdmin: req.session.role === 'admin' } });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/cheque-fms/cash-receipt', requireAuth, async (req, res) => {
+  try {
+    if (!(await chqCashAccess(req, res))) return;
+    await collectPayTable();
+    const b = req.body || {};
+    const party = String(b.party || '').trim().slice(0, 255);
+    const amount = Math.round(gpNum(b.amount) * 100) / 100;
+    const paidOn = /^\d{4}-\d{2}-\d{2}$/.test(String(b.paidOn || '')) ? b.paidOn : '';
+    if (!party) return res.status(400).json({ error: 'Party chunein' });
+    if (!(amount > 0)) return res.status(400).json({ error: 'Amount daalein' });
+    if (!paidOn) return res.status(400).json({ error: 'Tareekh daalein' });
+    await db.query("INSERT INTO collect_payments (party, amount, paid_on, mode, remark, done_by, source, receipt_no) VALUES (?,?,?,'Cash',?,?,'cheque-fms',?)",
+      [party, amount, paidOn, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, String(b.receiptNo || '').trim().slice(0, 60) || null]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/cheque-fms/cash-receipt/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await chqCashAccess(req, res))) return;
+    await collectPayTable();
+    const [[p]] = await db.query("SELECT done_by FROM collect_payments WHERE id=? AND source='cheque-fms'", [Number(req.params.id)]);
+    if (!p) return res.status(404).json({ error: 'Entry nahi mili' });
+    if (req.session.role !== 'admin' && p.done_by !== req.session.userId) return res.status(403).json({ error: 'Sirf apni entry ya admin hata sakta hai' });
+    await db.query('DELETE FROM collect_payments WHERE id=?', [Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.post('/api/cheque-fms/import-old', requireAuth, requireAdmin, async (req, res) => {
   try {
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
@@ -16075,12 +16119,15 @@ async function collectPayTable() {
   await db.query(`CREATE TABLE IF NOT EXISTS collect_payments (
     id INT AUTO_INCREMENT PRIMARY KEY, party VARCHAR(255) NOT NULL, amount DECIMAL(14,2) NOT NULL, paid_on DATE NOT NULL,
     mode VARCHAR(40), remark VARCHAR(500), done_by INT, done_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (party)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // Where the entry was made: NULL = Payment Follow-up, 'cheque-fms' = Cheque FMS cash receipt.
+  const [cols] = await db.query("SHOW COLUMNS FROM collect_payments LIKE 'source'");
+  if (!cols.length) await db.query('ALTER TABLE collect_payments ADD COLUMN source VARCHAR(20) NULL, ADD COLUMN receipt_no VARCHAR(60) NULL');
   _collectPayOk = true;
 }
 async function collectAppPayments() {
   await collectPayTable();
   const [[rows], tally] = await Promise.all([
-    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
+    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, p.source, p.receipt_no, p.done_by, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
       FROM collect_payments p LEFT JOIN users u ON u.id=p.done_by ORDER BY p.paid_on DESC, p.id DESC`),
     getTallyPaymentsByDealer()]);
   const used = new Set();
@@ -16093,7 +16140,8 @@ async function collectAppPayments() {
       return days >= -3 && days <= 15;
     });
     if (hit) used.add(hit);
-    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', at: p.done_at, by: p.by_name || '', inTally: !!hit };
+    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', source: p.source || '', receiptNo: p.receipt_no || '',
+      byId: p.done_by, at: p.done_at, by: p.by_name || '', inTally: !!hit };
   });
 }
 // Unpaid bills with their age in days (IST today − bill date) and the dealer's phone.

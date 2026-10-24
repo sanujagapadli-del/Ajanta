@@ -1999,6 +1999,7 @@ tbody tr:last-child td{border-bottom:none;}
   <div id="page-cheque-fms" class="page">
     <div class="page-header">
       <button class="btn btn-primary" data-form="form-cheque" onclick="openNewChequeModal()">📷 + New Cheque</button>
+      <button class="btn btn-green" onclick="openCashReceiptModal()">💵 + Cash Receipt</button>
       <button class="btn btn-outline" onclick="loadChequeFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="chqStepDoersBtn" style="display:none" onclick="openChequeStepDoersModal()">⚙ Step Doers</button>
       <button class="btn btn-outline" id="chqImportBtn" style="display:none" onclick="importOldCheques()">📥 Import old sheet</button>
@@ -2008,6 +2009,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="tab-group">
         <div class="tab active" onclick="switchChequeView('queue',this)">⚡ Action Queue</div>
         <div class="tab" onclick="switchChequeView('all',this)">All Cheques</div>
+        <div class="tab" onclick="switchChequeView('cash',this)">💵 Cash Receipts</div>
         <div class="tab" id="chqViewRisk" style="display:none" onclick="switchChequeView('risk',this)">⛔ Party Risk</div>
         <div class="tab" onclick="switchChequeView('reports',this)">📊 Reports</div>
       </div>
@@ -20609,7 +20611,72 @@ function switchChequeView(view, el) {
   document.getElementById('chqFilterWrap').style.display = (view === 'all') ? '' : 'none';
   renderChequeActiveView();
 }
+// ── Cash receipts (Ajay sir, 2026-10-24): cash from a party, no cheque steps.
+// Saved as a Payment Follow-up payment, so the party's outstanding drops now
+// and Tally's own receipt takes over once it is entered there.
+let chqCash = null;
+async function loadCashReceipts() {
+  const r = await api('/api/cheque-fms/cash-receipts');
+  chqCash = r && !r.error ? r : { error: (r && r.error) || 'Load failed', items: [], parties: [] };
+  return chqCash;
+}
+async function renderChequeCash() {
+  const wrap = document.getElementById('chqListWrap');
+  if (!chqCash) { wrap.innerHTML = '<div class="empty">Loading…</div>'; await loadCashReceipts(); }
+  if (chqView !== 'cash') return;
+  if (chqCash.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(chqCash.error)}</div>`; return; }
+  const q = (document.getElementById('chqSearch').value || '').trim().toLowerCase();
+  const list = chqCash.items.filter(x => !q || [x.party, x.receiptNo, x.remark, x.by, String(x.amount)].some(v => String(v || '').toLowerCase().includes(q)));
+  const total = list.reduce((a, x) => a + x.amount, 0), notInTally = list.filter(x => !x.inTally);
+  wrap.innerHTML = `<div style="padding:12px 16px;font-size:12.5px;color:var(--gray-600)">${list.length} cash receipt · ${inr(total)}${notInTally.length ? ` · <b style="color:var(--color-warning-text)">${notInTally.length} Tally me aana baaki (${inr(notInTally.reduce((a, x) => a + x.amount, 0))})</b>` : ''} — Payment Follow-up ka outstanding inse turant kam hota hai.</div>` +
+    (list.length ? `<table style="font-size:12.5px"><thead><tr><th>Tareekh</th><th>Party</th><th style="text-align:right">Amount</th><th>Receipt no. / remark</th><th>Kisne</th><th>Tally</th><th></th></tr></thead><tbody>
+    ${list.map(x => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(x.paidOn))}</td><td style="font-weight:600">${esc(x.party)}</td><td style="text-align:right;font-weight:800">${inr(x.amount)}</td>
+      <td>${esc(x.receiptNo || '')}${x.remark ? `<div style="font-size:11px;color:var(--gray-600)">${esc(x.remark)}</div>` : ''}</td><td style="white-space:nowrap">${esc(x.by)}<div style="font-size:10.5px;color:var(--gray-500)">${esc(fmtDateDMY(x.at, true))}</div></td>
+      <td>${x.inTally ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Tally me aa gaya</span>' : '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Tally me aana baaki</span>'}</td>
+      <td>${!x.inTally && (chqCash.me.isAdmin || x.byId === chqCash.me.id) ? `<button class="btn btn-sm btn-outline" title="Hatao" onclick="deleteCashReceipt(${Number(x.id)},this)">🗑</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="empty">Abhi koi cash receipt nahi — "💵 + Cash Receipt" se daalein</div>');
+}
+async function openCashReceiptModal() {
+  if (!chqCash) await loadCashReceipts();
+  const today = o2dReportsFmtDate(new Date());
+  vrlModal('cashReceiptModal', `${scotModalHead('cashReceiptModal', '💵 Cash Receipt')}
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Party se cash mila — party ka outstanding (Payment Follow-up) turant kam ho jayega. Tally me wahi receipt aate hi double nahi ghatega.</div>
+    <label style="font-size:12px;font-weight:600">Party (Tally naam) *</label>
+    <input id="crParty" list="crPartyList" placeholder="Party ka naam likho / chuno" style="${VRL_IN};margin-bottom:8px"/>
+    <datalist id="crPartyList">${(chqCash.parties || []).map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Amount ₹ *</label><input id="crAmt" type="number" min="1" step="any" inputmode="decimal" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Tareekh *</label><input id="crDate" type="date" value="${today}" max="${today}" style="${VRL_IN}"/></div></div>
+    <label style="font-size:12px;font-weight:600">Receipt no.</label><input id="crNo" style="${VRL_IN};margin-bottom:8px"/>
+    <label style="font-size:12px;font-weight:600">Remark</label><input id="crRemark" placeholder="Kisne diya / kis bill ka" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveCashReceipt(this)">✓ Save</button>`, 480);
+}
+async function saveCashReceipt(btn) {
+  const party = document.getElementById('crParty').value.trim(), amount = document.getElementById('crAmt').value;
+  if (!party) { showToast('Party chunein', 'error'); return; }
+  if (!(Number(amount) > 0)) { showToast('Amount daalein', 'error'); return; }
+  if ((chqCash.parties || []).length && !chqCash.parties.some(n => n.toLowerCase() === party.toLowerCase()) && !confirm(`"${party}" Tally ki party list me nahi hai — outstanding se tabhi ghatega jab naam Tally jaisa ho. Phir bhi save karein?`)) return;
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/cheque-fms/cash-receipt', 'POST', { party, amount, paidOn: document.getElementById('crDate').value,
+    receiptNo: document.getElementById('crNo').value.trim(), remark: document.getElementById('crRemark').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('cashReceiptModal');
+  showToast(`✅ ${inr(Number(amount))} cash receipt save — ${party}`);
+  await loadCashReceipts();
+  if (chqView === 'cash') renderChequeCash();
+}
+async function deleteCashReceipt(id, btn) {
+  if (!confirm('Ye cash receipt hatayein? Party ka outstanding phir se badh jayega.')) return;
+  const restore = btnLoading(btn, '…');
+  const r = await api(`/api/cheque-fms/cash-receipt/${id}`, 'DELETE');
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  await loadCashReceipts();
+  renderChequeCash();
+}
 function renderChequeActiveView() {
+  if (chqView === 'cash') return renderChequeCash();
   if (chqView === 'queue') return renderChequeQueue();
   if (chqView === 'all') return renderChequeAll();
   if (chqView === 'risk') return renderChequeRisk();
