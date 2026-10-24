@@ -4976,7 +4976,7 @@ function buildSfmsDashboardTasks() {
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(c.filledByName) || '—'} · ${esc(c.mobile) || '—'}</div>
       <div style="font-size:12px;color:var(--gray-600)">${esc(c.productName) || '—'}${c.problemDescription ? ` — ${esc(c.problemDescription)}` : ''}</div>
       ${(place || c.address) ? `<div style="font-size:11.5px;color:var(--gray-500)">📍 ${[c.address ? esc(c.address) : '', place].filter(Boolean).join(' · ')} ${sfmsMapLink(c)}</div>` : ''}
-      ${c.currentStep >= SN.assign ? `<div style="font-size:11.5px">${sfmsMechanicSparesHtml(c)}</div>` : ''}
+      ${c.currentStep >= SN.assign ? `<div style="font-size:11.5px">${sfmsMechanicSparesHtml(c)}${sfmsAssignDayHtml(c)}</div>` : ''}
       ${fmsFieldRow('REGISTERED', `${fmtDateDMY(c.timestamp) || '—'} ${fmtTimeOfDay(c.timestamp)}`)}
       ${c.currentStep > 0 ? fmsReachedRow(fmsReachedAt(c.steps, c.currentStep, c.timestamp)) : ''}
       ${fmsFieldRow('PENDING', `${daysPending} day${daysPending === 1 ? '' : 's'}${late ? ' — Late' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}
@@ -11138,7 +11138,7 @@ function renderSfmsStepView(n) {
     const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
       (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:4px">📷</a>` : '');
     const locationLine = [c.productLocation, c.address, c.area].filter(Boolean).join(' · ');
-    const mechLine = c.currentStep >= SN.assign ? sfmsMechanicSparesHtml(c) : '';
+    const mechLine = c.currentStep >= SN.assign ? sfmsMechanicSparesHtml(c) + sfmsAssignDayHtml(c) : '';
     return zoneRow + `<tr data-row="${c.row}" data-zone="${esc(zone)}"${c.urgent ? ' style="background:var(--color-danger-bg)"' : ''}>
       <td style="padding:8px 6px;width:24px">${canAct ? `<input type="checkbox" class="sfmsBulkChk" data-row="${c.row}" onchange="sfmsBulkUpdateCount()"/>` : ''}</td>
       <td style="font-weight:600;cursor:pointer;white-space:nowrap;padding:8px 8px" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}${sfmsUrgentBadge(c)}</td>
@@ -12681,7 +12681,7 @@ function buildSfmsNextActionHtml(c, compact) {
       spareRowsHtml = sfmsBuildSpareInRowsHtml(c, compact);
       // No "your name" picker — the server records the mechanic from Assign.
       extraInputsHtml = '';
-    } else if (nextStepDef.n === SN.assign && compact) {
+    } else if (nextStepDef.n === SN.assign && (compact || sfmsAreaZoneMap[c.area])) {
       // Assign tab (compact): Zone isn't re-picked per row anymore, but it's
       // also not just whatever the top filter happens to be set to — the top
       // control only filters the list. The zone actually reported/submitted
@@ -12789,6 +12789,7 @@ function renderComplaintDetailBody(c) {
           ${sfmsCanEdit() && !c.closed ? `<button class="btn btn-outline btn-sm" onclick="sfmsToggleUrgent(${c.row}, this)" style="white-space:nowrap;${c.urgent ? '' : 'color:var(--color-danger);border-color:var(--color-danger-border)'}">${c.urgent ? 'Remove Urgent' : '🚨 Mark Urgent'}</button>` : ''}
         </div>
       </div>
+      ${sfmsBackOrReplHtml(c).replace('margin-top:8px', 'margin:-6px 0 14px')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
         <div>
           <div style="${SFMS_FIELD_LABEL_STYLE}">Complaint Date & Time</div>
@@ -12820,8 +12821,8 @@ function renderComplaintDetailBody(c) {
         </div>` : ''}
         ${sfmsStep(c, 'assign').mechanic ? `<div style="grid-column:1 / -1">
           <div style="${SFMS_FIELD_LABEL_STYLE}">Mechanic & Spares</div>
-          <div style="font-size:14px;color:var(--gray-800)">${sfmsMechanicSparesHtml(c).replace(/<a [^>]*>🔁 Transfer<\/a>/, '') || '—'}</div>
-          ${sfmsTransferHtml(c)}${sfmsBackOrReplHtml(c)}
+          <div style="font-size:14px;color:var(--gray-800)">${sfmsMechanicSparesHtml(c).replace(/<a [^>]*>🔁 Transfer<\/a>/, '') || '—'}${sfmsAssignDayHtml(c)}</div>
+          ${sfmsTransferHtml(c)}
           ${sfmsAddSparePanelHtml(c)}
         </div>` : ''}
       </div>
@@ -13139,6 +13140,20 @@ function sfmsMapLink(c) {
   return q ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px;font-weight:700;white-space:nowrap">🗺 Map</a>` : '';
 }
 // "🔧 Mechanic · 🧰 spares taken" — shown once a complaint is assigned.
+// When the complaint counts as assigned (client 2026-10-24): 9 AM–6:30 PM →
+// that day; assigned after 6:30 PM → the next day.
+function sfmsAssignDay(c) {
+  const a = String(sfmsStep(c, 'assign').actual || '');
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(a)) return null;
+  const late = a.slice(11, 16) >= '18:30';
+  const d = new Date(a.slice(0, 10) + 'T00:00:00');
+  if (late) d.setDate(d.getDate() + 1);
+  return { day: owsYmd(d), at: a.slice(0, 16), late };
+}
+function sfmsAssignDayHtml(c) {
+  const x = sfmsAssignDay(c);
+  return x ? `<div style="font-size:12px;color:var(--gray-600);margin-top:2px">📅 Assign: <b>${esc(fmtDateDMY(x.day))}</b>${x.late ? ` <span style="color:var(--gray-500)" title="6:30 PM ke baad assign hui — agla din gina">(assign hui ${esc(fmtDateDMY(x.at.slice(0, 10)))} ${esc(x.at.slice(11))} — agla din)</span>` : ` <span style="color:var(--gray-500)">${esc(x.at.slice(11))}</span>`}</div>` : '';
+}
 function sfmsMechanicSparesHtml(c) {
   const mech = sfmsStep(c, 'assign').mechanic || '';
   const spares = sfmsTakeoutItems(c).filter(it => it.item);
@@ -15422,10 +15437,27 @@ function renderStockGrid() {
     <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
       <input type="text" id="stockSearchInput" placeholder="🔍 Search item code or description…" value="${esc(stockSearchQ)}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
+      <button class="btn btn-outline" onclick="exportStockReport()">⬇ Excel</button>
       ${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
     </div>
     <div id="stockGridRows"></div>`;
   renderStockGridRows();
+}
+// Stock exports (client 2026-10-24): the report (what the search shows) and the register.
+function exportStockReport() {
+  const q = stockSearchQ.trim().toLowerCase();
+  const list = q ? stockItems.filter(it => it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)) : stockItems;
+  csvDownload([['Item Code', 'Description', 'Std. Pack', 'UOM', 'Current Stock', 'As Of'], ...list.map(it => [it.item_code, it.description, it.std_pack == null ? '' : it.std_pack, it.uom || '', Number(it.current_stock), it.as_of_date ? String(it.as_of_date).slice(0, 10) : ''])],
+    `stock-report-${stockTodayYmd()}.csv`);
+}
+function exportStockRegister() {
+  const r = stockReg;
+  if (!r) return;
+  const rows = [...(r.inward || []).map(x => ['IN', x]), ...(r.outward || []).map(x => ['OUT', x])];
+  if (!rows.length) { showToast('Is din / range me koi entry nahi', 'error'); return; }
+  csvDownload([['Date', 'In / Out', 'Item Code', 'Item', 'Qty', 'UOM', 'Rate', 'Value', 'Party', 'Ref', 'From', 'Remarks', 'Status'],
+    ...rows.map(([d, x]) => [String(x.txn_date || '').slice(0, 10), d, x.item_code || '', x.item_name || x.source_item || '', Number(x.quantity), x.uom || '', Number(x.rate) || '', Number(x.rate) ? Math.round(Number(x.rate) * Number(x.quantity)) : '',
+      x.party || '', x.ref_no || '', x.source || 'manual', x.remarks || '', x.status || ''])], `stock-register-${r.from || stockRegDate}-to-${r.to || stockRegDate}.csv`);
 }
 function renderStockGridRows() {
   const wrap = document.getElementById('stockGridRows');
@@ -15608,6 +15640,7 @@ function renderStockRegister() {
       <div style="display:flex;gap:4px">${modeBtn('day', 'Day')}${modeBtn('mtd', 'Month till date')}${modeBtn('range', 'Date range')}</div>
       ${dateCtl}
       <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="loadStockRegister(true)" title="Pull the latest Purchase / O2D FMS entries">🔄 Sync FMS</button>
+      <button class="btn btn-outline btn-sm" onclick="exportStockRegister()">⬇ Excel</button>
     </div>
     ${r.syncError ? `<div class="alert error" style="display:block;margin-bottom:12px">⚠️ FMS sync failed: ${esc(r.syncError)} — showing entries already in the register.</div>` : ''}
     ${r.unlinkedTotal ? `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
