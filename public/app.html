@@ -14312,7 +14312,7 @@ function dealerRowHtml(d) {
   const phoneEsc = String(d.phone||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
-  const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '<span style="color:var(--gray-400)">—</span>';
+  const outstandingStr = d.outstanding !== null ? inr(d.outstanding) + (d.outstandingAll != null && d.outstandingAll !== d.outstanding ? `<div style="font-size:11px;color:var(--gray-500)" title="Bill date + ${d.creditDays} din ke baad wala hi outstanding me">Kul ${inr(d.outstandingAll)}</div>` : '') : '<span style="color:var(--gray-400)">—</span>';
   const creditStr = (d.creditLimit !== null ? inr(d.creditLimit) : `<span style="color:var(--gray-400);font-size:11px">set nahi</span>`) + (d.creditDays != null ? `<div style="font-size:11px;color:var(--gray-500)">${d.creditDays} din</div>` : '');
   const ratingHtml = d.rating.total > 0
     ? `<span style="color:#d97706">${starsHtml(d.rating.stars)}</span><div style="font-size:11px;color:var(--gray-500)">${d.rating.label} · ${d.rating.total} pmt, ${d.rating.late} late, avg ${d.rating.avgLateDays}d${d.rating.source==='tally' ? ' <span style="color:var(--color-primary)">(Tally)</span>' : ''}</div>`
@@ -14356,10 +14356,10 @@ function dealerCardHtml(d) {
   const phoneEsc = String(d.phone||'').replace(/\\/g,'\\\\').replace(/'/g, "\\'").replace(/"/g,'&quot;');
   const kycColor = d.kycCount === 4 ? 'var(--color-success-text)' : d.kycCount === 0 ? 'var(--gray-500)' : 'var(--color-warning-text)';
   const kycBg = d.kycCount === 4 ? 'var(--color-success-bg)' : d.kycCount === 0 ? 'var(--gray-100)' : 'var(--color-warning-bg)';
-  const outstandingStr = d.outstanding !== null ? inr(d.outstanding) : '—';
+  const outstandingStr = d.outstanding !== null ? inr(d.outstanding) + (d.outstandingAll != null && d.outstandingAll !== d.outstanding ? ` <span style="font-size:11px;font-weight:500;color:var(--gray-500)">/ kul ${inr(d.outstandingAll)}</span>` : '') : '—';
   const creditStr = d.creditLimit !== null ? inr(d.creditLimit) : 'set nahi';
   const hasBoth = d.outstanding !== null && d.creditLimit !== null;
-  const available = hasBoth ? d.creditLimit - d.outstanding : null;
+  const available = hasBoth ? d.creditLimit - (d.outstandingAll != null ? d.outstandingAll : d.outstanding) : null;
   const overLimit = available !== null && available < 0;
   // When there's no bill-matched on-time/late data yet but Tally payments
   // do exist (shown below), "No payment history yet" reads as a flat
@@ -14693,8 +14693,9 @@ async function openDealerLedgerModal(name, phone) {
   const outstandingHtml = `
     <div style="background:var(--gray-50);border-radius:10px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
       <div>
-        <div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">Outstanding (Tally)</div>
-        <div style="font-size:18px;font-weight:700;color:var(--gray-900)">${r.outstanding !== null ? inr(r.outstanding) : '—'}</div>
+        <div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">Outstanding${r.creditDays != null ? ` (${r.creditDays} din se purane bill)` : ''}</div>
+        <div style="font-size:18px;font-weight:700;color:${r.dueOutstanding ? 'var(--color-danger-text)' : 'var(--gray-900)'}">${r.outstanding !== null ? inr(r.outstanding > 0 && r.billCount ? Math.min(r.dueOutstanding || 0, r.outstanding) : r.outstanding) : '—'}</div>
+        ${r.outstanding !== null && r.outstanding > 0 && r.billCount && (r.dueOutstanding || 0) < r.outstanding ? `<div style="font-size:11px;color:var(--gray-500)">Kul baaki (Tally) ${inr(r.outstanding)}</div>` : ''}
       </div>
       <div style="font-size:11px;color:var(--gray-500);text-align:right">${r.billCount} open bill${r.billCount===1?'':'s'}<br/>${r.paymentCount} payment${r.paymentCount===1?'':'s'} synced</div>
     </div>`;

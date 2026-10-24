@@ -6647,11 +6647,12 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
 
     const byKey = {}; // lowercased counter name -> merged dealer record
     const aliasOf = await getDealerAliasMap();
+    const dfl = (v, def) => v !== null && v !== undefined ? Number(v) : def;
     const ensure = (name) => {
       let key = name.trim().toLowerCase();
       if (!key) return null;
       if (aliasOf[key]) { name = aliasOf[key]; key = name.trim().toLowerCase(); }
-      if (!byKey[key]) byKey[key] = { name: name.trim(), city: '', phone: '', creditLimit: null, outstanding: null,
+      if (!byKey[key]) byKey[key] = { name: name.trim(), city: '', phone: '', creditLimit: DEALER_DEFAULT_CREDIT_LIMIT, creditDays: DEALER_DEFAULT_CREDIT_DAYS, outstanding: null,
         locationLat: null, locationLng: null, locationAddress: '', kyc: { aadhar: null, pan: null, gst: null, shop: null },
         lastOrder: null, payments: [] };
       return byKey[key];
@@ -6665,8 +6666,8 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       d.name = row.counter_name; // profile row is the authoritative display name/casing
       d.city = row.city || '';
       d.phone = row.phone || '';
-      d.creditLimit = row.credit_limit !== null && row.credit_limit !== undefined ? Number(row.credit_limit) : null;
-      d.creditDays = row.credit_days != null ? Number(row.credit_days) : null;
+      d.creditLimit = dfl(row.credit_limit, DEALER_DEFAULT_CREDIT_LIMIT);
+      d.creditDays = dfl(row.credit_days, DEALER_DEFAULT_CREDIT_DAYS);
       d.tallyName = row.tally_name || '';
       d.locationLat = row.location_lat !== null ? Number(row.location_lat) : null;
       d.locationLng = row.location_lng !== null ? Number(row.location_lng) : null;
@@ -6747,6 +6748,17 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
         d.aging = null; // vouchers exist this FY but nothing's actually open — trust that over stale bill-wise data
       }
       // else: no FY voucher data for this dealer at all — leave whatever bill-wise aging was set above as a fallback
+    });
+
+    // Outstanding = only bills past the dealer's credit days (client
+    // 2026-10-24: "billed date ke 30 din baad hi outstanding mai aayega").
+    // The full balance stays as outstandingAll. Needs bill-level (FIFO) data;
+    // without it the full balance is shown as before.
+    Object.values(byKey).forEach(d => {
+      const open = d.aging && d.aging.openBills;
+      if (d.outstanding == null || !open || d.outstanding <= 0) return;
+      d.outstandingAll = d.outstanding;
+      d.outstanding = Math.min(d.outstandingAll, Math.round(open.filter(b => b.daysOverdue > d.creditDays).reduce((s, b) => s + b.remaining, 0)));
     });
 
     // Same matching rule — only for dealers we already know, most recent 5.
@@ -8315,7 +8327,7 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
     // Due date = bill date + the dealer's Credit Days (client 2026-10-21); without
     // credit days set, the bill date as before.
     const [[cdRow]] = await withDealerTables(() => db.query('SELECT credit_days FROM o2d_dealers WHERE LOWER(counter_name)=LOWER(?)', [name]));
-    const creditDays = cdRow && cdRow.credit_days != null ? Number(cdRow.credit_days) : null;
+    const creditDays = cdRow && cdRow.credit_days != null ? Number(cdRow.credit_days) : DEALER_DEFAULT_CREDIT_DAYS;
     const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const dueByTerms = (billDate, sinceBill) => {
       const d = parseAnyDate(billDate);
@@ -8382,6 +8394,8 @@ app.get('/api/o2d-fms/dealer-ledger', requireAuth, async (req, res) => {
       // nothing in Tally under this name: suggest the closest Tally parties to link
       tallySuggestions: matched ? [] : tallyPartySuggestions(name, Object.values(ledgerByParty).map(l => l.name), 6),
       outstanding: ledger ? ledger.closingBalance : null,
+      // past-due part (bill date + credit days gone) of the open bills
+      dueOutstanding: Math.round(openBillEntries.filter(b => b.daysOverdue > 0).reduce((s, b) => s + b.amount, 0)),
       syncedAt: ledger ? ledger.syncedAt : (dealerBills[0] ? dealerBills[0].syncedAt : null),
       billCount: openBillEntries.length,
       paymentCount: payments.length,
@@ -14045,6 +14059,9 @@ app.put('/api/lead-fms/settings', requireAuth, requireAdmin, async (req, res) =>
 // centre number, warranty chart, terms, bank account and payment QR.
 // ══════════════════════════════════════════════════════
 const ONB_FIRM_TYPES = ['Proprietorship', 'Partnership', 'Pvt Ltd', 'LLP', 'Other'];
+// Every dealer without its own terms (client 2026-10-24): ₹25,000 limit, 30 days.
+const DEALER_DEFAULT_CREDIT_LIMIT = 25000;
+const DEALER_DEFAULT_CREDIT_DAYS = 30;
 async function canOnboardDealers(req) {
   return req.session.role === 'admin' || (await hasPageGrant(req, 'lead-fms')) || (await canAccessDealers(req));
 }
