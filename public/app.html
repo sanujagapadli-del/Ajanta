@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Ajanta Appliances Task Manager</title>
 <link rel="icon" type="image/png" href="/logo-mark.png"/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
 <style>
 :root{
   /* Brand colors */
@@ -1040,6 +1040,92 @@ tbody tr:last-child td{border-bottom:none;}
      first one on phones (Service FMS Spare Check "1 complaint"). Let the page scroll. */
   .mis-table-wrap:has(table.mcards){max-height:none !important;overflow-y:visible !important}
 }
+</style>
+<style id="tokens-css">
+/* ══════════ tokens.css (Phase A, 2026-10-24) ══════════
+   One place for brand, neutrals, semantic colours, spacing (8px grid), radius,
+   type scale, shadows and motion. Festival layer: html.fest-day redefines only
+   --fest-* tokens (and the brand tokens it already maps), nothing else. */
+:root{
+  --brand-700:#01024F; --brand-600:#010371; --brand-500:#1c2a9c; --brand-400:#3a49c9; --brand-rgb:1,3,113;
+  --brand-50:rgba(1,3,113,.06); --brand-100:rgba(1,3,113,.12);
+  --accent-600:#D80700; --accent-500:#ef4444; --accent-rgb:216,7,0;
+  --n-0:#ffffff; --n-50:#f8fafc; --n-100:#f1f5f9; --n-200:#e2e8f0; --n-300:#cbd5e1; --n-400:#94a3b8;
+  --n-500:#64748b; --n-600:#475569; --n-700:#334155; --n-800:#1e293b; --n-900:#0f172a;
+  --success-600:#059669; --success-50:#ecfdf5; --warning-600:#d97706; --warning-50:#fffbeb;
+  --danger-600:#dc2626; --danger-50:#fef2f2; --info-600:#2563eb; --info-50:#eff6ff;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:40px; --sp-8:48px;
+  --r-sm:10px; --r-md:14px; --r-lg:20px; --r-pill:999px;
+  --fs-12:12px; --fs-14:14px; --fs-16:16px; --fs-20:20px; --fs-28:28px; --fs-40:40px;
+  --font-sans:'Inter','Noto Sans Devanagari',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --sh-1:0 1px 2px rgba(15,23,42,.05);
+  --sh-2:0 2px 8px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.04);
+  --sh-3:0 8px 24px -8px rgba(15,23,42,.14),0 2px 6px rgba(15,23,42,.05);
+  --sh-4:0 24px 60px -12px rgba(15,23,42,.30),0 0 0 1px rgba(15,23,42,.04);
+  --dur-1:120ms; --dur-2:200ms; --dur-3:320ms; --dur-4:480ms;
+  --ease-standard:cubic-bezier(.2,.8,.2,1); --ease-spring:cubic-bezier(.34,1.56,.64,1);
+  --fest-accent:var(--accent-600); --fest-accent-2:var(--brand-600);
+}
+html.fest-day{--fest-accent:var(--fest-c1);--fest-accent-2:var(--fest-c2);}
+body{font-family:var(--font-sans);}
+.tnum,.o2d-stat-value,.stat-value,td[style*="text-align:right"]{font-variant-numeric:tabular-nums;}
+</style>
+<style id="motion-css">
+/* ══════════ motion.css — transform / opacity only ══════════ */
+@keyframes ui-fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+@keyframes ui-pop-in{from{opacity:0;transform:translateY(10px) scale(.97);}to{opacity:1;transform:none;}}
+@keyframes ui-fade{from{opacity:0;}to{opacity:1;}}
+@keyframes ui-shimmer{from{transform:translateX(-100%);}to{transform:translateX(100%);}}
+@keyframes ui-progress{from{transform:scaleX(1);}to{transform:scaleX(0);}}
+@keyframes ui-spin{to{transform:rotate(360deg);}}
+@keyframes ui-shake{10%,90%{transform:translateX(-1px);}20%,80%{transform:translateX(2px);}30%,50%,70%{transform:translateX(-4px);}40%,60%{transform:translateX(4px);}}
+.ui-fade-up{animation:ui-fade-up var(--dur-3) var(--ease-standard) both;}
+.ui-stagger > *{animation:ui-fade-up var(--dur-3) var(--ease-standard) both;animation-delay:calc(var(--i,0) * 40ms);}
+.ui-shake{animation:ui-shake .42s var(--ease-standard);}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important;}
+}
+</style>
+<style id="components-css">
+/* ══════════ components.css — skeleton, toast, dialog, button states + CLEAN UI ══════════ */
+.lucide{display:inline-block;vertical-align:middle;flex-shrink:0;}
+/* Skeleton loader — replaces the grey "Loading…" text (the word stays for screen readers) */
+.ui-skel{position:relative;overflow:hidden;min-height:132px;color:transparent !important;user-select:none;text-align:left !important;
+  background-color:var(--n-0);border-radius:var(--r-md);
+  background-image:linear-gradient(var(--n-100),var(--n-100)),linear-gradient(var(--n-100),var(--n-100)),linear-gradient(var(--n-100),var(--n-100)),linear-gradient(var(--n-100),var(--n-100));
+  background-repeat:no-repeat;background-size:62% 12px,88% 12px,74% 12px,48% 12px;background-position:20px 22px,20px 50px,20px 78px,20px 106px;}
+.ui-skel::after{content:'';position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);animation:ui-shimmer 1.3s var(--ease-standard) infinite;}
+/* Toasts — stacked, icon, progress (pauses on hover), close, optional Undo */
+.ui-toasts{position:fixed;top:16px;right:16px;z-index:10000;display:flex;flex-direction:column;gap:8px;width:min(380px,calc(100vw - 32px));pointer-events:none;}
+.ui-toast{pointer-events:auto;position:relative;overflow:hidden;display:flex;align-items:flex-start;gap:10px;padding:12px 12px 14px 14px;border-radius:var(--r-md);
+  background:rgba(15,23,42,.94);color:#f8fafc;box-shadow:var(--sh-4);font-size:13.5px;line-height:1.4;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  animation:ui-pop-in var(--dur-3) var(--ease-spring) both;}
+.ui-toast.out{animation:ui-fade var(--dur-2) var(--ease-standard) reverse both;}
+.ui-toast .ui-t-icon{margin-top:1px;}
+.ui-toast.ok .ui-t-icon{color:#34d399;} .ui-toast.err .ui-t-icon{color:#f87171;} .ui-toast.info .ui-t-icon{color:#93c5fd;}
+.ui-toast .ui-t-msg{flex:1;min-width:0;word-break:break-word;}
+.ui-toast .ui-t-undo{background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-weight:700;font-size:12.5px;cursor:pointer;display:inline-flex;gap:4px;align-items:center;}
+.ui-toast .ui-t-undo:hover{background:rgba(255,255,255,.22);}
+.ui-toast .ui-t-x{background:none;border:none;color:#94a3b8;cursor:pointer;padding:2px;border-radius:6px;line-height:0;}
+.ui-toast .ui-t-x:hover{color:#fff;}
+.ui-toast .ui-t-bar{position:absolute;left:0;right:0;bottom:0;height:3px;transform-origin:left;background:currentColor;opacity:.35;animation:ui-progress var(--ui-t-dur,3500ms) linear forwards;}
+.ui-toast.ok .ui-t-bar{color:#34d399;} .ui-toast.err .ui-t-bar{color:#f87171;} .ui-toast.info .ui-t-bar{color:#93c5fd;}
+.ui-toast:hover .ui-t-bar{animation-play-state:paused;}
+@media (max-width:768px){.ui-toasts{top:auto;bottom:calc(76px + env(safe-area-inset-bottom));left:16px;right:16px;width:auto;}}
+@media (max-width:768px){body:has(.modal-overlay.open) .ui-toasts{top:calc(12px + env(safe-area-inset-top));bottom:auto;}}
+/* Confirm / prompt dialogs */
+#confirmModal .modal,#promptModal .modal{border-radius:var(--r-lg);padding:24px !important;animation:ui-pop-in var(--dur-3) var(--ease-spring) both;}
+#confirmIcon,#promptIcon{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px !important;font-size:0 !important;background:var(--brand-50);color:var(--brand-600);}
+#confirmIcon.danger{background:var(--danger-50);color:var(--danger-600);}
+#confirmTitle{font-size:16px !important;line-height:1.4;white-space:pre-line;}
+#confirmMsg:empty{display:none;}
+#confirmModal button,#promptModal button{border-radius:10px !important;min-height:40px;min-width:96px;transition:transform var(--dur-1) var(--ease-standard),box-shadow var(--dur-2);}
+#confirmModal button:active,#promptModal button:active{transform:scale(.97);}
+#promptTitle{white-space:pre-line;line-height:1.4;}
+#promptModal{z-index:1100;}
+/* Button busy state: <button class="btn is-busy"> */
+.btn.is-busy{pointer-events:none;opacity:.85;}
+.btn.is-busy::before{content:'';width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:ui-spin .7s linear infinite;}
 
 /* ══════════════════════════════════════════════════════
    CLEAN UI (client 2026-10-24: "taskmanager.e-marketing.io jaise clean,
@@ -1127,6 +1213,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
 /* Modals */
 .modal-overlay{background:rgba(10,14,26,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
 .modal{border-radius:16px;box-shadow:0 24px 70px -12px rgba(15,23,42,.35),0 0 0 1px rgba(15,23,42,.04);}
+
 </style>
 </head>
 <body>
@@ -1779,20 +1866,20 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
 
     <!-- Service FMS: cash taken for short spare pieces at Check In/Out -->
     <div id="sfmsCashApprovalsPanel" style="display:none">
-      <div id="sfmsCashApprovalsContent"><div class="empty">Loading…</div></div>
+      <div id="sfmsCashApprovalsContent"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
     </div>
 
     <!-- Task approvals panel -->
     <div id="approvalsPanel">
       <div id="approvalsContent">
-        <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
+        <div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
     </div>
 
     <!-- Transfer approvals panel (admin/HOD only) -->
     <div id="transferApprovalsPanel" style="display:none">
       <div id="transferApprovalsContent" class="flat-tasks-table" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow:hidden">
-        <div class="empty">Loading…</div>
+        <div class="empty ui-skel" aria-busy="true">Loading…</div>
       </div>
     </div>
   </div>
@@ -1828,7 +1915,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
         <div id="attnAlertWrap" style="display:none;margin-left:auto"><button class="btn btn-outline" onclick="sendAbsentAlertNow()" title="Post the names of staff who haven't punched to the team WhatsApp group (also sent automatically at 11 AM and 8 PM)">📣 Send Not-Punched Alert</button></div>
       </div>
       <div id="attnHistoryResults">
-        <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
+        <div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
     </div>
 
@@ -1853,7 +1940,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
         <div style="margin-left:auto"><button class="btn btn-primary" onclick="openApplyLeaveModal()">+ Apply for Leave</button></div>
       </div>
       <div id="attnLeaveResults">
-        <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
+        <div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
     </div>
 
@@ -1881,7 +1968,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       <div id="attnKmWeekly" style="margin-bottom:16px"></div>
       <div id="attnKmResults">
-        <div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
+        <div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>
       </div>
     </div>
 
@@ -1895,7 +1982,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
         <div><button class="btn btn-primary" onclick="loadTourList()">Show</button></div>
         <div style="margin-left:auto"><button class="btn btn-green" onclick="openTourModal()">+ Tour Expense</button></div>
       </div>
-      <div id="tourResults"><div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div></div>
+      <div id="tourResults"><div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div></div>
     </div>
 
   </div>
@@ -2030,7 +2117,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     </div>
 
     <div id="sfmsListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
@@ -2061,14 +2148,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     </div>
 
     <div id="o2dListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
   <!-- ── DEALER MASTER (was O2D → Dealers) ── -->
   <div id="page-dealers" class="page">
     <div id="dealerPageWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
@@ -2099,7 +2186,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     </div>
 
     <div id="pfmsListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
@@ -2136,7 +2223,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     </div>
 
     <div id="chqListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
@@ -2174,7 +2261,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     </div>
 
     <div id="leadListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
@@ -2203,7 +2290,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
     </div>
     <div id="rplListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
@@ -2221,7 +2308,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
         <button class="btn btn-outline" onclick="exportGrossProfit()" style="margin-left:auto">⬇ Export CSV</button>
       </div>
     </div>
-    <div id="gpResults"><div class="empty">Loading…</div></div>
+    <div id="gpResults"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <!-- ── SALES SCHEDULE (client, 2026-10-12) ── -->
@@ -2232,7 +2319,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <div><div style="font-size:11px;font-weight:700;color:var(--gray-500)">TO</div><input type="date" id="myExpTo" onchange="loadMyExpense()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/></div>
       <button class="btn btn-green" onclick="openMyExpense(0)">＋ Kharcha</button>
     </div>
-    <div id="myExpWrap"><div class="empty">Loading…</div></div>
+    <div id="myExpWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
   <div id="page-rental" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -2240,14 +2327,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <button class="btn btn-outline" onclick="openRentUnit(0)">＋ Kiraayedaar</button>
       <button class="btn btn-green" onclick="openRentPay(0)">💰 Kiraya aaya</button>
     </div>
-    <div id="rentWrap"><div class="empty">Loading…</div></div>
+    <div id="rentWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
   <div id="page-dropdown-master" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
       <div style="font-size:19px;font-weight:900;color:var(--gray-900)">🔽 Dropdown Master</div>
       <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px">Yahan ki lists app ke text khaanon me dropdown ban kar aati hain. List me na ho to log "➕ Doosra (likho)" chun kar likh sakte hain. Ek line = ek option.</div>
     </div>
-    <div id="ddmWrap"><div class="empty">Loading…</div></div>
+    <div id="ddmWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
   <div id="page-checklist-master" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
@@ -2261,7 +2348,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       <div style="font-size:12px;color:var(--gray-500);margin-top:6px">Har employee ki har checklist ek line me. Edit / transfer / stop sirf aaj se aage ke pending din par lagta hai — jo ho chuka woh nahi badalta.</div>
     </div>
-    <div id="clmWrap" class="table-wrap"><div class="empty">Loading…</div></div>
+    <div id="clmWrap" class="table-wrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-ows" class="page">
@@ -2276,7 +2363,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       <div style="font-size:12px;color:var(--gray-500);margin-top:6px">O2D me bill bane orders (Make Bill date), hafta Monday–Sunday. Sabse naya hafta sabse pehle.</div>
     </div>
-    <div id="owsWrap" class="table-wrap"><div class="empty">Loading…</div></div>
+    <div id="owsWrap" class="table-wrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-vendor-ledger" class="page">
@@ -2288,7 +2375,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       <div id="vrlTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
-    <div id="vrlWrap"><div class="empty">Loading…</div></div>
+    <div id="vrlWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-samples" class="page">
@@ -2300,7 +2387,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       <div id="smpTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
-    <div id="smpWrap"><div class="empty">Loading…</div></div>
+    <div id="smpWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-market-holidays" class="page">
@@ -2311,7 +2398,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       
     </div>
-    <div id="mhWrap"><div class="empty">Loading…</div></div>
+    <div id="mhWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-collection" class="page">
@@ -2323,7 +2410,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       <div id="colTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
-    <div id="colWrap"><div class="empty">Loading…</div></div>
+    <div id="colWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-call-reports" class="page">
@@ -2345,7 +2432,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
         <input type="text" id="crSearch" oninput="renderCallReports()" placeholder="🔍 Dealer / item / number / baat" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;flex:1;min-width:160px;background:var(--surface);color:var(--gray-800)"/>
       </div>
     </div>
-    <div id="crWrap"><div class="empty">Loading…</div></div>
+    <div id="crWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-drip-marketing" class="page">
@@ -2355,7 +2442,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
         <button class="btn btn-outline" onclick="loadDrip()">🔄 Refresh</button>
       </div>
     </div>
-    <div id="dripWrap"><div class="empty">Loading…</div></div>
+    <div id="dripWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-dealer-whatsapp" class="page">
@@ -2366,7 +2453,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       <div id="waTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
-    <div id="waWrap"><div class="empty">Loading…</div></div>
+    <div id="waWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-meca" class="page">
@@ -2383,7 +2470,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
         <button class="btn btn-sm btn-outline" onclick="mecaPreset('week')">Is hafte</button><button class="btn btn-sm btn-outline" onclick="mecaPreset('month')">Is mahine</button>
         <span style="width:12px"></span><span id="mecaTabs" style="display:flex;gap:6px"></span></div>
     </div>
-    <div id="mecaWrap"><div class="empty">Loading…</div></div>
+    <div id="mecaWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
   <div id="page-scot" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
@@ -2396,7 +2483,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <div id="scotStats" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"></div>
       <div id="scotTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
-    <div id="scotWrap"><div class="empty">Loading…</div></div>
+    <div id="scotWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
   <div id="page-sales-schedule" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
@@ -2418,7 +2505,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <div class="tab" data-v="summary" id="ssTabSummary" style="display:none" onclick="ssSwitch('summary')">📊 Summary</div>
     </div>
     <datalist id="ssDealerList"></datalist>
-    <div id="ssResults"><div class="empty">Loading…</div></div>
+    <div id="ssResults"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <!-- ── PETTY CASH (client, 2026-10-12) ── -->
@@ -2446,7 +2533,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <div class="tab" id="pettyTabPending" onclick="switchPettyTab('pending',this)">⏳ Pending</div>
       <div class="tab" onclick="switchPettyTab('summary',this)">📊 Summary</div>
     </div>
-    <div id="pettyResults"><div class="empty">Loading…</div></div>
+    <div id="pettyResults"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <!-- ── TEA REGISTER ── -->
@@ -2459,7 +2546,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
       <div id="mdPresets" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
-    <div id="mdWrap"><div class="empty">Loading…</div></div>
+    <div id="mdWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
   <div id="page-tea" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -2474,31 +2561,31 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <div class="tab" onclick="switchTeaTab('report',this)">📊 Monthly Report</div>
       <div class="tab" id="teaTabStaff" style="display:none" onclick="switchTeaTab('staff',this)">👥 Staff</div>
     </div>
-    <div id="teaResults"><div class="empty">Loading…</div></div>
+    <div id="teaResults"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <!-- ── PRICE LIST & CATALOGUE ── -->
   <div id="page-price-catalogue" class="page">
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">💰 Price List PDF</div>
     <div id="cataloguePdfWrap_price_list" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
 
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📖 Catalogue PDF</div>
     <div id="cataloguePdfWrap_catalogue" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
 
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📷 Single Product Photos</div>
     <div id="catPhotosWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
   <!-- ── STOCK (Ajanta appliances) ── -->
   <div id="page-stock" class="page">
     <div id="stockWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 
@@ -2553,7 +2640,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <button class="btn btn-outline" onclick="empImportPick()" title="Export wali file me details bharke yahan upload karein">⬆ Import CSV</button>
     </div>
     <div id="empCards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"></div>
-    <div id="empList" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><div class="empty">Loading…</div></div>
+    <div id="empList" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-records" class="page">
@@ -3128,8 +3215,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
   <div class="modal" style="max-width:360px;padding:28px 24px">
     <div id="promptIcon" style="font-size:34px;margin-bottom:8px;text-align:center">💬</div>
     <div id="promptTitle" style="font-size:15px;font-weight:700;color:var(--gray-800);margin-bottom:14px;text-align:center">Enter Reason</div>
-    <textarea id="promptInput" rows="3" placeholder="" onkeydown="if(event.key==='Enter'&&event.ctrlKey)_promptAccept()" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:vertical;box-sizing:border-box"></textarea>
-    <div style="font-size:11px;color:var(--gray-400);margin-top:4px;text-align:right">Ctrl+Enter to submit</div>
+    <textarea id="promptInput" rows="3" placeholder="" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();_promptAccept();}" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;resize:vertical;box-sizing:border-box"></textarea>
+    <div style="font-size:11px;color:var(--gray-400);margin-top:4px;text-align:right">Enter = OK · Shift+Enter = nayi line</div>
     <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
       <button onclick="_promptReject()" style="padding:8px 22px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface);color:var(--gray-500);font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
       <button onclick="_promptAccept()" style="padding:8px 22px;border:none;border-radius:8px;background:var(--color-primary);color:#fff;font-size:13px;font-weight:700;cursor:pointer">OK</button>
@@ -4184,7 +4271,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     </div>
     <div class="dl-no-print" style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Is financial year ka poora ledger (Tally jaisa) + abhi outstanding bills — Tally se pichhle sync tak ka data.</div>
     <div id="dlPrintHeading" class="dl-print-only" style="display:none"></div>
-    <div id="dlBody" style="overflow-y:auto;flex:1">Loading…</div>
+    <div id="dlBody" class="ui-skel" aria-busy="true" style="overflow-y:auto;flex:1">Loading…</div>
   </div>
 </div>
 
@@ -4359,7 +4446,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       </div>
     </div>
     <div style="flex:1;overflow:auto" id="dbmContent">
-      <div class="empty">Loading…</div>
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
 </div>
@@ -4378,7 +4465,7 @@ async function openDelegateByMeModal() {
   const searchEl = document.getElementById('dbmSearch');
   if (searchEl) searchEl.value = '';
   document.getElementById('delegateByMeModal').classList.add('open');
-  document.getElementById('dbmContent').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('dbmContent').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
 
   // Sirf delegation tasks fetch karte hain (checklist self-assign hota hai mostly)
   const data = await api('/api/tasks?type=delegation&mine=1');
@@ -5648,8 +5735,8 @@ async function taskRemFill() {
   btns.forEach(b => taskRemPaint(b, _trmCache[b.dataset.trm]));
 }
 new MutationObserver(() => { clearTimeout(_trmTimer); _trmTimer = setTimeout(taskRemFill, 300); }).observe(document.documentElement, { childList: true, subtree: true });
-function taskRemind(id, btn) {
-  const note = prompt('Reminder log karein — kaise yaad dilaya? (optional, e.g. call kiya / WhatsApp)');
+async function taskRemind(id, btn) {
+  const note = await uiPrompt('Reminder log karein — kaise yaad dilaya? (optional, e.g. call kiya / WhatsApp)');
   if (note === null) return;
   api(`/api/tasks/delegation/${id}/remind`, 'POST', { note }).then(r => {
     if (r.error) { showToast(r.error, 'error'); return; }
@@ -5955,8 +6042,16 @@ async function submitTaskAttachment() {
 }
 
 let _confirmCb = null;
-function showConfirm({ icon='🗑️', title='Are you sure?', msg='This cannot be undone.', okLabel='Delete', okColor='var(--color-danger)' }, onYes) {
-  document.getElementById('confirmIcon').textContent = icon;
+// The emoji `icon` argument is ignored now — the dialog shows a Lucide icon
+// (red for a danger action, navy otherwise). Phase A, 2026-10-24.
+function setConfirmIcon(danger, name) {
+  const el = document.getElementById('confirmIcon');
+  el.classList.toggle('danger', !!danger);
+  el.innerHTML = icon(name || (danger ? 'triangle-alert' : 'circle-help'), 24);
+}
+let _confirmCancelCb = null;
+function showConfirm({ icon: _ico, title='Are you sure?', msg='This cannot be undone.', okLabel='Delete', okColor='var(--color-danger)' }, onYes) {
+  setConfirmIcon(/danger/.test(okColor) || /^(delete|remove|hatao)/i.test(okLabel));
   document.getElementById('confirmTitle').textContent = title;
   document.getElementById('confirmMsg').textContent = msg;
   const btn = document.getElementById('confirmOkBtn');
@@ -5966,8 +6061,8 @@ function showConfirm({ icon='🗑️', title='Are you sure?', msg='This cannot b
   _confirmCb = onYes;
   document.getElementById('confirmModal').classList.add('open');
 }
-function showAlert({ icon='ℹ️', title='Notice', msg='' }, onOk) {
-  document.getElementById('confirmIcon').textContent = icon;
+function showAlert({ icon: _ico, title='Notice', msg='' }, onOk) {
+  setConfirmIcon(false, 'info');
   document.getElementById('confirmTitle').textContent = title;
   document.getElementById('confirmMsg').textContent = msg;
   const btn = document.getElementById('confirmOkBtn');
@@ -5980,21 +6075,50 @@ function showAlert({ icon='ℹ️', title='Notice', msg='' }, onOk) {
 function _confirmAccept() {
   document.getElementById('confirmModal').classList.remove('open');
   document.getElementById('confirmCancelBtn').style.display = '';
-  if (_confirmCb) { _confirmCb(); _confirmCb = null; }
+  _confirmCancelCb = null;
+  if (_confirmCb) { const cb = _confirmCb; _confirmCb = null; cb(); }
 }
 function _confirmReject() {
   document.getElementById('confirmModal').classList.remove('open');
   document.getElementById('confirmCancelBtn').style.display = '';
   _confirmCb = null;
+  if (_confirmCancelCb) { const cb = _confirmCancelCb; _confirmCancelCb = null; cb(); }
+}
+// Promise dialogs replacing the browser's blocking confirm / prompt boxes (Phase A).
+// `await uiConfirm(text)` → true / false; `await uiPrompt(text, default)` → string / null.
+// A blank line in the text splits it into a bold title and the details below.
+function splitDialogText(text) {
+  const t = String(text == null ? '' : text), i = t.indexOf('\n\n');
+  return i > 0 ? [t.slice(0, i), t.slice(i + 2)] : [t, ''];
+}
+function uiConfirm(text, opts = {}) {
+  const [title, msg] = splitDialogText(text);
+  const danger = opts.danger != null ? opts.danger : /hata|delete|remove|cancel|band kar|zero|logout|restart/i.test(title);
+  return new Promise(resolve => {
+    showConfirm({ title: opts.title || title, msg: opts.title ? text : msg, okLabel: opts.okLabel || (danger ? 'Haan' : 'OK'), okColor: danger ? 'var(--color-danger)' : 'var(--color-primary)' }, () => resolve(true));
+    _confirmCancelCb = () => resolve(false);
+    if (danger) setConfirmIcon(true);
+    document.getElementById('confirmCancelBtn').textContent = opts.cancelLabel || 'Cancel';
+  });
+}
+function uiAlert(text) {
+  const [title, msg] = splitDialogText(text);
+  return new Promise(resolve => showAlert({ title, msg }, () => resolve()));
+}
+function uiPrompt(text, value = '', opts = {}) {
+  return new Promise(resolve => {
+    showPrompt({ title: String(text == null ? '' : text), placeholder: opts.placeholder || '', value: value == null ? '' : String(value) }, v => resolve(v));
+    _promptCancelCb = () => resolve(null);
+  });
 }
 
-let _promptCb = null;
-function showPrompt({ icon='💬', title='Enter Reason', placeholder='' }, onSubmit) {
-  document.getElementById('promptIcon').textContent = icon;
+let _promptCb = null, _promptCancelCb = null;
+function showPrompt({ icon: _ico, title='Enter Reason', placeholder='', value='' }, onSubmit) {
+  document.getElementById('promptIcon').innerHTML = icon('message-square', 24);
   document.getElementById('promptTitle').textContent = title;
   const inp = document.getElementById('promptInput');
   inp.placeholder = placeholder;
-  inp.value = '';
+  inp.value = value;
   _promptCb = onSubmit;
   document.getElementById('promptModal').classList.add('open');
   setTimeout(() => inp.focus(), 80);
@@ -6002,11 +6126,13 @@ function showPrompt({ icon='💬', title='Enter Reason', placeholder='' }, onSub
 function _promptAccept() {
   const val = document.getElementById('promptInput').value.trim();
   document.getElementById('promptModal').classList.remove('open');
-  if (_promptCb) { _promptCb(val); _promptCb = null; }
+  _promptCancelCb = null;
+  if (_promptCb) { const cb = _promptCb; _promptCb = null; cb(val); }
 }
 function _promptReject() {
   document.getElementById('promptModal').classList.remove('open');
   _promptCb = null;
+  if (_promptCancelCb) { const cb = _promptCancelCb; _promptCancelCb = null; cb(); }
 }
 
 async function deleteTask(id, type) {
@@ -7147,7 +7273,7 @@ async function loadSfmsCashApprovals() {
   return rows;
 }
 async function handleSfmsCashApproval(id, action) {
-  const note = action === 'rejected' ? (prompt('Reject ka reason (optional):') ?? null) : '';
+  const note = action === 'rejected' ? (await uiPrompt('Reject ka reason (optional):') ?? null) : '';
   if (note === null) return;
   const r = await api(`/api/service-fms/cash-approvals/${id}`, 'PUT', { action, note });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -7343,7 +7469,7 @@ async function loadTourList(first) {
   const f = document.getElementById('tourFrom'), t = document.getElementById('tourTo');
   if (first || !f.value || !t.value) { const [a, b] = plMonthRange('month'); if (!f.value) setDmyDate('tourFrom', a); if (!t.value) setDmyDate('tourTo', b); }
   const out = document.getElementById('tourResults');
-  out.innerHTML = '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div>';
+  out.innerHTML = '<div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Loading…</div>';
   const emp = _plAccess.viewer ? document.getElementById('tourEmpFilter').value : '';
   const r = await api(`/api/tour-expenses?start=${f.value}&end=${t.value}${emp ? '&userId=' + emp : ''}`);
   if (r.error) { out.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
@@ -7384,7 +7510,7 @@ function renderTourList() {
     </tr>`).join('')}</tbody></table></div>`;
 }
 async function decideTour(id, status) {
-  const remark = status === 'rejected' ? prompt('Reject kyun? (salesman ko dikhega)') : '';
+  const remark = status === 'rejected' ? await uiPrompt('Reject kyun? (salesman ko dikhega)') : '';
   if (status === 'rejected' && remark === null) return;
   const r = await api(`/api/tour-expenses/${id}/decision`, 'PUT', { status, remark: remark || '' });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -7624,7 +7750,7 @@ const EMP_LABEL = 'font-size:11px;font-weight:700;color:var(--gray-500);text-tra
 
 async function loadEmployeesPage() {
   const list = document.getElementById('empList');
-  if (!empData) list.innerHTML = '<div class="empty">Loading…</div>';
+  if (!empData) list.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api('/api/employees');
   if (r.error) { list.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   empData = r;
@@ -7923,13 +8049,13 @@ async function openEmployee(id, tab) {
         <button class="modal-close-x modal-close" onclick="closeModal('empModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div id="empTabs" style="margin-bottom:12px;overflow-x:auto;flex-shrink:0"></div>
-      <div id="empBody" style="overflow-y:auto;flex:1"><div class="empty">Loading…</div></div>
+      <div id="empBody" style="overflow-y:auto;flex:1"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
     </div>`;
     document.body.appendChild(m);
   }
   m.classList.add('open');
   if (tab) empTab = tab;
-  if (!empCur || empCur.user.id !== id) { empCur = null; document.getElementById('empBody').innerHTML = '<div class="empty">Loading…</div>'; }
+  if (!empCur || empCur.user.id !== id) { empCur = null; document.getElementById('empBody').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>'; }
   const r = await api(`/api/employees/${id}${empCur && empCur.user.id === id ? `?month=${empCur.month}` : ''}`);
   if (r.error) { document.getElementById('empBody').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   empCur = r;
@@ -8328,7 +8454,7 @@ async function loadAttendanceHistory() {
   const employee = isAdmin ? (document.getElementById('attnEmpFilter').value || 'all') : 'all';
   const wrap = document.getElementById('attnHistoryResults');
   const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
-  wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
+  wrap.innerHTML = `<div class="empty ui-skel" aria-busy="true" style="${emptyStyle}">Loading…</div>`;
   const rows = await api(`/api/attendance/history?from=${from}&to=${to}&employee=${employee}`);
   if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
   if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No attendance records in this range.</div>`; return; }
@@ -8425,7 +8551,7 @@ async function loadLeaveList() {
   const status = isAdmin ? (document.getElementById('attnLeaveStatusFilter').value || 'all') : 'all';
   const wrap = document.getElementById('attnLeaveResults');
   const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
-  wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
+  wrap.innerHTML = `<div class="empty ui-skel" aria-busy="true" style="${emptyStyle}">Loading…</div>`;
   const rows = await api(`/api/leave?employee=${employee}&status=${status}`);
   if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
   if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No leave requests.</div>`; return; }
@@ -8541,7 +8667,7 @@ function renderKmSummary(rows) {
     </table></div>` : ''}`;
 }
 async function editKmRate() {
-  const v = prompt('Petrol rate per km (₹) — sab salesman pe lagega:', kmRateInfo.rate);
+  const v = await uiPrompt('Petrol rate per km (₹) — sab salesman pe lagega:', kmRateInfo.rate);
   if (v === null) return;
   const r = await api('/api/km/rate', 'PUT', { rate: v });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -8626,7 +8752,12 @@ async function kmPaySave(userId, wk, btn) {
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('kmPayModal');
-  showToast(`✅ Paid — ₹${Math.round(r.amount).toLocaleString('en-IN')}`); loadKmHistory();
+  showToast(`Paid — ₹${Math.round(r.amount).toLocaleString('en-IN')}`, 'success', { undo: async () => {
+    const u = await api(`/api/km/payments/${userId}/${wk}`, 'DELETE');
+    if (u.error) throw new Error(u.error);
+    showToast('Paid hata diya', 'info'); loadKmHistory();
+  } });
+  loadKmHistory();
 }
 // Monday weekly entry (Ajay sir, 2026-10-24): last week's KM + money for every
 // salesman on one screen; admin fills / corrects and saves all at once.
@@ -8634,7 +8765,7 @@ const kmLastMonday = () => { const d = new Date(); d.setDate(d.getDate() - ((d.g
 async function openKmMondayEntry(wk) {
   wk = wk || kmLastMonday();
   const end = new Date(wk + 'T00:00:00'); end.setDate(end.getDate() + 6);
-  vrlModal('kmMondayModal', `${scotModalHead('kmMondayModal', '🗓 Monday weekly KM entry')}<div class="empty">Loading…</div>`, 760);
+  vrlModal('kmMondayModal', `${scotModalHead('kmMondayModal', '🗓 Monday weekly KM entry')}<div class="empty ui-skel" aria-busy="true">Loading…</div>`, 760);
   const [rows, pays, roster] = await Promise.all([api(`/api/km/history?from=${wk}&to=${localIsoDate(end)}&employee=all`), api(`/api/km/payments?from=${wk}&to=${wk}`), api('/api/users/roster')]);
   const auto = {};
   (Array.isArray(rows) ? rows : []).forEach(r => { const x = auto[r.user_id] = auto[r.user_id] || { name: r.name, km: 0 }; if (r.day_km != null) x.km += Number(r.day_km); });
@@ -8720,7 +8851,7 @@ async function loadKmHistory() {
   const wrap = document.getElementById('attnKmResults');
   const weeklyWrap = document.getElementById('attnKmWeekly');
   const emptyStyle = 'background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);';
-  wrap.innerHTML = `<div class="empty" style="${emptyStyle}">Loading…</div>`;
+  wrap.innerHTML = `<div class="empty ui-skel" aria-busy="true" style="${emptyStyle}">Loading…</div>`;
   weeklyWrap.innerHTML = '';
   const [rows, rate, pays] = await Promise.all([api(`/api/km/history?from=${from}&to=${to}&employee=${employee}`), api('/api/km/rate'), api(`/api/km/payments?from=${from}&to=${to}`)]);
   _kmPay = { canPay: !!(pays && pays.canPay), byKey: Object.fromEntries(((pays && pays.payments) || []).map(p => [`${p.userId}|${p.weekStart}`, p])) };
@@ -9031,6 +9162,8 @@ document.addEventListener('change', e => {
 // ESC key se koi bhi open modal band ho jaye
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
+    if (document.getElementById('confirmModal').classList.contains('open')) return _confirmReject();
+    if (document.getElementById('promptModal').classList.contains('open')) return _promptReject();
     document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
   }
 });
@@ -9044,7 +9177,7 @@ function logout() {
 }
 
 async function signOutAllDevices() {
-  if (!confirm('Is account se har phone / computer par logout ho jayega (yahan bhi). Aage badhein?')) return;
+  if (!await uiConfirm('Is account se har phone / computer par logout ho jayega (yahan bhi). Aage badhein?')) return;
   try {
     const t = localStorage.getItem('authToken');
     const r = await fetch('/api/me/signout-all', { method: 'POST', credentials: 'include', headers: t ? { Authorization: 'Bearer ' + t } : {} });
@@ -9054,13 +9187,36 @@ async function signOutAllDevices() {
   window.location.replace('/');
 }
 
-function showToast(msg,type='success') {
-  const t=document.createElement('div');
-  const bg=type==='error'?'var(--color-danger)':'var(--gray-800)';
-  t.style.cssText=`position:fixed;bottom:24px;right:24px;background:${bg};color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.2);animation:fadeIn .3s ease`;
-  t.textContent=msg;
-  document.body.appendChild(t);
-  setTimeout(()=>t.remove(),3000);
+// ── Lucide icons (Phase A): inline SVG from lucide-static 0.460.0 (ISC), no CDN.
+// icon('trash-2', 18) → '<svg …>'. Add a name to LUCIDE when a new one is needed.
+const LUCIDE = {"trash-2":"<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/><line x1=\"10\" x2=\"10\" y1=\"11\" y2=\"17\"/><line x1=\"14\" x2=\"14\" y1=\"11\" y2=\"17\"/>","triangle-alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>","circle-help":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3\"/><path d=\"M12 17h.01\"/>","message-square":"<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>","circle-check":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m9 12 2 2 4-4\"/>","circle-x":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m15 9-6 6\"/><path d=\"m9 9 6 6\"/>","info":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 16v-4\"/><path d=\"M12 8h.01\"/>","undo-2":"<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","loader-circle":"<path d=\"M21 12a9 9 0 1 1-6.219-8.56\"/>","check":"<path d=\"M20 6 9 17l-5-5\"/>","search":"<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>","refresh-cw":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>","plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>","download":"<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>","upload":"<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>","inbox":"<polyline points=\"22 12 16 12 14 15 10 15 8 12 2 12\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/>","house":"<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>","list-checks":"<path d=\"m3 17 2 2 4-4\"/><path d=\"m3 7 2 2 4-4\"/><path d=\"M13 6h8\"/><path d=\"M13 12h8\"/><path d=\"M13 18h8\"/>","square-check":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"m9 12 2 2 4-4\"/>","users":"<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>","shopping-cart":"<circle cx=\"8\" cy=\"21\" r=\"1\"/><circle cx=\"19\" cy=\"21\" r=\"1\"/><path d=\"M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12\"/>","wrench":"<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>","package":"<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>","file-text":"<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>","chart-column":"<path d=\"M3 3v16a2 2 0 0 0 2 2h16\"/><path d=\"M18 17V9\"/><path d=\"M13 17V5\"/><path d=\"M8 17v-3\"/>","settings":"<path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","wallet":"<path d=\"M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1\"/><path d=\"M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4\"/>","phone":"<path d=\"M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z\"/>","calendar":"<path d=\"M8 2v4\"/><path d=\"M16 2v4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\"/><path d=\"M3 10h18\"/>","clock":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/>","bell":"<path d=\"M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9\"/><path d=\"M10.3 21a1.94 1.94 0 0 0 3.4 0\"/>","chevron-down":"<path d=\"m6 9 6 6 6-6\"/>","chevron-right":"<path d=\"m9 18 6-6-6-6\"/>","log-out":"<path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4\"/><polyline points=\"16 17 21 12 16 7\"/><line x1=\"21\" x2=\"9\" y1=\"12\" y2=\"12\"/>","user":"<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\"/><circle cx=\"12\" cy=\"7\" r=\"4\"/>","store":"<path d=\"m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7\"/><path d=\"M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8\"/><path d=\"M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4\"/><path d=\"M2 7h20\"/><path d=\"M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7\"/>","truck":"<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>","receipt":"<path d=\"M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z\"/><path d=\"M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8\"/><path d=\"M12 17.5v-11\"/>","indian-rupee":"<path d=\"M6 3h12\"/><path d=\"M6 8h12\"/><path d=\"m6 13 8.5 8\"/><path d=\"M6 13h3\"/><path d=\"M9 13c6.667 0 6.667-10 0-10\"/>","filter":"<polygon points=\"22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3\"/>","pencil":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>","copy":"<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>","external-link":"<path d=\"M15 3h6v6\"/><path d=\"M10 14 21 3\"/><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/>","map-pin":"<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\"/><circle cx=\"12\" cy=\"10\" r=\"3\"/>","camera":"<path d=\"M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z\"/><circle cx=\"12\" cy=\"13\" r=\"3\"/>","paperclip":"<path d=\"m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48\"/>","send":"<path d=\"M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z\"/><path d=\"m21.854 2.147-10.94 10.939\"/>","eye":"<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","command":"<path d=\"M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3\"/>","menu":"<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>","arrow-up-right":"<path d=\"M7 7h10v10\"/><path d=\"M7 17 17 7\"/>","arrow-down-right":"<path d=\"m7 7 10 10\"/><path d=\"M17 7v10H7\"/>"};
+function icon(name, size = 18, cls = '') {
+  const body = LUCIDE[name];
+  if (!body) return '';
+  return `<svg class="lucide lucide-${name} ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
+
+// ── Toasts (Phase A): stacked, icon + progress bar (pauses on hover), close,
+// optional Undo. showToast(msg, 'success'|'error'|'info', { undo, undoLabel, duration }).
+// A leading emoji in the message is dropped — the toast has its own icon now.
+function showToast(msg, type = 'success', opts = {}) {
+  let box = document.getElementById('uiToasts');
+  if (!box) { box = document.createElement('div'); box.id = 'uiToasts'; box.className = 'ui-toasts'; box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); document.body.appendChild(box); }
+  const kind = type === 'error' ? 'err' : type === 'info' ? 'info' : 'ok';
+  const text = String(msg == null ? '' : msg).replace(/^\s*(?:[\p{Extended_Pictographic}\uFE0F\u200D]+\s*)+/u, '');
+  const dur = opts.duration || (opts.undo ? 6000 : type === 'error' ? 5000 : 3500);
+  const t = document.createElement('div');
+  t.className = `ui-toast ${kind}`;
+  t.style.setProperty('--ui-t-dur', dur + 'ms');
+  t.innerHTML = `<span class="ui-t-icon">${icon(kind === 'err' ? 'circle-x' : kind === 'info' ? 'info' : 'circle-check', 18)}</span><div class="ui-t-msg"></div>${opts.undo ? `<button type="button" class="ui-t-undo">${icon('undo-2', 14)}${esc(opts.undoLabel || 'Undo')}</button>` : ''}<button type="button" class="ui-t-x" aria-label="Band karo">${icon('x', 16)}</button><span class="ui-t-bar"></span>`;
+  t.querySelector('.ui-t-msg').textContent = text;
+  const close = () => { if (t.classList.contains('out')) return; t.classList.add('out'); setTimeout(() => t.remove(), 220); };
+  t.querySelector('.ui-t-x').onclick = close;
+  t.querySelector('.ui-t-bar').addEventListener('animationend', close);
+  if (opts.undo) t.querySelector('.ui-t-undo').onclick = async () => { close(); try { await opts.undo(); } catch (e) { showToast(e.message || 'Undo nahi hua', 'error'); } };
+  box.appendChild(t);
+  while (box.children.length > 4) box.firstChild.remove();
+  return close;
 }
 
 // ══════════════════════════════════════════════════════
@@ -9341,7 +9497,7 @@ function misLastWeekMonday() {
 async function generateWeeklyMIS() {
   const out = document.getElementById('misResults');
   const week = document.getElementById('misStart').value || misLastWeekMonday();
-  out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
+  out.innerHTML = `<div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
   const d = await api(`/api/mis/weekly?week=${week}`);
   if (!d || d.error) { out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--color-danger-border);color:var(--color-danger)">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
   misWeeklyData = d;
@@ -9808,7 +9964,7 @@ async function generateMIS() {
   // Init dept filter visibility
   initMISDeptFilter();
 
-  document.getElementById('misResults').innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
+  document.getElementById('misResults').innerHTML = `<div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
 
   if (misType === 'fms') {
     const data = await api(`/api/mis/fms?start=${start}&end=${end}`);
@@ -9820,7 +9976,7 @@ async function generateMIS() {
     misFMSData = data;
     renderFMSMIS(data);
   } else if (misType === 'all') {
-    document.getElementById('misResults').innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
+    document.getElementById('misResults').innerHTML = `<div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">Loading…</div>`;
     try {
       // ── Step 1: User-wise table pehle render karo ──
       const data = await api(`/api/mis/all?start=${start}&end=${end}`);
@@ -10701,7 +10857,7 @@ async function ensureSfmsMasterLists() {
 // ── Admin: delete a complaint (client, 2026-10-13) — hidden everywhere in
 // the app (the sheet row stays), restorable from 🗑 Deleted. ──
 async function sfmsDeleteComplaint(row, no) {
-  const reason = (prompt(`${no} delete karein? Ye har list / report se hat jaayegi (🗑 Deleted se wapas la sakte hain).\n\nReason:`) || '').trim();
+  const reason = (await uiPrompt(`${no} delete karein? Ye har list / report se hat jaayegi (🗑 Deleted se wapas la sakte hain).\n\nReason:`) || '').trim();
   if (!reason) return;
   const res = await api(`/api/service-fms/${row}`, 'DELETE', { reason, expectComplainNo: no });
   if (res.error) { showToast(res.error, 'error'); return; }
@@ -10724,7 +10880,7 @@ async function openSfmsDeleted() {
   }
   m.classList.add('open');
   const body = document.getElementById('sfmsDeletedBody');
-  body.innerHTML = '<div class="empty">Loading…</div>';
+  body.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const list = await api('/api/service-fms/deleted');
   if (!Array.isArray(list)) { body.innerHTML = `<div class="empty">⚠️ ${esc(list.error || 'Failed')}</div>`; return; }
   body.innerHTML = list.length ? list.map(d => `<div style="display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-100)">
@@ -10752,7 +10908,7 @@ async function openSfmsZonesModal() {
     m.innerHTML = `<div class="modal" style="max-width:640px;max-height:88dvh;display:flex;flex-direction:column">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">🗺 Zones & Areas</h3>
         <button class="modal-close-x modal-close" onclick="closeModal('sfmsZonesModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
-      <div id="sfmsZonesBody" style="overflow-y:auto;flex:1"><div class="empty">Loading…</div></div></div>`;
+      <div id="sfmsZonesBody" style="overflow-y:auto;flex:1"><div class="empty ui-skel" aria-busy="true">Loading…</div></div></div>`;
     document.body.appendChild(m);
   }
   m.classList.add('open');
@@ -10995,7 +11151,7 @@ function sfmsMarkCompletedBtn() {
 
 async function loadServiceFmsList() {
   const wrap = document.getElementById('sfmsListWrap');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   if (!_sfmsStepDoersMerged) await mergeSfmsStepDoersIntoDefs();
   const [data] = await Promise.all([api('/api/service-fms'), ensureSfmsMasterLists(), ensureSfmsAccess(true)]);
   renderSfmsTabs();
@@ -11337,7 +11493,7 @@ async function sfmsBulkSubmit(n) {
     else prepared.push({ r, c, body });
   });
   if (problems.length) { showToast(problems.slice(0, 3).join(' · ') + (problems.length > 3 ? ` (+${problems.length - 3} more)` : ''), 'error'); return; }
-  if (!confirm(`${prepared.length} complaint${prepared.length === 1 ? '' : 's'} ek saath submit karein — "${stepDef.label}"?`)) return;
+  if (!await uiConfirm(`${prepared.length} complaint${prepared.length === 1 ? '' : 's'} ek saath submit karein — "${stepDef.label}"?`)) return;
   const btn = document.getElementById('sfmsBulkSubmitBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
   let ok = 0;
@@ -11518,7 +11674,7 @@ async function sendMechanicListWhatsApp(mech, btn) {
 
   let mobile = sfmsMechanicPhones[mech];
   if (!mobile) {
-    mobile = (prompt(`Enter ${mech}'s WhatsApp number (once, will be saved):`) || '').trim();
+    mobile = (await uiPrompt(`Enter ${mech}'s WhatsApp number (once, will be saved):`) || '').trim();
     if (!mobile) return;
     const saveRes = await api('/api/service-fms/mechanics/mobile', 'POST', { name: mech, mobile });
     if (saveRes.error) { showToast(saveRes.error, 'error'); return; }
@@ -12630,7 +12786,7 @@ async function openComplaintDetail(row) {
   const c = sfmsData.find(x => x.row === row);
   if (!c) { showToast('Complaint not found — please refresh', 'error'); return; }
   document.getElementById('cdTitle').textContent = `${c.complainNo} — ${c.productName}`;
-  document.getElementById('cdBody').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('cdBody').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   document.getElementById('complaintDetailModal').classList.add('open');
   // Also reached from the Dashboard, before the Service FMS page ever loaded.
   await Promise.all([ensureSfmsMasterLists(), ensureSfmsAccess(), _sfmsStepDoersMerged ? null : mergeSfmsStepDoersIntoDefs()]);
@@ -13009,7 +13165,7 @@ function sfmsRemoveSpareOutRow(row, id, prefix = 'sfmsSpareOut') {
   if (el) el.remove();
 }
 async function sfmsAddNewSpareItem(row) {
-  const name = (prompt('Naye spare item ka naam (spare master mein add hoga):') || '').trim();
+  const name = (await uiPrompt('Naye spare item ka naam (spare master mein add hoga):') || '').trim();
   if (!name) return;
   let finalName = sfmsItemsList.find(n => n.toLowerCase() === name.toLowerCase());
   if (!finalName) {
@@ -13297,7 +13453,7 @@ async function sfmsAfterRowChange(row, close) {
 async function sfmsBackToAssign(row, btn) {
   const c = sfmsData.find(x => x.row === row);
   if (!c) return;
-  const reason = (prompt(`${c.complainNo} — wapas Assign par kyun? (mechanic ne kyun nahi kiya)`) || '').trim();
+  const reason = (await uiPrompt(`${c.complainNo} — wapas Assign par kyun? (mechanic ne kyun nahi kiya)`) || '').trim();
   if (!reason) return;
   const restore = btnLoading(btn, 'Saving…');
   const r = await api(`/api/service-fms/${row}/back-to-assign`, 'PUT', { reason, expectComplainNo: c.complainNo });
@@ -13354,7 +13510,7 @@ async function sfmsTransferMechanic(row, btn) {
   const sel = sfmsById(`sfmsTransferSel_${row}`);
   const mechanic = sel ? sel.value : '';
   if (!c || !mechanic) { showToast('Mechanic select karo', 'error'); return; }
-  if (!confirm(`${c.complainNo} — ${sfmsStep(c, 'assign').mechanic || '—'} se ${mechanic} ko transfer karein?`)) return;
+  if (!await uiConfirm(`${c.complainNo} — ${sfmsStep(c, 'assign').mechanic || '—'} se ${mechanic} ko transfer karein?`)) return;
   const restore = btnLoading(btn, 'Transferring…');
   const res = await api(`/api/service-fms/${row}/mechanic`, 'PUT', { mechanic, expectComplainNo: c.complainNo });
   restore();
@@ -13443,7 +13599,7 @@ async function sfmsToggleUrgent(row, btn) {
   renderServiceFmsList();
 }
 async function sfmsResetSpareBalance(btn) {
-  if (!confirm('Sabhi mechanics ka spare balance ZERO karein? Ab tak takeout hue spares balance mein nahi gine jayenge (sheet mein kuch nahi badlega).')) return;
+  if (!await uiConfirm('Sabhi mechanics ka spare balance ZERO karein? Ab tak takeout hue spares balance mein nahi gine jayenge (sheet mein kuch nahi badlega).')) return;
   const restore = btnLoading(btn, 'Resetting…');
   const res = await api('/api/service-fms/spare-balance-reset', 'PUT', {});
   restore();
@@ -13700,7 +13856,7 @@ const O2D_PAGE_SIZE = 50;
 
 async function loadO2dFmsList() {
   const wrap = document.getElementById('o2dListWrap');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   if (!_o2dStepDoersMerged) await mergeO2dStepDoersIntoDefs();
   const data = await api('/api/o2d-fms');
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
@@ -13758,7 +13914,7 @@ function o2dDeliveryRows() {
 async function renderO2dDeliveryView() {
   const wrap = document.getElementById('o2dListWrap');
   if (!o2dDeliveries) {
-    wrap.innerHTML = '<div class="empty">Loading…</div>';
+    wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
     const r = await api('/api/o2d-fms/deliveries');
     if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
     o2dDeliveries = r.items || [];
@@ -14167,7 +14323,7 @@ function o2dReportsShowLostSalesItems(reason) {
 
 async function renderO2dReportsView() {
   const wrap = document.getElementById('o2dListWrap');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   await loadO2dDealers(false);
 
   if (!o2dReportsFrom) {
@@ -15188,7 +15344,7 @@ async function sendDealerLedgerWhatsapp() {
   if (!_dlCurrent.data) { showToast('Pehle Statement load hone do', 'error'); return; }
   if (!_dlCurrent.phone) {
     // Ask once and save it to the dealer's profile, so future sends are one click.
-    const phone = (prompt(`${_dlCurrent.name} ka WhatsApp number daalo (save ho jayega):`) || '').trim();
+    const phone = (await uiPrompt(`${_dlCurrent.name} ka WhatsApp number daalo (save ho jayega):`) || '').trim();
     if (!phone) return;
     // Saving needs dealer-edit rights — without them, still send this once.
     await api(`/api/o2d-fms/dealers/${encodeURIComponent(_dlCurrent.name)}`, 'PUT', { phone });
@@ -15238,7 +15394,7 @@ async function loadPriceCataloguePage() {
 let catPhotos = null, catPhotosQ = '';
 async function loadCatPhotos(refresh) {
   const wrap = document.getElementById('catPhotosWrap');
-  if (!catPhotos || refresh) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (!catPhotos || refresh) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api('/api/catalogue-photos' + (refresh ? '?refresh=1' : ''));
   catPhotos = r && !r.error ? r : { error: (r && r.error) || 'Load failed', canEdit: ME.role === 'admin', url: '' };
   renderCatPhotos();
@@ -15275,7 +15431,7 @@ function renderCatPhotosBody() {
     : '<div class="empty">Koi product nahi mila</div>';
 }
 async function setCatPhotosSheet() {
-  const url = prompt('Product photos wali Google Sheet ka link (sheet service account ke saath share honi chahiye):', (catPhotos && catPhotos.url) || '');
+  const url = await uiPrompt('Product photos wali Google Sheet ka link (sheet service account ke saath share honi chahiye):', (catPhotos && catPhotos.url) || '');
   if (url === null) return;
   showToast('Sheet check kar rahe…');
   const r = await api('/api/catalogue-photos', 'PUT', { url: url.trim() });
@@ -15413,7 +15569,7 @@ async function submitPriceListItem() {
 }
 
 async function deletePriceListItem(id, name) {
-  if (!confirm(`Remove "${name}" from the price list?`)) return;
+  if (!await uiConfirm(`Remove "${name}" from the price list?`)) return;
   const res = await api(`/api/o2d-fms/price-list/${id}`, 'DELETE');
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast('Removed');
@@ -15585,7 +15741,7 @@ async function openStockItemHistory(code) {
   }
   m.classList.add('open');
   const body = document.getElementById('stockHistBody');
-  body.innerHTML = '<div class="empty">Loading…</div>';
+  body.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api(`/api/stock/item/${encodeURIComponent(code)}/history`);
   if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   document.getElementById('stockHistTitle').textContent = `${r.item.item_code} · ${r.item.description}`;
@@ -15807,7 +15963,7 @@ async function submitStockRegEntry(dir) {
 }
 
 async function cancelStockTxn(id) {
-  if (!confirm('Cancel this entry? Its effect on current stock will be reversed.')) return;
+  if (!await uiConfirm('Cancel this entry? Its effect on current stock will be reversed.')) return;
   const res = await api(`/api/stock/transactions/${id}/cancel`, 'PUT');
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast('Entry cancelled');
@@ -15864,7 +16020,7 @@ async function submitStockItem() {
 }
 
 async function deleteStockItem(id, name) {
-  if (!confirm(`Remove "${name}" from Stock?`)) return;
+  if (!await uiConfirm(`Remove "${name}" from Stock?`)) return;
   const res = await api(`/api/stock/${id}`, 'DELETE');
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast('Removed');
@@ -16035,7 +16191,7 @@ async function onCataloguePdfSelected(event, docType) {
 }
 
 async function deleteCataloguePdf(id, filename) {
-  if (!confirm(`Remove "${filename}"?`)) return;
+  if (!await uiConfirm(`Remove "${filename}"?`)) return;
   const res = await api(`/api/o2d-fms/catalogue-pdfs/${id}`, 'DELETE');
   if (res.error) { showToast(res.error, 'error'); return; }
   showToast('Removed');
@@ -16053,7 +16209,7 @@ const BILLS_BUCKETS = ['<30', '30-45', '45-60', '60-90', '90+', 'Unknown'];
 
 async function renderBillsReceivableView() {
   const wrap = document.getElementById('o2dListWrap');
-  wrap.innerHTML = `<div class="empty">Loading…</div>`;
+  wrap.innerHTML = `<div class="empty ui-skel" aria-busy="true">Loading…</div>`;
   const r = await api('/api/o2d-fms/bills-receivable');
   if (r && r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; return; }
   o2dBillsReceivable = (r && r.bills) || [];
@@ -16508,7 +16664,7 @@ async function submitNewO2dOrder() {
   }
   // Qty and rate typed into each other's box (Ord-0111: qty 1850 @ ₹2) wrecked Gross Profit — ask first.
   const swapped = products.filter(p => Number(p.rate) > 0 && Number(p.qty) > 100 && Number(p.rate) < 20);
-  if (swapped.length && !confirm(`${swapped.map(p => `${p.productName}: qty ${p.qty} @ ₹${p.rate}`).join('\n')}\n\nQty aur Rate ulte to nahi bhare? Sahi hai to OK dabayein.`)) return;
+  if (swapped.length && !await uiConfirm(`${swapped.map(p => `${p.productName}: qty ${p.qty} @ ₹${p.rate}`).join('\n')}\n\nQty aur Rate ulte to nahi bhare? Sahi hai to OK dabayein.`)) return;
 
   const body = {
     counterType: document.getElementById('noCounterType').value,
@@ -17185,7 +17341,7 @@ async function o2dSetCarry(orderNo, on) {
   const o = o2dData.find(x => x.orderNo === orderNo) || {};
   let salesman = '';
   if (on) {
-    salesman = (prompt('Kaunsa salesman goods le jaayega?', o.orderBy || '') || '').trim();
+    salesman = (await uiPrompt('Kaunsa salesman goods le jaayega?', o.orderBy || '') || '').trim();
     if (!salesman) return;
   }
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/carry`, 'POST', { salesman });
@@ -17194,7 +17350,7 @@ async function o2dSetCarry(orderNo, on) {
 }
 // A product added twice (or by mistake) can be removed until the bill is made.
 async function o2dRemoveItem(orderNo, row, name) {
-  if (!confirm(`"${name}" ko is order se hatayein?`)) return;
+  if (!await uiConfirm(`"${name}" ko is order se hatayein?`)) return;
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/remove-item`, 'POST', { row });
   if (res.error) { showToast(res.error, 'error'); return; }
   o2dReloadAfterControl(`🗑 ${name} hata diya`);
@@ -17282,14 +17438,14 @@ function renderDashO2dHold() {
 const o2dHoldBadge = o => o.onHold ? ` <span class="status-badge" style="background:${o.holdType === 'stock' ? 'var(--color-danger-bg);color:var(--color-danger-text)' : 'var(--color-warning-bg);color:var(--color-warning-text)'}" title="${esc(o.holdReason || '')}">⏸ ${o.holdType === 'stock' ? 'Stock nahi' : 'Hold'}</span>` : '';
 const o2dOrderValue = o => (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0);
 async function o2dCancelOrder(orderNo) {
-  const reason = (prompt(`Cancel ${orderNo}? It stops at the current step.\n\nReason:`) || '').trim();
+  const reason = (await uiPrompt(`Cancel ${orderNo}? It stops at the current step.\n\nReason:`) || '').trim();
   if (!reason) return;
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/cancel`, 'POST', { reason });
   if (res.error) { showToast(res.error, 'error'); return; }
   o2dReloadAfterControl('✖ Order cancelled');
 }
 async function o2dRestartOrder(orderNo) {
-  if (!confirm(`Restart ${orderNo} from Step 1?\n\nEvery step's done status, bill details, photos and dispatch videos on this order will be cleared.`)) return;
+  if (!await uiConfirm(`Restart ${orderNo} from Step 1?\n\nEvery step's done status, bill details, photos and dispatch videos on this order will be cleared.`)) return;
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/restart`, 'POST', {});
   if (res.error) { showToast(res.error, 'error'); return; }
   o2dReloadAfterControl('🔁 Order restarted from Step 1');
@@ -17372,7 +17528,7 @@ function o2dVideosHtml(o, canAdd) {
     </div>`;
 }
 async function deleteO2dVideo(id, orderNo) {
-  if (!confirm('Remove this video?')) return;
+  if (!await uiConfirm('Remove this video?')) return;
   const res = await api(`/api/o2d-fms/media/${id}`, 'DELETE');
   if (res.error) { showToast(res.error, 'error'); return; }
   const o = o2dData.find(x => x.orderNo === orderNo);
@@ -17609,7 +17765,7 @@ const PFMS_PAGE_SIZE = 50;
 
 async function loadPurchaseFmsList() {
   const wrap = document.getElementById('pfmsListWrap');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   if (!_pfmsStepDoersMerged) await mergePurchaseStepDoersIntoDefs();
   const [data, vu, ind, fu] = await Promise.all([api('/api/purchase-fms'), api('/api/purchase-fms/vendor-updates'), api('/api/purchase-fms/indents'), api('/api/purchase-fms/followups')]);
   pfmsFollowups = fu && !fu.error ? fu : {};
@@ -17929,7 +18085,7 @@ async function openNewIndentForm() {
         <h3 style="margin:0">📝 New Indent</h3>
         <button class="modal-close-x modal-close" onclick="closeModal('newIndentModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
-      <div id="newIndentBody" style="overflow-y:auto;flex:1"><div class="empty">Loading…</div></div>
+      <div id="newIndentBody" style="overflow-y:auto;flex:1"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
     </div>`;
     document.body.appendChild(m);
   }
@@ -18611,7 +18767,7 @@ async function advancePurchaseStep(poNumber, step) {
   if (btn) { btn.textContent = '⏳ Saving...'; btn.disabled = true; }
 
   let res = await api(`/api/purchase-fms/po/${encodeURIComponent(poNumber)}/step/${step}`, 'PUT', body);
-  if (res.needsConfirm && confirm(`${res.error}.\n\nKya sach mein ordered se zyada maal aaya hai? OK = haan, save karo`)) {
+  if (res.needsConfirm && await uiConfirm(`${res.error}.\n\nKya sach mein ordered se zyada maal aaya hai? OK = haan, save karo`)) {
     res = await api(`/api/purchase-fms/po/${encodeURIComponent(poNumber)}/step/${step}`, 'PUT', { ...body, confirmOver: true });
   }
 
@@ -18668,7 +18824,7 @@ async function openVendorLoginsModal() {
         <button class="modal-close-x modal-close" onclick="closeModal('vendorLoginsModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:12px">Each vendor logs in at the normal app login page with the ID + password set here and sees only their own pending material, where they can update the status. Share the app link with them: <b>${esc(location.origin)}</b></div>
-      <div id="vendorLoginsBody"><div class="empty">Loading…</div></div>
+      <div id="vendorLoginsBody"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
     </div>`;
     document.body.appendChild(m);
   }
@@ -18853,7 +19009,7 @@ let clmData = [];
 const CLM_FREQ = { daily: 'Daily', weekly: 'Weekly', fortnightly: 'Fortnightly', monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly', '': 'One time' };
 async function loadChecklistMaster() {
   const wrap = document.getElementById('clmWrap');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api('/api/checklist-master');
   if (!Array.isArray(r)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error || 'Failed')}</div>`; return; }
   clmData = r;
@@ -18922,7 +19078,7 @@ async function saveClmEdit(i, btn) {
 }
 async function stopClm(i) {
   const x = window._clmRows[i];
-  if (!confirm(`"${x.title || x.description}" — ${x.doerName}\n\nAaj se aage ke ${x.upcoming} pending din hata dein? (Ho chuke din rahenge)`)) return;
+  if (!await uiConfirm(`"${x.title || x.description}" — ${x.doerName}\n\nAaj se aage ke ${x.upcoming} pending din hata dein? (Ho chuke din rahenge)`)) return;
   const r = await api('/api/checklist-master/stop', 'POST', { key: clmKey(x) });
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast(`⏹ ${r.deleted} pending din hata diye`);
@@ -18958,7 +19114,7 @@ async function loadLinkPage(key) {
 }
 async function setLinkPage(key) {
   const cur = ((await api(`/api/link-page/${key}`)) || {}).url || '';
-  const url = prompt(`${LINK_PAGE_LABEL[key]} sheet ka link (https://…):`, cur);
+  const url = await uiPrompt(`${LINK_PAGE_LABEL[key]} sheet ka link (https://…):`, cur);
   if (url === null) return;
   const r = await api(`/api/link-page/${key}`, 'PUT', { url: url.trim() });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -18987,7 +19143,7 @@ async function loadOws() {
   const wrap = document.getElementById('owsWrap');
   const mode = document.getElementById('owsWeeks').value;
   if (['lastweek', 'thisweek', 'range'].includes(mode) && !document.getElementById('owsFrom').value) return owsModeChanged();
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const q = /^\d+$/.test(mode) ? `weeks=${mode}` : `from=${document.getElementById('owsFrom').value}&to=${document.getElementById('owsTo').value}`;
   const r = await api(`/api/reports/ows?${q}`);
   if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
@@ -19048,7 +19204,7 @@ function exportOws() {
 // ══════════════════════════════════════════════════════
 let colData = null, colErr = '', colTab = 'calls', ddData = null, ddErr = '', ddFilter = 'open';
 async function loadCollection(refreshDues) {
-  document.getElementById('colWrap').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('colWrap').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const [r, d] = await Promise.all([api('/api/collection-followup').catch(e => ({ error: e.message || 'Load failed' })),
     api('/api/delivery-dues' + (refreshDues ? '?refresh=1' : '')).catch(e => ({ error: e.message || 'Load failed' }))]);
   colData = r && !r.error ? r : null; colErr = r && r.error ? r.error : '';
@@ -19223,7 +19379,7 @@ async function saveColPayment(party, btn) {
   await colReloadKeepParty(party);
 }
 async function deleteColPayment(id, party, btn) {
-  if (!confirm('Ye payment entry hatayein?')) return;
+  if (!await uiConfirm('Ye payment entry hatayein?')) return;
   const restore = btnLoading(btn, '…');
   const r = await api(`/api/collection-followup/payment/${id}`, 'DELETE');
   restore();
@@ -19233,7 +19389,7 @@ async function deleteColPayment(id, party, btn) {
 }
 async function colSetPhone(party) {
   const cur = colPartyOf(party).phone || '';
-  const phone = prompt(`${party} — mobile number (Dealer Master me bhi save hoga):`, cur);
+  const phone = await uiPrompt(`${party} — mobile number (Dealer Master me bhi save hoga):`, cur);
   if (phone === null || !phone.trim()) return;
   const r = await api('/api/collection-followup/phone', 'POST', { party, phone: phone.trim() });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -19270,7 +19426,7 @@ async function saveColCall(key, step, btn) {
   renderCollection();
 }
 async function colSendNow(btn) {
-  if (!confirm('15 din wale bills ke dealers ko abhi WhatsApp reminder bhejein?')) return;
+  if (!await uiConfirm('15 din wale bills ke dealers ko abhi WhatsApp reminder bhejein?')) return;
   const restore = btnLoading(btn, 'Bhej rahe…');
   const r = await api('/api/collection-followup/send-now', 'POST', {});
   restore();
@@ -19349,8 +19505,8 @@ async function saveDdCall(orderNo, btn) {
   refreshDashboardDdLocally();
 }
 async function ddMarkPaid(orderNo, undo, btn) {
-  if (!undo && !confirm(`Order ${orderNo} ka payment aa gaya? Iske reminder band ho jayenge.`)) return;
-  const remark = undo ? '' : (prompt('Remark (optional) — e.g. UTR / cheque no.') || '').trim();
+  if (!undo && !await uiConfirm(`Order ${orderNo} ka payment aa gaya? Iske reminder band ho jayenge.`)) return;
+  const remark = undo ? '' : (await uiPrompt('Remark (optional) — e.g. UTR / cheque no.') || '').trim();
   const restore = btnLoading(btn, '…');
   const r = await api(`/api/delivery-dues/${encodeURIComponent(orderNo)}/paid`, 'POST', { undo: !!undo, remark });
   restore();
@@ -19370,7 +19526,7 @@ async function ddSaveDays(btn) {
   renderDeliveryDues();
 }
 async function ddSendNow(btn) {
-  if (!confirm('Aaj ke delivery due reminders (pehle wale + due date wale) abhi WhatsApp par bhejein?')) return;
+  if (!await uiConfirm('Aaj ke delivery due reminders (pehle wale + due date wale) abhi WhatsApp par bhejein?')) return;
   const restore = btnLoading(btn, 'Bhej rahe…');
   const r = await api('/api/delivery-dues/send-now', 'POST', {});
   restore();
@@ -19559,7 +19715,7 @@ async function saveMh(id, btn) {
   loadMh();
 }
 async function deleteMh(id) {
-  if (!confirm('Ye holiday hata dein?')) return;
+  if (!await uiConfirm('Ye holiday hata dein?')) return;
   const r = await api(`/api/market-holidays/${id}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
   loadMh();
@@ -19585,7 +19741,7 @@ async function waShow(t) {
   clearTimeout(_waPoll);
   const wrap = document.getElementById('waWrap');
   if (t === 'new') wrap.innerHTML = waComposeHtml('wa', {});
-  else { wrap.innerHTML = '<div class="empty">Loading…</div>'; await waLoadCampaigns(); }
+  else { wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>'; await waLoadCampaigns(); }
 }
 // Shared form for a one-off message and a drip-plan row.
 function waComposeHtml(p, d, drip) {
@@ -19665,7 +19821,7 @@ async function waSend(btn) {
   if (!b.message.trim() && !b.image && !b.docIds.length) { showToast('Message, photo ya PDF — kuch to daalein', 'error'); return; }
   const pv = await waPreview();
   if (pv.error || !pv.count) { if (!pv.error) showToast('Is filter me koi dealer nahi', 'error'); return; }
-  if (!confirm(`${pv.count} logon ko WhatsApp bhejna hai?`)) return;
+  if (!await uiConfirm(`${pv.count} logon ko WhatsApp bhejna hai?`)) return;
   const restore = btnLoading(btn, 'Queue me daal rahe…');
   const r = await api('/api/wa/campaign', 'POST', b);
   restore();
@@ -19693,7 +19849,7 @@ async function waLoadCampaigns() {
   if (waCampaigns.some(c => ['queued', 'sending'].includes(c.status))) _waPoll = setTimeout(() => { if (document.getElementById('page-dealer-whatsapp').classList.contains('active') && !document.hidden) waLoadCampaigns(); }, 15000);
 }
 async function waAction(id, action) {
-  if (action === 'cancel' && !confirm('Bacha hua bhejna band karein?')) return;
+  if (action === 'cancel' && !await uiConfirm('Bacha hua bhejna band karein?')) return;
   const r = await api(`/api/wa/campaign/${id}/${action}`, 'POST', {});
   if (r.error) { showToast(r.error, 'error'); return; }
   waLoadCampaigns();
@@ -19707,7 +19863,7 @@ async function waShowFailed(id) {
 let dripRecent = [];
 async function loadDrip() {
   const wrap = document.getElementById('dripWrap');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   if (!waMeta) {
     const m = await api('/api/wa/meta');
     if (m.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(m.error)}</div>`; return; }
@@ -19792,14 +19948,14 @@ async function waSaveDrip(id, btn) {
   loadDrip();
 }
 async function waRunDrip(id) {
-  if (!confirm('Ye plan abhi bhej dein?')) return;
+  if (!await uiConfirm('Ye plan abhi bhej dein?')) return;
   const r = await api(`/api/wa/drips/${id}/run-now`, 'POST', {});
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast(`📤 ${r.total} logon ko bhejna shuru — neeche progress dikhega`);
   loadDrip();
 }
 async function waDeleteDrip(id) {
-  if (!confirm('Ye plan hata dein?')) return;
+  if (!await uiConfirm('Ye plan hata dein?')) return;
   const r = await api(`/api/wa/drips/${id}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
   loadDrip();
@@ -19812,7 +19968,7 @@ let mecaData = null, mecaView = 'summary';
 async function loadMeca() {
   const f = document.getElementById('mecaFrom'), t = document.getElementById('mecaTo');
   if (!f.value) { const td = scotTodayYmd(); f.value = td.slice(0, 8) + '01'; t.value = td; }
-  document.getElementById('mecaWrap').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('mecaWrap').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api(`/api/meca?from=${f.value}&to=${t.value}`);
   if (r.error) { document.getElementById('mecaWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   mecaData = r;
@@ -19931,7 +20087,7 @@ async function loadMdSummary(fromPreset) {
   const labels = { today: 'Aaj', yday: 'Kal', week: 'Is hafte', lastweek: 'Pichhla hafta', month: 'Is mahine', lastmonth: 'Pichhla mahina' };
   document.getElementById('mdPresets').innerHTML = Object.entries(labels).map(([k, l]) => `<button class="btn btn-sm ${mdPreset === k ? 'btn-primary' : 'btn-outline'}" onclick="mdSetPreset('${k}')">${l}</button>`).join('');
   const wrap = document.getElementById('mdWrap');
-  wrap.innerHTML = '<div class="empty">Loading… (O2D / Service sheet padhne me thoda time lagta hai)</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading… (O2D / Service sheet padhne me thoda time lagta hai)</div>';
   const r = await api(`/api/md-summary?from=${f.value}&to=${t.value}`);
   if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   renderMdSummary(r);
@@ -20184,7 +20340,12 @@ async function scotSaveCall(id, btn) {
   if (!prev || prev.date <= scotDate) scotData.lastCalls[id] = { date: scotDate, note, next: nextDate, by: ME.name || '' };
   scotBuildSchedule();
   renderScot();
-  if (nextDate) showToast(`✅ Saved — agla follow-up ${fmtDateDMY(nextDate)}`);
+  const date = scotDate;
+  showToast(nextDate ? `Call save — agla follow-up ${fmtDateDMY(nextDate)}` : 'Call save ho gayi', 'success', { undo: async () => {
+    const u = await api('/api/scot/call', 'POST', { dealerId: id, date, done: false });
+    if (u.error) throw new Error(u.error);
+    scotCalled.delete(`${id}|${date}`); renderScot();
+  } });
 }
 // Calls done vs orders got, for the selected month (client: "kitno ne order diya, conversion %").
 function scotReportHtml() {
@@ -20218,7 +20379,7 @@ function scotOrdersHtml() {
       <td>${esc(o.items || '—')}</td><td>${esc(o.payment || '—')}</td><td>${esc(o.notes || '—')}</td><td>${esc(o.by)}</td>${scotData.me.isAdmin ? `<td><button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="scotDeleteOrder(${o.id})">✕</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 async function scotDeleteOrder(id) {
-  if (!confirm('Ye order entry hata dein?')) return;
+  if (!await uiConfirm('Ye order entry hata dein?')) return;
   const r = await api(`/api/scot/order/${id}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
   loadScot();
@@ -20426,7 +20587,7 @@ async function saveSmpNew() {
     qty: document.getElementById('smpQty').value, dealerName: document.getElementById('smpDealer').value.trim(), purpose: document.getElementById('smpPurpose').value, remark: document.getElementById('smpRemark').value.trim(),
     photo: document.getElementById('smpPhoto').dataset.compressed || '' };
   let r = await api('/api/samples', 'POST', body);
-  if (r.needsConfirm && confirm(`${r.error}.\n\nStock register galat ho sakta hai (opening / purchase entry baaki). Fir bhi sample dena hai?`)) r = await api('/api/samples', 'POST', { ...body, allowShort: true });
+  if (r.needsConfirm && await uiConfirm(`${r.error}.\n\nStock register galat ho sakta hai (opening / purchase entry baaki). Fir bhi sample dena hai?`)) r = await api('/api/samples', 'POST', { ...body, allowShort: true });
   btn.disabled = false;
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   closeModal('smpNewModal');
@@ -20461,7 +20622,7 @@ async function saveSmpOutcome(id, btn) {
   loadSmp();
 }
 async function cancelSmp(id) {
-  const reason = (prompt('Cancel reason:') || '').trim();
+  const reason = (await uiPrompt('Cancel reason:') || '').trim();
   if (!reason) return;
   const r = await api(`/api/samples/${id}/cancel`, 'POST', { reason });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -20802,7 +20963,7 @@ async function vrlUploadGalleryVideo(id, input) {
   vrlVideoSaved(id, res, seconds);
 }
 async function deleteVrlVideo(id, mediaId) {
-  if (!confirm('Remove this video?')) return;
+  if (!await uiConfirm('Remove this video?')) return;
   const r = await api(`/api/vendor-ledger/media/${mediaId}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
   const c = vrlData.challans.find(x => x.id === id);
@@ -20829,7 +20990,7 @@ async function saveVrlSettle(id, btn) {
   openVrlDetail(id);
 }
 async function cancelVrl(id) {
-  const reason = (prompt('Cancel reason:') || '').trim();
+  const reason = (await uiPrompt('Cancel reason:') || '').trim();
   if (!reason) return;
   const r = await api(`/api/vendor-ledger/${id}/cancel`, 'POST', { reason });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -20892,7 +21053,7 @@ let chqRisk = null; // { parties, threshold, windowDays }
 
 async function loadChequeFmsList() {
   const wrap = document.getElementById('chqListWrap');
-  if (wrap) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (wrap) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   if (!_chqStepDoersMerged) mergeChequeStepDoersIntoDefs();
   const [d, risk] = await Promise.all([api('/api/cheque-fms'), api('/api/cheque-fms/party-risk').catch(() => null)]);
   if (!d || !Array.isArray(d.cheques)) { if (wrap) wrap.innerHTML = `<div class="empty">⚠️ ${esc((d && d.error) || 'Failed to load')}</div>`; return; }
@@ -20926,7 +21087,7 @@ async function loadCashReceipts() {
 }
 async function renderChequeCash() {
   const wrap = document.getElementById('chqListWrap');
-  if (!chqCash) { wrap.innerHTML = '<div class="empty">Loading…</div>'; await loadCashReceipts(); }
+  if (!chqCash) { wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>'; await loadCashReceipts(); }
   if (chqView !== 'cash') return;
   if (chqCash.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(chqCash.error)}</div>`; return; }
   const q = (document.getElementById('chqSearch').value || '').trim().toLowerCase();
@@ -20959,7 +21120,7 @@ async function saveCashReceipt(btn) {
   const party = document.getElementById('crParty').value.trim(), amount = document.getElementById('crAmt').value;
   if (!party) { showToast('Party chunein', 'error'); return; }
   if (!(Number(amount) > 0)) { showToast('Amount daalein', 'error'); return; }
-  if ((chqCash.parties || []).length && !chqCash.parties.some(n => n.toLowerCase() === party.toLowerCase()) && !confirm(`"${party}" Tally ki party list me nahi hai — outstanding se tabhi ghatega jab naam Tally jaisa ho. Phir bhi save karein?`)) return;
+  if ((chqCash.parties || []).length && !chqCash.parties.some(n => n.toLowerCase() === party.toLowerCase()) && !await uiConfirm(`"${party}" Tally ki party list me nahi hai — outstanding se tabhi ghatega jab naam Tally jaisa ho. Phir bhi save karein?`)) return;
   const restore = btnLoading(btn, 'Saving…');
   const r = await api('/api/cheque-fms/cash-receipt', 'POST', { party, amount, paidOn: document.getElementById('crDate').value,
     receiptNo: document.getElementById('crNo').value.trim(), remark: document.getElementById('crRemark').value.trim() });
@@ -20971,7 +21132,7 @@ async function saveCashReceipt(btn) {
   if (chqView === 'cash') renderChequeCash();
 }
 async function deleteCashReceipt(id, btn) {
-  if (!confirm('Ye cash receipt hatayein? Party ka outstanding phir se badh jayega.')) return;
+  if (!await uiConfirm('Ye cash receipt hatayein? Party ka outstanding phir se badh jayega.')) return;
   const restore = btnLoading(btn, '…');
   const r = await api(`/api/cheque-fms/cash-receipt/${id}`, 'DELETE');
   restore();
@@ -21496,7 +21657,7 @@ function renderChequeDetailBody(c) {
   const tasks = (c.tasks || []);
   const actions = tasks.length ? tasks.map(t => chqTaskFormHtml(c, t)).join('')
     : `<div style="text-align:center;color:var(--color-success-text);font-weight:700;padding:14px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:12px">${c.stage === 'cancelled' ? 'Cancelled' : 'Nothing pending — cheque closed'}</div>`;
-  body.innerHTML = info + actions + `<div style="${CHQ_LABEL};margin:6px 0 8px">History</div><div id="chqEvents_${c.id}" style="font-size:12.5px"><div class="empty">Loading…</div></div>`;
+  body.innerHTML = info + actions + `<div style="${CHQ_LABEL};margin:6px 0 8px">History</div><div id="chqEvents_${c.id}" style="font-size:12.5px"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>`;
 }
 
 const CHQ_EVENT_LABEL = { created: '📷 Photo uploaded', imported: '📥 Imported', details: '📝 Details filled', edited: '✏️ Details edited', extended: '↻ Deposit date extended',
@@ -21526,8 +21687,8 @@ function openChequeEdit(id) {
     </div>
     <button class="btn btn-primary" onclick="submitChequeAction(${id},'edit-details',this)">Save changes</button></div>`;
 }
-function cancelCheque(id) {
-  const reason = prompt('Cancel reason (e.g. duplicate photo, wrong entry):');
+async function cancelCheque(id) {
+  const reason = await uiPrompt('Cancel reason (e.g. duplicate photo, wrong entry):');
   if (!reason || !reason.trim()) return;
   submitChequeAction(id, 'cancel', null, { reason: reason.trim() });
 }
@@ -21552,7 +21713,7 @@ async function submitChequeAction(id, kind, btnEl, preset) {
   else if (kind === 'followup') body = { remark: g('followup', 'remark'), noticeSent: g('followup', 'notice'), remindParty: !!g('followup', 'remind'), outcome: g('followup', 'outcome'), nextFollowup: g('followup', 'nf'), redepositDate: g('followup', 'rd') };
   else if (kind === 'ack') body = { remark: g('ack', 'remark') };
 
-  if (kind === 'pass' && !confirm(`${c.code}: cheque PASS mark karein?`)) return;
+  if (kind === 'pass' && !await uiConfirm(`${c.code}: cheque PASS mark karein?`)) return;
   const orig = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }
   const r = await api(`/api/cheque-fms/${id}/action/${action}`, 'PUT', body);
@@ -21704,7 +21865,7 @@ async function leadUserList() {
 
 async function loadLeadFmsList() {
   const wrap = document.getElementById('leadListWrap');
-  if (wrap) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (wrap) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const d = await api('/api/lead-fms');
   if (!d || !Array.isArray(d.leads)) { if (wrap) wrap.innerHTML = `<div class="empty">⚠️ ${esc((d && d.error) || 'Failed to load')}</div>`; return; }
   leadApplyData(d);
@@ -22381,7 +22542,7 @@ function renderLeadDetailBody(l) {
     ? `<details style="margin:-4px 0 12px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--color-primary)">↻ Visit date / salesman badlo</summary><div style="margin-top:8px">${leadScheduleFormHtml(l, 'resched')}</div></details>` : '';
   const actions = tasks.length ? tasks.map(t => leadTaskFormHtml(l, t)).join('') + resched
     : `<div style="text-align:center;color:var(--color-success-text);font-weight:700;padding:14px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:12px">${l.stage === 'cancelled' ? 'Cancelled' : `Lead closed — ${esc(l.result)}`}</div>`;
-  document.getElementById('leadBody').innerHTML = info + actions + `<div style="${CHQ_LABEL};margin:6px 0 8px">History</div><div id="leadEvents_${l.id}" style="font-size:12.5px"><div class="empty">Loading…</div></div>`;
+  document.getElementById('leadBody').innerHTML = info + actions + `<div style="${CHQ_LABEL};margin:6px 0 8px">History</div><div id="leadEvents_${l.id}" style="font-size:12.5px"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>`;
   if (tasks.some(t => t.key === 'schedule' && leadCanDo(t)) || resched) leadFillSalesmen(l);
 }
 function leadScheduleFormHtml(l, key) {
@@ -22471,8 +22632,8 @@ function openLeadEdit(id) {
     ${L('Note')}<input id="${p}_req" value="${esc(l.requirement)}" style="${CHQ_INPUT}"/>
     <button class="btn btn-primary" onclick="submitLeadAction(${id},'edit',this)">Save changes</button></div>`;
 }
-function leadPromptAction(id, action, question) {
-  const reason = prompt(question);
+async function leadPromptAction(id, action, question) {
+  const reason = await uiPrompt(question);
   if (!reason || !reason.trim()) return;
   submitLeadAction(id, action, null, { reason: reason.trim() });
 }
@@ -22536,7 +22697,7 @@ async function submitLeadStepDoers() {
 let _leadSettings = null;
 async function openLeadSettingsModal() {
   const body = document.getElementById('lsBody');
-  body.innerHTML = '<div class="empty">Loading…</div>';
+  body.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   document.getElementById('leadSettingsModal').classList.add('open');
   const r = await api('/api/lead-fms/settings');
   if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
@@ -22842,7 +23003,7 @@ async function openOnboardingList() {
     m.innerHTML = `<div class="modal" style="max-width:860px;width:96vw;max-height:90vh;display:flex;flex-direction:column">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">🏪 Dealer Onboarding forms</h3>
         <button class="modal-close-x modal-close" onclick="closeModal('onbListModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
-      <div id="onbListBody" style="overflow-y:auto;flex:1"><div class="empty">Loading…</div></div></div>`;
+      <div id="onbListBody" style="overflow-y:auto;flex:1"><div class="empty ui-skel" aria-busy="true">Loading…</div></div></div>`;
     document.body.appendChild(m);
   }
   m.classList.add('open');
@@ -23050,7 +23211,7 @@ async function saveMyExpense(id, btn) {
   loadMyExpense();
 }
 async function deleteMyExpense(id) {
-  if (!confirm('Ye kharcha hatayein?')) return;
+  if (!await uiConfirm('Ye kharcha hatayein?')) return;
   const r = await api(`/api/my-expenses/${id}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
   loadMyExpense();
@@ -23161,7 +23322,7 @@ function openRentHistory(id) {
     ${s.pays.map(p => `<tr><td>${esc(fmtDateDMY(p.paidOn))}</td><td>${esc(p.month)}</td><td style="text-align:right;font-weight:700">${inr(p.amount)}</td><td>${esc(p.mode)}${p.note ? ' · ' + esc(p.note) : ''}</td><td><button class="btn btn-sm btn-outline" onclick="deleteRentPay(${p.id},${u.id})">🗑</button></td></tr>`).join('')}</tbody></table></div>` : ''}`, 560);
 }
 async function deleteRentPay(pid, uid) {
-  if (!confirm('Ye payment hatayein?')) return;
+  if (!await uiConfirm('Ye payment hatayein?')) return;
   const r = await api(`/api/rental/payment/${pid}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
   await loadRental();
@@ -23366,7 +23527,7 @@ async function loadSalesSchedule() {
   if (!ssMonth) ssMonth = ssToday().slice(0, 7);
   document.getElementById('ssMonth').value = ssMonth;
   const wrap = document.getElementById('ssResults');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const userParam = ssView === 'summary' || ssView === 'counters' ? 'all' : ssUserId;
   const r = await api(`/api/sales-schedule?month=${ssMonth}${userParam ? `&userId=${userParam}` : ''}`);
   if (!r || r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed to load')}</div>`; return; }
@@ -23539,7 +23700,7 @@ async function ssCopyLastMonth() {
   if (!ssUserId) { showToast('Pehle salesman chunein', 'error'); return; }
   const [y, m] = ssMonth.split('-').map(Number);
   const prev = o2dReportsFmtDate(new Date(y, m - 2, 1)).slice(0, 7);
-  if (!confirm(`${prev} ka plan ${ssMonth} mein copy karein? (same weekday pattern — jaise 2nd Monday → 2nd Monday)`)) return;
+  if (!await uiConfirm(`${prev} ka plan ${ssMonth} mein copy karein? (same weekday pattern — jaise 2nd Monday → 2nd Monday)`)) return;
   const r = await api('/api/sales-schedule/copy', 'POST', { userId: ssUserId, fromMonth: prev, toMonth: ssMonth });
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast(`✅ ${r.added} din / visits copied`);
@@ -23649,7 +23810,7 @@ async function ssUploadCsv(input) {
     });
   }
   if (!rows.length) { showToast(bad[0] || 'CSV mein koi row nahi mili', 'error'); return; }
-  if (!confirm(`${rows.length} ${counters ? 'counters' : 'din ke plan'} upload karein?`)) return;
+  if (!await uiConfirm(`${rows.length} ${counters ? 'counters' : 'din ke plan'} upload karein?`)) return;
   const r = await api(counters ? '/api/sales-counters/bulk' : '/api/sales-schedule/day-plan/bulk', 'POST', { rows });
   if (r.error) { showToast(r.error, 'error'); return; }
   const errs = [...bad, ...(r.errors || []).map(e => `Line ${e.line}: ${e.error}`)];
@@ -23736,7 +23897,7 @@ function callQuick(days) {
 async function loadCallReports() {
   const wrap = document.getElementById('crWrap');
   const fromEl = document.getElementById('crFrom'), toEl = document.getElementById('crTo');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const q = new URLSearchParams();
   if (fromEl.value) q.set('from', fromEl.value);
   if (toEl.value) q.set('to', toEl.value);
@@ -23839,7 +24000,7 @@ function crModal(id, title, maxW) {
 async function openCallTranscript(id) {
   const c = crData && crData.calls.find(x => x.id === id);
   const body = crModal('crTextModal', `📄 ${c ? (c.dealer_name || c.contact_name || c.phone || 'Call') : 'Call'}${c && c.call_at ? ' · ' + c.call_at : ''}`, 640);
-  body.innerHTML = '<div class="empty">Loading…</div>';
+  body.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api(`/api/call-reports/${id}`);
   body.innerHTML = r && typeof r.transcript === 'string'
     ? `<div style="white-space:pre-wrap;font-size:14px;line-height:1.6;color:var(--gray-800)">${esc(r.transcript || '(khali)')}</div>`
@@ -23849,7 +24010,7 @@ async function openCallDealer(id) {
   const c = crData && crData.calls.find(x => x.id === id);
   if (!c) return;
   const body = crModal('crDealerModal', '🔗 Is call ka dealer', 440);
-  body.innerHTML = '<div class="empty">Loading…</div>';
+  body.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   if (!crDealers) {
     const r = await api('/api/call-reports/dealers');
     if (!r || !Array.isArray(r.dealers)) { body.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
@@ -23865,7 +24026,7 @@ async function openCallDealer(id) {
 }
 async function deleteCallRec(id) {
   const c = crData && crData.calls.find(x => x.id === id);
-  if (!c || !confirm(`Ye call delete karein?\n\n${c.call_at || ''} · ${c.dealer_name || c.contact_name || c.phone || c.file_name}\n\nText hat jayega aur recording Drive ke trash me chali jayegi (30 din tak wapas la sakte ho).`)) return;
+  if (!c || !await uiConfirm(`Ye call delete karein?\n\n${c.call_at || ''} · ${c.dealer_name || c.contact_name || c.phone || c.file_name}\n\nText hat jayega aur recording Drive ke trash me chali jayegi (30 din tak wapas la sakte ho).`)) return;
   const r = await api(`/api/call-reports/${id}`, 'DELETE');
   if (!r || !r.success) { showToast((r && r.error) || 'Delete failed', 'error'); return; }
   crData.calls = crData.calls.filter(x => x.id !== id);
@@ -23885,7 +24046,7 @@ async function saveCallDealer(id, clear) {
 }
 async function openCallSetup() {
   const body = crModal('crSetupModal', '⚙️ Call Reports — Setup', 620);
-  body.innerHTML = '<div class="empty">Loading…</div>';
+  body.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api('/api/call-reports-admin/setup');
   if (!r || !Array.isArray(r.drives)) { body.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
   const userOpts = sel => '<option value="">— naam se apne-aap —</option>' + r.users.map(u => `<option value="${u.id}"${Number(sel) === u.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('');
@@ -24003,7 +24164,7 @@ async function startCallUpload(fileList) {
   }
 }
 async function newCallKey(replace) {
-  if (replace && !confirm('Nayi key banane se purani key band ho jayegi — Apps Script me nayi key daalni padegi. Banayein?')) return;
+  if (replace && !await uiConfirm('Nayi key banane se purani key band ho jayegi — Apps Script me nayi key daalni padegi. Banayein?')) return;
   const r = await api('/api/call-reports-admin/key', 'POST', {});
   if (!r || !r.key) { showToast((r && r.error) || 'Failed', 'error'); return; }
   document.getElementById('crKeyOut').innerHTML = `<input readonly value="${esc(r.key)}" onclick="this.select()" style="${PETTY_INPUT};font-family:monospace;margin-bottom:4px"/>
@@ -24027,7 +24188,7 @@ const PETTY_LABEL = "font-size:11px;font-weight:700;color:var(--gray-400);text-t
 
 async function loadPettyCash() {
   const wrap = document.getElementById('pettyResults');
-  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api('/api/petty-cash');
   if (!r || !Array.isArray(r.entries)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed to load')}</div>`; return; }
   pettyData = r.entries;
@@ -24219,7 +24380,7 @@ async function savePettyEntry(type, id) {
 function pettyNum(e) { return { ...e, amount: Number(e.amount), goods_value: e.goods_value == null ? null : Number(e.goods_value) }; }
 async function pettyDecide(id, decision) {
   let remark = '';
-  if (decision === 'rejected') { remark = (prompt('Reject ka reason?') || '').trim(); if (!remark) return; }
+  if (decision === 'rejected') { remark = (await uiPrompt('Reject ka reason?') || '').trim(); if (!remark) return; }
   const r = await api(`/api/petty-cash/${id}/decide`, 'POST', { decision, remark });
   if (r.error) { showToast(r.error, 'error'); return; }
   pettyData = pettyData.map(x => x.id === id ? pettyNum(r.entry) : x);
@@ -24236,14 +24397,14 @@ async function pettyApproveSelected() {
   loadPettyCash();
 }
 async function deletePetty(id) {
-  if (!confirm('Delete this entry?')) return;
+  if (!await uiConfirm('Delete this entry?')) return;
   const r = await api(`/api/petty-cash/${id}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
   pettyData = pettyData.filter(x => x.id !== id);
   renderPettyCash();
 }
 async function importPettySheet() {
-  if (!confirm('Purani petty cash sheet se entries import karein? Jo pehle aa chuki hain wo dobara nahi aayengi.')) return;
+  if (!await uiConfirm('Purani petty cash sheet se entries import karein? Jo pehle aa chuki hain wo dobara nahi aayengi.')) return;
   const restore = btnLoading(document.getElementById('pettyImportBtn'), 'Importing…');
   const r = await api('/api/petty-cash/import-sheet', 'POST', {});
   restore();
@@ -24265,7 +24426,7 @@ const TEA_LABEL = 'font-size:11px;font-weight:800;color:var(--gray-500);text-tra
 
 async function loadTea() {
   const wrap = document.getElementById('teaResults');
-  if (!teaData) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (!teaData) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api('/api/tea' + (teaMonth ? `?month=${teaMonth}` : ''));
   if (!r || !Array.isArray(r.log)) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Failed to load')}</div>`; return; }
   teaData = r;
@@ -24368,7 +24529,7 @@ async function saveTea() {
   loadTea();
 }
 async function deleteTea(id) {
-  if (!confirm('Yeh entry hatani hai?')) return;
+  if (!await uiConfirm('Yeh entry hatani hai?')) return;
   const r = await api(`/api/tea/entry/${id}`, 'DELETE');
   if (r.error) { showToast(r.error, 'error'); return; }
   loadTea();
@@ -24433,7 +24594,7 @@ async function saveTeaBill() {
   loadTea();
 }
 async function teaSetRate() {
-  const v = prompt('Ek cup ka rate (₹)?', teaData.rate);
+  const v = await uiPrompt('Ek cup ka rate (₹)?', teaData.rate);
   if (v === null) return;
   const r = await api('/api/tea/rate', 'POST', { rate: v });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -24468,7 +24629,7 @@ async function setTeaStaff(id, active) {
   loadTea();
 }
 async function importTeaSheet() {
-  if (!confirm('Purani Tea Register sheet se staff, entries aur vendor bills import karein? Jo pehle aa chuki hain wo dobara nahi aayengi.')) return;
+  if (!await uiConfirm('Purani Tea Register sheet se staff, entries aur vendor bills import karein? Jo pehle aa chuki hain wo dobara nahi aayengi.')) return;
   const restore = btnLoading(document.getElementById('teaImportBtn'), 'Importing…');
   const r = await api('/api/tea/import-sheet', 'POST', {});
   restore();
@@ -24626,7 +24787,7 @@ let rplView = 'queue';
 
 async function loadReplFmsList() {
   const wrap = document.getElementById('rplListWrap');
-  if (wrap) wrap.innerHTML = '<div class="empty">Loading…</div>';
+  if (wrap) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   if (!_rplStepDoersMerged) mergeReplStepDoersIntoDefs();
   const d = await api('/api/replacement-fms');
   if (!d || !Array.isArray(d.items)) { if (wrap) wrap.innerHTML = `<div class="empty">⚠️ ${esc((d && d.error) || 'Failed to load')}</div>`; return; }
@@ -25196,7 +25357,7 @@ function renderReplDetailBody(r) {
   </div>`;
   const action = r.task ? rplTaskFormHtml(r)
     : `<div style="text-align:center;color:var(--color-success-text);font-weight:700;padding:14px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:12px">${r.stage === 'cancelled' ? 'Cancelled' : 'Complete — entry closed'}</div>`;
-  document.getElementById('rplBody').innerHTML = info + action + `<div style="${RPL_LABEL};margin:6px 0 8px">History</div><div id="rplEvents_${r.id}" style="font-size:12.5px"><div class="empty">Loading…</div></div>`;
+  document.getElementById('rplBody').innerHTML = info + action + `<div style="${RPL_LABEL};margin:6px 0 8px">History</div><div id="rplEvents_${r.id}" style="font-size:12.5px"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>`;
 }
 const RPL_EVENT_LABEL = { created: '📝 Form filled', imported: '📥 Imported', check: '📒 Diary / ownership', category: '🗂 Category', warranty: '🛡 Warranty',
   assign: '🔧 Given to mechanic', spareissue: '🔩 Spare issued', repair: '✅ Repaired & tested', takeout: '📦 Spare takeout', sparecheck: '🔍 Spare check', exchange: '🔄 Exchanged', inform: '📞 Informed', bin: '🔍 Maal check', cn: '🧾 Credit note',
@@ -25209,8 +25370,8 @@ async function loadReplEvents(id) {
   el.innerHTML = r.map(e => `<div style="padding:6px 0;border-bottom:1px solid var(--gray-100)"><b>${RPL_EVENT_LABEL[e.event] || esc(e.event)}</b>${e.detail ? ' — ' + esc(e.detail) : ''}
     <div style="font-size:11px;color:var(--gray-400)">${esc(fmtDateDMY(e.created_at, true))}${e.user_name ? ' · ' + esc(e.user_name) : ''}</div></div>`).join('') || '<div class="empty">—</div>';
 }
-function cancelRepl(id) {
-  const reason = prompt('Cancel reason (e.g. galat / duplicate entry):');
+async function cancelRepl(id) {
+  const reason = await uiPrompt('Cancel reason (e.g. galat / duplicate entry):');
   if (reason && reason.trim()) submitReplAction(id, 'cancel', null, { reason: reason.trim() });
 }
 async function sendReplOtp(id, btnEl) {
@@ -25486,7 +25647,7 @@ let npData = null, npOpenGroup = '';
 async function loadNetProfit() {
   const s = document.getElementById('gpStart').value, e = document.getElementById('gpEnd').value;
   const out = document.getElementById('gpResults');
-  out.innerHTML = `<div style="margin-bottom:12px">${gpTabsHtml()}</div><div class="empty" style="background:var(--surface);border-radius:14px;border:1px solid var(--gray-200)">Loading…</div>`;
+  out.innerHTML = `<div style="margin-bottom:12px">${gpTabsHtml()}</div><div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:14px;border:1px solid var(--gray-200)">Loading…</div>`;
   const [gp, ex] = await Promise.all([
     gpData && gpData.start === s && gpData.end === e ? gpData : api(`/api/reports/gross-profit?start=${s}&end=${e}`),
     api(`/api/reports/net-profit-expenses?start=${s}&end=${e}`)
@@ -25618,7 +25779,7 @@ function npOpenBreakdown() {
     ${row('= Net Profit', gpInr(np), { bold: true, color: np >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)' })}`);
 }
 async function npOpenLedger(ledger) {
-  npModal('📒 ' + ledger, '<div class="empty">Loading…</div>');
+  npModal('📒 ' + ledger, '<div class="empty ui-skel" aria-busy="true">Loading…</div>');
   const d = await api(`/api/reports/net-profit-ledger?start=${npData.start}&end=${npData.end}&ledger=${encodeURIComponent(ledger)}`);
   const body = document.getElementById('npModalBody');
   if (!d || d.error) { body.innerHTML = `<div class="empty">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
@@ -25656,7 +25817,7 @@ async function loadGrossProfit() {
   if (gpView === 'salesman') return loadSalesmanPl();
   if (gpView === 'np') return loadNetProfit();
   const out = document.getElementById('gpResults');
-  out.innerHTML = '<div class="empty" style="background:var(--surface);border-radius:14px;border:1px solid var(--gray-200)">Loading…</div>';
+  out.innerHTML = '<div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:14px;border:1px solid var(--gray-200)">Loading…</div>';
   const d = await api(`/api/reports/gross-profit?start=${s.value}&end=${e.value}`);
   if (gpView === 'salesman') { if (d && !d.error) gpData = d; return; }
   if (!d || d.error) { out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:14px;border:1px solid var(--color-danger-border);color:var(--color-danger)">⚠️ ${esc((d && d.error) || 'Failed')}</div>`; return; }
@@ -27536,7 +27697,8 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
 (function festivalTheme() {
   // Switched off (client 2026-10-24: "festival theme hata de"). Set true for the next festival.
   const FEST_ON = false;
-  if (!FEST_ON) return;
+  // Off by default; ?fest=navratri3 / dussehra / eve still previews it (Phase A, option a).
+  if (!FEST_ON && !new URLSearchParams(location.search).get('fest')) return;
   const FESTIVALS = { navratriStart: '2026-10-11', navratriDays: 9, dussehra: '2026-10-20' };
   // Day-wise Devi, what she stands for, and the popular "colour of the day" (2026 starts on a Sunday).
   const DEVI = [
