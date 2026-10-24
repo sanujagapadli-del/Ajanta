@@ -19405,9 +19405,16 @@ function waComposeHtml(p, d, drip) {
   return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:16px;max-width:760px">
     ${drip ? `<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
         <div><label style="font-size:12px;font-weight:600">Naam *</label><input id="${p}Title" value="${esc(d.title || '')}" placeholder="e.g. Week 1 — Ceiling fan scheme" style="${VRL_IN}"/></div>
-        <div><label style="font-size:12px;font-weight:600">Hafte ka din *</label><select id="${p}Weekday" style="${VRL_IN}">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${d.weekday === n ? 'selected' : ''}>${MH_DAYS[n]}</option>`).join('')}</select></div></div>
-      <label style="font-size:12px;font-weight:600">Mahine ke kaunse hafte? <span style="font-weight:400;color:var(--gray-500)">(kuch na chunein = har hafte)</span></label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px"><input type="checkbox" class="${p}-week" value="${n}" ${(d.weeks || []).includes(n) ? 'checked' : ''}/> Week ${n}</label>`).join('')}</div>`
+        <div><label style="font-size:12px;font-weight:600">Kab bhejna hai *</label><select id="${p}Kind" onchange="document.getElementById('${p}WeeklyBox').style.display=this.value==='yearly'?'none':'';document.getElementById('${p}YearlyBox').style.display=this.value==='yearly'?'':'none'" style="${VRL_IN}"><option value="weekly">Har hafte</option><option value="yearly" ${d.yearlyMd ? 'selected' : ''}>Saal me ek tareekh</option></select></div></div>
+      <div id="${p}WeeklyBox" style="${d.yearlyMd ? 'display:none' : ''}">
+        <label style="font-size:12px;font-weight:600">Hafte ka din *</label><select id="${p}Weekday" style="${VRL_IN};margin-bottom:8px;max-width:220px">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${d.weekday === n ? 'selected' : ''}>${MH_DAYS[n]}</option>`).join('')}</select>
+        <label style="font-size:12px;font-weight:600;display:block">Mahine ke kaunse hafte? <span style="font-weight:400;color:var(--gray-500)">(kuch na chunein = har hafte)</span></label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px"><input type="checkbox" class="${p}-week" value="${n}" ${(d.weeks || []).includes(n) ? 'checked' : ''}/> Week ${n}</label>`).join('')}</div></div>
+      <div id="${p}YearlyBox" style="${d.yearlyMd ? '' : 'display:none'};margin-bottom:10px">
+        <label style="font-size:12px;font-weight:600">Tareekh (har saal isi din) *</label>
+        <div style="display:flex;gap:6px;max-width:300px"><select id="${p}YDay" style="${VRL_IN}">${Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<option value="${String(n).padStart(2, '0')}" ${d.yearlyMd && +d.yearlyMd.slice(3) === n ? 'selected' : ''}>${n}</option>`).join('')}</select>
+          <select id="${p}YMonth" style="${VRL_IN}">${DRIP_MONTHS.map((m, i) => `<option value="${String(i + 1).padStart(2, '0')}" ${d.yearlyMd && +d.yearlyMd.slice(0, 2) === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
+        <div style="font-size:11.5px;color:var(--gray-500);margin-top:3px">Jaise tyohaar, season start, scheme — har saal us tareekh ko subah apne aap jayega.</div></div>`
       : `<label style="font-size:12px;font-weight:600">Title <span style="font-weight:400;color:var(--gray-500)">(sirf list me dikhega)</span></label><input id="${p}Title" placeholder="e.g. Naya price list — Oct" style="${VRL_IN};margin-bottom:8px"/>`}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <div><label style="font-size:12px;font-weight:600">Kisko bhejna hai?</label><select id="${p}Aud" onchange="waAudChanged('${jsArg(p)}')" style="${VRL_IN}">${aud.map(([k, l]) => `<option value="${k}" ${d.audience === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
@@ -19519,6 +19526,7 @@ async function loadDrip() {
   const [r, c] = await Promise.all([api('/api/wa/drips'), api('/api/wa/campaigns')]);
   if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   waDrips = r.items || [];
+  if (r.settings) dripSettings = r.settings;
   dripRecent = (c.items || []).filter(x => x.source === 'drip').slice(0, 15);
   renderWaDrips();
 }
@@ -19531,21 +19539,47 @@ function dripRecentHtml() {
       <td style="text-align:right">${x.sent}/${x.total}${x.failed ? ` <span style="color:var(--color-danger)">· ${x.failed} failed</span>` : ''}</td><td>${esc(st[x.status] || x.status)}</td></tr>`).join('')}
     </tbody></table></div>`;
 }
+const DRIP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+let dripSettings = { perHour: 25, fromHour: 10, toHour: 19 };
+async function saveDripSettings(btn) {
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/wa/drip-settings', 'PUT', { perHour: document.getElementById('dsPerHour').value, fromHour: document.getElementById('dsFrom').value, toHour: document.getElementById('dsTo').value });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  dripSettings = r.settings;
+  showToast('✅ Drip setting save');
+}
 function renderWaDrips() {
   const admin = waMeta.isAdmin;
-  const byDay = [1, 2, 3, 4, 5, 6, 7].map(n => ({ n, list: waDrips.filter(d => d.weekday === n) })).filter(x => x.list.length);
-  document.getElementById('dripWrap').innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px;max-width:760px">Har din subah ~11 baje, us din ke plan apne aap dealers ko chale jaate hain. Customer aur non-customer ke liye alag plan banayein.
+  const byDay = [1, 2, 3, 4, 5, 6, 7].map(n => ({ n, list: waDrips.filter(d => !d.yearlyMd && d.weekday === n) })).filter(x => x.list.length);
+  // Yearly plan (Ajay sir, 2026-10-24): one group per month, dates in order.
+  const yearly = waDrips.filter(d => d.yearlyMd);
+  const byMonth = DRIP_MONTHS.map((m, i) => ({ n: `📆 ${m}`, list: yearly.filter(d => +d.yearlyMd.slice(0, 2) === i + 1) })).filter(x => x.list.length);
+  const hr = h => `${((h + 11) % 12) + 1} ${h < 12 ? 'AM' : 'PM'}`;
+  const settingsHtml = `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;max-width:760px">
+      ⏱ Drip messages <b>${hr(dripSettings.fromHour)} – ${hr(dripSettings.toHour)}</b> ke beech, <b>har ghante ${dripSettings.perHour}</b> dealers ko jaate hain (ek saath sabko nahi — naye number ka WhatsApp safe rehta hai).
+      ${admin ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px">Har ghante <input id="dsPerHour" type="number" min="1" max="200" value="${dripSettings.perHour}" style="${VRL_IN};width:70px;padding:5px"/>
+        · <select id="dsFrom" style="${VRL_IN};width:auto;padding:5px">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === dripSettings.fromHour ? 'selected' : ''}>${hr(h)}</option>`).join('')}</select> se
+        <select id="dsTo" style="${VRL_IN};width:auto;padding:5px">${Array.from({ length: 24 }, (_, i) => i + 1).map(h => `<option value="${h}" ${h === dripSettings.toHour ? 'selected' : ''}>${hr(h % 24)}</option>`).join('')}</select> tak
+        <button class="btn btn-sm btn-outline" onclick="saveDripSettings(this)">Save</button></div>` : ''}</div>`;
+  const group = ({ n, list }, head) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:10px;overflow:hidden">
+      <div style="padding:9px 14px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">${head}</div>
+      ${list.map(d => dripRowHtml(d, admin)).join('')}</div>`;
+  document.getElementById('dripWrap').innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px;max-width:760px">Har din subah, us din ke plan (hafte wale aur saal ki tareekh wale) apne aap queue me lag jaate hain. Customer aur non-customer ke liye alag plan banayein.
       ${admin ? '' : ' Plan sirf Admin badal sakta hai.'}</div>
+    ${settingsHtml}
     ${admin ? '<button class="btn btn-primary" style="margin-bottom:12px" onclick="waEditDrip(0)">＋ Plan jodein</button>' : ''}
-    ${byDay.length ? byDay.map(({ n, list }) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:10px;overflow:hidden">
-      <div style="padding:9px 14px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">📅 Har ${MH_DAYS[n]}</div>
-      ${list.map(d => `<div style="padding:10px 14px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;${d.active ? '' : 'opacity:.5'}">
-        <div style="flex:1;min-width:0"><b>${esc(d.title)}</b> <span class="status-badge">${esc(waMeta.audiences[d.audience] || d.audience)}</span>${d.weeks.length ? ` <span class="status-badge">Week ${d.weeks.join(', ')}</span>` : ''}${d.city ? ` <span class="status-badge">📍 ${esc(d.city)}</span>` : ''}${d.active ? '' : ' <span class="status-badge">Band</span>'}
+    ${byDay.length ? byDay.map(x => group(x, `📅 Har ${MH_DAYS[x.n]}`)).join('') : '<div class="empty">Abhi koi weekly plan nahi. Jaise: Mon — customers ko naya product photo, Thu — non-customers ko catalogue + scheme.</div>'}
+    <div style="font-weight:800;font-size:14px;margin:16px 0 8px">🗓 Saal bhar ka plan (tareekh wale)</div>
+    ${byMonth.length ? byMonth.map(x => group(x, x.n)).join('') : '<div class="empty">Abhi koi tareekh wala plan nahi. "＋ Plan jodein" → "Saal me ek tareekh" — jaise Diwali, Holi, garmi ka season, naya saal.</div>'}
+    ${dripRecentHtml()}`;
+}
+function dripRowHtml(d, admin) {
+  return `<div style="padding:10px 14px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;${d.active ? '' : 'opacity:.5'}">
+        <div style="flex:1;min-width:0">${d.yearlyMd ? `<b style="color:var(--color-primary)">${+d.yearlyMd.slice(3)} ${DRIP_MONTHS[+d.yearlyMd.slice(0, 2) - 1]}</b> · ` : ''}<b>${esc(d.title)}</b> <span class="status-badge">${esc(waMeta.audiences[d.audience] || d.audience)}</span>${d.weeks.length ? ` <span class="status-badge">Week ${d.weeks.join(', ')}</span>` : ''}${d.city ? ` <span class="status-badge">📍 ${esc(d.city)}</span>` : ''}${d.active ? '' : ' <span class="status-badge">Band</span>'}
           <div style="font-size:12px;color:var(--gray-600);margin-top:3px;white-space:pre-line">${esc(d.message.slice(0, 160))}</div>
           <div style="font-size:11.5px;color:var(--gray-500);margin-top:3px">${d.imageUrl ? '🖼 Photo · ' : ''}${d.docIds.length ? `📎 ${d.docIds.map(id => esc((waMeta.docs.find(x => x.id === id) || {}).filename || 'PDF')).join(', ')} · ` : ''}${d.lastRun ? 'Last: ' + esc(fmtDateDMY(d.lastRun)) : 'Abhi tak nahi chala'}</div></div>
-        ${admin ? `<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn btn-sm btn-outline" onclick="waEditDrip(${d.id})">✏️</button><button class="btn btn-sm btn-outline" onclick="waRunDrip(${d.id})" title="Abhi bhejo">▶ Abhi</button><button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="waDeleteDrip(${d.id})">🗑</button></div>` : ''}</div>`).join('')}</div>`).join('')
-      : '<div class="empty">Abhi koi weekly plan nahi. Jaise: Mon — customers ko naya product photo, Thu — non-customers ko catalogue + scheme.</div>'}
-    ${dripRecentHtml()}`;
+        ${admin ? `<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn btn-sm btn-outline" onclick="waEditDrip(${d.id})">✏️</button><button class="btn btn-sm btn-outline" onclick="waRunDrip(${d.id})" title="Abhi bhejo">▶ Abhi</button><button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="waDeleteDrip(${d.id})">🗑</button></div>` : ''}</div>`;
 }
 function waEditDrip(id) {
   const d = id ? waDrips.find(x => x.id === id) : { weekday: 1, audience: 'customers', weeks: [], docIds: [], active: true };
@@ -19555,6 +19589,7 @@ async function waSaveDrip(id, btn) {
   const b = waFormBody('wd');
   b.id = id || undefined;
   b.weekday = Number(document.getElementById('wdWeekday').value);
+  b.yearlyMd = document.getElementById('wdKind').value === 'yearly' ? `${document.getElementById('wdYMonth').value}-${document.getElementById('wdYDay').value}` : '';
   b.weeks = [...document.querySelectorAll('.wd-week:checked')].map(c => Number(c.value));
   b.active = document.getElementById('wdActive').checked;
   const old = id ? waDrips.find(x => x.id === id) : null, keep = document.getElementById('wdKeepImg');

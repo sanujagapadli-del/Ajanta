@@ -547,6 +547,7 @@ async function requireAuth(req, res, next) {
     if (req.cookies?.token === token && decoded.iat && Date.now() - decoded.iat * 1000 > 86400000) {
       try { issueLoginCookie(res, { id: decoded.userId, role: req.session.role, name: req.session.name }); } catch (e) { /* keep the current cookie */ }
     }
+    waLazyTick();
     next();
   } catch(e) { res.status(401).json({ error: 'Invalid token' }); }
 }
@@ -15792,6 +15793,8 @@ async function waTables() {
     updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   await addMissingColumns('wa_campaign_recipients', [['message', 'TEXT']]);
+  // Yearly plan (Ajay sir, 2026-10-24): 'MM-DD' — goes every year on that date; weekday is then 0.
+  await addMissingColumns('wa_drip_plan', [['yearly_md', 'CHAR(5)']]);
   await db.query('CREATE TABLE IF NOT EXISTS wa_lock (id INT PRIMARY KEY, until_at DATETIME) ENGINE=InnoDB');
   await db.query('INSERT IGNORE INTO wa_lock (id, until_at) VALUES (1, NULL)');
   _waOk = true;
@@ -15879,10 +15882,12 @@ async function waDrain() {
   try {
     // Only one run at a time (the lock) — a row left "sending" is from a run that died.
     await db.query("UPDATE wa_campaign_recipients SET status='pending' WHERE status='sending'");
+    let dripLeft = await waDripAllowance();
     while (Date.now() - start < WA_BUDGET_MS) {
-      const [[r]] = await db.query(`SELECT r.id, r.campaign_id, r.name, r.phone, COALESCE(r.message, c.message) AS message, c.doc_ids, c.image_url FROM wa_campaign_recipients r
-        JOIN wa_campaigns c ON c.id=r.campaign_id WHERE r.status='pending' AND c.status IN ('queued','sending') ORDER BY r.campaign_id, r.id LIMIT 1`);
+      const [[r]] = await db.query(`SELECT r.id, r.campaign_id, r.name, r.phone, COALESCE(r.message, c.message) AS message, c.doc_ids, c.image_url, c.source FROM wa_campaign_recipients r
+        JOIN wa_campaigns c ON c.id=r.campaign_id WHERE r.status='pending' AND c.status IN ('queued','sending')${dripLeft > 0 ? '' : " AND c.source<>'drip'"} ORDER BY r.campaign_id, r.id LIMIT 1`);
       if (!r) break;
+      if (r.source === 'drip') dripLeft--;
       await db.query("UPDATE wa_campaigns SET status='sending', started_at=COALESCE(started_at, NOW()) WHERE id=? AND status='queued'", [r.campaign_id]);
       await db.query("UPDATE wa_campaign_recipients SET status='sending' WHERE id=?", [r.id]);
       try {
@@ -15906,8 +15911,36 @@ async function waDrain() {
   } finally {
     await db.query('UPDATE wa_lock SET until_at=NULL WHERE id=1');
   }
-  const [[left]] = await db.query("SELECT COUNT(*) AS n FROM wa_campaign_recipients r JOIN wa_campaigns c ON c.id=r.campaign_id WHERE r.status='pending' AND c.status IN ('queued','sending')");
+  // Drip rows held back for a later hour don't count as "left" — the chain would spin.
+  const [[left]] = await db.query("SELECT COUNT(*) AS n FROM wa_campaign_recipients r JOIN wa_campaigns c ON c.id=r.campaign_id WHERE r.status='pending' AND c.status IN ('queued','sending')" + ((await waDripAllowance()) > 0 ? '' : " AND c.source<>'drip'"));
   return { sent, failed, left: Number(left.n) || 0, stopped };
+}
+// Drip goes out a few per hour inside working hours (Ajay sir, 2026-10-24) —
+// spreads the load and keeps a new number away from WhatsApp's spam checks.
+const WA_DRIP_DEFAULTS = { perHour: 25, fromHour: 10, toHour: 19 };
+async function waDripSettings() {
+  let s = {};
+  try { s = JSON.parse(await getAppSetting('wa_drip_settings') || '{}') || {}; } catch (e) { s = {}; }
+  return { ...WA_DRIP_DEFAULTS, ...s };
+}
+async function waDripAllowance() {
+  const s = await waDripSettings();
+  const h = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
+  if (h < s.fromHour || h >= s.toHour) return 0;
+  const [[c]] = await db.query("SELECT COUNT(*) AS n FROM wa_campaign_recipients r JOIN wa_campaigns c ON c.id=r.campaign_id WHERE c.source='drip' AND r.sent_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)");
+  return Math.max(0, s.perHour - (Number(c.n) || 0));
+}
+// No hourly cron on this plan, so app use drives it: at most every 15 min
+// (per instance) a request starts the day's due drips and the hour's batch.
+let _waTickAt = 0;
+function waLazyTick() {
+  if (Date.now() - _waTickAt < 15 * 60 * 1000) return;
+  _waTickAt = Date.now();
+  (async () => {
+    await waEnqueueDueDrips();
+    const [[p]] = await db.query("SELECT COUNT(*) AS n FROM wa_campaign_recipients r JOIN wa_campaigns c ON c.id=r.campaign_id WHERE r.status='pending' AND c.status IN ('queued','sending')");
+    if (Number(p.n) && (await waDripAllowance()) > 0) waKick();
+  })().catch(e => console.warn('wa tick:', e.message));
 }
 const waDrainSecret = () => crypto.createHash('sha256').update(`${JWT_SECRET}:wa-drain`).digest('hex');
 // Start (or continue) sending. On Vercel this calls the drain route as a new
@@ -15941,11 +15974,11 @@ async function waEnqueueDueDrips() {
   const today = waYmd();
   const d = new Date(today + 'T00:00:00Z');
   const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay(), wom = Math.ceil(d.getUTCDate() / 7);
-  const [plans] = await db.query("SELECT * FROM wa_drip_plan WHERE active=1 AND weekday=? AND (last_run IS NULL OR last_run<>?)", [dow, today]);
+  const [plans] = await db.query("SELECT * FROM wa_drip_plan WHERE active=1 AND ((yearly_md IS NULL AND weekday=?) OR yearly_md=?) AND (last_run IS NULL OR last_run<>?)", [dow, today.slice(5), today]);
   let made = 0;
   for (const p of plans) {
     const weeks = String(p.weeks || '').split(',').map(n => parseInt(n, 10)).filter(Boolean);
-    if (weeks.length && !weeks.includes(wom)) continue;
+    if (!p.yearly_md && weeks.length && !weeks.includes(wom)) continue;
     const [claim] = await db.query('UPDATE wa_drip_plan SET last_run=? WHERE id=? AND (last_run IS NULL OR last_run<>?)', [today, p.id, today]);
     if (!claim.affectedRows) continue;
     await waCreateCampaign({ title: `🔁 ${p.title}`, message: p.message, docIds: p.doc_ids, imageUrl: p.image_url, audience: p.audience, city: p.city, source: 'drip', dripId: p.id });
@@ -16037,26 +16070,37 @@ app.get('/api/wa/drips', requireAuth, async (req, res) => {
   try {
     if (!(await waAccess(req, res))) return;
     await waTables();
-    const [rows] = await db.query("SELECT *, DATE_FORMAT(last_run,'%Y-%m-%d') AS last_run FROM wa_drip_plan ORDER BY weekday, id");
-    res.json({ items: rows.map(p => ({ id: p.id, title: p.title, weekday: p.weekday, weeks: p.weeks ? p.weeks.split(',').map(Number) : [], audience: p.audience, city: p.city || '',
-      message: p.message || '', docIds: waDocIds(p.doc_ids), imageUrl: p.image_url || '', active: !!p.active, lastRun: p.last_run })) });
+    const [rows] = await db.query("SELECT *, DATE_FORMAT(last_run,'%Y-%m-%d') AS last_run FROM wa_drip_plan ORDER BY yearly_md IS NOT NULL, yearly_md, weekday, id");
+    res.json({ items: rows.map(p => ({ id: p.id, title: p.title, weekday: p.weekday, weeks: p.weeks ? p.weeks.split(',').map(Number) : [], yearlyMd: p.yearly_md || '', audience: p.audience, city: p.city || '',
+      message: p.message || '', docIds: waDocIds(p.doc_ids), imageUrl: p.image_url || '', active: !!p.active, lastRun: p.last_run })), settings: await waDripSettings() });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/wa/drips', requireAuth, requireAdmin, async (req, res) => {
   try {
     await waTables();
     const b = req.body || {};
-    const title = String(b.title || '').trim().slice(0, 255), weekday = parseInt(b.weekday, 10);
+    const title = String(b.title || '').trim().slice(0, 255);
+    const yearlyMd = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(b.yearlyMd || '') ? b.yearlyMd : null;
+    const weekday = yearlyMd ? 0 : parseInt(b.weekday, 10);
     if (!title) return res.status(400).json({ error: 'Naam likhein (e.g. Week 1 — Ceiling fan scheme)' });
-    if (!(weekday >= 1 && weekday <= 7)) return res.status(400).json({ error: 'Hafte ka din chunein' });
+    if (!yearlyMd && !(weekday >= 1 && weekday <= 7)) return res.status(400).json({ error: 'Hafte ka din ya saal ki tareekh chunein' });
     const audience = ['all', 'customers', 'non_customers'].includes(b.audience) ? b.audience : 'customers';
     const weeks = (Array.isArray(b.weeks) ? b.weeks : []).map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= 5);
     if (!String(b.message || '').trim() && !b.image && !b.imageUrl && !waDocIds(b.docIds).length) return res.status(400).json({ error: 'Message, photo ya PDF — kuch to daalein' });
     const imageUrl = b.image ? await waUploadImage(b.image, 'drip') : (b.imageUrl || null);
-    const vals = [title, weekday, weeks.join(',') || null, audience, String(b.city || '').trim().slice(0, 120) || null, String(b.message || ''), waDocIds(b.docIds).join(',') || null, imageUrl, b.active === false ? 0 : 1, req.session.userId];
-    if (b.id) await db.query('UPDATE wa_drip_plan SET title=?, weekday=?, weeks=?, audience=?, city=?, message=?, doc_ids=?, image_url=?, active=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, Number(b.id)]);
-    else await db.query('INSERT INTO wa_drip_plan (title, weekday, weeks, audience, city, message, doc_ids, image_url, active, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?)', vals);
+    const vals = [title, weekday, yearlyMd ? null : (weeks.join(',') || null), yearlyMd, audience, String(b.city || '').trim().slice(0, 120) || null, String(b.message || ''), waDocIds(b.docIds).join(',') || null, imageUrl, b.active === false ? 0 : 1, req.session.userId];
+    if (b.id) await db.query('UPDATE wa_drip_plan SET title=?, weekday=?, weeks=?, yearly_md=?, audience=?, city=?, message=?, doc_ids=?, image_url=?, active=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, Number(b.id)]);
+    else await db.query('INSERT INTO wa_drip_plan (title, weekday, weeks, yearly_md, audience, city, message, doc_ids, image_url, active, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)', vals);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/wa/drip-settings', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {}, n = (v, lo, hi) => Math.min(hi, Math.max(lo, parseInt(v, 10)));
+    const s = { perHour: n(b.perHour, 1, 200) || WA_DRIP_DEFAULTS.perHour, fromHour: n(b.fromHour, 0, 23), toHour: n(b.toHour, 1, 24) };
+    if (!(s.fromHour < s.toHour)) return res.status(400).json({ error: 'Shuru ka ghanta khatam se pehle hona chahiye' });
+    await setAppSetting('wa_drip_settings', JSON.stringify(s));
+    res.json({ success: true, settings: s });
   } catch (err) { sendServerError(res, err); }
 });
 app.delete('/api/wa/drips/:id', requireAuth, requireAdmin, async (req, res) => {
