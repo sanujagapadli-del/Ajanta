@@ -25049,7 +25049,7 @@ function renderGrossProfit() {
       </div>
       <div class="mis-table-wrap" style="overflow:auto;max-height:680px">${table}</div>
     </div>
-    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else Purchase FMS PO Final Rate (qty-weighted average) of the same stock item. Rates are used exactly as entered in O2D and PO.${gpView === 'vendor' ? ' Vendor-wise: an item bought from more than one vendor is split between them by PO qty, each share at that vendor\'s own PO rate.' : ''}</div>`;
+    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) <b>bina GST</b> — O2D rate ÷ 1.18 (item ka GST % Price List me ho to wahi) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else Purchase FMS PO Final Rate (qty-weighted average, bina GST) of the same stock item.${gpView === 'vendor' ? ' Vendor-wise: an item bought from more than one vendor is split between them by PO qty, each share at that vendor\'s own PO rate.' : ''}</div>`;
 }
 function exportGrossProfit() {
   if (gpView === 'salesman') return exportSalesmanPl();

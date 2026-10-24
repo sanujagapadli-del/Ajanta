@@ -12861,7 +12861,11 @@ async function purchasePoArchiveRows() {
 
 // O2D billed sales lines in [start, end] with what each one cost (manual rate,
 // else the qty-weighted PO rate). Shared by Gross Profit and Salesman P&L.
-async function gpLoadData(start, end) {
+// O2D order rates include GST, PO Final Rates don't (client 2026-10-24: "GP
+// mai sale rate with GST le rhe ho and cost without gst"). For profit the
+// sale side is taken without GST: the item's GST % from the Price List, else 18%.
+const GP_DEFAULT_GST_PCT = 18;
+async function gpLoadData(start, end, opts = {}) {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   await ensureProductCosts();
   const bill = O2D_STEPS.find(s => s.n === 4); // Make Bill
@@ -12896,6 +12900,16 @@ async function gpLoadData(start, end) {
     if (!name || !(qty > 0)) return;
     sales.push({ party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date });
   });
+  if (opts.exGst) {
+    const [gl] = await db.query("SELECT product_name, gst_percent FROM o2d_price_list WHERE gst_percent IS NOT NULL AND gst_percent<>''").catch(() => [[]]);
+    const gstBy = Object.fromEntries(gl.map(g => [gpKey(g.product_name), Number(g.gst_percent)]).filter(([, v]) => v >= 0));
+    sales.forEach(s => {
+      const g = gpKey(s.item) in gstBy ? gstBy[gpKey(s.item)] : GP_DEFAULT_GST_PCT;
+      s.gstPct = g;
+      s.rate = s.rate / (1 + g / 100);
+      s.amount = s.qty * s.rate;
+    });
+  }
 
   // Cost per stock item from Purchase FMS PO lines (weighted by PO qty).
   const poCost = {}; // code -> { qty, value, names:Set, vendors: { key: { vendor, qty, value } } }
@@ -13021,7 +13035,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
       return res.status(400).json({ error: 'Valid start and end dates required' });
     }
-    const { sales, poCost, costFor, stockName, firstBill, lastBill } = await gpLoadData(start, end);
+    const { sales, poCost, costFor, stockName, firstBill, lastBill } = await gpLoadData(start, end, { exGst: true });
 
     const round = v => Math.round(v * 100) / 100;
     // Vendor-wise: a sold line is shared among the vendors its item was bought
@@ -13240,7 +13254,7 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   tours.forEach(t => { const x = tourBy[t.user_id] = tourBy[t.user_id] || { approved: 0, pending: 0, pendingCount: 0 }; if (t.status === 'approved') x.approved += Number(t.amt) || 0; else if (t.status === 'pending') { x.pending += Number(t.amt) || 0; x.pendingCount += Number(t.n); } });
 
   // Sales + gross profit per salesman from O2D "Order By".
-  const { sales, costFor } = await gpLoadData(start, end);
+  const { sales, costFor } = await gpLoadData(start, end, { exGst: true });
   const owner = {};
   profiles.forEach(p => String(p.o2d_names || '').split(',').map(plNameKey).filter(Boolean).forEach(k => { owner[k] = p.id; }));
   // Order By names not linked to any salesman profile still get their own
