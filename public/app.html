@@ -1040,6 +1040,93 @@ tbody tr:last-child td{border-bottom:none;}
      first one on phones (Service FMS Spare Check "1 complaint"). Let the page scroll. */
   .mis-table-wrap:has(table.mcards){max-height:none !important;overflow-y:visible !important}
 }
+
+/* ══════════════════════════════════════════════════════
+   CLEAN UI (client 2026-10-24: "taskmanager.e-marketing.io jaise clean,
+   clear") — same layout, Ajanta navy + red: soft page glow, lighter cards,
+   gradient buttons, quiet section labels, pill tabs, compact page headers.
+   Only overrides; remove this block to get the previous look back.
+══════════════════════════════════════════════════════ */
+:root{
+  --navy-rgb:1,3,113; --red-rgb:216,7,0;
+  --shadow-xs:0 1px 2px rgba(15,23,42,.05);
+  --shadow-sm:0 2px 8px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.04);
+  --shadow-md:0 8px 24px -8px rgba(15,23,42,.14),0 2px 6px rgba(15,23,42,.05);
+  --ui-ease:cubic-bezier(.4,0,.2,1);
+}
+::selection{background:rgba(var(--navy-rgb),.16);color:#0f172a;}
+button,input,select,textarea{font-family:inherit;}
+body{
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:#1e293b;
+  background:
+    radial-gradient(1100px circle at 8% -8%, rgba(var(--navy-rgb),.06), transparent 45%),
+    radial-gradient(900px circle at 108% 0%, rgba(var(--red-rgb),.05), transparent 40%),
+    var(--app-bg);
+  background-attachment:fixed;
+}
+::-webkit-scrollbar{width:9px;height:9px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:20px;border:2px solid transparent;background-clip:content-box;}
+::-webkit-scrollbar-thumb:hover{background:#94a3b8;background-clip:content-box;}
+@keyframes uiPageIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+.page.active{animation:uiPageIn .26s var(--ui-ease) both;}
+
+/* Sidebar — gradient, soft edge shadow, quiet uppercase section labels */
+.sidebar{background:linear-gradient(180deg,#071a33 0%,#040f20 100%);border-right:none;box-shadow:1px 0 0 rgba(255,255,255,.04),6px 0 24px -6px rgba(0,0,0,.35);}
+.nav-item{border-radius:9px;transition:background .15s var(--ui-ease),color .15s,transform .15s;}
+.nav-item:hover{transform:translateX(1px);}
+.nav-item.active{background:linear-gradient(90deg,rgba(var(--red-rgb),.22),rgba(var(--red-rgb),.05));box-shadow:inset 0 0 0 1px rgba(var(--red-rgb),.22);color:#fff;}
+.nav-item.active svg{color:#ff8a85;filter:drop-shadow(0 0 6px rgba(var(--red-rgb),.45));}
+.nav-group-head{border-top:none;margin-top:6px;padding:7px 10px;font-size:10.5px;letter-spacing:.08em;color:#64748b;}
+.nav-group-head:hover{color:#94a3b8;background:transparent;}
+.nav-group-head svg:first-child{width:16px;height:16px;color:#475569;}
+.nav-group.has-active .nav-group-head svg:first-child{color:#94a3b8;}
+
+/* Top bar + page header — buttons sit together on the right, not spread out */
+.topbar{background:rgba(255,255,255,.82);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid #e9eef5;box-shadow:0 1px 0 rgba(15,23,42,.03);}
+.page-header{justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-bottom:18px;}
+.page-header > :first-child:not(.btn){margin-right:auto;}
+
+/* Buttons */
+.btn{border-radius:9px;transition:transform .15s var(--ui-ease),box-shadow .2s var(--ui-ease),background .2s,border-color .2s,color .2s;}
+.btn:hover{transform:translateY(-1px);}
+.btn:active{transform:none;}
+.btn:focus-visible{outline:2px solid rgba(var(--navy-rgb),.45);outline-offset:2px;}
+.btn-primary{background:linear-gradient(135deg,#1c2a9c,var(--color-primary));box-shadow:0 2px 10px -2px rgba(var(--navy-rgb),.45);}
+.btn-primary:hover{background:linear-gradient(135deg,#2536b5,var(--color-primary));box-shadow:0 6px 18px -4px rgba(var(--navy-rgb),.5);}
+.btn-outline{background:#fff;color:#374151;border:1.5px solid #e2e8f0;}
+.btn-outline:hover{border-color:rgba(var(--navy-rgb),.45);color:var(--color-primary);background:#fff;box-shadow:0 4px 12px -4px rgba(var(--navy-rgb),.22);}
+.btn-green{background:linear-gradient(135deg,#34d399,#10b981);box-shadow:0 2px 10px -2px rgba(16,185,129,.4);}
+.btn-green:hover{box-shadow:0 6px 18px -4px rgba(16,185,129,.5);}
+.btn-danger{background:linear-gradient(135deg,#f87171,#ef4444);box-shadow:0 2px 10px -2px rgba(239,68,68,.4);}
+
+/* Cards / panels / tables */
+.stat-card,.o2d-stat-card,.o2d-report-card,.mis-table-wrap,.table-wrap,.card{border-color:#e8edf5;box-shadow:var(--shadow-sm);}
+.stat-card,.o2d-stat-card{transition:transform .2s var(--ui-ease),box-shadow .2s var(--ui-ease);}
+.stat-card:hover,.o2d-stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);}
+thead th{background:#f8fafc;color:#64748b;font-size:11px;font-weight:700;letter-spacing:.5px;border-bottom:1px solid #e2e8f0;}
+tbody tr{transition:background .12s;}
+tbody tr:hover td{background:#fafbff;}
+
+/* Tabs — pill group, white active tab */
+.tab-group{background:#f1f5f9;padding:3px;border-radius:10px;gap:4px;}
+.tab{border-radius:8px;transition:all .2s var(--ui-ease);color:#64748b;}
+.tab.active{background:#fff;color:var(--color-primary);box-shadow:0 1px 6px rgba(15,23,42,.12);}
+
+/* Inputs */
+input[type=text],input[type=email],input[type=number],input[type=date],input[type=month],input[type=tel],input[type=search],input:not([type]),select,textarea{transition:border-color .15s,box-shadow .15s;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--navy-rgb),.55) !important;box-shadow:0 0 0 3px rgba(var(--navy-rgb),.12);}
+
+/* Dashboard pending table — columns wide enough that words don't break letter by letter */
+#dashTable{min-width:1180px !important;}
+#dashTable th:nth-child(2),#dashTable td:nth-child(2){min-width:95px;}
+#dashTable th:nth-child(3),#dashTable td:nth-child(3){min-width:170px;}
+#dashTable th:nth-child(4),#dashTable td:nth-child(4){min-width:260px;}
+#dashTable td{overflow-wrap:normal;word-break:normal;}
+
+/* Modals */
+.modal-overlay{background:rgba(10,14,26,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
+.modal{border-radius:16px;box-shadow:0 24px 70px -12px rgba(15,23,42,.35),0 0 0 1px rgba(15,23,42,.04);}
 </style>
 </head>
 <body>
@@ -1070,22 +1157,6 @@ tbody tr:last-child td{border-bottom:none;}
       <span class="nav-label-text">Approvals</span>
       <span id="approvalBadge" style="display:none;position:absolute;top:6px;right:8px;background:var(--color-danger);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
       <span id="transferBadge" style="display:none;position:absolute;top:6px;right:26px;background:var(--color-purple);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;align-items:center;justify-content:center">0</span>
-    </div>
-    <div class="nav-item" id="nav-my-expense" style="display:none" onclick="navigate('my-expense',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-      <span class="nav-label-text">My Expense</span>
-    </div>
-    <div class="nav-item" id="nav-rental" style="display:none" onclick="navigate('rental',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
-      <span class="nav-label-text">Rental</span>
-    </div>
-    <div class="nav-item" id="nav-dropdown-master" style="display:none" onclick="navigate('dropdown-master',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7m5-2l3 3 3-3"/></svg>
-      <span class="nav-label-text">Dropdown Master</span>
-    </div>
-    <div class="nav-item" id="nav-checklist-master" style="display:none" onclick="navigate('checklist-master',this)">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
-      <span class="nav-label-text">Checklist Master</span>
     </div>
     <div class="nav-group" data-group="hr">
       <div class="nav-group-head" onclick="toggleNavGroup('hr')" title="HR & Attendance">
@@ -1245,6 +1316,31 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="nav-item" id="nav-ows" style="display:none" onclick="navigate('ows',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         <span class="nav-label-text">OWS</span>
+      </div>
+      <div class="nav-item" id="nav-my-expense" style="display:none" onclick="navigate('my-expense',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+        <span class="nav-label-text">My Expense</span>
+      </div>
+      <div class="nav-item" id="nav-rental" style="display:none" onclick="navigate('rental',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <span class="nav-label-text">Rental</span>
+      </div>
+      </div>
+    </div>
+    <div class="nav-group" data-group="settings">
+      <div class="nav-group-head" onclick="toggleNavGroup('settings')" title="Settings">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.3 4.3c.4-1.7 2.9-1.7 3.4 0a1.7 1.7 0 002.6 1.1c1.5-.9 3.3.8 2.4 2.4a1.7 1.7 0 001 2.5c1.8.5 1.8 2.9 0 3.4a1.7 1.7 0 00-1 2.6c.9 1.5-.9 3.3-2.4 2.4a1.7 1.7 0 00-2.6 1c-.5 1.8-2.9 1.8-3.4 0a1.7 1.7 0 00-2.5-1c-1.6.9-3.3-.9-2.4-2.4a1.7 1.7 0 00-1.1-2.6c-1.7-.5-1.7-2.9 0-3.4a1.7 1.7 0 001.1-2.5c-.9-1.6.8-3.3 2.4-2.4 1 .6 2.3.1 2.5-1.1z"/><circle cx="12" cy="12" r="3" stroke-width="2"/></svg>
+        <span class="nav-label-text">Settings</span>
+        <svg class="nav-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="nav-group-items">
+      <div class="nav-item" id="nav-dropdown-master" style="display:none" onclick="navigate('dropdown-master',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7m5-2l3 3 3-3"/></svg>
+        <span class="nav-label-text">Dropdown Master</span>
+      </div>
+      <div class="nav-item" id="nav-checklist-master" style="display:none" onclick="navigate('checklist-master',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+        <span class="nav-label-text">Checklist Master</span>
       </div>
       </div>
     </div>
