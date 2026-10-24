@@ -19586,49 +19586,83 @@ async function loadMdSummary(fromPreset) {
   if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   renderMdSummary(r);
 }
+// Clickable MD Summary (client 2026-10-24): a tile opens its module, a row
+// opens that employee's attendance / KM / tasks for the same dates.
+function mdGo(page) {
+  const nav = document.getElementById('nav-' + page);
+  if (ME.role !== 'admin' && nav && nav.style.display === 'none') { showToast("Is page ka access nahi hai", 'error'); return; }
+  navigate(page, nav);
+}
+async function mdOpenEmp(uid, page) {
+  const f = document.getElementById('mdFrom').value, t = document.getElementById('mdTo').value;
+  const km = page === 'km';
+  document.getElementById(km ? 'attnKmFrom' : 'attnHistFrom').value = f;
+  document.getElementById(km ? 'attnKmTo' : 'attnHistTo').value = t;
+  const selId = km ? 'attnKmEmpFilter' : 'attnEmpFilter';
+  await populateEmployeeDropdown(selId);
+  document.getElementById(selId).value = String(uid);
+  navigate(page, document.getElementById('nav-' + page));
+}
+function mdOpenTasks(uid, name) {
+  const sel = document.getElementById('dashEmployeeFilter');
+  if (sel) {
+    if (![...sel.options].some(o => o.value === String(uid))) sel.add(new Option(name, uid));
+    sel.value = String(uid);
+  }
+  navigate('dashboard', document.querySelector('.nav-item[onclick^="navigate(\'dashboard\'"]'));
+}
+function mdOpenSalesman(name) {
+  mdGo('o2d-fms');
+  const q = document.getElementById('o2dSearch');
+  if (q) { q.value = name; o2dSearchChanged(); }
+}
 function renderMdSummary(r) {
   const n = v => Number(v || 0).toLocaleString('en-IN');
-  const tile = (icon, label, value, sub, color) => `<div style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:12px 14px;min-width:150px;flex:1">
+  const isBoss = ['admin', 'hod', 'pc'].includes(ME.role);
+  const rowClick = js => js ? ` onclick="${js}" style="cursor:pointer" title="Click karke detail dekhein"` : '';
+  const tile = (icon, label, value, sub, color, page) => `<div${page ? ` onclick="mdGo('${page}')" title="${esc(label)} — page kholo"` : ''} class="${page ? 'md-tile-click' : ''}" style="background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:12px 14px;min-width:150px;flex:1${page ? ';cursor:pointer' : ''}">
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.4px">${icon} ${label}</div>
-    <div style="font-size:21px;font-weight:800;color:${color || 'var(--gray-900)'}">${value}</div><div style="font-size:11.5px;color:var(--gray-500)">${sub || ''}</div></div>`;
+    <div style="font-size:21px;font-weight:800;color:${color || 'var(--gray-900)'}">${value}</div><div style="font-size:11.5px;color:var(--gray-500)">${sub || ''}</div>${page ? '<div style="font-size:10.5px;color:var(--color-primary);font-weight:700;margin-top:2px">Kholo ›</div>' : ''}</div>`;
   const box = (title, inner) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:14px 16px;margin-bottom:14px">
     <div style="font-size:14px;font-weight:800;color:var(--gray-800);margin-bottom:10px">${title}</div>${inner}</div>`;
   const bad = v => v ? `<b style="color:var(--color-danger-text)">${v}</b>` : '<span style="color:var(--gray-300)">0</span>';
   const dl = list => list.map(d => fmtDateDMY(d).slice(0, 5)).join(', ');
   const o = r.o2d, sv = r.service;
   const tiles = [
-    o ? tile('🛒', 'Orders', n(o.orders), `₹${n(o.value)} · ${n(o.pending)} pending${o.onHold ? ' · ' + o.onHold + ' hold' : ''}`) : tile('🛒', 'Orders', '—', 'O2D sheet nahi padh paye'),
-    o ? tile('🧾', 'Billed', n(o.billed), `₹${n(o.billedAmount)}`, 'var(--color-success-text)') : '',
-    sv ? tile('🔧', 'Complaints', n(sv.registered), `${n(sv.solved)} solved · ${n(sv.open)} open`) : tile('🔧', 'Complaints', '—', 'Service sheet nahi padh paye'),
-    r.replacement ? tile('♻️', 'Replacement', n(r.replacement.received), `${n(r.replacement.delivered)} delivered · ${n(r.replacement.open)} open`) : '',
-    tile('🎯', 'Leads', n(r.leads.incoming + r.leads.outgoing), `${r.leads.incoming} in · ${r.leads.outgoing} out · ${r.leads.onboarded} onboarded`),
-    r.cheques ? tile('🏦', 'Cheques', n(r.cheques.received), `₹${n(r.cheques.amount)} · ${r.cheques.cleared} pass${r.cheques.bounced ? ` · <b style="color:var(--color-danger-text)">${r.cheques.bounced} bounce</b>` : ''}`) : '',
-    tile('💸', 'Petty kharcha', '₹' + n(r.petty.spent), `${n(r.petty.entries)} entries`),
-    r.samples ? tile('🎁', 'Samples', n(r.samples.given), `${n(r.samples.qty)} pcs · ${r.samples.open} wapas baaki`) : ''
+    o ? tile('🛒', 'Orders', n(o.orders), `₹${n(o.value)} · ${n(o.pending)} pending${o.onHold ? ' · ' + o.onHold + ' hold' : ''}`, '', 'o2d-fms') : tile('🛒', 'Orders', '—', 'O2D sheet nahi padh paye'),
+    o ? tile('🧾', 'Billed', n(o.billed), `₹${n(o.billedAmount)}`, 'var(--color-success-text)', 'o2d-fms') : '',
+    sv ? tile('🔧', 'Complaints', n(sv.registered), `${n(sv.solved)} solved · ${n(sv.open)} open`, '', 'service-fms') : tile('🔧', 'Complaints', '—', 'Service sheet nahi padh paye'),
+    r.replacement ? tile('♻️', 'Replacement', n(r.replacement.received), `${n(r.replacement.delivered)} delivered · ${n(r.replacement.open)} open`, '', 'replacement-fms') : '',
+    tile('🎯', 'Leads', n(r.leads.incoming + r.leads.outgoing), `${r.leads.incoming} in · ${r.leads.outgoing} out · ${r.leads.onboarded} onboarded`, '', 'lead-fms'),
+    r.cheques ? tile('🏦', 'Cheques', n(r.cheques.received), `₹${n(r.cheques.amount)} · ${r.cheques.cleared} pass${r.cheques.bounced ? ` · <b style="color:var(--color-danger-text)">${r.cheques.bounced} bounce</b>` : ''}`, '', 'cheque-fms') : '',
+    tile('💸', 'Petty kharcha', '₹' + n(r.petty.spent), `${n(r.petty.entries)} entries`, '', 'petty-cash'),
+    r.samples ? tile('🎁', 'Samples', n(r.samples.given), `${n(r.samples.qty)} pcs · ${r.samples.open} wapas baaki`, '', 'samples') : ''
   ].join('');
   const att = r.attendance;
   const attTot = att.reduce((a, x) => ({ absent: a.absent + x.absent, missedOut: a.missedOut + x.missedOut, leave: a.leave + x.leave }), { absent: 0, missedOut: 0, leave: 0 });
   const attHtml = att.length ? `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">Total: <b style="color:var(--color-danger-text)">${attTot.absent}</b> din absent (bina punch) · <b style="color:var(--color-warning-text)">${attTot.missedOut}</b> punch-out miss · ${attTot.leave} leave</div>
     <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Employee</th><th style="text-align:right">Working din</th><th style="text-align:right">Punch In</th><th style="text-align:right">Punch Out</th><th style="text-align:right">Absent</th><th style="text-align:right">Out miss</th><th style="text-align:right">Leave</th><th>Kab nahi kiya</th></tr></thead><tbody>
-    ${att.slice().sort((a, b) => (b.absent + b.missedOut) - (a.absent + a.missedOut) || a.name.localeCompare(b.name)).map(x => `<tr>
+    ${att.slice().sort((a, b) => (b.absent + b.missedOut) - (a.absent + a.missedOut) || a.name.localeCompare(b.name)).map(x => `<tr${rowClick(ME.role === 'admin' && x.userId ? `mdOpenEmp(${x.userId},'attendance')` : '')}>
       <td style="font-weight:600;white-space:nowrap">${esc(x.name)}<div style="font-size:11px;color:var(--gray-400);font-weight:400">${esc(x.department)}</div></td>
       <td style="text-align:right">${x.working}</td><td style="text-align:right">${x.punchIn}</td><td style="text-align:right">${x.punchOut}</td>
       <td style="text-align:right">${bad(x.absent)}</td><td style="text-align:right">${x.missedOut ? `<b style="color:var(--color-warning-text)">${x.missedOut}</b>` : '<span style="color:var(--gray-300)">0</span>'}</td><td style="text-align:right">${x.leave || ''}</td>
       <td style="font-size:11.5px;color:var(--gray-600);min-width:160px">${x.absentDays.length ? '❌ ' + esc(dl(x.absentDays)) : ''}${x.noOutDays.length ? `${x.absentDays.length ? '<br/>' : ''}⏏ out nahi: ${esc(dl(x.noOutDays))}` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi attendance data nahi</div>';
   const tk = r.tasks;
   const tkHtml = tk.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Employee</th><th style="text-align:right">Naye diye</th><th style="text-align:right">Done</th><th style="text-align:right">Late done</th><th style="text-align:right">Pending</th><th style="text-align:right">Overdue</th><th style="text-align:right">Checklist</th></tr></thead><tbody>
-    ${tk.map(x => `<tr><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${x.given}</td><td style="text-align:right;color:var(--color-success-text);font-weight:700">${x.done}</td>
+    ${tk.map(x => `<tr${rowClick(isBoss && x.userId ? `mdOpenTasks(${x.userId},'${jsArg(x.name)}')` : '')}><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${x.given}</td><td style="text-align:right;color:var(--color-success-text);font-weight:700">${x.done}</td>
       <td style="text-align:right">${x.doneLate ? `<span style="color:var(--color-warning-text)">${x.doneLate}</span>` : '0'}</td><td style="text-align:right">${x.pending}</td><td style="text-align:right">${bad(x.overdue)}</td>
       <td style="text-align:right">${x.checklist ? `${x.checklistDone}/${x.checklist}` : '—'}</td></tr>`).join('')}</tbody></table></div>
     ${r.reminders ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:6px">🔔 Is samay ${r.reminders} delegation reminder log hue.</div>` : ''}` : '<div class="empty">Koi task nahi</div>';
   const fd = r.field;
   const fdHtml = fd.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Employee</th><th style="text-align:right">KM</th><th style="text-align:right">Petrol ₹</th><th style="text-align:right">Tour ₹ (approved)</th><th style="text-align:right">Tour pending</th><th style="text-align:right">Visits</th><th style="text-align:right">Order mila</th><th style="text-align:right">Order ₹</th></tr></thead><tbody>
-    ${fd.map(x => `<tr><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${n(x.km)}${x.kmDays ? `<div style="font-size:10.5px;color:var(--gray-400)">${x.kmDays} din</div>` : ''}</td>
+    ${fd.map(x => `<tr${rowClick(ME.role === 'admin' && x.userId ? `mdOpenEmp(${x.userId},'km')` : '')}><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${n(x.km)}${x.kmDays ? `<div style="font-size:10.5px;color:var(--gray-400)">${x.kmDays} din</div>` : ''}</td>
       <td style="text-align:right">${r.kmRate ? '₹' + n(Math.round(x.km * r.kmRate)) : '—'}</td><td style="text-align:right">${x.tourApproved ? '₹' + n(x.tourApproved) : '—'}</td><td style="text-align:right">${x.tourPending ? '₹' + n(x.tourPending) : '—'}</td>
       <td style="text-align:right">${x.visits || '—'}</td><td style="text-align:right">${x.ordered || '—'}</td><td style="text-align:right;font-weight:700">${x.orderValue ? '₹' + n(x.orderValue) : '—'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi field data nahi</div>';
   const salesHtml = o && o.bySalesman.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Order By</th><th style="text-align:right">Orders</th><th style="text-align:right">Value ₹</th></tr></thead><tbody>
-    ${o.bySalesman.map(x => `<tr><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${x.orders}</td><td style="text-align:right;font-weight:700">₹${n(x.value)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Is samay koi order nahi</div>';
-  document.getElementById('mdWrap').innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${tiles}</div>`
+    ${o.bySalesman.map(x => `<tr${rowClick(`mdOpenSalesman('${jsArg(x.name)}')`)}><td style="font-weight:600">${esc(x.name)}</td><td style="text-align:right">${x.orders}</td><td style="text-align:right;font-weight:700">₹${n(x.value)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Is samay koi order nahi</div>';
+  document.getElementById('mdWrap').innerHTML = `<style>.md-tile-click:hover{border-color:var(--color-primary)!important;box-shadow:0 2px 10px rgba(1,80,170,.12)}#mdWrap tr[onclick]:hover td{background:var(--color-primary-light)}</style>
+    <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:8px">👆 Kisi box ya naam par click karein — uski poori detail khulegi.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${tiles}</div>`
     + box(`🕘 Attendance — ${esc(fmtDateDMY(r.from))} se ${esc(fmtDateDMY(r.to > r.today ? r.today : r.to))}`, attHtml)
     + box('✅ Tasks (Delegation / Checklist)', tkHtml)
     + box('🛣️ Field — KM, Tour, Visits', fdHtml)
