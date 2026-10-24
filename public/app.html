@@ -19735,7 +19735,17 @@ function scotBuildSchedule() {
       day += freq;
     }
   });
+  // Manual "agla follow-up" dates from the last call (Ajay sir, 2026-10-24) join that day's list.
+  scotFollow = new Set();
+  const ym = `${y}-${String(m).padStart(2, '0')}`;
+  Object.entries(scotData.lastCalls || {}).forEach(([id, c]) => {
+    if (!c.next || c.next.slice(0, 7) !== ym || !scotData.byId[id]) return;
+    const l = scotSched[c.next] = scotSched[c.next] || [];
+    if (!l.includes(Number(id))) l.push(Number(id));
+    scotFollow.add(`${id}|${c.next}`);
+  });
 }
+let scotFollow = new Set();
 function scotSetTab(t) { scotTab = t; renderScot(); }
 function scotSetFilter(f) { scotFilter = f; renderScot(); }
 function scotSelectDate(k) { scotDate = k; renderScot(); }
@@ -19790,8 +19800,10 @@ function scotCallsHtml() {
         <div style="display:flex;gap:6px;align-items:flex-start"><div style="font-weight:800;font-size:13.5px;flex:1;line-height:1.3">${esc(d.name)}</div>
           ${called ? '<span style="font-size:11px;font-weight:800;color:var(--color-success)">✓ CALLED</span>' : scotTierBadge(d.tier)}
           <span style="font-size:10.5px;color:var(--gray-500);white-space:nowrap">${d.isNew ? '<b style="color:var(--color-success)">🆕 NEW</b>' : `#${d.rank || '—'}/${oldCount}`}</span></div>
+        ${scotFollow.has(`${d.id}|${scotDate}`) ? '<div style="font-size:11px;font-weight:800;color:var(--color-primary);margin-top:3px">📌 Follow-up date aaj</div>' : ''}
         <div style="font-size:12px;color:var(--gray-600);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">${d.person ? `<span>👤 ${esc(d.person)}</span>` : ''}<span>🔁 Har ${d.freq} din</span>${lo ? `<span>🛒 ${esc(fmtDateDMY(lo.date))} · ${inr(lo.amount)}</span>` : ''}${d.source ? `<span>${esc(d.source)}</span>` : ''}</div>
       </div>
+      ${(() => { const lc = (scotData.lastCalls || {})[d.id]; return lc && (lc.note || lc.next) ? `<div style="font-size:11.5px;color:var(--gray-600);margin-top:6px;padding:5px 8px;background:var(--gray-50);border-radius:8px">💬 ${esc(fmtDateDMY(lc.date))}${lc.by ? ' · ' + esc(lc.by) : ''}: ${esc(lc.note || '—')}${lc.next ? ` · <b style="color:var(--color-primary)">agla ${esc(fmtDateDMY(lc.next))}</b>` : ''}</div>` : ''; })()}
       ${d.phone ? `<a href="tel:${esc(d.phone)}" style="display:inline-block;margin-top:6px;font-weight:700;color:var(--color-primary);font-size:13px">📞 ${esc(d.phone)}</a>` : ''}
       ${Object.keys(cats).length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${Object.entries(cats).map(([c, n]) => `<span style="font-size:10.5px;padding:2px 7px;border-radius:8px;background:var(--gray-100);color:var(--gray-700)">${esc(c)} · ${n}</span>`).join('')}</div>` : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
@@ -19808,10 +19820,39 @@ function scotCallsHtml() {
 }
 async function scotToggleCall(id) {
   const k = `${id}|${scotDate}`, done = !scotCalled.has(k);
-  if (done) scotCalled.add(k); else scotCalled.delete(k);
+  if (done) return scotOpenCallNote(id);
+  scotCalled.delete(k);
   renderScot();
-  const r = await api('/api/scot/call', 'POST', { dealerId: id, date: scotDate, done });
-  if (r.error) { if (done) scotCalled.delete(k); else scotCalled.add(k); renderScot(); showToast(r.error, 'error'); }
+  const r = await api('/api/scot/call', 'POST', { dealerId: id, date: scotDate, done: false });
+  if (r.error) { scotCalled.add(k); renderScot(); showToast(r.error, 'error'); }
+}
+// "Kya baat hui" + optional next follow-up date when a call is marked done.
+function scotOpenCallNote(id) {
+  const d = scotData.byId[id], last = (scotData.lastCalls || {})[id];
+  const min = new Date(scotDate + 'T00:00:00'); min.setDate(min.getDate() + 1);
+  vrlModal('scotNoteModal', `${scotModalHead('scotNoteModal', '📞 Call ho gayi')}<div style="font-weight:700;margin-bottom:8px">${esc(d.name)}</div>
+    ${last && last.note ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Pichhli baar (${esc(fmtDateDMY(last.date))}): ${esc(last.note)}</div>` : ''}
+    <label style="font-size:12px;font-weight:600">Kya baat hui?</label>
+    <textarea id="scotNoteText" rows="3" placeholder="Jaise: order next week, payment Monday tak, naya catalogue manga…" style="${VRL_IN};resize:vertical;margin-bottom:8px"></textarea>
+    <label style="font-size:12px;font-weight:600">Agla follow-up <span style="font-weight:400;color:var(--gray-500)">(optional — us din list me aa jayega)</span></label>
+    <input id="scotNextDate" type="date" min="${owsYmd(min)}" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="scotSaveCall(${id},this)">✓ Save</button>`, 460);
+  setTimeout(() => { const t = document.getElementById('scotNoteText'); if (t) t.focus(); }, 50);
+}
+async function scotSaveCall(id, btn) {
+  const note = document.getElementById('scotNoteText').value.trim(), nextDate = document.getElementById('scotNextDate').value;
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/scot/call', 'POST', { dealerId: id, date: scotDate, done: true, note, nextDate });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('scotNoteModal');
+  scotCalled.add(`${id}|${scotDate}`);
+  scotData.lastCalls = scotData.lastCalls || {};
+  const prev = scotData.lastCalls[id];
+  if (!prev || prev.date <= scotDate) scotData.lastCalls[id] = { date: scotDate, note, next: nextDate, by: ME.name || '' };
+  scotBuildSchedule();
+  renderScot();
+  if (nextDate) showToast(`✅ Saved — agla follow-up ${fmtDateDMY(nextDate)}`);
 }
 // Calls done vs orders got, for the selected month (client: "kitno ne order diya, conversion %").
 function scotReportHtml() {
@@ -24997,7 +25038,7 @@ function renderGrossProfit() {
     rows = gpOnlyNoCost ? rows.filter(p => p.costRate == null).sort((a, b) => b.sales - a.sales) : gpSortRows(rows);
     const page = rows.slice(0, gpShown);
     table = `<table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Product</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Avg Sale Rate</th><th style="${th}">Cost Rate</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
+      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Product</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Avg Sale Rate (ex GST)</th><th style="${th}">Cost Rate (ex GST)</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
       <tbody>${page.map((p, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}">
         <td style="${td};text-align:center">${rank(i)}</td>
         <td style="${td};text-align:left;white-space:normal;min-width:220px"><b style="color:var(--gray-900)">${esc(p.item)}</b>${p.poName ? `<div style="font-size:10.5px;color:var(--gray-400)">cost from PO: ${esc(p.poName)}</div>` : ''}</td>
@@ -25059,7 +25100,7 @@ function renderGrossProfit() {
       </div>
       <div class="mis-table-wrap" style="overflow:auto;max-height:680px">${table}</div>
     </div>
-    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) <b>bina GST</b> — O2D rate ÷ 1.18 (item ka GST % Price List me ho to wahi) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else Purchase FMS PO Final Rate (qty-weighted average, bina GST) of the same stock item.${gpView === 'vendor' ? ' Vendor-wise: an item bought from more than one vendor is split between them by PO qty, each share at that vendor\'s own PO rate.' : ''}</div>`;
+    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) <b>bina GST</b> — O2D rate ÷ 1.18 (item ka GST % Price List me ho to wahi) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else the <b>latest</b> Purchase FMS PO Final Rate (bina GST) of the same stock item.${gpView === 'vendor' ? ' Vendor-wise: an item bought from more than one vendor is split between them by PO qty, each share at that vendor\'s own PO rate.' : ''}</div>`;
 }
 function exportGrossProfit() {
   if (gpView === 'salesman') return exportSalesmanPl();
@@ -25067,7 +25108,7 @@ function exportGrossProfit() {
   if (!gpData) return;
   const q = v => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lines = gpView === 'product'
-    ? [['Product', 'Qty', 'Sales', 'Avg Sale Rate', 'Cost Rate', 'Cost Source', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.products).map(p => [p.item, p.qty, p.sales, p.avgRate, p.costRate, p.costSource, p.cost, p.gp, p.gpPct].map(q).join(',')))
+    ? [['Product', 'Qty', 'Sales (ex GST)', 'Avg Sale Rate (ex GST)', 'Cost Rate (ex GST)', 'Cost Source', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.products).map(p => [p.item, p.qty, p.sales, p.avgRate, p.costRate, p.costSource, p.cost, p.gp, p.gpPct].map(q).join(',')))
     : gpView === 'vendor'
     ? [['Vendor', 'Products', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.vendors || []).map(p => [p.vendor, p.products, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')))
     : [['Dealer', 'Bills', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.dealers).map(p => [p.party, p.bills, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')));

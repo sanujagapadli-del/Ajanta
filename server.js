@@ -12934,13 +12934,19 @@ async function gpLoadData(start, end, opts = {}) {
     const vendor = String(r[8] || '').trim().replace(/\s+/g, ' ') || '—';
     const v = c.vendors[vendor.toLowerCase()] = c.vendors[vendor.toLowerCase()] || { vendor, qty: 0, value: 0 };
     v.qty += w; v.value += w * rate;
+    // Cost = the LATEST PO's rate, not the average (Ajay sir, 2026-10-24:
+    // "last PO rate as updated rate"). Newest by PO date, then PO number.
+    const at = [Number(r[0]) || 0, parseInt(String(r[1] || '').replace(/\D/g, ''), 10) || 0];
+    const newer = x => !x || at[0] > x.at[0] || (at[0] === x.at[0] && at[1] >= x.at[1]);
+    if (newer(c.last)) c.last = { at, rate, po: String(r[1] || '') };
+    if (newer(v.last)) v.last = { at, rate };
   });
   const manualBy = Object.fromEntries(manual.map(m => [m.item_key, Number(m.cost_rate)]));
   const costFor = s => {
     const mk = manualBy[gpKey(s.item)];
     if (mk > 0) return { rate: mk, source: 'Manual' };
     const c = poCost[s.code];
-    if (c && c.qty > 0) return { rate: Math.round(c.value / c.qty * 100) / 100, source: 'PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
+    if (c && c.qty > 0) return { rate: Math.round(c.last.rate * 100) / 100, source: c.last.po ? `Last PO ${c.last.po}` : 'Last PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
     return null;
   };
   return { sales, poCost, costFor, stockName, firstBill, lastBill };
@@ -13084,7 +13090,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       if (!vendors.length) addVendor(NO_PO_VENDOR, s, 1, c ? cost : null);
       else vendors.forEach(v => {
         const share = v.qty / pc.qty;
-        const rate = c && c.source === 'Manual' ? c.rate : v.value / v.qty;
+        const rate = c && c.source === 'Manual' ? c.rate : v.last.rate;
         addVendor(v.vendor, s, share, rate * s.qty * share);
       });
       totals.sales += s.amount; totals.qty += s.qty;
@@ -15490,6 +15496,11 @@ async function scotTables() {
     id INT AUTO_INCREMENT PRIMARY KEY, dealer_id INT NOT NULL, call_date DATE NOT NULL, called_by INT, called_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_scot_call (dealer_id, call_date)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // What was discussed + a manual next follow-up date (Ajay sir, 2026-10-24).
+  const [cc] = await db.query('SHOW COLUMNS FROM scot_calls');
+  const have = new Set(cc.map(c => c.Field));
+  if (!have.has('note')) await db.query('ALTER TABLE scot_calls ADD COLUMN note VARCHAR(1000) NULL');
+  if (!have.has('next_date')) await db.query('ALTER TABLE scot_calls ADD COLUMN next_date DATE NULL, ADD KEY (next_date)');
   await db.query(`CREATE TABLE IF NOT EXISTS scot_orders (
     id INT AUTO_INCREMENT PRIMARY KEY, dealer_id INT NOT NULL, order_date DATE NOT NULL, amount DECIMAL(12,2) NOT NULL, items VARCHAR(1000),
     payment VARCHAR(30), notes VARCHAR(1000), created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (dealer_id), KEY (order_date)
@@ -15530,9 +15541,14 @@ app.get('/api/scot', requireAuth, async (req, res) => {
     const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : scotYmd().slice(0, 7);
     const [dealers] = await db.query("SELECT *, DATE_FORMAT(added_date,'%Y-%m-%d') AS added_date FROM scot_dealers WHERE active = 1 ORDER BY id");
     const [calls] = await db.query(`SELECT dealer_id, DATE_FORMAT(call_date,'%Y-%m-%d') AS d FROM scot_calls WHERE call_date BETWEEN ? AND LAST_DAY(?)`, [month + '-01', month + '-01']);
+    // Latest call per dealer (its note + next follow-up date), whatever month it was in.
+    const [last] = await db.query(`SELECT c.dealer_id, DATE_FORMAT(c.call_date,'%Y-%m-%d') AS d, c.note, DATE_FORMAT(c.next_date,'%Y-%m-%d') AS next_date, u.name AS by_name
+      FROM scot_calls c JOIN (SELECT dealer_id, MAX(call_date) AS m FROM scot_calls GROUP BY dealer_id) x ON x.dealer_id = c.dealer_id AND x.m = c.call_date
+      LEFT JOIN users u ON u.id = c.called_by`);
     const [orders] = await db.query(`SELECT o.*, DATE_FORMAT(o.order_date,'%Y-%m-%d') AS order_date, DATE_FORMAT(o.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, u.name AS by_name
       FROM scot_orders o LEFT JOIN users u ON u.id = o.created_by ORDER BY o.id DESC LIMIT 2000`);
     res.json({ month, dealers: dealers.map(scotDealerOut), calls: calls.map(c => [c.dealer_id, c.d]),
+      lastCalls: Object.fromEntries(last.map(c => [c.dealer_id, { date: c.d, note: c.note || '', next: c.next_date || '', by: c.by_name || '' }])),
       orders: orders.map(o => ({ id: o.id, dealerId: o.dealer_id, date: o.order_date, amount: Number(o.amount) || 0, items: o.items || '', payment: o.payment || '', notes: o.notes || '', createdAt: o.created_at, by: o.by_name || '' })),
       me: { isAdmin: req.session.role === 'admin' } });
   } catch (err) { sendServerError(res, err); }
@@ -15545,7 +15561,11 @@ app.post('/api/scot/call', requireAuth, async (req, res) => {
     const b = req.body || {};
     const id = Number(b.dealerId), date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : '';
     if (!id || !date) return res.status(400).json({ error: 'Dealer and date are required' });
-    if (b.done) await db.query('INSERT IGNORE INTO scot_calls (dealer_id, call_date, called_by) VALUES (?,?,?)', [id, date, req.session.userId]);
+    const note = String(b.note || '').trim().slice(0, 1000) || null;
+    const next = /^\d{4}-\d{2}-\d{2}$/.test(b.nextDate || '') ? b.nextDate : null;
+    if (next && next <= date) return res.status(400).json({ error: 'Agla follow-up aage ki date honi chahiye' });
+    if (b.done) await db.query(`INSERT INTO scot_calls (dealer_id, call_date, called_by, note, next_date) VALUES (?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE note = VALUES(note), next_date = VALUES(next_date)`, [id, date, req.session.userId, note, next]);
     else await db.query('DELETE FROM scot_calls WHERE dealer_id = ? AND call_date = ?', [id, date]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
