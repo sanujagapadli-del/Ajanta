@@ -8175,9 +8175,17 @@ function computeFifoAging(dealerKey, vouchers, ledgerBalance) {
   if (opening > 0.5) {
     openBills.push({ date: financialYearStartDate(new Date()), rawDate: financialYearStartLabel(new Date()), remaining: opening, vchNo: '', vchType: 'Opening Balance' });
   }
+  // A payment with no open bill left (an advance, a negative opening, or a
+  // receipt Tally lists before the same-day invoice) is carried forward onto
+  // the next bills — dropping it showed fully paid dealers as owing (A.S
+  // Electricals, 2026-10-24: ₹7,350 paid with bill 186 on 29-Apr reappeared
+  // as bills 717/920/1180 "open").
+  let advance = opening < -0.5 ? -opening : 0;
   rows.forEach(r => {
     if (r.debit > 0.5) {
-      openBills.push({ date: parseAnyDate(r.date) || financialYearStartDate(new Date()), rawDate: r.date, remaining: r.debit, vchNo: r.vchNo, vchType: r.vchType });
+      const applied = Math.min(advance, r.debit);
+      advance -= applied;
+      openBills.push({ date: parseAnyDate(r.date) || financialYearStartDate(new Date()), rawDate: r.date, remaining: r.debit - applied, vchNo: r.vchNo, vchType: r.vchType });
     } else if (r.credit > 0.5) {
       let toApply = r.credit;
       for (const bill of openBills) {
@@ -8187,7 +8195,7 @@ function computeFifoAging(dealerKey, vouchers, ledgerBalance) {
         bill.remaining -= applied;
         toApply -= applied;
       }
-      // leftover toApply beyond any open bill = an advance/overpayment — not represented here
+      advance += toApply;
     }
   });
 
