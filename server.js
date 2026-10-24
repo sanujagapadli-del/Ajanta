@@ -2534,8 +2534,12 @@ app.post('/api/km/payments', requireAuth, async (req, res) => {
     if (!userId || !week || new Date(week + 'T00:00:00Z').getUTCDay() !== 1) return res.status(400).json({ error: 'Week (Monday) and employee required' });
     const [[k]] = await withAttendanceTables(() => db.query(`SELECT SUM(GREATEST(evening_km - morning_km, 0)) AS km FROM daily_km
       WHERE user_id=? AND date BETWEEN ? AND DATE_ADD(?, INTERVAL 6 DAY) AND morning_km IS NOT NULL AND evening_km IS NOT NULL`, [userId, week, week]));
-    const km = Math.round((Number(k.km) || 0) * 10) / 10, rate = await getKmRate();
-    const amount = rate != null ? plRound(km * rate) : 0;
+    // Admin may type the week's KM / money himself on Monday (Ajay sir, 2026-10-24);
+    // otherwise the daily readings × the rate, as before.
+    const typed = v => v !== undefined && v !== null && v !== '' && Number(v) >= 0 ? Number(v) : null;
+    const rate = await getKmRate();
+    const km = typed(req.body.km) != null ? Math.round(typed(req.body.km) * 10) / 10 : Math.round((Number(k.km) || 0) * 10) / 10;
+    const amount = typed(req.body.amount) != null ? plRound(typed(req.body.amount)) : (rate != null ? plRound(km * rate) : 0);
     const [r] = await db.query('INSERT IGNORE INTO km_payments (user_id, week_start, km, rate, amount, note, paid_by) VALUES (?,?,?,?,?,?,?)',
       [userId, week, km, rate, amount, String(req.body.note || '').trim().slice(0, 255) || null, req.session.userId]);
     if (!r.affectedRows) return res.status(400).json({ error: 'Is hafte ka KM pehle hi paid mark hai' });

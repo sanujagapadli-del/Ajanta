@@ -8466,15 +8466,93 @@ function kmPaidCell(g) {
   if (p) return `<span style="color:var(--color-success-text);font-weight:700" title="${esc(p.paidBy ? 'By ' + p.paidBy : '')}${p.note ? ' · ' + esc(p.note) : ''}">✅ ₹${Math.round(p.amount).toLocaleString('en-IN')}</span><div style="font-size:10.5px;color:var(--gray-500)">${fmtDateDMY(p.paidAt.slice(0, 10))}${_kmPay.canPay ? ` · <a href="#" onclick="kmUnpay(${g.userId},'${g.wk}');return false" style="color:var(--gray-400)">undo</a>` : ''}</div>`;
   const weekOver = new Date(g.wk + 'T00:00:00').getTime() + 7 * 86400000 <= Date.now();
   if (!_kmPay.canPay) return '<span style="color:var(--gray-400)">Pending</span>';
-  return `<button class="row-action-btn" style="color:var(--color-success-text)" onclick="kmPay(${g.userId},'${g.wk}',${weekOver})">💰 Paid</button>`;
+  return `<button class="row-action-btn" style="color:var(--color-success-text)" onclick="kmPay(${g.userId},'${g.wk}',${weekOver},${Math.round(g.total * 10) / 10},'${jsArg(g.name)}')">💰 Paid</button>`;
 }
-function kmPay(userId, wk, weekOver) {
-  const msg = weekOver ? 'Is hafte ka KM paisa de diya — mark karein?' : 'Ye hafta abhi poora nahi hua — fir bhi paid mark karein? (baad ki entries is amount mein nahi judengi)';
-  showConfirm({ icon: '💰', title: 'KM Paid', msg, okLabel: 'Paid' }, async () => {
-    const r = await api('/api/km/payments', 'POST', { userId, weekStart: wk });
-    if (r.error) { showToast(r.error, 'error'); return; }
-    showToast(`✅ Paid — ₹${Math.round(r.amount).toLocaleString('en-IN')}`); loadKmHistory();
-  });
+// The KM / money can be typed by admin (Ajay sir, 2026-10-24) — prefilled from the daily readings.
+function kmPay(userId, wk, weekOver, km, name) {
+  const amt = Math.round((Number(km) || 0) * kmRateInfo.rate);
+  vrlModal('kmPayModal', `${scotModalHead('kmPayModal', '💰 KM Paid')}
+    <div style="font-weight:700">${esc(name || '')}</div><div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Hafta ${esc(fmtDateDMY(wk))} se 7 din${weekOver ? '' : ' — <b style="color:var(--color-warning-text)">abhi poora nahi hua</b>'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">KM</label><input id="kmPayKm" type="number" min="0" step="any" value="${km || 0}" oninput="document.getElementById('kmPayAmt').value=Math.round((Number(this.value)||0)*${kmRateInfo.rate})" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Paisa ₹</label><input id="kmPayAmt" type="number" min="0" step="any" value="${amt}" style="${VRL_IN}"/></div></div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:8px">Daily readings se ${fmtKm(km || 0)} km × ₹${kmRateInfo.rate} — zaroorat ho to badal dein.</div>
+    <input id="kmPayNote" placeholder="Note (optional)" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="kmPaySave(${userId},'${wk}',this)">✓ Paid mark karo</button>`, 420);
+}
+async function kmPaySave(userId, wk, btn) {
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/km/payments', 'POST', { userId, weekStart: wk, km: document.getElementById('kmPayKm').value, amount: document.getElementById('kmPayAmt').value, note: document.getElementById('kmPayNote').value.trim() });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('kmPayModal');
+  showToast(`✅ Paid — ₹${Math.round(r.amount).toLocaleString('en-IN')}`); loadKmHistory();
+}
+// Monday weekly entry (Ajay sir, 2026-10-24): last week's KM + money for every
+// salesman on one screen; admin fills / corrects and saves all at once.
+const kmLastMonday = () => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7); return localIsoDate(d); };
+async function openKmMondayEntry(wk) {
+  wk = wk || kmLastMonday();
+  const end = new Date(wk + 'T00:00:00'); end.setDate(end.getDate() + 6);
+  vrlModal('kmMondayModal', `${scotModalHead('kmMondayModal', '🗓 Monday weekly KM entry')}<div class="empty">Loading…</div>`, 760);
+  const [rows, pays, roster] = await Promise.all([api(`/api/km/history?from=${wk}&to=${localIsoDate(end)}&employee=all`), api(`/api/km/payments?from=${wk}&to=${wk}`), api('/api/users/roster')]);
+  const auto = {};
+  (Array.isArray(rows) ? rows : []).forEach(r => { const x = auto[r.user_id] = auto[r.user_id] || { name: r.name, km: 0 }; if (r.day_km != null) x.km += Number(r.day_km); });
+  const paid = Object.fromEntries(((pays && pays.payments) || []).filter(p => p.weekStart === wk).map(p => [p.userId, p]));
+  _kmMondayRoster = (Array.isArray(roster) ? roster : []).filter(u => +u.is_active !== 0);
+  const users = _kmMondayRoster.filter(u => auto[u.id] || paid[u.id]);
+  Object.keys(auto).forEach(id => { if (!users.some(u => Number(u.id) === Number(id))) users.push({ id: Number(id), name: auto[id].name }); });
+  users.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const prev = new Date(wk + 'T00:00:00'); prev.setDate(prev.getDate() - 7);
+  const next = new Date(wk + 'T00:00:00'); next.setDate(next.getDate() + 7);
+  const body = `<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-outline" onclick="openKmMondayEntry('${localIsoDate(prev)}')">‹ Pichhla</button>
+      <b>${esc(fmtDateDMY(wk))} – ${esc(fmtDateDMY(localIsoDate(end)))}</b>
+      <button class="btn btn-sm btn-outline" onclick="openKmMondayEntry('${localIsoDate(next)}')">Agla ›</button>
+      <span style="margin-left:auto;font-size:12px;color:var(--gray-500)">Rate ₹${kmRateInfo.rate}/km</span></div>
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Salesman</th><th style="text-align:right">Readings se KM</th><th>KM</th><th>Paisa ₹</th><th>Note</th><th></th></tr></thead><tbody>
+    ${users.map(u => { const a = auto[u.id], p = paid[u.id], km = p ? p.km : Math.round(((a && a.km) || 0) * 10) / 10;
+      return `<tr data-uid="${u.id}"><td style="font-weight:600">${esc(u.name)}</td><td style="text-align:right;color:var(--gray-500)">${a ? fmtKm(Math.round(a.km * 10) / 10) : '—'}</td>
+        ${p ? `<td>${fmtKm(p.km)}</td><td style="font-weight:700">₹${Math.round(p.amount).toLocaleString('en-IN')}</td><td style="font-size:11.5px">${esc(p.note)}</td><td style="color:var(--color-success-text);font-weight:700;white-space:nowrap">✅ Paid</td>`
+        : `<td><input class="kmm-km" type="number" min="0" step="any" value="${km || ''}" oninput="this.closest('tr').querySelector('.kmm-amt').value=this.value?Math.round(Number(this.value)*${kmRateInfo.rate}):''" style="${VRL_IN};width:90px;padding:6px"/></td>
+          <td><input class="kmm-amt" type="number" min="0" step="any" value="${km ? Math.round(km * kmRateInfo.rate) : ''}" style="${VRL_IN};width:100px;padding:6px"/></td>
+          <td><input class="kmm-note" style="${VRL_IN};padding:6px;min-width:110px"/></td><td></td>`}</tr>`; }).join('') || '<tr><td colspan="6" class="empty">Koi salesman nahi</td></tr>'}
+    </tbody></table></div>
+    <select onchange="kmMondayAdd(this)" style="${VRL_IN};margin-top:8px;max-width:280px"><option value="">+ Salesman jodo (jiski reading nahi hai)</option>${_kmMondayRoster.filter(u => !users.some(x => Number(x.id) === Number(u.id))).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>
+    <button class="btn btn-green" style="width:100%;justify-content:center;margin-top:10px" onclick="saveKmMonday('${wk}',this)">✓ Bhare hue sab save karo (Paid)</button>`;
+  vrlModal('kmMondayModal', `${scotModalHead('kmMondayModal', '🗓 Monday weekly KM entry')}${body}`, 760);
+}
+let _kmMondayRoster = [];
+function kmMondayAdd(sel) {
+  const u = _kmMondayRoster.find(x => String(x.id) === sel.value);
+  if (!u) return;
+  const tb = document.querySelector('#kmMondayModal tbody');
+  tb.insertAdjacentHTML('beforeend', `<tr data-uid="${u.id}"><td style="font-weight:600">${esc(u.name)}</td><td style="text-align:right;color:var(--gray-500)">—</td>
+    <td><input class="kmm-km" type="number" min="0" step="any" oninput="this.closest('tr').querySelector('.kmm-amt').value=this.value?Math.round(Number(this.value)*${kmRateInfo.rate}):''" style="${VRL_IN};width:90px;padding:6px"/></td>
+    <td><input class="kmm-amt" type="number" min="0" step="any" style="${VRL_IN};width:100px;padding:6px"/></td><td><input class="kmm-note" style="${VRL_IN};padding:6px;min-width:110px"/></td><td></td></tr>`);
+  sel.querySelector(`option[value="${u.id}"]`).remove();
+  sel.value = '';
+}
+async function saveKmMonday(wk, btn) {
+  const rows = [...document.querySelectorAll('#kmMondayModal tr[data-uid]')].map(tr => ({ userId: Number(tr.dataset.uid), km: (tr.querySelector('.kmm-km') || {}).value, amount: (tr.querySelector('.kmm-amt') || {}).value, note: ((tr.querySelector('.kmm-note') || {}).value || '').trim() }))
+    .filter(x => x.amount !== undefined && x.amount !== '' && Number(x.amount) > 0);
+  if (!rows.length) { showToast('Kisi ka KM / paisa nahi bhara', 'error'); return; }
+  const restore = btnLoading(btn, 'Saving…');
+  let ok = 0; const errs = [];
+  for (const x of rows) { const r = await api('/api/km/payments', 'POST', { ...x, weekStart: wk }); if (r.error) errs.push(r.error); else ok++; }
+  restore();
+  showToast(`✅ ${ok} salesman paid save${errs.length ? ` · ${errs.length} nahi hue: ${errs[0]}` : ''}`, errs.length ? 'error' : undefined);
+  openKmMondayEntry(wk);
+  loadKmHistory();
+}
+// Weekly KM money file (Excel / CSV) for the dates on screen.
+async function exportKmWeekly() {
+  const from = document.getElementById('attnKmFrom').value, to = document.getElementById('attnKmTo').value;
+  const [pays, roster] = await Promise.all([api(`/api/km/payments?from=${from}&to=${to}`), api('/api/users/roster')]);
+  const nameOf = Object.fromEntries((Array.isArray(roster) ? roster : []).map(u => [u.id, u.name]));
+  const list = ((pays && pays.payments) || []).sort((a, b) => a.weekStart.localeCompare(b.weekStart) || String(nameOf[a.userId]).localeCompare(String(nameOf[b.userId])));
+  if (!list.length) { showToast('In dates me koi paid hafta nahi', 'error'); return; }
+  csvDownload([['Week (Monday)', 'Salesman', 'KM', 'Amount', 'Note', 'Paid on', 'Paid by'], ...list.map(p => [p.weekStart, nameOf[p.userId] || p.userId, p.km, Math.round(p.amount), p.note, p.paidAt, p.paidBy])], `weekly-km-${from}-to-${to}.csv`);
 }
 function kmUnpay(userId, wk) {
   showConfirm({ title: 'Paid hata dein?', okLabel: 'Hatao', okColor: 'var(--color-danger)' }, async () => {
@@ -8508,8 +8586,9 @@ async function loadKmHistory() {
   _kmPay = { canPay: !!(pays && pays.canPay), byKey: Object.fromEntries(((pays && pays.payments) || []).map(p => [`${p.userId}|${p.weekStart}`, p])) };
   if (rate && rate.rate) kmRateInfo = rate;
   if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
-  if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No kilometer entries in this range.</div>`; return; }
-  weeklyWrap.innerHTML = renderKmSummary(rows) + renderKmWeekly(rows);
+  const kmTools = _kmPay.canPay ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openKmMondayEntry()">🗓 Monday weekly entry</button><button class="btn btn-outline btn-sm" onclick="exportKmWeekly()">⬇ Weekly KM file (Excel)</button></div>` : '';
+  if (!rows.length) { weeklyWrap.innerHTML = kmTools; wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No kilometer entries in this range.</div>`; return; }
+  weeklyWrap.innerHTML = kmTools + renderKmSummary(rows) + renderKmWeekly(rows);
   wrap.innerHTML = renderKmTable(rows, isAdmin);
 }
 
