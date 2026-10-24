@@ -25866,6 +25866,7 @@ let gpOpenDealer = '';
 let gpOnlyNoCost = false;
 let gpSortBy = 'gp';
 let gpSortDir = 'desc';
+let gpCostDraft = {}; // item -> typed cost rate, not saved yet (saved together)
 // Sort by the chosen field; rows without a value (no cost) always go last.
 function gpSortRows(rows) {
   const dir = gpSortDir === 'asc' ? 1 : -1;
@@ -26095,11 +26096,30 @@ function gpSearch(v) {
   clearTimeout(gpSearch._t);
   gpSearch._t = setTimeout(() => { renderGrossProfit(); const el = document.getElementById('gpSearchBox'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250);
 }
-async function gpSaveCost(item, inputEl) {
-  const v = inputEl.value.trim();
-  const r = await api('/api/reports/product-cost', 'PUT', { itemName: item, costRate: v });
+// Client list #14 (2026-10-24): type all the rates, then one submit.
+function gpCostEdit(inputEl) {
+  const item = inputEl.dataset.item, v = inputEl.value.trim();
+  if (v === inputEl.dataset.orig) delete gpCostDraft[item]; else gpCostDraft[item] = v;
+  inputEl.style.borderColor = item in gpCostDraft ? 'var(--color-primary)' : inputEl.dataset.orig ? 'var(--gray-200)' : 'var(--color-warning-border)';
+  gpCostBar();
+}
+function gpCostBar() {
+  const n = Object.keys(gpCostDraft).length, b = document.getElementById('gpSaveCostsBtn');
+  if (!b) return;
+  b.style.display = n ? '' : 'none';
+  b.textContent = `💾 Save ${n} rate${n === 1 ? '' : 's'}`;
+}
+async function gpSaveCosts(btn) {
+  const costs = Object.entries(gpCostDraft).map(([itemName, costRate]) => ({ itemName, costRate }));
+  if (!costs.length) return;
+  const bad = costs.find(c => c.costRate !== '' && !(Number(c.costRate) > 0));
+  if (bad) { showToast(`Cost rate 0 se zyada honi chahiye: ${bad.itemName}`, 'error'); return; }
+  btn.disabled = true;
+  const r = await api('/api/reports/product-costs', 'PUT', { costs });
+  btn.disabled = false;
   if (r.error) { showToast(r.error, 'error'); return; }
-  showToast(v ? `✅ Cost saved: ${item}` : `Cost cleared: ${item}`);
+  gpCostDraft = {};
+  showToast(`✅ ${r.saved} rate${r.saved === 1 ? '' : 's'} saved${r.cleared ? ` · ${r.cleared} cleared` : ''}`);
   loadGrossProfit();
 }
 
@@ -26132,7 +26152,7 @@ function renderGrossProfit() {
         <td style="${td};font-weight:700">${gpInr(p.sales)}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.avgRate)}</td>
         <td style="${td}">${d.canEditCost
-          ? `<input type="number" min="0" step="0.01" value="${p.costRate == null ? '' : p.costRate}" placeholder="enter cost" onchange="gpSaveCost('${jsArg(p.item)}', this)" style="width:92px;padding:5px 7px;border:1.5px solid ${p.costRate == null ? 'var(--color-warning-border)' : 'var(--gray-200)'};border-radius:7px;font-size:12px;text-align:right;background:var(--surface);color:var(--gray-900)"/>`
+          ? `<input type="number" min="0" step="0.01" value="${esc(p.item in gpCostDraft ? gpCostDraft[p.item] : p.costRate == null ? '' : String(p.costRate))}" data-item="${esc(p.item)}" data-orig="${p.costRate == null ? '' : p.costRate}" placeholder="enter cost" oninput="gpCostEdit(this)" onkeydown="if(event.key==='Enter'){const b=document.getElementById('gpSaveCostsBtn');if(b&&b.style.display!=='none')gpSaveCosts(b)}" style="width:92px;padding:5px 7px;border:1.5px solid ${p.item in gpCostDraft ? 'var(--color-primary)' : p.costRate == null ? 'var(--color-warning-border)' : 'var(--gray-200)'};border-radius:7px;font-size:12px;text-align:right;background:var(--surface);color:var(--gray-900)"/>`
           : gpInr(p.costRate)}${p.costSource ? `<div style="font-size:10px;color:var(--gray-400)">${esc(p.costSource)}</div>` : ''}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
         <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
@@ -26182,11 +26202,13 @@ function renderGrossProfit() {
           </select>
           <button class="btn btn-outline btn-sm" onclick="gpSortDir=gpSortDir==='desc'?'asc':'desc';gpShown=60;renderGrossProfit()" title="Ascending / Descending" style="white-space:nowrap">${gpSortDir === 'desc' ? '↓ High → Low' : '↑ Low → High'}</button>
         </div>
-        <span style="font-size:11.5px;color:var(--gray-400)">${gpView !== 'product' ? `${gpView === 'vendor' ? 'vendor' : 'dealer'} par click = items` : d.canEditCost ? 'jis product ka PO nahi hai, uski laagat Cost Rate box me daalein' : ''}</span>
+        <span style="font-size:11.5px;color:var(--gray-400)">${gpView !== 'product' ? `${gpView === 'vendor' ? 'vendor' : 'dealer'} par click = items` : d.canEditCost ? 'jis product ka PO nahi hai, uski laagat Cost Rate box me daalein — sab rates daal ke ek saath Save' : ''}</span>
+        ${gpView === 'product' && d.canEditCost ? `<button id="gpSaveCostsBtn" class="btn btn-green btn-sm" onclick="gpSaveCosts(this)" style="white-space:nowrap;display:none"></button>` : ''}
       </div>
       <div class="mis-table-wrap" style="overflow:auto;max-height:680px">${table}</div>
     </div>
     <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales = O2D FMS lines with Make Bill done (order rate × qty, by bill date) <b>bina GST</b> — O2D rate ÷ 1.18 (item ka GST % Price List me ho to wahi) — O2D bills available ${fmtDateDMY(d.dataRange.from)} – ${fmtDateDMY(d.dataRange.to)}. Cost = Manual rate, else the <b>latest</b> Purchase FMS PO Final Rate (bina GST) of the same stock item.${gpView === 'vendor' ? ' Vendor-wise: an item bought from more than one vendor is split between them by PO qty, each share at that vendor\'s own PO rate.' : ''}</div>`;
+  gpCostBar();
 }
 function exportGrossProfit() {
   if (gpView === 'salesman') return exportSalesmanPl();

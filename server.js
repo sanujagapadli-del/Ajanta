@@ -13263,6 +13263,38 @@ app.put('/api/reports/product-cost', requireAuth, requireAdmin, async (req, res)
   } catch (err) { sendServerError(res, err); }
 });
 
+// Admin: many cost rates in one submit (client list #14, 2026-10-24: "rates
+// daal ke ek saath submit"). Body { costs: [{ itemName, costRate }] }; a blank
+// rate clears that item. All checked first, then written in one transaction.
+app.put('/api/reports/product-costs', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const list = Array.isArray(req.body && req.body.costs) ? req.body.costs : [];
+    if (!list.length) return res.status(400).json({ error: 'No rates to save' });
+    if (list.length > 500) return res.status(400).json({ error: 'Too many rates in one save' });
+    const rows = [];
+    for (const c of list) {
+      const name = String((c && c.itemName) || '').trim();
+      const k = gpKey(name);
+      if (!k) return res.status(400).json({ error: 'Item name required' });
+      const rate = c.costRate === '' || c.costRate == null ? null : Number(c.costRate);
+      if (rate != null && !(rate > 0)) return res.status(400).json({ error: `Cost rate must be more than 0: ${name}` });
+      rows.push({ k, name, rate });
+    }
+    await ensureProductCosts();
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      for (const r of rows) {
+        if (r.rate == null) await conn.query('DELETE FROM product_costs WHERE item_key=?', [r.k]);
+        else await conn.query('INSERT INTO product_costs (item_key, item_name, cost_rate, updated_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), cost_rate=VALUES(cost_rate), updated_by=VALUES(updated_by)',
+          [r.k, r.name.slice(0, 255), r.rate, req.session.userId]);
+      }
+      await conn.commit();
+    } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    res.json({ success: true, saved: rows.filter(r => r.rate != null).length, cleared: rows.filter(r => r.rate == null).length });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // ══════════════════════════════════════════════════════
 // SALESMAN PROFIT CENTER (client voice note, 2026-10-08) — every salesman is
 // a profit center: what he costs (salary for the days he was paid, petrol
