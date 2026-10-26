@@ -6582,7 +6582,9 @@ async function withDealerTables(fn) {
 const DEALER_DETAIL_COLS = [['owner_name', 'VARCHAR(255)'], ['alt_phone', 'VARCHAR(50)'], ['area', 'VARCHAR(255)'], ['address', 'VARCHAR(1000)'],
   ['dob', 'DATE'], ['anniversary', 'DATE'], ['gst_no', 'VARCHAR(30)'], ['notes', 'VARCHAR(1000)'], ['details_updated_by', 'INT'], ['details_updated_at', 'DATETIME'],
   // credit_days: payment terms; tally_name: the party's name in Tally when it is written differently
-  ['credit_days', 'INT'], ['tally_name', 'VARCHAR(255)']];
+  ['credit_days', 'INT'], ['tally_name', 'VARCHAR(255)'],
+  // bilty: a sample bilty photo of an outstation dealer, so everyone knows which transport his goods go by (client 2026-10-24)
+  ['bilty_url', 'VARCHAR(1000)'], ['bilty_transport', 'VARCHAR(255)'], ['bilty_updated_at', 'DATETIME']];
 let _dealerDetailColsOk = false;
 async function ensureDealerDetailCols() {
   await addMissingColumns('o2d_dealers', DEALER_DETAIL_COLS);
@@ -6738,6 +6740,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       d.details = { ownerName: row.owner_name || '', altPhone: row.alt_phone || '', area: row.area || '', address: row.address || '',
         dob: row.dob || '', anniversary: row.anniversary || '', gstNo: row.gst_no || '', notes: row.notes || '',
         updatedAt: row.details_updated_at || '', updatedBy: row.details_by_name || '' };
+      d.bilty = row.bilty_url || row.bilty_transport ? { url: row.bilty_url || '', transport: row.bilty_transport || '', updatedAt: row.bilty_updated_at || '' } : null;
     });
 
     paymentRows.forEach(p => { const d = ensure(p.counter_name); if (d) d.payments.push(p); });
@@ -6940,6 +6943,25 @@ app.post('/api/o2d-fms/dealers/:name/kyc', requireAuth, async (req, res) => {
     await withDealerTables(() => db.query(
       `INSERT INTO o2d_dealers (counter_name, ${col}) VALUES (?,?) ON DUPLICATE KEY UPDATE ${col}=VALUES(${col})`,
       [name, link]
+    ));
+    res.json({ success: true, link });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Bilty photo + transport name of an outstation dealer — same access as KYC.
+// image is optional (only the transport name can be changed).
+app.post('/api/o2d-fms/dealers/:name/bilty', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
+    const name = req.params.name.trim();
+    const { image } = req.body || {};
+    const transport = String((req.body || {}).transport || '').trim().slice(0, 255) || null;
+    if (!image && !transport) return res.status(400).json({ error: 'Bilty ki photo ya transport ka naam daalo' });
+    const link = image ? await uploadPhotoToDrive(image, `${name}-bilty-${Date.now()}.jpg`) : null;
+    await withDealerTables(() => db.query(
+      `INSERT INTO o2d_dealers (counter_name, bilty_url, bilty_transport, bilty_updated_at) VALUES (?,?,?,NOW())
+       ON DUPLICATE KEY UPDATE bilty_url=COALESCE(VALUES(bilty_url), bilty_url), bilty_transport=VALUES(bilty_transport), bilty_updated_at=NOW()`,
+      [name, link, transport]
     ));
     res.json({ success: true, link });
   } catch (err) { sendServerError(res, err); }
@@ -15254,6 +15276,18 @@ async function rentTables() {
   await db.query(`CREATE TABLE IF NOT EXISTS rental_payments (id INT AUTO_INCREMENT PRIMARY KEY, unit_id INT NOT NULL, for_month CHAR(7) NOT NULL,
     amount DECIMAL(12,2) NOT NULL, paid_on DATE NOT NULL, mode VARCHAR(20), note VARCHAR(500), created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     KEY (unit_id, for_month)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // Monthly charges on top of rent (client voice notes 2026-10-25): fixed maintenance, water (fixed ₹ or a share of
+  // the property's water bill), electricity from our sub-meter (₹/kW allotted + ₹/unit), and a yearly % rent hike.
+  // floor_share = how many floors the tenant holds (KK Fashion 3, half a floor 0.5…) — water and common loads
+  // (motor, lift) are split by it among the occupied units only.
+  await addMissingColumns('rental_units', [['floor', 'VARCHAR(60)'], ['floor_share', 'DECIMAL(6,3) NOT NULL DEFAULT 1'], ['maintenance', 'DECIMAL(10,2)'],
+    ['water_mode', "VARCHAR(10) NOT NULL DEFAULT 'none'"], ['water_fixed', 'DECIMAL(10,2)'], ['water_frac', 'DECIMAL(6,4)'],
+    ['elec_mode', "VARCHAR(10) NOT NULL DEFAULT 'own'"], ['elec_kw', 'DECIMAL(6,2)'], ['hike_pct', 'DECIMAL(5,2)'], ['hike_month', 'CHAR(7)']]);
+  // One row per property per month: the water bill, electricity rates, common loads [{name,kw,units}] and
+  // each sub-meter's units {unitId: units}.
+  await db.query(`CREATE TABLE IF NOT EXISTS rental_bills (property VARCHAR(255) NOT NULL, for_month CHAR(7) NOT NULL, water_bill DECIMAL(12,2),
+    fixed_per_kw DECIMAL(10,2) NOT NULL DEFAULT 300, unit_rate DECIMAL(10,3) NOT NULL DEFAULT 9.7, commons TEXT, readings TEXT,
+    updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (property, for_month)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   _rentOk = true;
 }
 app.get('/api/rental', requireAuth, requireAdmin, async (req, res) => {
@@ -15261,10 +15295,16 @@ app.get('/api/rental', requireAuth, requireAdmin, async (req, res) => {
     await rentTables();
     const [units] = await db.query('SELECT * FROM rental_units ORDER BY active DESC, property, tenant');
     const [pays] = await db.query("SELECT id, unit_id, for_month, amount, DATE_FORMAT(paid_on,'%Y-%m-%d') AS paid_on, mode, note FROM rental_payments ORDER BY paid_on DESC, id DESC");
+    const [bills] = await db.query('SELECT * FROM rental_bills ORDER BY for_month DESC');
     const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    const num = v => v == null ? null : Number(v), json = (s, d) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
     res.json({ today, units: units.map(u => ({ id: u.id, property: u.property, tenant: u.tenant, phone: u.phone || '', rent: Number(u.rent), dueDay: u.due_day,
-      startMonth: u.start_month, endMonth: u.end_month || '', deposit: u.deposit == null ? null : Number(u.deposit), notes: u.notes || '', active: !!u.active })),
-      payments: pays.map(p => ({ id: p.id, unitId: p.unit_id, month: p.for_month, amount: Number(p.amount), paidOn: p.paid_on, mode: p.mode || '', note: p.note || '' })) });
+      startMonth: u.start_month, endMonth: u.end_month || '', deposit: num(u.deposit), notes: u.notes || '', active: !!u.active,
+      floor: u.floor || '', floorShare: Number(u.floor_share), maintenance: num(u.maintenance) || 0, waterMode: u.water_mode, waterFixed: num(u.water_fixed) || 0,
+      waterFrac: num(u.water_frac), elecMode: u.elec_mode, elecKw: num(u.elec_kw) || 0, hikePct: num(u.hike_pct), hikeMonth: u.hike_month || '' })),
+      payments: pays.map(p => ({ id: p.id, unitId: p.unit_id, month: p.for_month, amount: Number(p.amount), paidOn: p.paid_on, mode: p.mode || '', note: p.note || '' })),
+      bills: bills.map(b => ({ property: b.property, month: b.for_month, waterBill: num(b.water_bill) || 0, fixedPerKw: Number(b.fixed_per_kw), unitRate: Number(b.unit_rate),
+        commons: json(b.commons, []), readings: json(b.readings, {}) })) });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/rental/unit', requireAuth, requireAdmin, async (req, res) => {
@@ -15276,10 +15316,18 @@ app.post('/api/rental/unit', requireAuth, requireAdmin, async (req, res) => {
     if (!(rent > 0)) return res.status(400).json({ error: 'Mahine ka kiraya daalein' });
     if (!m(b.startMonth)) return res.status(400).json({ error: 'Kab se (mahina) chunein' });
     const dueDay = Math.min(28, Math.max(1, parseInt(b.dueDay, 10) || 5));
+    const amt = v => v === '' || v == null || !isFinite(Number(v)) ? null : Math.max(0, Number(v));
+    const waterMode = ['none', 'fixed', 'share'].includes(b.waterMode) ? b.waterMode : 'none', elecMode = b.elecMode === 'meter' ? 'meter' : 'own';
+    const frac = amt(b.waterFrac);
+    if (frac != null && frac > 1) return res.status(400).json({ error: 'Paani ka hissa 0 se 1 ke beech (jaise 1/3 = 0.3333)' });
+    if (b.hikeMonth && !m(b.hikeMonth)) return res.status(400).json({ error: 'Kiraya badhne ka mahina galat hai' });
     const vals = [property, tenant, String(b.phone || '').trim().slice(0, 30) || null, rent, dueDay, m(b.startMonth), m(b.endMonth),
-      b.deposit === '' || b.deposit == null ? null : Number(b.deposit) || 0, String(b.notes || '').trim().slice(0, 500) || null, b.active === false ? 0 : 1];
-    if (b.id) await db.query('UPDATE rental_units SET property=?, tenant=?, phone=?, rent=?, due_day=?, start_month=?, end_month=?, deposit=?, notes=?, active=? WHERE id=?', [...vals, Number(b.id)]);
-    else await db.query('INSERT INTO rental_units (property, tenant, phone, rent, due_day, start_month, end_month, deposit, notes, active) VALUES (?,?,?,?,?,?,?,?,?,?)', vals);
+      amt(b.deposit), String(b.notes || '').trim().slice(0, 500) || null, b.active === false ? 0 : 1,
+      String(b.floor || '').trim().slice(0, 60) || null, amt(b.floorShare) == null ? 1 : amt(b.floorShare), amt(b.maintenance), waterMode, amt(b.waterFixed), frac,
+      elecMode, amt(b.elecKw), amt(b.hikePct), m(b.hikeMonth)];
+    const cols = 'property=?, tenant=?, phone=?, rent=?, due_day=?, start_month=?, end_month=?, deposit=?, notes=?, active=?, floor=?, floor_share=?, maintenance=?, water_mode=?, water_fixed=?, water_frac=?, elec_mode=?, elec_kw=?, hike_pct=?, hike_month=?';
+    if (b.id) await db.query(`UPDATE rental_units SET ${cols} WHERE id=?`, [...vals, Number(b.id)]);
+    else await db.query(`INSERT INTO rental_units SET ${cols}`, vals);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -15293,6 +15341,26 @@ app.post('/api/rental/payment', requireAuth, requireAdmin, async (req, res) => {
     if (!(amount > 0)) return res.status(400).json({ error: 'Amount daalein' });
     await db.query('INSERT INTO rental_payments (unit_id, for_month, amount, paid_on, mode, note, created_by) VALUES (?,?,?,?,?,?,?)',
       [unitId, month, amount, paidOn, String(b.mode || '').trim().slice(0, 20) || null, String(b.note || '').trim().slice(0, 500) || null, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// A property's bill for one month: water bill, ₹/kW + ₹/unit, common loads and sub-meter readings.
+app.post('/api/rental/bill', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await rentTables();
+    const b = req.body || {};
+    const property = String(b.property || '').trim().slice(0, 255), month = /^\d{4}-\d{2}$/.test(b.month || '') ? b.month : null;
+    if (!property || !month) return res.status(400).json({ error: 'Property aur mahina chahiye' });
+    const n = v => Math.max(0, Number(v) || 0);
+    const commons = (Array.isArray(b.commons) ? b.commons : []).map(c => ({ name: String(c.name || '').trim().slice(0, 40), kw: n(c.kw), units: n(c.units) }))
+      .filter(c => c.name && (c.kw || c.units)).slice(0, 10);
+    const readings = {};
+    Object.entries(b.readings || {}).forEach(([k, v]) => { if (/^\d+$/.test(k) && v !== '' && v != null) readings[k] = n(v); });
+    await db.query(`INSERT INTO rental_bills (property, for_month, water_bill, fixed_per_kw, unit_rate, commons, readings, updated_by) VALUES (?,?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE water_bill=VALUES(water_bill), fixed_per_kw=VALUES(fixed_per_kw), unit_rate=VALUES(unit_rate), commons=VALUES(commons),
+        readings=VALUES(readings), updated_by=VALUES(updated_by)`,
+      [property, month, n(b.waterBill), b.fixedPerKw === '' || b.fixedPerKw == null ? 300 : n(b.fixedPerKw), b.unitRate === '' || b.unitRate == null ? 9.7 : n(b.unitRate),
+        JSON.stringify(commons), JSON.stringify(readings), req.session.userId]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
