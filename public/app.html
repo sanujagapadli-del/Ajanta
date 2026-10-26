@@ -1409,6 +1409,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
         <span class="nav-label-text">Market Holidays</span>
       </div>
+      <div class="nav-item" id="nav-mechanics" style="display:none" onclick="navigate('mechanics',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5z"/></svg>
+        <span class="nav-label-text">Mechanics (bahar ke)</span>
+      </div>
       <div class="nav-item" id="nav-price-catalogue" style="display:none" onclick="navigate('price-catalogue',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
         <span class="nav-label-text">Price List & Catalogue</span>
@@ -2482,6 +2486,16 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       
     </div>
     <div id="mhWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
+  </div>
+
+  <div id="page-mechanics" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🔧 Bahar ke Mechanics <span style="font-size:12px;font-weight:600;color:var(--gray-500)">— area ke hisaab se kisko call karein</span></div>
+        <select id="mechCity" onchange="renderMech()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"><option value="">All cities</option></select><input id="mechSearch" placeholder="🔍 Naam / area / product…" oninput="renderMech()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:170px"/><button class="btn btn-primary" onclick="openMechForm(0)">＋ Mechanic</button>
+      </div>
+    </div>
+    <div id="mechWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-collection" class="page">
@@ -4754,6 +4768,7 @@ async function init() {
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
     if (canSee('samples')) document.getElementById('nav-samples').style.display = 'flex';
     if (canSee('market-holidays')) document.getElementById('nav-market-holidays').style.display = 'flex';
+    if (canSee('mechanics')) document.getElementById('nav-mechanics').style.display = 'flex';
     if (canSee('dealer-whatsapp')) document.getElementById('nav-dealer-whatsapp').style.display = 'flex';
     if (canSee('drip-marketing')) document.getElementById('nav-drip-marketing').style.display = 'flex';
     if (canSee('collection')) document.getElementById('nav-collection').style.display = 'flex';
@@ -4798,7 +4813,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     // MD (Ajay sir, 2026-10-24): MD Summary is the home page whenever the app
     // is opened fresh; a refresh in the same tab still restores the last page.
     let freshOpen = false;
@@ -5013,7 +5028,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {'my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
+const pageTitles = {'my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -5035,7 +5050,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -5076,6 +5091,7 @@ function navigate(page, el) {
   if (page==='vendor-ledger') loadVrl();
   if (page==='samples') loadSmp();
   if (page==='market-holidays') loadMh();
+  if (page==='mechanics') loadMech();
   if (page==='dealer-whatsapp') loadWa();
   if (page==='drip-marketing') loadDrip();
   if (page==='collection') loadCollection();
@@ -7049,6 +7065,7 @@ const PAGE_ACCESS_GROUPS = [
   ]},
   { label: 'Operations FMS', locked: false, pages: [
     { key: 'service-fms', label: 'Service FMS' },
+    { key: 'mechanics', label: 'Bahar ke Mechanics (area-wise mechanic, charges — add/edit; delete sirf Admin)' },
     // Not a page: sees + acts on every Service FMS step, not just their Step Doers ones.
     { key: 'sfms-pc-view', label: 'Service FMS PC View (all steps)' },
     { key: 'purchase-fms', label: 'Purchase FMS' },
@@ -23534,9 +23551,6 @@ function rentMonths(u, todayYm) {
   while (`${y}-${String(m).padStart(2, '0')}` <= end && out.length < 240) { out.push(`${y}-${String(m).padStart(2, '0')}`); m++; if (m > 12) { m = 1; y++; } }
   return out;
 }
-function rentStatus(u) {
-  const today = rentData.today, ym = rentYm(today);
-  const pays = rentData.payments.filter(p => p.unitId === u.id);
 // Rent for a month after the yearly % hike: from hikeMonth on it goes up once, and again every 12 months.
 function rentFor(u, mo) {
   if (!u.hikePct || !u.hikeMonth || mo < u.hikeMonth) return u.rent;
@@ -23567,6 +23581,9 @@ function rentCharges(u, mo) {
   const r2 = v => Math.round(v * 100) / 100;
   return { rent, maint, water: r2(water), elec: r2(elec), common: r2(common), total: Math.round(rent + maint + water + elec + common), needsBill };
 }
+function rentStatus(u) {
+  const today = rentData.today, ym = rentYm(today);
+  const pays = rentData.payments.filter(p => p.unitId === u.id);
   const paidBy = {}; pays.forEach(p => { paidBy[p.month] = (paidBy[p.month] || 0) + p.amount; });
   const months = rentMonths(u, ym), dueOf = {};
   let due = 0, late = 0;
@@ -23584,13 +23601,16 @@ async function loadRental() {
   const noBill = [...new Set(st.filter(x => x.s.thisDue.needsBill).map(x => x.u.property))];
   const card = (l, v, c) => `<div style="flex:1;min-width:140px;background:var(--surface);border:1.5px solid var(--gray-200);border-radius:14px;padding:10px 14px"><div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase">${l}</div><div style="font-size:21px;font-weight:800;color:${c || 'var(--gray-900)'}">${v}</div></div>`;
   const parts = c => [c.maint ? `maint ${inr(c.maint)}` : '', c.water ? `paani ${inr(c.water)}` : '', c.elec ? `bijli ${inr(c.elec)}` : '', c.common ? `motor/lift ${inr(c.common)}` : ''].filter(Boolean).join(' + ');
+  const nAcc = r.accounts.length, perAcc = {};
+  r.payments.filter(p => p.month === ym).forEach(p => { const k = p.account || '—'; perAcc[k] = (perAcc[k] || 0) + p.amount; });
   wrap.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${card('Is mahine ka kul (kiraya + bill)', inr(monthRent))}${card('Is mahine aaya', inr(gotThis), 'var(--color-success-text)')}${card('Kul baaki', inr(dueAll), dueAll ? 'var(--color-danger)' : '')}${card('Kiraayedaar', act.length)}</div>` +
+    `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:8px 12px;margin-bottom:12px;font-size:12.5px;display:flex;gap:14px;flex-wrap:wrap;align-items:center"><b>🏦 Har account me (is mahine):</b>${r.accounts.map(a => `<span>${esc(a)}: chahiye <b>${inr(Math.round(monthRent / nAcc))}</b> · aaya <b style="color:var(--color-success-text)">${inr(perAcc[a] || 0)}</b></span>`).join('')}${perAcc['—'] ? `<span style="color:var(--gray-500)">account nahi likha: ${inr(perAcc['—'])}</span>` : ''}<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="openRentAccounts()">✏️ Account naam</button></div>` +
     (noBill.length ? `<div style="background:var(--color-warning-bg);color:var(--color-warning-text);border-radius:10px;padding:8px 12px;font-size:12.5px;margin-bottom:10px">⚡ Is mahine ka bijli/paani bill abhi nahi daala: <b>${noBill.map(esc).join(', ')}</b> — "⚡ Bijli / Paani bill" se daalein</div>` : '') +
     (r.units.length ? `<div class="table-wrap" style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px"><table style="font-size:12.5px"><thead><tr><th>Property</th><th>Kiraayedaar</th><th style="text-align:right">Is mahine</th><th>Due date</th><th>Status</th><th style="text-align:right">Kul baaki</th><th></th></tr></thead><tbody>
     ${r.units.slice().sort((a, b) => (b.active - a.active) || a.property.localeCompare(b.property)).map(u => { const s = rentStatus(u), c = s.thisDue, full = s.thisMonth >= c.total - 0.5, overdue = !full && +r.today.slice(8) > u.dueDay;
       return `<tr style="${u.active ? '' : 'opacity:.5'}"><td style="font-weight:700">${esc(u.property)}${u.floor ? `<div style="font-size:11.5px;color:var(--gray-600);font-weight:600">${esc(u.floor)}</div>` : ''}${u.notes ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(u.notes)}</div>` : ''}</td>
         <td>${esc(u.tenant)}${u.phone ? `<div><a href="tel:${esc(u.phone)}" style="font-size:12px">📞 ${esc(u.phone)}</a></div>` : ''}</td>
-        <td style="text-align:right;font-weight:700">${inr(c.total)}<div style="font-size:11px;color:var(--gray-500);font-weight:400">kiraya ${inr(c.rent)}${parts(c) ? ' + ' + parts(c) : ''}${c.needsBill ? ' <span style="color:var(--color-warning-text)">(bill baaki)</span>' : ''}</div>${u.hikePct && u.hikeMonth ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${u.hikePct}% badhega: ${esc(DRIP_MONTHS[+u.hikeMonth.slice(5) - 1])} ${u.hikeMonth.slice(0, 4)}</div>` : ''}${u.deposit ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">deposit ${inr(u.deposit)}</div>` : ''}</td>
+        <td style="text-align:right;font-weight:700">${inr(c.total)}<div style="font-size:11px;color:var(--color-primary);font-weight:600">÷${nAcc} = ${inr(Math.round(c.total / nAcc))} har account</div><div style="font-size:11px;color:var(--gray-500);font-weight:400">kiraya ${inr(c.rent)}${parts(c) ? ' + ' + parts(c) : ''}${c.needsBill ? ' <span style="color:var(--color-warning-text)">(bill baaki)</span>' : ''}</div>${u.hikePct && u.hikeMonth ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${u.hikePct}% badhega: ${esc(DRIP_MONTHS[+u.hikeMonth.slice(5) - 1])} ${u.hikeMonth.slice(0, 4)}</div>` : ''}${u.deposit ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">deposit ${inr(u.deposit)}</div>` : ''}</td>
         <td>Har ${u.dueDay} tareekh</td>
         <td>${!u.active ? 'Band' : full ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Aa gaya</span>' : s.thisMonth ? `<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">${inr(s.thisMonth)} aaya</span>` : `<span class="status-badge" style="background:${overdue ? 'var(--color-danger-bg);color:var(--color-danger-text)' : 'var(--gray-100);color:var(--gray-600)'}">${overdue ? 'Late' : 'Baaki'}</span>`}</td>
         <td style="text-align:right;font-weight:800;color:${s.due ? 'var(--color-danger)' : 'var(--color-success-text)'}">${s.due ? inr(s.due) : '✓'}${s.late > 1 ? `<div style="font-size:11px;font-weight:600">${s.late} mahine</div>` : ''}</td>
@@ -23635,14 +23655,14 @@ function rentUnitToggle() {
 }
 async function saveRentUnit(id, btn) {
   const g = i => document.getElementById(i).value.trim(), act = document.getElementById('ruActive');
+  const fr = g('ruWaterFrac'), fm = fr.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/); // "1/3" or 0.3333
+  const waterFrac = fr === '' ? '' : fm ? Number(fm[1]) / Number(fm[2]) : Number(fr);
+  if (fr !== '' && !(waterFrac >= 0 && waterFrac <= 1)) { showToast('Paani ka hissa 1/3 ya 0.33 jaisa likhein', 'error'); return; }
   const restore = btnLoading(btn, 'Saving…');
   const r = await api('/api/rental/unit', 'POST', { id: id || undefined, property: g('ruProp'), tenant: g('ruTenant'), phone: g('ruPhone'), rent: g('ruRent'), dueDay: g('ruDue'),
     deposit: g('ruDep'), startMonth: g('ruStart'), endMonth: g('ruEnd'), notes: g('ruNotes'), active: act ? act.checked : true,
     floor: g('ruFloor'), floorShare: g('ruShare'), maintenance: g('ruMaint'), waterMode: g('ruWater'), waterFixed: g('ruWaterFixed'), waterFrac,
     elecMode: g('ruElec'), elecKw: g('ruKw'), hikePct: g('ruHike'), hikeMonth: g('ruHikeMonth') });
-  const fr = g('ruWaterFrac'), fm = fr.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/); // "1/3" or 0.3333
-  const waterFrac = fr === '' ? '' : fm ? Number(fm[1]) / Number(fm[2]) : Number(fr);
-  if (fr !== '' && !(waterFrac >= 0 && waterFrac <= 1)) { showToast('Paani ka hissa 1/3 ya 0.33 jaisa likhein', 'error'); return; }
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('rentUnitModal');
@@ -23663,13 +23683,15 @@ function openRentPay(id) {
       <div><label style="font-size:12px;font-weight:600">Amount ₹</label><input id="rpAmt" type="number" min="1" value="${Math.max(0, (s.dueOf[firstDue] != null ? s.dueOf[firstDue] : rentCharges(u, firstDue).total) - (s.paidBy[firstDue] || 0))}" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Kab aaya</label><input id="rpDate" type="date" value="${rentData.today}" max="${rentData.today}" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Mode</label><select id="rpMode" style="${VRL_IN}">${['Cash', 'UPI', 'Bank', 'Cheque'].map(m => `<option>${m}</option>`).join('')}</select></div></div>
+    <label style="font-size:12px;font-weight:600">Kis account me aaya</label>
+    <select id="rpAcct" style="${VRL_IN};margin-bottom:8px"><option value="*">Teeno me barabar (amount ÷ ${rentData.accounts.length})</option>${rentData.accounts.map(a => `<option>${esc(a)}</option>`).join('')}<option value="">— account nahi pata —</option></select>
     <input id="rpNote" placeholder="Note (optional)" style="${VRL_IN};margin-bottom:10px"/>
     <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveRentPay(this)">✓ Save</button>`, 460);
 }
 async function saveRentPay(btn) {
   const restore = btnLoading(btn, 'Saving…');
   const r = await api('/api/rental/payment', 'POST', { unitId: document.getElementById('rpUnit').value, month: document.getElementById('rpMonth').value, amount: document.getElementById('rpAmt').value,
-    paidOn: document.getElementById('rpDate').value, mode: document.getElementById('rpMode').value, note: document.getElementById('rpNote').value.trim() });
+    paidOn: document.getElementById('rpDate').value, mode: document.getElementById('rpMode').value, note: document.getElementById('rpNote').value.trim(), account: document.getElementById('rpAcct').value });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('rentPayModal');
@@ -23684,7 +23706,22 @@ function openRentHistory(id) {
       return `<tr><td>${esc(DRIP_MONTHS[+m.slice(5) - 1])} ${m.slice(0, 4)}${c.needsBill ? ' <span title="Is mahine ka bijli/paani bill nahi daala" style="color:var(--color-warning-text)">⚡</span>' : ''}</td><td style="text-align:right">${inr(c.rent)}</td><td style="text-align:right">${z(c.maint)}</td><td style="text-align:right">${z(c.water)}</td><td style="text-align:right">${z(c.elec)}</td><td style="text-align:right">${z(c.common)}</td><td style="text-align:right;font-weight:700">${inr(c.total)}</td><td style="text-align:right;color:var(--color-success-text)">${got ? inr(got) : '—'}</td><td style="text-align:right;font-weight:700;color:${left ? 'var(--color-danger)' : 'var(--color-success-text)'}">${left ? inr(left) : '✓'}</td></tr>`; }).join('')}
     </tbody></table></div>
     ${s.pays.length ? `<div style="font-weight:700;font-size:12.5px;margin:12px 0 4px">Payments</div><div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Kab</th><th>Mahina</th><th style="text-align:right">Amount</th><th>Mode / note</th><th></th></tr></thead><tbody>
-    ${s.pays.map(p => `<tr><td>${esc(fmtDateDMY(p.paidOn))}</td><td>${esc(p.month)}</td><td style="text-align:right;font-weight:700">${inr(p.amount)}</td><td>${esc(p.mode)}${p.note ? ' · ' + esc(p.note) : ''}</td><td><button class="btn btn-sm btn-outline" onclick="deleteRentPay(${p.id},${u.id})">🗑</button></td></tr>`).join('')}</tbody></table></div>` : ''}`, 760);
+    ${s.pays.map(p => `<tr><td>${esc(fmtDateDMY(p.paidOn))}</td><td>${esc(p.month)}</td><td style="text-align:right;font-weight:700">${inr(p.amount)}</td><td>${p.account ? `<b>${esc(p.account)}</b> · ` : ''}${esc(p.mode)}${p.note ? ' · ' + esc(p.note) : ''}</td><td><button class="btn btn-sm btn-outline" onclick="deleteRentPay(${p.id},${u.id})">🗑</button></td></tr>`).join('')}</tbody></table></div>` : ''}`, 760);
+}
+function openRentAccounts() {
+  vrlModal('rentAccModal', `${scotModalHead('rentAccModal', '🏦 Kiraya kin accounts me jata hai')}
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Har kiraayedaar ka kul amount in accounts me barabar bant ta hai. Naam sudharne ho to yahan badlein.</div>
+    ${[0, 1, 2, 3].map(i => `<input class="ra-name" value="${esc(rentData.accounts[i] || '')}" placeholder="${i < 3 ? 'Account ' + (i + 1) : 'Aur (optional)'}" style="${VRL_IN};margin-bottom:6px"/>`).join('')}
+    <button class="btn btn-green" style="width:100%;justify-content:center;margin-top:4px" onclick="saveRentAccounts(this)">✓ Save</button>`, 420);
+}
+async function saveRentAccounts(btn) {
+  const accounts = [...document.querySelectorAll('.ra-name')].map(i => i.value.trim()).filter(Boolean);
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/rental/accounts', 'POST', { accounts });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('rentAccModal');
+  loadRental();
 }
 // ⚡ One property's bill for a month: water bill, ₹/kW + ₹/unit, common loads (motor, lift) and each sub-meter's units.
 function openRentBill(prop, month) {
@@ -23732,6 +23769,83 @@ async function deleteRentPay(pid, uid) {
   if (r.error) { showToast(r.error, 'error'); return; }
   await loadRental();
   openRentHistory(uid);
+}
+
+// ── 🔧 Bahar ke Mechanics (client voice note 2026-10-25): outsourced mechanics by
+// area / city with the approximate charge per product category, so the
+// service / sales coordinator knows whom to call for a complaint from there.
+let mechData = null;
+const MECH_CATEGORIES = ['Ceiling Fan', 'Table / Wall / Pedestal Fan', 'Exhaust Fan', 'Mixer Grinder', 'Cooler', 'Insect Killer', 'Room Heater', 'Geyser', 'Iron', 'Kettle'];
+async function loadMech() {
+  const r = await api('/api/mechanics');
+  if (r.error) { document.getElementById('mechWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  mechData = r;
+  const sel = document.getElementById('mechCity'), cur = sel.value;
+  sel.innerHTML = '<option value="">All cities</option>' + [...new Set(r.items.map(x => x.city))].sort((a, b) => a.localeCompare(b)).map(c => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  renderMech();
+}
+function renderMech() {
+  if (!mechData) return;
+  const city = document.getElementById('mechCity').value, q = document.getElementById('mechSearch').value.trim().toLowerCase();
+  const list = mechData.items.filter(m => (!city || m.city === city) && (!q || `${m.name} ${m.city} ${m.area} ${m.mobile} ${m.rates.map(x => x.category).join(' ')}`.toLowerCase().includes(q)));
+  const byCity = {};
+  list.forEach(m => (byCity[m.city] = byCity[m.city] || []).push(m));
+  document.getElementById('mechWrap').innerHTML = list.length ? Object.entries(byCity).map(([c, items]) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:12px;overflow:hidden">
+    <div style="padding:10px 14px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">📍 ${esc(c)} <span style="font-weight:500;color:var(--gray-500);font-size:12px">· ${items.length} mechanic</span></div>
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Area / point</th><th>Mechanic</th><th>Kya theek karta hai · charge (andaza)</th><th>Note</th><th></th></tr></thead><tbody>
+    ${items.map(m => `<tr style="${m.active ? '' : 'opacity:.5'}"><td style="font-weight:700;vertical-align:top">${esc(m.area || '—')}${m.active ? '' : ' <span class="status-badge">Band</span>'}</td>
+      <td style="vertical-align:top"><b>${esc(m.name)}</b>${m.mobile ? `<div><a href="tel:${esc(m.mobile)}">📞 ${esc(m.mobile)}</a> <a href="https://wa.me/91${esc(m.mobile.replace(/\D/g, '').slice(-10))}" target="_blank" title="WhatsApp">💬</a></div>` : ''}${m.altMobile ? `<div style="font-size:11.5px"><a href="tel:${esc(m.altMobile)}">📞 ${esc(m.altMobile)}</a></div>` : ''}${m.aadhaarNo || m.aadhaarUrl ? `<div style="font-size:11px;color:var(--gray-500)">Aadhaar ${m.aadhaarNo ? 'xxxx ' + esc(m.aadhaarNo.slice(-4)) : ''} ${m.aadhaarUrl ? `<a href="${esc(m.aadhaarUrl)}" target="_blank">photo</a>` : ''}</div>` : ''}</td>
+      <td style="vertical-align:top">${m.rates.length ? m.rates.map(x => `<div>${esc(x.category)}${x.charge ? ` — <b>₹${esc(x.charge)}</b>` : ''}${x.note ? ` <span style="color:var(--gray-500)">(${esc(x.note)})</span>` : ''}</div>`).join('') : '—'}</td>
+      <td style="vertical-align:top;font-size:12px;color:var(--gray-600)">${esc([m.address, m.notes].filter(Boolean).join(' · ') || '—')}</td>
+      <td style="white-space:nowrap;vertical-align:top"><button class="btn btn-sm btn-outline" onclick="openMechForm(${m.id})">✏️</button>${mechData.isAdmin ? ` <button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="deleteMech(${m.id})">🗑</button>` : ''}</td></tr>`).join('')}
+    </tbody></table></div></div>`).join('') : '<div class="empty">Abhi koi mechanic nahi — "＋ Mechanic" se onboard karein</div>';
+}
+function openMechForm(id) {
+  const m = id ? mechData.items.find(x => x.id === id) : null;
+  const rates = (m ? m.rates : []).concat(m ? [{}, {}] : MECH_CATEGORIES.slice(0, 5).map(c => ({ category: c })));
+  const L = t => `<label style="font-size:12px;font-weight:600">${t}</label>`;
+  const cities = [...new Set(mechData.items.map(x => x.city).concat(['Jaipur']))], areas = [...new Set(mechData.items.map(x => x.area).filter(Boolean))];
+  vrlModal('mechModal', `${scotModalHead('mechModal', m ? '✏️ Mechanic' : '＋ Mechanic onboard')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div>${L('Naam *')}<input id="mcName" value="${esc(m ? m.name : '')}" style="${VRL_IN}"/></div>
+      <div>${L('Mobile')}<input id="mcMobile" value="${esc(m ? m.mobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
+      <div>${L('City *')}<input id="mcCity" list="mcCityList" value="${esc(m ? m.city : 'Jaipur')}" style="${VRL_IN}"/></div>
+      <div>${L('Area / point (jaise Vatika Road, Agra Road)')}<input id="mcArea" list="mcAreaList" value="${esc(m ? m.area : '')}" style="${VRL_IN}"/></div>
+      <div>${L('Doosra mobile')}<input id="mcAlt" value="${esc(m ? m.altMobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
+      <div>${L('Aadhaar no.')}<input id="mcAadhaar" value="${esc(m ? m.aadhaarNo : '')}" inputmode="numeric" maxlength="14" style="${VRL_IN}"/></div></div>
+    ${L(m && m.aadhaarUrl ? 'Aadhaar photo (badalni ho to)' : 'Aadhaar photo')}<input id="mcAadhaarFile" type="file" accept="image/*" style="${VRL_IN};margin-bottom:8px"/>
+    ${L('Pura address')}<input id="mcAddress" value="${esc(m ? m.address : '')}" style="${VRL_IN};margin-bottom:8px"/>
+    <div style="font-weight:700;font-size:12.5px;margin:6px 0 4px">Kya theek karta hai — kitne paise leta hai (andaza)</div>
+    <div id="mcRates">${rates.map(x => mechRateRow(x)).join('')}</div>
+    <button class="btn btn-sm btn-outline" type="button" onclick="document.getElementById('mcRates').insertAdjacentHTML('beforeend', mechRateRow({}))" style="margin-bottom:8px">＋ Product</button>
+    ${L('Note')}<input id="mcNotes" value="${esc(m ? m.notes : '')}" placeholder="Kab milta hai, kitni jaldi aata hai…" style="${VRL_IN};margin-bottom:8px"/>
+    ${m ? `<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:8px"><input type="checkbox" id="mcActive" ${m.active ? 'checked' : ''}/> Abhi kaam kar raha hai</label>` : ''}
+    <datalist id="mcCityList">${cities.map(c => `<option value="${esc(c)}">`).join('')}</datalist><datalist id="mcAreaList">${areas.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
+    <datalist id="mcCatList">${MECH_CATEGORIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveMech(${id || 0},this)">✓ Save</button>`, 600);
+}
+function mechRateRow(x) {
+  return `<div class="mc-rate" style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:6px;margin-bottom:6px"><input list="mcCatList" value="${esc(x.category || '')}" placeholder="Product" style="${VRL_IN};margin:0"/><input value="${esc(x.charge || '')}" placeholder="₹" style="${VRL_IN};margin:0"/><input value="${esc(x.note || '')}" placeholder="Note (part alag…)" style="${VRL_IN};margin:0"/></div>`;
+}
+async function saveMech(id, btn) {
+  const g = i => document.getElementById(i).value.trim(), act = document.getElementById('mcActive'), file = document.getElementById('mcAadhaarFile').files[0];
+  const rates = [...document.querySelectorAll('#mcRates .mc-rate')].map(row => { const [c, ch, n] = row.querySelectorAll('input'); return { category: c.value.trim(), charge: ch.value.trim(), note: n.value.trim() }; }).filter(x => x.category && (x.charge || x.note));
+  if (file && file.size > 5 * 1024 * 1024) { showToast('File size must be under 5MB', 'error'); return; }
+  const restore = btnLoading(btn, 'Saving…');
+  const aadhaarImage = file ? await new Promise(res => { const rd = new FileReader(); rd.onload = e => res(e.target.result); rd.readAsDataURL(file); }) : null;
+  const r = await api('/api/mechanics', 'POST', { id: id || undefined, name: g('mcName'), mobile: g('mcMobile'), altMobile: g('mcAlt'), city: g('mcCity'), area: g('mcArea'),
+    address: g('mcAddress'), aadhaarNo: g('mcAadhaar'), notes: g('mcNotes'), rates, aadhaarImage, active: act ? act.checked : true });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('mechModal');
+  showToast('✅ Mechanic save ho gaya');
+  loadMech();
+}
+async function deleteMech(id) {
+  if (!await uiConfirm('Ye mechanic hatayein?')) return;
+  const r = await api(`/api/mechanics/${id}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  loadMech();
 }
 
 // Yesterday / This week / This month on every date filter (Ajay sir, 2026-10-24: "sab jagah").

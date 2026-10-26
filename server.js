@@ -616,7 +616,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -844,6 +844,7 @@ app.get('/api/drive-file/:fileId', requireAuth, async (req, res) => {
     const fname = String(meta.data.name || '');
     if (/^emp-\d+-/.test(fname) && !(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to this file' });
     if (/-kyc-(aadhar|pan|gst|shop)-\d+\.jpg$/.test(fname) && !(await canAccessDealers(req))) return res.status(403).json({ error: 'No access to this file' });
+    if (/^mech-aadhaar-/.test(fname) && !(await hasPageGrant(req, 'mechanics'))) return res.status(403).json({ error: 'No access to this file' });
     const resp = await drive.files.get(
       { fileId: req.params.fileId, alt: 'media', supportsAllDrives: true },
       { responseType: 'stream' }
@@ -15283,6 +15284,8 @@ async function rentTables() {
   await addMissingColumns('rental_units', [['floor', 'VARCHAR(60)'], ['floor_share', 'DECIMAL(6,3) NOT NULL DEFAULT 1'], ['maintenance', 'DECIMAL(10,2)'],
     ['water_mode', "VARCHAR(10) NOT NULL DEFAULT 'none'"], ['water_fixed', 'DECIMAL(10,2)'], ['water_frac', 'DECIMAL(6,4)'],
     ['elec_mode', "VARCHAR(10) NOT NULL DEFAULT 'own'"], ['elec_kw', 'DECIMAL(6,2)'], ['hike_pct', 'DECIMAL(5,2)'], ['hike_month', 'CHAR(7)']]);
+  // Every tenant pays his total in equal parts into the family's accounts (voice note 2026-10-25).
+  await addMissingColumns('rental_payments', [['account', 'VARCHAR(120)']]);
   // One row per property per month: the water bill, electricity rates, common loads [{name,kw,units}] and
   // each sub-meter's units {unitId: units}.
   await db.query(`CREATE TABLE IF NOT EXISTS rental_bills (property VARCHAR(255) NOT NULL, for_month CHAR(7) NOT NULL, water_bill DECIMAL(12,2),
@@ -15294,7 +15297,9 @@ app.get('/api/rental', requireAuth, requireAdmin, async (req, res) => {
   try {
     await rentTables();
     const [units] = await db.query('SELECT * FROM rental_units ORDER BY active DESC, property, tenant');
-    const [pays] = await db.query("SELECT id, unit_id, for_month, amount, DATE_FORMAT(paid_on,'%Y-%m-%d') AS paid_on, mode, note FROM rental_payments ORDER BY paid_on DESC, id DESC");
+    const [pays] = await db.query("SELECT id, unit_id, for_month, amount, DATE_FORMAT(paid_on,'%Y-%m-%d') AS paid_on, mode, note, account FROM rental_payments ORDER BY paid_on DESC, id DESC");
+    let accounts = RENT_ACCOUNTS_DEFAULT;
+    try { const a = JSON.parse(await getAppSetting('rental_accounts') || 'null'); if (Array.isArray(a) && a.length) accounts = a; } catch (e) {}
     const [bills] = await db.query('SELECT * FROM rental_bills ORDER BY for_month DESC');
     const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
     const num = v => v == null ? null : Number(v), json = (s, d) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
@@ -15302,7 +15307,8 @@ app.get('/api/rental', requireAuth, requireAdmin, async (req, res) => {
       startMonth: u.start_month, endMonth: u.end_month || '', deposit: num(u.deposit), notes: u.notes || '', active: !!u.active,
       floor: u.floor || '', floorShare: Number(u.floor_share), maintenance: num(u.maintenance) || 0, waterMode: u.water_mode, waterFixed: num(u.water_fixed) || 0,
       waterFrac: num(u.water_frac), elecMode: u.elec_mode, elecKw: num(u.elec_kw) || 0, hikePct: num(u.hike_pct), hikeMonth: u.hike_month || '' })),
-      payments: pays.map(p => ({ id: p.id, unitId: p.unit_id, month: p.for_month, amount: Number(p.amount), paidOn: p.paid_on, mode: p.mode || '', note: p.note || '' })),
+      accounts,
+      payments: pays.map(p => ({ id: p.id, unitId: p.unit_id, month: p.for_month, amount: Number(p.amount), paidOn: p.paid_on, mode: p.mode || '', note: p.note || '', account: p.account || '' })),
       bills: bills.map(b => ({ property: b.property, month: b.for_month, waterBill: num(b.water_bill) || 0, fixedPerKw: Number(b.fixed_per_kw), unitRate: Number(b.unit_rate),
         commons: json(b.commons, []), readings: json(b.readings, {}) })) });
   } catch (err) { sendServerError(res, err); }
@@ -15339,8 +15345,26 @@ app.post('/api/rental/payment', requireAuth, requireAdmin, async (req, res) => {
     const month = /^\d{4}-\d{2}$/.test(b.month || '') ? b.month : null, paidOn = /^\d{4}-\d{2}-\d{2}$/.test(b.paidOn || '') ? b.paidOn : null;
     if (!unitId || !month || !paidOn) return res.status(400).json({ error: 'Kiraayedaar, mahina aur tareekh chahiye' });
     if (!(amount > 0)) return res.status(400).json({ error: 'Amount daalein' });
-    await db.query('INSERT INTO rental_payments (unit_id, for_month, amount, paid_on, mode, note, created_by) VALUES (?,?,?,?,?,?,?)',
-      [unitId, month, amount, paidOn, String(b.mode || '').trim().slice(0, 20) || null, String(b.note || '').trim().slice(0, 500) || null, req.session.userId]);
+    // account '*' = the amount came split equally into every account → one row per account.
+    let accounts = [String(b.account || '').trim().slice(0, 120) || null];
+    if (b.account === '*') { try { accounts = JSON.parse(await getAppSetting('rental_accounts') || 'null') || RENT_ACCOUNTS_DEFAULT; } catch (e) { accounts = RENT_ACCOUNTS_DEFAULT; } }
+    const part = Math.round(amount / accounts.length * 100) / 100;
+    for (let i = 0; i < accounts.length; i++) {
+      // the last part takes the rounding paisa so the parts add up to the amount
+      const a = i === accounts.length - 1 ? Math.round((amount - part * (accounts.length - 1)) * 100) / 100 : part;
+      await db.query('INSERT INTO rental_payments (unit_id, for_month, amount, paid_on, mode, note, account, created_by) VALUES (?,?,?,?,?,?,?,?)',
+        [unitId, month, a, paidOn, String(b.mode || '').trim().slice(0, 20) || null, String(b.note || '').trim().slice(0, 500) || null, accounts[i], req.session.userId]);
+    }
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Names of the accounts the rent is split into (editable — the voice note's names may need correcting).
+const RENT_ACCOUNTS_DEFAULT = ['Ajay Kumar Parwani', 'Rashi Parwani', 'Draupadi Parwani'];
+app.post('/api/rental/accounts', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const list = (Array.isArray((req.body || {}).accounts) ? req.body.accounts : []).map(a => String(a || '').trim().slice(0, 120)).filter(Boolean).slice(0, 6);
+    if (!list.length) return res.status(400).json({ error: 'Kam se kam ek account ka naam' });
+    await setAppSetting('rental_accounts', JSON.stringify(list));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -16109,6 +16133,71 @@ app.delete('/api/market-holidays/:id', requireAuth, requireAdmin, async (req, re
   try {
     await mhTable();
     await db.query('DELETE FROM market_holidays WHERE id=?', [Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// OUTSIDE MECHANICS (client voice note 2026-10-25) — a database of outsourced
+// mechanics by area (Vatika Road, Agra Road… and outside Jaipur, e.g. Dausa)
+// with the approximate charge per product category, so the service / sales
+// coordinator knows whom to call for a complaint from that area.
+// ══════════════════════════════════════════════════════
+let _mechOk = false;
+async function mechTable() {
+  if (_mechOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS outside_mechanics (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, mobile VARCHAR(30),
+    alt_mobile VARCHAR(30), city VARCHAR(120) NOT NULL, area VARCHAR(255), address VARCHAR(1000), aadhaar_no VARCHAR(20), aadhaar_url VARCHAR(1000),
+    rates TEXT, notes VARCHAR(1000), active TINYINT NOT NULL DEFAULT 1, created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT, updated_at DATETIME, KEY (city)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _mechOk = true;
+}
+function mechClean(b) {
+  const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const r = { name: str(b.name, 255), mobile: str(b.mobile, 30), alt: str(b.altMobile, 30), city: str(b.city, 120), area: str(b.area, 255), address: str(b.address, 1000),
+    aadhaar: str(b.aadhaarNo, 20).replace(/\s+/g, ''), notes: str(b.notes, 1000), active: b.active === false ? 0 : 1,
+    rates: (Array.isArray(b.rates) ? b.rates : []).map(x => ({ category: str(x.category, 80), charge: str(x.charge, 60), note: str(x.note, 200) })).filter(x => x.category).slice(0, 30) };
+  if (!r.name) return { error: 'Mechanic ka naam likhein' };
+  if (!r.city) return { error: 'City likhein' };
+  for (const p of [r.mobile, r.alt]) if (p && !sfmsNormalizeMobile(p)) return { error: `Mobile number galat lag raha hai: ${p}` };
+  if (r.aadhaar && !/^\d{12}$/.test(r.aadhaar)) return { error: 'Aadhaar 12 ank ka hona chahiye' };
+  return r;
+}
+app.get('/api/mechanics', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'mechanics'))) return res.status(403).json({ error: 'No access to Mechanics' });
+    await mechTable();
+    const [rows] = await db.query(`SELECT m.*, DATE_FORMAT(m.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, u.name AS by_name FROM outside_mechanics m
+      LEFT JOIN users u ON u.id=m.created_by ORDER BY m.active DESC, m.city, m.area, m.name`);
+    const rates = s => { try { return JSON.parse(s || '[]'); } catch (e) { return []; } };
+    res.json({ isAdmin: req.session.role === 'admin', items: rows.map(m => ({ id: m.id, name: m.name, mobile: m.mobile || '', altMobile: m.alt_mobile || '', city: m.city,
+      area: m.area || '', address: m.address || '', aadhaarNo: m.aadhaar_no || '', aadhaarUrl: m.aadhaar_url || '', rates: rates(m.rates), notes: m.notes || '',
+      active: !!m.active, createdAt: m.created_at, by: m.by_name || '' })) });
+  } catch (err) { sendServerError(res, err); }
+});
+// Add (id empty) or edit. Anyone with the page grant onboards; deleting is Admin only.
+app.post('/api/mechanics', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'mechanics'))) return res.status(403).json({ error: 'No access to Mechanics' });
+    await mechTable();
+    const b = req.body || {}, r = mechClean(b);
+    if (r.error) return res.status(400).json(r);
+    const vals = [r.name, r.mobile || null, r.alt || null, r.city, r.area || null, r.address || null, r.aadhaar || null, JSON.stringify(r.rates), r.notes || null, r.active];
+    let id = Number(b.id) || 0;
+    if (id) await db.query('UPDATE outside_mechanics SET name=?, mobile=?, alt_mobile=?, city=?, area=?, address=?, aadhaar_no=?, rates=?, notes=?, active=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, req.session.userId, id]);
+    else id = (await db.query('INSERT INTO outside_mechanics (name, mobile, alt_mobile, city, area, address, aadhaar_no, rates, notes, active, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [...vals, req.session.userId]))[0].insertId;
+    // Aadhaar photo: saved as "mech-aadhaar-…" so /api/drive-file only serves it to people with this page.
+    if (b.aadhaarImage) {
+      const link = await uploadPhotoToDrive(b.aadhaarImage, `mech-aadhaar-${id}-${Date.now()}.jpg`);
+      await db.query('UPDATE outside_mechanics SET aadhaar_url=? WHERE id=?', [link, id]);
+    }
+    res.json({ success: true, id });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/mechanics/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await mechTable();
+    await db.query('DELETE FROM outside_mechanics WHERE id=?', [Number(req.params.id)]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
