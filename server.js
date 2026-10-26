@@ -15347,6 +15347,10 @@ async function rentTables() {
     ['elec_mode', "VARCHAR(10) NOT NULL DEFAULT 'own'"], ['elec_kw', 'DECIMAL(6,2)'], ['hike_pct', 'DECIMAL(5,2)'], ['hike_month', 'CHAR(7)']]);
   // Every tenant pays his total in equal parts into the family's accounts (voice note 2026-10-25).
   await addMissingColumns('rental_payments', [['account', 'VARCHAR(120)']]);
+  // meter: sub-meter name shared by units (Ground floor's one "GF" meter is split 1/3 : 2/3 by kW);
+  // opening_due: what was pending from the old sheet when the tenant moved to the app (client 2026-10-26).
+  await addMissingColumns('rental_units', [['meter', 'VARCHAR(30)'], ['opening_due', 'DECIMAL(12,2)'], ['opening_note', 'VARCHAR(255)']]);
+  await addMissingColumns('rental_bills', [['meter_reads', 'TEXT']]);
   // One row per property per month: the water bill, electricity rates, common loads [{name,kw,units}] and
   // each sub-meter's units {unitId: units}.
   await db.query(`CREATE TABLE IF NOT EXISTS rental_bills (property VARCHAR(255) NOT NULL, for_month CHAR(7) NOT NULL, water_bill DECIMAL(12,2),
@@ -15367,11 +15371,12 @@ app.get('/api/rental', requireAuth, requireAdmin, async (req, res) => {
     res.json({ today, units: units.map(u => ({ id: u.id, property: u.property, tenant: u.tenant, phone: u.phone || '', rent: Number(u.rent), dueDay: u.due_day,
       startMonth: u.start_month, endMonth: u.end_month || '', deposit: num(u.deposit), notes: u.notes || '', active: !!u.active,
       floor: u.floor || '', floorShare: Number(u.floor_share), maintenance: num(u.maintenance) || 0, waterMode: u.water_mode, waterFixed: num(u.water_fixed) || 0,
-      waterFrac: num(u.water_frac), elecMode: u.elec_mode, elecKw: num(u.elec_kw) || 0, hikePct: num(u.hike_pct), hikeMonth: u.hike_month || '' })),
+      waterFrac: num(u.water_frac), elecMode: u.elec_mode, elecKw: num(u.elec_kw) || 0, hikePct: num(u.hike_pct), hikeMonth: u.hike_month || '',
+      meter: u.meter || '', openingDue: num(u.opening_due) || 0, openingNote: u.opening_note || '' })),
       accounts,
       payments: pays.map(p => ({ id: p.id, unitId: p.unit_id, month: p.for_month, amount: Number(p.amount), paidOn: p.paid_on, mode: p.mode || '', note: p.note || '', account: p.account || '' })),
       bills: bills.map(b => ({ property: b.property, month: b.for_month, waterBill: num(b.water_bill) || 0, fixedPerKw: Number(b.fixed_per_kw), unitRate: Number(b.unit_rate),
-        commons: json(b.commons, []), readings: json(b.readings, {}) })) });
+        commons: json(b.commons, []), readings: json(b.readings, {}), meterReads: json(b.meter_reads, {}) })) });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/rental/unit', requireAuth, requireAdmin, async (req, res) => {
@@ -15391,8 +15396,9 @@ app.post('/api/rental/unit', requireAuth, requireAdmin, async (req, res) => {
     const vals = [property, tenant, String(b.phone || '').trim().slice(0, 30) || null, rent, dueDay, m(b.startMonth), m(b.endMonth),
       amt(b.deposit), String(b.notes || '').trim().slice(0, 500) || null, b.active === false ? 0 : 1,
       String(b.floor || '').trim().slice(0, 60) || null, amt(b.floorShare) == null ? 1 : amt(b.floorShare), amt(b.maintenance), waterMode, amt(b.waterFixed), frac,
-      elecMode, amt(b.elecKw), amt(b.hikePct), m(b.hikeMonth)];
-    const cols = 'property=?, tenant=?, phone=?, rent=?, due_day=?, start_month=?, end_month=?, deposit=?, notes=?, active=?, floor=?, floor_share=?, maintenance=?, water_mode=?, water_fixed=?, water_frac=?, elec_mode=?, elec_kw=?, hike_pct=?, hike_month=?';
+      elecMode, amt(b.elecKw), amt(b.hikePct), m(b.hikeMonth),
+      String(b.meter || '').trim().slice(0, 30) || null, amt(b.openingDue), String(b.openingNote || '').trim().slice(0, 255) || null];
+    const cols = 'property=?, tenant=?, phone=?, rent=?, due_day=?, start_month=?, end_month=?, deposit=?, notes=?, active=?, floor=?, floor_share=?, maintenance=?, water_mode=?, water_fixed=?, water_frac=?, elec_mode=?, elec_kw=?, hike_pct=?, hike_month=?, meter=?, opening_due=?, opening_note=?';
     if (b.id) await db.query(`UPDATE rental_units SET ${cols} WHERE id=?`, [...vals, Number(b.id)]);
     else await db.query(`INSERT INTO rental_units SET ${cols}`, vals);
     res.json({ success: true });
@@ -15439,13 +15445,17 @@ app.post('/api/rental/bill', requireAuth, requireAdmin, async (req, res) => {
     const n = v => Math.max(0, Number(v) || 0);
     const commons = (Array.isArray(b.commons) ? b.commons : []).map(c => ({ name: String(c.name || '').trim().slice(0, 40), kw: n(c.kw), units: n(c.units) }))
       .filter(c => c.name && (c.kw || c.units)).slice(0, 10);
-    const readings = {};
-    Object.entries(b.readings || {}).forEach(([k, v]) => { if (/^\d+$/.test(k) && v !== '' && v != null) readings[k] = n(v); });
-    await db.query(`INSERT INTO rental_bills (property, for_month, water_bill, fixed_per_kw, unit_rate, commons, readings, updated_by) VALUES (?,?,?,?,?,?,?,?)
+    // readings = units used this month per meter (meter name, or the unit id for a unit's own meter);
+    // meter_reads = the meter's reading itself, so next month's form knows the previous reading.
+    const okKey = k => /^[\w\-:. ]{1,40}$/.test(k);
+    const readings = {}, meterReads = {};
+    Object.entries(b.readings || {}).forEach(([k, v]) => { if (okKey(k) && v !== '' && v != null) readings[k] = n(v); });
+    Object.entries(b.meterReads || {}).forEach(([k, v]) => { if (okKey(k) && v !== '' && v != null) meterReads[k] = n(v); });
+    await db.query(`INSERT INTO rental_bills (property, for_month, water_bill, fixed_per_kw, unit_rate, commons, readings, meter_reads, updated_by) VALUES (?,?,?,?,?,?,?,?,?)
       ON DUPLICATE KEY UPDATE water_bill=VALUES(water_bill), fixed_per_kw=VALUES(fixed_per_kw), unit_rate=VALUES(unit_rate), commons=VALUES(commons),
-        readings=VALUES(readings), updated_by=VALUES(updated_by)`,
+        readings=VALUES(readings), meter_reads=VALUES(meter_reads), updated_by=VALUES(updated_by)`,
       [property, month, n(b.waterBill), b.fixedPerKw === '' || b.fixedPerKw == null ? 300 : n(b.fixedPerKw), b.unitRate === '' || b.unitRate == null ? 9.7 : n(b.unitRate),
-        JSON.stringify(commons), JSON.stringify(readings), req.session.userId]);
+        JSON.stringify(commons), JSON.stringify(readings), JSON.stringify(meterReads), req.session.userId]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });

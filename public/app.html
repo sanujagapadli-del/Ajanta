@@ -23641,8 +23641,10 @@ async function deleteMyExpense(id) {
 // start month to now is due on the tenant's due day; payments are per month.
 let rentData = null;
 const rentYm = d => d.slice(0, 7);
+// Month before the start, shown as "Purana baaki" when the tenant came from the old sheet with dues.
+const rentPrevYm = ym => { let [y, m] = ym.split('-').map(Number); m--; if (!m) { m = 12; y--; } return `${y}-${String(m).padStart(2, '0')}`; };
 function rentMonths(u, todayYm) {
-  const out = [], end = u.endMonth && u.endMonth < todayYm ? u.endMonth : todayYm;
+  const out = u.openingDue > 0 ? [rentPrevYm(u.startMonth)] : [], end = u.endMonth && u.endMonth < todayYm ? u.endMonth : todayYm;
   let [y, m] = u.startMonth.split('-').map(Number);
   while (`${y}-${String(m).padStart(2, '0')}` <= end && out.length < 240) { out.push(`${y}-${String(m).padStart(2, '0')}`); m++; if (m > 12) { m = 1; y++; } }
   return out;
@@ -23657,6 +23659,7 @@ function rentFor(u, mo) {
 // Water "share" and the common loads (motor, lift) are split by floorShare among the units occupied that month;
 // sub-meter electricity = ₹/kW × kW allotted + units × ₹/unit. Bill-based parts stay 0 until that month's bill is entered.
 function rentCharges(u, mo) {
+  if (mo < u.startMonth) return { rent: 0, maint: 0, water: 0, elec: 0, common: 0, opening: u.openingDue || 0, total: Math.round(u.openingDue || 0), needsBill: false };
   const bill = rentData.bills.find(b => b.property === u.property && b.month === mo);
   const peers = rentData.units.filter(x => x.property === u.property && x.startMonth <= mo && (!x.endMonth || x.endMonth >= mo) && (x.active || x.endMonth));
   const sum = list => list.reduce((a, x) => a + (x.floorShare || 0), 0);
@@ -23669,7 +23672,12 @@ function rentCharges(u, mo) {
       water = sum(pool) ? bill.waterBill * (1 - Math.min(1, fixedOut)) * (u.floorShare || 0) / sum(pool) : 0; }
   }
   if (bill) {
-    if (u.elecMode === 'meter') elec = bill.fixedPerKw * (u.elecKw || 0) + (Number(bill.readings[u.id]) || 0) * bill.unitRate;
+    if (u.elecMode === 'meter') {
+      // A meter shared by several units (Ground floor "GF") is split by their kW.
+      const key = u.meter || String(u.id), onMeter = peers.filter(x => x.elecMode === 'meter' && (x.meter || String(x.id)) === key), kwSum = onMeter.reduce((a, x) => a + (x.elecKw || 0), 0);
+      const share = onMeter.length > 1 ? (kwSum ? (u.elecKw || 0) / kwSum : 1 / onMeter.length) : 1;
+      elec = bill.fixedPerKw * (u.elecKw || 0) + (Number(bill.readings[key]) || 0) * bill.unitRate * share;
+    }
     const tot = sum(peers);
     if (tot) common = bill.commons.reduce((a, c) => a + bill.fixedPerKw * c.kw + c.units * bill.unitRate, 0) * (u.floorShare || 0) / tot;
   }
@@ -23733,9 +23741,11 @@ function openRentUnit(id) {
       <div id="ruWaterFixedBox">${L('Paani ₹ / mahina')}<input id="ruWaterFixed" type="number" min="0" step="any" value="${u && u.waterFixed ? u.waterFixed : ''}" style="${VRL_IN}"/></div>
       <div id="ruWaterFracBox">${L('Bill ka tay hissa (khaali = floor ke hisaab se)')}<input id="ruWaterFrac" value="${u && u.waterFrac != null ? +u.waterFrac.toFixed(4) : ''}" placeholder="e.g. 1/3" style="${VRL_IN}"/></div>
       <div>${L('Bijli')}<select id="ruElec" onchange="rentUnitToggle()" style="${VRL_IN}"><option value="own" ${!u || u.elecMode !== 'meter' ? 'selected' : ''}>Apna meter — khud bharte hain</option><option value="meter" ${u && u.elecMode === 'meter' ? 'selected' : ''}>Hamare sub-meter se</option></select></div>
-      <div id="ruKwBox">${L('Kitne kW diye')}<input id="ruKw" type="number" min="0" step="any" value="${u && u.elecKw ? u.elecKw : ''}" style="${VRL_IN}"/></div>
+      <div id="ruKwBox">${L('Kitne kW diye · meter naam')}<div style="display:flex;gap:6px"><input id="ruKw" type="number" min="0" step="any" value="${u && u.elecKw ? u.elecKw : ''}" placeholder="kW" style="${VRL_IN}"/><input id="ruMeter" value="${esc(u ? u.meter : '')}" placeholder="e.g. GF" title="Do kiraayedaar ek meter par hon to dono me same naam — units kW ke hisaab se bantenge" style="${VRL_IN}"/></div></div>
       <div>${L('Kiraya har saal kitna % badhega')}<input id="ruHike" type="number" min="0" step="any" value="${u && u.hikePct ? u.hikePct : ''}" placeholder="e.g. 5" style="${VRL_IN}"/></div>
-      <div>${L('Agli baar kab badhega')}<input id="ruHikeMonth" type="month" value="${u ? u.hikeMonth : ''}" style="${VRL_IN}"/></div></div>
+      <div>${L('Agli baar kab badhega')}<input id="ruHikeMonth" type="month" value="${u ? u.hikeMonth : ''}" style="${VRL_IN}"/></div>
+      <div>${L('Purana baaki ₹ (shuru se pehle ka)')}<input id="ruOpen" type="number" min="0" step="any" value="${u && u.openingDue ? u.openingDue : ''}" style="${VRL_IN}"/></div>
+      <div>${L('Purane baaki ka note')}<input id="ruOpenNote" value="${esc(u ? u.openingNote : '')}" placeholder="e.g. bijli Apr–Jul" style="${VRL_IN}"/></div></div>
     ${L('Note')}<input id="ruNotes" value="${esc(u ? u.notes : '')}" placeholder="e.g. har saal 10% badhega" style="${VRL_IN};margin-bottom:8px"/>
     ${u ? `<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:8px"><input type="checkbox" id="ruActive" ${u.active ? 'checked' : ''}/> Chalu hai</label>` : ''}
     <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveRentUnit(${id || 0},this)">✓ Save</button>
@@ -23758,7 +23768,7 @@ async function saveRentUnit(id, btn) {
   const r = await api('/api/rental/unit', 'POST', { id: id || undefined, property: g('ruProp'), tenant: g('ruTenant'), phone: g('ruPhone'), rent: g('ruRent'), dueDay: g('ruDue'),
     deposit: g('ruDep'), startMonth: g('ruStart'), endMonth: g('ruEnd'), notes: g('ruNotes'), active: act ? act.checked : true,
     floor: g('ruFloor'), floorShare: g('ruShare'), maintenance: g('ruMaint'), waterMode: g('ruWater'), waterFixed: g('ruWaterFixed'), waterFrac,
-    elecMode: g('ruElec'), elecKw: g('ruKw'), hikePct: g('ruHike'), hikeMonth: g('ruHikeMonth') });
+    elecMode: g('ruElec'), elecKw: g('ruKw'), hikePct: g('ruHike'), hikeMonth: g('ruHikeMonth'), meter: g('ruMeter'), openingDue: g('ruOpen'), openingNote: g('ruOpenNote') });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('rentUnitModal');
@@ -23799,6 +23809,7 @@ function openRentHistory(id) {
   vrlModal('rentHistModal', `${scotModalHead('rentHistModal', '📒 ' + esc(u.property) + ' — ' + esc(u.tenant))}
     <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Mahina</th><th style="text-align:right">Kiraya</th><th style="text-align:right">Maint.</th><th style="text-align:right">Paani</th><th style="text-align:right">Bijli</th><th style="text-align:right">Motor/lift</th><th style="text-align:right">Kul</th><th style="text-align:right">Aaya</th><th style="text-align:right">Baaki</th></tr></thead><tbody>
     ${s.months.slice().reverse().map(m => { const c = rentCharges(u, m), got = s.paidBy[m] || 0, left = Math.max(0, c.total - got), z = v => v ? inr(v) : '—';
+      if (c.opening) return `<tr style="background:var(--color-warning-bg)"><td colspan="6"><b>Purana baaki</b> (${esc(DRIP_MONTHS[+m.slice(5) - 1])} ${m.slice(0, 4)} tak)${u.openingNote ? ` — ${esc(u.openingNote)}` : ''}</td><td style="text-align:right;font-weight:700">${inr(c.total)}</td><td style="text-align:right;color:var(--color-success-text)">${got ? inr(got) : '—'}</td><td style="text-align:right;font-weight:700;color:${left ? 'var(--color-danger)' : 'var(--color-success-text)'}">${left ? inr(left) : '✓'}</td></tr>`;
       return `<tr><td>${esc(DRIP_MONTHS[+m.slice(5) - 1])} ${m.slice(0, 4)}${c.needsBill ? ' <span title="Is mahine ka bijli/paani bill nahi daala" style="color:var(--color-warning-text)">⚡</span>' : ''}</td><td style="text-align:right">${inr(c.rent)}</td><td style="text-align:right">${z(c.maint)}</td><td style="text-align:right">${z(c.water)}</td><td style="text-align:right">${z(c.elec)}</td><td style="text-align:right">${z(c.common)}</td><td style="text-align:right;font-weight:700">${inr(c.total)}</td><td style="text-align:right;color:var(--color-success-text)">${got ? inr(got) : '—'}</td><td style="text-align:right;font-weight:700;color:${left ? 'var(--color-danger)' : 'var(--color-success-text)'}">${left ? inr(left) : '✓'}</td></tr>`; }).join('')}
     </tbody></table></div>
     ${s.pays.length ? `<div style="font-weight:700;font-size:12.5px;margin:12px 0 4px">Payments</div><div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Kab</th><th>Mahina</th><th style="text-align:right">Amount</th><th>Mode / note</th><th></th></tr></thead><tbody>
@@ -23827,8 +23838,16 @@ function openRentBill(prop, month) {
   month = month || rentYm(rentData.today);
   const b = rentData.bills.find(x => x.property === prop && x.month === month)
     || Object.assign({ waterBill: '', readings: {} }, (() => { const last = rentData.bills.find(x => x.property === prop); return last ? { fixedPerKw: last.fixedPerKw, unitRate: last.unitRate, commons: last.commons.map(c => ({ name: c.name, kw: c.kw, units: '' })) } : { fixedPerKw: 300, unitRate: 9.7, commons: [{ name: 'Paani ki motor', kw: 2, units: '' }, { name: 'Lift', kw: 4, units: '' }] }; })());
-  const meters = rentData.units.filter(u => u.property === prop && u.active && u.elecMode === 'meter');
+  const mUnits = rentData.units.filter(u => u.property === prop && u.active && u.elecMode === 'meter');
+  const meters = [...new Set(mUnits.map(u => u.meter || String(u.id)))].map(key => ({ key, units: mUnits.filter(u => (u.meter || String(u.id)) === key) }));
+  // Previous reading = this meter's reading in the latest earlier bill of the property.
+  const prevRead = key => { const pb = rentData.bills.filter(x => x.property === prop && x.month < month && x.meterReads && x.meterReads[key] != null).sort((a, z) => z.month.localeCompare(a.month))[0]; return pb ? pb.meterReads[key] : ''; };
+  const curRead = key => b.meterReads && b.meterReads[key] != null ? b.meterReads[key] : '';
   const commons = b.commons.concat(Array(Math.max(0, 3 - b.commons.length)).fill({ name: '', kw: '', units: '' }));
+  const readRow = (key, label, units) => `<div style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px"><span style="font-size:12.5px">${label}</span>
+      <input data-rb-prev="${esc(key)}" type="number" step="any" value="${prevRead(key)}" placeholder="pichhli" oninput="rentBillUnits(this)" style="${VRL_IN};margin:0"/>
+      <input data-rb-cur="${esc(key)}" type="number" step="any" value="${curRead(key)}" placeholder="abhi" oninput="rentBillUnits(this)" style="${VRL_IN};margin:0"/>
+      <input data-rb-unit="${esc(key)}" type="number" min="0" step="any" value="${units}" placeholder="units" style="${VRL_IN};margin:0;font-weight:700"/></div>`;
   const L = t => `<label style="font-size:12px;font-weight:600">${t}</label>`;
   vrlModal('rentBillModal', `${scotModalHead('rentBillModal', '⚡ Bijli / Paani bill')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -23838,21 +23857,34 @@ function openRentBill(prop, month) {
       <div></div>
       <div>${L('Fixed charge ₹ / kW')}<input id="rbFix" type="number" min="0" step="any" value="${b.fixedPerKw}" style="${VRL_IN}"/></div>
       <div>${L('Reading charge ₹ / unit')}<input id="rbRate" type="number" min="0" step="any" value="${b.unitRate}" style="${VRL_IN}"/></div></div>
-    <div style="font-weight:700;font-size:12.5px;margin:8px 0 4px">Sub-meter reading (is mahine ki units)</div>
-    ${meters.length ? meters.map(u => `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span style="flex:1;font-size:12.5px">${esc(u.floor || u.tenant)} <span style="color:var(--gray-500)">— ${esc(u.tenant)} · ${u.elecKw} kW</span></span><input data-rb-unit="${u.id}" type="number" min="0" step="any" value="${b.readings[u.id] != null ? b.readings[u.id] : ''}" placeholder="units" style="${VRL_IN};width:110px;margin:0"/></div>`).join('')
+    <div style="font-weight:700;font-size:12.5px;margin:8px 0 4px">Sub-meter reading <span style="font-weight:400;color:var(--gray-500)">— pichhli · abhi ki reading daalo, units apne aap</span></div>
+    ${meters.length ? meters.map(m => readRow(m.key, `<b>${esc(m.key.match(/^\d+$/) ? (m.units[0].floor || m.units[0].tenant) : m.key)}</b> <span style="color:var(--gray-500)">${m.units.map(u => `${esc(u.tenant)} ${u.elecKw} kW`).join(' + ')}</span>`, b.readings[m.key] != null ? b.readings[m.key] : '')).join('')
       : '<div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">Is property me koi "hamare sub-meter" wala kiraayedaar nahi</div>'}
     <div style="font-weight:700;font-size:12.5px;margin:8px 0 4px">Common (motor, lift…) — sab kiraayedaaron me floor ke hisaab se bantega</div>
-    ${commons.map((c, i) => `<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px;margin-bottom:6px"><input id="rbcN${i}" value="${esc(c.name)}" placeholder="Naam" style="${VRL_IN};margin:0"/><input id="rbcK${i}" type="number" min="0" step="any" value="${c.kw}" placeholder="kW" style="${VRL_IN};margin:0"/><input id="rbcU${i}" type="number" min="0" step="any" value="${c.units}" placeholder="units" style="${VRL_IN};margin:0"/></div>`).join('')}
+    ${commons.map((c, i) => `<div style="display:grid;grid-template-columns:1.2fr .6fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px"><input id="rbcN${i}" value="${esc(c.name)}" placeholder="Naam" style="${VRL_IN};margin:0"/><input id="rbcK${i}" type="number" min="0" step="any" value="${c.kw}" placeholder="kW" style="${VRL_IN};margin:0"/>
+      <input data-rb-prev="c:${i}" data-rb-cname="${esc(c.name)}" type="number" step="any" value="${c.name ? prevRead('c:' + c.name) : ''}" placeholder="pichhli" oninput="rentBillUnits(this)" style="${VRL_IN};margin:0"/><input data-rb-cur="c:${i}" type="number" step="any" value="${c.name ? curRead('c:' + c.name) : ''}" placeholder="abhi" oninput="rentBillUnits(this)" style="${VRL_IN};margin:0"/>
+      <input id="rbcU${i}" data-rb-unit="c:${i}" data-rb-common="1" type="number" min="0" step="any" value="${c.units}" placeholder="units" style="${VRL_IN};margin:0;font-weight:700"/></div>`).join('')}
     <button class="btn btn-green" style="width:100%;justify-content:center;margin-top:6px" onclick="saveRentBill(${commons.length},this)">✓ Save</button>`, 560);
+}
+// Units = current reading − previous reading (still editable by hand).
+function rentBillUnits(el) {
+  const key = el.dataset.rbPrev || el.dataset.rbCur, box = el.closest('div');
+  const prev = box.querySelector(`[data-rb-prev="${key}"]`), cur = box.querySelector(`[data-rb-cur="${key}"]`), units = box.querySelector(`[data-rb-unit="${key}"]`);
+  if (prev.value !== '' && cur.value !== '') units.value = Math.max(0, Math.round((Number(cur.value) - Number(prev.value)) * 100) / 100);
 }
 async function saveRentBill(n, btn) {
   const g = i => document.getElementById(i).value.trim();
-  const readings = {};
-  document.querySelectorAll('[data-rb-unit]').forEach(el => { if (el.value.trim() !== '') readings[el.dataset.rbUnit] = el.value.trim(); });
+  const readings = {}, meterReads = {};
+  document.querySelectorAll('[data-rb-unit]:not([data-rb-common])').forEach(el => { if (el.value.trim() !== '') readings[el.dataset.rbUnit] = el.value.trim(); });
+  document.querySelectorAll('[data-rb-cur]').forEach(el => {
+    if (el.value.trim() === '') return;
+    const k = el.dataset.rbCur;
+    if (k.startsWith('c:')) { const nm = g('rbcN' + k.slice(2)); if (nm) meterReads['c:' + nm] = el.value.trim(); } else meterReads[k] = el.value.trim();
+  });
   const commons = [];
   for (let i = 0; i < n; i++) if (g('rbcN' + i)) commons.push({ name: g('rbcN' + i), kw: g('rbcK' + i), units: g('rbcU' + i) });
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api('/api/rental/bill', 'POST', { property: g('rbProp'), month: g('rbMonth'), waterBill: g('rbWater'), fixedPerKw: g('rbFix'), unitRate: g('rbRate'), commons, readings });
+  const r = await api('/api/rental/bill', 'POST', { property: g('rbProp'), month: g('rbMonth'), waterBill: g('rbWater'), fixedPerKw: g('rbFix'), unitRate: g('rbRate'), commons, readings, meterReads });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('rentBillModal');
