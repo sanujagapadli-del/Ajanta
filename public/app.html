@@ -454,6 +454,10 @@ tbody tr:last-child td{border-bottom:none;}
 ═══════════════════════════════ */
 .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(4px);z-index:1000;display:none;align-items:center;justify-content:center;}
 .modal-overlay.open{display:flex;animation:fade-in 150ms ease-out;}
+/* Phone pull-to-refresh reloaded the page while a form was open — scrolling up
+   past the top of a long form (dealer onboarding) wiped it (client list 10-26 #1). */
+.modal-overlay,.modal{overscroll-behavior:contain;}
+html:has(.modal-overlay.open),body:has(.modal-overlay.open){overscroll-behavior-y:none;}
 .modal{background:var(--surface);border-radius:var(--radius-2xl);padding:26px;width:500px;max-width:95vw;max-height:92vh;overflow-y:auto;box-shadow:var(--shadow-xl);animation:pop-in 200ms cubic-bezier(0.16,1,0.3,1);}
 .modal h3{font-size:17px;font-weight:800;margin-bottom:20px;letter-spacing:-.2px;color:var(--gray-900);}
 .modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid var(--border-light);}
@@ -5216,6 +5220,8 @@ function buildO2dDashboardTasks() {
     const reorderBadge = isReorder
       ? ` <span style="font-size:10px;background:var(--color-purple-bg);color:var(--color-purple);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🔄 Reorder — new item added</span>`
       : '';
+    // Restarted by admin / PC → every step runs again (client list 10-26 #4).
+    const restartBadge = o.restartedAt && pendingStep.n > 1 ? ` <span title="Order restart hua — saare steps dobara" style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:2px 7px;border-radius:8px;font-weight:700;vertical-align:middle">🔁 Restart — ${esc(o.restartedBy || '')} ${esc(fmtDateDMY(o.restartedAt, true))}</span>` : '';
     const productsText = (o.products || []).map(p => `${esc(p.productName)}${p.qty ? ' × ' + esc(p.qty) : ''}`).join(', ');
     // Whatever was filled in at New Order time (channel, transport, when
     // to send, remark) needs to stay visible everywhere the order shows
@@ -5223,7 +5229,7 @@ function buildO2dDashboardTasks() {
     // Dashboard-card version of the same info.
     const extraBitsText = [o.channel, o.whenToSend, o.deliverByTransport === 'Yes' ? 'By Transport' : ''].filter(Boolean).map(esc).join(' · ');
     const description = `
-      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${esc(pendingStep.label)}${reorderBadge}${carryBadge}</div>
+      <div style="font-weight:700;color:var(--gray-800);font-size:13px">${pendingStep.n}. ${esc(pendingStep.label)}${reorderBadge}${restartBadge}${carryBadge}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-top:1px">${esc(o.counterName) || '—'}</div>
       <div style="font-size:12px;color:var(--gray-600)">${productsText || '—'}</div>
       ${extraBitsText ? `<div style="font-size:11.5px;color:var(--gray-500)">${extraBitsText}</div>` : ''}
@@ -5273,6 +5279,7 @@ function buildSfmsDashboardTasks() {
       <div style="font-size:12px;color:var(--gray-600)">${esc(c.productName) || '—'}${c.problemDescription ? ` — ${esc(c.problemDescription)}` : ''}</div>
       ${(place || c.address) ? `<div style="font-size:11.5px;color:var(--gray-500)">📍 ${[c.address ? esc(c.address) : '', place].filter(Boolean).join(' · ')} ${sfmsMapLink(c)}</div>` : ''}
       ${c.currentStep >= SN.assign ? `<div style="font-size:11.5px">${sfmsMechanicSparesHtml(c)}${sfmsAssignDayHtml(c)}</div>` : ''}
+      ${sfmsSentBackHtml(c)}
       ${fmsFieldRow('REGISTERED', `${fmtDateDMY(c.timestamp) || '—'} ${fmtTimeOfDay(c.timestamp)}`)}
       ${c.currentStep > 0 ? fmsReachedRow(fmsReachedAt(c.steps, c.currentStep, c.timestamp)) : ''}
       ${fmsFieldRow('PENDING', `${daysPending} day${daysPending === 1 ? '' : 's'}${late ? ' — Late' : ''}`, late ? 'color:var(--color-danger);font-weight:700' : '')}
@@ -11678,7 +11685,7 @@ function renderSfmsStepView(n) {
     const photosHtml = (c.billPhoto ? `<a href="${c.billPhoto}" target="_blank" title="Bill Photo">📄</a>` : '') +
       (c.productPhoto ? `<a href="${c.productPhoto}" target="_blank" title="Product Photo" style="margin-left:4px">📷</a>` : '');
     const locationLine = [c.productLocation, c.address, c.area].filter(Boolean).join(' · ');
-    const mechLine = c.currentStep >= SN.assign ? sfmsMechanicSparesHtml(c) + sfmsAssignDayHtml(c) : '';
+    const mechLine = (c.currentStep >= SN.assign ? sfmsMechanicSparesHtml(c) + sfmsAssignDayHtml(c) : '') + sfmsSentBackHtml(c);
     return zoneRow + `<tr data-row="${c.row}" data-zone="${esc(zone)}"${c.urgent ? ' style="background:var(--color-danger-bg)"' : ''}>
       <td style="padding:8px 6px;width:24px">${canAct ? `<input type="checkbox" class="sfmsBulkChk" data-row="${c.row}" onchange="sfmsBulkUpdateCount()"/>` : ''}</td>
       <td style="font-weight:600;cursor:pointer;white-space:nowrap;padding:8px 8px" onclick="openComplaintDetail(${c.row})">${esc(c.complainNo)}${sfmsUrgentBadge(c)}</td>
@@ -13221,13 +13228,13 @@ function buildSfmsNextActionHtml(c, compact) {
       spareRowsHtml = sfmsBuildSpareInRowsHtml(c, compact);
       // No "your name" picker — the server records the mechanic from Assign.
       extraInputsHtml = '';
-    } else if (nextStepDef.n === SN.assign && (compact || sfmsAreaZoneMap[c.area])) {
-      // Assign tab (compact): Zone isn't re-picked per row anymore, but it's
-      // also not just whatever the top filter happens to be set to — the top
-      // control only filters the list. The zone actually reported/submitted
-      // per row comes from that complaint's own Area (via sfmsAreaZoneMap),
-      // same value shown whether "All Zones" or a specific zone is filtered.
-      const rowZone = sfmsAreaZoneMap[c.area] || '';
+    } else if (nextStepDef.n === SN.assign) {
+      // Assign never asks for the Zone (client list 10-26 #7: "area pehle hi
+      // set hota hai") — not in the tab, not in the popup / Dashboard form.
+      // The zone reported per row comes from that complaint's own Area (via
+      // sfmsAreaZoneMap); an area without a zone just sends it blank (admin
+      // maps it in 🗺 Zones & Areas), and every mechanic stays selectable.
+      const rowZone = sfmsAreaZoneMap[c.area] || c.zone || '';
       extraInputsHtml = fieldsToShow.map(f => f.key === 'zone'
         ? `<input type="hidden" id="sfmsExtra_${c.row}_zone" value="${esc(rowZone)}"/>
            <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">Zone: ${esc(rowZone || '—')}</span>`
@@ -13361,7 +13368,7 @@ function renderComplaintDetailBody(c) {
         </div>` : ''}
         ${sfmsStep(c, 'assign').mechanic ? `<div style="grid-column:1 / -1">
           <div style="${SFMS_FIELD_LABEL_STYLE}">Mechanic & Spares</div>
-          <div style="font-size:14px;color:var(--gray-800)">${sfmsMechanicSparesHtml(c).replace(/<a [^>]*>🔁 Transfer<\/a>/, '') || '—'}${sfmsAssignDayHtml(c)}</div>
+          <div style="font-size:14px;color:var(--gray-800)">${sfmsMechanicSparesHtml(c).replace(/<a [^>]*>🔁 Transfer<\/a>/, '').replace(/<a [^>]*class="sfms-back-link"[^>]*>[^<]*<\/a>/, '') || '—'}${sfmsAssignDayHtml(c)}</div>
           ${sfmsTransferHtml(c)}
           ${sfmsAddSparePanelHtml(c)}
         </div>` : ''}
@@ -13675,6 +13682,14 @@ function sfmsPendingWithMechanic(c) {
 function sfmsUrgentBadge(c) {
   return c.urgent ? ` <span style="font-size:10px;background:var(--color-danger);color:#fff;padding:2px 7px;border-radius:8px;font-weight:800;vertical-align:1px">🚨 URGENT</span>` : '';
 }
+// Assigned once, then sent back to Assign (client list 10-26 #4: Aziz saw done
+// complaints "come back" — it was "↩ Assign par wapas"): who, when and why.
+function sfmsSentBackHtml(c) {
+  if (c.closed || sfmsStep(c, 'assign').status) return '';
+  const all = [...String(c.remarks || '').matchAll(/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) ([^:\]]+): wapas Assign par — ([^\]]*)\]/g)];
+  const m = all[all.length - 1];
+  return m ? `<div style="font-size:11.5px;margin-top:2px;padding:3px 8px;border-radius:8px;background:var(--color-warning-bg);color:var(--color-warning-text);display:inline-block">↩ Wapas aaya — ${esc(m[2])}, ${esc(fmtDateDMY(m[1].slice(0, 10)))} ${esc(m[1].slice(11))}: ${esc(m[3])}</div>` : '';
+}
 function sfmsMapLink(c) {
   const q = [c.address, c.area, c.productLocation].filter(Boolean).join(', ');
   return q ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px;font-weight:700;white-space:nowrap">🗺 Map</a>` : '';
@@ -13697,7 +13712,8 @@ function sfmsAssignDayHtml(c) {
 function sfmsMechanicSparesHtml(c) {
   const mech = sfmsStep(c, 'assign').mechanic || '';
   const spares = sfmsTakeoutItems(c).filter(it => it.item);
-  return (mech ? `<div style="margin-top:3px;color:var(--color-primary);font-weight:600">🔧 ${esc(mech)}${sfmsCanTransfer(c) ? ` <a href="#" onclick="event.preventDefault();event.stopPropagation();openComplaintDetail(${c.row})" style="font-size:11px">🔁 Transfer</a>` : ''}</div>` : '') +
+  // "↩ Wapas Assign" right in the row, not only inside the popup (client list 10-26 #5).
+  return (mech ? `<div style="margin-top:3px;color:var(--color-primary);font-weight:600">🔧 ${esc(mech)}${sfmsCanTransfer(c) ? ` <a href="#" onclick="event.preventDefault();event.stopPropagation();openComplaintDetail(${c.row})" style="font-size:11px">🔁 Transfer</a> <a href="#" class="sfms-back-link" onclick="event.preventDefault();event.stopPropagation();sfmsBackToAssign(${c.row}, this)" style="font-size:11px;color:var(--color-warning-text)">↩ Wapas Assign</a>` : ''}</div>` : '') +
     (spares.length ? `<div style="margin-top:2px;color:var(--gray-700)">🧰 ${spares.map(it => `${esc(it.item)}${it.qty ? ` × ${esc(it.qty)}` : ''}${it.addedAt ? ` <span title="Baad mein add: ${esc(it.addedQty || '')} — ${esc(it.addedBy || '')}, ${esc(fmtDateDMY(it.addedAt, true))}" style="font-size:10px;background:var(--color-warning-bg);color:var(--color-warning-text);padding:1px 6px;border-radius:8px;font-weight:700">🆕 +${esc(it.addedQty || '')}</span>` : ''}`).join(', ')}</div>` : '');
 }
 // Assign doer / PC View / admin can move an assigned complaint to another
@@ -15154,6 +15170,9 @@ function openDealerDetailsModal(name) {
   document.getElementById('ddTitle').textContent = `${admin ? '✏️' : '🏪'} ${name}`;
   document.getElementById('ddBody').innerHTML = `
     <div class="alert error" id="ddErr" style="display:none"></div>
+    ${d.onboarding ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--color-success-bg);color:var(--color-success-text);font-size:12.5px;margin-bottom:12px">
+      🏪 <b>${esc(d.onboarding.code)}</b> — onboarding form bhara hai (firm, GST, dukaan, transport + saari photos)
+      <button id="ddOnbBtn" class="btn btn-sm btn-green" style="margin-left:auto" onclick="closeModal('dealerDetailsModal');openOnboardDetail(${Number(d.onboarding.id)})">📷 Form + photos dekho</button></div>` : ''}
     ${admin ? `${L('Dealer / dukaan ka naam (galat ho to yahan sudharein)')}<input id="dd_name" value="${esc(name)}" style="${CHQ_INPUT}"/>
       <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Naam badalne par purane orders, payments aur beat naye naam me jud jaate hain.</div>`
       : '<div style="font-size:12px;color:var(--color-warning-text);background:var(--color-warning-bg);padding:8px 10px;border-radius:8px;margin-bottom:10px">Sirf dekh sakte hain — galat detail ho to Admin ko batayein.</div>'}
@@ -15175,7 +15194,7 @@ function openDealerDetailsModal(name) {
     ${L('Notes (kya bechta hai, kab milta hai, family…)')}<textarea id="dd_notes" rows="2" style="${CHQ_INPUT};resize:vertical">${esc(x.notes || '')}</textarea>
     ${x.updatedAt ? `<div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Last update: ${esc(fmtDateDMY(x.updatedAt, true))}${x.updatedBy ? ' · ' + esc(x.updatedBy) : ''}</div>` : ''}
     ${admin ? '<button class="btn btn-primary" id="ddSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerDetails()">Save</button>' : ''}`;
-  if (!admin) document.querySelectorAll('#ddBody input, #ddBody textarea, #ddBody button').forEach(el => { el.disabled = true; });
+  if (!admin) document.querySelectorAll('#ddBody input, #ddBody textarea, #ddBody button:not(#ddOnbBtn)').forEach(el => { el.disabled = true; });
   document.getElementById('dealerDetailsModal').classList.add('open');
 }
 function ddCaptureLocation(btn) {
@@ -16134,6 +16153,7 @@ function setStockRegDate(v) { if (v) { stockRegDate = v; stockRegAddDir = ''; lo
 const STOCK_SOURCE_BADGE = {
   purchase: { label: 'Purchase FMS', color: '#7c3aed' },
   o2d: { label: 'Sales (O2D)', color: '#0369a1' },
+  sample: { label: '🎁 Sample', color: '#b45309' },
   manual: { label: 'Manual', color: 'var(--gray-500)' }
 };
 
@@ -16150,7 +16170,7 @@ function stockRegEntryHtml(row, canEdit) {
          </div>`
       : `<div style="margin-top:4px;font-size:11px;color:var(--color-warning);font-weight:600">⚠ Not linked to stock yet (admin)</div>`)
     : '';
-  const cancelBtn = (!cancelled && canEdit)
+  const cancelBtn = (!cancelled && canEdit && row.source !== 'sample') // a sample is cancelled on the Samples page
     ? `<button class="row-action-btn cancel" onclick="cancelStockTxn(${row.id})" title="Cancel this entry">Cancel</button>` : '';
   return `<div style="padding:10px 12px;border-bottom:1px solid var(--gray-100);${cancelled ? 'opacity:.5;text-decoration:line-through' : ''}">
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
@@ -18089,6 +18109,9 @@ const PURCHASE_STEP_DEFS = [
     ] },
   { n: 2, label: 'Material Received', doer: 'Priyanka (SCCRR)', tat: '—', extraFields: [
       { key: 'receivedQty', label: 'Received Qty', formLabel: 'Is baar kitne pcs aaye (Received Qty)', type: 'number', required: true },
+      // Client list 10-26 #10 — kept per receipt in MySQL (purchase_receipts).
+      { key: 'receiveDate', label: 'Receive Date', formLabel: 'Maal kis din aaya (Receive Date)', type: 'date', required: true, defaultToday: true },
+      { key: 'billNo', label: 'Bill No.', formLabel: 'Vendor ka Bill No.' },
       { key: 'pendingQty', label: 'Pending Qty', readOnly: true },
       { key: 'forceFullClosed', label: 'Force Full Closed PO', formLabel: 'PO close karna hai? (Yes = baaki maal nahi aayega)', type: 'select', options: ['Yes', 'No'] }
     ] }
@@ -18099,6 +18122,7 @@ const PFMS_INPUT_STYLE = "width:100%;padding:10px 12px;border:1.5px solid var(--
 let pfmsData = [];
 let pfmsView = 'status';
 let pfmsFollowups = {};
+let pfmsReceipts = {}; // PO → [{ date, billNo, qty, by, at }]
 let pfmsPage = 1;
 const PFMS_PAGE_SIZE = 50;
 
@@ -18106,8 +18130,9 @@ async function loadPurchaseFmsList() {
   const wrap = document.getElementById('pfmsListWrap');
   wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   if (!_pfmsStepDoersMerged) await mergePurchaseStepDoersIntoDefs();
-  const [data, vu, ind, fu] = await Promise.all([api('/api/purchase-fms'), api('/api/purchase-fms/vendor-updates'), api('/api/purchase-fms/indents'), api('/api/purchase-fms/followups')]);
+  const [data, vu, ind, fu, rc] = await Promise.all([api('/api/purchase-fms'), api('/api/purchase-fms/vendor-updates'), api('/api/purchase-fms/indents'), api('/api/purchase-fms/followups'), api('/api/purchase-fms/receipts')]);
   pfmsFollowups = fu && !fu.error ? fu : {};
+  pfmsReceipts = rc && !rc.error ? rc : {};
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   pfmsData = data;
   window._lastPurchaseData = data;
@@ -18318,7 +18343,52 @@ function renderIndentDetailBody(o) {
         <span style="font-size:14px;font-weight:${s.done || s.cur ? 600 : 400};color:${s.done ? 'var(--color-success-text)' : s.cur ? 'var(--color-primary)' : 'var(--gray-400)'}">${i + 1}. ${esc(s.label)}${s.skipped ? ' <span style="font-size:11px;font-weight:500">(not needed — under ₹2 lakh)</span>' : ''}</span>
       </div>`).join('')}</div>`;
 
-  document.getElementById('pfmsBody').innerHTML = infoHtml + sections + progress;
+  // Admin: fix / remove a wrong or test indent until its PO is made (client list 10-26 #11).
+  const adminHtml = ME.role === 'admin' && !o.lines.some(l => l.poNumber) ? `<div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-outline btn-sm" onclick="openIndentEdit('${jsArg(o.indentNo)}')">✏️ Edit indent</button>
+      <button class="btn btn-outline btn-sm" style="margin-left:auto;color:var(--color-danger);border-color:var(--color-danger)" onclick="deleteIndent('${jsArg(o.indentNo)}')">🗑 Delete indent</button></div>` : '';
+  document.getElementById('pfmsBody').innerHTML = infoHtml + sections + progress + adminHtml;
+}
+function openIndentEdit(indentNo) {
+  const o = pfmsIndents.find(x => x.indentNo === indentNo);
+  if (!o) return;
+  const inp = PFMS_INPUT_STYLE.replace('margin-bottom:10px', 'margin-bottom:0');
+  const lab = t => `<div style="${PFMS_FIELD_LABEL_STYLE}">${t}</div>`;
+  document.getElementById('pfmsBody').innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Sirf galat qty / UOM / vendor / product theek karein. Check Stock ho chuka ho to product ka naam nahi badlega.</div>
+    ${o.lines.map((l, i) => `<div style="padding:10px 0;border-bottom:1px solid var(--gray-100)">
+      <div style="font-size:11.5px;font-weight:700;color:var(--gray-500);margin-bottom:6px">Item ${esc(l.itemId)}</div>
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <div>${lab('Product')}<input id="indE_${i}_product" value="${esc(l.productName)}" style="${inp}"/></div>
+        <div>${lab('Qty')}<input id="indE_${i}_qty" type="number" min="0" step="any" value="${esc(l.qty)}" style="${inp}"/></div>
+        <div>${lab('UOM')}<input id="indE_${i}_uom" value="${esc(l.uom || '')}" style="${inp}"/></div></div>
+      ${lab('Vendor')}<input id="indE_${i}_vendor" value="${esc(l.vendorName || '')}" style="${inp}"/></div>`).join('')}
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-outline" style="flex:1;justify-content:center" onclick="renderIndentDetailBody(pfmsIndents.find(x => x.indentNo === '${jsArg(indentNo)}'))">Cancel</button>
+      <button class="btn btn-green" style="flex:2;justify-content:center" onclick="saveIndentEdit('${jsArg(indentNo)}', this)">💾 Save</button></div>`;
+}
+async function saveIndentEdit(indentNo, btn) {
+  const o = pfmsIndents.find(x => x.indentNo === indentNo);
+  if (!o) return;
+  const v = (i, k) => (document.getElementById(`indE_${i}_${k}`) || {}).value || '';
+  const lines = o.lines.map((l, i) => ({ itemId: l.itemId, product: v(i, 'product').trim(), qty: v(i, 'qty'), uom: v(i, 'uom').trim(), vendor: v(i, 'vendor').trim() }))
+    .filter((x, i) => { const l = o.lines[i]; return x.product !== l.productName || Number(x.qty) !== Number(l.qty) || x.uom !== (l.uom || '') || x.vendor !== (l.vendorName || ''); });
+  if (!lines.length) { showToast('Kuch badla nahi', 'error'); return; }
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api(`/api/purchase-fms/indent/${encodeURIComponent(indentNo)}`, 'PUT', { lines });
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ ${indentNo} — ${r.lines} item update`);
+  closeModal('purchaseDetailModal');
+  loadPurchaseFmsList();
+}
+function deleteIndent(indentNo) {
+  showConfirm({ icon: '🗑️', title: `Delete ${indentNo}?`, okLabel: 'Delete', msg: 'Indent ki saari lines sheet (Indent Data) se hat jayengi. Wapas nahi aayegi.' }, async () => {
+    const r = await api(`/api/purchase-fms/indent/${encodeURIComponent(indentNo)}`, 'DELETE');
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast(`🗑 ${indentNo} delete ho gaya (${r.lines} line)`);
+    closeModal('purchaseDetailModal');
+    loadPurchaseFmsList();
+  });
 }
 
 // "Old Rate" picked and no final rate typed yet → use the old rate.
@@ -19079,7 +19149,17 @@ function renderPurchaseField(f, poNumber) {
         ${(f.options||[]).map(o => `<option>${o}</option>`).join('')}
       </select>`;
   }
-  return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.formLabel || f.label}${reqMark}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}" style="${PFMS_INPUT_STYLE}"/>`;
+  const today = f.defaultToday ? stockTodayYmd() : '';
+  return `<div style="${PFMS_FIELD_LABEL_STYLE}">${f.formLabel || f.label}${reqMark}</div><input type="${f.type || 'text'}" id="${id}" placeholder="${f.label}"${today ? ` value="${today}" max="${today}"` : ''} style="${PFMS_INPUT_STYLE}"/>`;
+}
+// Receipts entered at Material Received — date, bill no., qty (client list 10-26 #10).
+function pfmsReceiptsHtml(poNumber) {
+  const list = pfmsReceipts[poNumber] || [];
+  if (!list.length) return '';
+  return `<div style="${PFMS_FIELD_LABEL_STYLE}">📦 Maal aaya (${list.length})</div>
+    <div style="margin-bottom:14px">${list.map(x => `<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--gray-100)">
+      <b>${esc(fmtDateDMY(x.date))}</b>${x.qty != null ? ` · ${esc(x.qty)} pcs` : ''} · Bill ${x.billNo ? `<b>${esc(x.billNo)}</b>` : '<span style="color:var(--gray-400)">—</span>'}
+      <span style="color:var(--gray-400);font-size:11px">— ${esc(x.by)}, ${esc(fmtDateDMY(x.at, true))}</span></div>`).join('')}</div>`;
 }
 function readPurchaseField(f, poNumber) {
   const el = document.getElementById(`pfmsExtra_${poNumber}_${f.key}`);
@@ -19237,6 +19317,7 @@ function renderPurchaseDetailBody(o) {
       </div>` : ''}
       <div style="${PFMS_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
       <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>
+      ${pfmsReceiptsHtml(o.poNumber)}
       ${pfmsVendorHistoryHtml(o)}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         ${o.timestamp ? `<div>
@@ -19616,7 +19697,8 @@ function renderCollection() {
   const billAge = b => `<span style="white-space:nowrap">${esc(fmtDateDMY(b.billDate))} (${day(b.days)})</span>`;
   const amt = b => `${inr(b.amount)}${b.billAmount && Math.round(b.billAmount) !== Math.round(b.amount) ? `<div style="font-size:10.5px;color:var(--gray-500);font-weight:400" title="Tally bill me itna dikhta hai — baaki on-account payment se kat gaya">bill ${inr(b.billAmount)}</div>` : ''}`;
   const partyCell = b => `<a href="#" onclick="openColParty('${o2dJsEsc(b.party)}');return false" style="font-weight:700">${esc(b.party)}</a>${b.owner ? `<div style="font-size:11px;color:var(--gray-500)">${esc(b.owner)}</div>` : ''}`;
-  const tel = b => b.phone ? `<a href="tel:${esc(b.phone)}" style="font-weight:700">📞 ${esc(b.phone)}</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(b.party)}')">➕ Phone daalo</button>`;
+  // Wrong number → ✏️ right next to it (client list 10-26 #13); saved to Dealer Master too.
+  const tel = b => b.phone ? `<span style="white-space:nowrap"><a href="tel:${esc(b.phone)}" style="font-weight:700">📞 ${esc(b.phone)}</a> <a href="#" title="Number galat hai? Badlo" onclick="colSetPhone('${o2dJsEsc(b.party)}');return false" style="text-decoration:none">✏️</a></span>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(b.party)}')">➕ Phone daalo</button>`;
   if (colTab === 'age') {
     const list = colData.bills.filter(b => b.days >= colAge && b.amount > 0).sort((a, b) => b.days - a.days);
     wrap.innerHTML = note + `<div style="font-size:13px;font-weight:700;margin-bottom:8px">${colAge}+ din purane bill — ${list.length} · ${inr(list.reduce((a, b) => a + b.amount, 0))}</div>` + (list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th style="text-align:right">Party total</th><th>Phone</th><th></th></tr></thead><tbody>
@@ -19670,7 +19752,7 @@ function colRenderPartyRows() {
     ${list.map(p => `<tr style="cursor:pointer" onclick="openColParty('${o2dJsEsc(p.party)}')"><td style="font-weight:700">${esc(p.party)}${p.owner ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(p.owner)}</div>` : ''}</td>
       <td style="text-align:right;font-weight:800">${inr(p.outstanding)}${p.appPaid ? `<div style="font-size:10.5px;color:var(--color-success-text);font-weight:600">−${inr(p.appPaid)} yahan entry</div>` : ''}</td>
       <td>${p.bills.length}</td><td><b style="color:${p.maxDays >= 30 ? 'var(--color-danger)' : p.maxDays >= 15 ? 'var(--color-warning-text)' : 'var(--gray-700)'}">${p.maxDays} din</b></td>
-      <td onclick="event.stopPropagation()" style="white-space:nowrap">${p.phone ? `<a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(p.party)}')">➕ Phone daalo</button>`}
+      <td onclick="event.stopPropagation()" style="white-space:nowrap">${p.phone ? `<a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a> <a href="#" title="Number galat hai? Badlo" onclick="colSetPhone('${o2dJsEsc(p.party)}');return false" style="text-decoration:none">✏️</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(p.party)}')">➕ Phone daalo</button>`}
         <button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="colOpenStatement('${o2dJsEsc(p.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`).join('')}
     </tbody></table></div>` : '<div class="empty">Koi party nahi mili</div>';
 }
@@ -19730,7 +19812,7 @@ async function deleteColPayment(id, party, btn) {
 }
 async function colSetPhone(party) {
   const cur = colPartyOf(party).phone || '';
-  const phone = await uiPrompt(`${party} — mobile number (Dealer Master me bhi save hoga):`, cur);
+  const phone = await uiPrompt(`${party} — ${cur ? 'sahi' : ''} mobile number (Dealer Master me bhi save hoga):`, cur);
   if (phone === null || !phone.trim()) return;
   const r = await api('/api/collection-followup/phone', 'POST', { party, phone: phone.trim() });
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -23164,9 +23246,66 @@ async function saveLeadSettings() {
 }
 
 // ── Dealer onboarding form ──
+// In-page camera for the onboarding photos (client list 10-26 #1: "form refresh
+// ho jata hai, sab gayab"). Opening the phone's own camera app sends the page to
+// the background and low-memory phones then reload it; a camera inside the page
+// never leaves it. Falls back to the phone camera when the browser has none.
+let _onbNativePick = false, _onbCamStream = null;
+function onbCamClick(ev, inputId, previewId) {
+  if (_onbNativePick) { _onbNativePick = false; return true; }
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) return true;
+  ev.preventDefault();
+  onbOpenCamera(inputId, previewId);
+  return false;
+}
+async function onbOpenCamera(inputId, previewId) {
+  let m = document.getElementById('onbCamModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'onbCamModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:3000;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center';
+    m.innerHTML = `<video id="onbCamVideo" autoplay playsinline muted style="max-width:100%;max-height:calc(100dvh - 110px);background:#000"></video>
+      <div id="onbCamMsg" style="color:#fff;font-size:13px;margin:6px 0"></div>
+      <div style="display:flex;gap:12px;align-items:center;padding:10px">
+        <button type="button" class="btn btn-outline" style="background:#fff" onclick="onbCloseCamera()">✕</button>
+        <button type="button" id="onbCamShot" class="btn btn-green" style="padding:14px 26px;font-size:16px">📸 Photo lo</button>
+        <button type="button" id="onbCamNative" class="btn btn-outline" style="background:#fff;font-size:12px">Phone camera</button></div>`;
+    document.body.appendChild(m);
+  }
+  m.style.display = 'flex';
+  const video = document.getElementById('onbCamVideo'), msg = document.getElementById('onbCamMsg');
+  msg.textContent = 'Camera khul raha hai…';
+  document.getElementById('onbCamNative').onclick = () => { onbCloseCamera(); _onbNativePick = true; document.getElementById(inputId).click(); };
+  document.getElementById('onbCamShot').onclick = async () => {
+    if (!video.videoWidth) return;
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth; c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+    onbCloseCamera();
+    if (blob) onbApplyPhotoFile(document.getElementById(inputId), previewId, new File([blob], 'photo.jpg', { type: 'image/jpeg', lastModified: Date.now() }));
+  };
+  try {
+    _onbCamStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    video.srcObject = _onbCamStream;
+    msg.textContent = '';
+  } catch (e) {
+    // No permission / no camera here → the phone's own camera, as before.
+    onbCloseCamera();
+    _onbNativePick = true;
+    document.getElementById(inputId).click();
+  }
+}
+function onbCloseCamera() {
+  if (_onbCamStream) { _onbCamStream.getTracks().forEach(t => t.stop()); _onbCamStream = null; }
+  const m = document.getElementById('onbCamModal');
+  if (m) m.style.display = 'none';
+}
 async function onOnbPhotoSelected(input, previewId) {
+  return onbApplyPhotoFile(input, previewId, input.files[0]);
+}
+async function onbApplyPhotoFile(input, previewId, file) {
   const preview = document.getElementById(previewId);
-  const file = input.files[0];
   input.dataset.compressed = '';
   if (!file) { preview.innerHTML = ''; return; }
   preview.textContent = '…';
@@ -23220,6 +23359,15 @@ function onbSaveDraft() {
   }, 400);
 }
 const onbClearDraft = () => onbDraftStore('readwrite', st => st.delete('dealerOnboarding'));
+// Refresh / close with a half-filled onboarding form open: ask first (the draft
+// still brings it back if the phone itself reloads the page).
+window.addEventListener('beforeunload', e => {
+  const m = document.getElementById('dealerOnboardModal');
+  if (!m || !m.classList.contains('open')) return;
+  const filled = [...document.querySelectorAll('#onbBody input[id^="onb_"], #onbBody textarea[id^="onb_"]')]
+    .some(el => el.type === 'file' ? !!el.dataset.compressed : el.type !== 'hidden' && el.type !== 'checkbox' && el.value.trim());
+  if (filled) { e.preventDefault(); e.returnValue = ''; }
+});
 const onbLoadDraft = async () => {
   const d = await onbDraftStore('readonly', st => st.get('dealerOnboarding'));
   return d && Date.now() - d.at < ONB_DRAFT_MAX_AGE_MS && (Object.keys(d.photos || {}).length || Object.entries(d.fields || {}).some(([k, v]) => typeof v === 'string' && k !== 'onb_leadId' && v.trim())) ? d : null;
@@ -23258,7 +23406,7 @@ async function openDealerOnboardModal(leadId, fresh) {
   const inp = (id, label, req, attrs, val) => `<div>${L(label, req)}<input id="onb_${id}" ${attrs || ''} value="${esc(val || '')}" style="${CHQ_INPUT}"/></div>`;
   const sel = (id, label, opts, req) => `<div>${L(label, req)}<select id="onb_${id}" style="${CHQ_INPUT}"><option value="">-- Select --</option>${opts.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
   const photo = (id, label) => `<div><div style="font-size:11px;font-weight:700;color:var(--gray-500);margin-bottom:3px">${label}</div>
-    <label style="display:block;border:1.5px dashed var(--gray-300);border-radius:10px;padding:8px;text-align:center;cursor:pointer;font-size:12px;color:var(--gray-500)">📷 Photo
+    <label onclick="return onbCamClick(event,'onb_${id}','onb_${id}_pv')" style="display:block;border:1.5px dashed var(--gray-300);border-radius:10px;padding:8px;text-align:center;cursor:pointer;font-size:12px;color:var(--gray-500)">📷 Photo
       <input type="file" id="onb_${id}" accept="image/*" capture="environment" style="display:none" onchange="onOnbPhotoSelected(this,'onb_${id}_pv')"/></label><div id="onb_${id}_pv"></div></div>`;
   const sec = t => `<div style="font-size:13px;font-weight:800;color:var(--gray-800);margin:14px 0 8px;padding-top:10px;border-top:1px solid var(--gray-100)">${t}</div>`;
   document.getElementById('onbBody').innerHTML = `
@@ -23432,11 +23580,15 @@ async function openOnboardingList() {
   if (!r || r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
   const items = r.items || [];
   if (!items.length) { body.innerHTML = '<div class="empty">Abhi koi onboarding form nahi bhara gaya</div>'; return; }
-  body.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Code</th><th>Dukaan</th><th>Malik / Mobile</th><th>City</th><th>Photos</th><th>Kisne bhara</th><th>Date</th></tr></thead><tbody>
+  // Row click → the whole form with every photo; admin can delete a test entry right here (client list 10-26 #2 / #3).
+  const admin = ME.role === 'admin';
+  body.innerHTML = `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Kisi bhi row par click karein — poora form aur saari photos khulengi.</div>
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Code</th><th>Dukaan</th><th>Malik / Mobile</th><th>City</th><th>Photos</th><th>Kisne bhara</th><th>Date</th>${admin ? '<th></th>' : ''}</tr></thead><tbody>
     ${items.map(o => { const n = [o.gstPhoto, o.outsidePhoto, o.aadhaarPhoto, o.chequePhoto, o.biltyPhoto, ...o.insidePhotos].filter(Boolean).length;
       return `<tr onclick="openOnboardDetail(${o.id})" style="cursor:pointer"><td style="font-weight:700;white-space:nowrap">${esc(o.code)}</td><td style="font-weight:600">${esc(o.shopName)}</td>
         <td>${esc(o.ownerName)}<div style="font-size:11px;color:var(--gray-500)">${esc(o.mobile)}</div></td><td>${esc([o.area, o.city].filter(Boolean).join(', ') || '—')}</td>
-        <td>📷 ${n}</td><td>${esc(o.createdByName || '—')}</td><td style="white-space:nowrap">${esc(fmtDateDMY(o.createdAt, true))}</td></tr>`; }).join('')}
+        <td style="white-space:nowrap">${o.outsidePhoto ? `<img src="${esc(o.outsidePhoto)}" loading="lazy" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:4px"/>` : ''}📷 ${n}</td><td>${esc(o.createdByName || '—')}</td><td style="white-space:nowrap">${esc(fmtDateDMY(o.createdAt, true))}</td>
+        ${admin ? `<td onclick="event.stopPropagation()"><button class="btn btn-outline btn-sm" title="Delete (test / galat entry)" style="color:var(--color-danger)" onclick="deleteOnboarding(${o.id},'${jsArg(o.code + ' · ' + o.shopName)}')">🗑</button></td>` : ''}</tr>`; }).join('')}
     </tbody></table></div>`;
 }
 async function resendDealerWelcome(id, btn) {
@@ -25396,7 +25548,8 @@ const REPL_STEP_DEFS = [
   { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tat: '4 hours' },
   { n: 10, key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tat: '1 day' },
   { n: 11, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tat: '1 day' },
-  { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tat: '2 days' },
+  { n: 17, key: 'deliveryassign', label: 'Assign Delivery Person',  doer: 'Priyanka', tat: '4 hours' },
+  { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery person', tat: '2 days' },
   { n: 13, key: 'cashstaff', label: 'Cash from Staff',              doer: 'Accountant', tat: '1 day' }
 ];
 REPL_STEP_DEFS.forEach((sd, i) => { sd.no = i + 1; sd.disp = `${i + 1}.`; });
@@ -25419,6 +25572,7 @@ const RPL_STAGE = {
   bin:      { label: 'Maal check', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   cn:       { label: 'Credit note', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   cnsend:   { label: 'Send CN', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
+  deliveryassign: { label: 'Delivery kaun dega?', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
   handover: { label: 'Handover', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
   cashstaff:{ label: 'Cash from staff', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
   closed:   { label: '✓ Closed', bg: 'var(--color-success-bg)', fg: 'var(--color-success-text)' },
@@ -25467,6 +25621,8 @@ function rplCanDo(r) {
   const t = r.task;
   if (!t) return false;
   if ((t.key === 'repair' || t.key === 'takeout') && Number(r.mechanicUserId) === Number(ME.id)) return true;
+  // Handover: only the delivery person named at "Assign Delivery Person" (or admin).
+  if (t.key === 'handover' && r.deliveryUserId) return rplMe.isAdmin || Number(r.deliveryUserId) === Number(ME.id);
   return rplMe.mySteps.includes(t.n);
 }
 function rplSearchMatch(r, q) {
@@ -25577,7 +25733,7 @@ function renderReplReports() {
   const late = open.filter(r => rplIsLate(r.task));
   const inRepair = live.filter(r => r.stage === 'repair');
   const repairLate = inRepair.filter(r => r.assignedAt && fmsRepDays(r.assignedAt, now) > rplRepLead(r));
-  const handover = live.filter(r => r.stage === 'handover');
+  const handover = live.filter(r => r.stage === 'handover' || r.stage === 'deliveryassign');
   const goingBack = handover.filter(r => r.task && r.task.returning);
   const oldest = open.reduce((m, r) => Math.max(m, age(r)), 0);
 
@@ -25954,8 +26110,16 @@ function rplTaskFormHtml(r) {
         <div>${L('Staff ka naam', true)}<input id="${id}_staff" placeholder="e.g. delivery boy / salesman" style="${RPL_INPUT}"/></div>
         <div>${L('Amount liya (₹)', true)}<input id="${id}_amt" type="number" min="0" value="${r.chargesReceived ?? ''}" style="${RPL_INPUT}"/></div></div>
       <div style="display:flex;gap:8px">${btn('✓ Cash Received — Close', 'cashstaff')}</div>`;
+  } else if (t.key === 'deliveryassign') {
+    inner = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${t.returning ? '↩ Product party ko <b>wapas</b> jayega.' : 'Product tayyar hai.'} Jo delivery dega, usko chunein — wahi customer se OTP lekar Handover karega (usko WhatsApp bhi jayega).</div>
+      ${L('Delivery kaun dega?', true)}<select id="${id}_dlv" style="${RPL_INPUT}"><option value="">Loading…</option></select>
+      ${L('Remark')}<input id="${id}_remark" placeholder="e.g. kal Sikar Road beat ki gaadi se" style="${RPL_INPUT}"/>
+      <div style="display:flex;gap:8px">${btn('🚚 Assign Delivery', 'deliveryassign')}</div>`;
+    setTimeout(async () => { const sel = document.getElementById(`${id}_dlv`); if (!sel) return; const u = await api('/api/users/roster');
+      const list = (Array.isArray(u) ? u : []).filter(x => +x.is_active !== 0);
+      sel.innerHTML = '<option value="">-- Select --</option>' + list.map(x => `<option value="${x.id}"${Number(x.id) === Number(r.salesmanUserId) ? ' selected' : ''}>${esc(x.name)}</option>`).join(''); }, 0);
   } else if (t.key === 'handover') {
-    inner = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${t.returning ? '↩ Product party ko <b>wapas</b> diya ja raha hai.' : 'Product customer ko dete waqt OTP lijiye — OTP daalte hi entry close ho jayegi.'}</div>
+    inner = `${r.deliveryName ? `<div style="font-size:12.5px;margin-bottom:6px">🚚 Delivery: <b>${esc(r.deliveryName)}</b></div>` : ''}<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${t.returning ? '↩ Product party ko <b>wapas</b> diya ja raha hai.' : 'Product customer ko dete waqt OTP lijiye — OTP daalte hi entry close ho jayegi.'}</div>
       ${L('Customer mobile', true)}<div style="display:flex;gap:8px;margin-bottom:10px"><input id="${id}_mobile" value="${esc(r.customerMobile)}" inputmode="tel" style="${RPL_INPUT};margin-bottom:0;flex:1"/>
         <button class="btn btn-primary" onclick="sendReplOtp(${r.id},this)">${r.otpSentAt ? 'Resend OTP' : 'Send OTP'}</button></div>
       ${L('OTP (customer se)', true)}<input id="${id}_otp" inputmode="numeric" maxlength="6" placeholder="6 digit" style="${RPL_INPUT}"/>
@@ -25996,6 +26160,7 @@ function renderReplDetailBody(r) {
       ${f('Exchange item', esc(r.exchangeItem))}${r.exchangeOld ? f('Old piece', r.exchangeOld === 'stock' ? 'Checked OK — back in stock' : 'Reject Bin') : ''}
       ${r.cnNo ? f('Credit Note', esc(r.cnNo) + (r.cnAmount != null ? ` · ${inr(r.cnAmount)}` : '')) : ''}
       ${r.cnPhoto ? `<div>${rplPhoto(r.cnPhoto, 120)}</div>` : ''}${r.cnSentPhoto ? `<div>${rplPhoto(r.cnSentPhoto, 120)}</div>` : ''}
+      ${r.deliveryName ? f('Delivery person', esc(r.deliveryName) + (r.deliveryAssignedAt ? ` · ${fmtDateDMY(r.deliveryAssignedAt, true)}` : '')) : ''}
       ${r.deliveredAt ? f('Delivered', fmtDateDMY(r.deliveredAt, true) + (r.receiverName ? ' · ' + esc(r.receiverName) : '') + (r.chargesReceived != null ? ` · ${inr(r.chargesReceived)} recd` : '')) : ''}
       ${r.cashStaffAt ? f('Cash from staff', `${inr(r.cashStaffAmount)} · ${esc(r.cashStaffName)} · ${fmtDateDMY(r.cashStaffAt, true)}`) : ''}
       <div style="grid-column:1/-1">${f('Remark', esc(r.remark))}</div>
@@ -26009,7 +26174,7 @@ function renderReplDetailBody(r) {
 }
 const RPL_EVENT_LABEL = { created: '📝 Form filled', imported: '📥 Imported', check: '📒 Diary / ownership', category: '🗂 Category', warranty: '🛡 Warranty',
   assign: '🔧 Given to mechanic', spareissue: '🔩 Spare issued', repair: '✅ Repaired & tested', takeout: '📦 Spare takeout', sparecheck: '🔍 Spare check', exchange: '🔄 Exchanged', inform: '📞 Informed', bin: '🔍 Maal check', cn: '🧾 Credit note',
-  cnsend: '📤 CN shared', otp: '🔐 OTP', handover: '🤝 Handed over', cashstaff: '💵 Cash from staff', cancelled: '🚫 Cancelled' };
+  cnsend: '📤 CN shared', deliveryassign: '🚚 Delivery assigned', otp: '🔐 OTP', handover: '🤝 Handed over', cashstaff: '💵 Cash from staff', cancelled: '🚫 Cancelled' };
 async function loadReplEvents(id) {
   const r = await api(`/api/replacement-fms/${id}/events`);
   const el = document.getElementById(`rplEvents_${id}`);
@@ -26070,6 +26235,7 @@ async function submitReplAction(id, action, btnEl, preset) {
   else if (action === 'bin') body = { condition: radio('cond'), remark: val('remark') };
   else if (action === 'cn') body = { cnNo: val('no'), cnAmount: val('amt'), cnPhoto: photo() };
   else if (action === 'cnsend') body = { photo: photo() };
+  else if (action === 'deliveryassign') body = { deliveryUserId: val('dlv'), remark: val('remark') };
   else if (action === 'handover') body = { otp: val('otp'), receiverName: val('recv'), chargesReceived: val('chr'), withoutOtp: val('nootp') };
   else if (action === 'cashstaff') body = { staffName: val('staff'), amount: val('amt') };
   // The red toast sits at the far bottom-right, easy to miss on a modal — so a

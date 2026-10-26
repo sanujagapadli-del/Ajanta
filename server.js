@@ -6252,6 +6252,8 @@ async function getO2dOrders() {
     o.videos = extras.mediaBy[o.orderNo] || [];
     if (!f) return;
     o.restartCount = f.restart_count || 0;
+    // Shown on the Dashboard row — a restarted order comes back to every step's doer (client list 10-26 #4).
+    if (o.restartCount && f.restarted_at) Object.assign(o, { restartedBy: f.restarted_by || '', restartedAt: f.restarted_at });
     if (f.carried_by) Object.assign(o, { carriedBy: f.carried_by, carriedSetBy: f.carried_set_by || '' });
     if (f.cancelled && !o.closed) { o.cancelled = true; o.closed = true; o.cancelledStepLabel = o.cancelledStepLabel || 'Cancelled'; }
     if (f.cancelled) Object.assign(o, { cancelReason: f.cancel_reason || '', cancelledBy: f.cancelled_by || '', cancelledAt: f.cancelled_at || '' });
@@ -9046,7 +9048,7 @@ async function getO2dOrderExtras() {
   const [[flags], [media]] = await withO2dOrderTables(() => Promise.all([
     db.query(`SELECT order_no, on_hold, hold_reason, hold_type, hold_by, DATE_FORMAT(hold_at,'%Y-%m-%d %H:%i') AS hold_at,
                 cancelled, cancel_reason, cancelled_by, DATE_FORMAT(cancelled_at,'%Y-%m-%d %H:%i') AS cancelled_at, restart_count,
-                carried_by, carried_set_by
+                restarted_by, DATE_FORMAT(restarted_at,'%Y-%m-%d %H:%i') AS restarted_at, carried_by, carried_set_by
               FROM o2d_order_flags`),
     db.query(`SELECT id, order_no, step_n, url, kind, seconds, created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
               FROM o2d_media ORDER BY id`)
@@ -9574,7 +9576,11 @@ async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
     }
   }
 
-  const now = sfmsDateToSerial(new Date());
+  // Material Received on an earlier day (client list 10-26 #10): Actual = that day,
+  // so the stock IN lands on the receive date too.
+  const istNow = new Date(Date.now() + IST_OFFSET_MS).toISOString();
+  const rd = isReceive && /^\d{4}-\d{2}-\d{2}$/.test(body.receiveDate || '') && body.receiveDate < istNow.slice(0, 10) ? body.receiveDate : '';
+  const now = sfmsDateToSerial(rd ? new Date(`${rd}T${istNow.slice(11, 19)}+05:30`) : new Date());
   const defaultStatus = body.status || 'Yes';
   const batchData = [];
   targetRows.forEach(rowNum => {
@@ -9656,17 +9662,47 @@ app.post('/api/purchase-fms/po/:poNumber/followup', requireAuth, async (req, res
   }
 });
 
+// Each Material Received entry with its receive date + vendor bill no. (client
+// list 10-26 #10) — kept here, the sheet has no columns for them.
+let _poReceiptReady = null;
+function poReceiptTable() {
+  if (!_poReceiptReady) _poReceiptReady = db.query(`CREATE TABLE IF NOT EXISTS purchase_receipts (
+      id INT AUTO_INCREMENT PRIMARY KEY, po_number VARCHAR(40) NOT NULL, receive_date DATE NOT NULL, bill_no VARCHAR(80), qty DECIMAL(12,2),
+      created_by INT, created_by_name VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_po (po_number)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+    .catch(e => { _poReceiptReady = null; throw e; });
+  return _poReceiptReady;
+}
+app.get('/api/purchase-fms/receipts', requireAuth, async (req, res) => {
+  try {
+    await poReceiptTable();
+    const [rows] = await db.query("SELECT po_number, DATE_FORMAT(receive_date,'%Y-%m-%d') AS d, bill_no, qty, created_by_name, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS at FROM purchase_receipts ORDER BY id");
+    const out = {};
+    rows.forEach(r => { (out[r.po_number] = out[r.po_number] || []).push({ date: r.d, billNo: r.bill_no || '', qty: r.qty == null ? null : Number(r.qty), by: r.created_by_name || '', at: r.at }); });
+    res.json(out);
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req, res) => {
   try {
     const poNumber = req.params.poNumber;
     const stepNum = parseInt(req.params.stepNum, 10);
     if (!(await assertIsStepDoer(res, 'purchase_step_doers', stepNum, req.session.userId, req.session.role))) return;
+    const b = req.body || {};
+    const isReceive = stepNum === STOCK_PURCHASE_IN_STEP;
+    const today = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    if (isReceive && b.receiveDate && (!/^\d{4}-\d{2}-\d{2}$/.test(b.receiveDate) || b.receiveDate > today)) return res.status(400).json({ error: 'Receive date sahi chunein (aaj ya pehle ki)' });
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    const { rowsUpdated, badQty, overOrdered, stillOpen } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, req.body);
+    const { rowsUpdated, badQty, overOrdered, stillOpen } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, b);
     if (badQty) return res.status(400).json({ error: 'Received Qty must be a number (0 or more)' });
-    if (overOrdered) return res.status(409).json({ needsConfirm: true, orderedQty: overOrdered, error: `Received Qty ${Number(req.body.receivedQty)} is more than the ordered qty (${overOrdered})` });
+    if (overOrdered) return res.status(409).json({ needsConfirm: true, orderedQty: overOrdered, error: `Received Qty ${Number(b.receivedQty)} is more than the ordered qty (${overOrdered})` });
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
     if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under PO ${poNumber}` });
+    if (isReceive) {
+      await poReceiptTable();
+      const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+      await db.query('INSERT INTO purchase_receipts (po_number, receive_date, bill_no, qty, created_by, created_by_name) VALUES (?,?,?,?,?,?)',
+        [poNumber, b.receiveDate || today, String(b.billNo || '').trim().slice(0, 80) || null, b.receivedQty === '' || b.receivedQty == null ? null : Number(b.receivedQty), req.session.userId, u ? u.name : '']);
+    }
     res.json({ success: true, rowsUpdated, stillOpen });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase Fms sheet with the service account.' });
@@ -9904,6 +9940,70 @@ async function getIndents() {
 app.get('/api/purchase-fms/indents', requireAuth, async (req, res) => {
   try {
     res.json(await getIndents());
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
+// Admin fixes a wrong / test indent (client list 10-26 #11) — only while none of
+// its lines has a PO. Edits rewrite the indent's own "Indent Data" rows (Indent
+// FMS is a QUERY over them); a product is renamed only before Check Stock, since
+// the step response tabs are matched on the product name. Delete removes the rows.
+async function indentDataRows(sheetsApi, indentNo) {
+  const r = await sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${INDENT_DATA_TAB}'!A2:I`, valueRenderOption: 'UNFORMATTED_VALUE' });
+  return (r.data.values || []).map((x, i) => ({ row: i + 2, x })).filter(o => String(o.x[1] || '') === indentNo);
+}
+async function indentEditable(res, indentNo) {
+  const { indents } = await getIndents();
+  const ind = indents.find(o => o.indentNo === indentNo);
+  if (!ind) { res.status(404).json({ error: 'Indent not found' }); return null; }
+  if (ind.lines.some(l => l.poNumber)) { res.status(400).json({ error: 'Is indent ka PO ban chuka hai — ab edit / delete nahi ho sakta' }); return null; }
+  return ind;
+}
+app.put('/api/purchase-fms/indent/:indentNo', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const indentNo = String(req.params.indentNo);
+    const ind = await indentEditable(res, indentNo);
+    if (!ind) return;
+    const input = Array.isArray(req.body && req.body.lines) ? req.body.lines : [];
+    const sheetsW = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const rows = await indentDataRows(sheetsW, indentNo);
+    const data = [];
+    for (const v of input) {
+      const line = ind.lines.find(l => l.itemId === String(v.itemId));
+      const src = rows.find(o => String(o.x[3]) === String(v.itemId));
+      if (!line || !src) continue;
+      const product = String(v.product || '').trim().slice(0, 255), uom = String(v.uom || '').trim().slice(0, 20), vendor = String(v.vendor || '').trim().slice(0, 255);
+      const qty = Number(v.qty);
+      if (!product || !(qty > 0) || !vendor) return res.status(400).json({ error: `Item ${v.itemId}: product, qty aur vendor zaroori hain` });
+      if (product !== line.productName && line.steps[0] && line.steps[0].done) return res.status(400).json({ error: `${line.productName}: Check Stock ho chuka hai — product ka naam ab nahi badal sakte (qty / vendor badal sakte hain)` });
+      data.push({ range: `'${INDENT_DATA_TAB}'!E${src.row}:H${src.row}`, values: [[product, uom || line.uom || 'PCS', qty, vendor]] });
+    }
+    if (!data.length) return res.status(400).json({ error: 'Kuch badla nahi' });
+    await sheetsW.spreadsheets.values.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
+    console.log(`indent ${indentNo} edited by user ${req.session.userId}: ${JSON.stringify(data.map(d => d.values[0]))}`);
+    res.json({ success: true, lines: data.length });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+app.delete('/api/purchase-fms/indent/:indentNo', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const indentNo = String(req.params.indentNo);
+    if (!(await indentEditable(res, indentNo))) return;
+    const sheetsW = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const rows = await indentDataRows(sheetsW, indentNo);
+    if (!rows.length) return res.status(404).json({ error: 'Indent Data me ye indent nahi mila' });
+    const meta = await sheetsW.spreadsheets.get({ spreadsheetId: PURCHASE_SHEET_ID, fields: 'sheets.properties(sheetId,title)' });
+    const tab = meta.data.sheets.find(s => s.properties.title === INDENT_DATA_TAB);
+    if (!tab) return res.status(500).json({ error: 'Indent Data tab not found' });
+    // Bottom-up, so earlier deletes don't shift the rows still to go.
+    const requests = rows.map(o => o.row).sort((a, b) => b - a).map(row => ({ deleteDimension: { range: { sheetId: tab.properties.sheetId, dimension: 'ROWS', startIndex: row - 1, endIndex: row } } }));
+    await sheetsW.spreadsheets.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { requests } });
+    console.log(`indent ${indentNo} deleted by user ${req.session.userId}: ${JSON.stringify(rows.map(o => o.x))}`);
+    res.json({ success: true, lines: rows.length });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
     sendServerError(res, err);
@@ -10847,7 +10947,10 @@ const REPL_STEPS = [
   { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tatH: 4 },
   { n: 10, key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tatH: 24 },
   { n: 11, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tatH: 24 },
-  { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery / Salesman', tatH: 48 },
+  // Client list 2026-10-26 #14: Priyanka names who delivers; only that person
+  // (or admin) then does the Handover OTP.
+  { n: 17, key: 'deliveryassign', label: 'Assign Delivery Person',  doer: 'Priyanka', tatH: 4 },
+  { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery person', tatH: 48 },
   // Out-of-warranty charges taken from the customer are collected from the
   // staff who took them (client, 2026-10-13).
   { n: 13, key: 'cashstaff', label: 'Cash from Staff',              doer: 'Accountant', tatH: 24 }
@@ -10931,8 +11034,15 @@ async function ensureReplCols() {
     // JSON [{ item, qty, used, returned }] after the repair, then Niranjan's check.
     ['spare_issue_items', 'TEXT'], ['spare_issue_remark', 'VARCHAR(500)'], ['spare_issue_at', 'DATETIME'], ['spare_issue_by', 'INT'],
     ['takeout_items', 'TEXT'], ['takeout_remark', 'VARCHAR(500)'], ['takeout_at', 'DATETIME'], ['takeout_by', 'INT'],
-    ['spare_check_status', 'VARCHAR(10)'], ['spare_check_remark', 'VARCHAR(500)'], ['spare_check_at', 'DATETIME'], ['spare_check_by', 'INT']]);
+    ['spare_check_status', 'VARCHAR(10)'], ['spare_check_remark', 'VARCHAR(500)'], ['spare_check_at', 'DATETIME'], ['spare_check_by', 'INT'],
+    ['delivery_user_id', 'INT'], ['delivery_name', 'VARCHAR(255)'], ['delivery_assigned_at', 'DATETIME'], ['delivery_assigned_by', 'INT']]);
   await replMigrateStepsV2();
+  // New Assign Delivery step (2026-10-26) starts with the Handover step's doers (Priyanka).
+  if (!(await getAppSetting('repl_delivery_step_seeded'))) {
+    await db.query(`INSERT IGNORE INTO replacement_step_doers (step_n, user_id) SELECT ${REPL_N.deliveryassign}, user_id FROM replacement_step_doers WHERE step_n = ${REPL_N.handover}`);
+    await setAppSetting('repl_delivery_step_seeded', new Date().toISOString());
+    _replStepDoersCache = null;
+  }
   _replColsOk = true;
 }
 // Step doers were saved by step number: when "Diary Entry & Ownership Check"
@@ -10983,10 +11093,12 @@ function replJson(v) { try { const a = JSON.parse(v || '[]'); return Array.isArr
 // "R-12 (D-45)" — the Diary No. shown in brackets after the code (client, 2026-10-17).
 function replCodeLabel(r) { return r.diary_no ? `${r.code} (${r.diary_no})` : r.code; }
 function replStage(r) {
+  // Delivery person first; a record whose OTP already went out keeps going.
+  const hand = () => r.delivery_assigned_at || r.otp_hash ? 'handover' : 'deliveryassign';
   if (r.cancelled_at) return 'cancelled';
   if (!r.diary_at && !r.check_at) return 'diary'; // older records did both in one step
   if (!r.check_at) return 'check';
-  if (r.ours === 'No') return r.delivered_at ? 'returned' : 'handover';
+  if (r.ours === 'No') return r.delivered_at ? 'returned' : hand();
   if (!r.category) return 'category';
   if (r.category === 'Credit Note') {
     if (!r.bin_at) return 'bin';
@@ -11002,7 +11114,7 @@ function replStage(r) {
     // Refused the rate: older records were closed at the warranty step; now
     // the product goes back through Handover with the customer's OTP.
     if (declined && r.delivered_at) return Number(r.charges_received) > 0 && !r.cash_staff_at ? 'cashstaff' : 'closed';
-    if (declined) return 'handover';
+    if (declined) return hand();
     if (!declined) {
       if (!r.assigned_at) return 'assign';
       // Repaired before the spare steps existed (no Spare Issue) → straight on to Inform.
@@ -11017,7 +11129,7 @@ function replStage(r) {
     }
   }
   if (!r.informed_at) return 'inform';
-  if (!r.delivered_at) return 'handover';
+  if (!r.delivered_at) return hand();
   if (Number(r.charges_received) > 0 && !r.cash_staff_at) return 'cashstaff';
   return 'closed';
 }
@@ -11038,17 +11150,19 @@ function replTask(r, doersMap) {
     exchange: r.category_at,
     inform: r.spare_check_at || r.repaired_at || r.exchange_at || r.warranty_at,
     bin: r.category_at, cn: r.bin_at, cnsend: r.cn_at,
-    handover: r.ours === 'No' ? r.check_at : (r.informed_at || r.warranty_at),
+    deliveryassign: r.ours === 'No' ? r.check_at : (r.informed_at || r.warranty_at),
+    handover: r.delivery_assigned_at || (r.ours === 'No' ? r.check_at : (r.informed_at || r.warranty_at)),
     cashstaff: r.delivered_at
   }[stage];
   const hours = stage === 'repair' && r.lead_days ? Number(r.lead_days) * 24 : step.tatH;
   let doers = doersMap[step.n] || [];
-  // Repair belongs to the mechanic it was handed to.
+  // Repair belongs to the mechanic it was handed to, Handover to the delivery person.
   if (stage === 'repair' && r.mechanic_user_id) doers = [{ id: r.mechanic_user_id, name: r.mechanic_name || '' }];
+  if (stage === 'handover' && r.delivery_user_id) doers = [{ id: r.delivery_user_id, name: r.delivery_name || '' }];
   // Takeout: the mechanic (returns the spares) or the step's own doers.
   if (stage === 'takeout' && r.mechanic_user_id && !doers.some(d => Number(d.id) === Number(r.mechanic_user_id))) doers = [{ id: r.mechanic_user_id, name: r.mechanic_name || '' }, ...doers];
   return { key: stage, n: step.n, no: step.no, label: step.label, planned: replAddHours(base, hours), since: base ? String(base).slice(0, 19) : '', doers, doer: step.doer,
-    returning: stage === 'handover' && (r.ours === 'No' || (r.warranty === 'Out of Warranty' && r.customer_agreed === 'No')) };
+    returning: (stage === 'handover' || stage === 'deliveryassign') && (r.ours === 'No' || (r.warranty === 'Out of Warranty' && r.customer_agreed === 'No')) };
 }
 
 const REPL_SELECT = `SELECT r.*, DATE_FORMAT(r.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, cu.name AS created_by_name
@@ -11073,6 +11187,7 @@ function replOut(r, doersMap) {
     cnSentPhoto: r.cn_sent_photo || '', cnSentAt: r.cn_sent_at,
     otpSentAt: r.otp_hash ? r.otp_expires : null, otpMobile: r.otp_mobile || '',
     deliveredAt: r.delivered_at, receiverName: r.receiver_name || '', chargesReceived: num(r.charges_received), handoverRemark: r.handover_remark || '',
+    deliveryUserId: r.delivery_user_id || null, deliveryName: r.delivery_name || '', deliveryAssignedAt: r.delivery_assigned_at || null,
     salesmanUserId: r.salesman_user_id || null, salesmanName: r.salesman_name || '',
     cashStaffName: r.cash_staff_name || '', cashStaffAmount: num(r.cash_staff_amount), cashStaffAt: r.cash_staff_at || null,
     cancelledAt: r.cancelled_at, cancelReason: r.cancel_reason || '',
@@ -11112,7 +11227,7 @@ app.get('/api/replacement-fms', requireAuth, async (req, res) => {
     const acc = await replUserAccess(req);
     const [rows] = await withReplTables(() => acc.seeAll
       ? db.query(`${REPL_SELECT} ORDER BY r.id DESC`)
-      : db.query(`${REPL_SELECT} WHERE r.created_by=? OR r.mechanic_user_id=? ORDER BY r.id DESC`, [req.session.userId, req.session.userId]));
+      : db.query(`${REPL_SELECT} WHERE r.created_by=? OR r.mechanic_user_id=? OR r.delivery_user_id=? ORDER BY r.id DESC`, [req.session.userId, req.session.userId, req.session.userId]));
     const [[now]] = await db.query("SELECT DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i:%s') AS n");
     res.json({ items: rows.map(r => replOut(r, acc.doersMap)), me: { seeAll: acc.seeAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess }, now: now.n });
   } catch (err) { sendServerError(res, err); }
@@ -11121,10 +11236,10 @@ app.get('/api/replacement-fms', requireAuth, async (req, res) => {
 app.get('/api/replacement-fms/:id/events', requireAuth, async (req, res) => {
   try {
     const acc = await replUserAccess(req);
-    const [[r]] = await withReplTables(() => db.query('SELECT created_by, mechanic_user_id FROM replacements WHERE id=?', [req.params.id]));
+    const [[r]] = await withReplTables(() => db.query('SELECT created_by, mechanic_user_id, delivery_user_id FROM replacements WHERE id=?', [req.params.id]));
     if (!r) return res.status(404).json({ error: 'Not found' });
     const uid = Number(req.session.userId);
-    if (!acc.seeAll && Number(r.created_by) !== uid && Number(r.mechanic_user_id) !== uid) return res.status(403).json({ error: 'No access' });
+    if (!acc.seeAll && ![r.created_by, r.mechanic_user_id, r.delivery_user_id].some(x => Number(x) === uid)) return res.status(403).json({ error: 'No access' });
     const [ev] = await db.query(`SELECT e.event, e.detail, DATE_FORMAT(e.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, u.name AS user_name
       FROM replacement_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.repl_id=? ORDER BY e.created_at DESC, e.id DESC`, [req.params.id]);
     res.json(ev);
@@ -11239,6 +11354,11 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
     const need = key => {
       if (stage !== key) { fail('This step is not pending any more — please refresh'); return false; }
       const isMech = (key === 'repair' || key === 'takeout') && Number(r.mechanic_user_id) === Number(uid);
+      // Handover: only the delivery person Priyanka named (or admin).
+      if (key === 'handover' && r.delivery_user_id) {
+        if (acc.isAdmin || Number(r.delivery_user_id) === Number(uid)) return true;
+        fail(`Ye delivery ${r.delivery_name || 'kisi aur'} ko di gayi hai — wahi OTP se handover karenge`, 403); return false;
+      }
       if (acc.mySteps.has(REPL_N[key]) || isMech) return true;
       fail('You are not assigned to this step (admin: Replacement FMS → Step Doers)', 403); return false;
     };
@@ -11387,6 +11507,20 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       const photo = await uploadDocToDrive(b.photo, `${r.code}-cn-sent-${Date.now()}`);
       await db.query('UPDATE replacements SET cn_sent_photo=?, cn_sent_at=NOW(), cn_sent_by=? WHERE id=?', [photo, uid, r.id]);
       await logReplEvent(r.id, 'cnsend', 'Credit note shared with party — closed', uid);
+    } else if (action === 'deliveryassign') {
+      if (!need('deliveryassign')) return;
+      const did = Number(b.deliveryUserId);
+      if (!did) return fail('Delivery kaun dega — naam chunein');
+      const [[d]] = await db.query("SELECT id, name, phone FROM users WHERE id=? AND COALESCE(role,'')<>'vendor'", [did]);
+      if (!d) return fail('User not found');
+      await db.query('UPDATE replacements SET delivery_user_id=?, delivery_name=?, delivery_assigned_at=NOW(), delivery_assigned_by=? WHERE id=?', [d.id, d.name, uid, r.id]);
+      const remark = t(b.remark);
+      let wa = '';
+      if (sfmsNormalizeMobile(d.phone)) {
+        sendWhatsAppInBackground(d.phone, `🚚 ${d.name} ji,\n\nReplacement *${replCodeLabel(r)}* — ${r.party_name} (${String(r.items || '').slice(0, 120)}) aapko deliver karna hai.${remark ? `\n${remark}` : ''}\nDete waqt app me Handover kholkar customer ka OTP lein.\nAjanta Appliances`, undefined, `repl delivery ${r.code}`);
+        wa = ' · WhatsApp sent';
+      }
+      await logReplEvent(r.id, 'deliveryassign', `${d.name}${remark ? ' · ' + remark : ''}${wa}`, uid);
     } else if (action === 'send-otp') {
       if (!need('handover')) return;
       const mobile = t(b.mobile, 30) || r.customer_mobile;
@@ -15854,6 +15988,10 @@ async function smpTables() {
     returned_qty DECIMAL(10,2), outcome_at DATETIME, outcome_by INT, outcome_remark VARCHAR(500), cancelled_at DATETIME, cancel_reason VARCHAR(500)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   await addMissingColumns('sample_issues', [['photo', 'VARCHAR(500)']]);
+  // Stock register shows sample OUT / IN as "Sample", not "Manual" (client list 10-26 #9);
+  // entries made before that carry the code only in the remark.
+  await ensureStockTxnSchema();
+  await db.query("UPDATE ajanta_stock_transactions SET source='sample', ref_no=SUBSTRING(remarks, 8, 8) WHERE (source IS NULL OR source='manual') AND remarks LIKE 'Sample SMP-%'");
   _smpOk = true;
 }
 async function smpAccess(req, res) {
@@ -15907,8 +16045,8 @@ app.post('/api/samples', requireAuth, async (req, res) => {
     const id = await withTx(async conn => {
       const [claim] = await conn.query(`UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ?${b.allowShort ? '' : ' AND current_stock >= ?'}`, [qty, date, item.item_code, qty]);
       if (!claim.affectedRows) return null;
-      await conn.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
-        [date, 'OUT', item.item_code, item.description, qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '']);
+      await conn.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
+        [date, 'OUT', item.item_code, item.description, qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '', code]);
       const [r] = await conn.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by, photo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [code, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, photo]);
       return r.insertId;
@@ -15940,8 +16078,8 @@ app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
     if (back > 0) {
       const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
       await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [back, date, s.itemCode]);
-      await withStockTxnTable(() => db.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
-        [date, 'IN', s.itemCode, s.itemName, back, s.uom, `Sample ${s.code} returned by ${s.salesmanName}`.slice(0, 500), req.session.name || '']));
+      await withStockTxnTable(() => db.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
+        [date, 'IN', s.itemCode, s.itemName, back, s.uom, `Sample ${s.code} returned by ${s.salesmanName}`.slice(0, 500), req.session.name || '', s.code]));
     }
     const [fresh] = await smpLoad('WHERE s.id=?', [s.id]);
     res.json({ success: true, sample: fresh });
@@ -15962,8 +16100,8 @@ app.post('/api/samples/:id/cancel', requireAuth, async (req, res) => {
     if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
     const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
     await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [s.qty, date, s.itemCode]);
-    await withStockTxnTable(() => db.query('INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by) VALUES (?,?,?,?,?,?,?,?)',
-      [date, 'IN', s.itemCode, s.itemName, s.qty, s.uom, `Sample ${s.code} cancelled — ${reason}`.slice(0, 500), req.session.name || '']));
+    await withStockTxnTable(() => db.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
+      [date, 'IN', s.itemCode, s.itemName, s.qty, s.uom, `Sample ${s.code} cancelled — ${reason}`.slice(0, 500), req.session.name || '', s.code]));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
