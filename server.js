@@ -15170,7 +15170,9 @@ app.get('/api/employees/:id', requireAuth, async (req, res) => {
     const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : today.slice(0, 7);
     const mStart = month + '-01';
     const mEnd = ymdAddDays(ymdAddDays(mStart, 31).slice(0, 7) + '-01', -1);
-    const [[prof], [docs], [leaves], [att], [hol], [[sp]], [salHist]] = await withEmpTables(() => withAttendanceTables(() => Promise.all([
+    // [[prof]] = first row (was [prof] = the rows array, so every saved detail
+    // came back blank after a reload — client 2026-10-26).
+    const [[[prof]], [docs], [leaves], [att], [hol], [[sp]], [salHist]] = await withEmpTables(() => withAttendanceTables(() => Promise.all([
       db.query('SELECT * FROM employee_profiles WHERE user_id=?', [uid]),
       db.query('SELECT d.id, d.doc_type, d.file_name, d.mime_type, d.created_at, b.name AS uploaded_by_name FROM employee_documents d LEFT JOIN users b ON b.id=d.uploaded_by WHERE d.user_id=? ORDER BY d.created_at DESC', [uid]),
       db.query(`SELECT l.id, l.leave_type, DATE_FORMAT(l.start_date,'%Y-%m-%d') AS start_date, DATE_FORMAT(l.end_date,'%Y-%m-%d') AS end_date, l.days, l.reason, l.status, l.remarks, l.created_at, a.name AS approved_by_name
