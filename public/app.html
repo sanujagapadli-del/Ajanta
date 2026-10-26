@@ -2557,7 +2557,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🧭 MECA — Salesman market report</div>
-        <button class="btn btn-green" onclick="openMecaVisit()">➕ Visit entry</button>
+        <button class="btn btn-outline" onclick="mecaNewDealer()" title="Naya dealer — Lead FMS me lead banegi">🆕 Naya dealer (Lead)</button>
+        <button class="btn btn-green" onclick="openMecaVisit()" title="Purana dealer — beat / Sales Schedule me jayega">🏪 Purana dealer visit</button>
         <input type="date" id="mecaFrom" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/> to
         <input type="date" id="mecaTo" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
         <input id="mecaSearch" placeholder="🔍 Salesman…" oninput="renderMeca()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
@@ -15038,6 +15039,7 @@ function dealerRowHtml(d) {
         <button class="btn btn-outline btn-sm" title="Location set karo" onclick="openLocationModal('${nameEsc}')">📍</button>
         <button class="btn btn-outline btn-sm" title="View Statement" onclick="openDealerLedgerModal('${nameEsc}','${jsArg(phoneEsc)}')">📋</button>
         <button class="btn btn-outline btn-sm" title="${d.bilty ? 'Bilty / transport: ' + esc(d.bilty.transport || 'photo hai') : 'Bilty photo daalo (bahar ki party)'}" onclick="openBiltyModal('${nameEsc}')" style="${d.bilty ? 'border-color:var(--color-success-text)' : ''}">🚚</button>
+        ${ME.role === 'admin' ? `<button class="btn btn-outline btn-sm" title="Dealer list se hatao" style="color:var(--color-danger)" onclick="deleteDealer('${nameEsc}')">🗑</button>` : ''}
         ${locHtml}
       </div>
     </td>
@@ -15113,6 +15115,7 @@ function dealerCardHtml(d) {
         <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
         <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}','${jsArg(phoneEsc)}')">📋 View Statement</button>
         <button class="btn btn-outline btn-sm" onclick="openBiltyModal('${nameEsc}')">🚚 ${d.bilty ? esc(d.bilty.transport || 'Bilty') : 'Bilty photo'}</button>
+        ${ME.role === 'admin' ? `<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="deleteDealer('${nameEsc}')">🗑 Delete</button>` : ''}
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">💳 Payment Overview</div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
@@ -15276,6 +15279,18 @@ function handleKycFile(docType, event) {
   reader.readAsDataURL(file);
 }
 
+// Admin delete (client list 2026-10-26 #3). The server only hides the dealer — the
+// name also comes from Tally / O2D orders — and a new O2D order shows him again.
+async function deleteDealer(name) {
+  if (!await uiConfirm(`"${name}" ko Dealer Master se hatayein?
+
+Is dealer ka koi naya order aaya to wo apne aap wapas list me aa jayega.`)) return;
+  const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(name)}`, 'DELETE');
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('🗑 Dealer hata diya');
+  await loadO2dDealers(true);
+  refreshDealerViews();
+}
 // Bilty (client 2026-10-24): one sample bilty photo per outstation dealer, so
 // everyone knows which transport his goods go by.
 let _biltyDealer = null;
@@ -19547,7 +19562,9 @@ function colShowAge(n) { colAge = n; colTab = 'age'; renderCollection(); }
 // When the 15-day WhatsApp went (or is due: bill date + 15 days, ~11 AM).
 function colMsgDate(b) {
   const a = b.acts && b.acts.msg15;
-  if (a && a.at) return `${esc(fmtDateDMY(a.at, true))}${a.waStatus === 'sent' ? '' : ' <span style="font-size:11px;color:var(--gray-500)">(queue)</span>'}`;
+  // Date AND time it actually went (client list 2026-10-26 #12); while queued, when it was queued.
+  if (a && a.waStatus === 'sent' && a.waSentAt) return `<b>${esc(fmtDateDMY(a.waSentAt, true))}</b>`;
+  if (a && a.at) return `${esc(fmtDateDMY(a.at, true))} <span style="font-size:11px;color:var(--gray-500)">(${a.waStatus === 'failed' ? 'nahi gaya' : 'queue'})</span>`;
   const d = new Date(b.billDate + 'T00:00:00'); d.setDate(d.getDate() + colData.steps.msg15.from);
   return `<span style="color:var(--gray-500)">${esc(fmtDateDMY(owsYmd(d)))}${d <= new Date() ? ' (agli subah)' : ''}</span>`;
 }
@@ -19768,6 +19785,17 @@ const ddStatusBadge = s => { const x = DD_STATUS[s] || DD_STATUS.pending; return
 const ddDaysText = x => x.status === 'paid' ? '—' : x.daysLeft < 0 ? `<b style="color:var(--color-danger)">${-x.daysLeft} din overdue</b>`
   : x.daysLeft === 0 ? '<b style="color:var(--color-danger)">Aaj due</b>' : `<span style="color:${x.daysLeft <= 2 ? 'var(--color-warning-text)' : 'var(--gray-700)'};font-weight:700">${x.daysLeft} din baaki</span>`;
 function ddSetFilter(f) { ddFilter = f; renderDeliveryDues(); }
+// Orders still at O2D "Make Bill" — shown above the dues (client list 2026-10-26 #15).
+function ddBillPendingHtml() {
+  const list = (ddData && ddData.billPending) || [];
+  if (!list.length) return '';
+  const total = list.reduce((a, x) => a + x.amount, 0);
+  return `<details ${list.length <= 15 ? 'open' : ''} style="background:var(--color-warning-bg);border:1px solid var(--gray-200);border-radius:12px;padding:8px 12px;margin-bottom:12px">
+    <summary style="cursor:pointer;font-weight:700;font-size:13px">🧾 Make Bill pe pending — ${list.length} order · ${inr(total)} <span style="font-weight:500;font-size:12px;color:var(--gray-600)">(bill banne aur deliver hone ke baad yahan due banega)</span></summary>
+    <div class="table-wrap" style="margin-top:8px"><table style="font-size:12.5px"><thead><tr><th>Order</th><th>Dealer</th><th style="text-align:right">Amount (andaza)</th><th>Terms</th><th>Kab se</th><th>Order by</th></tr></thead><tbody>
+    ${list.map(x => `<tr><td style="font-weight:700;white-space:nowrap">${esc(x.orderNo)}${x.onHold ? ' <span class="status-badge">Hold</span>' : ''}</td><td>${esc(x.dealer || '—')}</td><td style="text-align:right;font-weight:700">${inr(x.amount)}</td><td>${esc(x.terms || '—')}</td><td style="white-space:nowrap">${esc(fmtDateDMY(String(x.since), true))}</td><td>${esc(x.orderBy || '—')}</td></tr>`).join('')}
+    </tbody></table></div></details>`;
+}
 function renderDeliveryDues() {
   const wrap = document.getElementById('colWrap');
   if (!ddData) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(ddErr || 'Load failed')}</div>`; return; }
@@ -19781,9 +19809,9 @@ function renderDeliveryDues() {
   const head = `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <span style="margin-right:auto">O2D me <b>Delivered</b> mark hue orders — due date = delivery + payment terms ke din. Dealer ko WhatsApp ${n ? `due se <b>${n} din pehle</b> aur ` : ''}<b>due date</b> par subah ~11 baje apne aap jaata hai. Aaj/overdue wale salesman ke Dashboard par call ke liye dikhte hain.</span>${admin}</div>
     ${ddData.unknownTerms ? `<div style="font-size:12px;color:var(--color-warning-text);margin-bottom:8px">⚠️ ${ddData.unknownTerms} delivered order(s) ki payment terms samajh nahi aayi (blank / bina din) — unka reminder nahi jayega.</div>` : ''}
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('open', 'Baaki')}${chip('overdue', 'Aaj / overdue')}${chip('paid', 'Paid')}${chip('all', 'Sab')}</div>`;
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('open', 'Baaki')}${chip('overdue', 'Aaj / overdue')}${chip('paid', 'Paid')}${chip('all', 'Sab')}</div>` + ddBillPendingHtml();
   if (!list.length) { wrap.innerHTML = head + '<div class="empty">Koi due nahi 🎉</div>'; return; }
-  const sent = x => [x.preSentAt ? `💬 Pehle: ${esc(fmtDateDMY(x.preSentAt))}` : '', x.dueSentAt ? `💬 Due: ${esc(fmtDateDMY(x.dueSentAt))}` : ''].filter(Boolean).join('<br>');
+  const sent = x => [x.preSentAt ? `💬 Pehle: ${esc(fmtDateDMY(x.preSentAt, true))}` : '', x.dueSentAt ? `💬 Due: ${esc(fmtDateDMY(x.dueSentAt, true))}` : ''].filter(Boolean).join('<br>');
   wrap.innerHTML = head + `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Order</th><th>Dealer</th><th style="text-align:right">Amount</th><th>Delivered</th><th>Terms</th><th>Due date</th><th>Din</th><th>Responsible</th><th>Status</th><th></th></tr></thead><tbody>
     ${list.map(x => `<tr><td style="white-space:nowrap;font-weight:700">${esc(x.orderNo)}${x.billNo ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">Bill ${esc(x.billNo)}</div>` : ''}</td>
       <td style="font-weight:600">${esc(x.dealer || '—')}</td><td style="text-align:right;font-weight:800">${inr(x.amount)}</td>
@@ -20075,12 +20103,17 @@ function waComposeHtml(p, d, drip) {
   return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:16px;max-width:760px">
     ${drip ? `<div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
         <div><label style="font-size:12px;font-weight:600">Naam *</label><input id="${p}Title" value="${esc(d.title || '')}" placeholder="e.g. Week 1 — Ceiling fan scheme" style="${VRL_IN}"/></div>
-        <div><label style="font-size:12px;font-weight:600">Kab bhejna hai *</label><select id="${p}Kind" onchange="document.getElementById('${p}WeeklyBox').style.display=this.value==='yearly'?'none':'';document.getElementById('${p}YearlyBox').style.display=this.value==='yearly'?'':'none'" style="${VRL_IN}"><option value="weekly">Har hafte</option><option value="yearly" ${d.yearlyMd ? 'selected' : ''}>Saal me ek tareekh</option></select></div></div>
-      <div id="${p}WeeklyBox" style="${d.yearlyMd ? 'display:none' : ''}">
+        <div><label style="font-size:12px;font-weight:600">Kab bhejna hai *</label><select id="${p}Kind" onchange="dripKindToggle('${jsArg(p)}')" style="${VRL_IN}">${[['daily', 'Har din'], ['weekly', 'Har hafte'], ['monthly', 'Har mahine (tareekh)'], ['yearly', 'Saal me ek tareekh']].map(([v, l]) => `<option value="${v}" ${(d.freq || (d.yearlyMd ? 'yearly' : 'weekly')) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+      <div id="${p}DailyBox" style="${d.freq === 'daily' ? '' : 'display:none'};font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Roz subah apne aap jayega (ghante ki limit ke andar).</div>
+      <div id="${p}MonthlyBox" style="${d.freq === 'monthly' ? '' : 'display:none'};margin-bottom:10px">
+        <label style="font-size:12px;font-weight:600">Mahine ki tareekh *</label>
+        <select id="${p}MDay" style="${VRL_IN};max-width:140px">${Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<option value="${n}" ${d.monthDay === n ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        <div style="font-size:11.5px;color:var(--gray-500);margin-top:3px">Jis mahine me ye tareekh nahi (jaise 31), us mahine ke aakhri din jayega.</div></div>
+      <div id="${p}WeeklyBox" style="${(d.freq || (d.yearlyMd ? 'yearly' : 'weekly')) === 'weekly' ? '' : 'display:none'}">
         <label style="font-size:12px;font-weight:600">Hafte ka din *</label><select id="${p}Weekday" style="${VRL_IN};margin-bottom:8px;max-width:220px">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${d.weekday === n ? 'selected' : ''}>${MH_DAYS[n]}</option>`).join('')}</select>
         <label style="font-size:12px;font-weight:600;display:block">Mahine ke kaunse hafte? <span style="font-weight:400;color:var(--gray-500)">(kuch na chunein = har hafte)</span></label>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">${[1, 2, 3, 4, 5].map(n => `<label style="display:flex;gap:4px;align-items:center;font-size:12.5px;border:1px solid var(--gray-200);border-radius:8px;padding:5px 9px"><input type="checkbox" class="${p}-week" value="${n}" ${(d.weeks || []).includes(n) ? 'checked' : ''}/> Week ${n}</label>`).join('')}</div></div>
-      <div id="${p}YearlyBox" style="${d.yearlyMd ? '' : 'display:none'};margin-bottom:10px">
+      <div id="${p}YearlyBox" style="${d.yearlyMd && !d.freq || d.freq === 'yearly' ? '' : 'display:none'};margin-bottom:10px">
         <label style="font-size:12px;font-weight:600">Tareekh (har saal isi din) *</label>
         <div style="display:flex;gap:6px;max-width:300px"><select id="${p}YDay" style="${VRL_IN}">${Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<option value="${String(n).padStart(2, '0')}" ${d.yearlyMd && +d.yearlyMd.slice(3) === n ? 'selected' : ''}>${n}</option>`).join('')}</select>
           <select id="${p}YMonth" style="${VRL_IN}">${DRIP_MONTHS.map((m, i) => `<option value="${String(i + 1).padStart(2, '0')}" ${d.yearlyMd && +d.yearlyMd.slice(0, 2) === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
@@ -20219,9 +20252,14 @@ async function saveDripSettings(btn) {
   dripSettings = r.settings;
   showToast('✅ Drip setting save');
 }
+function dripKindToggle(p) {
+  const k = document.getElementById(p + 'Kind').value;
+  ['Daily', 'Weekly', 'Monthly', 'Yearly'].forEach(x => { const el = document.getElementById(p + x + 'Box'); if (el) el.style.display = k === x.toLowerCase() ? '' : 'none'; });
+}
 function renderWaDrips() {
   const admin = waMeta.isAdmin;
-  const byDay = [1, 2, 3, 4, 5, 6, 7].map(n => ({ n, list: waDrips.filter(d => !d.yearlyMd && d.weekday === n) })).filter(x => x.list.length);
+  const byDay = [1, 2, 3, 4, 5, 6, 7].map(n => ({ n, list: waDrips.filter(d => d.freq === 'weekly' && d.weekday === n) })).filter(x => x.list.length);
+  const daily = waDrips.filter(d => d.freq === 'daily'), monthly = waDrips.filter(d => d.freq === 'monthly').sort((a, b) => a.monthDay - b.monthDay);
   // Yearly plan (Ajay sir, 2026-10-24): one group per month, dates in order.
   const yearly = waDrips.filter(d => d.yearlyMd);
   const byMonth = DRIP_MONTHS.map((m, i) => ({ n: `📆 ${m}`, list: yearly.filter(d => +d.yearlyMd.slice(0, 2) === i + 1) })).filter(x => x.list.length);
@@ -20239,14 +20277,16 @@ function renderWaDrips() {
       ${admin ? '' : ' Plan sirf Admin badal sakta hai.'}</div>
     ${settingsHtml}
     ${admin ? '<button class="btn btn-primary" style="margin-bottom:12px" onclick="waEditDrip(0)">＋ Plan jodein</button>' : ''}
+    ${daily.length ? group({ list: daily }, '☀️ Har din') : ''}
     ${byDay.length ? byDay.map(x => group(x, `📅 Har ${MH_DAYS[x.n]}`)).join('') : '<div class="empty">Abhi koi weekly plan nahi. Jaise: Mon — customers ko naya product photo, Thu — non-customers ko catalogue + scheme.</div>'}
+    ${monthly.length ? group({ list: monthly }, '🗓 Har mahine (tareekh)') : ''}
     <div style="font-weight:800;font-size:14px;margin:16px 0 8px">🗓 Saal bhar ka plan (tareekh wale)</div>
     ${byMonth.length ? byMonth.map(x => group(x, x.n)).join('') : '<div class="empty">Abhi koi tareekh wala plan nahi. "＋ Plan jodein" → "Saal me ek tareekh" — jaise Diwali, Holi, garmi ka season, naya saal.</div>'}
     ${dripRecentHtml()}`;
 }
 function dripRowHtml(d, admin) {
   return `<div style="padding:10px 14px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:flex-start;${d.active ? '' : 'opacity:.5'}">
-        <div style="flex:1;min-width:0">${d.yearlyMd ? `<b style="color:var(--color-primary)">${+d.yearlyMd.slice(3)} ${DRIP_MONTHS[+d.yearlyMd.slice(0, 2) - 1]}</b> · ` : ''}<b>${esc(d.title)}</b> <span class="status-badge">${esc(waMeta.audiences[d.audience] || d.audience)}</span>${d.weeks.length ? ` <span class="status-badge">Week ${d.weeks.join(', ')}</span>` : ''}${d.city ? ` <span class="status-badge">📍 ${esc(d.city)}</span>` : ''}${d.active ? '' : ' <span class="status-badge">Band</span>'}
+        <div style="flex:1;min-width:0">${d.freq === 'monthly' ? `<b style="color:var(--color-primary)">Har mahine ${d.monthDay} tareekh</b> · ` : ''}${d.yearlyMd ? `<b style="color:var(--color-primary)">${+d.yearlyMd.slice(3)} ${DRIP_MONTHS[+d.yearlyMd.slice(0, 2) - 1]}</b> · ` : ''}<b>${esc(d.title)}</b> <span class="status-badge">${esc(waMeta.audiences[d.audience] || d.audience)}</span>${d.weeks.length ? ` <span class="status-badge">Week ${d.weeks.join(', ')}</span>` : ''}${d.city ? ` <span class="status-badge">📍 ${esc(d.city)}</span>` : ''}${d.active ? '' : ' <span class="status-badge">Band</span>'}
           <div style="font-size:12px;color:var(--gray-600);margin-top:3px;white-space:pre-line">${esc(d.message.slice(0, 160))}</div>
           <div style="font-size:11.5px;color:var(--gray-500);margin-top:3px">${d.imageUrl ? '🖼 Photo · ' : ''}${d.docIds.length ? `📎 ${d.docIds.map(id => esc((waMeta.docs.find(x => x.id === id) || {}).filename || 'PDF')).join(', ')} · ` : ''}${d.lastRun ? 'Last: ' + esc(fmtDateDMY(d.lastRun)) : 'Abhi tak nahi chala'}</div></div>
         ${admin ? `<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="btn btn-sm btn-outline" onclick="waEditDrip(${d.id})">✏️</button><button class="btn btn-sm btn-outline" onclick="waRunDrip(${d.id})" title="Abhi bhejo">▶ Abhi</button><button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="waDeleteDrip(${d.id})">🗑</button></div>` : ''}</div>`;
@@ -20259,7 +20299,9 @@ async function waSaveDrip(id, btn) {
   const b = waFormBody('wd');
   b.id = id || undefined;
   b.weekday = Number(document.getElementById('wdWeekday').value);
-  b.yearlyMd = document.getElementById('wdKind').value === 'yearly' ? `${document.getElementById('wdYMonth').value}-${document.getElementById('wdYDay').value}` : '';
+  b.kind = document.getElementById('wdKind').value;
+  b.monthDay = Number(document.getElementById('wdMDay').value);
+  b.yearlyMd = b.kind === 'yearly' ? `${document.getElementById('wdYMonth').value}-${document.getElementById('wdYDay').value}` : '';
   b.weeks = [...document.querySelectorAll('.wd-week:checked')].map(c => Number(c.value));
   b.active = document.getElementById('wdActive').checked;
   const old = id ? waDrips.find(x => x.id === id) : null, keep = document.getElementById('wdKeepImg');
@@ -20323,6 +20365,25 @@ function renderMecaVisits() {
       <td>${v.photo ? `<a href="${esc(v.photo)}" target="_blank">📷</a>` : ''}</td></tr>`).join('')}
     <tr style="font-weight:800;background:var(--gray-50)"><td colspan="3">Total — ${list.length} visit</td><td style="text-align:right">${inr(total)}</td><td colspan="2"></td></tr></tbody></table></div>`;
 }
+// New dealer from MECA goes to Lead FMS as an Outgoing lead; an old dealer goes to the beat (client list 2026-10-26 #17).
+async function mecaNewDealer() {
+  await openNewLeadModal();
+  const t = document.querySelector('#nlType .tab[data-v="Outgoing"]');
+  if (t) leadPickType(t);
+}
+// Lead FMS visits fixed for these dates — the salesman sees them on that day (client list 2026-10-26 #16).
+function renderMecaNbd() {
+  const q = document.getElementById('mecaSearch').value.trim().toLowerCase();
+  const list = (mecaData.nbdPlan || []).filter(v => !q || v.name.toLowerCase().includes(q) || v.shop.toLowerCase().includes(q));
+  const wrap = document.getElementById('mecaWrap');
+  if (!list.length) { wrap.innerHTML = '<div class="empty">In dates me Lead FMS ka koi market visit fix nahi.</div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Visit date</th><th>Salesman</th><th>Lead</th><th>Shop</th><th>Mobile</th><th>Area</th><th>Status</th></tr></thead><tbody>
+    ${list.map(v => `<tr><td style="white-space:nowrap;font-weight:700">${esc(fmtDateDMY(v.date))}</td><td style="font-weight:600">${esc(v.name)}</td><td>${esc(v.code)}</td>
+      <td>${esc(v.shop)}${v.contact && v.contact !== v.shop ? `<div style="font-size:11px;color:var(--gray-500)">${esc(v.contact)}</div>` : ''}</td>
+      <td>${v.mobile ? `<a href="tel:${esc(v.mobile)}">📞 ${esc(v.mobile)}</a>` : '—'}</td><td>${esc(v.place || '—')}</td>
+      <td>${v.result ? `<b>${esc(v.result)}</b>` : v.visited ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Visit hua</span>' : v.date < scotTodayYmd() ? '<span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)">Missed</span>' : '<span class="status-badge">Jaana hai</span>'}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
 function openMecaVisit() {
   ['mvDealer', 'mvOrder', 'mvRemark', 'mvNext'].forEach(id => { document.getElementById(id).value = ''; });
   const ph = document.getElementById('mvPhoto'); ph.value = ''; ph.dataset.compressed = '';
@@ -20359,8 +20420,9 @@ async function saveMecaVisit() {
 function renderMeca() {
   if (!mecaData) return;
   const tab = (k, l) => `<button class="btn btn-sm ${mecaView === k ? 'btn-primary' : 'btn-outline'}" onclick="mecaSetView('${jsArg(k)}')">${l}</button>`;
-  document.getElementById('mecaTabs').innerHTML = tab('summary', '👥 Salesman-wise') + tab('days', '📅 Day-wise') + tab('visits', `📍 Visits (${(mecaData.visits || []).length})`);
+  document.getElementById('mecaTabs').innerHTML = tab('summary', '👥 Salesman-wise') + tab('days', '📅 Day-wise') + tab('visits', `📍 Visits (${(mecaData.visits || []).length})`) + tab('nbd', `🆕 NBD plan (${(mecaData.nbdPlan || []).length})`);
   if (mecaView === 'visits') return renderMecaVisits();
+  if (mecaView === 'nbd') return renderMecaNbd();
   const q = document.getElementById('mecaSearch').value.trim().toLowerCase();
   const rows = mecaData.rows.filter(r => !q || r.name.toLowerCase().includes(q));
   const wrap = document.getElementById('mecaWrap');
@@ -20368,11 +20430,11 @@ function renderMeca() {
   const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—';
   const cells = r => `<td style="text-align:right">${r.planned}</td><td style="text-align:right;font-weight:700">${r.visited}</td><td style="text-align:right">${pct(r.visited, r.planned)}</td>
     <td style="text-align:right;font-weight:700">${r.ordered}</td><td style="text-align:right;color:var(--color-success);font-weight:800">${pct(r.ordered, r.visited)}</td><td style="text-align:right">${inr(r.value)}</td>
-    <td style="text-align:right;border-left:2px solid var(--gray-200)">${r.nbdVisits}</td><td style="text-align:right;font-weight:700">${r.nbdWon}</td>`;
+    <td style="text-align:right;border-left:2px solid var(--gray-200)">${r.nbdPlanned || 0}</td><td style="text-align:right">${r.nbdVisits}</td><td style="text-align:right;font-weight:700">${r.nbdWon}</td>`;
   const head = first => `<thead><tr>${first}<th style="text-align:right">Counters plan</th><th style="text-align:right">Visit kiye</th><th style="text-align:right">Visit %</th><th style="text-align:right">Order diya</th><th style="text-align:right">Productivity</th><th style="text-align:right">Order ₹</th>
-    <th style="text-align:right;border-left:2px solid var(--gray-200)">NBD visits</th><th style="text-align:right">NBD won</th></tr></thead>`;
-  const sum = list => list.reduce((a, r) => ({ planned: a.planned + r.planned, visited: a.visited + r.visited, ordered: a.ordered + r.ordered, value: a.value + r.value, nbdVisits: a.nbdVisits + r.nbdVisits, nbdWon: a.nbdWon + r.nbdWon }),
-    { planned: 0, visited: 0, ordered: 0, value: 0, nbdVisits: 0, nbdWon: 0 });
+    <th style="text-align:right;border-left:2px solid var(--gray-200)">NBD plan</th><th style="text-align:right">NBD visits</th><th style="text-align:right">NBD won</th></tr></thead>`;
+  const sum = list => list.reduce((a, r) => ({ planned: a.planned + r.planned, visited: a.visited + r.visited, ordered: a.ordered + r.ordered, value: a.value + r.value, nbdPlanned: a.nbdPlanned + (r.nbdPlanned || 0), nbdVisits: a.nbdVisits + r.nbdVisits, nbdWon: a.nbdWon + r.nbdWon }),
+    { planned: 0, visited: 0, ordered: 0, value: 0, nbdPlanned: 0, nbdVisits: 0, nbdWon: 0 });
   const note = `<div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Old dealer MECA = Sales Schedule ki beat (✓ visited, 📝 me order value). Productivity = order diya ÷ visit kiye. NBD = Lead FMS ke naye dealer visit / order ya dealer bana.</div>`;
   if (mecaView === 'days') {
     wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px;white-space:nowrap">${head('<th>Date</th><th>Salesman</th><th>Plan</th>')}<tbody>
@@ -20414,8 +20476,10 @@ async function loadMdSummary(fromPreset) {
   wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading… (O2D / Service sheet padhne me thoda time lagta hai)</div>';
   const r = await api(`/api/md-summary?from=${f.value}&to=${t.value}`);
   if (r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  _mdLast = { ...r, from: r.from || f.value, to: r.to || t.value };
   renderMdSummary(r);
 }
+let _mdLast = null;
 // Clickable MD Summary (client 2026-10-24): a tile opens its module, a row
 // opens that employee's attendance / KM / tasks for the same dates.
 function mdGo(page) {
@@ -20441,10 +20505,17 @@ function mdOpenTasks(uid, name) {
   }
   navigate('dashboard', document.querySelector('.nav-item[onclick^="navigate(\'dashboard\'"]'));
 }
+// That salesman's O2D orders in the MD Summary date range (client list 2026-10-26 #20).
 function mdOpenSalesman(name) {
-  mdGo('o2d-fms');
-  const q = document.getElementById('o2dSearch');
-  if (q) { q.value = name; o2dSearchChanged(); }
+  const x = ((_mdLast && _mdLast.o2d && _mdLast.o2d.bySalesman) || []).find(s => s.name === name);
+  if (!x) return;
+  const list = (x.list || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+  vrlModal('mdSalesmanModal', `${scotModalHead('mdSalesmanModal', `🛒 ${esc(name)} — ${fmtDateDMY(_mdLast.from)} se ${fmtDateDMY(_mdLast.to)}`)}
+    <div style="font-size:13px;margin-bottom:8px">${x.orders} order · <b>₹${Number(x.value).toLocaleString('en-IN')}</b> · ${list.filter(o => o.billed).length} bill bane</div>
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Date</th><th>Order</th><th>Dealer</th><th style="text-align:right">Qty</th><th style="text-align:right">Value ₹</th><th>Status</th></tr></thead><tbody>
+    ${list.map(o => `<tr style="cursor:pointer" onclick="closeModal('mdSalesmanModal');mdGo('o2d-fms');setTimeout(() => { const q = document.getElementById('o2dSearch'); if (q) { q.value = '${jsArg(o.orderNo)}'; o2dSearchChanged(); } }, 300)" title="O2D me ye order kholo">
+      <td style="white-space:nowrap">${esc(fmtDateDMY(o.date))}</td><td style="font-weight:700">${esc(o.orderNo)}</td><td>${esc(o.dealer)}</td><td style="text-align:right">${o.qty}</td><td style="text-align:right;font-weight:700">₹${Number(o.value).toLocaleString('en-IN')}</td><td>${esc(o.status)}${o.billed ? ' · 🧾' : ''}</td></tr>`).join('')}
+    </tbody></table></div>`, 760);
 }
 function renderMdSummary(r) {
   const n = v => Number(v || 0).toLocaleString('en-IN');
@@ -22294,7 +22365,7 @@ function renderLeadAll() {
   if (!rows.length) { wrap.innerHTML = '<div class="empty">No leads found.</div>'; return; }
   const shown = rows.slice(0, 300);
   wrap.innerHTML = `<table style="font-size:12.5px;white-space:nowrap">
-    <thead><tr><th>Lead</th><th>Date</th><th>Source</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Requirement</th><th>Brought by</th><th>Calls</th><th>📍 Market visit date</th><th>Visit hua</th><th>Status</th></tr></thead>
+    <thead><tr><th>Lead</th><th>Date</th><th>Source</th><th>Shop / Contact</th><th>Mobile</th><th>Area</th><th>Requirement</th><th>Brought by</th><th>Calls</th><th>📍 Market visit date</th><th>Visit hua</th><th>Status</th><th></th></tr></thead>
     <tbody>${shown.map(l => `<tr onclick="openLeadDetail(${l.id})" style="cursor:pointer">
       <td style="font-weight:600">${esc(l.code)} ${leadTypeBadge(l)}</td>
       <td style="white-space:nowrap">${esc(fmtEntry(l.createdAt))}</td>
@@ -22307,9 +22378,25 @@ function renderLeadAll() {
       <td>${l.callCount || '—'}${l.catalogueSent ? ' <span title="Catalogue sent">📘</span>' : ''}</td>
       <td>${l.visitDate ? `<b style="color:${leadIsMissed(l) ? 'var(--color-danger)' : 'var(--color-primary)'}">${fmtDateDMY(l.visitDate)}</b> · ${esc(l.visitUserName)}` : '—'}</td>
       <td>${l.visitedAt ? `${fmtDateDMY(String(l.visitedAt).slice(0, 10))}${l.visitCount > 1 ? ` <span style="color:var(--gray-500)">(${l.visitCount})</span>` : ''}${l.visitOutcome ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.visitOutcome)}</div>` : ''}` : l.visitCount ? `${l.visitCount} done` : '—'}</td>
-      <td>${leadStageBadge(l)}</td>
+      <td>${leadStageBadge(l)}${l.callRemark || l.visitRemark ? `<div style="font-size:11px;color:var(--gray-500);max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${esc(l.visitRemark || l.callRemark)}">${esc(l.visitRemark || l.callRemark)}</div>` : ''}</td>
+      <td onclick="event.stopPropagation()">${l.stage !== 'cancelled' ? `<button class="btn btn-sm btn-outline" onclick="openLeadQuick(${l.id})" title="Status badlo / remark likho">✍️ Status / Remark</button>` : ''}</td>
     </tr>`).join('')}</tbody></table>
     <div style="padding:10px 16px;font-size:12px;color:var(--gray-400)">${rows.length} leads${rows.length > shown.length ? ` — showing first ${shown.length}, search to narrow` : ''}</div>`;
+}
+// Status + remark right from the All Leads list (client list 2026-10-26 #5: "button bahar hi aa jaye"):
+// the lead's current step form(s) this user can do, plus a plain remark.
+function openLeadQuick(id) {
+  const l = leadData.find(x => x.id === id);
+  if (!l) return;
+  const forms = (l.tasks || []).filter(leadCanDo).map(t => leadTaskFormHtml(l, t)).join('');
+  vrlModal('leadQuickModal', `${scotModalHead('leadQuickModal', `✍️ ${esc(l.code)} · ${esc(leadName(l))}`)}
+    <div style="margin-bottom:10px">${leadStageBadge(l)} ${l.mobile ? `<a href="tel:${esc(l.mobile)}" style="margin-left:6px">📞 ${esc(l.mobile)}</a>` : ''}</div>
+    ${forms ? `<div style="${CHQ_LABEL};margin-bottom:6px">Status badlo</div>${forms}` : '<div style="font-size:12.5px;color:var(--gray-500);margin-bottom:10px">Is step ka kaam aapke paas nahi — sirf remark likh sakte hain.</div>'}
+    <div style="${CHQ_LABEL};margin:6px 0">Sirf remark</div>
+    <textarea id="lead_${l.id}_note_remark" rows="2" placeholder="Kya baat hui / aage kya karna hai" style="${CHQ_INPUT};resize:vertical"></textarea>
+    <button class="btn btn-outline" style="width:100%;justify-content:center" onclick="submitLeadAction(${l.id},'note',this)">💬 Remark save karo</button>
+    <div style="text-align:right;margin-top:8px"><a href="#" onclick="closeModal('leadQuickModal');openLeadDetail(${l.id});return false" style="font-size:12px">Poori detail / history →</a></div>`, 520);
+  if ((l.tasks || []).some(t => t.key === 'schedule' && leadCanDo(t))) leadFillSalesmen(l);
 }
 
 // ── Reports (FMS REPORT KIT, key 'lead') ──
@@ -22434,8 +22521,12 @@ function renderLeadReports() {
   const avgCall = avg(callDays), avgVisit = avg(visitDays), avgFix = avg(fixToVisitDays);
   const sorted = (map, by) => Object.values(map).filter(g => g.n || g.missed).sort(by || ((a, b) => b.n - a.n));
 
+  // Open = not won / lost / cancelled yet. Live, like the attention lists (client list 2026-10-26 #6: "open lead ka count nahi aa raha").
+  const openLive = leadData.filter(l => ['call', 'schedule', 'visit'].includes(l.stage));
+  const openBy = k => openLive.filter(l => (leadIsMissed(l) ? 'missed' : l.stage) === k).length;
   // ── Stat cards ──
   const cards = [
+    fmsRepStat('Open leads', openLive.length, { tone: openLive.length ? 'warn' : 'neutral', icon: '📂', title: 'Abhi khuli leads — won / lost / cancel nahi hui. Live — date filter se nahi badalta.', sub: `live · 📞 ${openBy('call')} call · 📍 ${openBy('schedule')} fix · 🚶 ${openBy('visit')} visit${openBy('missed') ? ` · ⚠️ ${openBy('missed')} missed` : ''}`, drill: leadRepDrill('lead_open', 'Open leads', openLive, l => LEAD_REP_STAGE_LABEL[leadRepStageKey(l)]) }),
     fmsRepStat('Leads', total, { icon: '🧲', sub: `⬇ ${inN} In · ⬆ ${total - inN} Out${cancelledInRange.length ? ` · ${cancelledInRange.length} cancelled` : ''}`, drill: leadRepDrill('lead_all', 'Leads', F.all) }),
     fmsRepStat('Called', F.called.length, { icon: '📞', sub: `${pct(F.called.length, total)} · 📘 ${F.catalogue.length} catalogue`, drill: leadRepDrill('lead_called', 'Called', F.called, l => `${l.callCount} call${l.callCount > 1 ? 's' : ''}${l.callOutcome ? ' · ' + l.callOutcome : ''}`) }),
     fmsRepStat('Visited', F.visited.length, { icon: '🚶', sub: `${pct(F.visited.length, total)} · ${F.fixed.length} fixed`, drill: leadRepDrill('lead_visited', 'Visited', F.visited, l => l.visitOutcome) }),
@@ -22930,7 +23021,7 @@ function leadTaskFormHtml(l, t) {
 }
 
 const LEAD_EVENT_LABEL = { created: '➕ Lead added', call: '📞 Call', scheduled: '📍 Visit fixed', rescheduled: '↻ Visit changed', visit: '🚶 Visit',
-  edited: '✏️ Edited', cancelled: '🚫 Cancelled', reopened: '↺ Reopened', onboarded: '🏪 Dealer onboarded' };
+  edited: '✏️ Edited', cancelled: '🚫 Cancelled', reopened: '↺ Reopened', onboarded: '🏪 Dealer onboarded', note: '💬 Remark' };
 async function loadLeadEvents(id) {
   const el = () => document.getElementById(`leadEvents_${id}`);
   const r = await api(`/api/lead-fms/${id}/events`);
@@ -22975,6 +23066,9 @@ async function submitLeadAction(id, kind, btnEl, preset) {
     const photoEl = document.getElementById(`lead_${id}_visit_photo`);
     body = { outcome: g('visit', 'outcome'), remark: g('visit', 'remark'), nextVisitDate: g('visit', 'nv'), photo: (photoEl && photoEl.dataset.compressed) || '' };
     if (!body.outcome) { showToast('Visit me kya hua — select karein', 'error'); return; }
+  } else if (kind === 'note') {
+    body = { remark: g('note', 'remark') };
+    if (!body.remark) { showToast('Remark likhein', 'error'); return; }
   } else if (kind === 'edit') {
     const e = s => document.getElementById(`leadE_${id}_${s}`).value.trim();
     body = { shopName: e('shop'), contactName: e('contact'), mobile: e('mobile'), city: e('city'), area: e('area'), source: e('source'), reqCategory: e('reqcat'), requirement: e('req') };
@@ -22994,6 +23088,8 @@ async function submitLeadAction(id, kind, btnEl, preset) {
     document.getElementById('leadTitle').textContent = `${fresh.code} · ${leadName(fresh)}`;
     renderLeadDetailBody(fresh); loadLeadEvents(id);
   }
+  const quick = document.getElementById('leadQuickModal');
+  if (quick && quick.classList.contains('open')) closeModal('leadQuickModal');
   if (document.getElementById('page-lead-fms').classList.contains('active')) renderLeadActiveView();
   refreshDashboardLeadLocally();
   if (kind === 'visit' && body.outcome === 'New Dealer Bana') { closeModal('leadDetailModal'); openDealerOnboardModal(id); }

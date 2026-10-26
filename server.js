@@ -6585,7 +6585,9 @@ const DEALER_DETAIL_COLS = [['owner_name', 'VARCHAR(255)'], ['alt_phone', 'VARCH
   // credit_days: payment terms; tally_name: the party's name in Tally when it is written differently
   ['credit_days', 'INT'], ['tally_name', 'VARCHAR(255)'],
   // bilty: a sample bilty photo of an outstation dealer, so everyone knows which transport his goods go by (client 2026-10-24)
-  ['bilty_url', 'VARCHAR(1000)'], ['bilty_transport', 'VARCHAR(255)'], ['bilty_updated_at', 'DATETIME']];
+  ['bilty_url', 'VARCHAR(1000)'], ['bilty_transport', 'VARCHAR(255)'], ['bilty_updated_at', 'DATETIME'],
+  // hidden_at: admin deleted the dealer from the list (client list 2026-10-26 #3) — a later O2D order brings him back
+  ['hidden_at', 'DATETIME'], ['hidden_by', 'INT']];
 let _dealerDetailColsOk = false;
 async function ensureDealerDetailCols() {
   await addMissingColumns('o2d_dealers', DEALER_DETAIL_COLS);
@@ -6700,7 +6702,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
     if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const [debtorsMap, dealerRows, paymentRows, orders, billsAgingByParty, tallyPaymentsByParty, tallyRatingByParty, ledgerBalancesByParty, vouchers] = await Promise.all([
       getDebtorsMap().catch(() => ({})), // dealer directory shouldn't 500 just because the debtors sheet hiccups — Outstanding just shows blank
-      withDealerTables(() => db.query('SELECT d.*, u.name AS details_by_name FROM o2d_dealers d LEFT JOIN users u ON u.id=d.details_updated_by')).then(([r]) => r),
+      withDealerTables(() => db.query("SELECT d.*, DATE_FORMAT(d.hidden_at,'%Y-%m-%d %H:%i:%s') AS hidden_at_s, u.name AS details_by_name FROM o2d_dealers d LEFT JOIN users u ON u.id=d.details_updated_by")).then(([r]) => r),
       withDealerTables(() => db.query('SELECT * FROM o2d_dealer_payments ORDER BY due_date')).then(([r]) => r),
       getO2dOrders().catch(() => []), // dealer directory shouldn't 500 just because the orders sheet hiccups
       getBillsReceivableAgingByDealer().catch(() => ({})), // same — Tally sync sheet hiccup shouldn't break the whole page
@@ -6741,6 +6743,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       d.details = { ownerName: row.owner_name || '', altPhone: row.alt_phone || '', area: row.area || '', address: row.address || '',
         dob: row.dob || '', anniversary: row.anniversary || '', gstNo: row.gst_no || '', notes: row.notes || '',
         updatedAt: row.details_updated_at || '', updatedBy: row.details_by_name || '' };
+      d.hiddenAt = row.hidden_at_s || '';
       d.bilty = row.bilty_url || row.bilty_transport ? { url: row.bilty_url || '', transport: row.bilty_transport || '', updatedAt: row.bilty_updated_at || '' } : null;
     });
 
@@ -6843,7 +6846,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       const kycCount = Object.values(d.kyc).filter(Boolean).length;
       delete d.payments; delete d.tallyKey;
       return { ...d, kycCount, rating, creditTier };
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    }).filter(d => !d.hiddenAt || (d.lastOrder && String(d.lastOrder.timestamp) > d.hiddenAt)).sort((a, b) => a.name.localeCompare(b.name));
 
     res.json({ dealers });
   } catch (err) { sendServerError(res, err); }
@@ -6864,11 +6867,26 @@ app.get('/api/quick-search', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// One mobile = one dealer (client list 2026-10-26 #18: "duplicate dealer na bane, mobile number
+// unique hai, vahan se check kar lo"). Returns the other dealer already holding this number
+// (last 10 digits, phone or alt phone), or null. `except` = the dealer being saved.
+async function dealerWithPhone(phone, except) {
+  const n = sfmsNormalizeMobile(String(phone || '').trim());
+  if (!n) return null;
+  const last10 = n.slice(-10);
+  const [rows] = await withDealerTables(() => db.query(
+    `SELECT counter_name FROM o2d_dealers WHERE (RIGHT(REGEXP_REPLACE(COALESCE(phone,''),'[^0-9]',''),10)=? OR RIGHT(REGEXP_REPLACE(COALESCE(alt_phone,''),'[^0-9]',''),10)=?)
+       AND hidden_at IS NULL AND LOWER(TRIM(counter_name))<>? LIMIT 1`, [last10, last10, String(except || '').trim().toLowerCase()]));
+  return rows[0] ? rows[0].counter_name : null;
+}
+const dupPhoneMsg = (phone, other) => `Ye mobile (${phone}) pehle se dealer "${other}" ka hai — naya dealer mat banao, wahi dealer use karo (galat ho to pehle uska number sudharo)`;
 app.post('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
   try {
     if (!(await canAccessDealers(req))) return res.status(403).json({ error: 'You do not have access to Dealers' });
     const { name, city, phone } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Dealer name is required' });
+    const other = phone ? await dealerWithPhone(phone, name) : null;
+    if (other) return res.status(409).json({ error: dupPhoneMsg(phone, other) });
     await withDealerTables(() => db.query(
       'INSERT INTO o2d_dealers (counter_name, city, phone) VALUES (?,?,?) ON DUPLICATE KEY UPDATE city=VALUES(city), phone=VALUES(phone)',
       [name.trim(), city || null, phone || null]
@@ -6916,6 +6934,11 @@ app.put('/api/o2d-fms/dealers/:name/details', requireAuth, async (req, res) => {
     for (const k of ['dob', 'anniversary']) if (b[k] && !ymd(b[k])) return res.status(400).json({ error: 'Date galat hai' });
     const phone = str(b.phone, 50), alt = str(b.altPhone, 50);
     for (const p of [phone, alt]) if (p && !sfmsNormalizeMobile(p)) return res.status(400).json({ error: `Mobile number galat lag raha hai: ${p}` });
+    // Only a number that changed is checked — old duplicates (same phone under spelling variants) can still save their details.
+    const [[cur]] = await withDealerTables(() => db.query('SELECT phone, alt_phone FROM o2d_dealers WHERE counter_name=?', [name]));
+    const ten = v => String(v || '').replace(/\D/g, '').slice(-10);
+    const had = new Set([cur && cur.phone, cur && cur.alt_phone].map(ten).filter(Boolean));
+    for (const p of [phone, alt]) { const other = p && !had.has(ten(p)) ? await dealerWithPhone(p, name) : null; if (other) return res.status(409).json({ error: dupPhoneMsg(p, other) }); }
     const lat = Number(b.locationLat), lng = Number(b.locationLng);
     const hasLoc = b.locationLat != null && b.locationLat !== '' && isFinite(lat) && isFinite(lng) && (lat || lng);
     const vals = [str(b.ownerName, 255), phone, alt, str(b.city, 255), str(b.area, 255), str(b.address, 1000), ymd(b.dob), ymd(b.anniversary),
@@ -6927,6 +6950,7 @@ app.put('/api/o2d-fms/dealers/:name/details', requireAuth, async (req, res) => {
          address=VALUES(address), dob=VALUES(dob), anniversary=VALUES(anniversary), gst_no=VALUES(gst_no), notes=VALUES(notes),
          details_updated_by=VALUES(details_updated_by), details_updated_at=NOW()${hasLoc ? ', location_lat=VALUES(location_lat), location_lng=VALUES(location_lng)' : ''}`,
       [name, ...vals, req.session.userId, ...(hasLoc ? [lat, lng] : [])]));
+    if (phone) await syncDealerPhone(name, phone, 'dealer');
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -6946,6 +6970,19 @@ app.post('/api/o2d-fms/dealers/:name/kyc', requireAuth, async (req, res) => {
       [name, link]
     ));
     res.json({ success: true, link });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Admin "delete" from Dealer Master: the name also comes from Tally, O2D orders and
+// onboarding, so the row is only hidden (hidden_at); a new O2D order after that shows him again.
+app.delete('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
+  try {
+    if (!canEditDealers(req)) return res.status(403).json({ error: 'Dealer sirf Admin hata sakta hai' });
+    const name = req.params.name.trim();
+    if (!name) return res.status(400).json({ error: 'Naam missing' });
+    await withDealerTables(() => db.query('INSERT INTO o2d_dealers (counter_name, hidden_at, hidden_by) VALUES (?,NOW(),?) ON DUPLICATE KEY UPDATE hidden_at=NOW(), hidden_by=VALUES(hidden_by)', [name, req.session.userId]));
+    console.log(`dealer "${name}" hidden by user ${req.session.userId}`);
+    res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -12855,7 +12892,11 @@ app.get('/api/md-summary', requireAuth, async (req, res) => {
       const mk = orders.filter(o => inRange(o.timestamp));
       const value = o => (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0);
       const by = {};
-      mk.forEach(o => { const k = o.orderBy || '—'; const r = by[k] = by[k] || { name: k, orders: 0, value: 0 }; r.orders++; r.value += value(o); });
+      // Each salesman's own orders in the range go along, so a click shows exactly them (client list 2026-10-26 #20 —
+      // it used to open O2D with the name in the search box: no date filter, and dealer names matched too).
+      mk.forEach(o => { const k = o.orderBy || '—'; const r = by[k] = by[k] || { name: k, orders: 0, value: 0, list: [] }; r.orders++; r.value += value(o);
+        r.list.push({ orderNo: o.orderNo, date: String(o.timestamp || '').slice(0, 10), dealer: o.counterName || '', qty: o.qty || 0, value: Math.round(value(o)),
+          billed: o.currentStep >= 4, status: o.cancelled ? 'Cancelled' : o.closed ? 'Done' : o.onHold ? 'Hold' : `Step ${Math.min((o.currentStep || 0) + 1, O2D_STEPS.length)}` }); });
       const billStep = O2D_STEPS.findIndex(x => /make bill/i.test(x.label));
       const billed = orders.filter(o => billStep >= 0 && o.steps[billStep] && inRange(o.steps[billStep].actual));
       o2d = { orders: mk.length, value: Math.round(mk.reduce((a, o) => a + value(o), 0)), billed: billed.length, billedAmount: Math.round(billed.reduce((a, o) => a + (Number(o.amount) || 0), 0)),
@@ -12932,12 +12973,18 @@ app.get('/api/meca', requireAuth, async (req, res) => {
       r.nbdVisits++;
       if (/^(Order Mil Gaya|New Dealer Bana)/.test(l.detail || '')) r.nbdWon++;
     }
+    // New-dealer visits fixed in Lead FMS for these days (client list 2026-10-26 #16: "market visit date
+    // ... MECA me bhi usi din jaani chahiye") — counted on the visit date for the salesman it was given to.
+    const [nbdPlan] = await db.query(`SELECT id, lead_code, shop_name, contact_name, mobile, city, area, visit_user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d,
+        visit_count, result FROM leads WHERE visit_date BETWEEN ? AND ? AND visit_user_id IS NOT NULL AND cancelled_at IS NULL ORDER BY visit_date`, [from, to])
+      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; });
+    for (const l of nbdPlan) { const r = row(l.visit_user_id, l.d); r.nbdPlanned = (r.nbdPlanned || 0) + 1; }
     const ids = [...new Set(Object.values(rows).map(r => r.userId))];
     const [users] = ids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [ids]) : [[]];
     const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
-    const out = Object.values(rows).filter(r => r.plan !== 'none' || r.visited || r.nbdVisits)
-      .map(r => ({ ...r, planned: r.planned.size, name: nameOf[r.userId] || `User ${r.userId}` }))
-      .filter(r => r.planned || r.visited || r.nbdVisits)
+    const out = Object.values(rows).filter(r => r.plan !== 'none' || r.visited || r.nbdVisits || r.nbdPlanned)
+      .map(r => ({ ...r, planned: r.planned.size, nbdPlanned: r.nbdPlanned || 0, name: nameOf[r.userId] || `User ${r.userId}` }))
+      .filter(r => r.planned || r.visited || r.nbdVisits || r.nbdPlanned)
       .sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
     const [vu] = visits.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [[...new Set(visits.map(v => v.user_id))]]) : [[]];
     const vName = Object.fromEntries(vu.map(u => [u.id, u.name]));
@@ -12945,7 +12992,9 @@ app.get('/api/meca', requireAuth, async (req, res) => {
       .map(v => ({ date: v.d, at: v.at || '', name: vName[v.user_id] || '', dealer: v.dealer_name, orderValue: v.order_value == null ? null : Number(v.order_value), remark: v.remark || '', photo: v.photo || '', distance: v.distance_m }))
       .sort((a, b) => (b.date + b.at).localeCompare(a.date + a.at));
     const [dl] = await withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers ORDER BY counter_name')).catch(() => [[]]);
-    res.json({ from, to, rows: out, visits: visitList, dealers: dl.map(d => d.counter_name) });
+    const nbd = nbdPlan.map(l => ({ id: l.id, code: l.lead_code, shop: l.shop_name || l.contact_name || '', contact: l.contact_name || '', mobile: l.mobile || '',
+      place: [l.area, l.city].filter(Boolean).join(', '), date: l.d, name: nameOf[l.visit_user_id] || '', visited: Number(l.visit_count) > 0, result: l.result || '' }));
+    res.json({ from, to, rows: out, visits: visitList, nbdPlan: nbd, dealers: dl.map(d => d.counter_name) });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -13022,7 +13071,7 @@ async function gpLoadData(start, end, opts = {}) {
   const [o2dRes, poRes, [manual], mapTo, [stockItems], poArchive, [cancelledRows]] = await Promise.all([
     sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }),
     sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }),
-    db.query('SELECT item_key, item_name, cost_rate FROM product_costs'),
+    db.query("SELECT item_key, item_name, cost_rate, DATE_FORMAT(updated_at,'%Y-%m-%d') AS upd FROM product_costs"),
     gpProductMapper(),
     withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items')),
     purchasePoArchiveRows(),
@@ -13077,14 +13126,17 @@ async function gpLoadData(start, end, opts = {}) {
     // "last PO rate as updated rate"). Newest by PO date, then PO number.
     const at = [Number(r[0]) || 0, parseInt(String(r[1] || '').replace(/\D/g, ''), 10) || 0];
     const newer = x => !x || at[0] > x.at[0] || (at[0] === x.at[0] && at[1] >= x.at[1]);
-    if (newer(c.last)) c.last = { at, rate, po: String(r[1] || '') };
+    if (newer(c.last)) c.last = { at, rate, po: String(r[1] || ''), date };
     if (newer(v.last)) v.last = { at, rate };
   });
-  const manualBy = Object.fromEntries(manual.map(m => [m.item_key, Number(m.cost_rate)]));
+  const manualBy = Object.fromEntries(manual.map(m => [m.item_key, { rate: Number(m.cost_rate), upd: m.upd || '' }]));
+  // A typed cost holds until a newer PO for the item comes in (client list 2026-10-26 #21: "manual cost
+  // daali ho, jaise hi us product ka PO bane to cost update ho jaye") — a PO dated after the day the cost was typed wins.
   const costFor = s => {
     const mk = manualBy[gpKey(s.item)];
-    if (mk > 0) return { rate: mk, source: 'Manual' };
     const c = poCost[s.code];
+    const poAfter = mk && c && c.qty > 0 && c.last.date && mk.upd && c.last.date > mk.upd;
+    if (mk && mk.rate > 0 && !poAfter) return { rate: mk.rate, source: 'Manual' };
     if (c && c.qty > 0) return { rate: Math.round(c.last.rate * 100) / 100, source: c.last.po ? `Last PO ${c.last.po}` : 'Last PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
     return null;
   };
@@ -14217,6 +14269,13 @@ app.put('/api/lead-fms/:id/action/:action', requireAuth, async (req, res) => {
       if (!l.result) return fail('Lead is not closed');
       await db.query('UPDATE leads SET result=NULL, closed_at=NULL, closed_by=NULL, needs_visit=0, visit_date=NULL, next_call=CURDATE() WHERE id=?', [l.id]);
       await logLeadEvent(l.id, 'reopened', leadStr(b.reason, 500), uid);
+    } else if (action === 'note') {
+      // A plain remark from the All Leads list (client list 2026-10-26 #5) — anyone who works this lead.
+      const remark = leadStr(b.remark, 500);
+      if (!remark) return fail('Remark likhein');
+      if (!acc.seeAll && !acc.mySteps.size && Number(l.created_by) !== uid && Number(l.visit_user_id) !== uid && Number(l.salesman_user_id) !== uid) return fail('Is lead par aapka kaam nahi', 403);
+      await logLeadEvent(l.id, 'note', remark, uid);
+      await db.query('UPDATE leads SET updated_at=NOW() WHERE id=?', [l.id]);
     } else return fail('Unknown action');
 
     const fresh = await loadLead(l.id);
@@ -14330,6 +14389,8 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
     const shop = leadStr(b.shopName, 255), owner = leadStr(b.ownerName, 255), mobile = leadStr(b.mobile, 30);
     if (!shop || !owner || !mobile) return res.status(400).json({ error: 'Shop name, owner name and mobile are required' });
     if (!sfmsNormalizeMobile(mobile)) return res.status(400).json({ error: 'Mobile number looks wrong' });
+    const dupOf = await dealerWithPhone(mobile, shop);
+    if (dupOf) return res.status(409).json({ error: dupPhoneMsg(mobile, dupOf) });
     const inside = Array.isArray(b.insidePhotos) ? b.insidePhotos.filter(Boolean) : [];
     if (!b.gstPhoto && !b.noGst) return res.status(400).json({ error: 'GST photo is required (or tick "GST nahi hai")' });
     if (inside.length < 4) return res.status(400).json({ error: 'Dukaan ke andar ki 4 photo chahiye' });
@@ -16019,6 +16080,7 @@ app.put('/api/scot/dealer/:id', requireAuth, async (req, res) => {
       const person = String(b.person || '').trim().slice(0, 255), phone = String(b.phone || '').trim().slice(0, 30);
       if (!person && !phone) return res.status(400).json({ error: 'Naam ya phone me se ek to bharein' });
       await db.query('UPDATE scot_dealers SET person = ?, phone = ? WHERE id = ?', [person || null, phone || null, id]);
+      if (phone && phone !== (d.phone || '')) await syncDealerPhone(d.name, phone, 'scot');
     }
     if (Array.isArray(b.products)) {
       const prods = b.products.filter(p => p && p.model).slice(0, 300).map(p => ({ model: String(p.model).slice(0, 200), cat: String(p.cat || '').slice(0, 60) }));
@@ -16231,7 +16293,10 @@ async function waTables() {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   await addMissingColumns('wa_campaign_recipients', [['message', 'TEXT']]);
   // Yearly plan (Ajay sir, 2026-10-24): 'MM-DD' — goes every year on that date; weekday is then 0.
-  await addMissingColumns('wa_drip_plan', [['yearly_md', 'CHAR(5)']]);
+  await addMissingColumns('wa_drip_plan', [['yearly_md', 'CHAR(5)'],
+    // Daily and monthly plans too (client list 2026-10-26 #7: "yearly monthly weekly day wise, saprate photo"):
+    // freq 'daily' / 'monthly' (+ month_day 1-31; a day the month lacks goes on its last day). NULL = weekly / yearly as before.
+    ['freq', 'VARCHAR(10)'], ['month_day', 'TINYINT']]);
   await db.query('CREATE TABLE IF NOT EXISTS wa_lock (id INT PRIMARY KEY, until_at DATETIME) ENGINE=InnoDB');
   await db.query('INSERT IGNORE INTO wa_lock (id, until_at) VALUES (1, NULL)');
   _waOk = true;
@@ -16411,11 +16476,13 @@ async function waEnqueueDueDrips() {
   const today = waYmd();
   const d = new Date(today + 'T00:00:00Z');
   const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay(), wom = Math.ceil(d.getUTCDate() / 7);
-  const [plans] = await db.query("SELECT * FROM wa_drip_plan WHERE active=1 AND ((yearly_md IS NULL AND weekday=?) OR yearly_md=?) AND (last_run IS NULL OR last_run<>?)", [dow, today.slice(5), today]);
+  const dom = d.getUTCDate(), lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate() === dom ? 1 : 0;
+  const [plans] = await db.query(`SELECT * FROM wa_drip_plan WHERE active=1 AND ((yearly_md IS NULL AND freq IS NULL AND weekday=?) OR yearly_md=? OR freq='daily'
+      OR (freq='monthly' AND (month_day=? OR (?=1 AND month_day>?)))) AND (last_run IS NULL OR last_run<>?)`, [dow, today.slice(5), dom, lastDay, dom, today]);
   let made = 0;
   for (const p of plans) {
     const weeks = String(p.weeks || '').split(',').map(n => parseInt(n, 10)).filter(Boolean);
-    if (!p.yearly_md && weeks.length && !weeks.includes(wom)) continue;
+    if (!p.yearly_md && !p.freq && weeks.length && !weeks.includes(wom)) continue;
     const [claim] = await db.query('UPDATE wa_drip_plan SET last_run=? WHERE id=? AND (last_run IS NULL OR last_run<>?)', [today, p.id, today]);
     if (!claim.affectedRows) continue;
     await waCreateCampaign({ title: `🔁 ${p.title}`, message: p.message, docIds: p.doc_ids, imageUrl: p.image_url, audience: p.audience, city: p.city, source: 'drip', dripId: p.id });
@@ -16507,8 +16574,8 @@ app.get('/api/wa/drips', requireAuth, async (req, res) => {
   try {
     if (!(await waAccess(req, res))) return;
     await waTables();
-    const [rows] = await db.query("SELECT *, DATE_FORMAT(last_run,'%Y-%m-%d') AS last_run FROM wa_drip_plan ORDER BY yearly_md IS NOT NULL, yearly_md, weekday, id");
-    res.json({ items: rows.map(p => ({ id: p.id, title: p.title, weekday: p.weekday, weeks: p.weeks ? p.weeks.split(',').map(Number) : [], yearlyMd: p.yearly_md || '', audience: p.audience, city: p.city || '',
+    const [rows] = await db.query("SELECT *, DATE_FORMAT(last_run,'%Y-%m-%d') AS last_run FROM wa_drip_plan ORDER BY yearly_md IS NOT NULL, yearly_md, freq, month_day, weekday, id");
+    res.json({ items: rows.map(p => ({ id: p.id, title: p.title, weekday: p.weekday, weeks: p.weeks ? p.weeks.split(',').map(Number) : [], yearlyMd: p.yearly_md || '', freq: p.freq || (p.yearly_md ? 'yearly' : 'weekly'), monthDay: p.month_day || null, audience: p.audience, city: p.city || '',
       message: p.message || '', docIds: waDocIds(p.doc_ids), imageUrl: p.image_url || '', active: !!p.active, lastRun: p.last_run })), settings: await waDripSettings() });
   } catch (err) { sendServerError(res, err); }
 });
@@ -16517,17 +16584,22 @@ app.post('/api/wa/drips', requireAuth, requireAdmin, async (req, res) => {
     await waTables();
     const b = req.body || {};
     const title = String(b.title || '').trim().slice(0, 255);
-    const yearlyMd = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(b.yearlyMd || '') ? b.yearlyMd : null;
-    const weekday = yearlyMd ? 0 : parseInt(b.weekday, 10);
+    const kind = ['daily', 'weekly', 'monthly', 'yearly'].includes(b.kind) ? b.kind : (b.yearlyMd ? 'yearly' : 'weekly');
+    const yearlyMd = kind === 'yearly' && /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(b.yearlyMd || '') ? b.yearlyMd : null;
+    const monthDay = kind === 'monthly' ? parseInt(b.monthDay, 10) : null;
+    const freq = kind === 'daily' || kind === 'monthly' ? kind : null;
+    const weekday = kind === 'weekly' ? parseInt(b.weekday, 10) : 0;
     if (!title) return res.status(400).json({ error: 'Naam likhein (e.g. Week 1 — Ceiling fan scheme)' });
-    if (!yearlyMd && !(weekday >= 1 && weekday <= 7)) return res.status(400).json({ error: 'Hafte ka din ya saal ki tareekh chunein' });
+    if (kind === 'yearly' && !yearlyMd) return res.status(400).json({ error: 'Saal ki tareekh chunein' });
+    if (kind === 'monthly' && !(monthDay >= 1 && monthDay <= 31)) return res.status(400).json({ error: 'Mahine ki tareekh chunein' });
+    if (kind === 'weekly' && !(weekday >= 1 && weekday <= 7)) return res.status(400).json({ error: 'Hafte ka din chunein' });
     const audience = ['all', 'customers', 'non_customers'].includes(b.audience) ? b.audience : 'customers';
     const weeks = (Array.isArray(b.weeks) ? b.weeks : []).map(n => parseInt(n, 10)).filter(n => n >= 1 && n <= 5);
     if (!String(b.message || '').trim() && !b.image && !b.imageUrl && !waDocIds(b.docIds).length) return res.status(400).json({ error: 'Message, photo ya PDF — kuch to daalein' });
     const imageUrl = b.image ? await waUploadImage(b.image, 'drip') : (b.imageUrl || null);
-    const vals = [title, weekday, yearlyMd ? null : (weeks.join(',') || null), yearlyMd, audience, String(b.city || '').trim().slice(0, 120) || null, String(b.message || ''), waDocIds(b.docIds).join(',') || null, imageUrl, b.active === false ? 0 : 1, req.session.userId];
-    if (b.id) await db.query('UPDATE wa_drip_plan SET title=?, weekday=?, weeks=?, yearly_md=?, audience=?, city=?, message=?, doc_ids=?, image_url=?, active=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, Number(b.id)]);
-    else await db.query('INSERT INTO wa_drip_plan (title, weekday, weeks, yearly_md, audience, city, message, doc_ids, image_url, active, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)', vals);
+    const vals = [title, weekday, kind === 'weekly' ? (weeks.join(',') || null) : null, yearlyMd, freq, monthDay, audience, String(b.city || '').trim().slice(0, 120) || null, String(b.message || ''), waDocIds(b.docIds).join(',') || null, imageUrl, b.active === false ? 0 : 1, req.session.userId];
+    if (b.id) await db.query('UPDATE wa_drip_plan SET title=?, weekday=?, weeks=?, yearly_md=?, freq=?, month_day=?, audience=?, city=?, message=?, doc_ids=?, image_url=?, active=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, Number(b.id)]);
+    else await db.query('INSERT INTO wa_drip_plan (title, weekday, weeks, yearly_md, freq, month_day, audience, city, message, doc_ids, image_url, active, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', vals);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -16594,6 +16666,24 @@ async function dealerResolver() {
     if (!k) return null;
     return byKey[k] || (alias[k] && byKey[alias[k].toLowerCase()]) || byLoose[loose(k)] || null;
   };
+}
+// One dealer phone everywhere (client list 2026-10-26 #9: "ek jagah update kare to
+// pure database me update ho jaye") — Dealer Master (o2d_dealers), SCOT and the
+// Payment Follow-up all read the dealer's number; a change in any of them is
+// copied to the others. `from` is the place that already saved it.
+async function syncDealerPhone(name, phone, from) {
+  const p = String(phone || '').trim();
+  if (!name || !p) return;
+  const d = (await dealerResolver())(name);
+  const keys = [...new Set([String(name).trim().toLowerCase(), d ? d.counter_name.trim().toLowerCase() : '', d && d.tally_name ? d.tally_name.trim().toLowerCase() : ''].filter(Boolean))];
+  if (from !== 'dealer') {
+    if (d) await db.query('UPDATE o2d_dealers SET phone=? WHERE counter_name=?', [p, d.counter_name]);
+    else await withDealerTables(() => db.query('INSERT INTO o2d_dealers (counter_name, phone) VALUES (?,?) ON DUPLICATE KEY UPDATE phone=VALUES(phone)', [String(name).trim(), p]));
+  }
+  if (from !== 'scot') {
+    try { await db.query('UPDATE scot_dealers SET phone=? WHERE LOWER(TRIM(name)) IN (?)', [p, keys]); }
+    catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+  }
 }
 // Payments the team enters here (client list 10-21 #8, part payments) until
 // Tally shows them: a Tally receipt for the same party, same amount (±₹1),
@@ -16722,10 +16812,11 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
     await collectTable();
     const { bills, lastSynced, parties, appPays } = await collectBills();
     const [acts] = await db.query(`SELECT a.*, DATE_FORMAT(a.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name,
-        (SELECT r.status FROM wa_campaign_recipients r WHERE r.campaign_id=a.campaign_id AND LOWER(r.name)=LOWER(a.party) LIMIT 1) AS wa_status
+        (SELECT r.status FROM wa_campaign_recipients r WHERE r.campaign_id=a.campaign_id AND LOWER(r.name)=LOWER(a.party) LIMIT 1) AS wa_status,
+        (SELECT DATE_FORMAT(r.sent_at,'%Y-%m-%d %H:%i:%s') FROM wa_campaign_recipients r WHERE r.campaign_id=a.campaign_id AND LOWER(r.name)=LOWER(a.party) LIMIT 1) AS wa_sent_at
       FROM collect_actions a LEFT JOIN users u ON u.id=a.done_by`).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
     const actOf = {};
-    acts.forEach(a => { (actOf[a.bill_key] = actOf[a.bill_key] || {})[a.step] = { outcome: a.outcome || '', remark: a.remark || '', at: a.done_at, by: a.by_name || '', waStatus: a.wa_status || '' }; });
+    acts.forEach(a => { (actOf[a.bill_key] = actOf[a.bill_key] || {})[a.step] = { outcome: a.outcome || '', remark: a.remark || '', at: a.done_at, by: a.by_name || '', waStatus: a.wa_status || '', waSentAt: a.wa_sent_at || '' }; });
     // Every unpaid bill (the party view and the total need the young ones too);
     // the tabs pick their own day ranges.
     const open = bills.filter(b => b.amount > 0);
@@ -16799,6 +16890,7 @@ app.post('/api/collection-followup/phone', requireAuth, async (req, res) => {
     const dealer = (await dealerResolver())(party);
     if (dealer) await db.query('UPDATE o2d_dealers SET phone=? WHERE counter_name=?', [phone, dealer.counter_name]);
     else await withDealerTables(async () => { await ensureDealerDetailCols(); await db.query('INSERT INTO o2d_dealers (counter_name, phone, tally_name) VALUES (?,?,?) ON DUPLICATE KEY UPDATE phone=VALUES(phone)', [party, phone, party]); });
+    await syncDealerPhone(party, phone, 'dealer');
     res.json({ success: true, phone });
   } catch (err) { sendServerError(res, err); }
 });
@@ -16988,7 +17080,13 @@ app.get('/api/delivery-dues', requireAuth, async (req, res) => {
     await deliveryDuesSync(req.query.refresh === '1');
     const [items, remindDays, [[unk]]] = await Promise.all([ddList(), ddRemindDays(),
       db.query("SELECT COUNT(*) AS n FROM delivery_dues dd JOIN o2d_deliveries d ON d.order_no=dd.order_no WHERE dd.terms_days IS NULL")]);
-    res.json({ items, remindDays, unknownTerms: Number(unk.n) || 0, canEdit: req.session.role === 'admin' });
+    // Orders waiting at O2D "Make Bill" (step 4) — money that will fall due once billed and delivered
+    // (client list 2026-10-26 #15: "make bills pe jo pending hai vo bhi aani chahiye").
+    const billPending = (await getO2dOrders().catch(() => [])).filter(o => !o.closed && !o.cancelled && o.currentStep === 3).map(o => ({
+      orderNo: o.orderNo, dealer: o.counterName || '', orderBy: o.orderBy || '', terms: o.paymentTerms || '', onHold: !!o.onHold,
+      amount: Math.round((Number(o.amount) || (o.products || []).filter(p => !p.cancelled).reduce((t, p) => t + gpNum(p.rate) * gpNum(p.qty), 0)) * 100) / 100,
+      since: (o.steps && o.steps[2] && o.steps[2].actual) || o.timestamp || '' })).sort((x, y) => String(x.since).localeCompare(String(y.since)));
+    res.json({ items, billPending, remindDays, unknownTerms: Number(unk.n) || 0, canEdit: req.session.role === 'admin' });
   } catch (err) { sendServerError(res, err); }
 });
 // Dashboard: unpaid dues that are due today or overdue, for the person who
