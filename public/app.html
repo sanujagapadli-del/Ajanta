@@ -18326,7 +18326,7 @@ function renderIndentDetailBody(o) {
         <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Rate check karke PO generate karo. PO bante hi yeh items <b>FMS View → Follow</b> me aa jayenge — wahan PO kholke <b>📤 Send PO to vendor</b>.</div>`;
     }
     const action = sd.key === 'po'
-      ? `<button onclick="openPoGenerator()" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">🧾 Generate PO</button>`
+      ? `<button onclick="openPoGenerator('${jsArg(lines[0] ? lines[0].vendorName || '' : '')}')" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px">🧾 Generate PO</button>`
       : `<button id="indDoneBtn_${idx}" onclick="submitIndentStep('${jsArg(o.indentNo)}', ${idx})" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px;margin-top:12px">Mark Done</button>`;
     return `<div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:16px;margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Next Action</div>
@@ -18448,22 +18448,197 @@ async function refreshPurchaseAfterAction(indentPatchedLocally) {
   renderDashTable(merged, dashType);
 }
 
-let _pfmsPoGenWin = null;
-function openPoGenerator() {
-  if (_pfmsPoGenWin && !_pfmsPoGenWin.closed) { _pfmsPoGenWin.focus(); return; }
-  if (window.matchMedia('(max-width:768px)').matches) { window.open(PFMS_PO_GENERATOR_URL, '_blank'); return; }
-  const w = Math.min(900, screen.availWidth - 40), h = Math.min(780, screen.availHeight - 60);
-  const left = Math.round((window.screenX || 0) + (window.outerWidth - w) / 2);
-  const top = Math.round((window.screenY || 0) + Math.max(0, (window.outerHeight - h) / 2));
-  _pfmsPoGenWin = window.open(PFMS_PO_GENERATOR_URL, 'ajantaPoGenerator', `popup=yes,width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`);
-  if (!_pfmsPoGenWin) { showToast('Popup blocked — browser me is site ke popups allow karein', 'error'); return; }
-  const timer = setInterval(() => {
-    if (!_pfmsPoGenWin || _pfmsPoGenWin.closed) {
-      clearInterval(timer);
-      _pfmsPoGenWin = null;
-      if (document.getElementById('page-purchase-fms').classList.contains('active')) loadPurchaseFmsList();
-    }
-  }, 1000);
+// ── Generate PO inside the ERP (client 2026-10-27 — replaces the Apps Script
+// PO generator, whose source isn't available). Vendor → its indent lines
+// waiting at Generate PO → qty / rate / HSN / GST → PO number from the server
+// → PDF in the old layout → Drive + Purchase FMS sheet (see server.js).
+const PO_COMPANY = { name: 'Ajay marketing (AJANTA APPLIANCES)', lines: ['First floor ,R 4 building,Near Prince plaza ,Amagarh batti,', 'Transport Nagar,Jaipur, Rajasthan', 'Pin code:- 302003',
+  'Ph: 8949042201 / 8432612777', 'ajaymarketingindia@gmail.com'], gstin: 'GSTIN: 08AAZPR1607F1ZC | PAN: AAZPR1607F', sign: 'For Ajay Marketing' };
+let _poForm = null;
+const poIntra = v => /^08/.test(String(v.gst || '').trim()) || /rajasthan/i.test(String(v.state || ''));
+async function openPoGenerator(vendorPreset) {
+  vrlModal('poGenModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">🧾 Generate PO</h3>${smpModalX('poGenModal')}</div>
+    <div id="poGenBody"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>`, 900);
+  const r = await api('/api/purchase-fms/po-form');
+  const body = document.getElementById('poGenBody');
+  if (!body) return;
+  if (r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
+  _poForm = r;
+  const withLines = [...new Set(r.lines.map(l => l.vendorName))];
+  const cnt = v => r.lines.filter(l => l.vendorName === v).length;
+  const IN = VRL_IN;
+  const L = t => `<label style="font-size:11.5px;font-weight:600;color:var(--gray-600)">${t}</label>`;
+  const due = new Date(); due.setDate(due.getDate() + 15);
+  body.innerHTML = `
+    ${L('Vendor *')}<select id="poVendor" onchange="poVendorChanged()" style="${IN}"><option value="">-- Vendor chunein --</option>
+      ${withLines.length ? `<optgroup label="PO baaki hai">${withLines.map(v => `<option value="${esc(v)}">${esc(v)} (${cnt(v)} item)</option>`).join('')}</optgroup>` : ''}
+      <optgroup label="Sab vendors">${r.vendorNames.filter(v => !withLines.includes(v)).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}</optgroup></select>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 10px">
+      <div>${L('Address')}<input id="poVAddr" style="${IN}"/></div><div>${L('State')}<input id="poVState" oninput="poRecalc()" style="${IN}"/></div>
+      <div>${L('GST No.')}<input id="poVGst" oninput="this.value=this.value.toUpperCase();poRecalc()" style="${IN}"/></div>
+      <div>${L('Contact person')}<input id="poVContact" style="${IN}"/></div><div>${L('Phone')}<input id="poVPhone" inputmode="tel" style="${IN}"/></div></div>
+    <div id="poLines" style="margin:6px 0 10px"></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0 10px">
+      <div>${L('Shipping mode')}<input id="poShipMode" value="Road Transport" style="${IN}"/></div>
+      <div>${L('Delivery terms')}<input id="poDelTerms" value="Within 7 Days" style="${IN}"/></div>
+      <div>${L('Payment terms')}<input id="poPayTerms" value="30 Days Credit" style="${IN}"/></div>
+      <div>${L('Delivery date')}<input id="poDelDate" type="date" value="${owsYmd(due)}" style="${IN}"/></div>
+      <div>${L('Discount (Rs.)')}<input id="poDiscount" type="number" min="0" value="0" oninput="poRecalc()" style="${IN}"/></div></div>
+    <div id="poTotals" style="text-align:right;font-size:13px;margin-bottom:10px"></div>
+    <div id="poErr" class="alert error" style="display:none;margin-bottom:8px"></div>
+    <button id="poGenBtn" class="btn btn-green" style="width:100%;justify-content:center;padding:13px;font-size:15px" onclick="submitErpPo(this)">🧾 PO banao + PDF</button>`;
+  const pre = vendorPreset && [...document.getElementById('poVendor').options].find(o => o.value === vendorPreset);
+  if (pre) { document.getElementById('poVendor').value = vendorPreset; poVendorChanged(); }
+}
+function poVendorChanged() {
+  const name = document.getElementById('poVendor').value;
+  const v = (_poForm.vendors || []).find(x => x.name.toLowerCase() === name.toLowerCase()) || {};
+  [['poVAddr', 'address'], ['poVState', 'state'], ['poVGst', 'gst'], ['poVContact', 'contact'], ['poVPhone', 'phone']].forEach(([id, k]) => { document.getElementById(id).value = v[k] || ''; });
+  const lines = _poForm.lines.filter(l => l.vendorName === name);
+  const lead = Math.max(0, ...lines.map(l => l.leadTime || 0));
+  if (lead) { const d = new Date(); d.setDate(d.getDate() + lead); document.getElementById('poDelDate').value = owsYmd(d); }
+  const inp = 'padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12.5px;width:100%;box-sizing:border-box';
+  document.getElementById('poLines').innerHTML = lines.length ? `<div class="table-wrap"><table style="font-size:12.5px;min-width:640px"><thead><tr><th></th><th>Item (indent)</th><th>Indent qty</th><th>Order qty</th><th>UOM</th><th>Rate (Rs.)</th><th>HSN</th><th>GST %</th><th style="text-align:right">Amount</th></tr></thead><tbody>
+    ${lines.map((l, i) => `<tr class="po-line" data-i="${_poForm.lines.indexOf(l)}">
+      <td><input type="checkbox" class="po-on" checked onchange="poRecalc()"/></td>
+      <td><b>${esc(l.productName)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(l.indentNo)} · item ${esc(l.itemId)}${l.raisedBy ? ' · ' + esc(l.raisedBy) : ''}</div></td>
+      <td>${esc(l.qty)}</td>
+      <td><input class="po-qty" type="number" min="0" step="any" value="${esc(l.qty)}" oninput="poRecalc()" style="${inp};width:80px"/></td>
+      <td><input class="po-uom" value="${esc(l.uom)}" style="${inp};width:60px"/></td>
+      <td><input class="po-rate" type="number" min="0" step="any" value="${esc(l.rate || '')}" oninput="poRecalc()" style="${inp};width:90px"/></td>
+      <td><input class="po-hsn" style="${inp};width:80px"/></td>
+      <td><input class="po-gst" type="number" min="0" max="28" value="18" oninput="poRecalc()" style="${inp};width:60px"/></td>
+      <td class="po-amt" style="text-align:right;white-space:nowrap"></td></tr>`).join('')}</tbody></table></div>`
+    : `<div class="empty" style="padding:14px">Is vendor ka koi indent item Generate PO par nahi hai. Pehle indent banayein (Purchase FMS → + New Indent) — wahan stationery / koi bhi item haath se bhi likh sakte hain.</div>`;
+  poRecalc();
+}
+function poCollect() {
+  const vendor = { name: document.getElementById('poVendor').value, address: document.getElementById('poVAddr').value.trim(), state: document.getElementById('poVState').value.trim(),
+    gst: document.getElementById('poVGst').value.trim(), contact: document.getElementById('poVContact').value.trim(), phone: document.getElementById('poVPhone').value.trim() };
+  const lines = [...document.querySelectorAll('#poLines .po-line')].filter(tr => tr.querySelector('.po-on').checked).map(tr => {
+    const l = _poForm.lines[Number(tr.dataset.i)], g = c => tr.querySelector(c).value.trim();
+    return { indentNo: l.indentNo, itemId: l.itemId, productName: l.productName, qty: g('.po-qty'), uom: g('.po-uom'), rate: g('.po-rate'), hsn: g('.po-hsn'), gstPct: g('.po-gst') };
+  });
+  return { vendor, lines, discount: document.getElementById('poDiscount').value, shipping: { mode: document.getElementById('poShipMode').value.trim(),
+    deliveryTerms: document.getElementById('poDelTerms').value.trim(), paymentTerms: document.getElementById('poPayTerms').value.trim(), deliveryDate: document.getElementById('poDelDate').value } };
+}
+function poRecalc() {
+  if (!document.getElementById('poTotals')) return;
+  let sub = 0, gst = 0;
+  document.querySelectorAll('#poLines .po-line').forEach(tr => {
+    const on = tr.querySelector('.po-on').checked, amt = (Number(tr.querySelector('.po-qty').value) || 0) * (Number(tr.querySelector('.po-rate').value) || 0);
+    tr.querySelector('.po-amt').textContent = on ? inr(amt) : '—';
+    tr.style.opacity = on ? '' : '.45';
+    if (on) { sub += amt; gst += amt * (Number(tr.querySelector('.po-gst').value) || 0) / 100; }
+  });
+  const disc = Number(document.getElementById('poDiscount').value) || 0;
+  const intra = poIntra({ gst: document.getElementById('poVGst').value, state: document.getElementById('poVState').value });
+  document.getElementById('poTotals').innerHTML = `Subtotal <b>${inr(sub)}</b> · ${intra ? 'CGST + SGST' : 'IGST'} <b>${inr(gst)}</b>${disc ? ` · Discount −${inr(disc)}` : ''} · <span style="font-size:15px">Grand Total <b>${inr(sub + gst - disc)}</b></span>`;
+}
+async function submitErpPo(btn) {
+  const err = document.getElementById('poErr'); err.style.display = 'none';
+  const body = poCollect();
+  const fail = m => { err.textContent = m; err.style.display = 'block'; };
+  if (!body.vendor.name) return fail('Vendor chunein');
+  if (!body.lines.length) return fail('Kam se kam ek item tick karein');
+  const restore = btnLoading(btn, 'PO number…');
+  try {
+    const r = await api('/api/purchase-fms/po/reserve', 'POST', body);
+    if (r.error) { restore(); return fail(r.error); }
+    btn.innerHTML = `⏳ ${esc(r.po.poNumber)} — PDF ban raha hai…`;
+    const pdf = await buildPoPdf(r.po);
+    const f = await api(`/api/purchase-fms/po/${encodeURIComponent(r.po.poNumber)}/finish`, 'POST', { pdf });
+    restore();
+    if (f.error) return fail(`${r.po.poNumber}: ${f.error} — dobara "PO banao" na dabayein, admin ko batayein`);
+    document.getElementById('poGenBody').innerHTML = `<div style="text-align:center;padding:18px">
+      <div style="font-size:20px;font-weight:800;color:var(--color-success-text);margin-bottom:6px">✅ ${esc(r.po.poNumber)} ban gaya</div>
+      <div style="font-size:13px;color:var(--gray-600);margin-bottom:14px">${esc(r.po.vendor.name)} · ${r.po.lines.length} item · ${inr(r.po.grand)}<br/>Kuch der me ye Purchase FMS → Follow me dikhega.</div>
+      ${f.linked ? '' : `<div class="alert" style="background:var(--color-warning-bg);color:var(--color-warning-text);font-size:12.5px;margin-bottom:12px">PO save ho gaya, par Indent FMS me abhi nahi dikha — 2 minute baad refresh karein; phir bhi na dikhe to admin ko batayein (PO ${esc(r.po.poNumber)}).</div>`}
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <a class="btn btn-outline" href="${esc(f.pdfUrl)}" target="_blank" rel="noopener">📄 PO PDF</a>
+        <a class="btn btn-green" target="_blank" rel="noopener" href="https://wa.me/${esc(String(r.po.vendor.phone || '').replace(/\D/g, '').replace(/^(\d{10})$/, '91$1'))}?text=${encodeURIComponent(`Purchase Order ${r.po.poNumber} — ${PO_COMPANY.sign.replace('For ', '')}\n${f.pdfUrl}`)}">📤 Vendor ko WhatsApp</a></div></div>`;
+    setTimeout(() => { if (document.getElementById('page-purchase-fms').classList.contains('active')) loadPurchaseFmsList(); }, 4000);
+  } catch (e) { restore(); fail(e.message || 'PDF error'); }
+}
+function poAmountWords(n) {
+  const a = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const t = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const two = x => x < 20 ? a[x] : t[Math.floor(x / 10)] + (x % 10 ? ' ' + a[x % 10] : '');
+  const three = x => (x >= 100 ? a[Math.floor(x / 100)] + ' Hundred' + (x % 100 ? ' ' : '') : '') + (x % 100 ? two(x % 100) : '');
+  let r = Math.floor(n), out = [];
+  const crore = Math.floor(r / 1e7); r %= 1e7; const lakh = Math.floor(r / 1e5); r %= 1e5; const th = Math.floor(r / 1000); r %= 1000;
+  if (crore) out.push(three(crore) + ' Crore'); if (lakh) out.push(two(lakh) + ' Lakh'); if (th) out.push(two(th) + ' Thousand'); if (r) out.push(three(r));
+  const paise = Math.round((n - Math.floor(n)) * 100);
+  return (out.join(' ') || 'Zero') + ' Rupees' + (paise ? ' and ' + two(paise) + ' Paise' : '') + ' Only';
+}
+async function buildPoPdf(po) {
+  const jsPDF = await loadJsPdf();
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, M = 14, navy = [30, 45, 80], amber = [245, 180, 0], grey = [110, 110, 110];
+  const rs = v => 'Rs. ' + Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const dmy = ymd => ymd ? ymd.split('-').reverse().join('/') : '';
+  try {
+    const blob = await (await fetch('/logo-horizontal.png')).blob();
+    const url = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+    const img = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.src = url; });
+    const h = 16, w = h * img.width / img.height;
+    // Re-drawn small as JPEG — the full PNG made every PO ~1 MB.
+    const c = document.createElement('canvas'); c.width = 600; c.height = Math.round(600 * img.height / img.width);
+    const cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height); cx.drawImage(img, 0, 0, c.width, c.height);
+    doc.addImage(c.toDataURL('image/jpeg', 0.85), 'JPEG', M, 16, Math.min(w, 70), Math.min(w, 70) === w ? h : 70 * img.height / img.width);
+  } catch (e) { /* no logo — text header only */ }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...navy); doc.text(PO_COMPANY.name, W - M, 18, { align: 'right' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...grey);
+  PO_COMPANY.lines.forEach((l, i) => doc.text(l, W - M, 23 + i * 4, { align: 'right' }));
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 110, 160); doc.text(PO_COMPANY.gstin, W - M, 23 + PO_COMPANY.lines.length * 4, { align: 'right' });
+  doc.setDrawColor(225); doc.line(M, 48, W - M, 48);
+  doc.setFontSize(22); doc.setTextColor(...amber); doc.text('P U R C H A S E   O R D E R', W / 2, 62, { align: 'center' });
+  doc.setDrawColor(210); doc.roundedRect(M, 68, W - 2 * M, 17, 2, 2);
+  [['PO NUMBER', po.poNumber], ['PO DATE', dmy(po.date)], ['DELIVERY DATE', dmy(po.shipping.deliveryDate) || '—'], ['TOTAL ITEMS', String(po.lines.length)]].forEach(([k, v], i) => {
+    const x = M + (W - 2 * M) / 8 * (2 * i + 1);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...grey); doc.text(k, x, 74, { align: 'center' });
+    doc.setFontSize(11); doc.setTextColor(...navy); doc.text(v, x, 81, { align: 'center' });
+  });
+  const box = (x, title, rows, color) => {
+    doc.setFillColor(...color); doc.rect(x, 92, 1.2, 52, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...navy); doc.text(title, x + 5, 98);
+    let y = 105;
+    rows.forEach(([k, v]) => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...grey); doc.text(k, x + 5, y);
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(40);
+      const wrapped = doc.splitTextToSize(String(v || '—'), 52); doc.text(wrapped, x + 30, y); y += 5 * Math.max(1, wrapped.length);
+    });
+  };
+  const v = po.vendor;
+  box(M, 'VENDOR DETAILS', [['Vendor Name:', v.name], ['Address:', v.address], ['State:', v.state], ['GST Number:', v.gst], ['Contact Person:', v.contact], ['Phone:', v.phone]], amber);
+  box(W / 2 + 2, 'SHIPPING DETAILS', [['Shipping Mode:', po.shipping.mode], ['Delivery Terms:', po.shipping.deliveryTerms], ['Payment Terms:', po.shipping.paymentTerms], ['Delivery Date:', dmy(po.shipping.deliveryDate) || '—']], navy);
+  doc.autoTable({ startY: 150, margin: { left: M, right: M }, theme: 'grid',
+    head: [['Sr. No.', 'Item Description', 'HSN Code', 'Qty', 'Unit', 'Rate (Rs.)', 'Amount (Rs.)']],
+    body: po.lines.map((l, i) => [i + 1, l.productName, l.hsn || '-', Number(l.qty).toFixed(2), l.uom, rs(l.rate).slice(4), rs(l.amount).slice(4)]),
+    headStyles: { fillColor: [255, 255, 255], textColor: grey, lineColor: navy, lineWidth: 0.3, fontStyle: 'normal', halign: 'center' },
+    styles: { fontSize: 8.5, lineColor: [200, 200, 200], cellPadding: 2.5 },
+    columnStyles: { 0: { halign: 'center', cellWidth: 12 }, 2: { halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'right' }, 6: { halign: 'right', fontStyle: 'bold' } } });
+  let y = doc.lastAutoTable.finalY + 10;
+  if (y > 230) { doc.addPage(); y = 20; }
+  const gstRows = po.intra ? [[`CGST`, po.gstTotal / 2], [`SGST`, po.gstTotal / 2]] : [[`IGST`, po.gstTotal]];
+  const pcts = [...new Set(po.lines.map(l => l.gstPct))];
+  const pctTxt = pcts.length === 1 ? ` (${po.intra ? pcts[0] / 2 : pcts[0]}%)` : '';
+  doc.autoTable({ startY: y, margin: { left: W / 2 + 12, right: M }, theme: 'grid', styles: { fontSize: 9, lineColor: [200, 200, 200], cellPadding: 2.5 },
+    body: [['Subtotal', rs(po.subtotal)], ...gstRows.map(([k, val]) => [k + pctTxt, rs(val)]), ...(po.discount ? [['Discount', '- ' + rs(po.discount)]] : []), ['Grand Total (with GST)', rs(po.grand)]],
+    columnStyles: { 0: { fontStyle: 'bold' }, 1: { halign: 'right' } } });
+  const ty = doc.lastAutoTable.finalY;
+  doc.setFillColor(245, 245, 245); doc.rect(W / 2 + 12, ty + 2, W / 2 - 12 - M, 12, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...navy); doc.text('FINAL TOTAL', W / 2 + 15, ty + 10); doc.text(rs(po.grand), W - M - 3, ty + 10, { align: 'right' });
+  doc.setFontSize(9); doc.setTextColor(...navy); doc.text('TERMS & CONDITIONS', M, y + 4);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(60);
+  ['- Delivery within 7 days from PO confirmation', '- GST applicable as per prevailing rates', '- E. & O.E.'].forEach((t, i) => doc.text(t, M, y + 11 + i * 5));
+  doc.setFont('helvetica', 'bold'); doc.text('Amount in Words:', M, y + 30);
+  doc.setFont('helvetica', 'normal'); doc.text(doc.splitTextToSize(poAmountWords(po.grand), 80), M, y + 35);
+  const sy = Math.max(ty + 40, y + 55);
+  doc.setDrawColor(...navy); doc.line(W - M - 60, sy, W - M, sy);
+  doc.setFontSize(8); doc.setTextColor(...grey); doc.text('Authorized Signatory', W - M - 30, sy + 5, { align: 'center' });
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(...navy); doc.text(PO_COMPANY.sign, W - M - 30, sy + 10, { align: 'center' });
+  return doc.output('datauristring').replace(/^data:application\/pdf;filename=[^;]+;/, 'data:application/pdf;');
 }
 
 // PO detail: send the generated PO PDF to the vendor on WhatsApp (pick the

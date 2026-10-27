@@ -9946,6 +9946,174 @@ app.get('/api/purchase-fms/indents', requireAuth, async (req, res) => {
   }
 });
 
+// ══════════════════════════════════════════════════════
+// PO GENERATION in the ERP (client 2026-10-27: the Apps Script PO generator's
+// source isn't available, and Priyanka needs "Ajanta Electrical" / "Stationery
+// Shop" there). Replaces the link-out. A PO is made from indent lines waiting
+// at Generate PO: number continues the old series (max of the old "Purchase
+// Order data" Sheet2 + ours), the PDF (same layout as the old one) is built in
+// the browser and kept on Drive (public — it goes to the vendor on WhatsApp).
+// Each line is appended to the 'ERP PO' tab of the Purchase FMS sheet in the
+// old Sheet2 shape (A Timestamp, B PO, C Indent, D Item ID, E Product, F Order
+// Qty, G PDF); 'PO CREATION FOR USE DATA'!L1 stacks that tab under its old
+// IMPORTRANGE, so Indent FMS (PO no. / link / qty) and the Purchase Fms PO
+// list pick it up exactly like a script PO. The old formula is kept in
+// app_settings 'erp_po_old_l1'. Full PO detail lives in erp_purchase_orders.
+// ══════════════════════════════════════════════════════
+const PO_DATA_SHEET_ID = '1YJXakakXlui9HNgc2BmaZ5bY3zN0DN6lSYfWqvMsIPY';
+const ERP_PO_TAB = 'ERP PO';
+const PO_LINK_TAB = 'PO CREATION FOR USE DATA';
+const ERP_PO_HEADER = ['Timestamp', 'PO Number', 'Indent No', 'Item ID', 'Product Name', 'Order Qty', 'PDF Link', 'Vendor Name', 'UOM', 'Rate', 'GST %', 'Amount', 'Created By'];
+const PO_STEP_N = 14; // Generate PO & Send (INDENT_STEPS)
+let _erpPoReady = null;
+function erpPoTable() {
+  if (!_erpPoReady) _erpPoReady = db.query(`CREATE TABLE IF NOT EXISTS erp_purchase_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY, po_number VARCHAR(20) NOT NULL UNIQUE, po_date DATE NOT NULL, vendor_name VARCHAR(255) NOT NULL,
+      vendor_json TEXT, lines_json MEDIUMTEXT, shipping_json TEXT, subtotal DECIMAL(14,2), gst_total DECIMAL(14,2), discount DECIMAL(14,2), grand_total DECIMAL(14,2),
+      pdf_url VARCHAR(500), status VARCHAR(12) NOT NULL DEFAULT 'draft', created_by INT, created_by_name VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(e => { _erpPoReady = null; throw e; });
+  return _erpPoReady;
+}
+const poNum = v => parseInt(String(v || '').replace(/^PO-/i, ''), 10) || 0;
+// Rajasthan vendor (GSTIN 08… / state) → CGST + SGST, else IGST — as on the old POs.
+const poIntraState = v => /^08/.test(String(v.gst || '').trim()) || /rajasthan/i.test(String(v.state || ''));
+// Lines waiting at Generate PO, and vendor details (address / GST / contact) from the last PO each vendor got.
+async function erpPoFormData() {
+  await erpPoTable();
+  const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+  const poIdx = INDENT_STEPS.findIndex(s => s.key === 'po');
+  const [{ indents }, web, master, [mine]] = await Promise.all([
+    getIndents(),
+    sheetsApi.spreadsheets.values.get({ spreadsheetId: PO_DATA_SHEET_ID, range: "'Data web form'!A2:H" }).then(r => r.data.values || []).catch(() => []),
+    getMasterWorkbookData().catch(() => ({ vendors: [] })),
+    db.query("SELECT vendor_json FROM erp_purchase_orders WHERE status='done' ORDER BY id")
+  ]);
+  const vendors = {};
+  const put = v => { if (v && v.name) vendors[v.name.trim().toLowerCase()] = { name: v.name.trim(), address: v.address || '', state: v.state || '', gst: v.gst || '', contact: v.contact || '', phone: v.phone || '' }; };
+  web.forEach(x => put({ name: x[2], address: x[3], state: x[4], gst: x[5], contact: x[6], phone: x[7] }));
+  mine.forEach(m => { try { put(JSON.parse(m.vendor_json)); } catch (e) {} });
+  const lines = [];
+  indents.forEach(o => o.lines.forEach(l => {
+    if (l.poNumber || l.rejected || l.currentStep !== poIdx) return;
+    lines.push({ indentNo: l.indentNo, itemId: l.itemId, productName: l.productName, uom: l.uom || 'PCS', qty: l.qty, vendorName: l.vendorName || '',
+      rate: Number(l.finalRate) || 0, leadTime: Number(l.leadTime) || 0, type: o.type || '', raisedBy: o.raisedBy || '' });
+  }));
+  const names = [...new Set([...lines.map(l => l.vendorName), ...(master.vendors || []).map(v => v.name), ...INDENT_EXTRA_VENDORS, ...Object.values(vendors).map(v => v.name)]
+    .map(v => String(v || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return { lines, vendors: Object.values(vendors), vendorNames: names };
+}
+app.get('/api/purchase-fms/po-form', requireAuth, async (req, res) => {
+  try {
+    if (!(await assertIsStepDoer(res, 'purchase_step_doers', PO_STEP_N, req.session.userId, req.session.role))) return;
+    res.json(await erpPoFormData());
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+// Step 1: check the lines, work out the totals and claim the PO number (the PDF needs it).
+app.post('/api/purchase-fms/po/reserve', requireAuth, async (req, res) => {
+  try {
+    if (!(await assertIsStepDoer(res, 'purchase_step_doers', PO_STEP_N, req.session.userId, req.session.role))) return;
+    const b = req.body || {};
+    const s = (v, n = 255) => String(v == null ? '' : v).trim().slice(0, n);
+    const vendor = { name: s(b.vendor && b.vendor.name), address: s(b.vendor && b.vendor.address, 500), state: s(b.vendor && b.vendor.state, 60),
+      gst: s(b.vendor && b.vendor.gst, 20).toUpperCase(), contact: s(b.vendor && b.vendor.contact, 120), phone: s(b.vendor && b.vendor.phone, 40) };
+    if (!vendor.name) return res.status(400).json({ error: 'Vendor chunein' });
+    const { lines: pending } = await erpPoFormData();
+    const input = Array.isArray(b.lines) ? b.lines : [];
+    if (!input.length) return res.status(400).json({ error: 'Kam se kam ek item chunein' });
+    const intra = poIntraState(vendor);
+    const lines = [];
+    for (const x of input) {
+      const p = pending.find(l => l.indentNo === String(x.indentNo) && l.itemId === String(x.itemId));
+      if (!p) return res.status(409).json({ error: `${x.indentNo} item ${x.itemId}: is line ka PO ban chuka hai ya ye Generate PO par nahi hai — refresh karein` });
+      const qty = Number(x.qty), rate = Number(x.rate), gstPct = x.gstPct === '' || x.gstPct == null ? 18 : Number(x.gstPct);
+      if (!(qty > 0)) return res.status(400).json({ error: `${p.productName}: order qty likhein` });
+      if (!(rate >= 0) || x.rate === '' || x.rate == null) return res.status(400).json({ error: `${p.productName}: rate likhein` });
+      if (!(gstPct >= 0 && gstPct <= 28)) return res.status(400).json({ error: `${p.productName}: GST % sahi nahi` });
+      const amount = Math.round(qty * rate * 100) / 100, gst = Math.round(amount * gstPct) / 100;
+      lines.push({ indentNo: p.indentNo, itemId: p.itemId, productName: p.productName, uom: s(x.uom, 20) || p.uom, indentQty: p.qty, qty, rate, hsn: s(x.hsn, 20), gstPct, amount, gst });
+    }
+    const subtotal = Math.round(lines.reduce((a, l) => a + l.amount, 0) * 100) / 100;
+    const gstTotal = Math.round(lines.reduce((a, l) => a + l.gst, 0) * 100) / 100;
+    const discount = Math.max(0, Number(b.discount) || 0);
+    const grand = Math.round((subtotal + gstTotal - discount) * 100) / 100;
+    const today = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    const shipping = { mode: s(b.shipping && b.shipping.mode, 60) || 'Road Transport', deliveryTerms: s(b.shipping && b.shipping.deliveryTerms, 120) || 'Within 7 Days',
+      paymentTerms: s(b.shipping && b.shipping.paymentTerms, 120) || '30 Days Credit',
+      deliveryDate: /^\d{4}-\d{2}-\d{2}$/.test((b.shipping && b.shipping.deliveryDate) || '') ? b.shipping.deliveryDate : '' };
+    // Number: after the highest one the old script (its Sheet2) or the ERP has used.
+    await erpPoTable();
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
+    const [old, ours] = await Promise.all([
+      sheetsApi.spreadsheets.values.get({ spreadsheetId: PO_DATA_SHEET_ID, range: "'Sheet2'!B2:B" }).then(r => r.data.values || []),
+      db.query('SELECT po_number FROM erp_purchase_orders').then(([r]) => r)
+    ]);
+    const max = Math.max(0, ...old.map(x => poNum(x[0])), ...ours.map(x => poNum(x.po_number)));
+    const n = await claimNextSeqValue('erp_po_number', max + 1);
+    const poNumber = `PO-${String(n).padStart(4, '0')}`;
+    const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    await db.query(`INSERT INTO erp_purchase_orders (po_number, po_date, vendor_name, vendor_json, lines_json, shipping_json, subtotal, gst_total, discount, grand_total, created_by, created_by_name)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [poNumber, today, vendor.name, JSON.stringify(vendor), JSON.stringify(lines), JSON.stringify(shipping), subtotal, gstTotal, discount, grand, req.session.userId, u ? u.name : '']);
+    res.json({ success: true, po: { poNumber, date: today, vendor, lines, shipping, subtotal, gstTotal, discount, grand, intra } });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — PO sheet / Purchase FMS sheet' });
+    sendServerError(res, err);
+  }
+});
+// The 'ERP PO' tab + the one-time formula change that makes Indent FMS read it.
+async function erpPoEnsureSheet(sheetsW) {
+  const meta = await sheetsW.spreadsheets.get({ spreadsheetId: PURCHASE_SHEET_ID, fields: 'sheets.properties.title' });
+  if (!meta.data.sheets.some(x => x.properties.title === ERP_PO_TAB)) {
+    await sheetsW.spreadsheets.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { requests: [{ addSheet: { properties: { title: ERP_PO_TAB, gridProperties: { rowCount: 2000, columnCount: ERP_PO_HEADER.length } } } }] } });
+    await sheetsW.spreadsheets.values.update({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${ERP_PO_TAB}'!A1`, valueInputOption: 'RAW', requestBody: { values: [ERP_PO_HEADER] } });
+  }
+  const cur = await sheetsW.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PO_LINK_TAB}'!L1`, valueRenderOption: 'FORMULA' });
+  const f = String(((cur.data.values || [])[0] || [])[0] || '');
+  if (f.includes(ERP_PO_TAB)) return;
+  if (!/^=\s*IMPORTRANGE\(/i.test(f)) throw new Error(`'${PO_LINK_TAB}'!L1 is not the expected IMPORTRANGE — not changing it`);
+  if (!(await getAppSetting('erp_po_old_l1'))) await setAppSetting('erp_po_old_l1', f);
+  const old = f.replace(/^=\s*/, '');
+  const mine = `FILTER('${ERP_PO_TAB}'!A2:G,'${ERP_PO_TAB}'!B2:B<>"")`;
+  await sheetsW.spreadsheets.values.update({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PO_LINK_TAB}'!L1`, valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[`=IFERROR({${old};${mine}},${old})`]] } });
+}
+// Step 2: the PDF built in the browser → Drive, rows into 'ERP PO'.
+app.post('/api/purchase-fms/po/:poNumber/finish', requireAuth, async (req, res) => {
+  try {
+    if (!(await assertIsStepDoer(res, 'purchase_step_doers', PO_STEP_N, req.session.userId, req.session.role))) return;
+    await erpPoTable();
+    const [[po]] = await db.query('SELECT * FROM erp_purchase_orders WHERE po_number=?', [req.params.poNumber]);
+    if (!po) return res.status(404).json({ error: 'PO not found' });
+    if (po.status === 'done') return res.json({ success: true, pdfUrl: po.pdf_url, already: true });
+    const pdf = String((req.body || {}).pdf || '');
+    if (!/^data:application\/pdf;base64,/.test(pdf)) return res.status(400).json({ error: 'PO PDF missing' });
+    const url = await uploadDocToDrive(pdf, `${po.po_number}-${String(po.vendor_name).replace(/[^\w ]+/g, '').slice(0, 40)}`, { public: true });
+    const m = /[?&]id=([\w-]+)/.exec(url);
+    const pdfUrl = m ? `https://drive.google.com/file/d/${m[1]}/view` : url.replace(/#pdf$/, '');
+    const lines = JSON.parse(po.lines_json || '[]');
+    const sheetsW = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    await erpPoEnsureSheet(sheetsW);
+    const ts = sfmsDateToSerial(new Date());
+    await sheetsW.spreadsheets.values.append({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${ERP_PO_TAB}'!A:M`, valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: lines.map(l => [ts, po.po_number, l.indentNo, Number(l.itemId) || l.itemId, l.productName, l.qty, pdfUrl, po.vendor_name, l.uom, l.rate, l.gstPct, l.amount, po.created_by_name || '']) } });
+    await db.query("UPDATE erp_purchase_orders SET status='done', pdf_url=? WHERE id=?", [pdfUrl, po.id]);
+    // Did the sheet pick it up? (the stacked formula is what puts the PO number on the indent)
+    let linked = false;
+    for (let i = 0; i < 3 && !linked; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const col = await sheetsW.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PO_LINK_TAB}'!M1:M` }).catch(() => ({ data: {} }));
+      linked = (col.data.values || []).some(x => x[0] === po.po_number);
+    }
+    console.log(`ERP PO ${po.po_number} (${po.vendor_name}, ${lines.length} lines) by user ${req.session.userId}, linked=${linked}`);
+    res.json({ success: true, pdfUrl, linked });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
 // Admin fixes a wrong / test indent (client list 10-26 #11) — only while none of
 // its lines has a PO. Edits rewrite the indent's own "Indent Data" rows (Indent
 // FMS is a QUERY over them); a product is renamed only before Check Stock, since
