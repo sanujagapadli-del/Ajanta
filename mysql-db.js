@@ -33,6 +33,25 @@ const pool = mysql.createPool({
 // only make sense for an in-memory-synced-from-a-sheet backend. A real MySQL
 // pool is always live, so these are just no-ops — kept so server.js's calls
 // to them don't need any special-casing between the two backends.
+// The host caps connections per DB user across ALL Vercel instances. When
+// they're all taken, MySQL refuses the new connection ("max_user_connections",
+// 1203 / 1040) and every request in that moment failed — including /api/me,
+// which logged people out (client list 2026-10-27 #18). The refusal happens
+// before the query runs, so waiting a moment and trying again is safe.
+const isDbBusy = e => !!e && (['ER_TOO_MANY_USER_CONNECTIONS', 'ER_USER_LIMIT_REACHED', 'ER_CON_COUNT_ERROR'].includes(e.code)
+  || /max_user_connections|Too many connections/i.test(e.message || ''));
+const withBusyRetry = fn => async (...args) => {
+  for (let i = 0; ; i++) {
+    try { return await fn(...args); } catch (e) {
+      if (!isDbBusy(e) || i >= 3) throw e;
+      await new Promise(r => setTimeout(r, 400 * (i + 1) + Math.random() * 300));
+    }
+  }
+};
+pool.query = withBusyRetry(pool.query.bind(pool));
+pool.execute = withBusyRetry(pool.execute.bind(pool));
+pool.getConnection = withBusyRetry(pool.getConnection.bind(pool));
+
 pool.init = async () => { await pool.query('SELECT 1'); }; // fails fast on bad creds at boot
 pool.resync = async () => {}; // nothing to resync — MySQL is always the live source
 pool.flushNow = async () => {};

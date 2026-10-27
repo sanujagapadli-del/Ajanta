@@ -3782,6 +3782,16 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         </select>
       </div>
 
+      <!-- Checklist repeats every day: one day, or this day onwards (client list 2026-10-27 #15) -->
+      <div class="form-group">
+        <label>Checklist kitne din ke liye?</label>
+        <select id="transferChlScope"
+          style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface)">
+          <option value="future">Is din se aage hamesha (permanent)</option>
+          <option value="day">Sirf is din ke liye (chhutti / cover)</option>
+        </select>
+      </div>
+
       <div style="background:var(--color-purple-bg);border:1px solid var(--color-purple-border);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--color-purple);margin-bottom:12px">
         ℹ️ Task will be transferred after approval
       </div>
@@ -3836,8 +3846,8 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         </select>
       </div>
       <div class="form-group" id="scBillPhotoWrap">
-        <label>Bill Photo <span id="scBillPhotoRequiredMark" style="color:var(--color-danger);display:none">*</span></label>
-        <input type="file" id="scBillPhoto" accept="image/*" onchange="onScPhotoSelected(this,'scBillPhotoPreview')"/>
+        <label>Bill Photo / PDF <span id="scBillPhotoRequiredMark" style="color:var(--color-danger);display:none">*</span></label>
+        <input type="file" id="scBillPhoto" accept="image/*,application/pdf" onchange="onScPhotoSelected(this,'scBillPhotoPreview')"/>
         <div id="scBillPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
         <label style="display:flex;align-items:flex-start;gap:7px;margin-top:8px;padding:8px 10px;background:#fff3cd;border:1px solid #ffe08a;border-radius:8px;font-size:12.5px;color:#8a6100;font-weight:600;cursor:pointer">
           <input type="checkbox" id="scNoBill" onchange="onScNoBillChange()" style="margin-top:2px"/>
@@ -3929,8 +3939,8 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         </select>
       </div>
       <div class="form-group" id="ecBillPhotoWrap">
-        <label>Bill Photo <span id="ecBillPhotoRequiredMark" style="color:var(--color-danger);display:none">*</span></label>
-        <input type="file" id="ecBillPhoto" accept="image/*" onchange="onScPhotoSelected(this,'ecBillPhotoPreview')"/>
+        <label>Bill Photo / PDF <span id="ecBillPhotoRequiredMark" style="color:var(--color-danger);display:none">*</span></label>
+        <input type="file" id="ecBillPhoto" accept="image/*,application/pdf" onchange="onScPhotoSelected(this,'ecBillPhotoPreview')"/>
         <div id="ecBillPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
       </div>
       <div class="form-group">
@@ -4775,20 +4785,31 @@ async function init() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
     let r;
-    try {
-      r = await fetch('/api/me', { credentials: 'include', headers, signal: controller.signal });
-    } catch (fetchErr) {
-      clearTimeout(timeoutId);
-      // Timeout or network error — show recovery UI, do NOT redirect loop
+    const showServerDown = (role, msg) => {
       document.getElementById('sidebarName').textContent = 'Offline';
-      document.getElementById('sidebarRole').textContent = '🔴 Server unreachable';
+      document.getElementById('sidebarRole').textContent = role;
       document.getElementById('dashTbody').innerHTML =
-        '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--color-danger)">⚠️ Cannot reach server.<br><small>Check your connection, then <a href="/" style="color:var(--color-primary)">click here to reload</a>.</small></td></tr>';
-      return;
+        `<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--color-danger)">⚠️ ${msg}<br><small><a href="/app" style="color:var(--color-primary)">Click here to reload</a> — aap logged in hi hain.</small></td></tr>`;
+    };
+    // Only "not signed in" (401/403/404) logs out. A busy server (5xx — the DB
+    // refusing connections) used to log everyone out too (client list 2026-10-27
+    // #18); now it is retried twice and then shown, the login is kept.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        r = await fetch('/api/me', { credentials: 'include', headers, signal: controller.signal });
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
+        // Timeout or network error — show recovery UI, do NOT redirect loop
+        showServerDown('🔴 Server unreachable', 'Cannot reach server. Check your connection.');
+        return;
+      }
+      if (r.ok || [401, 403, 404].includes(r.status) || attempt >= 2) break;
+      await new Promise(res => setTimeout(res, 1500 * (attempt + 1)));
     }
     clearTimeout(timeoutId);
 
     if (!r.ok) {
+      if (![401, 403, 404].includes(r.status)) { showServerDown('🟠 Server busy', 'Server abhi busy hai — thodi der baad reload karein.'); return; }
       localStorage.removeItem('authToken');
       window.location.replace('/');
       return;
@@ -4928,7 +4949,12 @@ async function init() {
       if (Date.now() - lastBadges >= BADGE_EVERY_MS) refreshBadges();
       if (dashShown() && Date.now() - lastDash >= DASH_EVERY_MS) refreshDash();
     });
-  } catch(e) { console.error('Init error:', e); window.location.replace('/'); }
+  } catch(e) {
+    console.error('Init error:', e);
+    // Signed in already → a failing call later in start-up is not a logout (2026-10-27 #18).
+    if (ME && ME.id) { try { showToast('Kuch data load nahi hua — page reload karein', 'error'); } catch (_) {} return; }
+    window.location.replace('/');
+  }
 }
 
 // Admin: say so once per login when the Tally PC hasn't sent data for a while.
@@ -13000,6 +13026,18 @@ async function onScPhotoSelected(input, previewId) {
   const preview = document.getElementById(previewId);
   const file = input.files[0];
   if (!file) { input.dataset.compressed = ''; preview.textContent = ''; return; }
+  // Bill as a PDF (client list 2026-10-27 #16): sent as-is — it can't be shrunk like a photo.
+  if (file.type === 'application/pdf' || /.pdf$/i.test(file.name)) {
+    input.dataset.compressed = '';
+    if (file.size > 2.5 * 1024 * 1024) { preview.textContent = '⚠️ PDF 2.5 MB se bada hai — chhota PDF ya photo lagayein'; return; }
+    preview.textContent = 'Reading PDF…';
+    try {
+      const dataUrl = await new Promise((ok, bad) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = bad; fr.readAsDataURL(file); });
+      input.dataset.compressed = String(dataUrl).replace(/^data:[^;,]*;base64,/, 'data:application/pdf;base64,');
+      preview.textContent = `✅ PDF attached (${Math.round(file.size / 1024)}KB)`;
+    } catch (e) { preview.textContent = '⚠️ Could not read PDF'; }
+    return;
+  }
   preview.textContent = 'Compressing…';
   try {
     // Shrinks step by step until it fits (client, 2026-10-13: photos over ~100 KB weren't uploading).
@@ -14424,13 +14462,15 @@ async function exportO2dPending() {
   if (!Array.isArray(o2dData) || !o2dData.length) { showToast('Orders load ho rahe hain — thoda ruk kar dobara dabayein', 'error'); return; }
   const list = o2dFilteredRows().filter(o => !o.closed);
   if (!list.length) { showToast('Koi pending order nahi', 'error'); return; }
-  const head = ['Order No', 'Order Date', 'Counter', 'Area', 'Order By', 'Product', 'Qty', 'Rate', 'Pending Step', 'Payment Terms'];
+  // Hold + its reason (client list 2026-10-27 #21).
+  const head = ['Order No', 'Order Date', 'Counter', 'Area', 'Order By', 'Product', 'Qty', 'Rate', 'Pending Step', 'Payment Terms', 'Hold', 'Hold Reason'];
+  const holdCols = o => o.onHold ? [`${o.holdType === 'stock' ? 'Stock nahi' : 'Hold'}${o.holdAt ? ' · ' + fmtDateDMY(o.holdAt) : ''}${o.holdBy ? ' · ' + o.holdBy : ''}`, o.holdReason || ''] : ['', ''];
   const num = v => { const n = Number(String(v ?? '').replace(/[,₹\s]/g, '')); return v !== '' && v != null && isFinite(n) ? n : (v ?? ''); };
   const rows = [];
   list.forEach(o => {
     const st = o.steps[o.currentStep] || {};
     (o.products || []).filter(p => !p.cancelled).forEach(p => rows.push([o.orderNo, fmtDateDMY(o.timestamp), o.counterName || '', o.area || '', o.orderBy || '',
-      p.productName, num(p.qty), num(p.rate), `${o.currentStep + 1}. ${st.label || ''}`, o.paymentTerms || '']));
+      p.productName, num(p.qty), num(p.rate), `${o.currentStep + 1}. ${st.label || ''}`, o.paymentTerms || '', ...holdCols(o)]));
   });
   const name = `O2D-pending-orders-${stockTodayYmd()}`;
   let ExcelJS;
@@ -14438,7 +14478,7 @@ async function exportO2dPending() {
   catch (e) { showToast(e.message + ' — CSV de rahe hain', 'error'); csvDownload([head, ...rows], name + '.csv'); return; }
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(name.slice(0, 31), { views: [{ state: 'frozen', ySplit: 1 }] });
-  ws.columns = [16, 15, 18, 13, 11, 20, 7, 9, 12, 12].map(width => ({ width }));
+  ws.columns = [16, 15, 18, 13, 11, 20, 7, 9, 12, 12, 16, 28].map(width => ({ width }));
   ws.addRow(head);
   rows.forEach(r => ws.addRow(r));
   const thin = { style: 'thin', color: { argb: 'FF000000' } };
@@ -15861,7 +15901,8 @@ async function loadPriceCataloguePage() {
 
 // ── Single product photos (client list 10-21 #1): the client's sheet of
 // products + Drive photo links, searchable, links open in a new tab. ──
-let catPhotos = null, catPhotosQ = '';
+// Collapsed until searched / opened (client list 2026-10-27 #20: "sheet already opened na dikhe").
+let catPhotos = null, catPhotosQ = '', catPhotosOpen = false;
 async function loadCatPhotos(refresh) {
   const wrap = document.getElementById('catPhotosWrap');
   if (!catPhotos || refresh) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
@@ -15893,11 +15934,16 @@ function renderCatPhotos() {
 }
 function renderCatPhotosBody() {
   const d = catPhotos, q = catPhotosQ.trim().toLowerCase();
+  if (!q && !catPhotosOpen) {
+    document.getElementById('catPhotosBody').innerHTML = `<div style="padding:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--gray-500)">
+      ${d.rows.length} products — upar product search karein, ya <button class="btn btn-sm btn-outline" onclick="catPhotosOpen=true;renderCatPhotosBody()">▾ Sab dikhao</button></div>`;
+    return;
+  }
   const rows = q ? d.rows.filter(r => r.some(c => c.text.toLowerCase().includes(q))) : d.rows;
   document.getElementById('catPhotosBody').innerHTML = rows.length
     ? `<table style="font-size:12.5px"><thead><tr>${d.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>
       ${rows.map(r => `<tr>${r.map(c => `<td>${catPhotoCell(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
-      <div style="padding:8px 14px;font-size:11.5px;color:var(--gray-500)">${rows.length} / ${d.rows.length} products</div>`
+      <div style="padding:8px 14px;font-size:11.5px;color:var(--gray-500)">${rows.length} / ${d.rows.length} products${catPhotosOpen && !q ? ' · <a href="#" onclick="catPhotosOpen=false;renderCatPhotosBody();return false">▴ Band karo</a>' : ''}</div>`
     : '<div class="empty">Koi product nahi mila</div>';
 }
 async function setCatPhotosSheet() {
@@ -28772,7 +28818,8 @@ async function _doTransfer(tasks) {
   if (!tasks.length) { err.textContent='No task selected'; err.style.display='block'; return; }
   const r = await api('/api/transfers','POST',{
     tasks: tasks.map(t => ({ taskId: t.id, taskType: t.taskType })),
-    toUserId: parseInt(toUserId)
+    toUserId: parseInt(toUserId),
+    checklistScope: (document.getElementById('transferChlScope') || {}).value || 'future'
   });
   if (r.error) { err.textContent = r.error; err.style.display='block'; return; }
   closeModal('transferModal');
@@ -29143,5 +29190,6 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
   render();
 })();
 </script>
+<script src="/ajanta-dashboard-fx.js" defer></script>
 </body>
-</html><script src="/ajanta-dashboard-fx.js" defer></script>
+</html>

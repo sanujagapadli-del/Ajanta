@@ -4167,6 +4167,10 @@ const SFMS_LAST_COL = 'BU';
 // Photos go to Drive (the sheet only keeps the link), so the old 40k-char
 // cell cap is gone: ~500 KB per photo, the browser shrinks to fit (2026-10-13).
 const SFMS_PHOTO_MAX_CHARS = 700000;
+// Customers often send the bill as a PDF (client list 2026-10-27 #16) — up to ~2.5 MB, sent as-is.
+const SFMS_BILL_PDF_MAX_CHARS = 3500000;
+const sfmsBillTooBig = d => d.length > (docDataUriKind(d)?.pdf ? SFMS_BILL_PDF_MAX_CHARS : SFMS_PHOTO_MAX_CHARS);
+const sfmsUploadBill = (d, base) => docDataUriKind(d)?.pdf ? uploadDocToDrive(d, base) : uploadPhotoToDrive(d, `${base}.jpg`);
 const SFMS_OTP_CODE_COL = 'AN';
 const SFMS_OTP_SENT_COL = 'AO';
 const SFMS_OTP_TTL_MS = 30 * 60 * 1000; // OTP valid for 30 minutes after send
@@ -5139,7 +5143,7 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
       }
       if (p.productPhoto && p.productPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'A product photo is too large — try a smaller/compressed image' });
     }
-    if (billPhoto && billPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Bill photo is too large — try a smaller/compressed image' });
+    if (billPhoto && sfmsBillTooBig(billPhoto)) return res.status(400).json({ error: 'Bill photo / PDF is too large — try a smaller file' });
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     if (remarks || urgent) await sfmsEnsureColumns(sheetsApi);
@@ -5158,7 +5162,7 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
     // is shared across every product line in this complaint (one customer,
     // one bill); each product line can have its own product photo.
     let billPhotoLink = '';
-    if (billPhoto) billPhotoLink = await uploadPhotoToDrive(billPhoto, `${groupNo}-bill.jpg`);
+    if (billPhoto) billPhotoLink = await sfmsUploadBill(billPhoto, `${groupNo}-bill`);
 
     // Each product becomes its own sheet row — "C-N-1", "C-N-2", ... — sharing
     // groupNo so every product is tracked through the full 8-step pipeline
@@ -5287,7 +5291,7 @@ app.put('/api/service-fms/:row(\\d+)', requireAuth, requireSfmsEditor, async (re
     if (!SFMS_OWNERSHIP_VALUES.includes(productOwnership)) {
       return res.status(400).json({ error: 'Select whether this is a Dealer Stock Piece or a Customer Purchased Piece' });
     }
-    if (billPhoto && billPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Bill photo is too large — try a smaller/compressed image' });
+    if (billPhoto && sfmsBillTooBig(billPhoto)) return res.status(400).json({ error: 'Bill photo / PDF is too large — try a smaller file' });
     if (productPhoto && productPhoto.length > SFMS_PHOTO_MAX_CHARS) return res.status(400).json({ error: 'Product photo is too large — try a smaller/compressed image' });
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
@@ -5313,7 +5317,7 @@ app.put('/api/service-fms/:row(\\d+)', requireAuth, requireSfmsEditor, async (re
     ];
     if (remarks !== undefined) data.push({ range: `'${SFMS_TAB}'!${SFMS_REMARKS_COL}${row}`, values: [[remarks]] });
     if (billPhoto) {
-      const link = await uploadPhotoToDrive(billPhoto, `edit-${row}-bill.jpg`);
+      const link = await sfmsUploadBill(billPhoto, `edit-${row}-bill`);
       data.push({ range: `'${SFMS_TAB}'!J${row}`, values: [[link]] });
     }
     if (productPhoto) {
@@ -7816,10 +7820,12 @@ async function readCataloguePhotoSheet(url) {
   const tabs = meta.data.sheets || [];
   const tab = (gid && tabs.find(s => String(s.properties.sheetId) === gid)) || tabs[0];
   const r = await sheetsApi.spreadsheets.get({ spreadsheetId: id, ranges: [`'${tab.properties.title.replace(/'/g, "''")}'!A1:Z3000`],
-    fields: 'sheets(data(rowData(values(formattedValue,hyperlink,textFormatRuns(format(link(uri)))))))' });
+    fields: 'sheets(data(rowData(values(formattedValue,hyperlink,textFormatRuns(format(link(uri))),chipRuns(chip(richLinkProperties(uri)))))))' });
   const cells = ((((r.data.sheets || [])[0] || {}).data || [])[0] || {}).rowData || [];
   const rows = cells.map(rd => (rd.values || []).map(v => {
-    const link = v.hyperlink || ((v.textFormatRuns || []).map(t => t.format && t.format.link && t.format.link.uri).find(Boolean)) || '';
+    // Drive file chips ("P - 48 inch … .jpeg") carry their link in chipRuns, not hyperlink (client list 2026-10-27 #20).
+    const link = v.hyperlink || ((v.textFormatRuns || []).map(t => t.format && t.format.link && t.format.link.uri).find(Boolean))
+      || ((v.chipRuns || []).map(c => c.chip && c.chip.richLinkProperties && c.chip.richLinkProperties.uri).find(Boolean)) || '';
     return { text: v.formattedValue || '', link };
   }));
   // Header = first row that has text; blank rows are dropped.
@@ -14872,6 +14878,9 @@ app.delete('/api/dealer-onboarding/:id', requireAuth, requireAdmin, async (req, 
 app.post('/api/transfers', requireAuth, async (req, res) => {
   try {
     const { tasks, toUserId } = req.body;
+    // A checklist is one row per day; 'future' moves this day and every later
+    // not-done day of the same checklist on approval (client list 2026-10-27 #15).
+    const allFuture = req.body.checklistScope === 'day' ? 0 : 1;
     // tasks = [{taskId, taskType}]
     if (!tasks || !tasks.length || !toUserId)
       return res.status(400).json({ error: 'Tasks and target user required' });
@@ -14908,9 +14917,10 @@ app.post('/api/transfers', requireAuth, async (req, res) => {
         [t.taskId, t.taskType]
       );
       if (existing[0]) { skipped++; continue; }
+      await ensureTaskTransferCols();
       await db.query(
-        `INSERT INTO task_transfers (task_id, task_type, from_user, to_user, requested_by, status) VALUES (?,?,?,?,?,'pending')`,
-        [t.taskId, t.taskType, fromUser, toUserId, uid]
+        `INSERT INTO task_transfers (task_id, task_type, from_user, to_user, requested_by, status, all_future) VALUES (?,?,?,?,?,'pending',?)`,
+        [t.taskId, t.taskType, fromUser, toUserId, uid, t.taskType === 'checklist' ? allFuture : 0]
       );
       inserted++;
     }
@@ -15022,7 +15032,17 @@ app.put('/api/transfers/:id', requireAuth, requireAdminOrHod, async (req, res) =
 
     if (action === 'approved') {
       const table = getTable(tr.task_type);
-      await db.query(`UPDATE ${table} SET assigned_to=?, transferred_at=NOW(), transferred_from=? WHERE id=?`, [tr.to_user, tr.from_user, tr.task_id]);
+      if (table === 'checklist_tasks' && Number(tr.all_future) === 1) {
+        // This day and every later not-done day of the same checklist (same key as Checklist Master).
+        const [[t]] = await db.query('SELECT assigned_to, title, description, frequency, due_date FROM checklist_tasks WHERE id=?', [tr.task_id]);
+        if (t) {
+          await db.query(`UPDATE checklist_tasks SET assigned_to=?, transferred_at=NOW(), transferred_from=?
+            WHERE (id=? OR (${CL_KEY_WHERE} AND status<>'completed' AND due_date >= ?))`,
+            [tr.to_user, tr.from_user, tr.task_id, ...clKeyParams({ assignedTo: t.assigned_to, title: t.title, description: t.description, frequency: t.frequency }), t.due_date]);
+        }
+      } else {
+        await db.query(`UPDATE ${table} SET assigned_to=?, transferred_at=NOW(), transferred_from=? WHERE id=?`, [tr.to_user, tr.from_user, tr.task_id]);
+      }
     }
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
@@ -15033,7 +15053,7 @@ app.put('/api/transfers/:id', requireAuth, requireAdminOrHod, async (req, res) =
 let _taskTransferColsOk = false;
 async function ensureTaskTransferCols() {
   if (_taskTransferColsOk) return;
-  await addMissingColumns('task_transfers', [['decided_at', 'DATETIME NULL'], ['decided_by', 'INT NULL']]);
+  await addMissingColumns('task_transfers', [['decided_at', 'DATETIME NULL'], ['decided_by', 'INT NULL'], ['all_future', 'TINYINT NOT NULL DEFAULT 0']]);
   for (const t of ['delegation_tasks', 'checklist_tasks']) await addMissingColumns(t, [['transferred_at', 'DATETIME NULL'], ['transferred_from', 'INT NULL']]);
   _taskTransferColsOk = true;
 }
