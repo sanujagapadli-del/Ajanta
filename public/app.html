@@ -19334,7 +19334,7 @@ function pfmsReceiptsHtml(poNumber) {
   if (!list.length) return '';
   return `<div style="${PFMS_FIELD_LABEL_STYLE}">📦 Maal aaya (${list.length})</div>
     <div style="margin-bottom:14px">${list.map(x => `<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--gray-100)">
-      <b>${esc(fmtDateDMY(x.date))}</b>${x.qty != null ? ` · ${esc(x.qty)} pcs` : ''} · Bill ${x.billNo ? `<b>${esc(x.billNo)}</b>` : '<span style="color:var(--gray-400)">—</span>'}
+      <b>${esc(fmtDateDMY(x.date))}</b>${x.product ? ` · ${esc(x.product)}` : ''}${x.qty != null ? ` · ${esc(x.qty)} pcs` : ''} · Bill ${x.billNo ? `<b>${esc(x.billNo)}</b>` : '<span style="color:var(--gray-400)">—</span>'}
       <span style="color:var(--gray-400);font-size:11px">— ${esc(x.by)}, ${esc(fmtDateDMY(x.at, true))}</span></div>`).join('')}</div>`;
 }
 function readPurchaseField(f, poNumber) {
@@ -19353,8 +19353,14 @@ async function advancePurchaseStep(poNumber, step) {
   const body = { status: 'Yes' };
 
   for (const f of stepDef.extraFields) { if (!f.readOnly) body[f.key] = readPurchaseField(f, poNumber); }
+  const qtyBoxes = step === 2 ? [...document.querySelectorAll('#purchaseDetailModal .pfms-rq')] : [];
+  if (step === 2) {
+    delete body.receivedQty;
+    body.lines = qtyBoxes.map(el => ({ row: Number(el.dataset.row), qty: el.value.trim() }));
+    if (!body.lines.some(l => Number(l.qty) > 0) && body.forceFullClosed !== 'Yes') { showToast('Kis item ke kitne pcs aaye — qty likhein', 'error'); return; }
+  }
   for (const f of stepDef.extraFields) {
-    if (f.required && !f.readOnly && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
+    if (f.required && !f.readOnly && !(step === 2 && f.key === 'receivedQty') && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
   }
 
   const btn = document.getElementById(`pfmsMarkDoneBtn_${poNumber}`);
@@ -19537,12 +19543,21 @@ function renderPurchaseDetailBody(o) {
   let actionHtml;
   if (nextStepDef) {
     // Part receipts (client 2026-10-23): earlier pcs stay on the line until it is full or force-closed.
-    const partHtml = nextStepDef.n === 2 && (o.products || []).some(p => p.receivedQty > 0)
-      ? `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12.5px">
-          <div style="font-weight:700;margin-bottom:4px">📦 Pehle aa chuka</div>
-          ${(o.products || []).map(p => `<div>${esc(p.productName)} — <b>${p.receivedQty || 0}</b> / ${esc(p.qty)} aaye · <b style="color:var(--color-danger)">${Math.max(0, (p.pendingQty != null ? p.pendingQty : p.qty - (p.receivedQty || 0)))} baaki</b></div>`).join('')}
-          <div style="color:var(--gray-500);margin-top:4px">Ab sirf is baar aaye pcs likhein — pehle wale apne aap jud jayenge.</div></div>` : '';
-    const extraInputsHtml = partHtml + nextStepDef.extraFields.filter(f => !f.readOnly).map(f => renderPurchaseField(f, o.poNumber)).join('');
+    // Qty per item (client 2026-10-27, PO-0099): one box for the whole PO marked every item as received.
+    const partHtml = nextStepDef.n === 2
+      ? `<div style="${PFMS_FIELD_LABEL_STYLE}">Is baar kis item ke kitne pcs aaye <span style="color:var(--color-danger)">*</span></div>
+        <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:10px;padding:6px 12px;margin-bottom:12px;font-size:12.5px">
+          ${(o.products || []).map(p => {
+            const got = p.receivedQty || 0, left = Math.max(0, p.pendingQty != null ? p.pendingQty : p.qty - got);
+            return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--gray-100)">
+              <div style="flex:1;min-width:0"><b>${esc(p.productName)}</b>
+                <div style="color:var(--gray-500)">Order ${esc(p.qty)}${got ? ` · pehle aaye ${got}` : ''}${p.received ? '' : ` · <b style="color:var(--color-danger)">${left} baaki</b>`}</div></div>
+              ${p.received ? '<span style="color:var(--color-success-text);font-weight:700">✓ Aa gaya</span>'
+                : `<input type="number" min="0" inputmode="numeric" class="pfms-rq" data-row="${p.row}" placeholder="0" style="${PFMS_INPUT_STYLE};width:90px;margin:0"/>`}
+            </div>`;
+          }).join('')}
+          <div style="color:var(--gray-500);padding-top:6px">Jo item nahi aaya uska khali chhodein — wo pending rahega.</div></div>` : '';
+    const extraInputsHtml = partHtml + nextStepDef.extraFields.filter(f => !f.readOnly && !(nextStepDef.n === 2 && f.key === 'receivedQty')).map(f => renderPurchaseField(f, o.poNumber)).join('');
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>

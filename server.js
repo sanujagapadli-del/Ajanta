@@ -7556,7 +7556,9 @@ async function _syncStockFromFms() {
     const received = Number(get('S'));
     if (!done && !(received > 0)) return;
     const date = stockSerialToYmd(get(inStep.actual));
-    const total = received > 0 ? received : (Number(get('G')) || 0);
+    // S blank on old rows = the full PO qty came; S = 0 (force-closed, nothing came) books nothing.
+    const hasS = get('S') !== undefined && get('S') !== '' && Number.isFinite(received);
+    const total = hasS ? received : (Number(get('G')) || 0);
     if (!date || date < fromDate || total <= 0) return;
     const rate = parseFloat(String(get('H') == null ? '' : get('H')).replace(/[^\d.]/g, '')) || null; // PO Final Rate per unit
     const base = `purchase|${get('B')}|${get('D') || ''}|${stockNameKey(get('E'))}`.slice(0, 191);
@@ -9559,10 +9561,32 @@ async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
   const cell = (rn, col) => keyRows[rn - PURCHASE_DATA_START_ROW][colToIdx(col) - bOffset];
   const isReceive = stepNum === STOCK_PURCHASE_IN_STEP;
   const forceClose = /^yes$/i.test(String(body.forceFullClosed || ''));
-  const recv = {}; // rowNum -> { total, ordered, close }
-  // Received Qty: a real number, and more than ordered only when confirmed
-  // (a typo like 104 for 24 otherwise flows straight into stock).
-  if (body.receivedQty !== undefined && body.receivedQty !== '') {
+  const recv = {}; // rowNum -> { total, ordered, close, qty }
+  // Qty per item (client 2026-10-27, PO-0099: one "Received Qty" for the whole
+  // PO was written to every open line, so 15 hotcases also "received" the fly
+  // catchers / fans / OTGs). lines = [{ row, qty }]; a line left at 0 stays
+  // pending unless the PO is force-closed.
+  if (isReceive && Array.isArray(body.lines)) {
+    const qtyByRow = {};
+    for (const l of body.lines) {
+      const q = l && l.qty !== '' && l.qty != null ? Number(l.qty) : 0;
+      if (!Number.isFinite(q) || q < 0) return { badQty: true };
+      qtyByRow[Number(l && l.row)] = q;
+    }
+    const touched = targetRows.filter(rn => qtyByRow[rn] > 0 || forceClose);
+    if (!touched.length) return { noLineQty: true };
+    targetRows.length = 0;
+    targetRows.push(...touched);
+    targetRows.forEach(rn => {
+      const ordered = Number(cell(rn, 'G')) || 0, q = qtyByRow[rn] || 0;
+      const total = (Number(cell(rn, 'S')) || 0) + q;
+      recv[rn] = { total, ordered, qty: q, product: String(cell(rn, 'E') || ''), close: forceClose || !ordered || total >= ordered };
+    });
+    if (!body.confirmOver) {
+      const over = Object.values(recv).filter(x => x.ordered > 0 && x.total > x.ordered);
+      if (over.length) return { overOrdered: Math.max(...over.map(x => x.ordered)), overText: over.map(x => `${x.product}: ${x.total} aaye, order ${x.ordered}`).join('\n') };
+    }
+  } else if (body.receivedQty !== undefined && body.receivedQty !== '') {
     const rq = Number(body.receivedQty);
     if (!Number.isFinite(rq) || rq < 0) return { badQty: true };
     targetRows.forEach(rn => {
@@ -9606,7 +9630,8 @@ async function writePurchaseStepForPO(sheetsApi, poNumber, stepNum, body) {
     requestBody: { valueInputOption: 'RAW', data: batchData }
   });
   const open = Object.values(recv).filter(x => !x.close);
-  return { rowsUpdated: targetRows.length, stillOpen: open.length ? Math.max(...open.map(x => x.ordered - x.total)) : 0 };
+  return { rowsUpdated: targetRows.length, stillOpen: open.length ? Math.max(...open.map(x => x.ordered - x.total)) : 0,
+    received: Object.values(recv).filter(x => x.qty > 0).map(x => ({ product: x.product, qty: x.qty })) };
 }
 
 // Follow-up is not one-shot (client 2026-10-21: "PO ke baad pehle follow-up
@@ -9669,15 +9694,19 @@ function poReceiptTable() {
   if (!_poReceiptReady) _poReceiptReady = db.query(`CREATE TABLE IF NOT EXISTS purchase_receipts (
       id INT AUTO_INCREMENT PRIMARY KEY, po_number VARCHAR(40) NOT NULL, receive_date DATE NOT NULL, bill_no VARCHAR(80), qty DECIMAL(12,2),
       created_by INT, created_by_name VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_po (po_number)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+    .then(async () => {
+      const [cols] = await db.query("SHOW COLUMNS FROM purchase_receipts LIKE 'product'");
+      if (!cols.length) await db.query('ALTER TABLE purchase_receipts ADD COLUMN product VARCHAR(255) DEFAULT NULL');
+    })
     .catch(e => { _poReceiptReady = null; throw e; });
   return _poReceiptReady;
 }
 app.get('/api/purchase-fms/receipts', requireAuth, async (req, res) => {
   try {
     await poReceiptTable();
-    const [rows] = await db.query("SELECT po_number, DATE_FORMAT(receive_date,'%Y-%m-%d') AS d, bill_no, qty, created_by_name, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS at FROM purchase_receipts ORDER BY id");
+    const [rows] = await db.query("SELECT po_number, product, DATE_FORMAT(receive_date,'%Y-%m-%d') AS d, bill_no, qty, created_by_name, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS at FROM purchase_receipts ORDER BY id");
     const out = {};
-    rows.forEach(r => { (out[r.po_number] = out[r.po_number] || []).push({ date: r.d, billNo: r.bill_no || '', qty: r.qty == null ? null : Number(r.qty), by: r.created_by_name || '', at: r.at }); });
+    rows.forEach(r => { (out[r.po_number] = out[r.po_number] || []).push({ date: r.d, product: r.product || '', billNo: r.bill_no || '', qty: r.qty == null ? null : Number(r.qty), by: r.created_by_name || '', at: r.at }); });
     res.json(out);
   } catch (err) { sendServerError(res, err); }
 });
@@ -9692,16 +9721,22 @@ app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req,
     const today = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
     if (isReceive && b.receiveDate && (!/^\d{4}-\d{2}-\d{2}$/.test(b.receiveDate) || b.receiveDate > today)) return res.status(400).json({ error: 'Receive date sahi chunein (aaj ya pehle ki)' });
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    const { rowsUpdated, badQty, overOrdered, stillOpen } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, b);
+    const { rowsUpdated, badQty, noLineQty, overOrdered, overText, stillOpen, received } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, b);
     if (badQty) return res.status(400).json({ error: 'Received Qty must be a number (0 or more)' });
-    if (overOrdered) return res.status(409).json({ needsConfirm: true, orderedQty: overOrdered, error: `Received Qty ${Number(b.receivedQty)} is more than the ordered qty (${overOrdered})` });
+    if (noLineQty) return res.status(400).json({ error: 'Kis item ke kitne pcs aaye — kam se kam ek item ki qty likhein' });
+    if (overOrdered) return res.status(409).json({ needsConfirm: true, orderedQty: overOrdered, error: overText ? `Order se zyada:\n${overText}` : `Received Qty ${Number(b.receivedQty)} is more than the ordered qty (${overOrdered})` });
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
     if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under PO ${poNumber}` });
     if (isReceive) {
       await poReceiptTable();
       const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
-      await db.query('INSERT INTO purchase_receipts (po_number, receive_date, bill_no, qty, created_by, created_by_name) VALUES (?,?,?,?,?,?)',
-        [poNumber, b.receiveDate || today, String(b.billNo || '').trim().slice(0, 80) || null, b.receivedQty === '' || b.receivedQty == null ? null : Number(b.receivedQty), req.session.userId, u ? u.name : '']);
+      const billNo = String(b.billNo || '').trim().slice(0, 80) || null;
+      const recLines = Array.isArray(b.lines) ? (received.length ? received : [{ product: 'PO close', qty: 0 }])
+        : [{ product: null, qty: b.receivedQty === '' || b.receivedQty == null ? null : Number(b.receivedQty) }];
+      for (const l of recLines) {
+        await db.query('INSERT INTO purchase_receipts (po_number, product, receive_date, bill_no, qty, created_by, created_by_name) VALUES (?,?,?,?,?,?,?)',
+          [poNumber, l.product ? l.product.slice(0, 255) : null, b.receiveDate || today, billNo, l.qty, req.session.userId, u ? u.name : '']);
+      }
     }
     res.json({ success: true, rowsUpdated, stillOpen });
   } catch (err) {
