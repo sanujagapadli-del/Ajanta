@@ -15989,7 +15989,7 @@ async function smpTables() {
     created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     returned_qty DECIMAL(10,2), outcome_at DATETIME, outcome_by INT, outcome_remark VARCHAR(500), cancelled_at DATETIME, cancel_reason VARCHAR(500)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
-  await addMissingColumns('sample_issues', [['photo', 'VARCHAR(500)']]);
+  await addMissingColumns('sample_issues', [['photo', 'VARCHAR(500)'], ['outcome_photo', 'VARCHAR(500)']]);
   // Stock register shows sample OUT / IN as "Sample", not "Manual" (client list 10-26 #9);
   // entries made before that carry the code only in the remark.
   await ensureStockTxnSchema();
@@ -16009,7 +16009,7 @@ async function smpLoad(where = '', params = []) {
   return rows.map(s => ({ id: s.id, code: s.code, issueDate: s.issue_date, salesmanUserId: s.salesman_user_id, salesmanName: s.salesman_name || '', itemCode: s.item_code,
     itemName: s.item_name || '', uom: s.uom || '', qty: n(s.qty), dealerName: s.dealer_name || '', purpose: s.purpose || '', remark: s.remark || '', createdAt: s.created_at,
     createdByName: s.created_by_name || '', photo: s.photo || '', days: n(s.days), returnedQty: s.returned_qty == null ? null : n(s.returned_qty), leftQty: s.outcome_at ? n(s.qty) - n(s.returned_qty) : null,
-    outcomeAt: s.outcome_at, outcomeByName: s.outcome_by_name || '', outcomeRemark: s.outcome_remark || '', cancelledAt: s.cancelled_at, cancelReason: s.cancel_reason || '',
+    outcomeAt: s.outcome_at, outcomeByName: s.outcome_by_name || '', outcomeRemark: s.outcome_remark || '', outcomePhoto: s.outcome_photo || '', cancelledAt: s.cancelled_at, cancelReason: s.cancel_reason || '',
     status: s.cancelled_at ? 'Cancelled' : s.outcome_at ? 'Settled' : 'With salesman' }));
 }
 app.get('/api/samples', requireAuth, async (req, res) => {
@@ -16026,35 +16026,47 @@ app.post('/api/samples', requireAuth, async (req, res) => {
     await smpTables();
     await ensureStockTxnSchema();
     const b = req.body || {};
-    const qty = Number(b.qty);
-    if (!(qty > 0)) return res.status(400).json({ error: 'Quantity must be more than 0' });
+    // Several items in one go (Priyanka 2026-10-27: "ek item ke baad dusra add karne ka option nahi");
+    // each item is its own SMP code, so it settles on its own. Old clients send one itemCode / qty.
+    const lines = (Array.isArray(b.items) && b.items.length ? b.items : [{ itemCode: b.itemCode, qty: b.qty }])
+      .map(x => ({ itemCode: String(x.itemCode || '').trim(), qty: Number(x.qty) }));
+    if (lines.length > 20) return res.status(400).json({ error: 'Ek baar me 20 item tak' });
+    if (lines.some(x => !(x.qty > 0))) return res.status(400).json({ error: 'Har item ki qty 1 ya zyada likhein' });
     const [[sm]] = await db.query('SELECT id, name FROM users WHERE id=?', [Number(b.salesmanUserId) || 0]);
     if (!sm) return res.status(400).json({ error: 'Choose the salesman' });
-    const [items] = await withStockTable(() => db.query('SELECT * FROM ajanta_stock_items WHERE item_code=?', [String(b.itemCode || '').trim()]));
-    const item = items[0];
-    if (!item) return res.status(400).json({ error: 'Choose the item from the list' });
+    const [found] = await withStockTable(() => db.query('SELECT * FROM ajanta_stock_items WHERE item_code IN (?)', [lines.map(x => x.itemCode || '-')]));
+    const byCode = Object.fromEntries(found.map(i => [i.item_code, i]));
+    const missing = lines.findIndex(x => !byCode[x.itemCode]);
+    if (missing >= 0) return res.status(400).json({ error: `Item ${missing + 1}: list se item chunein` });
     const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
     // Stock register short (often minus — opening never entered): ask first,
     // then the sample can still go out (client 2026-10-19, TapGeyser "-21").
-    if (Number(item.current_stock) < qty && !b.allowShort) {
-      return res.status(409).json({ needsConfirm: true, error: `Stock register mein sirf ${Number(item.current_stock)} ${item.uom || ''} hai` });
-    }
+    const need = {};
+    lines.forEach(x => { need[x.itemCode] = (need[x.itemCode] || 0) + x.qty; });
+    const short = Object.entries(need).filter(([c, q]) => Number(byCode[c].current_stock) < q).map(([c]) => byCode[c]);
+    const shortMsg = () => 'Stock register mein ' + short.map(i => `${i.description}: sirf ${Number(i.current_stock)} ${i.uom || ''}`).join(', ') + ' hai';
+    if (short.length && !b.allowShort) return res.status(409).json({ needsConfirm: true, error: shortMsg() });
     const photo = b.photo && /^data:image\//.test(b.photo) ? await uploadPhotoToDrive(b.photo, `sample-${Date.now()}.jpg`) : null;
-    const n = await claimNextSeqValue('smp_code', 1);
-    const code = `SMP-${String(n).padStart(4, '0')}`;
     const dealer = String(b.dealerName || '').trim().slice(0, 255), purpose = String(b.purpose || '').trim().slice(0, 255);
+    const codes = [];
+    for (let i = 0; i < lines.length; i++) codes.push(`SMP-${String(await claimNextSeqValue('smp_code', 1)).padStart(4, '0')}`);
     await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1')); // table must exist before the transaction
-    const id = await withTx(async conn => {
-      const [claim] = await conn.query(`UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ?${b.allowShort ? '' : ' AND current_stock >= ?'}`, [qty, date, item.item_code, qty]);
-      if (!claim.affectedRows) return null;
-      await conn.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
-        [date, 'OUT', item.item_code, item.description, qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '', code]);
-      const [r] = await conn.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by, photo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        [code, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, photo]);
-      return r.insertId;
-    });
-    if (!id) return res.status(409).json({ needsConfirm: true, error: `Stock register mein sirf ${Number(item.current_stock)} ${item.uom || ''} hai` });
-    res.json({ success: true, id, code });
+    const ids = await withTx(async conn => {
+      const out = [];
+      for (const [i, x] of lines.entries()) {
+        const item = byCode[x.itemCode], code = codes[i];
+        const [claim] = await conn.query(`UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ?${b.allowShort ? '' : ' AND current_stock >= ?'}`, [x.qty, date, item.item_code, x.qty]);
+        if (!claim.affectedRows) throw Object.assign(new Error('short'), { smpShort: true });
+        await conn.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
+          [date, 'OUT', item.item_code, item.description, x.qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '', code]);
+        const [r] = await conn.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by, photo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          [code, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', x.qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, photo]);
+        out.push(r.insertId);
+      }
+      return out;
+    }).catch(e => { if (e.smpShort) return null; throw e; });
+    if (!ids) return res.status(409).json({ needsConfirm: true, error: short.length ? shortMsg() : 'Stock register mein itna stock nahi hai' });
+    res.json({ success: true, id: ids[0], ids, code: codes.join(', '), codes });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);
@@ -16074,8 +16086,11 @@ app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
     if (back < 0 || back > s.qty) return res.status(400).json({ error: `Returned qty must be between 0 and ${s.qty}` });
     const remark = String(b.remark || '').trim().slice(0, 500);
     if (back < s.qty && !remark) return res.status(400).json({ error: 'Kisko diya / kahan gaya — remark likhein' });
-    const [claim] = await db.query('UPDATE sample_issues SET returned_qty=?, outcome_at=NOW(), outcome_by=?, outcome_remark=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL',
-      [back, req.session.userId, remark || null, s.id]);
+    // Photo of what came back is required (Priyanka 2026-10-27).
+    if (back > 0 && !/^data:image\//.test(b.photo || '')) return res.status(400).json({ error: 'Wapas aaye sample ki photo lagayein' });
+    const photo = back > 0 ? await uploadPhotoToDrive(b.photo, `${s.code}-received-${Date.now()}.jpg`) : null;
+    const [claim] = await db.query('UPDATE sample_issues SET returned_qty=?, outcome_at=NOW(), outcome_by=?, outcome_remark=?, outcome_photo=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL',
+      [back, req.session.userId, remark || null, photo, s.id]);
     if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
     if (back > 0) {
       const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);

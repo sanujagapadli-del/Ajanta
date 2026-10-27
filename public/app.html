@@ -21037,9 +21037,9 @@ async function openSmpNew() {
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
       <div><label style="font-size:12px;font-weight:600">Salesman *</label><select id="smpSalesman" style="${VRL_IN}"><option value="">-- Select --</option>${act.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
       <div><label style="font-size:12px;font-weight:600">Date</label><input id="smpDate" type="date" value="${stockTodayYmd()}" style="${VRL_IN}"/></div></div>
-    <div style="display:grid;grid-template-columns:3fr 1fr;gap:8px;margin-bottom:8px">
-      <div><label style="font-size:12px;font-weight:600">Item * <span style="font-weight:400;color:var(--gray-400)">(stock se)</span></label><input id="smpItem" list="smpItemList" placeholder="Type to search…" style="${VRL_IN}"/></div>
-      <div><label style="font-size:12px;font-weight:600">Qty *</label><input id="smpQty" type="number" min="1" value="1" style="${VRL_IN}"/></div></div>
+    <div style="display:grid;grid-template-columns:3fr 1fr 32px;gap:8px"><label style="font-size:12px;font-weight:600">Item * <span style="font-weight:400;color:var(--gray-400)">(stock se)</span></label><label style="font-size:12px;font-weight:600">Qty *</label><span></span></div>
+    <div id="smpItems">${smpItemRowHtml()}</div>
+    <button type="button" class="btn btn-outline btn-sm" style="margin:0 0 10px" onclick="document.getElementById('smpItems').insertAdjacentHTML('beforeend', smpItemRowHtml())">+ Aur item</button>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <div><label style="font-size:12px;font-weight:600">Dealer / party</label><input id="smpDealer" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Purpose</label><select id="smpPurpose" style="${VRL_IN}"><option>Demo to dealer</option><option>New dealer</option><option>Trial order</option><option>Customer complaint check</option><option>Other</option></select></div></div>
@@ -21049,8 +21049,15 @@ async function openSmpNew() {
     <div id="smpErr" class="alert error" style="display:none;margin-bottom:10px"></div>
     <button class="btn btn-primary" id="smpSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="saveSmpNew()">Save — stock se OUT</button>`, 560);
 }
-async function smpPhotoPick(input) {
-  const pv = document.getElementById('smpPhotoPv');
+// One item + qty row of the Give Sample form (several items in one entry, Priyanka 2026-10-27).
+function smpItemRowHtml() {
+  return `<div class="smp-item-row" style="display:grid;grid-template-columns:3fr 1fr 32px;gap:8px;margin-bottom:6px;align-items:center">
+    <input class="smp-item" list="smpItemList" placeholder="Type to search…" style="${VRL_IN};margin-bottom:0"/>
+    <input class="smp-qty" type="number" min="1" value="1" style="${VRL_IN};margin-bottom:0"/>
+    <button type="button" class="btn btn-outline btn-sm" title="Hatao" onclick="if(document.querySelectorAll('.smp-item-row').length>1)this.parentElement.remove()">✕</button></div>`;
+}
+async function smpPhotoPick(input, pvId) {
+  const pv = document.getElementById(pvId || 'smpPhotoPv');
   input.dataset.compressed = '';
   if (!input.files[0]) { pv.textContent = ''; return; }
   pv.textContent = '…';
@@ -21059,10 +21066,11 @@ async function smpPhotoPick(input) {
 }
 async function saveSmpNew() {
   const err = document.getElementById('smpErr'); err.style.display = 'none';
-  const itemCode = document.getElementById('smpItem').value.split(' — ')[0].trim();
+  const items = [...document.querySelectorAll('.smp-item-row')].map(row => ({ itemCode: row.querySelector('.smp-item').value.split(' — ')[0].trim(), qty: row.querySelector('.smp-qty').value }))
+    .filter(x => x.itemCode);
+  if (!items.length) { err.textContent = 'Kam se kam ek item chunein'; err.style.display = 'block'; return; }
   const btn = document.getElementById('smpSaveBtn'); btn.disabled = true;
-  const body = { salesmanUserId: document.getElementById('smpSalesman').value, date: document.getElementById('smpDate').value, itemCode,
-    qty: document.getElementById('smpQty').value, dealerName: document.getElementById('smpDealer').value.trim(), purpose: document.getElementById('smpPurpose').value, remark: document.getElementById('smpRemark').value.trim(),
+  const body = { salesmanUserId: document.getElementById('smpSalesman').value, date: document.getElementById('smpDate').value, items, dealerName: document.getElementById('smpDealer').value.trim(), purpose: document.getElementById('smpPurpose').value, remark: document.getElementById('smpRemark').value.trim(),
     photo: document.getElementById('smpPhoto').dataset.compressed || '' };
   let r = await api('/api/samples', 'POST', body);
   if (r.needsConfirm && await uiConfirm(`${r.error}.\n\nStock register galat ho sakta hai (opening / purchase entry baaki). Fir bhi sample dena hai?`)) r = await api('/api/samples', 'POST', { ...body, allowShort: true });
@@ -21082,17 +21090,21 @@ function openSmpDetail(id) {
       ${s.photo ? `<a href="${esc(s.photo)}" target="_blank">📷 Photo dekho</a><br/>` : ''}${s.dealerName ? 'Dealer: <b>' + esc(s.dealerName) + '</b><br/>' : ''}${s.purpose ? 'Purpose: ' + esc(s.purpose) + '<br/>' : ''}${s.remark ? esc(s.remark) + '<br/>' : ''}
       <span style="font-size:11.5px;color:var(--gray-500)">Diya by ${esc(s.createdByName)} · ${esc(fmtDateDMY(s.createdAt, true))}</span>
       ${s.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(s.cancelReason)}</div>` : ''}
-      ${s.outcomeAt ? `<div style="margin-top:6px">✅ Wapas aaya: <b>${s.returnedQty}</b>${s.leftQty ? ` · dealer ke paas chhoda: <b>${s.leftQty}</b>` : ''}${s.outcomeRemark ? ' · ' + esc(s.outcomeRemark) : ''}<br/><span style="font-size:11.5px;color:var(--gray-500)">${esc(s.outcomeByName)} · ${esc(fmtDateDMY(s.outcomeAt, true))}</span></div>` : ''}</div>
+      ${s.outcomeAt ? `<div style="margin-top:6px">✅ Wapas aaya: <b>${s.returnedQty}</b>${s.leftQty ? ` · dealer ke paas chhoda: <b>${s.leftQty}</b>` : ''}${s.outcomeRemark ? ' · ' + esc(s.outcomeRemark) : ''}${s.outcomePhoto ? ` · <a href="${esc(s.outcomePhoto)}" target="_blank">📷 Wapas aane ki photo</a>` : ''}<br/><span style="font-size:11.5px;color:var(--gray-500)">${esc(s.outcomeByName)} · ${esc(fmtDateDMY(s.outcomeAt, true))}</span></div>` : ''}</div>
     ${open ? `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
       <div style="font-weight:700;font-size:13px;margin-bottom:8px">Sample ka kya hua?</div>
       <label style="font-size:11.5px">Kitna wapas aaya (stock me IN hoga)</label><input id="smpBack" type="number" min="0" max="${s.qty}" value="${s.qty}" style="${VRL_IN};margin-bottom:8px"/>
       <label style="font-size:11.5px">Remark <span style="color:var(--gray-400)">(jo wapas nahi aaya — kisko diya / kahan gaya)</span></label><input id="smpOutRemark" style="${VRL_IN};margin-bottom:8px"/>
+      <label style="font-size:11.5px">📷 Wapas aaye sample ki photo <span style="color:var(--color-danger)">*</span></label>
+      <input id="smpBackPhoto" type="file" accept="image/*" capture="environment" onchange="smpPhotoPick(this,'smpBackPv')" style="${VRL_IN};margin-bottom:4px"/><div id="smpBackPv" style="font-size:12px;margin-bottom:8px"></div>
       <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveSmpOutcome(${s.id},this)">✓ Save</button></div>` : ''}
     ${smpData.me.isAdmin && open ? `<button class="btn btn-outline" style="color:var(--color-danger)" onclick="cancelSmp(${s.id})">🚫 Cancel (stock wapas)</button>` : ''}`, 520);
 }
 async function saveSmpOutcome(id, btn) {
+  const photo = document.getElementById('smpBackPhoto').dataset.compressed || '';
+  if (Number(document.getElementById('smpBack').value) > 0 && !photo) { showToast('Wapas aaye sample ki photo lagayein', 'error'); return; }
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api(`/api/samples/${id}/outcome`, 'POST', { returnedQty: document.getElementById('smpBack').value, remark: document.getElementById('smpOutRemark').value.trim() });
+  const r = await api(`/api/samples/${id}/outcome`, 'POST', { returnedQty: document.getElementById('smpBack').value, remark: document.getElementById('smpOutRemark').value.trim(), photo });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('smpDetailModal');
