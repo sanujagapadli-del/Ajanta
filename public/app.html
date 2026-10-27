@@ -1330,12 +1330,35 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
 }
 .dash-count{font-size:12px;font-weight:600;color:var(--gray-500);margin-left:6px;}
 .dash-more td{text-align:center;padding:12px !important;background:var(--gray-50);font-size:12.5px;color:var(--gray-500);}
-.overview-cards.no-revised{grid-template-columns:repeat(2,1fr) !important;}
+.overview-cards.no-revised,#page-dashboard .overview-cards.no-revised{grid-template-columns:repeat(2,1fr) !important;}
 
 /* A row's main action stays quiet until the row is hovered (mouse only) */
 @media (hover:hover){
   .row-act{background:var(--surface,#fff) !important;color:#059669 !important;border:1.5px solid #a7f3d0 !important;box-shadow:none !important;}
   tr:hover .row-act,.row-act:focus-visible{background:linear-gradient(135deg,#34d399,#10b981) !important;color:#fff !important;border-color:transparent !important;}
+}
+
+/* ── Doer audit 2026-10-27 ── */
+/* Sidebar opens at once on hover, closes after a short pause (pin keeps it open) */
+@media (min-width:769px){ .sidebar:hover{transition-delay:0s;} .sidebar{transition-delay:.15s;} }
+/* Quicker page fade; buttons answer a press */
+.page.active{animation-duration:.18s;}
+.btn:active:not(:disabled){transform:scale(.98);}
+/* KPI placeholder until the number arrives */
+.kpi-skel{display:inline-block;width:72px;height:.8em;border-radius:8px;vertical-align:middle;background:linear-gradient(90deg,var(--n-100,#eef2f7) 25%,#f8fafc 50%,var(--n-100,#eef2f7) 75%);background-size:200% 100%;animation:kpiSkel 1.2s linear infinite;}
+@keyframes kpiSkel{to{background-position:-200% 0;}}
+/* Phones: 40px tap targets, no text under 12px, room above the bottom nav + the "+" button */
+@media (max-width:768px){
+  #mainContent .btn,#mainContent .tab,#mainContent .action-btn,#mainContent .row-action-btn,.tb-search,.topbar button,
+  #mainContent select,#mainContent input:not([type=checkbox]):not([type=radio]):not([type=file]){min-height:40px;}
+  #mainContent .btn-pill,#page-dashboard .dash-topbar .btn-pill{min-height:42px;}
+  .tb-search{min-width:40px;justify-content:center;}
+  #mainContent [style*="font-size:9px"],#mainContent [style*="font-size:9.5px"],#mainContent [style*="font-size:10px"],
+  #mainContent [style*="font-size:10.5px"],#mainContent [style*="font-size:11px"]{font-size:12px !important;}
+  #page-dashboard .ov-card .label,.ov-card .label,thead th,.priority-badge,.status-badge{font-size:12px !important;}
+  #mainContent{padding-bottom:calc(150px + env(safe-area-inset-bottom)) !important;}
+  .ui-fab{transition:transform .2s var(--ui-ease),opacity .2s;}
+  .ui-fab.fab-away{transform:translateY(90px);opacity:0;pointer-events:none;}
 }
 
 /* Table rows ease in (first dozen, staggered) */
@@ -1780,9 +1803,9 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     </div>
 
     <div class="overview-cards">
-      <div class="ov-card pending"><div class="label">Pending</div><div class="number" id="dPending">—</div></div>
-      <div class="ov-card revised"><div class="label">Revised</div><div class="number" id="dRevised">—</div></div>
-      <div class="ov-card completed"><div class="label">Completed</div><div class="number" id="dCompleted">—</div></div>
+      <div class="ov-card pending"><div class="label">Pending</div><div class="number" id="dPending"><span class="kpi-skel" aria-label="Loading"></span></div></div>
+      <div class="ov-card revised"><div class="label">Revised</div><div class="number" id="dRevised"><span class="kpi-skel" aria-label="Loading"></span></div></div>
+      <div class="ov-card completed"><div class="label">Completed</div><div class="number" id="dCompleted"><span class="kpi-skel" aria-label="Loading"></span></div></div>
     </div>
     <div class="dash-bottom">
       <div class="task-table-card">
@@ -4903,8 +4926,11 @@ async function init() {
     refreshNavGroups();
     loadPlAccess(); // shows the Tour Expense nav item for users who have it
     // Refresh pe last visited page restore karo
-    const savedPage = localStorage.getItem('lastPage');
-    const savedNavEl = savedPage ? document.getElementById('nav-' + savedPage) : null;
+    // A page link (#/o2d-fms) wins over the last page (doer audit 2026-10-27: Back / refresh / share).
+    const hashPage = (location.hash.match(/^#\/([\w-]+)/) || [])[1] || '';
+    const savedPage = hashPage || localStorage.getItem('lastPage');
+    const savedNavEl = savedPage ? (document.getElementById('nav-' + savedPage)
+      || document.querySelector(`#sidebar .nav-item[onclick*="navigate('${savedPage}'"]`)) : null;
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
@@ -4914,15 +4940,17 @@ async function init() {
     let freshOpen = false;
     try { freshOpen = !sessionStorage.getItem('appOpened'); sessionStorage.setItem('appOpened', '1'); } catch (e) {}
     const mdHome = /^md$/i.test(String(ME.department || '').trim()) && canSee('md-summary');
-    if (mdHome && freshOpen) {
+    if (mdHome && freshOpen && !hashPage) {
       navigate('md-summary', document.getElementById('nav-md-summary'));
     } else if (savedPageExists && savedNavEl && !savedPageBlocked) {
       navigate(savedPage, savedNavEl);
     } else {
       loadDashboard();
+      document.title = 'Dashboard · Ajanta ERP';
+      try { history.replaceState({ page: 'dashboard' }, '', '#/dashboard'); } catch (e) {}
+      _navHistoryStarted = true;
     }
     loadApprovalBadge();
-    loadTransferBadge();
     loadLeaveBadge();
     setTimeout(onbResumeAfterReload, 2500); // phone reloaded mid onboarding form (camera) → reopen it with what was filled
     injectDatePresets();
@@ -5204,8 +5232,25 @@ function navigate(page, el) {
   if (page==='price-catalogue') loadPriceCataloguePage();
   if (page==='stock') loadStockPage();
   localStorage.setItem('lastPage', page);
+  // Own URL + tab title per page; Back / Forward walk the pages (doer audit 2026-10-27).
+  document.title = `${pageTitles[page] || page} · Ajanta ERP`;
+  if (!_navFromHistory && location.hash !== '#/' + page) {
+    try { history[_navHistoryStarted ? 'pushState' : 'replaceState']({ page }, '', '#/' + page); } catch (e) {}
+  }
+  _navHistoryStarted = true;
   window.scrollTo(0,0);
 }
+let _navFromHistory = false, _navHistoryStarted = false;
+window.addEventListener('popstate', () => {
+  const page = (location.hash.match(/^#\/([\w-]+)/) || [])[1];
+  if (!page || !ME || !ME.id) return;
+  // Back with a popup open just closes the popup.
+  document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+  if (document.getElementById('page-' + (ATTN_SUB_PAGES.includes(page) ? 'attendance' : page))?.classList.contains('active') && localStorage.getItem('lastPage') === page) return;
+  _navFromHistory = true;
+  const el = document.getElementById('nav-' + page) || document.querySelector(`#sidebar .nav-item[onclick*="navigate('${page}'"]`);
+  try { navigate(page, el); } finally { _navFromHistory = false; }
+});
 // ── Sidebar categories: open / shut a group; remembered per browser. ──
 function navGroupState() { try { return JSON.parse(localStorage.getItem('navGroupsOpen') || 'null'); } catch (e) { return null; } }
 function toggleNavGroup(key, open) {
@@ -5332,7 +5377,7 @@ function buildO2dDashboardTasks() {
       ${o.remark ? `<div style="font-size:11.5px;color:var(--gray-500);font-style:italic">"${esc(o.remark)}"</div>` : ''}
       ${o.timestamp ? fmsFieldRow('ENTRY', esc(fmtEntry(o.timestamp))) : ''}
       ${o.currentStep > 0 ? fmsReachedRow(fmsReachedAt(o.steps, o.currentStep, o.timestamp)) : ''}
-      ${fmsFieldRow('PLANNED', `${esc(pendingStep.planned) || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
+      ${fmsFieldRow('PLANNED', `${esc(fmtDateDMY(pendingStep.planned, true) || pendingStep.planned) || '—'}${overdue ? ' — Overdue' : ''}`, overdue ? 'color:var(--color-danger);font-weight:700' : '')}
     `;
     tasks.push({
       id: o.orderNo, type: 'o2d', status: 'pending',
@@ -9424,6 +9469,18 @@ function toggleSidebarPin(force) {
   try { localStorage.setItem('sbPinned', on ? '1' : '0'); } catch (e) {}
 }
 try { if (localStorage.getItem('sbPinned') === '1') toggleSidebarPin(true); } catch (e) {}
+// Phones: the "+" button slides away while scrolling down and comes back on scroll up,
+// so it never sits on a card's last button (doer audit 2026-10-27).
+(function () {
+  let lastY = 0;
+  addEventListener('scroll', () => {
+    const f = document.getElementById('uiFab'), y = window.scrollY;
+    if (!f) return;
+    if (y > lastY + 4 && y > 120) f.classList.add('fab-away');
+    else if (y < lastY - 4 || y < 120) f.classList.remove('fab-away');
+    lastY = y;
+  }, { passive: true });
+})();
 
 
 // Modals sirf Cancel/Close button se band honge — bahar click se nahi
@@ -20663,13 +20720,19 @@ async function loadDrip() {
   dripRecent = (c.items || []).filter(x => x.source === 'drip').slice(0, 15);
   renderWaDrips();
 }
+// Status as a coloured pill, same colours as the rest of the app (doer audit 2026-10-27).
+function dripStatusBadge(s, labels) {
+  const c = { done: 'success', sending: 'primary', queued: 'warning', cancelled: 'danger', failed: 'danger' }[s] || 'warning';
+  const bg = c === 'primary' ? 'var(--color-primary-light)' : `var(--color-${c}-bg)`, fg = c === 'primary' ? 'var(--color-primary)' : `var(--color-${c}-text)`;
+  return `<span class="status-badge" style="background:${bg};color:${fg}">${esc((labels && labels[s]) || s)}</span>`;
+}
 function dripRecentHtml() {
   if (!dripRecent.length) return '';
   const st = { queued: '⏳ Queue me', sending: '📤 Ja raha hai', done: '✓ Ho gaya', cancelled: 'Band kiya' };
   return `<div style="font-weight:800;font-size:13px;margin:18px 0 8px">📋 Drip se bheje gaye (haal ke)</div>
     <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Plan</th><th>Kab</th><th>Kisko</th><th style="text-align:right">Sent</th><th>Status</th></tr></thead><tbody>
     ${dripRecent.map(x => `<tr><td style="font-weight:600">${esc(x.title)}</td><td style="white-space:nowrap">${esc(fmtDateDMY(x.createdAt, true))}</td><td>${esc(waMeta.audiences[x.audience] || x.audience || '')}</td>
-      <td style="text-align:right">${x.sent}/${x.total}${x.failed ? ` <span style="color:var(--color-danger)">· ${x.failed} failed</span>` : ''}</td><td>${esc(st[x.status] || x.status)}</td></tr>`).join('')}
+      <td style="text-align:right">${x.sent}/${x.total}${x.failed ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)">${x.failed} nahi gaye</span>` : ''}</td><td>${dripStatusBadge(x.status, st)}</td></tr>`).join('')}
     </tbody></table></div>`;
 }
 const DRIP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -28837,7 +28900,10 @@ async function submitTransferSelected() {
 async function loadTransferBadge() {
   if (ME.role !== 'admin' && ME.role !== 'hod') return;
   try {
-    const d = await api('/api/transfers/count');
+// Callers overlap (loadApprovalBadge calls this too) — one request at a time.
+let _transferBadgeReq = null;
+    if (!_transferBadgeReq) _transferBadgeReq = api('/api/transfers/count').finally(() => { _transferBadgeReq = null; });
+    const d = await _transferBadgeReq;
     const badge = document.getElementById('transferBadge');
     if (badge) { badge.textContent = d.count||0; badge.style.display = d.count>0 ? 'flex' : 'none'; }
   } catch(e) {}

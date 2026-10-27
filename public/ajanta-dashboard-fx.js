@@ -1,7 +1,9 @@
 /* Ajanta Task Manager — Dashboard effects (2026-10-27).
    Presentation only: watches what the app renders on #page-dashboard and
    animates it. No API calls, no data changes, no app functions rewritten.
-   Loaded once from app.html with <script src="/ajanta-dashboard-fx.js" defer>. */
+   Loaded once from app.html with <script src="/ajanta-dashboard-fx.js" defer>.
+   Doer audit 2026-10-27 asked for calm motion: no tilt / cursor glow / breathing /
+   confetti, and the count-up runs once (≤ 0.7 s), not again on every return. */
 (function () {
   'use strict';
   if (window.__ajDashFx) return; // idempotent: a second copy does nothing
@@ -10,17 +12,15 @@
 
   var page = document.getElementById('page-dashboard');
   if (!page) return;
-  var finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
 
   // ── Styles ─────────────────────────────────────────────────────────────
   var CSS = [
     '@keyframes ajfxRise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}',
     '@keyframes ajfxRowIn{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}',
-    '@keyframes ajfxBreathe{0%,100%{box-shadow:0 2px 14px rgba(216,7,0,.08)}50%{box-shadow:0 0 0 3px rgba(216,7,0,.10),0 10px 32px -6px rgba(216,7,0,.38)}}',
     '@keyframes ajfxPop{0%{transform:scale(1)}40%{transform:scale(1.12)}100%{transform:scale(1)}}',
     '@keyframes ajfxRing{0%{box-shadow:0 0 0 0 rgba(1,3,113,.45)}70%{box-shadow:0 0 0 12px rgba(1,3,113,0)}100%{box-shadow:0 0 0 0 rgba(1,3,113,0)}}',
     '@keyframes ajfxFlow{from{background-position:0 0}to{background-position:-200% 0}}',
-    // 2 · entrance (fill "backwards" so the tilt's inline transform still applies afterwards)
+    // 2 · entrance (fill "backwards" so nothing lingers after it)
     '#page-dashboard.ajfx-enter .dash-topbar,#page-dashboard.ajfx-enter .ov-card,#page-dashboard.ajfx-enter .dash-bottom>*,#page-dashboard.ajfx-enter #dashO2dHold{animation:ajfxRise .62s cubic-bezier(.22,1,.36,1) backwards}',
     '#page-dashboard.ajfx-enter .ov-card:nth-child(1){animation-delay:.1s}',
     '#page-dashboard.ajfx-enter .ov-card:nth-child(2){animation-delay:.2s}',
@@ -28,16 +28,6 @@
     '#page-dashboard.ajfx-enter .dash-bottom>*:nth-child(1){animation-delay:.34s}',
     '#page-dashboard.ajfx-enter .dash-bottom>*:nth-child(2){animation-delay:.44s}',
     '#page-dashboard.ajfx-enter #dashO2dHold{animation-delay:.52s}',
-    // 4 · pending breathing (combined with the entrance when both apply)
-    '#page-dashboard .ov-card.pending.ajfx-breathe{animation:ajfxBreathe 2.8s ease-in-out infinite}',
-    '#page-dashboard.ajfx-enter .ov-card.pending.ajfx-breathe{animation:ajfxRise .62s cubic-bezier(.22,1,.36,1) .1s backwards,ajfxBreathe 2.8s ease-in-out .8s infinite}',
-    // 3 · tilt + cursor glow (glow is a child: .ov-card::after is the coloured top bar)
-    '#page-dashboard .ov-card.ajfx-tilt{transition:transform .14s ease-out,box-shadow .25s ease;will-change:transform}',
-    '#page-dashboard .ov-card.ajfx-tilt:hover{box-shadow:0 20px 40px -14px rgba(15,23,42,.30)}',
-    '#page-dashboard .ov-card>:not(.ajfx-glow){position:relative}',
-    '.ajfx-glow{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .25s;border-radius:inherit;background:radial-gradient(220px circle at var(--mx,50%) var(--my,50%),var(--ajfx-tint),transparent 65%)}',
-    '#page-dashboard .ov-card:hover .ajfx-glow{opacity:1}',
-    '.ov-card.pending{--ajfx-tint:rgba(216,7,0,.14)}.ov-card.revised{--ajfx-tint:rgba(245,158,11,.18)}.ov-card.completed{--ajfx-tint:rgba(16,185,129,.18)}',
     // 1 · pop at the end of a count
     '#page-dashboard .ov-card .number.ajfx-pop{animation:ajfxPop .38s cubic-bezier(.34,1.56,.64,1);transform-origin:left center}',
     // 5 · table rows (beats the app-wide row fade for this table)
@@ -56,9 +46,7 @@
     // 10 · topbar buttons
     '#page-dashboard .dash-topbar .btn{transition:transform .15s ease,filter .15s ease,box-shadow .2s ease}',
     '#page-dashboard .dash-topbar .btn:hover{transform:translateY(-2px);filter:brightness(1.05)}',
-    '#page-dashboard .dash-topbar .btn:active{transform:scale(.96)}',
-    // 9 · confetti layer
-    '.ajfx-confetti{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:9999}'
+    '#page-dashboard .dash-topbar .btn:active{transform:scale(.96)}'
   ].join('\n');
   if (!document.getElementById('ajfx-css')) {
     var st = document.createElement('style');
@@ -94,7 +82,7 @@
     cancelAnimationFrame(o.raf);
     o.target = to;
     if (from === to) { o.shown = to; write(o, to); return; }
-    var dur = Math.min(1600, 600 + Math.log10(Math.abs(to - from) + 1) * 350);
+    var dur = Math.min(700, 300 + Math.log10(Math.abs(to - from) + 1) * 130);
     var t0 = performance.now();
     var step = function (now) {
       var p = Math.min(1, (now - t0) / dur);
@@ -105,21 +93,6 @@
     };
     o.raf = requestAnimationFrame(step);
   }
-  function replayCounts() {
-    Object.keys(kpi).forEach(function (id) {
-      var o = kpi[id];
-      if (o.target != null && o.el.offsetParent) { o.shown = 0; write(o, 0); countTo(o, 0, o.target); }
-    });
-  }
-
-  // 9 · confetti only after a Done click on the dashboard (a reload first writes
-  // Delegation+Checklist and only then adds the FMS count, so "the number went
-  // up" alone would fire on every load).
-  var armed = null; // { until, base }
-  page.addEventListener('click', function (e) {
-    var b = e.target.closest && e.target.closest('#dashTable .action-btn.done');
-    if (b && kpi.dCompleted) armed = { until: Date.now() + 120000, base: kpi.dCompleted.target || 0 };
-  }, true);
 
   Object.keys(kpi).forEach(function (id) {
     var o = kpi[id];
@@ -132,45 +105,9 @@
       var from = o.shown == null ? 0 : o.shown;
       write(o, from); // runs before paint, so the app's final number never flashes
       countTo(o, from, n);
-      if (id === 'dPending' && kpi.dPending) {
-        var card = o.el.closest('.ov-card');
-        if (card) card.classList.toggle('ajfx-breathe', n > 0);
-      }
-      if (id === 'dCompleted' && armed && Date.now() < armed.until && n > armed.base) { armed = null; confetti(o.el); }
       scheduleRate();
     }).observe(o.el, { childList: true, characterData: true, subtree: true });
   });
-
-  // ── 3 · tilt + glow on the KPI cards (mouse only) ───────────────────────
-  if (finePointer) {
-    Array.prototype.forEach.call(page.querySelectorAll('.ov-card'), function (card) {
-      card.classList.add('ajfx-tilt');
-      if (!card.querySelector(':scope > .ajfx-glow')) {
-        var g = document.createElement('span');
-        g.className = 'ajfx-glow';
-        g.setAttribute('aria-hidden', 'true');
-        card.insertBefore(g, card.firstChild);
-      }
-      var raf = 0, last = null;
-      card.addEventListener('pointermove', function (e) {
-        if (e.pointerType !== 'mouse') return;
-        last = e;
-        if (raf) return;
-        raf = requestAnimationFrame(function () {
-          raf = 0;
-          var r = card.getBoundingClientRect();
-          var x = (last.clientX - r.left) / r.width, y = (last.clientY - r.top) / r.height;
-          card.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
-          card.style.setProperty('--my', (y * 100).toFixed(1) + '%');
-          card.style.transform = 'perspective(700px) rotateX(' + ((0.5 - y) * 14).toFixed(2) + 'deg) rotateY(' + ((x - 0.5) * 14).toFixed(2) + 'deg) translateY(-4px)';
-        });
-      });
-      card.addEventListener('pointerleave', function () {
-        cancelAnimationFrame(raf); raf = 0;
-        card.style.transform = '';
-      });
-    });
-  }
 
   // ── 5 · table rows slide in on every re-render ───────────────────────────
   var tbody = document.getElementById('dashTbody') || (document.getElementById('dashTable') || {}).tBodies && document.getElementById('dashTable').tBodies[0];
@@ -243,44 +180,6 @@
     new MutationObserver(syncRing).observe(punch, { childList: true, characterData: true, subtree: true });
   }
 
-  // ── 9 · confetti ──────────────────────────────────────────────────────────
-  var confettiOn = false;
-  function confetti(fromEl) {
-    if (confettiOn) return;
-    confettiOn = true;
-    var r = fromEl.getBoundingClientRect();
-    var cx = r.left + Math.min(r.width, 120) / 2, cy = r.top + r.height / 2;
-    var cv = document.createElement('canvas');
-    cv.className = 'ajfx-confetti';
-    cv.setAttribute('aria-hidden', 'true');
-    var dpr = Math.min(2, window.devicePixelRatio || 1);
-    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
-    document.body.appendChild(cv);
-    var ctx = cv.getContext('2d');
-    ctx.scale(dpr, dpr);
-    var colors = ['#010371', '#D80700', '#10b981', '#f59e0b', '#3b82f6'];
-    var parts = [];
-    for (var i = 0; i < 70; i++) {
-      parts.push({ x: cx, y: cy, vx: (Math.random() - 0.5) * 10, vy: -(Math.random() * 8 + 3), s: 4 + Math.random() * 4,
-        rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.3, c: colors[i % colors.length] });
-    }
-    var t0 = performance.now(), DUR = 1600;
-    var frame = function (now) {
-      var el = now - t0;
-      ctx.clearRect(0, 0, innerWidth, innerHeight);
-      ctx.globalAlpha = Math.max(0, 1 - el / DUR);
-      parts.forEach(function (p) {
-        p.vy += 0.32; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
-        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-        ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2);
-        ctx.restore();
-      });
-      if (el < DUR) requestAnimationFrame(frame);
-      else { cv.remove(); confettiOn = false; }
-    };
-    requestAnimationFrame(frame);
-  }
-
   // ── Replays: back on the dashboard (page was display:none) / pie scrolled back into view ──
   if ('IntersectionObserver' in window) {
     var hiddenByPage = false;
@@ -289,7 +188,7 @@
       new IntersectionObserver(function (entries) {
         entries.forEach(function (en) {
           if (!en.isIntersecting) { if (!en.boundingClientRect.width) hiddenByPage = true; return; }
-          if (hiddenByPage) { hiddenByPage = false; replayEnter(); replayCounts(); }
+          if (hiddenByPage) { hiddenByPage = false; replayEnter(); }
         });
       }).observe(cards);
     }

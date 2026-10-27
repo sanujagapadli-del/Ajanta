@@ -1392,6 +1392,24 @@ app.post('/api/sync-db', requireAuth, async (req, res) => {
   }
 });
 
+// A user's profile photo as an image (stored as a data: URI in users.profile_image).
+// Lists send this URL instead of the photo itself; ?v= changes when the photo does.
+function userPhotoUrl(u) {
+  if (!Number(u.photo_len)) return '';
+  const v = require('crypto').createHash('md5').update(String(u.photo_len) + String(u.photo_tail || '')).digest('hex').slice(0, 8);
+  return `/api/user-photo/${u.id}?v=${v}`;
+}
+app.get('/api/user-photo/:id', requireAuth, async (req, res) => {
+  try {
+    const [[u]] = await db.query('SELECT profile_image FROM users WHERE id=?', [Number(req.params.id) || 0]);
+    const m = /^data:(image\/[\w.+-]+);base64,(.+)$/.exec((u && u.profile_image) || '');
+    if (!m) return res.status(404).end();
+    res.set('Content-Type', m[1]);
+    res.set('Cache-Control', 'private, max-age=604800'); // the URL carries ?v=, so a new photo is a new URL
+    res.send(Buffer.from(m[2], 'base64'));
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const [rows] = await db.query('SELECT id,name,email,notification_email,role,phone,profile_image,department,week_off FROM users WHERE id=?', [req.session.userId]);
@@ -15364,7 +15382,8 @@ app.get('/api/employees', requireAuth, async (req, res) => {
     const yearStart = today.slice(0, 4) + '-01-01';
     const full = req.query.full === '1'; // CSV export: every detail field too
     const [[users], [docs], [leaves], [att], [sal], [profs]] = await withEmpTables(() => withAttendanceTables(() => Promise.all([
-      db.query(`SELECT u.id, u.name, u.email, u.phone, u.department, u.role, u.is_active, u.profile_image,
+      // Photo as a small cached URL, not the base64 itself (doer audit 2026-10-27: the list carried every photo).
+      db.query(`SELECT u.id, u.name, u.email, u.phone, u.department, u.role, u.is_active, LENGTH(u.profile_image) AS photo_len, RIGHT(u.profile_image, 16) AS photo_tail,
           p.designation, DATE_FORMAT(p.joining_date,'%Y-%m-%d') AS joining_date, DATE_FORMAT(p.dob,'%Y-%m-%d') AS dob
         FROM users u LEFT JOIN employee_profiles p ON p.user_id=u.id WHERE u.role IS NULL OR u.role<>'vendor' ORDER BY u.is_active DESC, u.department, u.name`),
       db.query('SELECT user_id, doc_type, COUNT(*) AS n FROM employee_documents GROUP BY user_id, doc_type'),
@@ -15388,7 +15407,7 @@ app.get('/api/employees', requireAuth, async (req, res) => {
         const have = docsBy[u.id] || new Set();
         return {
           id: u.id, name: u.name, email: u.email, phone: u.phone || '', department: u.department || '', role: u.role || '',
-          active: !!+u.is_active, photo: u.profile_image || '', designation: u.designation || '', joiningDate: u.joining_date || '', dob: u.dob || '',
+          active: !!+u.is_active, photo: userPhotoUrl(u), designation: u.designation || '', joiningDate: u.joining_date || '', dob: u.dob || '',
           docs: have.size, missingDocs: EMP_REQUIRED_DOCS.filter(t => !have.has(t)),
           leaveDays: (leaveBy[u.id] || {}).approved || 0, leavePending: (leaveBy[u.id] || {}).pending || 0,
           today: attBy[u.id] ? { in: attBy[u.id].time_in || '', out: attBy[u.id].time_out || '' } : null,
