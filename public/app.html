@@ -21019,7 +21019,7 @@ function renderSmp() {
   const list = (smpTab === 'out' ? out : all).filter(s => !q || `${s.code} ${s.salesmanName} ${s.itemName} ${s.dealerName} ${s.purpose}`.toLowerCase().includes(q));
   const badge = s => s.status === 'With salesman' ? '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">With salesman</span>'
     : s.status === 'Settled' ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Settled</span>' : '<span class="status-badge">Cancelled</span>';
-  document.getElementById('smpWrap').innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Sample</th><th>Salesman</th><th>Item</th><th>Qty</th><th>Dealer / purpose</th><th>Back</th><th>Days</th><th>Status</th></tr></thead><tbody>
+  document.getElementById('smpWrap').innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Sample</th><th>Salesman</th><th>Item</th><th>Qty</th><th>Route / purpose</th><th>Back</th><th>Days</th><th>Status</th></tr></thead><tbody>
     ${list.map(s => { const late = s.status === 'With salesman' && s.days > 15; return `<tr onclick="openSmpDetail(${s.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
       <td style="font-weight:600;white-space:nowrap">${esc(s.code)}<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(fmtDateDMY(s.issueDate))}</div>${entrySubHtml(s.createdAt)}</td>
       <td>${esc(s.salesmanName)}</td><td>${esc(s.itemName)}</td><td style="font-weight:700">${s.qty}</td>
@@ -21041,7 +21041,7 @@ async function openSmpNew() {
     <div id="smpItems">${smpItemRowHtml()}</div>
     <button type="button" class="btn btn-outline btn-sm" style="margin:0 0 10px" onclick="document.getElementById('smpItems').insertAdjacentHTML('beforeend', smpItemRowHtml())">+ Aur item</button>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-      <div><label style="font-size:12px;font-weight:600">Dealer / party</label><input id="smpDealer" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Route</label><input id="smpDealer" placeholder="e.g. Sitapura" style="${VRL_IN}"/></div>
       <div><label style="font-size:12px;font-weight:600">Purpose</label><select id="smpPurpose" style="${VRL_IN}"><option>Demo to dealer</option><option>New dealer</option><option>Trial order</option><option>Customer complaint check</option><option>Other</option></select></div></div>
     <label style="font-size:12px;font-weight:600">Remark</label><input id="smpRemark" style="${VRL_IN};margin-bottom:10px"/>
     <label style="font-size:12px;font-weight:600">📷 Photo <span style="font-weight:400;color:var(--gray-400)">(sample / challan)</span></label>
@@ -21087,7 +21087,7 @@ function openSmpDetail(id) {
   vrlModal('smpDetailModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">${esc(s.code)} · ${esc(s.itemName)} × ${s.qty}</h3>${smpModalX('smpDetailModal')}</div>
     <div style="font-size:13px;color:var(--gray-700);line-height:1.7;margin-bottom:12px">
       Salesman: <b>${esc(s.salesmanName)}</b> · ${esc(fmtDateDMY(s.issueDate))}${open ? ` · <b style="${s.days > 15 ? 'color:var(--color-danger)' : ''}">${s.days} din</b>` : ''}<br/>
-      ${s.photo ? `<a href="${esc(s.photo)}" target="_blank">📷 Photo dekho</a><br/>` : ''}${s.dealerName ? 'Dealer: <b>' + esc(s.dealerName) + '</b><br/>' : ''}${s.purpose ? 'Purpose: ' + esc(s.purpose) + '<br/>' : ''}${s.remark ? esc(s.remark) + '<br/>' : ''}
+      ${s.photo ? `<a href="${esc(s.photo)}" target="_blank">📷 Photo dekho</a><br/>` : ''}${s.dealerName ? 'Route: <b>' + esc(s.dealerName) + '</b><br/>' : ''}${s.purpose ? 'Purpose: ' + esc(s.purpose) + '<br/>' : ''}${s.remark ? esc(s.remark) + '<br/>' : ''}
       <span style="font-size:11.5px;color:var(--gray-500)">Diya by ${esc(s.createdByName)} · ${esc(fmtDateDMY(s.createdAt, true))}</span>
       ${s.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(s.cancelReason)}</div>` : ''}
       ${s.outcomeAt ? `<div style="margin-top:6px">✅ Wapas aaya: <b>${s.returnedQty}</b>${s.leftQty ? ` · dealer ke paas chhoda: <b>${s.leftQty}</b>` : ''}${s.outcomeRemark ? ' · ' + esc(s.outcomeRemark) : ''}${s.outcomePhoto ? ` · <a href="${esc(s.outcomePhoto)}" target="_blank">📷 Wapas aane ki photo</a>` : ''}<br/><span style="font-size:11.5px;color:var(--gray-500)">${esc(s.outcomeByName)} · ${esc(fmtDateDMY(s.outcomeAt, true))}</span></div>` : ''}</div>
