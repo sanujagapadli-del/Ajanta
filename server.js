@@ -10021,15 +10021,19 @@ async function erpPoFormData() {
     getIndents(),
     sheetsApi.spreadsheets.values.get({ spreadsheetId: PO_DATA_SHEET_ID, range: "'Data web form'!A2:H" }).then(r => r.data.values || []).catch(() => []),
     getMasterWorkbookData().catch(() => ({ vendors: [] })),
-    db.query("SELECT vendor_json FROM erp_purchase_orders WHERE status='done' ORDER BY id")
+    db.query("SELECT vendor_json, lines_json FROM erp_purchase_orders WHERE status='done' ORDER BY id")
   ]);
   const vendors = {};
   const put = v => { if (v && v.name) vendors[v.name.trim().toLowerCase()] = { name: v.name.trim(), address: v.address || '', state: v.state || '', gst: v.gst || '', contact: v.contact || '', phone: v.phone || '' }; };
   web.forEach(x => put({ name: x[2], address: x[3], state: x[4], gst: x[5], contact: x[6], phone: x[7] }));
   mine.forEach(m => { try { put(JSON.parse(m.vendor_json)); } catch (e) {} });
+  // Lines already on an ERP PO stay off the form even before the sheet shows the PO
+  // (client 2026-10-27: IND-000017 got PO-0107 and PO-0108 while the link lagged).
+  const onPo = new Set();
+  mine.forEach(m => { try { JSON.parse(m.lines_json || '[]').forEach(l => onPo.add(`${l.indentNo}|${l.itemId}`)); } catch (e) {} });
   const lines = [];
   indents.forEach(o => o.lines.forEach(l => {
-    if (l.poNumber || l.rejected || l.currentStep !== poIdx) return;
+    if (l.poNumber || l.rejected || l.currentStep !== poIdx || onPo.has(`${l.indentNo}|${l.itemId}`)) return;
     lines.push({ indentNo: l.indentNo, itemId: l.itemId, productName: l.productName, uom: l.uom || 'PCS', qty: l.qty, vendorName: l.vendorName || '',
       rate: Number(l.finalRate) || 0, leadTime: Number(l.leadTime) || 0, type: o.type || '', raisedBy: o.raisedBy || '' });
   }));
@@ -10106,11 +10110,19 @@ async function erpPoEnsureSheet(sheetsW) {
   }
   const cur = await sheetsW.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PO_LINK_TAB}'!L1`, valueRenderOption: 'FORMULA' });
   const f = String(((cur.data.values || [])[0] || [])[0] || '');
-  if (f.includes(ERP_PO_TAB)) return;
-  if (!/^=\s*IMPORTRANGE\(/i.test(f)) throw new Error(`'${PO_LINK_TAB}'!L1 is not the expected IMPORTRANGE — not changing it`);
-  if (!(await getAppSetting('erp_po_old_l1'))) await setAppSetting('erp_po_old_l1', f);
-  const old = f.replace(/^=\s*/, '');
-  const mine = `FILTER('${ERP_PO_TAB}'!A2:G,'${ERP_PO_TAB}'!B2:B<>"")`;
+  // Whole columns: an A2:G range was shifted to A4:G by the rows each PO inserted, so the
+  // sheet stopped seeing the ERP POs (client 2026-10-27, PO-0107/0108).
+  const mine = `FILTER('${ERP_PO_TAB}'!A:G,'${ERP_PO_TAB}'!B:B<>"",ROW('${ERP_PO_TAB}'!B:B)>1)`;
+  if (f.includes(mine)) return;
+  let old;
+  if (f.includes(ERP_PO_TAB)) {
+    old = String((await getAppSetting('erp_po_old_l1')) || '').replace(/^=\s*/, '');
+    if (!old) throw new Error(`'${PO_LINK_TAB}'!L1 has an older ERP PO formula but app_settings erp_po_old_l1 is missing`);
+  } else {
+    if (!/^=\s*IMPORTRANGE\(/i.test(f)) throw new Error(`'${PO_LINK_TAB}'!L1 is not the expected IMPORTRANGE — not changing it`);
+    if (!(await getAppSetting('erp_po_old_l1'))) await setAppSetting('erp_po_old_l1', f);
+    old = f.replace(/^=\s*/, '');
+  }
   await sheetsW.spreadsheets.values.update({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PO_LINK_TAB}'!L1`, valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[`=IFERROR({${old};${mine}},${old})`]] } });
 }
@@ -10131,7 +10143,7 @@ app.post('/api/purchase-fms/po/:poNumber/finish', requireAuth, async (req, res) 
     const sheetsW = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     await erpPoEnsureSheet(sheetsW);
     const ts = sfmsDateToSerial(new Date());
-    await sheetsW.spreadsheets.values.append({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${ERP_PO_TAB}'!A:M`, valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+    await sheetsW.spreadsheets.values.append({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${ERP_PO_TAB}'!A:M`, valueInputOption: 'RAW', insertDataOption: 'OVERWRITE',
       requestBody: { values: lines.map(l => [ts, po.po_number, l.indentNo, Number(l.itemId) || l.itemId, l.productName, l.qty, pdfUrl, po.vendor_name, l.uom, l.rate, l.gstPct, l.amount, po.created_by_name || '']) } });
     await db.query("UPDATE erp_purchase_orders SET status='done', pdf_url=? WHERE id=?", [pdfUrl, po.id]);
     // Did the sheet pick it up? (the stacked formula is what puts the PO number on the indent)
