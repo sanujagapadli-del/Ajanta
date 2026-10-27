@@ -4841,7 +4841,8 @@ async function init() {
     // dashboard load reads several FMS sheets on the server, and office PCs
     // keep the app open all day; polling every 30s used up Vercel's monthly
     // CPU allowance and the site was paused (2026-10-09).
-    const BADGE_EVERY_MS = 2 * 60 * 1000, DASH_EVERY_MS = 5 * 60 * 1000;
+    // Dashboard 15 min (was 5) — Vercel CPU at 90% on 2026-10-27.
+    const BADGE_EVERY_MS = 2 * 60 * 1000, DASH_EVERY_MS = 15 * 60 * 1000;
     let lastBadges = Date.now(), lastDash = Date.now();
     const tabVisible = () => document.visibilityState === 'visible';
     const dashShown = () => { const p = document.getElementById('page-dashboard'); return p && p.classList.contains('active'); };
@@ -5348,8 +5349,8 @@ async function loadDashboard() {
   const canSeeSfms = ME.role === 'admin' || MY_PAGES.has('service-fms');
   const fmsReadStart = Date.now();
   const fmsPromise = Promise.all([
-    api('/api/o2d-fms').catch(() => null),
-    canSeeSfms ? api('/api/service-fms').catch(() => null) : null,
+    api('/api/o2d-fms?open=1').catch(() => null),
+    canSeeSfms ? api('/api/service-fms?open=1').catch(() => null) : null,
     // Scoped server-side: doers get the queue, everyone else only their own cheques (bounce alerts).
     api('/api/cheque-fms').catch(() => null),
     api('/api/replacement-fms').catch(() => null),

@@ -4931,9 +4931,16 @@ async function sfmsFetchComplaints() {
     return complaints;
 }
 
+// Dashboard (?open=1): closed records only as a key stub — it lists open ones and
+// just counts the closed. The O2D list was 735 KB, 229 of 246 orders closed, on
+// every 5-min Dashboard refresh (Vercel CPU at 90%, 2026-10-27).
+function fmsOpenOnly(list, stub) {
+  return list.map(x => x.closed ? { ...stub(x), closed: true, stub: true } : x);
+}
 app.get('/api/service-fms', requireAuth, async (req, res) => {
   try {
-    res.json(await sfmsFetchComplaints());
+    const list = await sfmsFetchComplaints();
+    res.json(req.query.open === '1' ? fmsOpenOnly(list, c => ({ complainNo: c.complainNo, row: c.row })) : list);
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     sendServerError(res, err);
@@ -6451,7 +6458,8 @@ async function readO2dOrdersFromSheet() {
 
 app.get('/api/o2d-fms', requireAuth, async (req, res) => {
   try {
-    res.json(await getO2dOrders());
+    const orders = await getO2dOrders();
+    res.json(req.query.open === '1' ? fmsOpenOnly(orders, o => ({ orderNo: o.orderNo })) : orders);
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     sendServerError(res, err);
