@@ -1361,6 +1361,25 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
   .ui-fab.fab-away{transform:translateY(90px);opacity:0;pointer-events:none;}
 }
 
+/* Wide tables (desktop): header and first column stay put while scrolling */
+@media (min-width:769px){
+  .mis-table-wrap:has(> table),.table-wrap:has(> table){max-height:calc(100dvh - 170px);overflow:auto;}
+  .mis-table-wrap:has(> table) > table > thead th,.table-wrap:has(> table) > table > thead th{position:sticky;top:0;z-index:2;}
+  .mis-table-wrap:has(> table) > table > tbody > tr > td:first-child,.table-wrap:has(> table) > table > tbody > tr > td:first-child{position:sticky;left:0;z-index:1;background:var(--surface,#fff);box-shadow:1px 0 0 #eef2f7;}
+  .mis-table-wrap:has(> table) > table > thead th:first-child,.table-wrap:has(> table) > table > thead th:first-child{left:0;z-index:3;}
+}
+/* Tab rows wider than the screen fade at the edge (there is more to scroll) */
+.tab-group.is-scrollable{overflow-x:auto;-webkit-mask-image:linear-gradient(90deg,#000 86%,transparent);mask-image:linear-gradient(90deg,#000 86%,transparent);}
+.tab-group.is-scrollable.at-end{-webkit-mask-image:none;mask-image:none;}
+/* All Tasks filters fold away on phones */
+.tasks-filter-toggle{display:none;}
+@media (max-width:768px){
+  .tasks-filter-toggle{display:inline-flex;}
+  #page-alltasks:not(.filters-open) #tasksDateRange,#page-alltasks:not(.filters-open) #tasksFreqFilter,#page-alltasks:not(.filters-open) #tasksUserDateFilters{display:none !important;}
+  #tasksFilterCount:not(:empty){margin-left:6px;background:var(--color-primary);color:#fff;border-radius:99px;padding:0 7px;font-size:12px;}
+}
+[role="button"]:focus-visible,.tab:focus-visible{outline:2px solid rgba(var(--navy-rgb),.5);outline-offset:2px;}
+
 /* Table rows ease in (first dozen, staggered) */
 @keyframes uiRowIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 @media (prefers-reduced-motion:no-preference){
@@ -1901,8 +1920,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <div class="tab active" id="statusTabPending" onclick="filterTaskStatus('pending',this)">Pending</div>
         <div class="tab" id="statusTabCompleted" onclick="filterTaskStatus('completed',this)">Completed</div>
       </div>
+      <!-- Phones: filters fold away so the list starts near the top (doer audit 2026-10-27) -->
+      <button type="button" class="btn btn-outline btn-sm tasks-filter-toggle" onclick="toggleTasksFilters()" aria-expanded="false">⚙ Filters<span id="tasksFilterCount"></span></button>
       <!-- Date range filter — all roles -->
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div id="tasksDateRange" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span style="font-size:10px;font-weight:800;color:#b6bfd4;letter-spacing:.16em;text-transform:uppercase">Due Date</span>
         <input type="date" id="tasksDateFrom" onchange="filterTasks()"
           style="padding:7px 10px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt);transition:border-color .15s">
@@ -9469,6 +9490,84 @@ function toggleSidebarPin(force) {
   try { localStorage.setItem('sbPinned', on ? '1' : '0'); } catch (e) {}
 }
 try { if (localStorage.getItem('sbPinned') === '1') toggleSidebarPin(true); } catch (e) {}
+// Offline page when there is no internet (public/sw.js caches nothing else).
+if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+
+// All Tasks filters on phones (doer audit 2026-10-27): folded until "⚙ Filters", with a count.
+function tasksFilterCount() {
+  const v = id => (document.getElementById(id) || {}).value || '';
+  return [v('tasksDateFrom'), v('tasksDateTo')].filter(Boolean).length
+    + (v('tasksUserFilter') && v('tasksUserFilter') !== 'all' ? 1 : 0) + (v('tasksFreqFilter') && v('tasksFreqFilter') !== 'all' ? 1 : 0);
+}
+function toggleTasksFilters() {
+  const p = document.getElementById('page-alltasks');
+  const open = p.classList.toggle('filters-open');
+  const b = p.querySelector('.tasks-filter-toggle');
+  if (b) b.setAttribute('aria-expanded', String(open));
+}
+document.addEventListener('change', e => {
+  if (!e.target.closest || !e.target.closest('#page-alltasks')) return;
+  const n = tasksFilterCount(), c = document.getElementById('tasksFilterCount');
+  if (c) c.textContent = n ? String(n) : '';
+});
+
+// Accessibility + small UX, applied to whatever a page renders (doer audit 2026-10-27):
+// icon-only buttons get a label, placeholder-only inputs get one too, clickable
+// divs / tabs work with the keyboard, tab rows that overflow show a fade, and a
+// popup opened with a mouse puts the cursor in its first field.
+(function () {
+  const ICON_LABEL = { '🗑': 'Delete', '✏️': 'Edit', '✎': 'Edit', '🔄': 'Refresh', '↻': 'Refresh', '📒': 'Statement', '✕': 'Close', '×': 'Close', '💬': 'Comments', '📞': 'Call', '📷': 'Photo', '⬇': 'Download', '🔗': 'Link', '⋯': 'More' };
+  const hasWords = t => /[A-Za-zऀ-ॿ0-9]{2,}/.test(t);
+  const openSeen = new WeakSet();
+  let t = 0;
+  function enhance() {
+    t = 0;
+    document.querySelectorAll('button:not([aria-label]),a.btn:not([aria-label])').forEach(b => {
+      const txt = (b.textContent || '').trim();
+      if (hasWords(txt)) return;
+      const lab = b.title || ICON_LABEL[Object.keys(ICON_LABEL).find(k => txt.includes(k))];
+      if (lab) b.setAttribute('aria-label', lab);
+    });
+    document.querySelectorAll('input[placeholder]:not([aria-label]),textarea[placeholder]:not([aria-label])').forEach(i => {
+      if (i.id && document.querySelector(`label[for="${CSS.escape(i.id)}"]`)) return;
+      const p = i.placeholder.replace(/[^\p{L}\p{N}\s,./()-]/gu, '').trim();
+      if (p) i.setAttribute('aria-label', p);
+    });
+    document.querySelectorAll('div[onclick]:not([role]),span[onclick]:not([role]),.tab:not([role])').forEach(d => {
+      d.setAttribute('role', 'button');
+      if (!d.hasAttribute('tabindex')) d.tabIndex = 0;
+    });
+    document.querySelectorAll('.page.active .tab-group, .modal-overlay.open .tab-group').forEach(g => {
+      g.classList.toggle('is-scrollable', g.scrollWidth > g.clientWidth + 4);
+    });
+    if (matchMedia('(pointer: fine)').matches) {
+      document.querySelectorAll('.modal-overlay.open').forEach(m => {
+        if (openSeen.has(m)) return;
+        openSeen.add(m);
+        if (m.contains(document.activeElement)) return;
+        const f = [...m.querySelectorAll('input:not([type=hidden]):not([type=date]):not([type=checkbox]):not([type=radio]):not([type=file]):not([readonly]):not([disabled]):not(.flatpickr-input),textarea:not([readonly]):not([disabled])')]
+          .find(el => el.offsetParent !== null);
+        if (f) setTimeout(() => { try { f.focus({ preventScroll: true }); } catch (e) {} }, 60);
+      });
+      document.querySelectorAll('.modal-overlay:not(.open)').forEach(m => openSeen.delete(m));
+    }
+  }
+  new MutationObserver(() => { if (!t) t = setTimeout(enhance, 250); })
+    .observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const el = e.target;
+    if (!el || el.getAttribute('role') !== 'button' || /^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return;
+    e.preventDefault();
+    el.click();
+  });
+  document.addEventListener('scroll', e => {
+    const g = e.target;
+    if (g && g.classList && g.classList.contains('is-scrollable')) g.classList.toggle('at-end', g.scrollLeft + g.clientWidth >= g.scrollWidth - 4);
+  }, true);
+  addEventListener('resize', () => { if (!t) t = setTimeout(enhance, 250); });
+})();
+
 // Phones: the "+" button slides away while scrolling down and comes back on scroll up,
 // so it never sits on a card's last button (doer audit 2026-10-27).
 (function () {
@@ -16637,7 +16736,7 @@ function cataloguePdfRowHtml(item) {
     <td>📄</td>
     <td><a href="${esc(item.url)}" target="_blank" style="font-weight:600;color:var(--color-primary)">${esc(item.filename)}</a></td>
     <td>${esc(item.uploaded_by_name || '—')}</td>
-    <td style="white-space:nowrap;color:var(--gray-500)">${esc(item.created_at || '—')}</td>
+    <td style="white-space:nowrap;color:var(--gray-500)">${esc(fmtDateDMY(item.created_at, true) || '—')}</td>
     <td style="white-space:nowrap;display:flex;gap:4px">
       <a class="btn btn-outline btn-sm" href="${esc(downloadUrl)}" target="_blank" title="Download">⬇ Download</a>
       ${o2dCataloguePdfsCanEdit ? `<button class="btn btn-sm ${+item.send_on_welcome ? 'btn-green' : 'btn-outline'}" onclick="toggleCatalogueWelcome(${item.id}, ${+item.send_on_welcome ? 0 : 1})" title="Naye dealer ke welcome kit me ye PDF jaye">📲 ${+item.send_on_welcome ? 'Naye dealer ko ✓' : 'Naye dealer ko bhejo?'}</button>`
@@ -25218,7 +25317,7 @@ function renderCallReports() {
     ${card('📞 Calls', list.length, `${mins} min`)}${card('🛒 Order', count('Order'))}${card('💰 Payment', count('Payment'))}
     ${card('⚠️ Complaint', count('Complaint'))}${card('📅 Follow-up', list.filter(c => c.followup_date).length)}${card('❔ Dealer pata nahi', list.filter(c => !c.dealer_name).length)}</div>`;
   if (crData.silent.length) html += `<div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">
-    🔴 <b>Aaj koi recording nahi aayi:</b> ${crData.silent.map(s => `${esc(s.name)} <span style="opacity:.75">(last ${esc(s.last_call)})</span>`).join(', ')} — phone pe recording / Autosync band to nahi?</div>`;
+    🔴 <b>Aaj koi recording nahi aayi:</b> ${crData.silent.map(s => `${esc(s.name)} <span style="opacity:.75">(last ${esc(fmtDateDMY(s.last_call, true) || s.last_call)})</span>`).join(', ')} — phone pe recording / Autosync band to nahi?</div>`;
   if (ME.role === 'admin' && crData.unmapped.length) html += `<div style="background:var(--color-warning-bg);color:var(--color-warning-text);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">
     ⚠️ In drives ka salesman set nahi hai: ${crData.unmapped.map(u => `${esc(u.drive_name)} (${u.n})`).join(', ')} — <a href="#" onclick="openCallSetup();return false">⚙️ Setup</a> me salesman chuno.</div>`;
   // Salesman-wise summary (owner view, no salesman picked).
@@ -28897,11 +28996,11 @@ async function submitTransferSelected() {
   await _doTransfer(checked.map(cb => _transferDateTasks[parseInt(cb.dataset.idx)]).filter(Boolean));
 }
 
+// Callers overlap (loadApprovalBadge calls this too) — one request at a time.
+let _transferBadgeReq = null;
 async function loadTransferBadge() {
   if (ME.role !== 'admin' && ME.role !== 'hod') return;
   try {
-// Callers overlap (loadApprovalBadge calls this too) — one request at a time.
-let _transferBadgeReq = null;
     if (!_transferBadgeReq) _transferBadgeReq = api('/api/transfers/count').finally(() => { _transferBadgeReq = null; });
     const d = await _transferBadgeReq;
     const badge = document.getElementById('transferBadge');
