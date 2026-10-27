@@ -1288,6 +1288,67 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
 /* Modals */
 .modal-overlay{background:rgba(10,14,26,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
 .modal{border-radius:16px;box-shadow:0 24px 70px -12px rgba(15,23,42,.35),0 0 0 1px rgba(15,23,42,.04);}
+.modal-overlay.open > .modal{animation:ui-pop-in var(--dur-3) var(--ease-spring) both;}
+
+/* ══ UI review 2026-10-27 ══ */
+/* Sidebar: hover opens it OVER the page (the page no longer jumps under the
+   cursor, which made clicks land on the wrong thing); a short delay before it
+   opens / closes; the pin keeps it open and moves the page aside. */
+@media (min-width:769px){
+  .sidebar{transition:width .2s cubic-bezier(.4,0,.2,1) .18s;}
+  .sidebar:hover{transition-delay:.08s;}
+  #sidebar:hover ~ #mainContent{margin-left:var(--sidebar-w);}
+  body.sb-pinned #sidebar ~ #mainContent{margin-left:var(--sidebar-w-expanded);}
+  body.sb-pinned .sidebar{width:var(--sidebar-w-expanded) !important;}
+  body.sb-pinned .sidebar .logo-icon-only{opacity:0;}
+  body.sb-pinned .sidebar .logo-full-lockup,body.sb-pinned .sidebar .nav-label-text,body.sb-pinned .sidebar .nav-section-label,
+  body.sb-pinned .sidebar .su-info,body.sb-pinned .sidebar .logout-label{opacity:1 !important;}
+  body.sb-pinned .sidebar .nav{overflow-y:auto;overflow-x:hidden;}
+  body.sb-pinned .sidebar .nav-group-head .nav-chev{opacity:1;}
+}
+.sb-pin{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:28px;height:28px;border:none;border-radius:8px;cursor:pointer;z-index:2;
+  display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08);color:#94a3b8;opacity:0;transition:opacity .15s,background .15s,color .15s;}
+.sb-pin:hover{background:rgba(255,255,255,.16);color:#fff;}
+.sidebar:hover .sb-pin,body.sb-pinned .sb-pin{opacity:1;}
+body.sb-pinned .sb-pin{color:#ff8a85;}
+.sb-pin svg{width:15px;height:15px;}
+@media (max-width:768px){.sb-pin{display:none;}}
+.nav-search kbd{margin-left:auto;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.14);color:#94a3b8;}
+.sidebar,#topbarTitle{user-select:none;-webkit-user-select:none;}
+
+/* Links in pages take the theme colour (not the browser's blue underline) */
+#mainContent a:not(.btn):not(.action-btn){color:var(--color-primary);text-decoration:none;font-weight:600;}
+#mainContent a:not(.btn):not(.action-btn):hover{text-decoration:underline;}
+
+/* Dashboard pending table: taller box, 2-line descriptions (click to open), count + paging */
+@media (min-width:769px){
+  #dashTableWrap{max-height:min(68vh,760px) !important;}
+  .dt-clamp{max-height:2.9em;overflow:hidden;position:relative;cursor:pointer;}
+  .dt-clamp::after{content:'';position:absolute;left:0;right:0;bottom:0;height:1.1em;background:linear-gradient(transparent,var(--surface,#fff));pointer-events:none;}
+  .dt-clamp.open{max-height:none;}
+  .dt-clamp.open::after{display:none;}
+}
+.dash-count{font-size:12px;font-weight:600;color:var(--gray-500);margin-left:6px;}
+.dash-more td{text-align:center;padding:12px !important;background:var(--gray-50);font-size:12.5px;color:var(--gray-500);}
+.overview-cards.no-revised{grid-template-columns:repeat(2,1fr) !important;}
+
+/* A row's main action stays quiet until the row is hovered (mouse only) */
+@media (hover:hover){
+  .row-act{background:var(--surface,#fff) !important;color:#059669 !important;border:1.5px solid #a7f3d0 !important;box-shadow:none !important;}
+  tr:hover .row-act,.row-act:focus-visible{background:linear-gradient(135deg,#34d399,#10b981) !important;color:#fff !important;border-color:transparent !important;}
+}
+
+/* Table rows ease in (first dozen, staggered) */
+@keyframes uiRowIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+@media (prefers-reduced-motion:no-preference){
+  .page.active tbody tr:nth-child(-n+12){animation:uiRowIn .28s var(--ui-ease) both;}
+  .page.active tbody tr:nth-child(2){animation-delay:30ms}.page.active tbody tr:nth-child(3){animation-delay:60ms}
+  .page.active tbody tr:nth-child(4){animation-delay:90ms}.page.active tbody tr:nth-child(5){animation-delay:120ms}
+  .page.active tbody tr:nth-child(6){animation-delay:150ms}.page.active tbody tr:nth-child(7){animation-delay:180ms}
+  .page.active tbody tr:nth-child(8){animation-delay:210ms}.page.active tbody tr:nth-child(9){animation-delay:240ms}
+  .page.active tbody tr:nth-child(10){animation-delay:270ms}.page.active tbody tr:nth-child(11){animation-delay:300ms}
+  .page.active tbody tr:nth-child(12){animation-delay:330ms}
+}
 
 </style>
 </head>
@@ -1304,8 +1365,15 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     <div class="logo-full-lockup" style="position:absolute;left:13px;top:50%;transform:translateY(-50%);background:#fff;border-radius:9px;padding:5px 10px;opacity:0;transition:opacity .22s;box-shadow:var(--shadow-sm)">
       <img src="/logo-horizontal.png" alt="Ajanta Appliances" style="height:26px;width:auto;display:block"/>
     </div>
+    <button class="sb-pin" id="sbPinBtn" type="button" onclick="toggleSidebarPin()" title="Sidebar khula rakho (pin)" aria-label="Pin sidebar">
+      <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+    </button>
   </div>
   <nav class="nav">
+    <div class="nav-item nav-search" onclick="openCmdk()" title="Search (Ctrl+K)">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M21 21l-4.3-4.3"/></svg>
+      <span class="nav-label-text" style="display:flex;align-items:center;flex:1">Search<kbd>Ctrl K</kbd></span>
+    </div>
     <div class="nav-item active" onclick="navigate('dashboard',this)">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
       <span class="nav-label-text">Dashboard</span>
@@ -1719,7 +1787,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     <div class="dash-bottom">
       <div class="task-table-card">
         <div class="card-head" style="flex-wrap:wrap;gap:10px">
-          <div class="card-head-title">All Pending Tasks</div>
+          <div class="card-head-title">All Pending Tasks<span class="dash-count" id="dashCount"></span></div>
           <div style="display:flex;align-items:center;gap:10px">
             <div class="tab-group" id="dashTypeTabGroup">
               <div class="tab active" id="dashTabAll"   onclick="dashTab('all',this)">All</div>
@@ -2184,7 +2252,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
     <div class="page-header">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="sfmsNewComplaintBtn" style="display:none" onclick="openNewComplaintModal()">+ New Complaint</button>
-        <button class="btn btn-outline" id="sfmsCompletedBtn" onclick="switchSfmsView('completed', null)" style="color:var(--color-success-text);border-color:var(--color-success-border)">✅ Completed Complaints</button>
       </div>
       <button class="btn btn-outline" onclick="loadServiceFmsList()">🔄 Refresh</button>
       <button class="btn btn-outline" id="sfmsStepDoersBtn" style="display:none" onclick="openSfmsStepDoersModal()">⚙ Step Doers</button>
@@ -2203,7 +2270,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
       <input type="text" id="sfmsSearch" oninput="renderServiceFmsList()" placeholder="🔍 Search by Complain No, Name, Mobile, Product…" style="flex:1;min-width:160px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       <button class="btn btn-outline" id="sfmsExportSelectedBtn" onclick="exportSelectedComplaintsCsv()" disabled style="white-space:nowrap" title="Tick complaints below, then export just those — daily sheet format">⬇ Export Selected (0) Excel</button>
       <a class="btn btn-outline" href="/api/service-fms/daily.xlsx" download style="white-space:nowrap;text-decoration:none" title="Saari pending complaints — daily sheet format (No, Date, Customer, Mobile, Product, Problem, Address, Area)">⬇ Complaints Excel</a>
-      <a href="/api/service-fms/export.xlsx" download style="white-space:nowrap;font-size:12px;align-self:center" title="All complaints with every detail">Full data</a>
+      <a class="btn btn-outline" href="/api/service-fms/export.xlsx" download style="white-space:nowrap;text-decoration:none" title="All complaints with every detail">⬇ Full data</a>
     </div>
 
     <div id="sfmsListWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
@@ -2505,8 +2572,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
   <div id="page-collection" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">💰 Payment Follow-up</div>
-        <span style="font-size:12px;color:var(--gray-500)">15 din: WhatsApp · 25 din: call · 30 din: call · Delivery dues: payment terms se</span>
+        <div style="margin-right:auto;min-width:0">
+          <div style="font-size:19px;font-weight:900;color:var(--gray-900)">💰 Payment Follow-up</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">15 din: WhatsApp · 25 din: call · 30 din: call · Delivery dues: payment terms se</div>
+        </div>
         <button class="btn btn-outline" onclick="loadCollection(true)">🔄 Refresh</button>
       </div>
       <div id="colTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
@@ -5376,8 +5445,12 @@ async function loadDashboard() {
     return;
   }
 
-  document.getElementById('dRevised').textContent = (dDel.revised||0) + (dChl.revised||0);
-  document.getElementById('dCompleted').textContent = (dDel.completed||0) + (dChl.completed||0);
+  // Revised card only when there is something revised (UI review 2026-10-27).
+  const revisedN = (dDel.revised||0) + (dChl.revised||0);
+  uiCountUp(document.getElementById('dRevised'), revisedN);
+  document.querySelector('#page-dashboard .ov-card.revised').style.display = revisedN ? '' : 'none';
+  document.querySelector('#page-dashboard .overview-cards').classList.toggle('no-revised', !revisedN);
+  uiCountUp(document.getElementById('dCompleted'), (dDel.completed||0) + (dChl.completed||0));
 
   if (isAdmin || isHod || isPC) {
     empFilter.style.display = 'block';
@@ -5434,7 +5507,7 @@ async function loadDashboard() {
     // Pending count/chart use allTodayPending's actual length — it's the same
     // Delegation+Checklist+SFMS+O2D mix the table below renders, so the card
     // above it can't disagree with what's visibly listed.
-    document.getElementById('dPending').textContent = allTodayPending.length;
+    uiCountUp(document.getElementById('dPending'), allTodayPending.length);
     if (dashChartInst) dashChartInst.destroy();
     // Completed previously only ever summed Delegation+Checklist (set early,
     // before o2d even loaded) — O2D closed orders never counted, even though
@@ -5442,7 +5515,7 @@ async function loadDashboard() {
     const o2dCompleted = (window._lastO2dData || []).filter(o => o.closed).length;
     const sfmsCompleted = (window._lastSfmsData || []).filter(c => c.closed).length;
     const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + o2dCompleted + sfmsCompleted;
-    document.getElementById('dCompleted').textContent = combinedCompleted;
+    uiCountUp(document.getElementById('dCompleted'), combinedCompleted);
     const combinedRevised   = dDel.revised||0;
     const chartLabels = ['Completed','Pending','Revised'];
     const chartData   = [combinedCompleted, allTodayPending.length, combinedRevised];
@@ -5526,6 +5599,7 @@ async function refreshPCEmployeeDropdown() {
 
 function dashTab(type, el) {
   dashType = type;
+  _dashShowN = DASH_PAGE;
   document.querySelectorAll('#dashTypeTabGroup .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
   // Re-render table without full API reload
@@ -5549,6 +5623,7 @@ function toggleDashDateSort() {
 let dashFreq = 'all';
 function renderDashFreq() {
   dashFreq = document.getElementById('dashFreqFilter').value;
+  _dashShowN = DASH_PAGE;
   if (window._lastDashTasks) renderDashTable(window._lastDashTasks, dashType);
 }
 
@@ -5571,6 +5646,13 @@ function dashArrivedMs(t) {
   return isNaN(ms) ? 0 : ms;
 }
 
+// 50 rows at a time (634 pending made one endless box) — UI review 2026-10-27.
+const DASH_PAGE = 50;
+let _dashShowN = DASH_PAGE;
+function dashShowMore(all) {
+  _dashShowN = all ? Infinity : _dashShowN + DASH_PAGE;
+  if (window._lastDashTasks) renderDashTable(window._lastDashTasks, dashType);
+}
 function renderDashTable(tasks, type) {
   const dashFreqEl = document.getElementById('dashFreqFilter');
   if (dashFreqEl) dashFreqEl.style.display = type === 'checklist' ? '' : 'none';
@@ -5602,7 +5684,10 @@ function renderDashTable(tasks, type) {
   } else if (_dashDateSortState === 2) {
     allPending = [...allPending].sort((a,b) => dashPlannedKey(b).localeCompare(dashPlannedKey(a)));
   }
+  document.getElementById('dashCount').textContent = allPending.length ? ` (${allPending.length})` : '';
   if (!allPending.length) { tbody.innerHTML=`<tr><td colspan="10" class="empty">No pending tasks 🎉</td></tr>`; return; }
+  const totalPending = allPending.length;
+  allPending = allPending.slice(0, _dashShowN);
   const typeBadge = t => t.type==='checklist'
     ? `<span style="font-size:9px;background:var(--color-success-bg);color:var(--color-success-text);padding:2px 6px;border-radius:8px;font-weight:700;border:1px solid var(--color-success-border)">✅ Che</span>`
     : t.type==='fms'
@@ -5691,7 +5776,7 @@ function renderDashTable(tasks, type) {
       <td class="dt-type" style="white-space:nowrap">${typeBadge(t)}<span class="dt-dept-in-type" style="font-size:11px;color:var(--gray-500);font-weight:600">${isFmsRow ? '' : esc(t.assignedToDept||'')}</span></td>
       <td data-label="Dept" class="dt-dept" style="font-size:10px;color:var(--gray-500);max-width:120px;word-break:break-word;line-height:1.3">${esc(t.assignedToDept||'—')}</td>
       <td data-label="Title" class="dt-title${emptyCls(t.title)}" style="font-size:11px;font-weight:600;color:var(--gray-800);max-width:130px;word-break:break-word;line-height:1.3">${esc(t.title||'—')}</td>
-      <td data-label="Desc" class="dt-desc${descRepeatsTitle && !linkBtn ? ' dt-empty' : ''}">${descCell}</td>
+      <td data-label="Desc" class="dt-desc${descRepeatsTitle && !linkBtn ? ' dt-empty' : ''}"><div class="dt-clamp" onclick="this.classList.toggle('open')" title="Click — poora padhein">${descCell}</div></td>
       <td data-label="Planned" class="dt-meta dt-due${emptyCls(dueText)}" style="white-space:nowrap;font-size:12px${t.plannedLate ? ';color:var(--color-danger);font-weight:700' : ''}">${dueText || '—'}</td>
       <td data-label="${doerLabel}" class="dt-meta dt-doer${emptyCls(doerName)}" style="white-space:nowrap;font-size:12px;font-weight:600">${esc(doerName)}</td>
       <td data-label="Freq" class="dt-meta dt-freq${emptyCls(t.frequency)}" style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>
@@ -5699,7 +5784,7 @@ function renderDashTable(tasks, type) {
       <td data-label="Priority" class="dt-meta dt-prio${hasPriority ? '' : ' dt-empty'}">${hasPriority ? `<span class="priority-badge ${t.priority||'low'}">${t.priority||'low'}</span>` : '—'}</td>
       <td class="dt-action" style="white-space:nowrap">${actions}</td>
     </tr>`;
-  }).join('');
+  }).join('') + (totalPending > allPending.length ? `<tr class="dash-more"><td colspan="10">${allPending.length} / ${totalPending} dikh rahe · <button class="btn btn-outline btn-sm" onclick="dashShowMore()">Aur ${Math.min(DASH_PAGE, totalPending - allPending.length)} dikhao</button> <button class="btn btn-outline btn-sm" onclick="dashShowMore(true)">Sab dikhao</button></td></tr>` : '');
 }
 
 // ══════════════════════════════════════════════════════
@@ -9289,6 +9374,47 @@ document.addEventListener('keydown', function(e) {
     document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
   }
 });
+// Tab stays inside the open modal (the confirm / prompt box when one is up).
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Tab') return;
+  const box = ['confirmModal', 'promptModal'].map(id => document.getElementById(id)).find(m => m && m.classList.contains('open'))
+    || [...document.querySelectorAll('.modal-overlay.open')].pop();
+  if (!box) return;
+  const f = [...box.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+    .filter(el => el.offsetParent !== null);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (!box.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+// Sidebar pin (UI review 2026-10-27): kept open and the page moves aside; remembered per browser.
+function toggleSidebarPin(force) {
+  const on = typeof force === 'boolean' ? force : !document.body.classList.contains('sb-pinned');
+  document.body.classList.toggle('sb-pinned', on);
+  const b = document.getElementById('sbPinBtn');
+  if (b) b.title = on ? 'Sidebar band karo (unpin)' : 'Sidebar khula rakho (pin)';
+  try { localStorage.setItem('sbPinned', on ? '1' : '0'); } catch (e) {}
+}
+try { if (localStorage.getItem('sbPinned') === '1') toggleSidebarPin(true); } catch (e) {}
+
+// KPI numbers count up to their value instead of jumping.
+function uiCountUp(el, to) {
+  if (!el) return;
+  to = Number(to) || 0;
+  const from = parseInt(String(el.textContent).replace(/[^\d-]/g, ''), 10);
+  const start = isNaN(from) ? 0 : from;
+  cancelAnimationFrame(el._cu || 0);
+  if (start === to || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = to; return; }
+  const t0 = performance.now(), dur = 650;
+  const step = now => {
+    const p = Math.min(1, (now - t0) / dur), k = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(start + (to - start) * k);
+    if (p < 1) el._cu = requestAnimationFrame(step);
+  };
+  el._cu = requestAnimationFrame(step);
+}
 
 // Modals sirf Cancel/Close button se band honge — bahar click se nahi
 
@@ -11428,7 +11554,8 @@ function renderSfmsTabs() {
   const allowed = new Set(['all', 'completed', ...visible.map(d => 'step' + d.n), ...extra.map(e => e[0])]);
   if (!allowed.has(sfmsView)) sfmsView = 'all';
   const tab = (view, label) => `<div class="tab${sfmsView === view ? ' active' : ''}" onclick="switchSfmsView('${jsArg(view)}',this)">${label}</div>`;
-  document.getElementById('sfmsTabGroup').innerHTML = tab('all', 'All Complaints') +
+  // Completed sits right after All (UI review 2026-10-27 — was a separate button above).
+  document.getElementById('sfmsTabGroup').innerHTML = tab('all', 'All Complaints') + tab('completed', '<span id="sfmsCompletedTab">✅ Completed</span>') +
     visible.map(d => tab('step' + d.n, `${d.n}. ${esc(d.tab)}`)).join('') +
     extra.map(([v, l]) => tab(v, l)).join('');
   document.getElementById('sfmsNewComplaintBtn').style.display = sfmsCanEdit() && canForm('form-sfms-complaint') ? '' : 'none';
@@ -11437,11 +11564,10 @@ function renderSfmsTabs() {
 // Completed complaints live in their own list (client, 2026-10-07) — the
 // button next to "+ New Complaint"; All Complaints shows only open ones.
 function sfmsMarkCompletedBtn() {
-  const btn = document.getElementById('sfmsCompletedBtn');
-  if (btn) {
+  const tabEl = document.getElementById('sfmsCompletedTab');
+  if (tabEl) {
     const n = sfmsData.filter(c => c.closed).length;
-    btn.textContent = `✅ Completed Complaints${n ? ` (${n})` : ''}`;
-    btn.style.background = sfmsView === 'completed' ? 'var(--color-success-bg)' : '';
+    tabEl.textContent = `✅ Completed${n ? ` (${n})` : ''}`;
   }
   document.getElementById('sfmsSearchWrap').style.display = (sfmsView === 'all' || sfmsView === 'completed') ? '' : 'none';
 }
@@ -19879,7 +20005,7 @@ function renderCollection() {
   // Age buckets (Ajay sir, 2026-10-24): sum of the bills at least N days old; click → those bills.
   const ageSum = n => colData.bills.filter(b => b.days >= n).reduce((a, b) => a + Math.max(b.amount, 0), 0);
   const ageCnt = n => colData.bills.filter(b => b.days >= n && b.amount > 0).length;
-  const card = (l, v, c, click, on) => `<div ${click ? `onclick="${click}" title="Click — ye bill dekho"` : ''} style="background:${on ? 'var(--color-primary-light)' : 'var(--surface)'};border:1.5px solid ${on ? 'var(--color-primary)' : 'var(--gray-200)'};border-radius:10px;padding:8px 14px;min-width:120px${click ? ';cursor:pointer' : ''}"><div style="font-size:11px;color:var(--gray-500);font-weight:600">${l}</div><div style="font-size:17px;font-weight:800;color:${c || 'var(--gray-800)'}">${v}</div></div>`;
+  const card = (l, v, c, click, on) => `<div ${click ? `onclick="${click}" title="Click — ye bill dekho"` : ''} style="background:${on ? 'var(--color-primary-light)' : 'var(--surface)'};border:1.5px solid ${on ? 'var(--color-primary)' : 'var(--gray-200)'};border-radius:10px;padding:8px 14px;min-width:140px${click ? ';cursor:pointer' : ''}"><div style="font-size:11px;color:var(--gray-500);font-weight:600;white-space:nowrap">${l}</div><div style="font-size:17px;font-weight:800;color:${c || 'var(--gray-800)'}">${v}</div></div>`;
   const ageCard = (n, c) => card(`${n}+ din wale bill (${ageCnt(n)})`, inr(ageSum(n)), c, `colShowAge(${n})`, colTab === 'age' && colAge === n);
   const note = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${card('💰 Total outstanding', inr(colData.totalOutstanding || 0), 'var(--color-primary)')}${card(`${parties.length} parties`, '', '', "colSetTab('parties')")}${ageCard(15, 'var(--color-warning-text)')}${ageCard(30, 'var(--color-danger)')}${ageCard(45, 'var(--color-danger)')}${ageCard(60, 'var(--color-danger)')}${ageCard(75, 'var(--color-danger)')}${ageCard(90, '#7f1d1d')}</div>
     <div style="font-size:12px;color:${stale != null && stale >= 2 ? 'var(--color-danger)' : 'var(--gray-500)'};margin-bottom:10px">Tally se baaki bill — last sync ${synced ? esc(fmtDateDMY(o2dReportsFmtDate(synced))) : '—'}${stale != null && stale >= 2 ? ` · ⚠️ <b>${stale} din purana</b> — Tally PC par sync check karein. Jab tak sync nahi hota, WhatsApp reminder apne aap nahi jayenge (paid dealers ko galat message na jaye).` : ''}. Amount = party ka Tally ledger balance (on-account payment purane bill se kat jaata hai). Party ke naam par click karke payment / phone daalein.</div>`;
@@ -19901,7 +20027,7 @@ function renderCollection() {
       ${calls.map(({ b, step }) => `<tr><td>${partyCell(b)}</td>
         <td style="white-space:nowrap">${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td>
         <td>${billAge(b)}</td><td style="text-align:right">${inr(colPartyOf(b.party).outstanding)}</td><td><span class="status-badge" style="background:${step === 'call30' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${step === 'call30' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'}">${step === 'call30' ? '30 din call' : '25 din call'}</span></td>
-        <td>${tel(b)}</td><td><button class="btn btn-sm btn-green" onclick="openColCall('${o2dJsEsc(b.key)}','${jsArg(step)}')">✓ Call ho gaya</button></td></tr>`).join('')}</tbody></table></div>`
+        <td>${tel(b)}</td><td><button class="btn btn-sm btn-green row-act" onclick="openColCall('${o2dJsEsc(b.key)}','${jsArg(step)}')">✓ Call ho gaya</button></td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">Aaj koi call due nahi 🎉</div>');
   } else if (colTab === 'parties') {
     wrap.innerHTML = note + `<input placeholder="🔍 Party search…" value="${esc(colPartyQ)}" oninput="colPartyQ=this.value;colRenderPartyRows()" style="${VRL_IN};margin-bottom:8px;max-width:340px"/><div id="colPartyRows"></div>`;
