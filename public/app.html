@@ -5447,10 +5447,10 @@ async function loadDashboard() {
 
   // Revised card only when there is something revised (UI review 2026-10-27).
   const revisedN = (dDel.revised||0) + (dChl.revised||0);
-  uiCountUp(document.getElementById('dRevised'), revisedN);
+  document.getElementById('dRevised').textContent = revisedN;
   document.querySelector('#page-dashboard .ov-card.revised').style.display = revisedN ? '' : 'none';
   document.querySelector('#page-dashboard .overview-cards').classList.toggle('no-revised', !revisedN);
-  uiCountUp(document.getElementById('dCompleted'), (dDel.completed||0) + (dChl.completed||0));
+  document.getElementById('dCompleted').textContent = (dDel.completed||0) + (dChl.completed||0);
 
   if (isAdmin || isHod || isPC) {
     empFilter.style.display = 'block';
@@ -5507,7 +5507,7 @@ async function loadDashboard() {
     // Pending count/chart use allTodayPending's actual length — it's the same
     // Delegation+Checklist+SFMS+O2D mix the table below renders, so the card
     // above it can't disagree with what's visibly listed.
-    uiCountUp(document.getElementById('dPending'), allTodayPending.length);
+    document.getElementById('dPending').textContent = allTodayPending.length;
     if (dashChartInst) dashChartInst.destroy();
     // Completed previously only ever summed Delegation+Checklist (set early,
     // before o2d even loaded) — O2D closed orders never counted, even though
@@ -5515,7 +5515,7 @@ async function loadDashboard() {
     const o2dCompleted = (window._lastO2dData || []).filter(o => o.closed).length;
     const sfmsCompleted = (window._lastSfmsData || []).filter(c => c.closed).length;
     const combinedCompleted = (dDel.completed||0) + (dChl.completed||0) + o2dCompleted + sfmsCompleted;
-    uiCountUp(document.getElementById('dCompleted'), combinedCompleted);
+    document.getElementById('dCompleted').textContent = combinedCompleted;
     const combinedRevised   = dDel.revised||0;
     const chartLabels = ['Completed','Pending','Revised'];
     const chartData   = [combinedCompleted, allTodayPending.length, combinedRevised];
@@ -9399,22 +9399,6 @@ function toggleSidebarPin(force) {
 }
 try { if (localStorage.getItem('sbPinned') === '1') toggleSidebarPin(true); } catch (e) {}
 
-// KPI numbers count up to their value instead of jumping.
-function uiCountUp(el, to) {
-  if (!el) return;
-  to = Number(to) || 0;
-  const from = parseInt(String(el.textContent).replace(/[^\d-]/g, ''), 10);
-  const start = isNaN(from) ? 0 : from;
-  cancelAnimationFrame(el._cu || 0);
-  if (start === to || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = to; return; }
-  const t0 = performance.now(), dur = 650;
-  const step = now => {
-    const p = Math.min(1, (now - t0) / dur), k = 1 - Math.pow(1 - p, 3);
-    el.textContent = Math.round(start + (to - start) * k);
-    if (p < 1) el._cu = requestAnimationFrame(step);
-  };
-  el._cu = requestAnimationFrame(step);
-}
 
 // Modals sirf Cancel/Close button se band honge — bahar click se nahi
 
@@ -29160,4 +29144,4 @@ html.fest-day .topbar-title{color:var(--fest-c2)}
 })();
 </script>
 </body>
-</html>
+</html><script src="/ajanta-dashboard-fx.js" defer></script>
