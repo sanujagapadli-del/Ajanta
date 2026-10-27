@@ -16157,7 +16157,10 @@ async function smpTables() {
     created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     returned_qty DECIMAL(10,2), outcome_at DATETIME, outcome_by INT, outcome_remark VARCHAR(500), cancelled_at DATETIME, cancel_reason VARCHAR(500)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
-  await addMissingColumns('sample_issues', [['photo', 'VARCHAR(500)'], ['outcome_photo', 'VARCHAR(500)']]);
+  await addMissingColumns('sample_issues', [['photo', 'VARCHAR(500)'], ['outcome_photo', 'VARCHAR(500)'],
+    // Outcome kinds (client 2026-10-27): returned / sold (dealer's bill) / kept for some days (hold, stays open).
+    ['outcome_type', 'VARCHAR(12)'], ['bill_no', 'VARCHAR(60)'], ['bill_file', 'VARCHAR(500)'],
+    ['hold_until', 'DATE'], ['hold_remark', 'VARCHAR(500)'], ['hold_at', 'DATETIME'], ['hold_by', 'INT']]);
   // Stock register shows sample OUT / IN as "Sample", not "Manual" (client list 10-26 #9);
   // entries made before that carry the code only in the remark.
   await ensureStockTxnSchema();
@@ -16177,7 +16180,9 @@ async function smpLoad(where = '', params = []) {
   return rows.map(s => ({ id: s.id, code: s.code, issueDate: s.issue_date, salesmanUserId: s.salesman_user_id, salesmanName: s.salesman_name || '', itemCode: s.item_code,
     itemName: s.item_name || '', uom: s.uom || '', qty: n(s.qty), dealerName: s.dealer_name || '', purpose: s.purpose || '', remark: s.remark || '', createdAt: s.created_at,
     createdByName: s.created_by_name || '', photo: s.photo || '', days: n(s.days), returnedQty: s.returned_qty == null ? null : n(s.returned_qty), leftQty: s.outcome_at ? n(s.qty) - n(s.returned_qty) : null,
-    outcomeAt: s.outcome_at, outcomeByName: s.outcome_by_name || '', outcomeRemark: s.outcome_remark || '', outcomePhoto: s.outcome_photo || '', cancelledAt: s.cancelled_at, cancelReason: s.cancel_reason || '',
+    outcomeAt: s.outcome_at, outcomeByName: s.outcome_by_name || '', outcomeRemark: s.outcome_remark || '', outcomePhoto: s.outcome_photo || '',
+    outcomeType: s.outcome_type || (s.outcome_at ? 'returned' : ''), billNo: s.bill_no || '', billFile: s.bill_file || '',
+    holdUntil: !s.outcome_at && s.hold_at ? String(s.hold_until || '').slice(0, 10) : '', holdRemark: s.hold_remark || '', cancelledAt: s.cancelled_at, cancelReason: s.cancel_reason || '',
     status: s.cancelled_at ? 'Cancelled' : s.outcome_at ? 'Settled' : 'With salesman' }));
 }
 app.get('/api/samples', requireAuth, async (req, res) => {
@@ -16253,11 +16258,31 @@ app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
     const back = Number(b.returnedQty) || 0;
     if (back < 0 || back > s.qty) return res.status(400).json({ error: `Returned qty must be between 0 and ${s.qty}` });
     const remark = String(b.remark || '').trim().slice(0, 500);
+    // Dealer kept it for some days → stays open with a "till" date (client 2026-10-27).
+    if (b.kind === 'hold') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(b.holdUntil || '')) return res.status(400).json({ error: 'Dealer kab tak rakhega — date chunein' });
+      await db.query('UPDATE sample_issues SET hold_until=?, hold_remark=?, hold_at=NOW(), hold_by=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL',
+        [b.holdUntil, remark || null, req.session.userId, s.id]);
+      const [fresh] = await smpLoad('WHERE s.id=?', [s.id]);
+      return res.json({ success: true, sample: fresh });
+    }
+    // Dealer bought it → his bill (photo / PDF) closes it; stock stays OUT.
+    if (b.kind === 'sold') {
+      const billNo = String(b.billNo || '').trim().slice(0, 60);
+      if (!billNo) return res.status(400).json({ error: 'Bill No. likhein' });
+      if (!docDataUriKind(b.bill)) return res.status(400).json({ error: 'Bill ki photo ya PDF lagayein' });
+      const billFile = await uploadDocToDrive(b.bill, `${s.code}-bill-${Date.now()}`);
+      const [claim] = await db.query("UPDATE sample_issues SET returned_qty=0, outcome_type='sold', bill_no=?, bill_file=?, outcome_at=NOW(), outcome_by=?, outcome_remark=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
+        [billNo, billFile, req.session.userId, remark || null, s.id]);
+      if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
+      const [fresh] = await smpLoad('WHERE s.id=?', [s.id]);
+      return res.json({ success: true, sample: fresh });
+    }
     if (back < s.qty && !remark) return res.status(400).json({ error: 'Kisko diya / kahan gaya — remark likhein' });
     // Photo of what came back is required (Priyanka 2026-10-27).
     if (back > 0 && !/^data:image\//.test(b.photo || '')) return res.status(400).json({ error: 'Wapas aaye sample ki photo lagayein' });
     const photo = back > 0 ? await uploadPhotoToDrive(b.photo, `${s.code}-received-${Date.now()}.jpg`) : null;
-    const [claim] = await db.query('UPDATE sample_issues SET returned_qty=?, outcome_at=NOW(), outcome_by=?, outcome_remark=?, outcome_photo=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL',
+    const [claim] = await db.query("UPDATE sample_issues SET returned_qty=?, outcome_type='returned', outcome_at=NOW(), outcome_by=?, outcome_remark=?, outcome_photo=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
       [back, req.session.userId, remark || null, photo, s.id]);
     if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
     if (back > 0) {

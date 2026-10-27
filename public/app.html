@@ -21187,15 +21187,20 @@ function smpSetTab(t) { smpTab = t; renderSmp(); }
 function renderSmp() {
   if (!smpData) return;
   const all = smpData.samples;
-  const out = all.filter(s => s.status === 'With salesman'), old = out.filter(s => s.days > 15);
+  // Kept by the dealer till a date → not late until that date has passed.
+  const today = stockTodayYmd();
+  const isLate = s => s.status === 'With salesman' && s.days > 15 && !(s.holdUntil && s.holdUntil >= today);
+  const out = all.filter(s => s.status === 'With salesman'), old = out.filter(isLate);
   const tab = (k, l) => `<button class="btn btn-sm ${smpTab === k ? 'btn-primary' : 'btn-outline'}" onclick="smpSetTab('${jsArg(k)}')">${l}</button>`;
   document.getElementById('smpTabs').innerHTML = tab('out', `With salesman (${out.length})${old.length ? ` · ⚠ ${old.length} over 15 days` : ''}`) + tab('all', `All (${all.length})`);
   const q = document.getElementById('smpSearch').value.trim().toLowerCase();
   const list = (smpTab === 'out' ? out : all).filter(s => !q || `${s.code} ${s.salesmanName} ${s.itemName} ${s.dealerName} ${s.purpose}`.toLowerCase().includes(q));
-  const badge = s => s.status === 'With salesman' ? '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">With salesman</span>'
-    : s.status === 'Settled' ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Settled</span>' : '<span class="status-badge">Cancelled</span>';
+  const badge = s => s.status === 'With salesman'
+    ? (s.holdUntil ? `<span class="status-badge" style="background:var(--color-primary-light);color:var(--color-primary)">🕒 Dealer ke paas — ${esc(fmtDateDMY(s.holdUntil))} tak</span>` : '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">With salesman</span>')
+    : s.status === 'Settled' ? (s.outcomeType === 'sold' ? `<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">🧾 Dealer ne kharida${s.billNo ? ' · Bill ' + esc(s.billNo) : ''}</span>` : '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Wapas aaya</span>')
+    : '<span class="status-badge">Cancelled</span>';
   document.getElementById('smpWrap').innerHTML = list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Sample</th><th>Salesman</th><th>Item</th><th>Qty</th><th>Route / purpose</th><th>Back</th><th>Days</th><th>Status</th></tr></thead><tbody>
-    ${list.map(s => { const late = s.status === 'With salesman' && s.days > 15; return `<tr onclick="openSmpDetail(${s.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
+    ${list.map(s => { const late = isLate(s); return `<tr onclick="openSmpDetail(${s.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
       <td style="font-weight:600;white-space:nowrap">${esc(s.code)}<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(fmtDateDMY(s.issueDate))}</div>${entrySubHtml(s.createdAt)}</td>
       <td>${esc(s.salesmanName)}</td><td>${esc(s.itemName)}</td><td style="font-weight:700">${s.qty}</td>
       <td>${esc(s.dealerName || '—')}${s.purpose ? `<div style="font-size:11px;color:var(--gray-500)">${esc(s.purpose)}</div>` : ''}</td>
@@ -21265,21 +21270,52 @@ function openSmpDetail(id) {
       ${s.photo ? `<a href="${esc(s.photo)}" target="_blank">📷 Photo dekho</a><br/>` : ''}${s.dealerName ? 'Route: <b>' + esc(s.dealerName) + '</b><br/>' : ''}${s.purpose ? 'Purpose: ' + esc(s.purpose) + '<br/>' : ''}${s.remark ? esc(s.remark) + '<br/>' : ''}
       <span style="font-size:11.5px;color:var(--gray-500)">Diya by ${esc(s.createdByName)} · ${esc(fmtDateDMY(s.createdAt, true))}</span>
       ${s.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(s.cancelReason)}</div>` : ''}
-      ${s.outcomeAt ? `<div style="margin-top:6px">✅ Wapas aaya: <b>${s.returnedQty}</b>${s.leftQty ? ` · dealer ke paas chhoda: <b>${s.leftQty}</b>` : ''}${s.outcomeRemark ? ' · ' + esc(s.outcomeRemark) : ''}${s.outcomePhoto ? ` · <a href="${esc(s.outcomePhoto)}" target="_blank">📷 Wapas aane ki photo</a>` : ''}<br/><span style="font-size:11.5px;color:var(--gray-500)">${esc(s.outcomeByName)} · ${esc(fmtDateDMY(s.outcomeAt, true))}</span></div>` : ''}</div>
+      ${s.outcomeAt && s.outcomeType === 'sold' ? `<div style="margin-top:6px">🧾 Dealer ne kharid liya — Bill <b>${esc(s.billNo)}</b>${s.billFile ? ` · ${linkOrText(s.billFile, '📄 Bill dekho')}` : ''}${s.outcomeRemark ? ' · ' + esc(s.outcomeRemark) : ''}<br/><span style="font-size:11.5px;color:var(--gray-500)">${esc(s.outcomeByName)} · ${esc(fmtDateDMY(s.outcomeAt, true))}</span></div>`
+        : s.outcomeAt ? `<div style="margin-top:6px">✅ Wapas aaya: <b>${s.returnedQty}</b>${s.leftQty ? ` · dealer ke paas chhoda: <b>${s.leftQty}</b>` : ''}${s.outcomeRemark ? ' · ' + esc(s.outcomeRemark) : ''}${s.outcomePhoto ? ` · <a href="${esc(s.outcomePhoto)}" target="_blank">📷 Wapas aane ki photo</a>` : ''}<br/><span style="font-size:11.5px;color:var(--gray-500)">${esc(s.outcomeByName)} · ${esc(fmtDateDMY(s.outcomeAt, true))}</span></div>` : ''}
+      ${open && s.holdUntil ? `<div style="margin-top:6px;color:var(--color-primary)">🕒 Dealer ne rakh liya — <b>${esc(fmtDateDMY(s.holdUntil))}</b> tak${s.holdRemark ? ' · ' + esc(s.holdRemark) : ''}</div>` : ''}</div>
     ${open ? `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
       <div style="font-weight:700;font-size:13px;margin-bottom:8px">Sample ka kya hua?</div>
-      <label style="font-size:11.5px">Kitna wapas aaya (stock me IN hoga)</label><input id="smpBack" type="number" min="0" max="${s.qty}" value="${s.qty}" style="${VRL_IN};margin-bottom:8px"/>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${[['returned', '↩ Wapas aaya'], ['sold', '🧾 Dealer ne kharid liya (bill)'], ['hold', '🕒 Dealer ne kuch din rakha']].map(([k, l], i) =>
+        `<label style="flex:1;min-width:140px;display:flex;gap:6px;align-items:center;padding:9px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:12.5px;font-weight:600;cursor:pointer;background:var(--surface)"><input type="radio" name="smpKind" value="${k}" ${i === 0 ? 'checked' : ''} onchange="smpKindChanged()"/> ${l}</label>`).join('')}</div>
+      <div id="smpK_returned">
+        <label style="font-size:11.5px">Kitna wapas aaya (stock me IN hoga)</label><input id="smpBack" type="number" min="0" max="${s.qty}" value="${s.qty}" style="${VRL_IN};margin-bottom:8px"/>
+        <label style="font-size:11.5px">📷 Wapas aaye sample ki photo <span style="color:var(--color-danger)">*</span></label>
+        <input id="smpBackPhoto" type="file" accept="image/*" capture="environment" onchange="smpPhotoPick(this,'smpBackPv')" style="${VRL_IN};margin-bottom:4px"/><div id="smpBackPv" style="font-size:12px;margin-bottom:8px"></div></div>
+      <div id="smpK_sold" style="display:none">
+        <label style="font-size:11.5px">Bill No. <span style="color:var(--color-danger)">*</span></label><input id="smpBillNo" style="${VRL_IN};margin-bottom:8px"/>
+        <label style="font-size:11.5px">📄 Bill — photo ya PDF <span style="color:var(--color-danger)">*</span></label>
+        <input id="smpBill" type="file" accept="image/*,application/pdf" onchange="onChequePhotoSelected(this,'smpBillPv')" style="${VRL_IN};margin-bottom:4px"/><div id="smpBillPv" style="font-size:12px;margin-bottom:8px"></div>
+        <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:8px">Sample stock me wapas nahi aayega — dealer ko bech diya.</div></div>
+      <div id="smpK_hold" style="display:none">
+        <label style="font-size:11.5px">Dealer kab tak rakhega? <span style="color:var(--color-danger)">*</span></label><input id="smpHoldUntil" type="date" min="${stockTodayYmd()}" value="${esc(s.holdUntil || '')}" style="${VRL_IN};margin-bottom:8px"/>
+        <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:8px">Sample khula rahega — date ke baad wapas / bill entry kar dena.</div></div>
       <label style="font-size:11.5px">Remark <span style="color:var(--gray-400)">(jo wapas nahi aaya — kisko diya / kahan gaya)</span></label><input id="smpOutRemark" style="${VRL_IN};margin-bottom:8px"/>
-      <label style="font-size:11.5px">📷 Wapas aaye sample ki photo <span style="color:var(--color-danger)">*</span></label>
-      <input id="smpBackPhoto" type="file" accept="image/*" capture="environment" onchange="smpPhotoPick(this,'smpBackPv')" style="${VRL_IN};margin-bottom:4px"/><div id="smpBackPv" style="font-size:12px;margin-bottom:8px"></div>
       <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveSmpOutcome(${s.id},this)">✓ Save</button></div>` : ''}
     ${smpData.me.isAdmin && open ? `<button class="btn btn-outline" style="color:var(--color-danger)" onclick="cancelSmp(${s.id})">🚫 Cancel (stock wapas)</button>` : ''}`, 520);
 }
+function smpKindChanged() {
+  const k = (document.querySelector('input[name="smpKind"]:checked') || {}).value || 'returned';
+  ['returned', 'sold', 'hold'].forEach(x => { document.getElementById('smpK_' + x).style.display = x === k ? '' : 'none'; });
+}
+// Returned (photo) / bought by the dealer (bill) / kept by the dealer till a date (stays open) — client 2026-10-27.
 async function saveSmpOutcome(id, btn) {
-  const photo = document.getElementById('smpBackPhoto').dataset.compressed || '';
-  if (Number(document.getElementById('smpBack').value) > 0 && !photo) { showToast('Wapas aaye sample ki photo lagayein', 'error'); return; }
+  const kind = (document.querySelector('input[name="smpKind"]:checked') || {}).value || 'returned';
+  const remark = document.getElementById('smpOutRemark').value.trim();
+  let body;
+  if (kind === 'sold') {
+    body = { kind, billNo: document.getElementById('smpBillNo').value.trim(), bill: document.getElementById('smpBill').dataset.compressed || '', remark };
+    if (!body.billNo) { showToast('Bill No. likhein', 'error'); return; }
+    if (!body.bill) { showToast('Bill ki photo ya PDF lagayein', 'error'); return; }
+  } else if (kind === 'hold') {
+    body = { kind, holdUntil: document.getElementById('smpHoldUntil').value, remark };
+    if (!body.holdUntil) { showToast('Dealer kab tak rakhega — date chunein', 'error'); return; }
+  } else {
+    const photo = document.getElementById('smpBackPhoto').dataset.compressed || '';
+    if (Number(document.getElementById('smpBack').value) > 0 && !photo) { showToast('Wapas aaye sample ki photo lagayein', 'error'); return; }
+    body = { kind, returnedQty: document.getElementById('smpBack').value, remark, photo };
+  }
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api(`/api/samples/${id}/outcome`, 'POST', { returnedQty: document.getElementById('smpBack').value, remark: document.getElementById('smpOutRemark').value.trim(), photo });
+  const r = await api(`/api/samples/${id}/outcome`, 'POST', body);
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('smpDetailModal');
@@ -21299,7 +21335,7 @@ async function cancelSmp(id) {
 // VENDOR REPLACEMENT LEDGER (client, 2026-10-14)
 // ══════════════════════════════════════════════════════
 let vrlData = null, vrlTab = 'open';
-const VRL_KIND_LABEL = { new: '🆕 New goods', repaired: '🔧 Repaired', credit: '🧾 Credit note' };
+const VRL_KIND_LABEL = { new: '🆕 New goods', old: '↩️ Old piece', repaired: '🔧 Repaired', credit: '🧾 Credit note' };
 async function loadVrl() {
   const r = await api('/api/vendor-ledger');
   if (r.error) { document.getElementById('vrlWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
