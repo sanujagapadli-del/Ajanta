@@ -8135,6 +8135,19 @@ async function tallyValuesGet(range) {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   return sheetsApi.spreadsheets.values.get({ spreadsheetId: BILLS_RECEIVABLE_SHEET_ID, range });
 }
+// Tally answers from whatever company / period is open on that PC — on
+// 2026-10-29 someone opened FY 25-26 and every bill came in 90+ days old
+// (client: "last year ka data fetch kare hi nahi"). A dated tab whose newest
+// row is over 45 days old is last year's books: refused, old data kept.
+// Sheet1 goes first, so the run stops there and nothing else is replaced.
+const TALLY_DATE_COL = { Sheet1: 2, Payments: 1, SalesItems: 2, LedgerVouchers: 1 };
+async function tallyOldPeriodReject(tab, batch) {
+  const [rows] = await db.query('SELECT data FROM tally_rows WHERE tab=? AND batch_id=? AND idx>0', [tab, batch]);
+  let newest = 0;
+  rows.forEach(r => { const d = parseAnyDate(JSON.parse(r.data)[TALLY_DATE_COL[tab]]); if (d && d.getTime() > newest) newest = d.getTime(); });
+  if (!newest || Date.now() - newest <= 45 * 86400000) return '';
+  return `Tally mein purane saal ka data khula hai (sabse naya ${toIsoDate(new Date(newest))}) — Tally mein current year (1-Apr se aaj tak) kholo`;
+}
 // One part of a tab: { tab, batch, part, parts, offset, rows } — rows are arrays, row 0 of part 0 is the header.
 app.post('/api/tally/push', async (req, res) => {
   try {
@@ -8158,6 +8171,7 @@ app.post('/api/tally/push', async (req, res) => {
       if (got !== expected) reject = `incomplete push (${got} of ${expected} rows arrived)`;
       else if (!head || !JSON.parse(head.data).some(v => String(v).trim())) reject = 'header row is empty';
       else if (prev && prev.row_count > 50 && got < prev.row_count * 0.1 && !b.allowShrink) reject = `only ${got} rows (last time ${prev.row_count}) — looks like a broken export`;
+      else if (TALLY_DATE_COL[tab] !== undefined) reject = await tallyOldPeriodReject(tab, batch);
       if (reject) {
         await db.query('DELETE FROM tally_rows WHERE tab=? AND batch_id=?', [tab, batch]);
         console.error(`Tally push ${tab} rejected:`, reject);
