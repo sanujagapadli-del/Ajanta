@@ -1491,6 +1491,11 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg>
         <span class="nav-label-text">Dealer Master</span>
       </div>
+      <!-- Own page (client 2026-10-29: "onboarding me bhari details / photos baad me dekhi ja sake") -->
+      <div class="nav-item" id="nav-onboarding" style="display:none" onclick="navigate('onboarding',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9l1.5-5h15L21 9M3 9h18M3 9v11h18V9M9 20v-6h6v6"/></svg>
+        <span class="nav-label-text">Dealer Onboarding</span>
+      </div>
       <div class="nav-item" id="nav-dealer-whatsapp" style="display:none" onclick="navigate('dealer-whatsapp',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.4-4 8-9 8a9.8 9.8 0 01-4-.8L3 20l1.4-3.7A7.6 7.6 0 013 12c0-4.4 4-8 9-8s9 3.6 9 8z"/></svg>
         <span class="nav-label-text">Dealer WhatsApp</span>
@@ -2052,6 +2057,13 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
           </div>
         </div>
       </div>
+      <!-- Home location, saved by the employee with the phone's GPS (client 2026-10-29) -->
+      <div class="pf-card" style="margin-top:16px">
+        <div class="pf-card-title"><span class="pf-ic">🏠</span> Ghar ki location</div>
+        <div id="myHomeLocStatus" style="font-size:13px;color:var(--gray-600);margin-bottom:10px">—</div>
+        <button class="btn btn-outline" id="myHomeLocBtn" onclick="saveMyHomeLocation(this)">📍 Main abhi ghar par hoon — location save karo</button>
+        <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Ghar par khade hokar dabayein. Phone location (GPS) on honi chahiye.</div>
+      </div>
       <div class="pf-save"><button class="btn btn-primary" onclick="saveProfile()">💾 Save Changes</button></div>
     </div>
   </div>
@@ -2354,6 +2366,16 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
   </div>
 
   <!-- ── DEALER MASTER (was O2D → Dealers) ── -->
+  <div id="page-onboarding" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="margin-right:auto"><div style="font-size:19px;font-weight:900;color:var(--gray-900)">🏪 Dealer Onboarding</div>
+        <div style="font-size:12px;color:var(--gray-500);margin-top:2px">Har bhara hua form — kisi row par click karein, saari details aur photos khulengi</div></div>
+      <button class="btn btn-outline" onclick="loadOnboardingPage()">🔄 Refresh</button>
+      <button class="btn btn-green" onclick="openDealerOnboardModal()">+ New Dealer (Onboarding form)</button>
+    </div>
+    <div id="onbPageWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
+  </div>
+
   <div id="page-dealers" class="page">
     <div id="dealerPageWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty ui-skel" aria-busy="true">Loading…</div>
@@ -4936,6 +4958,7 @@ async function init() {
     if (canSee('replacement-fms')) document.getElementById('nav-replacement-fms').style.display = 'flex';
     if (canSee('lead-fms')) document.getElementById('nav-lead-fms').style.display = 'flex';
     if (canSee('dealers')) document.getElementById('nav-dealers').style.display = 'flex';
+    if (canSee('dealers') || canSee('lead-fms')) document.getElementById('nav-onboarding').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
@@ -5188,7 +5211,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {'my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
+const pageTitles = {'my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -5206,6 +5229,7 @@ function navigate(page, el) {
   if (page === 'net-profit') { gpView = 'np'; page = 'gross-profit'; } // old saved page: Net Profit is a Gross Profit tab now
   const noAccess = ME && ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page))
     || (page === 'dealers' && !MY_PAGES.has('dealers')));
+  if (page === 'onboarding' && ME && ME.role !== 'admin' && !MY_PAGES.has('dealers') && !MY_PAGES.has('lead-fms')) { showToast("You don't have access to this page", 'error'); return; }
   if (noAccess) {
     showToast("You don't have access to this page", 'error');
     return;
@@ -5229,6 +5253,8 @@ function navigate(page, el) {
   if (page==='approvals') loadApprovals();
   if (basePage==='attendance') { attnView = basePage === page ? 'attendance' : page; loadAttendancePage(); }
   if (page==='dealers') loadDealersPage();
+  if (page==='profile') loadMyHomeLocation();
+  if (page==='onboarding') loadOnboardingPage();
   if (page==='fms') loadFMSAdmin();
   if (page==='fms-tasks') loadFMSTasks();
   if (page==='mis') { initMISDeptFilter(); misPeriodChanged(false); if (!taData) generateMIS(); } // MIS Report builds itself on first open
@@ -8428,6 +8454,7 @@ function empDetailsHtml(r) {
       ${empField('alt_phone', 'Alternate phone', p, { type: 'tel' })}
       ${empField('personal_email', 'Personal email', p, { type: 'email' })}
       ${empField('current_address', 'Current address', p, { area: true, wide: true })}
+      ${empRO('🏠 Ghar ki location', r.home ? `<a href="https://maps.google.com/?q=${r.home.lat},${r.home.lng}" target="_blank" rel="noopener">📍 Map par dekho</a>${r.home.at ? ` <span style="font-size:11px;color:var(--gray-500)">· ${esc(fmtDateDMY(r.home.at, true))}</span>` : ''}` : '<span style="color:var(--gray-400)">Employee ne Profile se save nahi ki</span>')}
       <div style="grid-column:1/-1">
         <div style="${EMP_LABEL};display:flex;justify-content:space-between;align-items:center">Permanent address
           <label style="text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" onchange="if(this.checked)document.getElementById('empF_permanent_address').value=document.getElementById('empF_current_address').value"/> same as current</label></div>
@@ -9378,6 +9405,28 @@ async function deleteUser(id) {
 // ══════════════════════════════════════════════════════
 // PROFILE
 // ══════════════════════════════════════════════════════
+async function loadMyHomeLocation() {
+  const el = document.getElementById('myHomeLocStatus');
+  if (!el) return;
+  const r = await api('/api/my-home-location');
+  el.innerHTML = r && r.lat != null
+    ? `✅ Saved${r.at ? ' · ' + esc(fmtDateDMY(r.at, true)) : ''} · <a href="https://maps.google.com/?q=${r.lat},${r.lng}" target="_blank" rel="noopener">📍 Map par dekho</a>${r.accuracy ? ` <span style="color:var(--gray-400)">(±${r.accuracy} m)</span>` : ''}`
+    : 'Abhi save nahi hui.';
+}
+function saveMyHomeLocation(btn) {
+  if (!navigator.geolocation) { showToast('Is phone / browser me location nahi milti', 'error'); return; }
+  const restore = btnLoading(btn, 'Location le rahe…');
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const r = await api('/api/my-home-location', 'PUT', { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
+    restore();
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('✅ Ghar ki location save ho gayi');
+    loadMyHomeLocation();
+  }, err => {
+    restore();
+    showToast(err.code === 1 ? 'Location ki permission dein (browser settings), phir dobara dabayein' : 'Location nahi mili — GPS on karke dobara try karein', 'error');
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+}
 async function saveProfile() {
   const s=document.getElementById('profileSuccess'),e=document.getElementById('profileError');
   s.style.display='none'; e.style.display='none';
@@ -18605,9 +18654,11 @@ function pfmsStatusRows() {
   const seenPo = new Set();
   const poRow = (o, p, base) => {
     const fu = (pfmsFollowups[o.poNumber] || []).slice(-1)[0];
+    // A line closed short ("PO close = Yes") is done, not "baaki" (client 2026-10-29).
     const short = p.receivedQty > 0 && p.pendingQty > 0;
-    const stage = p.received && !short ? 'received' : 'po';
-    const label = p.received && !short ? '✅ Maal aa gaya' : short ? `⚠ Kam aaya — ${p.pendingQty} baaki` : o.currentStep === 0 ? '📞 Follow-up baaki' : '📦 Maal aana baaki';
+    const stage = p.received ? 'received' : 'po';
+    const label = p.received ? (short ? `🔒 PO band — ${p.pendingQty} kam aaya` : '✅ Maal aa gaya')
+      : short ? `⚠ Kam aaya — ${p.pendingQty} baaki` : o.currentStep === 0 ? '📞 Follow-up baaki' : '📦 Maal aana baaki';
     rows.push({ ...base, poNumber: o.poNumber, stage, label, next: fu && fu.next ? fu.next : (o.steps[0] && o.steps[0].nextFollowup) || '', note: fu ? fu.remark : '', click: `openPurchaseDetail('${jsArg(o.poNumber)}')` });
   };
   (pfmsIndents || []).forEach(ind => ind.lines.forEach(l => {
@@ -19747,7 +19798,7 @@ function pfmsReceiptsHtml(poNumber) {
   if (!list.length) return '';
   return `<div style="${PFMS_FIELD_LABEL_STYLE}">📦 Maal aaya (${list.length})</div>
     <div style="margin-bottom:14px">${list.map(x => `<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--gray-100)">
-      <b>${esc(fmtDateDMY(x.date))}</b>${x.product ? ` · ${esc(x.product)}` : ''}${x.qty != null ? ` · ${esc(x.qty)} pcs` : ''} · Bill ${x.billNo ? `<b>${esc(x.billNo)}</b>` : '<span style="color:var(--gray-400)">—</span>'}
+      <b>${esc(fmtDateDMY(x.date))}</b>${x.product ? ` · ${esc(x.product)}` : ''}${x.qty != null ? ` · ${esc(x.qty)} pcs` : ''} · Bill ${x.billNo ? `<b>${esc(x.billNo)}</b>` : '<span style="color:var(--gray-400)">—</span>'}${x.note ? ` · 🔒 <b>PO band:</b> ${esc(x.note)}` : ''}
       <span style="color:var(--gray-400);font-size:11px">— ${esc(x.by)}, ${esc(fmtDateDMY(x.at, true))}</span></div>`).join('')}</div>`;
 }
 function readPurchaseField(f, poNumber) {
@@ -19771,6 +19822,8 @@ async function advancePurchaseStep(poNumber, step) {
     delete body.receivedQty;
     body.lines = qtyBoxes.map(el => ({ row: Number(el.dataset.row), qty: el.value.trim() }));
     if (!body.lines.some(l => Number(l.qty) > 0) && body.forceFullClosed !== 'Yes') { showToast('Kis item ke kitne pcs aaye — qty likhein', 'error'); return; }
+    body.closeRemark = ((document.getElementById(`pfmsCloseRemark_${poNumber}`) || {}).value || '').trim();
+    if (body.forceFullClosed === 'Yes' && !body.closeRemark) { showToast('PO band karne ki wajah likhein', 'error'); return; }
   }
   for (const f of stepDef.extraFields) {
     if (f.required && !f.readOnly && !(step === 2 && f.key === 'receivedQty') && !body[f.key]) { showToast(`${f.label} is required`, 'error'); return; }
@@ -19970,7 +20023,10 @@ function renderPurchaseDetailBody(o) {
             </div>`;
           }).join('')}
           <div style="color:var(--gray-500);padding-top:6px">Jo item nahi aaya uska khali chhodein — wo pending rahega.</div></div>` : '';
-    const extraInputsHtml = partHtml + nextStepDef.extraFields.filter(f => !f.readOnly && !(nextStepDef.n === 2 && f.key === 'receivedQty')).map(f => renderPurchaseField(f, o.poNumber)).join('');
+    const extraInputsHtml = partHtml + nextStepDef.extraFields.filter(f => !f.readOnly && !(nextStepDef.n === 2 && f.key === 'receivedQty')).map(f => renderPurchaseField(f, o.poNumber)).join('')
+      // Closing short needs a reason (client 2026-10-29: "goods kam aate hai uske baad remark dalkar close").
+      + (nextStepDef.n === 2 ? `<div style="${PFMS_FIELD_LABEL_STYLE}">PO band kar rahe ho to wajah <span style="color:var(--gray-400);font-weight:600">("PO close = Yes" par zaruri)</span></div>
+        <input id="pfmsCloseRemark_${esc(o.poNumber)}" maxlength="300" placeholder="Jaise: vendor ke paas stock nahi, baaki nahi aayega" style="${PFMS_INPUT_STYLE}"/>` : '');
     actionHtml = `
       <div style="border:1.5px solid var(--color-purple-border);background:var(--color-purple-bg);border-radius:14px;padding:18px;margin-bottom:16px">
         <div style="font-size:11px;font-weight:700;color:var(--color-purple-text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Next Action</div>
@@ -20241,6 +20297,21 @@ function openCollectionDues() {
   colTab = 'dues';
   navigate('collection', document.getElementById('nav-collection'));
 }
+// The exact WhatsApp text a party got (client 2026-10-29: on WhatsApp Web of the sending
+// number these show as "Waiting for this message", so the office couldn't see what went).
+async function colShowMsg(key) {
+  const r = await api(`/api/collection-followup/message?key=${encodeURIComponent(key)}`);
+  if (!r || r.error) { showToast((r && r.error) || 'Message nahi mila', 'error'); return; }
+  let m = document.getElementById('colMsgModal');
+  if (!m) { m = document.createElement('div'); m.className = 'modal-overlay'; m.id = 'colMsgModal'; document.body.appendChild(m); }
+  const stCol = r.status === 'sent' ? 'var(--color-success-text)' : r.status === 'failed' ? 'var(--color-danger)' : 'var(--color-warning-text)';
+  m.innerHTML = `<div class="modal" style="max-width:480px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">💬 ${esc(r.party || '')}</h3>
+      <button class="modal-close-x modal-close" onclick="closeModal('colMsgModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">📞 ${esc(r.phone || '—')} · ${r.sentAt ? esc(fmtDateDMY(r.sentAt, true)) : 'abhi nahi gaya'} · <b style="color:${stCol}">${esc(r.status === 'sent' ? 'Bhej diya' : r.status === 'failed' ? 'Nahi gaya' : 'Queue me')}</b>${r.error ? ` — ${esc(r.error)}` : ''}</div>
+    <div style="white-space:pre-wrap;background:#e7fcd7;border-radius:10px;padding:12px 14px;font-size:13.5px;line-height:1.45;color:#111">${esc(r.message || '(message text nahi mila)')}</div></div>`;
+  m.classList.add('open');
+}
 function colSetTab(t) { colTab = t; renderCollection(); }
 let colAge = 45;
 function colShowAge(n) { colAge = n; colTab = 'age'; renderCollection(); }
@@ -20324,7 +20395,7 @@ function renderCollection() {
     wrap.innerHTML = note + `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">Jo bill ${S.msg15.from} din ke ho gaye, unke dealer ko subah ~11 baje apne aap WhatsApp reminder jaata hai (ek dealer ko ek message, saare bill ek saath).${ME.role === 'admin' ? ' <button class="btn btn-sm btn-outline" style="margin-left:6px" onclick="colSendNow(this)">📤 Abhi bhejo</button>' : ''}</div>` +
       (msgs.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th>Phone</th><th>WhatsApp</th><th>WhatsApp date</th></tr></thead><tbody>
       ${msgs.map(b => `<tr><td>${partyCell(b)}</td><td>${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td>
-        <td>${billAge(b)}</td><td>${tel(b)}</td><td>${st(b)}</td><td style="white-space:nowrap">${colMsgDate(b)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Abhi koi bill 15 din ka nahi hua</div>');
+        <td>${billAge(b)}</td><td>${tel(b)}</td><td>${st(b)}${b.acts.msg15 ? ` <button class="btn btn-outline btn-sm" style="margin-left:4px" title="Dealer ko kya message gaya" onclick="colShowMsg('${o2dJsEsc(b.key)}')">👁 Message</button>` : ''}</td><td style="white-space:nowrap">${colMsgDate(b)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Abhi koi bill 15 din ka nahi hua</div>');
   } else {
     wrap.innerHTML = note + (done.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Call</th><th>Result</th><th>Kab / kisne</th></tr></thead><tbody>
       ${done.map(({ b, step, a }) => `<tr><td>${partyCell(b)}</td><td>${esc(b.billRef)}</td><td style="text-align:right">${inr(b.amount)}</td><td>${step === 'call30' ? '30 din' : '25 din'}</td>
@@ -24174,6 +24245,7 @@ async function submitDealerOnboarding() {
   closeModal('dealerOnboardModal');
   showToast(`✅ ${r.code} — ${body.shopName} onboarded (O2D → Dealers)${r.welcome === 'sending' ? ' · welcome kit WhatsApp par ja raha hai' : ''}`);
   if (document.getElementById('page-lead-fms').classList.contains('active')) loadLeadFmsList();
+  if (document.getElementById('page-onboarding').classList.contains('active')) loadOnboardingPage();
   if (o2dDealersLoaded) { await loadO2dDealers(true); refreshDealerViews(); }
 }
 
@@ -24214,6 +24286,7 @@ function deleteOnboarding(id, label) {
     showToast(`🗑 Delete ho gaya${r.dealer === 'deleted' ? ' — Dealer Master se bhi hata' : r.dealer === 'has orders' ? ' — dealer ke O2D order hain, isliye Dealer Master me rakha' : ''}`);
     const lm = document.getElementById('onbListModal');
     if (lm && lm.classList.contains('open')) openOnboardingList();
+    if (document.getElementById('page-onboarding').classList.contains('active')) loadOnboardingPage();
     if (o2dDealersLoaded) { await loadO2dDealers(true); refreshDealerViews(); }
   });
   document.getElementById('confirmMsg').insertAdjacentHTML('beforeend', '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;text-align:left"><input type="checkbox" id="onbDelDealer" checked/> Dealer Master se ye dealer bhi hatao (sirf jab iska koi O2D order nahi hai)</label>');
@@ -24236,11 +24309,20 @@ async function openOnboardingList() {
   const r = await api('/api/dealer-onboarding');
   const body = document.getElementById('onbListBody');
   if (!r || r.error) { body.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>`; return; }
-  const items = r.items || [];
-  if (!items.length) { body.innerHTML = '<div class="empty">Abhi koi onboarding form nahi bhara gaya</div>'; return; }
+  body.innerHTML = onbListHtml(r.items || []);
+}
+// Dealer Onboarding page (client 2026-10-29) — the same list as the Dealer Master popup.
+async function loadOnboardingPage() {
+  const wrap = document.getElementById('onbPageWrap');
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
+  const r = await api('/api/dealer-onboarding');
+  wrap.innerHTML = !r || r.error ? `<div class="empty">⚠️ ${esc((r && r.error) || 'Load failed')}</div>` : onbListHtml(r.items || []);
+}
+function onbListHtml(items) {
+  if (!items.length) return '<div class="empty">Abhi koi onboarding form nahi bhara gaya</div>';
   // Row click → the whole form with every photo; admin can delete a test entry right here (client list 10-26 #2 / #3).
   const admin = ME.role === 'admin';
-  body.innerHTML = `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Kisi bhi row par click karein — poora form aur saari photos khulengi.</div>
+  return `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Kisi bhi row par click karein — poora form aur saari photos khulengi.</div>
     <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Code</th><th>Dukaan</th><th>Malik / Mobile</th><th>City</th><th>Photos</th><th>Kisne bhara</th><th>Date</th>${admin ? '<th></th>' : ''}</tr></thead><tbody>
     ${items.map(o => { const n = [o.gstPhoto, o.outsidePhoto, o.aadhaarPhoto, o.chequePhoto, o.biltyPhoto, ...o.insidePhotos].filter(Boolean).length;
       return `<tr onclick="openOnboardDetail(${o.id})" style="cursor:pointer"><td style="font-weight:700;white-space:nowrap">${esc(o.code)}</td><td style="font-weight:600">${esc(o.shopName)}</td>

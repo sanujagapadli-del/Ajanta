@@ -9798,6 +9798,8 @@ function poReceiptTable() {
     .then(async () => {
       const [cols] = await db.query("SHOW COLUMNS FROM purchase_receipts LIKE 'product'");
       if (!cols.length) await db.query('ALTER TABLE purchase_receipts ADD COLUMN product VARCHAR(255) DEFAULT NULL');
+      const [nc] = await db.query("SHOW COLUMNS FROM purchase_receipts LIKE 'note'");
+      if (!nc.length) await db.query('ALTER TABLE purchase_receipts ADD COLUMN note VARCHAR(300) DEFAULT NULL'); // why a PO was closed short
     })
     .catch(e => { _poReceiptReady = null; throw e; });
   return _poReceiptReady;
@@ -9805,9 +9807,9 @@ function poReceiptTable() {
 app.get('/api/purchase-fms/receipts', requireAuth, async (req, res) => {
   try {
     await poReceiptTable();
-    const [rows] = await db.query("SELECT po_number, product, DATE_FORMAT(receive_date,'%Y-%m-%d') AS d, bill_no, qty, created_by_name, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS at FROM purchase_receipts ORDER BY id");
+    const [rows] = await db.query("SELECT po_number, product, DATE_FORMAT(receive_date,'%Y-%m-%d') AS d, bill_no, qty, note, created_by_name, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS at FROM purchase_receipts ORDER BY id");
     const out = {};
-    rows.forEach(r => { (out[r.po_number] = out[r.po_number] || []).push({ date: r.d, product: r.product || '', billNo: r.bill_no || '', qty: r.qty == null ? null : Number(r.qty), by: r.created_by_name || '', at: r.at }); });
+    rows.forEach(r => { (out[r.po_number] = out[r.po_number] || []).push({ date: r.d, product: r.product || '', billNo: r.bill_no || '', qty: r.qty == null ? null : Number(r.qty), note: r.note || '', by: r.created_by_name || '', at: r.at }); });
     res.json(out);
   } catch (err) { sendServerError(res, err); }
 });
@@ -9821,6 +9823,9 @@ app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req,
     const isReceive = stepNum === STOCK_PURCHASE_IN_STEP;
     const today = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
     if (isReceive && b.receiveDate && (!/^\d{4}-\d{2}-\d{2}$/.test(b.receiveDate) || b.receiveDate > today)) return res.status(400).json({ error: 'Receive date sahi chunein (aaj ya pehle ki)' });
+    // Closing a PO short needs a reason (client 2026-10-29) — the current form sends lines[].
+    const closeRemark = String(b.closeRemark || '').trim().slice(0, 300);
+    if (isReceive && Array.isArray(b.lines) && /^yes$/i.test(String(b.forceFullClosed || '')) && !closeRemark) return res.status(400).json({ error: 'PO band karne ki wajah likhein' });
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     const { rowsUpdated, badQty, noLineQty, overOrdered, overText, stillOpen, received } = await writePurchaseStepForPO(sheetsApi, poNumber, stepNum, b);
     if (badQty) return res.status(400).json({ error: 'Received Qty must be a number (0 or more)' });
@@ -9834,9 +9839,9 @@ app.put('/api/purchase-fms/po/:poNumber/step/:stepNum', requireAuth, async (req,
       const billNo = String(b.billNo || '').trim().slice(0, 80) || null;
       const recLines = Array.isArray(b.lines) ? (received.length ? received : [{ product: 'PO close', qty: 0 }])
         : [{ product: null, qty: b.receivedQty === '' || b.receivedQty == null ? null : Number(b.receivedQty) }];
-      for (const l of recLines) {
-        await db.query('INSERT INTO purchase_receipts (po_number, product, receive_date, bill_no, qty, created_by, created_by_name) VALUES (?,?,?,?,?,?,?)',
-          [poNumber, l.product ? l.product.slice(0, 255) : null, b.receiveDate || today, billNo, l.qty, req.session.userId, u ? u.name : '']);
+      for (const [i, l] of recLines.entries()) {
+        await db.query('INSERT INTO purchase_receipts (po_number, product, receive_date, bill_no, qty, note, created_by, created_by_name) VALUES (?,?,?,?,?,?,?,?)',
+          [poNumber, l.product ? l.product.slice(0, 255) : null, b.receiveDate || today, billNo, l.qty, i === 0 && closeRemark ? closeRemark : null, req.session.userId, u ? u.name : '']);
       }
     }
     res.json({ success: true, rowsUpdated, stillOpen });
@@ -15521,7 +15526,9 @@ app.get('/api/employees/:id', requireAuth, async (req, res) => {
     approved.filter(l => l.end_date >= year + '-01-01').forEach(l => { byType[l.leave_type || 'Other'] = (byType[l.leave_type || 'Other'] || 0) + (Number(l.days) || 0); });
     const profile = {};
     Object.keys(EMP_FIELDS).forEach(k => { profile[k] = prof && prof[k] != null ? (EMP_FIELDS[k] === 'date' ? empYmd(prof[k]) : String(prof[k])) : ''; });
+    const home = prof && prof.home_lat != null ? { lat: Number(prof.home_lat), lng: Number(prof.home_lng), at: prof.home_saved_at ? String(prof.home_saved_at).slice(0, 16) : '' } : null;
     res.json({
+      home,
       today, month, viewer, docTypes: EMP_DOC_TYPES, requiredDocs: EMP_REQUIRED_DOCS,
       user: { id: u.id, name: u.name, email: u.email, notificationEmail: u.notification_email || '', phone: u.phone || '', department: u.department || '',
         role: u.role || '', active: !!+u.is_active, photo: u.profile_image || '', weekOff: u.week_off || '', trackKm: !!+u.track_km },
@@ -15558,6 +15565,34 @@ async function empSaveProfile(uid, cols, vals, byUserId) {
      ON DUPLICATE KEY UPDATE ${cols.map(c => `${c}=VALUES(${c})`).join(', ')}, updated_by=VALUES(updated_by)`,
     [uid, ...vals, byUserId]));
 }
+
+// Home location (client 2026-10-29): every employee saves their own from the Profile
+// page with the phone's GPS; shown on their Employees record as a map link.
+let _empHomeOk = false;
+async function ensureEmpHomeCols() {
+  if (_empHomeOk) return;
+  await withEmpTables(() => db.query('SELECT 1 FROM employee_profiles LIMIT 1'));
+  await addMissingColumns('employee_profiles', [['home_lat', 'DECIMAL(10,7) NULL'], ['home_lng', 'DECIMAL(10,7) NULL'], ['home_accuracy', 'INT NULL'], ['home_saved_at', 'DATETIME NULL']]);
+  _empHomeOk = true;
+}
+app.get('/api/my-home-location', requireAuth, async (req, res) => {
+  try {
+    await ensureEmpHomeCols();
+    const [[p]] = await db.query("SELECT home_lat, home_lng, home_accuracy, DATE_FORMAT(home_saved_at,'%Y-%m-%d %H:%i') AS at FROM employee_profiles WHERE user_id=?", [req.session.userId]);
+    res.json(p && p.home_lat != null ? { lat: Number(p.home_lat), lng: Number(p.home_lng), accuracy: p.home_accuracy, at: p.at } : {});
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/my-home-location', requireAuth, async (req, res) => {
+  try {
+    const lat = Number((req.body || {}).lat), lng = Number((req.body || {}).lng), acc = Math.round(Number((req.body || {}).accuracy) || 0) || null;
+    if (!(lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) || (lat === 0 && lng === 0)) return res.status(400).json({ error: 'Location sahi nahi mili — GPS on karke dobara try karein' });
+    await ensureEmpHomeCols();
+    await db.query(`INSERT INTO employee_profiles (user_id, home_lat, home_lng, home_accuracy, home_saved_at, updated_by) VALUES (?,?,?,?,NOW(),?)
+      ON DUPLICATE KEY UPDATE home_lat=VALUES(home_lat), home_lng=VALUES(home_lng), home_accuracy=VALUES(home_accuracy), home_saved_at=NOW(), updated_by=VALUES(updated_by)`,
+      [req.session.userId, lat, lng, acc, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
 
 app.put('/api/employees/:id/profile', requireAuth, async (req, res) => {
   try {
@@ -17327,6 +17362,19 @@ async function collectAccess(req, res) {
   res.status(403).json({ error: 'No access to Payment Follow-up' });
   return false;
 }
+// The exact 15-day reminder text a party got for a bill (client 2026-10-29: the sending
+// number's WhatsApp Web shows them as "Waiting for this message").
+app.get('/api/collection-followup/message', requireAuth, async (req, res) => {
+  try {
+    if (!(await collectAccess(req, res))) return;
+    const key = String(req.query.key || '');
+    const [[r]] = await db.query(`SELECT a.party, r.message, r.status, r.error, r.phone, DATE_FORMAT(r.sent_at,'%Y-%m-%d %H:%i:%s') AS sent_at
+      FROM collect_actions a JOIN wa_campaign_recipients r ON r.campaign_id=a.campaign_id AND LOWER(r.name)=LOWER(a.party)
+      WHERE a.bill_key=? AND a.step='msg15' ORDER BY r.id DESC LIMIT 1`, [key]);
+    if (!r) return res.status(404).json({ error: 'Is bill ka WhatsApp message nahi mila' });
+    res.json({ party: r.party, message: r.message || '', status: r.status || '', error: r.error || '', phone: r.phone || '', sentAt: r.sent_at || '' });
+  } catch (err) { sendServerError(res, err); }
+});
 app.get('/api/collection-followup', requireAuth, async (req, res) => {
   try {
     if (!(await collectAccess(req, res))) return;
