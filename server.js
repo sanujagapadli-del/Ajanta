@@ -148,6 +148,20 @@ function bumpSheetVer(key) {
     'INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)',
     [`ver_${key}`, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`]);
 }
+// The finished JSON of a list that is the same for every user (O2D / Service FMS):
+// rebuilt only when a write bumps its version (or after ttl as a safety net), so a
+// repeat call is one small DB read instead of rebuilding + serialising ~700 KB
+// (Vercel CPU over the free limit, 2026-10-29).
+const _jsonCache = new Map(); // key -> { ver, ts, body }
+async function sendCachedJson(res, key, verKey, build, ttl = 60 * 1000) {
+  let ver = null;
+  try { ver = await sheetVer(verKey); } catch (e) { console.error(`ver_${verKey} read:`, e.message); }
+  const c = _jsonCache.get(key);
+  if (ver !== null && c && c.ver === ver && Date.now() - c.ts < ttl) return res.type('application/json').send(c.body);
+  const body = JSON.stringify(await build());
+  if (ver !== null) _jsonCache.set(key, { ver, ts: Date.now(), body });
+  res.type('application/json').send(body);
+}
 // load() runs on a miss. clone=true when callers mutate what they get back.
 async function cachedBySheetVer(key, load, clone = false) {
   let ver = null;
@@ -5010,8 +5024,11 @@ function fmsOpenOnly(list, stub) {
 }
 app.get('/api/service-fms', requireAuth, async (req, res) => {
   try {
-    const list = await sfmsFetchComplaints();
-    res.json(req.query.open === '1' ? fmsOpenOnly(list, c => ({ complainNo: c.complainNo, row: c.row })) : list);
+    const open = req.query.open === '1';
+    await sendCachedJson(res, open ? 'sfms:open' : 'sfms:all', 'sfms', async () => {
+      const list = await sfmsFetchComplaints();
+      return open ? fmsOpenOnly(list, c => ({ complainNo: c.complainNo, row: c.row })) : list;
+    });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     sendServerError(res, err);
@@ -6529,8 +6546,11 @@ async function readO2dOrdersFromSheet() {
 
 app.get('/api/o2d-fms', requireAuth, async (req, res) => {
   try {
-    const orders = await getO2dOrders();
-    res.json(req.query.open === '1' ? fmsOpenOnly(orders, o => ({ orderNo: o.orderNo })) : orders);
+    const open = req.query.open === '1';
+    await sendCachedJson(res, open ? 'o2d:open' : 'o2d:all', 'o2d', async () => {
+      const orders = await getO2dOrders();
+      return open ? fmsOpenOnly(orders, o => ({ orderNo: o.orderNo })) : orders;
+    });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the sheet with the service account.' });
     sendServerError(res, err);

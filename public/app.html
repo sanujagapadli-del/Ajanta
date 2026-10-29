@@ -4991,7 +4991,7 @@ async function init() {
     // keep the app open all day; polling every 30s used up Vercel's monthly
     // CPU allowance and the site was paused (2026-10-09).
     // Dashboard 15 min (was 5) — Vercel CPU at 90% on 2026-10-27.
-    const BADGE_EVERY_MS = 2 * 60 * 1000, DASH_EVERY_MS = 15 * 60 * 1000;
+    const BADGE_EVERY_MS = 5 * 60 * 1000, DASH_EVERY_MS = 15 * 60 * 1000; // badges 5 min (was 2) — Vercel CPU, 2026-10-29
     let lastBadges = Date.now(), lastDash = Date.now();
     const tabVisible = () => document.visibilityState === 'visible';
     const dashShown = () => { const p = document.getElementById('page-dashboard'); return p && p.classList.contains('active'); };
@@ -9413,7 +9413,37 @@ async function saveProfile() {
 // 2026-10-12: "task complete kr rhe hai but vapis aa jata hai").
 const _fmsWriteAt = {};
 const FMS_WRITE_KEYS = [['/api/o2d-fms', 'o2d'], ['/api/service-fms', 'sfms'], ['/api/cheque-fms', 'cheque'], ['/api/replacement-fms', 'repl'], ['/api/lead-fms', 'lead'], ['/api/purchase-fms', 'purchase'], ['/api/delivery-dues', 'collect']];
-async function api(url,method='GET',body=null) {
+// Short reuse of read-only answers (Vercel free-plan CPU over its limit, 2026-10-29):
+// the same GET again within its window comes from memory instead of the server,
+// and identical GETs already on their way share one request. Any save (non-GET)
+// empties it, and a click on a Refresh / 🔄 button always fetches fresh.
+// Another user's change shows up at the latest after the window (60 s).
+const API_REUSE = [
+  [/^\/api\/(o2d-fms|service-fms|replacement-fms|lead-fms|cheque-fms|purchase-fms)(\/|\?|$)/, 60000],
+  [/^\/api\/(dashboard|attendance\/today|km\/today|approvals\/count|transfers\/count|delivery-dues\/mine)(\?|$)/, 60000],
+  [/^\/api\/(dd-lists|salesman-pl\/access)(\?|$)/, 300000]
+];
+const _apiReuse = new Map(); // url -> { t, data } | { p }
+let _apiFreshUntil = 0;
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('button, a.btn');
+  if (b && /🔄|↻|Refresh/i.test(b.textContent || b.title || '')) _apiFreshUntil = Date.now() + 3000;
+}, true);
+async function api(url, method = 'GET', body = null) {
+  if (method !== 'GET') { _apiReuse.clear(); return _apiFetch(url, method, body); }
+  const rule = API_REUSE.find(([re]) => re.test(url));
+  if (!rule) return _apiFetch(url, method, body);
+  const hit = _apiReuse.get(url), now = Date.now();
+  if (hit && hit.p) return hit.p.then(d => structuredClone(d));
+  if (hit && now - hit.t < rule[1] && now > _apiFreshUntil) return structuredClone(hit.data);
+  const p = _apiFetch(url, method, body);
+  _apiReuse.set(url, { p });
+  const data = await p;
+  if (data && !data.error) _apiReuse.set(url, { t: Date.now(), data: structuredClone(data) });
+  else _apiReuse.delete(url);
+  return data;
+}
+async function _apiFetch(url,method='GET',body=null) {
   if (method !== 'GET') { const k = FMS_WRITE_KEYS.find(([pre]) => url.startsWith(pre)); if (k) _fmsWriteAt[k[1]] = Date.now(); }
   const opts={method, headers:{'Content-Type':'application/json'}, credentials:'include'};
   if (body) opts.body=JSON.stringify(body);
