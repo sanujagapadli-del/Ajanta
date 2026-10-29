@@ -4529,7 +4529,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
 
 <!-- ── O2D DEALERS: STATEMENT / LEDGER MODAL ── -->
 <div class="modal-overlay" id="dealerLedgerModal">
-  <div class="modal dl-print-modal" style="max-width:720px;max-height:88vh;display:flex;flex-direction:column">
+  <div class="modal dl-print-modal" style="width:760px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column">
     <div class="dl-no-print" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:10px">
       <h3 style="margin:0" id="dlModalTitle">📋 Statement</h3>
       <div style="display:flex;align-items:center;gap:6px">
@@ -4540,7 +4540,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     </div>
     <div class="dl-no-print" style="font-size:11px;color:var(--gray-500);margin-bottom:12px">Is financial year ka poora ledger (Tally jaisa) + abhi outstanding bills — Tally se pichhle sync tak ka data.</div>
     <div id="dlPrintHeading" class="dl-print-only" style="display:none"></div>
-    <div id="dlBody" class="ui-skel" aria-busy="true" style="overflow-y:auto;flex:1">Loading…</div>
+    <div id="dlBody" style="overflow-y:auto;flex:1"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 </div>
 
@@ -15903,7 +15903,7 @@ async function openDealerLedgerModal(name, phone) {
   _dlCurrent = { name, phone: phone || '', data: null };
   document.getElementById('dlModalTitle').textContent = `📋 Statement — ${name}`;
   document.getElementById('dlPrintHeading').textContent = `Statement — ${name} — ${new Date().toLocaleDateString('en-IN')}`;
-  document.getElementById('dlBody').innerHTML = 'Loading…';
+  document.getElementById('dlBody').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   document.getElementById('dealerLedgerModal').classList.add('open');
   const r = await api(`/api/o2d-fms/dealer-ledger?name=${encodeURIComponent(name)}`);
   const body = document.getElementById('dlBody');
