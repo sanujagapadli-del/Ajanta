@@ -20315,6 +20315,14 @@ async function colShowMsg(key) {
 function colSetTab(t) { colTab = t; renderCollection(); }
 let colAge = 45;
 function colShowAge(n) { colAge = n; colTab = 'age'; renderCollection(); }
+// Parties opened in the N+ din view (kept while switching buckets).
+const colAgeOpen = new Set();
+function colAgeToggle(k) { colAgeOpen.has(k) ? colAgeOpen.delete(k) : colAgeOpen.add(k); renderCollection(); }
+function colAgeToggleAll(open) {
+  colAgeOpen.clear();
+  if (open) colData.bills.filter(b => b.days >= colAge && b.amount > 0).forEach(b => colAgeOpen.add(b.party.toLowerCase()));
+  renderCollection();
+}
 // When the 15-day WhatsApp went (or is due: bill date + 15 days, ~11 AM).
 function colMsgDate(b) {
   const a = b.acts && b.acts.msg15;
@@ -20375,10 +20383,27 @@ function renderCollection() {
   // Wrong number → ✏️ right next to it (client list 10-26 #13); saved to Dealer Master too.
   const tel = b => b.phone ? `<span style="white-space:nowrap"><a href="tel:${esc(b.phone)}" style="font-weight:700">📞 ${esc(b.phone)}</a> <a href="#" title="Number galat hai? Badlo" onclick="colSetPhone('${o2dJsEsc(b.party)}');return false" style="text-decoration:none">✏️</a></span>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(b.party)}')">➕ Phone daalo</button>`;
   if (colTab === 'age') {
-    const list = colData.bills.filter(b => b.days >= colAge && b.amount > 0).sort((a, b) => b.days - a.days);
-    wrap.innerHTML = note + `<div style="font-size:13px;font-weight:700;margin-bottom:8px">${colAge}+ din purane bill — ${list.length} · ${inr(list.reduce((a, b) => a + b.amount, 0))}</div>` + (list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th style="text-align:right">Party total</th><th>Phone</th><th></th></tr></thead><tbody>
-      ${list.map(b => `<tr><td>${partyCell(b)}</td><td style="white-space:nowrap">${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td><td>${billAge(b)}</td>
-        <td style="text-align:right">${inr(colPartyOf(b.party).outstanding)}</td><td>${tel(b)}</td><td><button class="btn btn-sm btn-outline" onclick="colOpenStatement('${o2dJsEsc(b.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi bill nahi</div>');
+    // One row per party, click → its bills (client 2026-10-29: "party ke naam se aaye, click
+    // karein to uske bill dikhai dein" — in every N+ din view).
+    const list = colData.bills.filter(b => b.days >= colAge && b.amount > 0);
+    const byParty = new Map();
+    list.forEach(b => { const k = b.party.toLowerCase(); if (!byParty.has(k)) byParty.set(k, { party: b.party, first: b, bills: [] }); byParty.get(k).bills.push(b); });
+    const groups = [...byParty.values()].map(g => { g.bills.sort((x, y) => y.days - x.days); g.oldest = g.bills[0]; g.total = g.bills.reduce((s, b) => s + b.amount, 0); return g; })
+      .sort((x, y) => y.oldest.days - x.oldest.days || y.total - x.total);
+    const allOpen = groups.length && groups.every(g => colAgeOpen.has(g.party.toLowerCase()));
+    wrap.innerHTML = note + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:13px;font-weight:700">${colAge}+ din purane bill — ${groups.length} parties · ${list.length} bill · ${inr(list.reduce((s, b) => s + b.amount, 0))}</div>
+      ${groups.length ? `<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="colAgeToggleAll(${allOpen ? 0 : 1})">${allOpen ? '▴ Sab band karo' : '▾ Sab kholo'}</button>` : ''}</div>`
+      + (groups.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th style="text-align:center">Bills</th><th style="text-align:right">Amount</th><th>Sabse purana bill (din)</th><th style="text-align:right">Party total</th><th>Phone</th><th></th></tr></thead><tbody>
+      ${groups.map(g => { const k = g.party.toLowerCase(), open = colAgeOpen.has(k);
+        return `<tr onclick="if(!event.target.closest('a,button'))colAgeToggle('${o2dJsEsc(k)}')" style="cursor:pointer${open ? ';background:var(--color-primary-light)' : ''}" title="Click — is party ke bill dekho">
+          <td><span style="display:inline-block;width:14px;color:var(--gray-500)">${open ? '▾' : '▸'}</span>${partyCell(g.first)}</td>
+          <td style="text-align:center"><span class="status-badge">${g.bills.length} bill</span></td>
+          <td style="text-align:right;font-weight:800">${inr(g.total)}</td><td>${billAge(g.oldest)}</td>
+          <td style="text-align:right">${inr(colPartyOf(g.party).outstanding)}</td><td>${tel(g.first)}</td>
+          <td><button class="btn btn-sm btn-outline" onclick="colOpenStatement('${o2dJsEsc(g.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`
+          + (open ? g.bills.map(b => `<tr style="background:var(--surface-alt,#f8fafc)"><td style="padding-left:34px;color:var(--gray-600)">↳ Bill <b>${esc(b.billRef)}</b></td><td></td>
+            <td style="text-align:right;font-weight:700">${amt(b)}</td><td>${billAge(b)}</td><td></td><td></td><td></td></tr>`).join('') : ''); }).join('')}
+      </tbody></table></div>` : '<div class="empty">Koi bill nahi</div>');
   } else if (colTab === 'calls') {
     wrap.innerHTML = note + (calls.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th style="text-align:right">Party total</th><th>Kaunsa call</th><th>Phone</th><th></th></tr></thead><tbody>
       ${calls.map(({ b, step }) => `<tr><td>${partyCell(b)}</td>
