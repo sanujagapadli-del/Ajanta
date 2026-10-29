@@ -2790,6 +2790,54 @@ app.get('/api/mis', requireAuth, async (req, res) => {
 // "Improvement Target %" from Set Plan for the week.
 // FMS: a step counts in the week its Planned date falls in, credited to the
 // step's doers; done = it has an Actual, on time = Actual <= Planned.
+// MIS Score commitment per employee per week (client 2026-10-29: "MIS score mai last
+// week committed and next week commitment ka box"). Kept on that week's plan row
+// (week_plans.committed_score, week = its Monday). Anyone sets their own; admin / PC
+// anyone's; an HOD their department's.
+let _wpCommitOk = false;
+async function ensureWeekPlanCommit() {
+  if (_wpCommitOk) return;
+  await addMissingColumns('week_plans', [['committed_score', 'DECIMAL(5,1) NULL']]);
+  _wpCommitOk = true;
+}
+async function misCommitScope(req) {
+  const role = req.session.role, uid = req.session.userId;
+  if (role === 'admin' || role === 'pc') return null; // everyone
+  if (role === 'hod') {
+    const [[me]] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
+    const [rows] = await db.query('SELECT id FROM users WHERE department=?', [(me && me.department) || '']);
+    return new Set(rows.map(r => r.id).concat(uid));
+  }
+  return new Set([uid]);
+}
+app.get('/api/mis/commitments', requireAuth, async (req, res) => {
+  try {
+    await ensureWeekPlanCommit();
+    const weeks = String(req.query.weeks || '').split(',').filter(w => /^\d{4}-\d{2}-\d{2}$/.test(w)).slice(0, 4);
+    if (!weeks.length) return res.json({});
+    const scope = await misCommitScope(req);
+    const [rows] = await db.query("SELECT employee_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS w, committed_score FROM week_plans WHERE start_date IN (?) AND committed_score IS NOT NULL", [weeks]);
+    const out = {};
+    rows.forEach(r => { if (!scope || scope.has(r.employee_id)) (out[r.w] = out[r.w] || {})[r.employee_id] = Number(r.committed_score); });
+    res.json(out);
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/mis/commitments', requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const empId = Number(b.employeeId), week = String(b.week || '');
+    if (!empId || !/^\d{4}-\d{2}-\d{2}$/.test(week) || new Date(week + 'T00:00:00Z').getUTCDay() !== 1) return res.status(400).json({ error: 'Employee aur hafte ka Monday chahiye' });
+    const score = b.score === '' || b.score == null ? null : Number(b.score);
+    if (score !== null && !(score >= 0 && score <= 100)) return res.status(400).json({ error: 'Commitment 0 se 100 % ke beech' });
+    const scope = await misCommitScope(req);
+    if (scope && !scope.has(empId)) return res.status(403).json({ error: 'Sirf apna (ya apne department ka) commitment bhar sakte hain' });
+    await ensureWeekPlanCommit();
+    await db.query(`INSERT INTO week_plans (employee_id, hod_id, start_date, target_count, committed_score) VALUES (?,?,?,0,?)
+      ON DUPLICATE KEY UPDATE committed_score=VALUES(committed_score)`, [empId, req.session.userId, week, score === null ? null : Math.round(score * 10) / 10]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.get('/api/mis/weekly', requireAuth, async (req, res) => {
   try {
     const role = req.session.role, uid = req.session.userId;

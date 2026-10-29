@@ -2813,13 +2813,23 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     <!-- Date range + department for the MIS Report -->
     <div id="misFilterCard" style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:16px">
       <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
-        <div id="misStartWrap">
-          <div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 Start Date</div>
-          <input type="date" id="misStart" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/>
-        </div>
-        <div id="misEndWrap">
-          <div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 End Date</div>
-          <input type="date" id="misEnd" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/>
+        <!-- One period box (client 2026-10-29): Last week / Current week / 15 days / own dates — all in one line -->
+        <div id="misPeriodWrap">
+          <div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📅 Period</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <select id="misPeriod" onchange="misPeriodChanged(true)" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800);min-width:170px;cursor:pointer">
+              <option value="lastweek">Last week</option>
+              <option value="thisweek">Current week</option>
+              <option value="15d">Last 15 days</option>
+              <option value="custom">📅 Date chunein…</option>
+            </select>
+            <span id="misCustomDates" style="display:none;align-items:center;gap:8px">
+              <span id="misStartWrap" style="width:150px"><input type="date" id="misStart" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></span>
+              <span style="color:var(--gray-400);font-weight:700">→</span>
+              <span id="misEndWrap" style="width:150px"><input type="date" id="misEnd" style="padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13.5px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--gray-800)"/></span>
+            </span>
+            <span id="misPeriodLabel" style="font-size:12.5px;color:var(--gray-500)"></span>
+          </div>
         </div>
         <!-- Department filter: Admin only -->
         <div id="misDeptFilterWrap" style="display:none">
@@ -5221,7 +5231,7 @@ function navigate(page, el) {
   if (page==='dealers') loadDealersPage();
   if (page==='fms') loadFMSAdmin();
   if (page==='fms-tasks') loadFMSTasks();
-  if (page==='mis') { initMISDeptFilter(); if (!taData) generateMIS(); } // MIS Report builds itself on first open
+  if (page==='mis') { initMISDeptFilter(); misPeriodChanged(false); if (!taData) generateMIS(); } // MIS Report builds itself on first open
   if (page==='records') loadRecords();
   if (page==='service-fms') loadServiceFmsList();
   if (page==='o2d-fms') loadO2dFmsList();
@@ -10079,6 +10089,26 @@ function populateMISDeptDropdown(data) {
 let misWeeklyData = null;
 let misWeeklyView = 'all';
 const misWeeklyOpen = new Set(); // "empId|system" rows expanded into steps
+// MIS period box (client 2026-10-29): Last week (Mon–Sun), Current week (Mon–today),
+// Last 15 days, or own dates. Fills the hidden #misStart / #misEnd the report reads.
+function misPeriodRange(k) {
+  const d = new Date(), y = x => owsYmd(x);
+  const mon = new Date(d); mon.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  if (k === 'lastweek') { const s = new Date(mon); s.setDate(mon.getDate() - 7); const e = new Date(mon); e.setDate(mon.getDate() - 1); return [y(s), y(e)]; }
+  if (k === 'thisweek') return [y(mon), y(d)];
+  if (k === '15d') { const s = new Date(d); s.setDate(d.getDate() - 14); return [y(s), y(d)]; }
+  return null;
+}
+function misPeriodChanged(regenerate) {
+  const k = (document.getElementById('misPeriod') || {}).value || 'lastweek';
+  const custom = k === 'custom', s = document.getElementById('misStart'), e = document.getElementById('misEnd');
+  document.getElementById('misCustomDates').style.display = custom ? 'inline-flex' : 'none';
+  const r = misPeriodRange(k);
+  if (r) { s.value = r[0]; e.value = r[1]; }
+  else if (!s.value || !e.value) { const lw = misPeriodRange('lastweek'); s.value = lw[0]; e.value = lw[1]; }
+  document.getElementById('misPeriodLabel').textContent = r ? `${fmtDateDMY(r[0])} – ${fmtDateDMY(r[1])}` : '';
+  if (regenerate && !custom) generateMIS();
+}
 function misLastWeekMonday() {
   const d = new Date(); d.setDate(d.getDate() - 7 - ((d.getDay() + 6) % 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -10287,6 +10317,7 @@ async function generateTaskAnalytics() {
   if (!d || d.error) { showToast((d && d.error) || 'MIS Report load nahi hua', 'error'); renderTaskAnalytics(); return; }
   taData = d;
   taShown = 100;
+  await misLoadCommits();
   if (taFilter.emp && !d.employees.some(e => String(e.id) === taFilter.emp)) taFilter.emp = '';
   renderTaskAnalytics();
 }
@@ -10332,6 +10363,41 @@ const taInitials = n => (String(n).replace(/\([^)]*\)/g, ' ').match(/[A-Za-z0-9]
 // 2026-10-05). Click a row = that employee's tasks; "All tasks" = full list.
 let taListMode = 'emp';
 let taEmpSort = 'pending';
+// MIS Score commitments (client 2026-10-29): last week's committed score next to the
+// actual, and a box for next week's — own row, or anyone's for admin / PC / HOD (dept).
+let taCommit = null; // { last, next, map: { week: { empId: pct } } }
+async function misLoadCommits() {
+  const last = misPeriodRange('lastweek')[0];
+  const nx = new Date(); nx.setDate(nx.getDate() - ((nx.getDay() + 6) % 7) + 7);
+  const next = owsYmd(nx);
+  const r = await api(`/api/mis/commitments?weeks=${last},${next}`);
+  taCommit = { last, next, map: r && !r.error ? r : {} };
+}
+const misCanCommit = e => ['admin', 'pc', 'hod'].includes(ME.role) || e.id === ME.id;
+async function misSaveCommit(empId, el) {
+  const v = el.value.trim();
+  if (v !== '' && !(Number(v) >= 0 && Number(v) <= 100)) { showToast('0 se 100 % ke beech likhein', 'error'); return; }
+  el.disabled = true;
+  const r = await api('/api/mis/commitments', 'PUT', { employeeId: empId, week: taCommit.next, score: v });
+  el.disabled = false;
+  if (r.error) { showToast(r.error, 'error'); return; }
+  (taCommit.map[taCommit.next] = taCommit.map[taCommit.next] || {})[empId] = v === '' ? undefined : Number(v);
+  showToast(v === '' ? 'Commitment hata diya' : `✅ Agle hafte ka commitment: ${v}%`);
+}
+function taCommitCells(x, td) {
+  const c = taCommit || { map: {} };
+  const last = (c.map[c.last] || {})[x.e.id], next = (c.map[c.next] || {})[x.e.id];
+  // When the report is exactly last week, show whether the commitment was met.
+  const isLastWeek = c.last && document.getElementById('misStart').value === c.last && document.getElementById('misEnd').value === misPeriodRange('lastweek')[1];
+  const met = isLastWeek && last != null && x.score != null ? (x.score >= last ? ' <span title="Commitment poora hua" style="color:var(--color-success-text)">✓</span>' : ' <span title="Commitment se kam" style="color:var(--color-danger)">✗</span>') : '';
+  const lastCell = last == null ? '<span style="color:var(--gray-300)">—</span>' : `<b style="font-size:13.5px">${last}%</b>${met}`;
+  const nextCell = misCanCommit(x.e)
+    ? `<input type="number" min="0" max="100" step="1" value="${next == null ? '' : next}" placeholder="%" aria-label="${esc(x.e.name)} — agle hafte ka MIS score commitment"
+        onclick="event.stopPropagation()" onkeydown="event.stopPropagation();if(event.key==='Enter')this.blur()" onchange="misSaveCommit(${x.e.id}, this)"
+        style="width:70px;padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;text-align:center;font-weight:700;font-size:13px"/>`
+    : (next == null ? '<span style="color:var(--gray-300)">—</span>' : `<b>${next}%</b>`);
+  return `<td style="${td};text-align:center">${lastCell}</td><td style="${td};text-align:center">${nextCell}</td>`;
+}
 function taEmpBreakdownHtml(rows, card, th, td) {
   const pc = (n, t) => t ? Math.round(n * 1000 / t) / 10 : null;
   const att = taData.attendance || {}, kms = taData.km || {};
@@ -10356,7 +10422,7 @@ function taEmpBreakdownHtml(rows, card, th, td) {
           <button class="btn btn-outline btn-sm" onclick="taListMode='tasks';renderTaskAnalytics()">📋 All tasks</button></div>
       </div>
       ${list.length ? `<div class="mis-table-wrap" style="overflow:auto;max-height:640px"><table style="width:100%;border-collapse:separate;border-spacing:0">
-        <thead><tr>${sh('name', 'Employee')}${sh('planned', 'Planned', 1)}${sh('completed', 'Completed', 1)}${sh('onTime', 'On Time', 1)}${sh('late', 'Delay Completed', 1)}${sh('pending', 'Pending', 1)}${sh('overdue', 'Overdue', 1)}${sh('done', 'Done %', 1)}${sh('ontime', 'On Time %', 1)}${sh('att', 'Attendance', 1)}${sh('km', taData.kmWeek ? `KM ${fmtDateDMY(taData.kmWeek.start).slice(0, 5)}–${fmtDateDMY(taData.kmWeek.end).slice(0, 5)}` : 'KM last week', 1)}${sh('score', 'MIS Score', 1)}</tr></thead>
+        <thead><tr>${sh('name', 'Employee')}${sh('planned', 'Planned', 1)}${sh('completed', 'Completed', 1)}${sh('onTime', 'On Time', 1)}${sh('late', 'Delay Completed', 1)}${sh('pending', 'Pending', 1)}${sh('overdue', 'Overdue', 1)}${sh('done', 'Done %', 1)}${sh('ontime', 'On Time %', 1)}${sh('att', 'Attendance', 1)}${sh('km', taData.kmWeek ? `KM ${fmtDateDMY(taData.kmWeek.start).slice(0, 5)}–${fmtDateDMY(taData.kmWeek.end).slice(0, 5)}` : 'KM last week', 1)}${sh('score', 'MIS Score', 1)}<th style="${th};text-align:center;color:var(--gray-500)" title="${taCommit ? fmtDateDMY(taCommit.last) : ''} wale hafte ka committed MIS Score">Committed<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">last week</div></th><th style="${th};text-align:center;color:var(--gray-500)" title="${taCommit ? fmtDateDMY(taCommit.next) : ''} se shuru hafte ka MIS Score commitment">Commit<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">next week</div></th></tr></thead>
         <tbody>${list.map((x, i) => `<tr onclick="taSetFilter('emp','${jsArg(x.e.id)}')" style="cursor:pointer;background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}" title="${esc(x.e.name)} ke tasks dekhein">
           <td style="${td};white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${esc(taInitials(x.e.name))}</span>
             <span><b style="color:var(--gray-900);font-size:13px">${esc(x.e.name)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(x.e.department || '—')}</div></span></span></td>
@@ -10366,7 +10432,7 @@ function taEmpBreakdownHtml(rows, card, th, td) {
           <td style="${td};text-align:center">${pill(pc(x.c.onTime, x.c.planned), 75)}</td>
           <td style="${td};text-align:center" title="${x.a ? `Present ${x.a.present} / ${x.a.working} working days · Absent ${x.a.absent} · Leave ${x.a.leave}` : ''}">${x.a ? `${pill(x.a.pct, 90)}<div style="font-size:10.5px;color:var(--gray-500);margin-top:2px">${x.a.present}/${x.a.working} days</div>` : '—'}</td>
           <td style="${td};text-align:center" title="${x.k ? `${x.k.days} day(s) with morning + evening reading${x.k.incomplete ? ` · ${x.k.incomplete} day(s) missing a reading` : ''}` : ''}">${x.k ? `<b style="font-size:14px">${x.k.km}</b><div style="font-size:10.5px;color:${x.k.incomplete ? 'var(--color-danger)' : 'var(--gray-500)'}">${x.k.days} days${x.k.incomplete ? ` · ${x.k.incomplete} adhura` : ''}</div>` : '—'}</td>
-          <td style="${td};text-align:center">${pill(x.score, 85)}</td></tr>`).join('')}</tbody>
+          <td style="${td};text-align:center">${pill(x.score, 85)}</td>${taCommitCells(x, td)}</tr>`).join('')}</tbody>
         <tfoot><tr style="background:var(--gray-50)">
           <td style="${td};font-weight:900;color:var(--gray-900);border-top:2px solid var(--gray-200)">Total</td>
           ${[tot.planned, tot.completed, tot.onTime, tot.late, tot.pending, tot.overdue].map(v => `<td style="${td};text-align:center;font-weight:900;font-size:14px;border-top:2px solid var(--gray-200)">${v}</td>`).join('')}
@@ -10374,7 +10440,7 @@ function taEmpBreakdownHtml(rows, card, th, td) {
           <td style="${td};text-align:center;border-top:2px solid var(--gray-200)">${pill(pc(tot.onTime, tot.planned), 75)}</td>
           <td style="${td};border-top:2px solid var(--gray-200)"></td>
           <td style="${td};text-align:center;font-weight:900;font-size:14px;border-top:2px solid var(--gray-200)">${list.reduce((s, x) => s + (x.k ? x.k.km : 0), 0) || ''}</td>
-          <td style="${td};border-top:2px solid var(--gray-200)"></td></tr></tfoot>
+          <td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td></tr></tfoot>
       </table></div>` : '<div class="empty">No tasks match these filters.</div>'}
     </div>`;
 }
@@ -24698,7 +24764,7 @@ function datePresetRange(k) {
 }
 // [from input, to input, what reloads that page]
 const DATE_PRESET_PAIRS = [['attnHistFrom', 'attnHistTo', 'loadAttendanceHistory'], ['attnKmFrom', 'attnKmTo', 'loadKmHistory'], ['crFrom', 'crTo', 'loadCallReports'],
-  ['gpStart', 'gpEnd', 'loadGrossProfit'], ['mecaFrom', 'mecaTo', 'loadMeca'], ['misStart', 'misEnd', 'generateMIS'], ['pcDateFrom', 'pcDateTo', 'onPCFilterChange'],
+  ['gpStart', 'gpEnd', 'loadGrossProfit'], ['mecaFrom', 'mecaTo', 'loadMeca'], ['pcDateFrom', 'pcDateTo', 'onPCFilterChange'],
   ['pettyFrom', 'pettyTo', 'renderPettyCash'], ['recStart', 'recEnd', 'generateRecords'], ['tasksDateFrom', 'tasksDateTo', 'filterTasks'], ['tourFrom', 'tourTo', 'loadTourList'], ['myExpFrom', 'myExpTo', 'loadMyExpense']];
 function datePresetApply(fromId, toId, fn, k) {
   const r = datePresetRange(k), f = document.getElementById(fromId), t = document.getElementById(toId);
