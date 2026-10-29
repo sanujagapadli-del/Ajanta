@@ -2827,8 +2827,9 @@ app.put('/api/mis/commitments', requireAuth, async (req, res) => {
     const b = req.body || {};
     const empId = Number(b.employeeId), week = String(b.week || '');
     if (!empId || !/^\d{4}-\d{2}-\d{2}$/.test(week) || new Date(week + 'T00:00:00Z').getUTCDay() !== 1) return res.status(400).json({ error: 'Employee aur hafte ka Monday chahiye' });
-    const score = b.score === '' || b.score == null ? null : Number(b.score);
-    if (score !== null && !(score >= 0 && score <= 100)) return res.status(400).json({ error: 'Commitment 0 se 100 % ke beech' });
+    // MIS convention: commitment is "% work not done", always negative (-10 = at most 10% not done).
+    const score = b.score === '' || b.score == null ? null : -Math.abs(Number(b.score));
+    if (score !== null && !(score >= -100 && score <= 0)) return res.status(400).json({ error: 'Commitment -100 se 0 % ke beech (jaise -10)' });
     const scope = await misCommitScope(req);
     if (scope && !scope.has(empId)) return res.status(403).json({ error: 'Sirf apna (ya apne department ka) commitment bhar sakte hain' });
     await ensureWeekPlanCommit();
