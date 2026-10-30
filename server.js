@@ -16925,6 +16925,8 @@ async function scotTables() {
   const have = new Set(cc.map(c => c.Field));
   if (!have.has('note')) await db.query('ALTER TABLE scot_calls ADD COLUMN note VARCHAR(1000) NULL');
   if (!have.has('next_date')) await db.query('ALTER TABLE scot_calls ADD COLUMN next_date DATE NULL, ADD KEY (next_date)');
+  // Contact person's designation — Owner / Manager … (client video 2026-10-30).
+  await addMissingColumns('scot_dealers', [['designation', 'VARCHAR(100) NULL']]);
   await db.query(`CREATE TABLE IF NOT EXISTS scot_orders (
     id INT AUTO_INCREMENT PRIMARY KEY, dealer_id INT NOT NULL, order_date DATE NOT NULL, amount DECIMAL(12,2) NOT NULL, items VARCHAR(1000),
     payment VARCHAR(30), notes VARCHAR(1000), created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (dealer_id), KEY (order_date)
@@ -16955,7 +16957,7 @@ function scotDealerOut(d) {
   let products = [];
   try { products = JSON.parse(d.products || '[]'); } catch (e) { /* keep empty */ }
   return { id: d.id, name: d.name, rank: d.rank_no, bills: d.bills, tier: d.tier, freq: d.freq, freqDefault: d.freq_default, freqUpdatedAt: d.freq_updated_at,
-    person: d.person || '', phone: d.phone || '', area: d.area || '', source: d.source || '', notes: d.notes || '', products, isNew: !!d.is_new, addedDate: d.added_date };
+    person: d.person || '', designation: d.designation || '', phone: d.phone || '', area: d.area || '', source: d.source || '', notes: d.notes || '', products, isNew: !!d.is_new, addedDate: d.added_date };
 }
 app.get('/api/scot', requireAuth, async (req, res) => {
   try {
@@ -17004,8 +17006,8 @@ app.post('/api/scot/dealer', requireAuth, async (req, res) => {
     const tier = SCOT_TIERS.includes(b.tier) ? b.tier : 'B - Regular';
     const [[dup]] = await db.query('SELECT id FROM scot_dealers WHERE name = ?', [name]);
     if (dup) return res.status(400).json({ error: 'Ye dealer pehle se list me hai' });
-    const [r] = await db.query(`INSERT INTO scot_dealers (name, tier, freq, freq_default, person, phone, area, source, notes, is_new, added_date, created_by)
-      VALUES (?,?,7,7,?,?,?,?,?,1,?,?)`, [name, tier, String(b.person || '').trim().slice(0, 255) || null, phone, String(b.area || '').trim().slice(0, 255) || null,
+    const [r] = await db.query(`INSERT INTO scot_dealers (name, tier, freq, freq_default, person, designation, phone, area, source, notes, is_new, added_date, created_by)
+      VALUES (?,?,7,7,?,?,?,?,?,?,1,?,?)`, [name, tier, String(b.person || '').trim().slice(0, 255) || null, String(b.designation || '').trim().slice(0, 100) || null, phone, String(b.area || '').trim().slice(0, 255) || null,
       String(b.source || '').trim().slice(0, 50) || null, String(b.notes || '').trim().slice(0, 1000) || null, scotYmd(), req.session.userId]);
     res.json({ success: true, id: r.insertId });
   } catch (err) { sendServerError(res, err); }
@@ -17022,6 +17024,7 @@ app.put('/api/scot/dealer/:id', requireAuth, async (req, res) => {
       const person = String(b.person || '').trim().slice(0, 255), phone = String(b.phone || '').trim().slice(0, 30);
       if (!person && !phone) return res.status(400).json({ error: 'Naam ya phone me se ek to bharein' });
       await db.query('UPDATE scot_dealers SET person = ?, phone = ? WHERE id = ?', [person || null, phone || null, id]);
+      if ('designation' in b) await db.query('UPDATE scot_dealers SET designation = ? WHERE id = ?', [String(b.designation || '').trim().slice(0, 100) || null, id]);
       if (phone && phone !== (d.phone || '')) await syncDealerPhone(d.name, phone, 'scot');
     }
     if (Array.isArray(b.products)) {

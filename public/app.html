@@ -22022,7 +22022,7 @@ function scotCallsHtml() {
           ${called ? '<span style="font-size:11px;font-weight:800;color:var(--color-success)">✓ CALLED</span>' : scotTierBadge(d.tier)}
           <span style="font-size:10.5px;color:var(--gray-500);white-space:nowrap">${d.isNew ? '<b style="color:var(--color-success)">🆕 NEW</b>' : `#${d.rank || '—'}/${oldCount}`}</span></div>
         ${scotFollow.has(`${d.id}|${scotDate}`) ? '<div style="font-size:11px;font-weight:800;color:var(--color-primary);margin-top:3px">📌 Follow-up date aaj</div>' : ''}
-        <div style="font-size:12px;color:var(--gray-600);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">${d.person ? `<span>👤 ${esc(d.person)}</span>` : ''}<span>🔁 Har ${d.freq} din</span>${lo ? `<span>🛒 ${esc(fmtDateDMY(lo.date))} · ${inr(lo.amount)}</span>` : ''}${d.source ? `<span>${esc(d.source)}</span>` : ''}</div>
+        <div style="font-size:12px;color:var(--gray-600);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">${d.person ? `<span>👤 ${esc(d.person)}${d.designation ? ` <span style="color:var(--gray-400)">(${esc(d.designation)})</span>` : ''}</span>` : ''}<span>🔁 Har ${d.freq} din</span>${lo ? `<span>🛒 ${esc(fmtDateDMY(lo.date))} · ${inr(lo.amount)}</span>` : ''}${d.source ? `<span>${esc(d.source)}</span>` : ''}</div>
       </div>
       ${(() => { const lc = (scotData.lastCalls || {})[d.id]; return lc && (lc.note || lc.next) ? `<div style="font-size:11.5px;color:var(--gray-600);margin-top:6px;padding:5px 8px;background:var(--gray-50);border-radius:8px">💬 ${esc(fmtDateDMY(lc.date))}${lc.by ? ' · ' + esc(lc.by) : ''}: ${esc(lc.note || '—')}${lc.next ? ` · <b style="color:var(--color-primary)">agla ${esc(fmtDateDMY(lc.next))}</b>` : ''}</div>` : ''; })()}
       ${d.phone ? `<a href="tel:${esc(d.phone)}" style="display:inline-block;margin-top:6px;font-weight:700;color:var(--color-primary);font-size:13px">📞 ${esc(d.phone)}</a>` : ''}
@@ -22121,7 +22121,7 @@ function scotNewHtml() {
   const list = scotData.dealers.filter(d => d.isNew).sort((a, b) => (b.addedDate || '').localeCompare(a.addedDate || ''));
   return `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Lead FMS se onboard hue naye dealer (NBD) yahan apne aap aate hain — har 7 din call, jodne ke din se.</div>
     ${list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Added</th><th>Dealer</th><th>Person</th><th>Phone</th><th>Area</th><th>Tier</th><th>Source</th></tr></thead><tbody>
-    ${list.map(d => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(d.addedDate))}</td><td style="font-weight:600">${esc(d.name)}</td><td>${esc(d.person || '—')}</td><td>${esc(d.phone || '—')}</td><td>${esc(d.area || '—')}</td><td>${scotTierBadge(d.tier)}</td><td>${esc(d.source || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">📭 Abhi koi naya dealer nahi</div>'}`;
+    ${list.map(d => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(d.addedDate))}</td><td style="font-weight:600">${esc(d.name)}</td><td>${esc(d.person || '—')}${d.designation ? ` <span style="color:var(--gray-400)">(${esc(d.designation)})</span>` : ''}</td><td>${esc(d.phone || '—')}</td><td>${esc(d.area || '—')}</td><td>${scotTierBadge(d.tier)}</td><td>${esc(d.source || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">📭 Abhi koi naya dealer nahi</div>'}`;
 }
 function scotFreqHtml() {
   const over = scotData.dealers.filter(d => d.freq !== d.freqDefault);
@@ -22156,16 +22156,17 @@ function scotOpenContact(id) {
   const d = scotData.byId[id];
   vrlModal('scotContactModal', `${scotModalHead('scotContactModal', '✏️ Contact')}<div style="font-weight:700;margin-bottom:10px">${esc(d.name)}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px"><div><label style="font-size:12px;font-weight:600">Contact person</label><input id="scotCPerson" value="${esc(d.person)}" style="${VRL_IN}"/></div>
+    <div><label style="font-size:12px;font-weight:600">Designation</label><input id="scotCDesig" list="scotDesigList" value="${esc(d.designation || '')}" placeholder="Owner / Manager…" style="${VRL_IN}"/><datalist id="scotDesigList"><option value="Owner"><option value="Partner"><option value="Manager"><option value="Purchase Manager"><option value="Accountant"><option value="Staff"></datalist></div>
     <div><label style="font-size:12px;font-weight:600">Phone</label><input id="scotCPhone" value="${esc(d.phone)}" inputmode="tel" style="${VRL_IN}"/></div></div>
     <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="scotSaveContact(${id},this)">✓ Save</button>`, 460);
 }
 async function scotSaveContact(id, btn) {
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api(`/api/scot/dealer/${id}`, 'PUT', { person: document.getElementById('scotCPerson').value.trim(), phone: document.getElementById('scotCPhone').value.trim() });
+  const r = await api(`/api/scot/dealer/${id}`, 'PUT', { person: document.getElementById('scotCPerson').value.trim(), designation: document.getElementById('scotCDesig').value.trim(), phone: document.getElementById('scotCPhone').value.trim() });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('scotContactModal');
-  Object.assign(scotData.byId[id], { person: document.getElementById('scotCPerson').value.trim(), phone: document.getElementById('scotCPhone').value.trim() });
+  Object.assign(scotData.byId[id], { person: document.getElementById('scotCPerson').value.trim(), designation: document.getElementById('scotCDesig').value.trim(), phone: document.getElementById('scotCPhone').value.trim() });
   renderScot();
 }
 let scotSelProds = [];
@@ -22235,6 +22236,7 @@ function scotOpenNewDealer() {
   vrlModal('scotNewModal', `${scotModalHead('scotNewModal', '＋ New Dealer')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div><label style="font-size:12px;font-weight:600">Shop / Dealer *</label><input id="scotNName" style="${VRL_IN}"/></div>
     <div><label style="font-size:12px;font-weight:600">Contact person</label><input id="scotNPerson" style="${VRL_IN}"/></div>
+    <div><label style="font-size:12px;font-weight:600">Designation</label><input id="scotNDesig" list="scotDesigList" placeholder="Owner / Manager…" style="${VRL_IN}"/><datalist id="scotDesigList"><option value="Owner"><option value="Partner"><option value="Manager"><option value="Purchase Manager"><option value="Accountant"><option value="Staff"></datalist></div>
     <div><label style="font-size:12px;font-weight:600">Phone *</label><input id="scotNPhone" inputmode="tel" style="${VRL_IN}"/></div>
     <div><label style="font-size:12px;font-weight:600">Area</label><input id="scotNArea" style="${VRL_IN}"/></div>
     <div><label style="font-size:12px;font-weight:600">Tier</label><select id="scotNTier" style="${VRL_IN}"><option value="A - Star">A — Star</option><option value="B - Regular" selected>B — Regular</option><option value="C - Occasional">C — Occasional</option></select></div>
@@ -22245,7 +22247,7 @@ function scotOpenNewDealer() {
 async function scotSaveNewDealer(btn) {
   const v = id => document.getElementById(id).value.trim();
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api('/api/scot/dealer', 'POST', { name: v('scotNName'), person: v('scotNPerson'), phone: v('scotNPhone'), area: v('scotNArea'), tier: v('scotNTier'), source: v('scotNSource'), notes: v('scotNNotes') });
+  const r = await api('/api/scot/dealer', 'POST', { name: v('scotNName'), person: v('scotNPerson'), designation: v('scotNDesig'), phone: v('scotNPhone'), area: v('scotNArea'), tier: v('scotNTier'), source: v('scotNSource'), notes: v('scotNNotes') });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('scotNewModal');
