@@ -21189,6 +21189,12 @@ async function mecaNewDealer() {
 // "face bilkul sheet jaisa"): Week / day / date / salesperson (RD GB KR) headers,
 // a "Total of Week" block after every Mon–Sat week and the period total at the end;
 // OLD COUNTERS rows from Beat, NEW COUNTERS (NBD) rows from Lead FMS.
+let mecaWeeksOnly = (() => { try { return localStorage.getItem('mecaWeeksOnly') === '1'; } catch (e) { return false; } })();
+function mecaToggleWeeks() {
+  mecaWeeksOnly = !mecaWeeksOnly;
+  try { localStorage.setItem('mecaWeeksOnly', mecaWeeksOnly ? '1' : '0'); } catch (e) { /* private mode */ }
+  renderMeca();
+}
 function mecaCode(name) {
   const first = String(name || '').trim().split(/\s+/)[0].toLowerCase();
   return { rohit: 'RD', girdhar: 'GB', krishna: 'KR', krishana: 'KR' }[first] || first.slice(0, 2).toUpperCase();
@@ -21223,7 +21229,7 @@ function renderMeca() {
   // Column groups: each day, then "Total of Week N"; finally the whole period.
   const groups = [];
   weeks.forEach((w, wi) => {
-    w.days.forEach(y => groups.push({ kind: 'day', y, week: wi + 1, get: p => cell[`${p.id}|${y}`] || null }));
+    if (!mecaWeeksOnly) w.days.forEach(y => groups.push({ kind: 'day', y, week: wi + 1, get: p => cell[`${p.id}|${y}`] || null }));
     groups.push({ kind: 'week', week: wi + 1, get: p => w.days.reduce((a, y) => add(a, cell[`${p.id}|${y}`]), zero()) });
   });
   groups.push({ kind: 'total', get: p => dates.reduce((a, y) => add(a, cell[`${p.id}|${y}`]), zero()) });
@@ -21265,7 +21271,17 @@ function renderMeca() {
     }).join('')).join('')}</tr>`;
   }).join('');
   const legend = people.map(p => `<b>${esc(p.code)}</b> = ${esc(p.name)}`).join(' · ');
-  wrap.innerHTML = `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">${legend} &nbsp;·&nbsp; Old counters = <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">📋 Beat</a> se, NBD = Lead FMS se</div>
+  // One card per salesman for the whole period — the quick read before the grid.
+  const cards = people.map(p => {
+    const t = groups[groups.length - 1].get(p);
+    const line = (l, v) => `<div style="display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:2px 0"><span style="color:var(--gray-500)">${l}</span><b>${v}</b></div>`;
+    return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-top:4px solid ${C.blue};border-radius:12px;padding:10px 14px;min-width:200px;flex:1">
+      <div style="font-weight:900;color:var(--gray-900);margin-bottom:4px"><span style="background:${C.blue};color:#fff;border-radius:6px;padding:1px 6px;font-size:11px;margin-right:6px">${esc(p.code)}</span>${esc(p.name)}</div>
+      ${line('Counter visit', fmt(t.visited))}${line('Order', `${fmt(t.ordered)} · ₹${fmt(t.value)}`)}${line('Conversion', ratio(t.ordered, t.visited) + (t.visited ? '%' : ''))}${line('Collection', `${fmt(t.collCount)} · ₹${fmt(t.collection)}`)}${line('NBD visit / won', `${fmt(t.nbdVisits)} / ${fmt(t.nbdWon)}`)}</div>`;
+  }).join('');
+  wrap.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${cards}</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--gray-600);margin-bottom:8px"><span>${legend} &nbsp;·&nbsp; Old counters = <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">📋 Beat</a> se, NBD = Lead FMS se</span>
+    <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="mecaToggleWeeks()">${mecaWeeksOnly ? '📅 Roz ka bhi dikhao' : '📊 Sirf hafte ka total'}</button></div>
     <div style="background:#fff;border:1px solid #c7d3e0;border-radius:8px;overflow:auto;max-height:76vh">
       <table style="border-collapse:collapse;color:#222">
         <thead style="position:sticky;top:0;z-index:3">
@@ -21283,17 +21299,24 @@ function renderMeca() {
 
 // ══════════════════════════════════════════════════════
 // BEAT — counter visit (client 2026-10-30: MECA alag, beat alag; "face bilkul
-// sheet jaisa"). Same grid as the team's monthly "Counter Visit" Google tab:
-// Sr No. / Firm Name / Beat Days / AREA / CITY / SALESMAN, then per day Visit,
-// Order, Collection, New Counter, Reference, Enquiry. Click a cell to type,
-// Enter / leaving the cell saves. MECA reads this + Lead FMS. ~30k cells a month,
-// so cells carry no attributes: row = counter (tr data-c), column = day × field.
+// sheet jaisa", then "thoda acha aur easy"). Same grid as the team's monthly
+// "Counter Visit" Google tab: Sr No. / Firm Name / Beat Days / AREA / CITY /
+// SALESMAN, then per day Visit, Order, Collection, New Counter, Reference,
+// Enquiry. Visit = one tap from a small menu; other cells: click and type,
+// Enter = save + next row, Tab = next cell. Day chips show one weekday's beat;
+// "Chhota view" keeps only Visit / Order / Collection. MECA reads this + Lead FMS.
+// ~30k cells a month, so cells carry no attributes: row = counter (tr data-c),
+// column = day × visible field.
 // ══════════════════════════════════════════════════════
-let beatData = null, beatDays = [], beatIdx = {};
-const BEAT_FIELDS = [['visit', 'Visit'], ['orderAmt', 'Order'], ['collectionAmt', 'Collection'], ['newCounter', 'New Counter'], ['reference', 'Reference'], ['enquiry', 'Enquiry']];
+let beatData = null, beatDays = [], beatIdx = {}, beatDayFilter = '', beatTotTimer = null;
+let beatCompact = (() => { try { return localStorage.getItem('beatCompact') === '1'; } catch (e) { return false; } })();
+const BEAT_FIELDS_ALL = [['visit', 'Visit'], ['orderAmt', 'Order'], ['collectionAmt', 'Collection'], ['newCounter', 'New Counter'], ['reference', 'Reference'], ['enquiry', 'Enquiry']];
+const beatFields = () => beatCompact ? BEAT_FIELDS_ALL.slice(0, 3) : BEAT_FIELDS_ALL;
 const BEAT_FIXED = 6; // Sr No., Firm Name, Beat Days, AREA, CITY, SALESMAN
 const BEAT_CFIELDS = [null, 'name', 'beatDay', 'area', 'city', null];
+const BEAT_VISITS = [['yes', '✓ yes', '#d9ead3'], ['no', '✗ no', '#f8d7d5'], ['out of city', '✈ out of city', '#eceff1'], ['sir ke sath', '👤 sir ke sath', '#d9ead3']];
 function beatIsoDow(ymd) { const x = new Date(ymd + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; }
+function beatDow(beatDay) { return { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 }[String(beatDay || '').trim().toLowerCase().slice(0, 3)] || 0; }
 async function loadBeat() {
   const m = document.getElementById('beatMonth');
   if (!m.value) m.value = scotTodayYmd().slice(0, 7);
@@ -21309,23 +21332,34 @@ async function loadBeat() {
     if (r.userId) sel.value = String(r.userId);
   }
   renderBeat();
-  // Open on today's column, like scrolling the sheet to the date.
-  const th = document.getElementById(`beatDay_${r.today}`), box = document.getElementById('beatGridBox');
+  beatScrollToday();
+}
+function beatScrollToday() {
+  const th = document.getElementById(`beatDay_${beatData.today}`), box = document.getElementById('beatGridBox');
   if (th && box) box.scrollLeft = Math.max(0, th.offsetLeft - 560);
 }
 function beatMonthChanged() { loadBeat(); }
+function beatSetDay(v) { beatDayFilter = v; beatRerenderKeepScroll(); }
+function beatToggleCompact() {
+  beatCompact = !beatCompact;
+  try { localStorage.setItem('beatCompact', beatCompact ? '1' : '0'); } catch (e) { /* private mode */ }
+  renderBeat(); beatScrollToday();
+}
 function beatEntryOf(counterId, date) { return beatIdx[`${counterId}|${date}`]; }
 function beatMatches(c) {
   const q = (document.getElementById('beatSearch').value || '').trim().toLowerCase();
+  if (beatDayFilter === 'up' && beatDow(c.beatDay)) return false;
+  if (beatDayFilter && beatDayFilter !== 'up' && beatDow(c.beatDay) !== Number(beatDayFilter)) return false;
   return !q || [c.name, c.area, c.city, c.beatDay].some(v => String(v || '').toLowerCase().includes(q));
 }
+const beatVisitedEntry = e => !!e && (Number(e.orderAmt) > 0 || Number(e.collectionAmt) > 0 || (!!e.visit && !/^(no|nahi|out)/i.test(e.visit)));
 // One cell: class for colour (visit yes / no / out, ₹ filled, Sunday) + text.
 function beatCellHtml(f, e, sun) {
   const v = e && e[f];
   const cls = [];
   if (sun) cls.push('s');
   if (f === 'orderAmt' || f === 'collectionAmt') { cls.push('n'); if (Number(v) > 0) cls.push('am'); }
-  if (f === 'visit' && v) { const t = String(v).trim().toLowerCase(); cls.push(/^(no|nahi)/.test(t) ? 'vn' : /^out/.test(t) ? 'vo' : 'vy'); }
+  if (f === 'visit') { cls.push('vc'); if (v) { const t = String(v).trim().toLowerCase(); cls.push(/^(no|nahi)/.test(t) ? 'vn' : /^out/.test(t) ? 'vo' : 'vy'); } }
   const text = v == null || v === '' ? '' : (f === 'orderAmt' || f === 'collectionAmt') ? Number(v).toLocaleString('en-IN') : esc(v);
   return cls.length ? `<td class="${cls.join(' ')}">${text}</td>` : `<td>${text}</td>`;
 }
@@ -21335,35 +21369,45 @@ function renderBeat() {
   if (!beatData.userId) { wrap.innerHTML = '<div class="empty">Abhi kisi salesman ki beat nahi bani.</div>'; return; }
   beatIdx = {};
   (beatData.entries || []).forEach(e => { beatIdx[`${e.counterId}|${e.date}`] = e; });
+  const F = beatFields(), W = F.length;
   const m = beatData.month;
   const n = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate();
   const days = beatDays = Array.from({ length: n }, (_, i) => `${m}-${String(i + 1).padStart(2, '0')}`);
-  const counters = beatData.counters.filter(c => (c.active || beatData.entries.some(e => e.counterId === c.id)) && beatMatches(c));
+  const live = beatData.counters.filter(c => c.active || beatData.entries.some(e => e.counterId === c.id));
+  const counters = live.filter(beatMatches);
   const salesman = esc((document.getElementById('beatUser').selectedOptions[0] || {}).textContent || (beatData.salesmen[0] || {}).name || '');
+  // Month totals for this salesman (whole beat, not just the filtered rows).
+  const ents = beatData.entries || [];
+  const mVis = ents.filter(beatVisitedEntry).length, mOrd = ents.filter(e => Number(e.orderAmt) > 0);
+  const mOrdAmt = mOrd.reduce((a, e) => a + Number(e.orderAmt), 0), mColl = ents.reduce((a, e) => a + (Number(e.collectionAmt) || 0), 0);
+  const stat = (l, v, c) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-left:4px solid ${c};border-radius:10px;padding:8px 12px;min-width:120px"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase">${l}</div><div style="font-size:18px;font-weight:900;color:var(--gray-900)">${v}</div></div>`;
+  const todayDow = beatData.today.slice(0, 7) === m ? beatIsoDow(beatData.today) : 0;
+  const chip = (v, l, cnt) => `<button onclick="beatSetDay('${v}')" style="padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid ${beatDayFilter === v ? 'var(--color-primary)' : 'var(--gray-200)'};background:${beatDayFilter === v ? 'var(--color-primary)' : 'var(--surface)'};color:${beatDayFilter === v ? '#fff' : 'var(--gray-700)'}">${l}${cnt != null ? ` <span style="opacity:.75;font-weight:600">${cnt}</span>` : ''}</button>`;
+  const cnt = d => live.filter(c => d === 'up' ? !beatDow(c.beatDay) : beatDow(c.beatDay) === d).length;
+  const chips = chip('', 'Sab', live.length) + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((l, i) => chip(String(i + 1), (i + 1 === todayDow ? '📍 ' : '') + l, cnt(i + 1))).join('') + chip('up', 'Upcountry', cnt('up'));
   const fixedTh = (l, cls) => `<th rowspan="2" class="fx${cls ? ' ' + cls : ''}">${l}</th>`;
-  const head1 = days.map(d => `<th id="beatDay_${d}" colspan="6" class="dh${d === beatData.today ? ' td' : beatIsoDow(d) === 7 ? ' su' : ''}">${+d.slice(8)} <small>${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][beatIsoDow(d)]}</small></th>`).join('');
-  const head2 = days.map(d => BEAT_FIELDS.map(([, l]) => `<th class="fh${beatIsoDow(d) === 7 ? ' su' : ''}">${l}</th>`).join('')).join('');
+  const head1 = days.map(d => `<th id="beatDay_${d}" colspan="${W}" class="dh${d === beatData.today ? ' td' : beatIsoDow(d) === 7 ? ' su' : ''}">${+d.slice(8)} <small>${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][beatIsoDow(d)]}</small></th>`).join('');
+  const head2 = days.map(d => F.map(([, l]) => `<th class="fh${beatIsoDow(d) === 7 ? ' su' : ''}">${l}</th>`).join('')).join('');
   const body = counters.map((c, i) => `<tr data-c="${c.id}"><td class="k0">${i + 1}</td><td class="k1${c.active ? '' : ' off'}">${esc(c.name)}</td><td>${esc(c.beatDay || '')}</td><td>${esc(c.area || '')}</td><td>${esc(c.city || '')}</td><td class="sm">${salesman}</td>`
-    + days.map(d => { const e = beatIdx[`${c.id}|${d}`], sun = beatIsoDow(d) === 7; return BEAT_FIELDS.map(([f]) => beatCellHtml(f, e, sun)).join(''); }).join('') + '</tr>').join('');
-  // Bottom line per day: visits / ₹ order / ₹ collection.
-  const vis = e => e && (Number(e.orderAmt) > 0 || Number(e.collectionAmt) > 0 || (!!e.visit && !/^(no|nahi|out)/i.test(e.visit)));
+    + days.map(d => { const e = beatIdx[`${c.id}|${d}`], sun = beatIsoDow(d) === 7; return F.map(([f]) => beatCellHtml(f, e, sun)).join(''); }).join('') + '</tr>').join('');
   const foot = days.map(d => {
     const es = counters.map(c => beatIdx[`${c.id}|${d}`]).filter(Boolean);
     const sum = f => es.reduce((a, e) => a + (Number(e[f]) || 0), 0);
-    const vN = es.filter(vis).length, o = sum('orderAmt'), co = sum('collectionAmt');
-    return `<td>${vN || ''}</td><td class="n">${o ? o.toLocaleString('en-IN') : ''}</td><td class="n">${co ? co.toLocaleString('en-IN') : ''}</td><td colspan="3"></td>`;
+    const vN = es.filter(beatVisitedEntry).length, o = sum('orderAmt'), co = sum('collectionAmt');
+    return `<td>${vN || ''}</td><td class="n">${o ? o.toLocaleString('en-IN') : ''}</td><td class="n">${co ? co.toLocaleString('en-IN') : ''}</td>${W > 3 ? `<td colspan="${W - 3}"></td>` : ''}`;
   }).join('');
   const IN = 'padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)';
   wrap.innerHTML = `
     <style>
       #beatGrid{border-collapse:collapse;color:#222;background:#fff}
-      #beatGrid td,#beatGrid th{border:1px solid #d9d9d9;padding:4px 6px;white-space:nowrap;font-size:12.5px;height:24px;min-width:62px}
+      #beatGrid td,#beatGrid th{border:1px solid #d9d9d9;padding:4px 6px;white-space:nowrap;font-size:12.5px;height:26px;min-width:62px}
       #beatGrid th{font-weight:700}
       #beatGrid th.fx{background:#b6d7a8;min-width:80px}
       #beatGrid th.dh{background:#c9daf8;font-weight:800}
       #beatGrid th.fh{background:#c9daf8;font-size:11.5px}
       #beatGrid th.su{background:#e0e0e0} #beatGrid th.td{background:#6fa8dc;color:#fff}
       #beatGrid td.s{background:#f3f3f3} #beatGrid td.n{text-align:right}
+      #beatGrid td.vc{text-align:center}
       #beatGrid td.vy{background:#d9ead3} #beatGrid td.vn{background:#f8d7d5} #beatGrid td.vo{background:#eceff1;color:#607d8b}
       #beatGrid td.am{background:#fff2cc;font-weight:700}
       #beatGrid .k0{position:sticky;left:0;z-index:1;background:#fff;text-align:center;color:#666;min-width:44px}
@@ -21372,63 +21416,128 @@ function renderBeat() {
       #beatGrid .off{color:#aaa;text-decoration:line-through}
       #beatGrid .sm{color:#666}
       #beatGrid tbody td:not(.k0):not(.sm){cursor:cell}
+      #beatGrid tbody td:not(.k0):not(.sm):hover{outline:2px solid #6fa8dc;outline-offset:-2px}
       #beatGrid tfoot td{background:#f3f3f3;font-weight:800}
+      #beatVisitMenu button{display:block;width:100%;text-align:left;border:0;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;margin:2px 0}
     </style>
-    <datalist id="beatVisitList"><option value="yes"><option value="no"><option value="out of city"><option value="sir ke sath"></datalist>
     <datalist id="beatDayList">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Upcountry'].map(x => `<option value="${x}">`).join('')}</datalist>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12.5px;color:var(--gray-600)">
-      <span>Khane par click karke likho — Enter ya bahar click = save. Visit: yes / no / out of city / sir ke sath.</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      ${stat('Visit (mahina)', mVis.toLocaleString('en-IN'), 'var(--color-success)')}${stat('Order', `${mOrd.length} · ${inr(mOrdAmt)}`, '#f1c232')}${stat('Collection', inr(mColl), 'var(--color-primary)')}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <span style="font-size:12px;font-weight:700;color:var(--gray-500)">Beat day:</span>${chips}
+      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="beatToggleCompact()">${beatCompact ? '↔ Poora view (6 khane)' : '↕ Chhota view (Visit · Order · Collection)'}</button>
+      <button class="btn btn-sm btn-outline" onclick="beatScrollToday()">📍 Aaj</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px;color:var(--gray-500)">
+      <span>Visit par tap = ✓ / ✗ / ✈ chuno · baaki khane me likho, <b>Enter</b> = save + neeche, <b>Tab</b> = aage</span>
       <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
-        <input id="bcNewN" placeholder="Naya counter (Firm Name)" style="${IN};min-width:180px"/>
-        <input id="bcNewD" list="beatDayList" placeholder="Beat Days" style="${IN};width:120px"/>
-        <input id="bcNewA" placeholder="AREA" style="${IN};width:110px"/>
+        <input id="bcNewN" placeholder="Naya counter (Firm Name)" style="${IN};min-width:170px"/>
+        <input id="bcNewD" list="beatDayList" placeholder="Beat Days" style="${IN};width:115px"/>
+        <input id="bcNewA" placeholder="AREA" style="${IN};width:105px"/>
         <button class="btn btn-primary btn-sm" onclick="beatAddCounter()">+ Counter</button></span></div>
-    <div id="beatGridBox" style="border:1px solid #d9d9d9;border-radius:8px;overflow:auto;max-height:74vh">
+    <div id="beatGridBox" style="border:1px solid #d9d9d9;border-radius:8px;overflow:auto;max-height:70vh;position:relative">
       <table id="beatGrid" onclick="beatGridClick(event)">
         <thead style="position:sticky;top:0;z-index:4"><tr>${fixedTh('Sr No.', 'k0')}${fixedTh('Firm Name', 'k1')}${fixedTh('Beat Days')}${fixedTh('AREA')}${fixedTh('CITY')}${fixedTh('SALESMAN')}${head1}</tr><tr>${head2}</tr></thead>
-        <tbody>${body || '<tr><td colspan="6">Koi counter nahi</td></tr>'}</tbody>
+        <tbody>${body || '<tr><td colspan="6">Is beat day me koi counter nahi</td></tr>'}</tbody>
         <tfoot><tr><td colspan="6" class="k0" style="text-align:left;background:#f3f3f3">Total (Visit · Order · Collection)</td>${foot}</tr></tfoot>
       </table></div>`;
 }
-// Spreadsheet-style editing: one input at a time inside the clicked cell.
+// Which counter / day / field a cell is (no attributes on cells).
+function beatCellInfo(td) {
+  const tr = td && td.parentElement;
+  if (!tr || !tr.dataset.c) return null;
+  const counterId = Number(tr.dataset.c), col = td.cellIndex, F = beatFields();
+  if (col < BEAT_FIXED) { const f = BEAT_CFIELDS[col]; return f ? { counterId, f, date: null } : null; }
+  const date = beatDays[Math.floor((col - BEAT_FIXED) / F.length)];
+  return date ? { counterId, date, f: F[(col - BEAT_FIXED) % F.length][0] } : null;
+}
+function beatCloseMenu() { const m = document.getElementById('beatVisitMenu'); if (m) m.remove(); }
 function beatGridClick(ev) {
   const td = ev.target.closest('#beatGrid tbody td');
-  const tr = td && td.parentElement;
-  if (!td || !tr.dataset.c || td.querySelector('input')) return;
-  const counterId = Number(tr.dataset.c), col = td.cellIndex;
-  let f, date = null;
-  if (col < BEAT_FIXED) { f = BEAT_CFIELDS[col]; if (!f) return; }
-  else {
-    date = beatDays[Math.floor((col - BEAT_FIXED) / 6)];
-    f = BEAT_FIELDS[(col - BEAT_FIXED) % 6][0];
-    if (!date) return;
-    if (date > beatData.today) { showToast('Aage ki date abhi nahi bhar sakte', 'error'); return; }
-  }
-  const isCounter = !date;
-  const cur = isCounter ? (beatData.counters.find(c => c.id === counterId) || {})[f] : (beatEntryOf(counterId, date) || {})[f];
+  if (!td || td.querySelector('input')) return;
+  const info = beatCellInfo(td);
+  if (!info) return;
+  if (info.date && info.date > beatData.today) { showToast('Aage ki date abhi nahi bhar sakte', 'error'); return; }
+  if (info.f === 'visit') return beatVisitMenu(td, info);
+  beatEdit(td, info);
+}
+// Visit: one tap from a small menu instead of typing.
+function beatVisitMenu(td, info) {
+  beatCloseMenu();
+  const cur = String((beatEntryOf(info.counterId, info.date) || {}).visit || '').toLowerCase();
+  const box = document.getElementById('beatGridBox');
+  const r = td.getBoundingClientRect(), b = box.getBoundingClientRect();
+  const menu = document.createElement('div');
+  menu.id = 'beatVisitMenu';
+  menu.style.cssText = `position:absolute;z-index:20;left:${r.left - b.left + box.scrollLeft}px;top:${r.bottom - b.top + box.scrollTop + 2}px;background:#fff;border:1px solid #c7d3e0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:4px;min-width:160px`;
+  menu.innerHTML = BEAT_VISITS.map(([v, l, bg]) => `<button data-v="${v}" style="background:${cur === v ? bg : '#fff'}">${l}</button>`).join('')
+    + `<button data-v="" style="background:#fff;color:#999;font-weight:600">— khaali karo</button>`;
+  menu.addEventListener('click', async e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    beatCloseMenu();
+    if (btn.dataset.v === cur) return;
+    td.innerHTML = '⏳';
+    if (!await beatSaveCell(info.counterId, info.date, 'visit', btn.dataset.v)) beatRerenderKeepScroll();
+  });
+  box.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', function off(e) { if (!menu.contains(e.target)) { beatCloseMenu(); document.removeEventListener('click', off); } }), 0);
+}
+// Other cells: type in place. Enter = save and go down, Tab = save and go right, Esc = cancel.
+function beatEdit(td, info) {
+  beatCloseMenu();
+  const isCounter = !info.date, f = info.f;
+  const cur = isCounter ? (beatData.counters.find(c => c.id === info.counterId) || {})[f] : (beatEntryOf(info.counterId, info.date) || {})[f];
   const num = f === 'orderAmt' || f === 'collectionAmt';
-  const list = f === 'visit' ? ' list="beatVisitList"' : f === 'beatDay' ? ' list="beatDayList"' : '';
   const old = td.innerHTML;
-  td.innerHTML = `<input${list} ${num ? 'type="number" min="0" inputmode="numeric"' : ''} value="${esc(cur == null ? '' : cur)}" style="width:100%;min-width:${isCounter ? 140 : 60}px;border:2px solid #1a73e8;padding:2px 4px;font-size:12.5px;box-sizing:border-box;outline:none"/>`;
+  td.innerHTML = `<input${f === 'beatDay' ? ' list="beatDayList"' : ''} ${num ? 'type="number" min="0" inputmode="numeric"' : ''} value="${esc(cur == null ? '' : cur)}" style="width:100%;min-width:${isCounter ? 140 : 70}px;border:2px solid #1a73e8;padding:2px 4px;font-size:12.5px;box-sizing:border-box;outline:none"/>`;
   const inp = td.querySelector('input');
   inp.focus(); inp.select();
   let done = false;
-  const finish = async save => {
+  const finish = async (save, move) => {
     if (done) return; done = true;
-    if (!save || String(inp.value).trim() === String(cur == null ? '' : cur)) { td.innerHTML = old; return; }
-    td.innerHTML = '⏳';
-    const ok = isCounter ? await beatSaveCounterCell(counterId, f, inp.value.trim()) : await beatSaveCell(counterId, date, f, inp.value.trim());
-    if (!ok) td.innerHTML = old;
+    const tr = td.parentElement, col = td.cellIndex, rowIdx = tr.rowIndex;
+    if (!save || String(inp.value).trim() === String(cur == null ? '' : cur)) td.innerHTML = old;
+    else {
+      td.innerHTML = '⏳';
+      const ok = isCounter ? await beatSaveCounterCell(info.counterId, f, inp.value.trim()) : await beatSaveCell(info.counterId, info.date, f, inp.value.trim());
+      if (!ok) { td.innerHTML = old; return; }
+    }
+    if (!move) return;
+    const grid = document.getElementById('beatGrid');
+    const next = move === 'down' ? (grid.rows[rowIdx + 1] || {}).cells : grid.rows[rowIdx] && grid.rows[rowIdx].cells;
+    const ntd = next && next[move === 'down' ? col : col + 1];
+    if (ntd && ntd.closest('tbody')) { const ni = beatCellInfo(ntd); if (ni && ni.f !== 'visit' && (!ni.date || ni.date <= beatData.today)) beatEdit(ntd, ni); }
   };
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') finish(false); });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true, 'down'); }
+    else if (e.key === 'Tab') { e.preventDefault(); finish(true, 'right'); }
+    else if (e.key === 'Escape') finish(false);
+  });
   inp.addEventListener('blur', () => finish(true));
 }
+// Re-render after a save without losing the scroll — only the changed cell, so typing down a column stays smooth.
 function beatRerenderKeepScroll() {
   const box = document.getElementById('beatGridBox');
   const sl = box ? box.scrollLeft : 0, st = box ? box.scrollTop : 0;
   renderBeat();
   const nb = document.getElementById('beatGridBox');
   if (nb) { nb.scrollLeft = sl; nb.scrollTop = st; }
+}
+function beatRefreshCell(counterId, date) {
+  const tr = document.querySelector(`#beatGrid tr[data-c="${counterId}"]`);
+  if (!tr) return;
+  const F = beatFields(), d = beatDays.indexOf(date);
+  if (d < 0) return;
+  const e = beatEntryOf(counterId, date), sun = beatIsoDow(date) === 7;
+  F.forEach(([f], i) => {
+    const cell = tr.cells[BEAT_FIXED + d * F.length + i];
+    if (!cell || cell.querySelector('input')) return;
+    const tmp = document.createElement('tr');
+    tmp.innerHTML = beatCellHtml(f, e, sun);
+    cell.className = tmp.cells[0].className; cell.innerHTML = tmp.cells[0].innerHTML;
+  });
 }
 async function beatSaveCell(counterId, date, f, val) {
   const e = Object.assign({ visit: '', orderAmt: '', collectionAmt: '', newCounter: '', reference: '', enquiry: '' }, beatEntryOf(counterId, date) || {});
@@ -21440,7 +21549,11 @@ async function beatSaveCell(counterId, date, f, val) {
   const num = v => v === '' || v == null ? null : Number(v);
   const row = { counterId, date, visit: e.visit || null, orderAmt: num(e.orderAmt), collectionAmt: num(e.collectionAmt), newCounter: e.newCounter || null, reference: e.reference || null, enquiry: e.enquiry || null };
   if (r.cleared) { if (i >= 0) list.splice(i, 1); } else if (i >= 0) list[i] = row; else list.push(row);
-  beatRerenderKeepScroll();
+  if (r.cleared) delete beatIdx[`${counterId}|${date}`]; else beatIdx[`${counterId}|${date}`] = row;
+  beatRefreshCell(counterId, date);
+  // Totals / cards catch up once typing pauses.
+  clearTimeout(beatTotTimer);
+  beatTotTimer = setTimeout(() => { if (!document.querySelector('#beatGrid input, #beatVisitMenu')) beatRerenderKeepScroll(); }, 2500);
   return true;
 }
 async function beatSaveCounterCell(counterId, f, val) {
@@ -21452,7 +21565,9 @@ async function beatSaveCounterCell(counterId, f, val) {
   const r = await api(`/api/beat/counter/${c.id}`, 'PUT', body);
   if (r.error) { showToast(r.error, 'error'); return false; }
   c[f] = val;
-  beatRerenderKeepScroll();
+  const tr = document.querySelector(`#beatGrid tr[data-c="${counterId}"]`);
+  const cell = tr && tr.cells[BEAT_CFIELDS.indexOf(f)];
+  if (cell) cell.textContent = val;
   return true;
 }
 async function beatAddCounter() {
