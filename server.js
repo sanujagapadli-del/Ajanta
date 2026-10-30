@@ -17474,23 +17474,57 @@ async function collectAppPayments() {
 // to more than that, the extra is taken off the oldest bills first — same for
 // payments entered here that Tally doesn't show yet.
 async function collectBills() {
-  const [{ bills, lastSynced }, ledger, appPays] = await Promise.all([getBillsReceivable(), getLedgerBalancesByDealer().catch(() => ({})), collectAppPayments()]);
+  const [{ bills, lastSynced }, ledger, appPays, vouchers] = await Promise.all([getBillsReceivable(), getLedgerBalancesByDealer().catch(() => ({})), collectAppPayments(),
+    getLedgerVouchers().catch(() => ({ byKey: {}, legIndex: {} }))]);
   const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
   const t0 = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
+  const dayOf = d => Math.round((t0 - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
   const findDealer = await dealerResolver();
   const out = [];
   for (const b of bills) {
     const d = parseAnyDate(b.billDate);
     if (!d || !b.party) continue;
-    const ymd = toIsoDate(d);
-    const days = Math.round((t0 - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
     const dealer = findDealer(b.party);
     const amount = gpNum(b.amount);
-    out.push({ key: collectKey(b), party: b.party.trim(), billRef: b.billRef, billDate: ymd, amount, billAmount: amount, days,
+    out.push({ key: collectKey(b), party: b.party.trim(), billRef: b.billRef, billDate: toIsoDate(d), amount, billAmount: amount, days: dayOf(d),
       phone: dealer && dealer.phone ? dealer.phone : '', owner: dealer && dealer.owner_name ? dealer.owner_name : '' });
   }
   const byParty = {};
   out.forEach(b => (byParty[b.party.toLowerCase()] = byParty[b.party.toLowerCase()] || []).push(b));
+  // Which bills are really open (client list 2026-10-30 #1: Savitri Electronics showed
+  // a 526-day "BILL" of ₹3,263 while Tally's ledger owed only the 17-Aug and 15-Sep
+  // bills). Receipts entered "on account" leave Tally's bill-wise list wrong, so when
+  // the party's ledger and this FY's vouchers are synced, the open bills come from the
+  // ledger itself: receipts paid against the oldest debits first (computeFifoAging —
+  // the Statement's method), i.e. the balance is made of the newest bills. Whatever
+  // is left from before this FY sits on Tally's own pre-FY bills, newest first.
+  const fyStart = toIsoDate(financialYearStartDate(new Date()));
+  Object.entries(byParty).forEach(([k, list]) => {
+    const l = ledger[k];
+    if (!l || !vouchers.legIndex[k]) return;
+    const fifo = computeFifoAging(k, vouchers, l);
+    const f = list[0];
+    const mk = (billRef, d, amount) => {
+      const sb = list.find(x => String(x.billRef).trim() === String(billRef).trim());
+      return { key: collectKey({ party: f.party, billRef }), party: f.party, billRef, billDate: toIsoDate(d), amount: Math.round(amount * 100) / 100,
+        billAmount: sb ? sb.billAmount : Math.round(amount * 100) / 100, days: dayOf(d), phone: f.phone, owner: f.owner };
+    };
+    const fresh = [];
+    fifo.openBills.forEach(b => {
+      if (b.vchType !== 'Opening Balance') { const d = parseAnyDate(b.date); if (d) fresh.push(mk(b.vchNo || b.vchType, d, b.remaining)); return; }
+      let left = b.remaining;
+      list.filter(x => x.billDate < fyStart).sort((a, c) => c.billDate.localeCompare(a.billDate)).forEach(x => {
+        if (left <= 0.5) return;
+        const take = Math.min(left, x.billAmount > 0 ? x.billAmount : left);
+        fresh.push({ ...x, amount: Math.round(take * 100) / 100 });
+        left -= take;
+      });
+      if (left > 0.5) { const d = financialYearStartDate(new Date()); fresh.push(mk('Opening', d, left)); }
+    });
+    byParty[k] = fresh;
+  });
+  out.length = 0;
+  Object.values(byParty).forEach(list => out.push(...list));
   const pending = {};
   appPays.filter(p => !p.inTally).forEach(p => { const k = p.party.trim().toLowerCase(); pending[k] = (pending[k] || 0) + p.amount; });
   const parties = {};
