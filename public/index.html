@@ -527,8 +527,26 @@ setTimeout(function(){
 }, 350);
 
 /* ── Existing session check ── */
+// A still-valid login goes straight back to the app. A busy / cold server (or a
+// network blip) used to leave staff on this form as if logged out (client list
+// 2026-10-30 #8) — retry a few times, then say so instead of asking for the password.
 (async function checkExistingSession(){
-  try{ var r = await fetch('/api/me', { credentials:'include' }); if (r.ok) window.location.replace('/app'); }catch(e){}
+  for (var attempt = 0; attempt < 4; attempt++) {
+    try {
+      var r = await fetch('/api/me', { credentials:'include', cache:'no-store' });
+      if (r.ok) { window.location.replace('/app'); return; }
+      if (r.status === 401) return; // genuinely not signed in — show the form
+      var body = null; try { body = await r.json(); } catch(e) {}
+      if ((r.status === 403 || r.status === 404) && body && typeof body.error === 'string') return;
+    } catch(e) {}
+    await new Promise(function(res){ setTimeout(res, 1500 * (attempt + 1)); });
+  }
+  var b = document.getElementById('err');
+  if (b) {
+    b.className = 'banner info';
+    b.innerHTML = 'Server abhi busy hai — aap shayad logged in hi hain. <a href="/app" style="font-weight:700">Dobara try karein</a> ya neeche login karein.';
+    b.style.display = 'block';
+  }
 })();
 
 /* ══════════ Mascot (decorative only — never blocks the login flow) ══════════ */

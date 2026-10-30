@@ -1802,6 +1802,8 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
           style="padding:7px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;color:var(--gray-900);background:var(--surface-alt);display:none">
           <option value="all">All Employees</option>
         </select>
+        <!-- Admin: everyone's checklist / delegation, or only own (client list 2026-10-30 #6) -->
+        <label id="dashSelfOnlyWrap" style="display:none;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-700);cursor:pointer" title="Tick = sirf mere checklist / delegation; khaali = sab employees ke"><input type="checkbox" id="dashSelfOnly" onchange="dashSelfOnlyChanged(this)"/> Sirf mere tasks</label>
         <!-- PC-only date range filter -->
         <div id="pcDateRangeFilter" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;">
           <label style="font-size:12px;color:var(--gray-500);font-weight:600">From:</label>
@@ -4889,13 +4891,22 @@ async function init() {
     clearTimeout(timeoutId);
 
     if (!r.ok) {
-      if (![401, 403, 404].includes(r.status)) { showServerDown('🟠 Server busy', 'Server abhi busy hai — thodi der baad reload karein.'); return; }
+      // Logged out only when OUR server says so (client list 2026-10-30 #8, 'har 2-3 din me logout'):
+      // a 401, or a 403 / 404 carrying our own { error: '…' } JSON. Vercel's own 403 / 404 pages
+      // (domain / alias switch, firewall check, CPU pause) keep the login and just ask for a reload.
+      let own = r.status === 401;
+      if (!own && [403, 404].includes(r.status)) {
+        const body = await r.clone().json().catch(() => null);
+        own = !!(body && typeof body.error === 'string');
+      }
+      if (!own) { showServerDown('🟠 Server busy', 'Server abhi busy hai — thodi der baad reload karein.'); return; }
       localStorage.removeItem('authToken');
       window.location.replace('/');
       return;
     }
-    ME = await r.json();
-    if (!ME || !ME.id) { window.location.replace('/'); return; }
+    ME = await r.json().catch(() => null);
+    // A 200 that isn't our JSON (a platform page) is not a logout either.
+    if (!ME || !ME.id) { showServerDown('🟠 Server busy', 'Server ka jawab theek nahi aaya — reload karein.'); return; }
     if (ME.role === 'vendor') { window.location.replace('/vendor'); return; } // Purchase FMS vendor portal
     // ── ROLE FEATURE FLAGS ──────────────────────────────
     // To re-enable hod/pc: remove or comment the next 2 lines
@@ -5526,11 +5537,25 @@ function refreshDashboardO2dLocally() {
   renderDashTable(merged, dashType);
 }
 
+function dashSelfOnlyChanged(cb) {
+  try { localStorage.setItem('dashSelfOnly', cb.checked ? '1' : '0'); } catch (e) { /* private mode */ }
+  const sel = document.getElementById('dashEmployeeFilter');
+  if (sel) sel.disabled = cb.checked;
+  loadDashboard();
+}
 async function loadDashboard() {
   loadAttendanceToday();
   loadKmState();
   const empFilter = document.getElementById('dashEmployeeFilter');
-  const empVal = empFilter ? empFilter.value : 'all';
+  // Admin 'Sirf mere tasks' tick: own checklist / delegation only.
+  const selfBox = document.getElementById('dashSelfOnly');
+  if (selfBox && ME.role === 'admin' && !selfBox.dataset.init) {
+    selfBox.dataset.init = '1';
+    try { selfBox.checked = localStorage.getItem('dashSelfOnly') === '1'; } catch (e) { /* private mode */ }
+    if (empFilter) empFilter.disabled = selfBox.checked;
+  }
+  const selfOnly = ME.role === 'admin' && selfBox && selfBox.checked;
+  const empVal = selfOnly ? String(ME.id) : (empFilter ? empFilter.value : 'all');
   const isAdmin = ME.role === 'admin';
   const isHod = ME.role === 'hod';
   const isPC = ME.role === 'pc';
@@ -5589,6 +5614,7 @@ async function loadDashboard() {
 
   if (isAdmin || isHod || isPC) {
     empFilter.style.display = 'block';
+    if (isAdmin) document.getElementById('dashSelfOnlyWrap').style.display = 'flex';
 
     if (isPC) {
       // Show date range filter for PC
@@ -8438,6 +8464,32 @@ function empField(key, label, p, opts = {}) {
   else input = `<input id="empF_${key}" type="${opts.type || 'text'}" value="${esc(v)}" placeholder="${esc(opts.ph || '')}" style="${EMP_INPUT}"/>`;
   return `<div style="${opts.wide ? 'grid-column:1/-1' : ''}"><div style="${EMP_LABEL}">${label}</div>${input}</div>`;
 }
+// Home location on the record (client list 2026-10-30 #4): GPS when standing at the house, or a Google Maps link / 'lat, lng'.
+async function empHomeSave(uid, body, btn) {
+  const restore = btn ? btnLoading(btn, 'Saving…') : null;
+  const r = await api(`/api/employees/${uid}/home-location`, 'PUT', body);
+  if (restore) restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(body.clear ? 'Ghar ki location hata di' : '✅ Ghar ki location save ho gayi');
+  if (uid === ME.id && typeof loadMyHomeLocation === 'function') loadMyHomeLocation();
+  openEmployee(uid);
+}
+function empHomeGps(uid, btn) {
+  if (!navigator.geolocation) { showToast('Is phone / browser me location nahi milti — Maps link se daalein', 'error'); return; }
+  const restore = btnLoading(btn, 'Location le rahe…');
+  navigator.geolocation.getCurrentPosition(pos => { restore(); empHomeSave(uid, { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }, btn); },
+    err => { restore(); showToast(err.code === 1 ? 'Location ki permission dein (browser settings), phir dobara dabayein' : 'Location nahi mili — GPS on karke dobara, ya Maps link se daalein', 'error'); },
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+}
+async function empHomeLink(uid) {
+  const v = await uiPrompt('Google Maps ka link paste karein (ya 26.9124, 75.7873)', '');
+  if (v == null || !String(v).trim()) return;
+  empHomeSave(uid, { link: String(v).trim() });
+}
+async function empHomeClear(uid) {
+  if (!await uiConfirm('Ghar ki location hatayein?')) return;
+  empHomeSave(uid, { clear: true });
+}
 function empRO(label, value) {
   return `<div><div style="${EMP_LABEL}">${label}</div><div style="font-size:13px;color:var(--gray-800);padding:9px 0">${value || '<span style="color:var(--gray-400)">—</span>'}</div></div>`;
 }
@@ -8462,7 +8514,8 @@ function empDetailsHtml(r) {
       ${empField('alt_phone', 'Alternate phone', p, { type: 'tel' })}
       ${empField('personal_email', 'Personal email', p, { type: 'email' })}
       ${empField('current_address', 'Current address', p, { area: true, wide: true })}
-      ${empRO('🏠 Ghar ki location', r.home ? `<a href="https://maps.google.com/?q=${r.home.lat},${r.home.lng}" target="_blank" rel="noopener">📍 Map par dekho</a>${r.home.at ? ` <span style="font-size:11px;color:var(--gray-500)">· ${esc(fmtDateDMY(r.home.at, true))}</span>` : ''}` : '<span style="color:var(--gray-400)">Employee ne Profile se save nahi ki</span>')}
+      ${empRO('🏠 Ghar ki location', (r.home ? `<a href="https://maps.google.com/?q=${r.home.lat},${r.home.lng}" target="_blank" rel="noopener">📍 Map par dekho</a>${r.home.at ? ` <span style="font-size:11px;color:var(--gray-500)">· ${esc(fmtDateDMY(r.home.at, true))}</span>` : ''}` : '<span style="color:var(--gray-400)">Abhi save nahi hui</span>')
+        + `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button type="button" class="btn btn-outline btn-sm" onclick="empHomeGps(${u.id}, this)" title="Ghar par khade ho kar dabayein — phone ki GPS location save hogi">📍 GPS se save</button><button type="button" class="btn btn-outline btn-sm" onclick="empHomeLink(${u.id})" title="Google Maps se link copy karke daalein">🔗 Maps link</button>${r.home ? `<button type="button" class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="empHomeClear(${u.id})">✕</button>` : ''}</div>`)}
       <div style="grid-column:1/-1">
         <div style="${EMP_LABEL};display:flex;justify-content:space-between;align-items:center">Permanent address
           <label style="text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" onchange="if(this.checked)document.getElementById('empF_permanent_address').value=document.getElementById('empF_current_address').value"/> same as current</label></div>
@@ -9517,7 +9570,10 @@ async function _apiFetch(url,method='GET',body=null) {
     return {};
   }
   try {
-    const data = await r.json();
+    // Saved photo / file links carry the host they were made on (APP_URL) — the
+    // login cookie is per host, so on the other domain they opened as "not
+    // logged in" (client list 2026-10-30 #3: onboarding photos). Same-host paths.
+    const data = JSON.parse((await r.text()).replace(/https?:\/\/[a-z0-9.-]+\/api\/drive-file\//gi, '/api/drive-file/'));
     // If server sent a JSON error body on non-200, surface it cleanly
     if (!r.ok && !data.error) data.error = `HTTP ${r.status}`;
     return data;
@@ -24753,23 +24809,26 @@ async function submitDealerOnboarding() {
 async function openOnboardDetail(id) {
   const o = await api(`/api/dealer-onboarding/${id}`);
   if (!o || o.error) { showToast((o && o.error) || 'Not found', 'error'); return; }
-  const f = (label, val) => val ? `<div><div style="${CHQ_LABEL}">${label}</div><div style="font-size:14px;color:var(--gray-800)">${val}</div></div>` : '';
+  // Every field shows, '—' when left blank (client list 2026-10-30 #3: blank ones vanished and read as 'details missing').
+  const f = (label, val) => `<div><div style="${CHQ_LABEL}">${label}</div><div style="font-size:14px;color:${val ? 'var(--gray-800)' : 'var(--gray-400)'}">${val || '—'}</div></div>`;
   const pics = [['GST', o.gstPhoto], ['Aadhaar', o.aadhaarPhoto], ['Cheque', o.chequePhoto], ['Bilty / LR', o.biltyPhoto], ['Bahar', o.outsidePhoto], ...o.insidePhotos.map((u, i) => [`Andar ${i + 1}`, u])].filter(p => p[1]);
   document.getElementById('onbDetailTitle').textContent = `${o.code} · ${o.shopName}`;
   document.getElementById('onbDetailBody').innerHTML = `
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px">
+      ${f('Shop', esc(o.shopName))}${f('Lead', esc(o.leadCode))}
       ${f('Dealer', esc(o.ownerName))}${f('Mobile', `<a href="tel:${esc(o.mobile)}">📞 ${esc(o.mobile)}</a>${o.altMobile ? ' · ' + esc(o.altMobile) : ''}`)}
       ${f('Address', esc([o.address, o.area, o.city, o.pincode].filter(Boolean).join(', ')))}${f('Email', esc(o.email))}
-      ${f('Firm', esc([o.firmType, o.partners].filter(Boolean).join(' — ')))}${f('GST / PAN', esc([o.gstNo, o.panNo].filter(Boolean).join(' · ')))}
+      ${f('Firm', esc([o.firmType, o.partners].filter(Boolean).join(' — ')))}${f('GST / PAN', o.noGst && !o.gstNo ? 'GST nahi hai' + (o.panNo ? ' · ' + esc(o.panNo) : '') : esc([o.gstNo, o.panNo].filter(Boolean).join(' · ')))}
       ${f('Dukaan', esc([o.shopOwnership, o.shopSize].filter(Boolean).join(' · ')))}${f('Maal', esc(o.stockLevel))}
       ${f('Business since', esc(o.yearsInBusiness ? o.yearsInBusiness + ' saal' : ''))}${f('Brands', esc(o.brandsDealt))}
       ${f('Transport', esc([o.transportName, o.transportPhone, o.transportStation].filter(Boolean).join(' · ')))}
       ${f('Monthly kharid', o.monthlyPotential != null ? inr(o.monthlyPotential) : '')}${f('Suggested credit', o.suggestedCredit != null ? inr(o.suggestedCredit) : '')}
       ${f('Location', o.locationLat ? `<a href="https://maps.google.com/?q=${o.locationLat},${o.locationLng}" target="_blank">📍 Map</a>` : '')}
       ${f('Remark', esc(o.remark))}
-      ${f('Onboarded', `${fmtDateDMY(o.createdAt, true)} · ${esc(o.createdByName)}`)}
+      ${f('Onboarded', `${fmtDateDMY(o.createdAt, true)} · ${esc(o.createdByName)}`)}${f('Salesman', esc(o.salesmanName))}
       ${f('Welcome kit', /^FAILED:/.test(o.welcomeNote || '') ? `<span style="color:var(--color-danger-text,#c00)">❌ Nahi gaya — ${esc(o.welcomeNote.slice(7).trim())}</span>` : o.welcomeSentAt ? `✅ ${fmtDateDMY(String(o.welcomeSentAt), true)}${o.welcomeNote ? ' · ' + esc(o.welcomeNote) : ''}` : 'Not sent')}
     </div>
+    <div style="${CHQ_LABEL};margin-bottom:6px">📷 Photos (${pics.length})</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px">${pics.map(([t, u]) => `<div><div style="${CHQ_LABEL}">${t}</div>${chqPhotoHtml(u, 140)}</div>`).join('')}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-outline" onclick="resendDealerWelcome(${o.id},this)">💬 Welcome kit dobara bhejo</button>

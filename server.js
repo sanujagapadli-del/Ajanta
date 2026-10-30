@@ -14550,7 +14550,9 @@ async function ensureLeadTables() {
   await addMissingColumns('leads', [['req_category', 'VARCHAR(100)']]);
   await addMissingColumns('dealer_onboardings', [['aadhaar_photo', 'VARCHAR(1000)'], ['cheque_photo', 'VARCHAR(1000)'],
     // Transport the dealer's goods go by + the bilty / LR photo (client, 2026-10-16).
-    ['transport_name', 'VARCHAR(255)'], ['transport_phone', 'VARCHAR(30)'], ['transport_station', 'VARCHAR(255)'], ['bilty_photo', 'VARCHAR(1000)']]);
+    ['transport_name', 'VARCHAR(255)'], ['transport_phone', 'VARCHAR(30)'], ['transport_station', 'VARCHAR(255)'], ['bilty_photo', 'VARCHAR(1000)'],
+    // 'GST nahi hai' ticked on the form (client list 2026-10-30 #3 — shown on the record, not just a missing photo).
+    ['no_gst', 'TINYINT(1) NOT NULL DEFAULT 0']]);
 }
 async function addMissingColumns(table, defs) {
   const [cols] = await db.query(`SHOW COLUMNS FROM ${table}`);
@@ -15000,11 +15002,12 @@ function dealerWelcomeMessages(o, s, cats) {
   cats.forEach(cat => items.push({ text: '', media: { type: 'document', url: cat.url, mimetype: 'application/pdf', fileName: cat.fileName } }));
   return items;
 }
-const ONB_SELECT = `SELECT o.*, DATE_FORMAT(o.created_at,'%Y-%m-%d %H:%i') AS created_fmt, u.name AS created_by_name FROM dealer_onboardings o LEFT JOIN users u ON u.id=o.created_by`;
+const ONB_SELECT = `SELECT o.*, DATE_FORMAT(o.created_at,'%Y-%m-%d %H:%i') AS created_fmt, u.name AS created_by_name, l.lead_code AS lead_code
+  FROM dealer_onboardings o LEFT JOIN users u ON u.id=o.created_by LEFT JOIN leads l ON l.id=o.lead_id`;
 function onboardingOut(o) {
   let inside = [];
   try { inside = JSON.parse(o.inside_photos || '[]'); } catch (e) {}
-  return { id: o.id, code: o.code, leadId: o.lead_id, shopName: o.shop_name, ownerName: o.owner_name, mobile: o.mobile, altMobile: o.alt_mobile || '',
+  return { id: o.id, code: o.code, leadId: o.lead_id, leadCode: o.lead_code || '', noGst: !!Number(o.no_gst), shopName: o.shop_name, ownerName: o.owner_name, mobile: o.mobile, altMobile: o.alt_mobile || '',
     email: o.email || '', address: o.address || '', city: o.city || '', area: o.area || '', pincode: o.pincode || '', gstNo: o.gst_no || '', panNo: o.pan_no || '',
     firmType: o.firm_type || '', partners: o.partners || '', shopOwnership: o.shop_ownership || '', yearsInBusiness: o.years_in_business || '',
     shopSize: o.shop_size || '', stockLevel: o.stock_level || '', brandsDealt: o.brands_dealt || '',
@@ -15021,7 +15024,8 @@ app.get('/api/dealer-onboarding', requireAuth, async (req, res) => {
     if (!(await canOnboardDealers(req))) return res.status(403).json({ error: 'No access' });
     const acc = await leadUserAccess(req);
     const uid = req.session.userId;
-    const [rows] = await withLeadTables(() => acc.seeAll || req.session.role === 'admin'
+    // Managers (HOD / PC) see every form too — they were missing salesmen's ones (client list 2026-10-30 #3).
+    const [rows] = await withLeadTables(() => acc.seeAll || ['admin', 'hod', 'pc'].includes(req.session.role)
       ? db.query(`${ONB_SELECT} ORDER BY o.id DESC`)
       : db.query(`${ONB_SELECT} WHERE o.created_by=? OR o.salesman_user_id=? ORDER BY o.id DESC`, [uid, uid]));
     res.json({ items: rows.map(onboardingOut), firmTypes: ONB_FIRM_TYPES });
@@ -15064,14 +15068,14 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
     const [r] = await db.query(`INSERT INTO dealer_onboardings (code, lead_id, shop_name, owner_name, mobile, alt_mobile, email, address, city, area, pincode, gst_no, pan_no,
         firm_type, partners, shop_ownership, years_in_business, shop_size, stock_level, brands_dealt, monthly_potential, suggested_credit, remark,
         gst_photo, inside_photos, outside_photo, aadhaar_photo, cheque_photo, location_lat, location_lng, salesman_user_id, salesman_name, created_by,
-        transport_name, transport_phone, transport_station, bilty_photo)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        transport_name, transport_phone, transport_station, bilty_photo, no_gst)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [code, lead ? lead.id : null, shop, owner, mobile, leadStr(b.altMobile, 30), leadStr(b.email, 255), leadStr(b.address, 1000), leadStr(b.city, 255), leadStr(b.area, 255),
         leadStr(b.pincode, 10), leadStr(b.gstNo, 30) && leadStr(b.gstNo, 30).toUpperCase(), leadStr(b.panNo, 20) && leadStr(b.panNo, 20).toUpperCase(),
         ONB_FIRM_TYPES.includes(b.firmType) ? b.firmType : null, leadStr(b.partners, 1000), ['Own', 'Rented'].includes(b.shopOwnership) ? b.shopOwnership : null,
         leadStr(b.yearsInBusiness, 20), leadStr(b.shopSize, 30), leadStr(b.stockLevel, 30), leadStr(b.brandsDealt, 500), num(b.monthlyPotential), num(b.suggestedCredit),
         leadStr(b.remark, 1000), gstUrl, JSON.stringify(insideUrls), outsideUrl, aadhaarUrl, chequeUrl, hasLoc ? lat : null, hasLoc ? lng : null, req.session.userId, me ? me.name : null, req.session.userId,
-        leadStr(b.transportName, 255), leadStr(b.transportPhone, 30), leadStr(b.transportStation, 255), biltyUrl]);
+        leadStr(b.transportName, 255), leadStr(b.transportPhone, 30), leadStr(b.transportStation, 255), biltyUrl, b.noGst && !gstUrl ? 1 : 0]);
 
     // Dealer profile used by O2D (Dealers tab, New Order): fill what's known, keep the rest.
     await withDealerTables(() => db.query(
@@ -15638,6 +15642,13 @@ async function canSeeEmployees(req) {
   return req.session.role === 'admin' || (await hasPageGrant(req, 'employees'));
 }
 const empYmd = v => (v instanceof Date ? v.toISOString().slice(0, 10) : (v ? String(v).slice(0, 10) : ''));
+// DATETIME → 'YYYY-MM-DD HH:mm' (mysql2 hands back a Date in local wall-clock time; String(Date) printed 'Thu Oct 29 2026').
+const empDateTime = v => {
+  if (!v) return '';
+  if (!(v instanceof Date)) return String(v).slice(0, 16);
+  const p = x => String(x).padStart(2, '0');
+  return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())} ${p(v.getHours())}:${p(v.getMinutes())}`;
+};
 
 app.get('/api/employees', requireAuth, async (req, res) => {
   try {
@@ -15717,7 +15728,7 @@ app.get('/api/employees/:id', requireAuth, async (req, res) => {
     approved.filter(l => l.end_date >= year + '-01-01').forEach(l => { byType[l.leave_type || 'Other'] = (byType[l.leave_type || 'Other'] || 0) + (Number(l.days) || 0); });
     const profile = {};
     Object.keys(EMP_FIELDS).forEach(k => { profile[k] = prof && prof[k] != null ? (EMP_FIELDS[k] === 'date' ? empYmd(prof[k]) : String(prof[k])) : ''; });
-    const home = prof && prof.home_lat != null ? { lat: Number(prof.home_lat), lng: Number(prof.home_lng), at: prof.home_saved_at ? String(prof.home_saved_at).slice(0, 16) : '' } : null;
+    const home = prof && prof.home_lat != null ? { lat: Number(prof.home_lat), lng: Number(prof.home_lng), at: empDateTime(prof.home_saved_at) } : null;
     res.json({
       home,
       today, month, viewer, docTypes: EMP_DOC_TYPES, requiredDocs: EMP_REQUIRED_DOCS,
@@ -15782,6 +15793,48 @@ app.put('/api/my-home-location', requireAuth, async (req, res) => {
       ON DUPLICATE KEY UPDATE home_lat=VALUES(home_lat), home_lng=VALUES(home_lng), home_accuracy=VALUES(home_accuracy), home_saved_at=NOW(), updated_by=VALUES(updated_by)`,
       [req.session.userId, lat, lng, acc, req.session.userId]);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Home location on the Employees record (client list 2026-10-30 #4: the Profile button was easy to miss and the
+// record only showed it): the employee for himself, or Employees access for anyone — from the phone's GPS, a
+// Google Maps link or plain 'lat, lng'. Blank clears it.
+function empParseLatLng(b) {
+  if (b.lat != null && b.lng != null && b.lat !== '' && b.lng !== '') return { lat: Number(b.lat), lng: Number(b.lng) };
+  const t = decodeURIComponent(String(b.link || '')).trim();
+  if (!t) return null;
+  const m = t.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || t.match(/[?&](?:q|query|ll|destination)=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/) || t.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || t.match(/^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/);
+  return m ? { lat: Number(m[1]), lng: Number(m[2]) } : undefined;
+}
+app.put('/api/employees/:id/home-location', requireAuth, async (req, res) => {
+  try {
+    const uid = Number(req.params.id);
+    if (uid !== Number(req.session.userId) && !(await canSeeEmployees(req))) return res.status(403).json({ error: 'No access to Employees' });
+    const b = req.body || {};
+    await ensureEmpHomeCols();
+    if (b.clear) {
+      await db.query('UPDATE employee_profiles SET home_lat=NULL, home_lng=NULL, home_accuracy=NULL, home_saved_at=NULL, updated_by=? WHERE user_id=?', [req.session.userId, uid]);
+      return res.json({ success: true });
+    }
+    let ll = empParseLatLng(b);
+    // Phone "Share" gives a short maps.app.goo.gl link — follow its redirect to the full one.
+    if (ll === undefined && /^https:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\//i.test(String(b.link || '').trim())) {
+      let url = String(b.link).trim();
+      for (let i = 0; i < 4 && ll === undefined; i++) {
+        const r = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(6000) }).catch(() => null);
+        const next = r && r.headers.get('location');
+        if (!next) break;
+        url = new URL(next, url).toString();
+        ll = empParseLatLng({ link: url });
+      }
+    }
+    if (!ll || !(ll.lat >= -90 && ll.lat <= 90 && ll.lng >= -180 && ll.lng <= 180) || (ll.lat === 0 && ll.lng === 0))
+      return res.status(400).json({ error: 'Location samajh nahi aayi — Google Maps ka pura link (jisme @26.9,75.8 ho) ya "26.91, 75.78" daalein' });
+    const acc = Math.round(Number(b.accuracy) || 0) || null;
+    await db.query(`INSERT INTO employee_profiles (user_id, home_lat, home_lng, home_accuracy, home_saved_at, updated_by) VALUES (?,?,?,?,NOW(),?)
+      ON DUPLICATE KEY UPDATE home_lat=VALUES(home_lat), home_lng=VALUES(home_lng), home_accuracy=VALUES(home_accuracy), home_saved_at=NOW(), updated_by=VALUES(updated_by)`,
+      [uid, ll.lat, ll.lng, acc, req.session.userId]);
+    res.json({ success: true, lat: ll.lat, lng: ll.lng });
   } catch (err) { sendServerError(res, err); }
 });
 
