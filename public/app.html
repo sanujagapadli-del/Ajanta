@@ -22499,18 +22499,18 @@ function vrlPendingHtml(open) {
 function vrlScoreHtml(list) {
   const by = {};
   list.forEach(c => {
-    const v = by[c.vendorName] = by[c.vendorName] || { vendor: c.vendorName, challans: 0, sent: 0, value: 0, new: 0, repaired: 0, credit: 0, credit$: 0, pending: 0, tat: [] };
+    const v = by[c.vendorName] = by[c.vendorName] || { vendor: c.vendorName, challans: 0, sent: 0, value: 0, new: 0, old: 0, repaired: 0, credit: 0, credit$: 0, pending: 0, tat: [] };
     v.challans++;
     c.lines.forEach(l => {
-      v.sent += l.qty; v.value += l.total || 0; v.new += l.got.new; v.repaired += l.got.repaired; v.credit += l.got.credit; v.credit$ += l.creditAmount; v.pending += l.pending;
+      v.sent += l.qty; v.value += l.total || 0; v.new += l.got.new; v.old += l.got.old || 0; v.repaired += l.got.repaired; v.credit += l.got.credit; v.credit$ += l.creditAmount; v.pending += l.pending;
       if (!l.pending && l.settlements.length) { const last = l.settlements.map(x => x.date).sort().pop(); v.tat.push((new Date(last) - new Date(c.challanDate)) / 86400000); }
     });
   });
   const rows = Object.values(by).sort((a, b) => b.pending - a.pending);
   const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—';
-  return rows.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Vendor</th><th>Challans</th><th>Sent</th><th>New goods</th><th>Repaired</th><th>Credit note</th><th>Credit ₹ vs value sent</th><th>Pending</th><th>Avg turnaround</th></tr></thead><tbody>
-    ${rows.map(v => { const settled = v.new + v.repaired + v.credit; return `<tr><td style="font-weight:600">${esc(v.vendor)}</td><td>${v.challans}</td><td>${v.sent}</td>
-      <td>${v.new} <span style="color:var(--gray-400)">${pct(v.new, settled)}</span></td><td>${v.repaired} <span style="color:var(--gray-400)">${pct(v.repaired, settled)}</span></td>
+  return rows.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Vendor</th><th>Challans</th><th>Sent</th><th>New goods</th><th>Old piece</th><th>Credit note</th><th>Credit ₹ vs value sent</th><th>Pending</th><th>Avg turnaround</th></tr></thead><tbody>
+    ${rows.map(v => { const settled = v.new + v.old + v.repaired + v.credit; return `<tr><td style="font-weight:600">${esc(v.vendor)}</td><td>${v.challans}</td><td>${v.sent}</td>
+      <td>${v.new} <span style="color:var(--gray-400)">${pct(v.new, settled)}</span></td><td>${v.old} <span style="color:var(--gray-400)">${pct(v.old, settled)}</span>${v.repaired ? `<div style="font-size:11px;color:var(--gray-500)">+ ${v.repaired} repaired (purana)</div>` : ''}</td>
       <td>${v.credit} <span style="color:var(--gray-400)">${pct(v.credit, settled)}</span></td><td>${inr(v.credit$)} / ${v.value ? inr(v.value) : '—'}</td>
       <td style="font-weight:800;${v.pending ? 'color:var(--color-danger)' : ''}">${v.pending}</td><td>${v.tat.length ? Math.round(v.tat.reduce((a, b) => a + b, 0) / v.tat.length) + ' din' : '—'}</td></tr>`; }).join('')}
     </tbody></table></div>` : '<div class="empty">Abhi koi data nahi</div>';
@@ -22690,30 +22690,32 @@ function openVrlDetail(id) {
   const c = vrlData.challans.find(x => x.id === id);
   if (!c) return;
   const open = c.status === 'Open';
+  const legacyRep = c.lines.some(l => l.got.repaired);
   vrlModal('vrlDetailModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">${esc(c.code)} · ${esc(c.vendorName)}</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('vrlDetailModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
     <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${esc(fmtDateDMY(c.challanDate))} · ${esc(c.reason)}${c.billNo ? ' · Bill ' + esc(c.billNo) : ''} · by ${esc(c.createdByName)}${c.followUpName ? ' · Follow-up: <b>' + esc(c.followUpName) + '</b>' : ''}${c.status === 'Open' ? ` · <b style="${c.days > 30 ? 'color:var(--color-danger)' : ''}">${c.days} din</b>` : ''}
       ${c.remark ? `<div>${esc(c.remark)}</div>` : ''}${c.cancelledAt ? `<div style="color:var(--color-danger)">Cancelled: ${esc(c.cancelReason)}</div>` : ''}</div>
     ${c.photoUrl ? `<div style="margin-bottom:10px">${linkOrText(c.photoUrl, '📷 Photo')}</div>` : ''}
     ${vrlFlowHtml(c)}
-    <table style="font-size:12.5px;margin-bottom:12px"><thead><tr><th>Item</th><th>Sent</th><th>New</th><th>Repaired</th><th>Credit</th><th>Pending</th></tr></thead><tbody>
+    <table style="font-size:12.5px;margin-bottom:12px"><thead><tr><th>Item</th><th>Sent</th><th>New</th><th>Old</th>${legacyRep ? '<th>Repaired</th>' : ''}<th>Credit</th><th>Pending</th></tr></thead><tbody>
     ${c.lines.map((l, li) => `<tr><td><b>${li + 1}.</b> ${esc(l.itemName)}${l.serialNo ? `<div style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</div>` : ''}${l.defect ? `<div style="font-size:11px;color:var(--gray-500)">${esc(l.defect)}</div>` : ''}${l.rate ? `<div style="font-size:11px;color:var(--gray-500)">@ ${vrlInr(l.rate)} (${esc(vrlBasisLabel(l))}) · <b>${vrlInr(l.total)}</b>${l.gst ? ` <span title="Taxable + GST">(${vrlInr(l.taxable)} + ${vrlInr(l.gst)})</span>` : ''}</div>` : ''}</td>
-      <td>${l.qty}</td><td>${l.got.new || ''}</td><td>${l.got.repaired || ''}</td><td>${l.got.credit || ''}${l.creditAmount ? `<div style="font-size:11px">${inr(l.creditAmount)}</div>` : ''}</td>
-      <td style="font-weight:800;${l.pending ? 'color:var(--color-danger)' : 'color:var(--color-success)'}">${l.pending || '✓'}</td></tr>`).join('')}
+      <td>${l.qty}</td><td>${l.got.new || ''}</td><td>${l.got.old || ''}</td>${legacyRep ? `<td>${l.got.repaired || ''}</td>` : ''}<td>${l.got.credit || ''}${l.creditAmount ? `<div style="font-size:11px">${inr(l.creditAmount)}</div>` : ''}</td>
+      <td style="font-weight:800;${l.pending ? 'color:var(--color-danger)' : 'color:var(--color-success)'}">${l.pending || '✓'}${l.extra ? ` <span style="font-size:11px;color:var(--color-warning-text)" title="Vendor ne bheje pcs se zyada">+${l.extra} extra</span>` : ''}</td></tr>`).join('')}
     </tbody></table>
     ${c.value ? `<div style="font-size:13px;text-align:right;margin:-4px 0 12px">Taxable ${vrlInr(c.taxable)} + GST ${vrlInr(c.gst)} = <b style="font-size:15px">Total ${vrlInr(c.value)}</b></div>` : ''}
     ${open ? `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:12px;margin-bottom:12px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:8px">📥 2 · Maal aaya (New / Repaired) ya Credit Note — advance mein aaya ho to bhi yahin</div>
-      <div style="font-size:12px;font-weight:700;margin-bottom:4px">Kitne pcs aaye? <span style="font-weight:400;color:var(--gray-500)">— har item ke aage qty likhein: naya maal / repair hokar / credit note</span></div>
-      <div style="overflow-x:auto;margin-bottom:10px"><table style="font-size:12.5px;min-width:420px"><thead><tr><th>Item</th><th style="text-align:center">Pending</th><th style="text-align:center">🆕 New pcs</th><th style="text-align:center">🔧 Repaired pcs</th><th style="text-align:center">🧾 Credit pcs</th></tr></thead><tbody>
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px">📥 2 · Maal aaya (New / Old piece) ya Credit Note — advance mein aaya ho to bhi yahin</div>
+      <div style="font-size:12px;font-weight:700;margin-bottom:4px">Kitne pcs aaye? <span style="font-weight:400;color:var(--gray-500)">— har item ke aage qty likhein: naya maal / purana (old) piece wapas / credit note</span></div>
+      <div style="overflow-x:auto;margin-bottom:10px"><table style="font-size:12.5px;min-width:420px"><thead><tr><th>Item</th><th style="text-align:center">Pending</th><th style="text-align:center">🆕 New pcs</th><th style="text-align:center">↩️ Old pcs</th><th style="text-align:center">🧾 Credit pcs</th></tr></thead><tbody>
         ${c.lines.filter(l => l.pending).map(l => `<tr><td>${esc(l.itemName)}${l.serialNo ? ` <span style="font-size:11px;color:var(--gray-500)">S/N ${esc(l.serialNo)}</span>` : ''}</td><td style="text-align:center;font-weight:800;color:var(--color-danger)">${l.pending}</td>
-          ${['new', 'repaired', 'credit'].map(k => `<td><input type="number" min="0" max="${l.pending}" placeholder="0" class="vrl-set" data-line="${l.id}" data-kind="${k}" inputmode="numeric" style="${VRL_IN};padding:6px;text-align:center;min-width:70px"/></td>`).join('')}</tr>`).join('')}
+          ${['new', 'old', 'credit'].map(k => `<td><input type="number" min="0" max="${l.pending}" placeholder="0" class="vrl-set" data-line="${l.id}" data-kind="${k}" inputmode="numeric" style="${VRL_IN};padding:6px;text-align:center;min-width:70px"/></td>`).join('')}</tr>`).join('')}
       </tbody></table></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
         <div><label style="font-size:11.5px">Date</label><input id="vrlSetDate" type="date" value="${stockTodayYmd()}" style="${VRL_IN}"/></div>
         <div><label style="font-size:11.5px">Credit Note No. <span style="color:var(--gray-400)">(credit ho to)</span></label><input id="vrlCnNo" style="${VRL_IN}"/></div>
         <div><label style="font-size:11.5px">Credit Note ₹ <span style="color:var(--gray-400)">(credit ho to)</span></label><input id="vrlCnAmt" type="number" min="0" style="${VRL_IN}"/></div></div>
-      <input id="vrlSetRemark" placeholder="Remark" style="${VRL_IN};margin-bottom:8px"/>
+      <label style="font-size:11.5px">Remark — kya kaaran raha? <span style="color:var(--gray-400)">(old piece wapas aaya ho to zaroori)</span></label>
+      <textarea id="vrlSetRemark" rows="2" placeholder="Jaise: vendor ne repair nahi kiya, piece theek nikla, model band ho gaya…" style="${VRL_IN};margin-bottom:8px;resize:vertical"></textarea>
       <label style="font-size:11.5px">Photo / Credit Note PDF</label>
       <input type="file" id="vrlSetPhoto" accept="image/*,application/pdf" onchange="onChequePhotoSelected(this,'vrlSetPv')" style="${VRL_IN};margin-bottom:4px"/><div id="vrlSetPv" style="font-size:12px;margin-bottom:8px"></div>
       <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveVrlSettle(${c.id},this)">✓ Save receipt</button></div>` : ''}
@@ -22795,10 +22797,22 @@ async function saveVrlSettle(id, btn) {
   const firstCredit = entries.find(e => e.kind === 'credit');
   if (firstCredit && cnAmt !== '') firstCredit.cnAmount = cnAmt;
   if (!entries.length) { showToast('Kitna aaya — qty bharein', 'error'); return; }
+  if (entries.some(e => e.kind === 'old') && !document.getElementById('vrlSetRemark').value.trim()) { showToast('Old piece wapas kyun aaya — remark likhein', 'error'); document.getElementById('vrlSetRemark').focus(); return; }
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api(`/api/vendor-ledger/${id}/settle`, 'POST', { entries, date: document.getElementById('vrlSetDate').value,
-    remark: document.getElementById('vrlSetRemark').value.trim(), photo: document.getElementById('vrlSetPhoto').dataset.compressed || '' });
-  restore();
+  const body = { entries, date: document.getElementById('vrlSetDate').value,
+    remark: document.getElementById('vrlSetRemark').value.trim(), photo: document.getElementById('vrlSetPhoto').dataset.compressed || '' };
+  let r = await api(`/api/vendor-ledger/${id}/settle`, 'POST', body);
+  // Vendor sent more than pending (client list 2026-10-30 #10): confirm, remark, then save + close.
+  if (r.needsExtra) {
+    restore();
+    if (!await uiConfirm(`${r.error}.\n\nExtra qty ke saath save karke challan close karein?`)) return;
+    if (!body.remark) {
+      body.remark = ((await uiPrompt('Extra qty kyun aayi? (remark)', '')) || '').trim();
+      if (!body.remark) { showToast('Extra qty ke liye remark zaroori hai', 'error'); return; }
+      document.getElementById('vrlSetRemark').value = body.remark;
+    }
+    r = await api(`/api/vendor-ledger/${id}/settle`, 'POST', { ...body, allowExtra: true });
+  } else restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   const i = vrlData.challans.findIndex(x => x.id === id);
   if (i >= 0) vrlData.challans[i] = r.challan;

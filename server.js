@@ -16361,7 +16361,8 @@ app.get('/api/reports/ows', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 // VENDOR REPLACEMENT LEDGER (client, 2026-10-14) — defective goods sent back
 // to a vendor on a challan; each line settles (part or full) as new goods,
-// the same goods repaired, or a credit note. Pending = sent − settled.
+// the old piece sent back as-is, or a credit note. Pending = sent − settled.
+// 'repaired' is legacy (before 2026-10-22) — still counted, no longer offered.
 // ══════════════════════════════════════════════════════
 let _vrlOk = false;
 async function vrlTables() {
@@ -16418,7 +16419,7 @@ async function vrlAccess(req, res) {
   res.status(403).json({ error: 'No access to Vendor Replacement Ledger' });
   return false;
 }
-const VRL_KINDS = { new: 'New goods', repaired: 'Repaired & returned', credit: 'Credit note' };
+const VRL_KINDS = { new: 'New goods', old: 'Old piece returned', repaired: 'Repaired & returned', credit: 'Credit note' };
 async function vrlLoad(where = '', params = []) {
   const [ch] = await db.query(`SELECT c.*, DATE_FORMAT(c.challan_date,'%Y-%m-%d') AS challan_date, DATE_FORMAT(c.created_at,'%Y-%m-%d %H:%i:%s') AS created_at,
       DATEDIFF(CURDATE(), c.challan_date) AS days, u.name AS created_by_name, f.name AS follow_up_name
@@ -16441,14 +16442,14 @@ async function vrlLoad(where = '', params = []) {
     const ls = lines.filter(l => l.challan_id === c.id).map(l => {
       const ss = st.filter(x => x.line_id === l.id);
       const sum = k => ss.filter(x => x.kind === k).reduce((a, x) => a + n(x.qty), 0);
-      const got = { new: sum('new'), repaired: sum('repaired'), credit: sum('credit') };
-      const pending = Math.max(0, n(l.qty) - got.new - got.repaired - got.credit);
+      const got = { new: sum('new'), old: sum('old'), repaired: sum('repaired'), credit: sum('credit') };
+      const pending = Math.max(0, n(l.qty) - got.new - got.old - got.repaired - got.credit);
       const rateBasis = l.rate_basis === 'gst' ? 'gst' : 'basic';
       const gstPct = l.gst_pct == null ? null : n(l.gst_pct);
       const val = vrlLineValue(l.qty, l.rate, rateBasis, gstPct);
       return { id: l.id, itemName: l.item_name, serialNo: l.serial_no || '', qty: n(l.qty), rate: l.rate == null ? null : n(l.rate), defect: l.defect || '',
         rateBasis, gstPct, taxable: val.taxable, gst: val.gst, total: val.total,
-        got, pending, creditAmount: ss.reduce((a, x) => a + n(x.cn_amount), 0),
+        got, pending, extra: Math.max(0, got.new + got.old + got.repaired + got.credit - n(l.qty)), creditAmount: ss.reduce((a, x) => a + n(x.cn_amount), 0),
         settlements: ss.map(x => ({ id: x.id, kind: x.kind, qty: n(x.qty), date: x.settle_date, cnNo: x.cn_no || '', cnAmount: x.cn_amount == null ? null : n(x.cn_amount), remark: x.remark || '', photoUrl: x.photo_url || '', by: x.created_by_name || '' })),
         vendorUpdates: vup.filter(x => x.line_id === l.id).map(x => ({ status: x.status, qty: x.qty == null ? null : n(x.qty), date: x.update_date, cnNo: x.cn_no || '', remark: x.remark || '', at: x.created_at })) };
     });
@@ -16569,12 +16570,17 @@ app.post('/api/vendor-ledger/:id/settle', requireAuth, async (req, res) => {
     if (!entries.length) return res.status(400).json({ error: 'Enter the quantity received / credited' });
     const left = Object.fromEntries(ch.lines.map(l => [l.id, l.pending]));
     for (const e of entries) {
-      if (!VRL_KINDS[e.kind]) return res.status(400).json({ error: 'Choose New / Repaired / Credit note' });
+      if (!VRL_KINDS[e.kind]) return res.status(400).json({ error: 'Choose New / Old piece / Credit note' });
       if (!(Number(e.lineId) in left)) return res.status(400).json({ error: 'Item not on this challan' });
       left[e.lineId] -= Number(e.qty);
-      if (left[e.lineId] < -1e-9) return res.status(400).json({ error: 'More than the pending quantity' });
       if (e.kind === 'credit' && !String(e.cnNo || '').trim()) return res.status(400).json({ error: 'Credit note number is required' });
     }
+    // Vendor sent more than was pending (client list 2026-10-30 #10): say how much extra,
+    // then it is saved with a remark and the line closes (extra shown on the challan).
+    const over = ch.lines.filter(l => left[l.id] < -1e-9).map(l => ({ item: l.itemName, extra: Math.round(-left[l.id] * 100) / 100 }));
+    if (over.length && !b.allowExtra) return res.status(409).json({ needsExtra: true, extra: over, error: 'Pending se zyada aaya — ' + over.map(o => `${o.item}: ${o.extra} extra`).join(', ') });
+    if (over.length && !String(b.remark || '').trim()) return res.status(400).json({ error: 'Extra qty kyun aayi — remark likhein' });
+    if (entries.some(e => e.kind === 'old') && !String(b.remark || '').trim()) return res.status(400).json({ error: 'Old piece wapas kyun aaya — remark likhein' });
     if (b.photo && !docDataUriKind(b.photo)) return res.status(400).json({ error: 'Photo or PDF only' });
     const photoUrl = b.photo ? await uploadDocToDrive(b.photo, `${ch.code}-settle-${Date.now()}`) : null;
     await db.query('INSERT INTO vendor_repl_settlements (line_id, kind, qty, settle_date, cn_no, cn_amount, remark, photo_url, created_by) VALUES ?',
