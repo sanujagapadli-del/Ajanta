@@ -21336,7 +21336,7 @@ async function loadBeat() {
 }
 function beatScrollToday() {
   const th = document.getElementById(`beatDay_${beatData.today}`), box = document.getElementById('beatGridBox');
-  if (th && box) box.scrollLeft = Math.max(0, th.offsetLeft - 560);
+  if (th && box) box.scrollLeft = Math.max(0, th.offsetLeft - beatFreezeW() - 40);
 }
 function beatMonthChanged() { loadBeat(); }
 function beatSetDay(v) { beatDayFilter = v; beatRerenderKeepScroll(); }
@@ -21388,7 +21388,7 @@ function renderBeat() {
   const fixedTh = (l, cls) => `<th rowspan="2" class="fx${cls ? ' ' + cls : ''}">${l}</th>`;
   const head1 = days.map(d => `<th id="beatDay_${d}" colspan="${W}" class="dh${d === beatData.today ? ' td' : beatIsoDow(d) === 7 ? ' su' : ''}">${+d.slice(8)} <small>${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][beatIsoDow(d)]}</small></th>`).join('');
   const head2 = days.map(d => F.map(([, l]) => `<th class="fh${beatIsoDow(d) === 7 ? ' su' : ''}">${l}</th>`).join('')).join('');
-  const body = counters.map((c, i) => `<tr data-c="${c.id}"><td class="k0">${i + 1}</td><td class="k1${c.active ? '' : ' off'}">${esc(c.name)}</td><td>${esc(c.beatDay || '')}</td><td>${esc(c.area || '')}</td><td>${esc(c.city || '')}</td><td class="sm">${salesman}</td>`
+  const body = counters.map((c, i) => `<tr data-c="${c.id}"><td class="k0">${i + 1}</td><td class="k1${c.active ? '' : ' off'}">${esc(c.name)}</td><td class="k2">${esc(c.beatDay || '')}</td><td class="k3">${esc(c.area || '')}</td><td class="k4">${esc(c.city || '')}</td><td class="k5 sm">${salesman}</td>`
     + days.map(d => { const e = beatIdx[`${c.id}|${d}`], sun = beatIsoDow(d) === 7; return F.map(([f]) => beatCellHtml(f, e, sun)).join(''); }).join('') + '</tr>').join('');
   const foot = days.map(d => {
     const es = counters.map(c => beatIdx[`${c.id}|${d}`]).filter(Boolean);
@@ -21410,13 +21410,21 @@ function renderBeat() {
       #beatGrid td.vc{text-align:center}
       #beatGrid td.vy{background:#d9ead3} #beatGrid td.vn{background:#f8d7d5} #beatGrid td.vo{background:#eceff1;color:#607d8b}
       #beatGrid td.am{background:#fff2cc;font-weight:700}
-      #beatGrid .k0{position:sticky;left:0;z-index:1;background:#fff;text-align:center;color:#666;min-width:44px}
-      #beatGrid .k1{position:sticky;left:44px;z-index:1;background:#fff;font-weight:600;min-width:200px;max-width:240px;overflow:hidden;text-overflow:ellipsis}
-      #beatGrid th.k0,#beatGrid th.k1{z-index:5;background:#b6d7a8}
+      #beatGrid .k0,#beatGrid .k1,#beatGrid .k2,#beatGrid .k3,#beatGrid .k4,#beatGrid .k5{position:sticky;z-index:1;background:#fff;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis}
+      #beatGrid .k0{left:0;width:44px;min-width:44px;max-width:44px;text-align:center;color:#666}
+      #beatGrid .k1{left:44px;width:200px;min-width:200px;max-width:200px;font-weight:600}
+      #beatGrid .k2{left:244px;width:90px;min-width:90px;max-width:90px}
+      #beatGrid .k3{left:334px;width:110px;min-width:110px;max-width:110px}
+      #beatGrid .k4{left:444px;width:90px;min-width:90px;max-width:90px}
+      #beatGrid .k5{left:534px;width:110px;min-width:110px;max-width:110px;box-shadow:2px 0 0 #9e9e9e}
+      #beatGrid th.k0,#beatGrid th.k1,#beatGrid th.k2,#beatGrid th.k3,#beatGrid th.k4,#beatGrid th.k5{z-index:5;background:#b6d7a8}
+      #beatGrid tfoot .kf{position:sticky;left:0;z-index:1;background:#f3f3f3;text-align:left}
+      @media (max-width:768px){#beatGrid .k2,#beatGrid .k3,#beatGrid .k4,#beatGrid .k5{position:static;box-shadow:none}#beatGrid .k1{box-shadow:2px 0 0 #9e9e9e}}
+      #beatGrid td.sel{outline:2px solid #1a73e8;outline-offset:-2px}
       #beatGrid .off{color:#aaa;text-decoration:line-through}
       #beatGrid .sm{color:#666}
       #beatGrid tbody td:not(.k0):not(.sm){cursor:cell}
-      #beatGrid tbody td:not(.k0):not(.sm):hover{outline:2px solid #6fa8dc;outline-offset:-2px}
+      #beatGrid tbody td:not(.k0):not(.sm):not(.sel):hover{outline:1px solid #6fa8dc;outline-offset:-1px}
       #beatGrid tfoot td{background:#f3f3f3;font-weight:800}
       #beatVisitMenu button{display:block;width:100%;text-align:left;border:0;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;margin:2px 0}
     </style>
@@ -21430,7 +21438,7 @@ function renderBeat() {
       <button class="btn btn-sm btn-outline" onclick="beatScrollToday()">📍 Aaj</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px;color:var(--gray-500)">
-      <span>Visit par tap = ✓ / ✗ / ✈ chuno · baaki khane me likho, <b>Enter</b> = save + neeche, <b>Tab</b> = aage</span>
+      <span>Visit par tap = ✓ / ✗ / ✈ chuno (ya <b>y</b> / <b>n</b> / <b>o</b> / <b>s</b>) · baaki khane me likho · <b>← → ↑ ↓</b> / <b>Tab</b> = khana badlo, <b>Enter</b> = save + neeche</span>
       <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
         <input id="bcNewN" placeholder="Naya counter (Firm Name)" style="${IN};min-width:170px"/>
         <input id="bcNewD" list="beatDayList" placeholder="Beat Days" style="${IN};width:115px"/>
@@ -21438,10 +21446,12 @@ function renderBeat() {
         <button class="btn btn-primary btn-sm" onclick="beatAddCounter()">+ Counter</button></span></div>
     <div id="beatGridBox" style="border:1px solid #d9d9d9;border-radius:8px;overflow:auto;max-height:70vh;position:relative">
       <table id="beatGrid" onclick="beatGridClick(event)">
-        <thead style="position:sticky;top:0;z-index:4"><tr>${fixedTh('Sr No.', 'k0')}${fixedTh('Firm Name', 'k1')}${fixedTh('Beat Days')}${fixedTh('AREA')}${fixedTh('CITY')}${fixedTh('SALESMAN')}${head1}</tr><tr>${head2}</tr></thead>
+        <thead style="position:sticky;top:0;z-index:4"><tr>${fixedTh('Sr No.', 'k0')}${fixedTh('Firm Name', 'k1')}${fixedTh('Beat Days', 'k2')}${fixedTh('AREA', 'k3')}${fixedTh('CITY', 'k4')}${fixedTh('SALESMAN', 'k5')}${head1}</tr><tr>${head2}</tr></thead>
         <tbody>${body || '<tr><td colspan="6">Is beat day me koi counter nahi</td></tr>'}</tbody>
-        <tfoot><tr><td colspan="6" class="k0" style="text-align:left;background:#f3f3f3">Total (Visit · Order · Collection)</td>${foot}</tr></tfoot>
+        <tfoot><tr><td colspan="6" class="kf">Total (Visit · Order · Collection)</td>${foot}</tr></tfoot>
       </table></div>`;
+  const sel = beatSelTd();
+  if (sel) sel.classList.add('sel');
 }
 // Which counter / day / field a cell is (no attributes on cells).
 function beatCellInfo(td) {
@@ -21453,16 +21463,62 @@ function beatCellInfo(td) {
   return date ? { counterId, date, f: F[(col - BEAT_FIXED) % F.length][0] } : null;
 }
 function beatCloseMenu() { const m = document.getElementById('beatVisitMenu'); if (m) m.remove(); }
+// ── Selected cell, like the sheet: arrows / Tab move it, Enter or typing edits it.
+let beatSel = null; // { c: counterId, col }
+const beatFreezeW = () => window.innerWidth <= 768 ? 244 : 644; // frozen columns' width (phone: Sr No. + Firm Name only)
+function beatSelTd() {
+  if (!beatSel) return null;
+  const tr = document.querySelector(`#beatGrid tr[data-c="${beatSel.c}"]`);
+  return tr ? tr.cells[beatSel.col] : null;
+}
+function beatSelect(td) {
+  const prev = document.querySelector('#beatGrid td.sel');
+  if (prev) prev.classList.remove('sel');
+  if (!td) { beatSel = null; return; }
+  beatSel = { c: Number(td.parentElement.dataset.c), col: td.cellIndex };
+  td.classList.add('sel');
+  // Keep it in view — not hidden under the frozen columns or the header.
+  const box = document.getElementById('beatGridBox');
+  if (!box) return;
+  const fw = beatFreezeW();
+  if (td.cellIndex >= BEAT_FIXED) {
+    const l = td.offsetLeft, r = l + td.offsetWidth;
+    if (l < box.scrollLeft + fw) box.scrollLeft = l - fw;
+    else if (r > box.scrollLeft + box.clientWidth) box.scrollLeft = r - box.clientWidth;
+  }
+  const head = box.querySelector('thead').offsetHeight, foot = (box.querySelector('tfoot') || {}).offsetHeight || 0;
+  const t = td.offsetTop, b = t + td.offsetHeight;
+  if (t < box.scrollTop + head) box.scrollTop = t - head;
+  else if (b > box.scrollTop + box.clientHeight - foot) box.scrollTop = b - box.clientHeight + foot;
+}
+function beatMove(dr, dc) {
+  const td = beatSelTd();
+  if (!td) return;
+  const rows = document.getElementById('beatGrid').tBodies[0].rows;
+  const r = td.parentElement.sectionRowIndex + dr;
+  if (r < 0 || r >= rows.length || !rows[r].dataset.c) return;
+  const c = Math.max(1, Math.min(rows[r].cells.length - 1, td.cellIndex + dc));
+  beatSelect(rows[r].cells[c]);
+}
 function beatGridClick(ev) {
   const td = ev.target.closest('#beatGrid tbody td');
-  if (!td || td.querySelector('input')) return;
+  if (!td || td.querySelector('input') || !td.parentElement.dataset.c) return;
+  if (td.cellIndex === 0) return;
+  beatSelect(td);
   const info = beatCellInfo(td);
   if (!info) return;
   if (info.date && info.date > beatData.today) { showToast('Aage ki date abhi nahi bhar sakte', 'error'); return; }
   if (info.f === 'visit') return beatVisitMenu(td, info);
   beatEdit(td, info);
 }
-// Visit: one tap from a small menu instead of typing.
+async function beatSetVisit(td, info, v) {
+  const cur = String((beatEntryOf(info.counterId, info.date) || {}).visit || '').toLowerCase();
+  if (v === cur) return;
+  td.innerHTML = '⏳';
+  if (!await beatSaveCell(info.counterId, info.date, 'visit', v)) beatRerenderKeepScroll();
+  beatSelect(beatSelTd());
+}
+// Visit: one tap from a small menu instead of typing (keyboard: y / n / o / s, Delete).
 function beatVisitMenu(td, info) {
   beatCloseMenu();
   const cur = String((beatEntryOf(info.counterId, info.date) || {}).visit || '').toLowerCase();
@@ -21470,53 +21526,89 @@ function beatVisitMenu(td, info) {
   const r = td.getBoundingClientRect(), b = box.getBoundingClientRect();
   const menu = document.createElement('div');
   menu.id = 'beatVisitMenu';
-  menu.style.cssText = `position:absolute;z-index:20;left:${r.left - b.left + box.scrollLeft}px;top:${r.bottom - b.top + box.scrollTop + 2}px;background:#fff;border:1px solid #c7d3e0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:4px;min-width:160px`;
-  menu.innerHTML = BEAT_VISITS.map(([v, l, bg]) => `<button data-v="${v}" style="background:${cur === v ? bg : '#fff'}">${l}</button>`).join('')
-    + `<button data-v="" style="background:#fff;color:#999;font-weight:600">— khaali karo</button>`;
-  menu.addEventListener('click', async e => {
+  menu.style.cssText = `position:absolute;z-index:20;left:${r.left - b.left + box.scrollLeft}px;top:${r.bottom - b.top + box.scrollTop + 2}px;background:#fff;border:1px solid #c7d3e0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:4px;min-width:170px`;
+  menu.innerHTML = BEAT_VISITS.map(([v, l, bg], i) => `<button data-v="${v}" style="background:${cur === v ? bg : '#fff'}">${l} <span style="float:right;color:#aaa;font-weight:600">${'ynos'[i]}</span></button>`).join('')
+    + `<button data-v="" style="background:#fff;color:#999;font-weight:600">— khaali karo <span style="float:right">Del</span></button>`;
+  menu.addEventListener('click', e => {
     const btn = e.target.closest('button');
     if (!btn) return;
     beatCloseMenu();
-    if (btn.dataset.v === cur) return;
-    td.innerHTML = '⏳';
-    if (!await beatSaveCell(info.counterId, info.date, 'visit', btn.dataset.v)) beatRerenderKeepScroll();
+    beatSetVisit(td, info, btn.dataset.v);
   });
   box.appendChild(menu);
   setTimeout(() => document.addEventListener('click', function off(e) { if (!menu.contains(e.target)) { beatCloseMenu(); document.removeEventListener('click', off); } }), 0);
 }
-// Other cells: type in place. Enter = save and go down, Tab = save and go right, Esc = cancel.
-function beatEdit(td, info) {
+// Other cells: type in place. Enter = save + down, Tab = save + right (Shift+Tab left),
+// arrows save and move (← → at the text's start / end), Esc = cancel.
+function beatEdit(td, info, firstChar) {
   beatCloseMenu();
   const isCounter = !info.date, f = info.f;
   const cur = isCounter ? (beatData.counters.find(c => c.id === info.counterId) || {})[f] : (beatEntryOf(info.counterId, info.date) || {})[f];
   const num = f === 'orderAmt' || f === 'collectionAmt';
   const old = td.innerHTML;
-  td.innerHTML = `<input${f === 'beatDay' ? ' list="beatDayList"' : ''} ${num ? 'type="number" min="0" inputmode="numeric"' : ''} value="${esc(cur == null ? '' : cur)}" style="width:100%;min-width:${isCounter ? 140 : 70}px;border:2px solid #1a73e8;padding:2px 4px;font-size:12.5px;box-sizing:border-box;outline:none"/>`;
+  const start = firstChar != null ? firstChar : (cur == null ? '' : String(cur));
+  td.innerHTML = `<input${f === 'beatDay' ? ' list="beatDayList"' : ''} type="text"${num ? ' inputmode="decimal"' : ''} value="${esc(start)}" style="width:100%;min-width:${isCounter ? 140 : 70}px;border:2px solid #1a73e8;padding:2px 4px;font-size:12.5px;box-sizing:border-box;outline:none"/>`;
   const inp = td.querySelector('input');
-  inp.focus(); inp.select();
+  inp.focus();
+  if (firstChar != null) inp.setSelectionRange(start.length, start.length); else inp.select();
   let done = false;
   const finish = async (save, move) => {
     if (done) return; done = true;
-    const tr = td.parentElement, col = td.cellIndex, rowIdx = tr.rowIndex;
-    if (!save || String(inp.value).trim() === String(cur == null ? '' : cur)) td.innerHTML = old;
+    const val = num ? inp.value.replace(/[^\d.]/g, '') : inp.value.trim();
+    if (!save || val === String(cur == null ? '' : cur)) td.innerHTML = old;
     else {
       td.innerHTML = '⏳';
-      const ok = isCounter ? await beatSaveCounterCell(info.counterId, f, inp.value.trim()) : await beatSaveCell(info.counterId, info.date, f, inp.value.trim());
-      if (!ok) { td.innerHTML = old; return; }
+      const ok = isCounter ? await beatSaveCounterCell(info.counterId, f, val) : await beatSaveCell(info.counterId, info.date, f, val);
+      if (!ok) td.innerHTML = old;
     }
-    if (!move) return;
-    const grid = document.getElementById('beatGrid');
-    const next = move === 'down' ? (grid.rows[rowIdx + 1] || {}).cells : grid.rows[rowIdx] && grid.rows[rowIdx].cells;
-    const ntd = next && next[move === 'down' ? col : col + 1];
-    if (ntd && ntd.closest('tbody')) { const ni = beatCellInfo(ntd); if (ni && ni.f !== 'visit' && (!ni.date || ni.date <= beatData.today)) beatEdit(ntd, ni); }
+    beatSelect(beatSelTd());
+    const step = { down: [1, 0], up: [-1, 0], left: [0, -1], right: [0, 1] }[move];
+    if (step) beatMove(...step);
   };
   inp.addEventListener('keydown', e => {
+    const atStart = inp.selectionStart === 0 && inp.selectionEnd === 0, atEnd = inp.selectionStart === inp.value.length && inp.selectionEnd === inp.value.length;
     if (e.key === 'Enter') { e.preventDefault(); finish(true, 'down'); }
-    else if (e.key === 'Tab') { e.preventDefault(); finish(true, 'right'); }
-    else if (e.key === 'Escape') finish(false);
+    else if (e.key === 'Tab') { e.preventDefault(); finish(true, e.shiftKey ? 'left' : 'right'); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); finish(true, e.key === 'ArrowUp' ? 'up' : 'down'); }
+    else if (e.key === 'ArrowLeft' && atStart) { e.preventDefault(); finish(true, 'left'); }
+    else if (e.key === 'ArrowRight' && atEnd) { e.preventDefault(); finish(true, 'right'); }
   });
   inp.addEventListener('blur', () => finish(true));
 }
+async function beatClearCell(td, info) {
+  const cur = info.date ? (beatEntryOf(info.counterId, info.date) || {})[info.f] : (beatData.counters.find(c => c.id === info.counterId) || {})[info.f];
+  if (cur == null || cur === '' || info.f === 'name') return;
+  td.innerHTML = '⏳';
+  const ok = info.date ? await beatSaveCell(info.counterId, info.date, info.f, '') : await beatSaveCounterCell(info.counterId, info.f, '');
+  if (!ok) beatRerenderKeepScroll();
+  beatSelect(beatSelTd());
+}
+// Keys on the selected cell (bound once; only while the Beat page is open and nothing is being typed).
+document.addEventListener('keydown', e => {
+  const page = document.getElementById('page-beat');
+  if (!beatSel || !page || !page.classList.contains('active')) return;
+  if (e.target && e.target.closest && e.target.closest('input, textarea, select')) return;
+  if (e.key === 'Escape') { beatCloseMenu(); return; }
+  const td = beatSelTd();
+  if (!td) return;
+  const moves = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] };
+  if (moves[e.key]) { e.preventDefault(); beatCloseMenu(); beatMove(...moves[e.key]); return; }
+  if (e.key === 'Tab') { e.preventDefault(); beatCloseMenu(); beatMove(0, e.shiftKey ? -1 : 1); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const info = beatCellInfo(td);
+  if (!info || (info.date && info.date > beatData.today)) return;
+  if (info.f === 'visit') {
+    const v = { y: 'yes', n: 'no', o: 'out of city', s: 'sir ke sath' }[e.key.toLowerCase()];
+    if (v) { e.preventDefault(); beatCloseMenu(); beatSetVisit(td, info, v); }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); beatCloseMenu(); beatSetVisit(td, info, ''); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); beatVisitMenu(td, info); }
+    return;
+  }
+  if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); beatEdit(td, info); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); beatClearCell(td, info); }
+  else if (e.key.length === 1) { e.preventDefault(); beatEdit(td, info, e.key); }
+});
 // Re-render after a save without losing the scroll — only the changed cell, so typing down a column stays smooth.
 function beatRerenderKeepScroll() {
   const box = document.getElementById('beatGridBox');
