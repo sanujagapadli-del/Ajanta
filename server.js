@@ -13357,7 +13357,7 @@ app.get('/api/md-summary', requireAuth, async (req, res) => {
       q("SELECT user_id, SUM(GREATEST(evening_km - morning_km, 0)) AS km, COUNT(*) AS days FROM daily_km WHERE date BETWEEN ? AND ? AND morning_km IS NOT NULL AND evening_km IS NOT NULL GROUP BY user_id", range),
       q("SELECT user_id, status, SUM(total) AS amt, COUNT(*) AS n FROM tour_expenses WHERE tour_date BETWEEN ? AND ? GROUP BY user_id, status", range),
       q("SELECT type, status, SUM(amount) AS amt, COUNT(*) AS n FROM petty_cash WHERE entry_date BETWEEN ? AND ? GROUP BY type, status", range),
-      q("SELECT COUNT(*) AS n, SUM(qty) AS qty, SUM(outcome_at IS NULL AND cancelled_at IS NULL) AS open FROM sample_issues WHERE issue_date BETWEEN ? AND ?", range),
+      q("SELECT COUNT(DISTINCT COALESCE(grp, code)) AS n, SUM(qty) AS qty, COUNT(DISTINCT IF(outcome_at IS NULL AND cancelled_at IS NULL, COALESCE(grp, code), NULL)) AS open FROM sample_issues WHERE issue_date BETWEEN ? AND ?", range),
       q("SELECT user_id, COUNT(*) AS n, SUM(order_value > 0) AS ordered, SUM(order_value) AS value FROM sales_schedule WHERE status='visited' AND visit_date BETWEEN ? AND ? GROUP BY user_id", range),
       q("SELECT lead_type, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY) GROUP BY lead_type", dtRange),
       q("SELECT COUNT(*) AS n FROM dealer_onboardings WHERE created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)", dtRange),
@@ -16549,7 +16549,16 @@ async function smpTables() {
   await addMissingColumns('sample_issues', [['photo', 'VARCHAR(500)'], ['outcome_photo', 'VARCHAR(500)'],
     // Outcome kinds (client 2026-10-27): returned / sold (dealer's bill) / kept for some days (hold, stays open).
     ['outcome_type', 'VARCHAR(12)'], ['bill_no', 'VARCHAR(60)'], ['bill_file', 'VARCHAR(500)'],
-    ['hold_until', 'DATE'], ['hold_remark', 'VARCHAR(500)'], ['hold_at', 'DATETIME'], ['hold_by', 'INT']]);
+    ['hold_until', 'DATE'], ['hold_remark', 'VARCHAR(500)'], ['hold_at', 'DATETIME'], ['hold_by', 'INT'],
+    // One sample number per party issue (client list 2026-10-30 #9): every item of one
+    // "Give Sample" form shares grp; `code` stays the per-item line code.
+    ['grp', 'VARCHAR(20)']]);
+  await db.query('CREATE INDEX idx_sample_grp ON sample_issues (grp)').catch(e => { if (e.code !== 'ER_DUP_KEYNAME') throw e; });
+  // Older forms made one SMP code per item: rows of the same submit (same giver, second,
+  // salesman) become one group under their first code.
+  await db.query(`UPDATE sample_issues s JOIN (SELECT created_by, created_at, salesman_user_id, MIN(code) AS g FROM sample_issues WHERE grp IS NULL
+      GROUP BY created_by, created_at, salesman_user_id) x ON x.created_by <=> s.created_by AND x.created_at <=> s.created_at AND x.salesman_user_id <=> s.salesman_user_id
+    SET s.grp = x.g WHERE s.grp IS NULL`);
   // Stock register shows sample OUT / IN as "Sample", not "Manual" (client list 10-26 #9);
   // entries made before that carry the code only in the remark.
   await ensureStockTxnSchema();
@@ -16566,7 +16575,7 @@ async function smpLoad(where = '', params = []) {
       DATE_FORMAT(s.outcome_at,'%Y-%m-%d %H:%i:%s') AS outcome_at, DATEDIFF(CURDATE(), s.issue_date) AS days, u.name AS created_by_name, o.name AS outcome_by_name
     FROM sample_issues s LEFT JOIN users u ON u.id=s.created_by LEFT JOIN users o ON o.id=s.outcome_by ${where} ORDER BY s.id DESC`, params);
   const n = v => Number(v) || 0;
-  return rows.map(s => ({ id: s.id, code: s.code, issueDate: s.issue_date, salesmanUserId: s.salesman_user_id, salesmanName: s.salesman_name || '', itemCode: s.item_code,
+  return rows.map(s => ({ id: s.id, code: s.code, grp: s.grp || s.code, issueDate: s.issue_date, salesmanUserId: s.salesman_user_id, salesmanName: s.salesman_name || '', itemCode: s.item_code,
     itemName: s.item_name || '', uom: s.uom || '', qty: n(s.qty), dealerName: s.dealer_name || '', purpose: s.purpose || '', remark: s.remark || '', createdAt: s.created_at,
     createdByName: s.created_by_name || '', photo: s.photo || '', days: n(s.days), returnedQty: s.returned_qty == null ? null : n(s.returned_qty), leftQty: s.outcome_at ? n(s.qty) - n(s.returned_qty) : null,
     outcomeAt: s.outcome_at, outcomeByName: s.outcome_by_name || '', outcomeRemark: s.outcome_remark || '', outcomePhoto: s.outcome_photo || '',
@@ -16588,8 +16597,8 @@ app.post('/api/samples', requireAuth, async (req, res) => {
     await smpTables();
     await ensureStockTxnSchema();
     const b = req.body || {};
-    // Several items in one go (Priyanka 2026-10-27: "ek item ke baad dusra add karne ka option nahi");
-    // each item is its own SMP code, so it settles on its own. Old clients send one itemCode / qty.
+    // Several items in one go (Priyanka 2026-10-27: "ek item ke baad dusra add karne ka option nahi").
+    // Old clients send one itemCode / qty.
     const lines = (Array.isArray(b.items) && b.items.length ? b.items : [{ itemCode: b.itemCode, qty: b.qty }])
       .map(x => ({ itemCode: String(x.itemCode || '').trim(), qty: Number(x.qty) }));
     if (lines.length > 20) return res.status(400).json({ error: 'Ek baar me 20 item tak' });
@@ -16610,8 +16619,9 @@ app.post('/api/samples', requireAuth, async (req, res) => {
     if (short.length && !b.allowShort) return res.status(409).json({ needsConfirm: true, error: shortMsg() });
     const photo = b.photo && /^data:image\//.test(b.photo) ? await uploadPhotoToDrive(b.photo, `sample-${Date.now()}.jpg`) : null;
     const dealer = String(b.dealerName || '').trim().slice(0, 255), purpose = String(b.purpose || '').trim().slice(0, 255);
-    const codes = [];
-    for (let i = 0; i < lines.length; i++) codes.push(`SMP-${String(await claimNextSeqValue('smp_code', 1)).padStart(4, '0')}`);
+    // ONE sample number for the party (client list 2026-10-30 #9); items are its lines.
+    const grp = `SMP-${String(await claimNextSeqValue('smp_code', 1)).padStart(4, '0')}`;
+    const codes = lines.map((x, i) => lines.length === 1 ? grp : `${grp}-${i + 1}`);
     await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1')); // table must exist before the transaction
     const ids = await withTx(async conn => {
       const out = [];
@@ -16620,21 +16630,46 @@ app.post('/api/samples', requireAuth, async (req, res) => {
         const [claim] = await conn.query(`UPDATE ajanta_stock_items SET current_stock = current_stock - ?, as_of_date = ? WHERE item_code = ?${b.allowShort ? '' : ' AND current_stock >= ?'}`, [x.qty, date, item.item_code, x.qty]);
         if (!claim.affectedRows) throw Object.assign(new Error('short'), { smpShort: true });
         await conn.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
-          [date, 'OUT', item.item_code, item.description, x.qty, item.uom, `Sample ${code} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '', code]);
-        const [r] = await conn.query('INSERT INTO sample_issues (code, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by, photo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          [code, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', x.qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, photo]);
+          [date, 'OUT', item.item_code, item.description, x.qty, item.uom, `Sample ${grp} → ${sm.name}${dealer ? ' · ' + dealer : ''}`.slice(0, 500), req.session.name || '', grp]);
+        const [r] = await conn.query('INSERT INTO sample_issues (code, grp, issue_date, salesman_user_id, salesman_name, item_code, item_name, uom, qty, dealer_name, purpose, remark, created_by, photo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          [code, grp, date, sm.id, sm.name, item.item_code, item.description, item.uom || '', x.qty, dealer || null, purpose || null, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, photo]);
         out.push(r.insertId);
       }
       return out;
     }).catch(e => { if (e.smpShort) return null; throw e; });
     if (!ids) return res.status(409).json({ needsConfirm: true, error: short.length ? shortMsg() : 'Stock register mein itna stock nahi hai' });
-    res.json({ success: true, id: ids[0], ids, code: codes.join(', '), codes });
+    res.json({ success: true, id: ids[0], ids, code: grp, codes });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);
   }
 });
-// Outcome: how many came back (stock IN); the remainder stays with the dealer.
+// Settle one open line (q = conn or db): hold till a date / sold on the dealer's bill /
+// returned (stock IN for what came back). Files are uploaded by the caller, once.
+// Returns false when the line was already settled or cancelled.
+async function smpSettleLine(q, s, o, user) {
+  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  if (o.kind === 'hold') {
+    const [c] = await q.query('UPDATE sample_issues SET hold_until=?, hold_remark=?, hold_at=NOW(), hold_by=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL',
+      [o.holdUntil, o.remark || null, user.id, s.id]);
+    return c.affectedRows > 0;
+  }
+  if (o.kind === 'sold') {
+    const [c] = await q.query("UPDATE sample_issues SET returned_qty=0, outcome_type='sold', bill_no=?, bill_file=?, outcome_at=NOW(), outcome_by=?, outcome_remark=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
+      [o.billNo, o.billFile, user.id, o.remark || null, s.id]);
+    return c.affectedRows > 0;
+  }
+  const [c] = await q.query("UPDATE sample_issues SET returned_qty=?, outcome_type='returned', outcome_at=NOW(), outcome_by=?, outcome_remark=?, outcome_photo=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
+    [o.back, user.id, o.remark || null, o.back > 0 ? o.photo : null, s.id]);
+  if (!c.affectedRows) return false;
+  if (o.back > 0) {
+    await q.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [o.back, today, s.itemCode]);
+    await q.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
+      [today, 'IN', s.itemCode, s.itemName, o.back, s.uom, `Sample ${s.grp} returned by ${s.salesmanName}`.slice(0, 500), user.name || '', s.grp]);
+  }
+  return true;
+}
+// Outcome for one line (older screens): how many came back (stock IN); the rest stays with the dealer.
 app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
   try {
     if (!(await smpAccess(req, res))) return;
@@ -16647,43 +16682,82 @@ app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
     const back = Number(b.returnedQty) || 0;
     if (back < 0 || back > s.qty) return res.status(400).json({ error: `Returned qty must be between 0 and ${s.qty}` });
     const remark = String(b.remark || '').trim().slice(0, 500);
-    // Dealer kept it for some days → stays open with a "till" date (client 2026-10-27).
+    const user = { id: req.session.userId, name: req.session.name };
+    let o;
     if (b.kind === 'hold') {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(b.holdUntil || '')) return res.status(400).json({ error: 'Dealer kab tak rakhega — date chunein' });
-      await db.query('UPDATE sample_issues SET hold_until=?, hold_remark=?, hold_at=NOW(), hold_by=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL',
-        [b.holdUntil, remark || null, req.session.userId, s.id]);
-      const [fresh] = await smpLoad('WHERE s.id=?', [s.id]);
-      return res.json({ success: true, sample: fresh });
-    }
-    // Dealer bought it → his bill (photo / PDF) closes it; stock stays OUT.
-    if (b.kind === 'sold') {
+      o = { kind: 'hold', holdUntil: b.holdUntil, remark };
+    } else if (b.kind === 'sold') {
       const billNo = String(b.billNo || '').trim().slice(0, 60);
       if (!billNo) return res.status(400).json({ error: 'Bill No. likhein' });
       if (!docDataUriKind(b.bill)) return res.status(400).json({ error: 'Bill ki photo ya PDF lagayein' });
-      const billFile = await uploadDocToDrive(b.bill, `${s.code}-bill-${Date.now()}`);
-      const [claim] = await db.query("UPDATE sample_issues SET returned_qty=0, outcome_type='sold', bill_no=?, bill_file=?, outcome_at=NOW(), outcome_by=?, outcome_remark=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
-        [billNo, billFile, req.session.userId, remark || null, s.id]);
-      if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
-      const [fresh] = await smpLoad('WHERE s.id=?', [s.id]);
-      return res.json({ success: true, sample: fresh });
+      o = { kind: 'sold', billNo, billFile: await uploadDocToDrive(b.bill, `${s.code}-bill-${Date.now()}`), remark };
+    } else {
+      if (back < s.qty && !remark) return res.status(400).json({ error: 'Kisko diya / kahan gaya — remark likhein' });
+      // Photo of what came back is required (Priyanka 2026-10-27).
+      if (back > 0 && !/^data:image\//.test(b.photo || '')) return res.status(400).json({ error: 'Wapas aaye sample ki photo lagayein' });
+      o = { kind: 'returned', back, remark, photo: back > 0 ? await uploadPhotoToDrive(b.photo, `${s.code}-received-${Date.now()}.jpg`) : null };
     }
-    if (back < s.qty && !remark) return res.status(400).json({ error: 'Kisko diya / kahan gaya — remark likhein' });
-    // Photo of what came back is required (Priyanka 2026-10-27).
-    if (back > 0 && !/^data:image\//.test(b.photo || '')) return res.status(400).json({ error: 'Wapas aaye sample ki photo lagayein' });
-    const photo = back > 0 ? await uploadPhotoToDrive(b.photo, `${s.code}-received-${Date.now()}.jpg`) : null;
-    const [claim] = await db.query("UPDATE sample_issues SET returned_qty=?, outcome_type='returned', outcome_at=NOW(), outcome_by=?, outcome_remark=?, outcome_photo=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
-      [back, req.session.userId, remark || null, photo, s.id]);
-    if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
-    if (back > 0) {
-      const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-      await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [back, date, s.itemCode]);
-      await withStockTxnTable(() => db.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
-        [date, 'IN', s.itemCode, s.itemName, back, s.uom, `Sample ${s.code} returned by ${s.salesmanName}`.slice(0, 500), req.session.name || '', s.code]));
-    }
+    await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1'));
+    if (!(await smpSettleLine(db, s, o, user))) return res.status(400).json({ error: 'Already settled or cancelled' });
     const [fresh] = await smpLoad('WHERE s.id=?', [s.id]);
     res.json({ success: true, sample: fresh });
   } catch (err) { sendServerError(res, err); }
 });
+// One party's whole sample at once (client list 2026-10-30 #9): one photo for everything
+// that came back / one bill / one hold date; returned qty per item.
+app.post('/api/samples/group/:grp/outcome', requireAuth, async (req, res) => {
+  try {
+    if (!(await smpAccess(req, res))) return;
+    await smpTables();
+    await ensureStockTxnSchema();
+    const grp = String(req.params.grp || '').slice(0, 20);
+    const open = (await smpLoad('WHERE COALESCE(s.grp, s.code)=?', [grp])).filter(s => s.status === 'With salesman');
+    if (!open.length) return res.status(400).json({ error: 'Is sample me kuch khula nahi — already settled ya cancelled' });
+    const b = req.body || {};
+    const remark = String(b.remark || '').trim().slice(0, 500);
+    const user = { id: req.session.userId, name: req.session.name };
+    const plan = []; // [line, outcome]
+    if (b.kind === 'hold') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(b.holdUntil || '')) return res.status(400).json({ error: 'Dealer kab tak rakhega — date chunein' });
+      open.forEach(s => plan.push([s, { kind: 'hold', holdUntil: b.holdUntil, remark }]));
+    } else if (b.kind === 'sold') {
+      const billNo = String(b.billNo || '').trim().slice(0, 60);
+      if (!billNo) return res.status(400).json({ error: 'Bill No. likhein' });
+      if (!docDataUriKind(b.bill)) return res.status(400).json({ error: 'Bill ki photo ya PDF lagayein' });
+      const billFile = await uploadDocToDrive(b.bill, `${grp}-bill-${Date.now()}`);
+      open.forEach(s => plan.push([s, { kind: 'sold', billNo, billFile, remark }]));
+    } else {
+      const backOf = Object.fromEntries((Array.isArray(b.lines) ? b.lines : []).map(x => [Number(x.id), Number(x.returnedQty)]));
+      for (const s of open) {
+        const back = backOf[s.id] == null || isNaN(backOf[s.id]) ? s.qty : backOf[s.id];
+        if (back < 0 || back > s.qty) return res.status(400).json({ error: `${s.itemName}: wapas 0 se ${s.qty} ke beech` });
+        plan.push([s, { kind: 'returned', back, remark }]);
+      }
+      if (plan.some(([s, o]) => o.back < s.qty) && !remark) return res.status(400).json({ error: 'Jo wapas nahi aaya — kisko diya / kahan gaya, remark likhein' });
+      const anyBack = plan.some(([, o]) => o.back > 0);
+      if (anyBack && !/^data:image\//.test(b.photo || '')) return res.status(400).json({ error: 'Wapas aaye sample ki photo lagayein (sab ki ek photo)' });
+      const photo = anyBack ? await uploadPhotoToDrive(b.photo, `${grp}-received-${Date.now()}.jpg`) : null;
+      plan.forEach(([, o]) => { o.photo = photo; });
+    }
+    await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1'));
+    const done = await withTx(async conn => {
+      for (const [s, o] of plan) if (!(await smpSettleLine(conn, s, o, user))) throw Object.assign(new Error('settled'), { smpSettled: true });
+      return true;
+    }).catch(e => { if (e.smpSettled) return false; throw e; });
+    if (!done) return res.status(400).json({ error: 'Kisi ne abhi isme entry kar di — page refresh karke dekhein' });
+    res.json({ success: true, samples: await smpLoad('WHERE COALESCE(s.grp, s.code)=?', [grp]) });
+  } catch (err) { sendServerError(res, err); }
+});
+async function smpCancelLine(q, s, reason, user) {
+  const [c] = await q.query('UPDATE sample_issues SET cancelled_at=NOW(), cancel_reason=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL', [reason.slice(0, 500), s.id]);
+  if (!c.affectedRows) return false;
+  const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  await q.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [s.qty, date, s.itemCode]);
+  await q.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
+    [date, 'IN', s.itemCode, s.itemName, s.qty, s.uom, `Sample ${s.grp} cancelled — ${reason}`.slice(0, 500), user.name || '', s.grp]);
+  return true;
+}
 app.post('/api/samples/:id/cancel', requireAuth, async (req, res) => {
   try {
     if (!(await smpAccess(req, res))) return;
@@ -16695,12 +16769,25 @@ app.post('/api/samples/:id/cancel', requireAuth, async (req, res) => {
     const [s] = await smpLoad('WHERE s.id=?', [Number(req.params.id)]);
     if (!s) return res.status(404).json({ error: 'Sample not found' });
     if (s.status !== 'With salesman') return res.status(400).json({ error: 'Only an entry still with the salesman can be cancelled' });
-    const [claim] = await db.query('UPDATE sample_issues SET cancelled_at=NOW(), cancel_reason=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL', [reason.slice(0, 500), s.id]);
-    if (!claim.affectedRows) return res.status(400).json({ error: 'Already settled or cancelled' });
-    const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-    await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [s.qty, date, s.itemCode]);
-    await withStockTxnTable(() => db.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
-      [date, 'IN', s.itemCode, s.itemName, s.qty, s.uom, `Sample ${s.code} cancelled — ${reason}`.slice(0, 500), req.session.name || '', s.code]));
+    await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1'));
+    if (!(await smpCancelLine(db, s, reason, { name: req.session.name }))) return res.status(400).json({ error: 'Already settled or cancelled' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Admin: cancel every still-open item of one party's sample (stock back for each).
+app.post('/api/samples/group/:grp/cancel', requireAuth, async (req, res) => {
+  try {
+    if (!(await smpAccess(req, res))) return;
+    if (req.session.role !== 'admin') return res.status(403).json({ error: 'Only admin can cancel a sample entry' });
+    const reason = String((req.body || {}).reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'Reason is required' });
+    await smpTables();
+    await ensureStockTxnSchema();
+    const grp = String(req.params.grp || '').slice(0, 20);
+    const open = (await smpLoad('WHERE COALESCE(s.grp, s.code)=?', [grp])).filter(s => s.status === 'With salesman');
+    if (!open.length) return res.status(400).json({ error: 'Only an entry still with the salesman can be cancelled' });
+    await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1'));
+    await withTx(async conn => { for (const s of open) await smpCancelLine(conn, s, reason, { name: req.session.name }); });
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
