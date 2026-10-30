@@ -13325,31 +13325,6 @@ app.post('/api/sales-schedule/:id/visit', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
-// MECA "➕ Visit entry" (client 2026-10-19: "salesman jahan gaya, kya order
-// laya — entry kaise hogi"): the salesman's own visit today, planned or not.
-// Goes into the same Sales Schedule row the beat uses, so MECA counts it.
-app.post('/api/meca/visit', requireAuth, async (req, res) => {
-  try {
-    if (!(await hasPageGrant(req, 'meca'))) return res.status(403).json({ error: 'No access to MECA' });
-    const dealer = String((req.body || {}).dealerName || '').trim().slice(0, 255);
-    if (!dealer) return res.status(400).json({ error: 'Dealer / counter ka naam likhein' });
-    const uid = req.session.userId;
-    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
-    let [[v]] = await withSalesSchedule(() => db.query('SELECT * FROM sales_schedule WHERE user_id=? AND visit_date=? AND LOWER(dealer_name)=LOWER(?)', [uid, today, dealer]));
-    let created = false;
-    if (!v) {
-      const [ins] = await db.query('INSERT INTO sales_schedule (user_id, visit_date, dealer_name, purpose, created_by_name) VALUES (?,?,?,?,?)', [uid, today, dealer, 'MECA entry', req.session.name || '']);
-      [[v]] = await db.query('SELECT * FROM sales_schedule WHERE id=?', [ins.insertId]);
-      created = true;
-    }
-    const r = await ssMarkVisited(v, req.body || {}, req);
-    if (r.error) { if (created) await db.query('DELETE FROM sales_schedule WHERE id=?', [v.id]); return res.status(400).json({ error: r.error }); }
-    res.json({ success: true });
-  } catch (err) {
-    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
-    sendServerError(res, err);
-  }
-});
 
 
 // ══════════════════════════════════════════════════════
@@ -13663,15 +13638,7 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     const out = Object.values(rows).filter(r => r.visited || r.notVisited || r.ordered || r.collection || r.nbdVisits || r.nbdPlanned)
       .map(r => ({ ...r, name: nameOf[r.userId] || `User ${r.userId}` }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
-    // Every beat line with a visit / order / collection / note — the "Visits" list.
-    const visitList = entries.filter(e => beatVisited(e) || e.new_counter || e.reference || e.enquiry)
-      .map(e => ({ date: e.d, name: nameOf[e.user_id] || '', dealer: e.counter_name, beatDay: e.beat_day || '', visit: e.visit || '',
-        orderValue: Number(e.order_amt) || null, collection: Number(e.collection_amt) || null,
-        remark: [e.new_counter && `New counter: ${e.new_counter}`, e.reference && `Ref: ${e.reference}`, e.enquiry && `Enquiry: ${e.enquiry}`].filter(Boolean).join(' · ') }))
-      .sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name) || a.dealer.localeCompare(b.dealer));
-    const nbd = nbdPlan.map(l => ({ id: l.id, code: l.lead_code, shop: l.shop_name || l.contact_name || '', contact: l.contact_name || '', mobile: l.mobile || '',
-      place: [l.area, l.city].filter(Boolean).join(', '), date: l.d, name: nameOf[l.visit_user_id] || '', visited: Number(l.visit_count) > 0, result: l.result || '' }));
-    res.json({ from, to, rows: out, visits: visitList, nbdPlan: nbd });
+    res.json({ from, to, rows: out });
   } catch (err) { sendServerError(res, err); }
 });
 
