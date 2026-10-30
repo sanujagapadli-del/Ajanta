@@ -13606,13 +13606,13 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     ]);
     const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
     const rows = {};
-    const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdPlanned: 0 };
+    const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdPlanned: 0 };
     for (const e of entries) {
       const r = row(e.user_id, e.d);
       if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
       const ov = Number(e.order_amt) || 0, cv = Number(e.collection_amt) || 0;
       if (ov > 0) { r.ordered++; r.value += ov; }
-      r.collection += cv;
+      if (cv > 0) { r.collCount++; r.collection += cv; }
     }
     // Planned = that weekday's beat counters, only on days the beat was filled (no plan for Sundays / leave).
     for (const r of Object.values(rows)) {

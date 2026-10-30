@@ -2719,7 +2719,6 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <input type="month" id="beatMonth" onchange="beatMonthChanged()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
         <input id="beatSearch" placeholder="🔍 Counter / area…" oninput="renderBeat()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
       </div>
-      <div id="beatTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"></div>
     </div>
     <div id="beatWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
@@ -21186,256 +21185,282 @@ async function mecaNewDealer() {
   const t = document.querySelector('#nlType .tab[data-v="Outgoing"]');
   if (t) leadPickType(t);
 }
+// MECA in the layout of the team's "October Meca Fill" sheet (client 2026-10-30:
+// "face bilkul sheet jaisa"): Week / day / date / salesperson (RD GB KR) headers,
+// a "Total of Week" block after every Mon–Sat week and the period total at the end;
+// OLD COUNTERS rows from Beat, NEW COUNTERS (NBD) rows from Lead FMS.
+function mecaCode(name) {
+  const first = String(name || '').trim().split(/\s+/)[0].toLowerCase();
+  return { rohit: 'RD', girdhar: 'GB', krishna: 'KR', krishana: 'KR' }[first] || first.slice(0, 2).toUpperCase();
+}
 function renderMeca() {
   if (!mecaData) return;
+  const wrap = document.getElementById('mecaWrap');
   const q = document.getElementById('mecaSearch').value.trim().toLowerCase();
   const rows = mecaData.rows.filter(r => !q || r.name.toLowerCase().includes(q));
-  const wrap = document.getElementById('mecaWrap');
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">Is samay me koi visit / plan nahi. Salesman Sales Schedule me counter ✓ karte hain — wahi yahan aata hai.</div>'; return; }
-  const pctN = (a, b) => b ? Math.round(a * 1000 / b) / 10 : null;
-  const sum = list => list.reduce((a, r) => ({ planned: a.planned + r.planned, beatVisited: a.beatVisited + (r.beatVisited || 0), visited: a.visited + r.visited, ordered: a.ordered + r.ordered,
-    value: a.value + r.value, collection: a.collection + (r.collection || 0), beatHit: a.beatHit + (r.beatHit || 0), nbdPlanned: a.nbdPlanned + (r.nbdPlanned || 0), nbdVisits: a.nbdVisits + r.nbdVisits, nbdWon: a.nbdWon + r.nbdWon }),
-    { planned: 0, beatVisited: 0, visited: 0, ordered: 0, value: 0, collection: 0, beatHit: 0, nbdPlanned: 0, nbdVisits: 0, nbdWon: 0 });
-  const tot = sum(rows);
-  const days = new Set(rows.map(r => `${r.userId}|${r.date}`)).size;
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">Is samay me kuch nahi. Salesman Beat page par bharte hain — wahi yahan aata hai.</div>'; return; }
+  const order = { RD: 1, GB: 2, KR: 3 };
+  const people = [...new Map(rows.map(r => [r.userId, { id: r.userId, name: r.name, code: mecaCode(r.name) }])).values()]
+    .sort((a, b) => (order[a.code] || 9) - (order[b.code] || 9) || a.name.localeCompare(b.name));
+  const cell = {};
+  rows.forEach(r => { cell[`${r.userId}|${r.date}`] = r; });
+  // Dates Mon–Sat in the range, grouped into weeks.
+  const dates = [];
+  for (let d = new Date(mecaData.from + 'T00:00:00Z'); d.toISOString().slice(0, 10) <= mecaData.to; d.setUTCDate(d.getUTCDate() + 1)) {
+    const y = d.toISOString().slice(0, 10);
+    if (d.getUTCDay() !== 0 || rows.some(r => r.date === y)) dates.push(y);
+  }
+  const weeks = [];
+  dates.forEach(y => {
+    const dow = new Date(y + 'T00:00:00Z').getUTCDay() || 7;
+    const mon = new Date(y + 'T00:00:00Z'); mon.setUTCDate(mon.getUTCDate() - dow + 1);
+    const k = mon.toISOString().slice(0, 10);
+    const w = weeks.find(x => x.k === k) || (weeks.push({ k, days: [] }), weeks[weeks.length - 1]);
+    w.days.push(y);
+  });
+  const add = (a, r) => { if (!r) return a; ['visited', 'ordered', 'value', 'collCount', 'collection', 'nbdVisits', 'nbdWon'].forEach(k => { a[k] += Number(r[k]) || 0; }); return a; };
+  const zero = () => ({ visited: 0, ordered: 0, value: 0, collCount: 0, collection: 0, nbdVisits: 0, nbdWon: 0 });
+  // Column groups: each day, then "Total of Week N"; finally the whole period.
+  const groups = [];
+  weeks.forEach((w, wi) => {
+    w.days.forEach(y => groups.push({ kind: 'day', y, week: wi + 1, get: p => cell[`${p.id}|${y}`] || null }));
+    groups.push({ kind: 'week', week: wi + 1, get: p => w.days.reduce((a, y) => add(a, cell[`${p.id}|${y}`]), zero()) });
+  });
+  groups.push({ kind: 'total', get: p => dates.reduce((a, y) => add(a, cell[`${p.id}|${y}`]), zero()) });
 
-  // Top cards — the whole team for the chosen dates.
-  const card = (icon, label, value, sub, color) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px;min-width:0;border-top:3px solid ${color}">
-      <div style="font-size:11.5px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${icon} ${label}</div>
-      <div style="font-size:22px;font-weight:900;color:var(--gray-900);margin-top:4px;white-space:nowrap">${value}</div>
-      <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">${sub}</div></div>`;
-  const prod = pctN(tot.ordered, tot.visited);
-  const cards = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
-    ${card('🏪', 'Visit kiye', tot.visited.toLocaleString('en-IN'), `${days} salesman-din · ${days ? (tot.visited / days).toFixed(1) : 0} / din`, 'var(--color-primary)')}
-    ${card('🧾', 'Order diya', tot.ordered.toLocaleString('en-IN'), 'purane dealer', 'var(--color-success)')}
-    ${card('🎯', 'Productivity', prod === null ? '—' : prod + '%', 'order ÷ visit', 'var(--color-warning)')}
-    ${card('💰', 'Order ₹', inr(tot.value), tot.ordered ? `avg ${inr(Math.round(tot.value / tot.ordered))} / order` : '—', 'var(--color-success-text)')}
-    ${card('🏦', 'Collection', inr(tot.collection), 'Beat se', 'var(--color-primary)')}
-    ${card('🆕', 'NBD visits', tot.nbdVisits.toLocaleString('en-IN'), `${tot.nbdWon} won${tot.nbdPlanned ? ` · ${tot.nbdPlanned} plan` : ''}`, 'var(--color-purple, #7c3aed)')}
-  </div>`;
-
-  const th = (l, right, tip) => `<th style="padding:10px 12px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;background:var(--gray-50);border-bottom:1px solid var(--gray-200);${right ? 'text-align:right;' : ''}"${tip ? ` title="${esc(tip)}"` : ''}>${l}</th>`;
-  const td = (v, s = '') => `<td style="padding:10px 12px;border-bottom:1px solid var(--gray-100);white-space:nowrap;${s}">${v}</td>`;
-  const R = 'text-align:right;';
-  const prodCell = (o, v) => {
-    const p = pctN(o, v);
-    if (p === null) return td('<span style="color:var(--gray-300)">—</span>', R);
-    const c = p >= 15 ? 'var(--color-success-text)' : p >= 7 ? 'var(--color-warning-text)' : 'var(--color-danger-text)';
-    return td(`<div style="display:inline-flex;align-items:center;gap:8px"><span style="width:60px;height:6px;border-radius:3px;background:var(--gray-100);overflow:hidden;display:inline-block"><span style="display:block;height:100%;width:${Math.min(100, p * 4)}%;background:${c}"></span></span><b style="color:${c};min-width:38px;text-align:right">${p}%</b></div>`, R);
-  };
-  // Beat column: only Sales Schedule plans — sheet days have no plan, so "—".
-  const beatCell = r => td(r.planned ? `${r.beatHit || 0}/${r.planned} <span style="color:var(--gray-400);font-size:11px">(${pctN(r.beatHit || 0, r.planned)}%)</span>` : '<span style="color:var(--gray-300)">—</span>', R);
-  const muted = t => `<div style="font-size:11px;color:var(--gray-400);font-weight:500">${t}</div>`;
-  const mainCells = (r, nDays) => td(`<b>${r.visited}</b>${nDays ? muted(`${(r.visited / nDays).toFixed(1)} / din`) : ''}`, R)
-    + td(`<b>${r.ordered}</b>`, R) + prodCell(r.ordered, r.visited)
-    + td(`<b style="color:var(--gray-900)">${inr(r.value)}</b>${r.ordered ? muted(`avg ${inr(Math.round(r.value / r.ordered))}`) : ''}`, R)
-    + td(r.collection ? inr(r.collection) : '<span style="color:var(--gray-300)">—</span>', R) + td(`${r.nbdVisits}${r.nbdPlanned ? muted(`${r.nbdPlanned} plan`) : ''}`, R + 'border-left:2px solid var(--gray-200);')
-    + td(r.nbdWon ? `<b style="color:var(--color-success-text)">${r.nbdWon}</b>` : '0', R) + beatCell(r);
-  const headCommon = th('Visit kiye', 1) + th('Order diya', 1) + th('Productivity', 1, 'Order diya ÷ visit kiye') + th('Order ₹', 1, 'Beat ke order') + th('Collection ₹', 1)
-    + th('NBD visits', 1, 'Naye dealer visit (Lead FMS + sheet)') + th('NBD won', 1, 'Order mil gaya / naya dealer bana') + th('Beat plan', 1, 'Us din ki beat ke counter: visit hue / kitne the (sirf jin dino beat bhari)');
-  const table = (head, body, foot) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:auto"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:13px">
-    <thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot ? `<tfoot><tr style="background:var(--gray-50);font-weight:800">${foot}</tr></tfoot>` : ''}</table></div>`;
-  const note = `<div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Visit / Order / Collection = purane dealer, <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">📋 Beat</a> page se. Productivity = order ÷ visit. NBD = naye dealer, Lead FMS se.</div>`;
-
-  const by = {};
-  rows.forEach(r => { (by[r.userId] = by[r.userId] || { name: r.name, list: [] }).list.push(r); });
-  const list = Object.values(by).map(x => ({ name: x.name, days: new Set(x.list.map(r => r.date)).size, ...sum(x.list) })).sort((a, b) => b.value - a.value);
-  const maxV = Math.max(1, ...list.map(r => r.value));
-  const body = list.map((r, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt, var(--gray-50))' : 'var(--surface)'}">
-    ${td(`<div style="font-weight:800;color:var(--gray-900)">${esc(r.name)}</div><div style="height:4px;border-radius:2px;background:var(--color-success);width:${Math.round(r.value * 100 / maxV)}%;margin-top:5px;opacity:.6" title="Order ₹ ka hissa"></div>`, 'min-width:170px;')}
-    ${td(r.days, R)}${mainCells(r, r.days)}</tr>`).join('');
-  wrap.innerHTML = cards + table(th('Salesman') + th('Din', 1) + headCommon, body, td('Total') + td(days, R) + mainCells(tot, days)) + note;
+  const fmt = v => v ? Math.round(v).toLocaleString('en-IN') : '0';
+  const ratio = (a, b) => b ? (a * 100 / b).toFixed(2) : '-';
+  const avg = (a, b) => b ? Math.round(a / b).toLocaleString('en-IN') : '-';
+  const metrics = [
+    { sec: 'OLD COUNTERS' },
+    { l: 'Counter Visit', v: r => r ? fmt(r.visited) : '' },
+    { l: 'Conversion Ratio', calc: 1, v: r => r ? ratio(r.ordered, r.visited) : '' },
+    { l: 'Order (counter)', v: r => r ? fmt(r.ordered) : '' },
+    { l: 'Order Value ₹', v: r => r ? fmt(r.value) : '' },
+    { l: 'Average Order Value', calc: 1, v: r => r ? avg(r.value, r.ordered) : '' },
+    { l: 'Collection (counter)', v: r => r ? fmt(r.collCount) : '' },
+    { l: 'Collection Value ₹', v: r => r ? fmt(r.collection) : '' },
+    { l: 'Average Collection Value', calc: 1, v: r => r ? avg(r.collection, r.collCount) : '' },
+    { sec: 'NEW COUNTERS (NBD — Lead FMS)' },
+    { l: 'NBD Visit', v: r => r ? fmt(r.nbdVisits) : '' },
+    { l: 'NBD Won (order / dealer bana)', v: r => r ? fmt(r.nbdWon) : '' },
+    { l: 'NBD Conversion Ratio', calc: 1, v: r => r ? ratio(r.nbdWon, r.nbdVisits) : '' }
+  ];
+  const C = { navy: '#1f3864', light: '#d6e4f0', blue: '#2e75b6', purple: '#351c75', slate: '#2e4057', data: '#ebf3fb', calc: '#a4c2f4', wk: '#fff2cc' };
+  const T = 'border:1px solid #c7d3e0;padding:4px 7px;white-space:nowrap;font-size:12.5px;text-align:center;';
+  const P = people.length;
+  const isWk = g => g.kind !== 'day';
+  const dayName = y => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(y + 'T00:00:00Z').getUTCDay()];
+  const dLabel = y => `${+y.slice(8)} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+y.slice(5, 7) - 1]}`;
+  const lab = (t, bg, color, extra = '') => `<th style="${T}position:sticky;left:0;z-index:2;text-align:left;background:${bg};color:${color};font-weight:800;min-width:190px;${extra}">${t}</th>`;
+  const hWeek = groups.map(g => `<th colspan="${P}" style="${T}background:${isWk(g) ? C.navy : C.light};color:${isWk(g) ? '#fff' : C.navy};font-weight:800">${g.kind === 'total' ? 'Total' : g.kind === 'week' ? `Total of Week ${g.week}` : `Week ${g.week}`}</th>`).join('');
+  const hDay = groups.map(g => `<th colspan="${P}" style="${T}background:${isWk(g) ? C.navy : C.blue};color:#fff;font-weight:700">${g.kind === 'day' ? dayName(g.y) : ''}</th>`).join('');
+  const hDate = groups.map(g => `<th colspan="${P}" style="${T}background:${isWk(g) ? C.navy : C.light};color:${isWk(g) ? '#fff' : '#222'};font-weight:700">${g.kind === 'day' ? dLabel(g.y) : g.kind === 'total' ? `${esc(fmtDateDMY(mecaData.from))} – ${esc(fmtDateDMY(mecaData.to))}` : ''}</th>`).join('');
+  const hPeople = groups.map(g => people.map(p => `<th title="${esc(p.name)}" style="${T}background:${C.blue};color:#fff;font-weight:800">${esc(p.code)}</th>`).join('')).join('');
+  const body = metrics.map(m => {
+    if (m.sec) return `<tr>${lab(m.sec, C.purple, '#efefef')}<td colspan="${groups.length * P}" style="${T}background:${C.purple}"></td></tr>`;
+    return `<tr>${lab(m.l, m.calc ? C.calc : C.slate, m.calc ? '#111' : '#fff')}${groups.map(g => people.map(p => {
+      const v = m.v(g.get(p));
+      return `<td style="${T}background:${m.calc ? C.calc : isWk(g) ? C.wk : C.data};${m.calc || isWk(g) ? 'font-weight:800;' : ''}">${v}</td>`;
+    }).join('')).join('')}</tr>`;
+  }).join('');
+  const legend = people.map(p => `<b>${esc(p.code)}</b> = ${esc(p.name)}`).join(' · ');
+  wrap.innerHTML = `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">${legend} &nbsp;·&nbsp; Old counters = <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">📋 Beat</a> se, NBD = Lead FMS se</div>
+    <div style="background:#fff;border:1px solid #c7d3e0;border-radius:8px;overflow:auto;max-height:76vh">
+      <table style="border-collapse:collapse;color:#222">
+        <thead style="position:sticky;top:0;z-index:3">
+          <tr>${lab('Week', C.navy, '#fff')}${hWeek}</tr>
+          <tr>${lab('', '#fff', '#222')}${hDay}</tr>
+          <tr>${lab('', C.navy, '#fff')}${hDate}</tr>
+          <tr>${lab('Salesperson', C.navy, '#fff')}${hPeople}</tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table></div>`;
+  // Land on the latest week, like the sheet scrolled to today.
+  const box = wrap.querySelector('div[style*="overflow:auto"]');
+  if (box) box.scrollLeft = box.scrollWidth;
 }
 
 // ══════════════════════════════════════════════════════
-// BEAT — counter visit (client 2026-10-30: MECA alag, beat alag). The team's
-// monthly "Counter Visit" Google tabs in the app: a day sheet to fill, the month
-// grid, and the counter list. MECA reads this + Lead FMS.
+// BEAT — counter visit (client 2026-10-30: MECA alag, beat alag; "face bilkul
+// sheet jaisa"). Same grid as the team's monthly "Counter Visit" Google tab:
+// Sr No. / Firm Name / Beat Days / AREA / CITY / SALESMAN, then per day Visit,
+// Order, Collection, New Counter, Reference, Enquiry. Click a cell to type,
+// Enter / leaving the cell saves. MECA reads this + Lead FMS. ~30k cells a month,
+// so cells carry no attributes: row = counter (tr data-c), column = day × field.
 // ══════════════════════════════════════════════════════
-let beatData = null, beatView = 'day', beatDate = '', beatShowAll = false;
-const BEAT_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Upcountry'];
-const BEAT_VISIT_OPTS = ['yes', 'no', 'out of city', 'sir ke sath'];
-function beatDow(beatDay) {
-  return { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 }[String(beatDay || '').trim().toLowerCase().slice(0, 3)] || 0;
-}
+let beatData = null, beatDays = [], beatIdx = {};
+const BEAT_FIELDS = [['visit', 'Visit'], ['orderAmt', 'Order'], ['collectionAmt', 'Collection'], ['newCounter', 'New Counter'], ['reference', 'Reference'], ['enquiry', 'Enquiry']];
+const BEAT_FIXED = 6; // Sr No., Firm Name, Beat Days, AREA, CITY, SALESMAN
+const BEAT_CFIELDS = [null, 'name', 'beatDay', 'area', 'city', null];
 function beatIsoDow(ymd) { const x = new Date(ymd + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; }
-function beatVisitedEntry(e) {
-  if (!e) return false;
-  if (Number(e.orderAmt) > 0 || Number(e.collectionAmt) > 0) return true;
-  const v = String(e.visit || '').trim().toLowerCase();
-  return !!v && !/^(no|nahi|out)/.test(v);
-}
 async function loadBeat() {
   const m = document.getElementById('beatMonth');
   if (!m.value) m.value = scotTodayYmd().slice(0, 7);
   const sel = document.getElementById('beatUser');
-  const uid = sel.value;
   document.getElementById('beatWrap').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
-  const r = await api(`/api/beat?month=${m.value}${uid ? `&userId=${encodeURIComponent(uid)}` : ''}`);
+  const r = await api(`/api/beat?month=${m.value}${sel.value ? `&userId=${encodeURIComponent(sel.value)}` : ''}`);
   if (r.error) { document.getElementById('beatWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   beatData = r;
   if (r.canSeeAll) {
-    const opts = r.salesmen.map(s => `<option value="${s.id}">${esc(s.name)} (${s.counters})</option>`).join('')
-      + (r.allUsers || []).filter(u => !r.salesmen.some(s => s.id === u.id)).map(u => `<option value="${u.id}">${esc(u.name)} (0)</option>`).join('');
-    sel.innerHTML = opts; sel.style.display = '';
+    sel.innerHTML = r.salesmen.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')
+      + (r.allUsers || []).filter(u => !r.salesmen.some(s => s.id === u.id)).map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+    sel.style.display = '';
     if (r.userId) sel.value = String(r.userId);
   }
-  if (!beatDate || beatDate.slice(0, 7) !== r.month) beatDate = r.today.slice(0, 7) === r.month ? r.today : `${r.month}-01`;
   renderBeat();
+  // Open on today's column, like scrolling the sheet to the date.
+  const th = document.getElementById(`beatDay_${r.today}`), box = document.getElementById('beatGridBox');
+  if (th && box) box.scrollLeft = Math.max(0, th.offsetLeft - 560);
 }
-function beatMonthChanged() { beatDate = ''; loadBeat(); }
-function beatSetView(v) { beatView = v; renderBeat(); }
-function beatEntryOf(counterId, date) { return (beatData.entries || []).find(e => e.counterId === counterId && e.date === date); }
+function beatMonthChanged() { loadBeat(); }
+function beatEntryOf(counterId, date) { return beatIdx[`${counterId}|${date}`]; }
 function beatMatches(c) {
   const q = (document.getElementById('beatSearch').value || '').trim().toLowerCase();
   return !q || [c.name, c.area, c.city, c.beatDay].some(v => String(v || '').toLowerCase().includes(q));
 }
+// One cell: class for colour (visit yes / no / out, ₹ filled, Sunday) + text.
+function beatCellHtml(f, e, sun) {
+  const v = e && e[f];
+  const cls = [];
+  if (sun) cls.push('s');
+  if (f === 'orderAmt' || f === 'collectionAmt') { cls.push('n'); if (Number(v) > 0) cls.push('am'); }
+  if (f === 'visit' && v) { const t = String(v).trim().toLowerCase(); cls.push(/^(no|nahi)/.test(t) ? 'vn' : /^out/.test(t) ? 'vo' : 'vy'); }
+  const text = v == null || v === '' ? '' : (f === 'orderAmt' || f === 'collectionAmt') ? Number(v).toLocaleString('en-IN') : esc(v);
+  return cls.length ? `<td class="${cls.join(' ')}">${text}</td>` : `<td>${text}</td>`;
+}
 function renderBeat() {
   if (!beatData) return;
-  const tab = (k, l) => `<button class="btn btn-sm ${beatView === k ? 'btn-primary' : 'btn-outline'}" onclick="beatSetView('${jsArg(k)}')">${l}</button>`;
-  document.getElementById('beatTabs').innerHTML = tab('day', '📝 Din ki beat') + tab('month', '📅 Mahina') + tab('counters', `🏪 Counters (${beatData.counters.filter(c => c.active).length})`);
   const wrap = document.getElementById('beatWrap');
-  if (!beatData.userId) { wrap.innerHTML = '<div class="empty">Abhi kisi salesman ki beat nahi bani. 🏪 Counters me counter jodein.</div>'; return; }
-  if (beatView === 'month') return renderBeatMonth(wrap);
-  if (beatView === 'counters') return renderBeatCounters(wrap);
-  renderBeatDay(wrap);
-}
-const BEAT_IN = 'padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800);box-sizing:border-box';
-function renderBeatDay(wrap) {
-  const d = beatDate, dow = beatIsoDow(d), future = d > beatData.today;
-  const active = beatData.counters.filter(c => c.active);
-  // That weekday's beat + anything already filled that day; "Sab counters" shows the whole list (upcountry etc.).
-  const list = active.filter(c => beatMatches(c) && (beatShowAll || beatDow(c.beatDay) === dow || beatEntryOf(c.id, d)));
-  const ents = active.map(c => beatEntryOf(c.id, d)).filter(Boolean);
-  const visited = ents.filter(beatVisitedEntry).length;
-  const order = ents.reduce((a, e) => a + (Number(e.orderAmt) || 0), 0), coll = ents.reduce((a, e) => a + (Number(e.collectionAmt) || 0), 0);
-  const planned = active.filter(c => beatDow(c.beatDay) === dow).length;
-  const days = Array.from({ length: new Date(Date.UTC(+beatData.month.slice(0, 4), +beatData.month.slice(5, 7), 0)).getUTCDate() }, (_, i) => `${beatData.month}-${String(i + 1).padStart(2, '0')}`);
-  const dayBtns = days.map(x => {
-    const n = active.filter(c => beatVisitedEntry(beatEntryOf(c.id, x))).length, sun = beatIsoDow(x) === 7, fut = x > beatData.today;
-    return `<button onclick="beatDate='${x}';renderBeat()" title="${esc(fmtDateDMY(x))}${n ? ` · ${n} visit` : ''}" style="min-width:34px;padding:4px 0;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;
-      border:1.5px solid ${x === d ? 'var(--color-primary)' : 'var(--gray-200)'};background:${x === d ? 'var(--color-primary)' : n ? 'var(--color-success-bg)' : 'var(--surface)'};
-      color:${x === d ? '#fff' : sun || fut ? 'var(--gray-300)' : 'var(--gray-700)'}">${+x.slice(8)}${n ? `<div style="font-size:9.5px;font-weight:600">${n}</div>` : ''}</button>`;
-  }).join('');
-  const dayName = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][dow];
-  const rows = list.map(c => {
-    const e = beatEntryOf(c.id, d) || {};
-    const dis = future ? ' disabled' : '';
-    const v = String(e.visit || '');
-    const vOpts = ['', ...BEAT_VISIT_OPTS, ...(v && !BEAT_VISIT_OPTS.includes(v.toLowerCase()) ? [v] : [])]
-      .map(o => `<option value="${esc(o)}"${o.toLowerCase() === v.toLowerCase() ? ' selected' : ''}>${o ? esc(o) : '—'}</option>`).join('');
-    const ok = beatVisitedEntry(e);
-    return `<tr id="beatRow_${c.id}" style="background:${ok ? 'var(--color-success-bg)' : e.visit ? 'var(--color-danger-bg)' : 'var(--surface)'}">
-      <td style="padding:8px 10px;min-width:170px"><b style="color:var(--gray-900)">${esc(c.name)}</b><div style="font-size:11px;color:var(--gray-500)">${esc([c.area, c.city].filter(Boolean).join(', ') || '—')} · ${esc(c.beatDay || '—')}</div></td>
-      <td style="padding:6px"><select data-f="visit" onchange="beatSaveRow(${c.id})"${dis} style="${BEAT_IN};width:120px">${vOpts}</select></td>
-      <td style="padding:6px"><input data-f="orderAmt" type="number" min="0" inputmode="numeric" value="${e.orderAmt ?? ''}" placeholder="₹" onchange="beatSaveRow(${c.id})"${dis} style="${BEAT_IN};width:95px"/></td>
-      <td style="padding:6px"><input data-f="collectionAmt" type="number" min="0" inputmode="numeric" value="${e.collectionAmt ?? ''}" placeholder="₹" onchange="beatSaveRow(${c.id})"${dis} style="${BEAT_IN};width:95px"/></td>
-      <td style="padding:6px"><input data-f="newCounter" value="${esc(e.newCounter || '')}" onchange="beatSaveRow(${c.id})"${dis} style="${BEAT_IN};width:120px"/></td>
-      <td style="padding:6px"><input data-f="reference" value="${esc(e.reference || '')}" onchange="beatSaveRow(${c.id})"${dis} style="${BEAT_IN};width:120px"/></td>
-      <td style="padding:6px"><input data-f="enquiry" value="${esc(e.enquiry || '')}" onchange="beatSaveRow(${c.id})"${dis} style="${BEAT_IN};width:120px"/></td>
-      <td style="padding:6px;width:22px;font-size:13px" id="beatSt_${c.id}"></td></tr>`;
-  }).join('');
-  const th = l => `<th style="padding:9px 10px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;text-align:left;background:var(--gray-50);border-bottom:1px solid var(--gray-200);white-space:nowrap">${l}</th>`;
-  wrap.innerHTML = `
-    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">${dayBtns}</div>
-    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px">
-      <div style="font-size:15px;font-weight:900;color:var(--gray-900)">${esc(fmtDateDMY(d))} · ${dayName}</div>
-      <span style="font-size:12.5px;color:var(--gray-600)">Beat: <b>${planned}</b> counter · Visit <b style="color:var(--color-success-text)">${visited}</b> · Order <b>${inr(order)}</b> · Collection <b>${inr(coll)}</b></span>
-      <label style="margin-left:auto;font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" ${beatShowAll ? 'checked' : ''} onchange="beatShowAll=this.checked;renderBeat()"/> Sab counters (upcountry / dusre din wale bhi)</label>
-    </div>
-    ${future ? '<div style="font-size:12.5px;color:var(--color-warning-text);margin-bottom:8px">Aage ki date — abhi bhar nahi sakte.</div>' : ''}
-    ${list.length ? `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr>${th('Counter')}${th('Visit')}${th('Order ₹')}${th('Collection ₹')}${th('New Counter')}${th('Reference')}${th('Enquiry')}${th('')}</tr></thead><tbody>${rows}</tbody></table></div>
-      <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Bharte hi save ho jata hai. Visit "yes" / "sir ke sath" ya Order / Collection ₹ = visit gina jayega (MECA me). Sunday ya chhutti ke din kuch na bharein.</div>`
-      : `<div class="empty">${dayName} ki beat me koi counter nahi. "Sab counters" tick karke dusre counter bharein, ya 🏪 Counters me beat day set karein.</div>`}`;
-}
-async function beatSaveRow(counterId) {
-  const tr = document.getElementById(`beatRow_${counterId}`);
-  if (!tr) return;
-  const body = { counterId, date: beatDate };
-  tr.querySelectorAll('[data-f]').forEach(el => { body[el.dataset.f] = el.value; });
-  const st = document.getElementById(`beatSt_${counterId}`);
-  st.textContent = '⏳';
-  const r = await api('/api/beat/entry', 'PUT', body);
-  if (r.error) { st.textContent = '⚠️'; showToast(r.error, 'error'); return; }
-  st.textContent = '✅';
-  const list = beatData.entries;
-  const i = list.findIndex(e => e.counterId === counterId && e.date === beatDate);
-  if (r.cleared) { if (i >= 0) list.splice(i, 1); }
-  else {
-    const e = { counterId, date: beatDate, visit: body.visit || null, orderAmt: body.orderAmt === '' ? null : Number(body.orderAmt), collectionAmt: body.collectionAmt === '' ? null : Number(body.collectionAmt),
-      newCounter: body.newCounter || null, reference: body.reference || null, enquiry: body.enquiry || null };
-    if (i >= 0) list[i] = e; else list.push(e);
-  }
-  const ok = beatVisitedEntry(r.cleared ? null : list.find(e => e.counterId === counterId && e.date === beatDate));
-  tr.style.background = ok ? 'var(--color-success-bg)' : body.visit ? 'var(--color-danger-bg)' : 'var(--surface)';
-}
-function renderBeatMonth(wrap) {
+  if (!beatData.userId) { wrap.innerHTML = '<div class="empty">Abhi kisi salesman ki beat nahi bani.</div>'; return; }
+  beatIdx = {};
+  (beatData.entries || []).forEach(e => { beatIdx[`${e.counterId}|${e.date}`] = e; });
   const m = beatData.month;
   const n = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate();
-  const days = Array.from({ length: n }, (_, i) => `${m}-${String(i + 1).padStart(2, '0')}`);
+  const days = beatDays = Array.from({ length: n }, (_, i) => `${m}-${String(i + 1).padStart(2, '0')}`);
   const counters = beatData.counters.filter(c => (c.active || beatData.entries.some(e => e.counterId === c.id)) && beatMatches(c));
-  const cell = (c, d) => {
-    const e = beatEntryOf(c.id, d);
-    const sun = beatIsoDow(d) === 7, mine = beatDow(c.beatDay) === beatIsoDow(d);
-    let t = '', bg = mine ? 'var(--color-primary-light, #eef4ff)' : sun ? 'var(--gray-50)' : '', color = 'var(--gray-700)';
-    if (e) {
-      const amt = Number(e.orderAmt) || 0;
-      if (beatVisitedEntry(e)) { t = amt ? '₹' : '✓'; bg = 'var(--color-success-bg)'; color = 'var(--color-success-text)'; }
-      else if (/^out/i.test(e.visit || '')) { t = '✈'; color = 'var(--gray-500)'; }
-      else if (e.visit) { t = '✗'; bg = 'var(--color-danger-bg)'; color = 'var(--color-danger-text)'; }
-    }
-    const tip = e ? [e.visit, e.orderAmt && `Order ₹${e.orderAmt}`, e.collectionAmt && `Collection ₹${e.collectionAmt}`, e.newCounter, e.reference, e.enquiry].filter(Boolean).join(' · ') : '';
-    return `<td onclick="beatDate='${d}';beatView='day';renderBeat()" title="${esc(fmtDateDMY(d))}${tip ? ' — ' + esc(tip) : ''}" style="cursor:pointer;text-align:center;min-width:24px;padding:4px 2px;border-bottom:1px solid var(--gray-100);background:${bg};color:${color};font-weight:800">${t}</td>`;
-  };
-  const visitsOn = d => counters.filter(c => beatVisitedEntry(beatEntryOf(c.id, d))).length;
-  const orderOn = d => counters.reduce((a, c) => a + (Number((beatEntryOf(c.id, d) || {}).orderAmt) || 0), 0);
-  const totV = days.reduce((a, d) => a + visitsOn(d), 0), totO = days.reduce((a, d) => a + orderOn(d), 0);
-  const totC = beatData.entries.reduce((a, e) => a + (Number(e.collectionAmt) || 0), 0);
-  const stick = 'position:sticky;left:0;z-index:1;background:var(--surface);';
-  wrap.innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:8px">Mahine me: Visit <b>${totV}</b> · Order <b>${inr(totO)}</b> · Collection <b>${inr(totC)}</b> &nbsp; <span style="color:var(--gray-400)">✓ visit · ₹ order · ✗ nahi gaye · ✈ out of city · neela = us din ki beat · cell par click = us din bharo</span></div>
-    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:auto;max-height:70vh"><table style="border-collapse:separate;border-spacing:0;font-size:12px">
-    <thead><tr><th style="${stick}z-index:2;padding:8px 10px;text-align:left;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">Counter</th>
-      ${days.map(d => `<th style="padding:6px 2px;background:var(--gray-50);border-bottom:1px solid var(--gray-200);font-size:11px;color:${beatIsoDow(d) === 7 ? 'var(--gray-300)' : 'var(--gray-600)'}">${+d.slice(8)}<div style="font-size:9px;font-weight:600">${'MTWTFSS'[beatIsoDow(d) - 1]}</div></th>`).join('')}</tr></thead>
-    <tbody>${counters.map(c => `<tr><td style="${stick}padding:6px 10px;border-bottom:1px solid var(--gray-100);white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis"><b>${esc(c.name)}</b> <span style="font-size:10.5px;color:var(--gray-400)">${esc(c.beatDay || '')}</span></td>${days.map(d => cell(c, d)).join('')}</tr>`).join('')}</tbody>
-    <tfoot><tr style="font-weight:800"><td style="${stick}padding:6px 10px;background:var(--gray-50)">Visit / din</td>${days.map(d => `<td style="text-align:center;background:var(--gray-50);font-size:11px">${visitsOn(d) || ''}</td>`).join('')}</tr></tfoot>
-    </table></div>`;
+  const salesman = esc((document.getElementById('beatUser').selectedOptions[0] || {}).textContent || (beatData.salesmen[0] || {}).name || '');
+  const fixedTh = (l, cls) => `<th rowspan="2" class="fx${cls ? ' ' + cls : ''}">${l}</th>`;
+  const head1 = days.map(d => `<th id="beatDay_${d}" colspan="6" class="dh${d === beatData.today ? ' td' : beatIsoDow(d) === 7 ? ' su' : ''}">${+d.slice(8)} <small>${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][beatIsoDow(d)]}</small></th>`).join('');
+  const head2 = days.map(d => BEAT_FIELDS.map(([, l]) => `<th class="fh${beatIsoDow(d) === 7 ? ' su' : ''}">${l}</th>`).join('')).join('');
+  const body = counters.map((c, i) => `<tr data-c="${c.id}"><td class="k0">${i + 1}</td><td class="k1${c.active ? '' : ' off'}">${esc(c.name)}</td><td>${esc(c.beatDay || '')}</td><td>${esc(c.area || '')}</td><td>${esc(c.city || '')}</td><td class="sm">${salesman}</td>`
+    + days.map(d => { const e = beatIdx[`${c.id}|${d}`], sun = beatIsoDow(d) === 7; return BEAT_FIELDS.map(([f]) => beatCellHtml(f, e, sun)).join(''); }).join('') + '</tr>').join('');
+  // Bottom line per day: visits / ₹ order / ₹ collection.
+  const vis = e => e && (Number(e.orderAmt) > 0 || Number(e.collectionAmt) > 0 || (!!e.visit && !/^(no|nahi|out)/i.test(e.visit)));
+  const foot = days.map(d => {
+    const es = counters.map(c => beatIdx[`${c.id}|${d}`]).filter(Boolean);
+    const sum = f => es.reduce((a, e) => a + (Number(e[f]) || 0), 0);
+    const vN = es.filter(vis).length, o = sum('orderAmt'), co = sum('collectionAmt');
+    return `<td>${vN || ''}</td><td class="n">${o ? o.toLocaleString('en-IN') : ''}</td><td class="n">${co ? co.toLocaleString('en-IN') : ''}</td><td colspan="3"></td>`;
+  }).join('');
+  const IN = 'padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)';
+  wrap.innerHTML = `
+    <style>
+      #beatGrid{border-collapse:collapse;color:#222;background:#fff}
+      #beatGrid td,#beatGrid th{border:1px solid #d9d9d9;padding:4px 6px;white-space:nowrap;font-size:12.5px;height:24px;min-width:62px}
+      #beatGrid th{font-weight:700}
+      #beatGrid th.fx{background:#b6d7a8;min-width:80px}
+      #beatGrid th.dh{background:#c9daf8;font-weight:800}
+      #beatGrid th.fh{background:#c9daf8;font-size:11.5px}
+      #beatGrid th.su{background:#e0e0e0} #beatGrid th.td{background:#6fa8dc;color:#fff}
+      #beatGrid td.s{background:#f3f3f3} #beatGrid td.n{text-align:right}
+      #beatGrid td.vy{background:#d9ead3} #beatGrid td.vn{background:#f8d7d5} #beatGrid td.vo{background:#eceff1;color:#607d8b}
+      #beatGrid td.am{background:#fff2cc;font-weight:700}
+      #beatGrid .k0{position:sticky;left:0;z-index:1;background:#fff;text-align:center;color:#666;min-width:44px}
+      #beatGrid .k1{position:sticky;left:44px;z-index:1;background:#fff;font-weight:600;min-width:200px;max-width:240px;overflow:hidden;text-overflow:ellipsis}
+      #beatGrid th.k0,#beatGrid th.k1{z-index:5;background:#b6d7a8}
+      #beatGrid .off{color:#aaa;text-decoration:line-through}
+      #beatGrid .sm{color:#666}
+      #beatGrid tbody td:not(.k0):not(.sm){cursor:cell}
+      #beatGrid tfoot td{background:#f3f3f3;font-weight:800}
+    </style>
+    <datalist id="beatVisitList"><option value="yes"><option value="no"><option value="out of city"><option value="sir ke sath"></datalist>
+    <datalist id="beatDayList">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Upcountry'].map(x => `<option value="${x}">`).join('')}</datalist>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12.5px;color:var(--gray-600)">
+      <span>Khane par click karke likho — Enter ya bahar click = save. Visit: yes / no / out of city / sir ke sath.</span>
+      <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+        <input id="bcNewN" placeholder="Naya counter (Firm Name)" style="${IN};min-width:180px"/>
+        <input id="bcNewD" list="beatDayList" placeholder="Beat Days" style="${IN};width:120px"/>
+        <input id="bcNewA" placeholder="AREA" style="${IN};width:110px"/>
+        <button class="btn btn-primary btn-sm" onclick="beatAddCounter()">+ Counter</button></span></div>
+    <div id="beatGridBox" style="border:1px solid #d9d9d9;border-radius:8px;overflow:auto;max-height:74vh">
+      <table id="beatGrid" onclick="beatGridClick(event)">
+        <thead style="position:sticky;top:0;z-index:4"><tr>${fixedTh('Sr No.', 'k0')}${fixedTh('Firm Name', 'k1')}${fixedTh('Beat Days')}${fixedTh('AREA')}${fixedTh('CITY')}${fixedTh('SALESMAN')}${head1}</tr><tr>${head2}</tr></thead>
+        <tbody>${body || '<tr><td colspan="6">Koi counter nahi</td></tr>'}</tbody>
+        <tfoot><tr><td colspan="6" class="k0" style="text-align:left;background:#f3f3f3">Total (Visit · Order · Collection)</td>${foot}</tr></tfoot>
+      </table></div>`;
 }
-function renderBeatCounters(wrap) {
-  const list = beatData.counters.filter(beatMatches);
-  const dl = `<datalist id="beatDayList">${BEAT_DAYS.map(x => `<option value="${x}">`).join('')}</datalist>`;
-  const rowHtml = c => `<tr style="${c.active ? '' : 'opacity:.5'}">
-    <td style="padding:6px"><input id="bcN_${c.id}" value="${esc(c.name)}" style="${BEAT_IN};width:100%;min-width:170px"/></td>
-    <td style="padding:6px"><input id="bcD_${c.id}" list="beatDayList" value="${esc(c.beatDay || '')}" style="${BEAT_IN};width:120px"/></td>
-    <td style="padding:6px"><input id="bcA_${c.id}" value="${esc(c.area || '')}" style="${BEAT_IN};width:130px"/></td>
-    <td style="padding:6px"><input id="bcC_${c.id}" value="${esc(c.city || '')}" style="${BEAT_IN};width:100px"/></td>
-    <td style="padding:6px;white-space:nowrap"><button class="btn btn-outline btn-sm" onclick="beatSaveCounter(${c.id}, ${c.active ? 1 : 0})">Save</button>
-      <button class="btn btn-outline btn-sm" style="color:${c.active ? 'var(--color-danger)' : 'var(--color-success-text)'}" onclick="beatSaveCounter(${c.id}, ${c.active ? 0 : 1})">${c.active ? 'Band karo' : 'Chalu karo'}</button></td></tr>`;
-  wrap.innerHTML = `${dl}<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <b style="font-size:13px">➕ Naya counter</b>
-      <input id="bcNewN" placeholder="Counter / firm ka naam *" style="${BEAT_IN};flex:1;min-width:180px"/>
-      <input id="bcNewD" list="beatDayList" placeholder="Beat day (Monday / Upcountry)" style="${BEAT_IN};width:190px"/>
-      <input id="bcNewA" placeholder="Area" style="${BEAT_IN};width:130px"/>
-      <input id="bcNewC" placeholder="City" style="${BEAT_IN};width:110px"/>
-      <button class="btn btn-primary btn-sm" onclick="beatAddCounter()">Add</button></div>
-    <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr>${['Counter', 'Beat day', 'Area', 'City', ''].map(l => `<th style="padding:9px 10px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;text-align:left;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">${l}</th>`).join('')}</tr></thead>
-      <tbody>${list.map(rowHtml).join('') || '<tr><td colspan="5" class="empty">Koi counter nahi</td></tr>'}</tbody></table></div>`;
+// Spreadsheet-style editing: one input at a time inside the clicked cell.
+function beatGridClick(ev) {
+  const td = ev.target.closest('#beatGrid tbody td');
+  const tr = td && td.parentElement;
+  if (!td || !tr.dataset.c || td.querySelector('input')) return;
+  const counterId = Number(tr.dataset.c), col = td.cellIndex;
+  let f, date = null;
+  if (col < BEAT_FIXED) { f = BEAT_CFIELDS[col]; if (!f) return; }
+  else {
+    date = beatDays[Math.floor((col - BEAT_FIXED) / 6)];
+    f = BEAT_FIELDS[(col - BEAT_FIXED) % 6][0];
+    if (!date) return;
+    if (date > beatData.today) { showToast('Aage ki date abhi nahi bhar sakte', 'error'); return; }
+  }
+  const isCounter = !date;
+  const cur = isCounter ? (beatData.counters.find(c => c.id === counterId) || {})[f] : (beatEntryOf(counterId, date) || {})[f];
+  const num = f === 'orderAmt' || f === 'collectionAmt';
+  const list = f === 'visit' ? ' list="beatVisitList"' : f === 'beatDay' ? ' list="beatDayList"' : '';
+  const old = td.innerHTML;
+  td.innerHTML = `<input${list} ${num ? 'type="number" min="0" inputmode="numeric"' : ''} value="${esc(cur == null ? '' : cur)}" style="width:100%;min-width:${isCounter ? 140 : 60}px;border:2px solid #1a73e8;padding:2px 4px;font-size:12.5px;box-sizing:border-box;outline:none"/>`;
+  const inp = td.querySelector('input');
+  inp.focus(); inp.select();
+  let done = false;
+  const finish = async save => {
+    if (done) return; done = true;
+    if (!save || String(inp.value).trim() === String(cur == null ? '' : cur)) { td.innerHTML = old; return; }
+    td.innerHTML = '⏳';
+    const ok = isCounter ? await beatSaveCounterCell(counterId, f, inp.value.trim()) : await beatSaveCell(counterId, date, f, inp.value.trim());
+    if (!ok) td.innerHTML = old;
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') finish(false); });
+  inp.addEventListener('blur', () => finish(true));
+}
+function beatRerenderKeepScroll() {
+  const box = document.getElementById('beatGridBox');
+  const sl = box ? box.scrollLeft : 0, st = box ? box.scrollTop : 0;
+  renderBeat();
+  const nb = document.getElementById('beatGridBox');
+  if (nb) { nb.scrollLeft = sl; nb.scrollTop = st; }
+}
+async function beatSaveCell(counterId, date, f, val) {
+  const e = Object.assign({ visit: '', orderAmt: '', collectionAmt: '', newCounter: '', reference: '', enquiry: '' }, beatEntryOf(counterId, date) || {});
+  e[f] = val;
+  const blank = v => v == null ? '' : v;
+  const r = await api('/api/beat/entry', 'PUT', { counterId, date, visit: blank(e.visit), orderAmt: blank(e.orderAmt), collectionAmt: blank(e.collectionAmt), newCounter: blank(e.newCounter), reference: blank(e.reference), enquiry: blank(e.enquiry) });
+  if (r.error) { showToast(r.error, 'error'); return false; }
+  const list = beatData.entries, i = list.findIndex(x => x.counterId === counterId && x.date === date);
+  const num = v => v === '' || v == null ? null : Number(v);
+  const row = { counterId, date, visit: e.visit || null, orderAmt: num(e.orderAmt), collectionAmt: num(e.collectionAmt), newCounter: e.newCounter || null, reference: e.reference || null, enquiry: e.enquiry || null };
+  if (r.cleared) { if (i >= 0) list.splice(i, 1); } else if (i >= 0) list[i] = row; else list.push(row);
+  beatRerenderKeepScroll();
+  return true;
+}
+async function beatSaveCounterCell(counterId, f, val) {
+  const c = beatData.counters.find(x => x.id === counterId);
+  if (!c) return false;
+  if (f === 'name' && !val) { showToast('Firm Name khaali nahi ho sakta', 'error'); return false; }
+  const body = { name: c.name, beatDay: c.beatDay || '', area: c.area || '', city: c.city || '', active: !!c.active };
+  body[f] = val;
+  const r = await api(`/api/beat/counter/${c.id}`, 'PUT', body);
+  if (r.error) { showToast(r.error, 'error'); return false; }
+  c[f] = val;
+  beatRerenderKeepScroll();
+  return true;
 }
 async function beatAddCounter() {
   const name = document.getElementById('bcNewN').value.trim();
-  if (!name) { showToast('Counter ka naam likhein', 'error'); return; }
-  const r = await api('/api/beat/counter', 'POST', { userId: beatData.userId, name, beatDay: document.getElementById('bcNewD').value.trim(),
-    area: document.getElementById('bcNewA').value.trim(), city: document.getElementById('bcNewC').value.trim() });
+  if (!name) { showToast('Firm Name likhein', 'error'); return; }
+  const r = await api('/api/beat/counter', 'POST', { userId: beatData.userId, name, beatDay: document.getElementById('bcNewD').value.trim(), area: document.getElementById('bcNewA').value.trim() });
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast(`✅ ${name} beat me jud gaya`);
-  loadBeat();
-}
-async function beatSaveCounter(id, active) {
-  const r = await api(`/api/beat/counter/${id}`, 'PUT', { name: document.getElementById(`bcN_${id}`).value.trim(), beatDay: document.getElementById(`bcD_${id}`).value.trim(),
-    area: document.getElementById(`bcA_${id}`).value.trim(), city: document.getElementById(`bcC_${id}`).value.trim(), active: !!active });
-  if (r.error) { showToast(r.error, 'error'); return; }
-  showToast('✅ Save ho gaya');
   loadBeat();
 }
 
