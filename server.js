@@ -16662,6 +16662,13 @@ async function smpTables() {
     // "Give Sample" form shares grp; `code` stays the per-item line code.
     ['grp', 'VARCHAR(20)']]);
   await db.query('CREATE INDEX idx_sample_grp ON sample_issues (grp)').catch(e => { if (e.code !== 'ER_DUP_KEYNAME') throw e; });
+  // Returns come in parts, each with its own photo (client video 2026-10-30: "jitni baar receive, utni baar photo";
+  // pending shown like Vendor Replacement). sample_issues.returned_qty = total so far; the line closes when all
+  // is back or it is closed with a remark.
+  await db.query(`CREATE TABLE IF NOT EXISTS sample_receipts (
+    id INT AUTO_INCREMENT PRIMARY KEY, issue_id INT NOT NULL, qty DECIMAL(10,2) NOT NULL, photo VARCHAR(500), remark VARCHAR(500),
+    received_by INT, received_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (issue_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   // Older forms made one SMP code per item: rows of the same submit (same giver, second,
   // salesman) become one group under their first code.
   await db.query(`UPDATE sample_issues s JOIN (SELECT created_by, created_at, salesman_user_id, MIN(code) AS g FROM sample_issues WHERE grp IS NULL
@@ -16683,7 +16690,13 @@ async function smpLoad(where = '', params = []) {
       DATE_FORMAT(s.outcome_at,'%Y-%m-%d %H:%i:%s') AS outcome_at, DATEDIFF(CURDATE(), s.issue_date) AS days, u.name AS created_by_name, o.name AS outcome_by_name
     FROM sample_issues s LEFT JOIN users u ON u.id=s.created_by LEFT JOIN users o ON o.id=s.outcome_by ${where} ORDER BY s.id DESC`, params);
   const n = v => Number(v) || 0;
-  return rows.map(s => ({ id: s.id, code: s.code, grp: s.grp || s.code, issueDate: s.issue_date, salesmanUserId: s.salesman_user_id, salesmanName: s.salesman_name || '', itemCode: s.item_code,
+  const rec = {};
+  if (rows.length) {
+    const [rr] = await db.query(`SELECT r.issue_id, r.qty, r.photo, r.remark, DATE_FORMAT(r.received_at,'%Y-%m-%d %H:%i:%s') AS at, u.name AS by_name
+      FROM sample_receipts r LEFT JOIN users u ON u.id = r.received_by WHERE r.issue_id IN (?) ORDER BY r.id`, [rows.map(s => s.id)]);
+    rr.forEach(r => (rec[r.issue_id] = rec[r.issue_id] || []).push({ qty: n(r.qty), photo: r.photo || '', remark: r.remark || '', at: r.at, by: r.by_name || '' }));
+  }
+  return rows.map(s => ({ id: s.id, code: s.code, receipts: rec[s.id] || [], pendingQty: s.outcome_at || s.cancelled_at ? 0 : n(s.qty) - n(s.returned_qty), grp: s.grp || s.code, issueDate: s.issue_date, salesmanUserId: s.salesman_user_id, salesmanName: s.salesman_name || '', itemCode: s.item_code,
     itemName: s.item_name || '', uom: s.uom || '', qty: n(s.qty), dealerName: s.dealer_name || '', purpose: s.purpose || '', remark: s.remark || '', createdAt: s.created_at,
     createdByName: s.created_by_name || '', photo: s.photo || '', days: n(s.days), returnedQty: s.returned_qty == null ? null : n(s.returned_qty), leftQty: s.outcome_at ? n(s.qty) - n(s.returned_qty) : null,
     outcomeAt: s.outcome_at, outcomeByName: s.outcome_by_name || '', outcomeRemark: s.outcome_remark || '', outcomePhoto: s.outcome_photo || '',
@@ -16763,13 +16776,20 @@ async function smpSettleLine(q, s, o, user) {
     return c.affectedRows > 0;
   }
   if (o.kind === 'sold') {
-    const [c] = await q.query("UPDATE sample_issues SET returned_qty=0, outcome_type='sold', bill_no=?, bill_file=?, outcome_at=NOW(), outcome_by=?, outcome_remark=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
+    const [c] = await q.query("UPDATE sample_issues SET returned_qty=COALESCE(returned_qty,0), outcome_type='sold', bill_no=?, bill_file=?, outcome_at=NOW(), outcome_by=?, outcome_remark=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
       [o.billNo, o.billFile, user.id, o.remark || null, s.id]);
     return c.affectedRows > 0;
   }
-  const [c] = await q.query("UPDATE sample_issues SET returned_qty=?, outcome_type='returned', outcome_at=NOW(), outcome_by=?, outcome_remark=?, outcome_photo=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL",
-    [o.back, user.id, o.remark || null, o.back > 0 ? o.photo : null, s.id]);
-  if (!c.affectedRows) return false;
+  if (o.back > 0) {
+    const [c] = await q.query('UPDATE sample_issues SET returned_qty = COALESCE(returned_qty,0) + ? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL AND COALESCE(returned_qty,0) + ? <= qty',
+      [o.back, s.id, o.back]);
+    if (!c.affectedRows) return false;
+    await q.query('INSERT INTO sample_receipts (issue_id, qty, photo, remark, received_by) VALUES (?,?,?,?,?)', [s.id, o.back, o.photo || null, o.remark || null, user.id]);
+  }
+  // All back, or closed with a remark (rest stays with the dealer / lost).
+  const [c] = await q.query(`UPDATE sample_issues SET returned_qty=COALESCE(returned_qty,0), outcome_type='returned', outcome_at=NOW(), outcome_by=?, outcome_remark=?, outcome_photo=COALESCE(?, outcome_photo)
+    WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL AND (? OR COALESCE(returned_qty,0) >= qty)`, [user.id, o.remark || null, o.back > 0 ? o.photo : null, s.id, o.close ? 1 : 0]);
+  if (!c.affectedRows && !(o.back > 0)) return false;
   if (o.back > 0) {
     await q.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [o.back, today, s.itemCode]);
     await q.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
@@ -16788,7 +16808,7 @@ app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
     if (s.status !== 'With salesman') return res.status(400).json({ error: 'Already settled or cancelled' });
     const b = req.body || {};
     const back = Number(b.returnedQty) || 0;
-    if (back < 0 || back > s.qty) return res.status(400).json({ error: `Returned qty must be between 0 and ${s.qty}` });
+    if (back < 0 || back > s.pendingQty) return res.status(400).json({ error: `Returned qty must be between 0 and ${s.pendingQty}` });
     const remark = String(b.remark || '').trim().slice(0, 500);
     const user = { id: req.session.userId, name: req.session.name };
     let o;
@@ -16801,10 +16821,10 @@ app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
       if (!docDataUriKind(b.bill)) return res.status(400).json({ error: 'Bill ki photo ya PDF lagayein' });
       o = { kind: 'sold', billNo, billFile: await uploadDocToDrive(b.bill, `${s.code}-bill-${Date.now()}`), remark };
     } else {
-      if (back < s.qty && !remark) return res.status(400).json({ error: 'Kisko diya / kahan gaya — remark likhein' });
+      if (back < s.pendingQty && !remark) return res.status(400).json({ error: 'Kisko diya / kahan gaya — remark likhein' });
       // Photo of what came back is required (Priyanka 2026-10-27).
       if (back > 0 && !/^data:image\//.test(b.photo || '')) return res.status(400).json({ error: 'Wapas aaye sample ki photo lagayein' });
-      o = { kind: 'returned', back, remark, photo: back > 0 ? await uploadPhotoToDrive(b.photo, `${s.code}-received-${Date.now()}.jpg`) : null };
+      o = { kind: 'returned', back, remark, close: true, photo: back > 0 ? await uploadPhotoToDrive(b.photo, `${s.code}-received-${Date.now()}.jpg`) : null };
     }
     await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1'));
     if (!(await smpSettleLine(db, s, o, user))) return res.status(400).json({ error: 'Already settled or cancelled' });
@@ -16814,14 +16834,20 @@ app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
 });
 // One party's whole sample at once (client list 2026-10-30 #9): one photo for everything
 // that came back / one bill / one hold date; returned qty per item.
-app.post('/api/samples/group/:grp/outcome', requireAuth, async (req, res) => {
+// Lines picked by grp (one form) or by ids (the salesman's items of one day — client video 2026-10-30).
+async function smpOpenLines(req) {
+  const ids = (Array.isArray((req.body || {}).ids) ? req.body.ids : []).map(Number).filter(Boolean).slice(0, 100);
+  const rows = req.params.grp ? await smpLoad('WHERE COALESCE(s.grp, s.code)=?', [String(req.params.grp).slice(0, 20)]) : ids.length ? await smpLoad('WHERE s.id IN (?)', [ids]) : [];
+  return rows.filter(s => s.status === 'With salesman');
+}
+app.post(['/api/samples/group/:grp/outcome', '/api/samples/bundle/outcome'], requireAuth, async (req, res) => {
   try {
     if (!(await smpAccess(req, res))) return;
     await smpTables();
     await ensureStockTxnSchema();
-    const grp = String(req.params.grp || '').slice(0, 20);
-    const open = (await smpLoad('WHERE COALESCE(s.grp, s.code)=?', [grp])).filter(s => s.status === 'With salesman');
+    const open = await smpOpenLines(req);
     if (!open.length) return res.status(400).json({ error: 'Is sample me kuch khula nahi — already settled ya cancelled' });
+    const grp = open[0].grp;
     const b = req.body || {};
     const remark = String(b.remark || '').trim().slice(0, 500);
     const user = { id: req.session.userId, name: req.session.name };
@@ -16836,13 +16862,16 @@ app.post('/api/samples/group/:grp/outcome', requireAuth, async (req, res) => {
       const billFile = await uploadDocToDrive(b.bill, `${grp}-bill-${Date.now()}`);
       open.forEach(s => plan.push([s, { kind: 'sold', billNo, billFile, remark }]));
     } else {
+      // This time's qty per item (part is fine); close = the rest won't come back.
       const backOf = Object.fromEntries((Array.isArray(b.lines) ? b.lines : []).map(x => [Number(x.id), Number(x.returnedQty)]));
+      const close = !!b.close;
       for (const s of open) {
-        const back = backOf[s.id] == null || isNaN(backOf[s.id]) ? s.qty : backOf[s.id];
-        if (back < 0 || back > s.qty) return res.status(400).json({ error: `${s.itemName}: wapas 0 se ${s.qty} ke beech` });
-        plan.push([s, { kind: 'returned', back, remark }]);
+        const back = backOf[s.id] == null || isNaN(backOf[s.id]) ? 0 : backOf[s.id];
+        if (back < 0 || back > s.pendingQty) return res.status(400).json({ error: `${s.itemName}: abhi 0 se ${s.pendingQty} ke beech` });
+        if (back > 0 || close) plan.push([s, { kind: 'returned', back, remark, close }]);
       }
-      if (plan.some(([s, o]) => o.back < s.qty) && !remark) return res.status(400).json({ error: 'Jo wapas nahi aaya — kisko diya / kahan gaya, remark likhein' });
+      if (!plan.length) return res.status(400).json({ error: 'Kitna wapas aaya — qty bharein' });
+      if (close && plan.some(([s, o]) => o.back < s.pendingQty) && !remark) return res.status(400).json({ error: 'Jo wapas nahi aayega — kisko diya / kahan gaya, remark likhein' });
       const anyBack = plan.some(([, o]) => o.back > 0);
       if (anyBack && !/^data:image\//.test(b.photo || '')) return res.status(400).json({ error: 'Wapas aaye sample ki photo lagayein (sab ki ek photo)' });
       const photo = anyBack ? await uploadPhotoToDrive(b.photo, `${grp}-received-${Date.now()}.jpg`) : null;
@@ -16854,16 +16883,19 @@ app.post('/api/samples/group/:grp/outcome', requireAuth, async (req, res) => {
       return true;
     }).catch(e => { if (e.smpSettled) return false; throw e; });
     if (!done) return res.status(400).json({ error: 'Kisi ne abhi isme entry kar di — page refresh karke dekhein' });
-    res.json({ success: true, samples: await smpLoad('WHERE COALESCE(s.grp, s.code)=?', [grp]) });
+    res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 async function smpCancelLine(q, s, reason, user) {
   const [c] = await q.query('UPDATE sample_issues SET cancelled_at=NOW(), cancel_reason=? WHERE id=? AND outcome_at IS NULL AND cancelled_at IS NULL', [reason.slice(0, 500), s.id]);
   if (!c.affectedRows) return false;
   const date = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-  await q.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [s.qty, date, s.itemCode]);
+  // Only what is still out — parts already received went IN with their receipt.
+  const out = s.qty - (s.returnedQty || 0);
+  if (!(out > 0)) return true;
+  await q.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ?, as_of_date = ? WHERE item_code = ?', [out, date, s.itemCode]);
   await q.query("INSERT INTO ajanta_stock_transactions (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, ref_no) VALUES (?,?,?,?,?,?,?,?,'sample',?)",
-    [date, 'IN', s.itemCode, s.itemName, s.qty, s.uom, `Sample ${s.grp} cancelled — ${reason}`.slice(0, 500), user.name || '', s.grp]);
+    [date, 'IN', s.itemCode, s.itemName, out, s.uom, `Sample ${s.grp} cancelled — ${reason}`.slice(0, 500), user.name || '', s.grp]);
   return true;
 }
 app.post('/api/samples/:id/cancel', requireAuth, async (req, res) => {
@@ -16883,7 +16915,7 @@ app.post('/api/samples/:id/cancel', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 // Admin: cancel every still-open item of one party's sample (stock back for each).
-app.post('/api/samples/group/:grp/cancel', requireAuth, async (req, res) => {
+app.post(['/api/samples/group/:grp/cancel', '/api/samples/bundle/cancel'], requireAuth, async (req, res) => {
   try {
     if (!(await smpAccess(req, res))) return;
     if (req.session.role !== 'admin') return res.status(403).json({ error: 'Only admin can cancel a sample entry' });
@@ -16891,8 +16923,7 @@ app.post('/api/samples/group/:grp/cancel', requireAuth, async (req, res) => {
     if (!reason) return res.status(400).json({ error: 'Reason is required' });
     await smpTables();
     await ensureStockTxnSchema();
-    const grp = String(req.params.grp || '').slice(0, 20);
-    const open = (await smpLoad('WHERE COALESCE(s.grp, s.code)=?', [grp])).filter(s => s.status === 'With salesman');
+    const open = await smpOpenLines(req);
     if (!open.length) return res.status(400).json({ error: 'Only an entry still with the salesman can be cancelled' });
     await withStockTxnTable(() => db.query('SELECT 1 FROM ajanta_stock_transactions LIMIT 1'));
     await withTx(async conn => { for (const s of open) await smpCancelLine(conn, s, reason, { name: req.session.name }); });
