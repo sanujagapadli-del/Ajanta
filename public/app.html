@@ -2763,6 +2763,12 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <button class="btn btn-outline btn-sm" onclick="pettyQuick('lastmonth')">Last Month</button>
         <button class="btn btn-outline btn-sm" onclick="pettyQuick('all')">All</button>
         <input type="text" id="pettySearch" oninput="renderPettyCash()" placeholder="🔍 Party / payee / bill no" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;flex:1;min-width:160px;background:var(--surface);color:var(--gray-800)"/>
+        <select id="pettyType" onchange="renderPettyCash()" title="Advance / Expense alag dekho (Ajay list #13)" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)">
+          <option value="">Sab entries</option><option value="advance">➕ Sirf Advance</option><option value="expense">🧾 Sirf Expense</option>
+        </select>
+        <select id="pettySort" onchange="renderPettyCash()" style="padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)">
+          <option value="new">Naya pehle</option><option value="old">Purana pehle</option><option value="amtDesc">Amount ↓ (bada pehle)</option><option value="amtAsc">Amount ↑ (chhota pehle)</option>
+        </select>
       </div>
     </div>
     <div class="tab-group" style="margin-bottom:12px">
@@ -7832,7 +7838,7 @@ function renderTourList() {
   if (!items.length) { out.innerHTML = head + '<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200)">Is range me koi tour expense nahi. Jaipur se bahar gaye the to "+ Tour Expense" se daalein.</div>'; return; }
   const money = v => v ? '₹' + Math.round(v).toLocaleString('en-IN') : '<span style="color:var(--gray-300)">—</span>';
   out.innerHTML = head + `<div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><table style="font-size:12.5px;white-space:nowrap">
-    <thead><tr><th>Date</th>${_plAccess.viewer ? '<th>Employee</th>' : ''}<th>Kahan gaye</th><th>Mode</th><th>Kiraya</th><th>Stay</th><th>Khana</th><th>Local</th><th>Other</th><th>Total</th><th>Order value</th><th>Bills</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Tour date</th>${_plAccess.viewer ? '<th>Employee</th>' : ''}<th>Kahan gaye</th><th>Mode</th><th>Kiraya</th><th>Stay</th><th>Khana</th><th>Local</th><th>Other</th><th>Total</th><th>Order value</th><th>Bills</th><th>Status</th><th></th></tr></thead>
     <tbody>${items.map(x => `<tr>
       <td>${fmtDateDMY(x.date)}${entrySubHtml(x.createdAt)}</td>${_plAccess.viewer ? `<td>${esc(x.userName)}</td>` : ''}
       <td style="white-space:normal;min-width:180px">${x.legs.length
@@ -7875,7 +7881,7 @@ function openTourModal(editId) {
   const amt = (id, label) => `<div>${L(label)}<input id="tr_${id}" type="number" min="0" inputmode="decimal" oninput="tourTotal()" placeholder="0" style="${CHQ_INPUT}"/></div>`;
   document.getElementById('tourBody').innerHTML = `
     <div class="alert error" id="trErr" style="display:none"></div>
-    ${L('Date', true)}<input id="tr_date" type="date" max="${today}" value="${today}" style="${CHQ_INPUT}"/>
+    ${L('Tour par kab gaye (date)', true)}<input id="tr_date" type="date" max="${today}" value="${today}" style="${CHQ_INPUT}"/>
     <datalist id="rajDistrictList">${RAJ_DISTRICTS.map(d => `<option value="${d}">`).join('')}</datalist>
     <div style="font-size:13px;font-weight:800;color:var(--gray-800);margin:4px 0 8px">🚌 Safar — kahan se kahan gaye</div>
     <div id="tr_legs"></div>
@@ -10486,15 +10492,15 @@ function taCommitCells(x, td) {
 }
 function taEmpBreakdownHtml(rows, card, th, td) {
   const pc = (n, t) => t ? Math.round(n * 1000 / t) / 10 : null;
-  const att = taData.attendance || {}, kms = taData.km || {};
+  const att = taData.attendance || {}, kms = taData.km || {}, disc = taData.discipline || {};
   // MIS Score = average of Done %, On Time % and Attendance % (whichever exist).
   const scoreOf = (c, a) => { const v = [pc(c.completed, c.planned), pc(c.onTime, c.planned), a ? a.pct : null].filter(x => x !== null); return v.length ? Math.round(v.reduce((s, x) => s + x, 0) * 10 / v.length) / 10 : null; };
-  const list = taData.employees.map(e => { const c = taCount(rows.filter(r => r.doerIds.includes(e.id))); return { e, c, a: att[e.id] || null, k: kms[e.id] || null, score: scoreOf(c, att[e.id]) }; })
+  const list = taData.employees.map(e => { const c = taCount(rows.filter(r => r.doerIds.includes(e.id))); return { e, c, a: att[e.id] || null, k: kms[e.id] || null, d: disc[e.id] || null, score: scoreOf(c, att[e.id]) }; })
     .filter(x => x.c.planned || (!taFilter.fms && (x.a || x.k)));
   const val = (x, k) => k === 'name' ? x.e.name : k === 'done' ? pc(x.c.completed, x.c.planned) : k === 'ontime' ? pc(x.c.onTime, x.c.planned)
-    : k === 'att' ? (x.a ? x.a.pct : -1) : k === 'km' ? (x.k ? x.k.km : -1) : k === 'score' ? (x.score === null ? -1 : x.score) : x.c[k];
+    : k === 'att' ? (x.a ? x.a.pct : -1) : k === 'km' ? (x.k ? x.k.km : -1) : k === 'score' ? (x.score === null ? -1 : x.score) : k === 'disc' ? (x.d ? x.d.score : -1) : x.c[k];
   list.sort((a, b) => taEmpSort === 'name' ? a.e.name.localeCompare(b.e.name)
-    : ['done', 'ontime', 'att', 'score'].includes(taEmpSort) ? (val(a, taEmpSort) - val(b, taEmpSort)) || b.c.planned - a.c.planned
+    : ['done', 'ontime', 'att', 'score', 'disc'].includes(taEmpSort) ? (val(a, taEmpSort) - val(b, taEmpSort)) || b.c.planned - a.c.planned
     : (val(b, taEmpSort) - val(a, taEmpSort)) || a.e.name.localeCompare(b.e.name));
   const sh = (k, label, right) => `<th style="${th};cursor:pointer;${right ? 'text-align:center;' : ''}color:${taEmpSort === k ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="taEmpSort='${jsArg(k)}';renderTaskAnalytics()">${label} ${taEmpSort === k ? '▾' : '⇅'}</th>`;
   const pill = (v, good) => v === null ? '—' : `<span style="display:inline-block;min-width:52px;padding:3px 9px;border-radius:999px;font-weight:800;font-size:12px;background:${v >= good ? 'var(--color-success-bg)' : v >= good - 25 ? 'var(--color-warning-bg)' : 'var(--color-danger-bg)'};color:${v >= good ? 'var(--color-success-text)' : v >= good - 25 ? 'var(--color-warning-text)' : 'var(--color-danger-text)'}">${v}%</span>`;
@@ -10504,11 +10510,11 @@ function taEmpBreakdownHtml(rows, card, th, td) {
     <div style="${card};overflow:hidden;margin-top:14px">
       <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
         <div style="font-size:14px;font-weight:800;color:var(--gray-900)">👥 Employee-wise Breakdown <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${list.length} employees · sabse zyada pending upar</span></div>
-        <div style="display:flex;gap:10px;align-items:center"><span style="font-size:11.5px;color:var(--gray-400)">Naam par click = uske tasks</span>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:11.5px;color:var(--gray-400)" title="Discipline = time par punch-in, punch-out, KM reading, chhutti approval se — in sab ka average (MIS Score se alag)">Discipline: ${taData.lateAfter || '10:00'} ke baad punch-in = late${ME.role === 'admin' ? ` <a href="javascript:void(0)" onclick="misSetLateAfter()">✏️</a>` : ''}</span><span style="font-size:11.5px;color:var(--gray-400)">Naam par click = uske tasks</span>
           <button class="btn btn-outline btn-sm" onclick="taListMode='tasks';renderTaskAnalytics()">📋 All tasks</button></div>
       </div>
       ${list.length ? `<div class="mis-table-wrap" style="overflow:auto;max-height:640px"><table style="width:100%;border-collapse:separate;border-spacing:0">
-        <thead><tr>${sh('name', 'Employee')}${sh('planned', 'Planned', 1)}${sh('completed', 'Completed', 1)}${sh('onTime', 'On Time', 1)}${sh('late', 'Delay Completed', 1)}${sh('pending', 'Pending', 1)}${sh('overdue', 'Overdue', 1)}${sh('done', 'Done %', 1)}${sh('ontime', 'On Time %', 1)}${sh('att', 'Attendance', 1)}${sh('km', taData.kmWeek ? `KM ${fmtDateDMY(taData.kmWeek.start).slice(0, 5)}–${fmtDateDMY(taData.kmWeek.end).slice(0, 5)}` : 'KM last week', 1)}${sh('score', 'MIS Score', 1)}<th style="${th};text-align:center;color:var(--gray-500)" title="${taCommit ? fmtDateDMY(taCommit.last) : ''} wale hafte ka commitment — % kaam baaki (minus me)">Committed<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">last week</div></th><th style="${th};text-align:center;color:var(--gray-500)" title="${taCommit ? fmtDateDMY(taCommit.next) : ''} se shuru hafte ka commitment — % kaam baaki, minus me (jaise -10)">Commit<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">next week</div></th></tr></thead>
+        <thead><tr>${sh('name', 'Employee')}${sh('planned', 'Planned', 1)}${sh('completed', 'Completed', 1)}${sh('onTime', 'On Time', 1)}${sh('late', 'Delay Completed', 1)}${sh('pending', 'Pending', 1)}${sh('overdue', 'Overdue', 1)}${sh('done', 'Done %', 1)}${sh('ontime', 'On Time %', 1)}${sh('att', 'Attendance', 1)}${sh('km', taData.kmWeek ? `KM ${fmtDateDMY(taData.kmWeek.start).slice(0, 5)}–${fmtDateDMY(taData.kmWeek.end).slice(0, 5)}` : 'KM last week', 1)}${sh('score', 'MIS Score', 1)}${sh('disc', 'Discipline', 1)}<th style="${th};text-align:center;color:var(--gray-500)" title="${taCommit ? fmtDateDMY(taCommit.last) : ''} wale hafte ka commitment — % kaam baaki (minus me)">Committed<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">last week</div></th><th style="${th};text-align:center;color:var(--gray-500)" title="${taCommit ? fmtDateDMY(taCommit.next) : ''} se shuru hafte ka commitment — % kaam baaki, minus me (jaise -10)">Commit<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">next week</div></th></tr></thead>
         <tbody>${list.map((x, i) => `<tr onclick="taSetFilter('emp','${jsArg(x.e.id)}')" style="cursor:pointer;background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}" title="${esc(x.e.name)} ke tasks dekhein">
           <td style="${td};white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${esc(taInitials(x.e.name))}</span>
             <span><b style="color:var(--gray-900);font-size:13px">${esc(x.e.name)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(x.e.department || '—')}</div></span></span></td>
@@ -10518,7 +10524,8 @@ function taEmpBreakdownHtml(rows, card, th, td) {
           <td style="${td};text-align:center">${pill(pc(x.c.onTime, x.c.planned), 75)}</td>
           <td style="${td};text-align:center" title="${x.a ? `Present ${x.a.present} / ${x.a.working} working days · Absent ${x.a.absent} · Leave ${x.a.leave}` : ''}">${x.a ? `${pill(x.a.pct, 90)}<div style="font-size:10.5px;color:var(--gray-500);margin-top:2px">${x.a.present}/${x.a.working} days</div>` : '—'}</td>
           <td style="${td};text-align:center" title="${x.k ? `${x.k.days} day(s) with morning + evening reading${x.k.incomplete ? ` · ${x.k.incomplete} day(s) missing a reading` : ''}` : ''}">${x.k ? `<b style="font-size:14px">${x.k.km}</b><div style="font-size:10.5px;color:${x.k.incomplete ? 'var(--color-danger)' : 'var(--gray-500)'}">${x.k.days} days${x.k.incomplete ? ` · ${x.k.incomplete} adhura` : ''}</div>` : '—'}</td>
-          <td style="${td};text-align:center">${pill(x.score, 85)}</td>${taCommitCells(x, td)}</tr>`).join('')}</tbody>
+          <td style="${td};text-align:center">${pill(x.score, 85)}</td>
+          <td style="${td};text-align:center" title="${esc(misDisciplineTip(x.d))}">${x.d ? pill(x.d.score, 90) : '—'}</td>${taCommitCells(x, td)}</tr>`).join('')}</tbody>
         <tfoot><tr style="background:var(--gray-50)">
           <td style="${td};font-weight:900;color:var(--gray-900);border-top:2px solid var(--gray-200)">Total</td>
           ${[tot.planned, tot.completed, tot.onTime, tot.late, tot.pending, tot.overdue].map(v => `<td style="${td};text-align:center;font-weight:900;font-size:14px;border-top:2px solid var(--gray-200)">${v}</td>`).join('')}
@@ -10526,9 +10533,25 @@ function taEmpBreakdownHtml(rows, card, th, td) {
           <td style="${td};text-align:center;border-top:2px solid var(--gray-200)">${pill(pc(tot.onTime, tot.planned), 75)}</td>
           <td style="${td};border-top:2px solid var(--gray-200)"></td>
           <td style="${td};text-align:center;font-weight:900;font-size:14px;border-top:2px solid var(--gray-200)">${list.reduce((s, x) => s + (x.k ? x.k.km : 0), 0) || ''}</td>
-          <td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td></tr></tfoot>
+          <td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td></tr></tfoot>
       </table></div>` : '<div class="empty">No tasks match these filters.</div>'}
     </div>`;
+}
+function misDisciplineTip(d) {
+  if (!d) return '';
+  return [`Discipline ${d.score}%`,
+    `Time par aana: ${d.onTimePct ?? '—'}% (${d.present - d.late}/${d.present} din, ${d.late} late)`,
+    `Punch out: ${d.punchOutPct ?? '—'}% (${d.punchOut}/${d.pastDays})`,
+    d.kmPct === null ? 'KM reading: lagu nahi' : `KM reading: ${d.kmPct}% (${d.kmDone}/${d.pastDays} din subah + shaam)`,
+    `Chhutti approval se: ${d.leavePct ?? '—'}% (leave ${d.leave}, bina approval absent ${d.absent})`].join('\n');
+}
+async function misSetLateAfter() {
+  const v = await uiPrompt('Kitne baje ke baad punch-in "late" gina jaye? (HH:MM, jaise 10:00)', taData.lateAfter || '10:00');
+  if (v === null || v === undefined) return;
+  const r = await api('/api/mis/late-after', 'PUT', { time: String(v).trim() });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast(`✅ ${r.lateAfter} ke baad punch-in late gina jayega`);
+  generateTaskAnalytics();
 }
 function taCount(rows) {
   const c = { planned: rows.length, onTime: 0, late: 0, pending: 0, overdue: 0 };
@@ -25863,7 +25886,14 @@ function renderPettyCash() {
     </div>`;
 
   if (pettyTab === 'summary') { wrap.innerHTML = cards + pettySummaryHtml(exp); return; }
-  const list = (pettyTab === 'pending' ? [...pendingAdv, ...pendingExp] : range).filter(pettyMatches);
+  const typeF = document.getElementById('pettyType').value, sortBy = document.getElementById('pettySort').value;
+  const list = (pettyTab === 'pending' ? [...pendingAdv, ...pendingExp] : range).filter(e => pettyMatches(e) && (!typeF || e.type === typeF));
+  const byDate = (a, b) => String(a.entry_date || '').localeCompare(String(b.entry_date || '')) || a.id - b.id;
+  if (sortBy === 'old') list.sort(byDate);
+  else if (sortBy === 'amtDesc') list.sort((a, b) => b.amount - a.amount);
+  else if (sortBy === 'amtAsc') list.sort((a, b) => a.amount - b.amount);
+  else list.sort((a, b) => byDate(b, a));
+  const listTotal = list.filter(e => e.status !== 'rejected').reduce((s, e) => s + e.amount, 0);
   const canBulk = pettyTab === 'pending' && pettyIsOwner && pendingExp.length;
   const rows = list.map(e => {
     const pct = e.type === 'expense' && e.goods_value > 0 ? Math.round(e.amount * 1000 / e.goods_value) / 10 : null;
@@ -25885,6 +25915,7 @@ function renderPettyCash() {
   wrap.innerHTML = cards + (canBulk ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
         <button class="btn btn-green" id="pettyBulkBtn" onclick="pettyApproveSelected()">✓ Approve selected</button>
         <span style="font-size:12px;color:var(--gray-500)">Sab tick hain — jo galat lage uska tick hata ke Reject karein</span></div>` : '') +
+    (list.length && typeF ? `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:8px">${typeF === 'advance' ? '➕ Advance' : '🧾 Expense'}: <b>${list.length}</b> entries · <b>${inr(listTotal)}</b> <span style="color:var(--gray-400)">(rejected chhod ke)</span></div>` : '') +
     (list.length ? `<div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <table style="font-size:12.5px"><thead><tr>${canBulk ? `<th><input type="checkbox" checked onchange="document.querySelectorAll('.pettyChk').forEach(c => c.checked = this.checked)"/></th>` : ''}<th>Date</th><th>Type</th><th>Amount</th><th>Party / Kaam</th><th>Payee</th><th>Vehicle</th><th>Mode</th><th>Bill / Note</th><th>Goods Value</th><th>By</th><th>Status</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>` : `<div class="empty">${pettyTab === 'pending' ? 'Kuch pending nahi 🎉' : 'No entries in these dates'}</div>`);

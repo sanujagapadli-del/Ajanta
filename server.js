@@ -2967,8 +2967,17 @@ app.get('/api/mis/weekly', requireAuth, async (req, res) => {
 // Attendance over [start, end] (never past today, never before the app's
 // first punch) and KM of the last full Mon–Sun week, keyed by user id.
 // Present % = present days ÷ working days (days − week-off/holiday − approved leave).
+// Discipline score (Ajay list #17): kept apart from MIS Score — average of
+// time par punch-in (by mis_late_after, default 10:00), punch-out done,
+// morning + evening KM reading (KM users only) and leave taken with approval
+// rather than an unapproved absence, over the same range as attendance.
+const MIS_LATE_AFTER_SETTING = 'mis_late_after';
+async function misLateAfter() {
+  const v = await getAppSetting(MIS_LATE_AFTER_SETTING).catch(() => null);
+  return /^\d{2}:\d{2}$/.test(v || '') ? v : '10:00';
+}
 async function misAttendanceAndKm(userIds, start, end) {
-  const out = { attendance: {}, km: {}, kmWeek: null };
+  const out = { attendance: {}, km: {}, kmWeek: null, discipline: {}, lateAfter: await misLateAfter() };
   if (!userIds.length) return out;
   const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
   const dow = new Date(today + 'T00:00:00Z').getUTCDay();
@@ -2976,15 +2985,19 @@ async function misAttendanceAndKm(userIds, start, end) {
   out.kmWeek = { start: weekStart, end: weekEnd };
   const [[{ first }]] = await withAttendanceTables(() => db.query("SELECT DATE_FORMAT(MIN(date),'%Y-%m-%d') AS first FROM attendance"));
   const from = first && first > start ? first : start;
-  const [[users], [att], [leaves], [kms], hol] = await withAttendanceTables(() => Promise.all([
+  const [[users], [att], [leaves], [kms], hol, [kmDays]] = await withAttendanceTables(() => Promise.all([
     db.query('SELECT id, week_off, extra_off, track_km FROM users WHERE id IN (?) AND is_active=1', [userIds]),
-    db.query("SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d FROM attendance WHERE time_in IS NOT NULL AND date BETWEEN ? AND ? AND user_id IN (?)", [from, end, userIds]),
+    db.query(`SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d, TIME_FORMAT(time_in,'%H:%i') AS tin, time_out IS NOT NULL AS has_out
+              FROM attendance WHERE time_in IS NOT NULL AND date BETWEEN ? AND ? AND user_id IN (?)`, [from, end, userIds]),
     db.query("SELECT user_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS s, DATE_FORMAT(end_date,'%Y-%m-%d') AS e FROM leave_requests WHERE status='approved' AND end_date>=? AND start_date<=? AND user_id IN (?)", [from, end, userIds]),
     db.query(`SELECT user_id, SUM(GREATEST(evening_km - morning_km, 0)) AS km,
                 SUM(morning_km IS NOT NULL AND evening_km IS NOT NULL) AS days, COUNT(*) AS entries
               FROM daily_km WHERE date BETWEEN ? AND ? AND user_id IN (?) GROUP BY user_id`, [weekStart, weekEnd, userIds]),
-    db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [from, end]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; })
+    db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [from, end]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; }),
+    db.query(`SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d FROM daily_km
+              WHERE morning_km IS NOT NULL AND evening_km IS NOT NULL AND date BETWEEN ? AND ? AND user_id IN (?)`, [from, end, userIds])
   ]));
+  const kmFull = new Set(kmDays.map(k => `${k.user_id}|${k.d}`));
   const ctx = { present: new Set(att.map(a => `${a.user_id}|${a.d}`)), holidays: new Set((hol[0] || []).map(h => h.d)), leaves: {} };
   leaves.forEach(l => (ctx.leaves[l.user_id] = ctx.leaves[l.user_id] || []).push(l));
   const kmBy = Object.fromEntries(kms.map(k => [k.user_id, k]));
@@ -2996,6 +3009,23 @@ async function misAttendanceAndKm(userIds, start, end) {
       if (end >= today && ctx.present.has(`${u.id}|${today}`)) a.present++;
       const working = a.present + a.absent;
       if (working) out.attendance[u.id] = { present: a.present, absent: a.absent, leave: a.leave, off: a.off, working, pct: Math.round(a.present * 1000 / working) / 10 };
+      // Today is still running — punch-out / evening KM can't be judged yet.
+      const days = att.filter(r => r.user_id === u.id);
+      const past = days.filter(r => r.d < today);
+      const pct = (n, of) => of ? Math.round(n * 1000 / of) / 10 : null;
+      const d = {
+        late: days.filter(r => r.tin > out.lateAfter).length, present: days.length,
+        punchOut: past.filter(r => Number(r.has_out)).length, pastDays: past.length,
+        kmDone: u.track_km ? past.filter(r => kmFull.has(`${u.id}|${r.d}`)).length : null,
+        leave: a.leave, absent: a.absent
+      };
+      d.onTimePct = pct(d.present - d.late, d.present);
+      d.punchOutPct = pct(d.punchOut, d.pastDays);
+      d.kmPct = u.track_km ? pct(d.kmDone, d.pastDays) : null;
+      d.leavePct = d.leave + d.absent ? pct(d.leave, d.leave + d.absent) : (working ? 100 : null);
+      const parts = [d.onTimePct, d.punchOutPct, d.kmPct, d.leavePct].filter(v => v !== null);
+      d.score = parts.length ? Math.round(parts.reduce((s, v) => s + v, 0) * 10 / parts.length) / 10 : null;
+      if (d.score !== null) out.discipline[u.id] = d;
     }
     const k = kmBy[u.id];
     if (u.track_km || k) out.km[u.id] = { km: Math.round(Number(k && k.km) || 0), days: Number(k && k.days) || 0, incomplete: k ? Number(k.entries) - Number(k.days) : 0 };
@@ -3077,10 +3107,20 @@ app.get('/api/mis/tasks', requireAuth, async (req, res) => {
 
     // Attendance for the range + KM of last week (Mon–Sun) per employee
     // (client, 2026-10-12: "MIS score mai attendance and last week KM bhi").
-    const { attendance, km, kmWeek } = await misAttendanceAndKm(users.map(u => u.id), start, end);
+    const { attendance, km, kmWeek, discipline, lateAfter } = await misAttendanceAndKm(users.map(u => u.id), start, end);
     const employees = users.filter(u => rows.some(r => r.doerIds.includes(u.id)) || attendance[u.id] || km[u.id])
       .map(u => ({ id: u.id, name: u.name, department: u.department || '' }));
-    res.json({ start, end, now, rows, employees, fmsErrors, attendance, km, kmWeek });
+    res.json({ start, end, now, rows, employees, fmsErrors, attendance, km, kmWeek, discipline, lateAfter });
+  } catch (err) { sendServerError(res, err); }
+});
+// Late punch-in cut-off for the Discipline score (admin).
+app.put('/api/mis/late-after', requireAuth, async (req, res) => {
+  try {
+    if (req.session.role !== 'admin') return res.status(403).json({ error: 'Sirf Admin badal sakta hai' });
+    const v = String((req.body || {}).time || '').trim();
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) return res.status(400).json({ error: 'Time HH:MM me do, jaise 10:00' });
+    await setAppSetting(MIS_LATE_AFTER_SETTING, v);
+    res.json({ success: true, lateAfter: v });
   } catch (err) { sendServerError(res, err); }
 });
 
