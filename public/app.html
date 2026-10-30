@@ -2704,9 +2704,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <input id="mecaSearch" placeholder="🔍 Salesman…" oninput="renderMeca()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn btn-sm btn-outline" onclick="mecaPreset('yday')">Kal</button><button class="btn btn-sm btn-outline" onclick="mecaPreset('today')">Aaj</button>
-        <button class="btn btn-sm btn-outline" onclick="mecaPreset('week')">Is hafte</button><button class="btn btn-sm btn-outline" onclick="mecaPreset('month')">Is mahine</button>
-        <span style="width:12px"></span><span id="mecaTabs" style="display:flex;gap:6px"></span></div>
+        <span id="mecaTabs" style="display:flex;gap:6px"></span></div>
     </div>
     <div id="mecaWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
@@ -21268,28 +21266,66 @@ function renderMeca() {
   const rows = mecaData.rows.filter(r => !q || r.name.toLowerCase().includes(q));
   const wrap = document.getElementById('mecaWrap');
   if (!rows.length) { wrap.innerHTML = '<div class="empty">Is samay me koi visit / plan nahi. Salesman Sales Schedule me counter ✓ karte hain — wahi yahan aata hai.</div>'; return; }
-  const pct = (a, b) => b ? Math.round(a * 100 / b) + '%' : '—';
-  const cells = r => `<td style="text-align:right">${r.planned}</td><td style="text-align:right;font-weight:700">${r.visited}</td><td style="text-align:right">${pct(r.visited, r.planned)}</td>
-    <td style="text-align:right;font-weight:700">${r.ordered}</td><td style="text-align:right;color:var(--color-success);font-weight:800">${pct(r.ordered, r.visited)}</td><td style="text-align:right">${inr(r.value)}</td>
-    <td style="text-align:right;border-left:2px solid var(--gray-200)">${r.nbdPlanned || 0}</td><td style="text-align:right">${r.nbdVisits}</td><td style="text-align:right;font-weight:700">${r.nbdWon}</td>`;
-  const head = first => `<thead><tr>${first}<th style="text-align:right">Counters plan</th><th style="text-align:right">Visit kiye</th><th style="text-align:right">Visit %</th><th style="text-align:right">Order diya</th><th style="text-align:right">Productivity</th><th style="text-align:right">Order ₹</th>
-    <th style="text-align:right;border-left:2px solid var(--gray-200)">NBD plan</th><th style="text-align:right">NBD visits</th><th style="text-align:right">NBD won</th></tr></thead>`;
-  const sum = list => list.reduce((a, r) => ({ planned: a.planned + r.planned, visited: a.visited + r.visited, ordered: a.ordered + r.ordered, value: a.value + r.value, nbdPlanned: a.nbdPlanned + (r.nbdPlanned || 0), nbdVisits: a.nbdVisits + r.nbdVisits, nbdWon: a.nbdWon + r.nbdWon }),
-    { planned: 0, visited: 0, ordered: 0, value: 0, nbdPlanned: 0, nbdVisits: 0, nbdWon: 0 });
-  const note = `<div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Old dealer MECA = Sales Schedule ki beat (✓ visited, 📝 me order value). Productivity = order diya ÷ visit kiye. NBD = Lead FMS ke naye dealer visit / order ya dealer bana.${rows.some(r => r.fromSheet) ? ' 📄 = 28-Sep se 29-Oct tak purani MECA sheet ke din ke total (wahan sirf ginti hai, dealer-wise visit nahi).' : ''}</div>`;
+  const pctN = (a, b) => b ? Math.round(a * 1000 / b) / 10 : null;
+  const sum = list => list.reduce((a, r) => ({ planned: a.planned + r.planned, beatVisited: a.beatVisited + (r.beatVisited || 0), visited: a.visited + r.visited, ordered: a.ordered + r.ordered,
+    value: a.value + r.value, nbdPlanned: a.nbdPlanned + (r.nbdPlanned || 0), nbdVisits: a.nbdVisits + r.nbdVisits, nbdWon: a.nbdWon + r.nbdWon }),
+    { planned: 0, beatVisited: 0, visited: 0, ordered: 0, value: 0, nbdPlanned: 0, nbdVisits: 0, nbdWon: 0 });
+  const tot = sum(rows);
+  const days = new Set(rows.map(r => `${r.userId}|${r.date}`)).size;
+
+  // Top cards — the whole team for the chosen dates.
+  const card = (icon, label, value, sub, color) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px;min-width:0;border-top:3px solid ${color}">
+      <div style="font-size:11.5px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${icon} ${label}</div>
+      <div style="font-size:22px;font-weight:900;color:var(--gray-900);margin-top:4px;white-space:nowrap">${value}</div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">${sub}</div></div>`;
+  const prod = pctN(tot.ordered, tot.visited);
+  const cards = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+    ${card('🏪', 'Visit kiye', tot.visited.toLocaleString('en-IN'), `${days} salesman-din · ${days ? (tot.visited / days).toFixed(1) : 0} / din`, 'var(--color-primary)')}
+    ${card('🧾', 'Order diya', tot.ordered.toLocaleString('en-IN'), 'purane dealer', 'var(--color-success)')}
+    ${card('🎯', 'Productivity', prod === null ? '—' : prod + '%', 'order ÷ visit', 'var(--color-warning)')}
+    ${card('💰', 'Order ₹', inr(tot.value), tot.ordered + tot.nbdWon ? `avg ${inr(Math.round(tot.value / (tot.ordered + tot.nbdWon)))} / order (NBD bhi)` : '—', 'var(--color-success-text)')}
+    ${card('🆕', 'NBD visits', tot.nbdVisits.toLocaleString('en-IN'), `${tot.nbdWon} won${tot.nbdPlanned ? ` · ${tot.nbdPlanned} plan` : ''}`, 'var(--color-purple, #7c3aed)')}
+  </div>`;
+
+  const th = (l, right, tip) => `<th style="padding:10px 12px;font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;background:var(--gray-50);border-bottom:1px solid var(--gray-200);${right ? 'text-align:right;' : ''}"${tip ? ` title="${esc(tip)}"` : ''}>${l}</th>`;
+  const td = (v, s = '') => `<td style="padding:10px 12px;border-bottom:1px solid var(--gray-100);white-space:nowrap;${s}">${v}</td>`;
+  const R = 'text-align:right;';
+  const prodCell = (o, v) => {
+    const p = pctN(o, v);
+    if (p === null) return td('<span style="color:var(--gray-300)">—</span>', R);
+    const c = p >= 15 ? 'var(--color-success-text)' : p >= 7 ? 'var(--color-warning-text)' : 'var(--color-danger-text)';
+    return td(`<div style="display:inline-flex;align-items:center;gap:8px"><span style="width:60px;height:6px;border-radius:3px;background:var(--gray-100);overflow:hidden;display:inline-block"><span style="display:block;height:100%;width:${Math.min(100, p * 4)}%;background:${c}"></span></span><b style="color:${c};min-width:38px;text-align:right">${p}%</b></div>`, R);
+  };
+  // Beat column: only Sales Schedule plans — sheet days have no plan, so "—".
+  const beatCell = r => td(r.planned ? `${r.beatVisited || 0}/${r.planned} <span style="color:var(--gray-400);font-size:11px">(${pctN(r.beatVisited || 0, r.planned)}%)</span>` : '<span style="color:var(--gray-300)">—</span>', R);
+  const muted = t => `<div style="font-size:11px;color:var(--gray-400);font-weight:500">${t}</div>`;
+  const mainCells = (r, nDays) => td(`<b>${r.visited}</b>${nDays ? muted(`${(r.visited / nDays).toFixed(1)} / din`) : ''}`, R)
+    + td(`<b>${r.ordered}</b>`, R) + prodCell(r.ordered, r.visited)
+    + td(`<b style="color:var(--gray-900)">${inr(r.value)}</b>${r.ordered + r.nbdWon ? muted(`avg ${inr(Math.round(r.value / (r.ordered + r.nbdWon)))}`) : ''}`, R)
+    + td(`${r.nbdVisits}${r.nbdPlanned ? muted(`${r.nbdPlanned} plan`) : ''}`, R + 'border-left:2px solid var(--gray-200);')
+    + td(r.nbdWon ? `<b style="color:var(--color-success-text)">${r.nbdWon}</b>` : '0', R) + beatCell(r);
+  const headCommon = th('Visit kiye', 1) + th('Order diya', 1) + th('Productivity', 1, 'Order diya ÷ visit kiye') + th('Order ₹', 1, 'Purane + naye dealer ke order ka total')
+    + th('NBD visits', 1, 'Naye dealer visit (Lead FMS + sheet)') + th('NBD won', 1, 'Order mil gaya / naya dealer bana') + th('Beat plan', 1, 'Sales Schedule beat: visit hue / plan the');
+  const table = (head, body, foot) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:auto"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:13px">
+    <thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot ? `<tfoot><tr style="background:var(--gray-50);font-weight:800">${foot}</tr></tfoot>` : ''}</table></div>`;
+  const sheetNote = rows.some(r => r.fromSheet) ? ' 📄 = purani MECA sheet ke din ke total (28-Sep se 29-Oct) — wahan sirf ginti hai, dealer-wise visit nahi, isliye Beat plan "—".' : '';
+  const note = `<div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Visit kiye / Order = purane dealer (Sales Schedule ki beat + ➕ visit entry). Productivity = order ÷ visit. NBD = naye dealer (Lead FMS).${sheetNote}</div>`;
+
   if (mecaView === 'days') {
-    wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px;white-space:nowrap">${head('<th>Date</th><th>Salesman</th><th>Plan</th>')}<tbody>
-      ${rows.slice().sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)).map(r => `<tr><td>${esc(fmtDateDMY(r.date))}</td><td style="font-weight:600">${esc(r.name)}</td>
-        <td>${esc({ full: 'Full', half: 'Half', none: 'No visit' }[r.plan] || r.plan || '—')}${r.fromSheet ? ' <span title="Purani MECA sheet (Form1 Daily Sales) se">📄</span>' : ''}</td>${cells(r)}</tr>`).join('')}</tbody></table></div>${note}`;
+    const body = rows.slice().sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)).map((r, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt, var(--gray-50))' : 'var(--surface)'}">
+      ${td(`<b>${esc(fmtDateDMY(r.date))}</b>`)}${td(esc(r.name), 'font-weight:600;')}${td(`${esc({ full: 'Full', half: 'Half', none: 'No visit' }[r.plan] || r.plan || '—')}${r.fromSheet ? ' <span title="Purani MECA sheet (Form1 Daily Sales) se">📄</span>' : ''}`)}${mainCells(r, 0)}</tr>`).join('');
+    wrap.innerHTML = cards + table(th('Date') + th('Salesman') + th('Plan') + headCommon, body,
+      td('Total') + td('') + td(`${days} din`) + mainCells(tot, 0)) + note;
     return;
   }
   const by = {};
   rows.forEach(r => { (by[r.userId] = by[r.userId] || { name: r.name, list: [] }).list.push(r); });
-  const list = Object.values(by).map(x => ({ name: x.name, days: x.list.length, ...sum(x.list) })).sort((a, b) => b.value - a.value);
-  const tot = sum(rows);
-  wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px;white-space:nowrap">${head('<th>Salesman</th><th style="text-align:right">Din</th>')}<tbody>
-    ${list.map(r => `<tr><td style="font-weight:700">${esc(r.name)}</td><td style="text-align:right">${r.days}</td>${cells(r)}</tr>`).join('')}
-    <tr style="font-weight:800;background:var(--gray-50)"><td>Total</td><td></td>${cells(tot)}</tr></tbody></table></div>${note}`;
+  const list = Object.values(by).map(x => ({ name: x.name, days: new Set(x.list.map(r => r.date)).size, ...sum(x.list) })).sort((a, b) => b.value - a.value);
+  const maxV = Math.max(1, ...list.map(r => r.value));
+  const body = list.map((r, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt, var(--gray-50))' : 'var(--surface)'}">
+    ${td(`<div style="font-weight:800;color:var(--gray-900)">${esc(r.name)}</div><div style="height:4px;border-radius:2px;background:var(--color-success);width:${Math.round(r.value * 100 / maxV)}%;margin-top:5px;opacity:.6" title="Order ₹ ka hissa"></div>`, 'min-width:170px;')}
+    ${td(r.days, R)}${mainCells(r, r.days)}</tr>`).join('');
+  wrap.innerHTML = cards + table(th('Salesman') + th('Din', 1) + headCommon, body, td('Total') + td(days, R) + mainCells(tot, days)) + note;
 }
 
 // ══════════════════════════════════════════════════════

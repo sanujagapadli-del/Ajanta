@@ -13515,7 +13515,8 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     for (const v of visits) {
       const r = row(v.user_id, v.d);
       r.planned.add(v.dealer_name.toLowerCase());
-      if (v.status === 'visited') { r.visited++; const ov = Number(v.order_value) || 0; if (ov > 0) { r.ordered++; r.value += ov; } }
+      // beatVisited = visits against the planned list — Visit % uses only these, not the sheet's totals.
+      if (v.status === 'visited') { r.visited++; r.beatVisited = (r.beatVisited || 0) + 1; const ov = Number(v.order_value) || 0; if (ov > 0) { r.ordered++; r.value += ov; } }
       else if (v.status === 'not_visited') r.notVisited++;
     }
     const [leadVisits] = await db.query(`SELECT user_id, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, detail FROM lead_events
@@ -13546,9 +13547,10 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     const ids = [...new Set(Object.values(rows).map(r => r.userId))];
     const [users] = ids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [ids]) : [[]];
     const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
-    const out = Object.values(rows).filter(r => r.plan !== 'none' || r.visited || r.nbdVisits || r.nbdPlanned)
-      .map(r => ({ ...r, planned: r.planned.size, nbdPlanned: r.nbdPlanned || 0, name: nameOf[r.userId] || `User ${r.userId}` }))
-      .filter(r => r.planned || r.visited || r.nbdVisits || r.nbdPlanned)
+    // A day with only an order (no visit count — sheet rows like Krishna 20-Oct: 0 met, 2 orders ₹27,000) still counts.
+    const out = Object.values(rows).filter(r => r.plan !== 'none' || r.visited || r.ordered || r.value || r.nbdVisits || r.nbdPlanned)
+      .map(r => ({ ...r, planned: r.planned.size, beatVisited: r.beatVisited || 0, nbdPlanned: r.nbdPlanned || 0, name: nameOf[r.userId] || `User ${r.userId}` }))
+      .filter(r => r.planned || r.visited || r.ordered || r.value || r.nbdVisits || r.nbdPlanned)
       .sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
     const [vu] = visits.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [[...new Set(visits.map(v => v.user_id))]]) : [[]];
     const vName = Object.fromEntries(vu.map(u => [u.id, u.name]));
