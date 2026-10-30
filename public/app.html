@@ -1291,13 +1291,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--nav
 .modal-overlay.open > .modal{animation:ui-pop-in var(--dur-3) var(--ease-spring) both;}
 
 /* ══ UI review 2026-10-27 ══ */
-/* Sidebar: hover opens it OVER the page (the page no longer jumps under the
-   cursor, which made clicks land on the wrong thing); a short delay before it
-   opens / closes; the pin keeps it open and moves the page aside. */
+/* Sidebar: a short delay before it opens / closes on hover; the pin keeps it
+   open. Either way the page moves aside. */
 @media (min-width:769px){
   .sidebar{transition:width .2s cubic-bezier(.4,0,.2,1) .18s;}
   .sidebar:hover{transition-delay:.08s;}
-  #sidebar:hover ~ #mainContent{margin-left:var(--sidebar-w);}
+  /* 2026-10-30: client wants the page to move aside on hover again (nothing hidden under the sidebar) */
+  .main{transition:margin-left .2s cubic-bezier(.4,0,.2,1) .18s;}
+  #sidebar:hover ~ #mainContent{margin-left:var(--sidebar-w-expanded);transition-delay:.08s;}
   body.sb-pinned #sidebar ~ #mainContent{margin-left:var(--sidebar-w-expanded);}
   body.sb-pinned .sidebar{width:var(--sidebar-w-expanded) !important;}
   body.sb-pinned .sidebar .logo-icon-only{opacity:0;}
