@@ -13639,6 +13639,27 @@ app.put('/api/beat/counter/:id', requireAuth, async (req, res) => {
 // did in the market, day by day. Old dealers = the Beat page (visits, orders,
 // collection; planned = active counters whose beat day is that weekday, on days
 // the salesman filled his beat). New dealers (NBD) = Lead FMS visits / won.
+// What each salesman / caller commits to (client recording 2026-10-30): per day counters, conversion %, average ₹ order,
+// collection ₹ per day, NBD visits per day + conversion, calls per day + conversion + average order. MECA shows the score
+// against it (e.g. 20 committed, 10 done → −50%). user_id 0 = SCOT.
+const MECA_BENCH_KEYS = ['visits', 'conv', 'avg', 'coll', 'nbd', 'nbdConv', 'calls', 'callConv', 'callAvg'];
+let _mecaBenchOk = false;
+async function mecaBenchTable() {
+  if (_mecaBenchOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS meca_benchmarks (user_id INT PRIMARY KEY, data TEXT, updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _mecaBenchOk = true;
+}
+app.put('/api/meca/benchmark/:uid', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await mecaBenchTable();
+    const uid = Number(req.params.uid);
+    if (!(uid >= 0)) return res.status(400).json({ error: 'Bad user' });
+    const b = req.body || {}, data = {};
+    MECA_BENCH_KEYS.forEach(k => { const v = Number(b[k]); if (v > 0) data[k] = Math.round(v * 100) / 100; });
+    await db.query('INSERT INTO meca_benchmarks (user_id, data, updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE data = VALUES(data), updated_by = VALUES(updated_by)', [uid, JSON.stringify(data), req.session.userId]);
+    res.json({ success: true, data });
+  } catch (err) { sendServerError(res, err); }
+});
 app.get('/api/meca', requireAuth, async (req, res) => {
   try {
     if (!(await hasPageGrant(req, 'meca'))) return res.status(403).json({ error: 'No access to MECA' });
@@ -13655,7 +13676,7 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     ]);
     const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
     const rows = {};
-    const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdPlanned: 0 };
+    const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdPlanned: 0, refs: 0, calls: 0, callOrders: 0, callValue: 0 };
     for (const e of entries) {
       const r = row(e.user_id, e.d);
       if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
@@ -13681,13 +13702,38 @@ app.get('/api/meca', requireAuth, async (req, res) => {
         visit_count, result FROM leads WHERE visit_date BETWEEN ? AND ? AND visit_user_id IS NOT NULL AND cancelled_at IS NULL ORDER BY visit_date`, [from, to])
       .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; });
     for (const l of nbdPlan) row(l.visit_user_id, l.d).nbdPlanned++;
-    const ids = [...new Set(Object.values(rows).map(r => r.userId))];
+    // References: new leads that came through a dealer's reference — the salesman's (else whoever entered it).
+    const [refs] = await db.query(`SELECT COALESCE(salesman_user_id, created_by) AS uid, DATE_FORMAT(created_at,'%Y-%m-%d') AS d FROM leads
+      WHERE ref_dealer IS NOT NULL AND ref_dealer <> '' AND cancelled_at IS NULL AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to])
+      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; });
+    for (const l of refs) if (l.uid) row(l.uid, l.d).refs++;
+    // Calling — SC-NBD's Lead FMS calls (call → "Order Mil Gaya") on her own column…
+    const [leadCalls] = await db.query(`SELECT user_id, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, detail FROM lead_events
+      WHERE event='call' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+    for (const l of leadCalls) {
+      if (!l.user_id) continue;
+      const r = row(l.user_id, l.d);
+      r.calls++;
+      if (/^Order Mil Gaya/.test(l.detail || '')) r.callOrders++;
+    }
+    // …and SCOT (old dealers' calling) as one "SCOT" column (userId 0) — the callers share one login.
+    const [scotC] = await db.query(`SELECT DATE_FORMAT(call_date,'%Y-%m-%d') AS d, COUNT(*) AS n FROM scot_calls WHERE call_date BETWEEN ? AND ? GROUP BY call_date`, [from, to])
+      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+    scotC.forEach(c => { row(0, c.d).calls += Number(c.n) || 0; });
+    const [scotO] = await db.query(`SELECT DATE_FORMAT(order_date,'%Y-%m-%d') AS d, COUNT(*) AS n, SUM(amount) AS v FROM scot_orders WHERE order_date BETWEEN ? AND ? GROUP BY order_date`, [from, to])
+      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+    scotO.forEach(o => { const r = row(0, o.d); r.callOrders += Number(o.n) || 0; r.callValue += Number(o.v) || 0; });
+    const ids = [...new Set(Object.values(rows).map(r => r.userId))].filter(Boolean);
     const [users] = ids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [ids]) : [[]];
     const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
-    const out = Object.values(rows).filter(r => r.visited || r.notVisited || r.ordered || r.collection || r.nbdVisits || r.nbdPlanned)
-      .map(r => ({ ...r, name: nameOf[r.userId] || `User ${r.userId}` }))
+    const out = Object.values(rows).filter(r => r.visited || r.notVisited || r.ordered || r.collection || r.nbdVisits || r.nbdPlanned || r.refs || r.calls || r.callOrders)
+      .map(r => ({ ...r, name: r.userId === 0 ? 'SCOT' : nameOf[r.userId] || `User ${r.userId}` }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
-    res.json({ from, to, rows: out });
+    await mecaBenchTable();
+    const [bench] = await db.query('SELECT user_id, data FROM meca_benchmarks');
+    const benchmarks = {};
+    bench.forEach(b => { try { benchmarks[b.user_id] = JSON.parse(b.data || '{}'); } catch (e) { /* skip */ } });
+    res.json({ from, to, rows: out, benchmarks, isAdmin: req.session.role === 'admin' });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -14596,7 +14642,9 @@ async function ensureLeadTables() {
   `);
   // Added later (client voice notes, 2026-10-09): requirement as a product
   // category (so leads can be sorted by it); Aadhaar + cheque photo at onboarding.
-  await addMissingColumns('leads', [['req_category', 'VARCHAR(100)']]);
+  await addMissingColumns('leads', [['req_category', 'VARCHAR(100)'],
+    // "Ye dealer reference se aaya? Kis dealer ne diya" (client recording 2026-10-30) — counted as the salesman's references in MECA.
+    ['ref_dealer', 'VARCHAR(255)']]);
   await addMissingColumns('dealer_onboardings', [['aadhaar_photo', 'VARCHAR(1000)'], ['cheque_photo', 'VARCHAR(1000)'],
     // Transport the dealer's goods go by + the bilty / LR photo (client, 2026-10-16).
     ['transport_name', 'VARCHAR(255)'], ['transport_phone', 'VARCHAR(30)'], ['transport_station', 'VARCHAR(255)'], ['bilty_photo', 'VARCHAR(1000)'],
@@ -14675,7 +14723,7 @@ const LEAD_SELECT = `SELECT l.*, DATE_FORMAT(l.created_at,'%Y-%m-%d') AS created
 function leadOut(l, doersMap) {
   return {
     id: l.id, code: l.lead_code, leadType: l.lead_type, source: l.source || '', shopName: l.shop_name || '', contactName: l.contact_name || '',
-    mobile: l.mobile || '', city: l.city || '', area: l.area || '', requirement: l.requirement || '', reqCategory: l.req_category || '', cardPhoto: l.card_photo || '',
+    mobile: l.mobile || '', city: l.city || '', area: l.area || '', requirement: l.requirement || '', reqCategory: l.req_category || '', refDealer: l.ref_dealer || '', cardPhoto: l.card_photo || '',
     salesmanUserId: l.salesman_user_id, salesmanName: l.salesman_name || '', createdAt: l.created_at, createdBy: l.created_by,
     createdByName: l.created_by_name || '', callCount: +l.call_count || 0, lastCallAt: l.last_call_at, callOutcome: l.call_outcome || '',
     callRemark: l.call_remark || '', catalogueSent: !!+l.catalogue_sent, nextCall: l.next_call || '', visitPurpose: l.visit_purpose || '',
@@ -14866,10 +14914,10 @@ app.post('/api/lead-fms', requireAuth, async (req, res) => {
     }
     const code = await withLeadTables(() => nextLeadCode());
     const card = b.cardPhoto ? await uploadPhotoToDrive(b.cardPhoto, `${code}-card-${Date.now()}.jpg`) : null;
-    const [r] = await db.query(`INSERT INTO leads (lead_code, lead_type, source, shop_name, contact_name, mobile, city, area, req_category, requirement, card_photo, salesman_user_id, salesman_name, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    const [r] = await db.query(`INSERT INTO leads (lead_code, lead_type, source, shop_name, contact_name, mobile, city, area, req_category, requirement, ref_dealer, card_photo, salesman_user_id, salesman_name, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [code, leadType, leadStr(b.source, 40) || (leadType === 'Outgoing' ? 'Market Visit' : null), shop, contact, mobile,
-        leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), card, sid || null, sname, req.session.userId]);
+        leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), leadStr(b.refDealer, 255), card, sid || null, sname, req.session.userId]);
     await logLeadEvent(r.insertId, 'created', [leadType, b.source, b.reqCategory, b.requirement].filter(Boolean).join(' · '), req.session.userId);
     res.json({ success: true, id: r.insertId, code });
   } catch (err) {

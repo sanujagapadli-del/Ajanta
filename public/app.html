@@ -21313,9 +21313,31 @@ function mecaToggleWeeks() {
   try { localStorage.setItem('mecaWeeksOnly', mecaWeeksOnly ? '1' : '0'); } catch (e) { /* private mode */ }
   renderMeca();
 }
+// Admin sets each person's commitment (client recording 2026-10-30) — MECA scores against it.
+const MECA_BENCH_COLS = [['visits', 'Counter / din'], ['conv', 'Conversion %'], ['avg', 'Avg order ₹'], ['coll', 'Collection ₹ / din'], ['nbd', 'NBD visit / din'], ['nbdConv', 'NBD conv %'], ['calls', 'Calls / din'], ['callConv', 'Call conv %'], ['callAvg', 'Call avg order ₹']];
+function mecaOpenBench() {
+  const people = [...new Map(mecaData.rows.map(r => [r.userId, r.name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const B = mecaData.benchmarks || {};
+  vrlModal('mecaBenchModal', `${scotModalHead('mecaBenchModal', '🎯 Benchmark — salesman ne kitna commit kiya')}
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Jo commit kiya wo bharo (khaali = nahi). MECA me score aayega — jaise 20 counter / din kaha, 10 kiye → <b style="color:#c00000">−50%</b>.</div>
+    <div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Naam</th>${MECA_BENCH_COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th></th></tr></thead><tbody>
+    ${people.map(([id, name]) => `<tr><td style="font-weight:700;white-space:nowrap">${esc(name)}</td>${MECA_BENCH_COLS.map(([k]) => `<td><input type="number" min="0" step="any" data-u="${id}" data-k="${k}" value="${(B[id] || {})[k] || ''}" style="width:78px;padding:5px;border:1px solid var(--gray-200);border-radius:6px"/></td>`).join('')}
+      <td><button class="btn btn-sm btn-primary" onclick="mecaSaveBench(${id},this)">Save</button></td></tr>`).join('')}</tbody></table></div>`, 1100);
+}
+async function mecaSaveBench(uid, btn) {
+  const body = {};
+  document.querySelectorAll(`#mecaBenchModal input[data-u="${uid}"]`).forEach(i => { if (i.value !== '') body[i.dataset.k] = Number(i.value); });
+  const restore = btnLoading(btn, '…');
+  const r = await api(`/api/meca/benchmark/${uid}`, 'PUT', body);
+  restore();
+  if (r.error) { showToast(r.error, 'error'); return; }
+  mecaData.benchmarks = { ...(mecaData.benchmarks || {}), [uid]: r.data };
+  showToast('✅ Benchmark save');
+  renderMeca();
+}
 function mecaCode(name) {
   const first = String(name || '').trim().split(/\s+/)[0].toLowerCase();
-  return { rohit: 'RD', girdhar: 'GB', krishna: 'KR', krishana: 'KR' }[first] || first.slice(0, 2).toUpperCase();
+  return { rohit: 'RD', girdhar: 'GB', krishna: 'KR', krishana: 'KR', scot: 'SCOT' }[first] || first.slice(0, 2).toUpperCase();
 }
 function renderMeca() {
   if (!mecaData) return;
@@ -21342,8 +21364,9 @@ function renderMeca() {
     const w = weeks.find(x => x.k === k) || (weeks.push({ k, days: [] }), weeks[weeks.length - 1]);
     w.days.push(y);
   });
-  const add = (a, r) => { if (!r) return a; ['visited', 'ordered', 'value', 'collCount', 'collection', 'nbdVisits', 'nbdWon'].forEach(k => { a[k] += Number(r[k]) || 0; }); return a; };
-  const zero = () => ({ visited: 0, ordered: 0, value: 0, collCount: 0, collection: 0, nbdVisits: 0, nbdWon: 0 });
+  const SUMS = ['visited', 'ordered', 'value', 'collCount', 'collection', 'nbdVisits', 'nbdWon', 'refs', 'calls', 'callOrders', 'callValue'];
+  const add = (a, r) => { if (!r) return a; SUMS.forEach(k => { a[k] += Number(r[k]) || 0; }); a.days++; return a; };
+  const zero = () => Object.fromEntries(SUMS.map(k => [k, 0]).concat([['days', 0]]));
   // Column groups: each day, then "Total of Week N"; finally the whole period.
   const groups = [];
   weeks.forEach((w, wi) => {
@@ -21355,20 +21378,46 @@ function renderMeca() {
   const fmt = v => v ? Math.round(v).toLocaleString('en-IN') : '0';
   const ratio = (a, b) => b ? (a * 100 / b).toFixed(2) : '-';
   const avg = (a, b) => b ? Math.round(a / b).toLocaleString('en-IN') : '-';
+  // Score against the salesman's own commitment (client recording 2026-10-30): 20 counters a day committed,
+  // 10 done → −50%. Per-day benchmarks scale with the days that have entries.
+  const B = mecaData.benchmarks || {};
+  const scoreOf = (a, t) => t ? Math.round(a * 100 / t - 100) : null;
+  const scoreTxt = s => s == null ? '' : `<span style="color:${s < 0 ? '#c00000' : '#0b7a3e'}">${s > 0 ? '+' : ''}${s}%</span>`;
+  const days = r => (r && r.days) || 1;
+  const SC = {
+    visits: (r, b) => scoreOf(r.visited, b.visits * days(r)),
+    conv: (r, b) => r.visited ? scoreOf(r.ordered * 100 / r.visited, b.conv) : null,
+    avg: (r, b) => r.ordered ? scoreOf(r.value / r.ordered, b.avg) : null,
+    coll: (r, b) => scoreOf(r.collection, b.coll * days(r)),
+    nbd: (r, b) => scoreOf(r.nbdVisits, b.nbd * days(r)),
+    nbdConv: (r, b) => r.nbdVisits ? scoreOf(r.nbdWon * 100 / r.nbdVisits, b.nbdConv) : null,
+    calls: (r, b) => scoreOf(r.calls, b.calls * days(r)),
+    callConv: (r, b) => r.calls ? scoreOf(r.callOrders * 100 / r.calls, b.callConv) : null,
+    callAvg: (r, b) => r.callOrders && r.callValue ? scoreOf(r.callValue / r.callOrders, b.callAvg) : null
+  };
+  const anyB = k => people.some(p => (B[p.id] || {})[k]);
+  const score = (k, l) => anyB(k) ? [{ l: '🎯 ' + l, score: 1, v: (r, p) => r && (B[p.id] || {})[k] ? scoreTxt(SC[k](r, B[p.id])) : '' }] : [];
   const metrics = [
     { sec: 'OLD COUNTERS' },
-    { l: 'Counter Visit', v: r => r ? fmt(r.visited) : '' },
-    { l: 'Conversion Ratio', calc: 1, v: r => r ? ratio(r.ordered, r.visited) : '' },
+    { l: 'Counter Visit', v: r => r ? fmt(r.visited) : '' }, ...score('visits', 'Visit score'),
+    { l: 'Conversion Ratio', calc: 1, v: r => r ? ratio(r.ordered, r.visited) : '' }, ...score('conv', 'Conversion score'),
     { l: 'Order (counter)', v: r => r ? fmt(r.ordered) : '' },
     { l: 'Order Value ₹', v: r => r ? fmt(r.value) : '' },
-    { l: 'Average Order Value', calc: 1, v: r => r ? avg(r.value, r.ordered) : '' },
+    { l: 'Average Order Value', calc: 1, v: r => r ? avg(r.value, r.ordered) : '' }, ...score('avg', 'Avg order score'),
     { l: 'Collection (counter)', v: r => r ? fmt(r.collCount) : '' },
     { l: 'Collection Value ₹', v: r => r ? fmt(r.collection) : '' },
-    { l: 'Average Collection Value', calc: 1, v: r => r ? avg(r.collection, r.collCount) : '' },
+    { l: 'Average Collection Value', calc: 1, v: r => r ? avg(r.collection, r.collCount) : '' }, ...score('coll', 'Collection score'),
     { sec: 'NEW COUNTERS (NBD — Lead FMS)' },
-    { l: 'NBD Visit', v: r => r ? fmt(r.nbdVisits) : '' },
+    { l: 'NBD Visit', v: r => r ? fmt(r.nbdVisits) : '' }, ...score('nbd', 'NBD visit score'),
     { l: 'NBD Won (order / dealer bana)', v: r => r ? fmt(r.nbdWon) : '' },
-    { l: 'NBD Conversion Ratio', calc: 1, v: r => r ? ratio(r.nbdWon, r.nbdVisits) : '' }
+    { l: 'NBD Conversion Ratio', calc: 1, v: r => r ? ratio(r.nbdWon, r.nbdVisits) : '' }, ...score('nbdConv', 'NBD conversion score'),
+    { l: 'References (dealer se)', v: r => r ? fmt(r.refs) : '' },
+    { sec: 'CALLING (SCOT — purane dealer · SC-NBD — Lead FMS)' },
+    { l: 'Calls', v: r => r ? fmt(r.calls) : '' }, ...score('calls', 'Calls score'),
+    { l: 'Order (call se)', v: r => r ? fmt(r.callOrders) : '' },
+    { l: 'Call Conversion Ratio', calc: 1, v: r => r ? ratio(r.callOrders, r.calls) : '' }, ...score('callConv', 'Call conversion score'),
+    { l: 'Call Order Value ₹', v: r => r ? fmt(r.callValue) : '' },
+    { l: 'Call Average Order', calc: 1, v: r => r ? avg(r.callValue, r.callOrders) : '' }, ...score('callAvg', 'Call avg order score')
   ];
   const C = { navy: '#1f3864', light: '#d6e4f0', blue: '#2e75b6', purple: '#351c75', slate: '#2e4057', data: '#ebf3fb', calc: '#a4c2f4', wk: '#fff2cc' };
   const T = 'border:1px solid #c7d3e0;padding:4px 7px;white-space:nowrap;font-size:12.5px;text-align:center;';
@@ -21383,23 +21432,28 @@ function renderMeca() {
   const hPeople = groups.map(g => people.map(p => `<th title="${esc(p.name)}" style="${T}background:${C.blue};color:#fff;font-weight:800">${esc(p.code)}</th>`).join('')).join('');
   const body = metrics.map(m => {
     if (m.sec) return `<tr>${lab(m.sec, C.purple, '#efefef')}<td colspan="${groups.length * P}" style="${T}background:${C.purple}"></td></tr>`;
-    return `<tr>${lab(m.l, m.calc ? C.calc : C.slate, m.calc ? '#111' : '#fff')}${groups.map(g => people.map(p => {
-      const v = m.v(g.get(p));
-      return `<td style="${T}background:${m.calc ? C.calc : isWk(g) ? C.wk : C.data};${m.calc || isWk(g) ? 'font-weight:800;' : ''}">${v}</td>`;
+    return `<tr>${lab(m.l, m.score ? '#fde9d9' : m.calc ? C.calc : C.slate, m.calc || m.score ? '#111' : '#fff')}${groups.map(g => people.map(p => {
+      const v = m.v(g.get(p), p);
+      return `<td style="${T}background:${m.score ? '#fdf3ec' : m.calc ? C.calc : isWk(g) ? C.wk : C.data};${m.calc || m.score || isWk(g) ? 'font-weight:800;' : ''}">${v}</td>`;
     }).join('')).join('')}</tr>`;
   }).join('');
   const legend = people.map(p => `<b>${esc(p.code)}</b> = ${esc(p.name)}`).join(' · ');
   // One card per salesman for the whole period — the quick read before the grid.
   const cards = people.map(p => {
-    const t = groups[groups.length - 1].get(p);
+    const t = groups[groups.length - 1].get(p), b = B[p.id] || {};
+    // " / 120 → −20%" after the actual, when a benchmark is set (per-day ones × days with entries).
+    const bl = (k, sk, d) => b[k] ? ` <span style="font-weight:600;color:var(--gray-500)">/ ${d ? fmt(b[k] * d) : b[k] + (/conv/i.test(k) ? '%' : '')}</span> ${scoreTxt(SC[sk](t, b))}` : '';
     const line = (l, v) => `<div style="display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:2px 0"><span style="color:var(--gray-500)">${l}</span><b>${v}</b></div>`;
     return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-top:4px solid ${C.blue};border-radius:12px;padding:10px 14px;min-width:200px;flex:1">
       <div style="font-weight:900;color:var(--gray-900);margin-bottom:4px"><span style="background:${C.blue};color:#fff;border-radius:6px;padding:1px 6px;font-size:11px;margin-right:6px">${esc(p.code)}</span>${esc(p.name)}</div>
-      ${line('Counter visit', fmt(t.visited))}${line('Order', `${fmt(t.ordered)} · ₹${fmt(t.value)}`)}${line('Conversion', ratio(t.ordered, t.visited) + (t.visited ? '%' : ''))}${line('Collection', `${fmt(t.collCount)} · ₹${fmt(t.collection)}`)}${line('NBD visit / won', `${fmt(t.nbdVisits)} / ${fmt(t.nbdWon)}`)}</div>`;
+      ${t.visited || !t.calls ? line('Counter visit', fmt(t.visited) + bl('visits', 'visits', t.days)) + line('Order', `${fmt(t.ordered)} · ₹${fmt(t.value)}`) + line('Conversion', ratio(t.ordered, t.visited) + (t.visited ? '%' : '') + bl('conv', 'conv')) + line('Avg order', '₹' + avg(t.value, t.ordered) + bl('avg', 'avg'))
+        + line('Collection', `${fmt(t.collCount)} · ₹${fmt(t.collection)}` + bl('coll', 'coll', t.days)) + line('NBD visit / won', `${fmt(t.nbdVisits)} / ${fmt(t.nbdWon)}` + bl('nbd', 'nbd', t.days)) + line('References', fmt(t.refs)) : ''}
+      ${t.calls ? line('Calls', fmt(t.calls) + bl('calls', 'calls', t.days)) + line('Order (call se)', `${fmt(t.callOrders)}${t.callValue ? ' · ₹' + fmt(t.callValue) : ''}`) + line('Call conversion', ratio(t.callOrders, t.calls) + '%' + bl('callConv', 'callConv')) : ''}</div>`;
   }).join('');
   wrap.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${cards}</div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--gray-600);margin-bottom:8px"><span>${legend} &nbsp;·&nbsp; Old counters = <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">📋 Beat</a> se, NBD = Lead FMS se</span>
-    <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="mecaToggleWeeks()">${mecaWeeksOnly ? '📅 Roz ka bhi dikhao' : '📊 Sirf hafte ka total'}</button></div>
+    ${mecaData.isAdmin ? '<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="mecaOpenBench()">🎯 Benchmark</button>' : ''}
+    <button class="btn btn-sm btn-outline" style="${mecaData.isAdmin ? '' : 'margin-left:auto'}" onclick="mecaToggleWeeks()">${mecaWeeksOnly ? '📅 Roz ka bhi dikhao' : '📊 Sirf hafte ka total'}</button></div>
     <div style="background:#fff;border:1px solid #c7d3e0;border-radius:8px;overflow:auto;max-height:76vh">
       <table style="border-collapse:collapse;color:#222">
         <thead style="position:sticky;top:0;z-index:3">
@@ -24443,6 +24497,8 @@ async function openNewLeadModal() {
     ${L('Area / Market')}<input id="nlArea" placeholder="e.g. Mansarovar, Jhotwara" style="${CHQ_INPUT}"/>
     ${L('Requirement (product)')}${leadReqSelectHtml('nlReqCat', '')}
     ${L('Note')}<textarea id="nlReq" rows="2" placeholder="e.g. 10 piece chahiye · catalogue maanga" style="${CHQ_INPUT};resize:vertical"></textarea>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="nlIsRef" onchange="document.getElementById('nlRefWrap').style.display=this.checked?'':'none'"/> Ye dealer kisi dealer ke reference se aaya hai</label>
+    <div id="nlRefWrap" style="display:none">${L('Reference kis dealer ne diya?', true)}<input id="nlRefDealer" placeholder="Reference dene wale dealer ka naam" style="${CHQ_INPUT}"/></div>
     <div id="nlSalesmanWrap" style="display:${leadMe.seeAll ? '' : 'none'}">${L('Salesman (jo dealer se mila / us area ka)')}<select id="nlSalesman" style="${CHQ_INPUT}"><option value="">— None —</option></select></div>
     <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Mobile ya card photo me se ek zaroori hai. Lead save hote hi SC-NBD ke dashboard par call aa jayegi.</div>
     <button class="btn btn-primary" id="nlSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitNewLead()">Save Lead</button>`;
@@ -24467,6 +24523,11 @@ async function submitNewLead(force) {
   const body = { leadType: typeEl ? typeEl.dataset.v : '', source: v('nlSource'), shopName: v('nlShop'), contactName: v('nlContact'), mobile: v('nlMobile'),
     city: v('nlCity'), area: v('nlArea'), reqCategory: v('nlReqCat'), requirement: v('nlReq'), cardPhoto: document.getElementById('nlCard').dataset.compressed || '', force: !!force };
   if (leadMe.seeAll && v('nlSalesman')) body.salesmanUserId = Number(v('nlSalesman'));
+  // Reference (client recording 2026-10-30) — counted for the salesman in MECA.
+  if (document.getElementById('nlIsRef').checked) {
+    body.refDealer = v('nlRefDealer');
+    if (!body.refDealer) { err.textContent = 'Reference kis dealer ne diya — naam likhein'; err.style.display = 'block'; return; }
+  }
   if (!body.shopName && !body.contactName) { err.textContent = 'Shop name ya contact person daalein'; err.style.display = 'block'; return; }
   if (!body.mobile && !body.cardPhoto) { err.textContent = 'Mobile number ya visiting card ki photo daalein'; err.style.display = 'block'; return; }
   const btn = document.getElementById('nlSubmitBtn');
@@ -24504,7 +24565,7 @@ function renderLeadDetailBody(l) {
       ${f('Mobile', l.mobile ? `<a href="tel:${esc(l.mobile)}">📞 ${esc(l.mobile)}</a> · <a href="${wa}" target="_blank">WhatsApp</a>` : '—')}
       ${f('Area', esc([l.area, l.city].filter(Boolean).join(', ') || '—'))}
       ${leadReqText(l) ? `<div style="grid-column:1/-1">${f('Requirement', esc(leadReqText(l)))}</div>` : ''}
-      ${f('Salesman (lead)', esc(l.salesmanName || '—'))}
+      ${f('Salesman (lead)', esc(l.salesmanName || '—'))}${l.refDealer ? f('Reference', '🤝 ' + esc(l.refDealer)) : ''}
       ${f('Calls', `${l.callCount}${l.catalogueSent ? ' · 📘 catalogue sent' : ''}${l.callOutcome ? `<div style="font-size:12px;color:var(--gray-600)">${esc(l.callOutcome)}${l.callRemark ? ' — ' + esc(l.callRemark) : ''}</div>` : ''}`)}
       ${l.visitUserName || l.visitCount ? f('Visit', `${l.visitDate ? fmtDateDMY(l.visitDate) + ' · ' : ''}${esc(l.visitUserName || '—')}${l.visitPurpose === 'Sample' ? ' · 🎁 Sample' : ''}${l.visitCount ? `<div style="font-size:12px;color:var(--gray-600)">${l.visitCount} visit · last: ${esc(l.visitOutcome)}${l.visitRemark ? ' — ' + esc(l.visitRemark) : ''}</div>` : ''}`) : ''}
       ${l.result ? f('Result', esc(l.result)) : ''}
