@@ -16926,7 +16926,9 @@ async function scotTables() {
   if (!have.has('note')) await db.query('ALTER TABLE scot_calls ADD COLUMN note VARCHAR(1000) NULL');
   if (!have.has('next_date')) await db.query('ALTER TABLE scot_calls ADD COLUMN next_date DATE NULL, ADD KEY (next_date)');
   // Contact person's designation — Owner / Manager … (client video 2026-10-30).
-  await addMissingColumns('scot_dealers', [['designation', 'VARCHAR(100) NULL']]);
+  await addMissingColumns('scot_dealers', [['designation', 'VARCHAR(100) NULL'],
+    // First call of a changed frequency (client video 2026-10-30: "aaj Friday hai, har 7 din, par shuru Saturday se").
+    ['freq_start', 'DATE NULL']]);
   await db.query(`CREATE TABLE IF NOT EXISTS scot_orders (
     id INT AUTO_INCREMENT PRIMARY KEY, dealer_id INT NOT NULL, order_date DATE NOT NULL, amount DECIMAL(12,2) NOT NULL, items VARCHAR(1000),
     payment VARCHAR(30), notes VARCHAR(1000), created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, KEY (dealer_id), KEY (order_date)
@@ -16957,7 +16959,7 @@ function scotDealerOut(d) {
   let products = [];
   try { products = JSON.parse(d.products || '[]'); } catch (e) { /* keep empty */ }
   return { id: d.id, name: d.name, rank: d.rank_no, bills: d.bills, tier: d.tier, freq: d.freq, freqDefault: d.freq_default, freqUpdatedAt: d.freq_updated_at,
-    person: d.person || '', designation: d.designation || '', phone: d.phone || '', area: d.area || '', source: d.source || '', notes: d.notes || '', products, isNew: !!d.is_new, addedDate: d.added_date };
+    freqStart: d.freq_start_s || '', person: d.person || '', designation: d.designation || '', phone: d.phone || '', area: d.area || '', source: d.source || '', notes: d.notes || '', products, isNew: !!d.is_new, addedDate: d.added_date };
 }
 app.get('/api/scot', requireAuth, async (req, res) => {
   try {
@@ -16965,7 +16967,7 @@ app.get('/api/scot', requireAuth, async (req, res) => {
     await scotTables();
     await scotSyncOnboarded();
     const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : scotYmd().slice(0, 7);
-    const [dealers] = await db.query("SELECT *, DATE_FORMAT(added_date,'%Y-%m-%d') AS added_date FROM scot_dealers WHERE active = 1 ORDER BY id");
+    const [dealers] = await db.query("SELECT *, DATE_FORMAT(added_date,'%Y-%m-%d') AS added_date, DATE_FORMAT(freq_start,'%Y-%m-%d') AS freq_start_s FROM scot_dealers WHERE active = 1 ORDER BY id");
     const [calls] = await db.query(`SELECT dealer_id, DATE_FORMAT(call_date,'%Y-%m-%d') AS d FROM scot_calls WHERE call_date BETWEEN ? AND LAST_DAY(?)`, [month + '-01', month + '-01']);
     // Latest call per dealer (its note + next follow-up date), whatever month it was in.
     const [last] = await db.query(`SELECT c.dealer_id, DATE_FORMAT(c.call_date,'%Y-%m-%d') AS d, c.note, DATE_FORMAT(c.next_date,'%Y-%m-%d') AS next_date, u.name AS by_name
@@ -17006,9 +17008,13 @@ app.post('/api/scot/dealer', requireAuth, async (req, res) => {
     const tier = SCOT_TIERS.includes(b.tier) ? b.tier : 'B - Regular';
     const [[dup]] = await db.query('SELECT id FROM scot_dealers WHERE name = ?', [name]);
     if (dup) return res.status(400).json({ error: 'Ye dealer pehle se list me hai' });
+    // Frequency asked on the form (client video 2026-10-30), 7 days when left as is.
+    const freq = parseInt(b.freq, 10) >= 1 && parseInt(b.freq, 10) <= 366 ? parseInt(b.freq, 10) : 7;
     const [r] = await db.query(`INSERT INTO scot_dealers (name, tier, freq, freq_default, person, designation, phone, area, source, notes, is_new, added_date, created_by)
-      VALUES (?,?,7,7,?,?,?,?,?,?,1,?,?)`, [name, tier, String(b.person || '').trim().slice(0, 255) || null, String(b.designation || '').trim().slice(0, 100) || null, phone, String(b.area || '').trim().slice(0, 255) || null,
+      VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)`, [name, tier, freq, freq, String(b.person || '').trim().slice(0, 255) || null, String(b.designation || '').trim().slice(0, 100) || null, phone, String(b.area || '').trim().slice(0, 255) || null,
       String(b.source || '').trim().slice(0, 50) || null, String(b.notes || '').trim().slice(0, 1000) || null, scotYmd(), req.session.userId]);
+    // Called while adding → today's call is ticked, so it shows done in today's list.
+    if (b.calledToday) await db.query("INSERT IGNORE INTO scot_calls (dealer_id, call_date, called_by, note) VALUES (?,?,?,'Naya dealer jodte waqt call')", [r.insertId, scotYmd(), req.session.userId]);
     res.json({ success: true, id: r.insertId });
   } catch (err) { sendServerError(res, err); }
 });
@@ -17035,7 +17041,8 @@ app.put('/api/scot/dealer/:id', requireAuth, async (req, res) => {
       if (req.session.role !== 'admin') return res.status(403).json({ error: 'Sirf admin frequency badal sakta hai' });
       const f = b.freq === 'reset' ? d.freq_default : parseInt(b.freq, 10);
       if (!(f >= 1 && f <= 366)) return res.status(400).json({ error: 'Frequency 1–366 din ke beech' });
-      await db.query('UPDATE scot_dealers SET freq = ?, freq_updated_at = ? WHERE id = ?', [f, b.freq === 'reset' ? null : new Date(), id]);
+      const start = b.freq !== 'reset' && /^\d{4}-\d{2}-\d{2}$/.test(b.start || '') ? b.start : null;
+      await db.query('UPDATE scot_dealers SET freq = ?, freq_updated_at = ?, freq_start = ? WHERE id = ?', [f, b.freq === 'reset' ? null : new Date(), start, id]);
     }
     if ('tier' in b && SCOT_TIERS.includes(b.tier)) await db.query('UPDATE scot_dealers SET tier = ? WHERE id = ?', [b.tier, id]);
     res.json({ success: true });

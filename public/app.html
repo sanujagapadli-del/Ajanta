@@ -21940,6 +21940,21 @@ function scotBuildSchedule() {
   scotSched = {};
   sorted.forEach((d, i) => {
     const freq = d.freq || 30;
+    // Frequency with a start date (client video 2026-10-30): that day, then every freq days; Sunday → Monday.
+    if (d.freqStart) {
+      const first = new Date(d.freqStart + 'T00:00:00'), mStart = new Date(y, m - 1, 1), mEnd = new Date(y, m - 1, days);
+      const k0 = Math.max(0, Math.ceil((mStart - first) / 86400000 / freq) - 1);
+      for (let k = k0; ; k++) {
+        const t = new Date(first.getFullYear(), first.getMonth(), first.getDate() + k * freq);
+        if (t.getDay() === 0) t.setDate(t.getDate() + 1);
+        if (t > mEnd) break;
+        if (t < mStart || t < first) continue;
+        const key = `${y}-${String(m).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+        const l = scotSched[key] = scotSched[key] || [];
+        if (!l.includes(d.id)) l.push(d.id);
+      }
+      return;
+    }
     let day = 1 + (i % freq);
     if (d.isNew) {
       day = 1;
@@ -22130,20 +22145,23 @@ function scotFreqHtml() {
     <div style="font-weight:800;margin-bottom:8px">Call frequency badlein</div>
     <datalist id="scotDealerList">${scotData.dealers.map(d => `<option value="${esc(d.name)}">`).join('')}</datalist>
     <input id="scotFreqDealer" list="scotDealerList" placeholder="Dealer ka naam…" style="${VRL_IN};margin-bottom:8px"/>
-    <div style="display:flex;gap:8px"><select id="scotFreqNew" style="${VRL_IN}"><option value="">Kitne din me call…</option>${opts.map(n => `<option value="${n}">Har ${n} din</option>`).join('')}</select>
-      <button class="btn btn-primary" onclick="scotSaveFreq()">Update</button></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><select id="scotFreqNew" style="${VRL_IN};flex:1;min-width:150px"><option value="">Kitne din me call…</option>${opts.map(n => `<option value="${n}">Har ${n} din</option>`).join('')}</select>
+      <label style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px">Pehli call<input id="scotFreqStart" type="date" min="${scotTodayYmd()}" title="Khaali = pehle jaisa; date di to usi din se har N din (Sunday ho to Monday)" style="${VRL_IN};width:auto;margin:0"/></label>
+      <button class="btn btn-primary" onclick="scotSaveFreq()">Update</button></div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin-top:6px">Pehli call ki date do (jaise Saturday) — usi din se har N din call aayegi. Khaali chhodo to pehle jaisa.</div></div>
     <div style="font-weight:800;font-size:13px;margin-bottom:6px">Badli hui frequency (${over.length})</div>
     ${over.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Dealer</th><th>Default</th><th>Abhi</th><th></th></tr></thead><tbody>
-      ${over.map(d => `<tr><td>${esc(d.name)}</td><td>Har ${d.freqDefault} din</td><td style="font-weight:800;color:var(--color-primary)">Har ${d.freq} din</td><td><button class="btn btn-sm btn-outline" onclick="scotResetFreq(${d.id})">Reset</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi badlav nahi</div>'}`;
+      ${over.map(d => `<tr><td>${esc(d.name)}</td><td>Har ${d.freqDefault} din</td><td style="font-weight:800;color:var(--color-primary)">Har ${d.freq} din${d.freqStart ? `<div style="font-size:11px;font-weight:600;color:var(--gray-500)">${esc(fmtDateDMY(d.freqStart))} se</div>` : ''}</td><td><button class="btn btn-sm btn-outline" onclick="scotResetFreq(${d.id})">Reset</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi badlav nahi</div>'}`;
 }
 async function scotSaveFreq() {
   const name = document.getElementById('scotFreqDealer').value.trim(), f = document.getElementById('scotFreqNew').value;
   const d = scotData.dealers.find(x => x.name === name);
   if (!d) { showToast('List se dealer chunein', 'error'); return; }
   if (!f) { showToast('Frequency chunein', 'error'); return; }
-  const r = await api(`/api/scot/dealer/${d.id}`, 'PUT', { freq: f });
+  const start = document.getElementById('scotFreqStart').value;
+  const r = await api(`/api/scot/dealer/${d.id}`, 'PUT', { freq: f, start });
   if (r.error) { showToast(r.error, 'error'); return; }
-  showToast(`✅ ${d.name} — har ${f} din`);
+  showToast(`✅ ${d.name} — har ${f} din${start ? ', ' + fmtDateDMY(start) + ' se' : ''}`);
   loadScot();
 }
 async function scotResetFreq(id) {
@@ -22241,17 +22259,20 @@ function scotOpenNewDealer() {
     <div><label style="font-size:12px;font-weight:600">Area</label><input id="scotNArea" style="${VRL_IN}"/></div>
     <div><label style="font-size:12px;font-weight:600">Tier</label><select id="scotNTier" style="${VRL_IN}"><option value="A - Star">A — Star</option><option value="B - Regular" selected>B — Regular</option><option value="C - Occasional">C — Occasional</option></select></div>
     <div><label style="font-size:12px;font-weight:600">Source</label><select id="scotNSource" style="${VRL_IN}"><option>Cold Call</option><option>Referral</option><option>Walk-in</option><option>Field Visit</option></select></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;align-items:end">
+      <div><label style="font-size:12px;font-weight:600">Call frequency</label><select id="scotNFreq" style="${VRL_IN}">${[3, 5, 7, 10, 14, 15, 21, 30, 45, 60].map(n => `<option value="${n}"${n === 7 ? ' selected' : ''}>Har ${n} din</option>`).join('')}</select></div>
+      <label style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px;padding-bottom:10px;cursor:pointer"><input type="checkbox" id="scotNCalled" checked/> Aaj call ho gayi (aaj ki list me ✓)</label></div>
     <label style="font-size:12px;font-weight:600">Notes</label><input id="scotNNotes" style="${VRL_IN};margin-bottom:10px"/>
     <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="scotSaveNewDealer(this)">✓ Save Dealer</button>`, 540);
 }
 async function scotSaveNewDealer(btn) {
   const v = id => document.getElementById(id).value.trim();
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api('/api/scot/dealer', 'POST', { name: v('scotNName'), person: v('scotNPerson'), designation: v('scotNDesig'), phone: v('scotNPhone'), area: v('scotNArea'), tier: v('scotNTier'), source: v('scotNSource'), notes: v('scotNNotes') });
+  const r = await api('/api/scot/dealer', 'POST', { name: v('scotNName'), person: v('scotNPerson'), designation: v('scotNDesig'), freq: v('scotNFreq'), calledToday: document.getElementById('scotNCalled').checked, phone: v('scotNPhone'), area: v('scotNArea'), tier: v('scotNTier'), source: v('scotNSource'), notes: v('scotNNotes') });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('scotNewModal');
-  showToast('✅ Naya dealer jud gaya — aaj se har 7 din call');
+  showToast(`✅ Naya dealer jud gaya — aaj se har ${v('scotNFreq')} din call`);
   loadScot();
 }
 
