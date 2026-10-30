@@ -5313,7 +5313,7 @@ function navigate(page, el) {
   if (page==='call-reports') loadCallReports();
   if (page==='meca') loadMeca();
   if (page==='beat') loadBeat();
-  if (page==='scot') loadScot();
+  if (page==='scot') { document.getElementById('scotMonth').value = ''; scotDate = null; loadScot(); }
   if (page==='sales-schedule') loadSalesSchedule();
   if (page==='employees') loadEmployeesPage();
   if (page==='price-catalogue') loadPriceCataloguePage();
@@ -21926,8 +21926,16 @@ async function loadScot() {
   scotCalled = new Set(r.calls.map(([id, d]) => `${id}|${d}`));
   scotBuildSchedule();
   const keys = Object.keys(scotSched).sort(), today = scotTodayYmd();
-  if (!scotDate || scotDate.slice(0, 7) !== mEl.value) scotDate = mEl.value === today.slice(0, 7) ? (scotSched[today] ? today : keys.find(k => k >= today) || keys[0]) : keys[0];
+  // Today by default (client list 2026-10-30 #2), even when nobody is due.
+  if (!scotDate || scotDate.slice(0, 7) !== mEl.value) scotDate = mEl.value === today.slice(0, 7) ? today : keys[0] || mEl.value + '-01';
   renderScot();
+}
+// Any date, any month, in one pick.
+function scotPickDate(v) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v || '')) return;
+  scotDate = v;
+  const mEl = document.getElementById('scotMonth');
+  if (mEl.value !== v.slice(0, 7)) { mEl.value = v.slice(0, 7); loadScot(); } else renderScot();
 }
 // Same rule as the client's tool: tier → default frequency → rank; dealer i
 // starts on day 1 + (i % freq) and repeats every freq days; Sundays skipped.
@@ -21990,7 +21998,7 @@ function renderScot() {
   if (!scotData) return;
   const isAdmin = scotData.me.isAdmin;
   const tab = (k, l) => `<button class="btn btn-sm ${scotTab === k ? 'btn-primary' : 'btn-outline'}" onclick="scotSetTab('${jsArg(k)}')">${l}</button>`;
-  document.getElementById('scotTabs').innerHTML = tab('calls', '📞 Calls') + tab('report', '📊 Report') + tab('orders', '🛒 Orders') + tab('new', '🆕 New Dealers') + (isAdmin ? tab('freq', '⏱ Frequency') : '');
+  document.getElementById('scotTabs').innerHTML = tab('calls', '📞 Calls') + tab('report', '📊 Report') + tab('orders', '🛒 Orders') + tab('new', '🆕 New Dealers') + tab('freq', '⏱ Frequency / Preferences');
   const total = Object.values(scotSched).reduce((a, l) => a + l.length, 0);
   const done = Object.entries(scotSched).reduce((a, [k, l]) => a + l.filter(id => scotCalled.has(`${id}|${k}`)).length, 0);
   const dayList = scotSched[scotDate] || [], dayDone = dayList.filter(id => scotCalled.has(`${id}|${scotDate}`)).length;
@@ -22002,6 +22010,9 @@ function renderScot() {
   else if (scotTab === 'orders') wrap.innerHTML = scotOrdersHtml();
   else if (scotTab === 'new') wrap.innerHTML = scotNewHtml();
   else if (scotTab === 'freq') wrap.innerHTML = scotFreqHtml();
+  // Keep the picked day in view (the strip used to jump back to day 1 after every click).
+  const strip = document.getElementById('scotStrip'), act = document.getElementById('scotDayAct');
+  if (strip && act) strip.scrollLeft = act.offsetLeft - strip.clientWidth / 2 + act.clientWidth / 2;
 }
 function scotCallsHtml() {
   const [y, m] = document.getElementById('scotMonth').value.split('-').map(Number);
@@ -22012,7 +22023,7 @@ function scotCallsHtml() {
     const list = scotSched[key] || [], dn = list.filter(id => scotCalled.has(`${id}|${key}`)).length;
     const sun = dow === 0, act = key === scotDate;
     const st = !sun && list.length && key <= today ? (dn === list.length ? 'var(--color-success)' : 'var(--color-danger)') : 'var(--gray-300)';
-    strip += `<div ${sun ? '' : `onclick="scotSelectDate('${jsArg(key)}')"`} style="flex:0 0 auto;min-width:54px;text-align:center;padding:6px 4px;border-radius:10px;cursor:${sun ? 'default' : 'pointer'};opacity:${sun ? .35 : 1};
+    strip += `<div ${act ? 'id="scotDayAct"' : ''} ${sun ? '' : `onclick="scotSelectDate('${jsArg(key)}')"`} style="flex:0 0 auto;min-width:54px;text-align:center;padding:6px 4px;border-radius:10px;cursor:${sun ? 'default' : 'pointer'};opacity:${sun ? .35 : 1};
       border:2px solid ${act ? 'var(--color-primary)' : 'var(--gray-200)'};border-bottom:4px solid ${st};background:${act ? 'var(--color-primary-light)' : 'var(--surface)'}">
       <div style="font-weight:900;font-size:16px">${d}</div><div style="font-size:10px;color:var(--gray-500)">${SCOT_WD[dow]}${key === today ? ' · <b style="color:var(--color-primary)">Aaj</b>' : ''}</div>
       ${!sun && list.length ? `<div style="font-size:10.5px;font-weight:700;color:${st === 'var(--gray-300)' ? 'var(--gray-500)' : st}">${dn}/${list.length}</div>` : ''}</div>`;
@@ -22023,7 +22034,7 @@ function scotCallsHtml() {
   scotData.orders.forEach(o => { if (!lastOrder[o.dealerId] || o.date > lastOrder[o.dealerId].date) lastOrder[o.dealerId] = o; });
   let list = (scotSched[scotDate] || []).map(id => ({ d: scotData.byId[id], called: scotCalled.has(`${id}|${scotDate}`) })).filter(x => x.d);
   list = list.filter(({ d, called }) => (scotFilter === 'all' || (scotFilter === 'pending' ? !called : d.tier === scotFilter))
-    && (!q || `${d.name} ${d.person} ${d.phone}`.toLowerCase().includes(q)));
+    && (!q || scotHay(d).includes(q)));
   list.sort((a, b) => (a.called - b.called) || (SCOT_TIER_ORDER[a.d.tier] ?? 2) - (SCOT_TIER_ORDER[b.d.tier] ?? 2));
   const oldCount = scotData.dealers.filter(d => !d.isNew).length;
   const dt = scotDate ? new Date(scotDate + 'T00:00:00') : null;
@@ -22033,23 +22044,33 @@ function scotCallsHtml() {
     const orderedToday = scotData.orders.some(o => o.dealerId === d.id && o.date === scotDate);
     return `<div style="background:${called ? 'var(--color-success-bg)' : 'var(--surface)'};border:1px solid ${called ? 'var(--color-success)' : 'var(--gray-200)'};border-left:4px solid ${called ? 'var(--color-success)' : (SCOT_TIER_UI[d.tier] || SCOT_TIER_UI['C - Occasional'])[1]};border-radius:12px;padding:10px 12px">
       <div onclick="scotToggleCall(${d.id})" style="cursor:pointer">
-        <div style="display:flex;gap:6px;align-items:flex-start"><div style="font-weight:800;font-size:13.5px;flex:1;line-height:1.3">${esc(d.name)}</div>
+        <div style="display:flex;gap:6px;align-items:flex-start"><div style="font-weight:800;font-size:13.5px;flex:1;line-height:1.3"><span onclick="event.stopPropagation();scotOpenDealer(${d.id})" title="Poori detail" style="color:var(--color-primary);text-decoration:underline dotted">${esc(d.name)}</span></div>
           ${called ? '<span style="font-size:11px;font-weight:800;color:var(--color-success)">✓ CALLED</span>' : scotTierBadge(d.tier)}
           <span style="font-size:10.5px;color:var(--gray-500);white-space:nowrap">${d.isNew ? '<b style="color:var(--color-success)">🆕 NEW</b>' : `#${d.rank || '—'}/${oldCount}`}</span></div>
         ${scotFollow.has(`${d.id}|${scotDate}`) ? '<div style="font-size:11px;font-weight:800;color:var(--color-primary);margin-top:3px">📌 Follow-up date aaj</div>' : ''}
-        <div style="font-size:12px;color:var(--gray-600);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">${d.person ? `<span>👤 ${esc(d.person)}${d.designation ? ` <span style="color:var(--gray-400)">(${esc(d.designation)})</span>` : ''}</span>` : ''}<span>🔁 Har ${d.freq} din</span>${lo ? `<span>🛒 ${esc(fmtDateDMY(lo.date))} · ${inr(lo.amount)}</span>` : ''}${d.source ? `<span>${esc(d.source)}</span>` : ''}</div>
+        <div style="font-size:12px;color:var(--gray-600);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">${d.person ? `<span>👤 ${esc(d.person)}${d.designation ? ` <span style="color:var(--gray-400)">(${esc(d.designation)})</span>` : ''}</span>` : ''}${d.contacts.length > 1 ? `<span>+${d.contacts.length - 1} contact</span>` : ''}<span>🔁 Har ${d.freq} din</span>${lo ? `<span>🛒 ${esc(fmtDateDMY(lo.date))} · ${inr(lo.amount)}</span>` : ''}${d.source ? `<span>${esc(d.source)}</span>` : ''}</div>
       </div>
       ${(() => { const lc = (scotData.lastCalls || {})[d.id]; return lc && (lc.note || lc.next) ? `<div style="font-size:11.5px;color:var(--gray-600);margin-top:6px;padding:5px 8px;background:var(--gray-50);border-radius:8px">💬 ${esc(fmtDateDMY(lc.date))}${lc.by ? ' · ' + esc(lc.by) : ''}: ${esc(lc.note || '—')}${lc.next ? ` · <b style="color:var(--color-primary)">agla ${esc(fmtDateDMY(lc.next))}</b>` : ''}</div>` : ''; })()}
       ${d.phone ? `<a href="tel:${esc(d.phone)}" style="display:inline-block;margin-top:6px;font-weight:700;color:var(--color-primary);font-size:13px">📞 ${esc(d.phone)}</a>` : ''}
       ${Object.keys(cats).length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${Object.entries(cats).map(([c, n]) => `<span style="font-size:10.5px;padding:2px 7px;border-radius:8px;background:var(--gray-100);color:var(--gray-700)">${esc(c)} · ${n}</span>`).join('')}</div>` : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
         <button class="btn btn-sm ${called ? 'btn-outline' : 'btn-green'}" onclick="scotToggleCall(${d.id})">${called ? '↩ Undo' : '✓ Call ho gayi'}</button>
-        <button class="btn btn-sm btn-outline" onclick="scotOpenContact(${d.id})">${d.person || d.phone ? '✏️ Contact' : '+ Contact'}</button>
+        <button class="btn btn-sm btn-outline" onclick="scotOpenDealer(${d.id})">📋 Detail</button>
         <button class="btn btn-sm btn-outline" onclick="scotOpenProducts(${d.id})">📦 ${d.products.length ? `Products (${d.products.length})` : 'Kya leta hai?'}</button>
         <button class="btn btn-sm ${orderedToday ? 'btn-green' : 'btn-outline'}" onclick="scotOpenOrder(${d.id})">${orderedToday ? '✅ Order logged' : '🛒 Order mila?'}</button>
       </div></div>`;
   }).join('');
-  return `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:10px">${strip}</div>
+  const hits = q ? scotData.dealers.filter(d => scotHay(d).includes(q)).slice(0, 40) : [];
+  const hitsHtml = q ? `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-weight:800;font-size:13px;margin-bottom:6px">🔎 Sab dealers me "${esc(q)}" — ${hits.length}${hits.length === 40 ? '+' : ''} mile <span style="font-weight:400;color:var(--gray-500)">(naam par click → poori detail)</span></div>
+      ${hits.length ? `<div style="display:flex;flex-direction:column;gap:4px">${hits.map(d => `<div onclick="scotOpenDealer(${d.id})" style="cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 8px;border:1px solid var(--gray-200);border-radius:8px">
+        <b style="color:var(--color-primary)">${esc(d.name)}</b>${scotTierBadge(d.tier)}<span style="font-size:12px;color:var(--gray-600)">🔁 Har ${d.freq} din${d.freqStart ? ' · ' + esc(fmtDateDMY(d.freqStart)) + ' se' : ''}</span>
+        <span style="font-size:12px;color:var(--gray-500);margin-left:auto">${esc((d.contacts[0] || {}).name || '')} ${esc((d.contacts[0] || {}).phone || '')}</span></div>`).join('')}</div>` : '<div class="empty">Koi dealer nahi mila</div>'}</div>` : '';
+  return `<div id="scotStrip" style="position:relative;display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:10px">${strip}</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><label style="font-size:12px;font-weight:700">📅 Date</label>
+      <input type="date" value="${esc(scotDate || '')}" onchange="scotPickDate(this.value)" style="padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
+      ${scotDate !== today ? `<button class="btn btn-sm btn-outline" onclick="scotPickDate('${today}')">Aaj</button>` : ''}</div>
+    ${hitsHtml}
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">${fb('all', 'All')}${fb('A - Star', '⭐ Tier A')}${fb('B - Regular', '🔶 Tier B')}${fb('C - Occasional', '🔹 Tier C')}${fb('pending', '⬜ Pending')}
       <span style="margin-left:auto;font-size:13px;font-weight:700">${dt ? `${SCOT_WD[dt.getDay()]}, ${fmtDateDMY(scotDate)}` : ''} · ${(scotSched[scotDate] || []).length} calls</span></div>
     ${cards ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">${cards}</div>` : `<div class="empty">${scotFilter === 'pending' ? '🎉 Aaj ki saari calls ho gayi' : 'Is din koi call nahi'}</div>`}`;
@@ -22136,7 +22157,7 @@ function scotNewHtml() {
   const list = scotData.dealers.filter(d => d.isNew).sort((a, b) => (b.addedDate || '').localeCompare(a.addedDate || ''));
   return `<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Lead FMS se onboard hue naye dealer (NBD) yahan apne aap aate hain — har 7 din call, jodne ke din se.</div>
     ${list.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Added</th><th>Dealer</th><th>Person</th><th>Phone</th><th>Area</th><th>Tier</th><th>Source</th></tr></thead><tbody>
-    ${list.map(d => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(d.addedDate))}</td><td style="font-weight:600">${esc(d.name)}</td><td>${esc(d.person || '—')}${d.designation ? ` <span style="color:var(--gray-400)">(${esc(d.designation)})</span>` : ''}</td><td>${esc(d.phone || '—')}</td><td>${esc(d.area || '—')}</td><td>${scotTierBadge(d.tier)}</td><td>${esc(d.source || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">📭 Abhi koi naya dealer nahi</div>'}`;
+    ${list.map(d => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(d.addedDate))}</td><td style="font-weight:600;cursor:pointer;color:var(--color-primary)" onclick="scotOpenDealer(${d.id})">${esc(d.name)}</td><td>${esc(d.person || '—')}${d.designation ? ` <span style="color:var(--gray-400)">(${esc(d.designation)})</span>` : ''}</td><td>${esc(d.phone || '—')}</td><td>${esc(d.area || '—')}</td><td>${scotTierBadge(d.tier)}</td><td>${esc(d.source || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">📭 Abhi koi naya dealer nahi</div>'}`;
 }
 function scotFreqHtml() {
   const over = scotData.dealers.filter(d => d.freq !== d.freqDefault);
@@ -22151,7 +22172,7 @@ function scotFreqHtml() {
     <div style="font-size:11.5px;color:var(--gray-500);margin-top:6px">Pehli call ki date do (jaise Saturday) — usi din se har N din call aayegi. Khaali chhodo to pehle jaisa.</div></div>
     <div style="font-weight:800;font-size:13px;margin-bottom:6px">Badli hui frequency (${over.length})</div>
     ${over.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Dealer</th><th>Default</th><th>Abhi</th><th></th></tr></thead><tbody>
-      ${over.map(d => `<tr><td>${esc(d.name)}</td><td>Har ${d.freqDefault} din</td><td style="font-weight:800;color:var(--color-primary)">Har ${d.freq} din${d.freqStart ? `<div style="font-size:11px;font-weight:600;color:var(--gray-500)">${esc(fmtDateDMY(d.freqStart))} se</div>` : ''}</td><td><button class="btn btn-sm btn-outline" onclick="scotResetFreq(${d.id})">Reset</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi badlav nahi</div>'}`;
+      ${over.map(d => `<tr><td style="cursor:pointer;color:var(--color-primary);font-weight:600" onclick="scotOpenDealer(${d.id})">${esc(d.name)}</td><td>Har ${d.freqDefault} din</td><td style="font-weight:800;color:var(--color-primary)">Har ${d.freq} din${d.freqStart ? `<div style="font-size:11px;font-weight:600;color:var(--gray-500)">${esc(fmtDateDMY(d.freqStart))} se</div>` : ''}</td><td><button class="btn btn-sm btn-outline" onclick="scotResetFreq(${d.id})">Reset</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Koi badlav nahi</div>'}`;
 }
 async function scotSaveFreq() {
   const name = document.getElementById('scotFreqDealer').value.trim(), f = document.getElementById('scotFreqNew').value;
@@ -22170,22 +22191,86 @@ async function scotResetFreq(id) {
   loadScot();
 }
 function scotModalHead(id, title) { return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0">${title}</h3>${smpModalX(id)}</div>`; }
-function scotOpenContact(id) {
-  const d = scotData.byId[id];
-  vrlModal('scotContactModal', `${scotModalHead('scotContactModal', '✏️ Contact')}<div style="font-weight:700;margin-bottom:10px">${esc(d.name)}</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px"><div><label style="font-size:12px;font-weight:600">Contact person</label><input id="scotCPerson" value="${esc(d.person)}" style="${VRL_IN}"/></div>
-    <div><label style="font-size:12px;font-weight:600">Designation</label><input id="scotCDesig" list="scotDesigList" value="${esc(d.designation || '')}" placeholder="Owner / Manager…" style="${VRL_IN}"/><datalist id="scotDesigList"><option value="Owner"><option value="Partner"><option value="Manager"><option value="Purchase Manager"><option value="Accountant"><option value="Staff"></datalist></div>
-    <div><label style="font-size:12px;font-weight:600">Phone</label><input id="scotCPhone" value="${esc(d.phone)}" inputmode="tel" style="${VRL_IN}"/></div></div>
-    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="scotSaveContact(${id},this)">✓ Save</button>`, 460);
+const SCOT_DESIG_DL = '<datalist id="scotDesigList"><option value="Owner"><option value="Partner"><option value="Manager"><option value="Purchase Manager"><option value="Accountant"><option value="Staff"></datalist>';
+const scotHay = d => `${d.name} ${d.area} ${d.contacts.map(c => `${c.name} ${c.desig} ${c.phone}`).join(' ')}`.toLowerCase();
+// "Har 7 din = har Saturday" under the frequency + first-call boxes.
+function scotFreqHint(freq, start) {
+  const f = Number(freq);
+  if (!start) return '';
+  const dow = SCOT_WD[new Date(start + 'T00:00:00').getDay()];
+  return f % 7 === 0 ? `→ ${f === 7 ? 'har' : `har ${f / 7} hafte me`} ${dow === 'Sun' ? 'Monday' : { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' }[dow]}` : `→ ${fmtDateDMY(start)} se har ${f} din`;
 }
-async function scotSaveContact(id, btn) {
+function scotUpdHint(p) { const el = document.getElementById(p + 'Hint'); if (el) el.textContent = scotFreqHint(document.getElementById(p + 'Freq').value, document.getElementById(p + 'Start').value); }
+// Contact rows: name + designation + number each, "+ Aur contact" adds one (client list 2026-10-30 #5).
+function scotContactRow(c) {
+  return `<div class="scot-crow" style="display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:6px;margin-bottom:6px;align-items:center">
+    <input data-k="name" value="${esc(c.name || '')}" placeholder="Naam" style="${VRL_IN};margin:0"/>
+    <input data-k="desig" list="scotDesigList" value="${esc(c.desig || '')}" placeholder="Designation" style="${VRL_IN};margin:0"/>
+    <input data-k="phone" value="${esc(c.phone || '')}" inputmode="tel" placeholder="Number" style="${VRL_IN};margin:0"/>
+    <button type="button" class="btn btn-sm btn-outline" title="Hatao" onclick="this.parentElement.remove()">✕</button></div>`;
+}
+function scotContactsHtml(wid, list) {
+  return `<label style="font-size:12px;font-weight:600">Contact person(s) <span style="font-weight:400;color:var(--gray-500)">— pehla wala main contact</span></label>
+    <div id="${wid}">${(list.length ? list : [{}]).map(scotContactRow).join('')}</div>
+    <button type="button" class="btn btn-sm btn-outline" style="margin-bottom:10px" onclick="document.getElementById('${wid}').insertAdjacentHTML('beforeend', scotContactRow({}))">＋ Aur contact person</button>${SCOT_DESIG_DL}`;
+}
+function scotReadContacts(wid) {
+  return [...document.querySelectorAll(`#${wid} .scot-crow`)].map(r => ({ name: r.querySelector('[data-k=name]').value.trim(), desig: r.querySelector('[data-k=desig]').value.trim(), phone: r.querySelector('[data-k=phone]').value.trim() }))
+    .filter(c => c.name || c.phone);
+}
+// Dealer details from the name / search (client list 2026-10-30 #3/#4): contacts, frequency, next call, last call, orders.
+function scotOpenDealer(id) {
+  const d = scotData.byId[id];
+  if (!d) return;
+  const today = scotTodayYmd();
+  const next = Object.keys(scotSched).sort().find(k => k >= today && scotSched[k].includes(id));
+  const lc = (scotData.lastCalls || {})[id];
+  const ords = scotData.orders.filter(o => o.dealerId === id).slice(0, 5);
+  const row = (l, v) => `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--gray-100);font-size:13px"><div style="width:120px;flex:0 0 auto;color:var(--gray-500)">${l}</div><div style="flex:1;font-weight:600">${v}</div></div>`;
+  vrlModal('scotDealerModal', `${scotModalHead('scotDealerModal', '📋 ' + esc(d.name))}
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${scotTierBadge(d.tier)}<span style="font-size:12px;color:var(--gray-500)">${d.isNew ? '🆕 Naya dealer · ' + esc(fmtDateDMY(d.addedDate)) : '#' + (d.rank || '—')}</span></div>
+    <div style="background:var(--color-primary-light);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+      <div style="font-weight:900;font-size:16px;color:var(--color-primary)">🔁 Har ${d.freq} din call${d.freq !== d.freqDefault ? ` <span style="font-size:11.5px;font-weight:600;color:var(--gray-500)">(default ${d.freqDefault})</span>` : ''}</div>
+      <div style="font-size:12.5px;margin-top:2px">${d.freqStart ? esc(fmtDateDMY(d.freqStart)) + ' se ' + esc(scotFreqHint(d.freq, d.freqStart)) + ' · ' : ''}Agli call: <b>${next ? esc(fmtDateDMY(next)) : 'is mahine aur nahi'}</b></div></div>
+    <div style="font-weight:800;font-size:13px;margin-bottom:4px">👤 Contacts</div>
+    ${d.contacts.length ? d.contacts.map(c => `<div style="display:flex;gap:8px;align-items:center;padding:4px 0;font-size:13px"><b>${esc(c.name || '—')}</b>${c.desig ? `<span style="color:var(--gray-500)">(${esc(c.desig)})</span>` : ''}${c.phone ? `<a href="tel:${esc(c.phone)}" style="margin-left:auto;font-weight:700;color:var(--color-primary)">📞 ${esc(c.phone)}</a>` : ''}</div>`).join('') : '<div style="font-size:12.5px;color:var(--gray-500)">Koi contact nahi</div>'}
+    <div style="margin:8px 0">${row('Area', esc(d.area || '—'))}${row('Source', esc(d.source || '—'))}${row('Notes', esc(d.notes || '—'))}
+      ${row('Products', d.products.length ? esc(d.products.map(p => p.model).slice(0, 12).join(', ')) + (d.products.length > 12 ? ' …' : '') : '—')}
+      ${row('Pichhli call', lc ? `${esc(fmtDateDMY(lc.date))}${lc.by ? ' · ' + esc(lc.by) : ''}${lc.note ? ' — ' + esc(lc.note) : ''}${lc.next ? ` · agla ${esc(fmtDateDMY(lc.next))}` : ''}` : '—')}
+      ${row('Orders', ords.length ? ords.map(o => `${esc(fmtDateDMY(o.date))} ${inr(o.amount)}`).join('<br>') : '—')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="closeModal('scotDealerModal');scotEditDealer(${id})">✏️ Edit</button>
+      <button class="btn btn-outline" onclick="closeModal('scotDealerModal');scotOpenProducts(${id})">📦 Products</button></div>`, 520);
+}
+function scotEditDealer(id) {
+  const d = scotData.byId[id];
+  const opts = [...new Set([1, 2, 3, 4, 5, 6, 7, 10, 14, 15, 21, 28, 30, 45, 60, 90, 120, 183, d.freq])].sort((a, b) => a - b);
+  vrlModal('scotEditModal', `${scotModalHead('scotEditModal', '✏️ ' + esc(d.name))}
+    ${scotContactsHtml('scotEContacts', d.contacts)}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Call frequency</label><select id="scotEFreq" onchange="scotUpdHint('scotE')" style="${VRL_IN}">${opts.map(n => `<option value="${n}"${n === d.freq ? ' selected' : ''}>Har ${n} din</option>`).join('')}</select></div>
+      <div><label style="font-size:12px;font-weight:600">Kis din se</label><input id="scotEStart" type="date" value="${esc(d.freqStart || '')}" onchange="scotUpdHint('scotE')" style="${VRL_IN}"/></div></div>
+    <div id="scotEHint" style="font-size:12px;font-weight:700;color:var(--color-primary);margin:-4px 0 8px">${esc(scotFreqHint(d.freq, d.freqStart))}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:12px;font-weight:600">Area</label><input id="scotEArea" value="${esc(d.area || '')}" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:600">Tier</label><select id="scotETier" style="${VRL_IN}">${Object.keys(SCOT_TIER_ORDER).map(t => `<option value="${t}"${t === d.tier ? ' selected' : ''}>${t}</option>`).join('')}</select></div></div>
+    <label style="font-size:12px;font-weight:600">Notes</label><input id="scotENotes" value="${esc(d.notes || '')}" style="${VRL_IN};margin-bottom:10px"/>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="scotSaveDealer(${id},this)">✓ Save</button>`, 600);
+}
+async function scotSaveDealer(id, btn) {
+  const d = scotData.byId[id], v = k => document.getElementById(k).value.trim();
+  const contacts = scotReadContacts('scotEContacts');
+  if (!contacts.length) { showToast('Kam se kam ek contact bharein', 'error'); return; }
+  const body = { contacts, area: v('scotEArea'), notes: v('scotENotes'), tier: v('scotETier') };
+  const f = Number(v('scotEFreq')), start = v('scotEStart');
+  if (f !== d.freq || start !== (d.freqStart || '')) Object.assign(body, { freq: f, start });
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api(`/api/scot/dealer/${id}`, 'PUT', { person: document.getElementById('scotCPerson').value.trim(), designation: document.getElementById('scotCDesig').value.trim(), phone: document.getElementById('scotCPhone').value.trim() });
+  const r = await api(`/api/scot/dealer/${id}`, 'PUT', body);
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
-  closeModal('scotContactModal');
-  Object.assign(scotData.byId[id], { person: document.getElementById('scotCPerson').value.trim(), designation: document.getElementById('scotCDesig').value.trim(), phone: document.getElementById('scotCPhone').value.trim() });
-  renderScot();
+  closeModal('scotEditModal');
+  showToast('✅ Dealer update ho gaya');
+  loadScot();
 }
 let scotSelProds = [];
 async function scotOpenProducts(id) {
@@ -22253,26 +22338,31 @@ async function scotSaveOrder(id, btn) {
 function scotOpenNewDealer() {
   vrlModal('scotNewModal', `${scotModalHead('scotNewModal', '＋ New Dealer')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div><label style="font-size:12px;font-weight:600">Shop / Dealer *</label><input id="scotNName" style="${VRL_IN}"/></div>
-    <div><label style="font-size:12px;font-weight:600">Contact person</label><input id="scotNPerson" style="${VRL_IN}"/></div>
-    <div><label style="font-size:12px;font-weight:600">Designation</label><input id="scotNDesig" list="scotDesigList" placeholder="Owner / Manager…" style="${VRL_IN}"/><datalist id="scotDesigList"><option value="Owner"><option value="Partner"><option value="Manager"><option value="Purchase Manager"><option value="Accountant"><option value="Staff"></datalist></div>
-    <div><label style="font-size:12px;font-weight:600">Phone *</label><input id="scotNPhone" inputmode="tel" style="${VRL_IN}"/></div>
     <div><label style="font-size:12px;font-weight:600">Area</label><input id="scotNArea" style="${VRL_IN}"/></div>
     <div><label style="font-size:12px;font-weight:600">Tier</label><select id="scotNTier" style="${VRL_IN}"><option value="A - Star">A — Star</option><option value="B - Regular" selected>B — Regular</option><option value="C - Occasional">C — Occasional</option></select></div>
     <div><label style="font-size:12px;font-weight:600">Source</label><select id="scotNSource" style="${VRL_IN}"><option>Cold Call</option><option>Referral</option><option>Walk-in</option><option>Field Visit</option></select></div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;align-items:end">
-      <div><label style="font-size:12px;font-weight:600">Call frequency</label><select id="scotNFreq" style="${VRL_IN}">${[3, 5, 7, 10, 14, 15, 21, 30, 45, 60].map(n => `<option value="${n}"${n === 7 ? ' selected' : ''}>Har ${n} din</option>`).join('')}</select></div>
-      <label style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px;padding-bottom:10px;cursor:pointer"><input type="checkbox" id="scotNCalled" checked/> Aaj call ho gayi (aaj ki list me ✓)</label></div>
+    ${scotContactsHtml('scotNContacts', [])}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+      <div><label style="font-size:12px;font-weight:600">Call frequency *</label><select id="scotNFreq" onchange="scotUpdHint('scotN')" style="${VRL_IN}">${[1, 2, 3, 5, 7, 10, 14, 15, 21, 28, 30, 45, 60].map(n => `<option value="${n}"${n === 7 ? ' selected' : ''}>Har ${n} din</option>`).join('')}</select></div>
+      <div><label style="font-size:12px;font-weight:600">Kis din se shuru *</label><input id="scotNStart" type="date" value="${scotTodayYmd()}" onchange="scotUpdHint('scotN')" style="${VRL_IN}"/></div></div>
+    <div id="scotNHint" style="font-size:12px;font-weight:700;color:var(--color-primary);margin-bottom:4px">${esc(scotFreqHint(7, scotTodayYmd()))}</div>
+    <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:8px">Har Saturday call chahiye? → Har 7 din + agla Saturday chunein.</div>
+    <label style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="scotNCalled" checked/> Aaj call ho gayi (aaj ki list me ✓)</label>
     <label style="font-size:12px;font-weight:600">Notes</label><input id="scotNNotes" style="${VRL_IN};margin-bottom:10px"/>
-    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="scotSaveNewDealer(this)">✓ Save Dealer</button>`, 540);
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="scotSaveNewDealer(this)">✓ Save Dealer</button>`, 600);
 }
 async function scotSaveNewDealer(btn) {
   const v = id => document.getElementById(id).value.trim();
+  const contacts = scotReadContacts('scotNContacts');
+  if (!contacts.length || !contacts[0].phone) { showToast('Pehle contact ka number bharein', 'error'); return; }
+  if (!v('scotNStart')) { showToast('Kis din se shuru — date chunein', 'error'); return; }
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api('/api/scot/dealer', 'POST', { name: v('scotNName'), person: v('scotNPerson'), designation: v('scotNDesig'), freq: v('scotNFreq'), calledToday: document.getElementById('scotNCalled').checked, phone: v('scotNPhone'), area: v('scotNArea'), tier: v('scotNTier'), source: v('scotNSource'), notes: v('scotNNotes') });
+  const r = await api('/api/scot/dealer', 'POST', { name: v('scotNName'), contacts, freq: v('scotNFreq'), start: v('scotNStart'), calledToday: document.getElementById('scotNCalled').checked, area: v('scotNArea'), tier: v('scotNTier'), source: v('scotNSource'), notes: v('scotNNotes') });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
+  const msg = `✅ Naya dealer jud gaya — ${fmtDateDMY(v('scotNStart'))} se har ${v('scotNFreq')} din call`;
   closeModal('scotNewModal');
-  showToast(`✅ Naya dealer jud gaya — aaj se har ${v('scotNFreq')} din call`);
+  showToast(msg);
   loadScot();
 }
 
