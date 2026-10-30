@@ -2834,6 +2834,11 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
 
+    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🎬 Training Videos</div>
+    <div id="catVideosWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
+    </div>
+
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📷 Single Product Photos</div>
     <div id="catPhotosWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty ui-skel" aria-busy="true">Loading…</div>
@@ -16281,6 +16286,7 @@ let o2dPriceListSearchQ = '';
 
 async function loadPriceCataloguePage() {
   loadCatPhotos();
+  loadCatVideos();
   await loadCataloguePdfs(false);
   renderCataloguePdfList();
 }
@@ -16331,6 +16337,55 @@ function renderCatPhotosBody() {
       ${rows.map(r => `<tr>${r.map(c => `<td>${catPhotoCell(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
       <div style="padding:8px 14px;font-size:11.5px;color:var(--gray-500)">${rows.length} / ${d.rows.length} products${catPhotosOpen && !q ? ' · <a href="#" onclick="catPhotosOpen=false;renderCatPhotosBody();return false">▴ Band karo</a>' : ''}</div>`
     : '<div class="empty">Koi product nahi mila</div>';
+}
+// ── Training / product videos (client list 2026-10-30 #2): the client's YouTube sheet,
+// by department, searchable; each opens on YouTube. Collapsed until a department / search.
+let catVideos = null, catVideosQ = '', catVideosDept = '';
+async function loadCatVideos(refresh) {
+  const wrap = document.getElementById('catVideosWrap');
+  if (!catVideos || refresh) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
+  const r = await api('/api/catalogue-videos' + (refresh ? '?refresh=1' : ''));
+  catVideos = r && !r.error ? r : { error: (r && r.error) || 'Load failed', canEdit: ME.role === 'admin', url: '', videos: [] };
+  renderCatVideos();
+}
+function catVideosPickDept(k) { catVideosDept = catVideosDept === k ? '' : k; renderCatVideos(); }
+function renderCatVideos() {
+  const wrap = document.getElementById('catVideosWrap'), d = catVideos;
+  const admin = d.canEdit ? `<button class="btn btn-sm btn-outline" onclick="setCatVideosSheet()">${d.url ? '🔗 Sheet badlo' : '🔗 Sheet link daalo'}</button>` : '';
+  if (d.error || !d.url) {
+    wrap.innerHTML = `<div class="empty">${d.error ? '⚠️ ' + esc(d.error) : 'Abhi videos ki sheet nahi judi.'}<div style="margin-top:10px">${admin}</div></div>`;
+    return;
+  }
+  const depts = [...new Set(d.videos.map(v => v.dept))];
+  const chip = k => `<button onclick="catVideosPickDept('${jsArg(k)}')" style="padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid ${catVideosDept === k ? 'var(--color-primary)' : 'var(--gray-200)'};background:${catVideosDept === k ? 'var(--color-primary)' : 'var(--surface)'};color:${catVideosDept === k ? '#fff' : 'var(--gray-700)'}">${esc(k)} <span style="opacity:.7;font-weight:600">${d.videos.filter(v => v.dept === k).length}</span></button>`;
+  wrap.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 14px;border-bottom:1px solid var(--gray-200)">
+      <input id="catVideosSearch" value="${esc(catVideosQ)}" oninput="catVideosQ=this.value;renderCatVideosBody()" placeholder="🔍 Video search… (jaise fan, geyser, tally)" style="flex:1;min-width:160px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
+      <a class="btn btn-sm btn-outline" href="${esc(d.url)}" target="_blank" rel="noopener" style="text-decoration:none">📄 Sheet kholo</a>
+      <button class="btn btn-sm btn-outline" onclick="loadCatVideos(true)">🔄</button>${admin}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px 0">${depts.map(chip).join('')}</div>
+    <div id="catVideosBody"></div>`;
+  renderCatVideosBody();
+}
+function renderCatVideosBody() {
+  const d = catVideos, q = catVideosQ.trim().toLowerCase();
+  const body = document.getElementById('catVideosBody');
+  if (!q && !catVideosDept) { body.innerHTML = `<div style="padding:12px 14px;font-size:13px;color:var(--gray-500)">${d.videos.length} videos — upar department chunein ya search karein</div>`; return; }
+  const list = d.videos.filter(v => (!catVideosDept || v.dept === catVideosDept) && (!q || `${v.title} ${v.dept}`.toLowerCase().includes(q)));
+  const ytId = u => (u.match(/(?:youtu\.be\/|v=|shorts\/)([\w-]{11})/) || [])[1];
+  body.innerHTML = list.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;padding:12px 14px">${list.map(v => { const id = ytId(v.url); return `
+      <a href="${esc(v.url)}" target="_blank" rel="noopener" style="display:flex;gap:10px;align-items:center;padding:8px;border:1px solid var(--gray-200);border-radius:10px;text-decoration:none;color:var(--gray-800);background:var(--surface)">
+        ${id ? `<img src="https://i.ytimg.com/vi/${id}/mqdefault.jpg" loading="lazy" style="width:96px;height:54px;object-fit:cover;border-radius:6px;flex-shrink:0" onerror="this.remove()"/>` : '<span style="font-size:28px">▶️</span>'}
+        <span style="min-width:0"><b style="font-size:13px;display:block">${esc(v.title)}</b><span style="font-size:11px;color:var(--gray-500)">${esc(v.dept)}</span></span></a>`; }).join('')}</div>
+      <div style="padding:0 14px 10px;font-size:11.5px;color:var(--gray-500)">${list.length} / ${d.videos.length} videos</div>` : '<div class="empty">Koi video nahi mila</div>';
+}
+async function setCatVideosSheet() {
+  const url = await uiPrompt('YouTube videos wali Google Sheet ka link (sheet service account ke saath share honi chahiye):', (catVideos && catVideos.url) || '');
+  if (url === null) return;
+  showToast('Sheet check kar rahe…');
+  const r = await api('/api/catalogue-videos', 'PUT', { url: url.trim() });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('✅ Sheet jud gayi');
+  loadCatVideos(true);
 }
 async function setCatPhotosSheet() {
   const url = await uiPrompt('Product photos wali Google Sheet ka link (sheet service account ke saath share honi chahiye):', (catPhotos && catPhotos.url) || '');

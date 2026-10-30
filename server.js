@@ -8007,6 +8007,55 @@ app.put('/api/catalogue-photos', requireAuth, requireAdmin, async (req, res) => 
   }
 });
 
+// Training / product YouTube videos (client list 2026-10-30 #2): the client's
+// "Youtube videos" sheet — Department | Video Link (title with the link behind
+// it) — read the same way as the product photos sheet, shown on Price Catalogue.
+const CAT_VIDEOS_KEY = 'catalogue_videos_sheet';
+let _catVideosCache = null; // { url, ts, data }
+app.get('/api/catalogue-videos', requireAuth, async (req, res) => {
+  try {
+    if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to the catalogue' });
+    const url = (await getAppSetting(CAT_VIDEOS_KEY)) || '';
+    const canEdit = req.session.role === 'admin';
+    if (!url) return res.json({ url, canEdit, videos: [] });
+    if (!_catVideosCache || _catVideosCache.url !== url || req.query.refresh === '1' || Date.now() - _catVideosCache.ts > 10 * 60 * 1000) {
+      const sheet = await readCataloguePhotoSheet(url);
+      // The driver block (after a second "Video name | Video Link" header, sheet row 163)
+      // repeats the title in the Department column — those rows are 'Driver'.
+      const norm = s => s.toLowerCase().replace(/\(unedited\)/g, '').replace(/\s+/g, ' ').trim();
+      let titleAsDept = false;
+      const videos = [];
+      sheet.rows.forEach(r => {
+        const dept = (r[0] || {}).text.trim(), cell = r[1] || { text: '', link: '' };
+        if (/^video name$/i.test(dept)) { titleAsDept = true; return; }
+        const link = cell.link || (/^https?:\/\//i.test(cell.text.trim()) ? cell.text.trim() : '');
+        const title = cell.text.trim() && cell.text.trim() !== link ? cell.text.trim() : (dept || 'Video');
+        const repeats = titleAsDept && dept && norm(title).startsWith(norm(dept));
+        if (titleAsDept && dept && !repeats) titleAsDept = false;
+        if (/^https?:\/\//i.test(link)) videos.push({ dept: !dept ? 'Other' : repeats ? 'Driver' : dept, title, url: link });
+      });
+      _catVideosCache = { url, ts: Date.now(), data: { tab: sheet.tab, videos } };
+    }
+    res.json({ url, canEdit, ..._catVideosCache.data });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+app.put('/api/catalogue-videos', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const url = String((req.body || {}).url || '').trim();
+    if (url && !/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]{20,}/i.test(url)) return res.status(400).json({ error: 'Google Sheet ka link daalein (https://docs.google.com/spreadsheets/d/…)' });
+    if (url) await readCataloguePhotoSheet(url); // fails here if the sheet isn't shared yet
+    await setAppSetting(CAT_VIDEOS_KEY, url);
+    _catVideosCache = null;
+    res.json({ success: true, url });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    sendServerError(res, err);
+  }
+});
+
 // Catalogue PDFs — full upload history kept (not just the latest), same
 // viewing permission as the price list above.
 app.get('/api/o2d-fms/catalogue-pdfs', requireAuth, async (req, res) => {
