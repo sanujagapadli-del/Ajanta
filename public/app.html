@@ -21275,11 +21275,11 @@ function renderMeca() {
     <th style="text-align:right;border-left:2px solid var(--gray-200)">NBD plan</th><th style="text-align:right">NBD visits</th><th style="text-align:right">NBD won</th></tr></thead>`;
   const sum = list => list.reduce((a, r) => ({ planned: a.planned + r.planned, visited: a.visited + r.visited, ordered: a.ordered + r.ordered, value: a.value + r.value, nbdPlanned: a.nbdPlanned + (r.nbdPlanned || 0), nbdVisits: a.nbdVisits + r.nbdVisits, nbdWon: a.nbdWon + r.nbdWon }),
     { planned: 0, visited: 0, ordered: 0, value: 0, nbdPlanned: 0, nbdVisits: 0, nbdWon: 0 });
-  const note = `<div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Old dealer MECA = Sales Schedule ki beat (✓ visited, 📝 me order value). Productivity = order diya ÷ visit kiye. NBD = Lead FMS ke naye dealer visit / order ya dealer bana.</div>`;
+  const note = `<div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Old dealer MECA = Sales Schedule ki beat (✓ visited, 📝 me order value). Productivity = order diya ÷ visit kiye. NBD = Lead FMS ke naye dealer visit / order ya dealer bana.${rows.some(r => r.fromSheet) ? ' 📄 = 28-Sep se 29-Oct tak purani MECA sheet ke din ke total (wahan sirf ginti hai, dealer-wise visit nahi).' : ''}</div>`;
   if (mecaView === 'days') {
     wrap.innerHTML = `<div class="table-wrap"><table style="font-size:12.5px;white-space:nowrap">${head('<th>Date</th><th>Salesman</th><th>Plan</th>')}<tbody>
       ${rows.slice().sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)).map(r => `<tr><td>${esc(fmtDateDMY(r.date))}</td><td style="font-weight:600">${esc(r.name)}</td>
-        <td>${esc({ full: 'Full', half: 'Half', none: 'No visit' }[r.plan] || r.plan || '—')}</td>${cells(r)}</tr>`).join('')}</tbody></table></div>${note}`;
+        <td>${esc({ full: 'Full', half: 'Half', none: 'No visit' }[r.plan] || r.plan || '—')}${r.fromSheet ? ' <span title="Purani MECA sheet (Form1 Daily Sales) se">📄</span>' : ''}</td>${cells(r)}</tr>`).join('')}</tbody></table></div>${note}`;
     return;
   }
   const by = {};

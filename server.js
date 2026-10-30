@@ -13532,6 +13532,17 @@ app.get('/api/meca', requireAuth, async (req, res) => {
         visit_count, result FROM leads WHERE visit_date BETWEEN ? AND ? AND visit_user_id IS NOT NULL AND cancelled_at IS NULL ORDER BY visit_date`, [from, to])
       .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; });
     for (const l of nbdPlan) { const r = row(l.visit_user_id, l.d); r.nbdPlanned = (r.nbdPlanned || 0) + 1; }
+    // Day totals brought over once from the team's old MECA Google Sheet (Form1_DailySales,
+    // 28-Sep → 29-Oct-2026, scripts/import-meca-sheet.js) — counts only, no per-dealer rows.
+    const [sheetDays] = await db.query(`SELECT user_id, DATE_FORMAT(day,'%Y-%m-%d') AS d, SUM(old_met) AS om, SUM(old_ordered) AS oo, SUM(old_amount) AS oa,
+        SUM(new_visited) AS nv, SUM(new_ordered) AS no_, SUM(new_amount) AS na FROM meca_sheet_daily WHERE day BETWEEN ? AND ? GROUP BY user_id, day`, [from, to])
+      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+    for (const s of sheetDays) {
+      const r = row(s.user_id, s.d);
+      r.visited += Number(s.om) || 0; r.ordered += Number(s.oo) || 0; r.value += (Number(s.oa) || 0) + (Number(s.na) || 0);
+      r.nbdVisits += Number(s.nv) || 0; r.nbdWon += Number(s.no_) || 0;
+      r.fromSheet = true;
+    }
     const ids = [...new Set(Object.values(rows).map(r => r.userId))];
     const [users] = ids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [ids]) : [[]];
     const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
