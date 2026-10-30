@@ -630,7 +630,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics'];
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -1447,6 +1447,9 @@ app.get('/api/me', requireAuth, async (req, res) => {
       const [[sp]] = await withPlTables(() => db.query("SELECT user_id FROM salesman_profiles WHERE user_id=? AND o2d_names IS NOT NULL AND o2d_names<>''", [req.session.userId]));
       rows[0].sales_profile = !!sp;
     } catch (e) { rows[0].pl_viewer = false; rows[0].sales_profile = false; }
+    // Anyone with counters in the Beat sees the Beat page (own beat).
+    try { const [[b]] = await db.query('SELECT 1 AS y FROM beat_counters WHERE user_id=? AND active=1 LIMIT 1', [req.session.userId]); rows[0].has_beat = !!b; }
+    catch (e) { rows[0].has_beat = false; }
     res.json(rows[0]);
   } catch (err) { sendServerError(res, err); }
 });
@@ -13478,11 +13481,140 @@ app.get('/api/md-summary', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
-// MECA (client voice note, 2026-10-14): what each salesman did in the market,
-// day by day — instead of asking every morning "kal kitne counter kiye, kitna
-// order mila". Old-dealer MECA comes from the Sales Schedule beat (planned =
-// that day's beat counters + any added by hand, same rule as the page);
-// NBD MECA from Lead FMS visits (new dealers visited / won).
+// ══════════════════════════════════════════════════════
+// BEAT (client 2026-10-30: "MECA ko alag rakho, beat alag banao — MECA banega
+// Lead FMS aur beat sheet se"). The team's monthly Google "Counter Visit" tabs
+// moved into the app: each salesman's counter list with its beat day, and per
+// counter per day Visit (yes / no / out of city …), Order ₹, Collection ₹, New
+// Counter, Reference, Enquiry. Old Sep/Oct tabs: scripts/import-beat-sheet.js.
+// ══════════════════════════════════════════════════════
+let _beatTablesOk = false;
+async function beatTables() {
+  if (_beatTablesOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS beat_counters (
+    id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, counter_name VARCHAR(255) NOT NULL,
+    beat_day VARCHAR(30) NOT NULL DEFAULT '', area VARCHAR(120), city VARCHAR(80), sort_no INT NOT NULL DEFAULT 0,
+    active TINYINT(1) NOT NULL DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_user_counter (user_id, counter_name), INDEX (user_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS beat_entries (
+    id INT AUTO_INCREMENT PRIMARY KEY, counter_id INT NOT NULL, entry_date DATE NOT NULL,
+    visit VARCHAR(40), order_amt DECIMAL(12,2), collection_amt DECIMAL(12,2),
+    new_counter VARCHAR(255), reference VARCHAR(255), enquiry VARCHAR(255),
+    updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_counter_date (counter_id, entry_date), INDEX (entry_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _beatTablesOk = true;
+}
+// "Monday", "Mon New", "Thuresday" → 1 … 7; "Upcountry" / blank → 0 (no fixed weekday).
+function beatDow(beatDay) {
+  const k = String(beatDay || '').trim().toLowerCase().slice(0, 3);
+  return { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 }[k] || 0;
+}
+// Visit cell → visited? "yes" / "sir ke sath" (went with sir) or any order / collection = visited;
+// "no", "out of city", "out of visit" = not visited.
+function beatVisited(e) {
+  const v = String(e.visit || '').trim().toLowerCase();
+  if (Number(e.order_amt) > 0 || Number(e.collection_amt) > 0) return true;
+  if (!v || /^(no|nahi|out)/.test(v)) return false;
+  return true;
+}
+async function beatCanSeeAll(req) {
+  return (await ssIsManager(req)) || (await hasPageGrant(req, 'beat'));
+}
+async function beatCanEditCounter(req, counterId) {
+  const [[c]] = await db.query('SELECT id, user_id FROM beat_counters WHERE id=?', [counterId]);
+  if (!c) return null;
+  if (Number(c.user_id) === Number(req.session.userId) || await beatCanSeeAll(req)) return c;
+  return false;
+}
+
+app.get('/api/beat', requireAuth, async (req, res) => {
+  try {
+    await beatTables();
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 7);
+    const all = await beatCanSeeAll(req);
+    const userId = all ? (Number(req.query.userId) || null) : Number(req.session.userId);
+    const [salesmen] = await db.query(`SELECT u.id, u.name, COUNT(c.id) AS counters FROM users u JOIN beat_counters c ON c.user_id=u.id AND c.active=1
+      ${all ? '' : 'WHERE u.id=?'} GROUP BY u.id, u.name ORDER BY u.name`, all ? [] : [userId]);
+    const uid = userId || (salesmen[0] && salesmen[0].id) || null;
+    const start = `${month}-01`, end = ymdAddDays(`${month}-01`, 40).slice(0, 7) + '-01';
+    const [counters] = uid ? await db.query('SELECT id, counter_name AS name, beat_day AS beatDay, area, city, sort_no AS sortNo, active FROM beat_counters WHERE user_id=? ORDER BY active DESC, sort_no, counter_name', [uid]) : [[]];
+    const [entries] = uid ? await db.query(`SELECT e.counter_id AS counterId, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS date, e.visit, e.order_amt AS orderAmt, e.collection_amt AS collectionAmt,
+        e.new_counter AS newCounter, e.reference, e.enquiry FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id
+        WHERE c.user_id=? AND e.entry_date >= ? AND e.entry_date < ?`, [uid, start, end]) : [[]];
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    let allUsers = [];
+    if (all) [allUsers] = await db.query("SELECT id, name FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor') ORDER BY name");
+    res.json({ month, userId: uid, canSeeAll: all, salesmen, allUsers, counters, entries, today });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// One counter's one day — the whole row is saved; an all-empty row is removed.
+app.put('/api/beat/entry', requireAuth, async (req, res) => {
+  try {
+    await beatTables();
+    const b = req.body || {};
+    const c = await beatCanEditCounter(req, Number(b.counterId));
+    if (c === null) return res.status(404).json({ error: 'Counter nahi mila' });
+    if (c === false) return res.status(403).json({ error: 'Ye counter aapki beat ka nahi' });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : null;
+    if (!date) return res.status(400).json({ error: 'Date galat hai' });
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    if (date > today) return res.status(400).json({ error: 'Aage ki date nahi bhar sakte' });
+    const txt = (v, n) => String(v == null ? '' : v).trim().slice(0, n) || null;
+    const amt = v => { const s = String(v == null ? '' : v).replace(/[^\d.]/g, ''); return s === '' ? null : Math.round(Number(s) * 100) / 100; };
+    const row = { visit: txt(b.visit, 40), order_amt: amt(b.orderAmt), collection_amt: amt(b.collectionAmt), new_counter: txt(b.newCounter, 255), reference: txt(b.reference, 255), enquiry: txt(b.enquiry, 255) };
+    if (Object.values(row).every(v => v === null)) {
+      await db.query('DELETE FROM beat_entries WHERE counter_id=? AND entry_date=?', [c.id, date]);
+      return res.json({ success: true, cleared: true });
+    }
+    await db.query(`INSERT INTO beat_entries (counter_id, entry_date, visit, order_amt, collection_amt, new_counter, reference, enquiry, updated_by) VALUES (?,?,?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE visit=VALUES(visit), order_amt=VALUES(order_amt), collection_amt=VALUES(collection_amt), new_counter=VALUES(new_counter),
+        reference=VALUES(reference), enquiry=VALUES(enquiry), updated_by=VALUES(updated_by)`,
+      [c.id, date, row.visit, row.order_amt, row.collection_amt, row.new_counter, row.reference, row.enquiry, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Add a counter to a salesman's beat (own beat, or anyone's for managers).
+app.post('/api/beat/counter', requireAuth, async (req, res) => {
+  try {
+    await beatTables();
+    const b = req.body || {};
+    const all = await beatCanSeeAll(req);
+    const uid = all && Number(b.userId) ? Number(b.userId) : Number(req.session.userId);
+    const name = String(b.name || '').trim().slice(0, 255);
+    if (!name) return res.status(400).json({ error: 'Counter ka naam likhein' });
+    const [[mx]] = await db.query('SELECT COALESCE(MAX(sort_no),0)+1 AS n FROM beat_counters WHERE user_id=?', [uid]);
+    await db.query(`INSERT INTO beat_counters (user_id, counter_name, beat_day, area, city, sort_no) VALUES (?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE active=1, beat_day=VALUES(beat_day), area=VALUES(area), city=VALUES(city)`,
+      [uid, name, String(b.beatDay || '').trim().slice(0, 30), String(b.area || '').trim().slice(0, 120) || null, String(b.city || '').trim().slice(0, 80) || null, mx.n]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/beat/counter/:id', requireAuth, async (req, res) => {
+  try {
+    await beatTables();
+    const c = await beatCanEditCounter(req, Number(req.params.id));
+    if (c === null) return res.status(404).json({ error: 'Counter nahi mila' });
+    if (c === false) return res.status(403).json({ error: 'Ye counter aapki beat ka nahi' });
+    const b = req.body || {};
+    const name = String(b.name || '').trim().slice(0, 255);
+    if (!name) return res.status(400).json({ error: 'Counter ka naam likhein' });
+    await db.query('UPDATE beat_counters SET counter_name=?, beat_day=?, area=?, city=?, active=? WHERE id=?',
+      [name, String(b.beatDay || '').trim().slice(0, 30), String(b.area || '').trim().slice(0, 120) || null, String(b.city || '').trim().slice(0, 80) || null, b.active === false || b.active === 0 ? 0 : 1, c.id]);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Is naam ka counter pehle se beat me hai' });
+    sendServerError(res, err);
+  }
+});
+
+// MECA (client voice note, 2026-10-14; rebuilt 2026-10-30): what each salesman
+// did in the market, day by day. Old dealers = the Beat page (visits, orders,
+// collection; planned = active counters whose beat day is that weekday, on days
+// the salesman filled his beat). New dealers (NBD) = Lead FMS visits / won.
 app.get('/api/meca', requireAuth, async (req, res) => {
   try {
     if (!(await hasPageGrant(req, 'meca'))) return res.status(403).json({ error: 'No access to MECA' });
@@ -13491,33 +13623,26 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     const from = isYmd(req.query.from) ? req.query.from : today.slice(0, 8) + '01';
     const to = isYmd(req.query.to) ? req.query.to : today;
     if (from > to) return res.status(400).json({ error: 'From date To se pehle honi chahiye' });
-    const [[plans], [counters], [visits]] = await withSalesSchedule(() => Promise.all([
-      db.query("SELECT user_id, DATE_FORMAT(plan_date,'%Y-%m-%d') AS d, plan, place FROM sales_day_plan WHERE plan_date BETWEEN ? AND ?", [from, to]),
-      db.query('SELECT counter_name, city, user_id, beat_day FROM sales_counters'),
-      db.query("SELECT user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d, dealer_name, status, order_value, DATE_FORMAT(visited_at,'%H:%i') AS at, photo, distance_m, remark FROM sales_schedule WHERE visit_date BETWEEN ? AND ?", [from, to])
-    ]));
+    await beatTables();
+    const [[counters], [entries]] = await Promise.all([
+      db.query('SELECT id, user_id, counter_name, beat_day FROM beat_counters WHERE active=1'),
+      db.query(`SELECT e.counter_id, c.user_id, c.counter_name, c.beat_day, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS d, e.visit, e.order_amt, e.collection_amt,
+          e.new_counter, e.reference, e.enquiry FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id WHERE e.entry_date BETWEEN ? AND ?`, [from, to])
+    ]);
     const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
     const rows = {};
-    const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, plan: '', planned: new Set(), visited: 0, notVisited: 0, ordered: 0, value: 0, nbdVisits: 0, nbdWon: 0 };
-    for (const p of plans) {
-      const r = row(p.user_id, p.d);
-      r.plan = p.plan === 'up' ? p.place : p.plan;
-      if (p.plan === 'full' || p.plan === 'half') {
-        const dow = isoDow(p.d);
-        counters.filter(c => Number(c.user_id) === Number(p.user_id) && Number(c.beat_day) === dow).forEach(c => r.planned.add(c.counter_name.toLowerCase()));
-      } else if (p.plan === 'up') {
-        const places = String(p.place || '').toLowerCase().split(/[,/]+/).map(x => x.trim()).filter(Boolean);
-        const inPlace = c => places.some(pl => (c.city || '').toLowerCase().includes(pl) || c.counter_name.toLowerCase().includes(pl));
-        const mine = counters.filter(c => inPlace(c) && Number(c.user_id) === Number(p.user_id));
-        (mine.length ? mine : counters.filter(c => inPlace(c) && !c.user_id)).forEach(c => r.planned.add(c.counter_name.toLowerCase()));
-      }
+    const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdPlanned: 0 };
+    for (const e of entries) {
+      const r = row(e.user_id, e.d);
+      if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
+      const ov = Number(e.order_amt) || 0, cv = Number(e.collection_amt) || 0;
+      if (ov > 0) { r.ordered++; r.value += ov; }
+      r.collection += cv;
     }
-    for (const v of visits) {
-      const r = row(v.user_id, v.d);
-      r.planned.add(v.dealer_name.toLowerCase());
-      // beatVisited = visits against the planned list — Visit % uses only these, not the sheet's totals.
-      if (v.status === 'visited') { r.visited++; r.beatVisited = (r.beatVisited || 0) + 1; const ov = Number(v.order_value) || 0; if (ov > 0) { r.ordered++; r.value += ov; } }
-      else if (v.status === 'not_visited') r.notVisited++;
+    // Planned = that weekday's beat counters, only on days the beat was filled (no plan for Sundays / leave).
+    for (const r of Object.values(rows)) {
+      const dow = isoDow(r.date);
+      r.planned = counters.filter(c => Number(c.user_id) === Number(r.userId) && beatDow(c.beat_day) === dow).length;
     }
     const [leadVisits] = await db.query(`SELECT user_id, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, detail FROM lead_events
       WHERE event='visit' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
@@ -13527,40 +13652,26 @@ app.get('/api/meca', requireAuth, async (req, res) => {
       r.nbdVisits++;
       if (/^(Order Mil Gaya|New Dealer Bana)/.test(l.detail || '')) r.nbdWon++;
     }
-    // New-dealer visits fixed in Lead FMS for these days (client list 2026-10-26 #16: "market visit date
-    // ... MECA me bhi usi din jaani chahiye") — counted on the visit date for the salesman it was given to.
+    // New-dealer visits fixed in Lead FMS for these days (client list 2026-10-26 #16) — on the visit date for that salesman.
     const [nbdPlan] = await db.query(`SELECT id, lead_code, shop_name, contact_name, mobile, city, area, visit_user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d,
         visit_count, result FROM leads WHERE visit_date BETWEEN ? AND ? AND visit_user_id IS NOT NULL AND cancelled_at IS NULL ORDER BY visit_date`, [from, to])
       .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; });
-    for (const l of nbdPlan) { const r = row(l.visit_user_id, l.d); r.nbdPlanned = (r.nbdPlanned || 0) + 1; }
-    // Day totals brought over once from the team's old MECA Google Sheet (Form1_DailySales,
-    // 28-Sep → 29-Oct-2026, scripts/import-meca-sheet.js) — counts only, no per-dealer rows.
-    const [sheetDays] = await db.query(`SELECT user_id, DATE_FORMAT(day,'%Y-%m-%d') AS d, SUM(old_met) AS om, SUM(old_ordered) AS oo, SUM(old_amount) AS oa,
-        SUM(new_visited) AS nv, SUM(new_ordered) AS no_, SUM(new_amount) AS na FROM meca_sheet_daily WHERE day BETWEEN ? AND ? GROUP BY user_id, day`, [from, to])
-      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
-    for (const s of sheetDays) {
-      const r = row(s.user_id, s.d);
-      r.visited += Number(s.om) || 0; r.ordered += Number(s.oo) || 0; r.value += (Number(s.oa) || 0) + (Number(s.na) || 0);
-      r.nbdVisits += Number(s.nv) || 0; r.nbdWon += Number(s.no_) || 0;
-      r.fromSheet = true;
-    }
+    for (const l of nbdPlan) row(l.visit_user_id, l.d).nbdPlanned++;
     const ids = [...new Set(Object.values(rows).map(r => r.userId))];
     const [users] = ids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [ids]) : [[]];
     const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
-    // A day with only an order (no visit count — sheet rows like Krishna 20-Oct: 0 met, 2 orders ₹27,000) still counts.
-    const out = Object.values(rows).filter(r => r.plan !== 'none' || r.visited || r.ordered || r.value || r.nbdVisits || r.nbdPlanned)
-      .map(r => ({ ...r, planned: r.planned.size, beatVisited: r.beatVisited || 0, nbdPlanned: r.nbdPlanned || 0, name: nameOf[r.userId] || `User ${r.userId}` }))
-      .filter(r => r.planned || r.visited || r.ordered || r.value || r.nbdVisits || r.nbdPlanned)
+    const out = Object.values(rows).filter(r => r.visited || r.notVisited || r.ordered || r.collection || r.nbdVisits || r.nbdPlanned)
+      .map(r => ({ ...r, name: nameOf[r.userId] || `User ${r.userId}` }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
-    const [vu] = visits.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [[...new Set(visits.map(v => v.user_id))]]) : [[]];
-    const vName = Object.fromEntries(vu.map(u => [u.id, u.name]));
-    const visitList = visits.filter(v => v.status === 'visited')
-      .map(v => ({ date: v.d, at: v.at || '', name: vName[v.user_id] || '', dealer: v.dealer_name, orderValue: v.order_value == null ? null : Number(v.order_value), remark: v.remark || '', photo: v.photo || '', distance: v.distance_m }))
-      .sort((a, b) => (b.date + b.at).localeCompare(a.date + a.at));
-    const [dl] = await withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers ORDER BY counter_name')).catch(() => [[]]);
+    // Every beat line with a visit / order / collection / note — the "Visits" list.
+    const visitList = entries.filter(e => beatVisited(e) || e.new_counter || e.reference || e.enquiry)
+      .map(e => ({ date: e.d, name: nameOf[e.user_id] || '', dealer: e.counter_name, beatDay: e.beat_day || '', visit: e.visit || '',
+        orderValue: Number(e.order_amt) || null, collection: Number(e.collection_amt) || null,
+        remark: [e.new_counter && `New counter: ${e.new_counter}`, e.reference && `Ref: ${e.reference}`, e.enquiry && `Enquiry: ${e.enquiry}`].filter(Boolean).join(' · ') }))
+      .sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name) || a.dealer.localeCompare(b.dealer));
     const nbd = nbdPlan.map(l => ({ id: l.id, code: l.lead_code, shop: l.shop_name || l.contact_name || '', contact: l.contact_name || '', mobile: l.mobile || '',
       place: [l.area, l.city].filter(Boolean).join(', '), date: l.d, name: nameOf[l.visit_user_id] || '', visited: Number(l.visit_count) > 0, result: l.result || '' }));
-    res.json({ from, to, rows: out, visits: visitList, nbdPlan: nbd, dealers: dl.map(d => d.counter_name) });
+    res.json({ from, to, rows: out, visits: visitList, nbdPlan: nbd });
   } catch (err) { sendServerError(res, err); }
 });
 
