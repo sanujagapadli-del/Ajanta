@@ -1541,6 +1541,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
         <span class="nav-label-text">Price List & Catalogue</span>
       </div>
+      <div class="nav-item" id="nav-training-videos" onclick="navigate('training-videos',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        <span class="nav-label-text">Training Videos</span>
+      </div>
       </div>
     </div>
     <div class="nav-group" data-group="ops">
@@ -2834,13 +2838,16 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
 
-    <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🎬 Training Videos</div>
-    <div id="catVideosWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto;margin-bottom:24px">
-      <div class="empty ui-skel" aria-busy="true">Loading…</div>
-    </div>
-
     <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📷 Single Product Photos</div>
     <div id="catPhotosWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
+      <div class="empty ui-skel" aria-busy="true">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ── TRAINING VIDEOS (client 2026-10-30: own sidebar page, every user) ── -->
+  <div id="page-training-videos" class="page">
+    <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-bottom:12px">🎬 Training Videos</div>
+    <div id="catVideosWrap" class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
       <div class="empty ui-skel" aria-busy="true">Loading…</div>
     </div>
   </div>
@@ -5233,7 +5240,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
+const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -5310,6 +5317,7 @@ function navigate(page, el) {
   if (page==='sales-schedule') loadSalesSchedule();
   if (page==='employees') loadEmployeesPage();
   if (page==='price-catalogue') loadPriceCataloguePage();
+  if (page==='training-videos') loadCatVideos();
   if (page==='stock') loadStockPage();
   localStorage.setItem('lastPage', page);
   // Own URL + tab title per page; Back / Forward walk the pages (doer audit 2026-10-27).
@@ -16286,7 +16294,6 @@ let o2dPriceListSearchQ = '';
 
 async function loadPriceCataloguePage() {
   loadCatPhotos();
-  loadCatVideos();
   await loadCataloguePdfs(false);
   renderCataloguePdfList();
 }

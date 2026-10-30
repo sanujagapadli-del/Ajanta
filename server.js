@@ -8012,9 +8012,9 @@ app.put('/api/catalogue-photos', requireAuth, requireAdmin, async (req, res) => 
 // it) — read the same way as the product photos sheet, shown on Price Catalogue.
 const CAT_VIDEOS_KEY = 'catalogue_videos_sheet';
 let _catVideosCache = null; // { url, ts, data }
+// Every logged-in user (own sidebar page, client 2026-10-30).
 app.get('/api/catalogue-videos', requireAuth, async (req, res) => {
   try {
-    if (!(await canAccessPriceCatalogue(req))) return res.status(403).json({ error: 'You do not have access to the catalogue' });
     const url = (await getAppSetting(CAT_VIDEOS_KEY)) || '';
     const canEdit = req.session.role === 'admin';
     if (!url) return res.json({ url, canEdit, videos: [] });
