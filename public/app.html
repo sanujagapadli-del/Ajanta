@@ -4187,6 +4187,9 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <div id="noProductRows" oninput="o2dNoTotal()"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <button type="button" class="btn btn-outline btn-sm" onclick="addO2dProductRow()">+ Add Product</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gray-600)">CD / Discount %
+          <input type="number" id="noDiscPct" min="0" max="50" step="0.5" placeholder="0" oninput="o2dNoTotal()" style="width:70px;padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        </label>
         <div id="noOrderTotal" style="font-size:14px;font-weight:800;color:var(--gray-900)"></div>
       </div>
     </div>
@@ -16646,7 +16649,7 @@ function stockRegEntryHtml(row, canEdit) {
       </div>
       <div style="text-align:right;white-space:nowrap">
         <div style="font-size:15px;font-weight:800">${Number(row.quantity).toLocaleString('en-IN')} <span style="font-size:11px;font-weight:600;color:var(--gray-400)">${esc(row.uom || '')}</span></div>
-        ${Number(row.rate) > 0 ? `<div style="font-size:11px;color:var(--gray-500)">@ ₹${Number(row.rate).toLocaleString('en-IN')} = <b style="color:var(--gray-800)">${inr(Number(row.rate) * Number(row.quantity))}</b></div>` : ''}
+        ${Number(row.rate) > 0 ? `<div style="font-size:11px;color:var(--gray-500)">@ ₹${Number(row.rate).toLocaleString('en-IN')}${row.discount_pct ? ` <span title="Order rate ₹${Number(row.gross_rate).toLocaleString('en-IN')} − CD ${row.discount_pct}%">(CD ${row.discount_pct}%)</span>` : ''} =<b style="color:var(--gray-800)">${inr(Number(row.rate) * Number(row.quantity))}</b></div>` : ''}
         ${cancelBtn}
       </div>
     </div>
@@ -17340,7 +17343,10 @@ function o2dNoTotal() {
     pcs += q; total += q * r;
     if (q && !r) noRate++;
   });
-  el.innerHTML = pcs ? `Order Total: ₹${Math.round(total).toLocaleString('en-IN')} <span style="font-size:12px;font-weight:600;color:var(--gray-500)">· ${pcs} pcs${noRate ? ` · <span style="color:var(--color-warning-text)">${noRate} item ka rate nahi</span>` : ''}</span>` : '';
+  const disc = Number((document.getElementById('noDiscPct') || {}).value) || 0;
+  const discTxt = disc > 0 && total ? `<span style="font-size:12px;font-weight:600;color:var(--gray-500)">₹${Math.round(total).toLocaleString('en-IN')} − CD ${disc}% ₹${Math.round(total * disc / 100).toLocaleString('en-IN')} = </span>` : '';
+  if (disc > 0) total *= (100 - disc) / 100;
+  el.innerHTML = pcs ? `Order Total: ${discTxt}₹${Math.round(total).toLocaleString('en-IN')} <span style="font-size:12px;font-weight:600;color:var(--gray-500)">· ${pcs} pcs${noRate ? ` · <span style="color:var(--color-warning-text)">${noRate} item ka rate nahi</span>` : ''}</span>` : '';
 }
 function onNoPaymentTermsChange() {
   const isOther = document.getElementById('noPaymentTermsSel').value === '__other__';
@@ -17365,7 +17371,7 @@ function openNewO2dOrderModal() {
   if (formBlocked('form-o2d-order')) return;
   document.getElementById('newO2dOrderErr').style.display = 'none';
   document.getElementById('noCounterName').value = '';
-  ['noArea','noOrderBy','noPaymentTerms','noWhenToSend','noDateToSend','noRemark'].forEach(id => document.getElementById(id).value = '');
+  ['noArea','noOrderBy','noPaymentTerms','noWhenToSend','noDateToSend','noRemark','noDiscPct'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('noChannel').value = '';
   document.getElementById('noChannelOther').value = '';
   document.getElementById('noChannelOther').style.display = 'none';
@@ -17500,8 +17506,11 @@ async function submitNewO2dOrder() {
     whenToSend: document.getElementById('noWhenToSend').value.trim(),
     dateToSend: document.getElementById('noDateToSend').value,
     remark: document.getElementById('noRemark').value.trim(),
+    discountPct: document.getElementById('noDiscPct').value.trim(),
     products
   };
+  const dp = Number(body.discountPct) || 0;
+  if (dp < 0 || dp > 50) { errEl.textContent = 'CD / Discount % 0 se 50 ke beech ho'; errEl.style.display = 'block'; return; }
 
   const submitBtn = document.getElementById('noSubmitBtn');
   const originalBtnText = submitBtn.textContent;
@@ -17945,16 +17954,26 @@ function renderO2dDetailBody(o, hideProgress) {
 
   // Read-only version — shown up top for every step except Good Check, plus
   // a totals row so the whole order's qty/amount is visible at a glance.
-  const totalQty = (o.products || []).reduce((s, p) => s + (Number(p.qty) || 0), 0);
-  const totalAmount = (o.products || []).reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.rate) || 0), 0);
+  // Not Available / removed lines are struck out and left out of the total
+  // (client video 2026-10-29, Ord-0178: only the fan went, total still ₹4,100);
+  // the order's CD % comes off the end, so it matches the Tally bill.
+  const liveProducts = (o.products || []).filter(p => !p.cancelled);
+  const totalQty = liveProducts.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+  const grossAmount = liveProducts.reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.rate) || 0), 0);
+  const discPct = Number(o.discountPct) || 0;
+  const totalAmount = o2dOrderValue(o);
+  const canEditDisc = !o.cancelled && o2dCanControl();
   const productsInfoListHtml = (o.products || []).map(p => `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
-      <span>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span></span>
+      <span${p.cancelled ? ' style="text-decoration:line-through;color:var(--gray-400)"' : ''}>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span></span>
       <span style="display:flex;align-items:center;gap:6px">${o2dAvailabilityBadge(p)}${o2dRemoveBtn(o, p)}</span>
     </div>`).join('')
+    + (discPct && grossAmount ? `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:7px 0 0;color:var(--gray-500)">
+      <span>${inr(grossAmount)} − CD ${discPct}%</span><span>−${inr(grossAmount - totalAmount)}</span>
+    </div>` : '')
     + `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:7px 0 0;color:var(--gray-700)">
-      <span>Total — ${totalQty} pcs</span>
-      <span>${totalAmount ? inr(totalAmount) : '—'}</span>
+      <span>Total — ${totalQty} pcs${liveProducts.length < (o.products || []).length ? ` <span style="font-weight:500;color:var(--gray-400)">(Not Available chhod ke)</span>` : ''}</span>
+      <span style="display:flex;align-items:center;gap:8px">${canEditDisc ? `<button type="button" class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px" onclick="o2dSetDiscount('${jsArg(o.orderNo)}', ${discPct})">${discPct ? `CD ${discPct}% ✏️` : '+ CD %'}</button>` : ''}${totalAmount ? inr(totalAmount) : '—'}</span>
     </div>`;
 
   const itemsBlockHtml = showItemsInAction ? '' : `
@@ -18170,6 +18189,15 @@ async function o2dSetCarry(orderNo, on) {
   if (res.error) { showToast(res.error, 'error'); return; }
   o2dReloadAfterControl(on ? `🧍 ${salesman} le jaayega — mark ho gaya` : 'Mark hata diya');
 }
+async function o2dSetDiscount(orderNo, cur) {
+  const v = await uiPrompt('CD / Discount % (0 = koi discount nahi)', cur ? String(cur) : '');
+  if (v === null || v === undefined) return;
+  const pct = Number(String(v).replace('%', '').trim() || 0);
+  if (!(pct >= 0 && pct <= 50)) { showToast('CD / Discount % 0 se 50 ke beech ho', 'error'); return; }
+  const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/discount`, 'POST', { discountPct: pct });
+  if (res.error) { showToast(res.error, 'error'); return; }
+  o2dReloadAfterControl(pct ? `CD ${pct}% laga diya` : 'CD hata diya');
+}
 // A product added twice (or by mistake) can be removed until the bill is made.
 async function o2dRemoveItem(orderNo, row, name) {
   if (!await uiConfirm(`"${name}" ko is order se hatayein?`)) return;
@@ -18258,7 +18286,8 @@ function renderDashO2dHold() {
   el.innerHTML = o2dHoldListHtml(list, 'dash');
 }
 const o2dHoldBadge = o => o.onHold ? ` <span class="status-badge" style="background:${o.holdType === 'stock' ? 'var(--color-danger-bg);color:var(--color-danger-text)' : 'var(--color-warning-bg);color:var(--color-warning-text)'}" title="${esc(o.holdReason || '')}">⏸ ${o.holdType === 'stock' ? 'Stock nahi' : 'Hold'}</span>` : '';
-const o2dOrderValue = o => (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0);
+// Net of the order's CD % (client video 2026-10-29) — matches the Tally bill.
+const o2dOrderValue = o => (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0) * (100 - (Number(o.discountPct) || 0)) / 100;
 async function o2dCancelOrder(orderNo) {
   const reason = (await uiPrompt(`Cancel ${orderNo}? It stops at the current step.\n\nReason:`) || '').trim();
   if (!reason) return;

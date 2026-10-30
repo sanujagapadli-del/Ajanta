@@ -6346,6 +6346,7 @@ async function getO2dOrders() {
     const f = extras.flagBy[o.orderNo];
     o.videos = extras.mediaBy[o.orderNo] || [];
     if (!f) return;
+    if (Number(f.discount_pct) > 0) o.discountPct = Number(f.discount_pct);
     o.restartCount = f.restart_count || 0;
     // Shown on the Dashboard row — a restarted order comes back to every step's doer (client list 10-26 #4).
     if (o.restartCount && f.restarted_at) Object.assign(o, { restartedBy: f.restarted_by || '', restartedAt: f.restarted_at });
@@ -7815,6 +7816,17 @@ app.get('/api/stock/register', requireAuth, async (req, res) => {
       "SELECT *, DATE_FORMAT(txn_date, '%Y-%m-%d') AS txn_date FROM ajanta_stock_transactions WHERE txn_date BETWEEN ? AND ? ORDER BY txn_date, id LIMIT 5000", [from, to]);
     const [[unlinked]] = await db.query(
       "SELECT COUNT(*) AS c FROM ajanta_stock_transactions WHERE applied = 0 AND status <> 'Cancelled'");
+    // O2D outward lines carry the gross order rate; an order's CD % brings the sale value down to the billed amount.
+    const o2dRefs = [...new Set(rows.filter(r => r.direction === 'OUT' && r.source === 'o2d' && r.ref_no).map(r => r.ref_no))];
+    if (o2dRefs.length) {
+      const [disc] = await withO2dOrderTables(() => db.query(
+        'SELECT order_no, discount_pct FROM o2d_order_flags WHERE discount_pct > 0 AND order_no IN (?)', [o2dRefs])).catch(() => [[]]);
+      const pctBy = Object.fromEntries(disc.map(d => [d.order_no, Number(d.discount_pct)]));
+      rows.forEach(r => {
+        const pct = r.direction === 'OUT' && r.source === 'o2d' && pctBy[r.ref_no];
+        if (pct && Number(r.rate) > 0) Object.assign(r, { gross_rate: Number(r.rate), discount_pct: pct, rate: Math.round(Number(r.rate) * (100 - pct)) / 100 });
+      });
+    }
     res.json({
       date, from, to,
       inward: rows.filter(r => r.direction === 'IN'),
@@ -8714,6 +8726,8 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
     if (!counterName || !Array.isArray(products) || !products.length) {
       return res.status(400).json({ error: 'Counter name and at least one product are required' });
     }
+    const discountPct = parseO2dDiscountPct(req.body.discountPct);
+    if (discountPct === null) return res.status(400).json({ error: 'CD / Discount % 0 se 50 ke beech ho' });
     for (const p of products) {
       if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
       if (!(Number(p.qty) > 0)) return res.status(400).json({ error: 'Quantity must be a positive number' });
@@ -8766,6 +8780,7 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       insertDataOption: 'OVERWRITE',
       requestBody: { values: rows }
     });
+    if (discountPct > 0) await setO2dDiscountPct(orderNo, discountPct);
 
     // Team-group heads-up so everyone knows to check the dashboard. Fire-
     // and-forget: the order is already safely saved by this point, and
@@ -8787,7 +8802,9 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
           const rate = Number(p.rate) || 0, amt = rate * (Number(p.qty) || 0);
           total += amt;
           return `📦 Product ${i + 1}: ${p.productName} × ${p.qty}${rate ? ` @ ${inr(rate)} = *${inr(amt)}*` : ''}`;
-        }).join('\n') + (total ? `\n\n💰 *Total Amount: ${inr(total)}*` : '');
+        }).join('\n') + (total ? (discountPct
+          ? `\n\nTotal: ${inr(total)}\nCD ${discountPct}%: −${inr(total * discountPct / 100)}\n💰 *Net Amount: ${inr(total * (1 - discountPct / 100))}*`
+          : `\n\n💰 *Total Amount: ${inr(total)}*`) : '');
         sendWhatsAppInBackground(group.id,
           `नया ऑर्डर प्राप्त हुआ\nकृपया ऑर्डर की जाँच करें।\n\n` +
           `Order ID: ${orderNo}\nDealer / Customer Name: ${counterName}\n\n${productLines}\n\n` +
@@ -9087,7 +9104,8 @@ async function ensureO2dOrderTables() {
       cancelled TINYINT(1) NOT NULL DEFAULT 0,
       cancel_reason VARCHAR(500), cancelled_by VARCHAR(255), cancelled_at DATETIME,
       restart_count INT NOT NULL DEFAULT 0, restarted_by VARCHAR(255), restarted_at DATETIME,
-      carried_by VARCHAR(255), carried_set_by VARCHAR(255), carried_at DATETIME
+      carried_by VARCHAR(255), carried_set_by VARCHAR(255), carried_at DATETIME,
+      hold_type VARCHAR(20), discount_pct DECIMAL(5,2)
     )`);
   await db.query(`
     CREATE TABLE IF NOT EXISTS o2d_media (
@@ -9147,7 +9165,8 @@ async function withO2dOrderTables(fn) {
   catch (e) {
     if (e.code === 'ER_BAD_FIELD_ERROR') {
       // carried_by* came after the table (client, 2026-10-13) — add them once.
-      for (const col of ['carried_by VARCHAR(255)', 'carried_set_by VARCHAR(255)', 'carried_at DATETIME', 'hold_type VARCHAR(20)']) {
+      // discount_pct = CD % on the order (client video 2026-10-29) — order value net of it matches the Tally bill.
+      for (const col of ['carried_by VARCHAR(255)', 'carried_set_by VARCHAR(255)', 'carried_at DATETIME', 'hold_type VARCHAR(20)', 'discount_pct DECIMAL(5,2)']) {
         await db.query(`ALTER TABLE o2d_order_flags ADD COLUMN ${col}`).catch(err => { if (err.code !== 'ER_DUP_FIELDNAME') throw err; });
       }
       return await fn();
@@ -9165,7 +9184,7 @@ async function getO2dOrderExtras() {
   const [[flags], [media]] = await withO2dOrderTables(() => Promise.all([
     db.query(`SELECT order_no, on_hold, hold_reason, hold_type, hold_by, DATE_FORMAT(hold_at,'%Y-%m-%d %H:%i') AS hold_at,
                 cancelled, cancel_reason, cancelled_by, DATE_FORMAT(cancelled_at,'%Y-%m-%d %H:%i') AS cancelled_at, restart_count,
-                restarted_by, DATE_FORMAT(restarted_at,'%Y-%m-%d %H:%i') AS restarted_at, carried_by, carried_set_by
+                restarted_by, DATE_FORMAT(restarted_at,'%Y-%m-%d %H:%i') AS restarted_at, carried_by, carried_set_by, discount_pct
               FROM o2d_order_flags`),
     db.query(`SELECT id, order_no, step_n, url, kind, seconds, created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
               FROM o2d_media ORDER BY id`)
@@ -9279,6 +9298,31 @@ app.post('/api/o2d-fms/order/:orderNo/carry', requireAuth, async (req, res) => {
        ON DUPLICATE KEY UPDATE carried_by=VALUES(carried_by), carried_set_by=VALUES(carried_set_by), carried_at=VALUES(carried_at)`,
       [orderNo, salesman || null, salesman ? req.session.name || '' : null]));
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// CD / discount % on an order (client video 2026-10-29: "order form me hi CD
+// 3% / 4% ka option, neeche total discount ke baad"). The sheet keeps gross
+// rates; order value, Daily Register sale value and the team alert use the net.
+// '' / 0 = none; null = invalid.
+function parseO2dDiscountPct(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return 0;
+  const n = Number(v);
+  return n >= 0 && n <= 50 ? Math.round(n * 100) / 100 : null;
+}
+async function setO2dDiscountPct(orderNo, pct) {
+  await withO2dOrderTables(() => db.query(
+    `INSERT INTO o2d_order_flags (order_no, discount_pct) VALUES (?,?) ON DUPLICATE KEY UPDATE discount_pct=VALUES(discount_pct)`,
+    [orderNo, pct || null]));
+}
+// Set / change it later (older orders, or forgotten on the form): anyone who may control the order.
+app.post('/api/o2d-fms/order/:orderNo/discount', requireAuth, async (req, res) => {
+  try {
+    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Sirf Admin / PC / O2D step doer discount badal sakta hai' });
+    const pct = parseO2dDiscountPct(req.body.discountPct);
+    if (pct === null) return res.status(400).json({ error: 'CD / Discount % 0 se 50 ke beech ho' });
+    await setO2dDiscountPct(String(req.params.orderNo).slice(0, 64), pct);
+    res.json({ success: true, discountPct: pct });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -13544,12 +13588,14 @@ async function gpLoadData(start, end, opts = {}) {
     gpProductMapper(),
     withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items')),
     purchasePoArchiveRows(),
-    withO2dOrderTables(() => db.query('SELECT order_no FROM o2d_order_flags WHERE cancelled=1')).catch(() => [[]])
+    withO2dOrderTables(() => db.query('SELECT order_no, cancelled, discount_pct FROM o2d_order_flags WHERE cancelled=1 OR discount_pct>0')).catch(() => [[]])
   ]);
   const stockName = Object.fromEntries(stockItems.map(i => [i.item_code, i.description]));
   // An order cancelled after billing keeps "Yes" on Make Bill (cancel writes
   // "No" on the later pending step only) — it is not a sale (OWS / GP).
-  const cancelledOrders = new Set(cancelledRows.map(c => String(c.order_no)));
+  const cancelledOrders = new Set(cancelledRows.filter(c => c.cancelled).map(c => String(c.order_no)));
+  // CD % on the order — the sale is the billed (net) amount, as in Tally.
+  const discountBy = Object.fromEntries(cancelledRows.filter(c => Number(c.discount_pct) > 0).map(c => [String(c.order_no), Number(c.discount_pct)]));
 
   // Sales lines from O2D (billed).
   const sales = [];
@@ -13563,7 +13609,7 @@ async function gpLoadData(start, end, opts = {}) {
     if (!firstBill || date < firstBill) firstBill = date;
     if (date > lastBill) lastBill = date;
     if (date < start || date > end) return;
-    const qty = gpNum(get('O')), rate = gpNum(get('N'));
+    const qty = gpNum(get('O')), rate = gpNum(get('N')) * (100 - (discountBy[String(get('Q') || '')] || 0)) / 100;
     const name = String(get('M') || '').trim();
     if (!name || !(qty > 0)) return;
     sales.push({ party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date });
