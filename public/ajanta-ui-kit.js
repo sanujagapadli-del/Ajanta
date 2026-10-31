@@ -56,6 +56,13 @@
 .kit-sel li.sel::after{content:'';margin-left:auto;width:14px;height:14px;flex-shrink:0;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat}
 .kit-sel mark{background:rgba(250,204,21,.35);color:inherit;border-radius:2px}
 .kit-sel .kit-empty{padding:14px;text-align:center;font-size:13px;color:var(--gray-500,#64748b)}
+.kit-more{display:inline-flex!important;align-items:center;justify-content:center;min-width:32px;padding-left:6px!important;padding-right:6px!important}
+@media (min-width:769px){td[data-kit-menu]{white-space:nowrap}td[data-kit-menu]>div{flex-wrap:nowrap!important}}
+.kit-menu{display:flex;flex-direction:column;padding:6px;min-width:150px}
+.kit-menu button{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--gray-800,#1e293b);cursor:pointer;white-space:nowrap}
+.kit-menu button:hover,.kit-menu button:focus-visible{background:var(--gray-100,#f1f5f9)}
+.kit-menu button.danger{color:var(--danger-600,#dc2626)}
+.kit-menu button.danger:hover,.kit-menu button.danger:focus-visible{background:var(--danger-50,#fef2f2)}
 th.kit-sortable{cursor:pointer;user-select:none}
 th.kit-sortable:hover{color:var(--brand-600,#010371)}
 th[aria-sort="ascending"]::after,th[aria-sort="descending"]::after{content:'';display:inline-block;vertical-align:middle;margin-left:4px;border:4px solid transparent}
@@ -454,6 +461,83 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     setTimeout(() => { delete th.dataset.kitChecked; }, 4000);
   }, { passive: true });
 
+  // ── 4. ⋯ row menus ─────────────────────────────────────────────
+  // In a table cell, Edit / Delete style buttons move into one ⋯ menu; the
+  // main actions (Approve, Reject, Call ho gaya…) stay visible. The original
+  // buttons stay in the cell (hidden) and the menu just clicks them, so every
+  // page's own confirm / permission logic runs unchanged.
+  const SEC_WORD = /^(edit|delete|remove|hatao)\b/i, SEC_ICON = /^(✏|🖊|📝|🗑)/u;
+  const isSecondary = b => {
+    const t = b.textContent.replace(/\s+/g, ' ').trim(), tip = (b.title || b.getAttribute('aria-label') || '').trim();
+    const words = t.replace(/[\u{1F000}-\u{1FFFF}☀-➿️]/gu, '').trim(); // text without emoji
+    if (SEC_ICON.test(t)) return !words || SEC_WORD.test(words); // "✏️", "🗑 Delete"
+    if (!words) return SEC_WORD.test(tip) || !!b.querySelector('svg.lucide-trash-2,svg.lucide-pencil'); // icon-only with an Edit/Delete title
+    return SEC_WORD.test(words) && !words.includes(' '); // plain "Edit" / "Delete"
+  };
+  const isDanger = b => /🗑|❌|delete|remove|hatao/i.test(b.textContent + ' ' + (b.title || ''));
+  const itemLabel = b => {
+    const t = b.textContent.replace(/\s+/g, ' ').trim(), tip = (b.title || b.getAttribute('aria-label') || '').trim();
+    const word = /[a-z]{3}/i.test(t) ? t.replace(/^[^\w]+/u, '') : tip || (isDanger(b) ? 'Delete' : 'Edit');
+    return `<span aria-hidden="true">${isDanger(b) ? '🗑' : '✏️'}</span>${esc(word.charAt(0).toUpperCase() + word.slice(1))}`;
+  };
+  const visible = b => b.style.display !== 'none' && !b.hidden && !b.classList.contains('kit-hidden');
+  function collapseRowActions(td) {
+    if (td.dataset.kitMenu || td.closest('#dashTable,.no-kit')) return;
+    const btns = [...td.querySelectorAll('button')].filter(visible);
+    if (btns.length < 2) return;
+    const sec = btns.filter(isSecondary);
+    if (!(sec.length >= 2 || (sec.length >= 1 && btns.length >= 3))) return;
+    td.dataset.kitMenu = '1';
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = (sec[0].className || 'btn btn-outline btn-sm') + ' kit-more';
+    more.setAttribute('aria-label', 'More actions'); more.setAttribute('aria-haspopup', 'menu'); more.setAttribute('aria-expanded', 'false');
+    more.title = sec.map(b => itemLabel(b).replace(/<[^>]+>[^<]*<\/span>/, '')).join(' / ');
+    more.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+    sec[0].insertAdjacentElement('beforebegin', more);
+    sec.forEach(b => b.classList.add('kit-hidden'));
+    more.addEventListener('click', e => {
+      e.stopPropagation(); // rows with their own onclick (open detail) must not fire
+      if (openPop && openPop.anchor === more) { closePop(); return; }
+      const m = document.createElement('div');
+      m.className = 'kit-menu'; m.setAttribute('role', 'menu');
+      m.innerHTML = sec.map((b, i) => `<button type="button" role="menuitem" data-i="${i}" class="${isDanger(b) ? 'danger' : ''}">${itemLabel(b)}</button>`).join('');
+      m.addEventListener('click', ev => {
+        const it = ev.target.closest('[data-i]');
+        if (!it) return;
+        closePop();
+        sec[+it.dataset.i].click();
+      });
+      m.addEventListener('keydown', ev => {
+        const items = [...m.querySelectorAll('[role=menuitem]')], i = items.indexOf(document.activeElement);
+        if (ev.key === 'ArrowDown') { ev.preventDefault(); items[(i + 1) % items.length].focus(); }
+        if (ev.key === 'ArrowUp') { ev.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      });
+      showPop(m, more);
+      const r = more.getBoundingClientRect(); // right-align under the ⋯ button
+      m.style.minWidth = '150px';
+      m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, window.innerWidth - m.offsetWidth - 8)) + 'px';
+      if (!finePointer.matches) return;
+      m.querySelector('button').focus({ preventScroll: true });
+    });
+  }
+  let rowQueue = new Set(), rowQueued = false;
+  function queueRowActions(nodes) {
+    nodes.forEach(n => {
+      if (n.nodeType !== 1) return;
+      if (n.tagName === 'TD') rowQueue.add(n);
+      else if (n.closest && n.closest('td')) rowQueue.add(n.closest('td'));
+      else if (n.querySelectorAll) n.querySelectorAll('td').forEach(td => { if (td.querySelector('button')) rowQueue.add(td); });
+    });
+    if (rowQueued || !rowQueue.size) return;
+    rowQueued = true;
+    requestAnimationFrame(() => {
+      rowQueued = false;
+      const tds = rowQueue; rowQueue = new Set();
+      tds.forEach(td => { if (td.isConnected) collapseRowActions(td); });
+    });
+  }
+
   // ── number fields: wheel scroll must not change an amount ──────
   document.addEventListener('wheel', e => {
     const el = e.target;
@@ -466,8 +550,10 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
   // callback is a microtask and beats that upgrader's requestAnimationFrame
   // for pairs rendered later.
   upgradeAllRanges();
+  queueRowActions([document.body]);
   let pending = false;
-  new MutationObserver(() => {
+  new MutationObserver(recs => {
+    for (const r of recs) if (r.addedNodes.length) queueRowActions(r.addedNodes);
     if (pending) return; pending = true;
     queueMicrotask(() => { pending = false; upgradeAllRanges(); });
   }).observe(document.body, { childList: true, subtree: true });
