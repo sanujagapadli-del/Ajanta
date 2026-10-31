@@ -2722,8 +2722,9 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📋 Beat — counter visit</div>
         <select id="beatUser" onchange="loadBeat()" style="display:none;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-800)"></select>
-        <input type="month" id="beatMonth" onchange="beatMonthChanged()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
-        <input id="beatSearch" placeholder="🔍 Counter / area…" oninput="renderBeat()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
+        <input type="hidden" id="beatMonth"/>
+        <input type="date" id="beatDate" onchange="beatDateChanged()" title="Kis din ka beat" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
+        <input id="beatSearch" placeholder="🔍 Counter name…" oninput="renderBeat()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
       </div>
     </div>
     <div id="beatWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
@@ -21481,17 +21482,19 @@ function renderMeca() {
 // column = day × visible field.
 // ══════════════════════════════════════════════════════
 let beatData = null, beatDays = [], beatIdx = {}, beatDayFilter = '', beatTotTimer = null;
-let beatCompact = (() => { try { return localStorage.getItem('beatCompact') === '1'; } catch (e) { return false; } })();
 const BEAT_FIELDS_ALL = [['visit', 'Visit'], ['orderAmt', 'Order'], ['collectionAmt', 'Collection'], ['newCounter', 'New Counter'], ['reference', 'Reference'], ['enquiry', 'Enquiry']];
-const beatFields = () => beatCompact ? BEAT_FIELDS_ALL.slice(0, 3) : BEAT_FIELDS_ALL;
+const beatFields = () => BEAT_FIELDS_ALL;
 const BEAT_FIXED = 6; // Sr No., Firm Name, Beat Days, AREA, CITY, SALESMAN
 const BEAT_CFIELDS = [null, 'name', 'beatDay', 'area', 'city', null];
 const BEAT_VISITS = [['yes', '✓ yes', '#d9ead3'], ['no', '✗ no', '#f8d7d5'], ['out of city', '✈ out of city', '#eceff1'], ['sir ke sath', '👤 sir ke sath', '#d9ead3']];
 function beatIsoDow(ymd) { const x = new Date(ymd + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; }
 function beatDow(beatDay) { return { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 }[String(beatDay || '').trim().toLowerCase().slice(0, 3)] || 0; }
+// Only the picked day opens (client 2026-10-31: "pura week nahi, jis din ka khole usi din ka"); today by default,
+// and the Beat day chip follows that day's weekday.
 async function loadBeat() {
-  const m = document.getElementById('beatMonth');
-  if (!m.value) m.value = scotTodayYmd().slice(0, 7);
+  const m = document.getElementById('beatMonth'), dEl = document.getElementById('beatDate');
+  if (!dEl.value) { dEl.value = scotTodayYmd(); beatDayFilter = beatAutoDay(dEl.value); }
+  m.value = dEl.value.slice(0, 7);
   const sel = document.getElementById('beatUser');
   document.getElementById('beatWrap').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
   const r = await api(`/api/beat?month=${m.value}${sel.value ? `&userId=${encodeURIComponent(sel.value)}` : ''}`);
@@ -21504,19 +21507,15 @@ async function loadBeat() {
     if (r.userId) sel.value = String(r.userId);
   }
   renderBeat();
-  beatScrollToday();
 }
-function beatScrollToday() {
-  const th = document.getElementById(`beatDay_${beatData.today}`), box = document.getElementById('beatGridBox');
-  if (th && box) box.scrollLeft = Math.max(0, th.offsetLeft - beatFreezeW() - 40);
+function beatAutoDay(ymd) { const d = beatIsoDow(ymd); return d === 7 ? '' : String(d); }
+function beatDateChanged() {
+  const v = document.getElementById('beatDate').value;
+  if (!v) return;
+  beatDayFilter = beatAutoDay(v);
+  if (beatData && beatData.month === v.slice(0, 7)) renderBeat(); else loadBeat();
 }
-function beatMonthChanged() { loadBeat(); }
 function beatSetDay(v) { beatDayFilter = v; beatRerenderKeepScroll(); }
-function beatToggleCompact() {
-  beatCompact = !beatCompact;
-  try { localStorage.setItem('beatCompact', beatCompact ? '1' : '0'); } catch (e) { /* private mode */ }
-  renderBeat(); beatScrollToday();
-}
 function beatEntryOf(counterId, date) { return beatIdx[`${counterId}|${date}`]; }
 function beatMatches(c) {
   const q = (document.getElementById('beatSearch').value || '').trim().toLowerCase();
@@ -21543,8 +21542,8 @@ function renderBeat() {
   (beatData.entries || []).forEach(e => { beatIdx[`${e.counterId}|${e.date}`] = e; });
   const F = beatFields(), W = F.length;
   const m = beatData.month;
-  const n = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate();
-  const days = beatDays = Array.from({ length: n }, (_, i) => `${m}-${String(i + 1).padStart(2, '0')}`);
+  const pick = document.getElementById('beatDate').value;
+  const days = beatDays = [pick && pick.slice(0, 7) === m ? pick : `${m}-01`];
   const live = beatData.counters.filter(c => c.active || beatData.entries.some(e => e.counterId === c.id));
   const counters = live.filter(beatMatches);
   const salesman = esc((document.getElementById('beatUser').selectedOptions[0] || {}).textContent || (beatData.salesmen[0] || {}).name || '');
@@ -21553,7 +21552,7 @@ function renderBeat() {
   const mVis = ents.filter(beatVisitedEntry).length, mOrd = ents.filter(e => Number(e.orderAmt) > 0);
   const mOrdAmt = mOrd.reduce((a, e) => a + Number(e.orderAmt), 0), mColl = ents.reduce((a, e) => a + (Number(e.collectionAmt) || 0), 0);
   const stat = (l, v, c) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-left:4px solid ${c};border-radius:10px;padding:8px 12px;min-width:120px"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase">${l}</div><div style="font-size:18px;font-weight:900;color:var(--gray-900)">${v}</div></div>`;
-  const todayDow = beatData.today.slice(0, 7) === m ? beatIsoDow(beatData.today) : 0;
+  const todayDow = beatIsoDow(days[0]);
   const chip = (v, l, cnt) => `<button onclick="beatSetDay('${v}')" style="padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid ${beatDayFilter === v ? 'var(--color-primary)' : 'var(--gray-200)'};background:${beatDayFilter === v ? 'var(--color-primary)' : 'var(--surface)'};color:${beatDayFilter === v ? '#fff' : 'var(--gray-700)'}">${l}${cnt != null ? ` <span style="opacity:.75;font-weight:600">${cnt}</span>` : ''}</button>`;
   const cnt = d => live.filter(c => d === 'up' ? !beatDow(c.beatDay) : beatDow(c.beatDay) === d).length;
   const chips = chip('', 'Sab', live.length) + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((l, i) => chip(String(i + 1), (i + 1 === todayDow ? '📍 ' : '') + l, cnt(i + 1))).join('') + chip('up', 'Upcountry', cnt('up'));
@@ -21606,12 +21605,11 @@ function renderBeat() {
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
       <span style="font-size:12px;font-weight:700;color:var(--gray-500)">Beat day:</span>${chips}
-      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="beatToggleCompact()">${beatCompact ? '↔ Poora view (6 khane)' : '↕ Chhota view (Visit · Order · Collection)'}</button>
-      <button class="btn btn-sm btn-outline" onclick="beatScrollToday()">📍 Aaj</button>
+      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="const s=document.getElementById('bcNewRow');s.style.display=s.style.display==='none'?'flex':'none'">＋ Naya counter</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px;color:var(--gray-500)">
-      <span>Visit par tap = ✓ / ✗ / ✈ chuno (ya <b>y</b> / <b>n</b> / <b>o</b> / <b>s</b>) · baaki khane me likho · <b>← → ↑ ↓</b> / <b>Tab</b> = khana badlo, <b>Enter</b> = save + neeche</span>
-      <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+      <span>Visit par tap = ✓ / ✗ / ✈ chuno · baaki khane me likho · <b>Enter</b> = save + neeche</span>
+      <span id="bcNewRow" style="margin-left:auto;display:none;gap:6px;flex-wrap:wrap">
         <input id="bcNewN" placeholder="Naya counter (Firm Name)" style="${IN};min-width:170px"/>
         <input id="bcNewD" list="beatDayList" placeholder="Beat Days" style="${IN};width:115px"/>
         <input id="bcNewA" placeholder="AREA" style="${IN};width:105px"/>
