@@ -63,6 +63,14 @@
 .kit-menu button:hover,.kit-menu button:focus-visible{background:var(--gray-100,#f1f5f9)}
 .kit-menu button.danger{color:var(--danger-600,#dc2626)}
 .kit-menu button.danger:hover,.kit-menu button.danger:focus-visible{background:var(--danger-50,#fef2f2)}
+.kit-ico{width:1.05em;height:1.05em;flex-shrink:0;vertical-align:-.16em;margin-right:.38em}
+.btn .kit-ico,.tab .kit-ico{opacity:.9}
+.modal-overlay h2 .kit-ico,.modal-overlay h3 .kit-ico{color:var(--brand-600,#010371);margin-right:.45em}
+input.kit-search{padding-left:34px!important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:11px 50%!important;background-size:16px!important}
+.kit-ptitle{display:flex!important;align-items:center;flex-wrap:wrap;column-gap:10px;row-gap:2px;font-size:20px!important;font-weight:800!important;letter-spacing:-.01em;line-height:1.25}
+.kit-ptitle .kit-tile{width:36px;height:36px;border-radius:10px;background:var(--brand-50,rgba(1,3,113,.06));color:var(--brand-600,#010371);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.kit-ptitle .kit-tile svg{width:20px;height:20px;margin:0}
+#page-md-summary #mdPresets{display:none!important}
 th.kit-sortable{cursor:pointer;user-select:none}
 th.kit-sortable:hover{color:var(--brand-600,#010371)}
 th[aria-sort="ascending"]::after,th[aria-sort="descending"]::after{content:'';display:inline-block;vertical-align:middle;margin-left:4px;border:4px solid transparent}
@@ -202,7 +210,7 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     btn.setAttribute('aria-haspopup', 'dialog'); btn.setAttribute('aria-expanded', 'false');
     if (fb !== f) {
       const cap = [...fb.children].find(c => c !== f);
-      if (cap) cap.textContent = '📅 Dates';
+      if (cap) cap.textContent = 'Dates';
       fb.appendChild(btn);
     } else {
       f.insertAdjacentElement('beforebegin', btn);
@@ -524,18 +532,125 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
   let rowQueue = new Set(), rowQueued = false;
   function queueRowActions(nodes) {
     nodes.forEach(n => {
-      if (n.nodeType !== 1) return;
-      if (n.tagName === 'TD') rowQueue.add(n);
-      else if (n.closest && n.closest('td')) rowQueue.add(n.closest('td'));
-      else if (n.querySelectorAll) n.querySelectorAll('td').forEach(td => { if (td.querySelector('button')) rowQueue.add(td); });
+      if (n.nodeType === 3) n = n.parentElement; // text swapped inside a button (loading state restored)
+      if (!n || n.nodeType !== 1) return;
+      rowQueue.add(n);
     });
     if (rowQueued || !rowQueue.size) return;
     rowQueued = true;
     requestAnimationFrame(() => {
       rowQueued = false;
-      const tds = rowQueue; rowQueue = new Set();
-      tds.forEach(td => { if (td.isConnected) collapseRowActions(td); });
+      const els = rowQueue; rowQueue = new Set();
+      const tds = new Set();
+      els.forEach(n => {
+        if (!n.isConnected) return;
+        const td = n.closest('td');
+        if (td) tds.add(td);
+        else n.querySelectorAll('td').forEach(t => { if (t.querySelector('button')) tds.add(t); });
+        iconizeIn(n.closest(ICON_SEL) || n);
+      });
+      tds.forEach(collapseRowActions);
     });
+  }
+
+  // ── 5. one icon set: emoji → Lucide in titles, buttons, tabs ───
+  // Emoji draw differently on every PC/phone; Lucide (already used by the
+  // sidebar, dashboard and dialogs) is one line style. Only the leading emoji
+  // of a button / tab / page title is swapped, words stay; icon-only buttons
+  // and anything inside a table cell are left alone.
+  const EXTRA_ICONS = {
+    hourglass: '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+    gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/>',
+    coffee: '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>',
+    video: '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+    repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+    'trending-up': '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    banknote: '<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+    'clipboard-list': '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+    printer: '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+    lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+    mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+    'arrow-left-right': '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>',
+    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'
+  };
+  const EMOJI_ICON = {
+    '🔄': 'refresh-cw', '↻': 'refresh-cw', '⬇': 'download', '📥': 'download', '⬆': 'upload', '📤': 'upload', '➕': 'plus',
+    '📊': 'chart-column', '📈': 'trending-up', '📋': 'clipboard-list', '📅': 'calendar', '🗓': 'calendar', '📆': 'calendar',
+    '🔍': 'search', '🔎': 'search', '📞': 'phone', '📱': 'phone', '💰': 'wallet', '💵': 'banknote', '💸': 'banknote',
+    '🧾': 'receipt', '🚚': 'truck', '🚛': 'truck', '📦': 'package', '👥': 'users', '👤': 'user', '⚙': 'settings',
+    '✏': 'pencil', '👁': 'eye', '📷': 'camera', '📸': 'camera', '📍': 'map-pin', '⏳': 'hourglass', '⌛': 'hourglass',
+    '⏰': 'clock', '🕐': 'clock', '🔔': 'bell', '🏪': 'store', '🏬': 'store', '📄': 'file-text', '📝': 'file-text',
+    '📑': 'file-text', '🔁': 'repeat', '🔀': 'arrow-left-right', '💬': 'message-square', '✅': 'circle-check',
+    '❌': 'circle-x', '✓': 'check', '✔': 'check', '✕': 'x', '🗑': 'trash-2', '📎': 'paperclip', '✉': 'send', '📧': 'send',
+    '🎁': 'gift', '☕': 'coffee', '🎬': 'video', '🎥': 'video', '🖨': 'printer', '🔒': 'lock', '🖼': 'image', '🎤': 'mic',
+    '🎙': 'mic', '🎯': 'target', '⭐': 'star', '⚠': 'triangle-alert', 'ℹ': 'info', '🏠': 'house', '🛒': 'shopping-cart',
+    '🔧': 'wrench', '🛠': 'wrench', '🔽': 'chevron-down', '🔗': 'external-link'
+  };
+  const LEAD = /^\s*([\p{Extended_Pictographic}⬇⬆↻✓✔✕ℹ])️?\s*/u;
+  const iconSvg = (name, cls) => {
+    let body = EXTRA_ICONS[name];
+    try { body = body || LUCIDE[name]; } catch (e) { /* app script missing */ }
+    return body ? `<svg class="kit-ico ${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>` : '';
+  };
+  // First text node of el, only when it is the very start of el's text.
+  function leadText(el) {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) if (n.nodeValue.trim()) return el.textContent.trimStart().startsWith(n.nodeValue.trimStart()) ? n : null;
+    return null;
+  }
+  function iconizeControl(el) {
+    if (el.closest('td,.kit-pop,.no-kit,svg') || el.querySelector('svg')) return;
+    const n = leadText(el);
+    const m = n && LEAD.exec(n.nodeValue);
+    if (!m || !EMOJI_ICON[m[1]]) return;
+    const rest = n.nodeValue.slice(m[0].length);
+    if (!rest.trim() && n.nodeValue.trim() === el.textContent.trim()) return; // icon-only button: keep its emoji
+    if (m[1] === '🔄' && !el.title) el.title = 'Refresh'; // api() treats a 🔄/Refresh click as "skip cache"
+    const tpl = document.createElement('template');
+    tpl.innerHTML = iconSvg(EMOJI_ICON[m[1]]);
+    if (!tpl.content.firstChild) return;
+    n.nodeValue = rest;
+    n.parentNode.insertBefore(tpl.content.firstChild, n);
+  }
+  // Page titles (the big 19px/900 heading many pages open with) get the
+  // page's own sidebar icon in a tile, so title and menu always match.
+  function styleTitle(el) {
+    if (el.dataset.kitTitle) return;
+    const page = el.closest('.page[id^="page-"]');
+    if (!page) return;
+    el.dataset.kitTitle = '1';
+    el.classList.add('kit-ptitle');
+    const navSvg = document.querySelector(`#nav-${page.id.slice(5)} > svg`);
+    const n = leadText(el), m = n && LEAD.exec(n.nodeValue);
+    let tile = '';
+    if (navSvg) tile = navSvg.outerHTML;
+    else if (m && EMOJI_ICON[m[1]]) tile = iconSvg(EMOJI_ICON[m[1]]);
+    if (!tile) return;
+    if (m) n.nodeValue = n.nodeValue.slice(m[0].length);
+    const span = document.createElement('span');
+    span.className = 'kit-tile'; span.setAttribute('aria-hidden', 'true');
+    span.innerHTML = tile;
+    el.insertBefore(span, el.firstChild);
+  }
+  // "🔍 Search…" placeholders → same search glyph as the command palette.
+  function iconizeSearch(inp) {
+    if (inp.dataset.kitSearch) return;
+    const ph = inp.getAttribute('placeholder') || '', m = /^s*🔍️?s*/u.exec(ph);
+    if (!m) return;
+    inp.dataset.kitSearch = '1';
+    inp.setAttribute('placeholder', ph.slice(m[0].length));
+    inp.classList.add('kit-search');
+  }
+  const ICON_SEL = 'button, .btn, .tab, .modal-overlay h2, .modal-overlay h3';
+  const TITLE_SEL = '.page [style*="font-size:19px"][style*="font-weight:900"]';
+  function iconizeIn(root) {
+    if (root.matches) { if (root.matches(ICON_SEL)) iconizeControl(root); if (root.matches(TITLE_SEL)) styleTitle(root); }
+    if (!root.querySelectorAll) return;
+    root.querySelectorAll(ICON_SEL).forEach(iconizeControl);
+    root.querySelectorAll(TITLE_SEL).forEach(styleTitle);
+    root.querySelectorAll('input[placeholder^="🔍"]').forEach(iconizeSearch);
   }
 
   // ── number fields: wheel scroll must not change an amount ──────
