@@ -14929,6 +14929,14 @@ function o2dShowPending() {
   document.getElementById('o2dListWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// Items one per line, never wrapped (client 2026-10-31: "item ka column theek karo, wrap ki jagah line"),
+// then Qty and the order value (after CD %, cancelled items left out).
+function o2dItemsCells(o) {
+  const v = o2dOrderValue(o);
+  return `<td style="white-space:nowrap;padding-top:8px;padding-bottom:8px">${(o.products || []).map(p => `<div style="font-size:11.5px;line-height:1.5${p.cancelled ? ';text-decoration:line-through;color:var(--gray-400)' : ''}">${esc(p.productName)} <b>× ${esc(p.qty)}</b></div>`).join('') || '—'}</td>
+          <td>${esc(o.qty || '—')}</td>
+          <td style="text-align:right;font-weight:700;white-space:nowrap">${v ? '₹' + Math.round(v).toLocaleString('en-IN') : '—'}</td>`;
+}
 function renderO2dFmsView() {
   const strip = document.getElementById('o2dHoldStrip');
   if (strip) strip.innerHTML = o2dHoldListHtml((o2dData || []).filter(o => o.onHold && !o.closed), 'o2d');
@@ -14954,16 +14962,15 @@ function renderO2dFmsView() {
   const stepHeadSub = O2D_STEP_DEFS.map(() => `<th style="border-left:2px solid var(--gray-200)">Planned</th><th>Actual</th><th>Status</th>`).join('');
   wrap.innerHTML = subTabsHtml + `<table style="font-size:12px;white-space:nowrap">
     <thead>
-      <tr><th rowspan="2">Order No</th><th rowspan="2">Counter Name</th><th rowspan="2">Items</th><th rowspan="2">Qty</th>${stepHeadTop}<th colspan="2" style="text-align:center;border-left:2px solid var(--gray-200)">Bill</th></tr>
+      <tr><th rowspan="2">Order No</th><th rowspan="2">Counter Name</th><th rowspan="2">Items</th><th rowspan="2">Qty</th><th rowspan="2" style="text-align:right">Order Value</th>${stepHeadTop}<th colspan="2" style="text-align:center;border-left:2px solid var(--gray-200)">Bill</th></tr>
       <tr>${stepHeadSub}<th style="border-left:2px solid var(--gray-200)">Bill No</th><th>Amount</th></tr>
     </thead>
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openO2dDetail('${jsArg(o.orderNo)}')" style="cursor:pointer">
           <td style="font-weight:600">${esc(o.orderNo || '—')}${!o.closed && String(o.timestamp || '').startsWith(today) ? ' <span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">🆕 Aaj</span>' : ''}${entrySubHtml(o.timestamp)}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
-          <td>${esc(o.counterName || '—')}</td>
-          <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
-          <td>${esc(o.qty || '—')}</td>
+          <td style="max-width:150px;min-width:110px;white-space:normal;line-height:1.35">${esc(o.counterName || '—')}</td>
+          ${o2dItemsCells(o)}
           ${o.steps.map(s => `
             <td style="border-left:2px solid var(--gray-200)">${esc(s.planned || '—')}</td>
             <td>${esc(s.actual || '—')}</td>
@@ -15007,7 +15014,7 @@ function renderO2dPCView() {
   if (!rows.length) { wrap.innerHTML = bar + '<div class="empty">Is filter me koi order nahi</div>'; return; }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
   wrap.innerHTML = bar + `<table>
-    <thead><tr><th>Order No</th><th>Date</th><th>Counter Name</th><th>Items</th><th>Qty</th><th>Pending Step</th><th>⏱ Doer ke paas aaya</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
+    <thead><tr><th>Order No</th><th>Date</th><th>Counter Name</th><th>Items</th><th>Qty</th><th style="text-align:right">Order Value</th><th>Pending Step</th><th>⏱ Doer ke paas aaya</th><th>Planned</th><th>Doer Name</th><th>TAT</th></tr></thead>
     <tbody>
       ${pageRows.map(o => {
         const pendingStep = o.steps[o.currentStep]; // 0-indexed: next step after currentStep
@@ -15018,9 +15025,8 @@ function renderO2dPCView() {
         <tr onclick="openO2dDetail('${jsArg(o.orderNo)}')" style="cursor:pointer;${rowStyle}">
           <td style="font-weight:600">${esc(o.orderNo || '—')}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
           <td style="white-space:nowrap;color:var(--gray-500)">${esc(fmtEntry(o.timestamp)) || '—'}</td>
-          <td>${esc(o.counterName || '—')}</td>
-          <td style="max-width:200px;white-space:normal;padding-top:8px;padding-bottom:8px">${(o.products||[]).map(p => `<div style="font-size:11.5px;line-height:1.5">${esc(p.productName)} × ${esc(p.qty)}</div>`).join('') || '—'}</td>
-          <td>${esc(o.qty || '—')}</td>
+          <td style="max-width:150px;min-width:110px;white-space:normal;line-height:1.35">${esc(o.counterName || '—')}</td>
+          ${o2dItemsCells(o)}
           <td style="font-weight:600">${pendingStep.n}. ${esc(pendingStep.label)}</td>
           <td style="white-space:nowrap;font-weight:600;color:var(--color-primary)">${esc(fmtEntry(fmsReachedAt(o.steps, o.currentStep, o.timestamp)) || '—')}</td>
           <td style="${plannedStyle}">${esc(pendingStep.planned || '—')}${overdue ? ' ⚠️' : ''}</td>
