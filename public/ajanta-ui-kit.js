@@ -550,8 +550,10 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
         if (td) tds.add(td);
         else n.querySelectorAll('td').forEach(t => { if (t.querySelector('button')) tds.add(t); });
         iconizeIn(n.closest(ICON_SEL) || n);
+        enhanceTablesIn(n);
       });
       tds.forEach(collapseRowActions);
+      forgetGoneTables();
     });
   }
 
@@ -691,6 +693,169 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     el._kitDebounce = setTimeout(() => { if (el.isConnected) el.oninput.call(el, e); }, SEARCH_DEBOUNCE_MS);
   }, true);
 
+  // ── 7. CSV downloads keep Hindi names and ₹ readable in Excel ──
+  // Nine exports build a data: URI without a UTF-8 BOM, so Excel guessed the
+  // wrong encoding. Every anchor download of a CSV now goes out as a Blob with
+  // a BOM; the export code itself is unchanged (audit 2026-10-31).
+  const nativeAnchorClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    const href = this.getAttribute('href') || '';
+    const m = /^data:text\/csv(?:;charset=[\w-]+)?(;base64)?,/i.exec(href);
+    if (m) {
+      try {
+        const payload = href.slice(m[0].length);
+        let text = m[1] ? new TextDecoder().decode(Uint8Array.from(atob(payload), c => c.charCodeAt(0))) : decodeURIComponent(payload);
+        if (text.charCodeAt(0) !== 0xFEFF) text = '﻿' + text;
+        const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+        this.setAttribute('href', url);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (e) { /* fall back to the original link */ }
+    }
+    return nativeAnchorClick.call(this);
+  };
+  function downloadCsv(rows, name) {
+    const cell = v => { const s = String(v == null ? '' : v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const text = '﻿' + rows.map(r => r.map(cell).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+    a.download = name;
+    nativeAnchorClick.call(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  }
+
+  // ── 8. table tools: columns, CSV, long lists ───────────────────
+  // Data tables on pages (not modals, not #dashTable) get a small toolbar:
+  // "Columns" to hide columns (remembered per table in this browser) and, only
+  // on pages that have no export of their own, "CSV" of the rows shown. Tables
+  // of 100+ rows show 50 at a time with "Aur dikhao" (Checklist Master was
+  // 4,300 DOM nodes and 93,000 px tall on a phone). Rows and data are untouched.
+  const PAGE_ROWS = 50, LONG_TABLE = 100;
+  const colStyle = document.createElement('style');
+  colStyle.id = 'kit-cols';
+  document.head.appendChild(colStyle);
+  const colRules = new Map(); // table id -> css
+  let tableSeq = 0;
+  const lsGet = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
+  const headTexts = t => [...t.tHead.rows[0].cells].map(c => c.textContent.replace(/\s+/g, ' ').trim());
+  const tableKey = (t, heads) => 'kitCols:' + (t.closest('.page') || {}).id + ':' + heads.join('|').slice(0, 300);
+  function gridEligible(t) {
+    if (t.id === 'dashTable' || t.closest('.modal-overlay,.no-kit,.kit-pop') || !t.closest('.page')) return false;
+    if (!t.tHead || t.tHead.rows.length !== 1 || t.tBodies.length !== 1) return false;
+    const heads = [...t.tHead.rows[0].cells];
+    return heads.length >= 5 && heads.every(c => c.colSpan === 1) && t.tBodies[0].rows.length >= 3;
+  }
+  function paintCols() { colStyle.textContent = [...colRules.values()].join('\n'); }
+  function applyCols(t, heads) {
+    const hidden = new Set(lsGet(tableKey(t, heads)) || []);
+    const idx = heads.map((h, i) => (h && hidden.has(h) ? i + 1 : 0)).filter(Boolean);
+    colRules.set(t.dataset.kitT, idx.map(n => `table[data-kit-t="${t.dataset.kitT}"] tr > :nth-child(${n}){display:none}`).join('\n'));
+    paintCols();
+    return hidden.size;
+  }
+  function pageHasExport(t) {
+    const page = t.closest('.page');
+    return [...page.querySelectorAll('button, a.btn')].some(b => !b.closest('.kit-gridbar') && /export|excel|csv|download/i.test(b.textContent + ' ' + (b.title || '')));
+  }
+  function exportTable(t, heads) {
+    const hidden = new Set(lsGet(tableKey(t, heads)) || []);
+    const keep = heads.map((h, i) => (h && !hidden.has(h) ? i : -1)).filter(i => i >= 0);
+    const rows = [...t.tBodies[0].rows].filter(r => r.style.display !== 'none' && r.cells.length === heads.length);
+    const text = c => c.textContent.replace(/\s+/g, ' ').trim();
+    const page = (document.querySelector('.topbar-title') || {}).textContent || 'export';
+    const d = new Date(), stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    downloadCsv([keep.map(i => heads[i]), ...rows.map(r => keep.map(i => text(r.cells[i])))], `${page.trim().replace(/[^\w-]+/g, '-')}-${stamp}.csv`);
+  }
+  function openColumns(t, heads, btn) {
+    const key = tableKey(t, heads);
+    const el = document.createElement('div');
+    el.className = 'kit-menu kit-cols-menu'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Columns');
+    const hidden = new Set(lsGet(key) || []);
+    el.innerHTML = `<div class="kit-cols-head">Columns dikhao / chhupao</div>` + heads.map((h, i) => h ? `<label><input type="checkbox" data-h="${esc(h)}" ${hidden.has(h) ? '' : 'checked'}> ${esc(h)}</label>` : '').join('') + '<button type="button" class="kit-cols-reset">Sab dikhao</button>';
+    el.addEventListener('change', () => {
+      const off = [...el.querySelectorAll('input:not(:checked)')].map(i => i.dataset.h);
+      if (off.length >= heads.filter(Boolean).length) { el.querySelector('input:not(:checked)').checked = true; return; } // keep one column
+      lsSet(key, off); applyCols(t, heads); markBtn(btn, off.length);
+    });
+    el.querySelector('.kit-cols-reset').addEventListener('click', () => { lsSet(key, []); el.querySelectorAll('input').forEach(i => { i.checked = true; }); applyCols(t, heads); markBtn(btn, 0); });
+    showPop(el, btn);
+  }
+  const markBtn = (btn, n) => { btn.querySelector('span').textContent = n ? `Columns (${n} chhupe)` : 'Columns'; };
+  const tableAnchor = t => t.closest('.table-wrap, .mis-table-wrap') || (t.parentElement && t.parentElement.children.length === 1 && t.parentElement !== t.closest('.page') ? t.parentElement : t);
+  function pageRows(t) {
+    const rows = [...t.tBodies[0].rows];
+    const shown = Number(t.dataset.kitShown) || PAGE_ROWS;
+    rows.forEach((r, i) => r.classList.toggle('kit-rowhide', i >= shown));
+    let more = t._kitMore;
+    if (!more || !more.isConnected) {
+      more = t._kitMore = document.createElement('div');
+      more.className = 'kit-more-rows';
+      tableAnchor(t).insertAdjacentElement('afterend', more);
+      more.addEventListener('click', e => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        t.dataset.kitShown = b.hasAttribute('data-all') ? t.tBodies[0].rows.length : (Number(t.dataset.kitShown) || PAGE_ROWS) + PAGE_ROWS;
+        pageRows(t);
+      });
+    }
+    const left = rows.length - Math.min(shown, rows.length);
+    more.hidden = left <= 0;
+    more.innerHTML = left > 0 ? `<button type="button" class="btn btn-outline btn-sm">Aur ${Math.min(PAGE_ROWS, left)} dikhao</button><button type="button" class="btn btn-outline btn-sm" data-all>Sab ${rows.length} dikhao</button><span>${Math.min(shown, rows.length)} / ${rows.length}</span>` : '';
+  }
+  function enhanceTable(t) {
+    if (!t.dataset.kitT) {
+      if (!gridEligible(t)) return;
+      t.dataset.kitT = String(++tableSeq);
+      const heads = headTexts(t);
+      const nHidden = applyCols(t, heads);
+      if (!isPhone()) { // phones show these tables as cards — no column toolbar there
+        const anchor = tableAnchor(t);
+        let bar = anchor.previousElementSibling;
+        if (!bar || !bar.classList.contains('kit-gridbar')) {
+          bar = document.createElement('div'); bar.className = 'kit-gridbar';
+          anchor.insertAdjacentElement('beforebegin', bar);
+        }
+        bar.innerHTML = `<button type="button" class="kit-gb-cols" aria-haspopup="dialog">${iconSvg('filter')}<span></span></button>` + (pageHasExport(t) ? '' : `<button type="button" class="kit-gb-csv">${iconSvg('download')}<span>CSV</span></button>`);
+        const cb = bar.querySelector('.kit-gb-cols');
+        markBtn(cb, nHidden);
+        cb.onclick = () => (openPop && openPop.anchor === cb ? closePop() : openColumns(t, heads, cb));
+        const csv = bar.querySelector('.kit-gb-csv');
+        if (csv) csv.onclick = () => exportTable(t, heads);
+      }
+    }
+    if (t.tBodies[0] && (t.tBodies[0].rows.length >= LONG_TABLE || t._kitMore)) pageRows(t);
+  }
+  // A sort reorders every row; keep "first N shown" in the new order.
+  document.addEventListener('kit:sorted', e => { const t = e.target; if (t.dataset && t.dataset.kitT && t._kitMore) pageRows(t); });
+  function enhanceTablesIn(root) {
+    if (!root || root.nodeType !== 1) return;
+    const own = root.closest('table');
+    const tables = own ? [own] : root.tagName === 'TABLE' ? [root] : [...root.querySelectorAll('.page table')];
+    tables.forEach(t => { if (t.closest('.page')) { try { enhanceTable(t); } catch (e) { /* never break a page */ } } });
+  }
+  function forgetGoneTables() { // column rules of tables that were re-rendered away
+    let changed = false;
+    colRules.forEach((_, id) => { if (!document.querySelector(`table[data-kit-t="${id}"]`)) { colRules.delete(id); changed = true; } });
+    if (changed) paintCols();
+  }
+
+  // ── 9. page titles on pages that open straight into buttons ────
+  const TITLE_PAGES = { 'o2d-fms': 'Order se dispatch tak har order', 'service-fms': 'Complaint se check-out tak', 'purchase-fms': 'Indent → PO → maal aana', 'employees': 'Staff details, salary, documents', 'records': 'Har hafte ka kaam, employee-wise' };
+  function addPageTitles() {
+    Object.entries(TITLE_PAGES).forEach(([pg, sub]) => {
+      const page = document.getElementById('page-' + pg);
+      if (!page || page.querySelector('.kit-ptitle')) return;
+      const nav = document.getElementById('nav-' + pg);
+      const name = nav ? (nav.querySelector('.nav-label-text') || nav).textContent.trim() : pg;
+      const t = document.createElement('div');
+      t.className = 'kit-ptitle kit-ptitle-inj';
+      t.innerHTML = `<span class="kit-tile" aria-hidden="true">${nav && nav.querySelector('svg') ? nav.querySelector('svg').outerHTML : ''}</span><span>${esc(name)}<small>${esc(sub)}</small></span>`;
+      let head = page.querySelector(':scope > .page-header');
+      if (!head) { head = document.createElement('div'); head.className = 'page-header kit-ph-inj'; page.insertBefore(head, page.firstElementChild); }
+      head.insertBefore(t, head.firstChild);
+    });
+  }
+
   // ── number fields: wheel scroll must not change an amount ──────
   document.addEventListener('wheel', e => {
     const el = e.target;
@@ -703,6 +868,7 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
   // callback is a microtask and beats that upgrader's requestAnimationFrame
   // for pairs rendered later.
   upgradeAllRanges();
+  addPageTitles();
   queueRowActions([document.body]);
   let pending = false;
   new MutationObserver(recs => {

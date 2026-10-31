@@ -1,0 +1,72 @@
+/* Ajanta ERP — design layer (Phase 2, 2026-10-31).
+   Linked last in <head>, so it overrides the older style blocks without
+   touching them. Business logic and markup are unchanged; delete this file's
+   <link> to get the previous look back. Tokens come from #tokens-css. */
+
+/* ── Focus: one visible ring for keyboard users ───────────────── */
+:where(button, a, .tab, .nav-item, [role="button"], summary):focus-visible {
+  outline: 2px solid var(--brand-400, #3a49c9);
+  outline-offset: 2px;
+}
+
+/* ── Rows ease in briefly — 8 rows, 20 ms apart (was 12 × 30 ms; it replayed on every search / sort) ── */
+@media (prefers-reduced-motion: no-preference) {
+  .page.active tbody tr:nth-child(-n+12) { animation-duration: .2s; }
+  .page.active tbody tr:nth-child(n+9) { animation: none; }
+  .page.active tbody tr:nth-child(2) { animation-delay: 20ms } .page.active tbody tr:nth-child(3) { animation-delay: 40ms }
+  .page.active tbody tr:nth-child(4) { animation-delay: 60ms } .page.active tbody tr:nth-child(5) { animation-delay: 80ms }
+  .page.active tbody tr:nth-child(6) { animation-delay: 100ms } .page.active tbody tr:nth-child(7) { animation-delay: 120ms }
+  .page.active tbody tr:nth-child(8) { animation-delay: 140ms }
+}
+
+/* ── Dashboard: compact KPI row, one loud action ──────────────── */
+@media (min-width: 769px) {
+  #page-dashboard .overview-cards { gap: 12px; margin-bottom: 16px; }
+  #page-dashboard .ov-card { padding: 14px 18px 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  #page-dashboard .ov-card::after { top: 0; bottom: 0; left: 0; right: auto; width: 4px; height: auto; }
+  #page-dashboard .ov-card .label { margin: 0; font-size: 12px; }
+  #page-dashboard .ov-card .number { font-size: 30px; line-height: 1; }
+}
+/* Holidays / Checklist are everyday tools, not alerts: quiet outline style.
+   + Delegate and Punch In stay the filled primary actions. */
+#dashBtns .btn-amber, #dashBtns .btn-green {
+  background: var(--surface, #fff) !important;
+  color: var(--gray-800, #1e293b) !important;
+  border: 1.5px solid var(--gray-200, #e2e8f0) !important;
+  box-shadow: none !important;
+}
+#dashBtns .btn-amber:hover, #dashBtns .btn-green:hover { border-color: var(--brand-400, #3a49c9) !important; color: var(--brand-600, #010371) !important; }
+#dashBtns .btn-amber .kit-ico { color: #d97706; }
+#dashBtns .btn-green .kit-ico { color: #059669; }
+#dashTable td { overflow-wrap: anywhere; }
+/* Long task titles (some are whole paragraphs) stay 3 lines; click opens, like Description */
+.dt-clamp.dt-clamp-3 { max-height: none; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.dt-clamp.dt-clamp-3::after { display: none; } /* the fade sat on one-line titles too */
+.dt-clamp.dt-clamp-3.open { display: block; -webkit-line-clamp: unset; }
+
+/* ── Page titles added by the ui-kit (O2D, Service, Purchase, Employees, Records) ── */
+.kit-ptitle-inj small { display: block; font: 600 12.5px/1.3 var(--font-sans); color: var(--gray-500, #64748b); letter-spacing: 0; }
+.kit-ptitle-inj { margin-right: auto; }
+.page-header.kit-ph-inj { display: flex; align-items: center; margin-bottom: 14px; }
+@media (max-width: 768px) { .kit-ptitle-inj, .page-header.kit-ph-inj { display: none !important; } }
+
+/* ── Table tools ──────────────────────────────────────────────── */
+.page table tbody tr.kit-rowhide { display: none !important; }
+.kit-gridbar { display: flex; justify-content: flex-end; gap: 6px; margin: 0 0 6px; }
+.kit-gridbar button {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+  border: 1px solid var(--gray-200, #e2e8f0); border-radius: 8px; background: var(--surface, #fff);
+  color: var(--gray-600, #475569); font: 600 12.5px var(--font-sans); cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.kit-gridbar button:hover { border-color: var(--brand-400, #3a49c9); color: var(--brand-600, #010371); }
+.kit-gridbar .kit-ico { margin: 0; width: 14px; height: 14px; }
+.kit-more-rows { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 0 4px; }
+.kit-more-rows[hidden] { display: none; }
+.kit-more-rows span { font: 600 12.5px var(--font-sans); color: var(--gray-500, #64748b); }
+.kit-cols-menu { max-height: 380px; overflow: auto; min-width: 220px; }
+.kit-cols-menu .kit-cols-head { font: 700 11px var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--gray-400, #94a3b8); padding: 6px 12px 4px; }
+.kit-cols-menu label { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; font-size: 13.5px; cursor: pointer; }
+.kit-cols-menu label:hover { background: var(--gray-100, #f1f5f9); }
+.kit-cols-menu input { width: 16px; height: 16px; accent-color: var(--brand-600, #010371); }
+.kit-cols-menu .kit-cols-reset { margin-top: 4px; border-top: 1px solid var(--gray-100, #f1f5f9); border-radius: 0 0 8px 8px; color: var(--brand-600, #010371); }
