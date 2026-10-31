@@ -13660,6 +13660,37 @@ app.put('/api/meca/benchmark/:uid', requireAuth, requireAdmin, async (req, res) 
     res.json({ success: true, data });
   } catch (err) { sendServerError(res, err); }
 });
+// Weekly MECA score commitment per salesman (client 2026-10-31, like MIS "Committed last week / Commit next week"):
+// % short of the benchmark, always negative (-10 = at most 10% kam). week = Monday; user_id 0 = SCOT.
+let _mecaCommitOk = false;
+async function mecaCommitTable() {
+  if (_mecaCommitOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS meca_commitments (user_id INT NOT NULL, week_start DATE NOT NULL, score DECIMAL(5,1) NOT NULL, set_by INT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (user_id, week_start)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _mecaCommitOk = true;
+}
+function mecaCommitWeeks() {
+  const t = new Date(Date.now() + 5.5 * 3600 * 1000); // IST
+  const mon = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate() - ((t.getUTCDay() + 6) % 7)));
+  const add = n => new Date(mon.getTime() + n * 86400000).toISOString().slice(0, 10);
+  return { last: add(-7), lastEnd: add(-1), next: add(7) };
+}
+app.put('/api/meca/commit', requireAuth, async (req, res) => {
+  try {
+    if (!(await hasPageGrant(req, 'meca'))) return res.status(403).json({ error: 'No access to MECA' });
+    const b = req.body || {}, uid = Number(b.userId);
+    if (!(uid >= 0) || b.userId === '' || b.userId == null) return res.status(400).json({ error: 'Salesman chahiye' });
+    if (!['admin', 'pc'].includes(req.session.role) && uid !== req.session.userId) return res.status(403).json({ error: 'Sirf apna commitment bhar sakte hain' });
+    const score = b.score === '' || b.score == null ? null : -Math.abs(Number(b.score));
+    if (score !== null && !(score >= -100 && score <= 0)) return res.status(400).json({ error: 'Commitment -100 se 0 % ke beech (jaise -10)' });
+    await mecaCommitTable();
+    const week = mecaCommitWeeks().next;
+    if (score === null) await db.query('DELETE FROM meca_commitments WHERE user_id=? AND week_start=?', [uid, week]);
+    else await db.query('INSERT INTO meca_commitments (user_id, week_start, score, set_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE score=VALUES(score), set_by=VALUES(set_by)',
+      [uid, week, Math.round(score * 10) / 10, req.session.userId]);
+    res.json({ success: true, week, score });
+  } catch (err) { sendServerError(res, err); }
+});
 app.get('/api/meca', requireAuth, async (req, res) => {
   try {
     if (!(await hasPageGrant(req, 'meca'))) return res.status(403).json({ error: 'No access to MECA' });
@@ -13733,7 +13764,12 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     const [bench] = await db.query('SELECT user_id, data FROM meca_benchmarks');
     const benchmarks = {};
     bench.forEach(b => { try { benchmarks[b.user_id] = JSON.parse(b.data || '{}'); } catch (e) { /* skip */ } });
-    res.json({ from, to, rows: out, benchmarks, isAdmin: req.session.role === 'admin' });
+    await mecaCommitTable();
+    const cw = mecaCommitWeeks();
+    const [cm] = await db.query("SELECT user_id, DATE_FORMAT(week_start,'%Y-%m-%d') AS w, score FROM meca_commitments WHERE week_start IN (?,?)", [cw.last, cw.next]);
+    const commits = { ...cw, map: {} };
+    cm.forEach(c => { (commits.map[c.w] = commits.map[c.w] || {})[c.user_id] = Number(c.score); });
+    res.json({ from, to, rows: out, benchmarks, commits, isAdmin: req.session.role === 'admin', canCommitAll: ['admin', 'pc'].includes(req.session.role) });
   } catch (err) { sendServerError(res, err); }
 });
 
