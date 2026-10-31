@@ -13703,8 +13703,7 @@ app.put('/api/meca/commit', requireAuth, async (req, res) => {
     res.json({ success: true, week, section, score });
   } catch (err) { sendServerError(res, err); }
 });
-// One period's MECA day rows (salesman × date). Called for the picked range and, for the ▲/▼ trend, for the
-// same number of days just before it.
+// One period's MECA day rows (person × date).
 async function mecaCompute(from, to) {
   await beatTables();
   const [[counters], [entries]] = await Promise.all([
@@ -13848,14 +13847,11 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     const from = isYmd(req.query.from) ? req.query.from : today.slice(0, 8) + '01';
     const to = isYmd(req.query.to) ? req.query.to : today;
     if (from > to) return res.status(400).json({ error: 'From date To se pehle honi chahiye' });
-    // Trend: the same number of days just before the range (last week for a weekly MECA).
-    const dayMs = 86400000, len = Math.round((Date.parse(to) - Date.parse(from)) / dayMs) + 1;
-    if (len > 400) return res.status(400).json({ error: 'Range bahut lambi hai (max 400 din)' });
-    const prevTo = new Date(Date.parse(from) - dayMs).toISOString().slice(0, 10), prevFrom = new Date(Date.parse(from) - len * dayMs).toISOString().slice(0, 10);
+    if ((Date.parse(to) - Date.parse(from)) / 86400000 >= 400) return res.status(400).json({ error: 'Range bahut lambi hai (max 400 din)' });
     const scope = await mecaScope(req);
     const mine = r => !scope || scope.has(Number(r.userId));
-    const [cur, prev] = [await mecaCompute(from, to), await mecaCompute(prevFrom, prevTo)];
-    const ids = [...new Set(cur.rows.concat(prev.rows).map(r => r.userId).concat(cur.refs.map(l => l.uid)))].filter(v => typeof v === 'number' && v > 0);
+    const cur = await mecaCompute(from, to);
+    const ids = [...new Set(cur.rows.map(r => r.userId).concat(cur.refs.map(l => l.uid)))].filter(v => typeof v === 'number' && v > 0);
     const [users] = ids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [ids]) : [[]];
     const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
     const named = list => list.filter(mine).map(r => ({ ...r, name: r.userId === 0 ? 'SCOT' : typeof r.userId === 'string' ? r.userId.slice(4) : nameOf[r.userId] || `User ${r.userId}` }))
@@ -13873,7 +13869,7 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     cm.forEach(c => { if (!scope || scope.has(Number(c.user_id))) { const w = commits.map[c.w] = commits.map[c.w] || {}; (w[c.user_id] = w[c.user_id] || {})[c.section] = Number(c.score); } });
     // 60 s in the viewer's own browser only (logged-in data, never a shared CDN); after a save the page asks with ?v= to skip it.
     res.set('Cache-Control', 'private, max-age=60');
-    res.json({ from, to, prevFrom, prevTo, rows: named(cur.rows), prevRows: named(prev.rows), refs, benchmarks, commits,
+    res.json({ from, to, rows: named(cur.rows), refs, benchmarks, commits,
       isAdmin: req.session.role === 'admin', canCommitAll: ['admin', 'pc'].includes(req.session.role), seeAll: !scope });
   } catch (err) { sendServerError(res, err); }
 });

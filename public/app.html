@@ -2706,10 +2706,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
   <div id="page-meca" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🧭 MECA — Salesman market report</div>
-        <button class="btn btn-outline" onclick="mecaNewDealer()" title="Naya dealer — Lead FMS me lead banegi">🆕 Naya dealer (Lead)</button>
-        <button class="btn btn-green" onclick="navigate('beat', document.getElementById('nav-beat'))" title="Purane dealer ka visit / order Beat page par bharein">📋 Beat bharo</button>
-        <button class="btn btn-outline" onclick="mecaSetLastWeek()" title="Pichhle hafte ka Mon–Sat — MECA meeting ke liye">📅 Pichhla hafta</button>
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">MECA — Salesman market report</div>
+        <button class="btn btn-outline" onclick="mecaNewDealer()" title="Naya dealer — Lead FMS me lead banegi">Naya dealer (Lead)</button>
+        <button class="btn btn-green" onclick="navigate('beat', document.getElementById('nav-beat'))" title="Purane dealer ka visit / order Beat page par bharein">Beat bharo</button>
+        <button class="btn btn-outline" onclick="mecaSetLastWeek()" title="Pichhle hafte ka Mon–Sat — MECA meeting ke liye">Pichhla hafta</button>
         <input type="date" id="mecaFrom" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/> to
         <input type="date" id="mecaTo" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
         <input id="mecaSearch" placeholder="🔍 Salesman…" oninput="renderMeca()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
@@ -21498,31 +21498,28 @@ function renderMeca() {
   // score, teeno ka commitment") = % of target achieved, averaged over that section's benchmarks; each metric capped
   // at 100 so a surplus on one doesn't hide a shortfall on another ("0 = best" confused the client).
   const SCORE_KEYS = { crr: ['visits', 'conv', 'avg'], nbd: ['nbd', 'nbdConv', 'nbdAvg'], coll: ['collCount', 'coll', 'collAvg', 'collVsOrder'], scot: ['scotCalls', 'scotConv', 'scotValue', 'scotAvg'] };
-  // Each person's previous period (same number of days before), for ▲ / ▼ in the cells.
-  const prevBy = {};
-  (mecaData.prevRows || []).forEach(r => { prevBy[r.userId] = add(prevBy[r.userId] || zero(), r); });
   const list = people.map(p => {
     const t = groups[groups.length - 1].get(p), b = B[p.id] || {}, scores = {};
     Object.entries(SCORE_KEYS).forEach(([sec, keys]) => {
       const sc = keys.map(k => { const a = ACT[k](t), tg = tgt(k, t, b); return a == null || !tg ? null : Math.min(100, a * 100 / tg); }).filter(v => v != null);
       scores[sec] = sc.length ? Math.round(sc.reduce((s, v) => s + v, 0) / sc.length) : null;
     });
-    return { p, t, b, scores, pv: prevBy[p.id] || null };
+    return { p, t, b, scores };
   });
   const mval = (x, k) => k.startsWith('score_') ? (x.scores[k.slice(6)] ?? -999) : ACT[k] ? (ACT[k](x.t) ?? -1) : 0;
   list.sort((a, b) => mecaSort === 'name' ? a.p.name.localeCompare(b.p.name) : (mval(b, mecaSort) - mval(a, mecaSort)) || a.p.name.localeCompare(b.p.name));
   const th = 'padding:9px 10px;font-size:10.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;background:var(--gray-50);border-bottom:1px solid var(--gray-200);white-space:nowrap';
   const td = 'padding:8px 10px;border-bottom:1px solid var(--gray-100);vertical-align:middle';
   const cm = mecaData.commits || { map: {} };
-  // ✓ / ✗ only when the page shows exactly last week (Mon–Sun or Mon–Sat).
+  // "poora" / "kam" only when the page shows exactly last week (Mon–Sun or Mon–Sat).
   const lastWk = cm.last && mecaData.from === cm.last && (mecaData.to === cm.lastEnd || mecaData.to === owsYmd(new Date(new Date(cm.lastEnd + 'T00:00:00').getTime() - 86400000)));
-  // Section score with last week's commitment under it (✓ / ✗ when the page shows exactly last week), and next week's box.
+  // Section score with last week's commitment under it, and next week's box — plain text, no symbols (client 2026-10-31).
   const scoreCell = (x, sec) => {
     const sc = x.scores[sec], last = ((cm.map[cm.last] || {})[x.p.id] || {})[sec];
-    const pill = sc == null ? '<span style="color:var(--gray-300)" title="🎯 Benchmark nahi bhara">—</span>' : `<span style="display:inline-block;min-width:56px;padding:4px 10px;border-radius:999px;font-weight:900;font-size:13px;background:${band(sc)[0]};color:${band(sc)[1]}">${sc}%</span>`;
-    const met = lastWk && last != null && sc != null ? (sc >= last ? ' <b style="color:var(--color-success-text)" title="Commitment poora hua">✓</b>' : ' <b style="color:var(--color-danger)" title="Commitment se kam">✗</b>') : '';
+    const pill = sc == null ? '<span style="color:var(--gray-300)" title="Benchmark nahi bhara">—</span>' : `<b style="font-size:13.5px;color:${band(sc)[1]}">${sc}%</b>`;
+    const met = lastWk && last != null && sc != null ? (sc >= last ? ' · <b style="color:var(--color-success-text)">poora</b>' : ' · <b style="color:var(--color-danger)">kam</b>') : '';
     const lastLine = last == null ? '' : `<div style="font-size:10px;color:var(--gray-500);margin-top:3px;white-space:nowrap">commit ${last}%${met}</div>`;
-    return `<td style="${td};text-align:center;background:rgba(0,0,0,.02)">${pill}${lastLine}</td>`;
+    return `<td style="${td};text-align:center">${pill}${lastLine}</td>`;
   };
   const commitCell = (x, sec) => {
     const next = ((cm.map[cm.next] || {})[x.p.id] || {})[sec];
@@ -21530,114 +21527,75 @@ function renderMeca() {
       ? `<input type="number" min="0" max="100" step="1" value="${next == null ? '' : next}" placeholder="%" aria-label="${esc(x.p.name)} — agle hafte ka ${sec} commitment"
           onkeydown="if(event.key==='Enter')this.blur()" onchange="mecaSaveCommit(${x.p.id}, '${sec}', this)" style="width:62px;padding:5px 6px;border:1.5px solid var(--gray-200);border-radius:8px;text-align:center;font-weight:700;font-size:12.5px"/>`
       : (next == null ? '<span style="color:var(--gray-300)">—</span>' : `<b>${next}%</b>`);
-    return `<td style="${td};text-align:center;background:rgba(0,0,0,.02)">${inner}</td>`;
+    return `<td style="${td};text-align:center">${inner}</td>`;
   };
-  // Top: 4 big numbers with ▲ / ▼ against the same number of days just before (client spec 2026-10-31).
-  const KT = rows.reduce((a, r) => add(a, r), zero()), KP = (mecaData.prevRows || []).filter(r => !q || r.name.toLowerCase().includes(q)).reduce((a, r) => add(a, r), zero());
+  // Top: 5 big numbers — plain, no ▲ / ▼ (client 2026-10-31: "▼ 12% hatao").
+  const KT = rows.reduce((a, r) => add(a, r), zero());
   const allValue = k => k.value + k.callValue + k.nbdValue;
-  const trend = (c, pv, pts) => {
-    if (pv == null || (!pts && !pv)) return '<span style="color:var(--gray-400)">pichhle period me data nahi</span>';
-    const d = pts ? Math.round((c - pv) * 10) / 10 : Math.round((c - pv) * 1000 / pv) / 10;
-    return `<b style="color:${d >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d)}${pts ? ' pts' : '%'}</b> <span style="color:var(--gray-400)">vs ${esc(fmtDateDMY(mecaData.prevFrom).slice(0, 5))}–${esc(fmtDateDMY(mecaData.prevTo).slice(0, 5))}</span>`;
-  };
   const pctOf = (a, b) => b ? Math.round(a * 1000 / b) / 10 : null;
-  const kpi = (icon, label, val, tr, sub) => `<div style="flex:1;min-width:190px;background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 16px">
-    <div style="font-size:11.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em">${icon} ${label}</div>
-    <div style="font-size:24px;font-weight:900;color:var(--gray-900);margin:2px 0">${val}</div><div style="font-size:11.5px">${tr}</div>${sub ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px">${sub}</div>` : ''}</div>`;
-  const vc = pctOf(KT.ordered, KT.visited), vp = pctOf(KP.ordered, KP.visited), cc = pctOf(KT.callOrders, KT.calls), cp = pctOf(KP.callOrders, KP.calls);
+  const kpi = (_, label, val, sub) => `<div style="flex:1;min-width:190px;background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 16px">
+    <div style="font-size:11.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em">${label}</div>
+    <div style="font-size:24px;font-weight:900;color:var(--gray-900);margin:2px 0">${val}</div>${sub ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px">${sub}</div>` : ''}</div>`;
+  const vc = pctOf(KT.ordered, KT.visited), cc = pctOf(KT.callOrders, KT.calls);
   const kpis = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-    ${kpi('🧾', 'Total Order Value', '₹' + fmt(allValue(KT)), trend(allValue(KT), allValue(KP)), `Visit ₹${fmt(KT.value)} · NBD ₹${fmt(KT.nbdValue)} · Call ₹${fmt(KT.callValue)}`)}
-    ${kpi('💰', 'Total Collection', '₹' + fmt(KT.collection), trend(KT.collection, KP.collection), `${fmt(KT.collCount)} counter · order ka ${pctOf(KT.collection, KT.value) ?? '—'}%`)}
-    ${kpi('🏪', 'Visit Conversion', vc == null ? '—' : vc + '%', vc == null ? '' : trend(vc, vp, 1), `${fmt(KT.ordered)} order / ${fmt(KT.visited)} visit`)}
-    ${kpi('📞', 'Call Conversion', cc == null ? '—' : cc + '%', cc == null ? '' : trend(cc, cp, 1), `${fmt(KT.callOrders)} order / ${fmt(KT.calls)} call`)}
-    ${kpi('🧾', 'ERP Sales (O2D)', '₹' + fmt(KT.o2dValue), trend(KT.o2dValue, KP.o2dValue), `${fmt(KT.o2dOrders)} order O2D me book hue`)}
+    ${kpi('', 'Total Order Value', '₹' + fmt(allValue(KT)), `Visit ₹${fmt(KT.value)} · NBD ₹${fmt(KT.nbdValue)} · Call ₹${fmt(KT.callValue)}`)}
+    ${kpi('', 'Total Collection', '₹' + fmt(KT.collection), `${fmt(KT.collCount)} counter · order ka ${pctOf(KT.collection, KT.value) ?? '—'}%`)}
+    ${kpi('', 'Visit Conversion', vc == null ? '—' : vc + '%', `${fmt(KT.ordered)} order / ${fmt(KT.visited)} visit`)}
+    ${kpi('', 'Call Conversion', cc == null ? '—' : cc + '%', `${fmt(KT.callOrders)} order / ${fmt(KT.calls)} call`)}
+    ${kpi('', 'ERP Sales (O2D)', '₹' + fmt(KT.o2dValue), `${fmt(KT.o2dOrders)} order O2D me book hue`)}
   </div>`;
-  // One table, vertical (client 2026-10-31: "ek hi table", then "format vertical karo"): a row per metric grouped by
-  // section (each ending in Score + Commit), a column per person, Total last. Target / Gap under a number where a
-  // benchmark is set.
+  // One table, vertical (client 2026-10-31: "ek hi table", "format vertical karo", "sirf simple numbers rakho"): a row
+  // per metric grouped by section (each ending in Score + Commit), a column per person, Total last. Cells are plain
+  // numbers; with a benchmark the number turns green / yellow / red and the target shows on hover.
   const band = pc => pc >= 100 ? ['var(--color-success-bg)', 'var(--color-success-text)'] : pc >= 70 ? ['var(--color-warning-bg)', 'var(--color-warning-text)'] : ['var(--color-danger-bg)', 'var(--color-danger-text)'];
-  const trendOf = (k, x) => {
-    const a = ACT[k](x.t), p = x.pv ? ACT[k](x.pv) : null;
-    if (a == null || p == null || (!a && !p)) return '';
-    if (!p) return '<div style="font-size:10px;color:var(--color-success-text);margin-top:2px">🆕 naya</div>';
-    const d = PCT_KEYS.includes(k) ? Math.round((a - p) * 10) / 10 : Math.round((a - p) * 100 / p);
-    return d ? `<div style="font-size:10px;font-weight:700;margin-top:2px;color:${d > 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}" title="Pichhle period: ${tag(k, p)}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}${PCT_KEYS.includes(k) ? ' pts' : '%'}</div>` : '';
-  };
-  const tac = (k, x, mx, color) => {
+  const tac = (k, x) => {
     const a = ACT[k](x.t), t = tgt(k, x.t, x.b);
-    if (!t) {
-      if (!a) return `<td style="${td};text-align:center;color:var(--gray-300)">${a == null ? '—' : '·'}</td>`;
-      const share = mx ? a / mx : 0, best = a === mx && mx > 0 && shown.filter(y => ACT[k](y.t) > 0).length >= 2; // crown only with someone to beat
-      return `<td style="${td};text-align:center;background:${color}${Math.round(14 + share * 40).toString(16).padStart(2, '0')}"><b style="font-size:13.5px;color:var(--gray-900)">${best ? '👑 ' : ''}${tag(k, a)}</b>${trendOf(k, x)}</td>`;
-    }
-    const [bg, c] = band((a || 0) * 100 / t), gap = (a || 0) - t;
-    return `<td style="${td};text-align:center"><span style="display:inline-block;min-width:54px;padding:2px 8px;border-radius:999px;font-weight:800;font-size:12.5px;background:${bg};color:${c}">${tag(k, a || 0)}</span>
-      <div style="font-size:10px;color:var(--gray-500);margin-top:2px;white-space:nowrap">🎯 ${tag(k, t)} · <b style="color:${gap < 0 ? 'var(--color-danger)' : 'var(--color-success-text)'}">${gap < 0 ? '−' : '+'}${tag(k, Math.abs(gap))}</b></div>${trendOf(k, x)}</td>`;
+    const color = t ? band((a || 0) * 100 / t)[1] : a ? 'var(--gray-900)' : 'var(--gray-300)';
+    return `<td style="${td};text-align:center;font-weight:700;font-size:13.5px;color:${color}"${t ? ` title="Target ${tag(k, t)}"` : ''}>${tag(k, a)}</td>`;
   };
   const GROUPS = [
-    ['crr', '🏪 Visit CRR', '#1d4ed8', 'Sirf jahan sach me visit hui (yes / sir ke sath) — plan wale nahi. Beat page se.', [['visits', 'Counter Visited'], ['ordered', 'Order (counter)'], ['value', 'Order Value ₹'], ['avg', 'Avg Order']]],
-    ['nbd', '🆕 Visit NBD', '#7c3aed', 'Lead FMS me jo bhi kaam kare (salesman ho ya nahi): Leads = jitni lead daali, Calls = Lead FMS calls, Counter Visited = "Market Visit" lead + Lead FMS visit; converted = Order / Dealer bana (Conversion = converted ÷ leads); Order Value = converted counter ke O2D order (dukaan ke naam se milake), O2D me na mile to "Order Mil Gaya" par bhara ₹; Avg = Order Value ÷ orders.', [['nbdLeads', 'Leads'], ['leadCalls', 'Calls'], ['nbd', 'Counter Visited'], ['nbdWon', 'Converted'], ['nbdConv', 'Conversion %'], ['nbdValue', 'Order Value ₹'], ['nbdAvg', 'Avg Order']]],
-    ['coll', '💰 Collection', '#059669', 'Beat page par bhari collection.', [['collCount', 'Collection (counter)'], ['coll', 'Collection ₹'], ['collAvg', 'Avg Collection']]],
-    ['scot', '📞 SCOT (CRR calling)', '#d97706', 'SC CRR ka MECA — SCOT page ki calls aur orders, jisne call / order kiya uske naam par. Benchmark = Calls / Call conv % / Call order ₹ / Call avg.', [['scotCalls', 'Calls'], ['scotOrders', 'Order (call se)'], ['scotConv', 'Conversion %'], ['scotValue', 'Order Value ₹'], ['scotAvg', 'Avg Order']]],
-    ['o2d', '🧾 ERP Sales (O2D)', '#0891b2', 'O2D me book hue saare order, "Order By" ke naam par (cancel chhod kar, CD % ke baad). Beat / Lead / SCOT ke order bhi O2D me hi aate hain — isliye ye alag dikhta hai, unme joda nahi.', [['o2dOrders', 'Orders'], ['o2dValue', 'Order Value ₹'], ['o2dAvg', 'Avg Order']]]
+    ['crr', 'Visit CRR', '#1d4ed8', 'Sirf jahan sach me visit hui (yes / sir ke sath) — plan wale nahi. Beat page se.', [['visits', 'Counter Visited'], ['ordered', 'Order (counter)'], ['value', 'Order Value ₹'], ['avg', 'Avg Order']]],
+    ['nbd', 'Visit NBD', '#7c3aed', 'Lead FMS me jo bhi kaam kare (salesman ho ya nahi): Leads = jitni lead daali, Calls = Lead FMS calls, Counter Visited = "Market Visit" lead + Lead FMS visit; converted = Order / Dealer bana (Conversion = converted ÷ leads); Order Value = converted counter ke O2D order (dukaan ke naam se milake), O2D me na mile to "Order Mil Gaya" par bhara ₹; Avg = Order Value ÷ orders.', [['nbdLeads', 'Leads'], ['leadCalls', 'Calls'], ['nbd', 'Counter Visited'], ['nbdWon', 'Converted'], ['nbdConv', 'Conversion %'], ['nbdValue', 'Order Value ₹'], ['nbdAvg', 'Avg Order']]],
+    ['coll', 'Collection', '#059669', 'Beat page par bhari collection.', [['collCount', 'Collection (counter)'], ['coll', 'Collection ₹'], ['collAvg', 'Avg Collection']]],
+    ['scot', 'SCOT (CRR calling)', '#d97706', 'SC CRR ka MECA — SCOT page ki calls aur orders, jisne call / order kiya uske naam par. Benchmark = Calls / Call conv % / Call order ₹ / Call avg.', [['scotCalls', 'Calls'], ['scotOrders', 'Order (call se)'], ['scotConv', 'Conversion %'], ['scotValue', 'Order Value ₹'], ['scotAvg', 'Avg Order']]],
+    ['o2d', 'ERP Sales (O2D)', '#0891b2', 'O2D me book hue saare order, "Order By" ke naam par (cancel chhod kar, CD % ke baad). Beat / Lead / SCOT ke order bhi O2D me hi aate hain — isliye ye alag dikhta hai, unme joda nahi.', [['o2dOrders', 'Orders'], ['o2dValue', 'Order Value ₹'], ['o2dAvg', 'Avg Order']]]
   ];
   // SOCT is not in this table (client 2026-10-31) — so callers with nothing else (SCOT, SC-NBD) drop out of it.
   const shown = list.filter(x => x.p.id !== 0 && (x.t.visited || x.t.ordered || x.t.collCount || x.t.nbdVisits || x.t.nbdWon || x.t.nbdLeads || x.t.leadCalls || x.t.scotCalls || x.t.scotOrders || x.t.o2dOrders));
   const stot = shown.reduce((a, x) => { SUMS.forEach(k => { a[k] += x.t[k] || 0; }); return a; }, zero());
   const sticky = 'position:sticky;left:0;z-index:1;';
   const subOf = x => typeof x.p.id === 'string' ? 'O2D "Order By" naam' : !x.t.visited && !x.t.collCount ? (x.t.scotCalls || x.t.scotOrders ? 'SCOT calling' : x.t.nbdLeads || x.t.leadCalls ? 'Lead FMS' : 'sirf O2D order') : x.t.days + ' din';
-  const lbl = (k, l, extra = '') => `<td style="${td};${sticky}background:var(--surface);white-space:nowrap;font-size:12.5px;font-weight:700;cursor:pointer;color:${mecaSort === k ? 'var(--color-primary)' : 'var(--gray-700)'};${extra}" title="Is par click = isi se sort" onclick="mecaSort='${jsArg(k)}';renderMeca()">${l} ${mecaSort === k ? '▾' : ''}</td>`;
-  const SEC_SUM = {
-    crr: t => `${fmt(t.visited)} visit · ${fmt(t.ordered)} order · ₹${fmt(t.value)}`,
-    nbd: t => `${fmt(t.nbdLeads)} lead · ${fmt(t.nbdVisits)} visit · ${fmt(t.nbdWon)} converted · ₹${fmt(t.nbdValue)}`,
-    coll: t => `₹${fmt(t.collection)} · ${fmt(t.collCount)} counter`,
-    scot: t => `${fmt(t.scotCalls)} call · ${fmt(t.scotOrders)} order · ₹${fmt(t.scotValue)}`,
-    o2d: t => `${fmt(t.o2dOrders)} order · ₹${fmt(t.o2dValue)}`
-  };
+  const lbl = (k, l, extra = '') => `<td style="${td};${sticky}background:var(--surface);white-space:nowrap;font-size:12.5px;font-weight:700;cursor:pointer;color:${mecaSort === k ? 'var(--color-primary)' : 'var(--gray-700)'};${extra}" title="Is par click = isi se sort" onclick="mecaSort='${jsArg(k)}';renderMeca()">${l}</td>`;
   const totCell = v => `<td style="${td};text-align:center;font-weight:900;font-size:13.5px;border-left:2px solid var(--gray-200);background:var(--gray-50)">${v}</td>`;
   const tbl = `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;margin-bottom:14px">
     <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
-      <div style="font-size:14px;font-weight:800;color:var(--gray-900)">👥 Salesman-wise MECA <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${shown.length} log · ${esc(fmtDateDMY(mecaData.from))} – ${esc(fmtDateDMY(mecaData.to))}</span></div>
-      <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-size:11.5px;color:${Object.keys(B).length ? 'var(--gray-400)' : 'var(--color-warning-text)'}">${Object.keys(B).length ? '⭐ Score = target ka kitna % poora (100 = poora) · hara ≥100 · peela 70–100 · laal <70 · 👑 = row me sabse aage · ▲▼ = pichhle hafte se' : '⚠️ Score tab aayega jab salesman ka 🎯 Benchmark (target) bhara ho — abhi kisi ka nahi bhara'}</span>
-        ${mecaData.isAdmin ? '<button class="btn btn-sm btn-primary" onclick="mecaOpenBench()">🎯 Benchmark bharo</button>' : ''}</span>
+      <div style="font-size:14px;font-weight:800;color:var(--gray-900)">Salesman-wise MECA <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${shown.length} log · ${esc(fmtDateDMY(mecaData.from))} – ${esc(fmtDateDMY(mecaData.to))}</span></div>
+      <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-size:11.5px;color:${Object.keys(B).length ? 'var(--gray-400)' : 'var(--color-warning-text)'}">${Object.keys(B).length ? 'Score = target ka kitna % poora (100 = poora) · hara 100+ · peela 70–100 · laal 70 se kam' : 'Score tab aayega jab Benchmark (target) bhara ho — abhi kisi ka nahi bhara'}</span>
+        ${mecaData.isAdmin ? '<button class="btn btn-sm btn-primary" onclick="mecaOpenBench()">Benchmark bharo</button>' : ''}</span>
     </div>
     <div class="mis-table-wrap" style="overflow:auto;max-height:80vh"><table style="border-collapse:separate;border-spacing:0;min-width:100%">
       <thead style="position:sticky;top:0;z-index:2"><tr>
         <th style="${th};${sticky}z-index:3;text-align:left;color:var(--gray-500);min-width:170px">Metric</th>
-        ${shown.map(x => `<th style="${th};text-align:center;min-width:118px;white-space:normal;text-transform:none;letter-spacing:0"><div style="display:flex;flex-direction:column;align-items:center;gap:3px">
-          <span style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800">${esc(x.p.code)}</span>
+        ${shown.map(x => `<th style="${th};text-align:center;min-width:118px;white-space:normal;text-transform:none;letter-spacing:0"><div style="display:flex;flex-direction:column;align-items:center;gap:2px">
           <b style="color:var(--gray-900);font-size:12.5px">${esc(x.p.name)}</b><span style="font-size:10.5px;font-weight:600;color:var(--gray-500)">${subOf(x)}</span></div></th>`).join('')}
         <th style="${th};text-align:center;color:var(--gray-900);border-left:2px solid var(--gray-200)">Total</th></tr></thead>
       <tbody>${GROUPS.map(([sec, t, c, note, cols]) => `
-        <tr><td colspan="${shown.length + 2}" style="padding:9px 12px;background:${c}14;border-top:3px solid ${c};border-bottom:1px solid var(--gray-200)"><span style="position:sticky;left:12px;font-weight:900;color:${c};font-size:13.5px">${t} <span style="font-size:12px;font-weight:700;color:var(--gray-600);margin-left:8px">${SEC_SUM[sec](stot)}</span> <span title="${esc(note)}" style="font-size:11.5px;color:var(--gray-400);cursor:help;font-weight:600">ⓘ</span></span></td></tr>
-        ${cols.map(([k, l]) => { const mx = Math.max(0, ...shown.map(x => ACT[k](x.t) || 0)); return `<tr>${lbl(k, l)}${shown.map(x => tac(k, x, mx, c)).join('')}${totCell(tag(k, ACT[k](stot)))}</tr>`; }).join('')}
-        ${SCORE_KEYS[sec] ? `<tr>${lbl('score_' + sec, '⭐ Score', 'background:var(--gray-50)')}${shown.map(x => scoreCell(x, sec)).join('')}${totCell('')}</tr>
-        <tr><td style="${td};${sticky}background:var(--gray-50);white-space:nowrap;font-size:12.5px;font-weight:700;color:var(--gray-700)" title="${cm.next ? fmtDateDMY(cm.next) : ''} se shuru hafte me kitna score laayenge — % (jaise 90)">✍️ Commit (next week)</td>${shown.map(x => commitCell(x, sec)).join('')}${totCell('')}</tr>` : ''}`).join('')}</tbody>
+        <tr><td colspan="${shown.length + 2}" title="${esc(note)}" style="padding:9px 12px;background:var(--gray-50);border-top:3px solid ${c};border-bottom:1px solid var(--gray-200)"><span style="position:sticky;left:12px;font-weight:900;color:${c};font-size:13.5px">${t}</span></td></tr>
+        ${cols.map(([k, l]) => `<tr>${lbl(k, l)}${shown.map(x => tac(k, x)).join('')}${totCell(tag(k, ACT[k](stot)))}</tr>`).join('')}
+        ${SCORE_KEYS[sec] ? `<tr>${lbl('score_' + sec, 'Score', 'background:var(--gray-50)')}${shown.map(x => scoreCell(x, sec)).join('')}${totCell('')}</tr>
+        <tr><td style="${td};${sticky}background:var(--gray-50);white-space:nowrap;font-size:12.5px;font-weight:700;color:var(--gray-700)" title="${cm.next ? fmtDateDMY(cm.next) : ''} se shuru hafte me kitna score laayenge — % (jaise 90)">Commit (next week)</td>${shown.map(x => commitCell(x, sec)).join('')}${totCell('')}</tr>` : ''}`).join('')}</tbody>
     </table></div></div>`;
   const refs = (mecaData.refs || []).filter(l => !q || String(l.salesman).toLowerCase().includes(q));
   const refsHtml = refs.length ? `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;margin-bottom:14px"><div class="mis-table-wrap" style="overflow:auto"><table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr>${['Date', 'Lead', 'Dukaan', 'Mobile', 'Jagah', '🤝 Reference (dealer)', 'Salesman', 'Result'].map(h => `<th style="${th};color:var(--gray-500)">${h}</th>`).join('')}</tr></thead>
+      <thead><tr>${['Date', 'Lead', 'Dukaan', 'Mobile', 'Jagah', 'Reference (dealer)', 'Salesman', 'Result'].map(h => `<th style="${th};color:var(--gray-500)">${h}</th>`).join('')}</tr></thead>
       <tbody>${refs.map((l, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}"><td style="${td};white-space:nowrap">${esc(fmtDateDMY(l.date))}</td><td style="${td};font-weight:700">${esc(l.code)}</td>
         <td style="${td}">${esc(l.shop || '—')}</td><td style="${td};white-space:nowrap">${esc(l.mobile || '—')}</td><td style="${td}">${esc(l.place || '—')}</td>
         <td style="${td};font-weight:700">${esc(l.dealer)}</td><td style="${td};white-space:nowrap">${esc(l.salesman || '—')}</td><td style="${td}">${l.result ? esc(l.result) : '<span style="color:var(--gray-400)">chal rahi</span>'}</td></tr>`).join('')}</tbody></table></div></div>`
     : '<div class="empty">Is period me reference se koi lead nahi aayi. Lead FMS → New Lead me "reference se aaya" tick karein.</div>';
-  // "Is hafte" highlights — the first things to talk about in the meeting.
-  const real = shown.filter(x => typeof x.p.id === 'number');
-  const topBy = f => real.reduce((m, x) => (f(x) > (m ? f(m) : 0) ? x : m), null);
-  const sold = topBy(x => x.t.o2dValue), walked = topBy(x => x.t.visited), conv = topBy(x => x.t.visited >= 5 ? x.t.ordered / x.t.visited : 0);
-  const lazy = real.filter(x => x.t.visited >= 10 && !x.t.ordered);
-  const hl = (icon, title, who, line, bg, c) => `<div style="flex:1;min-width:200px;background:${bg};border-radius:14px;padding:11px 14px"><div style="font-size:11.5px;font-weight:800;color:${c};text-transform:uppercase;letter-spacing:.04em">${icon} ${title}</div>
-    <div style="font-size:16px;font-weight:900;color:var(--gray-900);margin-top:3px">${who}</div><div style="font-size:12px;color:var(--gray-600)">${line}</div></div>`;
-  const highlights = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-    ${sold ? hl('🏆', 'Sabse zyada sale (O2D)', esc(sold.p.name), `₹${fmt(sold.t.o2dValue)} · ${fmt(sold.t.o2dOrders)} order`, 'var(--color-success-bg)', 'var(--color-success-text)') : ''}
-    ${walked ? hl('🚶', 'Sabse zyada visit', esc(walked.p.name), `${fmt(walked.t.visited)} counter · ${fmt(walked.t.ordered)} order`, 'var(--color-primary-light)', 'var(--color-primary)') : ''}
-    ${conv && conv.t.ordered ? hl('🎯', 'Best conversion', esc(conv.p.name), `${pctOf(conv.t.ordered, conv.t.visited)}% · ${fmt(conv.t.ordered)} / ${fmt(conv.t.visited)} visit`, 'var(--color-purple-bg)', 'var(--color-purple)') : ''}
-    ${lazy.length ? hl('⚠️', 'Dhyan do — visit hai, order nahi', lazy.map(x => esc(x.p.name.split(' ')[0])).join(', '), lazy.map(x => `${esc(x.p.name.split(' ')[0])}: ${fmt(x.t.visited)} visit, 0 order`).join(' · '), 'var(--color-danger-bg)', 'var(--color-danger-text)') : ''}
-  </div>`;
-  wrap.innerHTML = `${kpis}${highlights}${tbl}<div style="font-size:14px;font-weight:800;color:var(--gray-900);margin:4px 2px 8px">🤝 References (${refs.length})</div>${refsHtml}
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--gray-600);margin-bottom:8px"><span>${legend} &nbsp;·&nbsp; Old counters = <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">📋 Beat</a> se, NBD = Lead FMS se</span>
-    ${mecaData.isAdmin ? '<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="mecaOpenBench()">🎯 Benchmark</button>' : ''}
-    <button class="btn btn-sm btn-outline" style="${mecaData.isAdmin ? '' : 'margin-left:auto'}" onclick="mecaToggleWeeks()">${mecaWeeksOnly ? '📅 Roz ka bhi dikhao' : '📊 Sirf hafte ka total'}</button></div>
+  wrap.innerHTML = `${kpis}${tbl}<div style="font-size:14px;font-weight:800;color:var(--gray-900);margin:4px 2px 8px">References (${refs.length})</div>${refsHtml}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--gray-600);margin-bottom:8px"><span>${legend} &nbsp;·&nbsp; Old counters = <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">Beat</a> se, NBD = Lead FMS se</span>
+    ${mecaData.isAdmin ? '<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="mecaOpenBench()">Benchmark</button>' : ''}
+    <button class="btn btn-sm btn-outline" style="${mecaData.isAdmin ? '' : 'margin-left:auto'}" onclick="mecaToggleWeeks()">${mecaWeeksOnly ? 'Roz ka bhi dikhao' : 'Sirf hafte ka total'}</button></div>
     <div style="background:#fff;border:1px solid #c7d3e0;border-radius:8px;overflow:auto;max-height:76vh">
       <table style="border-collapse:collapse;color:#222">
         <thead style="position:sticky;top:0;z-index:3">
