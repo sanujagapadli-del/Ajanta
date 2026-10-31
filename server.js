@@ -13664,8 +13664,8 @@ app.put('/api/meca/benchmark/:uid', requireAuth, requireAdmin, async (req, res) 
     res.json({ success: true, data });
   } catch (err) { sendServerError(res, err); }
 });
-// Weekly MECA score commitment per salesman (client 2026-10-31, like MIS "Committed last week / Commit next week"):
-// % short of the benchmark, always negative (-10 = at most 10% kam). week = Monday; user_id 0 = SCOT.
+// Weekly MECA score commitment per person and section (client 2026-10-31, like MIS "Committed last week / Commit next
+// week"): the score promised = % of target achieved, 0–100. week = Monday.
 let _mecaCommitOk = false;
 async function mecaCommitTable() {
   if (_mecaCommitOk) return;
@@ -13692,8 +13692,9 @@ app.put('/api/meca/commit', requireAuth, async (req, res) => {
     if (!['admin', 'pc'].includes(req.session.role) && uid !== req.session.userId) return res.status(403).json({ error: 'Sirf apna commitment bhar sakte hain' });
     const section = String(b.section || '');
     if (!MECA_SECTIONS.includes(section)) return res.status(400).json({ error: 'Section chahiye (CRR / NBD / Collection / SCOT)' });
-    const score = b.score === '' || b.score == null ? null : -Math.abs(Number(b.score));
-    if (score !== null && !(score >= -100 && score <= 0)) return res.status(400).json({ error: 'Commitment -100 se 0 % ke beech (jaise -10)' });
+    // Score = % of target achieved (100 = target poora); the commitment is the score promised for next week.
+    const score = b.score === '' || b.score == null ? null : Number(b.score);
+    if (score !== null && !(score >= 0 && score <= 100)) return res.status(400).json({ error: 'Commitment 0 se 100 % ke beech (jaise 90)' });
     await mecaCommitTable();
     const week = mecaCommitWeeks().next;
     if (score === null) await db.query('DELETE FROM meca_commitments WHERE user_id=? AND week_start=? AND section=?', [uid, week, section]);
