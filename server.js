@@ -134,8 +134,14 @@ app.use((req, res, next) => {
 //    Re-reading these sheets on every call was most of the CPU (2026-10-24).
 const SHEET_VER_ROUTES = [
   ['/api/o2d-fms', 'o2d'], ['/api/service-fms', 'sfms'],
-  ['/api/purchase-fms', 'purchase'], ['/api/stock', 'purchase'], ['/api/vendor', 'purchase'],
+  ['/api/purchase-fms', 'purchase'], ['/api/vendor', 'purchase'],
 ];
+// MySQL-only writes under those prefixes that nothing in the cached lists
+// reads (the O2D list = sheet + o2d_media / o2d_order_flags / o2d_step_doers;
+// Purchase = sheet rows + live step doers). A catalogue PDF upload (dozens of
+// chunk POSTs) used to force full O2D sheet re-reads everywhere, and every
+// stock entry re-read the Purchase sheet (audit 2026-10-31).
+const SHEET_VER_SKIP = ['/api/o2d-fms/dealers', '/api/o2d-fms/catalogue-pdfs', '/api/o2d-fms/price-list', '/api/o2d-fms/team-group', '/api/purchase-fms/vendor-logins'];
 const SHEET_CACHE_TTL_MS = 3 * 60 * 1000;
 const _sheetVerCache = new Map(); // key -> { ver, ts, data }
 async function sheetVer(key) {
@@ -163,9 +169,11 @@ async function sendCachedJson(res, key, verKey, build, ttl = 60 * 1000) {
   res.type('application/json').send(body);
 }
 // load() runs on a miss. clone=true when callers mutate what they get back.
-async function cachedBySheetVer(key, load, clone = false) {
+// verKey: cache a different read of the same sheet (other range / render
+// option) under its own key, still invalidated by that sheet's version.
+async function cachedBySheetVer(key, load, clone = false, verKey = key) {
   let ver = null;
-  try { ver = await sheetVer(key); } catch (e) { console.error(`ver_${key} read:`, e.message); }
+  try { ver = await sheetVer(verKey); } catch (e) { console.error(`ver_${verKey} read:`, e.message); }
   const c = _sheetVerCache.get(key);
   if (ver !== null && c && c.ver === ver && Date.now() - c.ts < SHEET_CACHE_TTL_MS) return clone ? structuredClone(c.data) : c.data;
   const data = await load();
@@ -174,6 +182,7 @@ async function cachedBySheetVer(key, load, clone = false) {
 }
 app.use((req, res, next) => {
   if (req.method === 'GET') return next();
+  if (SHEET_VER_SKIP.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
   const keys = [...new Set(SHEET_VER_ROUTES.filter(([p]) => req.path === p || req.path.startsWith(p + '/')).map(([, k]) => k))];
   if (!keys.length) return next();
   keys.forEach(k => _sheetVerCache.delete(k));
@@ -588,7 +597,7 @@ async function requireAuth(req, res, next) {
     // (vendor portal, 2026-10-17).
     let u = null;
     try {
-      [[u]] = await db.query('SELECT role, name, is_active, (force_logout_at IS NOT NULL AND force_logout_at > FROM_UNIXTIME(?)) AS kicked FROM users WHERE id=?',
+      [[u]] = await db.query('SELECT role, name, is_active, page_access, (force_logout_at IS NOT NULL AND force_logout_at > FROM_UNIXTIME(?)) AS kicked FROM users WHERE id=?',
         [Number(decoded.iat) || 0, decoded.userId]);
     } catch (e) {
       try { [[u]] = await db.query('SELECT role, name, is_active FROM users WHERE id=?', [decoded.userId]); } catch (e2) { /* fail open — sheets-db / old schema */ }
@@ -599,6 +608,9 @@ async function requireAuth(req, res, next) {
       if (u.is_active != null && Number(u.is_active) === 0) return res.status(401).json({ error: 'Account inactive — please contact admin.' });
       if (u.role) req.session.role = u.role;
       if (u.name) req.session.name = u.name;
+      // Page grants ride along on this same row, so hasPageGrant / hasPageDeny
+      // don't re-read users on every check (audit 2026-10-31).
+      if (Object.prototype.hasOwnProperty.call(u, 'page_access')) req.session.pageAccessRaw = u.page_access;
     }
     // Vendor accounts (Purchase FMS vendor page) are outside the company —
     // they may only reach their own vendor APIs, never staff data.
@@ -631,10 +643,15 @@ function requireAdminOrPC(req, res, next) {
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
 const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics'];
+// page_access of the signed-in user: read by requireAuth already, else one query.
+async function sessionPageAccessRaw(req) {
+  if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
+  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
+  return rows[0] ? rows[0].page_access : null;
+}
 async function hasPageGrant(req, key) {
   if (req.session.role === 'admin') return true;
-  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
-  return parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role).includes(key);
+  return parsePageAccess(await sessionPageAccessRaw(req), req.session.role).includes(key);
 }
 // "Deny" keys (Users → Access): on by default for anyone with the parent page,
 // unticking stores 'deny:<key>'. Lets existing users keep forms / Net Profit
@@ -642,8 +659,7 @@ async function hasPageGrant(req, key) {
 const DENY_KEYS = ['net-profit', 'form-sfms-complaint', 'form-o2d-order', 'form-indent', 'form-cheque', 'form-lead', 'form-replacement'].map(k => 'deny:' + k);
 async function hasPageDeny(req, key) {
   if (req.session.role === 'admin') return false;
-  const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
-  return parsePageAccess(rows[0] ? rows[0].page_access : null, req.session.role).includes('deny:' + key);
+  return parsePageAccess(await sessionPageAccessRaw(req), req.session.role).includes('deny:' + key);
 }
 const FORM_DENIED = { error: "You don't have access to this form" };
 const DEFAULT_USER_PAGES = ['mis']; // matches the hardcoded nav behavior before this feature existed
@@ -7662,11 +7678,23 @@ async function stockSyncFromDate() {
   return d;
 }
 
-let _stockSyncAt = 0, _stockSyncPromise = null;
+// Each sync reads the whole O2D and Purchase sheets. Unless forced (Refresh),
+// it is skipped while neither sheet's write version has changed — capped at
+// STOCK_SYNC_MAX_STALE_MS for rows typed straight into the sheet, which don't
+// bump a version (audit 2026-10-31: it re-read both sheets every minute).
+const STOCK_SYNC_MAX_STALE_MS = 10 * 60 * 1000;
+let _stockSyncAt = 0, _stockSyncPromise = null, _stockSyncVers = '';
 function syncStockFromFms(force) {
   if (_stockSyncPromise) return _stockSyncPromise;
   if (!force && Date.now() - _stockSyncAt < STOCK_SYNC_THROTTLE_MS) return Promise.resolve({ throttled: true });
-  _stockSyncPromise = _syncStockFromFms().finally(() => { _stockSyncPromise = null; });
+  _stockSyncPromise = (async () => {
+    let vers = '';
+    try { vers = (await Promise.all([sheetVer('o2d'), sheetVer('purchase')])).join('|'); } catch (e) { /* unknown → sync */ }
+    if (!force && vers && vers === _stockSyncVers && Date.now() - _stockSyncAt < STOCK_SYNC_MAX_STALE_MS) return { unchanged: true };
+    const r = await _syncStockFromFms();
+    _stockSyncVers = vers;
+    return r;
+  })().finally(() => { _stockSyncPromise = null; });
   return _stockSyncPromise;
 }
 async function _syncStockFromFms() {
@@ -13902,7 +13930,10 @@ app.get('/api/meca', requireAuth, async (req, res) => {
 // falls back to its own normalised name. Rates are taken as entered on each
 // side. A line whose product has no cost is shown but kept out of GP.
 // ══════════════════════════════════════════════════════
+let _productCostsOk = false; // DDL once per instance, not on every GP / OWS load
 async function ensureProductCosts() {
+  if (_productCostsOk) return;
+  _productCostsOk = true;
   await db.query(`
     CREATE TABLE IF NOT EXISTS product_costs (
       item_key VARCHAR(191) PRIMARY KEY,
@@ -13956,9 +13987,12 @@ async function gpLoadData(start, end, opts = {}) {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   await ensureProductCosts();
   const bill = O2D_STEPS.find(s => s.n === 4); // Make Bill
-  const [o2dRes, poRes, [manual], mapTo, [stockItems], poArchive, [cancelledRows]] = await Promise.all([
-    sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }),
-    sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }),
+  // Both whole-sheet reads are cached on the sheets' write versions — GP, Salesman
+  // P&L and OWS used to re-read them on every load (audit 2026-10-31, free-plan CPU).
+  // Read-only below, so no clone.
+  const [o2dRows, poRows, [manual], mapTo, [stockItems], poArchive, [cancelledRows]] = await Promise.all([
+    cachedBySheetVer('gp:o2d', () => sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }).then(r => r.data.values || []), false, 'o2d'),
+    cachedBySheetVer('gp:purchase', () => sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }).then(r => r.data.values || []), false, 'purchase'),
     db.query("SELECT item_key, item_name, cost_rate, DATE_FORMAT(updated_at,'%Y-%m-%d') AS upd FROM product_costs"),
     gpProductMapper(),
     withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items')),
@@ -13975,7 +14009,7 @@ async function gpLoadData(start, end, opts = {}) {
   // Sales lines from O2D (billed).
   const sales = [];
   let firstBill = '', lastBill = '';
-  (o2dRes.data.values || []).forEach(r => {
+  o2dRows.forEach(r => {
     const get = col => r[colToIdx(col)];
     const status = String(get(bill.status) || '');
     if (!get('R') || !status || /^no$/i.test(status) || /cancel/i.test(status) || cancelledOrders.has(String(get('Q') || ''))) return;
@@ -14002,7 +14036,7 @@ async function gpLoadData(start, end, opts = {}) {
 
   // Cost per stock item from Purchase FMS PO lines (weighted by PO qty).
   const poCost = {}; // code -> { qty, value, names:Set, vendors: { key: { vendor, qty, value } } }
-  [...(poRes.data.values || []), ...poArchive].forEach(r => {
+  [...poRows, ...poArchive].forEach(r => {
     const name = String(r[4] || '').trim(), qty = gpNum(r[6]), rate = gpNum(r[7]);
     const date = stockSerialToYmd(r[0]);
     if (!name || !(rate > 0) || (date && date > end)) return;

@@ -12,7 +12,7 @@
 <title>Ajanta Appliances Task Manager</title>
 <link rel="icon" type="image/png" href="/logo-mark.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" id="chartJsTag" defer></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
 <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" defer></script>
 <style>
@@ -5406,7 +5406,17 @@ function setupBottomNav() {
 // ══════════════════════════════════════════════════════
 // Submits (task create/status/revise/bulk-upload) refresh the dashboard 10s
 // later instead of immediately, so counts reflect the write actually landing.
-function scheduleDashboardRefresh() { setTimeout(loadDashboard, 10000); }
+// One pending refresh at a time, and only when the Dashboard is on screen —
+// it used to fire a full reload (12+ calls) 10 s after every task write on any
+// page (audit 2026-10-31). Opening the Dashboard loads it anyway.
+let _dashRefreshTimer = null;
+function scheduleDashboardRefresh() {
+  clearTimeout(_dashRefreshTimer);
+  _dashRefreshTimer = setTimeout(() => {
+    _dashRefreshTimer = null;
+    if (document.getElementById('page-dashboard')?.classList.contains('active')) loadDashboard();
+  }, 10000);
+}
 
 // When the task reached this doer (client 2026-10-19: "kisi ke paas abhi abhi
 // aaya aur bolte hain time pe nahi kiya") = the latest finished earlier step,
@@ -5678,7 +5688,7 @@ async function loadDashboard() {
     // Delegation+Checklist+SFMS+O2D mix the table below renders, so the card
     // above it can't disagree with what's visibly listed.
     document.getElementById('dPending').textContent = allTodayPending.length;
-    if (dashChartInst) dashChartInst.destroy();
+    if (dashChartInst) { dashChartInst.destroy(); dashChartInst = null; }
     // Completed previously only ever summed Delegation+Checklist (set early,
     // before o2d even loaded) — O2D closed orders never counted, even though
     // its PENDING items already did above. Corrected here once o2d is in hand.
@@ -5695,7 +5705,8 @@ async function loadDashboard() {
     const rootStyle = getComputedStyle(document.documentElement);
     const cssVar = name => rootStyle.getPropertyValue(name).trim();
     const chartColors = [cssVar('--color-success'), cssVar('--color-danger'), cssVar('--color-warning')];
-    dashChartInst = new Chart(document.getElementById('dashChart').getContext('2d'), {
+    if (!window.Chart) chartReady().then(renderDash); // Chart.js still arriving: paint again once it has
+    else dashChartInst = new Chart(document.getElementById('dashChart').getContext('2d'), {
       type:'pie',
       data:{labels:chartLabels,datasets:[{data:chartData,backgroundColor:chartColors,borderWidth:3,borderColor:'#fff',hoverOffset:6}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw}`}}}}
@@ -5998,6 +6009,11 @@ async function loadAllTasks() {
   }
 
   const data = await api(`/api/tasks?type=${tasksType}&includeFuture=1`);
+  if (!data || data.error) { // used to look like "no tasks" when the call failed
+    const tc = document.getElementById('tasksContent');
+    if (tc) tc.innerHTML = `<div class="empty">⚠️ ${esc((data && data.error) || 'Tasks load nahi hue')}</div>`;
+    return;
+  }
 
   // Flatten all tasks — admin, HOD and PC get grouped response
   let allTasks = [];
@@ -7219,7 +7235,11 @@ async function loadUsers() {
   // The only caller that needs full detail (phone/notification_email/
   // page_access) — server-gated to admin or explicit 'users' page access.
   const res = await api('/api/users');
-  allUsersData = Array.isArray(res) ? res : [];
+  if (!Array.isArray(res)) { // an error used to show "No users found"
+    document.getElementById('usersTbody').innerHTML = `<tr><td colspan="7"><div class="empty">⚠️ ${esc((res && res.error) || 'Users load nahi hue')}</div></td></tr>`;
+    return;
+  }
+  allUsersData = res;
   renderUsersTable(allUsersData);
 }
 
@@ -7669,8 +7689,12 @@ async function loadApprovals() {
 
   const approvals = await api('/api/approvals');
   _approvalsMap = {};
-  (approvals||[]).forEach(a => { _approvalsMap[a.id] = a; });
   const container = document.getElementById('approvalsContent');
+  if (!Array.isArray(approvals)) { // an error object used to throw here and leave the page blank
+    container.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">⚠️ ${esc((approvals && approvals.error) || 'Approvals load nahi hue')}</div>`;
+    return;
+  }
+  approvals.forEach(a => { _approvalsMap[a.id] = a; });
   const isAdminOrPC = ME.role === 'admin' || ME.role === 'pc';
 
   if (!approvals.length) {
@@ -9548,11 +9572,21 @@ document.addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('button, a.btn');
   if (b && /🔄|↻|Refresh/i.test(b.textContent || b.title || '')) _apiFreshUntil = Date.now() + 3000;
 }, true);
+// Chart.js loads with defer (it used to block first paint on every page). Chart
+// code that runs before it has arrived waits for it (audit 2026-10-31).
+const _chartJsReady = new Promise(res => {
+  if (window.Chart) return res();
+  const s = document.getElementById('chartJsTag');
+  if (s) s.addEventListener('load', () => res(), { once: true });
+});
+function chartReady() { return window.Chart ? Promise.resolve() : _chartJsReady; }
+
 // Double tap on Save (slow phone data) sent the same write twice and made two
 // leaves / dealers / comments. While a write is still in flight, an identical
 // one (same method, URL and body) now gets the first one's answer instead of
 // hitting the server again (audit 2026-10-31).
 const _apiWritesInFlight = new Map();
+const API_GET_TIMEOUT_MS = 30000, API_WRITE_TIMEOUT_MS = 65000;
 async function api(url, method = 'GET', body = null) {
   if (method !== 'GET') {
     _apiReuse.clear();
@@ -9579,13 +9613,22 @@ async function _apiFetch(url,method='GET',body=null) {
   if (method !== 'GET') { const k = FMS_WRITE_KEYS.find(([pre]) => url.startsWith(pre)); if (k) _fmsWriteAt[k[1]] = Date.now(); }
   const opts={method, headers:{'Content-Type':'application/json'}, credentials:'include'};
   if (body) opts.body=JSON.stringify(body);
+  // No answer → an error instead of a skeleton that spins forever on weak data.
+  // Writes get longer than the server's own 60 s limit, so a slow save that does
+  // finish isn't reported as failed and re-tapped (audit 2026-10-31).
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), method === 'GET' ? API_GET_TIMEOUT_MS : API_WRITE_TIMEOUT_MS);
+  opts.signal = ctrl.signal;
   let r;
   try {
     r = await fetch(url, opts);
   } catch(e) {
+    clearTimeout(timer);
     console.error('API fetch failed:', url, e);
+    if (e && e.name === 'AbortError') return { error: method === 'GET' ? 'Server se jawab nahi aaya — net check karke dobara try karein' : 'Server ne time par jawab nahi diya — list refresh karke dekhein ki save hua ya nahi', timeout: true };
     return { error: 'Network error — unable to connect to server' };
   }
+  clearTimeout(timer);
   if (r.status===401) {
     localStorage.removeItem('authToken');
     window.location.replace('/');
@@ -15458,6 +15501,7 @@ function renderO2dReportsBody() {
   const rootStyle = getComputedStyle(document.documentElement);
   const cssVar = name => rootStyle.getPropertyValue(name).trim();
   const gridColor = cssVar('--gray-200') || 'rgba(148,163,184,.25)';
+  if (!window.Chart) { chartReady().then(() => renderO2dReportsBody()); return; }
   Chart.defaults.font.family = "'Inter',sans-serif";
   Chart.defaults.color = cssVar('--gray-500') || '#64748b';
 
@@ -26001,7 +26045,8 @@ function fmsRepCssVar(name) { return getComputedStyle(document.documentElement).
 function fmsRepChart(id, config) {
   if (_fmsRepCharts[id]) { _fmsRepCharts[id].destroy(); delete _fmsRepCharts[id]; }
   const el = document.getElementById(id);
-  if (!el || typeof Chart === 'undefined') return;
+  if (!el) return;
+  if (typeof Chart === 'undefined') { chartReady().then(() => fmsRepChart(id, config)); return; }
   Chart.defaults.font.family = "'Inter',sans-serif";
   Chart.defaults.color = fmsRepCssVar('--gray-500') || '#64748b';
   _fmsRepCharts[id] = new Chart(el.getContext('2d'), config);

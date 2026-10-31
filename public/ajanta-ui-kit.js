@@ -65,6 +65,8 @@
 .kit-menu button.danger:hover,.kit-menu button.danger:focus-visible{background:var(--danger-50,#fef2f2)}
 .kit-ico{width:1.05em;height:1.05em;flex-shrink:0;vertical-align:-.16em;margin-right:.38em}
 .btn .kit-ico,.tab .kit-ico{opacity:.9}
+.kit-retry{display:inline-flex!important;align-items:center;margin:12px auto 0}
+.empty .kit-retry{display:flex!important}
 .modal-overlay h2 .kit-ico,.modal-overlay h3 .kit-ico{color:var(--brand-600,#010371);margin-right:.45em}
 input.kit-search{padding-left:34px!important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:11px 50%!important;background-size:16px!important}
 .kit-ptitle{display:flex!important;align-items:center;flex-wrap:wrap;column-gap:10px;row-gap:2px;font-size:20px!important;font-weight:800!important;letter-spacing:-.01em;line-height:1.25}
@@ -645,13 +647,49 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
   }
   const ICON_SEL = 'button, .btn, .tab, .modal-overlay h2, .modal-overlay h3';
   const TITLE_SEL = '.page [style*="font-size:19px"][style*="font-weight:900"]';
+  // A page whose data failed to load shows "⚠️ …" in an .empty box — give it a
+  // Retry that re-opens the same page (audit 2026-10-31: errors had no way out
+  // but a full reload).
+  function addRetry(box) {
+    if (box.dataset.kitRetry || box.querySelector('button') || !/^\s*⚠/.test(box.textContent)) return;
+    const page = box.closest('.page[id^="page-"]');
+    if (!page) return;
+    box.dataset.kitRetry = '1';
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn btn-outline btn-sm kit-retry';
+    b.innerHTML = iconSvg('refresh-cw') + 'Dobara try karein';
+    b.addEventListener('click', () => {
+      const fromHash = (/^#\/([\w-]+)/.exec(location.hash) || [])[1];
+      const pg = fromHash || page.id.slice(5);
+      try { navigate(pg, document.getElementById('nav-' + pg)); } catch (e) { location.reload(); }
+    });
+    box.appendChild(b);
+  }
   function iconizeIn(root) {
     if (root.matches) { if (root.matches(ICON_SEL)) iconizeControl(root); if (root.matches(TITLE_SEL)) styleTitle(root); }
     if (!root.querySelectorAll) return;
     root.querySelectorAll(ICON_SEL).forEach(iconizeControl);
     root.querySelectorAll(TITLE_SEL).forEach(styleTitle);
     root.querySelectorAll('input[placeholder^="🔍"]').forEach(iconizeSearch);
+    if (root.matches && root.matches('.empty')) addRetry(root);
+    root.querySelectorAll('.page .empty').forEach(addRetry);
   }
+
+  // ── 6. search boxes: re-render after typing pauses ─────────────
+  // 18 list pages re-rendered their whole table on every keystroke. For "🔍"
+  // search boxes the page's own oninput now runs once typing pauses (same
+  // handler, same event). Fields that already debounce, and every non-search
+  // field (amounts, totals), are untouched (audit 2026-10-31).
+  const SEARCH_DEBOUNCE_MS = 180;
+  const HAS_OWN_DEBOUNCE = new Set(['cmdkInput', 'taSearchBox', 'gpSearchBox', 'ssCounterSearch']);
+  document.addEventListener('input', e => {
+    const el = e.target;
+    if (!e.isTrusted || !el || el.tagName !== 'INPUT' || typeof el.oninput !== 'function' || HAS_OWN_DEBOUNCE.has(el.id)) return;
+    if (!el.classList.contains('kit-search') && !/^\s*🔍/u.test(el.placeholder || '')) return;
+    e.stopPropagation(); // the inline oninput runs below instead, once
+    clearTimeout(el._kitDebounce);
+    el._kitDebounce = setTimeout(() => { if (el.isConnected) el.oninput.call(el, e); }, SEARCH_DEBOUNCE_MS);
+  }, true);
 
   // ── number fields: wheel scroll must not change an amount ──────
   document.addEventListener('wheel', e => {
