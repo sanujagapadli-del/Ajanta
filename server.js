@@ -13642,7 +13642,10 @@ app.put('/api/beat/counter/:id', requireAuth, async (req, res) => {
 // What each salesman / caller commits to (client recording 2026-10-30): per day counters, conversion %, average ₹ order,
 // collection ₹ per day, NBD visits per day + conversion, calls per day + conversion + average order. MECA shows the score
 // against it (e.g. 20 committed, 10 done → −50%). user_id 0 = SCOT.
-const MECA_BENCH_KEYS = ['visits', 'conv', 'avg', 'coll', 'nbd', 'nbdConv', 'calls', 'callConv', 'callAvg'];
+const MECA_BENCH_KEYS = ['visits', 'conv', 'avg', 'coll', 'nbd', 'nbdConv', 'calls', 'callConv', 'callAvg',
+  // Added with the 4-section MECA (client spec 2026-10-31); 'period' says whether count / ₹ targets are per day, week or month.
+  'collCount', 'collAvg', 'collVsOrder', 'nbdAvg', 'callValue', 'appts'];
+const MECA_BENCH_PERIODS = ['day', 'week', 'month'];
 let _mecaBenchOk = false;
 async function mecaBenchTable() {
   if (_mecaBenchOk) return;
@@ -13656,6 +13659,7 @@ app.put('/api/meca/benchmark/:uid', requireAuth, requireAdmin, async (req, res) 
     if (!(uid >= 0)) return res.status(400).json({ error: 'Bad user' });
     const b = req.body || {}, data = {};
     MECA_BENCH_KEYS.forEach(k => { const v = Number(b[k]); if (v > 0) data[k] = Math.round(v * 100) / 100; });
+    if (MECA_BENCH_PERIODS.includes(b.period) && b.period !== 'day') data.period = b.period;
     await db.query('INSERT INTO meca_benchmarks (user_id, data, updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE data = VALUES(data), updated_by = VALUES(updated_by)', [uid, JSON.stringify(data), req.session.userId]);
     res.json({ success: true, data });
   } catch (err) { sendServerError(res, err); }
@@ -13665,10 +13669,15 @@ app.put('/api/meca/benchmark/:uid', requireAuth, requireAdmin, async (req, res) 
 let _mecaCommitOk = false;
 async function mecaCommitTable() {
   if (_mecaCommitOk) return;
-  await db.query(`CREATE TABLE IF NOT EXISTS meca_commitments (user_id INT NOT NULL, week_start DATE NOT NULL, score DECIMAL(5,1) NOT NULL, set_by INT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (user_id, week_start)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query(`CREATE TABLE IF NOT EXISTS meca_commitments (user_id INT NOT NULL, week_start DATE NOT NULL, section VARCHAR(10) NOT NULL DEFAULT 'crr',
+    score DECIMAL(5,1) NOT NULL, set_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, week_start, section)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // One commitment per section since 2026-10-31 ("CRR, NBD, Collection teeno ka alag") — the first version had one per week.
+  const [[col]] = await db.query("SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='meca_commitments' AND COLUMN_NAME='section'");
+  if (!Number(col.n)) await db.query("ALTER TABLE meca_commitments ADD COLUMN section VARCHAR(10) NOT NULL DEFAULT 'crr' AFTER week_start, DROP PRIMARY KEY, ADD PRIMARY KEY (user_id, week_start, section)");
   _mecaCommitOk = true;
 }
+const MECA_SECTIONS = ['crr', 'nbd', 'coll'];
 function mecaCommitWeeks() {
   const t = new Date(Date.now() + 5.5 * 3600 * 1000); // IST
   const mon = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate() - ((t.getUTCDay() + 6) % 7)));
@@ -13681,16 +13690,127 @@ app.put('/api/meca/commit', requireAuth, async (req, res) => {
     const b = req.body || {}, uid = Number(b.userId);
     if (!(uid >= 0) || b.userId === '' || b.userId == null) return res.status(400).json({ error: 'Salesman chahiye' });
     if (!['admin', 'pc'].includes(req.session.role) && uid !== req.session.userId) return res.status(403).json({ error: 'Sirf apna commitment bhar sakte hain' });
+    const section = String(b.section || '');
+    if (!MECA_SECTIONS.includes(section)) return res.status(400).json({ error: 'Section chahiye (CRR / NBD / Collection)' });
     const score = b.score === '' || b.score == null ? null : -Math.abs(Number(b.score));
     if (score !== null && !(score >= -100 && score <= 0)) return res.status(400).json({ error: 'Commitment -100 se 0 % ke beech (jaise -10)' });
     await mecaCommitTable();
     const week = mecaCommitWeeks().next;
-    if (score === null) await db.query('DELETE FROM meca_commitments WHERE user_id=? AND week_start=?', [uid, week]);
-    else await db.query('INSERT INTO meca_commitments (user_id, week_start, score, set_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE score=VALUES(score), set_by=VALUES(set_by)',
-      [uid, week, Math.round(score * 10) / 10, req.session.userId]);
-    res.json({ success: true, week, score });
+    if (score === null) await db.query('DELETE FROM meca_commitments WHERE user_id=? AND week_start=? AND section=?', [uid, week, section]);
+    else await db.query('INSERT INTO meca_commitments (user_id, week_start, section, score, set_by) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE score=VALUES(score), set_by=VALUES(set_by)',
+      [uid, week, section, Math.round(score * 10) / 10, req.session.userId]);
+    res.json({ success: true, week, section, score });
   } catch (err) { sendServerError(res, err); }
 });
+// One period's MECA day rows (salesman × date). Called for the picked range and, for the ▲/▼ trend, for the
+// same number of days just before it.
+async function mecaCompute(from, to) {
+  await beatTables();
+  const [[counters], [entries]] = await Promise.all([
+    db.query('SELECT id, user_id, counter_name, beat_day FROM beat_counters WHERE active=1'),
+    db.query(`SELECT e.counter_id, c.user_id, c.counter_name, c.beat_day, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS d, e.visit, e.order_amt, e.collection_amt,
+        e.new_counter, e.reference, e.enquiry FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id WHERE e.entry_date BETWEEN ? AND ?`, [from, to])
+  ]);
+  const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
+  const rows = {};
+  const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdValue: 0, nbdOrders: 0, nbdPlanned: 0, nbdLeads: 0, leadCalls: 0, refs: 0, calls: 0, callOrders: 0, callValue: 0, appts: 0, o2dOrders: 0, o2dValue: 0 };
+  for (const e of entries) {
+    const r = row(e.user_id, e.d);
+    if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
+    const ov = Number(e.order_amt) || 0, cv = Number(e.collection_amt) || 0;
+    if (ov > 0) { r.ordered++; r.value += ov; }
+    if (cv > 0) { r.collCount++; r.collection += cv; }
+  }
+  // Planned = that weekday's beat counters, only on days the beat was filled (no plan for Sundays / leave).
+  for (const r of Object.values(rows)) {
+    const dow = isoDow(r.date);
+    r.planned = counters.filter(c => Number(c.user_id) === Number(r.userId) && beatDow(c.beat_day) === dow).length;
+  }
+  const noTable = e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; };
+  await withLeadTables(() => null); // leads.order_amt / market (client MECA spec 2026-10-31)
+  // Lead FMS visits / calls, with the ₹ typed when the result was "Order Mil Gaya".
+  const [leadEv] = await db.query(`SELECT ev.event, ev.user_id, DATE_FORMAT(ev.created_at,'%Y-%m-%d') AS d, ev.detail, l.order_amt FROM lead_events ev
+    LEFT JOIN leads l ON l.id=ev.lead_id WHERE ev.event IN ('visit','call') AND ev.created_at >= ? AND ev.created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(noTable);
+  for (const l of leadEv) {
+    if (!l.user_id) continue;
+    const r = row(l.user_id, l.d), order = /^Order Mil Gaya/.test(l.detail || '');
+    if (l.event === 'visit') r.nbdVisits++;
+    else {
+      // SC-NBD (counters called for an appointment): a salesman / sample visit fixed = her conversion.
+      r.calls++; r.leadCalls++;
+      if (/^(Salesman Bhejo|Sample Leke Bhejo)/.test(l.detail || '')) r.appts++;
+      if (order) { r.callOrders++; r.callValue += Number(l.order_amt) || 0; }
+    }
+  }
+  // A salesman's own new-counter visit = the Outgoing "Market Visit" lead they enter (that is how the team works —
+  // no Lead FMS visit had ever been fixed / done by 2026-10-31), on the day it was entered.
+  const [mkt] = await db.query(`SELECT COALESCE(salesman_user_id, created_by) AS uid, DATE_FORMAT(created_at,'%Y-%m-%d') AS d FROM leads
+    WHERE lead_type='Outgoing' AND source='Market Visit' AND cancelled_at IS NULL AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(noTable);
+  for (const l of mkt) if (l.uid) row(l.uid, l.d).nbdVisits++;
+  const [added] = await db.query(`SELECT COALESCE(salesman_user_id, created_by) AS uid, DATE_FORMAT(created_at,'%Y-%m-%d') AS d FROM leads
+    WHERE cancelled_at IS NULL AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(noTable);
+  for (const l of added) if (l.uid) row(l.uid, l.d).nbdLeads++;
+  // Converted = any lead closed as Order / Dealer Onboarded in the range, by call or visit — credited to whoever
+  // visited it, else the lead's salesman / whoever entered it, on the closing day; ₹ from "Order Mil Gaya".
+  // All converted leads (any date): those closed in the range count as converted; their O2D orders below are the NBD order value.
+  const [wonAll] = await db.query(`SELECT id, shop_name, COALESCE(visit_user_id, salesman_user_id, created_by) AS uid, DATE_FORMAT(closed_at,'%Y-%m-%d') AS d, result, order_amt FROM leads
+    WHERE result IN ('Order','Dealer Onboarded') AND cancelled_at IS NULL`).catch(noTable);
+  const wonInRange = wonAll.filter(l => l.uid && l.d >= from && l.d <= to);
+  for (const l of wonInRange) row(l.uid, l.d).nbdWon++;
+  // Shop name → converted lead, to find the new counter's orders in O2D: names compared without case / spaces /
+  // punctuation, and the O2D name may carry more ("Mahadev electronic" = "Mahadev electronics Merta road"). Only
+  // names of 2+ words and 8+ letters, so a bare "Electronics" can't catch other counters.
+  const shopKey = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const wonShops = wonAll.filter(l => l.uid && shopKey(l.shop_name).length >= 8 && String(l.shop_name).trim().split(/\s+/).length >= 2)
+    .map(l => ({ l, k: shopKey(l.shop_name) })).sort((a, b) => b.k.length - a.k.length);
+  const leadOfCounter = name => { const k = shopKey(name); const m = k && wonShops.find(w => k === w.k || k.includes(w.k)); return m ? m.l : null; };
+  const nbdMatched = new Set();
+  // New-dealer visits fixed in Lead FMS for these days (client list 2026-10-26 #16) — on the visit date for that salesman.
+  const [nbdPlan] = await db.query(`SELECT visit_user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d FROM leads
+    WHERE visit_date BETWEEN ? AND ? AND visit_user_id IS NOT NULL AND cancelled_at IS NULL`, [from, to]).catch(noTable);
+  for (const l of nbdPlan) row(l.visit_user_id, l.d).nbdPlanned++;
+  // References: new leads that came through a dealer's reference — the salesman's (else whoever entered it).
+  const [refs] = await db.query(`SELECT l.id, l.lead_code, l.shop_name, l.contact_name, l.mobile, l.city, l.area, l.market, l.ref_dealer, l.result,
+      COALESCE(l.salesman_user_id, l.created_by) AS uid, DATE_FORMAT(l.created_at,'%Y-%m-%d') AS d FROM leads l
+    WHERE l.ref_dealer IS NOT NULL AND l.ref_dealer <> '' AND l.cancelled_at IS NULL AND l.created_at >= ? AND l.created_at < DATE_ADD(?, INTERVAL 1 DAY)
+    ORDER BY l.created_at DESC`, [from, to]).catch(noTable);
+  for (const l of refs) if (l.uid) row(l.uid, l.d).refs++;
+  // SCOT (old dealers' calling) as one "SCOT" column (userId 0) — the callers share one login.
+  const [scotC] = await db.query(`SELECT DATE_FORMAT(call_date,'%Y-%m-%d') AS d, COUNT(*) AS n FROM scot_calls WHERE call_date BETWEEN ? AND ? GROUP BY call_date`, [from, to]).catch(noTable);
+  scotC.forEach(c => { row(0, c.d).calls += Number(c.n) || 0; });
+  const [scotO] = await db.query(`SELECT DATE_FORMAT(order_date,'%Y-%m-%d') AS d, COUNT(*) AS n, SUM(amount) AS v FROM scot_orders WHERE order_date BETWEEN ? AND ? GROUP BY order_date`, [from, to]).catch(noTable);
+  scotO.forEach(o => { const r = row(0, o.d); r.callOrders += Number(o.n) || 0; r.callValue += Number(o.v) || 0; });
+  // ERP sales (client 2026-10-31: "ERP me kahin se bhi sale ho, MECA me aaye") = every order booked in O2D in the range,
+  // under its "Order By" (salesman profile's O2D names, else a user of that name, else the name itself). O2D is where
+  // every order — Beat, SCOT, Lead FMS — gets booked, so it is shown on its own, never added to those.
+  try {
+    const [orders, salesmanOf] = await Promise.all([getO2dOrders(), ddSalesmanMap()]);
+    for (const o of orders) {
+      const d = String(o.timestamp || '').slice(0, 10);
+      if (o.cancelled || d < from || d > to) continue;
+      const v = (o.products || []).filter(x => !x.cancelled).reduce((a, x) => a + (Number(x.rate) || 0) * (Number(x.qty) || 0), 0) * (100 - (Number(o.discountPct) || 0)) / 100;
+      const name = String(o.orderBy || '').trim() || '(Order By khaali)';
+      const r = row(salesmanOf(name) || 'o2d:' + name, d);
+      r.o2dOrders++; r.o2dValue += v;
+      // NBD order value (client 2026-10-31): an order from a counter that came through Lead FMS and converted —
+      // credited to that lead's person on the order date.
+      const lead = leadOfCounter(o.counterName);
+      if (lead) { const nr = row(lead.uid, d); nr.nbdOrders++; nr.nbdValue += v; nbdMatched.add(lead.id); }
+    }
+  } catch (e) { console.warn('meca o2d:', e.message); }
+  // No O2D order found for a converted lead → the ₹ typed on "Order Mil Gaya", on the closing day.
+  for (const l of wonInRange) if (!nbdMatched.has(l.id) && l.result === 'Order' && Number(l.order_amt) > 0) { const r = row(l.uid, l.d); r.nbdOrders++; r.nbdValue += Number(l.order_amt); }
+  const list = Object.values(rows).filter(r => r.visited || r.notVisited || r.ordered || r.collection || r.nbdVisits || r.nbdPlanned || r.nbdLeads || r.refs || r.calls || r.callOrders || r.o2dOrders);
+  return { rows: list, refs };
+}
+// Who sees whom (client MECA spec 2026-10-31): admin / PC / HOD everyone; a salesman only their own rows;
+// the SCOT row also to SCOT page users (the callers' shared login).
+async function mecaScope(req) {
+  if (['admin', 'pc', 'hod'].includes(req.session.role)) return null;
+  const ids = new Set([Number(req.session.userId)]);
+  if (await hasPageGrant(req, 'scot')) ids.add(0);
+  return ids;
+}
 app.get('/api/meca', requireAuth, async (req, res) => {
   try {
     if (!(await hasPageGrant(req, 'meca'))) return res.status(403).json({ error: 'No access to MECA' });
@@ -13699,77 +13819,33 @@ app.get('/api/meca', requireAuth, async (req, res) => {
     const from = isYmd(req.query.from) ? req.query.from : today.slice(0, 8) + '01';
     const to = isYmd(req.query.to) ? req.query.to : today;
     if (from > to) return res.status(400).json({ error: 'From date To se pehle honi chahiye' });
-    await beatTables();
-    const [[counters], [entries]] = await Promise.all([
-      db.query('SELECT id, user_id, counter_name, beat_day FROM beat_counters WHERE active=1'),
-      db.query(`SELECT e.counter_id, c.user_id, c.counter_name, c.beat_day, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS d, e.visit, e.order_amt, e.collection_amt,
-          e.new_counter, e.reference, e.enquiry FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id WHERE e.entry_date BETWEEN ? AND ?`, [from, to])
-    ]);
-    const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
-    const rows = {};
-    const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdPlanned: 0, refs: 0, calls: 0, callOrders: 0, callValue: 0 };
-    for (const e of entries) {
-      const r = row(e.user_id, e.d);
-      if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
-      const ov = Number(e.order_amt) || 0, cv = Number(e.collection_amt) || 0;
-      if (ov > 0) { r.ordered++; r.value += ov; }
-      if (cv > 0) { r.collCount++; r.collection += cv; }
-    }
-    // Planned = that weekday's beat counters, only on days the beat was filled (no plan for Sundays / leave).
-    for (const r of Object.values(rows)) {
-      const dow = isoDow(r.date);
-      r.planned = counters.filter(c => Number(c.user_id) === Number(r.userId) && beatDow(c.beat_day) === dow).length;
-    }
-    const [leadVisits] = await db.query(`SELECT user_id, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, detail FROM lead_events
-      WHERE event='visit' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
-    for (const l of leadVisits) {
-      if (!l.user_id) continue;
-      const r = row(l.user_id, l.d);
-      r.nbdVisits++;
-      if (/^(Order Mil Gaya|New Dealer Bana)/.test(l.detail || '')) r.nbdWon++;
-    }
-    // New-dealer visits fixed in Lead FMS for these days (client list 2026-10-26 #16) — on the visit date for that salesman.
-    const [nbdPlan] = await db.query(`SELECT id, lead_code, shop_name, contact_name, mobile, city, area, visit_user_id, DATE_FORMAT(visit_date,'%Y-%m-%d') AS d,
-        visit_count, result FROM leads WHERE visit_date BETWEEN ? AND ? AND visit_user_id IS NOT NULL AND cancelled_at IS NULL ORDER BY visit_date`, [from, to])
-      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; });
-    for (const l of nbdPlan) row(l.visit_user_id, l.d).nbdPlanned++;
-    // References: new leads that came through a dealer's reference — the salesman's (else whoever entered it).
-    const [refs] = await db.query(`SELECT COALESCE(salesman_user_id, created_by) AS uid, DATE_FORMAT(created_at,'%Y-%m-%d') AS d FROM leads
-      WHERE ref_dealer IS NOT NULL AND ref_dealer <> '' AND cancelled_at IS NULL AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to])
-      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; });
-    for (const l of refs) if (l.uid) row(l.uid, l.d).refs++;
-    // Calling — SC-NBD's Lead FMS calls (call → "Order Mil Gaya") on her own column…
-    const [leadCalls] = await db.query(`SELECT user_id, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, detail FROM lead_events
-      WHERE event='call' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
-    for (const l of leadCalls) {
-      if (!l.user_id) continue;
-      const r = row(l.user_id, l.d);
-      r.calls++;
-      if (/^Order Mil Gaya/.test(l.detail || '')) r.callOrders++;
-    }
-    // …and SCOT (old dealers' calling) as one "SCOT" column (userId 0) — the callers share one login.
-    const [scotC] = await db.query(`SELECT DATE_FORMAT(call_date,'%Y-%m-%d') AS d, COUNT(*) AS n FROM scot_calls WHERE call_date BETWEEN ? AND ? GROUP BY call_date`, [from, to])
-      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
-    scotC.forEach(c => { row(0, c.d).calls += Number(c.n) || 0; });
-    const [scotO] = await db.query(`SELECT DATE_FORMAT(order_date,'%Y-%m-%d') AS d, COUNT(*) AS n, SUM(amount) AS v FROM scot_orders WHERE order_date BETWEEN ? AND ? GROUP BY order_date`, [from, to])
-      .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
-    scotO.forEach(o => { const r = row(0, o.d); r.callOrders += Number(o.n) || 0; r.callValue += Number(o.v) || 0; });
-    const ids = [...new Set(Object.values(rows).map(r => r.userId))].filter(Boolean);
+    // Trend: the same number of days just before the range (last week for a weekly MECA).
+    const dayMs = 86400000, len = Math.round((Date.parse(to) - Date.parse(from)) / dayMs) + 1;
+    if (len > 400) return res.status(400).json({ error: 'Range bahut lambi hai (max 400 din)' });
+    const prevTo = new Date(Date.parse(from) - dayMs).toISOString().slice(0, 10), prevFrom = new Date(Date.parse(from) - len * dayMs).toISOString().slice(0, 10);
+    const scope = await mecaScope(req);
+    const mine = r => !scope || scope.has(Number(r.userId));
+    const [cur, prev] = [await mecaCompute(from, to), await mecaCompute(prevFrom, prevTo)];
+    const ids = [...new Set(cur.rows.concat(prev.rows).map(r => r.userId).concat(cur.refs.map(l => l.uid)))].filter(v => typeof v === 'number' && v > 0);
     const [users] = ids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [ids]) : [[]];
     const nameOf = Object.fromEntries(users.map(u => [u.id, u.name]));
-    const out = Object.values(rows).filter(r => r.visited || r.notVisited || r.ordered || r.collection || r.nbdVisits || r.nbdPlanned || r.refs || r.calls || r.callOrders)
-      .map(r => ({ ...r, name: r.userId === 0 ? 'SCOT' : nameOf[r.userId] || `User ${r.userId}` }))
+    const named = list => list.filter(mine).map(r => ({ ...r, name: r.userId === 0 ? 'SCOT' : typeof r.userId === 'string' ? r.userId.slice(4) : nameOf[r.userId] || `User ${r.userId}` }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
+    const refs = cur.refs.filter(l => !scope || scope.has(Number(l.uid))).map(l => ({ id: l.id, code: l.lead_code, shop: l.shop_name || l.contact_name || '', mobile: l.mobile || '',
+      place: [l.market, l.area, l.city].filter(Boolean).join(', '), dealer: l.ref_dealer, result: l.result || '', date: l.d, salesman: nameOf[l.uid] || '' }));
     await mecaBenchTable();
     const [bench] = await db.query('SELECT user_id, data FROM meca_benchmarks');
     const benchmarks = {};
-    bench.forEach(b => { try { benchmarks[b.user_id] = JSON.parse(b.data || '{}'); } catch (e) { /* skip */ } });
+    bench.forEach(b => { if (!scope || scope.has(Number(b.user_id))) try { benchmarks[b.user_id] = JSON.parse(b.data || '{}'); } catch (e) { /* skip */ } });
     await mecaCommitTable();
     const cw = mecaCommitWeeks();
-    const [cm] = await db.query("SELECT user_id, DATE_FORMAT(week_start,'%Y-%m-%d') AS w, score FROM meca_commitments WHERE week_start IN (?,?)", [cw.last, cw.next]);
+    const [cm] = await db.query("SELECT user_id, DATE_FORMAT(week_start,'%Y-%m-%d') AS w, section, score FROM meca_commitments WHERE week_start IN (?,?)", [cw.last, cw.next]);
     const commits = { ...cw, map: {} };
-    cm.forEach(c => { (commits.map[c.w] = commits.map[c.w] || {})[c.user_id] = Number(c.score); });
-    res.json({ from, to, rows: out, benchmarks, commits, isAdmin: req.session.role === 'admin', canCommitAll: ['admin', 'pc'].includes(req.session.role) });
+    cm.forEach(c => { if (!scope || scope.has(Number(c.user_id))) { const w = commits.map[c.w] = commits.map[c.w] || {}; (w[c.user_id] = w[c.user_id] || {})[c.section] = Number(c.score); } });
+    // 60 s in the viewer's own browser only (logged-in data, never a shared CDN); after a save the page asks with ?v= to skip it.
+    res.set('Cache-Control', 'private, max-age=60');
+    res.json({ from, to, prevFrom, prevTo, rows: named(cur.rows), prevRows: named(prev.rows), refs, benchmarks, commits,
+      isAdmin: req.session.role === 'admin', canCommitAll: ['admin', 'pc'].includes(req.session.role), seeAll: !scope });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -14680,7 +14756,9 @@ async function ensureLeadTables() {
   // category (so leads can be sorted by it); Aadhaar + cheque photo at onboarding.
   await addMissingColumns('leads', [['req_category', 'VARCHAR(100)'],
     // "Ye dealer reference se aaya? Kis dealer ne diya" (client recording 2026-10-30) — counted as the salesman's references in MECA.
-    ['ref_dealer', 'VARCHAR(255)']]);
+    ['ref_dealer', 'VARCHAR(255)'],
+    // MECA spec (client 2026-10-31): market on the lead form, and the ₹ when the result is 'Order Mil Gaya' (NBD / call average order).
+    ['market', 'VARCHAR(120)'], ['order_amt', 'DECIMAL(12,2)']]);
   await addMissingColumns('dealer_onboardings', [['aadhaar_photo', 'VARCHAR(1000)'], ['cheque_photo', 'VARCHAR(1000)'],
     // Transport the dealer's goods go by + the bilty / LR photo (client, 2026-10-16).
     ['transport_name', 'VARCHAR(255)'], ['transport_phone', 'VARCHAR(30)'], ['transport_station', 'VARCHAR(255)'], ['bilty_photo', 'VARCHAR(1000)'],
@@ -14759,7 +14837,7 @@ const LEAD_SELECT = `SELECT l.*, DATE_FORMAT(l.created_at,'%Y-%m-%d') AS created
 function leadOut(l, doersMap) {
   return {
     id: l.id, code: l.lead_code, leadType: l.lead_type, source: l.source || '', shopName: l.shop_name || '', contactName: l.contact_name || '',
-    mobile: l.mobile || '', city: l.city || '', area: l.area || '', requirement: l.requirement || '', reqCategory: l.req_category || '', refDealer: l.ref_dealer || '', cardPhoto: l.card_photo || '',
+    mobile: l.mobile || '', city: l.city || '', area: l.area || '', requirement: l.requirement || '', reqCategory: l.req_category || '', refDealer: l.ref_dealer || '', cardPhoto: l.card_photo || '', market: l.market || '', orderAmt: l.order_amt == null ? null : Number(l.order_amt),
     salesmanUserId: l.salesman_user_id, salesmanName: l.salesman_name || '', createdAt: l.created_at, createdBy: l.created_by,
     createdByName: l.created_by_name || '', callCount: +l.call_count || 0, lastCallAt: l.last_call_at, callOutcome: l.call_outcome || '',
     callRemark: l.call_remark || '', catalogueSent: !!+l.catalogue_sent, nextCall: l.next_call || '', visitPurpose: l.visit_purpose || '',
@@ -14950,10 +15028,10 @@ app.post('/api/lead-fms', requireAuth, async (req, res) => {
     }
     const code = await withLeadTables(() => nextLeadCode());
     const card = b.cardPhoto ? await uploadPhotoToDrive(b.cardPhoto, `${code}-card-${Date.now()}.jpg`) : null;
-    const [r] = await db.query(`INSERT INTO leads (lead_code, lead_type, source, shop_name, contact_name, mobile, city, area, req_category, requirement, ref_dealer, card_photo, salesman_user_id, salesman_name, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    const [r] = await db.query(`INSERT INTO leads (lead_code, lead_type, source, shop_name, contact_name, mobile, city, area, market, req_category, requirement, ref_dealer, card_photo, salesman_user_id, salesman_name, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [code, leadType, leadStr(b.source, 40) || (leadType === 'Outgoing' ? 'Market Visit' : null), shop, contact, mobile,
-        leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), leadStr(b.refDealer, 255), card, sid || null, sname, req.session.userId]);
+        leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.market, 120), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), leadStr(b.refDealer, 255), card, sid || null, sname, req.session.userId]);
     await logLeadEvent(r.insertId, 'created', [leadType, b.source, b.reqCategory, b.requirement].filter(Boolean).join(' · '), req.session.userId);
     res.json({ success: true, id: r.insertId, code });
   } catch (err) {
@@ -14997,8 +15075,10 @@ app.put('/api/lead-fms/:id/action/:action', requireAuth, async (req, res) => {
       } else vals.push(null);
       if (outcome.visit) { sets.push('needs_visit=1', 'visit_needed_at=NOW()', 'visit_purpose=?', 'visit_date=NULL'); vals.push(outcome.visit); }
       if (outcome.close) { sets.push('result=?', 'closed_at=NOW()', 'closed_by=?'); vals.push(outcome.close, uid); }
+      const amt = outcome.close === 'Order' && Number(b.orderAmt) > 0 ? Math.round(Number(b.orderAmt) * 100) / 100 : null;
+      if (amt) { sets.push('order_amt=?'); vals.push(amt); }
       await db.query(`UPDATE leads SET ${sets.join(', ')} WHERE id=?`, [...vals, l.id]);
-      await logLeadEvent(l.id, 'call', `${b.outcome}${remark ? ' — ' + remark : ''}${outcome.recall ? ' · next call ' + vals[3] : ''}${catalogue && !note ? ' · catalogue sent' : ''}${note}`, uid);
+      await logLeadEvent(l.id, 'call', `${b.outcome}${amt ? ' ₹' + amt : ''}${remark ? ' — ' + remark : ''}${outcome.recall ? ' · next call ' + vals[3] : ''}${catalogue && !note ? ' · catalogue sent' : ''}${note}`, uid);
     } else if (action === 'schedule') {
       if (!needStep(2)) return;
       if (stage !== 'schedule' && stage !== 'visit') return fail('This lead does not need a visit — refresh');
@@ -15029,15 +15109,17 @@ app.put('/api/lead-fms/:id/action/:action', requireAuth, async (req, res) => {
         const next = leadYmd(b.nextVisitDate);
         sets.push('visit_date=?', 'visit_needed_at=NOW()'); vals.push(next);
       } else { sets.push('needs_visit=0', 'result=?', 'closed_at=NOW()', 'closed_by=?'); vals.push(outcome.close, uid); }
+      const amt = outcome.close === 'Order' && Number(b.orderAmt) > 0 ? Math.round(Number(b.orderAmt) * 100) / 100 : null;
+      if (amt) { sets.push('order_amt=?'); vals.push(amt); }
       await db.query(`UPDATE leads SET ${sets.join(', ')} WHERE id=?`, [...vals, l.id]);
-      await logLeadEvent(l.id, 'visit', `${b.outcome}${remark ? ' — ' + remark : ''}${outcome.again && leadYmd(b.nextVisitDate) ? ' · next visit ' + b.nextVisitDate : ''}`, uid);
+      await logLeadEvent(l.id, 'visit', `${b.outcome}${amt ? ' ₹' + amt : ''}${remark ? ' — ' + remark : ''}${outcome.again && leadYmd(b.nextVisitDate) ? ' · next visit ' + b.nextVisitDate : ''}`, uid);
     } else if (action === 'edit') {
       if (!acc.seeAll && Number(l.created_by) !== Number(uid)) return fail('Only SC-NBD / admin can edit this lead', 403);
       const mobile = leadStr(b.mobile, 30);
       if (mobile && !sfmsNormalizeMobile(mobile)) return fail('Mobile number looks wrong');
       if (!leadStr(b.shopName, 255) && !leadStr(b.contactName, 255)) return fail('Shop name or contact name is required');
-      await db.query('UPDATE leads SET shop_name=?, contact_name=?, mobile=?, city=?, area=?, req_category=?, requirement=?, source=? WHERE id=?',
-        [leadStr(b.shopName, 255), leadStr(b.contactName, 255), mobile, leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), leadStr(b.source, 40), l.id]);
+      await db.query('UPDATE leads SET shop_name=?, contact_name=?, mobile=?, city=?, area=?, market=?, req_category=?, requirement=?, source=? WHERE id=?',
+        [leadStr(b.shopName, 255), leadStr(b.contactName, 255), mobile, leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.market, 120), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), leadStr(b.source, 40), l.id]);
       await logLeadEvent(l.id, 'edited', null, uid);
     } else if (action === 'cancel') {
       if (!acc.seeAll) return fail('Only SC-NBD / admin can cancel a lead', 403);

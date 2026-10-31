@@ -2709,6 +2709,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🧭 MECA — Salesman market report</div>
         <button class="btn btn-outline" onclick="mecaNewDealer()" title="Naya dealer — Lead FMS me lead banegi">🆕 Naya dealer (Lead)</button>
         <button class="btn btn-green" onclick="navigate('beat', document.getElementById('nav-beat'))" title="Purane dealer ka visit / order Beat page par bharein">📋 Beat bharo</button>
+        <button class="btn btn-outline" onclick="mecaSetLastWeek()" title="Pichhle hafte ka Mon–Sat — MECA meeting ke liye">📅 Pichhla hafta</button>
         <input type="date" id="mecaFrom" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/> to
         <input type="date" id="mecaTo" onchange="loadMeca()" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
         <input id="mecaSearch" placeholder="🔍 Salesman…" oninput="renderMeca()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
@@ -21294,12 +21295,16 @@ async function waDeleteDrip(id) {
 // ══════════════════════════════════════════════════════
 // MECA — salesman market report (client voice note, 2026-10-14)
 // ══════════════════════════════════════════════════════
-let mecaData = null;
+let mecaData = null, mecaBust = 0;
+// MECA meets every week (client spec 2026-10-31), so it opens on last week, Mon–Sat.
+function mecaLastWeek() { const [a, b] = misPeriodRange('lastweek'); return [a, owsYmd(new Date(new Date(b + 'T00:00:00').getTime() - 86400000))]; }
+function mecaSetLastWeek() { [document.getElementById('mecaFrom').value, document.getElementById('mecaTo').value] = mecaLastWeek(); loadMeca(); }
 async function loadMeca() {
   const f = document.getElementById('mecaFrom'), t = document.getElementById('mecaTo');
-  if (!f.value) { const td = scotTodayYmd(); f.value = td.slice(0, 8) + '01'; t.value = td; }
+  if (!f.value) [f.value, t.value] = mecaLastWeek();
   document.getElementById('mecaWrap').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
-  const r = await api(`/api/meca?from=${f.value}&to=${t.value}`);
+  // The API is cached 60 s in this browser; after a save, ?v= fetches fresh.
+  const r = await api(`/api/meca?from=${f.value}&to=${t.value}${mecaBust ? '&v=' + mecaBust : ''}`);
   if (r.error) { document.getElementById('mecaWrap').innerHTML = `<div class="empty">⚠️ ${esc(r.error)}</div>`; return; }
   mecaData = r;
   renderMeca();
@@ -21321,40 +21326,65 @@ function mecaToggleWeeks() {
   renderMeca();
 }
 // Admin sets each person's commitment (client recording 2026-10-30) — MECA scores against it.
-const MECA_BENCH_COLS = [['visits', 'Counter / din'], ['conv', 'Conversion %'], ['avg', 'Avg order ₹'], ['coll', 'Collection ₹ / din'], ['nbd', 'NBD visit / din'], ['nbdConv', 'NBD conv %'], ['calls', 'Calls / din'], ['callConv', 'Call conv %'], ['callAvg', 'Call avg order ₹']];
+const MECA_BENCH_COLS = [['visits', 'Counter visit'], ['conv', 'Conversion %'], ['avg', 'Avg order ₹'], ['nbd', 'NBD visit'], ['nbdConv', 'NBD conv %'], ['nbdAvg', 'NBD avg order ₹'],
+  ['collCount', 'Collection (counter)'], ['coll', 'Collection ₹'], ['collAvg', 'Avg collection ₹'], ['collVsOrder', 'Collection vs order %'],
+  ['calls', 'Calls'], ['appts', 'Appointment'], ['callConv', 'Call conv %'], ['callValue', 'Call order ₹'], ['callAvg', 'Call avg order ₹']];
+// Count / ₹ targets are per the person's period (per day, week = 6 working days, month = 26) and scale with the days that have entries;
+// %, averages are as typed.
+const MECA_COUNT_KEYS = ['visits', 'nbd', 'collCount', 'coll', 'calls', 'appts', 'callValue'];
+const MECA_PERIOD_DAYS = { day: 1, week: 6, month: 26 };
 function mecaOpenBench() {
-  const people = [...new Map(mecaData.rows.map(r => [r.userId, r.name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const people = [...new Map(mecaData.rows.filter(r => typeof r.userId === 'number').map(r => [r.userId, r.name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
   const B = mecaData.benchmarks || {};
+  // Full screen (client 2026-10-31), columns grouped by MECA section; name and Save stay in view while scrolling sideways.
+  const lab = Object.fromEntries(MECA_BENCH_COLS);
+  const G = [['🏪 Visit CRR', '#1d4ed8', ['visits', 'conv', 'avg']], ['🆕 Visit NBD', '#7c3aed', ['nbd', 'nbdConv', 'nbdAvg']],
+    ['💰 Collection', '#059669', ['collCount', 'coll', 'collAvg', 'collVsOrder']], ['📞 SOCT (calling)', '#d97706', ['calls', 'appts', 'callConv', 'callValue', 'callAvg']]];
+  const th = 'padding:8px 10px;font-size:11px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200);white-space:nowrap;color:var(--gray-600)';
+  const td = 'padding:7px 10px;border-bottom:1px solid var(--gray-100)';
+  const stL = 'position:sticky;left:0;z-index:1;background:var(--surface);', stR = 'position:sticky;right:0;z-index:1;background:var(--surface);';
   vrlModal('mecaBenchModal', `${scotModalHead('mecaBenchModal', '🎯 Benchmark — salesman ne kitna commit kiya')}
-    <div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Jo commit kiya wo bharo (khaali = nahi). MECA me score aayega — jaise 20 counter / din kaha, 10 kiye → <b style="color:#c00000">−50%</b>.</div>
-    <div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Naam</th>${MECA_BENCH_COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th></th></tr></thead><tbody>
-    ${people.map(([id, name]) => `<tr><td style="font-weight:700;white-space:nowrap">${esc(name)}</td>${MECA_BENCH_COLS.map(([k]) => `<td><input type="number" min="0" step="any" data-u="${id}" data-k="${k}" value="${(B[id] || {})[k] || ''}" style="width:78px;padding:5px;border:1px solid var(--gray-200);border-radius:6px"/></td>`).join('')}
-      <td><button class="btn btn-sm btn-primary" onclick="mecaSaveBench(${id},this)">Save</button></td></tr>`).join('')}</tbody></table></div>`, 1100);
+    <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:10px">Jo commit kiya wo bharo (khaali = nahi). <b>Period</b> = count / ₹ wale target din, hafte (6 din) ya mahine (26 din) ke hain — % aur average waise hi. MECA me Target / Actual / Gap aayega — target se upar <b style="color:var(--color-success-text)">hara</b>, 70–100% <b style="color:var(--color-warning-text)">peela</b>, 70% se kam <b style="color:var(--color-danger)">laal</b>. Har section ka Score usi ke benchmark se banta hai.</div>
+    <div style="overflow:auto;flex:1;border:1px solid var(--gray-200);border-radius:12px"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px">
+      <thead style="position:sticky;top:0;z-index:2">
+        <tr><th rowspan="2" style="${th};${stL}z-index:3;text-align:left">Naam</th><th rowspan="2" style="${th}">Period</th>
+          ${G.map(([t, c, ks]) => `<th colspan="${ks.length}" style="${th};text-align:center;color:${c};border-left:2px solid var(--gray-200);border-top:3px solid ${c}">${t}</th>`).join('')}<th rowspan="2" style="${th};${stR}z-index:3"></th></tr>
+        <tr>${G.map(([, , ks]) => ks.map((k, i) => `<th style="${th};text-align:center;${i ? '' : 'border-left:2px solid var(--gray-200);'}">${lab[k]}${MECA_COUNT_KEYS.includes(k) ? '<div style="font-weight:500;color:var(--gray-400)">/ period</div>' : ''}</th>`).join('')).join('')}</tr>
+      </thead><tbody>
+      ${people.map(([id, name]) => `<tr><td style="${td};${stL}font-weight:700;white-space:nowrap">${esc(name)}</td>
+        <td style="${td}"><select data-u="${id}" data-k="period" style="padding:6px;border:1px solid var(--gray-200);border-radius:6px">${[['day', 'Din'], ['week', 'Hafta'], ['month', 'Mahina']].map(([v, l]) => `<option value="${v}" ${((B[id] || {}).period || 'day') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+        ${G.map(([, , ks]) => ks.map((k, i) => `<td style="${td};text-align:center;${i ? '' : 'border-left:2px solid var(--gray-200);'}"><input type="number" min="0" step="any" data-u="${id}" data-k="${k}" value="${(B[id] || {})[k] || ''}" style="width:84px;padding:6px;border:1px solid var(--gray-200);border-radius:6px;text-align:center"/></td>`).join('')).join('')}
+        <td style="${td};${stR}"><button class="btn btn-sm btn-primary" onclick="mecaSaveBench(${id},this)">Save</button></td></tr>`).join('')}</tbody></table></div>`);
+  const md = document.querySelector('#mecaBenchModal .modal');
+  if (md) md.style.cssText += ';width:96vw;max-width:96vw;height:92dvh;display:flex;flex-direction:column;overflow:hidden';
 }
 async function mecaSaveBench(uid, btn) {
   const body = {};
-  document.querySelectorAll(`#mecaBenchModal input[data-u="${uid}"]`).forEach(i => { if (i.value !== '') body[i.dataset.k] = Number(i.value); });
+  document.querySelectorAll(`#mecaBenchModal [data-u="${uid}"]`).forEach(i => { if (i.dataset.k === 'period') body.period = i.value; else if (i.value !== '') body[i.dataset.k] = Number(i.value); });
   const restore = btnLoading(btn, '…');
   const r = await api(`/api/meca/benchmark/${uid}`, 'PUT', body);
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
+  mecaBust = Date.now();
   mecaData.benchmarks = { ...(mecaData.benchmarks || {}), [uid]: r.data };
   showToast('✅ Benchmark save');
   renderMeca();
 }
-let mecaSort = 'visited';
+let mecaSort = 'visits';
 // Next week's MECA score commitment — own row, or anyone's for admin / PC (client 2026-10-31).
-async function mecaSaveCommit(uid, el) {
+async function mecaSaveCommit(uid, section, el) {
   let v = el.value.trim();
   if (v !== '' && !(Math.abs(Number(v)) <= 100)) { showToast('-100 se 0 ke beech likhein (jaise -10)', 'error'); return; }
   if (v !== '') { v = String(-Math.abs(Number(v))); el.value = v; } // 10 typed = -10
   el.disabled = true;
-  const r = await api('/api/meca/commit', 'PUT', { userId: uid, score: v });
+  const r = await api('/api/meca/commit', 'PUT', { userId: uid, section, score: v });
   el.disabled = false;
   if (r.error) { showToast(r.error, 'error'); return; }
+  mecaBust = Date.now();
   const cm = mecaData.commits;
-  (cm.map[cm.next] = cm.map[cm.next] || {})[uid] = v === '' ? undefined : Number(v);
-  showToast(v === '' ? 'Commitment hata diya' : `✅ Agle hafte ka MECA commitment: ${v}%`);
+  const w = cm.map[cm.next] = cm.map[cm.next] || {};
+  (w[uid] = w[uid] || {})[section] = v === '' ? undefined : Number(v);
+  showToast(v === '' ? 'Commitment hata diya' : `✅ Agle hafte ka ${{ crr: 'CRR', nbd: 'NBD', coll: 'Collection' }[section]} commitment: ${v}%`);
 }
 function mecaCode(name) {
   const first = String(name || '').trim().split(/\s+/)[0].toLowerCase();
@@ -21385,8 +21415,9 @@ function renderMeca() {
     const w = weeks.find(x => x.k === k) || (weeks.push({ k, days: [] }), weeks[weeks.length - 1]);
     w.days.push(y);
   });
-  const SUMS = ['visited', 'ordered', 'value', 'collCount', 'collection', 'nbdVisits', 'nbdWon', 'refs', 'calls', 'callOrders', 'callValue'];
-  const add = (a, r) => { if (!r) return a; SUMS.forEach(k => { a[k] += Number(r[k]) || 0; }); a.days++; return a; };
+  const SUMS = ['visited', 'ordered', 'value', 'collCount', 'collection', 'nbdVisits', 'nbdWon', 'nbdValue', 'nbdOrders', 'nbdLeads', 'leadCalls', 'refs', 'calls', 'callOrders', 'callValue', 'appts', 'o2dOrders', 'o2dValue'];
+  // days = days with field / Lead FMS work (they scale the per-day targets) — an O2D order alone is not a working day.
+  const add = (a, r) => { if (!r) return a; SUMS.forEach(k => { a[k] += Number(r[k]) || 0; }); if (r.visited || r.notVisited || r.ordered || r.collCount || r.nbdVisits || r.nbdLeads || r.calls) a.days++; return a; };
   const zero = () => Object.fromEntries(SUMS.map(k => [k, 0]).concat([['days', 0]]));
   // Column groups: each day, then "Total of Week N"; finally the whole period.
   const groups = [];
@@ -21405,17 +21436,20 @@ function renderMeca() {
   const scoreOf = (a, t) => t ? Math.round(a * 100 / t - 100) : null;
   const scoreTxt = s => s == null ? '' : `<span style="color:${s < 0 ? '#c00000' : '#0b7a3e'}">${s > 0 ? '+' : ''}${s}%</span>`;
   const days = r => (r && r.days) || 1;
-  const SC = {
-    visits: (r, b) => scoreOf(r.visited, b.visits * days(r)),
-    conv: (r, b) => r.visited ? scoreOf(r.ordered * 100 / r.visited, b.conv) : null,
-    avg: (r, b) => r.ordered ? scoreOf(r.value / r.ordered, b.avg) : null,
-    coll: (r, b) => scoreOf(r.collection, b.coll * days(r)),
-    nbd: (r, b) => scoreOf(r.nbdVisits, b.nbd * days(r)),
-    nbdConv: (r, b) => r.nbdVisits ? scoreOf(r.nbdWon * 100 / r.nbdVisits, b.nbdConv) : null,
-    calls: (r, b) => scoreOf(r.calls, b.calls * days(r)),
-    callConv: (r, b) => r.calls ? scoreOf(r.callOrders * 100 / r.calls, b.callConv) : null,
-    callAvg: (r, b) => r.callOrders && r.callValue ? scoreOf(r.callValue / r.callOrders, b.callAvg) : null
+  // Actual per benchmark key (and the plain counts the sections show); target = benchmark, count / ₹ ones
+  // scaled from the person's period to the days with entries.
+  const ACT = {
+    visits: r => r.visited, ordered: r => r.ordered, value: r => r.value, conv: r => r.visited ? r.ordered * 100 / r.visited : null, avg: r => r.ordered ? r.value / r.ordered : null,
+    nbd: r => r.nbdVisits, nbdWon: r => r.nbdWon, nbdValue: r => r.nbdValue, nbdLeads: r => r.nbdLeads, leadCalls: r => r.leadCalls, nbdConv: r => (r.nbdLeads || r.nbdVisits) ? r.nbdWon * 100 / (r.nbdLeads || r.nbdVisits) : null,
+    o2dOrders: r => r.o2dOrders, o2dValue: r => r.o2dValue, o2dAvg: r => r.o2dOrders ? r.o2dValue / r.o2dOrders : null, nbdAvg: r => r.nbdOrders ? r.nbdValue / r.nbdOrders : null,
+    collCount: r => r.collCount, coll: r => r.collection, collAvg: r => r.collCount ? r.collection / r.collCount : null, collVsOrder: r => r.value ? r.collection * 100 / r.value : null,
+    calls: r => r.calls, appts: r => r.appts, callOrders: r => r.callOrders, callConv: r => r.calls ? r.callOrders * 100 / r.calls : null,
+    callValue: r => r.callValue, callAvg: r => r.callOrders && r.callValue ? r.callValue / r.callOrders : null
   };
+  const tgt = (k, r, b) => !b || !b[k] ? null : MECA_COUNT_KEYS.includes(k) ? b[k] * days(r) / (MECA_PERIOD_DAYS[b.period] || 1) : b[k];
+  const SC = Object.fromEntries(Object.keys(ACT).map(k => [k, (r, b) => { const a = ACT[k](r), t = tgt(k, r, b); return a == null || !t ? null : scoreOf(a, t); }]));
+  const PCT_KEYS = ['conv', 'nbdConv', 'collVsOrder', 'callConv'], RS_KEYS = ['value', 'avg', 'o2dValue', 'o2dAvg', 'nbdValue', 'nbdAvg', 'coll', 'collAvg', 'callValue', 'callAvg'];
+  const tag = (k, v) => v == null ? '—' : PCT_KEYS.includes(k) ? (Math.round(v * 10) / 10) + '%' : (RS_KEYS.includes(k) ? '₹' : '') + fmt(v);
   const anyB = k => people.some(p => (B[p.id] || {})[k]);
   const score = (k, l) => anyB(k) ? [{ l: '🎯 ' + l, score: 1, v: (r, p) => r && (B[p.id] || {})[k] ? scoreTxt(SC[k](r, B[p.id])) : '' }] : [];
   const metrics = [
@@ -21459,62 +21493,108 @@ function renderMeca() {
     }).join('')).join('')}</tr>`;
   }).join('');
   const legend = people.map(p => `<b>${esc(p.code)}</b> = ${esc(p.name)}`).join(' · ');
-  // Salesman-wise breakdown for the whole period, in the MIS "Employee-wise Breakdown" style (client 2026-10-31),
-  // with the weekly MECA score commitment. MECA Score = average of the benchmark scores, each capped at 0
-  // (a surplus on one doesn't hide a shortfall on another) — "% kam", like MIS's commitment.
+  // One row per salesman for the whole period (client 2026-10-31). A score per section — CRR, NBD, Collection
+  // (client: "teeno ka alag score, teeno ka commitment") = average of that section's benchmark scores, each capped
+  // at 0 (a surplus on one doesn't hide a shortfall on another) — "% kam", like MIS's commitment.
+  const SCORE_KEYS = { crr: ['visits', 'conv', 'avg'], nbd: ['nbd', 'nbdConv', 'nbdAvg'], coll: ['collCount', 'coll', 'collAvg', 'collVsOrder'] };
   const list = people.map(p => {
-    const t = groups[groups.length - 1].get(p), b = B[p.id] || {};
-    const sc = Object.keys(SC).filter(k => b[k]).map(k => SC[k](t, b)).filter(v => v != null).map(v => Math.min(0, v));
-    return { p, t, b, score: sc.length ? Math.round(sc.reduce((s, v) => s + v, 0) * 10 / sc.length) / 10 : null };
+    const t = groups[groups.length - 1].get(p), b = B[p.id] || {}, scores = {};
+    Object.entries(SCORE_KEYS).forEach(([sec, keys]) => {
+      const sc = keys.filter(k => b[k]).map(k => SC[k](t, b)).filter(v => v != null).map(v => Math.min(0, v));
+      scores[sec] = sc.length ? Math.round(sc.reduce((s, v) => s + v, 0) * 10 / sc.length) / 10 : null;
+    });
+    return { p, t, b, scores };
   });
-  const mval = (x, k) => k === 'conv' ? (x.t.visited ? x.t.ordered / x.t.visited : -1) : k === 'avg' ? (x.t.ordered ? x.t.value / x.t.ordered : -1)
-    : k === 'score' ? (x.score == null ? -999 : x.score) : x.t[k];
+  const mval = (x, k) => k.startsWith('score_') ? (x.scores[k.slice(6)] ?? -999) : ACT[k] ? (ACT[k](x.t) ?? -1) : 0;
   list.sort((a, b) => mecaSort === 'name' ? a.p.name.localeCompare(b.p.name) : (mval(b, mecaSort) - mval(a, mecaSort)) || a.p.name.localeCompare(b.p.name));
-  const th = 'padding:11px 12px;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;background:var(--gray-50);border-bottom:1px solid var(--gray-200);white-space:nowrap';
-  const td = 'padding:10px 12px;border-bottom:1px solid var(--gray-100);vertical-align:middle';
-  const sh = (k, label, c) => `<th style="${th};cursor:pointer;${c ? 'text-align:center;' : ''}color:${mecaSort === k ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="mecaSort='${jsArg(k)}';renderMeca()">${label} ${mecaSort === k ? '▾' : '⇅'}</th>`;
-  const pill = (v, good, warn, txt) => v == null ? '<span style="color:var(--gray-300)">—</span>' : `<span style="display:inline-block;min-width:52px;padding:3px 9px;border-radius:999px;font-weight:800;font-size:12px;background:${v >= good ? 'var(--color-success-bg)' : v >= warn ? 'var(--color-warning-bg)' : 'var(--color-danger-bg)'};color:${v >= good ? 'var(--color-success-text)' : v >= warn ? 'var(--color-warning-text)' : 'var(--color-danger-text)'}">${txt}</span>`;
-  // Big number + a small "/ benchmark score" line when one is set (per-day ones × days with entries).
-  const num = (v, color, sub) => `<td style="${td};text-align:center"><b style="font-size:14px;color:${v ? color : 'var(--gray-300)'}">${fmt(v)}</b>${sub ? `<div style="font-size:10.5px;color:var(--gray-500);margin-top:2px">${sub}</div>` : ''}</td>`;
-  const bsub = (x, k, perDay) => x.b[k] ? `/ ${perDay ? fmt(x.b[k] * days(x.t)) : fmt(x.b[k])} ${scoreTxt(SC[k](x.t, x.b))}` : '';
+  const th = 'padding:9px 10px;font-size:10.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;background:var(--gray-50);border-bottom:1px solid var(--gray-200);white-space:nowrap';
+  const td = 'padding:8px 10px;border-bottom:1px solid var(--gray-100);vertical-align:middle';
   const cm = mecaData.commits || { map: {} };
   // ✓ / ✗ only when the page shows exactly last week (Mon–Sun or Mon–Sat).
   const lastWk = cm.last && mecaData.from === cm.last && (mecaData.to === cm.lastEnd || mecaData.to === owsYmd(new Date(new Date(cm.lastEnd + 'T00:00:00').getTime() - 86400000)));
-  const commitCells = x => {
-    const last = (cm.map[cm.last] || {})[x.p.id], next = (cm.map[cm.next] || {})[x.p.id];
-    const met = lastWk && last != null && x.score != null ? (x.score >= last ? ` <span title="Actual ${x.score}% — commitment poora hua" style="color:var(--color-success-text)">✓</span>` : ` <span title="Actual ${x.score}% — commitment se kam" style="color:var(--color-danger)">✗</span>`) : '';
-    const lastCell = last == null ? '<span style="color:var(--gray-300)">—</span>' : `<b style="font-size:13.5px">${last}%</b>${met}`;
-    const nextCell = mecaData.canCommitAll || x.p.id === ME.id
-      ? `<input type="number" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="-%" aria-label="${esc(x.p.name)} — agle hafte ka MECA score commitment"
-          onkeydown="if(event.key==='Enter')this.blur()" onchange="mecaSaveCommit(${x.p.id}, this)" style="width:70px;padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;text-align:center;font-weight:700;font-size:13px"/>`
+  // Section score with last week's commitment (✓ / ✗ when the page shows exactly last week), then next week's box.
+  const scoreCells = (x, sec) => {
+    const sc = x.scores[sec], last = ((cm.map[cm.last] || {})[x.p.id] || {})[sec], next = ((cm.map[cm.next] || {})[x.p.id] || {})[sec];
+    const pill = sc == null ? '<span style="color:var(--gray-300)">—</span>' : `<span style="display:inline-block;min-width:52px;padding:3px 9px;border-radius:999px;font-weight:800;font-size:12px;background:${band(100 + sc * 3)[0]};color:${band(100 + sc * 3)[1]}">${sc}%</span>`;
+    const met = lastWk && last != null && sc != null ? (sc >= last ? ' <b style="color:var(--color-success-text)" title="Commitment poora hua">✓</b>' : ' <b style="color:var(--color-danger)" title="Commitment se kam">✗</b>') : '';
+    const lastLine = last == null ? '' : `<div style="font-size:10px;color:var(--gray-500);margin-top:3px;white-space:nowrap">commit ${last}%${met}</div>`;
+    const nextCell = typeof x.p.id === 'number' && (mecaData.canCommitAll || x.p.id === ME.id)
+      ? `<input type="number" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="-%" aria-label="${esc(x.p.name)} — agle hafte ka ${sec} commitment"
+          onkeydown="if(event.key==='Enter')this.blur()" onchange="mecaSaveCommit(${x.p.id}, '${sec}', this)" style="width:62px;padding:5px 6px;border:1.5px solid var(--gray-200);border-radius:8px;text-align:center;font-weight:700;font-size:12.5px"/>`
       : (next == null ? '<span style="color:var(--gray-300)">—</span>' : `<b>${next}%</b>`);
-    return `<td style="${td};text-align:center">${lastCell}</td><td style="${td};text-align:center">${nextCell}</td>`;
+    return `<td style="${td};text-align:center;background:rgba(0,0,0,.015)">${pill}${lastLine}</td><td style="${td};text-align:center;background:rgba(0,0,0,.015)">${nextCell}</td>`;
   };
-  const tot = list.reduce((a, x) => { SUMS.forEach(k => { a[k] += x.t[k] || 0; }); return a; }, zero());
   const tf = v => `<td style="${td};text-align:center;font-weight:900;font-size:14px;border-top:2px solid var(--gray-200)">${v}</td>`;
-  const breakdown = `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;margin-bottom:14px">
-    <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
-      <div style="font-size:14px;font-weight:800;color:var(--gray-900)">👥 Salesman-wise Breakdown <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${list.length} log · ${esc(fmtDateDMY(mecaData.from))} – ${esc(fmtDateDMY(mecaData.to))}</span></div>
-      <span style="font-size:11.5px;color:var(--gray-400)" title="Har benchmark ka score (jitna kam, utna minus) — un sab ka average. Benchmark se zyada = 0%.">MECA Score = 🎯 Benchmark se kitna kam</span>
+  // Top: 4 big numbers with ▲ / ▼ against the same number of days just before (client spec 2026-10-31).
+  const KT = rows.reduce((a, r) => add(a, r), zero()), KP = (mecaData.prevRows || []).filter(r => !q || r.name.toLowerCase().includes(q)).reduce((a, r) => add(a, r), zero());
+  const allValue = k => k.value + k.callValue + k.nbdValue;
+  const trend = (c, pv, pts) => {
+    if (pv == null || (!pts && !pv)) return '<span style="color:var(--gray-400)">pichhle period me data nahi</span>';
+    const d = pts ? Math.round((c - pv) * 10) / 10 : Math.round((c - pv) * 1000 / pv) / 10;
+    return `<b style="color:${d >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d)}${pts ? ' pts' : '%'}</b> <span style="color:var(--gray-400)">vs ${esc(fmtDateDMY(mecaData.prevFrom).slice(0, 5))}–${esc(fmtDateDMY(mecaData.prevTo).slice(0, 5))}</span>`;
+  };
+  const pctOf = (a, b) => b ? Math.round(a * 1000 / b) / 10 : null;
+  const kpi = (icon, label, val, tr, sub) => `<div style="flex:1;min-width:190px;background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 16px">
+    <div style="font-size:11.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em">${icon} ${label}</div>
+    <div style="font-size:24px;font-weight:900;color:var(--gray-900);margin:2px 0">${val}</div><div style="font-size:11.5px">${tr}</div>${sub ? `<div style="font-size:11px;color:var(--gray-500);margin-top:2px">${sub}</div>` : ''}</div>`;
+  const vc = pctOf(KT.ordered, KT.visited), vp = pctOf(KP.ordered, KP.visited), cc = pctOf(KT.callOrders, KT.calls), cp = pctOf(KP.callOrders, KP.calls);
+  const kpis = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    ${kpi('🧾', 'Total Order Value', '₹' + fmt(allValue(KT)), trend(allValue(KT), allValue(KP)), `Visit ₹${fmt(KT.value)} · NBD ₹${fmt(KT.nbdValue)} · Call ₹${fmt(KT.callValue)}`)}
+    ${kpi('💰', 'Total Collection', '₹' + fmt(KT.collection), trend(KT.collection, KP.collection), `${fmt(KT.collCount)} counter · order ka ${pctOf(KT.collection, KT.value) ?? '—'}%`)}
+    ${kpi('🏪', 'Visit Conversion', vc == null ? '—' : vc + '%', vc == null ? '' : trend(vc, vp, 1), `${fmt(KT.ordered)} order / ${fmt(KT.visited)} visit`)}
+    ${kpi('📞', 'Call Conversion', cc == null ? '—' : cc + '%', cc == null ? '' : trend(cc, cp, 1), `${fmt(KT.callOrders)} order / ${fmt(KT.calls)} call`)}
+    ${kpi('🧾', 'ERP Sales (O2D)', '₹' + fmt(KT.o2dValue), trend(KT.o2dValue, KP.o2dValue), `${fmt(KT.o2dOrders)} order O2D me book hue`)}
+  </div>`;
+  // One table (client 2026-10-31: "ek hi table rakho"): a row per salesman, the four MECA sections as column
+  // groups, then MECA Score and the weekly commitment. Target / Gap under a number where a benchmark is set.
+  const band = pc => pc >= 100 ? ['var(--color-success-bg)', 'var(--color-success-text)'] : pc >= 70 ? ['var(--color-warning-bg)', 'var(--color-warning-text)'] : ['var(--color-danger-bg)', 'var(--color-danger-text)'];
+  const tac = (k, r, b, first) => {
+    const a = ACT[k](r), t = tgt(k, r, b), bl = first ? 'border-left:2px solid var(--gray-200);' : '';
+    if (!t) return `<td style="${td};${bl}text-align:center"><b style="font-size:13.5px;color:${a ? 'var(--gray-900)' : 'var(--gray-300)'}">${tag(k, a)}</b></td>`;
+    const [bg, c] = band((a || 0) * 100 / t), gap = (a || 0) - t;
+    return `<td style="${td};${bl}text-align:center"><span style="display:inline-block;min-width:54px;padding:2px 8px;border-radius:999px;font-weight:800;font-size:12.5px;background:${bg};color:${c}">${tag(k, a || 0)}</span>
+      <div style="font-size:10px;color:var(--gray-500);margin-top:2px;white-space:nowrap">🎯 ${tag(k, t)} · <b style="color:${gap < 0 ? 'var(--color-danger)' : 'var(--color-success-text)'}">${gap < 0 ? '−' : '+'}${tag(k, Math.abs(gap))}</b></div></td>`;
+  };
+  const GROUPS = [
+    ['crr', '🏪 Visit CRR', '#1d4ed8', 'Sirf jahan sach me visit hui (yes / sir ke sath) — plan wale nahi. Beat page se.', [['visits', 'Counter Visited'], ['ordered', 'Order (counter)'], ['value', 'Order Value ₹'], ['avg', 'Avg Order']]],
+    ['nbd', '🆕 Visit NBD', '#7c3aed', 'Lead FMS me jo bhi kaam kare (salesman ho ya nahi): Leads = jitni lead daali, Calls = Lead FMS calls, Counter Visited = "Market Visit" lead + Lead FMS visit; converted = Order / Dealer bana (Conversion = converted ÷ leads); Order Value = converted counter ke O2D order (dukaan ke naam se milake), O2D me na mile to "Order Mil Gaya" par bhara ₹; Avg = Order Value ÷ orders.', [['nbdLeads', 'Leads'], ['leadCalls', 'Calls'], ['nbd', 'Counter Visited'], ['nbdWon', 'Converted'], ['nbdConv', 'Conversion %'], ['nbdValue', 'Order Value ₹'], ['nbdAvg', 'Avg Order']]],
+    ['coll', '💰 Collection', '#059669', 'Beat page par bhari collection.', [['collCount', 'Collection (counter)'], ['coll', 'Collection ₹'], ['collAvg', 'Avg Collection']]],
+    ['o2d', '🧾 ERP Sales (O2D)', '#0891b2', 'O2D me book hue saare order, "Order By" ke naam par (cancel chhod kar, CD % ke baad). Beat / Lead / SCOT ke order bhi O2D me hi aate hain — isliye ye alag dikhta hai, unme joda nahi.', [['o2dOrders', 'Orders'], ['o2dValue', 'Order Value ₹'], ['o2dAvg', 'Avg Order']]]
+  ];
+  // SOCT is not in this table (client 2026-10-31) — so callers with nothing else (SCOT, SC-NBD) drop out of it.
+  const shown = list.filter(x => x.p.id !== 0 && (x.t.visited || x.t.ordered || x.t.collCount || x.t.nbdVisits || x.t.nbdWon || x.t.nbdLeads || x.t.leadCalls || x.t.o2dOrders));
+  const stot = shown.reduce((a, x) => { SUMS.forEach(k => { a[k] += x.t[k] || 0; }); return a; }, zero());
+  const sticky = 'position:sticky;left:0;z-index:1;';
+  const sh = (k, label, first) => `<th style="${th};${first ? 'border-left:2px solid var(--gray-200);' : ''}text-align:center;cursor:pointer;color:${mecaSort === k ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="mecaSort='${jsArg(k)}';renderMeca()">${label} ${mecaSort === k ? '▾' : '⇅'}</th>`;
+  const subOf = x => typeof x.p.id === 'string' ? 'O2D "Order By" naam' : !x.t.visited && !x.t.collCount ? (x.t.nbdLeads || x.t.leadCalls ? 'Lead FMS' : 'sirf O2D order') : x.t.days + ' din';
+  const tbl = `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;margin-bottom:14px">
+    <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
+      <div style="font-size:14px;font-weight:800;color:var(--gray-900)">👥 Salesman-wise MECA <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${shown.length} log · ${esc(fmtDateDMY(mecaData.from))} – ${esc(fmtDateDMY(mecaData.to))}</span></div>
+      <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-size:11.5px;color:${Object.keys(B).length ? 'var(--gray-400)' : 'var(--color-warning-text)'}">${Object.keys(B).length ? '🎯 Target se upar hara · 70–100% peela · 70% se kam laal' : '⚠️ Score tab aayega jab salesman ka 🎯 Benchmark (target) bhara ho — abhi kisi ka nahi bhara'}</span>
+        ${mecaData.isAdmin ? '<button class="btn btn-sm btn-primary" onclick="mecaOpenBench()">🎯 Benchmark bharo</button>' : ''}</span>
     </div>
-    <div class="mis-table-wrap" style="overflow:auto"><table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr>${sh('name', 'Salesman')}${sh('visited', 'Counter Visit', 1)}${sh('ordered', 'Order', 1)}${sh('value', 'Order ₹', 1)}${sh('conv', 'Conversion %', 1)}${sh('avg', 'Avg Order ₹', 1)}${sh('collection', 'Collection ₹', 1)}${sh('nbdVisits', 'NBD Visit', 1)}${sh('nbdWon', 'NBD Won', 1)}${sh('calls', 'Calls', 1)}${sh('callOrders', 'Call Order', 1)}${sh('score', 'MECA Score', 1)}<th style="${th};text-align:center;color:var(--gray-500)" title="${cm.last ? fmtDateDMY(cm.last) : ''} wale hafte ka commitment — MECA score, % kam (minus me)">Committed<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">last week</div></th><th style="${th};text-align:center;color:var(--gray-500)" title="${cm.next ? fmtDateDMY(cm.next) : ''} se shuru hafte ka commitment — MECA score, % kam, minus me (jaise -10)">Commit<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">next week</div></th></tr></thead>
-      <tbody>${list.map((x, i) => {
-        const conv = x.t.visited ? Math.round(x.t.ordered * 1000 / x.t.visited) / 10 : null, cb = x.b.conv || 30;
-        return `<tr style="background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}">
-        <td style="${td};white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${esc(x.p.code)}</span>
-          <span><b style="color:var(--gray-900);font-size:13px">${esc(x.p.name)}</b><div style="font-size:11px;color:var(--gray-500)">${x.t.days} din${x.p.id === 0 ? ' · calling' : ''}</div></span></span></td>
-        ${num(x.t.visited, 'var(--gray-800)', bsub(x, 'visits', 1))}${num(x.t.ordered, 'var(--color-primary)')}${num(x.t.value, 'var(--color-success-text)')}
-        <td style="${td};text-align:center">${pill(conv, cb, cb * 0.75, conv + '%')}${x.b.conv ? `<div style="font-size:10.5px;color:var(--gray-500);margin-top:2px">/ ${x.b.conv}% ${scoreTxt(SC.conv(x.t, x.b))}</div>` : ''}</td>
-        ${num(x.t.ordered ? x.t.value / x.t.ordered : 0, 'var(--gray-800)', bsub(x, 'avg'))}${num(x.t.collection, 'var(--color-success-text)', bsub(x, 'coll', 1))}
-        ${num(x.t.nbdVisits, 'var(--gray-800)', bsub(x, 'nbd', 1))}${num(x.t.nbdWon, 'var(--color-success-text)')}
-        ${num(x.t.calls, 'var(--gray-800)', bsub(x, 'calls', 1))}${num(x.t.callOrders, 'var(--color-primary)', x.t.callValue ? '₹' + fmt(x.t.callValue) : '')}
-        <td style="${td};text-align:center">${pill(x.score, 0, -10, x.score + '%')}</td>${commitCells(x)}</tr>`;
-      }).join('')}</tbody>
-      <tfoot><tr style="background:var(--gray-50)"><td style="${td};font-weight:900;color:var(--gray-900);border-top:2px solid var(--gray-200)">Total</td>
-        ${tf(fmt(tot.visited))}${tf(fmt(tot.ordered))}${tf(fmt(tot.value))}${tf(tot.visited ? ratio(tot.ordered, tot.visited) + '%' : '—')}${tf(avg(tot.value, tot.ordered))}${tf(fmt(tot.collection))}${tf(fmt(tot.nbdVisits))}${tf(fmt(tot.nbdWon))}${tf(fmt(tot.calls))}${tf(fmt(tot.callOrders))}${tf('')}${tf('')}${tf('')}</tr></tfoot>
+    <div class="mis-table-wrap" style="overflow:auto;max-height:72vh"><table style="width:100%;border-collapse:separate;border-spacing:0">
+      <thead style="position:sticky;top:0;z-index:2">
+        <tr><th rowspan="2" style="${th};${sticky}z-index:3;cursor:pointer;color:${mecaSort === 'name' ? 'var(--color-primary)' : 'var(--gray-500)'}" onclick="mecaSort='name';renderMeca()">Salesman ${mecaSort === 'name' ? '▾' : '⇅'}</th>
+          ${GROUPS.map(([sec, t, c, note, cols]) => `<th colspan="${cols.length + (SCORE_KEYS[sec] ? 2 : 0)}" title="${esc(note)}" style="${th};border-left:2px solid var(--gray-200);text-align:center;color:${c};border-top:3px solid ${c}">${t}</th>`).join('')}
+</tr>
+        <tr>${GROUPS.map(([sec, , , , cols]) => cols.map(([k, l], i) => sh(k, l, !i)).join('') + (SCORE_KEYS[sec] ? sh('score_' + sec, 'Score') + `<th style="${th};text-align:center;color:var(--gray-500)" title="${cm.next ? fmtDateDMY(cm.next) : ''} se shuru hafte ka commitment — score, % kam, minus me (jaise -10)">Commit<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">next week</div></th>` : '')).join('')}</tr>
+      </thead>
+      <tbody>${shown.map((x, i) => { const bg = i % 2 ? 'var(--surface-alt)' : 'var(--surface)'; return `<tr style="background:${bg}">
+        <td style="${td};${sticky}background:${bg};white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;flex-shrink:0">${esc(x.p.code)}</span>
+          <span><b style="color:var(--gray-900);font-size:13px">${esc(x.p.name)}</b><div style="font-size:11px;color:var(--gray-500)">${subOf(x)}</div></span></span></td>
+        ${GROUPS.map(([sec, , , , cols]) => cols.map(([k], j) => tac(k, x.t, x.b, !j)).join('') + (SCORE_KEYS[sec] ? scoreCells(x, sec) : '')).join('')}</tr>`; }).join('')}</tbody>
+      <tfoot><tr style="background:var(--gray-50)"><td style="${td};${sticky}background:var(--gray-50);font-weight:900;color:var(--gray-900);border-top:2px solid var(--gray-200)">Total</td>
+        ${GROUPS.map(([sec, , , , cols]) => cols.map(([k], j) => `<td style="${td};${!j ? 'border-left:2px solid var(--gray-200);' : ''}text-align:center;font-weight:900;font-size:13.5px;border-top:2px solid var(--gray-200)">${tag(k, ACT[k](stot))}</td>`).join('') + (SCORE_KEYS[sec] ? tf('') + tf('') : '')).join('')}</tr></tfoot>
     </table></div></div>`;
-  wrap.innerHTML = `${breakdown}
+  const refs = (mecaData.refs || []).filter(l => !q || String(l.salesman).toLowerCase().includes(q));
+  const refsHtml = refs.length ? `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;margin-bottom:14px"><div class="mis-table-wrap" style="overflow:auto"><table style="width:100%;border-collapse:separate;border-spacing:0">
+      <thead><tr>${['Date', 'Lead', 'Dukaan', 'Mobile', 'Jagah', '🤝 Reference (dealer)', 'Salesman', 'Result'].map(h => `<th style="${th};color:var(--gray-500)">${h}</th>`).join('')}</tr></thead>
+      <tbody>${refs.map((l, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}"><td style="${td};white-space:nowrap">${esc(fmtDateDMY(l.date))}</td><td style="${td};font-weight:700">${esc(l.code)}</td>
+        <td style="${td}">${esc(l.shop || '—')}</td><td style="${td};white-space:nowrap">${esc(l.mobile || '—')}</td><td style="${td}">${esc(l.place || '—')}</td>
+        <td style="${td};font-weight:700">${esc(l.dealer)}</td><td style="${td};white-space:nowrap">${esc(l.salesman || '—')}</td><td style="${td}">${l.result ? esc(l.result) : '<span style="color:var(--gray-400)">chal rahi</span>'}</td></tr>`).join('')}</tbody></table></div></div>`
+    : '<div class="empty">Is period me reference se koi lead nahi aayi. Lead FMS → New Lead me "reference se aaya" tick karein.</div>';
+  wrap.innerHTML = `${kpis}${tbl}<div style="font-size:14px;font-weight:800;color:var(--gray-900);margin:4px 2px 8px">🤝 References (${refs.length})</div>${refsHtml}
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--gray-600);margin-bottom:8px"><span>${legend} &nbsp;·&nbsp; Old counters = <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">📋 Beat</a> se, NBD = Lead FMS se</span>
     ${mecaData.isAdmin ? '<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="mecaOpenBench()">🎯 Benchmark</button>' : ''}
     <button class="btn btn-sm btn-outline" style="${mecaData.isAdmin ? '' : 'margin-left:auto'}" onclick="mecaToggleWeeks()">${mecaWeeksOnly ? '📅 Roz ka bhi dikhao' : '📊 Sirf hafte ka total'}</button></div>
@@ -23925,6 +24005,7 @@ const LEAD_RECALL = ['Catalogue Manga', 'Baad Me Call Karo', 'Phone Nahi Utha'];
 function leadCallOutcomeChange(sel, id) {
   const recall = LEAD_RECALL.includes(sel.value), cat = sel.value === 'Catalogue Manga';
   const ncw = document.getElementById(id + '_ncw'); if (ncw) ncw.style.display = recall ? '' : 'none';
+  const amtw = document.getElementById(id + '_amtw'); if (amtw) amtw.style.display = sel.value === 'Order Mil Gaya' ? '' : 'none';
   const send = document.getElementById(id + '_send'); if (send && cat) send.checked = true;
   const hint = document.getElementById(id + '_cathint');
   if (hint) { hint.style.display = cat ? '' : 'none'; hint.textContent = send ? '📚 Catalogue WhatsApp par chala jayega (niche tick hai) — agli call ki date daal dein.' : '📚 Catalogue bhej kar "Catalogue bhej diya" tick karein — agli call ki date daal dein.'; }
@@ -24555,7 +24636,10 @@ async function openNewLeadModal() {
       <div>${L('Mobile (WhatsApp)')}<input id="nlMobile" inputmode="tel" style="${CHQ_INPUT}"/></div>
       <div>${L('City')}<input id="nlCity" style="${CHQ_INPUT}"/></div>
     </div>
-    ${L('Area / Market')}<input id="nlArea" placeholder="e.g. Mansarovar, Jhotwara" style="${CHQ_INPUT}"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      <div>${L('Area')}<input id="nlArea" placeholder="e.g. Mansarovar, Jhotwara" style="${CHQ_INPUT}"/></div>
+      <div>${L('Market')}<input id="nlMarket" placeholder="e.g. Kishanpole Bazar" style="${CHQ_INPUT}"/></div>
+    </div>
     ${L('Requirement (product)')}${leadReqSelectHtml('nlReqCat', '')}
     ${L('Note')}<textarea id="nlReq" rows="2" placeholder="e.g. 10 piece chahiye · catalogue maanga" style="${CHQ_INPUT};resize:vertical"></textarea>
     <label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="nlIsRef" onchange="document.getElementById('nlRefWrap').style.display=this.checked?'':'none'"/> Ye dealer kisi dealer ke reference se aaya hai</label>
@@ -24582,7 +24666,7 @@ async function submitNewLead(force) {
   const typeEl = document.querySelector('#nlType .tab.active');
   const v = id => document.getElementById(id).value.trim();
   const body = { leadType: typeEl ? typeEl.dataset.v : '', source: v('nlSource'), shopName: v('nlShop'), contactName: v('nlContact'), mobile: v('nlMobile'),
-    city: v('nlCity'), area: v('nlArea'), reqCategory: v('nlReqCat'), requirement: v('nlReq'), cardPhoto: document.getElementById('nlCard').dataset.compressed || '', force: !!force };
+    city: v('nlCity'), area: v('nlArea'), market: v('nlMarket'), reqCategory: v('nlReqCat'), requirement: v('nlReq'), cardPhoto: document.getElementById('nlCard').dataset.compressed || '', force: !!force };
   if (leadMe.seeAll && v('nlSalesman')) body.salesmanUserId = Number(v('nlSalesman'));
   // Reference (client recording 2026-10-30) — counted for the salesman in MECA.
   if (document.getElementById('nlIsRef').checked) {
@@ -24624,12 +24708,12 @@ function renderLeadDetailBody(l) {
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
       ${f('Shop', esc(l.shopName || '—'))}${f('Contact', esc(l.contactName || '—'))}
       ${f('Mobile', l.mobile ? `<a href="tel:${esc(l.mobile)}">📞 ${esc(l.mobile)}</a> · <a href="${wa}" target="_blank">WhatsApp</a>` : '—')}
-      ${f('Area', esc([l.area, l.city].filter(Boolean).join(', ') || '—'))}
+      ${f('Area', esc([l.market, l.area, l.city].filter(Boolean).join(', ') || '—'))}
       ${leadReqText(l) ? `<div style="grid-column:1/-1">${f('Requirement', esc(leadReqText(l)))}</div>` : ''}
       ${f('Salesman (lead)', esc(l.salesmanName || '—'))}${l.refDealer ? f('Reference', '🤝 ' + esc(l.refDealer)) : ''}
       ${f('Calls', `${l.callCount}${l.catalogueSent ? ' · 📘 catalogue sent' : ''}${l.callOutcome ? `<div style="font-size:12px;color:var(--gray-600)">${esc(l.callOutcome)}${l.callRemark ? ' — ' + esc(l.callRemark) : ''}</div>` : ''}`)}
       ${l.visitUserName || l.visitCount ? f('Visit', `${l.visitDate ? fmtDateDMY(l.visitDate) + ' · ' : ''}${esc(l.visitUserName || '—')}${l.visitPurpose === 'Sample' ? ' · 🎁 Sample' : ''}${l.visitCount ? `<div style="font-size:12px;color:var(--gray-600)">${l.visitCount} visit · last: ${esc(l.visitOutcome)}${l.visitRemark ? ' — ' + esc(l.visitRemark) : ''}</div>` : ''}`) : ''}
-      ${l.result ? f('Result', esc(l.result)) : ''}
+      ${l.result ? f('Result', esc(l.result) + (l.orderAmt ? ' · ₹' + Math.round(l.orderAmt).toLocaleString('en-IN') : '')) : ''}
       ${l.cancelledAt ? f('Cancelled', esc(l.cancelReason)) : ''}
       ${l.cardPhoto ? `<div>${chqPhotoHtml(l.cardPhoto, 140)}</div>` : ''}${l.visitPhoto ? `<div>${chqPhotoHtml(l.visitPhoto, 140)}</div>` : ''}
     </div>
@@ -24682,6 +24766,7 @@ function leadTaskFormHtml(l, t) {
       ${L('Dealer ne kya kaha?', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="leadCallOutcomeChange(this,'${jsArg(id)}')">
         <option value="">-- Select --</option>${leadMeta.callOutcomes.map(o => `<option>${esc(o)}</option>`).join('')}</select>
       <div id="${id}_cathint" style="display:none;font-size:12px;color:var(--color-purple);background:var(--surface);border-radius:8px;padding:6px 10px;margin:-4px 0 10px"></div>
+      <div id="${id}_amtw" style="display:none">${L('Order kitne ka? ₹')}<input id="${id}_amt" type="number" min="0" step="any" inputmode="decimal" placeholder="e.g. 25000" style="${CHQ_INPUT}"/></div>
       <div id="${id}_ncw" style="display:none">${L('Agli call kab?')}<input id="${id}_nc" type="date" min="${leadToday}" value="${ymdAddDaysLocal(leadToday, 1)}" style="${CHQ_INPUT}"/></div>
       ${L('Remark')}<input id="${id}_remark" placeholder="e.g. 20 fan chahiye, rate puch rahe the" style="${CHQ_INPUT}"/>
       ${canSend ? `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="${id}_send" ${l.catalogueSent ? '' : 'checked'}/> Catalogue WhatsApp par bhejo (${esc(leadMeta.catalogue)}) → ${esc(l.mobile)}</label>`
@@ -24693,8 +24778,9 @@ function leadTaskFormHtml(l, t) {
     inner = leadScheduleFormHtml(l, 'schedule');
   } else if (t.key === 'visit') {
     inner = `<div style="font-size:13px;margin-bottom:10px">Visit: <b>${fmtDateDMY(l.visitDate)}</b> · ${esc(l.visitUserName)}${l.visitPurpose === 'Sample' ? ' · <b>🎁 Sample leke jaana</b>' : ''}${leadIsMissed(l) ? ` <span style="color:var(--color-danger);font-weight:700">(${leadDaysSince(l.visitDate)} din late)</span>` : ''}</div>
-      ${L('Visit me kya hua?', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="document.getElementById('${id}_nvw').style.display=this.value==='Dobara Visit'?'':'none'">
+      ${L('Visit me kya hua?', true)}<select id="${id}_outcome" style="${CHQ_INPUT}" onchange="document.getElementById('${id}_nvw').style.display=this.value==='Dobara Visit'?'':'none';document.getElementById('${id}_amtw').style.display=this.value==='Order Mil Gaya'?'':'none'">
         <option value="">-- Select --</option>${leadMeta.visitOutcomes.map(o => `<option>${esc(o)}</option>`).join('')}</select>
+      <div id="${id}_amtw" style="display:none">${L('Order kitne ka? ₹')}<input id="${id}_amt" type="number" min="0" step="any" inputmode="decimal" placeholder="e.g. 25000" style="${CHQ_INPUT}"/></div>
       <div id="${id}_nvw" style="display:none">${L('Agla visit kab? (blank = SC-NBD fix karegi)')}<input id="${id}_nv" type="date" min="${leadToday}" style="${CHQ_INPUT}"/></div>
       ${L('Remark')}<input id="${id}_remark" placeholder="e.g. Dealer ne 5 fan ka order diya" style="${CHQ_INPUT}"/>
       ${L('Photo (dukaan / visit proof)')}<input id="${id}_photo" type="file" accept="image/*" capture="environment" onchange="onChequePhotoSelected(this,'${id}_pv')" style="${CHQ_INPUT}"/><div id="${id}_pv" style="font-size:12px;margin:-6px 0 8px"></div>
@@ -24731,6 +24817,7 @@ function openLeadEdit(id) {
       <div>${L('Mobile')}<input id="${p}_mobile" inputmode="tel" value="${esc(l.mobile)}" style="${CHQ_INPUT}"/></div>
       <div>${L('City')}<input id="${p}_city" value="${esc(l.city)}" style="${CHQ_INPUT}"/></div>
       <div>${L('Area')}<input id="${p}_area" value="${esc(l.area)}" style="${CHQ_INPUT}"/></div>
+      <div>${L('Market')}<input id="${p}_market" value="${esc(l.market || '')}" style="${CHQ_INPUT}"/></div>
       <div>${L('Source')}<select id="${p}_source" style="${CHQ_INPUT}">${leadMeta.sources.map(s => `<option ${s === l.source ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div>
     </div>
     ${L('Requirement (product)')}${leadReqSelectHtml(`${p}_reqcat`, l.reqCategory)}
@@ -24746,7 +24833,7 @@ async function submitLeadAction(id, kind, btnEl, preset) {
   const g = (key, suffix) => { const el = document.getElementById(`lead_${id}_${key}_${suffix}`); return el ? (el.type === 'checkbox' ? el.checked : el.value.trim()) : ''; };
   let action = kind, body = preset || {};
   if (kind === 'call') {
-    body = { outcome: g('call', 'outcome'), remark: g('call', 'remark'), nextCall: g('call', 'nc'), sendCatalogue: !!g('call', 'send'), catalogueSent: !!g('call', 'cat') || !!g('call', 'send') };
+    body = { outcome: g('call', 'outcome'), remark: g('call', 'remark'), orderAmt: g('call', 'amt'), nextCall: g('call', 'nc'), sendCatalogue: !!g('call', 'send'), catalogueSent: !!g('call', 'cat') || !!g('call', 'send') };
     if (!body.outcome) { showToast('Dealer ne kya kaha — select karein', 'error'); return; }
   } else if (kind === 'schedule' || kind === 'resched') {
     action = 'schedule';
@@ -24754,14 +24841,14 @@ async function submitLeadAction(id, kind, btnEl, preset) {
     if (!body.visitDate || !body.visitUserId) { showToast('Visit date aur salesman chunein', 'error'); return; }
   } else if (kind === 'visit') {
     const photoEl = document.getElementById(`lead_${id}_visit_photo`);
-    body = { outcome: g('visit', 'outcome'), remark: g('visit', 'remark'), nextVisitDate: g('visit', 'nv'), photo: (photoEl && photoEl.dataset.compressed) || '' };
+    body = { outcome: g('visit', 'outcome'), remark: g('visit', 'remark'), orderAmt: g('visit', 'amt'), nextVisitDate: g('visit', 'nv'), photo: (photoEl && photoEl.dataset.compressed) || '' };
     if (!body.outcome) { showToast('Visit me kya hua — select karein', 'error'); return; }
   } else if (kind === 'note') {
     body = { remark: g('note', 'remark') };
     if (!body.remark) { showToast('Remark likhein', 'error'); return; }
   } else if (kind === 'edit') {
     const e = s => document.getElementById(`leadE_${id}_${s}`).value.trim();
-    body = { shopName: e('shop'), contactName: e('contact'), mobile: e('mobile'), city: e('city'), area: e('area'), source: e('source'), reqCategory: e('reqcat'), requirement: e('req') };
+    body = { shopName: e('shop'), contactName: e('contact'), mobile: e('mobile'), city: e('city'), area: e('area'), market: e('market'), source: e('source'), reqCategory: e('reqcat'), requirement: e('req') };
   }
   const orig = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Saving…'; }
