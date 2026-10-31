@@ -856,6 +856,95 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     });
   }
 
+  // ── 10. forms in modals: required marks, inline errors, Enter ──
+  // Forms are built page by page and validate in their own save code with a
+  // toast. This only adds what the toast can't do: show WHICH field is empty,
+  // mark required fields, and let Enter press the form's main button. Saving
+  // itself is never blocked or changed (audit 2026-10-31).
+  const FIELD_SEL = 'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=button]):not([type=submit]), select, textarea';
+  function siblingLabel(el) {
+    let n = el.previousElementSibling;
+    for (let i = 0; n && i < 3; i++, n = n.previousElementSibling) {
+      if (n.matches(FIELD_SEL) || n.querySelector(FIELD_SEL)) return null;
+      if (n.textContent.trim().length > 0 && n.textContent.trim().length < 80) return n;
+    }
+    return undefined; // nothing either way
+  }
+  function fieldLabel(f) {
+    if (f.id) { const l = document.querySelector(`label[for="${CSS.escape(f.id)}"]`); if (l) return l; }
+    const own = siblingLabel(f);
+    if (own !== undefined) return own;
+    const p = f.parentElement;
+    if (!p) return null;
+    if (p.tagName === 'LABEL') return p;
+    // a field inside its own small wrapper (DD-MM-YYYY box + 📅 + hidden date): label sits before the wrapper
+    if (!p.classList.contains('modal') && p.querySelectorAll(FIELD_SEL).length <= 2 && !p.querySelector('label')) return siblingLabel(p) || null;
+    return null;
+  }
+  const isRequired = f => f.required || /\*\s*$/.test(f.getAttribute('placeholder') || '') || (() => { const l = fieldLabel(f); return !!l && /\*\s*$/.test(l.textContent.trim()); })();
+  const isShown = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length) && !el.closest('.kit-hidden, [hidden]');
+  function markRequired(modal) {
+    modal.querySelectorAll(FIELD_SEL).forEach(f => {
+      const l = fieldLabel(f);
+      if (!l || l.dataset.kitReq || !/\*\s*$/.test(l.textContent.trim())) return;
+      l.dataset.kitReq = '1';
+      const w = document.createTreeWalker(l, NodeFilter.SHOW_TEXT);
+      let last = null; for (let n = w.nextNode(); n; n = w.nextNode()) if (n.nodeValue.trim()) last = n;
+      if (!last || !/\*\s*$/.test(last.nodeValue)) return;
+      last.nodeValue = last.nodeValue.replace(/\s*\*\s*$/, ' ');
+      const s = document.createElement('span'); s.className = 'kit-req'; s.textContent = '*'; s.setAttribute('aria-hidden', 'true');
+      last.parentNode.insertBefore(s, last.nextSibling);
+    });
+  }
+  function clearInvalid(f) {
+    f.classList.remove('kit-invalid'); f.removeAttribute('aria-invalid');
+    const m = f._kitMsg; if (m) { m.remove(); f._kitMsg = null; }
+  }
+  function flagEmptyRequired(modal) {
+    const empty = [...modal.querySelectorAll(FIELD_SEL)].filter(f => isShown(f) && f.getAttribute('aria-hidden') !== 'true' && !f.disabled && !f.readOnly && !String(f.value || '').trim() && isRequired(f));
+    empty.forEach(f => {
+      if (f.classList.contains('kit-invalid')) return;
+      f.classList.add('kit-invalid'); f.setAttribute('aria-invalid', 'true');
+      const m = document.createElement('div'); m.className = 'kit-err'; m.textContent = 'Ye bharna zaroori hai';
+      // the DD-MM-YYYY box sits in a flex wrapper with 📅 and its hidden date input — message goes under the wrapper
+      const wrap = f.parentElement && f.parentElement.querySelector(':scope > input[data-dmy-done]') ? f.parentElement : null;
+      (wrap || f).insertAdjacentElement('afterend', m);
+      f._kitMsg = m;
+    });
+    if (empty[0]) { empty[0].scrollIntoView({ block: 'center', behavior: 'smooth' }); empty[0].focus({ preventScroll: true }); }
+  }
+  // the form's main button: the last visible, enabled .btn-primary in the modal
+  function mainButton(modal) {
+    const bs = [...modal.querySelectorAll('button.btn-primary, .btn.btn-primary')].filter(b => isShown(b) && !b.disabled && !/cancel|close|band|wapas/i.test(b.textContent));
+    return bs[bs.length - 1] || null;
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('button.btn-primary, .btn.btn-primary');
+    const modal = b && b.closest('.modal-overlay.open');
+    if (!modal || b !== mainButton(modal)) return;
+    flagEmptyRequired(modal); // highlight only — the page's own save code still decides
+  }, true);
+  document.addEventListener('input', e => { if (e.target.classList && e.target.classList.contains('kit-invalid') && String(e.target.value || '').trim()) clearInvalid(e.target); }, true);
+  document.addEventListener('change', e => { if (e.target.classList && e.target.classList.contains('kit-invalid') && String(e.target.value || '').trim()) clearInvalid(e.target); }, true);
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing || e.defaultPrevented) return;
+    const f = e.target;
+    if (!f || f.tagName !== 'INPUT' || /^(checkbox|radio|file|button|submit|range|color)$/.test(f.type)) return;
+    if (f.hasAttribute('list') || f.classList.contains('kit-search') || f.hasAttribute('onkeydown') || f.hasAttribute('onkeyup') || f.hasAttribute('onkeypress')) return;
+    const modal = f.closest('.modal-overlay.open');
+    if (!modal || modal.id === 'confirmModal' || modal.id === 'promptModal' || openPop) return;
+    const b = mainButton(modal);
+    if (!b) return;
+    e.preventDefault();
+    b.click();
+  });
+  // Required marks appear when a modal opens (forms are often built on open).
+  // Only the modal overlays are watched (class changes), not the whole page;
+  // modals made later by script get their marks on the first focus inside.
+  const modalWatch = new MutationObserver(recs => recs.forEach(r => { if (r.target.classList.contains('open')) requestAnimationFrame(() => markRequired(r.target)); }));
+  document.querySelectorAll('.modal-overlay').forEach(m => modalWatch.observe(m, { attributes: true, attributeFilter: ['class'] }));
+  document.addEventListener('focusin', e => { const m = e.target.closest && e.target.closest('.modal-overlay.open'); if (m) markRequired(m); });
+
   // ── number fields: wheel scroll must not change an amount ──────
   document.addEventListener('wheel', e => {
     const el = e.target;
