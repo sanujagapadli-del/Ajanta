@@ -913,10 +913,17 @@ async function uploadDocToDrive(dataUri, baseName, opts) {
 // Public: this is the endpoint behind O2D's invoice-photo field, whose link
 // gets sent straight to a dealer over WhatsApp (see the Make Bill step) —
 // someone with no app login at all, so it needs an unauthenticated link.
+// Files that run code when a browser opens them (HTML / SVG / JS / XML) are
+// refused: these links are public, and /api/drive-file serves them from the
+// app's own origin (audit 2026-10-31). Photos, PDFs and office files still pass.
+const ACTIVE_CONTENT_MIME = /^(text\/(html|javascript|xml|ecmascript)|image\/svg\+xml|application\/(xhtml\+xml|xml|javascript|x-javascript|ecmascript))$/i;
 app.post('/api/upload-photo', requireAuth, async (req, res) => {
   try {
     const { image, filename } = req.body;
     if (!image) return res.status(400).json({ error: 'image is required' });
+    const mime = (/^data:([^;,]+);base64,/.exec(String(image)) || [])[1];
+    if (!mime) return res.status(400).json({ error: 'File read nahi hui — dobara chunein' });
+    if (ACTIVE_CONTENT_MIME.test(mime) || /\.(html?|svg|js|xml|xhtml)$/i.test(String(filename || ''))) return res.status(400).json({ error: 'Ye file type allowed nahi hai — photo ya PDF bhejein' });
     const link = await uploadPhotoToDrive(image, filename || `upload-${Date.now()}.jpg`, { public: true });
     res.json({ success: true, url: link });
   } catch (err) {
@@ -1416,9 +1423,10 @@ function userPhotoUrl(u) {
 app.get('/api/user-photo/:id', requireAuth, async (req, res) => {
   try {
     const [[u]] = await db.query('SELECT profile_image FROM users WHERE id=?', [Number(req.params.id) || 0]);
-    const m = /^data:(image\/[\w.+-]+);base64,(.+)$/.exec((u && u.profile_image) || '');
+    const m = /^data:(image\/(?:jpeg|jpg|png|webp|gif));base64,(.+)$/.exec((u && u.profile_image) || '');
     if (!m) return res.status(404).end();
     res.set('Content-Type', m[1]);
+    res.set('X-Content-Type-Options', 'nosniff');
     res.set('Cache-Control', 'private, max-age=604800'); // the URL carries ?v=, so a new photo is a new URL
     res.send(Buffer.from(m[2], 'base64'));
   } catch (err) { sendServerError(res, err); }
@@ -2416,14 +2424,11 @@ async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
 }
 
 // Vercel cron entry point. Vercel sends "Authorization: Bearer <CRON_SECRET>"
-// when that env var is set; without it, only Vercel's own cron user agent is
-// accepted.
+// (set on prod). There is no user-agent fallback any more: a UA can be faked,
+// and this route sends WhatsApp alerts and reminders (audit 2026-10-31).
 app.get('/api/cron/attendance-alert', async (req, res) => {
   const secret = process.env.CRON_SECRET;
-  const ok = secret
-    ? req.headers.authorization === `Bearer ${secret}`
-    : /vercel-cron/i.test(req.headers['user-agent'] || '');
-  if (!ok) return res.status(401).json({ error: 'Unauthorized' });
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const slot = req.query.slot === 'evening' ? 'evening' : 'morning';
     // Same daily cron also starts the day's Dealer WhatsApp drip messages and
@@ -3869,14 +3874,21 @@ app.put('/api/profile', requireAuth, async (req, res) => {
     } else {
       await db.query('UPDATE users SET name=?,email=?,notification_email=?,phone=? WHERE id=?', [name,email,notification_email||'',phone||null,uid]);
     }
-    if (profileImage !== undefined) await db.query('UPDATE users SET profile_image=? WHERE id=?', [profileImage||null, uid]);
+    if (profileImage !== undefined) {
+      if (profileImage && !PROFILE_IMAGE_RE.test(profileImage)) return res.status(400).json({ error: 'Profile photo JPG / PNG / WebP honi chahiye' });
+      await db.query('UPDATE users SET profile_image=? WHERE id=?', [profileImage||null, uid]);
+    }
     req.session.name = name;
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 
+// Profile photos are served back from the app's own origin (/api/user-photo),
+// so only plain raster images are stored — an SVG could carry script.
+const PROFILE_IMAGE_RE = /^data:image\/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=\s]+$/;
 app.post('/api/profile/image', requireAuth, async (req, res) => {
   try {
+    if (req.body.image && !PROFILE_IMAGE_RE.test(req.body.image)) return res.status(400).json({ error: 'Profile photo JPG / PNG / WebP honi chahiye' });
     await db.query('UPDATE users SET profile_image=? WHERE id=?', [req.body.image||null, req.session.userId]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }

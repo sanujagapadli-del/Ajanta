@@ -9548,8 +9548,21 @@ document.addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('button, a.btn');
   if (b && /🔄|↻|Refresh/i.test(b.textContent || b.title || '')) _apiFreshUntil = Date.now() + 3000;
 }, true);
+// Double tap on Save (slow phone data) sent the same write twice and made two
+// leaves / dealers / comments. While a write is still in flight, an identical
+// one (same method, URL and body) now gets the first one's answer instead of
+// hitting the server again (audit 2026-10-31).
+const _apiWritesInFlight = new Map();
 async function api(url, method = 'GET', body = null) {
-  if (method !== 'GET') { _apiReuse.clear(); return _apiFetch(url, method, body); }
+  if (method !== 'GET') {
+    _apiReuse.clear();
+    const key = `${method} ${url} ${body ? JSON.stringify(body) : ''}`;
+    const same = _apiWritesInFlight.get(key);
+    if (same) return same.then(d => structuredClone(d));
+    const p = _apiFetch(url, method, body).finally(() => _apiWritesInFlight.delete(key));
+    _apiWritesInFlight.set(key, p);
+    return p;
+  }
   const rule = API_REUSE.find(([re]) => re.test(url));
   if (!rule) return _apiFetch(url, method, body);
   const hit = _apiReuse.get(url), now = Date.now();
@@ -9621,11 +9634,29 @@ document.addEventListener('change', e => {
 }, true);
 
 // ESC key se koi bhi open modal band ho jaye
-document.addEventListener('keydown', function(e) {
+// Esc closes only the top modal, and asks first when the user has typed in it —
+// it used to close every open modal and lose a half-filled order / complaint
+// (audit 2026-10-31). A modal counts as edited after a real keystroke / pick;
+// the flag clears whenever the modal closes, however it is closed.
+document.addEventListener('input', e => {
+  const ov = e.isTrusted && e.target.closest && e.target.closest('.modal-overlay.open');
+  if (!ov || ov.id === 'confirmModal' || ov.id === 'promptModal') return;
+  ov.dataset.dirty = '1';
+  if (!ov._dirtyWatch) {
+    ov._dirtyWatch = new MutationObserver(() => { if (!ov.classList.contains('open')) delete ov.dataset.dirty; });
+    ov._dirtyWatch.observe(ov, { attributes: true, attributeFilter: ['class'] });
+  }
+}, true);
+document.addEventListener('keydown', async function(e) {
   if (e.key === 'Escape') {
     if (document.getElementById('confirmModal').classList.contains('open')) return _confirmReject();
     if (document.getElementById('promptModal').classList.contains('open')) return _promptReject();
-    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    const open = [...document.querySelectorAll('.modal-overlay.open')];
+    if (!open.length) return;
+    const z = m => parseInt(getComputedStyle(m).zIndex, 10) || 0;
+    const top = open.reduce((a, b) => (z(b) >= z(a) ? b : a));
+    if (top.dataset.dirty && !await uiConfirm('Bhari hui details hat jayengi. Form band karein?')) return;
+    top.classList.remove('open');
   }
 });
 // Tab stays inside the open modal (the confirm / prompt box when one is up).
@@ -13397,6 +13428,14 @@ function fileStampDate(file) {
   const t = file && file.lastModified;
   return t && t > 946684800000 && t <= Date.now() + 60000 ? new Date(t) : new Date();
 }
+// Document photos (KYC, bilty, Aadhaar, price list) are shrunk before upload so
+// a 5–8 MB phone photo fits Vercel's 4.5 MB request limit. No date stamp — it
+// would cover part of the document.
+const DOC_PHOTO_MAX_BYTES = 25 * 1024 * 1024;
+async function docPhotoDataUrl(file) {
+  try { return await compressImageToDataURL(file, 1600, 0.8, true); }
+  catch (e) { return compressImageToDataURL(file, 1200, 0.7, true); }
+}
 function compressImageToDataURL(file, maxDim, quality, noStamp) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -15837,18 +15876,18 @@ function renderKycRows() {
 function handleKycFile(docType, event) {
   const file = event.target.files[0];
   if (!file) return;
-  if (file.size > 5 * 1024 * 1024) { showToast('File size must be under 5MB', 'error'); return; }
-  const reader = new FileReader();
-  reader.onload = async (e) => {
+  if (file.size > DOC_PHOTO_MAX_BYTES) { showToast('File bahut badi hai (25 MB se kam rakho)', 'error'); return; }
+  (async () => {
     showToast('Uploading…');
-    const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_kycCurrentDealer)}/kyc`, 'POST', { docType, image: e.target.result });
+    let image;
+    try { image = await docPhotoDataUrl(file); } catch (e) { showToast('Ye photo khul nahi rahi — dusri photo try karo', 'error'); return; }
+    const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_kycCurrentDealer)}/kyc`, 'POST', { docType, image });
     if (r.error) { showToast(r.error, 'error'); return; }
     showToast('KYC document uploaded!');
     await loadO2dDealers(true);
     renderKycRows();
     refreshDealerViews();
-  };
-  reader.readAsDataURL(file);
+  })();
 }
 
 // Admin delete (client list 2026-10-26 #3). The server only hides the dealer — the
@@ -15886,9 +15925,13 @@ async function saveBilty() {
   const file = document.getElementById('biltyFile').files[0];
   const transport = document.getElementById('biltyTransport').value.trim();
   if (!file && !transport) { showToast('Bilty ki photo ya transport ka naam daalo', 'error'); return; }
-  if (file && file.size > 5 * 1024 * 1024) { showToast('File size must be under 5MB', 'error'); return; }
+  if (file && file.size > DOC_PHOTO_MAX_BYTES) { showToast('File bahut badi hai (25 MB se kam rakho)', 'error'); return; }
   const btn = document.getElementById('biltySaveBtn'); btn.disabled = true; btn.textContent = '⏳ Saving…';
-  const image = file ? await new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(file); }) : null;
+  let image = null;
+  if (file) {
+    try { image = await docPhotoDataUrl(file); }
+    catch (e) { btn.disabled = false; btn.textContent = 'Save'; showToast('Ye photo khul nahi rahi — dusri photo try karo', 'error'); return; }
+  }
   const r = await api(`/api/o2d-fms/dealers/${encodeURIComponent(_biltyDealer)}/bilty`, 'POST', { image, transport });
   btn.disabled = false; btn.textContent = 'Save';
   if (r.error) { showToast(r.error, 'error'); return; }
@@ -16501,15 +16544,14 @@ async function onPriceListPhotoSelected(event) {
   const statusEl = document.getElementById('plPhotoStatus');
   statusEl.textContent = '⏳ Uploading...';
   statusEl.style.color = 'var(--gray-500)';
-  const reader = new FileReader();
-  reader.onload = async () => {
-    const res = await api('/api/upload-photo', 'POST', { image: reader.result, filename: `price-list-${Date.now()}.jpg` });
-    if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
-    document.getElementById('plImageUrl').value = res.url;
-    statusEl.textContent = '✅ Uploaded';
-    statusEl.style.color = 'var(--color-success-text)';
-  };
-  reader.readAsDataURL(file);
+  let image;
+  try { image = await docPhotoDataUrl(file); }
+  catch (e) { statusEl.textContent = '❌ Ye photo khul nahi rahi'; statusEl.style.color = 'var(--color-danger)'; return; }
+  const res = await api('/api/upload-photo', 'POST', { image, filename: `price-list-${Date.now()}.jpg` });
+  if (res.error) { statusEl.textContent = '❌ ' + res.error; statusEl.style.color = 'var(--color-danger)'; return; }
+  document.getElementById('plImageUrl').value = res.url;
+  statusEl.textContent = '✅ Uploaded';
+  statusEl.style.color = 'var(--color-success-text)';
 }
 
 async function submitPriceListItem() {
@@ -25811,9 +25853,13 @@ function mechRateRow(x) {
 async function saveMech(id, btn) {
   const g = i => document.getElementById(i).value.trim(), act = document.getElementById('mcActive'), file = document.getElementById('mcAadhaarFile').files[0];
   const rates = [...document.querySelectorAll('#mcRates .mc-rate')].map(row => { const [c, ch, n] = row.querySelectorAll('input'); return { category: c.value.trim(), charge: ch.value.trim(), note: n.value.trim() }; }).filter(x => x.category && (x.charge || x.note));
-  if (file && file.size > 5 * 1024 * 1024) { showToast('File size must be under 5MB', 'error'); return; }
+  if (file && file.size > DOC_PHOTO_MAX_BYTES) { showToast('File bahut badi hai (25 MB se kam rakho)', 'error'); return; }
   const restore = btnLoading(btn, 'Saving…');
-  const aadhaarImage = file ? await new Promise(res => { const rd = new FileReader(); rd.onload = e => res(e.target.result); rd.readAsDataURL(file); }) : null;
+  let aadhaarImage = null;
+  if (file) {
+    try { aadhaarImage = await docPhotoDataUrl(file); }
+    catch (e) { restore(); showToast('Aadhaar photo khul nahi rahi — dusri photo try karo', 'error'); return; }
+  }
   const r = await api('/api/mechanics', 'POST', { id: id || undefined, name: g('mcName'), mobile: g('mcMobile'), altMobile: g('mcAlt'), city: g('mcCity'), area: g('mcArea'),
     address: g('mcAddress'), aadhaarNo: g('mcAadhaar'), notes: g('mcNotes'), rates, aadhaarImage, active: act ? act.checked : true });
   restore();
