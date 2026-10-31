@@ -13677,7 +13677,7 @@ async function mecaCommitTable() {
   if (!Number(col.n)) await db.query("ALTER TABLE meca_commitments ADD COLUMN section VARCHAR(10) NOT NULL DEFAULT 'crr' AFTER week_start, DROP PRIMARY KEY, ADD PRIMARY KEY (user_id, week_start, section)");
   _mecaCommitOk = true;
 }
-const MECA_SECTIONS = ['crr', 'nbd', 'coll'];
+const MECA_SECTIONS = ['crr', 'nbd', 'coll', 'scot'];
 function mecaCommitWeeks() {
   const t = new Date(Date.now() + 5.5 * 3600 * 1000); // IST
   const mon = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate() - ((t.getUTCDay() + 6) % 7)));
@@ -13691,7 +13691,7 @@ app.put('/api/meca/commit', requireAuth, async (req, res) => {
     if (!(uid >= 0) || b.userId === '' || b.userId == null) return res.status(400).json({ error: 'Salesman chahiye' });
     if (!['admin', 'pc'].includes(req.session.role) && uid !== req.session.userId) return res.status(403).json({ error: 'Sirf apna commitment bhar sakte hain' });
     const section = String(b.section || '');
-    if (!MECA_SECTIONS.includes(section)) return res.status(400).json({ error: 'Section chahiye (CRR / NBD / Collection)' });
+    if (!MECA_SECTIONS.includes(section)) return res.status(400).json({ error: 'Section chahiye (CRR / NBD / Collection / SCOT)' });
     const score = b.score === '' || b.score == null ? null : -Math.abs(Number(b.score));
     if (score !== null && !(score >= -100 && score <= 0)) return res.status(400).json({ error: 'Commitment -100 se 0 % ke beech (jaise -10)' });
     await mecaCommitTable();
@@ -13713,7 +13713,7 @@ async function mecaCompute(from, to) {
   ]);
   const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
   const rows = {};
-  const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdValue: 0, nbdOrders: 0, nbdPlanned: 0, nbdLeads: 0, leadCalls: 0, refs: 0, calls: 0, callOrders: 0, callValue: 0, appts: 0, o2dOrders: 0, o2dValue: 0 };
+  const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdValue: 0, nbdOrders: 0, nbdPlanned: 0, nbdLeads: 0, leadCalls: 0, refs: 0, calls: 0, callOrders: 0, callValue: 0, appts: 0, o2dOrders: 0, o2dValue: 0, scotCalls: 0, scotOrders: 0, scotValue: 0 };
   for (const e of entries) {
     const r = row(e.user_id, e.d);
     if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
@@ -13775,22 +13775,22 @@ async function mecaCompute(from, to) {
     WHERE l.ref_dealer IS NOT NULL AND l.ref_dealer <> '' AND l.cancelled_at IS NULL AND l.created_at >= ? AND l.created_at < DATE_ADD(?, INTERVAL 1 DAY)
     ORDER BY l.created_at DESC`, [from, to]).catch(noTable);
   for (const l of refs) if (l.uid) row(l.uid, l.d).refs++;
-  // SCOT (old dealers' calling) as one "SCOT" column (userId 0) — the callers share one login.
-  const [scotC] = await db.query(`SELECT DATE_FORMAT(call_date,'%Y-%m-%d') AS d, COUNT(*) AS n FROM scot_calls WHERE call_date BETWEEN ? AND ? GROUP BY call_date`, [from, to]).catch(noTable);
-  scotC.forEach(c => { row(0, c.d).calls += Number(c.n) || 0; });
-  const [scotO] = await db.query(`SELECT DATE_FORMAT(order_date,'%Y-%m-%d') AS d, COUNT(*) AS n, SUM(amount) AS v FROM scot_orders WHERE order_date BETWEEN ? AND ? GROUP BY order_date`, [from, to]).catch(noTable);
-  scotO.forEach(o => { const r = row(0, o.d); r.callOrders += Number(o.n) || 0; r.callValue += Number(o.v) || 0; });
+  // SCOT (old dealers' calling — SC CRR's MECA, client 2026-10-31) under whoever made the call / booked the order
+  // (each call is saved with its caller; 0 = unknown).
+  const [scotC] = await db.query(`SELECT called_by AS uid, DATE_FORMAT(call_date,'%Y-%m-%d') AS d, COUNT(*) AS n FROM scot_calls WHERE call_date BETWEEN ? AND ? GROUP BY called_by, call_date`, [from, to]).catch(noTable);
+  scotC.forEach(c => { const r = row(Number(c.uid) || 0, c.d), n = Number(c.n) || 0; r.calls += n; r.scotCalls += n; });
+  const [scotO] = await db.query(`SELECT created_by AS uid, DATE_FORMAT(order_date,'%Y-%m-%d') AS d, COUNT(*) AS n, SUM(amount) AS v FROM scot_orders WHERE order_date BETWEEN ? AND ? GROUP BY created_by, order_date`, [from, to]).catch(noTable);
+  scotO.forEach(o => { const r = row(Number(o.uid) || 0, o.d), n = Number(o.n) || 0, v = Number(o.v) || 0; r.callOrders += n; r.callValue += v; r.scotOrders += n; r.scotValue += v; });
   // ERP sales (client 2026-10-31: "ERP me kahin se bhi sale ho, MECA me aaye") = every order booked in O2D in the range,
   // under its "Order By" (salesman profile's O2D names, else a user of that name, else the name itself). O2D is where
   // every order — Beat, SCOT, Lead FMS — gets booked, so it is shown on its own, never added to those.
   try {
-    const [orders, salesmanOf] = await Promise.all([getO2dOrders(), ddSalesmanMap()]);
+    const [orders, ownerOf] = await Promise.all([getO2dOrders(), mecaOrderByResolver()]);
     for (const o of orders) {
       const d = String(o.timestamp || '').slice(0, 10);
       if (o.cancelled || d < from || d > to) continue;
       const v = (o.products || []).filter(x => !x.cancelled).reduce((a, x) => a + (Number(x.rate) || 0) * (Number(x.qty) || 0), 0) * (100 - (Number(o.discountPct) || 0)) / 100;
-      const name = String(o.orderBy || '').trim() || '(Order By khaali)';
-      const r = row(salesmanOf(name) || 'o2d:' + name, d);
+      const r = row(ownerOf(o.orderBy), d);
       r.o2dOrders++; r.o2dValue += v;
       // NBD order value (client 2026-10-31): an order from a counter that came through Lead FMS and converted —
       // credited to that lead's person on the order date.
@@ -13802,6 +13802,34 @@ async function mecaCompute(from, to) {
   for (const l of wonInRange) if (!nbdMatched.has(l.id) && l.result === 'Order' && Number(l.order_amt) > 0) { const r = row(l.uid, l.d); r.nbdOrders++; r.nbdValue += Number(l.order_amt); }
   const list = Object.values(rows).filter(r => r.visited || r.notVisited || r.ordered || r.collection || r.nbdVisits || r.nbdPlanned || r.nbdLeads || r.refs || r.calls || r.callOrders || r.o2dOrders);
   return { rows: list, refs };
+}
+// O2D "Order By" → user for MECA (client 2026-10-31: "jo naam duplicate hai unko mix karo"). After the Profit Center
+// link (profile O2D names / exact name): a department of that name ("CRM" → Kavita, "SC CRR" → Priyanka), then a
+// word of the user's name ("Ajay Sir" → Ajay, "Aziz bhai" → Abdul Aziz, "Rohit" → Rohit (sales2)), then a near
+// spelling ("Giridhari" → Girdhar ji) — each only when exactly one user fits. Blank / office / replacement = one row.
+const MECA_NOISE_WORDS = new Set(['sir', 'ji', 'bhai', 'mam', 'madam', 'sahab', 'saab', 'sales', 'sales1', 'sales2', 'sales3']);
+function mecaWords(v) { return String(v || '').toLowerCase().replace(/\([^)]*\)/g, ' ').split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !MECA_NOISE_WORDS.has(w)); }
+function mecaNear(a, b) {
+  if (Math.min(a.length, b.length) < 5 || Math.abs(a.length - b.length) > 2) return false;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length] <= 2;
+}
+async function mecaOrderByResolver() {
+  const [salesmanOf, [users]] = await Promise.all([ddSalesmanMap(), db.query("SELECT id, name, department FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor')")]);
+  const uw = users.map(u => ({ id: u.id, dept: String(u.department || '').trim().toLowerCase(), words: mecaWords(u.name) }));
+  const one = list => list.length === 1 ? list[0].id : null;
+  const cache = {};
+  return raw => {
+    const name = String(raw || '').trim();
+    if (!name || /^(office|replacement)$/i.test(name)) return 'o2d:Office / bina naam';
+    if (cache[name] !== undefined) return cache[name];
+    const w = mecaWords(name);
+    return cache[name] = salesmanOf(name) || one(uw.filter(u => u.dept && u.dept === name.toLowerCase()))
+      || (w.length ? one(uw.filter(u => w.some(x => u.words.includes(x)))) || one(uw.filter(u => w.some(x => u.words.some(y => mecaNear(x, y))))) : null)
+      || 'o2d:' + name;
+  };
 }
 // Who sees whom (client MECA spec 2026-10-31): admin / PC / HOD everyone; a salesman only their own rows;
 // the SCOT row also to SCOT page users (the callers' shared login).
