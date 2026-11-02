@@ -5046,16 +5046,32 @@ async function init() {
     const dashShown = () => { const p = document.getElementById('page-dashboard'); return p && p.classList.contains('active'); };
     const refreshBadges = () => { lastBadges = Date.now(); loadApprovalBadge(); loadTransferBadge(); loadLeaveBadge(); };
     const refreshDash = () => { lastDash = Date.now(); loadDashboard(); };
+    // A step done by someone else shows up within ~1 min (client 2026-11-02): the open
+    // dashboard asks for the tiny change version and reloads only when it moved.
+    let dashVer = null, lastVerCheck = 0;
+    const checkDashVer = async () => {
+      lastVerCheck = Date.now();
+      try {
+        const r = await fetch('/api/dash-ver', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const { v } = await r.json();
+        if (dashVer !== null && v !== dashVer && dashShown()) refreshDash();
+        dashVer = v;
+      } catch (_) { /* offline — next tick */ }
+    };
+    const DASH_VER_EVERY_MS = 60 * 1000;
     setInterval(() => {
       if (!tabVisible()) return;
       if (Date.now() - lastBadges >= BADGE_EVERY_MS) refreshBadges();
       if (dashShown() && Date.now() - lastDash >= DASH_EVERY_MS) refreshDash();
+      else if (dashShown() && Date.now() - lastVerCheck >= DASH_VER_EVERY_MS) checkDashVer();
     }, 30000);
     // Coming back to the tab: catch up at once if the data is stale.
     document.addEventListener('visibilitychange', () => {
       if (!tabVisible()) return;
       if (Date.now() - lastBadges >= BADGE_EVERY_MS) refreshBadges();
       if (dashShown() && Date.now() - lastDash >= DASH_EVERY_MS) refreshDash();
+      else if (dashShown()) checkDashVer();
     });
   } catch(e) {
     console.error('Init error:', e);
@@ -20539,9 +20555,9 @@ function owsOpenBills(i, week) {
   m.innerHTML = `<div class="modal" style="max-width:640px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><h3 style="margin:0">📦 ${esc(p.item)}</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('owsBillsModal')" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
-    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${esc(span)} · ${bills.length} bill · Qty <b>${tq.toLocaleString('en-IN')}</b> · <b>${inr(ta)}</b></div>
-    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Bill date</th><th>Order</th><th>Dealer</th><th style="text-align:right">Qty</th><th style="text-align:right">₹</th></tr></thead><tbody>
-    ${bills.map(b => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(b.date))}</td><td style="white-space:nowrap">${esc(b.orderNo || '—')}</td><td>${esc(b.party || '—')}</td>
+    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${esc(span)} · ${new Set(bills.map(b => b.billNo || b.orderNo)).size} bill · ${new Set(bills.map(b => (b.party || '').toLowerCase())).size} party · Pcs <b>${tq.toLocaleString('en-IN')}</b> · <b>${inr(ta)}</b></div>
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Bill date</th><th>Bill No.</th><th>Dealer</th><th style="text-align:right">Pcs</th><th style="text-align:right">₹</th></tr></thead><tbody>
+    ${bills.map(b => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(b.date))}</td><td style="white-space:nowrap"><b>${esc(b.billNo || '—')}</b><div style="font-size:10.5px;color:var(--gray-500)">${esc(b.orderNo || '')}</div></td><td style="white-space:normal">${esc(b.party || '—')}</td>
       <td style="text-align:right;font-weight:700">${Number(b.qty).toLocaleString('en-IN')}</td><td style="text-align:right">${inr(b.amount)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Koi bill nahi</td></tr>'}
     </tbody></table></div></div>`;
   m.classList.add('open');
@@ -28248,6 +28264,18 @@ let gpView = 'product';
 let gpQuery = '';
 let gpShown = 60;
 let gpOpenDealer = '';
+// Dealer opened → bill by bill: "Bill 123 · date · ₹" then its items (client 2026-11-02).
+function gpDealerBillRows(p, td) {
+  const gpCell = (gp, sales, bold) => `<td style="${td};${bold ? 'font-weight:700;' : ''}color:${gp == null ? 'var(--gray-300)' : gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(gp)}</td>
+    <td style="${td};text-align:center">${gpPctPill(gp == null || !sales ? null : Math.round(gp * 1000 / sales) / 10)}</td>`;
+  return p.billList.map(b => `<tr style="background:var(--color-primary-light)"><td style="${td}"></td>
+      <td style="${td};text-align:left;padding-left:18px;font-weight:800;color:var(--gray-900)">🧾 Bill ${esc(b.billNo || '—')} <span style="font-weight:500;font-size:11.5px;color:var(--gray-600)">· ${esc(fmtDateDMY(b.date))}${b.orderNo ? ' · ' + esc(b.orderNo) : ''}</span></td>
+      <td style="${td}"></td><td style="${td};font-weight:700">${b.items.reduce((a, it) => a + it.qty, 0).toLocaleString('en-IN')}</td>
+      <td style="${td};font-weight:800">${gpInr(b.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(b.cost)}</td>${gpCell(b.gp, b.sales, true)}</tr>
+    ${b.items.map(it => `<tr style="background:var(--gray-50)"><td style="${td}"></td>
+      <td style="${td};text-align:left;white-space:normal;padding-left:34px;color:var(--gray-700)">↳ ${esc(it.item)} <span style="font-size:11px;color:var(--gray-500)">@ ${gpInr(it.rate)}</span></td><td style="${td}"></td>
+      <td style="${td}">${Number(it.qty).toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}</td>${gpCell(it.gp, it.sales)}</tr>`).join('')}`).join('');
+}
 let gpOnlyNoCost = false;
 let gpSortBy = 'gp';
 let gpSortDir = 'desc';
@@ -28611,7 +28639,7 @@ function renderGrossProfit() {
           <td style="${td};font-weight:700">${gpInr(p.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
           <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
           <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>
-          ${open ? p.items.map(it => `<tr style="background:var(--gray-50)"><td style="${td}"></td>
+          ${open && !vendorView && p.billList ? gpDealerBillRows(p, td) : open ? p.items.map(it => `<tr style="background:var(--gray-50)"><td style="${td}"></td>
             <td style="${td};text-align:left;white-space:normal;padding-left:26px;color:var(--gray-700)">↳ ${esc(it.item)}</td><td style="${td}"></td>
             <td style="${td}">${Math.round(it.qty).toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}</td>
             <td style="${td};font-weight:700;color:${it.gp == null ? 'var(--gray-300)' : it.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(it.gp)}</td>
@@ -28638,7 +28666,7 @@ function renderGrossProfit() {
           </select>
           <button class="btn btn-outline btn-sm" onclick="gpSortDir=gpSortDir==='desc'?'asc':'desc';gpShown=60;renderGrossProfit()" title="Ascending / Descending" style="white-space:nowrap">${gpSortDir === 'desc' ? '↓ High → Low' : '↑ Low → High'}</button>
         </div>
-        <span style="font-size:11.5px;color:var(--gray-400)">${gpView !== 'product' ? `${gpView === 'vendor' ? 'vendor' : 'dealer'} par click = items` : d.canEditCost ? 'jis product ka PO nahi hai, uski laagat Cost Rate box me daalein — sab rates daal ke ek saath Save' : ''}</span>
+        <span style="font-size:11.5px;color:var(--gray-400)">${gpView !== 'product' ? `${gpView === 'vendor' ? 'vendor par click = items' : 'dealer par click = bill-wise items'}` : d.canEditCost ? 'jis product ka PO nahi hai, uski laagat Cost Rate box me daalein — sab rates daal ke ek saath Save' : ''}</span>
         ${gpView === 'product' && d.canEditCost ? `<button id="gpSaveCostsBtn" class="btn btn-green btn-sm" onclick="gpSaveCosts(this)" style="white-space:nowrap;display:none"></button>` : ''}
       </div>
       <div class="mis-table-wrap" style="overflow:auto;max-height:680px">${table}</div>

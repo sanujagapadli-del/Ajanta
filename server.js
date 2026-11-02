@@ -195,6 +195,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// "Something on the dashboards changed" version (client 2026-11-02: a step marked
+// done reached the next doer only on the 15-min dashboard refresh). Every FMS /
+// task write bumps it; an open dashboard asks /api/dash-ver once a minute (one
+// small DB read) and reloads only when it moved.
+const DASH_VER_PREFIXES = ['/api/o2d-fms', '/api/service-fms', '/api/purchase-fms', '/api/vendor', '/api/cheque-fms', '/api/replacement-fms',
+  '/api/lead-fms', '/api/fms', '/api/fms-tasks', '/api/tasks', '/api/transfers', '/api/approvals'];
+app.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  if (SHEET_VER_SKIP.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
+  if (!DASH_VER_PREFIXES.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
+  const json = res.json.bind(res);
+  res.json = body => {
+    if (res.statusCode >= 400) return json(body);
+    bumpSheetVer('dash').catch(e => console.error('dash ver bump:', e.message)).finally(() => json(body));
+    return res;
+  };
+  next();
+});
+
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 app.use(express.json({ limit: '100mb' }));
@@ -6616,6 +6635,10 @@ async function readO2dOrdersFromSheet() {
   }
 }
 
+app.get('/api/dash-ver', requireAuth, async (req, res) => {
+  try { res.json({ v: await sheetVer('dash') }); } catch (err) { sendServerError(res, err); }
+});
+
 app.get('/api/o2d-fms', requireAuth, async (req, res) => {
   try {
     const open = req.query.open === '1';
@@ -8867,21 +8890,33 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
     }
 
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    // One New Order at a time: the free row is found by reading the sheet, so two
+    // orders saved together would otherwise both pick it.
+    const lockConn = await db.getConnection();
+    let orderNo, rows;
+    try {
+    const [[lk]] = await lockConn.query("SELECT GET_LOCK('o2d_new_order', 20) AS ok");
+    if (!lk || lk.ok !== 1) return res.status(503).json({ error: 'Abhi ek aur order save ho raha hai — 1 minute baad dobara Save karein' });
 
     // Order No. and Order Id are sequential ("Ord-1435", "Order-3074") —
-    // read both key columns once, take the current max of each.
-    const keyCols = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!Q${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE'
+    // read the sheet once, take the current max of each. The whole width (A:BM)
+    // also gives the last row that holds ANYTHING: a row whose A:R was cleared
+    // by hand still has the old order's step cells, and append() used to drop a
+    // new order there — it then showed as already billed / at In-Out with the
+    // old bill no. (Ord-0297 / 0298 on 2026-11-02).
+    const allCols = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:${O2D_LAST_COL}`, valueRenderOption: 'UNFORMATTED_VALUE'
     });
-    const keyRows = keyCols.data.values || [];
-    let maxOrderNo = 0, maxOrderId = 0;
-    keyRows.forEach(r => {
-      const mNo = String(r[0] || '').match(/Ord-(\d+)/);
-      const mId = String(r[1] || '').match(/Order-(\d+)/);
+    const allRows = allCols.data.values || [];
+    let maxOrderNo = 0, maxOrderId = 0, lastUsed = O2D_DATA_START_ROW - 1;
+    allRows.forEach((r, i) => {
+      const mNo = String(r[colToIdx('Q')] || '').match(/Ord-(\d+)/);
+      const mId = String(r[colToIdx('R')] || '').match(/Order-(\d+)/);
       if (mNo) maxOrderNo = Math.max(maxOrderNo, parseInt(mNo[1], 10));
       if (mId) maxOrderId = Math.max(maxOrderId, parseInt(mId[1], 10));
+      if (r.some(v => v !== '' && v != null)) lastUsed = O2D_DATA_START_ROW + i;
     });
-    const orderNo = `Ord-${String(await claimNextSeqValue('o2d_order_no', maxOrderNo + 1)).padStart(4, '0')}`;
+    orderNo = `Ord-${String(await claimNextSeqValue('o2d_order_no', maxOrderNo + 1)).padStart(4, '0')}`;
     // Each product line needs its own unique "Order-N" id — claim one
     // sequential value per line rather than assuming maxOrderId+1+i is free.
     const orderIds = [];
@@ -8895,23 +8930,26 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
     const nowSerial = sfmsDateToSerial(new Date());
     const dateToSendSerial = dateToSend ? sfmsDateToSerial(new Date(dateToSend + 'T00:00:00')) : '';
 
-    const rows = products.map((p, i) => [
+    rows = products.map((p, i) => [
       nowSerial, counterType || '', counterName, area || '', dateToSendSerial, whenToSend || '',
       channel || '', deliverByTransport || 'No', makePerformaInvoice || 'No', orderBy || '',
       paymentTerms || '', remark || '', p.productName, p.rate || '', p.qty,
       p.isSample || 'No', orderNo, `Order-${orderIds[i]}`
     ]);
 
-    // OVERWRITE, not INSERT_ROWS — inserting rows shifts the sheet's row
-    // dimensions, which corrupts the Planned column's ARRAYFORMULA (it spills
-    // down live from row 6). Overwrite just fills the next blank row instead.
-    await sheetsApi.spreadsheets.values.append({
+    // Written into fully blank rows below lastUsed — never inserted (inserting
+    // shifts the sheet's rows and corrupts the Planned ARRAYFORMULA, which spills
+    // down live from row 6).
+    await sheetsApi.spreadsheets.values.update({
       spreadsheetId: O2D_SHEET_ID,
-      range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
+      range: `'${O2D_TAB}'!A${lastUsed + 1}:R${lastUsed + rows.length}`,
       valueInputOption: 'RAW',
-      insertDataOption: 'OVERWRITE',
       requestBody: { values: rows }
     });
+    } finally {
+      await lockConn.query("SELECT RELEASE_LOCK('o2d_new_order')").catch(() => {});
+      lockConn.release();
+    }
     if (discountPct > 0) await setO2dDiscountPct(orderNo, discountPct);
 
     // Team-group heads-up so everyone knows to check the dashboard. Fire-
@@ -14021,7 +14059,7 @@ async function gpLoadData(start, end, opts = {}) {
     const qty = gpNum(get('O')), rate = gpNum(get('N')) * (100 - (discountBy[String(get('Q') || '')] || 0)) / 100;
     const name = String(get('M') || '').trim();
     if (!name || !(qty > 0)) return;
-    sales.push({ party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date });
+    sales.push({ party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), billNo: String(get('BJ') || '').trim(), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date });
   });
   if (opts.exGst) {
     const [gl] = await db.query("SELECT product_name, gst_percent FROM o2d_price_list WHERE gst_percent IS NOT NULL AND gst_percent<>''").catch(() => [[]]);
@@ -14195,8 +14233,13 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
         costRate: c ? c.rate : null, costSource: c ? c.source : '', poName: c && c.poName || '', cost: 0 };
       it.qty += s.qty; it.sales += s.amount; if (c) it.cost += cost;
       const pk = s.party.toLowerCase();
-      const p = byParty[pk] = byParty[pk] || { party: s.party, bills: new Set(), qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {} };
-      p.bills.add(s.orderNo); p.qty += s.qty; p.sales += s.amount;
+      const p = byParty[pk] = byParty[pk] || { party: s.party, bills: new Set(), qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {}, billList: {} };
+      p.bills.add(s.billNo || s.orderNo); p.qty += s.qty; p.sales += s.amount;
+      // Dealer → bill-wise items (client 2026-11-02: "bill 123 me ye item itne pcs, bill 321 me …").
+      const bk = s.billNo || s.orderNo || s.date;
+      const pb = p.billList[bk] = p.billList[bk] || { billNo: s.billNo, orderNo: s.orderNo, date: s.date, sales: 0, cost: 0, costed: false, items: [] };
+      pb.sales += s.amount; if (c) { pb.cost += cost; pb.costed = true; }
+      pb.items.push({ item: s.item, qty: round(s.qty), rate: round(s.rate), sales: round(s.amount), cost: c ? round(cost) : null, gp: c ? round(s.amount - cost) : null });
       if (c) { p.costedSales += s.amount; p.cost += cost; } else p.uncostedSales += s.amount;
       const pi = p.items[s.item] = p.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: c ? 0 : null };
       pi.qty += s.qty; pi.sales += s.amount; if (c) pi.cost += cost;
@@ -14226,7 +14269,9 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       return { party: p.party, bills: p.bills.size, qty: round(p.qty), sales: round(p.sales), costedSales: round(p.costedSales), cost: round(p.cost),
         uncostedSales: round(p.uncostedSales), gp: gp == null ? null : round(gp), gpPct: gp == null ? null : round(gp * 100 / p.costedSales),
         items: Object.values(p.items).map(i => ({ item: i.item, qty: round(i.qty), sales: round(i.sales), cost: i.cost == null ? null : round(i.cost),
-          gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales) };
+          gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales),
+        billList: Object.values(p.billList).map(b => ({ billNo: b.billNo, orderNo: b.orderNo, date: b.date, sales: round(b.sales), cost: b.costed ? round(b.cost) : null,
+          gp: b.costed ? round(b.sales - b.cost) : null, items: b.items })).sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.billNo).localeCompare(String(a.billNo), undefined, { numeric: true })) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
     const vendorRows = Object.values(byVendor).map(v => {
       const gp = v.costedSales ? v.costedSales - v.cost : null;
@@ -16569,7 +16614,7 @@ app.get('/api/reports/ows', requireAuth, async (req, res) => {
         const real = l.code && !String(l.code).startsWith('name:');
         const p = prod[l.code] = prod[l.code] || { item: (real && stockName[l.code]) || l.item, stock: real && l.code in stockOf ? stockOf[l.code] : null, qty: 0, amount: 0, bills: [] };
         p.qty += l.qty; p.amount += l.amount;
-        p.bills.push({ date: l.date, party: l.party, orderNo: l.orderNo, qty: l.qty, amount: l.amount });
+        p.bills.push({ date: l.date, party: l.party, orderNo: l.orderNo, billNo: l.billNo, qty: l.qty, amount: l.amount });
       }
       const products = Object.values(prod).sort((a, b) => b.qty - a.qty);
       return res.json({ range: { from, to }, products, totals: { qty: products.reduce((a, p) => a + p.qty, 0), amount: products.reduce((a, p) => a + p.amount, 0) } });
@@ -16592,7 +16637,7 @@ app.get('/api/reports/ows', requireAuth, async (req, res) => {
       const w = p.weeks[wk] = p.weeks[wk] || { qty: 0, amount: 0 };
       w.qty += l.qty; w.amount += l.amount; p.qty += l.qty; p.amount += l.amount;
       // Which bills make up the number (client 2026-11-02: "OWS ko clickable banao").
-      p.bills.push({ date: l.date, party: l.party, orderNo: l.orderNo, qty: l.qty, amount: l.amount, week: wk });
+      p.bills.push({ date: l.date, party: l.party, orderNo: l.orderNo, billNo: l.billNo, qty: l.qty, amount: l.amount, week: wk });
     }
     const totals = {};
     starts.forEach(st => { totals[st] = { qty: 0, amount: 0 }; });
