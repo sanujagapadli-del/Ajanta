@@ -14441,8 +14441,12 @@ async function buildSalesmanPl(start, end, onlyUserId) {
     let x;
     if (uid) x = sold[uid] = sold[uid] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
     else {
-      const k = String(s.orderBy || '').trim() || '(blank)';
-      x = unassigned[k] = unassigned[k] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
+      // Same key as the profile match, so "Ajay Sir" and "ajay sir" are one row
+      // (client 2026-11-02: Ajay sir showed twice). The capitalised spelling is shown.
+      const raw = String(s.orderBy || '').trim();
+      const k = plNameKey(raw) || '(blank)';
+      x = unassigned[k] = unassigned[k] || { name: raw || '(blank)', sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
+      if (raw && x.name === x.name.toLowerCase() && raw !== raw.toLowerCase()) x.name = raw;
     }
     const c = costFor(s);
     x.sales += s.amount; x.qty += s.qty; x.orders.add(s.orderNo);
@@ -14469,8 +14473,8 @@ async function buildSalesmanPl(start, end, onlyUserId) {
       expense: plRound(expense), net: plRound(net), netPct: so.sales ? plRound(net * 100 / so.sales) : null
     };
   });
-  if (!onlyUserId) Object.entries(unassigned).forEach(([name, so]) => {
-    const gp = so.costedSales - so.cost;
+  if (!onlyUserId) Object.values(unassigned).forEach(so => {
+    const gp = so.costedSales - so.cost, name = so.name;
     rows.push({ userId: null, noProfile: true, name, o2dNames: name, orders: so.orders.size, qty: plRound(so.qty),
       sales: plRound(so.sales), uncostedSales: plRound(so.uncostedSales), gp: plRound(gp),
       gpPct: so.costedSales ? plRound(gp * 100 / so.costedSales) : null });
