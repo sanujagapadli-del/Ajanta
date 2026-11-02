@@ -16567,8 +16567,9 @@ app.get('/api/reports/ows', requireAuth, async (req, res) => {
       for (const l of sales) {
         if (!l.date || l.date < from || l.date > to) continue;
         const real = l.code && !String(l.code).startsWith('name:');
-        const p = prod[l.code] = prod[l.code] || { item: (real && stockName[l.code]) || l.item, stock: real && l.code in stockOf ? stockOf[l.code] : null, qty: 0, amount: 0 };
+        const p = prod[l.code] = prod[l.code] || { item: (real && stockName[l.code]) || l.item, stock: real && l.code in stockOf ? stockOf[l.code] : null, qty: 0, amount: 0, bills: [] };
         p.qty += l.qty; p.amount += l.amount;
+        p.bills.push({ date: l.date, party: l.party, orderNo: l.orderNo, qty: l.qty, amount: l.amount });
       }
       const products = Object.values(prod).sort((a, b) => b.qty - a.qty);
       return res.json({ range: { from, to }, products, totals: { qty: products.reduce((a, p) => a + p.qty, 0), amount: products.reduce((a, p) => a + p.amount, 0) } });
@@ -16587,9 +16588,11 @@ app.get('/api/reports/ows', requireAuth, async (req, res) => {
       const wk = weekOf(l.date); if (!wk) continue;
       const key = l.code;
       const real = key && !String(key).startsWith('name:');
-      const p = prod[key] = prod[key] || { item: (real && stockName[key]) || l.item, stock: real && key in stockOf ? stockOf[key] : null, qty: 0, amount: 0, weeks: {} };
+      const p = prod[key] = prod[key] || { item: (real && stockName[key]) || l.item, stock: real && key in stockOf ? stockOf[key] : null, qty: 0, amount: 0, weeks: {}, bills: [] };
       const w = p.weeks[wk] = p.weeks[wk] || { qty: 0, amount: 0 };
       w.qty += l.qty; w.amount += l.amount; p.qty += l.qty; p.amount += l.amount;
+      // Which bills make up the number (client 2026-11-02: "OWS ko clickable banao").
+      p.bills.push({ date: l.date, party: l.party, orderNo: l.orderNo, qty: l.qty, amount: l.amount, week: wk });
     }
     const totals = {};
     starts.forEach(st => { totals[st] = { qty: 0, amount: 0 }; });
@@ -17039,7 +17042,9 @@ async function smpSettleLine(q, s, o, user) {
   return true;
 }
 // Outcome for one line (older screens): how many came back (stock IN); the rest stays with the dealer.
-app.post('/api/samples/:id/outcome', requireAuth, async (req, res) => {
+app.post('/api/samples/:id/outcome', requireAuth, async (req, res, next) => {
+  // Numeric ids only: '/api/samples/bundle/outcome' is the route below (it used to land here as id NaN → 500).
+  if (!/^\d+$/.test(req.params.id)) return next();
   try {
     if (!(await smpAccess(req, res))) return;
     await smpTables();
@@ -17139,7 +17144,9 @@ async function smpCancelLine(q, s, reason, user) {
     [date, 'IN', s.itemCode, s.itemName, out, s.uom, `Sample ${s.grp} cancelled — ${reason}`.slice(0, 500), user.name || '', s.grp]);
   return true;
 }
-app.post('/api/samples/:id/cancel', requireAuth, async (req, res) => {
+app.post('/api/samples/:id/cancel', requireAuth, async (req, res, next) => {
+  // Numeric ids only: '/api/samples/bundle/cancel' is the route below (it used to land here as id NaN → 500).
+  if (!/^\d+$/.test(req.params.id)) return next();
   try {
     if (!(await smpAccess(req, res))) return;
     if (req.session.role !== 'admin') return res.status(403).json({ error: 'Only admin can cancel a sample entry' });
