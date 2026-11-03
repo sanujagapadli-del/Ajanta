@@ -5046,20 +5046,25 @@ async function init() {
     const dashShown = () => { const p = document.getElementById('page-dashboard'); return p && p.classList.contains('active'); };
     const refreshBadges = () => { lastBadges = Date.now(); loadApprovalBadge(); loadTransferBadge(); loadLeaveBadge(); };
     const refreshDash = () => { lastDash = Date.now(); loadDashboard(); };
-    // A step done by someone else shows up within ~1 min (client 2026-11-02): the open
-    // dashboard asks for the tiny change version and reloads only when it moved.
+    // A step done by someone else shows up within a few minutes (client 2026-11-02): the
+    // open dashboard asks for the tiny change version every 2 min and reloads only when it
+    // moved — at most once per 5 min, since every FMS write by anyone moves it (free-plan CPU).
     let dashVer = null, lastVerCheck = 0;
+    const DASH_CHANGE_MIN_GAP_MS = 5 * 60 * 1000;
     const checkDashVer = async () => {
       lastVerCheck = Date.now();
       try {
         const r = await fetch('/api/dash-ver', { credentials: 'same-origin' });
         if (!r.ok) return;
         const { v } = await r.json();
-        if (dashVer !== null && v !== dashVer && dashShown()) refreshDash();
+        if (dashVer !== null && v !== dashVer && dashShown()) {
+          if (Date.now() - lastDash < DASH_CHANGE_MIN_GAP_MS) return; // keep dashVer: reload on a later check
+          refreshDash();
+        }
         dashVer = v;
       } catch (_) { /* offline — next tick */ }
     };
-    const DASH_VER_EVERY_MS = 60 * 1000;
+    const DASH_VER_EVERY_MS = 2 * 60 * 1000;
     setInterval(() => {
       if (!tabVisible()) return;
       if (Date.now() - lastBadges >= BADGE_EVERY_MS) refreshBadges();

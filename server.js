@@ -197,8 +197,8 @@ app.use((req, res, next) => {
 
 // "Something on the dashboards changed" version (client 2026-11-02: a step marked
 // done reached the next doer only on the 15-min dashboard refresh). Every FMS /
-// task write bumps it; an open dashboard asks /api/dash-ver once a minute (one
-// small DB read) and reloads only when it moved.
+// task write bumps it; an open dashboard asks /api/dash-ver every 2 min (one
+// small DB read) and reloads only when it moved, at most once per 5 min.
 const DASH_VER_PREFIXES = ['/api/o2d-fms', '/api/service-fms', '/api/purchase-fms', '/api/vendor', '/api/cheque-fms', '/api/replacement-fms',
   '/api/lead-fms', '/api/fms', '/api/fms-tasks', '/api/tasks', '/api/transfers', '/api/approvals'];
 app.use((req, res, next) => {
