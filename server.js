@@ -8940,6 +8940,17 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
     // Written into fully blank rows below lastUsed — never inserted (inserting
     // shifts the sheet's rows and corrupts the Planned ARRAYFORMULA, which spills
     // down live from row 6).
+    // The sheet's grid ends where its rows end — append() used to grow it; here
+    // blank rows are added at the very end first when the order doesn't fit
+    // (nothing shifts, the ARRAYFORMULA just spills into them). 2026-11-03: grid
+    // was exactly full at 602 rows → "exceeds grid limits" on every New Order.
+    const meta = await sheetsApi.spreadsheets.get({ spreadsheetId: O2D_SHEET_ID, fields: 'sheets.properties(sheetId,title,gridProperties.rowCount)' });
+    const tab = meta.data.sheets.find(t => t.properties.title === O2D_TAB);
+    const gridRows = tab.properties.gridProperties.rowCount;
+    if (lastUsed + rows.length > gridRows) {
+      await sheetsApi.spreadsheets.batchUpdate({ spreadsheetId: O2D_SHEET_ID, requestBody: { requests: [
+        { appendDimension: { sheetId: tab.properties.sheetId, dimension: 'ROWS', length: lastUsed + rows.length - gridRows + 200 } }] } });
+    }
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId: O2D_SHEET_ID,
       range: `'${O2D_TAB}'!A${lastUsed + 1}:R${lastUsed + rows.length}`,
