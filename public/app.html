@@ -10624,11 +10624,13 @@ async function misLoadCommits() {
 }
 const misCanCommit = e => ['admin', 'pc', 'hod'].includes(ME.role) || e.id === ME.id;
 // metric: done / notDone / onTime / notOnTime — one commitment under each MIS box (client 2026-11-03).
-const MIS_COMMIT_NEG = { notDone: true, notOnTime: true };
+// Every commitment is minus (client 2026-11-03: "ye value hamesha minus me"): -10 = at most 10% short.
+// Done / On Time boxes are compared on the same scale (73.4% done = -26.6).
+const MIS_COMMIT_POS_BOX = { done: true, onTime: true };
 async function misSaveCommit(empId, metric, el) {
   let v = el.value.trim();
-  if (v !== '' && !(Math.abs(Number(v)) <= 100)) { showToast(MIS_COMMIT_NEG[metric] ? '-100 se 0 ke beech likhein (jaise -10)' : '0 se 100 ke beech likhein (jaise 90)', 'error'); return; }
-  if (v !== '') { v = String((MIS_COMMIT_NEG[metric] ? -1 : 1) * Math.abs(Number(v))); el.value = v; } // 10 typed in a "not done" box = -10
+  if (v !== '' && !(Math.abs(Number(v)) <= 100)) { showToast('-100 se 0 ke beech likhein (jaise -10)', 'error'); return; }
+  if (v !== '') { v = String(-Math.abs(Number(v))); el.value = v; } // 10 typed = -10
   el.disabled = true;
   const r = await api('/api/mis/commitments', 'PUT', { employeeId: empId, week: taCommit.next, metric, score: v }); // empId 'team' = All Employees
   el.disabled = false;
@@ -10648,7 +10650,6 @@ function taCommitFoot(metric, actual, color) {
   const emp = taFilter.emp ? emps.find(e => String(e.id) === String(taFilter.emp)) : emps.length === 1 ? emps[0] : null;
   const key = emp ? emp.id : 'team';
   const of = (week, id) => ((cm.map[week] || {})[id] || {})[metric];
-  const neg = !!MIS_COMMIT_NEG[metric];
   let last = of(cm.last, key), lastNote = '';
   if (!emp && last == null) { // no team number → average of whoever committed
     const v = emps.map(e => of(cm.last, e.id)).filter(x => x != null);
@@ -10659,7 +10660,8 @@ function taCommitFoot(metric, actual, color) {
   // Report = exactly last week → met when the actual is no worse than committed (higher is better
   // for every box: 90 ≥ 85 done, -8 ≥ -10 not done).
   const isLastWeek = cm.last && document.getElementById('misStart').value === cm.last && document.getElementById('misEnd').value === misPeriodRange('lastweek')[1];
-  const met = isLastWeek && last != null && actual != null ? actual >= last : null;
+  const shortOf = actual == null ? null : MIS_COMMIT_POS_BOX[metric] ? Math.round((actual - 100) * 10) / 10 : actual;
+  const met = isLastWeek && last != null && shortOf != null ? shortOf >= last : null;
   const badge = met === null ? '' : `<span style="margin-left:6px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:800;background:${met ? 'var(--color-success-bg)' : 'var(--color-danger-bg)'};color:${met ? 'var(--color-success-text)' : 'var(--color-danger-text)'}">${met ? '✓ Hua' : '✗ Nahi'}</span>`;
   const tile = (label, inner) => `<div style="flex:1;min-width:0;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:8px 10px">
       <div style="font-size:10px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap">${label}</div>
@@ -10668,7 +10670,7 @@ function taCommitFoot(metric, actual, color) {
     : `<span style="font-size:18px;font-weight:900;color:var(--gray-900)">${last}%</span>${badge}${lastNote ? `<span style="margin-left:6px;font-size:10.5px;color:var(--gray-500)">${lastNote}</span>` : ''}`;
   const nextInner = canEdit
     ? `<span style="position:relative;display:inline-flex;align-items:center;width:100%">
-        <input type="number" inputmode="numeric" min="${neg ? -100 : 0}" max="${neg ? 0 : 100}" step="1" value="${next == null ? '' : next}" placeholder="${neg ? 'jaise -10' : 'jaise 90'}"
+        <input type="number" inputmode="numeric" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="jaise -10"
           aria-label="${esc(emp ? emp.name : 'Team')} — agle hafte ka commitment" onkeydown="if(event.key==='Enter')this.blur()" onchange="misSaveCommit(${emp ? emp.id : "'team'"}, '${metric}', this)"
           style="width:100%;padding:5px 26px 5px 10px;border:1.5px solid ${color}55;border-radius:9px;background:var(--surface);font-weight:900;font-size:16px;color:var(--gray-900);outline:none"
           onfocus="this.style.borderColor='${color}'" onblur="this.style.borderColor='${color}55'"/>
