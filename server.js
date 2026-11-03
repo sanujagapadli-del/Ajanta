@@ -2851,10 +2851,15 @@ app.get('/api/mis', requireAuth, async (req, res) => {
 // week committed and next week commitment ka box"). Kept on that week's plan row
 // (week_plans.committed_score, week = its Monday). Anyone sets their own; admin / PC
 // anyone's; an HOD their department's.
+// One commitment per MIS box (client 2026-11-03: "charo box ke niche, saprate saprate"):
+// done / onTime positive, notDone / notOnTime negative. committed_score (the first,
+// single box) was "% not done", so it is the notDone one.
+const MIS_COMMIT_COLS = { done: 'committed_done', notDone: 'committed_score', onTime: 'committed_ontime', notOnTime: 'committed_notontime' };
 let _wpCommitOk = false;
 async function ensureWeekPlanCommit() {
   if (_wpCommitOk) return;
-  await addMissingColumns('week_plans', [['committed_score', 'DECIMAL(5,1) NULL']]);
+  await addMissingColumns('week_plans', [['committed_score', 'DECIMAL(5,1) NULL'], ['committed_done', 'DECIMAL(5,1) NULL'],
+    ['committed_ontime', 'DECIMAL(5,1) NULL'], ['committed_notontime', 'DECIMAL(5,1) NULL']]);
   _wpCommitOk = true;
 }
 async function misCommitScope(req) {
@@ -2873,9 +2878,15 @@ app.get('/api/mis/commitments', requireAuth, async (req, res) => {
     const weeks = String(req.query.weeks || '').split(',').filter(w => /^\d{4}-\d{2}-\d{2}$/.test(w)).slice(0, 4);
     if (!weeks.length) return res.json({});
     const scope = await misCommitScope(req);
-    const [rows] = await db.query("SELECT employee_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS w, committed_score FROM week_plans WHERE start_date IN (?) AND committed_score IS NOT NULL", [weeks]);
-    const out = {};
-    rows.forEach(r => { if (!scope || scope.has(r.employee_id)) (out[r.w] = out[r.w] || {})[r.employee_id] = Number(r.committed_score); });
+    const cols = Object.values(MIS_COMMIT_COLS);
+    const [rows] = await db.query(`SELECT employee_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS w, ${cols.join(', ')} FROM week_plans
+      WHERE start_date IN (?) AND (${cols.map(c => `${c} IS NOT NULL`).join(' OR ')})`, [weeks]);
+    const out = {}; // week → employee → { done, notDone, onTime, notOnTime }
+    rows.forEach(r => {
+      if (scope && !scope.has(r.employee_id)) return;
+      const o = (out[r.w] = out[r.w] || {})[r.employee_id] = {};
+      Object.entries(MIS_COMMIT_COLS).forEach(([k, c]) => { if (r[c] != null) o[k] = Number(r[c]); });
+    });
     res.json(out);
   } catch (err) { sendServerError(res, err); }
 });
@@ -2884,15 +2895,18 @@ app.put('/api/mis/commitments', requireAuth, async (req, res) => {
     const b = req.body || {};
     const empId = Number(b.employeeId), week = String(b.week || '');
     if (!empId || !/^\d{4}-\d{2}-\d{2}$/.test(week) || new Date(week + 'T00:00:00Z').getUTCDay() !== 1) return res.status(400).json({ error: 'Employee aur hafte ka Monday chahiye' });
-    // MIS convention: commitment is "% work not done", always negative (-10 = at most 10% not done).
-    const score = b.score === '' || b.score == null ? null : -Math.abs(Number(b.score));
-    if (score !== null && !(score >= -100 && score <= 0)) return res.status(400).json({ error: 'Commitment -100 se 0 % ke beech (jaise -10)' });
+    const metric = MIS_COMMIT_COLS[b.metric] ? b.metric : 'notDone'; // older clients send no metric
+    const col = MIS_COMMIT_COLS[metric];
+    // "Not done" boxes are negative (MIS convention: -10 = at most 10% not done); "done" boxes positive.
+    const neg = metric === 'notDone' || metric === 'notOnTime';
+    const score = b.score === '' || b.score == null ? null : (neg ? -1 : 1) * Math.abs(Number(b.score));
+    if (score !== null && !(Math.abs(score) <= 100)) return res.status(400).json({ error: neg ? 'Commitment -100 se 0 % ke beech (jaise -10)' : 'Commitment 0 se 100 % ke beech (jaise 90)' });
     const scope = await misCommitScope(req);
     if (scope && !scope.has(empId)) return res.status(403).json({ error: 'Sirf apna (ya apne department ka) commitment bhar sakte hain' });
     await ensureWeekPlanCommit();
-    await db.query(`INSERT INTO week_plans (employee_id, hod_id, start_date, target_count, committed_score) VALUES (?,?,?,0,?)
-      ON DUPLICATE KEY UPDATE committed_score=VALUES(committed_score)`, [empId, req.session.userId, week, score === null ? null : Math.round(score * 10) / 10]);
-    res.json({ success: true });
+    await db.query(`INSERT INTO week_plans (employee_id, hod_id, start_date, target_count, ${col}) VALUES (?,?,?,0,?)
+      ON DUPLICATE KEY UPDATE ${col}=VALUES(${col})`, [empId, req.session.userId, week, score === null ? null : Math.round(score * 10) / 10]);
+    res.json({ success: true, score });
   } catch (err) { sendServerError(res, err); }
 });
 

@@ -10623,55 +10623,50 @@ async function misLoadCommits() {
   taCommit = { last, next, map: r && !r.error ? r : {} };
 }
 const misCanCommit = e => ['admin', 'pc', 'hod'].includes(ME.role) || e.id === ME.id;
-async function misSaveCommit(empId, el) {
+// metric: done / notDone / onTime / notOnTime — one commitment under each MIS box (client 2026-11-03).
+const MIS_COMMIT_NEG = { notDone: true, notOnTime: true };
+async function misSaveCommit(empId, metric, el) {
   let v = el.value.trim();
-  if (v !== '' && !(Math.abs(Number(v)) <= 100)) { showToast('-100 se 0 ke beech likhein (jaise -10)', 'error'); return; }
-  if (v !== '') { v = String(-Math.abs(Number(v))); el.value = v; } // 10 typed = -10
+  if (v !== '' && !(Math.abs(Number(v)) <= 100)) { showToast(MIS_COMMIT_NEG[metric] ? '-100 se 0 ke beech likhein (jaise -10)' : '0 se 100 ke beech likhein (jaise 90)', 'error'); return; }
+  if (v !== '') { v = String((MIS_COMMIT_NEG[metric] ? -1 : 1) * Math.abs(Number(v))); el.value = v; } // 10 typed in a "not done" box = -10
   el.disabled = true;
-  const r = await api('/api/mis/commitments', 'PUT', { employeeId: empId, week: taCommit.next, score: v });
+  const r = await api('/api/mis/commitments', 'PUT', { employeeId: empId, week: taCommit.next, metric, score: v });
   el.disabled = false;
   if (r.error) { showToast(r.error, 'error'); return; }
-  (taCommit.map[taCommit.next] = taCommit.map[taCommit.next] || {})[empId] = v === '' ? undefined : Number(v);
-  showToast(v === '' ? 'Commitment hata diya' : `✅ Agle hafte ka commitment: ${v}% (kaam baaki)`);
+  const w = taCommit.map[taCommit.next] = taCommit.map[taCommit.next] || {};
+  const o = w[empId] = w[empId] || {};
+  if (v === '') delete o[metric]; else o[metric] = Number(v);
+  showToast(v === '' ? 'Commitment hata diya' : `✅ Agle hafte ka commitment: ${v}%`);
 }
-// Commitment cards in the MIS header row (client 2026-11-03: "yahan aana chahiye, table me nahi").
-// One employee (picked, or the only one the viewer sees) → their numbers + the next-week box;
-// All Employees → team average of whoever committed.
-function taCommitCards(c, card) {
+// Under each MIS box: that box's commitment for last week and next week (client 2026-11-03:
+// "charo box ke niche … saprate saprate, sabke liye"). One employee (picked, or the only one
+// the viewer sees) → their own numbers + the next-week box; All Employees → average of whoever committed.
+function taCommitFoot(metric, actual) {
   const cm = taCommit || { map: {} };
   const emps = taData.employees || [];
   const emp = taFilter.emp ? emps.find(e => String(e.id) === String(taFilter.emp)) : emps.length === 1 ? emps[0] : null;
-  const lastMap = cm.map[cm.last] || {}, nextMap = cm.map[cm.next] || {};
-  const box = (label, main, sub, color) => `
-    <div class="ta-kpi" style="${card};flex:1;min-width:210px;padding:16px;display:flex;align-items:center;gap:14px">
-      <span style="width:58px;height:58px;border-radius:50%;background:${color}14;color:${color};display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🎯</span>
-      <div style="min-width:0">
-        <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
-        <div style="font-size:27px;font-weight:900;color:${color};line-height:1.15">${main}</div>
-        <div style="font-size:11.5px;color:var(--gray-500)">${sub}</div>
-      </div></div>`;
-  const wk = d => d ? fmtDateDMY(d).slice(0, 5) : '';
+  const of = (week, id) => ((cm.map[week] || {})[id] || {})[metric];
+  const row = (label, val) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:30px">
+    <span style="font-size:11px;font-weight:700;color:var(--gray-500)">${label}</span>${val}</div>`;
+  const dash = '<span style="color:var(--gray-300);font-weight:800">—</span>';
+  let lastV, nextV;
   if (emp) {
-    const last = lastMap[emp.id], next = nextMap[emp.id];
-    // When the report is exactly last week, show whether the commitment was met.
+    const last = of(cm.last, emp.id), next = of(cm.next, emp.id);
+    // Report = exactly last week → met when the actual is no worse than committed (higher is better
+    // for every box: 90 ≥ 85 done, -8 ≥ -10 not done).
     const isLastWeek = cm.last && document.getElementById('misStart').value === cm.last && document.getElementById('misEnd').value === misPeriodRange('lastweek')[1];
-    // Actual "% not done" for the period = -(pending share); met when it is no worse than committed.
-    const notDone = c.planned ? -Math.round((c.planned - c.completed) * 1000 / c.planned) / 10 : null;
-    const met = isLastWeek && last != null && notDone != null ? notDone >= last : null;
-    const lastSub = last == null ? `${wk(cm.last)} wale hafte ka commitment nahi` : met === null ? `${wk(cm.last)} wala hafta · Last week chunein to ✓/✗` : met ? `✓ Poora hua — actual ${notDone}%` : `✗ Nahi hua — actual ${notDone}%`;
-    const lastColor = last == null ? 'var(--gray-300)' : met === false ? '#ef4444' : met ? '#10b981' : '#7c3aed';
-    const nextMain = misCanCommit(emp)
-      ? `<input type="number" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="-%" aria-label="${esc(emp.name)} — agle hafte ka MIS score commitment"
-          onkeydown="if(event.key==='Enter')this.blur()" onchange="misSaveCommit(${emp.id}, this)"
-          style="width:92px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:10px;text-align:center;font-weight:900;font-size:22px;color:#7c3aed"/>`
-      : (next == null ? '—' : `${next}%`);
-    return box('Committed last week', last == null ? '—' : `${last}%`, `${esc(emp.name)} · ${lastSub}`, lastColor)
-      + box('Commit next week', nextMain, `${wk(cm.next)} se · % kaam baaki (jaise -10)`, next == null && !misCanCommit(emp) ? 'var(--gray-300)' : '#7c3aed');
+    const met = isLastWeek && last != null && actual != null ? actual >= last : null;
+    lastV = last == null ? dash : `<b style="font-size:14px;color:${met === false ? 'var(--color-danger)' : met ? 'var(--color-success-text)' : 'var(--gray-800)'}">${last}%${met === null ? '' : met ? ' ✓' : ' ✗'}</b>`;
+    nextV = misCanCommit(emp)
+      ? `<input type="number" min="${MIS_COMMIT_NEG[metric] ? -100 : 0}" max="${MIS_COMMIT_NEG[metric] ? 0 : 100}" step="1" value="${next == null ? '' : next}" placeholder="${MIS_COMMIT_NEG[metric] ? '-%' : '%'}"
+          aria-label="${esc(emp.name)} — agle hafte ka commitment" onkeydown="if(event.key==='Enter')this.blur()" onchange="misSaveCommit(${emp.id}, '${metric}', this)"
+          style="width:72px;padding:4px 6px;border:1.5px solid var(--gray-200);border-radius:8px;text-align:center;font-weight:800;font-size:13.5px"/>`
+      : (next == null ? dash : `<b style="font-size:14px">${next}%</b>`);
+  } else {
+    const avg = week => { const v = emps.map(e => of(week, e.id)).filter(x => x != null); return v.length ? `<b style="font-size:14px" title="${v.length} of ${emps.length} ne commit kiya — employee chunein to apna bharein">${Math.round(v.reduce((a, x) => a + x, 0) * 10 / v.length) / 10}% <span style="font-size:10.5px;font-weight:600;color:var(--gray-500)">avg · ${v.length}</span></b>` : dash; };
+    lastV = avg(cm.last); nextV = avg(cm.next);
   }
-  const avg = m => { const v = emps.map(e => m[e.id]).filter(x => x != null); return v.length ? { a: Math.round(v.reduce((s, x) => s + x, 0) * 10 / v.length) / 10, n: v.length } : null; };
-  const l = avg(lastMap), n = avg(nextMap);
-  return box('Committed last week', l ? `${l.a}%` : '—', l ? `Average · ${l.n} of ${emps.length} ne commit kiya` : `${wk(cm.last)} wale hafte ka koi commitment nahi`, l ? '#7c3aed' : 'var(--gray-300)')
-    + box('Commit next week', n ? `${n.a}%` : '—', n ? `Average · ${n.n} of ${emps.length} · employee chunein to bharein` : 'Employee chunke apna commitment bharein', n ? '#7c3aed' : 'var(--gray-300)');
+  return `<div style="border-top:1px dashed var(--gray-200);margin-top:12px;padding-top:6px">${row('🎯 Committed last week', lastV)}${row('Commit next week', nextV)}</div>`;
 }
 function taEmpBreakdownHtml(rows, card, th, td) {
   const pc = (n, t) => t ? Math.round(n * 1000 / t) / 10 : null;
@@ -10767,14 +10762,15 @@ function renderTaskAnalytics() {
   const pct = v => c.planned ? Math.round(v * 1000 / c.planned) / 10 : null;
   const donePct = pct(c.completed), onTimePct = pct(c.onTime);
   const minus = v => v === null ? null : Math.round((v - 100) * 10) / 10;
-  const kpi = (label, v, sub, color, ringPct) => `
-    <div class="ta-kpi" style="${card};flex:1;min-width:210px;padding:16px;display:flex;align-items:center;gap:14px">
+  const kpi = (label, v, sub, color, ringPct, metric) => `
+    <div class="ta-kpi" style="${card};flex:1;min-width:210px;padding:16px">
+      <div style="display:flex;align-items:center;gap:14px">
       <span class="ta-ring">${taRing(ringPct, color)}</span>
       <div style="min-width:0">
         <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
         <div style="font-size:27px;font-weight:900;color:${v === null ? 'var(--gray-300)' : color};line-height:1.15">${v === null ? '—' : v + '%'}</div>
         <div style="font-size:11.5px;color:var(--gray-500)">${sub}</div>
-      </div></div>`;
+      </div></div>${taCommitFoot(metric, v)}</div>`;
   const filters = `
     <div style="${card};padding:12px 14px;margin:14px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <select style="${sel}" onchange="taSetFilter('emp',this.value)"><option value="">👤 All Employees</option>${d.employees.map(e => `<option value="${e.id}" ${String(e.id) === taFilter.emp ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
@@ -10824,12 +10820,11 @@ function renderTaskAnalytics() {
 
   out.innerHTML = header(`
     <div style="display:flex;gap:14px;flex-wrap:wrap">
-      ${kpi('Task Done %', donePct, `${c.completed} of ${c.planned} completed`, '#10b981', donePct)}
-      ${kpi('Task Not Done %', minus(donePct), `${c.pending} still pending`, minus(donePct) === 0 ? '#10b981' : '#ef4444', minus(donePct))}
-      ${kpi('Task Done On Time %', onTimePct, `${c.onTime} of ${c.planned} on time`, '#2563eb', onTimePct)}
-      ${kpi('Task Not Done On Time %', minus(onTimePct), `${c.late} late + ${c.pending} pending`, minus(onTimePct) === 0 ? '#10b981' : '#ef4444', minus(onTimePct))}
-      ${taCommitCards(c, card)}
-    </div>`) + filters + `
+      ${kpi('Task Done %', donePct, `${c.completed} of ${c.planned} completed`, '#10b981', donePct, 'done')}
+      ${kpi('Task Not Done %', minus(donePct), `${c.pending} still pending`, minus(donePct) === 0 ? '#10b981' : '#ef4444', minus(donePct), 'notDone')}
+      ${kpi('Task Done On Time %', onTimePct, `${c.onTime} of ${c.planned} on time`, '#2563eb', onTimePct, 'onTime')}
+      ${kpi('Task Not Done On Time %', minus(onTimePct), `${c.late} late + ${c.pending} pending`, minus(onTimePct) === 0 ? '#10b981' : '#ef4444', minus(onTimePct), 'notOnTime')}
+    </div>${(taData.employees || []).length > 1 && !taFilter.emp ? '<div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">🎯 Har box ka commitment bharne ke liye neeche 👤 dropdown se employee chunein — sabka alag alag.</div>' : ''}`) + filters + `
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       ${countCard('', 'Planned', c.planned, '#334155', '📋')}
       ${countCard('Completed', 'Completed', c.completed, '#2563eb', '✔️')}
