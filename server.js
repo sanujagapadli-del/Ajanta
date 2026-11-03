@@ -2887,13 +2887,17 @@ app.get('/api/mis/commitments', requireAuth, async (req, res) => {
       const o = (out[r.w] = out[r.w] || {})[r.employee_id] = {};
       Object.entries(MIS_COMMIT_COLS).forEach(([k, c]) => { if (r[c] != null) o[k] = Number(r[c]); });
     });
+    // Team commitment (All Employees view, client 2026-11-03) — app_settings, one key per week.
+    const [teams] = await db.query('SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (?)', [weeks.map(w => `mis_commit_team_${w}`)]);
+    teams.forEach(t => { try { (out[t.setting_key.slice(-10)] = out[t.setting_key.slice(-10)] || {}).team = JSON.parse(t.setting_value); } catch (_) { /* bad json */ } });
     res.json(out);
   } catch (err) { sendServerError(res, err); }
 });
 app.put('/api/mis/commitments', requireAuth, async (req, res) => {
   try {
     const b = req.body || {};
-    const empId = Number(b.employeeId), week = String(b.week || '');
+    const team = b.employeeId === 'team';
+    const empId = team ? -1 : Number(b.employeeId), week = String(b.week || '');
     if (!empId || !/^\d{4}-\d{2}-\d{2}$/.test(week) || new Date(week + 'T00:00:00Z').getUTCDay() !== 1) return res.status(400).json({ error: 'Employee aur hafte ka Monday chahiye' });
     const metric = MIS_COMMIT_COLS[b.metric] ? b.metric : 'notDone'; // older clients send no metric
     const col = MIS_COMMIT_COLS[metric];
@@ -2901,6 +2905,15 @@ app.put('/api/mis/commitments', requireAuth, async (req, res) => {
     const neg = metric === 'notDone' || metric === 'notOnTime';
     const score = b.score === '' || b.score == null ? null : (neg ? -1 : 1) * Math.abs(Number(b.score));
     if (score !== null && !(Math.abs(score) <= 100)) return res.status(400).json({ error: neg ? 'Commitment -100 se 0 % ke beech (jaise -10)' : 'Commitment 0 se 100 % ke beech (jaise 90)' });
+    if (team) {
+      if (!['admin', 'pc', 'hod'].includes(req.session.role)) return res.status(403).json({ error: 'Team commitment sirf Admin / PC / HOD bhar sakte hain' });
+      const key = `mis_commit_team_${week}`;
+      let cur = {};
+      try { cur = JSON.parse(await getAppSetting(key) || '{}') || {}; } catch (_) { cur = {}; }
+      if (score === null) delete cur[metric]; else cur[metric] = Math.round(score * 10) / 10;
+      await setAppSetting(key, JSON.stringify(cur));
+      return res.json({ success: true, score });
+    }
     const scope = await misCommitScope(req);
     if (scope && !scope.has(empId)) return res.status(403).json({ error: 'Sirf apna (ya apne department ka) commitment bhar sakte hain' });
     await ensureWeekPlanCommit();
