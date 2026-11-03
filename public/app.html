@@ -26882,7 +26882,7 @@ function pettyInRange(e) {
 function pettyMatches(e) {
   const q = (document.getElementById('pettySearch').value || '').trim().toLowerCase();
   if (!q) return true;
-  return [e.description, e.payee, e.vehicle, e.note, e.recorded_by_name, e.owner_remark].some(v => String(v || '').toLowerCase().includes(q));
+  return [e.description, e.payee, e.goods_desc, e.vehicle, e.note, e.recorded_by_name, e.owner_remark].some(v => String(v || '').toLowerCase().includes(q));
 }
 function pettyStatusBadge(e) {
   const map = { approved: ['var(--color-success-bg)', 'var(--color-success-text)', '✅ Approved'], accepted: ['var(--color-success-bg)', 'var(--color-success-text)', '✅ Accepted'],
@@ -26949,6 +26949,7 @@ function renderPettyCash() {
       <td style="font-weight:800;white-space:nowrap;color:${e.type === 'advance' ? 'var(--color-success-text)' : 'var(--gray-900)'}">${e.type === 'advance' ? '+' : ''}${inr(e.amount)}</td>
       <td style="min-width:160px;white-space:normal">${esc(e.description || '—')}</td>
       <td>${esc(e.payee || '—')}</td>
+      <td style="min-width:110px;white-space:normal">${e.nag ? `<b>${e.nag} nag</b>` : ''}${e.goods_desc ? `${e.nag ? '<br/>' : ''}<span style="color:var(--gray-600)">${esc(e.goods_desc)}</span>` : ''}${!e.nag && !e.goods_desc ? '—' : ''}</td>
       <td>${esc(e.vehicle || '—')}</td>
       <td>${esc(e.mode || '—')}</td>
       <td style="white-space:normal">${esc(e.note || '—')}${e.bill_photo ? ' ' + linkOrText(e.bill_photo) : ''}</td>
@@ -26962,7 +26963,7 @@ function renderPettyCash() {
         <span style="font-size:12px;color:var(--gray-500)">Sab tick hain — jo galat lage uska tick hata ke Reject karein</span></div>` : '') +
     (list.length && typeF ? `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:8px">${typeF === 'advance' ? '➕ Advance' : '🧾 Expense'}: <b>${list.length}</b> entries · <b>${inr(listTotal)}</b> <span style="color:var(--gray-400)">(rejected chhod ke)</span></div>` : '') +
     (list.length ? `<div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto">
-      <table style="font-size:12.5px"><thead><tr>${canBulk ? `<th><input type="checkbox" checked onchange="document.querySelectorAll('.pettyChk').forEach(c => c.checked = this.checked)"/></th>` : ''}<th>Date</th><th>Type</th><th>Amount</th><th>Party / Kaam</th><th>Payee</th><th>Vehicle</th><th>Mode</th><th>Bill / Note</th><th>Goods Value</th><th>By</th><th>Status</th><th></th></tr></thead>
+      <table style="font-size:12.5px"><thead><tr>${canBulk ? `<th><input type="checkbox" checked onchange="document.querySelectorAll('.pettyChk').forEach(c => c.checked = this.checked)"/></th>` : ''}<th>Date</th><th>Type</th><th>Amount</th><th>Party / Kaam</th><th>Payee</th><th>Nag / Maal</th><th>Vehicle</th><th>Mode</th><th>Bill / Note</th><th>Goods Value</th><th>By</th><th>Status</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>` : `<div class="empty">${pettyTab === 'pending' ? 'Kuch pending nahi 🎉' : 'No entries in these dates'}</div>`);
 }
 
@@ -27014,7 +27015,11 @@ function openPettyEntry(type, id) {
     <div style="${PETTY_LABEL}">${isAdv ? 'Note *' : 'Party / Kaam *'}</div><input id="peDesc" value="${e ? v('description') : (isAdv ? 'Weekly advance' : '')}" placeholder="${isAdv ? 'Weekly advance' : 'e.g. Parnami — maal bheja'}" style="${PETTY_INPUT}"/>
     ${isAdv ? '' : `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
-      <div><div style="${PETTY_LABEL}">Payee (kisko diya)</div><input id="pePayee" list="pePayeeList" value="${v('payee')}" style="${PETTY_INPUT}"/><datalist id="pePayeeList">${payees.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
+      <div><div style="${PETTY_LABEL}">Payee (sirf naam)</div><input id="pePayee" list="pePayeeList" value="${v('payee')}" placeholder="e.g. Porter" style="${PETTY_INPUT}"/><datalist id="pePayeeList">${payees.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
+      <div><div style="${PETTY_LABEL}">Nag (kitne)</div><input type="number" id="peNag" min="0" step="1" inputmode="numeric" value="${v('nag')}" placeholder="e.g. 96" style="${PETTY_INPUT}"/></div>
+    </div>
+    <div style="${PETTY_LABEL}">Kya aaya / gaya (maal)</div><input id="peGoodsDesc" value="${v('goods_desc')}" placeholder='e.g. 48" Ceiling Fan' style="${PETTY_INPUT}"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
       <div><div style="${PETTY_LABEL}">Vehicle</div><input id="peVehicle" list="peVehicleList" value="${v('vehicle')}" style="${PETTY_INPUT}"/><datalist id="peVehicleList">${vehicles.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
       <div><div style="${PETTY_LABEL}">Bill No / Note</div><input id="peNote" value="${v('note')}" placeholder="Bill : 1311" style="${PETTY_INPUT}"/></div>
       <div><div style="${PETTY_LABEL}">Goods Value ₹</div><input type="number" id="peGoods" min="0" step="any" value="${v('goods_value')}" placeholder="maal ki value" style="${PETTY_INPUT}"/></div>
@@ -27028,7 +27033,7 @@ function openPettyEntry(type, id) {
 }
 async function savePettyEntry(type, id) {
   const g = k => { const el = document.getElementById(k); return el ? el.value.trim() : ''; };
-  const body = { type, date: g('peDate'), amount: g('peAmount'), description: g('peDesc'), payee: g('pePayee'), vehicle: g('peVehicle'), note: g('peNote'), goodsValue: g('peGoods'), mode: g('peMode') };
+  const body = { type, date: g('peDate'), amount: g('peAmount'), description: g('peDesc'), payee: g('pePayee'), nag: g('peNag'), goodsDesc: g('peGoodsDesc'), vehicle: g('peVehicle'), note: g('peNote'), goodsValue: g('peGoods'), mode: g('peMode') };
   if (!body.date || !(Number(body.amount) > 0) || !body.description) { showToast('Date, amount aur party / note bharein', 'error'); return; }
   const btn = document.getElementById('peSaveBtn');
   const restore = btnLoading(btn, 'Saving…');

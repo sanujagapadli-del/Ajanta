@@ -12285,16 +12285,23 @@ async function ensurePettyTable() {
       INDEX (entry_date)
     )`);
 }
+// Nag (how many pieces / cartons) and what came, apart from the payee's name
+// (Gulshan 2026-11-03: "Payee me only name, nag ka alag section … description ki usme kya aaya").
+let _pettyNagOk = false;
 async function withPettyTable(fn) {
+  if (!_pettyNagOk) {
+    await addMissingColumns('petty_cash', [['nag', 'INT NULL'], ['goods_desc', 'VARCHAR(255) NULL']]).catch(e => { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; });
+    _pettyNagOk = true;
+  }
   try { return await fn(); }
-  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensurePettyTable(); return await fn(); }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; await ensurePettyTable(); _pettyNagOk = false; return await withPettyTable(fn); }
 }
 async function pettyIsOwner(req) {
   if (req.session.role === 'admin') return true;
   const raw = (await getAppSetting('petty_cash_owners')) || (await getAppSetting(PL_VIEWERS_KEY)) || '';
   return raw.split(',').map(s => Number(s.trim())).includes(Number(req.session.userId));
 }
-const PETTY_SELECT = `SELECT id, ext_id, DATE_FORMAT(entry_date,'%Y-%m-%d %H:%i') AS entry_date, type, amount, description, payee, vehicle, mode, note,
+const PETTY_SELECT = `SELECT id, ext_id, DATE_FORMAT(entry_date,'%Y-%m-%d %H:%i') AS entry_date, type, amount, description, payee, nag, goods_desc, vehicle, mode, note,
   goods_value, bill_photo, status, owner_remark, recorded_by_id, recorded_by_name, decided_by_name, DATE_FORMAT(decided_at,'%Y-%m-%d %H:%i') AS decided_at FROM petty_cash`;
 
 app.get('/api/petty-cash', requireAuth, async (req, res) => {
@@ -12314,6 +12321,8 @@ function pettyReadBody(b) {
     amount, goods, date,
     description: String(b.description || '').trim().slice(0, 500),
     payee: String(b.payee || '').trim().slice(0, 255),
+    nag: b.nag === '' || b.nag == null || !(Number(b.nag) > 0) ? null : Math.round(Number(b.nag)),
+    goodsDesc: String(b.goodsDesc || '').trim().slice(0, 255),
     vehicle: String(b.vehicle || '').trim().slice(0, 100),
     mode: b.mode === 'online' ? 'online' : 'cash',
     note: String(b.note || '').trim().slice(0, 500)
@@ -12336,9 +12345,9 @@ app.post('/api/petty-cash', requireAuth, async (req, res) => {
     // An expense the owner records himself needs no approval from himself.
     const status = type === 'advance' ? 'pending' : (owner ? 'approved' : 'pending');
     const [ins] = await withPettyTable(() => db.query(
-      `INSERT INTO petty_cash (entry_date, type, amount, description, payee, vehicle, mode, note, goods_value, bill_photo, status, recorded_by_id, recorded_by_name)
-       VALUES (CONCAT(?, ' ', DATE_FORMAT(NOW(),'%H:%i:%s')),?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [v.date, type, v.amount, v.description, v.payee, type === 'advance' ? '' : v.vehicle, v.mode, v.note, type === 'advance' ? null : v.goods, photo, status, req.session.userId, req.session.name || '']));
+      `INSERT INTO petty_cash (entry_date, type, amount, description, payee, nag, goods_desc, vehicle, mode, note, goods_value, bill_photo, status, recorded_by_id, recorded_by_name)
+       VALUES (CONCAT(?, ' ', DATE_FORMAT(NOW(),'%H:%i:%s')),?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [v.date, type, v.amount, v.description, v.payee, type === 'advance' ? null : v.nag, type === 'advance' ? null : v.goodsDesc || null, type === 'advance' ? '' : v.vehicle, v.mode, v.note, type === 'advance' ? null : v.goods, photo, status, req.session.userId, req.session.name || '']));
     const [[row]] = await db.query(`${PETTY_SELECT} WHERE id=?`, [ins.insertId]);
     res.json({ success: true, entry: row });
   } catch (err) { sendServerError(res, err); }
@@ -12359,8 +12368,8 @@ app.put('/api/petty-cash/:id', requireAuth, async (req, res) => {
     if (chk.error) return res.status(chk.code).json({ error: chk.error });
     const v = pettyReadBody(req.body);
     if (!(v.amount > 0) || !v.date || !v.description) return res.status(400).json({ error: 'Date, amount and description are required' });
-    await db.query(`UPDATE petty_cash SET entry_date=CONCAT(?, ' ', DATE_FORMAT(entry_date,'%H:%i:%s')), amount=?, description=?, payee=?, vehicle=?, mode=?, note=?, goods_value=? WHERE id=?`,
-      [v.date, v.amount, v.description, v.payee, v.vehicle, v.mode, v.note, chk.e.type === 'advance' ? null : v.goods, req.params.id]);
+    await db.query(`UPDATE petty_cash SET entry_date=CONCAT(?, ' ', DATE_FORMAT(entry_date,'%H:%i:%s')), amount=?, description=?, payee=?, nag=?, goods_desc=?, vehicle=?, mode=?, note=?, goods_value=? WHERE id=?`,
+      [v.date, v.amount, v.description, v.payee, v.nag, v.goodsDesc || null, v.vehicle, v.mode, v.note, chk.e.type === 'advance' ? null : v.goods, req.params.id]);
     const [[row]] = await db.query(`${PETTY_SELECT} WHERE id=?`, [req.params.id]);
     res.json({ success: true, entry: row });
   } catch (err) { sendServerError(res, err); }
