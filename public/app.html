@@ -10634,21 +10634,44 @@ async function misSaveCommit(empId, el) {
   (taCommit.map[taCommit.next] = taCommit.map[taCommit.next] || {})[empId] = v === '' ? undefined : Number(v);
   showToast(v === '' ? 'Commitment hata diya' : `✅ Agle hafte ka commitment: ${v}% (kaam baaki)`);
 }
-function taCommitCells(x, td) {
-  const c = taCommit || { map: {} };
-  const last = (c.map[c.last] || {})[x.e.id], next = (c.map[c.next] || {})[x.e.id];
-  // When the report is exactly last week, show whether the commitment was met.
-  const isLastWeek = c.last && document.getElementById('misStart').value === c.last && document.getElementById('misEnd').value === misPeriodRange('lastweek')[1];
-  // Actual "% not done" for the period = -(pending share); met when it is no worse than committed.
-  const notDone = x.c.planned ? -Math.round((x.c.planned - x.c.completed) * 1000 / x.c.planned) / 10 : null;
-  const met = isLastWeek && last != null && notDone != null ? (notDone >= last ? ` <span title="Actual ${notDone}% — commitment poora hua" style="color:var(--color-success-text)">✓</span>` : ` <span title="Actual ${notDone}% — commitment se zyada kaam baaki" style="color:var(--color-danger)">✗</span>`) : '';
-  const lastCell = last == null ? '<span style="color:var(--gray-300)">—</span>' : `<b style="font-size:13.5px">${last}%</b>${met}`;
-  const nextCell = misCanCommit(x.e)
-    ? `<input type="number" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="-%" aria-label="${esc(x.e.name)} — agle hafte ka MIS score commitment"
-        onclick="event.stopPropagation()" onkeydown="event.stopPropagation();if(event.key==='Enter')this.blur()" onchange="misSaveCommit(${x.e.id}, this)"
-        style="width:70px;padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;text-align:center;font-weight:700;font-size:13px"/>`
-    : (next == null ? '<span style="color:var(--gray-300)">—</span>' : `<b>${next}%</b>`);
-  return `<td style="${td};text-align:center">${lastCell}</td><td style="${td};text-align:center">${nextCell}</td>`;
+// Commitment cards in the MIS header row (client 2026-11-03: "yahan aana chahiye, table me nahi").
+// One employee (picked, or the only one the viewer sees) → their numbers + the next-week box;
+// All Employees → team average of whoever committed.
+function taCommitCards(c, card) {
+  const cm = taCommit || { map: {} };
+  const emps = taData.employees || [];
+  const emp = taFilter.emp ? emps.find(e => String(e.id) === String(taFilter.emp)) : emps.length === 1 ? emps[0] : null;
+  const lastMap = cm.map[cm.last] || {}, nextMap = cm.map[cm.next] || {};
+  const box = (label, main, sub, color) => `
+    <div class="ta-kpi" style="${card};flex:1;min-width:210px;padding:16px;display:flex;align-items:center;gap:14px">
+      <span style="width:58px;height:58px;border-radius:50%;background:${color}14;color:${color};display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🎯</span>
+      <div style="min-width:0">
+        <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+        <div style="font-size:27px;font-weight:900;color:${color};line-height:1.15">${main}</div>
+        <div style="font-size:11.5px;color:var(--gray-500)">${sub}</div>
+      </div></div>`;
+  const wk = d => d ? fmtDateDMY(d).slice(0, 5) : '';
+  if (emp) {
+    const last = lastMap[emp.id], next = nextMap[emp.id];
+    // When the report is exactly last week, show whether the commitment was met.
+    const isLastWeek = cm.last && document.getElementById('misStart').value === cm.last && document.getElementById('misEnd').value === misPeriodRange('lastweek')[1];
+    // Actual "% not done" for the period = -(pending share); met when it is no worse than committed.
+    const notDone = c.planned ? -Math.round((c.planned - c.completed) * 1000 / c.planned) / 10 : null;
+    const met = isLastWeek && last != null && notDone != null ? notDone >= last : null;
+    const lastSub = last == null ? `${wk(cm.last)} wale hafte ka commitment nahi` : met === null ? `${wk(cm.last)} wala hafta · Last week chunein to ✓/✗` : met ? `✓ Poora hua — actual ${notDone}%` : `✗ Nahi hua — actual ${notDone}%`;
+    const lastColor = last == null ? 'var(--gray-300)' : met === false ? '#ef4444' : met ? '#10b981' : '#7c3aed';
+    const nextMain = misCanCommit(emp)
+      ? `<input type="number" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="-%" aria-label="${esc(emp.name)} — agle hafte ka MIS score commitment"
+          onkeydown="if(event.key==='Enter')this.blur()" onchange="misSaveCommit(${emp.id}, this)"
+          style="width:92px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:10px;text-align:center;font-weight:900;font-size:22px;color:#7c3aed"/>`
+      : (next == null ? '—' : `${next}%`);
+    return box('Committed last week', last == null ? '—' : `${last}%`, `${esc(emp.name)} · ${lastSub}`, lastColor)
+      + box('Commit next week', nextMain, `${wk(cm.next)} se · % kaam baaki (jaise -10)`, next == null && !misCanCommit(emp) ? 'var(--gray-300)' : '#7c3aed');
+  }
+  const avg = m => { const v = emps.map(e => m[e.id]).filter(x => x != null); return v.length ? { a: Math.round(v.reduce((s, x) => s + x, 0) * 10 / v.length) / 10, n: v.length } : null; };
+  const l = avg(lastMap), n = avg(nextMap);
+  return box('Committed last week', l ? `${l.a}%` : '—', l ? `Average · ${l.n} of ${emps.length} ne commit kiya` : `${wk(cm.last)} wale hafte ka koi commitment nahi`, l ? '#7c3aed' : 'var(--gray-300)')
+    + box('Commit next week', n ? `${n.a}%` : '—', n ? `Average · ${n.n} of ${emps.length} · employee chunein to bharein` : 'Employee chunke apna commitment bharein', n ? '#7c3aed' : 'var(--gray-300)');
 }
 function taEmpBreakdownHtml(rows, card, th, td) {
   const pc = (n, t) => t ? Math.round(n * 1000 / t) / 10 : null;
@@ -10674,7 +10697,7 @@ function taEmpBreakdownHtml(rows, card, th, td) {
           <button class="btn btn-outline btn-sm" onclick="taListMode='tasks';renderTaskAnalytics()">📋 All tasks</button></div>
       </div>
       ${list.length ? `<div class="mis-table-wrap" style="overflow:auto;max-height:640px"><table style="width:100%;border-collapse:separate;border-spacing:0">
-        <thead><tr>${sh('name', 'Employee')}${sh('planned', 'Planned', 1)}${sh('completed', 'Completed', 1)}${sh('onTime', 'On Time', 1)}${sh('late', 'Delay Completed', 1)}${sh('pending', 'Pending', 1)}${sh('overdue', 'Overdue', 1)}${sh('done', 'Done %', 1)}${sh('ontime', 'On Time %', 1)}${sh('att', 'Attendance', 1)}${sh('km', taData.kmWeek ? `KM ${fmtDateDMY(taData.kmWeek.start).slice(0, 5)}–${fmtDateDMY(taData.kmWeek.end).slice(0, 5)}` : 'KM last week', 1)}${sh('score', 'MIS Score', 1)}${sh('disc', 'Discipline', 1)}<th style="${th};text-align:center;color:var(--gray-500)" title="${taCommit ? fmtDateDMY(taCommit.last) : ''} wale hafte ka commitment — % kaam baaki (minus me)">Committed<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">last week</div></th><th style="${th};text-align:center;color:var(--gray-500)" title="${taCommit ? fmtDateDMY(taCommit.next) : ''} se shuru hafte ka commitment — % kaam baaki, minus me (jaise -10)">Commit<div style="font-size:10px;font-weight:600;letter-spacing:0;text-transform:none">next week</div></th></tr></thead>
+        <thead><tr>${sh('name', 'Employee')}${sh('planned', 'Planned', 1)}${sh('completed', 'Completed', 1)}${sh('onTime', 'On Time', 1)}${sh('late', 'Delay Completed', 1)}${sh('pending', 'Pending', 1)}${sh('overdue', 'Overdue', 1)}${sh('done', 'Done %', 1)}${sh('ontime', 'On Time %', 1)}${sh('att', 'Attendance', 1)}${sh('km', taData.kmWeek ? `KM ${fmtDateDMY(taData.kmWeek.start).slice(0, 5)}–${fmtDateDMY(taData.kmWeek.end).slice(0, 5)}` : 'KM last week', 1)}${sh('score', 'MIS Score', 1)}${sh('disc', 'Discipline', 1)}</tr></thead>
         <tbody>${list.map((x, i) => `<tr onclick="taSetFilter('emp','${jsArg(x.e.id)}')" style="cursor:pointer;background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}" title="${esc(x.e.name)} ke tasks dekhein">
           <td style="${td};white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-purple));color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">${esc(taInitials(x.e.name))}</span>
             <span><b style="color:var(--gray-900);font-size:13px">${esc(x.e.name)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(x.e.department || '—')}</div></span></span></td>
@@ -10685,7 +10708,7 @@ function taEmpBreakdownHtml(rows, card, th, td) {
           <td style="${td};text-align:center" title="${x.a ? `Present ${x.a.present} / ${x.a.working} working days · Absent ${x.a.absent} · Leave ${x.a.leave}` : ''}">${x.a ? `${pill(x.a.pct, 90)}<div style="font-size:10.5px;color:var(--gray-500);margin-top:2px">${x.a.present}/${x.a.working} days</div>` : '—'}</td>
           <td style="${td};text-align:center" title="${x.k ? `${x.k.days} day(s) with morning + evening reading${x.k.incomplete ? ` · ${x.k.incomplete} day(s) missing a reading` : ''}` : ''}">${x.k ? `<b style="font-size:14px">${x.k.km}</b><div style="font-size:10.5px;color:${x.k.incomplete ? 'var(--color-danger)' : 'var(--gray-500)'}">${x.k.days} days${x.k.incomplete ? ` · ${x.k.incomplete} adhura` : ''}</div>` : '—'}</td>
           <td style="${td};text-align:center">${pill(x.score, 85)}</td>
-          <td style="${td};text-align:center" title="${esc(misDisciplineTip(x.d))}">${x.d ? pill(x.d.score, 90) : '—'}</td>${taCommitCells(x, td)}</tr>`).join('')}</tbody>
+          <td style="${td};text-align:center" title="${esc(misDisciplineTip(x.d))}">${x.d ? pill(x.d.score, 90) : '—'}</td></tr>`).join('')}</tbody>
         <tfoot><tr style="background:var(--gray-50)">
           <td style="${td};font-weight:900;color:var(--gray-900);border-top:2px solid var(--gray-200)">Total</td>
           ${[tot.planned, tot.completed, tot.onTime, tot.late, tot.pending, tot.overdue].map(v => `<td style="${td};text-align:center;font-weight:900;font-size:14px;border-top:2px solid var(--gray-200)">${v}</td>`).join('')}
@@ -10693,7 +10716,7 @@ function taEmpBreakdownHtml(rows, card, th, td) {
           <td style="${td};text-align:center;border-top:2px solid var(--gray-200)">${pill(pc(tot.onTime, tot.planned), 75)}</td>
           <td style="${td};border-top:2px solid var(--gray-200)"></td>
           <td style="${td};text-align:center;font-weight:900;font-size:14px;border-top:2px solid var(--gray-200)">${list.reduce((s, x) => s + (x.k ? x.k.km : 0), 0) || ''}</td>
-          <td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td></tr></tfoot>
+          <td style="${td};border-top:2px solid var(--gray-200)"></td><td style="${td};border-top:2px solid var(--gray-200)"></td></tr></tfoot>
       </table></div>` : '<div class="empty">No tasks match these filters.</div>'}
     </div>`;
 }
@@ -10805,6 +10828,7 @@ function renderTaskAnalytics() {
       ${kpi('Task Not Done %', minus(donePct), `${c.pending} still pending`, minus(donePct) === 0 ? '#10b981' : '#ef4444', minus(donePct))}
       ${kpi('Task Done On Time %', onTimePct, `${c.onTime} of ${c.planned} on time`, '#2563eb', onTimePct)}
       ${kpi('Task Not Done On Time %', minus(onTimePct), `${c.late} late + ${c.pending} pending`, minus(onTimePct) === 0 ? '#10b981' : '#ef4444', minus(onTimePct))}
+      ${taCommitCards(c, card)}
     </div>`) + filters + `
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       ${countCard('', 'Planned', c.planned, '#334155', '📋')}
