@@ -13648,16 +13648,21 @@ async function submitNewComplaint() {
 
   const btn = document.getElementById('scSubmitBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
-  const res = await api('/api/service-fms', 'POST', {
+  const scBody = {
     filledByName, mobile, customerType, dealerName, productOwnership,
     productLocation, address, area, billPhoto, remarks, products, urgent, noBill
-  });
+  };
+  let res = await api('/api/service-fms', 'POST', scBody);
+  if (res && res.needsConfirm && await uiConfirm(`Duplicate complaint?\n${res.error}`, { okLabel: 'Haan, nayi complaint', cancelLabel: 'Nahi' })) {
+    res = await api('/api/service-fms', 'POST', { ...scBody, allowDuplicate: true });
+  } else if (res && res.needsConfirm) { btn.disabled = false; btn.textContent = 'Save Complaint'; closeModal('newComplaintModal'); showToast(`Complaint ${res.duplicateOf} pehle se hai — nayi nahi banayi`); return; }
   btn.disabled = false; btn.textContent = 'Save Complaint';
 
   if (res.error) { err.textContent = res.error; err.style.display = 'block'; return; }
   closeModal('newComplaintModal');
   showToast(`✅ Complaint ${res.groupNo} created!`);
   loadServiceFmsList();
+  if (document.getElementById('page-dashboard')?.classList.contains('active')) loadDashboard();
 }
 
 // ── Edit Complaint (point 7) — edits one product-line row's own intake
@@ -17709,18 +17714,22 @@ async function goToO2dOrderStep2() {
 
 let _o2dCounterNames = null; // cached across modal opens — same debtors sheet, no need to refetch each time
 async function loadO2dCounterNames() {
-  if (!_o2dCounterNames) {
-    const r = await api('/api/o2d-fms/customer-names');
-    _o2dCounterNames = (r && r.names) || [];
+  // A failed / empty load is not kept — the next form open (or the retry below) asks again.
+  if (!_o2dCounterNames || !_o2dCounterNames.length) {
+    let r = await api('/api/o2d-fms/customer-names').catch(() => null);
+    if (!r || !Array.isArray(r.names) || !r.names.length) { await new Promise(ok => setTimeout(ok, 2500)); r = await api('/api/o2d-fms/customer-names').catch(() => null); }
+    _o2dCounterNames = r && Array.isArray(r.names) && r.names.length ? r.names : null;
+    if (!_o2dCounterNames) { showToast('Dealer list load nahi hui — form band karke dobara kholein', 'error'); return; }
   }
   document.getElementById('noCounterNameList').innerHTML = _o2dCounterNames.map(n => `<option value="${n.replace(/"/g,'&quot;')}">`).join('');
 }
 
 let _o2dProductNames = null; // cached across modal opens — Product Master workbook rarely changes
 async function loadO2dProductNames() {
-  if (!_o2dProductNames) {
-    const r = await api('/api/o2d-fms/product-names');
-    _o2dProductNames = (r && r.products) || [];
+  if (!_o2dProductNames || !_o2dProductNames.length) {
+    const r = await api('/api/o2d-fms/product-names').catch(() => null);
+    _o2dProductNames = r && Array.isArray(r.products) && r.products.length ? r.products : null; // not kept when it failed
+    if (!_o2dProductNames) return;
   }
   document.getElementById('noProductNameList').innerHTML = _o2dProductNames.map(p => `<option value="${p.name.replace(/"/g,'&quot;')}">`).join('');
 }
@@ -17796,7 +17805,10 @@ async function submitNewO2dOrder() {
   submitBtn.textContent = '⏳ Saving...';
   submitBtn.disabled = true;
 
-  const res = await api('/api/o2d-fms/new-order', 'POST', body);
+  let res = await api('/api/o2d-fms/new-order', 'POST', body);
+  if (res && res.needsConfirm && await uiConfirm(`Duplicate order?\n${res.error}`, { okLabel: 'Haan, naya order', cancelLabel: 'Nahi' })) {
+    res = await api('/api/o2d-fms/new-order', 'POST', { ...body, allowDuplicate: true });
+  } else if (res && res.needsConfirm) { submitBtn.textContent = originalBtnText; submitBtn.disabled = false; closeModal('newO2dOrderModal'); showToast(`Order ${res.duplicateOf} pehle se hai — naya nahi banaya`); return; }
 
   submitBtn.textContent = originalBtnText;
   submitBtn.disabled = false;
@@ -17806,6 +17818,8 @@ async function submitNewO2dOrder() {
   if (!res.teamNotified && res.teamNotifySkippedReason && ME.role === 'admin') setTimeout(() => showToast(res.teamNotifySkippedReason, 'error'), 1800);
   closeModal('newO2dOrderModal');
   loadO2dFmsList();
+  // Filled from the Dashboard → show it there now, not on the next change check (client 2026-11-04).
+  if (document.getElementById('page-dashboard')?.classList.contains('active')) loadDashboard();
 }
 
 async function openO2dDetail(orderNo, hideProgress) {

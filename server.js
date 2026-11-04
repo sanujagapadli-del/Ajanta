@@ -5349,12 +5349,23 @@ app.post('/api/service-fms', requireAuth, requireSfmsEditor, async (req, res) =>
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     if (remarks || urgent) await sfmsEnsureColumns(sheetsApi);
 
-    const colB = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!B${SFMS_DATA_START_ROW}:B`, valueRenderOption: 'UNFORMATTED_VALUE'
+    const colAD = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: SFMS_SHEET_ID, range: `'${SFMS_TAB}'!A${SFMS_DATA_START_ROW}:D`, valueRenderOption: 'UNFORMATTED_VALUE'
     });
-    const bRows = colB.data.values || [];
+    const adRows = colAD.data.values || [];
     let maxNum = 0;
-    bRows.forEach(r => { const m = String(r[0] || '').match(/C-(\d+)/); if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10)); });
+    adRows.forEach(r => { const m = String(r[1] || '').match(/C-(\d+)/); if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10)); });
+    // Same mobile complained in the last 30 min → ask first (client 2026-11-04: duplicate complaints).
+    if (!req.body.allowDuplicate) {
+      const nowS = sfmsDateToSerial(new Date()), mob = String(mobile).replace(/\D/g, '').slice(-10);
+      const recent = mob.length === 10 ? adRows.filter(r => String(r[3] || '').replace(/\D/g, '').slice(-10) === mob && typeof r[0] === 'number' && nowS - r[0] >= 0 && nowS - r[0] < 30 / 1440) : [];
+      if (recent.length) {
+        const last = recent[recent.length - 1], mins = Math.max(1, Math.round((nowS - last[0]) * 1440));
+        const grp = String(last[1] || '').replace(/^(C-\d+).*/, '$1');
+        return res.status(409).json({ needsConfirm: true, duplicateOf: grp,
+          error: `Is mobile (${mobile}) ki complaint ${grp} abhi ${mins} min pehle bani hai (${last[2] || ''}). Phir bhi nayi complaint banani hai?` });
+      }
+    }
     const groupNo = `C-${await claimNextSeqValue('service_fms_group', maxNum + 1)}`;
     const timestamp = sfmsDateToSerial(new Date());
 
@@ -6743,11 +6754,21 @@ app.get('/api/o2d-fms/customer-lookup', requireAuth, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// Order form dealer list: Tally debtors sheet + the ERP Dealer Master (not hidden).
+// Either one alone is enough — a Sheets hiccup on a cold instance used to send an
+// empty list and the form kept it all session (client 2026-11-04: "kai baar dealers ke naam nahi aate").
 app.get('/api/o2d-fms/customer-names', requireAuth, async (req, res) => {
   try {
-    const map = await getDebtorsMap();
-    const names = Object.values(map).map(v => v.name).sort((a, b) => a.localeCompare(b));
-    res.json({ names });
+    const [deb, dm] = await Promise.allSettled([
+      getDebtorsMap(),
+      withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers WHERE hidden_at IS NULL')).then(([r]) => r)
+    ]);
+    if (deb.status === 'rejected' && dm.status === 'rejected') throw deb.reason;
+    const byKey = new Map();
+    if (deb.status === 'fulfilled') Object.values(deb.value).forEach(v => byKey.set(v.name.trim().toLowerCase(), v.name.trim()));
+    if (dm.status === 'fulfilled') dm.value.forEach(r => { const n = String(r.counter_name || '').trim(); if (n && !byKey.has(n.toLowerCase())) byKey.set(n.toLowerCase(), n); });
+    if (deb.status === 'rejected') console.error('customer-names: debtors sheet failed, Dealer Master only —', deb.reason && deb.reason.message);
+    res.json({ names: [...byKey.values()].sort((a, b) => a.localeCompare(b)) });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -8943,6 +8964,18 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       if (mId) maxOrderId = Math.max(maxOrderId, parseInt(mId[1], 10));
       if (r.some(v => v !== '' && v != null)) lastUsed = O2D_DATA_START_ROW + i;
     });
+    // Same dealer ordered in the last 30 min → ask before a second order (client 2026-11-04:
+    // the list showed a new order late, so people filled the form again → duplicates).
+    if (!req.body.allowDuplicate) {
+      const nowS = sfmsDateToSerial(new Date()), key = String(counterName).trim().toLowerCase();
+      const recent = allRows.filter(r => String(r[colToIdx('C')] || '').trim().toLowerCase() === key && typeof r[0] === 'number' && nowS - r[0] >= 0 && nowS - r[0] < 30 / 1440);
+      if (recent.length) {
+        const last = recent[recent.length - 1], mins = Math.max(1, Math.round((nowS - last[0]) * 1440));
+        const items = recent.filter(r => r[colToIdx('Q')] === last[colToIdx('Q')]).map(r => r[colToIdx('M')]).filter(Boolean);
+        return res.status(409).json({ needsConfirm: true, duplicateOf: last[colToIdx('Q')],
+          error: `${counterName} ka order ${last[colToIdx('Q')]} abhi ${mins} min pehle bana hai (${items.slice(0, 3).join(', ')}${items.length > 3 ? '…' : ''}). Phir bhi naya order banana hai?` });
+      }
+    }
     orderNo = `Ord-${String(await claimNextSeqValue('o2d_order_no', maxOrderNo + 1)).padStart(4, '0')}`;
     // Each product line needs its own unique "Order-N" id — claim one
     // sequential value per line rather than assuming maxOrderId+1+i is free.
