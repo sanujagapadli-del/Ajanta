@@ -4849,7 +4849,9 @@ async function myapiConfig() {
 // before (i.e. almost every customer) for ~4-8s before sending — on purpose —
 // so the send itself gets a longer ceiling than the gateway's other calls.
 const MYAPI_SEND_TIMEOUT_MS = 30000;
-async function sendWhatsApp(mobile, text, media, timeoutMs = MYAPI_SEND_TIMEOUT_MS) {
+// opts.otp: MYAPI sends it at once; every other message waits its 30–50s pacing slot
+// in MYAPI's queue (reply status 'queued', 2026-11-04).
+async function sendWhatsApp(mobile, text, media, timeoutMs = MYAPI_SEND_TIMEOUT_MS, opts = {}) {
   const { base, apiKey } = await myapiConfig();
   const raw = String(mobile || '').trim();
   const to = raw.endsWith('@g.us') ? raw : sfmsNormalizeMobile(raw);
@@ -4857,6 +4859,7 @@ async function sendWhatsApp(mobile, text, media, timeoutMs = MYAPI_SEND_TIMEOUT_
 
   const body = { to, message: text };
   if (media) body.media = media;
+  if (opts.otp) body.otp = true;
   let res;
   try {
     res = await fetch(`${base}/send`, {
@@ -4923,8 +4926,8 @@ function sendWhatsAppInBackground(mobile, text, media, label) {
 // 'pending' — the send keeps going in the background (waitUntil) instead of
 // a spinner sitting through MYAPI's deliberate new-number pacing. A failure
 // that comes back quickly (disconnected, bad number) is still thrown.
-async function sendWhatsAppQuick(mobile, text, media, label) {
-  const p = sendWhatsApp(mobile, text, media);
+async function sendWhatsAppQuick(mobile, text, media, label, opts = {}) {
+  const p = sendWhatsApp(mobile, text, media, MYAPI_SEND_TIMEOUT_MS, opts);
   vercelWaitUntil(p.catch(e => console.error(`WhatsApp (${label}) failed:`, e.message)));
   const sent = p.then(() => 'sent');
   sent.catch(() => {}); // a failure after the cut-off is logged above, not an unhandled rejection
@@ -5800,7 +5803,7 @@ app.post('/api/service-fms/:row/step/:stepNum/send-otp',
       }
     });
 
-    const delivery = await sendWhatsAppQuick(mobile, sfmsOtpMsg(customerName, complainNo, otp), undefined, `OTP row ${row}`);
+    const delivery = await sendWhatsAppQuick(mobile, sfmsOtpMsg(customerName, complainNo, otp), undefined, `OTP row ${row}`, { otp: true });
 
     res.json({ success: true, pending: delivery === 'pending', otp: req.session.role === 'admin' ? otp : undefined });
   } catch (err) {
@@ -12150,7 +12153,7 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       // Saved before sending, so a slow gateway can't leave a sent OTP unverifiable.
       await db.query(`UPDATE replacements SET otp_hash=?, otp_expires=DATE_ADD(NOW(), INTERVAL ${REPL_OTP_TTL_MIN} MINUTE), otp_mobile=?, customer_mobile=COALESCE(customer_mobile,?) WHERE id=?`,
         [hash, mobile, mobile, r.id]);
-      const delivery = await sendWhatsAppQuick(mobile, replOtpMsg(r, otp), undefined, `repl otp ${r.code}`);
+      const delivery = await sendWhatsAppQuick(mobile, replOtpMsg(r, otp), undefined, `repl otp ${r.code}`, { otp: true });
       await logReplEvent(r.id, 'otp', `OTP sent to ${mobile}${delivery === 'pending' ? ' (sending…)' : ''}`, uid);
       return res.json({ success: true, pending: delivery === 'pending' });
     } else if (action === 'handover') {
