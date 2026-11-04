@@ -21211,7 +21211,24 @@ async function loadWa() {
 }
 function renderWaTabs() {
   const tab = (k, l) => `<button class="btn btn-sm ${waTab === k ? 'btn-primary' : 'btn-outline'}" onclick="waShow('${jsArg(k)}')">${l}</button>`;
-  document.getElementById('waTabs').innerHTML = tab('new', '✉️ Naya message') + tab('sent', '📋 Bheje gaye');
+  document.getElementById('waTabs').innerHTML = tab('new', '✉️ Naya message') + tab('sent', '📋 Bheje gaye') + waPausedBanner();
+}
+// Broadcast + drip pause (client 2026-11-04) — order alerts / OTPs are not affected.
+function waPausedBanner() {
+  if (!waMeta) return '';
+  if (!waMeta.paused) return waMeta.isAdmin ? `<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="waSetPaused(true)">⏸ Broadcast band karein</button>` : '';
+  return `<div style="flex-basis:100%;margin-top:6px;padding:10px 12px;border-radius:10px;background:var(--color-warning-bg);color:var(--color-warning-text);font-size:12.5px;font-weight:600;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    ⏸ Dealer broadcast aur drip abhi <b>band</b> hain — WhatsApp number naya link hua hai. Order alert / OTP / bill chalte rahenge.
+    ${waMeta.isAdmin ? '<button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="waSetPaused(false)">▶ Resume</button>' : ''}</div>`;
+}
+async function waSetPaused(paused) {
+  if (!paused && !await uiConfirm('Broadcast dobara shuru karein?\nQueue me pade messages aur aaj ke drip dealers ko jaane lagenge.', { okLabel: 'Haan, shuru' })) return;
+  const r = await api('/api/wa/pause', 'PUT', { paused });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  waMeta.paused = r.paused;
+  showToast(r.paused ? '⏸ Dealer broadcast band' : '▶ Dealer broadcast shuru');
+  if (document.getElementById('waTabs')) renderWaTabs();
+  if (document.getElementById('page-drip-marketing')?.classList.contains('active') && waDrips) renderWaDrips();
 }
 async function waShow(t) {
   waTab = t; renderWaTabs();
@@ -21404,7 +21421,7 @@ function renderWaDrips() {
   const group = ({ n, list }, head) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:10px;overflow:hidden">
       <div style="padding:9px 14px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">${head}</div>
       ${list.map(d => dripRowHtml(d, admin)).join('')}</div>`;
-  document.getElementById('dripWrap').innerHTML = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px;max-width:760px">Har din subah, us din ke plan (hafte wale aur saal ki tareekh wale) apne aap queue me lag jaate hain. Customer aur non-customer ke liye alag plan banayein.
+  document.getElementById('dripWrap').innerHTML = `${waMeta.paused ? `<div style="display:flex;max-width:760px;margin-bottom:10px">${waPausedBanner()}</div>` : ''}<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px;max-width:760px">Har din subah, us din ke plan (hafte wale aur saal ki tareekh wale) apne aap queue me lag jaate hain. Customer aur non-customer ke liye alag plan banayein.
       ${admin ? '' : ' Plan sirf Admin badal sakta hai.'}</div>
     ${settingsHtml}
     ${admin ? '<button class="btn btn-primary" style="margin-bottom:12px" onclick="waEditDrip(0)">＋ Plan jodein</button>' : ''}

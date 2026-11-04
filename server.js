@@ -17754,8 +17754,13 @@ async function waRefreshCampaign(id) {
   await db.query(`UPDATE wa_campaigns SET status='done', finished_at=NOW() WHERE id=? AND status IN ('queued','sending')
     AND NOT EXISTS (SELECT 1 FROM wa_campaign_recipients WHERE campaign_id=? AND status IN ('pending','sending'))`, [id, id]);
 }
+// Dealer broadcasts + drip paused (client 2026-11-04: number re-linked, MYAPI health
+// WARNING — keep the WhatsApp quota for order alerts / OTPs). Nothing queued is lost;
+// Resume on the Dealer WhatsApp page sends it.
+const waPaused = async () => (await getAppSetting('wa_broadcast_paused')) === '1';
 async function waDrain() {
   await waTables();
+  if (await waPaused()) return { sent: 0, failed: 0, left: 0, stopped: 'paused' };
   const [claim] = await db.query('UPDATE wa_lock SET until_at=DATE_ADD(NOW(), INTERVAL 58 SECOND) WHERE id=1 AND (until_at IS NULL OR until_at < NOW())');
   if (!claim.affectedRows) return { busy: true };
   const start = Date.now(), docCache = {};
@@ -17852,6 +17857,7 @@ app.post('/api/wa/drain', async (req, res) => {
 // is today becomes a campaign once. Called from the daily morning cron.
 async function waEnqueueDueDrips() {
   await waTables();
+  if (await waPaused()) return 0;
   const today = waYmd();
   const d = new Date(today + 'T00:00:00Z');
   const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay(), wom = Math.ceil(d.getUTCDate() / 7);
@@ -17878,7 +17884,7 @@ app.get('/api/wa/meta', requireAuth, async (req, res) => {
     const [docs] = await withCataloguePdfsTable(() => db.query("SELECT id, doc_type, filename, DATE_FORMAT(created_at,'%Y-%m-%d') AS d FROM o2d_catalogue_pdfs WHERE drive_file_id IS NOT NULL ORDER BY created_at DESC"));
     const [cities] = await withDealerTables(() => db.query("SELECT DISTINCT city FROM o2d_dealers WHERE city IS NOT NULL AND city<>'' AND phone IS NOT NULL AND phone<>'' ORDER BY city"));
     const [dealers] = await withDealerTables(() => db.query("SELECT counter_name FROM o2d_dealers WHERE phone IS NOT NULL AND phone<>'' ORDER BY counter_name"));
-    res.json({ docs, cities: cities.map(c => c.city), dealers: dealers.map(d => d.counter_name), audiences: WA_AUDIENCES, isAdmin: req.session.role === 'admin' });
+    res.json({ docs, cities: cities.map(c => c.city), dealers: dealers.map(d => d.counter_name), audiences: WA_AUDIENCES, isAdmin: req.session.role === 'admin', paused: await waPaused() });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/wa/preview', requireAuth, async (req, res) => {
@@ -17908,6 +17914,7 @@ app.post('/api/wa/campaign', requireAuth, async (req, res) => {
     if (!(await waAccess(req, res))) return;
     const b = req.body || {};
     const audience = WA_AUDIENCES[b.audience] ? b.audience : 'all';
+    if (await waPaused()) return res.status(400).json({ error: 'Dealer broadcast abhi band hai (WhatsApp number naya hai). Admin "Resume" karein tab bhejein.' });
     if (!String(b.message || '').trim() && !b.image && !b.imageUrl && !waDocIds(b.docIds).length) return res.status(400).json({ error: 'Message, photo ya PDF — kuch to daalein' });
     if (audience === 'selected' && !(Array.isArray(b.names) && b.names.length)) return res.status(400).json({ error: 'Dealers chunein' });
     const imageUrl = b.imageUrl || await waUploadImage(b.image, 'bc');
@@ -17982,6 +17989,15 @@ app.post('/api/wa/drips', requireAuth, requireAdmin, async (req, res) => {
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
+app.put('/api/wa/pause', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const paused = !!(req.body || {}).paused;
+    await setAppSetting('wa_broadcast_paused', paused ? '1' : '0');
+    console.log(`dealer WhatsApp broadcasts ${paused ? 'paused' : 'resumed'} by user ${req.session.userId}`);
+    if (!paused) waKick();
+    res.json({ success: true, paused });
+  } catch (err) { sendServerError(res, err); }
+});
 app.put('/api/wa/drip-settings', requireAuth, requireAdmin, async (req, res) => {
   try {
     const b = req.body || {}, n = (v, lo, hi) => Math.min(hi, Math.max(lo, parseInt(v, 10)));
@@ -18000,6 +18016,7 @@ app.post('/api/wa/drips/:id/run-now', requireAuth, requireAdmin, async (req, res
     await waTables();
     const [[p]] = await db.query('SELECT * FROM wa_drip_plan WHERE id=?', [Number(req.params.id)]);
     if (!p) return res.status(404).json({ error: 'Not found' });
+    if (await waPaused()) return res.status(400).json({ error: 'Dealer broadcast abhi band hai — pehle Resume karein' });
     const r = await waCreateCampaign({ title: `🔁 ${p.title}`, message: p.message, docIds: p.doc_ids, imageUrl: p.image_url, audience: p.audience, city: p.city, source: 'drip', dripId: p.id, by: req.session.userId });
     if (r.total) waKick();
     res.json({ success: true, ...r });
