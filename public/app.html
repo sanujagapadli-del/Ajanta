@@ -4114,7 +4114,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     <div id="noStep1">
       <div class="form-group">
         <label>Counter / Dealer Name <span style="color:var(--color-danger)">*</span></label>
-        <input type="text" id="noCounterName" list="noCounterNameList" oninput="onO2dCounterNameInput()" placeholder="Select existing or type a new name" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <input type="text" id="noCounterName" list="noCounterNameList" oninput="onO2dCounterNameInput()" placeholder="Type karke list se dealer chunein" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <datalist id="noCounterNameList"></datalist>
       </div>
       <div id="noDealerDetailBox" style="margin-top:4px"></div>
@@ -17697,8 +17697,14 @@ function goToO2dOrderStep1() {
 }
 
 async function goToO2dOrderStep2() {
-  const name = document.getElementById('noCounterName').value.trim();
+  let name = document.getElementById('noCounterName').value.trim().replace(/\s+/g, ' ');
   if (!name) { showToast('Pehle counter/dealer name daalo', 'error'); return; }
+  // Must be picked from the list (client 2026-11-04) — typing only searches it.
+  if (!_o2dCounterNames) await loadO2dCounterNames();
+  const picked = (_o2dCounterNames || []).find(n => n.toLowerCase() === name.toLowerCase());
+  if (!picked) { showToast('List se dealer chunein — naya dealer ho to pehle Dealer Master me jodein', 'error'); document.getElementById('noCounterName').focus(); return; }
+  name = picked;
+  document.getElementById('noCounterName').value = picked;
   // openNewO2dOrderModal() kicks this off without awaiting so the modal opens
   // instantly — but the "Old Counter"/"New Counter" call below depends on it,
   // so make sure it's actually resolved before deciding (otherwise a real
@@ -17712,13 +17718,14 @@ async function goToO2dOrderStep2() {
   document.getElementById('noFooterButtons').style.display = 'flex';
 }
 
-let _o2dCounterNames = null; // cached across modal opens — same debtors sheet, no need to refetch each time
+let _o2dCounterNames = null, _o2dCounterNamesAt = 0; // kept 2 min — a dealer just added in Dealer Master shows on the next form open
 async function loadO2dCounterNames() {
   // A failed / empty load is not kept — the next form open (or the retry below) asks again.
-  if (!_o2dCounterNames || !_o2dCounterNames.length) {
+  if (!_o2dCounterNames || !_o2dCounterNames.length || Date.now() - _o2dCounterNamesAt > 2 * 60 * 1000) {
     let r = await api('/api/o2d-fms/customer-names').catch(() => null);
     if (!r || !Array.isArray(r.names) || !r.names.length) { await new Promise(ok => setTimeout(ok, 2500)); r = await api('/api/o2d-fms/customer-names').catch(() => null); }
     _o2dCounterNames = r && Array.isArray(r.names) && r.names.length ? r.names : null;
+    _o2dCounterNamesAt = Date.now();
     if (!_o2dCounterNames) { showToast('Dealer list load nahi hui — form band karke dobara kholein', 'error'); return; }
   }
   document.getElementById('noCounterNameList').innerHTML = _o2dCounterNames.map(n => `<option value="${n.replace(/"/g,'&quot;')}">`).join('');

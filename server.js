@@ -6760,8 +6760,7 @@ app.get('/api/o2d-fms/customer-lookup', requireAuth, async (req, res) => {
 // Order form dealer list: Tally debtors sheet + the ERP Dealer Master (not hidden).
 // Either one alone is enough — a Sheets hiccup on a cold instance used to send an
 // empty list and the form kept it all session (client 2026-11-04: "kai baar dealers ke naam nahi aate").
-app.get('/api/o2d-fms/customer-names', requireAuth, async (req, res) => {
-  try {
+async function o2dCustomerNames() {
     const [deb, dm] = await Promise.allSettled([
       getDebtorsMap(),
       withDealerTables(() => db.query('SELECT counter_name FROM o2d_dealers WHERE hidden_at IS NULL')).then(([r]) => r)
@@ -6771,8 +6770,10 @@ app.get('/api/o2d-fms/customer-names', requireAuth, async (req, res) => {
     if (deb.status === 'fulfilled') Object.values(deb.value).forEach(v => byKey.set(v.name.trim().toLowerCase(), v.name.trim()));
     if (dm.status === 'fulfilled') dm.value.forEach(r => { const n = String(r.counter_name || '').trim(); if (n && !byKey.has(n.toLowerCase())) byKey.set(n.toLowerCase(), n); });
     if (deb.status === 'rejected') console.error('customer-names: debtors sheet failed, Dealer Master only —', deb.reason && deb.reason.message);
-    res.json({ names: [...byKey.values()].sort((a, b) => a.localeCompare(b)) });
-  } catch (err) { sendServerError(res, err); }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b));
+}
+app.get('/api/o2d-fms/customer-names', requireAuth, async (req, res) => {
+  try { res.json({ names: await o2dCustomerNames() }); } catch (err) { sendServerError(res, err); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -8925,7 +8926,7 @@ async function getTallyPaymentPerformanceByDealer() {
 app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
   try {
     if (await hasPageDeny(req, 'form-o2d-order')) return res.status(403).json(FORM_DENIED);
-    const {
+    let {
       counterType, counterName, area, orderBy, paymentTerms, channel, remark,
       deliverByTransport, makePerformaInvoice, whenToSend, dateToSend, products
     } = req.body;
@@ -8934,6 +8935,11 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
     }
     const discountPct = parseO2dDiscountPct(req.body.discountPct);
     if (discountPct === null) return res.status(400).json({ error: 'CD / Discount % 0 se 50 ke beech ho' });
+    // Dealer must come from the list (client 2026-11-04: "type kar sake, dropdown se select mandatory").
+    // A new dealer is added in Dealer Master / Onboarding first — it then shows in the list.
+    const known = (await o2dCustomerNames()).find(n => n.toLowerCase() === String(counterName).trim().replace(/\s+/g, ' ').toLowerCase());
+    if (!known) return res.status(400).json({ error: `"${String(counterName).trim()}" dealer list me nahi hai — list se dealer chunein. Naya dealer ho to pehle Dealer Master me jodein.` });
+    counterName = known; // the list's own spelling
     for (const p of products) {
       if (!p.productName || !p.qty) return res.status(400).json({ error: 'Each product needs a name and quantity' });
       if (!(Number(p.qty) > 0)) return res.status(400).json({ error: 'Quantity must be a positive number' });
