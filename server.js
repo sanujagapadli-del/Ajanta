@@ -14972,10 +14972,16 @@ function plSalaryFor(u, profile, start, end, today, ctx) {
   try { extra = u.extra_off ? JSON.parse(u.extra_off) : []; } catch (_) {}
   const out = { days: 0, present: 0, off: 0, leave: 0, absent: 0, salary: 0 };
   const last = end < today ? end : today;
+  const realToday = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); // IST date (callers may pass "yesterday" as today)
   for (let d = start; d <= last; d = ymdAddDays(d, 1)) {
     const dt = new Date(d + 'T00:00:00Z');
     const dow = dt.getUTCDay(), nth = Math.ceil(dt.getUTCDate() / 7);
     const daysInMonth = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();
+    // Today isn't over — no punch yet is not "absent" (client 2026-11-05: Rohit showed 1 absent at 9:54 AM).
+    // A working today counts once punched; a week-off / holiday / leave today counts as usual.
+    const offToday = weekOff.includes(dow) || ctx.holidays.has(d) || (Array.isArray(extra) && extra.some(e => e && e.day === dow && Array.isArray(e.weeks) && e.weeks.includes(nth)))
+      || (ctx.leaves[u.id] || []).some(l => d >= l.s && d <= l.e);
+    if (d === realToday && !ctx.present.has(`${u.id}|${d}`) && !offToday) continue;
     out.days++;
     let paid = true;
     if (ctx.present.has(`${u.id}|${d}`)) out.present++;
