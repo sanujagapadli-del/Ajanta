@@ -5942,7 +5942,8 @@ app.get('/api/service-fms/areas', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_AREA_TAB)); }
   catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/areas', requireAuth, requireSfmsEditor, async (req, res) => {
+// New master values (area / zone / mechanic) — admins only (client 2026-11-05: "new kuch bhi add krne ka option sirf admins").
+app.post('/api/service-fms/areas', requireAuth, requireAdmin, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Area name is required' });
@@ -6029,7 +6030,7 @@ app.get('/api/service-fms/zones', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetList(SFMS_ZONE_TAB)); }
   catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/zones', requireAuth, requireSfmsEditor, async (req, res) => {
+app.post('/api/service-fms/zones', requireAuth, requireAdmin, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Zone name is required' });
@@ -6072,7 +6073,7 @@ app.get('/api/service-fms/mechanics', requireAuth, async (req, res) => {
   try { res.json(await sfmsGetMechanics()); }
   catch (err) { sendServerError(res, err); }
 });
-app.post('/api/service-fms/mechanics', requireAuth, requireSfmsEditor, async (req, res) => {
+app.post('/api/service-fms/mechanics', requireAuth, requireAdmin, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     const mobile = String(req.body.mobile || '').trim();
@@ -12865,7 +12866,7 @@ app.delete('/api/tea/entry/:id', requireAuth, async (req, res) => {
 // Owner: staff list (add / switch off — never delete, old cups keep the name).
 app.post('/api/tea/staff', requireAuth, async (req, res) => {
   try {
-    if (!(await pettyIsOwner(req))) return res.status(403).json({ error: 'Sirf owner staff badal sakte hain' });
+    if (req.session.role !== 'admin') return res.status(403).json({ error: 'Naya naam sirf Admin jod sakta hai' });
     const name = String(req.body.name || '').trim().replace(/\s+/g, ' ').slice(0, 100);
     if (!name) return res.status(400).json({ error: 'Naam daalo' });
     const [[dup]] = await withTeaTables(() => db.query('SELECT id, active FROM tea_staff WHERE LOWER(name)=LOWER(?)', [name]));

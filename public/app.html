@@ -11992,7 +11992,7 @@ function renderSfmsZones() {
       ${ME.role === 'admin' ? `<button type="button" class="btn btn-outline btn-sm" title="Galti se bana area delete karo" onclick="deleteSfmsArea('${jsArg(a)}')" style="color:var(--color-danger);padding:6px 9px">🗑</button>` : ''}</div>`;
   document.getElementById('sfmsZonesBody').innerHTML = `
     <div style="background:var(--gray-50);border-radius:12px;padding:12px;margin-bottom:14px">
-      <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px">➕ Naya area kisi zone mein jodo</div>
+      <div style="font-size:12px;font-weight:700;color:var(--gray-500);margin-bottom:6px${ME.role === 'admin' ? '' : ';display:none'}">➕ Naya area kisi zone mein jodo</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <input id="sfmsNewArea" placeholder="Area name" style="${inp};flex:1;min-width:150px"/>
         <select id="sfmsNewAreaZone" style="${inp}">${zoneOpts('')}</select>
@@ -12085,7 +12085,7 @@ function renderSfmsField(f, row, compact) {
       <select id="${id}" onchange="onSfmsMasterSelectChange('${jsArg(row)}','${jsArg(f.key)}'); ${extraOnchange}" style="${inputStyle}">
         <option value="">-- ${f.label} --</option>
         ${options}
-        <option value="__add_new__">+ Add New</option>
+        ${ddAddNewOpt()}
       </select>
       <div id="sfmsAddNewWrap_${row}_${f.key}" style="display:none;gap:6px;margin-bottom:10px">
         <input type="text" id="sfmsAddNewInput_${row}_${f.key}" placeholder="New ${f.label}" style="flex:1;padding:10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;box-sizing:border-box"/>
@@ -12127,8 +12127,7 @@ function onSfmsZoneChange(row) {
   // filled in for them yet — only a mechanic with a DIFFERENT zone set is excluded.
   const filtered = zone ? sfmsMechanicsList.filter(m => !sfmsMechanicZones[m] || sfmsMechanicZones[m] === zone) : sfmsMechanicsList;
   mechSel.innerHTML = `<option value="">-- Mechanic Name --</option>` +
-    filtered.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('') +
-    `<option value="__add_new__">+ Add New</option>`;
+    filtered.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('') + ddAddNewOpt();
 }
 async function sfmsAddNewMasterItem(row, key, listName) {
   const input = sfmsById(`sfmsAddNewInput_${row}_${key}`);
@@ -12148,8 +12147,7 @@ async function sfmsAddNewMasterItem(row, key, listName) {
   const sel = sfmsById(`sfmsExtra_${row}_${key}`);
   const list = sfmsMasterListFor(listName);
   sel.innerHTML = `<option value="">-- Select --</option>` +
-    list.map(v => `<option value="${esc(v)}" ${v === name ? 'selected' : ''}>${esc(v)}</option>`).join('') +
-    `<option value="__add_new__">+ Add New</option>`;
+    list.map(v => `<option value="${esc(v)}" ${v === name ? 'selected' : ''}>${esc(v)}</option>`).join('') + ddAddNewOpt();
   sfmsById(`sfmsAddNewWrap_${row}_${key}`).style.display = 'none';
   input.value = '';
   showToast('✅ Added!');
@@ -13544,8 +13542,7 @@ async function ensureScAreaList() {
 function populateScAreaSelect() {
   const sel = document.getElementById('scArea');
   sel.innerHTML = '<option value="">Select…</option>' +
-    scAreaList.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('') +
-    '<option value="__add_new__">+ Add New</option>';
+    scAreaList.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('') + ddAddNewOpt();
 }
 function onScAreaSelectChange() {
   const isNew = document.getElementById('scArea').value === '__add_new__';
@@ -25717,15 +25714,20 @@ function ddEnhance(inp, key) {
   sel.className = inp.className;
   sel.style.cssText = inp.style.cssText;
   const cur = inp.value.trim(), known = items.some(v => v.toLowerCase() === cur.toLowerCase());
-  sel.innerHTML = `<option value="">-- Chunein --</option>${items.map(v => `<option ${cur && v.toLowerCase() === cur.toLowerCase() ? 'selected' : ''}>${esc(v)}</option>`).join('')}<option value="__dd_other__" ${cur && !known ? 'selected' : ''}>➕ Doosra (likho)</option>`;
-  if (!cur || known) inp.style.display = 'none';
+  // Client 2026-11-05: dropdown se hi chunna; "Doosra (likho)" = naya option — sirf Admin.
+  const admin = ME && ME.role === 'admin';
+  sel.innerHTML = `<option value="">-- Chunein --</option>${items.map(v => `<option ${cur && v.toLowerCase() === cur.toLowerCase() ? 'selected' : ''}>${esc(v)}</option>`).join('')}${
+    admin ? `<option value="__dd_other__" ${cur && !known ? 'selected' : ''}>➕ Doosra (likho)</option>` : (cur && !known ? `<option selected>${esc(cur)}</option>` : '')}`;
+  if (!cur || known || !admin) inp.style.display = 'none';
   else inp.style.marginTop = '4px';
   // A form filling the box later (edit user, edit dealer…) moves the dropdown with it.
   const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
   Object.defineProperty(inp, 'value', { configurable: true, get() { return native.get.call(this); }, set(v) {
     native.set.call(this, v);
     const s = String(v || '').trim(), hit = items.find(x => x.toLowerCase() === s.toLowerCase());
-    if (!s || hit) { sel.value = hit || ''; inp.style.display = 'none'; } else { sel.value = '__dd_other__'; inp.style.display = ''; }
+    if (!s || hit) { sel.value = hit || ''; inp.style.display = 'none'; }
+    else if (ME && ME.role === 'admin') { sel.value = '__dd_other__'; inp.style.display = ''; }
+    else { let o = [...sel.options].find(x => x.value === s); if (!o) { o = new Option(s, s); sel.add(o); } sel.value = s; inp.style.display = 'none'; }
   } });
   sel.addEventListener('change', () => {
     if (sel.value === '__dd_other__') { inp.style.display = ''; inp.style.marginTop = '4px'; native.set.call(inp, ''); inp.focus(); }
@@ -25735,6 +25737,32 @@ function ddEnhance(inp, key) {
   });
   inp.insertAdjacentElement('beforebegin', sel);
 }
+// "+ Add New" option for master dropdowns — admins only (client 2026-11-05).
+const ddAddNewOpt = () => (ME && ME.role === 'admin') ? '<option value="__add_new__">+ Add New</option>' : '';
+// Every typed box with a suggestion list (input[list]): a non-admin must pick a value from the list —
+// typed text that isn't in it is cleared (client 2026-11-05: "jha jha dropdown hai vha text daal ke submit
+// nhi kr paye"). Admins may still type a new value. data-free="1" opts a box out. Empty / not-yet-loaded
+// lists are not checked.
+function listPickOnly(inp) {
+  if (!inp || !inp.list || inp.dataset.free === '1' || (ME && ME.role === 'admin')) return true;
+  const v = inp.value.trim();
+  if (!v) return true;
+  const opts = [...inp.list.options].map(o => String(o.value || o.textContent || '').trim()).filter(Boolean);
+  if (!opts.length) return true;
+  const hit = opts.find(o => o.toLowerCase() === v.toLowerCase());
+  if (hit) { if (hit !== inp.value) inp.value = hit; inp.style.borderColor = ''; return true; }
+  inp.value = '';
+  inp.style.borderColor = 'var(--color-danger)';
+  showToast(`"${v}" list me nahi hai — list se chunein (naya sirf Admin jod sakta hai)`, 'error');
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  return false;
+}
+document.addEventListener('change', e => { const t = e.target; if (t && t.matches && t.matches('input[list]')) listPickOnly(t); }, true);
+// Enter can submit without the box losing focus — check it first.
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (e.key === 'Enter' && t && t.matches && t.matches('input[list]') && !listPickOnly(t)) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);
 let _ddScanQueued = false;
 function ddScan() {
   _ddScanQueued = false;
@@ -27811,7 +27839,7 @@ async function teaSetRate() {
 function renderTeaStaff() {
   const list = teaData.staff;
   document.getElementById('teaResults').innerHTML = `<div style="max-width:560px">
-    <div style="${TEA_CARD}"><div style="${TEA_LABEL}">➕ Naya naam jodo</div>
+    <div style="${TEA_CARD}${ME.role === 'admin' ? '' : ';display:none'}"><div style="${TEA_LABEL}">➕ Naya naam jodo</div>
       <div style="display:flex;gap:8px"><input id="teaNewName" placeholder="Employee ka naam" style="${TEA_INPUT};flex:1;min-width:0" onkeydown="if(event.key==='Enter')addTeaStaff()"/><button class="btn btn-primary" id="teaAddBtn" onclick="addTeaStaff()">Add</button></div>
       <div style="font-size:12px;color:var(--gray-500);margin-top:8px">Entry wahi kar sakte hain jinhe Users → Access mein “Tea Register” diya hai — PIN ki zaroorat nahi.</div></div>
     <div style="${TEA_CARD}"><div style="${TEA_LABEL}">Staff list (${list.filter(s => s.active).length} active)</div>
