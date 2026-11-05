@@ -15003,7 +15003,7 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   const [[{ first }]] = await withAttendanceTables(() => db.query("SELECT DATE_FORMAT(MIN(date),'%Y-%m-%d') AS first FROM attendance"));
   const salaryFrom = first && first > start ? first : start;
   const [profiles] = await db.query(`SELECT p.*, u.name, u.department, u.week_off, u.extra_off, u.id
-    FROM salesman_profiles p JOIN users u ON u.id=p.user_id WHERE u.is_active=1 AND p.o2d_names IS NOT NULL AND p.o2d_names<>''${onlyUserId ? ' AND u.id=?' : ''} ORDER BY u.name`, onlyUserId ? [onlyUserId] : []);
+    FROM salesman_profiles p JOIN users u ON u.id=p.user_id WHERE u.is_active=1 AND ((p.o2d_names IS NOT NULL AND p.o2d_names<>'') OR p.monthly_salary > 0)${onlyUserId ? ' AND u.id=?' : ''} ORDER BY u.name`, onlyUserId ? [onlyUserId] : []);
   if (!profiles.length && onlyUserId) return { rows: [], unassigned: [], today, salaryFrom };
   const ids = profiles.length ? profiles.map(p => p.id) : [0];
   const [[att], [leaves], [kms], [tours], hol] = await withAttendanceTables(() => Promise.all([
@@ -15023,6 +15023,18 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   const { sales, costFor } = await gpLoadData(start, end, { exGst: true });
   const owner = {};
   profiles.forEach(p => String(p.o2d_names || '').split(',').map(plNameKey).filter(Boolean).forEach(k => { owner[k] = p.id; }));
+  // Salary set but O2D "Order By" naam left blank (client 2026-11-05: "salary dalne pe bhi kuch nahi aa rha") —
+  // match that salesman's Order By names the MECA way (Rohit → Rohit (sales2), Giridhari → Girdhar ji).
+  const noNames = new Set(profiles.filter(p => !String(p.o2d_names || '').trim()).map(p => p.id));
+  if (noNames.size) {
+    const resolve = await mecaOrderByResolver().catch(() => null);
+    if (resolve) {
+      const autoNames = {};
+      sales.forEach(s => { const k = plNameKey(s.orderBy); if (!k || owner[k]) return; const uid = resolve(s.orderBy);
+        if (typeof uid === 'number' && noNames.has(uid)) { owner[k] = uid; (autoNames[uid] = autoNames[uid] || new Set()).add(String(s.orderBy).trim()); } });
+      profiles.forEach(p => { if (autoNames[p.id]) p.o2d_names_auto = [...autoNames[p.id]].join(', '); });
+    }
+  }
   // Order By names not linked to any salesman profile still get their own
   // Sales + GP row (client, 2026-10-08: "sales person wise GP bhi nikalna
   // hai" — no salaries were set, so the tab was empty).
@@ -15057,7 +15069,7 @@ async function buildSalesmanPl(start, end, onlyUserId) {
     const net = gp - expense;
     return {
       misc: plRound(misc), miscKey: `u:${p.id}`,
-      userId: p.id, name: p.name, department: p.department || '', o2dNames: p.o2d_names || '',
+      userId: p.id, name: p.name, department: p.department || '', o2dNames: p.o2d_names || (p.o2d_names_auto ? p.o2d_names_auto + ' (apne aap)' : ''),
       monthlySalary: p.monthly_salary == null ? null : Number(p.monthly_salary), kmRate,
       days: sal.days, present: sal.present, offDays: sal.off, leaveDays: sal.leave, absent: sal.absent, salary: sal.salary,
       km: plRound(km.km), kmDays: km.days, petrol, tour: plRound(tour.approved), tourPending: plRound(tour.pending), tourPendingCount: tour.pendingCount,
@@ -15108,6 +15120,8 @@ async function buildSalesmanPl(start, end, onlyUserId) {
         netPct: has && x.sales ? plRound((gp - expense) * 100 / x.sales) : null });
     });
   }
+  // A profile with nothing at all in the range (no sale, salary, KM, tour, misc) is just noise.
+  for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (!r.noProfile && !r.sales && !r.salary && !r.petrol && !r.tour && !r.misc) rows.splice(i, 1); }
   rows.sort((a, b) => b.gp - a.gp);
   return { rows, today, salaryFrom };
 }
