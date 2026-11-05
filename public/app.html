@@ -10630,14 +10630,16 @@ const misCanCommit = e => ['admin', 'pc', 'hod'].includes(ME.role) || e.id === M
 // Every commitment is minus (client 2026-11-03: "ye value hamesha minus me"): -10 = at most 10% short.
 // Done / On Time boxes are compared on the same scale (73.4% done = -26.6).
 const MIS_COMMIT_POS_BOX = { done: true, onTime: true };
-async function misSaveCommit(empId, metric, el) {
+async function misSaveCommit(empId, metric, el, btn) {
+  if (!el) return;
   let v = el.value.trim();
   if (v !== '' && !(Math.abs(Number(v)) <= 100)) { showToast('-100 se 0 ke beech likhein (jaise -10)', 'error'); return; }
   if (v !== '') { v = String(-Math.abs(Number(v))); el.value = v; } // 10 typed = -10
-  el.disabled = true;
+  el.disabled = true; if (btn) { btn.disabled = true; btn.textContent = '…'; }
   const r = await api('/api/mis/commitments', 'PUT', { employeeId: empId, week: taCommit.next, metric, score: v }); // empId 'team' = All Employees
-  el.disabled = false;
-  if (r.error) { showToast(r.error, 'error'); return; }
+  el.disabled = false; if (btn) btn.disabled = false;
+  if (r.error) { if (btn) btn.textContent = 'Submit'; showToast(r.error, 'error'); return; }
+  if (btn) { btn.textContent = v === '' ? 'Submit' : '✓ Saved'; btn.style.background = v === '' ? '' : 'var(--color-success-bg)'; btn.style.color = v === '' ? '' : 'var(--color-success-text)'; }
   const w = taCommit.map[taCommit.next] = taCommit.map[taCommit.next] || {};
   const o = w[empId] = w[empId] || {};
   if (v === '') delete o[metric]; else o[metric] = Number(v);
@@ -10672,13 +10674,19 @@ function taCommitFoot(metric, actual, color) {
       <div style="display:flex;align-items:center;min-height:30px;margin-top:2px">${inner}</div></div>`;
   const lastInner = last == null ? '<span style="font-size:18px;font-weight:800;color:var(--gray-300)">—</span>'
     : `<span style="font-size:18px;font-weight:900;color:var(--gray-900)">${last}%</span>${badge}${lastNote ? `<span style="margin-left:6px;font-size:10.5px;color:var(--gray-500)">${lastNote}</span>` : ''}`;
+  // Submit button (client 2026-11-05: "next week commit daal ke submit krne ka option do") —
+  // saves only on Submit / Enter, not silently on blur.
+  const inId = `misCommitIn_${metric}`, save = `misSaveCommit(${emp ? emp.id : "'team'"}, '${metric}', document.getElementById('${inId}'), this)`;
   const nextInner = canEdit
-    ? `<span style="position:relative;display:inline-flex;align-items:center;width:100%">
-        <input type="number" inputmode="numeric" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="jaise -10"
-          aria-label="${esc(emp ? emp.name : 'Team')} — agle hafte ka commitment" onkeydown="if(event.key==='Enter')this.blur()" onchange="misSaveCommit(${emp ? emp.id : "'team'"}, '${metric}', this)"
+    ? `<span style="display:flex;align-items:center;gap:6px;width:100%">
+        <span style="position:relative;display:inline-flex;align-items:center;flex:1;min-width:0">
+        <input id="${inId}" type="number" inputmode="numeric" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="jaise -10"
+          aria-label="${esc(emp ? emp.name : 'Team')} — agle hafte ka commitment" onkeydown="if(event.key==='Enter'){event.preventDefault();this.parentNode.nextElementSibling.click()}"
+          oninput="const b=this.parentNode.nextElementSibling;b.textContent='Submit';b.style.background='${color}';b.style.color='#fff'"
           style="width:100%;padding:5px 26px 5px 10px;border:1.5px solid ${color}55;border-radius:9px;background:var(--surface);font-weight:900;font-size:16px;color:var(--gray-900);outline:none"
           onfocus="this.style.borderColor='${color}'" onblur="this.style.borderColor='${color}55'"/>
-        <span style="position:absolute;right:9px;font-weight:800;color:var(--gray-400);pointer-events:none">%</span></span>`
+        <span style="position:absolute;right:9px;font-weight:800;color:var(--gray-400);pointer-events:none">%</span></span>
+        <button type="button" onclick="${save}" style="flex:none;padding:6px 10px;border:none;border-radius:9px;font-weight:800;font-size:12px;cursor:pointer;${next == null ? `background:${color};color:#fff` : 'background:var(--color-success-bg);color:var(--color-success-text)'}">${next == null ? 'Submit' : '✓ Saved'}</button></span>`
     : next == null ? '<span style="font-size:18px;font-weight:800;color:var(--gray-300)">—</span>' : `<span style="font-size:18px;font-weight:900;color:var(--gray-900)">${next}%</span>`;
   return `<div style="display:flex;gap:8px;margin-top:14px">${tile('🎯 Last week committed', lastInner)}${tile('➡️ Next week commit', nextInner)}</div>`;
 }
