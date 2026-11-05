@@ -661,7 +661,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -2393,18 +2393,19 @@ const ATTENDANCE_ALERT_SLOTS = { morning: 11, evening: 20 }; // IST hour
 // Client 2026-11-05: "Attendance and KM msg need to remove" — the 11 AM / 8 PM team-group
 // WhatsApp (not punched in / out, KM not entered) is switched off. Set to true to bring it back.
 const ATTENDANCE_ALERT_ON = false;
-async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
-  if (!ATTENDANCE_ALERT_SLOTS[slot]) throw new Error('Unknown slot');
-  if (!ATTENDANCE_ALERT_ON) return { skipped: 'Attendance / KM WhatsApp alert is off (client 2026-11-05)' };
+// Today's punch / KM gaps — who should be working today (not week-off, not on approved leave)
+// and hasn't punched in / out or entered the morning / evening KM. Used by the (switched-off)
+// group alert and by the PC Follow-up page (client 2026-11-05: "PC view mai attendance and KM bhi").
+async function attendanceGapsToday() {
   const [[clock]] = await db.query(
-    "SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d, DAYOFWEEK(CURDATE())-1 AS dow, DAYOFMONTH(CURDATE()) AS dom"
+    "SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d, DAYOFWEEK(CURDATE())-1 AS dow, DAYOFMONTH(CURDATE()) AS dom, HOUR(NOW()) AS h"
   );
   const today = clock.d, dow = Number(clock.dow), nth = Math.ceil(Number(clock.dom) / 7);
+  let holiday = '';
   try {
     const [hol] = await db.query('SELECT name FROM holidays WHERE date=?', [today]);
-    if (hol.length && !force) return { skipped: `Holiday (${hol[0].name || today})` };
+    if (hol.length) holiday = hol[0].name || today;
   } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
-
   const [users] = await db.query(
     "SELECT id, name, week_off, extra_off, track_km FROM users WHERE is_active=1 AND (role IS NULL OR role NOT IN ('admin','vendor')) ORDER BY name"
   );
@@ -2422,16 +2423,29 @@ async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
   ]));
   const leaveIds = new Set(onLeave.map(r => r.user_id));
   const attnBy = Object.fromEntries(attn.map(a => [a.user_id, a]));
-  const expected = working.filter(u => !leaveIds.has(u.id));
-  const notIn = expected.filter(u => !(attnBy[u.id] && attnBy[u.id].time_in)).map(u => u.name);
-  const notOut = slot === 'evening'
-    ? expected.filter(u => attnBy[u.id] && attnBy[u.id].time_in && !attnBy[u.id].time_out).map(u => u.name)
-    : [];
-  // KM staff (users.track_km) who haven't entered this slot's reading
-  // (client, 2026-10-06: KM is paid only on readings entered in the app).
   const kmBy = Object.fromEntries(kmRows.map(k => [k.user_id, k]));
-  const kmCol = slot === 'morning' ? 'morning_km' : 'evening_km';
-  const noKm = expected.filter(u => +u.track_km && !(kmBy[u.id] && kmBy[u.id][kmCol] != null)).map(u => u.name);
+  const expected = working.filter(u => !leaveIds.has(u.id));
+  const pick = f => expected.filter(f).map(u => ({ id: u.id, name: u.name }));
+  return {
+    today, hour: Number(clock.h), holiday,
+    notIn: pick(u => !(attnBy[u.id] && attnBy[u.id].time_in)),
+    notOut: pick(u => attnBy[u.id] && attnBy[u.id].time_in && !attnBy[u.id].time_out),
+    // KM staff (users.track_km) — KM is paid only on readings entered in the app (client 2026-10-06).
+    noKmMorning: pick(u => +u.track_km && !(kmBy[u.id] && kmBy[u.id].morning_km != null)),
+    noKmEvening: pick(u => +u.track_km && !(kmBy[u.id] && kmBy[u.id].evening_km != null)),
+  };
+}
+async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
+  if (!ATTENDANCE_ALERT_SLOTS[slot]) throw new Error('Unknown slot');
+  if (!ATTENDANCE_ALERT_ON) return { skipped: 'Attendance / KM WhatsApp alert is off (client 2026-11-05)' };
+  const g = await attendanceGapsToday();
+  const today = g.today;
+  if (g.holiday && !force) return { skipped: `Holiday (${g.holiday})` };
+
+  const names = l => l.map(u => u.name);
+  const notIn = names(g.notIn);
+  const notOut = slot === 'evening' ? names(g.notOut) : [];
+  const noKm = names(slot === 'morning' ? g.noKmMorning : g.noKmEvening);
   if (!notIn.length && !notOut.length && !noKm.length) return { skipped: 'Everyone has punched and entered KM', notIn, notOut, noKm };
 
   const raw = await getAppSetting(O2D_TEAM_GROUP_SETTING);
@@ -3187,6 +3201,66 @@ app.get('/api/mis/tasks', requireAuth, async (req, res) => {
     res.json({ start, end, now, rows, employees, fmsErrors, attendance, km, kmWeek, discipline, lateAfter });
   } catch (err) { sendServerError(res, err); }
 });
+// ── PC Follow-up (client 2026-11-05: "ek page bnao for master PC jha pe pc ko FMS, Checklist,
+// delegation ke task ek sath dikhe so he can take follow up and name ke sath tracking kr sake").
+// The tasks themselves come from the same APIs the Dashboard uses; this only keeps the PC's
+// follow-up log — one line per call / reminder, against a task and the person it was about.
+// Admin / PC role only: the task lists it shows (Dashboard APIs) give everyone's tasks only to those roles.
+async function canPcFollow(req) {
+  return req.session.role === 'admin' || req.session.role === 'pc';
+}
+let _pcFuTableOk = false;
+async function ensurePcFollowupsTable() {
+  if (_pcFuTableOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS pc_followups (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    task_key VARCHAR(120) NOT NULL,
+    task_title VARCHAR(300) NULL,
+    person VARCHAR(300) NULL,
+    note TEXT NOT NULL,
+    next_date DATE NULL,
+    created_by INT NULL,
+    created_by_name VARCHAR(150) NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_pcfu_key (task_key), INDEX idx_pcfu_at (created_at)
+  )`);
+  _pcFuTableOk = true;
+}
+app.get('/api/pc-followups', requireAuth, async (req, res) => {
+  try {
+    if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
+    await ensurePcFollowupsTable();
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 60, 1), 365);
+    const [rows] = await db.query(`SELECT id, task_key, task_title, person, note, DATE_FORMAT(next_date,'%Y-%m-%d') AS next_date,
+        created_by_name, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
+      FROM pc_followups WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) ORDER BY created_at DESC, id DESC LIMIT 5000`, [days]);
+    const [[clock]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    res.json({ rows, today: clock.today });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/pc-followups/attendance', requireAuth, async (req, res) => {
+  try {
+    if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
+    res.json(await attendanceGapsToday());
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/pc-followups', requireAuth, async (req, res) => {
+  try {
+    if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
+    const b = req.body || {};
+    const key = String(b.taskKey || '').trim().slice(0, 120);
+    const note = String(b.note || '').trim().slice(0, 2000);
+    const next = /^\d{4}-\d{2}-\d{2}$/.test(String(b.nextDate || '')) ? b.nextDate : null;
+    if (!key) return res.status(400).json({ error: 'Task nahi mila' });
+    if (!note) return res.status(400).json({ error: 'Follow-up me kya baat hui, likhein' });
+    await ensurePcFollowupsTable();
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    await db.query('INSERT INTO pc_followups (task_key, task_title, person, note, next_date, created_by, created_by_name) VALUES (?,?,?,?,?,?,?)',
+      [key, String(b.taskTitle || '').slice(0, 300), String(b.person || '').slice(0, 300), note, next, req.session.userId, (me && me.name) || '']);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Late punch-in cut-off for the Discipline score (admin).
 app.put('/api/mis/late-after', requireAuth, async (req, res) => {
   try {
