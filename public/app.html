@@ -15772,6 +15772,7 @@ function renderDealerGrid() {
           <option value="noonb" ${o2dDealerOnbFilter === 'noonb' ? 'selected' : ''}>Form nahi bhara</option>
         </select>
         <button class="btn btn-outline" onclick="openOnboardingList()">📋 Onboarding forms</button>
+        <button class="btn btn-outline" onclick="exportDealersCsv()" title="Saare dealers (search / filter ke hisaab se) — sab pages">⬇ CSV</button>
         <button class="btn btn-green" onclick="openDealerOnboardModal()">+ New Dealer (Onboarding form)</button>
       </div>
       <div id="dealerGridResults"></div>
@@ -15779,12 +15780,31 @@ function renderDealerGrid() {
   renderDealerGridResults();
 }
 
+const dealerGridFiltered = () => {
+  const q = o2dDealerSearchQ.trim().toLowerCase();
+  return o2dDealers.filter(d => (!q || [d.name, d.city, d.phone, d.details && d.details.ownerName, d.details && d.details.area].some(v => String(v || '').toLowerCase().includes(q)))
+    && (!o2dDealerOnbFilter || (o2dDealerOnbFilter === 'onb') === !!d.onboarding));
+};
+// CSV of ALL dealers in the current search / filter, not just the page on screen (client 2026-11-05:
+// "Dealer master se csv download krne pe ek page ka download ho rha hai jabki sare download hone chahiye").
+function exportDealersCsv() {
+  const list = dealerGridFiltered();
+  if (!list.length) { showToast('Koi dealer nahi', 'error'); return; }
+  const dt = d => d ? fmtDateDMY(String(d).slice(0, 10)) : '';
+  csvDownload([['Dealer', 'Owner', 'Phone', 'Alt Phone', 'City', 'Area', 'Address', 'GST No', 'Tier', 'KYC (of 4)', 'Outstanding', 'Outstanding (all)', 'Credit Limit', 'Credit Days',
+      'Rating', 'Payments', 'Late', 'Avg late days', 'Last Order', 'Last Order Qty', 'Last Order Amount', 'Birthday', 'Anniversary', 'Onboarding form', 'Location'],
+    ...list.map(d => { const x = d.details || {}, r = d.rating || {}, lo = d.lastOrder;
+      return [d.name, x.ownerName, d.phone, x.altPhone, d.city, x.area, x.address, x.gstNo, d.creditTier ? d.creditTier.tier : '', d.kycCount,
+        d.outstanding, d.outstandingAll, d.creditLimit, d.creditDays, r.total ? r.label : '', r.total || '', r.total ? r.late : '', r.total ? r.avgLateDays : '',
+        lo ? dt((lo.timestamp || '').split(' ')[0]) : '', lo ? lo.qty : '', lo ? lo.amount : '', dt(x.dob), dt(x.anniversary), d.onboarding ? 'Haan' : '',
+        d.locationLat ? `${d.locationLat},${d.locationLng}` : '']; })],
+    `dealer-master-${stockTodayYmd()}.csv`);
+  showToast(`⬇ ${list.length} dealers ki CSV`);
+}
 function renderDealerGridResults() {
   const resultsEl = document.getElementById('dealerGridResults');
   if (!resultsEl) return; // dealers view isn't the one on screen (e.g. a stale timer/callback)
-  const q = o2dDealerSearchQ.trim().toLowerCase();
-  const filtered = o2dDealers.filter(d => (!q || [d.name, d.city, d.phone, d.details && d.details.ownerName, d.details && d.details.area].some(v => String(v || '').toLowerCase().includes(q)))
-    && (!o2dDealerOnbFilter || (o2dDealerOnbFilter === 'onb') === !!d.onboarding));
+  const filtered = dealerGridFiltered();
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / O2D_DEALER_PAGE_SIZE));
   if (o2dDealerPage > totalPages) o2dDealerPage = totalPages;
