@@ -14542,6 +14542,10 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Valid start and end dates required' });
     }
     const { sales, poCost, costFor, stockName, firstBill, lastBill } = await gpLoadData(start, end, { exGst: true });
+    // Vendor picked by hand for an item with no PO (client 2026-11-05, GP → Vendor: "yhi pe vendor select krne ka option").
+    await ensureGpItemVendors();
+    const [ivRows] = await db.query('SELECT item_key, vendor FROM gp_item_vendors');
+    const itemVendor = Object.fromEntries(ivRows.map(r => [r.item_key, r.vendor]));
 
     const round = v => Math.round(v * 100) / 100;
     // Vendor-wise: a sold line is shared among the vendors its item was bought
@@ -14550,13 +14554,13 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     // to the line's cost, so vendor GP totals match the overall GP.
     const NO_PO_VENDOR = 'No PO (vendor unknown)';
     const byVendor = {};
-    const addVendor = (vendor, s, share, cost) => {
+    const addVendor = (vendor, s, share, cost, manualVendor) => {
       const vk = vendor.toLowerCase();
       const v = byVendor[vk] = byVendor[vk] || { vendor, qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {} };
       const qty = s.qty * share, amount = s.amount * share;
       v.qty += qty; v.sales += amount;
       if (cost == null) v.uncostedSales += amount; else { v.costedSales += amount; v.cost += cost; }
-      const vi = v.items[s.item] = v.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: cost == null ? null : 0 };
+      const vi = v.items[s.item] = v.items[s.item] || { item: s.item, qty: 0, sales: 0, cost: cost == null ? null : 0, manualVendor: !!manualVendor };
       vi.qty += qty; vi.sales += amount; if (cost != null) vi.cost = (vi.cost || 0) + cost;
     };
     const byItem = {}, byParty = {}, byOrder = {}; // byOrder: Sales card → order-wise detail (2026-10-24)
@@ -14586,7 +14590,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       o.items.push({ item: s.item, qty: round(s.qty), rate: round(s.rate), sales: round(s.amount), cost: c ? round(cost) : null });
       const pc = poCost[s.code];
       const vendors = pc ? Object.values(pc.vendors) : [];
-      if (!vendors.length) addVendor(NO_PO_VENDOR, s, 1, c ? cost : null);
+      if (!vendors.length) { const mv = itemVendor[gpKey(s.item)]; addVendor(mv || NO_PO_VENDOR, s, 1, c ? cost : null, !!mv); }
       else vendors.forEach(v => {
         const share = v.qty / pc.qty;
         const rate = c && c.source === 'Manual' ? c.rate : v.last.rate;
@@ -14615,8 +14619,13 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
         costedSales: round(v.costedSales), cost: round(v.cost), uncostedSales: round(v.uncostedSales),
         gp: gp == null ? null : round(gp), gpPct: gp == null ? null : round(gp * 100 / v.costedSales),
         items: Object.values(v.items).map(i => ({ item: i.item, qty: round(i.qty), sales: round(i.sales), cost: i.cost == null ? null : round(i.cost),
-          gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales) };
+          gp: i.cost == null ? null : round(i.sales - i.cost), manualVendor: i.manualVendor })).sort((a, b) => b.sales - a.sales) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
+    // Vendor choices = every vendor on a Purchase FMS PO, plus any picked by hand.
+    const vcMap = new Map();
+    [...Object.values(poCost).flatMap(c => Object.values(c.vendors).map(v => v.vendor)), ...ivRows.map(r => r.vendor)]
+      .filter(v => v && v !== '—').forEach(v => { if (!vcMap.has(v.toLowerCase())) vcMap.set(v.toLowerCase(), v); }); // "Deep Industries" = "DEEP INDUSTRIES"
+    const vendorChoices = [...vcMap.values()].sort((a, b) => a.localeCompare(b));
     const orders = Object.values(byOrder).map(o => {
       // a ₹0 line with a known cost (free piece) still counts, so orders add up to the GP card
       const g = o.hasCost ? o.costedSales - o.cost : null;
@@ -14628,7 +14637,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       start, end, source: 'fms',
       totals: { sales: round(totals.sales), qty: round(totals.qty), costedSales: round(totals.costedSales), cost: round(totals.cost),
         uncostedSales: round(totals.uncostedSales), gp: round(gp), gpPct: totals.costedSales ? round(gp * 100 / totals.costedSales) : null, lines: totals.lines },
-      products, dealers, vendors: vendorRows, orders,
+      products, dealers, vendors: vendorRows, vendorChoices, orders,
       dataRange: { from: firstBill, to: lastBill },
       canEditCost: req.session.role === 'admin'
     });
@@ -14636,6 +14645,28 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D / Purchase FMS sheets with the service account.' });
     sendServerError(res, err);
   }
+});
+
+let _gpItemVendorsOk = false;
+async function ensureGpItemVendors() {
+  if (_gpItemVendorsOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS gp_item_vendors (item_key VARCHAR(191) PRIMARY KEY, item_name VARCHAR(255) NOT NULL, vendor VARCHAR(255) NOT NULL,
+    updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _gpItemVendorsOk = true;
+}
+// Admin: vendor of an item that has no PO (GP → Vendor). Empty = back to "No PO (vendor unknown)".
+// An item that later gets a PO uses the PO's vendor(s) again.
+app.put('/api/reports/item-vendor', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const name = String((req.body && req.body.itemName) || '').trim(), k = gpKey(name);
+    const vendor = String((req.body && req.body.vendor) || '').trim().replace(/\s+/g, ' ').slice(0, 255);
+    if (!k) return res.status(400).json({ error: 'Item name required' });
+    await ensureGpItemVendors();
+    if (!vendor) await db.query('DELETE FROM gp_item_vendors WHERE item_key=?', [k]);
+    else await db.query('INSERT INTO gp_item_vendors (item_key, item_name, vendor, updated_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), vendor=VALUES(vendor), updated_by=VALUES(updated_by)',
+      [k, name, vendor, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Admin: type / clear an item's cost rate — overrides the PO rate.

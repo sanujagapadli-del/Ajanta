@@ -29162,6 +29162,49 @@ function exportNetProfit() {
   a.click();
 }
 
+// Item name → every bill it was sold on in this range: dealer, bill, order, date, qty, rate, sales, cost, GP
+// (client 2026-11-05: "item ko clickable bnao so dekh sake ki order kiska tha"). From the loaded report.
+const gpItemLink = item => `<a href="#" onclick="event.stopPropagation();openGpItemDetail(this.dataset.item);return false" data-item="${esc(item)}"
+  style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px">${esc(item)}</a>`;
+function openGpItemDetail(item) {
+  const d = gpData || {};
+  const lines = [];
+  (d.dealers || []).forEach(p => (p.billList || []).forEach(b => b.items.forEach(x => {
+    if (x.item === item) lines.push({ party: p.party, billNo: b.billNo, orderNo: b.orderNo, date: b.date, ...x });
+  })));
+  lines.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const sum = k => lines.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+  const costed = lines.filter(x => x.cost != null);
+  const th = 'padding:7px 8px;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--gray-500);background:var(--gray-50);text-align:right;white-space:nowrap';
+  const td = 'padding:7px 8px;border-top:1px solid var(--gray-100);font-size:12.5px;text-align:right;white-space:nowrap';
+  vrlModal('gpItemModal', `${scotModalHead('gpItemModal', `📦 ${esc(item)}`)}
+    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${fmtDateDMY(d.start)} – ${fmtDateDMY(d.end)} · <b>${lines.length}</b> bill line · <b>${Math.round(sum('qty')).toLocaleString('en-IN')}</b> pcs · Sales <b>${gpInr(sum('sales'))}</b>${costed.length ? ` · GP <b>${gpInr(costed.reduce((a, x) => a + x.gp, 0))}</b>` : ''} <span style="color:var(--gray-400)">(bina GST)</span></div>
+    ${lines.length ? `<div style="overflow:auto;max-height:60dvh;border:1px solid var(--gray-200);border-radius:10px"><table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="${th};text-align:left">Dealer</th><th style="${th};text-align:left">Bill / Order</th><th style="${th}">Date</th><th style="${th}">Qty</th><th style="${th}">Rate</th><th style="${th}">Sales</th><th style="${th}">Cost</th><th style="${th}">GP</th></tr></thead>
+      <tbody>${lines.map(x => `<tr><td style="${td};text-align:left;white-space:normal;font-weight:600">${esc(x.party)}</td>
+        <td style="${td};text-align:left">${x.billNo ? `Bill ${esc(x.billNo)}` : '—'}<div style="font-size:11px;color:var(--gray-500)">${esc(x.orderNo || '')}</div></td>
+        <td style="${td}">${fmtDateDMY(x.date)}</td><td style="${td}">${x.qty}</td><td style="${td}">${gpInr(x.rate)}</td><td style="${td};font-weight:700">${gpInr(x.sales)}</td>
+        <td style="${td};color:var(--gray-600)">${gpInr(x.cost)}</td>
+        <td style="${td};font-weight:800;color:${x.gp == null ? 'var(--gray-300)' : x.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(x.gp)}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">Is range me ye item kisi bill me nahi mila</div>'}`, 820);
+}
+// GP → Vendor: pick the vendor of an item that has no PO (client 2026-11-05). Admin only (like cost).
+function gpVendorPick(it, p) {
+  const cur = p.noPo ? '' : p.vendor;
+  return `<div onclick="event.stopPropagation()" style="margin-top:4px"><select onchange="saveGpItemVendor(this, '${jsArg(it.item)}')" style="padding:5px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px;background:var(--surface);color:var(--gray-900);max-width:260px">
+    <option value="">${p.noPo ? '— Vendor chunein —' : '✕ Vendor hatao (No PO)'}</option>
+    ${(gpData.vendorChoices || []).map(v => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>${it.manualVendor ? ' <span style="font-size:10.5px;color:var(--gray-400)">haath se chuna</span>' : ''}</div>`;
+}
+async function saveGpItemVendor(sel, item) {
+  sel.disabled = true;
+  const r = await api('/api/reports/item-vendor', 'PUT', { itemName: item, vendor: sel.value });
+  sel.disabled = false;
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  showToast(sel.value ? `✅ ${item} → ${sel.value}` : `${item} → No PO`);
+  const keep = gpOpenDealer;
+  await loadGrossProfit();
+  gpOpenDealer = keep; renderGrossProfit();
+}
 async function loadGrossProfit() {
   const s = document.getElementById('gpStart'), e = document.getElementById('gpEnd');
   if (!s.value || !e.value) { const [a, b] = plMonthRange('month'); setDmyDate('gpStart', a); setDmyDate('gpEnd', b); } // client: open on this month
@@ -29255,7 +29298,7 @@ function renderGrossProfit() {
       <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Product</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Avg Sale Rate (ex GST)</th><th style="${th}">Cost Rate (ex GST)</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
       <tbody>${page.map((p, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}">
         <td style="${td};text-align:center">${rank(i)}</td>
-        <td style="${td};text-align:left;white-space:normal;min-width:220px"><b style="color:var(--gray-900)">${esc(p.item)}</b>${p.poName ? `<div style="font-size:10.5px;color:var(--gray-400)">cost from PO: ${esc(p.poName)}</div>` : ''}</td>
+        <td style="${td};text-align:left;white-space:normal;min-width:220px"><b style="color:var(--gray-900)">${gpItemLink(p.item)}</b>${p.poName ? `<div style="font-size:10.5px;color:var(--gray-400)">cost from PO: ${esc(p.poName)}</div>` : ''}</td>
         <td style="${td}">${p.qty.toLocaleString('en-IN')}</td>
         <td style="${td};font-weight:700">${gpInr(p.sales)}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.avgRate)}</td>
@@ -29284,7 +29327,7 @@ function renderGrossProfit() {
           <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
           <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>
           ${open && !vendorView && p.billList ? gpDealerBillRows(p, td) : open ? p.items.map(it => `<tr style="background:var(--gray-50)"><td style="${td}"></td>
-            <td style="${td};text-align:left;white-space:normal;padding-left:26px;color:var(--gray-700)">↳ ${esc(it.item)}</td><td style="${td}"></td>
+            <td style="${td};text-align:left;white-space:normal;padding-left:26px;color:var(--gray-700)">↳ ${gpItemLink(it.item)}${vendorView && d.canEditCost && (p.noPo || it.manualVendor) ? gpVendorPick(it, p) : ''}</td><td style="${td}"></td>
             <td style="${td}">${Math.round(it.qty).toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}</td>
             <td style="${td};font-weight:700;color:${it.gp == null ? 'var(--gray-300)' : it.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(it.gp)}</td>
             <td style="${td};text-align:center">${gpPctPill(it.gp == null || !it.sales ? null : Math.round(it.gp * 1000 / it.sales) / 10)}</td></tr>`).join('') : ''}`;
