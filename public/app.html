@@ -20892,6 +20892,18 @@ async function colShowMsg(key) {
   m.classList.add('open');
 }
 function colSetTab(t) { colTab = t; renderCollection(); }
+// Due date = bill date + payment days (client 2026-11-05: "one column due date"); earliest of the bills; red once past.
+function colDueOf(b) {
+  if (b.termDays == null || !b.billDate) return '';
+  const d = new Date(b.billDate + 'T00:00:00'); d.setDate(d.getDate() + b.termDays); return owsYmd(d);
+}
+function colDueCell(bills) {
+  const ds = bills.map(colDueOf).filter(Boolean).sort();
+  if (!ds.length) return '<span style="color:var(--gray-300)">—</span>';
+  const d = ds[0], today = owsYmd(new Date()), n = Math.round((new Date(today + 'T00:00:00') - new Date(d + 'T00:00:00')) / 86400000);
+  return `<span style="white-space:nowrap;font-weight:700;color:${n > 0 ? 'var(--color-danger)' : n === 0 ? 'var(--color-warning-text)' : 'var(--gray-700)'}">${esc(fmtDateDMY(d))}</span>
+    <div style="font-size:10.5px;color:${n > 0 ? 'var(--color-danger)' : 'var(--gray-500)'}">${n > 0 ? n + ' din late' : n === 0 ? 'aaj' : -n + ' din baaki'}</div>`;
+}
 // Payment days ("din ki baat") per bill — admin can change them (client 2026-11-05).
 function colTermChip(bills) {
   const ds = [...new Set(bills.map(b => b.termDays).filter(v => v != null))];
@@ -21042,16 +21054,16 @@ function renderCollection() {
     const allOpen = groups.length && groups.every(g => colAgeOpen.has(g.party.toLowerCase()));
     wrap.innerHTML = note + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:13px;font-weight:700">${colTerm != null ? `O2D me ${colTerm ? colTerm + ' din' : 'advance / cash'} ki baat wale bill (${list.filter(b => b.days > colTerm).length} time se upar)` : colAge ? `${colAge}+ din purane bill` : 'Saare baaki bill (total outstanding)'} — ${groups.length} parties · ${list.length} bill · ${inr(list.reduce((s, b) => s + b.amount, 0))}</div>
       ${groups.length ? `<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="colAgeToggleAll(${allOpen ? 0 : 1})">${allOpen ? '▴ Sab band karo' : '▾ Sab kholo'}</button>` : ''}</div>`
-      + (groups.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th style="text-align:center">Bills</th><th style="text-align:right">Amount</th><th>Sabse purana bill (din)</th><th style="text-align:right">Party total</th><th>Phone</th><th></th></tr></thead><tbody>
+      + (groups.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th style="text-align:center">Bills</th><th style="text-align:right">Amount</th><th>Sabse purana bill (din)</th><th>Due date</th><th style="text-align:right">Party total</th><th>Phone</th><th></th></tr></thead><tbody>
       ${groups.map(g => { const k = g.party.toLowerCase(), open = colAgeOpen.has(k);
         return `<tr onclick="if(!event.target.closest('a,button'))colAgeToggle('${o2dJsEsc(k)}')" style="cursor:pointer${open ? ';background:var(--color-primary-light)' : ''}" title="Click — is party ke bill dekho">
           <td><span style="display:inline-block;width:14px;color:var(--gray-500)">${open ? '▾' : '▸'}</span>${partyCell(g.first)}</td>
           <td style="text-align:center"><span class="status-badge">${g.bills.length} bill</span>${colTermChip(g.bills)}</td>
-          <td style="text-align:right;font-weight:800">${inr(g.total)}</td><td>${billAge(g.oldest)}</td>
+          <td style="text-align:right;font-weight:800">${inr(g.total)}</td><td>${billAge(g.oldest)}</td><td>${colDueCell(g.bills)}</td>
           <td style="text-align:right">${inr(colPartyOf(g.party).outstanding)}</td><td>${tel(g.first)}</td>
           <td style="white-space:nowrap"><button class="btn btn-sm btn-green" onclick="event.stopPropagation();colPay('${o2dJsEsc(g.party)}')" title="Payment aaya — Collection FMS me daalo">💰 Payment</button> <button class="btn btn-sm btn-outline" onclick="colOpenStatement('${o2dJsEsc(g.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`
           + (open ? g.bills.map(b => `<tr style="background:var(--surface-alt,#f8fafc)"><td style="padding-left:34px;color:var(--gray-600)">↳ Bill <b>${esc(b.billRef)}</b></td><td style="text-align:center">${colTermChip([b])}</td>
-            <td style="text-align:right;font-weight:700">${amt(b)}</td><td>${billAge(b)}</td><td></td><td></td><td></td></tr>`).join('') : ''); }).join('')}
+            <td style="text-align:right;font-weight:700">${amt(b)}</td><td>${billAge(b)}</td><td>${colDueCell([b])}</td><td></td><td></td><td></td></tr>`).join('') : ''); }).join('')}
       </tbody></table></div>` : '<div class="empty">Koi bill nahi</div>');
   } else if (colTab === 'calls') {
     wrap.innerHTML = note + (calls.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th>Bill</th><th style="text-align:right">Amount</th><th>Bill date (din)</th><th style="text-align:right">Party total</th><th>Kaunsa call</th><th>Phone</th><th></th></tr></thead><tbody>
