@@ -9274,13 +9274,7 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
         nextOrderIdCandidate = claimedId + 1;
         row[17] = `Order-${claimedId}`;
       }
-      await sheetsApi.spreadsheets.values.append({
-        spreadsheetId: O2D_SHEET_ID,
-        range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
-        valueInputOption: 'RAW',
-        insertDataOption: 'OVERWRITE',
-        requestBody: { values: cloneRows }
-      });
+      await o2dWriteRowsAtEnd(sheetsApi, cloneRows);
     }
   }
 
@@ -9293,6 +9287,37 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
 // from an existing row instead of asking for it again. Optionally resolves
 // a step (normally step 3 itself) in the same request, so "add items" and
 // "mark this step done" are one submit instead of two.
+// New O2D rows (Make Bill "+ Add Item", CRM "+ Add Order", pending-stock split) go into fully blank
+// rows below the last row holding ANYTHING (A:BM) — same as New Order. values.append() picked the
+// first blank A:R block instead: a row whose A:R had been cleared by hand but still held an old
+// order's step cells, or a gap the GP / OWS reports never reached (client 2026-11-05: "Make invoice
+// mai item add krne pe sheet mai entry nhi hoti … GP sheet kharab"). Returns the first row written.
+async function o2dWriteRowsAtEnd(sheetsApi, rows) {
+  if (!rows.length) return null;
+  const lockConn = await db.getConnection();
+  try {
+    const [[lk]] = await lockConn.query("SELECT GET_LOCK('o2d_new_order', 20) AS ok");
+    if (!lk || lk.ok !== 1) { const e = new Error('Abhi ek aur order save ho raha hai — 1 minute baad dobara try karein'); e.status = 503; throw e; }
+    const all = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:${O2D_LAST_COL}`, valueRenderOption: 'UNFORMATTED_VALUE' });
+    let lastUsed = O2D_DATA_START_ROW - 1;
+    (all.data.values || []).forEach((r, i) => { if (r.some(v => v !== '' && v != null)) lastUsed = O2D_DATA_START_ROW + i; });
+    const meta = await sheetsApi.spreadsheets.get({ spreadsheetId: O2D_SHEET_ID, fields: 'sheets.properties(sheetId,title,gridProperties.rowCount)' });
+    const tab = meta.data.sheets.find(t => t.properties.title === O2D_TAB);
+    const gridRows = tab.properties.gridProperties.rowCount;
+    if (lastUsed + rows.length > gridRows) {
+      await sheetsApi.spreadsheets.batchUpdate({ spreadsheetId: O2D_SHEET_ID, requestBody: { requests: [
+        { appendDimension: { sheetId: tab.properties.sheetId, dimension: 'ROWS', length: lastUsed + rows.length - gridRows + 200 } }] } });
+    }
+    await sheetsApi.spreadsheets.values.update({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${lastUsed + 1}:R${lastUsed + rows.length}`,
+      valueInputOption: 'RAW', requestBody: { values: rows } });
+    return lastUsed + 1;
+  } finally {
+    await lockConn.query("SELECT RELEASE_LOCK('o2d_new_order')").catch(() => {});
+    lockConn.release();
+  }
+}
+
 app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
   try {
     const { orderNo, products, alsoCompleteStep } = req.body;
@@ -9343,13 +9368,7 @@ app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
         p.isSample || 'No', orderNo, `Order-${newOrderIds[i]}`
       ]);
 
-      await sheetsApi.spreadsheets.values.append({
-        spreadsheetId: O2D_SHEET_ID,
-        range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
-        valueInputOption: 'RAW',
-        insertDataOption: 'OVERWRITE',
-        requestBody: { values: rows }
-      });
+      await o2dWriteRowsAtEnd(sheetsApi, rows);
       orderIds = rows.map(r => r[17]);
     }
 
@@ -9728,13 +9747,8 @@ app.put('/api/o2d-fms/order/:orderNo/items', requireAuth, async (req, res) => {
         rows.push([now, t[1] || '', t[2] || '', t[3] || '', t[4] || '', t[5] || '', t[6] || '', t[7] || 'No', t[8] || 'No', t[9] || '',
           t[10] || '', t[11] || '', String(p.productName).trim(), p.rate === '' || p.rate === undefined ? '' : num(p.rate), num(p.qty), 'No', orderNo, `Order-${id}`]);
       }
-      const app_ = await sheetsApi.spreadsheets.values.append({
-        spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:R`,
-        valueInputOption: 'RAW', insertDataOption: 'OVERWRITE', requestBody: { values: rows }
-      });
-      const m = String((app_.data.updates || {}).updatedRange || '').match(/![A-Z]+(\d+):/);
-      if (m) {
-        const first = parseInt(m[1], 10);
+      const first = await o2dWriteRowsAtEnd(sheetsApi, rows);
+      if (first) {
         const stepData = [];
         rows.forEach((_, i) => prior.forEach(s => {
           stepData.push({ range: `'${O2D_TAB}'!${s.actual}${first + i}`, values: [[now]] });
@@ -9745,6 +9759,7 @@ app.put('/api/o2d-fms/order/:orderNo/items', requireAuth, async (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
+    if (err.status === 503) return res.status(503).json({ error: err.message });
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
     sendServerError(res, err);
   }

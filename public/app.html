@@ -18101,6 +18101,14 @@ function readO2dField(f, orderNo) {
 // already have this step, so re-confirming after a new item's been added
 // (Add Order, step 3) doesn't re-timestamp lines that already finished it.
 async function advanceO2dStep(orderNo, step) {
+  // Make Bill: items typed in "Change Items" but not saved go to the sheet first.
+  if (step === 4 && document.getElementById(`o2dItemEditor_${orderNo}`)) {
+    const mdBtn = document.getElementById(`o2dMarkDoneBtn_${orderNo}`);
+    if (mdBtn) mdBtn.disabled = true;
+    const ok = await saveO2dItemEdits(orderNo, true);
+    if (mdBtn) mdBtn.disabled = false;
+    if (!ok) return;
+  }
   const o = o2dData.find(x => x.orderNo === orderNo);
   if (!o) { showToast('Order not found — please refresh', 'error'); return; }
   const stepDef = O2D_STEP_DEFS.find(d => d.n === step);
@@ -18731,10 +18739,14 @@ function o2dItemEditorHtml(o) {
       </div>
     </details>`;
 }
-async function saveO2dItemEdits(orderNo) {
+// flush = called from Make Bill "Mark Done": save what's typed in Change Items first, without
+// re-drawing the form (bill no. / amount / invoice already typed stay). Returns false on an error.
+// Before this, rows typed under "+ Add Item" but not "Save Items"-ed were lost on Mark Done
+// (client 2026-11-05: added items never reached the sheet → GP wrong).
+async function saveO2dItemEdits(orderNo, flush) {
   const o = o2dData.find(x => x.orderNo === orderNo);
   const box = document.getElementById(`o2dItemEditor_${orderNo}`);
-  if (!o || !box) return;
+  if (!o || !box) return true;
   const edits = [], adds = [];
   for (const r of box.querySelectorAll('.o2d-ie-row')) {
     const productName = r.querySelector('.ie-name').value.trim();
@@ -18742,23 +18754,24 @@ async function saveO2dItemEdits(orderNo) {
     const qty = r.querySelector('.ie-qty').value.trim();
     if (!r.dataset.row) {
       if (!productName && !qty) continue;
-      if (!productName || !(Number(qty) > 0)) { showToast('New item needs a product and qty', 'error'); return; }
+      if (!productName || !(Number(qty) > 0)) { showToast('New item needs a product and qty', 'error'); return false; }
       adds.push({ productName, rate, qty });
       continue;
     }
-    if (!productName || qty === '' || Number(qty) < 0) { showToast('Every item needs a product and qty (0 to drop it)', 'error'); return; }
+    if (!productName || qty === '' || Number(qty) < 0) { showToast('Every item needs a product and qty (0 to drop it)', 'error'); return false; }
     const p = (o.products || []).find(x => String(x.row) === r.dataset.row);
     if (p && (p.productName !== productName || String(p.rate) !== rate || String(p.qty) !== qty)) edits.push({ row: p.row, productName, rate, qty });
   }
-  if (!edits.length && !adds.length) { showToast('Kuch change nahi kiya'); return; }
+  if (!edits.length && !adds.length) { if (!flush) showToast('Kuch change nahi kiya'); return true; }
   const btn = document.getElementById(`o2dItemSaveBtn_${orderNo}`);
   const restore = btn ? btnLoading(btn, 'Saving…') : () => {};
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/items`, 'PUT', { edits, adds });
   restore();
-  if (res.error) { showToast(res.error, 'error'); return; }
+  if (res.error) { showToast(res.error, 'error'); return false; }
   const fresh = await api('/api/o2d-fms');
   if (Array.isArray(fresh)) { o2dData = fresh; window._lastO2dData = fresh; }
-  showToast('✅ Items updated');
+  showToast(`✅ Items updated${adds.length ? ` — ${adds.length} naya item sheet me` : ''}`);
+  if (flush) { box.querySelectorAll('.o2d-ie-row:not([data-row])').forEach(r => r.remove()); return true; }
   const updated = o2dData.find(x => x.orderNo === orderNo);
   if (updated) renderO2dDetailBody(updated);
 }
