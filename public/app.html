@@ -8213,17 +8213,20 @@ function renderSalesmanPl() {
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       ${card('Sales (billed)', plInr(tot('sales')), `${tot('orders')} orders`, 'var(--gray-900)')}
       ${card('Gross Profit', plInr(tot('gp')), `sales − maal ki laagat${costed > 0 ? ` · ${Math.round(tot('gp') * 1000 / costed) / 10}%` : ''}`, color(tot('gp')))}
-      ${full && prof.length ? card('Kharcha', plInr(tot('expense')), `salary ${plInr(tot('salary'))} · petrol ${plInr(tot('petrol'))} · tour ${plInr(tot('tour'))}${tot('misc') ? ` · misc ${plInr(tot('misc'))}` : ''}`, 'var(--gray-700)') : ''}
-      ${full && prof.length ? card('Net Profit', plInr(tot('net')), 'GP − salary − petrol − tour − misc', color(tot('net'))) : ''}
+      ${full && d.rows.some(r => r.expense != null) ? card('Kharcha', plInr(tot('expense')), `salary ${plInr(tot('salary'))} · petrol ${plInr(tot('petrol'))} · tour ${plInr(tot('tour'))}${tot('misc') ? ` · misc ${plInr(tot('misc'))}` : ''}`, 'var(--gray-700)') : ''}
+      ${full && d.rows.some(r => r.expense != null) ? card('Net Profit', plInr(tot('net')), 'GP − salary − petrol − tour − misc', color(tot('net'))) : ''}
     </div>
     <div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:0">
       <thead><tr><th style="${th};text-align:left">Salesman</th>${full ? `<th style="${th}">Din</th>` : ''}<th style="${th}">Sales</th><th style="${th}">Gross Profit</th>${full ? `<th style="${th}">Salary</th><th style="${th}">Petrol</th><th style="${th}">Tour</th><th style="${th}">Misc</th><th style="${th}">Kul Kharcha</th><th style="${th}">Net Profit</th>` : ''}</tr></thead>
       <tbody>${d.rows.map(r => `<tr>
-        <td style="${td};text-align:left"><b style="color:var(--gray-900)">${esc(r.name)}</b>${r.noProfile ? sub(full ? 'O2D Order By · salary set nahi' : 'O2D Order By') : sub(`O2D: ${esc(r.o2dNames || '— (Order By naam set nahi)')}`)}</td>
+        <td style="${td};text-align:left"><b style="color:var(--gray-900)">${esc(r.name)}</b>${r.noProfile ? sub(r.userId ? `O2D: ${esc(r.o2dNames || '— (koi order nahi)')}${full ? ' · salary set nahi' : ''}` : full ? 'O2D Order By · user nahi mila' : 'O2D Order By') : sub(`O2D: ${esc(r.o2dNames || '— (Order By naam set nahi)')}`)}</td>
         ${!full ? '' : r.noProfile ? `<td style="${td}">${dash}</td>` : `<td style="${td}">${r.present}/${r.days}${sub(`${r.offDays} off · ${r.leaveDays} leave · <span style="color:${r.absent ? 'var(--color-danger)' : 'inherit'}">${r.absent} absent</span>`)}</td>`}
         <td style="${td};font-weight:700">${plInr(r.sales)}${sub(`${r.orders} orders${r.uncostedSales ? ` · ${plInr(r.uncostedSales)} bina laagat` : ''}`)}</td>
         <td style="${td};font-weight:700;color:${color(r.gp)}">${plInr(r.gp)}${sub(r.gpPct == null ? '' : r.gpPct + '%')}</td>
-        ${!full ? '' : r.noProfile ? `<td style="${td}">${dash}</td>`.repeat(3) + `<td style="${td}">${plMiscCell(r)}</td><td style="${td};font-weight:700">${r.expense ? plInr(r.expense) : dash}</td><td style="${td};font-weight:900;font-size:14px;color:${r.net == null ? 'inherit' : color(r.net)}">${r.net == null ? dash : plInr(r.net)}</td>` : `
+        ${!full ? '' : r.noProfile ? `<td style="${td}">${dash}${sub('set nahi')}</td>`
+          + `<td style="${td}">${r.petrol == null ? dash : plInr(r.petrol) + sub(`${(r.km || 0).toLocaleString('en-IN')} km × ₹${r.kmRate}`)}</td>`
+          + `<td style="${td}">${r.tour == null ? dash : plInr(r.tour) + (r.tourPendingCount ? sub(`<span style="color:var(--color-warning-text)">+${plInr(r.tourPending)} pending</span>`) : '')}</td>`
+          + `<td style="${td}">${plMiscCell(r)}</td><td style="${td};font-weight:700">${r.expense ? plInr(r.expense) : dash}</td><td style="${td};font-weight:900;font-size:14px;color:${r.net == null ? 'inherit' : color(r.net)}">${r.net == null ? dash : plInr(r.net)}</td>` : `
         <td style="${td}">${plInr(r.salary)}${sub(r.monthlySalary != null ? `${plInr(r.monthlySalary)}/mahina` : 'set nahi')}</td>
         <td style="${td}">${plInr(r.petrol)}${sub(`${r.km.toLocaleString('en-IN')} km × ₹${r.kmRate}`)}</td>
         <td style="${td}">${plInr(r.tour)}${r.tourPendingCount ? sub(`<span style="color:var(--color-warning-text)">+${plInr(r.tourPending)} pending</span>`) : ''}</td>

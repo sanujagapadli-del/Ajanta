@@ -15003,8 +15003,8 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   const [[att], [leaves], [kms], [tours], hol] = await withAttendanceTables(() => Promise.all([
     db.query("SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d FROM attendance WHERE time_in IS NOT NULL AND date BETWEEN ? AND ? AND user_id IN (?)", [start, end, ids]),
     db.query("SELECT user_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS s, DATE_FORMAT(end_date,'%Y-%m-%d') AS e FROM leave_requests WHERE status='approved' AND end_date>=? AND start_date<=? AND user_id IN (?)", [start, end, ids]),
-    db.query('SELECT user_id, SUM(GREATEST(evening_km - morning_km, 0)) AS km, COUNT(evening_km) AS days FROM daily_km WHERE date BETWEEN ? AND ? AND morning_km IS NOT NULL AND evening_km IS NOT NULL AND user_id IN (?) GROUP BY user_id', [start, end, ids]),
-    db.query("SELECT user_id, status, SUM(total) AS amt, COUNT(*) AS n FROM tour_expenses WHERE tour_date BETWEEN ? AND ? AND user_id IN (?) GROUP BY user_id, status", [start, end, ids]),
+    db.query('SELECT user_id, SUM(GREATEST(evening_km - morning_km, 0)) AS km, COUNT(evening_km) AS days FROM daily_km WHERE date BETWEEN ? AND ? AND morning_km IS NOT NULL AND evening_km IS NOT NULL' + (onlyUserId ? ' AND user_id IN (?)' : '') + ' GROUP BY user_id', onlyUserId ? [start, end, ids] : [start, end]),
+    db.query("SELECT user_id, status, SUM(total) AS amt, COUNT(*) AS n FROM tour_expenses WHERE tour_date BETWEEN ? AND ?" + (onlyUserId ? ' AND user_id IN (?)' : '') + " GROUP BY user_id, status", onlyUserId ? [start, end, ids] : [start, end]),
     db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [start, end]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; })
   ]));
   const ctx = { present: new Set(att.map(a => `${a.user_id}|${a.d}`)), holidays: new Set((hol[0] || []).map(h => h.d)), leaves: {} };
@@ -15060,14 +15060,48 @@ async function buildSalesmanPl(start, end, onlyUserId) {
       expense: plRound(expense), net: plRound(net), netPct: so.sales ? plRound(net * 100 / so.sales) : null
     };
   });
-  if (!onlyUserId) Object.values(unassigned).forEach(so => {
-    const gp = so.costedSales - so.cost, name = so.name;
-    const mk = `n:${String(name).trim().toLowerCase()}`, misc = miscBy[mk] || 0;
-    rows.push({ userId: null, noProfile: true, name, o2dNames: name, orders: so.orders.size, qty: plRound(so.qty),
-      sales: plRound(so.sales), uncostedSales: plRound(so.uncostedSales), gp: plRound(gp),
-      gpPct: so.costedSales ? plRound(gp * 100 / so.costedSales) : null,
-      misc: plRound(misc), miscKey: mk, expense: misc ? plRound(misc) : null, net: misc ? plRound(gp - misc) : null });
-  });
+  // O2D "Order By" names without a salary profile: matched to their user (same resolver as MECA — Giridhari →
+  // Girdhar ji) so petrol (KM × rate) and tour still count (client 2026-11-05: "petrol and tour exp to aana chahiye").
+  // Salespeople with KM / tour but no sale in the range get a row too. Salary stays "set nahi".
+  if (!onlyUserId) {
+    const resolve = await mecaOrderByResolver().catch(() => (n => 'o2d:' + n));
+    const profIds = new Set(profiles.map(p => p.id));
+    const byUser = {};
+    const blank = () => ({ sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0, o2d: [] });
+    Object.values(unassigned).forEach(so => {
+      const uid = resolve(so.name);
+      const k = typeof uid === 'number' && !profIds.has(uid) ? uid : 'n:' + plNameKey(so.name);
+      const x = byUser[k] = byUser[k] || Object.assign(blank(), { name: so.name, uid: typeof k === 'number' ? k : null });
+      x.sales += so.sales; x.costedSales += so.costedSales; x.cost += so.cost; x.uncostedSales += so.uncostedSales; x.qty += so.qty;
+      so.orders.forEach(o => x.orders.add(o)); x.o2d.push(so.name);
+    });
+    const costIds = [...new Set(Object.keys(kmBy).concat(Object.keys(tourBy)).map(Number))];
+    const [deps] = costIds.length ? await db.query('SELECT id, department FROM users WHERE id IN (?)', [costIds]) : [[]];
+    const salesDept = new Set(deps.filter(u => /^sales/i.test(String(u.department || '').trim())).map(u => u.id)); // mechanics / drivers' KM is not salesman cost
+    costIds.forEach(uid => {
+      if (!salesDept.has(uid) || profIds.has(uid) || byUser[uid] || !((kmBy[uid] && kmBy[uid].km > 0) || (tourBy[uid] && (tourBy[uid].approved > 0 || tourBy[uid].pending > 0)))) return;
+      byUser[uid] = Object.assign(blank(), { uid });
+    });
+    const uids = Object.values(byUser).map(x => x.uid).filter(Boolean);
+    const [un] = uids.length ? await db.query('SELECT id, name FROM users WHERE id IN (?)', [uids]) : [[]];
+    const uName = Object.fromEntries(un.map(u => [u.id, u.name]));
+    Object.values(byUser).forEach(x => {
+      const gp = x.costedSales - x.cost;
+      const km = x.uid ? (kmBy[x.uid] || { km: 0, days: 0 }) : null;
+      const tour = x.uid ? (tourBy[x.uid] || { approved: 0, pending: 0, pendingCount: 0 }) : null;
+      const petrol = km ? plRound(km.km * kmRate) : null;
+      const mk = x.uid ? `u:${x.uid}` : `n:${String(x.name).trim().toLowerCase()}`, misc = (miscBy[mk] || 0) + (x.uid ? x.o2d.reduce((a, n) => a + (miscBy[`n:${String(n).trim().toLowerCase()}`] || 0), 0) : 0);
+      const expense = (petrol || 0) + (tour ? tour.approved : 0) + misc;
+      const has = x.uid || misc;
+      rows.push({ userId: x.uid, noProfile: true, name: x.uid ? uName[x.uid] || x.name : x.name, o2dNames: x.o2d.join(', '),
+        orders: x.orders.size, qty: plRound(x.qty), sales: plRound(x.sales), uncostedSales: plRound(x.uncostedSales), gp: plRound(gp),
+        gpPct: x.costedSales ? plRound(gp * 100 / x.costedSales) : null,
+        km: km ? plRound(km.km) : null, kmDays: km ? km.days : null, kmRate, petrol, tour: tour ? plRound(tour.approved) : null,
+        tourPending: tour ? plRound(tour.pending) : 0, tourPendingCount: tour ? tour.pendingCount : 0,
+        misc: plRound(misc), miscKey: mk, expense: has ? plRound(expense) : null, net: has ? plRound(gp - expense) : null,
+        netPct: has && x.sales ? plRound((gp - expense) * 100 / x.sales) : null });
+    });
+  }
   rows.sort((a, b) => b.gp - a.gp);
   return { rows, today, salaryFrom };
 }
