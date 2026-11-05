@@ -2390,8 +2390,12 @@ app.delete('/api/attendance/:id', requireAuth, requireAdmin, async (req, res) =>
 // One send per slot per day — claimed atomically in app_settings so a
 // duplicate cron hit / two instances can't post twice.
 const ATTENDANCE_ALERT_SLOTS = { morning: 11, evening: 20 }; // IST hour
+// Client 2026-11-05: "Attendance and KM msg need to remove" — the 11 AM / 8 PM team-group
+// WhatsApp (not punched in / out, KM not entered) is switched off. Set to true to bring it back.
+const ATTENDANCE_ALERT_ON = false;
 async function runAttendanceAbsentAlert(slot, { force = false } = {}) {
   if (!ATTENDANCE_ALERT_SLOTS[slot]) throw new Error('Unknown slot');
+  if (!ATTENDANCE_ALERT_ON) return { skipped: 'Attendance / KM WhatsApp alert is off (client 2026-11-05)' };
   const [[clock]] = await db.query(
     "SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d, DAYOFWEEK(CURDATE())-1 AS dow, DAYOFMONTH(CURDATE()) AS dom"
   );
