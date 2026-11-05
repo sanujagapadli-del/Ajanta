@@ -10616,7 +10616,10 @@ let taEmpSort = 'pending';
 // own row, or anyone's for admin / PC / HOD (dept).
 let taCommit = null; // { last, next, map: { week: { empId: pct } } }
 async function misLoadCommits() {
-  const last = misPeriodRange('lastweek')[0];
+  // "Last week committed" = what was typed in last week's "Next week commit" box, i.e. the
+  // commitment FOR this week (client 2026-11-05: "last week jo dala hai vo last week committed
+  // mai aana chahiye"). Before this it read the week before last, so last week's entry never showed.
+  const last = misPeriodRange('thisweek')[0];
   const nx = new Date(); nx.setDate(nx.getDate() - ((nx.getDay() + 6) % 7) + 7);
   const next = owsYmd(nx);
   const r = await api(`/api/mis/commitments?weeks=${last},${next}`);
@@ -10657,9 +10660,10 @@ function taCommitFoot(metric, actual, color) {
   }
   const next = of(cm.next, key);
   const canEdit = emp ? misCanCommit(emp) : ['admin', 'pc', 'hod'].includes(ME.role);
-  // Report = exactly last week → met when the actual is no worse than committed (higher is better
+  // Report = the committed week → met when the actual is no worse than committed (higher is better
   // for every box: 90 ≥ 85 done, -8 ≥ -10 not done).
-  const isLastWeek = cm.last && document.getElementById('misStart').value === cm.last && document.getElementById('misEnd').value === misPeriodRange('lastweek')[1];
+  // ✓/✗ only when the report is this week (the week that commitment was for).
+  const isLastWeek = cm.last && document.getElementById('misStart').value === cm.last;
   const shortOf = actual == null ? null : MIS_COMMIT_POS_BOX[metric] ? Math.round((actual - 100) * 10) / 10 : actual;
   const met = isLastWeek && last != null && shortOf != null ? shortOf >= last : null;
   const badge = met === null ? '' : `<span style="margin-left:6px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:800;background:${met ? 'var(--color-success-bg)' : 'var(--color-danger-bg)'};color:${met ? 'var(--color-success-text)' : 'var(--color-danger-text)'}">${met ? '✓ Hua' : '✗ Nahi'}</span>`;
