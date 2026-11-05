@@ -19062,6 +19062,10 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
       const uName = Object.fromEntries(us.map(u => [u.id, u.name]));
       open.forEach(b => { const l = lastBy[b.party.trim().toLowerCase()]; if (!l) return; const uid = resolve(l.by);
         b.salesman = typeof uid === 'number' ? (uName[uid] || l.by) : String(l.by).trim(); });
+      // O2D payment terms of the bill ("7 days ki baat", client 2026-11-05) — the O2D order with this bill no.
+      const termsBy = {};
+      orders.forEach(o => { const bn = String(o.billNo || '').trim(); if (bn && o.paymentTerms != null && String(o.paymentTerms).trim()) termsBy[bn] = String(o.paymentTerms).trim(); });
+      open.forEach(b => { const t = termsBy[String(b.billRef || '').trim()]; if (!t) return; b.o2dTerms = t; b.termDays = parseCreditDays(t); });
     } catch (e) { console.error('collection salesman:', e.message); }
     const partyList = Object.entries(parties).filter(([k]) => keys.has(k)).map(([k, p]) => ({ key: k, ...p }));
     res.json({ lastSynced, steps: COLLECT_STEPS, bills: open.map(b => ({ ...b, acts: actOf[b.key] || {} })),

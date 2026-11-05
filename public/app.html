@@ -20918,7 +20918,11 @@ function colFilterBar() {
   </div>`;
 }
 let colAge = 45;
-function colShowAge(n) { colAge = n; colTab = 'age'; renderCollection(); }
+function colShowAge(n) { colAge = n; colTerm = null; colTab = 'age'; renderCollection(); }
+// O2D payment terms (client 2026-11-05: "o2d se connected 7 days ki baat wale konse bill pending — 15, 30, 90 aise"):
+// bills whose O2D order promised N days; overdue = older than that.
+let colTerm = null;
+function colShowTerm(n) { colTerm = n; colTab = 'age'; renderCollection(); }
 // Parties opened in the N+ din view (kept while switching buckets).
 const colAgeOpen = new Set();
 function colAgeToggle(k) { colAgeOpen.has(k) ? colAgeOpen.delete(k) : colAgeOpen.add(k); renderCollection(); }
@@ -20975,8 +20979,13 @@ function renderCollection() {
   const ageSum = n => colData.bills.filter(b => b.days >= n).reduce((a, b) => a + Math.max(b.amount, 0), 0);
   const ageCnt = n => colData.bills.filter(b => b.days >= n && b.amount > 0).length;
   const card = (l, v, c, click, on) => `<div ${click ? `onclick="${click}" title="Click — ye bill dekho"` : ''} style="background:${on ? 'var(--color-primary-light)' : 'var(--surface)'};border:1.5px solid ${on ? 'var(--color-primary)' : 'var(--gray-200)'};border-radius:10px;padding:8px 14px;min-width:140px${click ? ';cursor:pointer' : ''}"><div style="font-size:11px;color:var(--gray-500);font-weight:600;white-space:nowrap">${l}</div><div style="font-size:17px;font-weight:800;color:${c || 'var(--gray-800)'}">${v}</div></div>`;
-  const ageCard = (n, c) => card(`${n}+ din wale bill (${ageCnt(n)})`, inr(ageSum(n)), c, `colShowAge(${n})`, colTab === 'age' && colAge === n);
-  const note = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${card('💰 Total outstanding', inr(colF.q || colF.sm || colF.days || colF.amt ? colData.bills.reduce((a, b) => a + Math.max(b.amount, 0), 0) : (colData.totalOutstanding || 0)), 'var(--color-primary)', 'colShowAge(0)', colTab === 'age' && colAge === 0)}${card(`${parties.length} parties`, '', '', "colSetTab('parties')")}${ageCard(15, 'var(--color-warning-text)')}${ageCard(30, 'var(--color-danger)')}${ageCard(45, 'var(--color-danger)')}${ageCard(60, 'var(--color-danger)')}${ageCard(75, 'var(--color-danger)')}${ageCard(90, '#7f1d1d')}</div>
+  const ageCard = (n, c) => card(`${n}+ din wale bill (${ageCnt(n)})`, inr(ageSum(n)), c, `colShowAge(${n})`, colTab === 'age' && colAge === n && colTerm == null);
+  // O2D terms row: per agreed days, how many of those bills are past the promise (and their ₹).
+  const termVals = [...new Set(colData.bills.filter(b => b.termDays != null && b.amount > 0).map(b => b.termDays))].sort((a, b) => a - b);
+  const termCard = n => { const l = colData.bills.filter(b => b.termDays === n && b.amount > 0), late = l.filter(b => b.days > n);
+    return card(`${n ? n + ' din' : 'Advance / cash'} ki baat · ${late.length}/${l.length} late`, inr(late.reduce((a, b) => a + b.amount, 0)), late.length ? 'var(--color-danger)' : 'var(--color-success-text)', `colShowTerm(${n})`, colTab === 'age' && colTerm === n); };
+  const termRow = termVals.length ? `<div style="font-size:11.5px;font-weight:800;color:var(--gray-500);text-transform:uppercase;margin:2px 0 6px">O2D me jo payment din ki baat hui — kitne bill time se upar</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${termVals.map(termCard).join('')}</div>` : '';
+  const note = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${card('💰 Total outstanding', inr(colF.q || colF.sm || colF.days || colF.amt ? colData.bills.reduce((a, b) => a + Math.max(b.amount, 0), 0) : (colData.totalOutstanding || 0)), 'var(--color-primary)', 'colShowAge(0)', colTab === 'age' && colAge === 0 && colTerm == null)}${card(`${parties.length} parties`, '', '', "colSetTab('parties')")}${ageCard(15, 'var(--color-warning-text)')}${ageCard(30, 'var(--color-danger)')}${ageCard(45, 'var(--color-danger)')}${ageCard(60, 'var(--color-danger)')}${ageCard(75, 'var(--color-danger)')}${ageCard(90, '#7f1d1d')}</div>${termRow}
     <div style="font-size:12px;color:${stale != null && stale >= 2 ? 'var(--color-danger)' : 'var(--gray-500)'};margin-bottom:10px">Tally se baaki bill — last sync ${synced ? esc(fmtDateDMY(o2dReportsFmtDate(synced))) : '—'}${stale != null && stale >= 2 ? ` · ⚠️ <b>${stale} din purana</b> — Tally PC par sync check karein. Jab tak sync nahi hota, WhatsApp reminder apne aap nahi jayenge (paid dealers ko galat message na jaye).` : ''}. Amount = party ka Tally ledger balance (on-account payment purane bill se kat jaata hai). Party ke naam par click karke payment / phone daalein.</div>`;
   const wrap = document.getElementById('colWrap');
   const day = n => `<b style="color:${n >= 30 ? 'var(--color-danger)' : n >= 25 ? 'var(--color-warning-text)' : 'var(--gray-800)'}">${n} din</b>`;
@@ -20989,13 +20998,13 @@ function renderCollection() {
   if (colTab === 'age') {
     // One row per party, click → its bills (client 2026-10-29: "party ke naam se aaye, click
     // karein to uske bill dikhai dein" — in every N+ din view).
-    const list = colData.bills.filter(b => b.days >= colAge && b.amount > 0);
+    const list = colTerm != null ? colData.bills.filter(b => b.termDays === colTerm && b.amount > 0) : colData.bills.filter(b => b.days >= colAge && b.amount > 0);
     const byParty = new Map();
     list.forEach(b => { const k = b.party.toLowerCase(); if (!byParty.has(k)) byParty.set(k, { party: b.party, first: b, bills: [] }); byParty.get(k).bills.push(b); });
     const groups = [...byParty.values()].map(g => { g.bills.sort((x, y) => y.days - x.days); g.oldest = g.bills[0]; g.total = g.bills.reduce((s, b) => s + b.amount, 0); return g; })
-      .sort((x, y) => y.oldest.days - x.oldest.days || y.total - x.total);
+      .sort((x, y) => x.oldest.days - y.oldest.days || y.total - x.total); // ascending — naye pehle (client 2026-11-05)
     const allOpen = groups.length && groups.every(g => colAgeOpen.has(g.party.toLowerCase()));
-    wrap.innerHTML = note + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:13px;font-weight:700">${colAge ? `${colAge}+ din purane bill` : 'Saare baaki bill (total outstanding)'} — ${groups.length} parties · ${list.length} bill · ${inr(list.reduce((s, b) => s + b.amount, 0))}</div>
+    wrap.innerHTML = note + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:13px;font-weight:700">${colTerm != null ? `O2D me ${colTerm ? colTerm + ' din' : 'advance / cash'} ki baat wale bill (${list.filter(b => b.days > colTerm).length} time se upar)` : colAge ? `${colAge}+ din purane bill` : 'Saare baaki bill (total outstanding)'} — ${groups.length} parties · ${list.length} bill · ${inr(list.reduce((s, b) => s + b.amount, 0))}</div>
       ${groups.length ? `<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="colAgeToggleAll(${allOpen ? 0 : 1})">${allOpen ? '▴ Sab band karo' : '▾ Sab kholo'}</button>` : ''}</div>`
       + (groups.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Party</th><th style="text-align:center">Bills</th><th style="text-align:right">Amount</th><th>Sabse purana bill (din)</th><th style="text-align:right">Party total</th><th>Phone</th><th></th></tr></thead><tbody>
       ${groups.map(g => { const k = g.party.toLowerCase(), open = colAgeOpen.has(k);
