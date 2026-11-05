@@ -19053,6 +19053,16 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
     // the tabs pick their own day ranges.
     const open = bills.filter(b => b.amount > 0);
     const keys = new Set(open.map(b => b.party.toLowerCase()));
+    // Salesman of each party = its latest O2D "Order By", matched to a user like MECA (Payment Follow-up filter, client 2026-11-05).
+    try {
+      const [orders, resolve] = await Promise.all([getO2dOrders(), mecaOrderByResolver()]);
+      const lastBy = {};
+      orders.forEach(o => { const k = String(o.counterName || '').trim().toLowerCase(); if (k && o.orderBy && (!lastBy[k] || String(o.timestamp) > lastBy[k].t)) lastBy[k] = { t: String(o.timestamp), by: o.orderBy }; });
+      const [us] = await db.query('SELECT id, name FROM users');
+      const uName = Object.fromEntries(us.map(u => [u.id, u.name]));
+      open.forEach(b => { const l = lastBy[b.party.trim().toLowerCase()]; if (!l) return; const uid = resolve(l.by);
+        b.salesman = typeof uid === 'number' ? (uName[uid] || l.by) : String(l.by).trim(); });
+    } catch (e) { console.error('collection salesman:', e.message); }
     const partyList = Object.entries(parties).filter(([k]) => keys.has(k)).map(([k, p]) => ({ key: k, ...p }));
     res.json({ lastSynced, steps: COLLECT_STEPS, bills: open.map(b => ({ ...b, acts: actOf[b.key] || {} })),
       parties: Object.fromEntries(partyList.map(p => [p.key, { outstanding: p.outstanding, ledger: p.ledger, appPaid: p.appPaid }])),

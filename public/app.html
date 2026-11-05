@@ -20866,6 +20866,7 @@ async function loadCollection(refreshDues) {
   const [r, d] = await Promise.all([api('/api/collection-followup').catch(e => ({ error: e.message || 'Load failed' })),
     api('/api/delivery-dues' + (refreshDues ? '?refresh=1' : '')).catch(e => ({ error: e.message || 'Load failed' }))]);
   colData = r && !r.error ? r : null; colErr = r && r.error ? r.error : '';
+  if (colData) { colData.allBills = colData.bills; colApplyFilter(true); }
   ddData = d && !d.error ? d : null; ddErr = d && d.error ? d.error : '';
   if (!colData && ddData && colTab !== 'dues') colTab = 'dues';
   renderCollection();
@@ -20891,6 +20892,31 @@ async function colShowMsg(key) {
   m.classList.add('open');
 }
 function colSetTab(t) { colTab = t; renderCollection(); }
+// Filters (client 2026-11-05: "Payment Follow-up mai filter missing hai") — search, salesman, bill age, amount.
+// They narrow colData.bills, so every tab, the total cards and the party list follow.
+let colF = { q: '', sm: '', days: '', amt: '' };
+const COL_DAYS = { '': 'Sab din', '0-15': '0–15 din', '16-30': '16–30 din', '31-45': '31–45 din', '46-60': '46–60 din', '61-99999': '60+ din' };
+const COL_AMT = { '': 'Koi bhi amount', '10000': '₹10,000+', '50000': '₹50,000+', '100000': '₹1 lakh+' };
+function colApplyFilter(silent) {
+  if (!colData || !colData.allBills) return;
+  const q = colF.q.trim().toLowerCase(), [d1, d2] = colF.days ? colF.days.split('-').map(Number) : [null, null];
+  colData.bills = colData.allBills.filter(b => (!q || [b.party, b.billRef, b.phone, b.owner, b.salesman].some(v => String(v || '').toLowerCase().includes(q)))
+    && (!colF.sm || (colF.sm === '—' ? !b.salesman : b.salesman === colF.sm))
+    && (d1 == null || (b.days >= d1 && b.days <= d2)) && (!colF.amt || b.amount >= Number(colF.amt)));
+  if (!silent) renderCollection();
+}
+function colFilterBar() {
+  const sms = [...new Set(colData.allBills.map(b => b.salesman).filter(Boolean))].sort();
+  const sel = 'padding:7px 10px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:12.5px;background:var(--surface);color:var(--gray-800)';
+  const on = colF.q || colF.sm || colF.days || colF.amt;
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;width:100%;margin-top:8px">
+    <input id="colQ" type="search" placeholder="🔍 Party / bill / phone" value="${esc(colF.q)}" oninput="colF.q=this.value;clearTimeout(window._colQt);window._colQt=setTimeout(()=>{colApplyFilter();const i=document.getElementById('colQ');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},250)" style="${sel};flex:1 1 180px;min-width:160px"/>
+    <select onchange="colF.sm=this.value;colApplyFilter()" style="${sel}"><option value="">Sab salesman</option>${sms.map(s => `<option ${colF.sm === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}<option value="—" ${colF.sm === '—' ? 'selected' : ''}>Salesman nahi pata</option></select>
+    <select onchange="colF.days=this.value;colApplyFilter()" style="${sel}">${Object.entries(COL_DAYS).map(([k, l]) => `<option value="${k}" ${colF.days === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <select onchange="colF.amt=this.value;colApplyFilter()" style="${sel}">${Object.entries(COL_AMT).map(([k, l]) => `<option value="${k}" ${colF.amt === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    ${on ? `<button class="btn btn-outline btn-sm" onclick="colF={q:'',sm:'',days:'',amt:''};colApplyFilter()">✕ Filter hatao</button><span style="font-size:12px;color:var(--color-primary);font-weight:700">${colData.bills.length} / ${colData.allBills.length} bill</span>` : ''}
+  </div>`;
+}
 let colAge = 45;
 function colShowAge(n) { colAge = n; colTab = 'age'; renderCollection(); }
 // Parties opened in the N+ din view (kept while switching buckets).
@@ -20941,7 +20967,7 @@ function renderCollection() {
   colData.bills.forEach(b => ['call25', 'call30'].forEach(step => { if (b.acts[step]) done.push({ b, step, a: b.acts[step] }); }));
   done.sort((x, y) => String(y.a.at).localeCompare(String(x.a.at)));
   const parties = colParties();
-  document.getElementById('colTabs').innerHTML = tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`) + tab('parties', `👥 Parties (${parties.length})`) + ddTab;
+  document.getElementById('colTabs').innerHTML = colFilterBar() + tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`) + tab('parties', `👥 Parties (${parties.length})`) + ddTab;
   if (colTab === 'dues') return renderDeliveryDues();
   const synced = colData.lastSynced ? new Date(colData.lastSynced) : null;
   const stale = synced ? Math.floor((Date.now() - synced.getTime()) / 86400000) : null;
@@ -20957,7 +20983,7 @@ function renderCollection() {
   // "Bill ko" → bill date with the days in brackets (client list 10-21 #3).
   const billAge = b => `<span style="white-space:nowrap">${esc(fmtDateDMY(b.billDate))} (${day(b.days)})</span>`;
   const amt = b => `${inr(b.amount)}${b.billAmount && Math.round(b.billAmount) !== Math.round(b.amount) ? `<div style="font-size:10.5px;color:var(--gray-500);font-weight:400" title="Tally bill me itna dikhta hai — baaki on-account payment se kat gaya">bill ${inr(b.billAmount)}</div>` : ''}`;
-  const partyCell = b => `<a href="#" onclick="openColParty('${o2dJsEsc(b.party)}');return false" style="font-weight:700">${esc(b.party)}</a>${b.owner ? `<div style="font-size:11px;color:var(--gray-500)">${esc(b.owner)}</div>` : ''}`;
+  const partyCell = b => `<a href="#" onclick="openColParty('${o2dJsEsc(b.party)}');return false" style="font-weight:700">${esc(b.party)}</a>${b.owner || b.salesman ? `<div style="font-size:11px;color:var(--gray-500)">${esc([b.owner, b.salesman ? '👤 ' + b.salesman : ''].filter(Boolean).join(' · '))}</div>` : ''}`;
   // Wrong number → ✏️ right next to it (client list 10-26 #13); saved to Dealer Master too.
   const tel = b => b.phone ? `<span style="white-space:nowrap"><a href="tel:${esc(b.phone)}" style="font-weight:700">📞 ${esc(b.phone)}</a> <a href="#" title="Number galat hai? Badlo" onclick="colSetPhone('${o2dJsEsc(b.party)}');return false" style="text-decoration:none">✏️</a></span>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(b.party)}')">➕ Phone daalo</button>`;
   if (colTab === 'age') {
