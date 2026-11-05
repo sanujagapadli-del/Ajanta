@@ -11531,7 +11531,13 @@ app.get('/api/cheque-fms/cash-receipts', requireAuth, async (req, res) => {
   try {
     if (!(await chqCashAccess(req, res))) return;
     const [items, ledger] = await Promise.all([collectAppPayments(), getLedgerBalancesByDealer().catch(() => ({}))]);
+    // "Receipt By" choices = salesmen: Sales department (LIKE 'Sales%'), or a salesman profile with O2D names; with mobile.
+    const [salesmen] = await db.query(`SELECT u.id, u.name, u.phone FROM users u
+      WHERE COALESCE(u.is_active,1)=1 AND COALESCE(u.role,'')<>'vendor' AND (u.department LIKE 'Sales%'
+        OR u.id IN (SELECT user_id FROM salesman_profiles WHERE o2d_names IS NOT NULL AND o2d_names<>''))
+      ORDER BY u.name`).catch(() => db.query(`SELECT id, name, phone FROM users WHERE COALESCE(is_active,1)=1 AND department LIKE 'Sales%' ORDER BY name`));
     res.json({ items: items.filter(p => p.source === 'cheque-fms'), parties: Object.values(ledger).map(l => l.name).sort((a, b) => a.localeCompare(b)),
+      salesmen: salesmen.map(u => ({ id: u.id, name: u.name, phone: u.phone || '' })),
       me: { id: req.session.userId, isAdmin: req.session.role === 'admin' } });
   } catch (err) { sendServerError(res, err); }
 });
@@ -11546,13 +11552,24 @@ app.post('/api/cheque-fms/cash-receipt', requireAuth, async (req, res) => {
     if (!party) return res.status(400).json({ error: 'Party chunein' });
     if (!(amount > 0)) return res.status(400).json({ error: 'Amount daalein' });
     if (!paidOn) return res.status(400).json({ error: 'Tareekh daalein' });
+    // Cash or Online transfer (client 2026-11-05: "online transfer ka bhi tab bnao").
+    const mode = b.mode === 'Online' ? 'Online' : 'Cash';
+    // Receipt By: a salesman (MECA Collection), or 0 = Office (no salesman).
+    if (b.receiptBy === '' || b.receiptBy == null) return res.status(400).json({ error: 'Receipt By chunein — kis salesman ne liya (ya Office)' });
+    const rbId = Number(b.receiptBy) || 0;
+    let rbName = 'Office';
+    if (rbId) {
+      const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [rbId]);
+      if (!u) return res.status(400).json({ error: 'Salesman nahi mila' });
+      rbName = u.name;
+    }
     let photo = null;
     if (b.photo) {
       if (!docDataUriKind(b.photo)) return res.status(400).json({ error: 'Receipt: sirf photo ya PDF' });
       photo = await uploadDocToDrive(b.photo, `cash-receipt-${party.replace(/[^\w-]+/g, '_').slice(0, 40)}-${Date.now()}`);
     }
-    await db.query("INSERT INTO collect_payments (party, amount, paid_on, mode, remark, done_by, source, receipt_no, photo_url) VALUES (?,?,?,'Cash',?,?,'cheque-fms',?,?)",
-      [party, amount, paidOn, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, String(b.receiptNo || '').trim().slice(0, 60) || null, photo]);
+    await db.query("INSERT INTO collect_payments (party, amount, paid_on, mode, remark, done_by, source, receipt_no, photo_url, receipt_by, receipt_by_name) VALUES (?,?,?,?,?,?,'cheque-fms',?,?,?,?)",
+      [party, amount, paidOn, mode, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, String(b.receiptNo || '').trim().slice(0, 60) || null, photo, rbId || null, rbName]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -14078,14 +14095,34 @@ async function mecaCompute(from, to) {
   for (const e of entries) {
     const r = row(e.user_id, e.d);
     if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
-    const ov = Number(e.order_amt) || 0, cv = Number(e.collection_amt) || 0;
+    const ov = Number(e.order_amt) || 0;
     if (ov > 0) { r.ordered++; r.value += ov; }
-    if (cv > 0) { r.collCount++; r.collection += cv; }
+    // Collection no longer from the Beat entry — see Cheque FMS below.
   }
   // Planned = that weekday's beat counters, only on days the beat was filled (no plan for Sundays / leave).
   for (const r of Object.values(rows)) {
     const dow = isoDow(r.date);
     r.planned = counters.filter(c => Number(c.user_id) === Number(r.userId) && beatDow(c.beat_day) === dow).length;
+  }
+  // Collection (client 2026-11-05: "Meca mai collection yha se aayega") = Cheque FMS: cash + online
+  // receipts credited to their "Receipt By" salesman (on the receipt date), plus cheques credited to
+  // the salesman who brought them (on the day he uploaded it), not cancelled / bounced.
+  {
+    const skip = e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; };
+    await collectPayTable();
+    const [[pays], [chqs]] = await Promise.all([
+      db.query(`SELECT receipt_by AS uid, DATE_FORMAT(paid_on,'%Y-%m-%d') AS d, amount FROM collect_payments
+        WHERE source='cheque-fms' AND receipt_by IS NOT NULL AND receipt_by > 0 AND paid_on BETWEEN ? AND ?`, [from, to]).catch(skip),
+      db.query(`SELECT salesman_user_id AS uid, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, amount FROM cheques
+        WHERE salesman_user_id IS NOT NULL AND cancelled_at IS NULL AND COALESCE(clearance,'')<>'Bounce' AND amount > 0
+          AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(skip)
+    ]);
+    for (const p of [...pays, ...chqs]) {
+      const v = Number(p.amount) || 0;
+      if (!(v > 0)) continue;
+      const r = row(Number(p.uid), p.d);
+      r.collCount++; r.collection += v;
+    }
   }
   const noTable = e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; };
   await withLeadTables(() => null); // leads.order_amt / market (client MECA spec 2026-10-31)
@@ -18297,13 +18334,15 @@ async function collectPayTable() {
   const [cols] = await db.query("SHOW COLUMNS FROM collect_payments LIKE 'source'");
   if (!cols.length) await db.query('ALTER TABLE collect_payments ADD COLUMN source VARCHAR(20) NULL, ADD COLUMN receipt_no VARCHAR(60) NULL');
   // Cash receipt photo / PDF (client 2026-11-05: "cash Receipt upload option bhi do").
-  await addMissingColumns('collect_payments', [['photo_url', 'VARCHAR(500) NULL']]);
+  await addMissingColumns('collect_payments', [['photo_url', 'VARCHAR(500) NULL'],
+    // Salesman who collected it (client 2026-11-05: "Receipt By" — MECA Collection is credited to him).
+    ['receipt_by', 'INT NULL'], ['receipt_by_name', 'VARCHAR(150) NULL']]);
   _collectPayOk = true;
 }
 async function collectAppPayments() {
   await collectPayTable();
   const [[rows], tally] = await Promise.all([
-    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, p.source, p.receipt_no, p.photo_url, p.done_by, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
+    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, p.source, p.receipt_no, p.photo_url, p.receipt_by, p.receipt_by_name, p.done_by, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
       FROM collect_payments p LEFT JOIN users u ON u.id=p.done_by ORDER BY p.paid_on DESC, p.id DESC`),
     getTallyPaymentsByDealer()]);
   const used = new Set();
@@ -18316,7 +18355,7 @@ async function collectAppPayments() {
       return days >= -3 && days <= 15;
     });
     if (hit) used.add(hit);
-    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', source: p.source || '', receiptNo: p.receipt_no || '', photo: p.photo_url || '',
+    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', source: p.source || '', receiptNo: p.receipt_no || '', photo: p.photo_url || '', receiptBy: p.receipt_by == null ? null : Number(p.receipt_by), receiptByName: p.receipt_by_name || '',
       byId: p.done_by, at: p.done_at, by: p.by_name || '', inTally: !!hit };
   });
 }
