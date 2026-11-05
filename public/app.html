@@ -27737,7 +27737,7 @@ function renderPettyCash() {
     return `<tr>
       ${canBulk ? `<td>${e.type === 'expense' ? `<input type="checkbox" class="pettyChk" value="${e.id}" checked/>` : ''}</td>` : ''}
       <td style="white-space:nowrap">${esc(fmtDateDMY(e.entry_date))}<div style="font-size:10.5px;color:var(--gray-400)">${esc((e.entry_date || '').slice(11))}</div></td>
-      <td>${e.type === 'advance' ? '<b style="color:var(--color-success-text)">Advance</b>' : 'Expense'}</td>
+      <td>${e.type === 'advance' ? '<b style="color:var(--color-success-text)">Advance</b>' : `Expense${e.exp_type ? `<div style="font-size:11px;font-weight:700;color:var(--color-primary)">${esc(e.exp_type)}</div>` : ''}`}</td>
       <td style="font-weight:800;white-space:nowrap;color:${e.type === 'advance' ? 'var(--color-success-text)' : 'var(--gray-900)'}">${e.type === 'advance' ? '+' : ''}${inr(e.amount)}</td>
       <td style="min-width:160px;white-space:normal">${esc(e.description || '—')}</td>
       <td>${esc(e.payee || '—')}</td>
@@ -27783,6 +27783,7 @@ function pettySummaryHtml(exp) {
   return `
     <div class="o2d-report-card" style="margin-bottom:14px"><h3>🚚 Freight vs goods sent <span class="hint">entries with a goods value</span></h3>
       <div style="font-size:13.5px">Goods value ${inr(goods)} · freight ${inr(freightGoods)} · <b>${goods ? Math.round(freightGoods * 1000 / goods) / 10 : 0}%</b> of goods value</div></div>
+    <div class="o2d-report-grid-2-even">${table('🏷 By Exp Type', group('exp_type'), true, 'exp_type')}<div></div></div>
     <div class="o2d-report-grid-2-even">${table('🛺 By Vehicle', group('vehicle'), true, 'vehicle')}${table('👤 By Payee', group('payee'), false, 'payee')}</div>
     <div class="o2d-report-grid-2-even">${table('🏪 By Party / Kaam', group('description'), true, 'description')}
       <div class="o2d-report-card"><h3>📅 Day-wise</h3>${days.length ? days.map(d => `<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0"><span style="width:62px;color:var(--gray-500)">${esc(fmtDateDMY(d))}</span><span style="flex:1;background:var(--gray-100);border-radius:4px;height:12px"><span style="display:block;height:12px;border-radius:4px;background:var(--color-primary);width:${Math.round(byDay[d] * 100 / maxDay)}%"></span></span><b style="width:70px;text-align:right">${inr(byDay[d])}</b></div>`).join('') : '<div class="empty">No expenses</div>'}</div></div>`;
@@ -27831,6 +27832,8 @@ function openPettyEntry(type, id) {
     </div>
     <div style="${PETTY_LABEL}">${isAdv ? 'Note *' : 'Party / Kaam *'}</div><input id="peDesc" value="${e ? v('description') : (isAdv ? 'Weekly advance' : '')}" placeholder="${isAdv ? 'Weekly advance' : 'e.g. Parnami — maal bheja'}" style="${PETTY_INPUT}"/>
     ${isAdv ? '' : `
+    <div style="${PETTY_LABEL}">Exp type *</div>
+    <select id="peExpType" style="${PETTY_INPUT}"><option value="">— chunein —</option>${['Freight In', 'Freight Out', 'Office Exp'].map(t => `<option ${e && e.exp_type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
       <div><div style="${PETTY_LABEL}">Payee (sirf naam)</div><input id="pePayee" list="pePayeeList" value="${v('payee')}" placeholder="e.g. Porter" style="${PETTY_INPUT}"/><datalist id="pePayeeList">${payees.map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
       <div><div style="${PETTY_LABEL}">Nag (kitne)</div><input type="number" id="peNag" min="0" step="1" inputmode="numeric" value="${v('nag')}" placeholder="e.g. 96" style="${PETTY_INPUT}"/></div>
@@ -27852,6 +27855,7 @@ async function savePettyEntry(type, id) {
   const g = k => { const el = document.getElementById(k); return el ? el.value.trim() : ''; };
   const body = { type, date: g('peDate'), amount: g('peAmount'), description: g('peDesc'), payee: g('pePayee'), nag: g('peNag'), goodsDesc: g('peGoodsDesc'), vehicle: g('peVehicle'), note: g('peNote'), goodsValue: g('peGoods'), mode: g('peMode') };
   if (!body.date || !(Number(body.amount) > 0) || !body.description) { showToast('Date, amount aur party / note bharein', 'error'); return; }
+  if (type !== 'advance') { body.expType = g('peExpType'); if (!body.expType) { showToast('Exp type chunein — Freight In / Freight Out / Office Exp', 'error'); return; } }
   const btn = document.getElementById('peSaveBtn');
   const restore = btnLoading(btn, 'Saving…');
   const photoEl = document.getElementById('pePhoto');
