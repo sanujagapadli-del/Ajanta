@@ -8213,20 +8213,21 @@ function renderSalesmanPl() {
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       ${card('Sales (billed)', plInr(tot('sales')), `${tot('orders')} orders`, 'var(--gray-900)')}
       ${card('Gross Profit', plInr(tot('gp')), `sales − maal ki laagat${costed > 0 ? ` · ${Math.round(tot('gp') * 1000 / costed) / 10}%` : ''}`, color(tot('gp')))}
-      ${full && prof.length ? card('Kharcha', plInr(tot('expense')), `salary ${plInr(tot('salary'))} · petrol ${plInr(tot('petrol'))} · tour ${plInr(tot('tour'))}`, 'var(--gray-700)') : ''}
-      ${full && prof.length ? card('Net Profit', plInr(tot('net')), 'GP − salary − petrol − tour (salary set wale)', color(tot('net'))) : ''}
+      ${full && prof.length ? card('Kharcha', plInr(tot('expense')), `salary ${plInr(tot('salary'))} · petrol ${plInr(tot('petrol'))} · tour ${plInr(tot('tour'))}${tot('misc') ? ` · misc ${plInr(tot('misc'))}` : ''}`, 'var(--gray-700)') : ''}
+      ${full && prof.length ? card('Net Profit', plInr(tot('net')), 'GP − salary − petrol − tour − misc', color(tot('net'))) : ''}
     </div>
     <div class="mis-table-wrap" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr><th style="${th};text-align:left">Salesman</th>${full ? `<th style="${th}">Din</th>` : ''}<th style="${th}">Sales</th><th style="${th}">Gross Profit</th>${full ? `<th style="${th}">Salary</th><th style="${th}">Petrol</th><th style="${th}">Tour</th><th style="${th}">Kul Kharcha</th><th style="${th}">Net Profit</th>` : ''}</tr></thead>
+      <thead><tr><th style="${th};text-align:left">Salesman</th>${full ? `<th style="${th}">Din</th>` : ''}<th style="${th}">Sales</th><th style="${th}">Gross Profit</th>${full ? `<th style="${th}">Salary</th><th style="${th}">Petrol</th><th style="${th}">Tour</th><th style="${th}">Misc</th><th style="${th}">Kul Kharcha</th><th style="${th}">Net Profit</th>` : ''}</tr></thead>
       <tbody>${d.rows.map(r => `<tr>
         <td style="${td};text-align:left"><b style="color:var(--gray-900)">${esc(r.name)}</b>${r.noProfile ? sub(full ? 'O2D Order By · salary set nahi' : 'O2D Order By') : sub(`O2D: ${esc(r.o2dNames || '— (Order By naam set nahi)')}`)}</td>
         ${!full ? '' : r.noProfile ? `<td style="${td}">${dash}</td>` : `<td style="${td}">${r.present}/${r.days}${sub(`${r.offDays} off · ${r.leaveDays} leave · <span style="color:${r.absent ? 'var(--color-danger)' : 'inherit'}">${r.absent} absent</span>`)}</td>`}
         <td style="${td};font-weight:700">${plInr(r.sales)}${sub(`${r.orders} orders${r.uncostedSales ? ` · ${plInr(r.uncostedSales)} bina laagat` : ''}`)}</td>
         <td style="${td};font-weight:700;color:${color(r.gp)}">${plInr(r.gp)}${sub(r.gpPct == null ? '' : r.gpPct + '%')}</td>
-        ${!full ? '' : r.noProfile ? `<td style="${td}">${dash}</td>`.repeat(5) : `
+        ${!full ? '' : r.noProfile ? `<td style="${td}">${dash}</td>`.repeat(3) + `<td style="${td}">${plMiscCell(r)}</td><td style="${td};font-weight:700">${r.expense ? plInr(r.expense) : dash}</td><td style="${td};font-weight:900;font-size:14px;color:${r.net == null ? 'inherit' : color(r.net)}">${r.net == null ? dash : plInr(r.net)}</td>` : `
         <td style="${td}">${plInr(r.salary)}${sub(r.monthlySalary != null ? `${plInr(r.monthlySalary)}/mahina` : 'set nahi')}</td>
         <td style="${td}">${plInr(r.petrol)}${sub(`${r.km.toLocaleString('en-IN')} km × ₹${r.kmRate}`)}</td>
         <td style="${td}">${plInr(r.tour)}${r.tourPendingCount ? sub(`<span style="color:var(--color-warning-text)">+${plInr(r.tourPending)} pending</span>`) : ''}</td>
+        <td style="${td}">${plMiscCell(r)}</td>
         <td style="${td};font-weight:700">${plInr(r.expense)}</td>
         <td style="${td};font-weight:900;font-size:14px;color:${color(r.net)}">${plInr(r.net)}${sub(r.netPct == null ? '' : r.netPct + '% of sales')}</td>`}
       </tr>`).join('')}</tbody></table></div>
@@ -8235,14 +8236,56 @@ function renderSalesmanPl() {
     <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Salary = mahine ki salary ÷ mahine ke din × paid din (punch kiya, week-off, holiday, approved leave). Petrol = Morning/Evening KM × KM rate. Tour = sirf approved. Sales/GP = O2D billed orders, salesman = order ka "Order By" (bill date se); GP sirf un items par jinki laagat pata hai.</div>`;
 }
 
+// Misc column (client 2026-11-05): admin adds dated amounts per salesman; click the cell to see / add.
+function plMiscCell(r) {
+  const canAdd = ME.role === 'admin';
+  return `<a href="#" onclick="openPlMisc('${jsArg(r.miscKey)}', '${jsArg(r.name)}');return false" style="color:${r.misc ? 'var(--gray-900)' : 'var(--color-primary)'};font-weight:${r.misc ? 700 : 600};text-decoration:none">${r.misc ? plInr(r.misc) : canAdd ? '＋ add' : '—'}</a>`;
+}
+async function openPlMisc(key, name) {
+  const d = plData || {};
+  const r = await api(`/api/salesman-pl/misc?key=${encodeURIComponent(key)}&start=${d.start}&end=${d.end}`);
+  if (!r || r.error) { showToast((r && r.error) || 'Load nahi hua', 'error'); return; }
+  const total = r.items.reduce((a, x) => a + x.amount, 0);
+  const def = d.end && d.end < owsYmd(new Date()) ? d.end : owsYmd(new Date());
+  vrlModal('plMiscModal', `${scotModalHead('plMiscModal', `Misc kharcha — ${esc(name)}`)}
+    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">${fmtDateDMY(d.start)} – ${fmtDateDMY(d.end)} · <b>${plInr(total)}</b> (${r.items.length} entry) — Kul Kharcha aur Net Profit me judta hai.</div>
+    ${r.items.length ? r.items.map(x => `<div style="display:flex;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--gray-100);font-size:13px">
+        <span style="width:84px;color:var(--gray-500)">${fmtDateDMY(x.date)}</span><b style="width:90px">${plInr(x.amount)}</b>
+        <span style="flex:1;min-width:0;color:var(--gray-700)">${esc(x.note || '')}<span style="color:var(--gray-400);font-size:11px"> · ${esc(x.byName || '')}</span></span>
+        ${r.canEdit ? `<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" title="Hatao" onclick="deletePlMisc(${x.id}, '${jsArg(key)}', '${jsArg(name)}')">✕</button>` : ''}</div>`).join('') : '<div style="font-size:12.5px;color:var(--gray-400);margin-bottom:6px">Is range me koi misc entry nahi</div>'}
+    ${r.canEdit ? `<div style="border-top:1px solid var(--gray-200);margin-top:10px;padding-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><label style="font-size:12px;font-weight:700">Amount ₹ *</label><input id="plMiscAmt" type="number" min="1" step="any" style="${VRL_IN}"/></div>
+      <div><label style="font-size:12px;font-weight:700">Tareekh *</label><input id="plMiscDate" type="date" value="${def}" style="${VRL_IN}"/></div>
+      <div style="grid-column:1/-1"><label style="font-size:12px;font-weight:700">Kis cheez ka</label><input id="plMiscNote" placeholder="jaise: mobile recharge, incentive, hotel" style="${VRL_IN}"/></div>
+      <button class="btn btn-primary" style="grid-column:1/-1;justify-content:center" onclick="savePlMisc(this, '${jsArg(key)}', '${jsArg(name)}')">＋ Misc jodo</button></div>` : ''}`, 520);
+}
+async function savePlMisc(btn, key, name) {
+  const amount = document.getElementById('plMiscAmt').value, date = document.getElementById('plMiscDate').value;
+  if (!(Number(amount) > 0)) { showToast('Amount daalein', 'error'); return; }
+  if (!date) { showToast('Tareekh daalein', 'error'); return; }
+  btn.disabled = true;
+  const r = await api('/api/salesman-pl/misc', 'POST', { key, name, amount, date, note: document.getElementById('plMiscNote').value });
+  btn.disabled = false;
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  showToast(`✅ Misc ${plInr(Number(amount))} — ${name}`);
+  await loadSalesmanPl();
+  openPlMisc(key, name);
+}
+async function deletePlMisc(id, key, name) {
+  if (!await uiConfirm('Ye misc entry hatayein?')) return;
+  const r = await api(`/api/salesman-pl/misc/${id}`, 'DELETE');
+  if (!r || r.error) { showToast((r && r.error) || 'Hata nahi', 'error'); return; }
+  await loadSalesmanPl();
+  openPlMisc(key, name);
+}
 function exportSalesmanPl() {
   if (!plData || !plData.rows.length) return;
   const q = v => { const x = v == null ? '' : String(v); return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
   const full = !plData.gpOnly;
-  const head = full ? ['Salesman', 'Paid days', 'Present', 'Absent', 'Sales', 'Gross Profit', 'GP %', 'Salary', 'KM', 'Petrol', 'Tour', 'Total Expense', 'Net Profit'] : ['Salesman', 'Orders', 'Sales', 'Gross Profit', 'GP %'];
+  const head = full ? ['Salesman', 'Paid days', 'Present', 'Absent', 'Sales', 'Gross Profit', 'GP %', 'Salary', 'KM', 'Petrol', 'Tour', 'Misc', 'Total Expense', 'Net Profit'] : ['Salesman', 'Orders', 'Sales', 'Gross Profit', 'GP %'];
   const lines = [head.join(',')].concat(plData.rows.map(r => (!full ? [r.name, r.orders, r.sales, r.gp, r.gpPct]
-    : r.noProfile ? [r.name, '', '', '', r.sales, r.gp, r.gpPct, '', '', '', '', '', '']
-    : [r.name, r.days - r.absent, r.present, r.absent, r.sales, r.gp, r.gpPct, r.salary, r.km, r.petrol, r.tour, r.expense, r.net]).map(q).join(',')));
+    : r.noProfile ? [r.name, '', '', '', r.sales, r.gp, r.gpPct, '', '', '', '', r.misc || '', r.expense || '', r.net == null ? '' : r.net]
+    : [r.name, r.days - r.absent, r.present, r.absent, r.sales, r.gp, r.gpPct, r.salary, r.km, r.petrol, r.tour, r.misc, r.expense, r.net]).map(q).join(',')));
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
   a.download = `Salesman_PL_${plData.start}_to_${plData.end}.csv`;

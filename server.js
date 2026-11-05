@@ -14991,6 +14991,7 @@ function plSalaryFor(u, profile, start, end, today, ctx) {
 async function buildSalesmanPl(start, end, onlyUserId) {
   await withPlTables(() => Promise.resolve());
   const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+  const miscBy = await plMiscSums(start, end).catch(() => ({}));
   // Salary is only counted from the day attendance started in the app — earlier
   // days have no punches, and would otherwise all show up as absent.
   const [[{ first }]] = await withAttendanceTables(() => db.query("SELECT DATE_FORMAT(MIN(date),'%Y-%m-%d') AS first FROM attendance"));
@@ -15045,9 +15046,11 @@ async function buildSalesmanPl(start, end, onlyUserId) {
     const tour = tourBy[p.id] || { approved: 0, pending: 0, pendingCount: 0 };
     const so = sold[p.id] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };
     const gp = so.costedSales - so.cost;
-    const expense = sal.salary + petrol + tour.approved;
+    const misc = miscBy[`u:${p.id}`] || 0;
+    const expense = sal.salary + petrol + tour.approved + misc;
     const net = gp - expense;
     return {
+      misc: plRound(misc), miscKey: `u:${p.id}`,
       userId: p.id, name: p.name, department: p.department || '', o2dNames: p.o2d_names || '',
       monthlySalary: p.monthly_salary == null ? null : Number(p.monthly_salary), kmRate,
       days: sal.days, present: sal.present, offDays: sal.off, leaveDays: sal.leave, absent: sal.absent, salary: sal.salary,
@@ -15059,16 +15062,65 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   });
   if (!onlyUserId) Object.values(unassigned).forEach(so => {
     const gp = so.costedSales - so.cost, name = so.name;
+    const mk = `n:${String(name).trim().toLowerCase()}`, misc = miscBy[mk] || 0;
     rows.push({ userId: null, noProfile: true, name, o2dNames: name, orders: so.orders.size, qty: plRound(so.qty),
       sales: plRound(so.sales), uncostedSales: plRound(so.uncostedSales), gp: plRound(gp),
-      gpPct: so.costedSales ? plRound(gp * 100 / so.costedSales) : null });
+      gpPct: so.costedSales ? plRound(gp * 100 / so.costedSales) : null,
+      misc: plRound(misc), miscKey: mk, expense: misc ? plRound(misc) : null, net: misc ? plRound(gp - misc) : null });
   });
   rows.sort((a, b) => b.gp - a.gp);
   return { rows, today, salaryFrom };
 }
+// Misc expense per salesman row (client 2026-11-05: "ek column aur — miscellaneous value admin dalega").
+// Dated entries; the P&L sums those inside the report's dates. row_key = u:<userId> or n:<O2D Order By name>.
+let _plMiscOk = false;
+async function ensurePlMisc() {
+  if (_plMiscOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS salesman_misc (id INT AUTO_INCREMENT PRIMARY KEY, row_key VARCHAR(191) NOT NULL, row_name VARCHAR(150),
+    entry_date DATE NOT NULL, amount DECIMAL(12,2) NOT NULL, note VARCHAR(300), created_by INT, created_by_name VARCHAR(150),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_misc (row_key, entry_date)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _plMiscOk = true;
+}
+async function plMiscSums(start, end) {
+  await ensurePlMisc();
+  const [rows] = await db.query('SELECT row_key, SUM(amount) AS amt FROM salesman_misc WHERE entry_date BETWEEN ? AND ? GROUP BY row_key', [start, end]);
+  return Object.fromEntries(rows.map(r => [r.row_key, Number(r.amt) || 0]));
+}
+app.get('/api/salesman-pl/misc', requireAuth, async (req, res) => {
+  try {
+    if (!(await plIsViewer(req)) && req.session.role !== 'admin') return res.status(403).json({ error: 'Sirf Admin' });
+    const { key, start, end } = req.query;
+    if (!key || !plYmd(start) || !plYmd(end)) return res.status(400).json({ error: 'key, start, end chahiye' });
+    await ensurePlMisc();
+    const [rows] = await db.query(`SELECT id, DATE_FORMAT(entry_date,'%Y-%m-%d') AS date, amount, note, created_by_name AS byName FROM salesman_misc
+      WHERE row_key=? AND entry_date BETWEEN ? AND ? ORDER BY entry_date DESC, id DESC`, [String(key).slice(0, 191), start, end]);
+    res.json({ items: rows.map(r => ({ ...r, amount: Number(r.amount) })), canEdit: req.session.role === 'admin' });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/salesman-pl/misc', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const key = String(b.key || '').trim().slice(0, 191), amt = Number(b.amount);
+    if (!/^(u:\d+|n:.+)$/.test(key)) return res.status(400).json({ error: 'Salesman galat' });
+    if (!plYmd(b.date)) return res.status(400).json({ error: 'Tareekh daalein' });
+    if (!(amt > 0) || amt > 10000000) return res.status(400).json({ error: 'Amount daalein' });
+    await ensurePlMisc();
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    await db.query('INSERT INTO salesman_misc (row_key, row_name, entry_date, amount, note, created_by, created_by_name) VALUES (?,?,?,?,?,?,?)',
+      [key, String(b.name || '').slice(0, 150), b.date, Math.round(amt * 100) / 100, String(b.note || '').trim().slice(0, 300) || null, req.session.userId, (me && me.name) || '']);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/salesman-pl/misc/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await ensurePlMisc();
+    await db.query('DELETE FROM salesman_misc WHERE id=?', [Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
 // Gross Profit users who aren't P&L viewers see every salesman's Sales + GP,
 // never salary / petrol / tour / net.
-const PL_PRIVATE_KEYS = ['monthlySalary', 'kmRate', 'days', 'present', 'offDays', 'leaveDays', 'absent', 'salary', 'km', 'kmDays', 'petrol', 'tour', 'tourPending', 'tourPendingCount', 'expense', 'net', 'netPct'];
+const PL_PRIVATE_KEYS = ['misc', 'monthlySalary', 'kmRate', 'days', 'present', 'offDays', 'leaveDays', 'absent', 'salary', 'km', 'kmDays', 'petrol', 'tour', 'tourPending', 'tourPendingCount', 'expense', 'net', 'netPct'];
 function plStripPrivate(r) {
   const o = { ...r };
   PL_PRIVATE_KEYS.forEach(k => delete o[k]);
