@@ -21050,7 +21050,9 @@ function renderCollection() {
     const byParty = new Map();
     list.forEach(b => { const k = b.party.toLowerCase(); if (!byParty.has(k)) byParty.set(k, { party: b.party, first: b, bills: [] }); byParty.get(k).bills.push(b); });
     const groups = [...byParty.values()].map(g => { g.bills.sort((x, y) => y.days - x.days); g.oldest = g.bills[0]; g.total = g.bills.reduce((s, b) => s + b.amount, 0); return g; })
-      .sort((x, y) => x.oldest.days - y.oldest.days || y.total - x.total); // ascending — naye pehle (client 2026-11-05)
+      // Sort by due date (client 2026-11-05) — earliest due first; bills with no payment days after, newest first.
+      .map(g => { g.bills.sort((x, y) => (colDueOf(x) || '9999').localeCompare(colDueOf(y) || '9999') || y.days - x.days); g.due = g.bills.map(colDueOf).filter(Boolean).sort()[0] || ''; return g; })
+      .sort((x, y) => (x.due && y.due ? x.due.localeCompare(y.due) : x.due ? -1 : y.due ? 1 : 0) || x.oldest.days - y.oldest.days || y.total - x.total);
     const allOpen = groups.length && groups.every(g => colAgeOpen.has(g.party.toLowerCase()));
     wrap.innerHTML = note + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:13px;font-weight:700">${colTerm != null ? `O2D me ${colTerm ? colTerm + ' din' : 'advance / cash'} ki baat wale bill (${list.filter(b => b.days > colTerm).length} time se upar)` : colAge ? `${colAge}+ din purane bill` : 'Saare baaki bill (total outstanding)'} — ${groups.length} parties · ${list.length} bill · ${inr(list.reduce((s, b) => s + b.amount, 0))}</div>
       ${groups.length ? `<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="colAgeToggleAll(${allOpen ? 0 : 1})">${allOpen ? '▴ Sab band karo' : '▾ Sab kholo'}</button>` : ''}</div>`
