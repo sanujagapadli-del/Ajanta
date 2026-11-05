@@ -20892,6 +20892,25 @@ async function colShowMsg(key) {
   m.classList.add('open');
 }
 function colSetTab(t) { colTab = t; renderCollection(); }
+// Payment days ("din ki baat") per bill — admin can change them (client 2026-11-05).
+function colTermChip(bills) {
+  const ds = [...new Set(bills.map(b => b.termDays).filter(v => v != null))];
+  const txt = ds.length === 1 ? (ds[0] ? ds[0] + ' din' : 'advance') : ds.length ? 'alag din' : 'din set nahi';
+  const by = bills.some(b => b.termSetByAdmin) ? ' ✓' : '';
+  if (ME.role !== 'admin') return ds.length ? `<div style="font-size:10.5px;color:var(--gray-500);margin-top:2px">⏱ ${txt}</div>` : '';
+  return `<div style="margin-top:3px"><a href="#" onclick="event.stopPropagation();colEditTerm(${esc(JSON.stringify(bills.map(b => b.key)))}, '${jsArg(ds.length === 1 ? String(ds[0]) : '')}');return false"
+    title="Payment ke din badlo (sirf Admin)" style="font-size:10.5px;font-weight:700;color:var(--color-primary)">⏱ ${txt}${by} ✏️</a></div>`;
+}
+function colEditTerm(keys, cur) {
+  showPrompt({ title: `Payment ke din (${keys.length} bill) — khaali = O2D wale din`, placeholder: 'jaise 7, 15, 30 (0 = advance)', value: cur }, async v => {
+    const days = String(v || '').trim();
+    if (days !== '' && !(/^\d+$/.test(days) && Number(days) <= 365)) { showToast('0 se 365 ke beech din likhein', 'error'); return; }
+    const r = await api('/api/collection-followup/terms', 'PUT', { keys, days });
+    if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+    showToast(days === '' ? 'O2D wale din wapas' : `⏱ ${days} din set — ${keys.length} bill`);
+    loadCollection();
+  });
+}
 // 💰 Payment from Payment Follow-up (client 2026-11-05: "button de do for update the payment, update karte hi FMS me
 // update ho jaye") → the Collection FMS forms with the party filled; the outstanding here refreshes after save.
 function colPay(party) {
@@ -21027,11 +21046,11 @@ function renderCollection() {
       ${groups.map(g => { const k = g.party.toLowerCase(), open = colAgeOpen.has(k);
         return `<tr onclick="if(!event.target.closest('a,button'))colAgeToggle('${o2dJsEsc(k)}')" style="cursor:pointer${open ? ';background:var(--color-primary-light)' : ''}" title="Click — is party ke bill dekho">
           <td><span style="display:inline-block;width:14px;color:var(--gray-500)">${open ? '▾' : '▸'}</span>${partyCell(g.first)}</td>
-          <td style="text-align:center"><span class="status-badge">${g.bills.length} bill</span></td>
+          <td style="text-align:center"><span class="status-badge">${g.bills.length} bill</span>${colTermChip(g.bills)}</td>
           <td style="text-align:right;font-weight:800">${inr(g.total)}</td><td>${billAge(g.oldest)}</td>
           <td style="text-align:right">${inr(colPartyOf(g.party).outstanding)}</td><td>${tel(g.first)}</td>
           <td style="white-space:nowrap"><button class="btn btn-sm btn-green" onclick="event.stopPropagation();colPay('${o2dJsEsc(g.party)}')" title="Payment aaya — Collection FMS me daalo">💰 Payment</button> <button class="btn btn-sm btn-outline" onclick="colOpenStatement('${o2dJsEsc(g.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`
-          + (open ? g.bills.map(b => `<tr style="background:var(--surface-alt,#f8fafc)"><td style="padding-left:34px;color:var(--gray-600)">↳ Bill <b>${esc(b.billRef)}</b></td><td></td>
+          + (open ? g.bills.map(b => `<tr style="background:var(--surface-alt,#f8fafc)"><td style="padding-left:34px;color:var(--gray-600)">↳ Bill <b>${esc(b.billRef)}</b></td><td style="text-align:center">${colTermChip([b])}</td>
             <td style="text-align:right;font-weight:700">${amt(b)}</td><td>${billAge(b)}</td><td></td><td></td><td></td></tr>`).join('') : ''); }).join('')}
       </tbody></table></div>` : '<div class="empty">Koi bill nahi</div>');
   } else if (colTab === 'calls') {

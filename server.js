@@ -19039,6 +19039,30 @@ app.get('/api/collection-followup/message', requireAuth, async (req, res) => {
     res.json({ party: r.party, message: r.message || '', status: r.status || '', error: r.error || '', phone: r.phone || '', sentAt: r.sent_at || '' });
   } catch (err) { sendServerError(res, err); }
 });
+let _collectTermOk = false;
+async function ensureCollectTermTable() {
+  if (_collectTermOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS collect_bill_terms (bill_key VARCHAR(191) PRIMARY KEY, term_days INT NOT NULL, set_by INT,
+    set_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _collectTermOk = true;
+}
+// Admin: payment days for bills (keys); days '' = back to the O2D terms.
+app.put('/api/collection-followup/terms', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const keys = (Array.isArray(b.keys) ? b.keys : []).map(k => String(k).slice(0, 191)).filter(Boolean).slice(0, 500);
+    if (!keys.length) return res.status(400).json({ error: 'Bill nahi chuna' });
+    await ensureCollectTermTable();
+    if (b.days === '' || b.days == null) {
+      await db.query('DELETE FROM collect_bill_terms WHERE bill_key IN (?)', [keys]);
+      return res.json({ success: true, cleared: keys.length });
+    }
+    const days = Number(b.days);
+    if (!Number.isInteger(days) || days < 0 || days > 365) return res.status(400).json({ error: 'Din 0 se 365 ke beech' });
+    for (const k of keys) await db.query('INSERT INTO collect_bill_terms (bill_key, term_days, set_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE term_days=VALUES(term_days), set_by=VALUES(set_by)', [k, days, req.session.userId]);
+    res.json({ success: true, days, count: keys.length });
+  } catch (err) { sendServerError(res, err); }
+});
 app.get('/api/collection-followup', requireAuth, async (req, res) => {
   try {
     if (!(await collectAccess(req, res))) return;
@@ -19054,6 +19078,7 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
     // the tabs pick their own day ranges.
     const open = bills.filter(b => b.amount > 0);
     const keys = new Set(open.map(b => b.party.toLowerCase()));
+    await ensureCollectTermTable();
     // Salesman of each party = its latest O2D "Order By", matched to a user like MECA (Payment Follow-up filter, client 2026-11-05).
     try {
       const [orders, resolve] = await Promise.all([getO2dOrders(), mecaOrderByResolver()]);
@@ -19068,6 +19093,10 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
       orders.forEach(o => { const bn = String(o.billNo || '').trim(); if (bn && o.paymentTerms != null && String(o.paymentTerms).trim()) termsBy[bn] = String(o.paymentTerms).trim(); });
       open.forEach(b => { const t = termsBy[String(b.billRef || '').trim()]; if (!t) return; b.o2dTerms = t; b.termDays = parseCreditDays(t); });
     } catch (e) { console.error('collection salesman:', e.message); }
+    // Payment days set by admin on a bill override the O2D terms (client 2026-11-05: "days update ka option, only admin").
+    const [ovr] = await db.query('SELECT bill_key, term_days FROM collect_bill_terms').catch(() => [[]]);
+    const ovrBy = Object.fromEntries(ovr.map(o => [o.bill_key, Number(o.term_days)]));
+    open.forEach(b => { if (ovrBy[b.key] != null) { b.termDays = ovrBy[b.key]; b.termSetByAdmin = true; } });
     const partyList = Object.entries(parties).filter(([k]) => keys.has(k)).map(([k, p]) => ({ key: k, ...p }));
     res.json({ lastSynced, steps: COLLECT_STEPS, bills: open.map(b => ({ ...b, acts: actOf[b.key] || {} })),
       parties: Object.fromEntries(partyList.map(p => [p.key, { outstanding: p.outstanding, ledger: p.ledger, appPaid: p.appPaid }])),
