@@ -1625,6 +1625,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <svg class="nav-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
       </div>
       <div class="nav-group-items">
+      <div class="nav-item" id="nav-vendor-bin" style="display:none" onclick="navigate('vendor-bin',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.87 12.14A2 2 0 0116.14 21H7.86a2 2 0 01-1.99-1.86L5 7m5 4v6m4-6v6M4 7h16M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
+        <span class="nav-label-text">Vendor Bin</span>
+      </div>
       <div class="nav-item" id="nav-pc-followup" style="display:none" onclick="navigate('pc-followup',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.95.68l1.5 4.49a1 1 0 01-.5 1.21l-2.26 1.13a11 11 0 005.52 5.52l1.13-2.26a1 1 0 011.21-.5l4.49 1.5a1 1 0 01.68.95V19a2 2 0 01-2 2h-1C9.72 21 3 14.28 3 6V5z"/></svg>
         <span class="nav-label-text">PC Follow-up</span>
@@ -2568,6 +2572,24 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <button class="btn btn-green" onclick="openRentPay(0)">💰 Kiraya aaya</button>
     </div>
     <div id="rentWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
+  </div>
+  <div id="page-vendor-bin" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900)">🗑 Vendor Bin</div>
+        <div id="vbStats" style="font-size:12.5px;color:var(--gray-600)"></div>
+        <button class="btn btn-danger btn-sm" id="vbClearBtn" style="margin-left:auto" onclick="clearVendorBin()">🧹 Clear Bin (vendor ko bheja)</button>
+      </div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px">Replacement FMS me "Not usable" maal yahan aata hai. Aur item haath se bhi jod sakte hain. Vendor ko bhejne par "Clear Bin" — ya sirf tick kiye item clear karein.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center">
+        <input id="vbItem" placeholder="Item naam" style="flex:2 1 200px;padding:7px 11px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)"/>
+        <input id="vbQty" type="number" min="1" value="1" title="Qty" style="width:80px;padding:7px 11px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)"/>
+        <input id="vbRemark" placeholder="Remark (optional)" style="flex:1 1 150px;padding:7px 11px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)"/>
+        <button class="btn btn-primary btn-sm" onclick="addVendorBinItem(this)">+ Add item</button>
+      </div>
+    </div>
+    <div id="vbOpen"></div>
+    <div id="vbCleared" style="margin-top:16px"></div>
   </div>
   <div id="page-pc-followup" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
@@ -5014,6 +5036,7 @@ async function init() {
     if (canSee('fms-flows')) document.getElementById('nav-fms-flows').style.display = 'flex';
     if (ME.role === 'pc') MY_PAGES.add('pc-followup'); // PC role (and admin) only — client 2026-11-05
     if (canSee('pc-followup')) document.getElementById('nav-pc-followup').style.display = 'flex';
+    if (canSee('replacement-fms') || canSee('vendor-ledger')) document.getElementById('nav-vendor-bin').style.display = 'flex';
     if (ME.role === 'admin') document.getElementById('nav-rental').style.display = 'flex';
     if (/^md$/i.test(String(ME.department || '').trim())) document.getElementById('nav-my-expense').style.display = 'flex'; // personal — MD (Ajay sir)
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
@@ -5314,7 +5337,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows','pc-followup':'PC Follow-up'};
+const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows','pc-followup':'PC Follow-up','vendor-bin':'Vendor Bin'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -5376,6 +5399,7 @@ function navigate(page, el) {
   if (page==='dropdown-master') loadDropdownMaster();
   if (page==='fms-flows') loadFmsFlows();
   if (page==='pc-followup') loadPcFollowup();
+  if (page==='vendor-bin') loadVendorBin();
   if (page==='my-expense') loadMyExpense();
   if (page==='rental') loadRental();
   if (page==='ows') loadOws();
@@ -25681,6 +25705,55 @@ function ddScan() {
 new MutationObserver(() => { if (!_ddScanQueued && Object.keys(ddLists).length) { _ddScanQueued = true; requestAnimationFrame(ddScan); } })
   .observe(document.documentElement, { childList: true, subtree: true });
 // Admin page: one box per list, a line per option.
+// ── Vendor Bin (client 2026-11-05): not-usable goods from Replacement "To Check Goods" + items
+// added by hand, until they go to the vendor ("Clear Bin", or clear only the ticked ones).
+let vbData = { open: [], cleared: [] };
+async function loadVendorBin() {
+  const r = await api('/api/vendor-bin');
+  if (!r || r.error) { document.getElementById('vbOpen').innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load nahi hua')}</div>`; return; }
+  vbData = r;
+  const tq = r.open.reduce((a, x) => a + Number(x.qty || 0), 0);
+  document.getElementById('vbStats').innerHTML = `<b>${r.open.length}</b> item · <b>${tq}</b> pcs bin me`;
+  document.getElementById('vbClearBtn').style.display = r.open.length ? '' : 'none';
+  const card = 'background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden';
+  const th = 'padding:8px 10px;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--gray-500);background:var(--gray-50);text-align:left;white-space:nowrap';
+  const td = 'padding:8px 10px;border-top:1px solid var(--gray-100);font-size:13px;vertical-align:top';
+  const from = x => x.source === 'repl' ? `♻️ ${esc(x.ref_code || '')}${x.party ? ` · ${esc(x.party)}` : ''}` : '✍️ Haath se';
+  document.getElementById('vbOpen').innerHTML = r.open.length ? `<div style="${card}"><table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="${th};width:30px"><input type="checkbox" onchange="document.querySelectorAll('.vb-pick').forEach(c=>c.checked=this.checked)" title="Sab chuno"/></th>
+        <th style="${th}">Item</th><th style="${th}">Qty</th><th style="${th}">Kahan se</th><th style="${th}">Kab / Kisne</th></tr></thead>
+      <tbody>${r.open.map(x => `<tr><td style="${td}"><input type="checkbox" class="vb-pick" value="${x.id}"/></td>
+        <td style="${td};font-weight:600;color:var(--gray-900)">${esc(x.item)}${x.remark ? `<div style="font-size:12px;color:var(--gray-500);font-weight:400">${esc(x.remark)}</div>` : ''}</td>
+        <td style="${td};font-weight:800">${Number(x.qty)}</td><td style="${td}">${from(x)}</td>
+        <td style="${td};white-space:nowrap;color:var(--gray-600)">${fmtDateDMY(x.added_at.slice(0, 10))} ${x.added_at.slice(11, 16)}<div style="font-size:12px">${esc(x.added_by_name || '')}</div></td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty">Bin khali hai 🎉</div>';
+  document.getElementById('vbCleared').innerHTML = r.cleared.length ? `<div style="font-size:14px;font-weight:900;color:var(--gray-900);margin-bottom:6px">✅ Vendor ko bheja (90 din)</div>
+    <div style="${card}"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="${th}">Item</th><th style="${th}">Qty</th><th style="${th}">Kahan se</th><th style="${th}">Clear kiya</th></tr></thead>
+    <tbody>${r.cleared.map(x => `<tr><td style="${td}">${esc(x.item)}</td><td style="${td}">${Number(x.qty)}</td><td style="${td}">${from(x)}</td>
+      <td style="${td};color:var(--gray-600)">${fmtDateDMY(x.cleared_at.slice(0, 10))} · ${esc(x.cleared_by_name || '')}${x.clear_note ? `<div style="font-size:12px">${esc(x.clear_note)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '';
+}
+async function addVendorBinItem(btn) {
+  const item = document.getElementById('vbItem').value.trim(), qty = document.getElementById('vbQty').value.trim();
+  if (!item) { showToast('Item naam likhein', 'error'); return; }
+  if (!(Number(qty) > 0)) { showToast('Qty 1 ya zyada', 'error'); return; }
+  btn.disabled = true;
+  const r = await api('/api/vendor-bin', 'POST', { item, qty, remark: document.getElementById('vbRemark').value.trim() });
+  btn.disabled = false;
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  document.getElementById('vbItem').value = ''; document.getElementById('vbQty').value = '1'; document.getElementById('vbRemark').value = '';
+  showToast('✅ Bin me joda');
+  loadVendorBin();
+}
+async function clearVendorBin() {
+  const picked = [...document.querySelectorAll('.vb-pick:checked')].map(c => Number(c.value));
+  const n = picked.length || vbData.open.length;
+  showPrompt({ title: `${picked.length ? `${n} chune hue item` : `Poora bin (${n} item)`} clear — vendor ko bhej diya?`, placeholder: 'Note (optional) — jaise challan no. / vendor naam' }, async note => {
+    const r = await api('/api/vendor-bin/clear', 'POST', { ids: picked.length ? picked : undefined, note });
+    if (!r || r.error) { showToast((r && r.error) || 'Clear nahi hua', 'error'); return; }
+    showToast(`🧹 ${r.cleared} item clear`);
+    loadVendorBin();
+  });
+}
 // ── PC Follow-up (client 2026-11-05) — every pending Delegation, Checklist and FMS step in one
 // list, person-wise, so the PC can chase each one and log what was said. Tasks are built by the
 // same builders the Dashboard uses (all employees); the follow-up log is /api/pc-followups.
@@ -25853,7 +25926,7 @@ let fmsFlowSel = 'o2d';
 function loadFmsFlows() {
   if (window.FMS_FLOWS) return renderFmsFlows();
   const sc = document.createElement('script');
-  sc.src = '/fms-flows.js?v=1';
+  sc.src = '/fms-flows.js?v=2';
   sc.onload = renderFmsFlows;
   sc.onerror = () => { document.getElementById('fmsFlowWrap').innerHTML = '<div class="empty">Load nahi hua — page refresh karein</div>'; };
   document.head.appendChild(sc);
@@ -27741,9 +27814,10 @@ const REPL_STEP_DEFS = [
   { n: 16, key: 'sparecheck', label: 'Spare Check (Niranjan)',      doer: 'Niranjan', tat: '4 hours' },
   { n: 7,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tat: '6 hours' },
   { n: 8,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tat: '4 hours' },
-  { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tat: '4 hours' },
   { n: 10, key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tat: '1 day' },
   { n: 11, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tat: '1 day' },
+  // Client 2026-11-05: goods checked AFTER the credit note — usable → IMS, not usable → Vendor Bin.
+  { n: 18, key: 'goodscheck', label: 'To Check Goods (Usable → IMS / Vendor Bin)', doer: 'Aziz', tat: '4 hours' },
   { n: 17, key: 'deliveryassign', label: 'Assign Delivery Person',  doer: 'Priyanka', tat: '4 hours' },
   { n: 12, key: 'handover', label: 'Handover (OTP)',                doer: 'Delivery person', tat: '2 days' },
   { n: 13, key: 'cashstaff', label: 'Cash from Staff',              doer: 'Accountant', tat: '1 day' }
@@ -27768,6 +27842,7 @@ const RPL_STAGE = {
   bin:      { label: 'Maal check', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   cn:       { label: 'Credit note', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   cnsend:   { label: 'Send CN', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
+  goodscheck: { label: 'Goods check', bg: 'var(--gray-100)', fg: 'var(--gray-700)' },
   deliveryassign: { label: 'Delivery kaun dega?', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
   handover: { label: 'Handover', bg: 'var(--color-primary-light)', fg: 'var(--color-primary)' },
   cashstaff:{ label: 'Cash from staff', bg: 'var(--color-warning-bg)', fg: 'var(--color-warning-text)' },
@@ -28218,7 +28293,7 @@ function rplTaskFormHtml(r) {
       <div style="display:flex;gap:8px">${btn('Save', 'check')}</div>`;
   } else if (t.key === 'category') {
     inner = `${L('Is product ka kya hoga?', true)}${radio(`${id}_cat`, [{ v: 'Repair', l: '🔧 Repair' }, { v: 'Exchange', l: '🔄 Instant Exchange' }, { v: 'Credit Note', l: '↩ Maal Wapas (Return)' }, { v: 'Out of Warranty', l: '💰 Out of Warranty' }])}
-      <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Instant Exchange: cooler pump, cooler motor, immersion rod. Maal Wapas: party ne maal wapas kiya — maal check → stock / reject bin → credit note → party ko share. Out of Warranty: rate batao — mana kiya to kharab maal wapas, maana to paise lekar repair.</div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Instant Exchange: cooler pump, cooler motor, immersion rod. Maal Wapas: party ne maal wapas kiya — credit note → party ko share → maal check (usable → IMS stock, kharab → Vendor Bin). Out of Warranty: rate batao — mana kiya to kharab maal wapas, maana to paise lekar repair.</div>
       <div style="display:flex;gap:8px">${btn('Save', 'category')}</div>`;
   } else if (t.key === 'warranty') {
     const owOnly = r.category === 'Out of Warranty';
@@ -28289,6 +28364,16 @@ function rplTaskFormHtml(r) {
         `document.getElementById('${id}_remark').placeholder=this.value==='OK'?'e.g. Store / warehouse rack 2':'e.g. Reject bin · company ko back-to-back'`)}
       ${L('Kahan rakha')}<input id="${id}_remark" placeholder="e.g. Store / warehouse rack 2" style="${RPL_INPUT}"/>
       <div style="display:flex;gap:8px">${btn('✓ Save — aage Credit Note', 'bin')}</div>`;
+  } else if (t.key === 'goodscheck') {
+    if (!window._rplStockItems) loadReplStockItems(r.id);
+    const dl = `${id}_gcList`;
+    inner = `<div style="font-size:12.5px;color:var(--gray-600);margin-bottom:8px">Wapas aaya maal: <b>${esc(r.items || '—')}</b></div>
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Har item: kitna aaya, aur <b>Usable</b> (IMS stock me IN hoga — item list se chunein) ya <b>Not usable</b> (Vendor Bin me jayega).</div>
+      <datalist id="${dl}">${(window._rplStockItems || []).map(x => `<option value="${esc(x.item_code + ' — ' + x.description)}"></option>`).join('')}</datalist>
+      <div id="${id}_gc">${rplGcRow(id)}</div>
+      <button type="button" class="btn btn-outline btn-sm" style="margin:2px 0 10px" onclick="document.getElementById('${id}_gc').insertAdjacentHTML('beforeend', rplGcRow('${id}'))">+ Aur item</button>
+      ${L('Remark')}<input id="${id}_remark" placeholder="e.g. 2 pc sahi, 1 ka body toota" style="${RPL_INPUT}"/>
+      <div style="display:flex;gap:8px">${btn('✓ Save — IMS / Vendor Bin', 'goodscheck')}</div>`;
   } else if (t.key === 'cn') {
     inner = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
         <div>${L('Credit Note No.', true)}<input id="${id}_no" style="${RPL_INPUT}"/></div>
@@ -28349,6 +28434,7 @@ function renderReplDetailBody(r) {
       ${r.ours === 'No' ? f('Not ours', esc(r.notOursReason)) : ''}
       ${r.warranty ? f('Warranty', esc(r.warranty) + (r.warranty === 'Out of Warranty' ? ` · ₹${r.charges ?? '—'}${r.rateToldTo ? ' (' + esc(r.rateToldTo) + ' ko bataya)' : ''} · ${r.customerAgreed === 'Yes' ? 'maana' : 'nahi maana — wapas le gaya'}` : '')) : ''}
       ${r.binAt ? f('Maal check', (r.returnCondition === 'OK' ? '✅ Sahi — ' : r.returnCondition === 'Damaged' ? '💥 Toota-phoota — ' : '') + esc(r.binRemark)) : ''}
+      ${r.goodsCheckAt && (r.goodsCheckItems || []).length ? `<div style="grid-column:1/-1">${f('Goods check', r.goodsCheckItems.map(x => `${esc(x.item)} × ${esc(x.qty)} → <b>${x.to === 'IMS' ? '✅ IMS stock' : '🗑 Vendor Bin'}</b>`).join('<br/>') + (r.goodsCheckRemark ? `<br/>${esc(r.goodsCheckRemark)}` : ''))}</div>` : ''}
       ${r.owReason && r.warranty === 'Out of Warranty' ? f('OW reason', esc(r.owReason)) : ''}
       ${f('Mechanic', esc(r.mechanicName) + (r.leadDays ? ` · ${r.leadDays} day(s)` : ''))}
       ${r.spareIssueAt ? `<div style="grid-column:1/-1">${rplSparesHtml(r)}</div>` : ''}
@@ -28401,6 +28487,14 @@ async function loadReplStockItems(id) {
   if (window._rplStockItems.length && it && document.getElementById('replDetailModal').classList.contains('open')) renderReplDetailBody(it);
 }
 
+// One "To Check Goods" line: item (IMS list suggestions), qty, usable or not.
+function rplGcRow(id) {
+  return `<div class="rpl-gc-row" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;padding:8px;border:1px solid var(--gray-200);border-radius:10px">
+    <input class="rpl-gc-item" list="${id}_gcList" placeholder="Item (list se chunein)" style="${RPL_INPUT};flex:1 1 200px;margin:0"/>
+    <input class="rpl-gc-qty" type="number" min="1" value="1" title="Qty" style="${RPL_INPUT};width:70px;margin:0"/>
+    <select class="rpl-gc-use" style="${RPL_INPUT};width:auto;margin:0"><option value="1">✅ Usable → IMS</option><option value="0">🗑 Not usable → Vendor Bin</option></select>
+    <button type="button" class="btn btn-outline btn-sm" onclick="this.parentElement.remove()" title="Hatao">✕</button></div>`;
+}
 async function submitReplAction(id, action, btnEl, preset) {
   const p = `rpl_${id}`;
   const val = s => { const el = document.getElementById(`${p}_${s}`); return el ? (el.type === 'checkbox' ? el.checked : el.value.trim()) : ''; };
@@ -28430,6 +28524,10 @@ async function submitReplAction(id, action, btnEl, preset) {
   else if (action === 'inform') body = { remark: val('remark'), sendWhatsApp: val('wa'), mobile: val('mobile'), notifySalesman: val('sm') };
   else if (action === 'bin') body = { condition: radio('cond'), remark: val('remark') };
   else if (action === 'cn') body = { cnNo: val('no'), cnAmount: val('amt'), cnPhoto: photo() };
+  else if (action === 'goodscheck') body = {
+    lines: [...document.querySelectorAll(`#${p}_gc .rpl-gc-row`)].map(row => ({ item: row.querySelector('.rpl-gc-item').value.trim(),
+      qty: row.querySelector('.rpl-gc-qty').value.trim(), usable: row.querySelector('.rpl-gc-use').value === '1' })).filter(x => x.item),
+    remark: val('remark') };
   else if (action === 'cnsend') body = { photo: photo() };
   else if (action === 'deliveryassign') body = { deliveryUserId: val('dlv'), remark: val('remark') };
   else if (action === 'handover') body = { otp: val('otp'), receiverName: val('recv'), chargesReceived: val('chr'), withoutOtp: val('nootp') };
@@ -28457,6 +28555,7 @@ async function submitReplAction(id, action, btnEl, preset) {
     if (!body.newItem) return stepErr('Stock se diya naya item likho (e.g. Cooler pump 36W — 1 pc)', 'item');
     if (!body.oldInBin && !body.oldToStock) return stepErr('Purana pc kahan gaya: Reject Bin ya stock me rakha — ek tick lagao', 'bin');
   }
+  if (action === 'goodscheck' && !body.lines.length) return stepErr('Kam se kam ek item likhein');
   if (action === 'handover' && !body.otp) {
     if (body.withoutOtp && !body.receiverName) return stepErr('Bina OTP close karne ke liye Receiver Name likhein', 'recv');
     if (!body.withoutOtp) return stepErr('Customer se OTP lekar daalein', 'otp');

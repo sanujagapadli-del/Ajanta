@@ -11651,9 +11651,12 @@ const REPL_STEPS = [
   { n: 16, key: 'sparecheck', label: 'Spare Check (Niranjan)',      doer: 'Niranjan', tatH: 4 },
   { n: 7,  key: 'exchange', label: 'Instant Exchange',              doer: 'Aziz', tatH: 6 },
   { n: 8,  key: 'inform',   label: 'Inform Dealer / Salesman',      doer: 'Priyanka', tatH: 4 },
-  { n: 9,  key: 'bin',      label: 'Check Returned Goods',          doer: 'Aziz', tatH: 4 },
+  // Client 2026-11-05: the goods check moved to AFTER the credit note — "To Check Goods":
+  // usable → IMS stock IN, not usable → Vendor Bin. The old pre-CN check ('bin', n 9) is
+  // kept only for records that already did it; its doers are this step's default doers.
   { n: 10, key: 'cn',       label: 'Make Credit Note',              doer: 'Accountant', tatH: 24 },
   { n: 11, key: 'cnsend',   label: 'Share Credit Note with Party',  doer: 'Accountant', tatH: 24 },
+  { n: 18, key: 'goodscheck', label: 'To Check Goods (Usable → IMS / Vendor Bin)', doer: 'Aziz', tatH: 4 },
   // Client list 2026-10-26 #14: Priyanka names who delivers; only that person
   // (or admin) then does the Handover OTP.
   { n: 17, key: 'deliveryassign', label: 'Assign Delivery Person',  doer: 'Priyanka', tatH: 4 },
@@ -11733,6 +11736,9 @@ async function ensureReplTables() {
 // damaged → reject bin) and to whom the out-of-warranty rate was told.
 let _replColsOk = false;
 async function ensureReplCols() {
+  await addMissingColumns('replacements', [['goods_check_at', 'DATETIME'], ['goods_check_by', 'INT'], ['goods_check_json', 'TEXT'], ['goods_check_remark', 'VARCHAR(500)']]);
+  await db.query(`UPDATE replacements SET goods_check_at=cn_sent_at, goods_check_json='[]', goods_check_remark='Purana record — is step se pehle band hua'
+    WHERE category='Credit Note' AND cn_sent_at IS NOT NULL AND cn_sent_at < '2026-11-05' AND goods_check_at IS NULL`);
   await addMissingColumns('replacements', [['return_condition', 'VARCHAR(20)'], ['rate_told_to', 'VARCHAR(20)'], ['diary_at', 'DATETIME'], ['diary_by', 'INT'],
     ['salesman_user_id', 'INT'], ['salesman_name', 'VARCHAR(255)'],
     ['cash_staff_name', 'VARCHAR(255)'], ['cash_staff_amount', 'DECIMAL(10,2)'], ['cash_staff_at', 'DATETIME'], ['cash_staff_by', 'INT'],
@@ -11773,6 +11779,67 @@ async function logReplEvent(id, event, detail, userId, at) {
     [id, event, detail || null, userId || null, at || null]);
 }
 
+// ── Vendor Bin (client 2026-11-05): not-usable goods from Replacement "To Check Goods", plus
+// anything added by hand, waiting to go back to the vendor. "Clear" = sent to the vendor.
+let _vendorBinOk = false;
+async function ensureVendorBinTable() {
+  if (_vendorBinOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS vendor_bin (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    item VARCHAR(255) NOT NULL,
+    qty DECIMAL(12,2) NOT NULL,
+    source VARCHAR(16) NOT NULL DEFAULT 'manual',
+    repl_id INT NULL, ref_code VARCHAR(60) NULL, party VARCHAR(255) NULL, remark VARCHAR(500) NULL,
+    added_by INT NULL, added_by_name VARCHAR(150) NULL, added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    cleared_at DATETIME NULL, cleared_by_name VARCHAR(150) NULL, clear_note VARCHAR(500) NULL,
+    INDEX idx_vb_open (cleared_at)
+  )`);
+  _vendorBinOk = true;
+}
+async function canVendorBin(req) {
+  return req.session.role === 'admin' || await hasPageGrant(req, 'replacement-fms') || await hasPageGrant(req, 'vendor-ledger');
+}
+app.get('/api/vendor-bin', requireAuth, async (req, res) => {
+  try {
+    if (!await canVendorBin(req)) return res.status(403).json({ error: 'Replacement FMS / Vendor Ledger access chahiye' });
+    await ensureVendorBinTable();
+    const cols = `id, item, qty, source, ref_code, party, remark, added_by_name, DATE_FORMAT(added_at,'%Y-%m-%d %H:%i') AS added_at,
+      DATE_FORMAT(cleared_at,'%Y-%m-%d %H:%i') AS cleared_at, cleared_by_name, clear_note`;
+    const [open] = await db.query(`SELECT ${cols} FROM vendor_bin WHERE cleared_at IS NULL ORDER BY added_at DESC, id DESC`);
+    const [cleared] = await db.query(`SELECT ${cols} FROM vendor_bin WHERE cleared_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) ORDER BY cleared_at DESC, id DESC LIMIT 500`);
+    res.json({ open, cleared });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/vendor-bin', requireAuth, async (req, res) => {
+  try {
+    if (!await canVendorBin(req)) return res.status(403).json({ error: 'Replacement FMS / Vendor Ledger access chahiye' });
+    const b = req.body || {};
+    const item = String(b.item || '').trim().slice(0, 255), qty = Number(b.qty);
+    if (!item) return res.status(400).json({ error: 'Item likhein' });
+    if (!(qty > 0) || qty > 100000) return res.status(400).json({ error: 'Qty 1 ya zyada likhein' });
+    await ensureVendorBinTable();
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    await db.query('INSERT INTO vendor_bin (item, qty, source, remark, added_by, added_by_name) VALUES (?,?,?,?,?,?)',
+      [item, qty, 'manual', String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, (me && me.name) || '']);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Clear = these items went to the vendor. ids omitted → the whole open bin.
+app.post('/api/vendor-bin/clear', requireAuth, async (req, res) => {
+  try {
+    if (!await canVendorBin(req)) return res.status(403).json({ error: 'Replacement FMS / Vendor Ledger access chahiye' });
+    const b = req.body || {};
+    const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(n => n > 0).slice(0, 1000) : null;
+    if (ids && !ids.length) return res.status(400).json({ error: 'Koi item nahi chuna' });
+    await ensureVendorBinTable();
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    const note = String(b.note || '').trim().slice(0, 500) || null;
+    const [r] = await db.query(`UPDATE vendor_bin SET cleared_at=NOW(), cleared_by_name=?, clear_note=? WHERE cleared_at IS NULL${ids ? ' AND id IN (?)' : ''}`,
+      ids ? [(me && me.name) || '', note, ids] : [(me && me.name) || '', note]);
+    res.json({ success: true, cleared: r.affectedRows });
+  } catch (err) { sendServerError(res, err); }
+});
+
 let _replStepDoersCache = null;
 async function getReplStepDoersMap() {
   if (_replStepDoersCache && Date.now() - _replStepDoersCache.ts < 60 * 1000) return _replStepDoersCache.map;
@@ -11780,6 +11847,7 @@ async function getReplStepDoersMap() {
     'SELECT d.step_n, u.id, u.name FROM replacement_step_doers d JOIN users u ON d.user_id=u.id ORDER BY u.name'));
   const map = {};
   rows.forEach(r => { (map[r.step_n] = map[r.step_n] || []).push({ id: r.id, name: r.name }); });
+  if (!map[18] && map[9]) map[18] = map[9]; // To Check Goods → whoever did the old Check Returned Goods
   _replStepDoersCache = { map, ts: Date.now() };
   return map;
 }
@@ -11808,9 +11876,9 @@ function replStage(r) {
   if (r.ours === 'No') return r.delivered_at ? 'returned' : hand();
   if (!r.category) return 'category';
   if (r.category === 'Credit Note') {
-    if (!r.bin_at) return 'bin';
     if (!r.cn_at) return 'cn';
     if (!r.cn_sent_at) return 'cnsend';
+    if (!r.goods_check_at) return 'goodscheck';
     return 'closed';
   }
   if (r.category === 'Exchange') {
@@ -11856,7 +11924,7 @@ function replTask(r, doersMap) {
     spareissue: r.assigned_at, repair: r.spare_issue_at || r.assigned_at, takeout: r.repaired_at, sparecheck: r.takeout_at || r.repaired_at,
     exchange: r.category_at,
     inform: r.spare_check_at || r.repaired_at || r.exchange_at || r.warranty_at,
-    bin: r.category_at, cn: r.bin_at, cnsend: r.cn_at,
+    bin: r.category_at, cn: r.bin_at || r.category_at, cnsend: r.cn_at, goodscheck: r.cn_sent_at,
     deliveryassign: r.ours === 'No' ? r.check_at : (r.informed_at || r.warranty_at),
     handover: r.delivery_assigned_at || (r.ours === 'No' ? r.check_at : (r.informed_at || r.warranty_at)),
     cashstaff: r.delivered_at
@@ -11892,6 +11960,7 @@ function replOut(r, doersMap) {
     informedAt: r.informed_at, informRemark: r.inform_remark || '',
     binAt: r.bin_at, binRemark: r.bin_remark || '', returnCondition: r.return_condition || '', rateToldTo: r.rate_told_to || '', cnNo: r.cn_no || '', cnAmount: num(r.cn_amount), cnPhoto: r.cn_photo || '', cnAt: r.cn_at,
     cnSentPhoto: r.cn_sent_photo || '', cnSentAt: r.cn_sent_at,
+    goodsCheckAt: r.goods_check_at || null, goodsCheckItems: replJson(r.goods_check_json), goodsCheckRemark: r.goods_check_remark || '',
     otpSentAt: r.otp_hash ? r.otp_expires : null, otpMobile: r.otp_mobile || '',
     deliveredAt: r.delivered_at, receiverName: r.receiver_name || '', chargesReceived: num(r.charges_received), handoverRemark: r.handover_remark || '',
     deliveryUserId: r.delivery_user_id || null, deliveryName: r.delivery_name || '', deliveryAssignedAt: r.delivery_assigned_at || null,
@@ -12214,6 +12283,48 @@ app.put('/api/replacement-fms/:id/action/:action', requireAuth, async (req, res)
       const photo = await uploadDocToDrive(b.photo, `${r.code}-cn-sent-${Date.now()}`);
       await db.query('UPDATE replacements SET cn_sent_photo=?, cn_sent_at=NOW(), cn_sent_by=? WHERE id=?', [photo, uid, r.id]);
       await logReplEvent(r.id, 'cnsend', 'Credit note shared with party — closed', uid);
+    } else if (action === 'goodscheck') {
+      if (!need('goodscheck')) return;
+      const raw = Array.isArray(b.lines) ? b.lines.slice(0, 30) : [];
+      const lines = raw.map(x => ({ item: t(x && x.item, 255), qty: Number(x && x.qty), usable: !!(x && x.usable) })).filter(x => x.item);
+      if (!lines.length) return fail('Kam se kam ek item likhein — kya aaya, kitna, aur usable hai ya nahi');
+      if (lines.some(x => !(x.qty > 0) || x.qty > 100000)) return fail('Har item ki qty 1 ya zyada likhein');
+      // Usable lines go into IMS, so each must be a Stock item (list se — "CODE — name", or a name / alias it knows).
+      // Exact match only (code, name or a known alias) — stockItemResolver would create a new item for a typo.
+      await ensureStockTxnSchema();
+      for (const x of lines.filter(l => l.usable)) {
+        const code = x.item.split(' — ')[0].trim();
+        const [[byCode]] = await withStockTable(() => db.query('SELECT item_code, description, uom FROM ajanta_stock_items WHERE item_code=? OR description=? LIMIT 1', [code, x.item]));
+        let byAlias = null;
+        if (!byCode) [[byAlias]] = await db.query('SELECT i.item_code, i.description, i.uom FROM ajanta_stock_aliases a JOIN ajanta_stock_items i ON i.item_code=a.item_code WHERE a.alias_key=? LIMIT 1', [stockNameKey(x.item)]);
+        x.stock = byCode || byAlias || null;
+        if (!x.stock) return fail(`"${x.item}" IMS (Stock) me nahi mila — list se item chunein`);
+      }
+      // Claim first so a double tap can't book the stock twice.
+      const [claim] = await db.query('UPDATE replacements SET goods_check_at=NOW(), goods_check_by=? WHERE id=? AND goods_check_at IS NULL', [uid, r.id]);
+      if (!claim.affectedRows) return fail('Ye step pehle hi ho chuka hai');
+      const [[clk]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d");
+      const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [uid]);
+      await ensureVendorBinTable();
+      const saved = [];
+      for (const [i, x] of lines.entries()) {
+        if (x.usable) {
+          const [ins] = await db.query(
+            `INSERT IGNORE INTO ajanta_stock_transactions
+               (txn_date, direction, item_code, item_name, quantity, uom, remarks, created_by, source, source_ref, source_item, party, ref_no, applied)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+            [clk.d, 'IN', x.stock.item_code, x.stock.description, x.qty, x.stock.uom || '', 'Replacement return — usable', 'Replacement FMS',
+             'repl', `repl|${r.id}|${i}`, x.item, r.party_name || '', r.code]);
+          if (ins.affectedRows) await db.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code = ?', [x.qty, x.stock.item_code]);
+          saved.push({ item: `${x.stock.item_code} — ${x.stock.description}`, qty: x.qty, to: 'IMS' });
+        } else {
+          await db.query(`INSERT INTO vendor_bin (item, qty, source, repl_id, ref_code, party, remark, added_by, added_by_name) VALUES (?,?,?,?,?,?,?,?,?)`,
+            [x.item, x.qty, 'repl', r.id, replCodeLabel(r), r.party_name || '', t(b.remark) || null, uid, (me && me.name) || '']);
+          saved.push({ item: x.item, qty: x.qty, to: 'Vendor Bin' });
+        }
+      }
+      await db.query('UPDATE replacements SET goods_check_json=?, goods_check_remark=? WHERE id=?', [JSON.stringify(saved), t(b.remark) || null, r.id]);
+      await logReplEvent(r.id, 'goodscheck', saved.map(x => `${x.item} × ${x.qty} → ${x.to}`).join(' · ') + (b.remark ? ` · ${t(b.remark)}` : ''), uid);
     } else if (action === 'deliveryassign') {
       if (!need('deliveryassign')) return;
       const did = Number(b.deliveryUserId);
