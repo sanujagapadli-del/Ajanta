@@ -14592,8 +14592,8 @@ async function gpLoadData(start, end, opts = {}) {
   // CD % on the order — the sale is the billed (net) amount, as in Tally.
   const discountBy = Object.fromEntries(cancelledRows.filter(c => Number(c.discount_pct) > 0).map(c => [String(c.order_no), Number(c.discount_pct)]));
 
-  // Sales lines from O2D (billed).
-  const sales = [];
+  // Sales lines from O2D (billed). allSales = every billed line (FIFO needs the ones before the range too).
+  const sales = [], allSales = [];
   let firstBill = '', lastBill = '';
   o2dRows.forEach(r => {
     const get = col => r[colToIdx(col)];
@@ -14603,11 +14603,12 @@ async function gpLoadData(start, end, opts = {}) {
     if (!date) return;
     if (!firstBill || date < firstBill) firstBill = date;
     if (date > lastBill) lastBill = date;
-    if (date < start || date > end) return;
     const qty = gpNum(get('O')), rate = gpNum(get('N')) * (100 - (discountBy[String(get('Q') || '')] || 0)) / 100;
     const name = String(get('M') || '').trim();
     if (!name || !(qty > 0)) return;
-    sales.push({ party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), billNo: String(get('BJ') || '').trim(), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date });
+    const line = { party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), billNo: String(get('BJ') || '').trim(), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date };
+    allSales.push(line);
+    if (date >= start && date <= end) sales.push(line);
   });
   if (opts.exGst) {
     const [gl] = await db.query("SELECT product_name, gst_percent FROM o2d_price_list WHERE gst_percent IS NOT NULL AND gst_percent<>''").catch(() => [[]]);
@@ -14640,9 +14641,63 @@ async function gpLoadData(start, end, opts = {}) {
     if (newer(v.last)) v.last = { at, rate };
   });
   const manualBy = Object.fromEntries(manual.map(m => [m.item_key, { rate: Number(m.cost_rate), upd: m.upd || '' }]));
+  // FIFO cost (client 2026-11-05: "GP mai purana maal pe purani rate lge and new pe new"). From the stock-sync start date:
+  // opening stock (current − INs + OUTs since then) at the manual cost, else the item's OLDEST PO rate; then every PO
+  // dated on / after that day is a lot (qty @ its rate). Billed sales, oldest first, use up the oldest lot available
+  // on their date; past the last lot → the latest rate. Sales before the start date keep the older costing below.
+  try {
+    const fifoFrom = await getAppSetting(STOCK_SYNC_FROM_SETTING);
+    if (fifoFrom) {
+      const [[stk], [mv]] = await Promise.all([
+        withStockTable(() => db.query('SELECT item_code, current_stock FROM ajanta_stock_items')),
+        db.query("SELECT item_code, SUM(CASE WHEN direction='IN' THEN quantity ELSE 0 END) AS inq, SUM(CASE WHEN direction='OUT' THEN quantity ELSE 0 END) AS outq FROM ajanta_stock_transactions WHERE status<>'Cancelled' AND applied=1 AND txn_date >= ? GROUP BY item_code", [fifoFrom]).catch(() => [[]])
+      ]);
+      const mvBy = Object.fromEntries(mv.map(m => [m.item_code, m]));
+      const lotsBy = {}; // code -> { oldest:{at,rate}, lots:[{date, at, qty, left, rate}] }
+      [...poRows, ...poArchive].forEach(r => {
+        const name = String(r[4] || '').trim(), qty = gpNum(r[6]), rate = gpNum(r[7]);
+        if (!name || !(rate > 0)) return;
+        const date = stockSerialToYmd(r[0]) || '';
+        const code = mapTo(name), at = [Number(r[0]) || 0, parseInt(String(r[1] || '').replace(/\D/g, ''), 10) || 0];
+        const L = lotsBy[code] = lotsBy[code] || { oldest: null, lots: [] };
+        if (!L.oldest || at[0] < L.oldest.at[0] || (at[0] === L.oldest.at[0] && at[1] < L.oldest.at[1])) L.oldest = { at, rate };
+        if (date && date >= fifoFrom && qty > 0) L.lots.push({ date, at, qty, left: qty, rate });
+      });
+      Object.values(lotsBy).forEach(L => L.lots.sort((a, b) => a.at[0] - b.at[0] || a.at[1] - b.at[1]));
+      const opening = {};
+      stk.forEach(it => { const m = mvBy[it.item_code] || {}; opening[it.item_code] = Math.max(0, (Number(it.current_stock) || 0) - (Number(m.inq) || 0) + (Number(m.outq) || 0)); });
+      const byCode = {};
+      allSales.filter(x => x.date >= fifoFrom).forEach(x => (byCode[x.code] = byCode[x.code] || []).push(x));
+      Object.entries(byCode).forEach(([code, list]) => {
+        const L = lotsBy[code] || { oldest: null, lots: [] };
+        const mk = manualBy[gpKey(list[0].item)];
+        const openRate = mk && mk.rate > 0 ? mk.rate : L.oldest ? L.oldest.rate : null;
+        let openLeft = openRate != null ? (opening[code] || 0) : 0;
+        list.sort((a, b) => a.date.localeCompare(b.date));
+        for (const x of list) {
+          let need = x.qty, cost = 0, lastRate = null, fromOpen = 0;
+          if (openLeft > 0) { const t = Math.min(openLeft, need); openLeft -= t; need -= t; cost += t * openRate; fromOpen = t; lastRate = openRate; }
+          for (const lot of L.lots) {
+            if (need <= 0) break;
+            if (lot.date > x.date || lot.left <= 0) continue;
+            const t = Math.min(lot.left, need); lot.left -= t; need -= t; cost += t * lot.rate; lastRate = lot.rate;
+          }
+          if (need > 0) {
+            const avail = L.lots.filter(l => l.date <= x.date);
+            const r = avail.length ? avail[avail.length - 1].rate : (openRate != null ? openRate : null);
+            if (r == null) continue; // nothing to cost it with — falls back below
+            cost += need * r; lastRate = r;
+          }
+          x.fifoRate = Math.round(cost * 100 / x.qty) / 100;
+          x.fifoSrc = fromOpen >= x.qty ? 'FIFO (purana stock)' : fromOpen > 0 ? 'FIFO (purana + PO)' : 'FIFO (PO lot)';
+        }
+      });
+    }
+  } catch (e) { console.error('GP FIFO:', e.message); }
   // A typed cost holds until a newer PO for the item comes in (client list 2026-10-26 #21: "manual cost
   // daali ho, jaise hi us product ka PO bane to cost update ho jaye") — a PO dated after the day the cost was typed wins.
   const costFor = s => {
+    if (s.fifoRate != null) return { rate: s.fifoRate, source: s.fifoSrc || 'FIFO' };
     const mk = manualBy[gpKey(s.item)];
     const c = poCost[s.code];
     const poAfter = mk && c && c.qty > 0 && c.last.date && mk.upd && c.last.date > mk.upd;
@@ -14783,7 +14838,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       const ik = gpKey(s.item);
       const it = byItem[ik] = byItem[ik] || { item: s.item, stockItem: s.code.startsWith('name:') ? '' : (stockName[s.code] || ''), qty: 0, sales: 0,
         costRate: c ? c.rate : null, costSource: c ? c.source : '', poName: c && c.poName || '', cost: 0 };
-      it.qty += s.qty; it.sales += s.amount; if (c) it.cost += cost;
+      it.qty += s.qty; it.sales += s.amount; if (c) { it.cost += cost; it.costedQty = (it.costedQty || 0) + s.qty; if (it.costRate == null) Object.assign(it, { costRate: c.rate, costSource: c.source }); }
       const pk = s.party.toLowerCase();
       const p = byParty[pk] = byParty[pk] || { party: s.party, bills: new Set(), qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {}, billList: {} };
       p.bills.add(s.billNo || s.orderNo); p.qty += s.qty; p.sales += s.amount;
@@ -14805,7 +14860,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       if (!vendors.length) { const mv = itemVendor[gpKey(s.item)]; addVendor(mv || NO_PO_VENDOR, s, 1, c ? cost : null, !!mv); }
       else vendors.forEach(v => {
         const share = v.qty / pc.qty;
-        const rate = c && c.source === 'Manual' ? c.rate : v.last.rate;
+        const rate = c && (c.source === 'Manual' || /^FIFO/.test(c.source)) ? c.rate : v.last.rate;
         addVendor(v.vendor, s, share, rate * s.qty * share);
       });
       totals.sales += s.amount; totals.qty += s.qty;
@@ -14813,6 +14868,8 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     }
     const products = Object.values(byItem).map(it => {
       const gp = it.costRate == null ? null : it.sales - it.cost;
+      // FIFO: the rate differs sale to sale — show the average cost rate of what was sold.
+      if (it.costedQty) it.costRate = round(it.cost / it.costedQty);
       return { ...it, qty: round(it.qty), sales: round(it.sales), cost: it.costRate == null ? null : round(it.cost),
         avgRate: it.qty ? round(it.sales / it.qty) : null, gp: gp == null ? null : round(gp), gpPct: gp == null || !it.sales ? null : round(gp * 100 / it.sales) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
