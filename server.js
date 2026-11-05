@@ -11546,8 +11546,13 @@ app.post('/api/cheque-fms/cash-receipt', requireAuth, async (req, res) => {
     if (!party) return res.status(400).json({ error: 'Party chunein' });
     if (!(amount > 0)) return res.status(400).json({ error: 'Amount daalein' });
     if (!paidOn) return res.status(400).json({ error: 'Tareekh daalein' });
-    await db.query("INSERT INTO collect_payments (party, amount, paid_on, mode, remark, done_by, source, receipt_no) VALUES (?,?,?,'Cash',?,?,'cheque-fms',?)",
-      [party, amount, paidOn, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, String(b.receiptNo || '').trim().slice(0, 60) || null]);
+    let photo = null;
+    if (b.photo) {
+      if (!docDataUriKind(b.photo)) return res.status(400).json({ error: 'Receipt: sirf photo ya PDF' });
+      photo = await uploadDocToDrive(b.photo, `cash-receipt-${party.replace(/[^\w-]+/g, '_').slice(0, 40)}-${Date.now()}`);
+    }
+    await db.query("INSERT INTO collect_payments (party, amount, paid_on, mode, remark, done_by, source, receipt_no, photo_url) VALUES (?,?,?,'Cash',?,?,'cheque-fms',?,?)",
+      [party, amount, paidOn, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, String(b.receiptNo || '').trim().slice(0, 60) || null, photo]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -18291,12 +18296,14 @@ async function collectPayTable() {
   // Where the entry was made: NULL = Payment Follow-up, 'cheque-fms' = Cheque FMS cash receipt.
   const [cols] = await db.query("SHOW COLUMNS FROM collect_payments LIKE 'source'");
   if (!cols.length) await db.query('ALTER TABLE collect_payments ADD COLUMN source VARCHAR(20) NULL, ADD COLUMN receipt_no VARCHAR(60) NULL');
+  // Cash receipt photo / PDF (client 2026-11-05: "cash Receipt upload option bhi do").
+  await addMissingColumns('collect_payments', [['photo_url', 'VARCHAR(500) NULL']]);
   _collectPayOk = true;
 }
 async function collectAppPayments() {
   await collectPayTable();
   const [[rows], tally] = await Promise.all([
-    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, p.source, p.receipt_no, p.done_by, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
+    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, p.source, p.receipt_no, p.photo_url, p.done_by, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
       FROM collect_payments p LEFT JOIN users u ON u.id=p.done_by ORDER BY p.paid_on DESC, p.id DESC`),
     getTallyPaymentsByDealer()]);
   const used = new Set();
@@ -18309,7 +18316,7 @@ async function collectAppPayments() {
       return days >= -3 && days <= 15;
     });
     if (hit) used.add(hit);
-    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', source: p.source || '', receiptNo: p.receipt_no || '',
+    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', source: p.source || '', receiptNo: p.receipt_no || '', photo: p.photo_url || '',
       byId: p.done_by, at: p.done_at, by: p.by_name || '', inTally: !!hit };
   });
 }
