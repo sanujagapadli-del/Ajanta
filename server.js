@@ -11200,7 +11200,7 @@ async function chequeUserAccess(req) {
 async function assertChequeStepDoer(req, res, key) {
   const acc = await chequeUserAccess(req);
   if (acc.mySteps.has(CHEQUE_N[key])) return acc;
-  res.status(403).json({ error: 'You are not assigned to this step (ask admin: Cheque FMS → Step Doers)' });
+  res.status(403).json({ error: 'You are not assigned to this step (ask admin: Collection FMS → Step Doers)' });
   return null;
 }
 
@@ -11379,7 +11379,7 @@ async function uploadChequePhoto(dataUri, code, kind) {
 app.post('/api/cheque-fms', requireAuth, async (req, res) => {
   try {
     const acc = await chequeUserAccess(req);
-    if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Cheque FMS' });
+    if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Collection FMS' });
     if (await hasPageDeny(req, 'form-cheque')) return res.status(403).json(FORM_DENIED);
     const { photo, note, salesmanUserId } = req.body || {};
     if (!photo) return res.status(400).json({ error: 'Cheque photo is required' });
@@ -11589,7 +11589,7 @@ function chequeSheetDate(v) {
 // party's outstanding drops at once and Tally's own receipt replaces it later.
 async function chqCashAccess(req, res) {
   if (req.session.role === 'admin' || await hasPageGrant(req, 'cheque-fms')) return true;
-  res.status(403).json({ error: 'No access to Cheque FMS' });
+  res.status(403).json({ error: 'No access to Collection FMS' });
   return false;
 }
 app.get('/api/cheque-fms/cash-receipts', requireAuth, async (req, res) => {
@@ -11698,7 +11698,7 @@ app.post('/api/cheque-fms/import-old', requireAuth, requireAdmin, async (req, re
     }
     res.json({ success: true, imported, skipped, unmatchedSalesmen: [...unmatchedSalesmen] });
   } catch (err) {
-    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the old Cheque FMS sheet with the service account.' });
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the old Collection FMS sheet with the service account.' });
     sendServerError(res, err);
   }
 });

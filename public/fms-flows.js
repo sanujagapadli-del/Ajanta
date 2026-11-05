@@ -195,7 +195,7 @@ window.FMS_FLOWS = [
   rules: ['Planned date sheet formula se', 'Koi automatic WhatsApp / alert nahi', 'Band: PO ki saari lines closed'],
 },
 {
-  key: 'cheque', icon: '🧾', title: 'Cheque FMS', page: 'cheque-fms',
+  key: 'cheque', icon: '🧾', title: 'Collection FMS', page: 'cheque-fms',
   summary: 'Salesman cheque photo daalta hai → Accounts details + bank deposit → Pass ya Bounce. Bounce par penalty + CRM follow-up.',
   start: {
     who: 'Salesman (sirf cheque photo + note). Accounts bhi salesman ki taraf se daal sakta hai',

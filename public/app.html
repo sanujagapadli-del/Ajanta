@@ -1563,7 +1563,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       </div>
       <div class="nav-item" id="nav-cheque-fms" style="display:none" onclick="navigate('cheque-fms',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18v10H3zM7 11h6M7 14h3M16 13h2"/></svg>
-        <span class="nav-label-text">Cheque FMS</span>
+        <span class="nav-label-text">Collection FMS</span>
       </div>
       <div class="nav-item" id="nav-replacement-fms" style="display:none" onclick="navigate('replacement-fms',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M5.6 15a7 7 0 0011.9 2.5M18.4 9A7 7 0 006.5 6.5"/></svg>
@@ -4375,7 +4375,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
 <div class="modal-overlay" id="chequeStepDoersModal">
   <div class="modal sdm-modal">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h3 style="margin:0">⚙ Cheque FMS — Step Doers</h3>
+      <h3 style="margin:0">⚙ Collection FMS — Step Doers</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('chequeStepDoersModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Tick = woh user us step ka doer (Accounts: 1-4, CRM: 5). Doers saare cheques dekhte hain; baaki users (salesmen) sirf apne. Bina doer ke step sirf admin kar sakta hai.</div>
@@ -5341,7 +5341,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows','pc-followup':'PC Follow-up','vendor-bin':'Vendor Bin'};
+const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Collection FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows','pc-followup':'PC Follow-up','vendor-bin':'Vendor Bin'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -7462,7 +7462,7 @@ const PAGE_ACCESS_GROUPS = [
     // Not a page: sees + acts on every Service FMS step, not just their Step Doers ones.
     { key: 'sfms-pc-view', label: 'Service FMS PC View (all steps)' },
     { key: 'purchase-fms', label: 'Purchase FMS' },
-    { key: 'cheque-fms', label: 'Cheque FMS' },
+    { key: 'cheque-fms', label: 'Collection FMS' },
     { key: 'replacement-fms', label: 'Replacement FMS' },
     { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
     { key: 'stock', label: 'Stock' },
@@ -21921,7 +21921,7 @@ function renderMeca() {
   const GROUPS = [
     ['crr', 'Visit CRR', '#1d4ed8', 'Sirf jahan sach me visit hui (yes / sir ke sath) — plan wale nahi. Beat page se.', [['visits', 'Counter Visited'], ['ordered', 'Order (counter)'], ['conv', 'Conversion %'], ['value', 'Order Value ₹'], ['avg', 'Avg Order']]],
     ['nbd', 'Visit NBD', '#7c3aed', 'Lead FMS me jo bhi kaam kare (salesman ho ya nahi): Leads = jitni lead daali, Calls = Lead FMS calls, Counter Visited = "Market Visit" lead + Lead FMS visit; converted = Order / Dealer bana (Conversion = converted ÷ leads); Order Value = converted counter ke O2D order (dukaan ke naam se milake), O2D me na mile to "Order Mil Gaya" par bhara ₹; Avg = Order Value ÷ orders.', [['nbdLeads', 'Leads'], ['leadCalls', 'Calls'], ['nbd', 'Counter Visited'], ['nbdWon', 'Converted'], ['nbdConv', 'Conversion %'], ['nbdValue', 'Order Value ₹'], ['nbdAvg', 'Avg Order']]],
-    ['coll', 'Collection', '#059669', 'Cheque FMS se: cash + online receipt (Receipt By salesman) + cheque (jis salesman ne diya).', [['collCount', 'Collection (counter)'], ['coll', 'Collection ₹'], ['collAvg', 'Avg Collection']]],
+    ['coll', 'Collection', '#059669', 'Collection FMS se: cash + online receipt (Receipt By salesman) + cheque (jis salesman ne diya).', [['collCount', 'Collection (counter)'], ['coll', 'Collection ₹'], ['collAvg', 'Avg Collection']]],
     ['scot', 'SCOT (CRR calling)', '#d97706', 'SC CRR ka MECA — SCOT page ki calls aur orders, jisne call / order kiya uske naam par. Benchmark = Calls / Call conv % / Call order ₹ / Call avg.', [['scotCalls', 'Calls'], ['scotOrders', 'Order (call se)'], ['scotConv', 'Conversion %'], ['scotValue', 'Order Value ₹'], ['scotAvg', 'Avg Order']]],
     ['o2d', 'ERP Sales (O2D)', '#0891b2', 'O2D me book hue saare order, "Order By" ke naam par (cancel chhod kar, CD % ke baad). Beat / Lead / SCOT ke order bhi O2D me hi aate hain — isliye ye alag dikhta hai, unme joda nahi.', [['o2dOrders', 'Orders'], ['o2dValue', 'Order Value ₹'], ['o2dAvg', 'Avg Order']]]
   ];
@@ -22080,7 +22080,7 @@ function renderBeat() {
   const fixedTh = (l, cls) => `<th rowspan="2" class="fx${cls ? ' ' + cls : ''}">${l}</th>`;
   const head1 = days.map(d => `<th id="beatDay_${d}" colspan="${W}" class="dh${d === beatData.today ? ' td' : beatIsoDow(d) === 7 ? ' su' : ''}">${+d.slice(8)} <small>${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][beatIsoDow(d)]}</small></th>`).join('');
   const head2 = days.map(d => F.map(([, l]) => `<th class="fh${beatIsoDow(d) === 7 ? ' su' : ''}">${l}</th>`).join('')).join('');
-  const body = counters.map((c, i) => `<tr data-c="${c.id}"><td class="k0">${i + 1}</td><td class="k1${c.active ? '' : ' off'}">${esc(c.name)}<span class="lk${c.party ? ' on' : ''}" onclick="event.stopPropagation();openBeatLink(${c.id})" title="${c.party ? 'O2D / Tally: ' + esc(c.party) + ' — order O2D se, collection Cheque FMS se' : 'O2D / Tally dealer se jodo — tab order / collection apne aap aayega'}">${c.party ? '🔗' : '🔗?'}</span></td><td class="k2">${esc(c.beatDay || '')}</td><td class="k3">${esc(c.area || '')}</td><td class="k4">${esc(c.city || '')}</td><td class="k5 sm">${salesman}</td>`
+  const body = counters.map((c, i) => `<tr data-c="${c.id}"><td class="k0">${i + 1}</td><td class="k1${c.active ? '' : ' off'}">${esc(c.name)}<span class="lk${c.party ? ' on' : ''}" onclick="event.stopPropagation();openBeatLink(${c.id})" title="${c.party ? 'O2D / Tally: ' + esc(c.party) + ' — order O2D se, collection Collection FMS se' : 'O2D / Tally dealer se jodo — tab order / collection apne aap aayega'}">${c.party ? '🔗' : '🔗?'}</span></td><td class="k2">${esc(c.beatDay || '')}</td><td class="k3">${esc(c.area || '')}</td><td class="k4">${esc(c.city || '')}</td><td class="k5 sm">${salesman}</td>`
     + days.map(d => { const e = beatIdx[`${c.id}|${d}`], sun = beatIsoDow(d) === 7; return F.map(([f]) => beatCellHtml(f, e, sun, c, d)).join(''); }).join('') + '</tr>').join('');
   const foot = days.map(d => {
     const es = counters.map(c => beatIdx[`${c.id}|${d}`]).filter(Boolean);
@@ -22131,7 +22131,7 @@ function renderBeat() {
       <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="const s=document.getElementById('bcNewRow');s.style.display=s.style.display==='none'?'flex':'none'">＋ Naya counter</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px;color:var(--gray-500)">
-      <span>Visit par tap = ✓ / ✗ / ✈ chuno · baaki khane me likho · <b>Enter</b> = save + neeche · <span style="background:#e8f0fe;color:#1a56b8;padding:0 5px;border-radius:4px">nila</span> Order / Collection = 🔗 jude counter ka O2D / Cheque FMS se (apne aap)</span>
+      <span>Visit par tap = ✓ / ✗ / ✈ chuno · baaki khane me likho · <b>Enter</b> = save + neeche · <span style="background:#e8f0fe;color:#1a56b8;padding:0 5px;border-radius:4px">nila</span> Order / Collection = 🔗 jude counter ka O2D / Collection FMS se (apne aap)</span>
       <span id="bcNewRow" style="margin-left:auto;display:none;gap:6px;flex-wrap:wrap">
         <input id="bcNewN" placeholder="Naya counter (Firm Name)" style="${IN};min-width:170px"/>
         <input id="bcNewD" list="beatDayList" placeholder="Beat Days" style="${IN};width:115px"/>
@@ -22203,7 +22203,7 @@ function beatGridClick(ev) {
   if (info.date && info.date > beatData.today) { showToast('Aage ki date abhi nahi bhar sakte', 'error'); return; }
   if (info.f === 'visit') return beatVisitMenu(td, info);
   if ((info.f === 'orderAmt' || info.f === 'collectionAmt') && beatLinked(beatData.counters.find(c => c.id === info.counterId))) {
-    showToast(info.f === 'orderAmt' ? 'Order O2D se apne aap aata hai (🔗 jude counter)' : 'Collection Cheque FMS (cash / online / cheque) se apne aap aata hai', 'info'); return;
+    showToast(info.f === 'orderAmt' ? 'Order O2D se apne aap aata hai (🔗 jude counter)' : 'Collection Collection FMS (cash / online / cheque) se apne aap aata hai', 'info'); return;
   }
   beatEdit(td, info);
 }
@@ -22367,7 +22367,7 @@ async function openBeatLink(counterId) {
   if (!_beatDealerNames) { const r = await api('/api/beat/dealer-names'); _beatDealerNames = (r && r.names) || []; }
   vrlModal('beatLinkModal', `${scotModalHead('beatLinkModal', '🔗 Dealer se jodo')}
     <div style="font-size:13px;margin-bottom:6px">Beat counter: <b>${esc(c.name)}</b>${c.area ? ` · ${esc(c.area)}` : ''}</div>
-    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">O2D / Tally me iska naam chunein — phir is counter ka <b>Order O2D se</b> aur <b>Collection Cheque FMS</b> (cash / online / cheque) se apne aap aayega.</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">O2D / Tally me iska naam chunein — phir is counter ka <b>Order O2D se</b> aur <b>Collection Collection FMS</b> (cash / online / cheque) se apne aap aayega.</div>
     <input id="beatLinkIn" list="beatLinkList" value="${esc(c.party || '')}" placeholder="Dealer ka naam likho / chuno" style="${VRL_IN};margin-bottom:10px"/>
     <datalist id="beatLinkList">${_beatDealerNames.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
     <div style="display:flex;gap:8px">${c.party ? `<button class="btn btn-outline" onclick="saveBeatLink(${c.id}, '')">✕ Link hatao</button>` : ''}
@@ -22448,7 +22448,7 @@ function renderBeatReport() {
         <td style="${td}">${x.collection ? inr(x.collection) : '—'}</td>
         <td style="${td};color:${x.outstanding > 0 ? 'var(--color-danger)' : 'var(--gray-500)'}">${x.outstanding == null ? '—' : inr(x.outstanding)}</td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">Is list me koi counter nahi</div>'}
-    <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Last Visit = Beat me "yes / sir ke sath" (ya order / collection) wala aakhri din. Order / Collection / Outstanding = 🔗 jude counter ka O2D / Cheque FMS / Tally; na jude counter ka Beat me likha hua.</div>`;
+    <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Last Visit = Beat me "yes / sir ke sath" (ya order / collection) wala aakhri din. Order / Collection / Outstanding = 🔗 jude counter ka O2D / Collection FMS / Tally; na jude counter ka Beat me likha hua.</div>`;
 }
 function exportBeatReport() {
   if (!beatRep) return;
@@ -24412,7 +24412,7 @@ async function submitChequeStepDoers() {
   loadChequeFmsList();
 }
 function importOldCheques() {
-  showConfirm({ icon: '📥', title: 'Import from old Cheque FMS sheet?', msg: 'Old Google-Form sheet ke saare cheques yahan aa jayenge (jo pehle se hain woh skip). Dobara chalana safe hai.', okLabel: 'Import', okColor: 'var(--color-primary)' }, async () => {
+  showConfirm({ icon: '📥', title: 'Import from old Collection FMS sheet?', msg: 'Old Google-Form sheet ke saare cheques yahan aa jayenge (jo pehle se hain woh skip). Dobara chalana safe hai.', okLabel: 'Import', okColor: 'var(--color-primary)' }, async () => {
     showToast('Importing…');
     const r = await api('/api/cheque-fms/import-old', 'POST', {});
     if (r.error) { showToast(r.error, 'error'); return; }
@@ -26224,7 +26224,7 @@ function fmsFlowsReady() {
   if (window.FMS_FLOWS) return Promise.resolve(window.FMS_FLOWS);
   return new Promise((resolve, reject) => {
     const sc = document.createElement('script');
-    sc.src = '/fms-flows.js?v=3';
+    sc.src = '/fms-flows.js?v=4';
     sc.onload = () => resolve(window.FMS_FLOWS || []);
     sc.onerror = () => reject(new Error('Workflow load nahi hua — internet / refresh'));
     document.head.appendChild(sc);
