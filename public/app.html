@@ -1625,6 +1625,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <svg class="nav-chev" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
       </div>
       <div class="nav-group-items">
+      <div class="nav-item" id="nav-fms-flows" style="display:none" onclick="navigate('fms-flows',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 3v4m0 0a2 2 0 100 4 2 2 0 000-4zm0 4v10m12-6a2 2 0 100-4 2 2 0 000 4zm0 0v2a4 4 0 01-4 4H6"/></svg>
+        <span class="nav-label-text">FMS Workflows</span>
+      </div>
       <div class="nav-item" id="nav-dropdown-master" style="display:none" onclick="navigate('dropdown-master',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7m5-2l3 3 3-3"/></svg>
         <span class="nav-label-text">Dropdown Master</span>
@@ -2561,6 +2565,14 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <button class="btn btn-green" onclick="openRentPay(0)">💰 Kiraya aaya</button>
     </div>
     <div id="rentWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
+  </div>
+  <div id="page-fms-flows" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
+      <div style="font-size:19px;font-weight:900;color:var(--gray-900)">🧭 FMS Workflows</div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px">Har FMS kaise chalta hai — kaun shuru karta hai, har step ka doer, time, kya bharna hai aur kya condition lagi hai. FMS chuno:</div>
+      <div id="fmsFlowChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px"></div>
+    </div>
+    <div id="fmsFlowWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
   <div id="page-dropdown-master" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
@@ -4958,6 +4970,7 @@ async function init() {
     if (canSee('md-summary')) { document.getElementById('nav-md-summary').style.display = 'flex'; document.getElementById('dashMdBtn').style.display = ''; }
     if (canSee('checklist-master')) document.getElementById('nav-checklist-master').style.display = 'flex';
     if (ME.role === 'admin') document.getElementById('nav-dropdown-master').style.display = 'flex';
+    if (canSee('fms-flows')) document.getElementById('nav-fms-flows').style.display = 'flex';
     if (ME.role === 'admin') document.getElementById('nav-rental').style.display = 'flex';
     if (/^md$/i.test(String(ME.department || '').trim())) document.getElementById('nav-my-expense').style.display = 'flex'; // personal — MD (Ajay sir)
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
@@ -5014,7 +5027,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics', 'fms-flows'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     // MD (Ajay sir, 2026-10-24): MD Summary is the home page whenever the app
     // is opened fresh; a refresh in the same tab still restores the last page.
     let freshOpen = false;
@@ -5258,7 +5271,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary'};
+const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Cheque FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -5281,7 +5294,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics', 'fms-flows'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -5318,6 +5331,7 @@ function navigate(page, el) {
   if (page==='md-summary') loadMdSummary();
   if (page==='checklist-master') loadChecklistMaster();
   if (page==='dropdown-master') loadDropdownMaster();
+  if (page==='fms-flows') loadFmsFlows();
   if (page==='my-expense') loadMyExpense();
   if (page==='rental') loadRental();
   if (page==='ows') loadOws();
@@ -7389,6 +7403,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'petty-cash', label: 'Petty Cash' },
     { key: 'tea', label: 'Tea Register — chai entry + monthly report (owner = Petty Cash owners)' },
     { key: 'ows', label: 'OWS — Weekly product-wise sales' },
+    { key: 'fms-flows', label: 'FMS Workflows — har FMS ke steps aur conditions (sirf dekhne ke liye)' },
   ]},
   { label: 'Forms', locked: false, pages: [
     { key: 'form-sfms-complaint', label: '+ New Complaint (Service)', deny: true, needs: ['service-fms'] },
@@ -25622,6 +25637,49 @@ function ddScan() {
 new MutationObserver(() => { if (!_ddScanQueued && Object.keys(ddLists).length) { _ddScanQueued = true; requestAnimationFrame(ddScan); } })
   .observe(document.documentElement, { childList: true, subtree: true });
 // Admin page: one box per list, a line per option.
+// FMS Workflows page (client 2026-11-05) — data in /fms-flows.js (loaded on first open).
+let fmsFlowSel = 'o2d';
+function loadFmsFlows() {
+  if (window.FMS_FLOWS) return renderFmsFlows();
+  const sc = document.createElement('script');
+  sc.src = '/fms-flows.js?v=1';
+  sc.onload = renderFmsFlows;
+  sc.onerror = () => { document.getElementById('fmsFlowWrap').innerHTML = '<div class="empty">Load nahi hua — page refresh karein</div>'; };
+  document.head.appendChild(sc);
+}
+function renderFmsFlows() {
+  const flows = window.FMS_FLOWS || [];
+  const f = flows.find(x => x.key === fmsFlowSel) || flows[0];
+  if (!f) return;
+  const on = x => x.key === f.key;
+  document.getElementById('fmsFlowChips').innerHTML = flows.map(x => `<button type="button" onclick="fmsFlowSel='${x.key}';renderFmsFlows()"
+    style="padding:6px 12px;border-radius:999px;font-size:12.5px;font-weight:800;cursor:pointer;border:1.5px solid ${on(x) ? 'var(--color-primary)' : 'var(--gray-200)'};background:${on(x) ? 'var(--color-primary)' : 'var(--surface)'};color:${on(x) ? '#fff' : 'var(--gray-700)'}">${x.icon} ${esc(x.title)}</button>`).join('');
+  const card = 'background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px';
+  const chip = (t, bg, fg) => `<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;background:${bg};color:${fg};margin:2px 4px 2px 0">${t}</span>`;
+  const arrow = '<div style="text-align:center;color:var(--gray-300);font-size:18px;line-height:1;margin:4px 0">↓</div>';
+  const list = (arr, icon) => (arr || []).map(t => `<div style="display:flex;gap:6px;font-size:13px;color:var(--gray-700);margin-top:3px"><span style="flex:none">${icon}</span><span>${esc(t)}</span></div>`).join('');
+  const head = t => `<div style="font-size:11px;font-weight:800;color:var(--gray-500);margin-top:8px;letter-spacing:.4px">${t}</div>`;
+  const start = `<div style="${card};border-left:4px solid var(--color-success-text)">
+      <div style="font-size:11px;font-weight:800;color:var(--color-success-text);text-transform:uppercase;letter-spacing:.4px">▶ Shuruaat</div>
+      <div style="font-size:13.5px;font-weight:700;color:var(--gray-900);margin-top:3px">👤 ${esc(f.start.who)}</div>
+      ${head('ZAROORI')}${list(f.start.fill, '✔️')}
+      ${f.start.notes ? head('CHECKS / NOTE') + list(f.start.notes, '•') : ''}</div>`;
+  const steps = f.steps.map(st => `${arrow}<div style="${card};display:flex;gap:12px">
+      <div style="flex:none;width:30px;height:30px;border-radius:50%;background:var(--color-primary);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center;font-size:13px">${st.no}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:15px;font-weight:900;color:var(--gray-900)">${esc(st.name)}</div>
+        <div style="margin-top:3px">${chip('👤 ' + esc(st.doer), 'var(--gray-100)', 'var(--gray-700)')}${chip('⏱ ' + esc(st.due), 'var(--gray-100)', 'var(--gray-700)')}${st.only ? chip('🔀 ' + esc(st.only), 'var(--color-warning-bg)', 'var(--color-warning-text)') : ''}</div>
+        ${st.fill && st.fill !== '—' ? `<div style="font-size:13px;color:var(--gray-700);margin-top:5px"><b>Bharna:</b> ${esc(st.fill)}</div>` : ''}
+        ${st.cond && st.cond.length ? `<div style="margin-top:6px;padding:4px 9px 6px;border-radius:9px;background:var(--gray-50);border:1px dashed var(--gray-200)">${list(st.cond, '⚡')}</div>` : ''}
+      </div></div>`).join('');
+  const end = `${arrow}<div style="${card};text-align:center;font-weight:900;color:var(--gray-700)">🏁 Band</div>`;
+  const paths = f.paths ? `<div style="${card};margin-top:14px"><div style="font-size:14px;font-weight:900;color:var(--gray-900);margin-bottom:6px">🔀 Raaste (kis case me kaun se steps)</div>
+      ${f.paths.map(([k, v]) => `<div style="display:flex;gap:4px 10px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--gray-100);font-size:13px"><b style="min-width:200px;color:var(--gray-900)">${esc(k)}</b><span style="color:var(--gray-700)">${esc(v)}</span></div>`).join('')}</div>` : '';
+  const rules = f.rules ? `<div style="${card};margin-top:14px"><div style="font-size:14px;font-weight:900;color:var(--gray-900);margin-bottom:4px">📌 Baaki niyam</div>${list(f.rules, '•')}</div>` : '';
+  document.getElementById('fmsFlowWrap').innerHTML = `<div style="max-width:760px">
+    <div style="font-size:13.5px;color:var(--gray-700);margin:0 0 10px">${esc(f.summary)}</div>
+    ${start}${steps}${end}${paths}${rules}</div>`;
+}
 async function loadDropdownMaster() {
   const wrap = document.getElementById('ddmWrap');
   const r = await api('/api/dd-lists');
