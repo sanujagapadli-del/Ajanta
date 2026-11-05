@@ -11671,12 +11671,16 @@ app.post('/api/cheque-fms/cash-receipt', requireAuth, async (req, res) => {
       rbName = u.name;
     }
     let photo = null;
-    if (b.photo) {
+    // Files already uploaded one by one (/api/task-files) — only Drive / Google links kept.
+    const photos = (Array.isArray(b.photos) ? b.photos : []).map(String).filter(u => /^https:\/\/([a-z0-9-]+\.)*google(usercontent)?\.com\//i.test(u) || /\/api\/drive-file\/[\w-]+$/.test(u)).slice(0, 10);
+    if (photos.length) photo = photos[0];
+    if (!photo && b.photo) {
       if (!docDataUriKind(b.photo)) return res.status(400).json({ error: 'Receipt: sirf photo ya PDF' });
       photo = await uploadDocToDrive(b.photo, `cash-receipt-${party.replace(/[^\w-]+/g, '_').slice(0, 40)}-${Date.now()}`);
     }
-    await db.query("INSERT INTO collect_payments (party, amount, paid_on, mode, remark, done_by, source, receipt_no, photo_url, receipt_by, receipt_by_name) VALUES (?,?,?,?,?,?,'cheque-fms',?,?,?,?)",
-      [party, amount, paidOn, mode, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, String(b.receiptNo || '').trim().slice(0, 60) || null, photo, rbId || null, rbName]);
+    await db.query("INSERT INTO collect_payments (party, amount, paid_on, mode, remark, done_by, source, receipt_no, photo_url, receipt_by, receipt_by_name, photo_urls) VALUES (?,?,?,?,?,?,'cheque-fms',?,?,?,?,?)",
+      [party, amount, paidOn, mode, String(b.remark || '').trim().slice(0, 500) || null, req.session.userId, String(b.receiptNo || '').trim().slice(0, 60) || null, photo, rbId || null, rbName,
+       photos.length ? JSON.stringify(photos) : (photo ? JSON.stringify([photo]) : null)]);
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
@@ -18882,13 +18886,15 @@ async function collectPayTable() {
   // Cash receipt photo / PDF (client 2026-11-05: "cash Receipt upload option bhi do").
   await addMissingColumns('collect_payments', [['photo_url', 'VARCHAR(500) NULL'],
     // Salesman who collected it (client 2026-11-05: "Receipt By" — MECA Collection is credited to him).
-    ['receipt_by', 'INT NULL'], ['receipt_by_name', 'VARCHAR(150) NULL']]);
+    ['receipt_by', 'INT NULL'], ['receipt_by_name', 'VARCHAR(150) NULL'],
+    // Several receipt files (client 2026-11-05: "multiple files upload") — JSON array of Drive links.
+    ['photo_urls', 'TEXT NULL']]);
   _collectPayOk = true;
 }
 async function collectAppPayments() {
   await collectPayTable();
   const [[rows], tally] = await Promise.all([
-    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, p.source, p.receipt_no, p.photo_url, p.receipt_by, p.receipt_by_name, p.done_by, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
+    db.query(`SELECT p.id, p.party, p.amount, DATE_FORMAT(p.paid_on,'%Y-%m-%d') AS paid_on, p.mode, p.remark, p.source, p.receipt_no, p.photo_url, p.photo_urls, p.receipt_by, p.receipt_by_name, p.done_by, DATE_FORMAT(p.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS by_name
       FROM collect_payments p LEFT JOIN users u ON u.id=p.done_by ORDER BY p.paid_on DESC, p.id DESC`),
     getTallyPaymentsByDealer()]);
   const used = new Set();
@@ -18901,7 +18907,7 @@ async function collectAppPayments() {
       return days >= -3 && days <= 15;
     });
     if (hit) used.add(hit);
-    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', source: p.source || '', receiptNo: p.receipt_no || '', photo: p.photo_url || '', receiptBy: p.receipt_by == null ? null : Number(p.receipt_by), receiptByName: p.receipt_by_name || '',
+    return { id: p.id, party: p.party, amount: amt, paidOn: p.paid_on, mode: p.mode || '', remark: p.remark || '', source: p.source || '', receiptNo: p.receipt_no || '', photo: p.photo_url || '', photos: (() => { try { const a = JSON.parse(p.photo_urls || '[]'); return Array.isArray(a) && a.length ? a : (p.photo_url ? [p.photo_url] : []); } catch (_) { return p.photo_url ? [p.photo_url] : []; } })(), receiptBy: p.receipt_by == null ? null : Number(p.receipt_by), receiptByName: p.receipt_by_name || '',
       byId: p.done_by, at: p.done_at, by: p.by_name || '', inTally: !!hit };
   });
 }

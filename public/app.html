@@ -23877,14 +23877,38 @@ async function renderChequeCash() {
   wrap.innerHTML = `<div style="padding:12px 16px;font-size:12.5px;color:var(--gray-600)">${list.length} ${online ? 'online transfer' : 'cash receipt'} · ${inr(total)}${notInTally.length ? ` · <b style="color:var(--color-warning-text)">${notInTally.length} Tally me aana baaki (${inr(notInTally.reduce((a, x) => a + x.amount, 0))})</b>` : ''} — Payment Follow-up ka outstanding inse turant kam hota hai.</div>` +
     (list.length ? `<table style="font-size:12.5px"><thead><tr><th>Tareekh</th><th>Party</th><th style="text-align:right">Amount</th><th>${online ? 'UTR / Ref no.' : 'Receipt no.'} / remark</th><th>Receipt By</th><th>Entry</th><th>Tally</th><th></th></tr></thead><tbody>
     ${list.map(x => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(x.paidOn))}</td><td style="font-weight:600">${esc(x.party)}</td><td style="text-align:right;font-weight:800">${inr(x.amount)}</td>
-      <td>${esc(x.receiptNo || '')}${x.photo ? ` <a href="${esc(x.photo)}" target="_blank" rel="noopener" style="font-weight:700;white-space:nowrap">📎 Receipt</a>` : ''}${x.remark ? `<div style="font-size:11px;color:var(--gray-600)">${esc(x.remark)}</div>` : ''}</td><td style="white-space:nowrap;font-weight:600">${esc(x.receiptByName || '—')}</td><td style="white-space:nowrap">${esc(x.by)}<div style="font-size:10.5px;color:var(--gray-500)">${esc(fmtDateDMY(x.at, true))}</div></td>
+      <td>${esc(x.receiptNo || '')}${(x.photos && x.photos.length ? x.photos : x.photo ? [x.photo] : []).map((u, i, all) => ` <a href="${esc(u)}" target="_blank" rel="noopener" style="font-weight:700;white-space:nowrap">📎 ${all.length > 1 ? i + 1 : 'Receipt'}</a>`).join('')}${x.remark ? `<div style="font-size:11px;color:var(--gray-600)">${esc(x.remark)}</div>` : ''}</td><td style="white-space:nowrap;font-weight:600">${esc(x.receiptByName || '—')}</td><td style="white-space:nowrap">${esc(x.by)}<div style="font-size:10.5px;color:var(--gray-500)">${esc(fmtDateDMY(x.at, true))}</div></td>
       <td>${x.inTally ? '<span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">✓ Tally me aa gaya</span>' : '<span class="status-badge" style="background:var(--color-warning-bg);color:var(--color-warning-text)">Tally me aana baaki</span>'}</td>
       <td>${!x.inTally && (chqCash.me.isAdmin || x.byId === chqCash.me.id) ? `<button class="btn btn-sm btn-outline" title="Hatao" onclick="deleteCashReceipt(${Number(x.id)},this)">🗑</button>` : ''}</td></tr>`).join('')}</tbody></table>`
     : `<div class="empty">${online ? 'Abhi koi online transfer nahi — "🏦 + Online Transfer" se daalein' : 'Abhi koi cash receipt nahi — "💵 + Cash Receipt" se daalein'}</div>`);
 }
 let _crMode = 'Cash';
+// Several receipt files (client 2026-11-05) — each compressed / read here, uploaded one by one on Save.
+let _crFiles = [];
+async function crFilesPicked(input) {
+  for (const f of [...input.files]) {
+    if (_crFiles.length >= 10) { showToast('Max 10 file', 'error'); break; }
+    try {
+      const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+      if (pdf && f.size > 3 * 1024 * 1024) { showToast(`${f.name} — 3 MB se bada PDF`, 'error'); continue; }
+      let data = pdf ? String(await readFileAsDataUrl(f)).replace(/^data:[^;,]*(;[^,]*)?,/, 'data:application/pdf;base64,') : await compressImageToDataURL(f, 1600, 0.75);
+      if (!pdf && data.length > 2500000) data = await compressImageToDataURL(f, 1100, 0.6);
+      _crFiles.push({ name: f.name, data, pdf });
+    } catch (e) { showToast(`${f.name} nahi padh paaye`, 'error'); }
+  }
+  input.value = '';
+  crRenderFiles();
+}
+function crRenderFiles() {
+  const pv = document.getElementById('crPhotoPv'); if (!pv) return;
+  pv.innerHTML = _crFiles.map((x, i) => `<span style="display:inline-flex;align-items:center;gap:4px;margin:4px 6px 0 0;padding:3px 8px;border:1px solid var(--gray-200);border-radius:8px;font-size:12px">
+    ${x.pdf ? '📄' : `<img src="${x.data}" style="width:28px;height:28px;object-fit:cover;border-radius:4px"/>`} ${esc(x.name.slice(0, 24))}
+    <a href="#" onclick="_crFiles.splice(${i},1);crRenderFiles();return false" style="color:var(--color-danger);font-weight:800;text-decoration:none">✕</a></span>`).join('')
+    + (_crFiles.length ? `<div style="font-size:11px;color:var(--gray-500);margin-top:4px">${_crFiles.length} file — aur jodne ke liye phir se chunein</div>` : '');
+}
 async function openCashReceiptModal(mode, party) {
   _crMode = mode === 'Online' ? 'Online' : 'Cash';
+  _crFiles = [];
   const online = _crMode === 'Online';
   if (!chqCash) await loadCashReceipts();
   const today = o2dReportsFmtDate(new Date());
@@ -23903,7 +23927,7 @@ async function openCashReceiptModal(mode, party) {
     <label style="font-size:12px;font-weight:600">${online ? 'UTR / Ref no.' : 'Receipt no.'}</label><input id="crNo" ${online ? 'placeholder="Bank / UPI reference"' : ''} style="${VRL_IN};margin-bottom:8px"/>
     <label style="font-size:12px;font-weight:600">Remark</label><input id="crRemark" placeholder="Kisne diya / kis bill ka" style="${VRL_IN};margin-bottom:8px"/>
     <label style="font-size:12px;font-weight:600">${online ? 'Payment screenshot / PDF' : 'Receipt photo / PDF'}</label>
-    <input id="crPhoto" type="file" accept="image/*,application/pdf" onchange="onChequePhotoSelected(this,'crPhotoPv')" style="${VRL_IN};margin-bottom:4px"/>
+    <input id="crPhoto" type="file" multiple accept="image/*,application/pdf" onchange="crFilesPicked(this)" style="${VRL_IN};margin-bottom:4px"/>
     <div id="crPhotoPv" style="margin-bottom:10px;font-size:12px"></div>
     <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveCashReceipt(this)">✓ Save</button>`, 480);
 }
@@ -23915,9 +23939,17 @@ async function saveCashReceipt(btn) {
   if (receiptBy === '') { showToast('Receipt By — salesman chunein (ya Office)', 'error'); return; }
   if ((chqCash.parties || []).length && !chqCash.parties.some(n => n.toLowerCase() === party.toLowerCase()) && !await uiConfirm(`"${party}" Tally ki party list me nahi hai — outstanding se tabhi ghatega jab naam Tally jaisa ho. Phir bhi save karein?`)) return;
   const restore = btnLoading(btn, 'Saving…');
-  const r = await api('/api/cheque-fms/cash-receipt', 'POST', { party, amount, mode: _crMode, receiptBy, paidOn: document.getElementById('crDate').value,
+  // Upload the files one by one first (each its own request — Vercel body limit).
+  const photos = [];
+  for (const [i, f] of _crFiles.entries()) {
+    btn.textContent = `File ${i + 1}/${_crFiles.length} upload…`;
+    const u = await api('/api/task-files', 'POST', { data: f.data, filename: `cash-receipt-${party}-${f.name}` });
+    if (!u || u.error || !u.url) { restore(); showToast(`${f.name}: ${(u && u.error) || 'upload nahi hua'}`, 'error'); return; }
+    photos.push(u.url);
+  }
+  const r = await api('/api/cheque-fms/cash-receipt', 'POST', { party, amount, mode: _crMode, receiptBy, paidOn: document.getElementById('crDate').value, photos,
     receiptNo: document.getElementById('crNo').value.trim(), remark: document.getElementById('crRemark').value.trim(),
-    photo: (document.getElementById('crPhoto') || {}).dataset?.compressed || '' });
+    photo: '' });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('cashReceiptModal');
