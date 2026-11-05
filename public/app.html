@@ -2786,6 +2786,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <input type="hidden" id="beatMonth"/>
         <input type="date" id="beatDate" onchange="beatDateChanged()" title="Kis din ka beat" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
         <input id="beatSearch" placeholder="🔍 Counter name…" oninput="renderBeat()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
+        <button class="btn btn-outline" id="beatReportBtn" onclick="beatToggleReport()">📊 Report</button>
       </div>
     </div>
     <div id="beatWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
@@ -21872,7 +21873,7 @@ function renderMeca() {
     return `<td style="${td};text-align:center;font-weight:700;font-size:13.5px;color:${color}"${t ? ` title="Target ${tag(k, t)}"` : ''}>${tag(k, a)}</td>`;
   };
   const GROUPS = [
-    ['crr', 'Visit CRR', '#1d4ed8', 'Sirf jahan sach me visit hui (yes / sir ke sath) — plan wale nahi. Beat page se.', [['visits', 'Counter Visited'], ['ordered', 'Order (counter)'], ['value', 'Order Value ₹'], ['avg', 'Avg Order']]],
+    ['crr', 'Visit CRR', '#1d4ed8', 'Sirf jahan sach me visit hui (yes / sir ke sath) — plan wale nahi. Beat page se.', [['visits', 'Counter Visited'], ['ordered', 'Order (counter)'], ['conv', 'Conversion %'], ['value', 'Order Value ₹'], ['avg', 'Avg Order']]],
     ['nbd', 'Visit NBD', '#7c3aed', 'Lead FMS me jo bhi kaam kare (salesman ho ya nahi): Leads = jitni lead daali, Calls = Lead FMS calls, Counter Visited = "Market Visit" lead + Lead FMS visit; converted = Order / Dealer bana (Conversion = converted ÷ leads); Order Value = converted counter ke O2D order (dukaan ke naam se milake), O2D me na mile to "Order Mil Gaya" par bhara ₹; Avg = Order Value ÷ orders.', [['nbdLeads', 'Leads'], ['leadCalls', 'Calls'], ['nbd', 'Counter Visited'], ['nbdWon', 'Converted'], ['nbdConv', 'Conversion %'], ['nbdValue', 'Order Value ₹'], ['nbdAvg', 'Avg Order']]],
     ['coll', 'Collection', '#059669', 'Cheque FMS se: cash + online receipt (Receipt By salesman) + cheque (jis salesman ne diya).', [['collCount', 'Collection (counter)'], ['coll', 'Collection ₹'], ['collAvg', 'Avg Collection']]],
     ['scot', 'SCOT (CRR calling)', '#d97706', 'SC CRR ka MECA — SCOT page ki calls aur orders, jisne call / order kiya uske naam par. Benchmark = Calls / Call conv % / Call order ₹ / Call avg.', [['scotCalls', 'Calls'], ['scotOrders', 'Order (call se)'], ['scotConv', 'Conversion %'], ['scotValue', 'Order Value ₹'], ['scotAvg', 'Avg Order']]],
@@ -21951,6 +21952,7 @@ function beatDow(beatDay) { return { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat
 // Only the picked day opens (client 2026-10-31: "pura week nahi, jis din ka khole usi din ka"); today by default,
 // and the Beat day chip follows that day's weekday.
 async function loadBeat() {
+  if (document.getElementById('beatReportBtn') && document.getElementById('beatReportBtn').classList.contains('btn-primary')) return loadBeatReport();
   const m = document.getElementById('beatMonth'), dEl = document.getElementById('beatDate');
   if (!dEl.value) { dEl.value = scotTodayYmd(); beatDayFilter = beatAutoDay(dEl.value); }
   m.value = dEl.value.slice(0, 7);
@@ -21984,16 +21986,25 @@ function beatMatches(c) {
 }
 const beatVisitedEntry = e => !!e && (Number(e.orderAmt) > 0 || Number(e.collectionAmt) > 0 || (!!e.visit && !/^(no|nahi|out)/i.test(e.visit)));
 // One cell: class for colour (visit yes / no / out, ₹ filled, Sunday) + text.
-function beatCellHtml(f, e, sun) {
-  const v = e && e[f];
+// Linked counter (🔗 O2D / Tally naam): Order = O2D, Collection = Cheque FMS — read-only (client 2026-11-05).
+const beatLinked = c => !!(c && c.party);
+const beatAutoOf = (cId, d) => (beatData && beatData.auto && beatData.auto[`${cId}|${d}`]) || null;
+function beatVal(c, d, f) {
+  if ((f === 'orderAmt' || f === 'collectionAmt') && beatLinked(c)) { const a = beatAutoOf(c.id, d); return a ? (f === 'orderAmt' ? Math.round(a.order) : Math.round(a.coll)) || null : null; }
+  const e = beatIdx[`${c.id}|${d}`]; return e ? e[f] : null;
+}
+function beatCellHtml(f, e, sun, c, d) {
+  const auto = c && (f === 'orderAmt' || f === 'collectionAmt') && beatLinked(c);
+  const v = auto ? beatVal(c, d, f) : e && e[f];
   const cls = [];
   if (sun) cls.push('s');
-  if (f === 'orderAmt' || f === 'collectionAmt') { cls.push('n'); if (Number(v) > 0) cls.push('am'); }
+  if (f === 'orderAmt' || f === 'collectionAmt') { cls.push('n'); if (Number(v) > 0) cls.push('am'); if (auto) cls.push('au'); }
   if (f === 'visit') { cls.push('vc'); if (v) { const t = String(v).trim().toLowerCase(); cls.push(/^(no|nahi)/.test(t) ? 'vn' : /^out/.test(t) ? 'vo' : 'vy'); } }
   const text = v == null || v === '' ? '' : (f === 'orderAmt' || f === 'collectionAmt') ? Number(v).toLocaleString('en-IN') : esc(v);
   return cls.length ? `<td class="${cls.join(' ')}">${text}</td>` : `<td>${text}</td>`;
 }
 function renderBeat() {
+  if (document.getElementById('beatReportBtn') && document.getElementById('beatReportBtn').classList.contains('btn-primary')) return renderBeatReport();
   if (!beatData) return;
   const wrap = document.getElementById('beatWrap');
   if (!beatData.userId) { wrap.innerHTML = '<div class="empty">Abhi kisi salesman ki beat nahi bani.</div>'; return; }
@@ -22008,8 +22019,13 @@ function renderBeat() {
   const salesman = esc((document.getElementById('beatUser').selectedOptions[0] || {}).textContent || (beatData.salesmen[0] || {}).name || '');
   // Month totals for this salesman (whole beat, not just the filtered rows).
   const ents = beatData.entries || [];
-  const mVis = ents.filter(beatVisitedEntry).length, mOrd = ents.filter(e => Number(e.orderAmt) > 0);
-  const mOrdAmt = mOrd.reduce((a, e) => a + Number(e.orderAmt), 0), mColl = ents.reduce((a, e) => a + (Number(e.collectionAmt) || 0), 0);
+  const mVis = ents.filter(beatVisitedEntry).length;
+  // Month Order / Collection: linked counters from O2D / Cheque FMS, others typed.
+  const cBy = Object.fromEntries(beatData.counters.map(c => [c.id, c]));
+  const mOrd = [], collArr = [];
+  ents.forEach(e => { if (!beatLinked(cBy[e.counterId])) { if (Number(e.orderAmt) > 0) mOrd.push(Number(e.orderAmt)); collArr.push(Number(e.collectionAmt) || 0); } });
+  Object.entries(beatData.auto || {}).forEach(([k, a]) => { if (a.order > 0) mOrd.push(a.order); collArr.push(a.coll || 0); });
+  const mOrdAmt = mOrd.reduce((a, v) => a + v, 0), mColl = collArr.reduce((a, v) => a + v, 0);
   const stat = (l, v, c) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-left:4px solid ${c};border-radius:10px;padding:8px 12px;min-width:120px"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase">${l}</div><div style="font-size:18px;font-weight:900;color:var(--gray-900)">${v}</div></div>`;
   const todayDow = beatIsoDow(days[0]);
   const chip = (v, l, cnt) => `<button onclick="beatSetDay('${v}')" style="padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid ${beatDayFilter === v ? 'var(--color-primary)' : 'var(--gray-200)'};background:${beatDayFilter === v ? 'var(--color-primary)' : 'var(--surface)'};color:${beatDayFilter === v ? '#fff' : 'var(--gray-700)'}">${l}${cnt != null ? ` <span style="opacity:.75;font-weight:600">${cnt}</span>` : ''}</button>`;
@@ -22018,11 +22034,11 @@ function renderBeat() {
   const fixedTh = (l, cls) => `<th rowspan="2" class="fx${cls ? ' ' + cls : ''}">${l}</th>`;
   const head1 = days.map(d => `<th id="beatDay_${d}" colspan="${W}" class="dh${d === beatData.today ? ' td' : beatIsoDow(d) === 7 ? ' su' : ''}">${+d.slice(8)} <small>${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][beatIsoDow(d)]}</small></th>`).join('');
   const head2 = days.map(d => F.map(([, l]) => `<th class="fh${beatIsoDow(d) === 7 ? ' su' : ''}">${l}</th>`).join('')).join('');
-  const body = counters.map((c, i) => `<tr data-c="${c.id}"><td class="k0">${i + 1}</td><td class="k1${c.active ? '' : ' off'}">${esc(c.name)}</td><td class="k2">${esc(c.beatDay || '')}</td><td class="k3">${esc(c.area || '')}</td><td class="k4">${esc(c.city || '')}</td><td class="k5 sm">${salesman}</td>`
-    + days.map(d => { const e = beatIdx[`${c.id}|${d}`], sun = beatIsoDow(d) === 7; return F.map(([f]) => beatCellHtml(f, e, sun)).join(''); }).join('') + '</tr>').join('');
+  const body = counters.map((c, i) => `<tr data-c="${c.id}"><td class="k0">${i + 1}</td><td class="k1${c.active ? '' : ' off'}">${esc(c.name)}<span class="lk${c.party ? ' on' : ''}" onclick="event.stopPropagation();openBeatLink(${c.id})" title="${c.party ? 'O2D / Tally: ' + esc(c.party) + ' — order O2D se, collection Cheque FMS se' : 'O2D / Tally dealer se jodo — tab order / collection apne aap aayega'}">${c.party ? '🔗' : '🔗?'}</span></td><td class="k2">${esc(c.beatDay || '')}</td><td class="k3">${esc(c.area || '')}</td><td class="k4">${esc(c.city || '')}</td><td class="k5 sm">${salesman}</td>`
+    + days.map(d => { const e = beatIdx[`${c.id}|${d}`], sun = beatIsoDow(d) === 7; return F.map(([f]) => beatCellHtml(f, e, sun, c, d)).join(''); }).join('') + '</tr>').join('');
   const foot = days.map(d => {
     const es = counters.map(c => beatIdx[`${c.id}|${d}`]).filter(Boolean);
-    const sum = f => es.reduce((a, e) => a + (Number(e[f]) || 0), 0);
+    const sum = f => counters.reduce((a, c) => a + (Number(beatVal(c, d, f)) || 0), 0);
     const vN = es.filter(beatVisitedEntry).length, o = sum('orderAmt'), co = sum('collectionAmt');
     return `<td>${vN || ''}</td><td class="n">${o ? o.toLocaleString('en-IN') : ''}</td><td class="n">${co ? co.toLocaleString('en-IN') : ''}</td>${W > 3 ? `<td colspan="${W - 3}"></td>` : ''}`;
   }).join('');
@@ -22040,6 +22056,8 @@ function renderBeat() {
       #beatGrid td.vc{text-align:center}
       #beatGrid td.vy{background:#d9ead3} #beatGrid td.vn{background:#f8d7d5} #beatGrid td.vo{background:#eceff1;color:#607d8b}
       #beatGrid td.am{background:#fff2cc;font-weight:700}
+      #beatGrid td.au{background:#e8f0fe;color:#1a56b8;cursor:default!important} #beatGrid td.au.am{background:#d2e3fc}
+      #beatGrid .lk{margin-left:6px;font-size:11px;cursor:pointer;opacity:.45} #beatGrid .lk.on{opacity:1} #beatGrid .lk:hover{opacity:1}
       #beatGrid .k0,#beatGrid .k1,#beatGrid .k2,#beatGrid .k3,#beatGrid .k4,#beatGrid .k5{position:sticky;z-index:1;background:#fff;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis}
       #beatGrid .k0{left:0;width:44px;min-width:44px;max-width:44px;text-align:center;color:#666}
       #beatGrid .k1{left:44px;width:200px;min-width:200px;max-width:200px;font-weight:600}
@@ -22060,14 +22078,14 @@ function renderBeat() {
     </style>
     <datalist id="beatDayList">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Upcountry'].map(x => `<option value="${x}">`).join('')}</datalist>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      ${stat('Visit (mahina)', mVis.toLocaleString('en-IN'), 'var(--color-success)')}${stat('Order', `${mOrd.length} · ${inr(mOrdAmt)}`, '#f1c232')}${stat('Collection', inr(mColl), 'var(--color-primary)')}
+      ${stat('Visit (mahina)', mVis.toLocaleString('en-IN'), 'var(--color-success)')}${stat('Order', `${mOrd.length} · ${inr(Math.round(mOrdAmt))}`, '#f1c232')}${stat('Collection', inr(Math.round(mColl)), 'var(--color-primary)')}
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
       <span style="font-size:12px;font-weight:700;color:var(--gray-500)">Beat day:</span>${chips}
       <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="const s=document.getElementById('bcNewRow');s.style.display=s.style.display==='none'?'flex':'none'">＋ Naya counter</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px;color:var(--gray-500)">
-      <span>Visit par tap = ✓ / ✗ / ✈ chuno · baaki khane me likho · <b>Enter</b> = save + neeche</span>
+      <span>Visit par tap = ✓ / ✗ / ✈ chuno · baaki khane me likho · <b>Enter</b> = save + neeche · <span style="background:#e8f0fe;color:#1a56b8;padding:0 5px;border-radius:4px">nila</span> Order / Collection = 🔗 jude counter ka O2D / Cheque FMS se (apne aap)</span>
       <span id="bcNewRow" style="margin-left:auto;display:none;gap:6px;flex-wrap:wrap">
         <input id="bcNewN" placeholder="Naya counter (Firm Name)" style="${IN};min-width:170px"/>
         <input id="bcNewD" list="beatDayList" placeholder="Beat Days" style="${IN};width:115px"/>
@@ -22138,6 +22156,9 @@ function beatGridClick(ev) {
   if (!info) return;
   if (info.date && info.date > beatData.today) { showToast('Aage ki date abhi nahi bhar sakte', 'error'); return; }
   if (info.f === 'visit') return beatVisitMenu(td, info);
+  if ((info.f === 'orderAmt' || info.f === 'collectionAmt') && beatLinked(beatData.counters.find(c => c.id === info.counterId))) {
+    showToast(info.f === 'orderAmt' ? 'Order O2D se apne aap aata hai (🔗 jude counter)' : 'Collection Cheque FMS (cash / online / cheque) se apne aap aata hai', 'info'); return;
+  }
   beatEdit(td, info);
 }
 async function beatSetVisit(td, info, v) {
@@ -22208,6 +22229,7 @@ function beatEdit(td, info, firstChar) {
 async function beatClearCell(td, info) {
   const cur = info.date ? (beatEntryOf(info.counterId, info.date) || {})[info.f] : (beatData.counters.find(c => c.id === info.counterId) || {})[info.f];
   if (cur == null || cur === '' || info.f === 'name') return;
+  if ((info.f === 'orderAmt' || info.f === 'collectionAmt') && beatLinked(beatData.counters.find(c => c.id === info.counterId))) return;
   td.innerHTML = '⏳';
   const ok = info.date ? await beatSaveCell(info.counterId, info.date, info.f, '') : await beatSaveCounterCell(info.counterId, info.f, '');
   if (!ok) beatRerenderKeepScroll();
@@ -22251,12 +22273,12 @@ function beatRefreshCell(counterId, date) {
   if (!tr) return;
   const F = beatFields(), d = beatDays.indexOf(date);
   if (d < 0) return;
-  const e = beatEntryOf(counterId, date), sun = beatIsoDow(date) === 7;
+  const e = beatEntryOf(counterId, date), sun = beatIsoDow(date) === 7, c = beatData.counters.find(x => x.id === counterId);
   F.forEach(([f], i) => {
     const cell = tr.cells[BEAT_FIXED + d * F.length + i];
     if (!cell || cell.querySelector('input')) return;
     const tmp = document.createElement('tr');
-    tmp.innerHTML = beatCellHtml(f, e, sun);
+    tmp.innerHTML = beatCellHtml(f, e, sun, c, date);
     cell.className = tmp.cells[0].className; cell.innerHTML = tmp.cells[0].innerHTML;
   });
 }
@@ -22290,6 +22312,103 @@ async function beatSaveCounterCell(counterId, f, val) {
   const cell = tr && tr.cells[BEAT_CFIELDS.indexOf(f)];
   if (cell) cell.textContent = val;
   return true;
+}
+// 🔗 Beat counter ↔ O2D / Tally dealer name (pick from the dealer list).
+let _beatDealerNames = null;
+async function openBeatLink(counterId) {
+  const c = beatData.counters.find(x => x.id === counterId);
+  if (!c) return;
+  if (!_beatDealerNames) { const r = await api('/api/beat/dealer-names'); _beatDealerNames = (r && r.names) || []; }
+  vrlModal('beatLinkModal', `${scotModalHead('beatLinkModal', '🔗 Dealer se jodo')}
+    <div style="font-size:13px;margin-bottom:6px">Beat counter: <b>${esc(c.name)}</b>${c.area ? ` · ${esc(c.area)}` : ''}</div>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">O2D / Tally me iska naam chunein — phir is counter ka <b>Order O2D se</b> aur <b>Collection Cheque FMS</b> (cash / online / cheque) se apne aap aayega.</div>
+    <input id="beatLinkIn" list="beatLinkList" value="${esc(c.party || '')}" placeholder="Dealer ka naam likho / chuno" style="${VRL_IN};margin-bottom:10px"/>
+    <datalist id="beatLinkList">${_beatDealerNames.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+    <div style="display:flex;gap:8px">${c.party ? `<button class="btn btn-outline" onclick="saveBeatLink(${c.id}, '')">✕ Link hatao</button>` : ''}
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveBeatLink(${c.id}, document.getElementById('beatLinkIn').value)">✓ Jodo</button></div>`, 480);
+}
+async function saveBeatLink(counterId, party) {
+  party = String(party || '').trim();
+  if (party && !_beatDealerNames.some(n => n.toLowerCase() === party.toLowerCase())) { showToast('List se dealer chunein', 'error'); return; }
+  const r = await api(`/api/beat/counter/${counterId}/link`, 'PUT', { party });
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  closeModal('beatLinkModal');
+  showToast(r.party ? `🔗 ${r.party} se juda` : 'Link hataya');
+  loadBeat();
+}
+
+// 📊 Beat report (client 2026-11-05: last visited date + business view) — per counter: last visit, days since,
+// visits / orders / collection in the last N days, last O2D order, Tally outstanding; quick "dhyan do" lists.
+let beatRep = null, beatRepDays = 30, beatRepView = 'all', beatRepSort = 'since';
+function beatToggleReport() {
+  const on = document.getElementById('beatReportBtn').classList.toggle('btn-primary');
+  document.getElementById('beatReportBtn').textContent = on ? '📋 Beat grid' : '📊 Report';
+  if (on) loadBeatReport(); else renderBeat();
+}
+async function loadBeatReport() {
+  const wrap = document.getElementById('beatWrap'), sel = document.getElementById('beatUser');
+  wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Report bana rahe hain…</div>';
+  const r = await api(`/api/beat/report?days=${beatRepDays}${sel && sel.value ? `&userId=${encodeURIComponent(sel.value)}` : ''}`);
+  if (!r || r.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load nahi hua')}</div>`; return; }
+  beatRep = r; renderBeatReport();
+}
+function renderBeatReport() {
+  const r = beatRep; if (!r) return;
+  const wrap = document.getElementById('beatWrap');
+  const q = (document.getElementById('beatSearch').value || '').trim().toLowerCase();
+  const rows0 = r.rows.filter(x => !q || [x.name, x.party, x.area, x.city, x.salesman].some(v => String(v || '').toLowerCase().includes(q)));
+  const V = {
+    all: ['Sab counters', () => true],
+    novisit: ['15+ din se visit nahi', x => x.daysSinceVisit == null || x.daysSinceVisit >= 15],
+    noorder: ['Visit hua, order nahi', x => x.visits > 0 && !x.orders],
+    hot: ['Order aate hain', x => x.orders > 0],
+    due: ['Outstanding baaki', x => x.outstanding > 0],
+    unlinked: ['🔗 jude nahi', x => !x.party],
+  };
+  const cnt = k => rows0.filter(V[k][1]).length;
+  const rows = rows0.filter(V[beatRepView][1]);
+  const SORT = { since: (a, b) => (b.daysSinceVisit ?? 9999) - (a.daysSinceVisit ?? 9999), order: (a, b) => b.orderValue - a.orderValue,
+    coll: (a, b) => b.collection - a.collection, out: (a, b) => (b.outstanding || 0) - (a.outstanding || 0), visits: (a, b) => b.visits - a.visits, name: (a, b) => a.name.localeCompare(b.name) };
+  rows.sort(SORT[beatRepSort]);
+  const sum = (k, l = rows0) => l.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+  const visited = rows0.filter(x => x.visits > 0).length;
+  const card = (l, v, sub, c) => `<div style="flex:1 1 150px;background:var(--surface);border:1px solid var(--gray-200);border-left:4px solid ${c};border-radius:12px;padding:10px 12px"><div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase">${l}</div><div style="font-size:20px;font-weight:900;color:var(--gray-900);margin-top:2px">${v}</div><div style="font-size:11.5px;color:var(--gray-500)">${sub}</div></div>`;
+  const pill = (k) => `<button type="button" onclick="beatRepView='${k}';renderBeatReport()" class="btn btn-sm ${beatRepView === k ? 'btn-primary' : 'btn-outline'}">${V[k][0]} <b style="margin-left:4px">${cnt(k)}</b></button>`;
+  const th = (k, l, left) => `<th onclick="beatRepSort='${k}';renderBeatReport()" style="cursor:${k ? 'pointer' : 'default'};padding:8px 10px;font-size:11px;font-weight:800;text-transform:uppercase;color:${beatRepSort === k ? 'var(--color-primary)' : 'var(--gray-500)'};background:var(--gray-50);text-align:${left ? 'left' : 'right'};white-space:nowrap;position:sticky;top:0">${l}</th>`;
+  const td = 'padding:8px 10px;border-top:1px solid var(--gray-100);font-size:12.5px;text-align:right;white-space:nowrap';
+  const ago = (d, n) => d ? `${fmtDateDMY(d)}<div style="font-size:11px;color:${n >= 15 ? 'var(--color-danger)' : n >= 7 ? 'var(--color-warning-text)' : 'var(--gray-500)'}">${n === 0 ? 'aaj' : n + ' din pehle'}</div>` : '<span style="color:var(--color-danger);font-weight:700">kabhi nahi</span>';
+  wrap.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <span style="font-size:12.5px;font-weight:700;color:var(--gray-600)">Pichhle</span>
+      ${[30, 60, 90].map(n => `<button type="button" class="btn btn-sm ${beatRepDays === n ? 'btn-primary' : 'btn-outline'}" onclick="beatRepDays=${n};loadBeatReport()">${n} din</button>`).join('')}
+      <span style="font-size:12px;color:var(--gray-500)">(${fmtDateDMY(r.from)} – ${fmtDateDMY(r.today)})</span>
+      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="exportBeatReport()">⬇ CSV</button></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      ${card('Counters', rows0.length, `${visited} ko visit kiya (${rows0.length ? Math.round(visited * 100 / rows0.length) : 0}% coverage)`, '#1d4ed8')}
+      ${card('Visits', sum('visits'), `${rows0.length ? (sum('visits') / rows0.length).toFixed(1) : 0} har counter`, 'var(--color-success)')}
+      ${card('Order (O2D)', inr(sum('orderValue')), `${sum('orders')} orders · ${rows0.filter(x => x.orders).length} counters`, '#f1c232')}
+      ${card('Collection', inr(sum('collection')), 'cash + online + cheque', 'var(--color-primary)')}
+      ${card('Outstanding', inr(rows0.reduce((a, x) => a + Math.max(0, x.outstanding || 0), 0)), 'jude counters ka (Tally)', 'var(--color-danger)')}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${Object.keys(V).map(pill).join('')}</div>
+    ${rows.length ? `<div style="border:1px solid var(--gray-200);border-radius:12px;overflow:auto;max-height:70vh;background:var(--surface)"><table style="width:100%;border-collapse:collapse">
+      <thead><tr>${th('name', 'Counter', 1)}${th('', 'Salesman / Beat', 1)}${th('since', 'Last Visit')}${th('visits', 'Visits')}${th('', 'Last Order')}${th('order', 'Order ₹')}${th('coll', 'Collection ₹')}${th('out', 'Outstanding')}</tr></thead>
+      <tbody>${rows.slice(0, 600).map(x => `<tr>
+        <td style="${td};text-align:left;white-space:normal;min-width:180px"><b>${esc(x.name)}</b>${x.party ? `<div style="font-size:11px;color:var(--gray-500)">🔗 ${esc(x.party)}</div>` : '<div style="font-size:11px;color:var(--gray-400)">🔗 juda nahi</div>'}</td>
+        <td style="${td};text-align:left;white-space:normal">${esc(x.salesman)}<div style="font-size:11px;color:var(--gray-500)">${esc([x.beatDay, x.area].filter(Boolean).join(' · '))}</div></td>
+        <td style="${td}">${ago(x.lastVisit, x.daysSinceVisit)}</td><td style="${td};font-weight:700">${x.visits || '—'}</td>
+        <td style="${td}">${x.lastOrder ? ago(x.lastOrder, x.daysSinceOrder) : '—'}</td>
+        <td style="${td};font-weight:700">${x.orderValue ? inr(x.orderValue) : '—'}${x.orders ? `<div style="font-size:11px;color:var(--gray-500)">${x.orders} order</div>` : ''}</td>
+        <td style="${td}">${x.collection ? inr(x.collection) : '—'}</td>
+        <td style="${td};color:${x.outstanding > 0 ? 'var(--color-danger)' : 'var(--gray-500)'}">${x.outstanding == null ? '—' : inr(x.outstanding)}</td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">Is list me koi counter nahi</div>'}
+    <div style="font-size:11.5px;color:var(--gray-500);margin-top:8px">Last Visit = Beat me "yes / sir ke sath" (ya order / collection) wala aakhri din. Order / Collection / Outstanding = 🔗 jude counter ka O2D / Cheque FMS / Tally; na jude counter ka Beat me likha hua.</div>`;
+}
+function exportBeatReport() {
+  if (!beatRep) return;
+  csvDownload([['Counter', 'O2D / Tally naam', 'Salesman', 'Beat Day', 'Area', 'City', 'Last Visit', 'Din pehle', `Visits (${beatRep.days} din)`, 'Last Order', 'Orders', 'Order ₹', 'Collection ₹', 'Outstanding'],
+    ...beatRep.rows.map(x => [x.name, x.party, x.salesman, x.beatDay, x.area, x.city, x.lastVisit ? fmtDateDMY(x.lastVisit) : 'kabhi nahi', x.daysSinceVisit ?? '', x.visits,
+      x.lastOrder ? fmtDateDMY(x.lastOrder) : '', x.orders, x.orderValue, x.collection, x.outstanding ?? ''])], `beat-report-${beatRep.today}.csv`);
 }
 async function beatAddCounter() {
   const name = document.getElementById('bcNewN').value.trim();

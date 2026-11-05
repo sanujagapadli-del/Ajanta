@@ -13971,6 +13971,9 @@ async function beatTables() {
     updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_counter_date (counter_id, entry_date), INDEX (entry_date)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // Link to the O2D / Tally dealer name (client 2026-11-05: Beat order value O2D se, collection Cheque FMS se).
+  // party_tried = the auto-match already ran for this counter (so it isn't retried on every load).
+  await addMissingColumns('beat_counters', [['party_name', 'VARCHAR(255) NULL'], ['party_tried', 'TINYINT NULL']]);
   _beatTablesOk = true;
 }
 // "Monday", "Mon New", "Thuresday" → 1 … 7; "Upcountry" / blank → 0 (no fixed weekday).
@@ -13985,6 +13988,51 @@ function beatVisited(e) {
   if (Number(e.order_amt) > 0 || Number(e.collection_amt) > 0) return true;
   if (!v || /^(no|nahi|out)/.test(v)) return false;
   return true;
+}
+// Beat counter → O2D / Tally dealer name. Only a single clear match links on its own; the rest are picked by hand.
+function beatNameKey(s) {
+  return String(s || '').toLowerCase().replace(/,.*$/, '').replace(/\b(m\/?s|the|and|pvt|ltd|co|company)\b/g, ' ')
+    .replace(/\belectricals?\b|\belectronics?\b|\bele\b|\belect\b/g, 'ele').replace(/\benterprises?\b|\bent\b/g, 'ent').replace(/[^a-z0-9]/g, '');
+}
+async function beatAutoLink() {
+  const [todo] = await db.query('SELECT id, counter_name FROM beat_counters WHERE party_name IS NULL AND party_tried IS NULL');
+  if (!todo.length) return;
+  const names = await o2dCustomerNames();
+  const byKey = {};
+  names.forEach(n => { const k = beatNameKey(n); (byKey[k] = byKey[k] || []).push(n); });
+  for (const c of todo) {
+    const k = beatNameKey(c.counter_name);
+    let hit = null;
+    if (k.length >= 4 && byKey[k] && byKey[k].length === 1) hit = byKey[k][0];
+    else if (k.length >= 6) {
+      const cands = names.filter(n => { const nk = beatNameKey(n); return nk.length >= 6 && (nk.startsWith(k) || k.startsWith(nk)); });
+      if (cands.length === 1) hit = cands[0];
+    }
+    await db.query('UPDATE beat_counters SET party_name=COALESCE(party_name, ?), party_tried=1 WHERE id=?', [hit, c.id]);
+  }
+}
+// O2D order value + Cheque FMS collection per dealer name per day, for [from, to].
+// → { 'party(lowercase)|YYYY-MM-DD': { order, orders, coll } }
+async function beatAutoValues(from, to) {
+  const out = {};
+  const at = (party, d) => out[`${String(party).trim().toLowerCase()}|${d}`] = out[`${String(party).trim().toLowerCase()}|${d}`] || { order: 0, orders: 0, coll: 0 };
+  const orders = await getO2dOrders().catch(() => []);
+  for (const o of orders) {
+    const d = String(o.timestamp || '').slice(0, 10);
+    if (!d || d < from || d > to || o.cancelled || !o.counterName) continue;
+    const v = (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0) * (100 - (Number(o.discountPct) || 0)) / 100;
+    if (!(v > 0)) continue;
+    const x = at(o.counterName, d); x.order += v; x.orders++;
+  }
+  const skip = e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; };
+  await collectPayTable();
+  const [[pays], [chqs]] = await Promise.all([
+    db.query("SELECT party, DATE_FORMAT(paid_on,'%Y-%m-%d') AS d, amount FROM collect_payments WHERE source='cheque-fms' AND paid_on BETWEEN ? AND ?", [from, to]).catch(skip),
+    db.query(`SELECT party_name AS party, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, amount FROM cheques WHERE party_name IS NOT NULL AND cancelled_at IS NULL
+      AND COALESCE(clearance,'')<>'Bounce' AND amount > 0 AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [from, to]).catch(skip)
+  ]);
+  [...pays, ...chqs].forEach(p => { if (p.party && Number(p.amount) > 0) at(p.party, p.d).coll += Number(p.amount); });
+  return out;
 }
 async function beatCanSeeAll(req) {
   return (await ssIsManager(req)) || (await hasPageGrant(req, 'beat'));
@@ -14006,14 +14054,22 @@ app.get('/api/beat', requireAuth, async (req, res) => {
       ${all ? '' : 'WHERE u.id=?'} GROUP BY u.id, u.name ORDER BY u.name`, all ? [] : [userId]);
     const uid = userId || (salesmen[0] && salesmen[0].id) || null;
     const start = `${month}-01`, end = ymdAddDays(`${month}-01`, 40).slice(0, 7) + '-01';
-    const [counters] = uid ? await db.query('SELECT id, counter_name AS name, beat_day AS beatDay, area, city, sort_no AS sortNo, active FROM beat_counters WHERE user_id=? ORDER BY active DESC, sort_no, counter_name', [uid]) : [[]];
+    await beatAutoLink().catch(e => console.error('beat auto-link:', e.message));
+    const [counters] = uid ? await db.query('SELECT id, counter_name AS name, beat_day AS beatDay, area, city, sort_no AS sortNo, active, party_name AS party FROM beat_counters WHERE user_id=? ORDER BY active DESC, sort_no, counter_name', [uid]) : [[]];
     const [entries] = uid ? await db.query(`SELECT e.counter_id AS counterId, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS date, e.visit, e.order_amt AS orderAmt, e.collection_amt AS collectionAmt,
         e.new_counter AS newCounter, e.reference, e.enquiry FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id
         WHERE c.user_id=? AND e.entry_date >= ? AND e.entry_date < ?`, [uid, start, end]) : [[]];
     const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
     let allUsers = [];
     if (all) [allUsers] = await db.query("SELECT id, name FROM users WHERE is_active=1 AND (role IS NULL OR role<>'vendor') ORDER BY name");
-    res.json({ month, userId: uid, canSeeAll: all, salesmen, allUsers, counters, entries, today });
+    // Order / Collection of linked counters come from O2D / Cheque FMS — { counterId|date: { order, orders, coll } }
+    const auto = {};
+    if (counters.some(c => c.party)) {
+      const vals = await beatAutoValues(start, ymdAddDays(end, -1));
+      counters.forEach(c => { if (!c.party) return; const pk = c.party.trim().toLowerCase() + '|';
+        Object.entries(vals).forEach(([k, v]) => { if (k.startsWith(pk)) auto[`${c.id}|${k.slice(pk.length)}`] = v; }); });
+    }
+    res.json({ month, userId: uid, canSeeAll: all, salesmen, allUsers, counters, entries, today, auto });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -14041,6 +14097,67 @@ app.put('/api/beat/entry', requireAuth, async (req, res) => {
         reference=VALUES(reference), enquiry=VALUES(enquiry), updated_by=VALUES(updated_by)`,
       [c.id, date, row.visit, row.order_amt, row.collection_amt, row.new_counter, row.reference, row.enquiry, req.session.userId]);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Link / unlink a Beat counter to its O2D / Tally dealer name (must be from the dealer list).
+app.put('/api/beat/counter/:id/link', requireAuth, async (req, res) => {
+  try {
+    await beatTables();
+    const c = await beatCanEditCounter(req, Number(req.params.id));
+    if (c === null) return res.status(404).json({ error: 'Counter nahi mila' });
+    if (c === false) return res.status(403).json({ error: 'Ye counter aapki beat ka nahi' });
+    const name = String((req.body || {}).party || '').trim();
+    if (name) {
+      const hit = (await o2dCustomerNames()).find(n => n.toLowerCase() === name.toLowerCase());
+      if (!hit) return res.status(400).json({ error: 'Ye naam dealer list me nahi — list se chunein' });
+      await db.query('UPDATE beat_counters SET party_name=?, party_tried=1 WHERE id=?', [hit, c.id]);
+      return res.json({ success: true, party: hit });
+    }
+    await db.query('UPDATE beat_counters SET party_name=NULL, party_tried=1 WHERE id=?', [c.id]);
+    res.json({ success: true, party: null });
+  } catch (err) { sendServerError(res, err); }
+});
+app.get('/api/beat/dealer-names', requireAuth, async (req, res) => {
+  try { res.json({ names: await o2dCustomerNames() }); } catch (err) { sendServerError(res, err); }
+});
+
+// Beat report (client 2026-11-05: "last visited date and esi koi report jo business perspective se kaam aaye").
+// Per counter: last visit, days since, visits / orders / collection in the last N days, last order (O2D), outstanding.
+app.get('/api/beat/report', requireAuth, async (req, res) => {
+  try {
+    await beatTables();
+    await beatAutoLink().catch(() => {});
+    const all = await beatCanSeeAll(req);
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 7), 180);
+    const userId = all ? (Number(req.query.userId) || null) : Number(req.session.userId);
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    const from = ymdAddDays(today, -(days - 1));
+    const [counters] = await db.query(`SELECT c.id, c.user_id AS userId, u.name AS salesman, c.counter_name AS name, c.beat_day AS beatDay, c.area, c.city, c.party_name AS party
+      FROM beat_counters c LEFT JOIN users u ON u.id=c.user_id WHERE c.active=1 ${userId ? 'AND c.user_id=?' : ''} ORDER BY u.name, c.counter_name`, userId ? [userId] : []);
+    if (!counters.length) return res.json({ today, days, from, rows: [] });
+    const ids = counters.map(c => c.id);
+    const [ents] = await db.query(`SELECT counter_id AS id, DATE_FORMAT(entry_date,'%Y-%m-%d') AS d, visit, order_amt, collection_amt FROM beat_entries WHERE counter_id IN (?)`, [ids]);
+    const vals = await beatAutoValues('2026-01-01', today);
+    const ledger = await getLedgerBalancesByDealer().catch(() => ({}));
+    const byC = {}; ents.forEach(e => (byC[e.id] = byC[e.id] || []).push(e));
+    const rows = counters.map(c => {
+      const es = byC[c.id] || [];
+      const vis = es.filter(beatVisited).map(e => e.d).sort();
+      const pk = c.party ? c.party.trim().toLowerCase() + '|' : null;
+      let lastOrder = '', ordV = 0, ordN = 0, coll = 0;
+      if (pk) Object.entries(vals).forEach(([k, v]) => { if (!k.startsWith(pk)) return; const d = k.slice(pk.length);
+        if (v.orders && d > lastOrder) lastOrder = d; if (d >= from) { ordV += v.order; ordN += v.orders; coll += v.coll; } });
+      else es.forEach(e => { if (Number(e.order_amt) > 0) { if (e.d > lastOrder) lastOrder = e.d; if (e.d >= from) { ordV += Number(e.order_amt); ordN++; } }
+        if (e.d >= from && Number(e.collection_amt) > 0) coll += Number(e.collection_amt); });
+      const last = vis[vis.length - 1] || '';
+      const since = d => d ? Math.round((Date.parse(today) - Date.parse(d)) / 86400000) : null;
+      const led = c.party ? ledger[c.party.trim().toLowerCase()] : null; // Tally closing balance: Dr = party owes us
+      return { id: c.id, salesman: c.salesman || '', name: c.name, party: c.party || '', beatDay: c.beatDay || '', area: c.area || '', city: c.city || '',
+        lastVisit: last, daysSinceVisit: since(last), visits: vis.filter(d => d >= from).length, lastOrder, daysSinceOrder: since(lastOrder),
+        orders: ordN, orderValue: Math.round(ordV), collection: Math.round(coll), outstanding: led ? Math.round(Number(led.closingBalance) || 0) * (/^cr/i.test(led.drCr) ? -1 : 1) : null };
+    });
+    res.json({ today, days, from, rows });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -14151,16 +14268,18 @@ async function mecaCompute(from, to) {
   await beatTables();
   const [[counters], [entries]] = await Promise.all([
     db.query('SELECT id, user_id, counter_name, beat_day FROM beat_counters WHERE active=1'),
-    db.query(`SELECT e.counter_id, c.user_id, c.counter_name, c.beat_day, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS d, e.visit, e.order_amt, e.collection_amt,
+    db.query(`SELECT e.counter_id, c.user_id, c.counter_name, c.beat_day, c.party_name, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS d, e.visit, e.order_amt, e.collection_amt,
         e.new_counter, e.reference, e.enquiry FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id WHERE e.entry_date BETWEEN ? AND ?`, [from, to])
   ]);
   const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
+  const beatVals = entries.some(e => e.party_name) ? await beatAutoValues(from, to).catch(() => ({})) : {};
   const rows = {};
   const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdValue: 0, nbdOrders: 0, nbdPlanned: 0, nbdLeads: 0, leadCalls: 0, refs: 0, calls: 0, callOrders: 0, callValue: 0, appts: 0, o2dOrders: 0, o2dValue: 0, scotCalls: 0, scotOrders: 0, scotValue: 0 };
   for (const e of entries) {
     const r = row(e.user_id, e.d);
     if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
-    const ov = Number(e.order_amt) || 0;
+    // Linked counter → that day's O2D order value (client 2026-11-05: "Beat sheet mai order value o2d se aayegi"); else the typed amount.
+    const ov = e.party_name ? ((beatVals[`${e.party_name.trim().toLowerCase()}|${e.d}`] || {}).order || 0) : (Number(e.order_amt) || 0);
     if (ov > 0) { r.ordered++; r.value += ov; }
     // Collection no longer from the Beat entry — see Cheque FMS below.
   }
