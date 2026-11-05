@@ -661,7 +661,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows', 'four-as', 'vendor-outstanding'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -14841,6 +14841,125 @@ app.put('/api/reports/item-vendor', requireAuth, requireAdmin, async (req, res) 
     else await db.query('INSERT INTO gp_item_vendors (item_key, item_name, vendor, updated_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), vendor=VALUES(vendor), updated_by=VALUES(updated_by)',
       [k, name, vendor, req.session.userId]);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// 4AS — weekly bank allocation (client 2026-11-05: "week ka receive ICICI me, ICICI ka 5% to PNB, IDFC me
+// 1,50,000, baaki bacha hua Yes bank me — planned hai, actual ham khud daal ke submit karenge").
+// Planned: ICICI = the week's collection (Collection FMS cash / online receipts + cheques passed that week);
+// PNB = 5% of ICICI (actual if typed, else planned), IDFC = fixed, Yes = the rest. Actual = typed, then Submit.
+// ══════════════════════════════════════════════════════
+const FOUR_AS_RULE_KEY = 'four_as_rule';
+let _fourAsOk = false;
+async function ensureFourAs() {
+  if (_fourAsOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS four_as_weeks (week_start DATE PRIMARY KEY, icici_actual DECIMAL(14,2) NULL, pnb_actual DECIMAL(14,2) NULL,
+    idfc_actual DECIMAL(14,2) NULL, yes_actual DECIMAL(14,2) NULL, note VARCHAR(500) NULL, submitted_at DATETIME NULL, submitted_by_name VARCHAR(150) NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _fourAsOk = true;
+}
+async function fourAsRule() {
+  let r = {};
+  try { r = JSON.parse(await getAppSetting(FOUR_AS_RULE_KEY) || '{}') || {}; } catch (_) { r = {}; }
+  return { pnbPct: Number(r.pnbPct) >= 0 ? Number(r.pnbPct) : 5, idfcFixed: Number(r.idfcFixed) >= 0 ? Number(r.idfcFixed) : 150000 };
+}
+async function canFourAs(req) { return req.session.role === 'admin' || await hasPageGrant(req, 'four-as'); }
+app.get('/api/four-as', requireAuth, async (req, res) => {
+  try {
+    if (!await canFourAs(req)) return res.status(403).json({ error: 'No access to 4AS' });
+    await ensureFourAs();
+    const rule = await fourAsRule();
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    const mon = d => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7)); return x.toISOString().slice(0, 10); };
+    const weeks = []; for (let i = 0, w = mon(today); i < 10; i++, w = ymdAddDays(w, -7)) weeks.push(w);
+    const from = weeks[weeks.length - 1], to = ymdAddDays(weeks[0], 6);
+    const skip = e => { if (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_FIELD_ERROR') return [[]]; throw e; };
+    await collectPayTable();
+    const [[pays], [chqs], [saved]] = await Promise.all([
+      db.query("SELECT DATE_FORMAT(paid_on,'%Y-%m-%d') AS d, mode, amount FROM collect_payments WHERE source='cheque-fms' AND paid_on BETWEEN ? AND ?", [from, to]).catch(skip),
+      db.query("SELECT DATE_FORMAT(clearance_at,'%Y-%m-%d') AS d, amount FROM cheques WHERE clearance='Pass' AND cancelled_at IS NULL AND clearance_at >= ? AND clearance_at < DATE_ADD(?, INTERVAL 1 DAY)", [from, to]).catch(skip),
+      db.query("SELECT DATE_FORMAT(week_start,'%Y-%m-%d') AS w, icici_actual, pnb_actual, idfc_actual, yes_actual, note, DATE_FORMAT(submitted_at,'%Y-%m-%d %H:%i') AS submitted_at, submitted_by_name FROM four_as_weeks WHERE week_start BETWEEN ? AND ?", [from, weeks[0]])
+    ]);
+    const coll = {};
+    const add = (d, k, v) => { const w = mon(d), c = coll[w] = coll[w] || { cash: 0, online: 0, cheque: 0 }; c[k] += Number(v) || 0; };
+    pays.forEach(p => add(p.d, p.mode === 'Online' ? 'online' : 'cash', p.amount));
+    chqs.forEach(c => add(c.d, 'cheque', c.amount));
+    const sv = Object.fromEntries(saved.map(s => [s.w, s]));
+    const num = v => v == null ? null : Number(v);
+    const r2 = v => Math.round(v);
+    const rows = weeks.map(w => {
+      const c = coll[w] || { cash: 0, online: 0, cheque: 0 }, s = sv[w] || {};
+      const iciciPlanned = r2(c.cash + c.online + c.cheque), iciciActual = num(s.icici_actual);
+      const base = iciciActual != null ? iciciActual : iciciPlanned;
+      const pnbPlanned = r2(base * rule.pnbPct / 100), idfcPlanned = base > 0 ? Math.min(rule.idfcFixed, Math.max(0, base - pnbPlanned)) : 0;
+      return { week: w, weekEnd: ymdAddDays(w, 6), collection: { cash: r2(c.cash), online: r2(c.online), cheque: r2(c.cheque) },
+        icici: { planned: iciciPlanned, actual: iciciActual }, pnb: { planned: pnbPlanned, actual: num(s.pnb_actual) },
+        idfc: { planned: idfcPlanned, actual: num(s.idfc_actual) }, yes: { planned: Math.max(0, base - pnbPlanned - idfcPlanned), actual: num(s.yes_actual) },
+        note: s.note || '', submittedAt: s.submitted_at || '', submittedBy: s.submitted_by_name || '' };
+    });
+    res.json({ today, rule, rows, isAdmin: req.session.role === 'admin' });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/four-as/:week', requireAuth, async (req, res) => {
+  try {
+    if (!await canFourAs(req)) return res.status(403).json({ error: 'No access to 4AS' });
+    const w = req.params.week;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(w) || new Date(w + 'T00:00:00Z').getUTCDay() !== 1) return res.status(400).json({ error: 'Hafte ka Monday chahiye' });
+    const b = req.body || {};
+    const amt = v => v === '' || v == null ? null : (Number(v) >= 0 ? Math.round(Number(v) * 100) / 100 : NaN);
+    const vals = [amt(b.icici), amt(b.pnb), amt(b.idfc), amt(b.yes)];
+    if (vals.some(v => Number.isNaN(v))) return res.status(400).json({ error: 'Amount galat hai' });
+    if (b.submit && vals.some(v => v == null)) return res.status(400).json({ error: 'Submit ke liye charo actual bharein (ICICI, PNB, IDFC, Yes)' });
+    await ensureFourAs();
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    await db.query(`INSERT INTO four_as_weeks (week_start, icici_actual, pnb_actual, idfc_actual, yes_actual, note, submitted_at, submitted_by_name) VALUES (?,?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE icici_actual=VALUES(icici_actual), pnb_actual=VALUES(pnb_actual), idfc_actual=VALUES(idfc_actual), yes_actual=VALUES(yes_actual), note=VALUES(note),
+        submitted_at=COALESCE(VALUES(submitted_at), submitted_at), submitted_by_name=COALESCE(VALUES(submitted_by_name), submitted_by_name)`,
+      [w, ...vals, String(b.note || '').trim().slice(0, 500) || null, b.submit ? new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 19).replace('T', ' ') : null, b.submit ? ((me && me.name) || '') : null]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/four-as-rule', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const pnbPct = Number(b.pnbPct), idfcFixed = Number(b.idfcFixed);
+    if (!(pnbPct >= 0 && pnbPct <= 100) || !(idfcFixed >= 0)) return res.status(400).json({ error: 'PNB % 0-100 aur IDFC amount sahi daalein' });
+    await setAppSetting(FOUR_AS_RULE_KEY, JSON.stringify({ pnbPct, idfcFixed }));
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
+// Vendor outstanding (client 2026-11-05) — Tally creditor ledgers (group / primary "Sundry Creditors"):
+// closing balance Cr = we owe the vendor, Dr = advance paid. Last purchase / payment from Tally vouchers.
+// ══════════════════════════════════════════════════════
+app.get('/api/reports/vendor-outstanding', requireAuth, async (req, res) => {
+  try {
+    if (req.session.role !== 'admin' && !(await hasPageGrant(req, 'vendor-outstanding'))) return res.status(403).json({ error: 'No access to Vendor Outstanding' });
+    const [groups, balances, vouchers] = await Promise.all([getLedgerGroups(), getLedgerBalancesByDealer(), getLedgerVouchers().catch(() => ({ byKey: {}, legIndex: {} }))]);
+    const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const rows = [];
+    let syncedAt = '';
+    Object.entries(groups.map).forEach(([key, g]) => {
+      if (!/creditor/i.test(`${g.group} ${g.primary}`)) return;
+      const b = balances[key];
+      const bal = b ? (Number(b.closingBalance) || 0) : 0;
+      if (b && b.syncedAt && b.syncedAt > syncedAt) syncedAt = b.syncedAt;
+      const payable = b && bal && !/^dr/i.test(b.drCr) ? Math.abs(bal) : 0, advance = b && bal && /^dr/i.test(b.drCr) ? Math.abs(bal) : 0;
+      let lastPurchase = null, lastPayment = null;
+      [...(vouchers.legIndex[key] || [])].forEach(k => {
+        const v = vouchers.byKey[k], d = parseAnyDate(v.date);
+        if (!d) return;
+        const day = ymd(d), amt = Math.abs(v.legs.filter(l => l.ledgerKey === key).reduce((a, l) => a + l.amount, 0));
+        if (/purchase/i.test(v.vchType) && (!lastPurchase || day > lastPurchase.date)) lastPurchase = { date: day, vchNo: v.vchNo, amount: Math.round(amt) };
+        if (/payment/i.test(v.vchType) && (!lastPayment || day > lastPayment.date)) lastPayment = { date: day, vchNo: v.vchNo, amount: Math.round(amt) };
+      });
+      if (!payable && !advance && !lastPurchase) return;
+      rows.push({ vendor: (b && b.name) || key, group: g.group, payable: Math.round(payable), advance: Math.round(advance), lastPurchase, lastPayment });
+    });
+    rows.sort((a, b) => b.payable - a.payable || b.advance - a.advance || a.vendor.localeCompare(b.vendor));
+    res.json({ rows, syncedAt, groupsSynced: groups.found });
   } catch (err) { sendServerError(res, err); }
 });
 
