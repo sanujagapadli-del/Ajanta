@@ -29577,6 +29577,13 @@ async function saveGpItemVendor(sel, item) {
   await loadGrossProfit();
   gpOpenDealer = keep; renderGrossProfit();
 }
+// Product name without its colour — "Ajanta Ceiling Fan 48" Gem Deco Smoke Brown" → "Ajanta Ceiling Fan 48" Gem Deco".
+let gpOpenProduct = '';
+const GP_COLOURS = /\b(smoke\s*brown|sm\.?\s*brown|dark\s*brown|honey\s*gold|royal\s*grey|royal\s*gray|pearl\s*white|matt?\s*black|metallic\s*grey|ivory|white|black|brown|grey|gray|silver|gold|golden|blue|red|green|maroon|beige|cream|copper|champagne|pink|purple|yellow|orange|teak|walnut)\b/gi;
+function gpBaseName(item) {
+  const b = String(item || '').replace(/\(n\)/gi, ' ').replace(GP_COLOURS, ' ').replace(/[\s\-,/]+$/g, '').replace(/\s{2,}/g, ' ').trim();
+  return b.length >= 4 ? b : String(item || '').trim();
+}
 async function loadGrossProfit() {
   const s = document.getElementById('gpStart'), e = document.getElementById('gpEnd');
   if (!s.value || !e.value) { const [a, b] = plMonthRange('month'); setDmyDate('gpStart', a); setDmyDate('gpEnd', b); } // client: open on this month
@@ -29663,14 +29670,10 @@ function renderGrossProfit() {
   const rank = i => `<span style="display:inline-flex;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;font-size:11px;font-weight:800;background:${i < 3 ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'var(--gray-100)'};color:${i < 3 ? '#fff' : 'var(--gray-600)'}">${i + 1}</span>`;
   let table;
   if (gpView === 'product') {
-    let rows = d.products.filter(p => !q || p.item.toLowerCase().includes(q));
-    rows = gpOnlyNoCost ? rows.filter(p => p.costRate == null).sort((a, b) => b.sales - a.sales) : gpSortRows(rows);
-    const page = rows.slice(0, gpShown);
-    table = `<table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Product</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Avg Sale Rate (ex GST)</th><th style="${th}">Cost Rate (ex GST)</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
-      <tbody>${page.map((p, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}">
-        <td style="${td};text-align:center">${rank(i)}</td>
-        <td style="${td};text-align:left;white-space:normal;min-width:220px"><b style="color:var(--gray-900)">${gpItemLink(p.item)}</b>${p.poName ? `<div style="font-size:10.5px;color:var(--gray-400)">cost from PO: ${esc(p.poName)}</div>` : ''}</td>
+    // One row per product with colours merged (client 2026-11-05: "GP by product me color ko skip … click karne pe colors dikhne chahiye").
+    const one = (p, i, variant) => `<tr style="background:${variant ? 'var(--gray-50)' : i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}">
+        <td style="${td};text-align:center">${variant ? '' : rank(i)}</td>
+        <td style="${td};text-align:left;white-space:normal;min-width:220px${variant ? ';padding-left:28px' : ''}">${variant ? '↳ ' : ''}<b style="color:var(--gray-900)">${gpItemLink(p.item)}</b>${p.poName ? `<div style="font-size:10.5px;color:var(--gray-400)">cost from PO: ${esc(p.poName)}</div>` : ''}</td>
         <td style="${td}">${p.qty.toLocaleString('en-IN')}</td>
         <td style="${td};font-weight:700">${gpInr(p.sales)}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.avgRate)}</td>
@@ -29679,7 +29682,37 @@ function renderGrossProfit() {
           : gpInr(p.costRate)}${p.costSource ? `<div style="font-size:10px;color:var(--gray-400)">${esc(p.costSource)}</div>` : ''}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
         <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
-        <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>`).join('')}</tbody></table>
+        <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>`;
+    const groups = {};
+    d.products.filter(p => !q || p.item.toLowerCase().includes(q) || gpBaseName(p.item).toLowerCase().includes(q)).forEach(p => {
+      const k = gpBaseName(p.item).toLowerCase();
+      const g = groups[k] = groups[k] || { item: gpBaseName(p.item), variants: [], qty: 0, sales: 0, cost: 0, costedSales: 0, anyCost: false, noCost: false };
+      g.variants.push(p); g.qty += p.qty; g.sales += p.sales;
+      if (p.cost != null && p.costRate != null) { g.cost += p.cost; g.costedSales += p.sales; g.anyCost = true; } else g.noCost = true;
+    });
+    let rows = Object.values(groups).map(g => {
+      if (g.variants.length === 1) return Object.assign({}, g.variants[0], { variants: g.variants, single: true });
+      const gp = g.anyCost ? g.costedSales - g.cost : null;
+      const rates = [...new Set(g.variants.map(v => v.costRate).filter(v => v != null))];
+      return { item: g.item, variants: g.variants.sort((a, b) => b.sales - a.sales), qty: Math.round(g.qty * 100) / 100, sales: g.sales, avgRate: g.qty ? g.sales / g.qty : null,
+        costRate: rates.length === 1 ? rates[0] : null, mixedRate: rates.length > 1, cost: g.anyCost ? g.cost : null, gp,
+        gpPct: gp == null || !g.costedSales ? null : Math.round(gp * 1000 / g.costedSales) / 10, partCost: g.anyCost && g.noCost };
+    });
+    rows = gpOnlyNoCost ? rows.filter(p => p.variants.some(v => v.costRate == null)).sort((a, b) => b.sales - a.sales) : gpSortRows(rows);
+    const page = rows.slice(0, gpShown);
+    table = `<table style="width:100%;border-collapse:separate;border-spacing:0">
+      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Product</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Avg Sale Rate (ex GST)</th><th style="${th}">Cost Rate (ex GST)</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
+      <tbody>${page.map((p, i) => {
+        if (p.single) return one(p, i, false);
+        const open = gpOpenProduct === p.item;
+        return `<tr style="background:${open ? 'var(--color-primary-light)' : i % 2 ? 'var(--surface-alt)' : 'var(--surface)'};cursor:pointer" onclick="gpOpenProduct=gpOpenProduct===this.dataset.p?'':this.dataset.p;renderGrossProfit()" data-p="${esc(p.item)}">
+          <td style="${td};text-align:center">${rank(i)}</td>
+          <td style="${td};text-align:left;white-space:normal;min-width:220px"><b style="color:var(--gray-900)">${esc(p.item)}</b> <span style="font-size:11px;color:var(--color-primary)">${open ? '▾' : '▸'} ${p.variants.length} colour</span>${p.partCost ? '<div style="font-size:10.5px;color:var(--color-warning-text)">kuch colour ki cost nahi</div>' : ''}</td>
+          <td style="${td}">${p.qty.toLocaleString('en-IN')}</td><td style="${td};font-weight:700">${gpInr(p.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(p.avgRate)}</td>
+          <td style="${td}">${p.mixedRate ? '<span style="font-size:11px;color:var(--gray-500)">alag-alag</span>' : gpInr(p.costRate)}</td><td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
+          <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
+          <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>${open ? p.variants.map(v => one(v, 0, true)).join('') : ''}`;
+      }).join('')}</tbody></table>
       ${rows.length > gpShown ? `<div style="padding:12px;text-align:center"><button class="btn btn-outline" onclick="gpShown+=100;renderGrossProfit()">Show more (${rows.length - gpShown})</button></div>` : ''}`;
     if (!rows.length) table = '<div class="empty">No products.</div>';
   } else {
