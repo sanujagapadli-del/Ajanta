@@ -11629,7 +11629,8 @@ function chequeSheetDate(v) {
 // entered here; it is a Payment Follow-up payment (collect_payments), so the
 // party's outstanding drops at once and Tally's own receipt replaces it later.
 async function chqCashAccess(req, res) {
-  if (req.session.role === 'admin' || await hasPageGrant(req, 'cheque-fms')) return true;
+  // Payment Follow-up users enter receipts too (client 2026-11-05: payment update → Collection FMS).
+  if (req.session.role === 'admin' || await hasPageGrant(req, 'cheque-fms') || await hasPageGrant(req, 'collection')) return true;
   res.status(403).json({ error: 'No access to Collection FMS' });
   return false;
 }

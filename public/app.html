@@ -20892,6 +20892,23 @@ async function colShowMsg(key) {
   m.classList.add('open');
 }
 function colSetTab(t) { colTab = t; renderCollection(); }
+// 💰 Payment from Payment Follow-up (client 2026-11-05: "button de do for update the payment, update karte hi FMS me
+// update ho jaye") → the Collection FMS forms with the party filled; the outstanding here refreshes after save.
+function colPay(party) {
+  const canChq = ME.role === 'admin' || MY_PAGES.has('cheque-fms');
+  vrlModal('colPayModal', `${scotModalHead('colPayModal', '💰 Payment aaya')}
+    <div style="font-size:13px;margin-bottom:10px"><b>${esc(party)}</b> — kaise aaya? Collection FMS me jayega, party ka outstanding turant kam hoga.</div>
+    <div style="display:grid;gap:8px">
+      <button class="btn btn-green" style="justify-content:center;padding:12px" onclick="closeModal('colPayModal');openCashReceiptModal('Cash','${jsArg(party)}')">💵 Cash</button>
+      <button class="btn btn-primary" style="justify-content:center;padding:12px" onclick="closeModal('colPayModal');openCashReceiptModal('Online','${jsArg(party)}')">🏦 Online (NEFT / UPI)</button>
+      ${canChq ? `<button class="btn btn-outline" style="justify-content:center;padding:12px" onclick="closeModal('colPayModal');colPayCheque('${jsArg(party)}')">🧾 Cheque (photo)</button>` : ''}
+    </div>`, 380);
+}
+async function colPayCheque(party) {
+  if (typeof chqMe === 'undefined' || !chqMe || chqMe.seeAll == null) { const d = await api('/api/cheque-fms'); if (d && !d.error) chqApplyData(d); }
+  await openNewChequeModal();
+  const n = document.getElementById('ncNote'); if (n && !n.value) n.value = `Party: ${party}`;
+}
 // Filters (client 2026-11-05: "Payment Follow-up mai filter missing hai") — search, salesman, bill age, amount.
 // They narrow colData.bills, so every tab, the total cards and the party list follow.
 let colF = { q: '', sm: '', days: '', amt: '' };
@@ -21013,7 +21030,7 @@ function renderCollection() {
           <td style="text-align:center"><span class="status-badge">${g.bills.length} bill</span></td>
           <td style="text-align:right;font-weight:800">${inr(g.total)}</td><td>${billAge(g.oldest)}</td>
           <td style="text-align:right">${inr(colPartyOf(g.party).outstanding)}</td><td>${tel(g.first)}</td>
-          <td><button class="btn btn-sm btn-outline" onclick="colOpenStatement('${o2dJsEsc(g.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`
+          <td style="white-space:nowrap"><button class="btn btn-sm btn-green" onclick="event.stopPropagation();colPay('${o2dJsEsc(g.party)}')" title="Payment aaya — Collection FMS me daalo">💰 Payment</button> <button class="btn btn-sm btn-outline" onclick="colOpenStatement('${o2dJsEsc(g.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`
           + (open ? g.bills.map(b => `<tr style="background:var(--surface-alt,#f8fafc)"><td style="padding-left:34px;color:var(--gray-600)">↳ Bill <b>${esc(b.billRef)}</b></td><td></td>
             <td style="text-align:right;font-weight:700">${amt(b)}</td><td>${billAge(b)}</td><td></td><td></td><td></td></tr>`).join('') : ''); }).join('')}
       </tbody></table></div>` : '<div class="empty">Koi bill nahi</div>');
@@ -21022,7 +21039,7 @@ function renderCollection() {
       ${calls.map(({ b, step }) => `<tr><td>${partyCell(b)}</td>
         <td style="white-space:nowrap">${esc(b.billRef)}</td><td style="text-align:right;font-weight:800">${amt(b)}</td>
         <td>${billAge(b)}</td><td style="text-align:right">${inr(colPartyOf(b.party).outstanding)}</td><td><span class="status-badge" style="background:${step === 'call30' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${step === 'call30' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'}">${step === 'call30' ? '30 din call' : '25 din call'}</span></td>
-        <td>${tel(b)}</td><td><button class="btn btn-sm btn-green row-act" onclick="openColCall('${o2dJsEsc(b.key)}','${jsArg(step)}')">✓ Call ho gaya</button></td></tr>`).join('')}</tbody></table></div>`
+        <td>${tel(b)}</td><td style="white-space:nowrap"><button class="btn btn-sm btn-green row-act" onclick="openColCall('${o2dJsEsc(b.key)}','${jsArg(step)}')">✓ Call ho gaya</button> <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();colPay('${o2dJsEsc(b.party)}')" title="Payment aaya — Collection FMS me daalo">💰 Payment</button> </td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">Aaj koi call due nahi 🎉</div>');
   } else if (colTab === 'parties') {
     wrap.innerHTML = note + `<input placeholder="🔍 Party search…" value="${esc(colPartyQ)}" oninput="colPartyQ=this.value;colRenderPartyRows()" style="${VRL_IN};margin-bottom:8px;max-width:340px"/><div id="colPartyRows"></div>`;
@@ -21066,7 +21083,7 @@ function colRenderPartyRows() {
       <td style="text-align:right;font-weight:800">${inr(p.outstanding)}${p.appPaid ? `<div style="font-size:10.5px;color:var(--color-success-text);font-weight:600">−${inr(p.appPaid)} yahan entry</div>` : ''}</td>
       <td>${p.bills.length}</td><td><b style="color:${p.maxDays >= 30 ? 'var(--color-danger)' : p.maxDays >= 15 ? 'var(--color-warning-text)' : 'var(--gray-700)'}">${p.maxDays} din</b></td>
       <td onclick="event.stopPropagation()" style="white-space:nowrap">${p.phone ? `<a href="tel:${esc(p.phone)}">📞 ${esc(p.phone)}</a> <a href="#" title="Number galat hai? Badlo" onclick="colSetPhone('${o2dJsEsc(p.party)}');return false" style="text-decoration:none">✏️</a>` : `<button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="colSetPhone('${o2dJsEsc(p.party)}')">➕ Phone daalo</button>`}
-        <button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="colOpenStatement('${o2dJsEsc(p.party)}')" title="Statement PDF / WhatsApp">📒</button></td></tr>`).join('')}
+        <button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="colOpenStatement('${o2dJsEsc(p.party)}')" title="Statement PDF / WhatsApp">📒</button> <button class="btn btn-sm btn-green" onclick="event.stopPropagation();colPay('${o2dJsEsc(p.party)}')" title="Payment aaya — Collection FMS me daalo">💰 Payment</button> </td></tr>`).join('')}
     </tbody></table></div>` : '<div class="empty">Koi party nahi mili</div>';
 }
 // Party detail (client list 10-21 #8): bills, payments entered here, and a
@@ -21081,7 +21098,8 @@ function openColParty(party) {
       <div><div style="font-size:11px;color:var(--gray-500)">Outstanding</div><div style="font-size:20px;font-weight:800;color:var(--color-primary)">${inr(p.outstanding)}</div></div>
       <div style="margin-left:auto;text-align:right">${p.phone ? `<a href="tel:${esc(p.phone)}" style="font-weight:700">📞 ${esc(p.phone)}</a>` : '<span style="color:var(--color-danger);font-size:12px">Phone nahi</span>'}
         <div style="display:flex;gap:4px;justify-content:flex-end;margin-top:4px;flex-wrap:wrap"><button class="btn btn-sm btn-outline" onclick="colSetPhone('${o2dJsEsc(p.party)}')">✏️ Phone</button>
-          <button class="btn btn-sm btn-green" onclick="colOpenStatement('${o2dJsEsc(p.party)}')">📒 Statement (PDF / WhatsApp)</button></div></div></div>
+          <button class="btn btn-sm btn-green" onclick="colOpenStatement('${o2dJsEsc(p.party)}')">📒 Statement (PDF / WhatsApp)</button>
+          <button class="btn btn-sm btn-primary" onclick="closeModal('colPartyModal');colPay('${o2dJsEsc(p.party)}')">💰 Payment (Collection FMS)</button></div></div></div>
     <div style="font-size:12px;font-weight:700;margin-bottom:4px">Baaki bill</div>
     <div class="table-wrap" style="margin-bottom:12px"><table style="font-size:12px"><thead><tr><th>Bill</th><th>Bill date (din)</th><th style="text-align:right">Baaki</th></tr></thead><tbody>
       ${p.bills.slice().sort((a, b) => b.days - a.days).map(b => `<tr><td>${esc(b.billRef)}</td><td>${esc(fmtDateDMY(b.billDate))} (${b.days} din)</td><td style="text-align:right;font-weight:700">${inr(b.amount)}${Math.round(b.billAmount) !== Math.round(b.amount) ? `<div style="font-size:10.5px;color:var(--gray-500);font-weight:400">bill ${inr(b.billAmount)}</div>` : ''}</td></tr>`).join('')}
@@ -23831,7 +23849,7 @@ async function renderChequeCash() {
     : `<div class="empty">${online ? 'Abhi koi online transfer nahi — "🏦 + Online Transfer" se daalein' : 'Abhi koi cash receipt nahi — "💵 + Cash Receipt" se daalein'}</div>`);
 }
 let _crMode = 'Cash';
-async function openCashReceiptModal(mode) {
+async function openCashReceiptModal(mode, party) {
   _crMode = mode === 'Online' ? 'Online' : 'Cash';
   const online = _crMode === 'Online';
   if (!chqCash) await loadCashReceipts();
@@ -23843,7 +23861,7 @@ async function openCashReceiptModal(mode) {
     <select id="crBy" style="${VRL_IN};margin-bottom:8px"><option value="">— kis salesman ne liya —</option>
       ${sm.map(u => `<option value="${u.id}">${esc(u.name)}${u.phone ? ` · ${esc(u.phone)}` : ''}</option>`).join('')}<option value="0">Office (koi salesman nahi)</option></select>
     <label style="font-size:12px;font-weight:600">Party (Tally naam) *</label>
-    <input id="crParty" list="crPartyList" placeholder="Party ka naam likho / chuno" style="${VRL_IN};margin-bottom:8px"/>
+    <input id="crParty" list="crPartyList" value="${esc(party || '')}" placeholder="Party ka naam likho / chuno" style="${VRL_IN};margin-bottom:8px"/>
     <datalist id="crPartyList">${(chqCash.parties || []).map(n => `<option value="${esc(n)}">`).join('')}</datalist>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
       <div><label style="font-size:12px;font-weight:600">Amount ₹ *</label><input id="crAmt" type="number" min="1" step="any" inputmode="decimal" style="${VRL_IN}"/></div>
@@ -23872,6 +23890,7 @@ async function saveCashReceipt(btn) {
   showToast(`✅ ${inr(Number(amount))} ${_crMode === 'Online' ? 'online transfer' : 'cash receipt'} save — ${party}`);
   await loadCashReceipts();
   if (chqView === 'cash' || chqView === 'online') renderChequeCash();
+  if (document.getElementById('page-collection').classList.contains('active')) loadCollection(); // Payment Follow-up outstanding
 }
 async function deleteCashReceipt(id, btn) {
   if (!await uiConfirm('Ye cash receipt hatayein? Party ka outstanding phir se badh jayega.')) return;
