@@ -16972,6 +16972,16 @@ function renderStockPage() {
 // cursor after every letter (client 2026-10-24, urgent).
 function onStockSearchInput(v) { stockSearchQ = v; renderStockGridRows(); }
 
+// Report: 📦 Finished Goods / 🔧 Spare Parts tabs (client 2026-11-05) + 90-day turn ratio & days of stock.
+let stockCat = 'finished';
+const stockInCat = it => (it.category === 'spare' ? 'spare' : 'finished') === stockCat;
+async function setStockCategory(code, cat) {
+  const r = await api(`/api/stock/${encodeURIComponent(code)}/category`, 'PUT', { category: cat });
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  const it = stockItems.find(x => x.item_code === code); if (it) it.category = cat;
+  showToast(cat === 'spare' ? '🔧 Spare Parts me gaya' : '📦 Finished Goods me gaya');
+  renderStockGrid();
+}
 function stockRowHtml(item) {
   const editBtns = stockCanEdit ? `
     <div style="display:flex;gap:4px">
@@ -16985,8 +16995,11 @@ function stockRowHtml(item) {
     <td>${item.std_pack !== null ? esc(item.std_pack) : '—'}</td>
     <td>${esc(item.uom || '—')}</td>
     <td style="white-space:nowrap;font-weight:700${stock < 0 ? ';color:var(--color-danger)' : ''}">${stock.toLocaleString('en-IN')}</td>
+    <td style="white-space:nowrap">${Number(item.out90 || 0).toLocaleString('en-IN')}</td>
+    <td style="white-space:nowrap;font-weight:700;color:${item.turn == null ? 'var(--gray-400)' : item.turn >= 2 ? 'var(--color-success-text)' : item.turn >= 0.5 ? 'var(--gray-800)' : 'var(--color-danger)'}">${item.turn == null ? '—' : item.turn}</td>
+    <td style="white-space:nowrap;color:${item.daysCover != null && item.daysCover > 180 ? 'var(--color-danger)' : 'var(--gray-700)'}">${item.daysCover == null ? (Number(item.current_stock) > 0 ? '<span style="color:var(--color-danger)">bika nahi</span>' : '—') : item.daysCover + ' din'}</td>
     <td>${item.as_of_date ? esc(fmtDateDMY(item.as_of_date.slice(0,10))) : '—'}</td>
-    <td style="white-space:nowrap">${editBtns}</td>
+    <td style="white-space:nowrap">${stockCanEdit ? `<button class="btn btn-outline btn-sm" title="${item.category === 'spare' ? 'Finished Goods me bhejo' : 'Spare Parts me bhejo'}" onclick="setStockCategory('${jsArg(item.item_code)}','${item.category === 'spare' ? 'finished' : 'spare'}')">${item.category === 'spare' ? '→ 📦' : '→ 🔧'}</button>` : ''}${editBtns}</td>
   </tr>`;
 }
 
@@ -16998,6 +17011,7 @@ function renderStockGrid() {
       <input type="text" id="stockSearchInput" placeholder="🔍 Search item code or description…" value="${esc(stockSearchQ)}" oninput="onStockSearchInput(this.value)" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
       <button class="btn btn-outline" onclick="exportStockReport()">⬇ Excel</button>
+      <div style="display:flex;gap:6px;width:100%">${[['finished', '📦 Finished Goods'], ['spare', '🔧 Spare Parts']].map(([k, l]) => `<button class="btn btn-sm ${stockCat === k ? 'btn-primary' : 'btn-outline'}" onclick="stockCat='${k}';renderStockGrid()">${l} <b style="margin-left:4px">${stockItems.filter(it => (it.category === 'spare' ? 'spare' : 'finished') === k).length}</b></button>`).join('')}</div>
       ${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
     </div>
     <div id="stockGridRows"></div>`;
@@ -17006,8 +17020,8 @@ function renderStockGrid() {
 // Stock exports (client 2026-10-24): the report (what the search shows) and the register.
 function exportStockReport() {
   const q = stockSearchQ.trim().toLowerCase();
-  const list = q ? stockItems.filter(it => it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)) : stockItems;
-  csvDownload([['Item Code', 'Description', 'Std. Pack', 'UOM', 'Current Stock', 'As Of'], ...list.map(it => [it.item_code, it.description, it.std_pack == null ? '' : it.std_pack, it.uom || '', Number(it.current_stock), it.as_of_date ? String(it.as_of_date).slice(0, 10) : ''])],
+  const list = stockItems.filter(stockInCat).filter(it => !q || it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q));
+  csvDownload([['Item Code', 'Description', 'Category', 'Std. Pack', 'UOM', 'Current Stock', 'OUT 90 din', 'Turn ratio', 'Stock kitne din', 'As Of'], ...list.map(it => [it.item_code, it.description, it.category === 'spare' ? 'Spare Part' : 'Finished Goods', it.std_pack == null ? '' : it.std_pack, it.uom || '', Number(it.current_stock), Number(it.out90 || 0), it.turn == null ? '' : it.turn, it.daysCover == null ? '' : it.daysCover, it.as_of_date ? String(it.as_of_date).slice(0, 10) : ''])],
     `stock-report-${stockTodayYmd()}.csv`);
 }
 function exportStockRegister() {
@@ -17023,16 +17037,17 @@ function renderStockGridRows() {
   const wrap = document.getElementById('stockGridRows');
   if (!wrap) return renderStockGrid();
   const q = stockSearchQ.trim().toLowerCase();
-  const filtered = q ? stockItems.filter(it => it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q)) : stockItems;
+  const filtered = stockItems.filter(stockInCat).filter(it => !q || it.item_code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q));
   const totalStock = filtered.reduce((s, it) => s + Number(it.current_stock), 0);
+  const out90 = filtered.reduce((s, it) => s + Number(it.out90 || 0), 0);
   wrap.innerHTML = `
     <table>
-      <thead><tr><th>Item Code</th><th>Description</th><th>Std. Pack</th><th>UOM</th><th>Current Stock</th><th>As Of</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Item Code</th><th>Description</th><th>Std. Pack</th><th>UOM</th><th>Current Stock</th><th title="Pichhle 90 din me kitna nikla">OUT (90 din)</th><th title="90 din OUT ÷ average stock — zyada = maal tez ghoomta hai">Turn ratio</th><th title="Abhi ka stock kitne din chalega (90 din ki bikri ki speed se)">Stock kitne din</th><th>As Of</th><th>Actions</th></tr></thead>
       <tbody>
-        ${filtered.map(stockRowHtml).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--gray-400)">No items found</td></tr>`}
+        ${filtered.map(stockRowHtml).join('') || `<tr><td colspan="10" style="text-align:center;color:var(--gray-400)">No items found</td></tr>`}
       </tbody>
     </table>
-    <div style="font-size:12px;color:var(--gray-400);padding:12px 4px">${filtered.length} item${filtered.length===1?'':'s'} · total stock ${totalStock.toLocaleString('en-IN')}</div>`;
+    <div style="font-size:12px;color:var(--gray-400);padding:12px 4px">${filtered.length} item${filtered.length===1?'':'s'} · total stock ${totalStock.toLocaleString('en-IN')} · 90 din OUT ${out90.toLocaleString('en-IN')}${totalStock > 0 ? ` · overall turn ${Math.round(out90 * 10 / totalStock) / 10}` : ''} — <b>Turn ratio</b> = 90 din ka OUT ÷ average stock (2+ = tez, 0.5 se kam = dheema)</div>`;
 }
 
 // Report → click an item: when it came in and when it went out (client, 2026-10-14).

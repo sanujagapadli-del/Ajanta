@@ -7653,11 +7653,52 @@ app.get('/api/stock', requireAuth, async (req, res) => {
     const params = [];
     if (q) { sql += ' WHERE item_code LIKE ? OR description LIKE ?'; params.push(`%${q}%`, `%${q}%`); }
     sql += ' ORDER BY description';
+    await stockCategorize().catch(e => console.error('stock category:', e.message));
     const [rows] = await withStockTable(() => db.query(sql, params));
+    // Turn ratio (client 2026-11-05: "IMS turn ratio") — last 90 days: OUT ÷ average stock, and days of stock left.
+    const [mv] = await db.query(`SELECT item_code, SUM(CASE WHEN direction='OUT' THEN quantity ELSE 0 END) AS outq, SUM(CASE WHEN direction='IN' THEN quantity ELSE 0 END) AS inq
+      FROM ajanta_stock_transactions WHERE status<>'Cancelled' AND applied=1 AND txn_date >= DATE_SUB(CURDATE(), INTERVAL 89 DAY) GROUP BY item_code`).catch(() => [[]]);
+    const mvBy = Object.fromEntries(mv.map(m => [m.item_code, m]));
+    rows.forEach(it => {
+      const m = mvBy[it.item_code] || { outq: 0, inq: 0 };
+      const out = Number(m.outq) || 0, inq = Number(m.inq) || 0, cur = Number(it.current_stock) || 0;
+      const startStock = cur - inq + out, avg = (Math.max(0, startStock) + Math.max(0, cur)) / 2;
+      it.out90 = out; it.in90 = inq;
+      it.turn = out > 0 && avg > 0 ? Math.round(out * 10 / avg) / 10 : (out > 0 ? null : 0);
+      it.daysCover = out > 0 ? Math.round(Math.max(0, cur) / (out / 90)) : null;
+    });
     res.json({ items: rows, canEdit: canEditStock(req) });
   } catch (err) { sendServerError(res, err); }
 });
 
+// Spare part or finished goods (client 2026-11-05: Stock report me spare part aur finish goods ke 2 tab).
+// Set once per item: master workbook Spare Parts / Product codes, then names, then spare words; admin can change it.
+async function stockCategorize() {
+  await addMissingColumns('ajanta_stock_items', [['category', 'VARCHAR(20) NULL']]);
+  const [todo] = await db.query('SELECT item_code, description FROM ajanta_stock_items WHERE category IS NULL');
+  if (!todo.length) return;
+  const m = await getMasterWorkbookData().catch(() => ({ products: [], spareParts: [] }));
+  const key = v => String(v || '').toLowerCase().replace(/^\s*ajanta\s+/, '').replace(/[^a-z0-9]/g, '');
+  const spareCodes = new Set((m.spareParts || []).map(x => String(x.code || '').trim().toLowerCase()).filter(Boolean));
+  const spareNames = new Set((m.spareParts || []).map(x => key(x.name)).filter(Boolean));
+  const prodCodes = new Set((m.products || []).map(x => String((x && (x.code || x.itemCode)) || '').trim().toLowerCase()).filter(Boolean));
+  const SPARE_WORDS = /\b(stator|motor|spare|spares|blade|capacitor|condenser|switch|element|thermostat|gasket|winding|coil|circuit|knob|regulator|bearing|rotor|armature|carbon|bush|jar coupler|coupler|glu board|heating coil|fuse|cord|valve|seal|shaft|pulley|belt)\b/i;
+  for (const it of todo) {
+    const code = String(it.item_code || '').trim().toLowerCase();
+    const cat = spareCodes.has(code) || spareNames.has(key(it.description)) ? 'spare'
+      : prodCodes.has(code) ? 'finished' : SPARE_WORDS.test(it.description || '') ? 'spare' : 'finished';
+    await db.query('UPDATE ajanta_stock_items SET category=? WHERE item_code=? AND category IS NULL', [cat, it.item_code]);
+  }
+}
+app.put('/api/stock/:code/category', requireAuth, async (req, res) => {
+  try {
+    if (!canEditStock(req)) return res.status(403).json({ error: 'Only admins can change this' });
+    const cat = req.body && req.body.category === 'spare' ? 'spare' : 'finished';
+    await stockCategorize().catch(() => {});
+    await db.query('UPDATE ajanta_stock_items SET category=? WHERE item_code=?', [cat, String(req.params.code)]);
+    res.json({ success: true, category: cat });
+  } catch (err) { sendServerError(res, err); }
+});
 app.post('/api/stock', requireAuth, async (req, res) => {
   try {
     if (!canEditStock(req)) return res.status(403).json({ error: 'Only admins can add stock items' });
