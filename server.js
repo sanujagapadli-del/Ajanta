@@ -14622,8 +14622,12 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
           gp: i.cost == null ? null : round(i.sales - i.cost), manualVendor: i.manualVendor })).sort((a, b) => b.sales - a.sales) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
     // Vendor choices = every vendor on a Purchase FMS PO, plus any picked by hand.
+    // Vendor choices = the full vendor master (same list as the Indent / PO forms) + every PO vendor + any picked by hand
+    // (client 2026-11-05: "vendor ke name sare nhi aa rhe" — only PO vendors were listed).
+    const master = await getMasterWorkbookData().catch(() => ({ vendors: [] }));
     const vcMap = new Map();
-    [...Object.values(poCost).flatMap(c => Object.values(c.vendors).map(v => v.vendor)), ...ivRows.map(r => r.vendor)]
+    [...(master.vendors || []).map(v => typeof v === 'string' ? v : v && v.name), ...Object.values(poCost).flatMap(c => Object.values(c.vendors).map(v => v.vendor)), ...ivRows.map(r => r.vendor)]
+      .map(v => String(v || '').trim().replace(/\s+/g, ' '))
       .filter(v => v && v !== '—').forEach(v => { if (!vcMap.has(v.toLowerCase())) vcMap.set(v.toLowerCase(), v); }); // "Deep Industries" = "DEEP INDUSTRIES"
     const vendorChoices = [...vcMap.values()].sort((a, b) => a.localeCompare(b));
     const orders = Object.values(byOrder).map(o => {
