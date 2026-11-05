@@ -2601,25 +2601,18 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     <div id="vbCleared" style="margin-top:16px"></div>
   </div>
   <div id="page-pc-followup" class="page">
-    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-size:19px;font-weight:900;color:var(--gray-900)">📞 PC Follow-up</div>
-        <div id="pcfuStats" style="font-size:12.5px;color:var(--gray-600)"></div>
-        <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="loadPcFollowup()">⟳ Refresh</button>
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📞 PC Follow-up</div>
+        <button class="btn btn-primary btn-sm" onclick="openPcfuAdd()">+ Follow-up jodo</button>
+        <button class="btn btn-outline btn-sm" onclick="loadPcFollowup()">⟳ Refresh</button>
       </div>
-      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px">Sabke pending Delegation, Checklist, FMS steps + aaj ki Attendance / KM (punch nahi kiya, KM nahi daala; shaam wale 6 baje ke baad) ek jagah. Naam par click = us bande ke task. Har task par "📞 Follow-up" se likho kya baat hui + agla follow-up kab.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-        <input id="pcfuSearch" type="search" placeholder="🔍 Naam / task / order no." oninput="renderPcFollowup()" style="flex:1 1 200px;padding:7px 11px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)"/>
-        <select id="pcfuType" onchange="renderPcFollowup()" style="padding:7px 11px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)">
-          <option value="all">Sab type</option><option value="delegation">📋 Delegation</option><option value="checklist">✅ Checklist</option>
-          <option value="o2d">🚚 O2D</option><option value="fms">🛠️ Service</option><option value="repl">♻️ Replacement</option>
-          <option value="cheque">🧾 Cheque</option><option value="lead">📞 Lead</option><option value="purchase">🛒 Purchase</option>
-          <option value="attn">🕘 Attendance (aaj)</option><option value="km">🛵 KM (aaj)</option></select>
-        <select id="pcfuWhen" onchange="renderPcFollowup()" style="padding:7px 11px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)">
-          <option value="today">Aaj tak due</option><option value="overdue">Sirf late</option><option value="fu">Aaj follow-up karna hai</option><option value="all">Sab (aage wale bhi)</option></select>
-      </div>
+      <div style="font-size:12.5px;color:var(--gray-600);margin-top:6px;line-height:1.5">Team ke saare baaki kaam — <b>naam ke hisaab se</b>. Follow-up kar liya to <b>☐ par tick</b> karo. Baat likhni ho to <b>📝</b>. Kuch aur yaad rakhna ho to <b>+ Follow-up jodo</b>.</div>
+      <div id="pcfuNote2" style="font-size:12px;color:var(--gray-500);margin-top:4px"></div>
     </div>
-    <div id="pcfuPeople" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <div id="pcfuTiles" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <input id="pcfuSearch" type="search" placeholder="🔍 Naam ya kaam dhoondho" oninput="renderPcFollowup()" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900);margin-bottom:10px"/>
+    <div id="pcfuPeople" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
     <div id="pcfuList"></div>
   </div>
   <div id="page-fms-flows" class="page">
@@ -25840,16 +25833,16 @@ async function clearVendorBin() {
     loadVendorBin();
   });
 }
-// ── PC Follow-up (client 2026-11-05) — every pending Delegation, Checklist and FMS step in one
-// list, person-wise, so the PC can chase each one and log what was said. Tasks are built by the
-// same builders the Dashboard uses (all employees); the follow-up log is /api/pc-followups.
+// ── PC Follow-up (client 2026-11-05; simpler v2 same day: "thoda easy to understand", tick lagana, "kuch bhi
+// jiska team se follow up lena hai vo yha show hona chahiye"). Everything pending, grouped by person:
+// Delegation, Checklist, every FMS step, payment follow-up calls, today's attendance / KM, plus anything the PC adds
+// by hand. ☐ tick = "follow-up kiya" (logged in pc_followups); a hand-added item's tick closes it.
 const PCFU_TYPES = {
   delegation: '📋 Delegation', checklist: '✅ Checklist', o2d: '🚚 O2D', fms: '🛠️ Service', cheque: '🧾 Cheque',
-  repl: '♻️ Replacement', lead: '📞 Lead', purchase: '🛒 Purchase', attn: '🕘 Attendance', km: '🛵 KM'
+  repl: '♻️ Replacement', lead: '📞 Lead', purchase: '🛒 Purchase', collect: '💰 Payment', attn: '🕘 Attendance', km: '🛵 KM', custom: '📌 Apna follow-up'
 };
-// Evening items (punch out, evening KM) only from this IST hour — before that they aren't due yet.
-const PCFU_EVENING_HOUR = 18;
-let pcfu = { tasks: [], fu: [], today: '', person: '', loading: false };
+const PCFU_EVENING_HOUR = 18; // punch out / evening KM only count from 6 PM
+let pcfu = { tasks: [], fu: [], custom: [], today: '', person: '', view: 'todo', loading: false, holiday: '' };
 function pcfuText(html) {
   const el = document.createElement('div');
   el.innerHTML = String(html || '').replace(/<\/div>|<br\s*\/?>/gi, ' · ');
@@ -25866,17 +25859,16 @@ async function loadPcFollowup() {
   if (pcfu.loading) return;
   pcfu.loading = true;
   const wrap = document.getElementById('pcfuList');
-  if (!pcfu.tasks.length) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Saare tasks laa rahe hain… (FMS sheets me thoda time lagta hai)</div>';
+  if (!pcfu.tasks.length) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Sabke kaam laa rahe hain… (thoda time lagta hai)</div>';
   try {
-    const [dDel, dChl, o2d, sfms, chq, repl, lead, pur, ind, fu, att] = await Promise.all([
+    const [dDel, dChl, o2d, sfms, chq, repl, lead, pur, ind, dd, fu, att, cus] = await Promise.all([
       api('/api/dashboard?employee=all&taskType=delegation'), api('/api/dashboard?employee=all&taskType=checklist'),
       api('/api/o2d-fms?open=1').catch(() => null), api('/api/service-fms?open=1').catch(() => null),
       api('/api/cheque-fms').catch(() => null), api('/api/replacement-fms').catch(() => null), api('/api/lead-fms').catch(() => null),
-      api('/api/purchase-fms').catch(() => null), api('/api/purchase-fms/indents').catch(() => null),
-      api('/api/pc-followups'), api('/api/pc-followups/attendance').catch(() => null)
+      api('/api/purchase-fms').catch(() => null), api('/api/purchase-fms/indents').catch(() => null), api('/api/delivery-dues/mine').catch(() => null),
+      api('/api/pc-followups'), api('/api/pc-followups/attendance').catch(() => null), api('/api/pc-followups/custom').catch(() => null)
     ]);
     if (fu && fu.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(fu.error)}</div>`; return; }
-    // Same globals the Dashboard keeps — fresher data helps it too.
     if (Array.isArray(o2d)) window._lastO2dData = o2d;
     if (Array.isArray(sfms)) window._lastSfmsData = sfms;
     if (chq && Array.isArray(chq.cheques)) window._lastChequeData = chq;
@@ -25884,14 +25876,15 @@ async function loadPcFollowup() {
     if (lead && Array.isArray(lead.leads)) window._lastLeadData = lead;
     if (Array.isArray(pur)) window._lastPurchaseData = pur;
     if (ind && Array.isArray(ind.indents)) window._lastIndentData = ind;
-    // The builders read the Dashboard's employee dropdown — "All" while building.
+    if (dd && Array.isArray(dd.items)) window._lastDdMine = dd;
+    // The Dashboard builders read its employee dropdown — "All" while building.
     const sel = document.getElementById('dashEmployeeFilter');
     const prev = sel ? sel.value : null;
     if (sel) sel.value = 'all';
     let fmsTasks = [];
     try {
       fmsTasks = [...buildO2dDashboardTasks(), ...(Array.isArray(sfms) ? buildSfmsDashboardTasks() : []), ...buildChequeDashboardTasks(),
-        ...buildReplDashboardTasks(), ...buildLeadDashboardTasks(), ...buildPurchaseDashboardTasks()];
+        ...buildReplDashboardTasks(), ...buildLeadDashboardTasks(), ...buildPurchaseDashboardTasks(), ...buildDdDashboardTasks()];
     } finally { if (sel) sel.value = prev; }
     const dc = [...((dDel && dDel.todayPending) || []), ...((dChl && dChl.todayPending) || [])];
     pcfu.today = (fu && fu.today) || owsYmd(new Date());
@@ -25900,77 +25893,130 @@ async function loadPcFollowup() {
       const due = pcfuDue(t);
       const isFms = !['delegation', 'checklist'].includes(t.type);
       const text = isFms ? pcfuText(t.description) : [t.title, t.description].filter(Boolean).join(' — ');
-      return {
-        key: `${t.type}:${t.id}`, type: t.type, title: String(t.title || '').trim(), text: text.slice(0, 260),
-        people: String(t.assignedToName || '—').split(/\s*,\s*/).filter(Boolean),
-        due, overdue: t.plannedLate === true || (!!due && due < pcfu.today), revised: t.status === 'revised'
-      };
+      return { key: `${t.type}:${t.id}`, type: t.type, title: String(t.title || '').trim(), text: text.slice(0, 220),
+        people: String(t.assignedToName || '—').split(/\s*,\s*/).filter(Boolean), due, overdue: t.plannedLate === true || (!!due && due < pcfu.today) };
     });
-    // Today's attendance / KM gaps as tasks, one per person (client 2026-11-05: "PC view mai attendance and KM bhi").
     if (att && !att.error && !att.holiday) {
       const eve = att.hour >= PCFU_EVENING_HOUR;
-      const add = (list, type, what, slot) => (list || []).forEach(u => pcfu.tasks.push({
-        key: `${type}:${slot}:${att.today}:${u.id}`, type, title: what, text: what, people: [u.name], due: att.today, overdue: false, revised: false }));
+      const add = (list, type, what, slot) => (list || []).forEach(u => pcfu.tasks.push({ key: `${type}:${slot}:${att.today}:${u.id}`, type, title: what, text: what, people: [u.name], due: att.today, overdue: false }));
       add(att.notIn, 'attn', 'Punch In nahi kiya', 'in');
       if (eve) add(att.notOut, 'attn', 'Punch Out nahi kiya', 'out');
       add(att.noKmMorning, 'km', 'Subah ka KM nahi daala', 'am');
       if (eve) add(att.noKmEvening, 'km', 'Shaam ka KM nahi daala', 'pm');
     }
     pcfu.holiday = att && att.holiday ? att.holiday : '';
+    pcfu.custom = (cus && cus.items) || [];
+    pcfu.custom.forEach(c => pcfu.tasks.push({ key: `custom:${c.id}`, customId: c.id, type: 'custom', title: c.text, text: c.text, people: [c.person],
+      due: c.due_date || '', overdue: !c.done_at && !!c.due_date && c.due_date < pcfu.today, doneAt: c.done_at || '', by: c.created_by_name || '' }));
     const errs = [[dDel, 'Delegation'], [dChl, 'Checklist']].filter(([d]) => !d || d.error).map(([, n]) => n);
     if (errs.length) showToast(`${errs.join(' / ')} load nahi hua`, 'error');
     renderPcFollowup();
   } finally { pcfu.loading = false; }
 }
-function pcfuLast(key) { return pcfu.fu.find(f => f.task_key === key) || null; }
+const pcfuLast = key => pcfu.fu.find(f => f.task_key === key) || null;
+const pcfuDoneToday = t => t.type === 'custom' ? !!t.doneAt : pcfu.fu.some(f => f.task_key === t.key && f.created_at.slice(0, 10) === pcfu.today);
+const pcfuDueNow = t => !t.due || t.due <= pcfu.today;
 function renderPcFollowup() {
   const q = (document.getElementById('pcfuSearch').value || '').trim().toLowerCase();
-  const type = document.getElementById('pcfuType').value;
-  const when = document.getElementById('pcfuWhen').value;
-  const base = pcfu.tasks.filter(t => (type === 'all' || t.type === type)
-    && (when === 'all' || (when === 'overdue' ? t.overdue : when === 'today' ? (t.overdue || !t.due || t.due <= pcfu.today)
-      : (() => { const l = pcfuLast(t.key); return l && l.next_date && l.next_date <= pcfu.today; })()))
-    && (!q || (t.text + ' ' + t.title + ' ' + t.people.join(' ')).toLowerCase().includes(q)));
-  // People cards — everyone with something in the current filter.
-  const people = {};
-  base.forEach(t => t.people.forEach(p => {
-    const o = people[p] = people[p] || { name: p, n: 0, late: 0, last: '' };
-    o.n++; if (t.overdue) o.late++;
-    const l = pcfuLast(t.key); if (l && l.created_at > o.last) o.last = l.created_at;
-  }));
-  const plist = Object.values(people).sort((a, b) => b.late - a.late || b.n - a.n || a.name.localeCompare(b.name));
-  if (pcfu.person && !people[pcfu.person]) pcfu.person = '';
-  const doneToday = pcfu.fu.filter(f => f.created_at.slice(0, 10) === pcfu.today).length;
-  const nAttn = pcfu.tasks.filter(t => t.type === 'attn').length, nKm = pcfu.tasks.filter(t => t.type === 'km').length;
-  document.getElementById('pcfuStats').innerHTML = `${pcfu.holiday ? `🎉 Aaj chhutti (${esc(pcfu.holiday)}) · ` : `🕘 Attendance <b>${nAttn}</b> · 🛵 KM <b>${nKm}</b> · `}<b>${base.length}</b> pending · <b style="color:var(--color-danger)">${base.filter(t => t.overdue).length}</b> late · <b>${plist.length}</b> log · aaj <b>${doneToday}</b> follow-up kiye`;
-  const pcard = p => {
-    const on = pcfu.person === p.name;
-    return `<button type="button" onclick="pcfu.person=${on ? "''" : `'${jsArg(p.name)}'`};renderPcFollowup()" style="text-align:left;min-width:150px;flex:1 1 150px;max-width:230px;padding:9px 11px;border-radius:12px;cursor:pointer;
-      border:1.5px solid ${on ? 'var(--color-primary)' : 'var(--gray-200)'};background:${on ? 'var(--color-primary-light)' : 'var(--surface)'}">
-      <div style="font-weight:800;font-size:13px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.name)}</div>
-      <div style="font-size:12px;margin-top:2px;color:var(--gray-600)"><b>${p.n}</b> pending${p.late ? ` · <b style="color:var(--color-danger)">${p.late} late</b>` : ''}</div>
-      <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${p.last ? `Last follow-up ${fmtDateDMY(p.last.slice(0, 10))}` : 'Follow-up nahi hua'}</div></button>`;
+  const live = pcfu.tasks.filter(t => !(t.type === 'custom' && t.doneAt && t.doneAt.slice(0, 10) !== pcfu.today)); // old ticked customs drop off
+  const match = t => !q || (t.text + ' ' + t.title + ' ' + t.people.join(' ')).toLowerCase().includes(q);
+  const VIEWS = {
+    late: { icon: '🔴', label: 'Late', hint: 'time nikal gaya, follow-up baaki', f: t => t.overdue && !pcfuDoneToday(t) },
+    todo: { icon: '🟡', label: 'Aaj karna hai', hint: 'aaj tak ka, follow-up baaki', f: t => pcfuDueNow(t) && !pcfuDoneToday(t) },
+    done: { icon: '✅', label: 'Aaj ho gaya', hint: 'aaj follow-up kiya', f: t => pcfuDoneToday(t) },
+    all: { icon: '📋', label: 'Sab', hint: 'aage wale bhi', f: () => true },
   };
-  document.getElementById('pcfuPeople').innerHTML = plist.length ? plist.map(pcard).join('') : '';
-  const rows = base.filter(t => !pcfu.person || t.people.includes(pcfu.person))
-    .sort((a, b) => (b.overdue - a.overdue) || (a.due || '9999').localeCompare(b.due || '9999'));
+  const counts = Object.fromEntries(Object.entries(VIEWS).map(([k, v]) => [k, live.filter(t => v.f(t) && match(t)).length]));
+  document.getElementById('pcfuTiles').innerHTML = Object.entries(VIEWS).map(([k, v]) => {
+    const on = pcfu.view === k;
+    return `<button type="button" onclick="pcfu.view='${k}';pcfu.person='';renderPcFollowup()" style="flex:1 1 140px;text-align:left;padding:12px 14px;border-radius:14px;cursor:pointer;
+      border:2px solid ${on ? 'var(--color-primary)' : 'var(--gray-200)'};background:${on ? 'var(--color-primary-light)' : 'var(--surface)'}">
+      <div style="font-size:26px;font-weight:900;color:var(--gray-900);line-height:1">${counts[k]}</div>
+      <div style="font-size:13px;font-weight:800;color:var(--gray-800);margin-top:4px">${v.icon} ${v.label}</div>
+      <div style="font-size:11px;color:var(--gray-500)">${v.hint}</div></button>`;
+  }).join('');
+  document.getElementById('pcfuNote2').innerHTML = pcfu.holiday ? `🎉 Aaj chhutti (${esc(pcfu.holiday)}) — attendance / KM nahi dikhaya` : '';
+  const rows = live.filter(t => VIEWS[pcfu.view].f(t) && match(t));
+  // Person-wise groups — most late first
+  const groups = {};
+  rows.forEach(t => t.people.forEach(p => { (groups[p] = groups[p] || { name: p, list: [], late: 0 }).list.push(t); if (t.overdue && !pcfuDoneToday(t)) groups[p].late++; }));
+  const glist = Object.values(groups).sort((a, b) => b.late - a.late || b.list.length - a.list.length || a.name.localeCompare(b.name));
+  document.getElementById('pcfuPeople').innerHTML = glist.length > 1 ? `<button type="button" onclick="pcfu.person='';renderPcFollowup()" class="btn btn-sm ${pcfu.person ? 'btn-outline' : 'btn-primary'}">Sab log</button>`
+    + glist.map(g => `<button type="button" onclick="pcfu.person=${pcfu.person === g.name ? "''" : `'${jsArg(g.name)}'`};renderPcFollowup()" class="btn btn-sm ${pcfu.person === g.name ? 'btn-primary' : 'btn-outline'}">${esc(g.name)} <b style="margin-left:4px">${g.list.length}</b>${g.late ? ` <span style="color:var(--color-danger);margin-left:3px">· ${g.late} late</span>` : ''}</button>`).join('') : '';
   const wrap = document.getElementById('pcfuList');
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">Koi pending task nahi 🎉</div>'; return; }
-  const lateDays = d => { const n = Math.round((new Date(pcfu.today + 'T00:00:00') - new Date(d + 'T00:00:00')) / 86400000); return n > 0 ? `${n} din late` : 'aaj'; };
-  wrap.innerHTML = `${pcfu.person ? `<div style="font-size:13px;color:var(--gray-600);margin-bottom:8px">👤 <b>${esc(pcfu.person)}</b> ke ${rows.length} task · <a href="javascript:void(0)" onclick="pcfu.person='';renderPcFollowup()">sab dikhao</a></div>` : ''}
-    ${rows.slice(0, 400).map(t => {
-      const l = pcfuLast(t.key);
-      const fuDue = l && l.next_date && l.next_date <= pcfu.today;
-      return `<div style="background:var(--surface);border:1px solid ${t.overdue ? 'var(--color-danger-border, var(--gray-200))' : 'var(--gray-200)'};border-left:4px solid ${t.overdue ? 'var(--color-danger)' : 'var(--gray-200)'};border-radius:12px;padding:10px 12px;margin-bottom:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">
-        <div style="flex:1 1 320px;min-width:0">
-          <div style="font-size:11px;font-weight:800;color:var(--gray-500)">${PCFU_TYPES[t.type]}${t.revised ? ' · <span style="color:var(--color-warning-text)">Revised</span>' : ''}</div>
-          <div style="font-size:13.5px;color:var(--gray-900);font-weight:600;margin-top:2px;overflow-wrap:anywhere">${esc(t.text || t.title || '—')}</div>
-          <div style="font-size:12px;color:var(--gray-600);margin-top:4px">👤 <b>${esc(t.people.join(', '))}</b> · 📅 ${t.due ? `${fmtDateDMY(t.due)}${t.overdue ? ` <b style="color:var(--color-danger)">(${lateDays(t.due)})</b>` : ''}` : '—'}</div>
-          ${l ? `<div style="font-size:12px;margin-top:5px;padding:5px 8px;border-radius:8px;background:${fuDue ? 'var(--color-warning-bg)' : 'var(--gray-50)'};color:var(--gray-700)">💬 ${esc(l.note)} <span style="color:var(--gray-400)">— ${esc(l.created_by_name || '')}, ${fmtDateDMY(l.created_at.slice(0, 10))} ${l.created_at.slice(11, 16)}</span>${l.next_date ? ` · <b style="color:${fuDue ? 'var(--color-warning-text)' : 'var(--gray-600)'}">Agla follow-up ${fmtDateDMY(l.next_date)}</b>` : ''}</div>` : ''}
-        </div>
-        <button class="btn btn-outline btn-sm" style="flex:none" onclick="openPcfu('${jsArg(t.key)}')">📞 Follow-up${pcfu.fu.some(f => f.task_key === t.key) ? ` (${pcfu.fu.filter(f => f.task_key === t.key).length})` : ''}</button>
-      </div>`;
-    }).join('')}${rows.length > 400 ? `<div class="empty">Pehle 400 dikha rahe hain — filter / naam chuno</div>` : ''}`;
+  const shown = glist.filter(g => !pcfu.person || g.name === pcfu.person);
+  if (!shown.length) { wrap.innerHTML = `<div class="empty">${pcfu.view === 'done' ? 'Aaj abhi koi follow-up nahi hua' : 'Kuch baaki nahi 🎉'}</div>`; return; }
+  const dueTxt = t => {
+    if (!t.due) return '';
+    const n = Math.round((new Date(pcfu.today + 'T00:00:00') - new Date(t.due + 'T00:00:00')) / 86400000);
+    return n > 0 ? `<b style="color:var(--color-danger)">${n} din late</b>` : n === 0 ? '<b style="color:var(--color-warning-text)">aaj</b>' : `${fmtDateDMY(t.due)} ko`;
+  };
+  wrap.innerHTML = shown.slice(0, 80).map(g => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:12px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--gray-50);border-bottom:1px solid var(--gray-100)">
+        <span style="font-size:15px;font-weight:900;color:var(--gray-900)">👤 ${esc(g.name)}</span>
+        <span style="font-size:12.5px;color:var(--gray-600)">${g.list.length} kaam${g.late ? ` · <b style="color:var(--color-danger)">${g.late} late</b>` : ''}</span></div>
+      ${g.list.slice(0, 60).map(t => {
+        const done = pcfuDoneToday(t), l = pcfuLast(t.key);
+        return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-top:1px solid var(--gray-100)${done ? ';background:var(--color-success-bg)' : ''}">
+          <button type="button" onclick="pcfuTick('${jsArg(t.key)}', this)" title="${done ? 'Follow-up ho gaya' : 'Follow-up kiya — tick karo'}"
+            style="flex:none;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:17px;font-weight:900;border:2px solid ${done ? 'var(--color-success-text)' : 'var(--gray-300)'};background:${done ? 'var(--color-success-text)' : 'var(--surface)'};color:#fff">${done ? '✓' : ''}</button>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;color:var(--gray-900);font-weight:600;overflow-wrap:anywhere${done && t.type === 'custom' ? ';text-decoration:line-through;color:var(--gray-500)' : ''}">${esc(t.text || t.title || '—')}</div>
+            <div style="font-size:12px;color:var(--gray-500);margin-top:3px">${PCFU_TYPES[t.type]}${t.due ? ' · ' + dueTxt(t) : ''}${t.by ? ` · joda: ${esc(t.by)}` : ''}</div>
+            ${l ? `<div style="font-size:12px;color:var(--gray-600);margin-top:3px">💬 ${esc(l.note)} <span style="color:var(--gray-400)">— ${esc(l.created_by_name || '')}, ${fmtDateDMY(l.created_at.slice(0, 10))} ${l.created_at.slice(11, 16)}${l.next_date ? ` · agla ${fmtDateDMY(l.next_date)}` : ''}</span></div>` : ''}
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" style="flex:none" onclick="openPcfu('${jsArg(t.key)}')" title="Note likho / pichhle follow-up">📝</button></div>`;
+      }).join('')}</div>`).join('');
+}
+// ☐ → ✓ : FMS / task = log "follow-up kiya" for today; hand-added = close it. ✓ again on a hand-added = reopen.
+async function pcfuTick(key, btn) {
+  const t = pcfu.tasks.find(x => x.key === key);
+  if (!t) return;
+  btn.disabled = true;
+  let r;
+  if (t.type === 'custom') {
+    r = await api(`/api/pc-followups/custom/${t.customId}`, 'PUT', { done: !t.doneAt });
+    if (r && !r.error) { const now = new Date(); t.doneAt = t.doneAt ? '' : `${owsYmd(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; }
+  } else {
+    if (pcfuDoneToday(t)) { btn.disabled = false; openPcfu(key); return; }
+    r = await api('/api/pc-followups', 'POST', { taskKey: t.key, taskTitle: (t.title || t.text).slice(0, 300), person: t.people.join(', '), note: '✓ Follow-up kiya' });
+    if (r && !r.error) { const now = new Date(); pcfu.fu.unshift({ task_key: t.key, note: '✓ Follow-up kiya', next_date: null, created_by_name: ME.name, created_at: `${owsYmd(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` }); }
+  }
+  btn.disabled = false;
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  renderPcFollowup();
+}
+let _pcfuUsers = null;
+async function openPcfuAdd() {
+  if (!_pcfuUsers) { const u = await api('/api/users/roster'); _pcfuUsers = Array.isArray(u) ? u.filter(x => +x.is_active !== 0) : []; }
+  vrlModal('pcfuAddModal', `${scotModalHead('pcfuAddModal', '📌 Follow-up jodo')}
+    <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:10px">Koi bhi kaam jiska team se follow-up lena hai — yahan list me dikhega, ho jaye to ☐ tick.</div>
+    <label style="font-size:12px;font-weight:700">Kiska *</label>
+    <select id="pcfuAddUser" style="${VRL_IN};margin-bottom:8px"><option value="">— naam chunein —</option>${_pcfuUsers.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>
+    <label style="font-size:12px;font-weight:700">Kya follow-up lena hai *</label>
+    <textarea id="pcfuAddText" rows="3" placeholder="jaise: Mahakal ka payment le ke aana" style="${VRL_IN};margin-bottom:8px;resize:vertical"></textarea>
+    <label style="font-size:12px;font-weight:700">Kab tak</label>
+    <input id="pcfuAddDue" type="date" value="${pcfu.today || owsYmd(new Date())}" style="${VRL_IN};margin-bottom:12px"/>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="savePcfuAdd(this)">✓ Jodo</button>`, 460);
+}
+async function savePcfuAdd(btn) {
+  const userId = document.getElementById('pcfuAddUser').value, text = document.getElementById('pcfuAddText').value.trim();
+  if (!userId) { showToast('Naam chunein', 'error'); return; }
+  if (!text) { showToast('Kya follow-up lena hai, likhein', 'error'); return; }
+  btn.disabled = true;
+  const r = await api('/api/pc-followups/custom', 'POST', { userId, text, dueDate: document.getElementById('pcfuAddDue').value });
+  btn.disabled = false;
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  closeModal('pcfuAddModal');
+  showToast('✅ Follow-up joda');
+  const c = await api('/api/pc-followups/custom');
+  if (c && c.items) {
+    pcfu.tasks = pcfu.tasks.filter(t => t.type !== 'custom');
+    pcfu.custom = c.items;
+    c.items.forEach(x => pcfu.tasks.push({ key: `custom:${x.id}`, customId: x.id, type: 'custom', title: x.text, text: x.text, people: [x.person],
+      due: x.due_date || '', overdue: !x.done_at && !!x.due_date && x.due_date < pcfu.today, doneAt: x.done_at || '', by: x.created_by_name || '' }));
+  }
+  renderPcFollowup();
 }
 let _pcfuKey = '';
 function openPcfu(key) {

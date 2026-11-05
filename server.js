@@ -3238,6 +3238,55 @@ app.get('/api/pc-followups', requireAuth, async (req, res) => {
     res.json({ rows, today: clock.today });
   } catch (err) { sendServerError(res, err); }
 });
+// Hand-added follow-ups (client 2026-11-05: "kuch bhi jiska team se follow up lena hai vo yha show hona chahiye") —
+// a person, what to chase, by when; ticked off when done.
+let _pcCustomOk = false;
+async function ensurePcCustomTable() {
+  if (_pcCustomOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS pc_custom_tasks (
+    id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NULL, person VARCHAR(150) NOT NULL, text VARCHAR(500) NOT NULL, due_date DATE NULL,
+    done_at DATETIME NULL, done_by_name VARCHAR(150) NULL, created_by INT NULL, created_by_name VARCHAR(150) NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_pcc_open (done_at))`);
+  _pcCustomOk = true;
+}
+app.get('/api/pc-followups/custom', requireAuth, async (req, res) => {
+  try {
+    if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
+    await ensurePcCustomTable();
+    const [rows] = await db.query(`SELECT id, user_id, person, text, DATE_FORMAT(due_date,'%Y-%m-%d') AS due_date, DATE_FORMAT(done_at,'%Y-%m-%d %H:%i') AS done_at,
+      done_by_name, created_by_name, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at FROM pc_custom_tasks
+      WHERE done_at IS NULL OR done_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) ORDER BY COALESCE(due_date, DATE(created_at)), id`);
+    res.json({ items: rows });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/pc-followups/custom', requireAuth, async (req, res) => {
+  try {
+    if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
+    const b = req.body || {};
+    const uid = Number(b.userId) || 0, text = String(b.text || '').trim().slice(0, 500);
+    const due = /^\d{4}-\d{2}-\d{2}$/.test(String(b.dueDate || '')) ? b.dueDate : null;
+    if (!uid) return res.status(400).json({ error: 'Kiska follow-up — naam chunein' });
+    if (!text) return res.status(400).json({ error: 'Kya follow-up lena hai, likhein' });
+    const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [uid]);
+    if (!u) return res.status(400).json({ error: 'User nahi mila' });
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    await ensurePcCustomTable();
+    await db.query('INSERT INTO pc_custom_tasks (user_id, person, text, due_date, created_by, created_by_name) VALUES (?,?,?,?,?,?)',
+      [uid, u.name, text, due, req.session.userId, (me && me.name) || '']);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// Tick (done) / untick a hand-added follow-up.
+app.put('/api/pc-followups/custom/:id', requireAuth, async (req, res) => {
+  try {
+    if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
+    await ensurePcCustomTable();
+    const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+    if (req.body && req.body.done) await db.query('UPDATE pc_custom_tasks SET done_at=NOW(), done_by_name=? WHERE id=? AND done_at IS NULL', [(me && me.name) || '', Number(req.params.id)]);
+    else await db.query('UPDATE pc_custom_tasks SET done_at=NULL, done_by_name=NULL WHERE id=?', [Number(req.params.id)]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
 app.get('/api/pc-followups/attendance', requireAuth, async (req, res) => {
   try {
     if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
