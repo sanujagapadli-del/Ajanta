@@ -26189,11 +26189,36 @@ function renderVendorOut() {
       ${card('Net', inr(pay - adv), d.syncedAt ? `Tally sync ${esc(String(d.syncedAt).slice(0, 16).replace('T', ' '))}` : '', 'var(--color-primary)')}</div>
     ${!d.groupsSynced ? '<div class="empty">Tally ka LedgerGroups abhi sync nahi hua — Tally PC par naya sync chalayein.</div>' : rows.length ? `<div style="border:1px solid var(--gray-200);border-radius:12px;overflow:auto;max-height:70vh;background:var(--surface)"><table style="width:100%;border-collapse:collapse">
       <thead><tr><th style="${th};text-align:left">Vendor</th><th style="${th}">Payable</th><th style="${th}">Advance</th><th style="${th}">Last purchase</th><th style="${th}">Last payment</th></tr></thead>
-      <tbody>${rows.map(x => `<tr><td style="${td};text-align:left;white-space:normal;font-weight:600">${esc(x.vendor)}</td>
+      <tbody>${rows.map(x => `<tr style="cursor:pointer" onclick="openVendorLedger(this.dataset.v)" data-v="${esc(x.vendor)}" title="Ledger dekho"><td style="${td};text-align:left;white-space:normal;font-weight:600;color:var(--color-primary);text-decoration:underline dotted;text-underline-offset:3px">${esc(x.vendor)}</td>
         <td style="${td};font-weight:800;color:${x.payable ? 'var(--color-danger)' : 'var(--gray-300)'}">${x.payable ? inr(x.payable) : '—'}</td>
         <td style="${td};color:${x.advance ? 'var(--color-success-text)' : 'var(--gray-300)'}">${x.advance ? inr(x.advance) : '—'}</td>
         <td style="${td}">${lastTxt(x.lastPurchase)}</td><td style="${td}">${lastTxt(x.lastPayment)}</td></tr>`).join('')}</tbody>
       <tfoot><tr style="font-weight:900;background:var(--gray-50)"><td style="${td};text-align:left">Total (${rows.length})</td><td style="${td}">${inr(pay)}</td><td style="${td}">${inr(adv)}</td><td style="${td}" colspan="2"></td></tr></tfoot></table></div>` : '<div class="empty">Koi vendor nahi</div>'}`;
+}
+// Vendor row → its Tally ledger + Purchase FMS POs (client 2026-11-06).
+async function openVendorLedger(vendor) {
+  vrlModal('voLedgerModal', `${scotModalHead('voLedgerModal', '🧾 ' + esc(vendor))}<div class="empty ui-skel" aria-busy="true">Ledger laa rahe hain…</div>`, 900);
+  const r = await api(`/api/reports/vendor-ledger?vendor=${encodeURIComponent(vendor)}`);
+  if (!r || r.error) { vrlModal('voLedgerModal', `${scotModalHead('voLedgerModal', '🧾 ' + esc(vendor))}<div class="empty">⚠️ ${esc((r && r.error) || 'Load nahi hua')}</div>`, 900); return; }
+  const th = 'padding:7px 8px;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--gray-500);background:var(--gray-50);text-align:right;white-space:nowrap;position:sticky;top:0';
+  const td = 'padding:7px 8px;border-top:1px solid var(--gray-100);font-size:12.5px;text-align:right;white-space:nowrap';
+  const cr = r.rows.reduce((a, x) => a + x.credit, 0), dr = r.rows.reduce((a, x) => a + x.debit, 0);
+  const bal = v => v == null ? '—' : v >= 0 ? `${inr(v)} <span style="font-size:10.5px;color:var(--color-danger)">dena</span>` : `${inr(-v)} <span style="font-size:10.5px;color:var(--color-success-text)">advance</span>`;
+  vrlModal('voLedgerModal', `${scotModalHead('voLedgerModal', '🧾 ' + esc(r.vendor))}
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--gray-600);margin-bottom:10px">
+      <span>Closing (Tally): <b style="font-size:15px;color:var(--gray-900)">${bal(r.closing)}</b></span>
+      <span>Purchase / Cr: <b>${inr(cr)}</b></span><span>Payment / Dr: <b>${inr(dr)}</b></span><span>${r.rows.length} entries</span></div>
+    ${r.rows.length ? `<div style="overflow:auto;max-height:55dvh;border:1px solid var(--gray-200);border-radius:10px"><table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="${th};text-align:left">Date</th><th style="${th};text-align:left">Type / No.</th><th style="${th};text-align:left">Particulars</th><th style="${th}">Purchase (Cr)</th><th style="${th}">Payment (Dr)</th><th style="${th}">Balance</th></tr></thead>
+      <tbody>${r.rows.map(x => `<tr><td style="${td};text-align:left">${esc(fmtDateDMY(x.date))}</td>
+        <td style="${td};text-align:left">${esc(x.vchType || '')}<div style="font-size:11px;color:var(--gray-500)">${x.vchNo ? '#' + esc(x.vchNo) : ''}</div></td>
+        <td style="${td};text-align:left;white-space:normal">${esc(x.particulars || '')}</td>
+        <td style="${td};color:var(--color-danger)">${x.credit ? inr(x.credit) : ''}</td><td style="${td};color:var(--color-success-text)">${x.debit ? inr(x.debit) : ''}</td>
+        <td style="${td};font-weight:700">${bal(x.balance)}</td></tr>`).join('')}</tbody></table></div>
+      <div style="font-size:11px;color:var(--gray-500);margin-top:6px">Balance = Tally sync me aaye entries ka jod (purana opening balance shaamil nahi ho sakta) — sahi aakhri figure upar "Closing (Tally)".</div>`
+      : '<div class="empty">Tally sync me is vendor ki koi entry nahi</div>'}
+    ${r.pos && r.pos.length ? `<div style="font-size:13px;font-weight:800;margin:14px 0 6px">Purchase FMS — POs (${r.pos.length})</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${r.pos.map(p => `<span style="padding:4px 9px;border-radius:8px;font-size:12px;background:${p.closed ? 'var(--gray-100)' : 'var(--color-warning-bg)'};color:${p.closed ? 'var(--gray-600)' : 'var(--color-warning-text)'}">${esc(p.poNumber)}${p.date ? ' · ' + esc(fmtDateDMY(String(p.date).slice(0, 10))) : ''} · ${p.closed ? 'closed' : 'open'}</span>`).join('')}</div>` : ''}`, 900);
 }
 function exportVendorOut() {
   if (!voData) return;

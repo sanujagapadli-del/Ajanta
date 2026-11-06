@@ -15037,6 +15037,40 @@ app.put('/api/four-as-rule', requireAuth, requireAdmin, async (req, res) => {
 // Vendor outstanding (client 2026-11-05) — Tally creditor ledgers (group / primary "Sundry Creditors"):
 // closing balance Cr = we owe the vendor, Dr = advance paid. Last purchase / payment from Tally vouchers.
 // ══════════════════════════════════════════════════════
+// One vendor's Tally ledger (client 2026-11-06: Vendor Outstanding "clickable") — every voucher on that ledger,
+// oldest first with a running balance (+ = we owe the vendor / Cr), and its Purchase FMS POs.
+app.get('/api/reports/vendor-ledger', requireAuth, async (req, res) => {
+  try {
+    if (req.session.role !== 'admin' && !(await hasPageGrant(req, 'vendor-outstanding'))) return res.status(403).json({ error: 'No access to Vendor Outstanding' });
+    const key = String(req.query.vendor || '').trim().toLowerCase();
+    if (!key) return res.status(400).json({ error: 'Vendor chahiye' });
+    const [vouchers, balances] = await Promise.all([getLedgerVouchers(), getLedgerBalancesByDealer()]);
+    const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const rows = [];
+    [...(vouchers.legIndex[key] || [])].forEach(k => {
+      const v = vouchers.byKey[k], d = parseAnyDate(v.date);
+      const amt = v.legs.filter(l => l.ledgerKey === key).reduce((a, l) => a + l.amount, 0);
+      const other = v.legs.filter(l => l.ledgerKey !== key).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))[0];
+      // Tally export: negative = Dr on this ledger (we paid / debit note), positive = Cr (purchase — we owe)
+      rows.push({ date: d ? ymd(d) : String(v.date || ''), vchType: v.vchType, vchNo: v.vchNo, particulars: other ? other.ledgerName : '',
+        credit: amt > 0 ? Math.round(amt * 100) / 100 : 0, debit: amt < 0 ? Math.round(-amt * 100) / 100 : 0 });
+    });
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    let run = 0; rows.forEach(r => { run += r.credit - r.debit; r.balance = Math.round(run * 100) / 100; });
+    const b = balances[key];
+    const closing = b ? (Number(b.closingBalance) || 0) * (/^dr/i.test(b.drCr) ? -1 : 1) : null;
+    // Purchase FMS POs of this vendor (name match, case-insensitive)
+    let pos = [];
+    try {
+      const all = await getPurchasePOs();
+      const vk = key.replace(/[^a-z0-9]/g, '');
+      pos = (all || []).filter(p => String(p.vendorName || '').toLowerCase().replace(/[^a-z0-9]/g, '') === vk)
+        .map(p => ({ poNumber: p.poNumber, date: String(p.timestamp || ''), closed: !!p.closed, items: (p.products || []).length }))
+        .slice(0, 50);
+    } catch (e) { /* PO list optional */ }
+    res.json({ vendor: (b && b.name) || req.query.vendor, rows: rows.reverse(), closing, opening: rows.length ? null : closing, pos });
+  } catch (err) { sendServerError(res, err); }
+});
 app.get('/api/reports/vendor-outstanding', requireAuth, async (req, res) => {
   try {
     if (req.session.role !== 'admin' && !(await hasPageGrant(req, 'vendor-outstanding'))) return res.status(403).json({ error: 'No access to Vendor Outstanding' });
