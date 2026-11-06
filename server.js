@@ -12713,7 +12713,7 @@ app.post('/api/petty-cash', requireAuth, async (req, res) => {
     const status = type === 'advance' ? 'pending' : (owner ? 'approved' : 'pending');
     const [ins] = await withPettyTable(() => db.query(
       `INSERT INTO petty_cash (entry_date, type, amount, description, payee, nag, goods_desc, vehicle, mode, note, goods_value, bill_photo, status, recorded_by_id, recorded_by_name, exp_type)
-       VALUES (CONCAT(?, ' ', DATE_FORMAT(NOW(),'%H:%i:%s')),?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (CONCAT(?, ' ', DATE_FORMAT(NOW(),'%H:%i:%s')),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [v.date, type, v.amount, v.description, v.payee, type === 'advance' ? null : v.nag, type === 'advance' ? null : v.goodsDesc || null, type === 'advance' ? '' : v.vehicle, v.mode, v.note, type === 'advance' ? null : v.goods, photo, status, req.session.userId, req.session.name || '', type === 'advance' ? null : v.expType]));
     const [[row]] = await db.query(`${PETTY_SELECT} WHERE id=?`, [ins.insertId]);
     res.json({ success: true, entry: row });
