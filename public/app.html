@@ -2647,8 +2647,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     <div class="pcfu-bar">
       <input id="pcfuSearch" type="search" placeholder="🔍 Naam ya kaam dhoondho" oninput="renderPcFollowup()"/>
       <span id="pcfuCount"></span>
-      <div id="pcfuSysChips" class="pcfu-chips"></div>
-      <div id="pcfuPerChips" class="pcfu-chips"></div>
+    </div>
+    <div class="pcfu-filters">
+      <div class="pcfu-fbox sys"><div class="pcfu-fhead">🧩 System se chuno</div><div id="pcfuSysChips" class="pcfu-chips"></div></div>
+      <div class="pcfu-fbox per"><div class="pcfu-fhead">👤 Naam se chuno</div><div id="pcfuPerChips" class="pcfu-chips"></div></div>
     </div>
     <div id="pcfuList"></div>
   </div>
@@ -26436,8 +26438,24 @@ function pcfuCss() {
     .pcfu-bar input,.pcfu-bar select{padding:8px 11px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)}
     .pcfu-bar input{flex:1 1 200px;min-width:160px} .pcfu-bar select{flex:0 1 220px;min-width:150px}
     #pcfuCount{font-size:12px;color:var(--gray-500);font-weight:700;padding:0 4px}
-    .pcfu-chips{flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-    .pcfu-chips .lbl{font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;margin-right:2px;min-width:52px}
+    .pcfu-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:12px;margin-bottom:14px}
+    @media (max-width:900px){.pcfu-filters{grid-template-columns:1fr}}
+    .pcfu-fbox{border-radius:14px;padding:10px 12px 12px;border:1px solid var(--gray-200);background:var(--surface)}
+    .pcfu-fbox.sys{border-top:4px solid #2563eb;background:color-mix(in srgb,#2563eb 4%,var(--surface))}
+    .pcfu-fbox.per{border-top:4px solid #0f766e;background:color-mix(in srgb,#0f766e 4%,var(--surface))}
+    .pcfu-fhead{font-size:12px;font-weight:900;color:var(--gray-700);text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px}
+    .pcfu-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+    .pcfu-tbl{width:100%;border-collapse:collapse}
+    .pcfu-tbl th{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--gray-500);text-align:left;padding:7px 10px;background:var(--surface);border-bottom:1px solid var(--gray-200);white-space:nowrap}
+    .pcfu-tbl td{padding:9px 10px;border-bottom:1px solid var(--gray-100);vertical-align:top;font-size:13px}
+    .pcfu-tbl tr.r{box-shadow:inset 4px 0 0 var(--c)} .pcfu-tbl tr.r:nth-child(even){background:color-mix(in srgb,var(--gray-50) 70%,transparent)}
+    .pcfu-tbl tr.r:hover{background:color-mix(in srgb,var(--c) 6%,var(--surface))}
+    .pcfu-tbl tr.r.done{background:var(--color-success-bg)} .pcfu-tbl tr.r.late td.due{color:var(--color-danger-text)}
+    .pcfu-step{font-weight:800;color:var(--c)} .pcfu-party{font-weight:800;color:var(--gray-900)} .pcfu-rest{font-size:12px;color:var(--gray-500);margin-top:2px;overflow-wrap:anywhere}
+    .pcfu-date.today{background:var(--color-warning-bg);color:var(--color-warning-text)} .pcfu-date.past{background:var(--color-danger-bg);color:var(--color-danger-text)}
+    .pcfu-date.future{background:color-mix(in srgb,#2563eb 8%,var(--surface));color:#1d4ed8}
+    @media (max-width:700px){.pcfu-tbl thead{display:none}.pcfu-tbl,.pcfu-tbl tbody{display:block}.pcfu-tbl tr.r{display:grid;grid-template-columns:44px 1fr auto;gap:4px 8px;padding:8px 6px}
+      .pcfu-tbl tr.r td{border:0;padding:2px}.pcfu-tbl tr.r td:nth-child(1){grid-row:span 4}.pcfu-tbl tr.r td:nth-child(3),.pcfu-tbl tr.r td:nth-child(4){grid-column:2 / 4}}
     .pcfu-chip{border:1.5px solid var(--gray-200);background:var(--surface);color:var(--gray-700);border-radius:999px;padding:4px 11px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
     .pcfu-chip b{margin-left:4px;color:var(--gray-900)} .pcfu-chip .lt{margin-left:4px;color:var(--color-danger-text);font-size:11px}
     .pcfu-chip:hover{border-color:var(--c,var(--color-primary))}
@@ -26483,7 +26501,7 @@ function renderPcFollowup() {
   if (pcfu.sys && !sysCnt[pcfu.sys]) pcfu.sys = '';
   // System + person as buttons with counts (client 2026-11-07: "dropdown ki jagah button do with count")
   const chip = (on, c, label, n, late, onclick) => `<button type="button" class="pcfu-chip${on ? ' on' : ''}" style="--c:${c}" onclick="${onclick}">${label}<b>${n}</b>${late ? `<span class="lt">${late} late</span>` : ''}</button>`;
-  document.getElementById('pcfuSysChips').innerHTML = '<span class="lbl">System</span>'
+  document.getElementById('pcfuSysChips').innerHTML = ''
     + chip(!pcfu.sys, '#2563eb', 'Sab', inView.length, 0, "pcfu.sys='';pcfu.person='';renderPcFollowup()")
     + Object.keys(PCFU_TYPES).filter(k => sysCnt[k]).map(k => chip(pcfu.sys === k, PCFU_COLOR[k] || '#475569', PCFU_TYPES[k], sysCnt[k], 0, `pcfu.sys='${k}';pcfu.person='';renderPcFollowup()`)).join('');
   const rows = inView.filter(t => !pcfu.sys || t.type === pcfu.sys);
@@ -26491,7 +26509,7 @@ function renderPcFollowup() {
   rows.forEach(t => t.people.forEach(p => { (groups[p] = groups[p] || { name: p, n: 0, late: 0 }).n++; if (t.overdue && !pcfuDoneToday(t)) groups[p].late++; }));
   const glist = Object.values(groups).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
   if (pcfu.person && !groups[pcfu.person]) pcfu.person = '';
-  document.getElementById('pcfuPerChips').innerHTML = '<span class="lbl">Naam</span>'
+  document.getElementById('pcfuPerChips').innerHTML = ''
     + chip(!pcfu.person, '#0f766e', 'Sab', rows.length, 0, "pcfu.person='';renderPcFollowup()")
     + glist.map(g => chip(pcfu.person === g.name, '#0f766e', esc(g.name), g.n, g.late, `pcfu.person='${jsArg(g.name)}';renderPcFollowup()`)).join('');
   const shown = rows.filter(t => !pcfu.person || t.people.includes(pcfu.person));
@@ -26519,18 +26537,25 @@ function renderPcFollowup() {
   wrap.innerHTML = days.map(k => {
     if (left <= 0) return '';
     const list = byDay[k].slice(0, left); left -= list.length;
-    return `<div class="pcfu-card"><div class="pcfu-date">📅 ${dayLabel(k)}<span class="pcfu-badge" style="margin-left:auto">${byDay[k].length} kaam</span></div>
+    const dn = k === 'none' ? null : dayDiff(k), dcls = dn === null ? '' : dn === 0 ? ' today' : dn > 0 ? ' past' : ' future';
+    return `<div class="pcfu-card"><div class="pcfu-date${dcls}">📅 ${dayLabel(k)}<span class="pcfu-badge" style="margin-left:auto">${byDay[k].length} kaam</span></div>
+      <div class="no-kit no-mcards" style="overflow-x:auto"><table class="pcfu-tbl"><thead><tr><th style="width:44px">✓</th><th style="width:120px">System</th><th>Kaam</th><th style="width:170px">Kiska</th><th style="width:90px">Due</th><th style="width:80px"></th></tr></thead><tbody>
       ${list.map(t => {
-        const done = pcfuDoneToday(t), l = pcfuLast(t.key);
-        return `<div class="pcfu-row${done ? ' done' : ''}">
-          <button type="button" class="pcfu-tick${done ? ' on' : ''}" onclick="pcfuTick('${jsArg(t.key)}', this)" title="${done ? 'Follow-up ho gaya' : 'Follow-up kiya — tick karo'}">${done ? '✓' : ''}</button>
-          <div style="flex:1;min-width:0">
-            <div><span class="pcfu-pill" style="--c:${PCFU_COLOR[t.type] || '#475569'}">${PCFU_TYPES[t.type]}</span>${due(t)}${t.people.map(p => `<span class="pcfu-who"><i style="background:${pcfuAvatarColor(p)}">${esc(initials(p))}</i>${esc(p)}</span>`).join('')}${t.by ? `<span style="font-size:11px;color:var(--gray-400);margin-left:6px">joda: ${esc(t.by)}</span>` : ''}</div>
-            <div style="font-size:13.5px;color:var(--gray-900);font-weight:600;margin-top:4px;overflow-wrap:anywhere${done && t.type === 'custom' ? ';text-decoration:line-through;color:var(--gray-500)' : ''}">${esc(t.text || t.title || '—')}</div>
-            ${l ? `<div class="pcfu-note">💬 ${esc(l.note)} <span style="color:var(--gray-400)">— ${esc(l.created_by_name || '')}, ${fmtDateDMY(l.created_at.slice(0, 10))} ${l.created_at.slice(11, 16)}${l.next_date ? ` · agla ${fmtDateDMY(l.next_date)}` : ''}</span></div>` : ''}
-          </div>
-          <button type="button" class="btn btn-outline btn-sm" style="flex:none" onclick="openPcfu('${jsArg(t.key)}')" title="Note likho / pichhle follow-up">📝 Note</button></div>`;
-      }).join('')}</div>`;
+        const done = pcfuDoneToday(t), l = pcfuLast(t.key), c = PCFU_COLOR[t.type] || '#475569';
+        const txt = String(t.text || t.title || '—'), parts = txt.split(' · ');
+        const body = parts.length >= 3
+          ? `<div><span class="pcfu-step">${esc(parts[0])}</span> · <span class="pcfu-party">${esc(parts[1])}</span></div><div class="pcfu-rest">${esc(parts.slice(2).join(' · '))}</div>`
+          : `<div style="font-weight:700;color:var(--gray-900);overflow-wrap:anywhere${done && t.type === 'custom' ? ';text-decoration:line-through;color:var(--gray-500)' : ''}">${esc(txt)}</div>`;
+        const late = t.due && dayDiff(t.due) > 0;
+        return `<tr class="r${done ? ' done' : ''}${late ? ' late' : ''}" style="--c:${c}">
+          <td><button type="button" class="pcfu-tick${done ? ' on' : ''}" onclick="pcfuTick('${jsArg(t.key)}', this)" title="${done ? 'Follow-up ho gaya' : 'Follow-up kiya — tick karo'}">${done ? '✓' : ''}</button></td>
+          <td><span class="pcfu-pill" style="--c:${c}">${PCFU_TYPES[t.type]}</span></td>
+          <td>${body}${t.by ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">joda: ${esc(t.by)}</div>` : ''}
+            ${l ? `<div class="pcfu-note">💬 ${esc(l.note)} <span style="color:var(--gray-400)">— ${esc(l.created_by_name || '')}, ${fmtDateDMY(l.created_at.slice(0, 10))} ${l.created_at.slice(11, 16)}${l.next_date ? ` · agla ${fmtDateDMY(l.next_date)}` : ''}</span></div>` : ''}</td>
+          <td>${t.people.map(p => `<div class="pcfu-who" style="margin:0 0 3px"><i style="background:${pcfuAvatarColor(p)}">${esc(initials(p))}</i>${esc(p)}</div>`).join('')}</td>
+          <td class="due">${due(t) || (t.due ? `<span class="pcfu-due">${fmtDateDMY(t.due)}</span>` : '—')}</td>
+          <td style="text-align:right"><button type="button" class="btn btn-outline btn-sm" onclick="openPcfu('${jsArg(t.key)}')" title="Note likho / pichhle follow-up">📝 Note</button></td></tr>`;
+      }).join('')}</tbody></table></div></div>`;
   }).join('') + (shown.length > 400 ? `<div class="empty">+${shown.length - 400} aur — system / naam button se chhota karo</div>` : '');
 }
 // ☐ → ✓ : FMS / task = log "follow-up kiya" for today; hand-added = close it. ✓ again on a hand-added = reopen.
