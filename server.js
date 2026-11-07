@@ -630,6 +630,10 @@ async function requireAuth(req, res, next) {
       // Page grants ride along on this same row, so hasPageGrant / hasPageDeny
       // don't re-read users on every check (audit 2026-10-31).
       if (Object.prototype.hasOwnProperty.call(u, 'page_access')) req.session.pageAccessRaw = u.page_access;
+      // PC Follow-up given in Users → Access (client 2026-11-07: "tick karne ka option do"): that page's own data
+      // reads (GET, marked ?pcview=1) run as the PC role so they show everyone's tasks. Nothing else changes.
+      if (req.method === 'GET' && req.query && req.query.pcview === '1' && !['admin', 'pc'].includes(req.session.role)
+        && parsePageAccess(u.page_access, req.session.role).includes('pc-followup')) req.session.role = 'pc';
     }
     // Vendor accounts (Purchase FMS vendor page) are outside the company —
     // they may only reach their own vendor APIs, never staff data.
@@ -663,7 +667,7 @@ function requireAdminOrPC(req, res, next) {
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
 const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows', 'four-as', 'vendor-outstanding',
   // 2026-11-07 (client: "access page mai sare page nahi aa rahe"): pages that had only a fixed rule.
-  'onboarding', 'vendor-bin', 'rental', 'my-expense'];
+  'onboarding', 'vendor-bin', 'rental', 'my-expense', 'pc-followup'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -3209,7 +3213,7 @@ app.get('/api/mis/tasks', requireAuth, async (req, res) => {
 // follow-up log — one line per call / reminder, against a task and the person it was about.
 // Admin / PC role only: the task lists it shows (Dashboard APIs) give everyone's tasks only to those roles.
 async function canPcFollow(req) {
-  return req.session.role === 'admin' || req.session.role === 'pc';
+  return req.session.role === 'admin' || req.session.role === 'pc' || await hasPageGrant(req, 'pc-followup');
 }
 let _pcFuTableOk = false;
 async function ensurePcFollowupsTable() {

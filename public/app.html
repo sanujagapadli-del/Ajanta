@@ -7477,7 +7477,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'users', label: 'Users' },
     { key: 'records', label: 'Records' },
     { key: 'my-expense', label: 'My Expense (apna personal kharcha — har koi sirf apna dekhe)' },
-    { key: 'pc-followup', label: 'PC Follow-up (Users me role "PC" karne se milta hai)', info: 'PC role' },
+    { key: 'pc-followup', label: 'PC Follow-up (sabke pending kaam + follow-up; PC role ko apne aap)' },
   ]},
   { label: 'Sales & Dealers', locked: false, pages: [
     { key: 'o2d-fms', label: 'O2D FMS' },
@@ -7584,7 +7584,8 @@ function renderAccessTable(users) {
       const cls = i === 0 ? ' class="access-group-start"' : '';
       if (isAdmin || g.locked) return `<td${cls}><span class="access-check-lock">✓</span></td>`;
       if (p.auto) return `<td${cls}><span class="access-tag" title="Salesman profile / Vishal-Ajay se apne aap">auto</span></td>`;
-      if (p.info) return `<td${cls}>${p.key === 'pc-followup' && u.role === 'pc' ? '<span class="access-check-lock">✓</span>' : `<span class="access-tag" title="${esc(p.label)}">${esc(p.info)}</span>`}</td>`;
+      if (p.key === 'pc-followup' && u.role === 'pc') return `<td${cls}><span class="access-check-lock">✓</span></td>`;
+      if (p.info) return `<td${cls}><span class="access-tag" title="${esc(p.label)}">${esc(p.info)}</span></td>`;
       if (p.key === 'training-videos') return `<td${cls}><span class="access-check-lock">✓</span></td>`;
       if (p.deny) {
         // Only meaningful once the parent page is ticked — dim it otherwise.
@@ -26313,11 +26314,14 @@ async function loadPcFollowup() {
   const wrap = document.getElementById('pcfuList');
   if (!pcfu.tasks.length) wrap.innerHTML = '<div class="empty ui-skel" aria-busy="true">Sabke kaam laa rahe hain… (thoda time lagta hai)</div>';
   try {
+    // A user given "PC Follow-up" in Users → Access (not the PC role): mark this page's reads so the server answers as PC.
+    const asPc = !['admin', 'pc', 'hod'].includes(ME.role) && MY_PAGES.has('pc-followup');
+    const pv = u => asPc ? u + (u.includes('?') ? '&' : '?') + 'pcview=1' : u;
     const [dDel, dChl, o2d, sfms, chq, repl, lead, pur, ind, dd, fu, att, cus] = await Promise.all([
-      api('/api/dashboard?employee=all&taskType=delegation'), api('/api/dashboard?employee=all&taskType=checklist'),
-      api('/api/o2d-fms?open=1').catch(() => null), api('/api/service-fms?open=1').catch(() => null),
-      api('/api/cheque-fms').catch(() => null), api('/api/replacement-fms').catch(() => null), api('/api/lead-fms').catch(() => null),
-      api('/api/purchase-fms').catch(() => null), api('/api/purchase-fms/indents').catch(() => null), api('/api/delivery-dues/mine').catch(() => null),
+      api(pv('/api/dashboard?employee=all&taskType=delegation')), api(pv('/api/dashboard?employee=all&taskType=checklist')),
+      api(pv('/api/o2d-fms?open=1')).catch(() => null), api(pv('/api/service-fms?open=1')).catch(() => null),
+      api(pv('/api/cheque-fms')).catch(() => null), api(pv('/api/replacement-fms')).catch(() => null), api(pv('/api/lead-fms')).catch(() => null),
+      api(pv('/api/purchase-fms')).catch(() => null), api(pv('/api/purchase-fms/indents')).catch(() => null), api(pv('/api/delivery-dues/mine')).catch(() => null),
       api('/api/pc-followups'), api('/api/pc-followups/attendance').catch(() => null), api('/api/pc-followups/custom').catch(() => null)
     ]);
     if (fu && fu.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(fu.error)}</div>`; return; }
@@ -26331,13 +26335,14 @@ async function loadPcFollowup() {
     if (dd && Array.isArray(dd.items)) window._lastDdMine = dd;
     // The Dashboard builders read its employee dropdown — "All" while building.
     const sel = document.getElementById('dashEmployeeFilter');
-    const prev = sel ? sel.value : null;
+    const prev = sel ? sel.value : null, realRole = ME.role;
     if (sel) sel.value = 'all';
+    if (asPc) ME.role = 'pc'; // the Dashboard builders show everyone's tasks only to managers
     let fmsTasks = [];
     try {
       fmsTasks = [...buildO2dDashboardTasks(), ...(Array.isArray(sfms) ? buildSfmsDashboardTasks() : []), ...buildChequeDashboardTasks(),
         ...buildReplDashboardTasks(), ...buildLeadDashboardTasks(), ...buildPurchaseDashboardTasks(), ...buildDdDashboardTasks()];
-    } finally { if (sel) sel.value = prev; }
+    } finally { if (sel) sel.value = prev; ME.role = realRole; }
     const dc = [...((dDel && dDel.todayPending) || []), ...((dChl && dChl.todayPending) || [])];
     pcfu.today = (fu && fu.today) || owsYmd(new Date());
     pcfu.fu = (fu && fu.rows) || [];
