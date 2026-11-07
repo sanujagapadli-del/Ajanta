@@ -2640,13 +2640,16 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <button class="btn btn-primary btn-sm" onclick="openPcfuAdd()">+ Follow-up jodo</button>
         <button class="btn btn-outline btn-sm" onclick="loadPcFollowup()">⟳ Refresh</button>
       </div>
-      <div style="font-size:12.5px;color:var(--gray-600);margin-top:6px;line-height:1.5">Team ke saare baaki kaam — <b>naam ke hisaab se</b>. Follow-up kar liya to <b>☐ par tick</b> karo. Baat likhni ho to <b>📝</b>. Kuch aur yaad rakhna ho to <b>+ Follow-up jodo</b>.</div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px;line-height:1.5">Team ke saare baaki kaam — <b>naam ke hisaab se</b>. Follow-up kar liya to <b>☐ par tick</b> karo. Baat likhni ho to <b>📝</b>. Kuch aur yaad rakhna ho to <b>+ Follow-up jodo</b>.</div>
       <div id="pcfuNote2" style="font-size:12px;color:var(--gray-500);margin-top:4px"></div>
     </div>
-    <div id="pcfuTiles" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
-    <input id="pcfuSearch" type="search" placeholder="🔍 Naam ya kaam dhoondho" oninput="renderPcFollowup()" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900);margin-bottom:10px"/>
-    <div id="pcfuSys" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
-    <div id="pcfuPeople" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <div id="pcfuTiles" class="pcfu-tiles"></div>
+    <div class="pcfu-bar">
+      <input id="pcfuSearch" type="search" placeholder="🔍 Naam ya kaam dhoondho" oninput="renderPcFollowup()"/>
+      <select id="pcfuSysSel" onchange="pcfu.sys=this.value;pcfu.person='';renderPcFollowup()"></select>
+      <select id="pcfuPerSel" onchange="pcfu.person=this.value;renderPcFollowup()"></select>
+      <span id="pcfuCount"></span>
+    </div>
     <div id="pcfuList"></div>
   </div>
   <div id="page-fms-flows" class="page">
@@ -26408,64 +26411,91 @@ async function loadPcFollowup() {
 const pcfuLast = key => pcfu.fu.find(f => f.task_key === key) || null;
 const pcfuDoneToday = t => t.type === 'custom' ? !!t.doneAt : pcfu.fu.some(f => f.task_key === t.key && f.created_at.slice(0, 10) === pcfu.today);
 const pcfuDueNow = t => !t.due || t.due <= pcfu.today;
+// Look (client 2026-11-07: "dikhne me accha lagna chahiye") — tiles with a coloured strip, one filter line
+// (search · system · naam), person cards with an avatar, task rows with a system pill and a due chip.
+const PCFU_COLOR = { delegation: '#2563eb', checklist: '#16a34a', o2d: '#d97706', fms: '#7c3aed', cheque: '#0891b2', repl: '#db2777',
+  lead: '#9333ea', purchase: '#ea580c', collect: '#059669', attn: '#dc2626', km: '#b45309', custom: '#475569' };
+function pcfuCss() {
+  if (document.getElementById('pcfuCss')) return;
+  const st = document.createElement('style'); st.id = 'pcfuCss';
+  st.textContent = `.pcfu-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+    @media (max-width:700px){.pcfu-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    .pcfu-tile{text-align:left;padding:12px 14px 11px;border-radius:14px;cursor:pointer;background:var(--surface);border:1px solid var(--gray-200);border-top:4px solid var(--c);transition:box-shadow .15s,transform .15s}
+    .pcfu-tile:hover{box-shadow:0 4px 14px rgba(15,23,42,.08);transform:translateY(-1px)}
+    .pcfu-tile.on{background:color-mix(in srgb,var(--c) 9%,var(--surface));box-shadow:0 0 0 2px color-mix(in srgb,var(--c) 45%,transparent)}
+    .pcfu-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:8px}
+    .pcfu-bar input,.pcfu-bar select{padding:8px 11px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)}
+    .pcfu-bar input{flex:1 1 200px;min-width:160px} .pcfu-bar select{flex:0 1 220px;min-width:150px}
+    #pcfuCount{font-size:12px;color:var(--gray-500);font-weight:700;padding:0 4px}
+    .pcfu-card{background:var(--surface);border:1px solid var(--gray-200);border-radius:16px;margin-bottom:12px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,.04)}
+    .pcfu-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--gray-100)}
+    .pcfu-av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:13px;flex:none}
+    .pcfu-badge{font-size:11.5px;font-weight:800;padding:2px 9px;border-radius:999px;background:var(--gray-100);color:var(--gray-700)}
+    .pcfu-badge.late{background:var(--color-danger-bg);color:var(--color-danger-text)}
+    .pcfu-row{display:flex;gap:12px;align-items:flex-start;padding:11px 14px;border-top:1px solid var(--gray-100);transition:background .12s}
+    .pcfu-row:first-of-type{border-top:0} .pcfu-row:hover{background:var(--gray-50)} .pcfu-row.done{background:var(--color-success-bg)}
+    .pcfu-pill{display:inline-block;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent)}
+    .pcfu-due{display:inline-block;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;margin-left:6px;background:var(--gray-100);color:var(--gray-600)}
+    .pcfu-due.late{background:var(--color-danger-bg);color:var(--color-danger-text)} .pcfu-due.today{background:var(--color-warning-bg);color:var(--color-warning-text)}
+    .pcfu-note{margin-top:6px;font-size:12px;color:var(--gray-600);background:var(--gray-50);border-left:3px solid var(--gray-300);padding:5px 9px;border-radius:0 8px 8px 0}
+    .pcfu-tick{flex:none;width:32px;height:32px;border-radius:10px;cursor:pointer;font-size:17px;font-weight:900;border:2px solid var(--gray-300);background:var(--surface);color:#fff;transition:all .12s}
+    .pcfu-tick:hover{border-color:var(--color-success-text)} .pcfu-tick.on{border-color:var(--color-success-text);background:var(--color-success-text)}`;
+  document.head.appendChild(st);
+}
+function pcfuAvatarColor(name) { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h},55%,45%)`; }
 function renderPcFollowup() {
+  pcfuCss();
   const q = (document.getElementById('pcfuSearch').value || '').trim().toLowerCase();
   const live = pcfu.tasks.filter(t => !(t.type === 'custom' && t.doneAt && t.doneAt.slice(0, 10) !== pcfu.today)); // old ticked customs drop off
   const match = t => !q || (t.text + ' ' + t.title + ' ' + t.people.join(' ')).toLowerCase().includes(q);
   const VIEWS = {
-    late: { icon: '🔴', label: 'Late', hint: 'time nikal gaya, follow-up baaki', f: t => t.overdue && !pcfuDoneToday(t) },
-    todo: { icon: '🟡', label: 'Aaj karna hai', hint: 'aaj tak ka, follow-up baaki', f: t => pcfuDueNow(t) && !pcfuDoneToday(t) },
-    done: { icon: '✅', label: 'Aaj ho gaya', hint: 'aaj follow-up kiya', f: t => pcfuDoneToday(t) },
-    all: { icon: '📋', label: 'Sab', hint: 'aage wale bhi', f: () => true },
+    late: { c: '#dc2626', label: 'Late', hint: 'time nikal gaya', f: t => t.overdue && !pcfuDoneToday(t) },
+    todo: { c: '#d97706', label: 'Aaj karna hai', hint: 'aaj tak ka, baaki', f: t => pcfuDueNow(t) && !pcfuDoneToday(t) },
+    done: { c: '#16a34a', label: 'Aaj ho gaya', hint: 'aaj follow-up kiya', f: t => pcfuDoneToday(t) },
+    all: { c: '#2563eb', label: 'Sab', hint: 'aage wale bhi', f: () => true },
   };
   const counts = Object.fromEntries(Object.entries(VIEWS).map(([k, v]) => [k, live.filter(t => v.f(t) && match(t)).length]));
-  document.getElementById('pcfuTiles').innerHTML = Object.entries(VIEWS).map(([k, v]) => {
-    const on = pcfu.view === k;
-    return `<button type="button" onclick="pcfu.view='${k}';pcfu.person='';renderPcFollowup()" style="flex:1 1 140px;text-align:left;padding:12px 14px;border-radius:14px;cursor:pointer;
-      border:2px solid ${on ? 'var(--color-primary)' : 'var(--gray-200)'};background:${on ? 'var(--color-primary-light)' : 'var(--surface)'}">
-      <div style="font-size:26px;font-weight:900;color:var(--gray-900);line-height:1">${counts[k]}</div>
-      <div style="font-size:13px;font-weight:800;color:var(--gray-800);margin-top:4px">${v.icon} ${v.label}</div>
-      <div style="font-size:11px;color:var(--gray-500)">${v.hint}</div></button>`;
-  }).join('');
+  document.getElementById('pcfuTiles').innerHTML = Object.entries(VIEWS).map(([k, v]) => `<button type="button" class="pcfu-tile${pcfu.view === k ? ' on' : ''}" style="--c:${v.c}" onclick="pcfu.view='${k}';pcfu.person='';renderPcFollowup()">
+      <div style="font-size:28px;font-weight:900;color:${v.c};line-height:1">${counts[k]}</div>
+      <div style="font-size:13px;font-weight:800;color:var(--gray-900);margin-top:6px">${v.label}</div>
+      <div style="font-size:11px;color:var(--gray-500)">${v.hint}</div></button>`).join('');
   document.getElementById('pcfuNote2').innerHTML = pcfu.holiday ? `🎉 Aaj chhutti (${esc(pcfu.holiday)}) — attendance / KM nahi dikhaya` : '';
-  // System tabs (client 2026-11-07: "jaise name ke tab hai vaise system ke bhi tab") — counts within the picked tile.
   const inView = live.filter(t => VIEWS[pcfu.view].f(t) && match(t));
   const sysCnt = {}; inView.forEach(t => { sysCnt[t.type] = (sysCnt[t.type] || 0) + 1; });
   if (pcfu.sys && !sysCnt[pcfu.sys]) pcfu.sys = '';
-  document.getElementById('pcfuSys').innerHTML = Object.keys(sysCnt).length > 1
-    ? `<button type="button" onclick="pcfu.sys='';pcfu.person='';renderPcFollowup()" class="btn btn-sm ${pcfu.sys ? 'btn-outline' : 'btn-primary'}">Sab system <b style="margin-left:4px">${inView.length}</b></button>`
-      + Object.keys(PCFU_TYPES).filter(k => sysCnt[k]).map(k => `<button type="button" onclick="pcfu.sys=${pcfu.sys === k ? "''" : `'${k}'`};pcfu.person='';renderPcFollowup()" class="btn btn-sm ${pcfu.sys === k ? 'btn-primary' : 'btn-outline'}">${PCFU_TYPES[k]} <b style="margin-left:4px">${sysCnt[k]}</b></button>`).join('')
-    : '';
+  document.getElementById('pcfuSysSel').innerHTML = `<option value="">Sab system (${inView.length})</option>`
+    + Object.keys(PCFU_TYPES).filter(k => sysCnt[k]).map(k => `<option value="${k}" ${pcfu.sys === k ? 'selected' : ''}>${PCFU_TYPES[k]} (${sysCnt[k]})</option>`).join('');
   const rows = inView.filter(t => !pcfu.sys || t.type === pcfu.sys);
-  // Person-wise groups — most late first
   const groups = {};
   rows.forEach(t => t.people.forEach(p => { (groups[p] = groups[p] || { name: p, list: [], late: 0 }).list.push(t); if (t.overdue && !pcfuDoneToday(t)) groups[p].late++; }));
   const glist = Object.values(groups).sort((a, b) => b.late - a.late || b.list.length - a.list.length || a.name.localeCompare(b.name));
-  document.getElementById('pcfuPeople').innerHTML = glist.length > 1 ? `<button type="button" onclick="pcfu.person='';renderPcFollowup()" class="btn btn-sm ${pcfu.person ? 'btn-outline' : 'btn-primary'}">Sab log</button>`
-    + glist.map(g => `<button type="button" onclick="pcfu.person=${pcfu.person === g.name ? "''" : `'${jsArg(g.name)}'`};renderPcFollowup()" class="btn btn-sm ${pcfu.person === g.name ? 'btn-primary' : 'btn-outline'}">${esc(g.name)} <b style="margin-left:4px">${g.list.length}</b>${g.late ? ` <span style="color:var(--color-danger);margin-left:3px">· ${g.late} late</span>` : ''}</button>`).join('') : '';
-  const wrap = document.getElementById('pcfuList');
+  if (pcfu.person && !groups[pcfu.person]) pcfu.person = '';
+  document.getElementById('pcfuPerSel').innerHTML = `<option value="">Sab log (${glist.length})</option>`
+    + glist.map(g => `<option value="${esc(g.name)}" ${pcfu.person === g.name ? 'selected' : ''}>${esc(g.name)} — ${g.list.length}${g.late ? ` (${g.late} late)` : ''}</option>`).join('');
   const shown = glist.filter(g => !pcfu.person || g.name === pcfu.person);
-  if (!shown.length) { wrap.innerHTML = `<div class="empty">${pcfu.view === 'done' ? 'Aaj abhi koi follow-up nahi hua' : 'Kuch baaki nahi 🎉'}</div>`; return; }
-  const dueTxt = t => {
+  document.getElementById('pcfuCount').textContent = `${shown.reduce((a, g) => a + g.list.length, 0)} kaam · ${shown.length} log`;
+  const wrap = document.getElementById('pcfuList');
+  if (!shown.length) { wrap.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200)">${pcfu.view === 'done' ? 'Aaj abhi koi follow-up nahi hua' : 'Kuch baaki nahi 🎉'}</div>`; return; }
+  const due = t => {
     if (!t.due) return '';
     const n = Math.round((new Date(pcfu.today + 'T00:00:00') - new Date(t.due + 'T00:00:00')) / 86400000);
-    return n > 0 ? `<b style="color:var(--color-danger)">${n} din late</b>` : n === 0 ? '<b style="color:var(--color-warning-text)">aaj</b>' : `${fmtDateDMY(t.due)} ko`;
+    return n > 0 ? `<span class="pcfu-due late">${n} din late</span>` : n === 0 ? '<span class="pcfu-due today">aaj</span>' : `<span class="pcfu-due">${fmtDateDMY(t.due)}</span>`;
   };
-  wrap.innerHTML = shown.slice(0, 80).map(g => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;margin-bottom:12px;overflow:hidden">
-      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--gray-50);border-bottom:1px solid var(--gray-100)">
-        <span style="font-size:15px;font-weight:900;color:var(--gray-900)">👤 ${esc(g.name)}</span>
-        <span style="font-size:12.5px;color:var(--gray-600)">${g.list.length} kaam${g.late ? ` · <b style="color:var(--color-danger)">${g.late} late</b>` : ''}</span></div>
+  const initials = n => String(n).replace(/\([^)]*\)/g, ' ').trim().split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || '?';
+  wrap.innerHTML = shown.slice(0, 80).map(g => `<div class="pcfu-card">
+      <div class="pcfu-head"><span class="pcfu-av" style="background:${pcfuAvatarColor(g.name)}">${esc(initials(g.name))}</span>
+        <span style="font-size:15px;font-weight:900;color:var(--gray-900);margin-right:auto">${esc(g.name)}</span>
+        <span class="pcfu-badge">${g.list.length} kaam</span>${g.late ? `<span class="pcfu-badge late">${g.late} late</span>` : ''}</div>
       ${g.list.sort((a, b) => (b.due || '').localeCompare(a.due || '')).slice(0, 60).map(t => { // descending — naya pehle (client 2026-11-07)
         const done = pcfuDoneToday(t), l = pcfuLast(t.key);
-        return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-top:1px solid var(--gray-100)${done ? ';background:var(--color-success-bg)' : ''}">
-          <button type="button" onclick="pcfuTick('${jsArg(t.key)}', this)" title="${done ? 'Follow-up ho gaya' : 'Follow-up kiya — tick karo'}"
-            style="flex:none;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:17px;font-weight:900;border:2px solid ${done ? 'var(--color-success-text)' : 'var(--gray-300)'};background:${done ? 'var(--color-success-text)' : 'var(--surface)'};color:#fff">${done ? '✓' : ''}</button>
+        return `<div class="pcfu-row${done ? ' done' : ''}">
+          <button type="button" class="pcfu-tick${done ? ' on' : ''}" onclick="pcfuTick('${jsArg(t.key)}', this)" title="${done ? 'Follow-up ho gaya' : 'Follow-up kiya — tick karo'}">${done ? '✓' : ''}</button>
           <div style="flex:1;min-width:0">
-            <div style="font-size:13.5px;color:var(--gray-900);font-weight:600;overflow-wrap:anywhere${done && t.type === 'custom' ? ';text-decoration:line-through;color:var(--gray-500)' : ''}">${esc(t.text || t.title || '—')}</div>
-            <div style="font-size:12px;color:var(--gray-500);margin-top:3px">${PCFU_TYPES[t.type]}${t.due ? ' · ' + dueTxt(t) : ''}${t.by ? ` · joda: ${esc(t.by)}` : ''}</div>
-            ${l ? `<div style="font-size:12px;color:var(--gray-600);margin-top:3px">💬 ${esc(l.note)} <span style="color:var(--gray-400)">— ${esc(l.created_by_name || '')}, ${fmtDateDMY(l.created_at.slice(0, 10))} ${l.created_at.slice(11, 16)}${l.next_date ? ` · agla ${fmtDateDMY(l.next_date)}` : ''}</span></div>` : ''}
+            <div><span class="pcfu-pill" style="--c:${PCFU_COLOR[t.type] || '#475569'}">${PCFU_TYPES[t.type]}</span>${due(t)}${t.by ? `<span style="font-size:11px;color:var(--gray-400);margin-left:6px">joda: ${esc(t.by)}</span>` : ''}</div>
+            <div style="font-size:13.5px;color:var(--gray-900);font-weight:600;margin-top:4px;overflow-wrap:anywhere${done && t.type === 'custom' ? ';text-decoration:line-through;color:var(--gray-500)' : ''}">${esc(t.text || t.title || '—')}</div>
+            ${l ? `<div class="pcfu-note">💬 ${esc(l.note)} <span style="color:var(--gray-400)">— ${esc(l.created_by_name || '')}, ${fmtDateDMY(l.created_at.slice(0, 10))} ${l.created_at.slice(11, 16)}${l.next_date ? ` · agla ${fmtDateDMY(l.next_date)}` : ''}</span></div>` : ''}
           </div>
-          <button type="button" class="btn btn-outline btn-sm" style="flex:none" onclick="openPcfu('${jsArg(t.key)}')" title="Note likho / pichhle follow-up">📝</button></div>`;
+          <button type="button" class="btn btn-outline btn-sm" style="flex:none" onclick="openPcfu('${jsArg(t.key)}')" title="Note likho / pichhle follow-up">📝 Note</button></div>`;
       }).join('')}</div>`).join('');
 }
 // ☐ → ✓ : FMS / task = log "follow-up kiya" for today; hand-added = close it. ✓ again on a hand-added = reopen.
