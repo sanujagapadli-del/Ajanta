@@ -661,7 +661,9 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows', 'four-as', 'vendor-outstanding'];
+const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows', 'four-as', 'vendor-outstanding',
+  // 2026-11-07 (client: "access page mai sare page nahi aa rahe"): pages that had only a fixed rule.
+  'onboarding', 'vendor-bin', 'rental', 'my-expense'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -11930,7 +11932,7 @@ async function ensureVendorBinTable() {
   _vendorBinOk = true;
 }
 async function canVendorBin(req) {
-  return req.session.role === 'admin' || await hasPageGrant(req, 'replacement-fms') || await hasPageGrant(req, 'vendor-ledger');
+  return req.session.role === 'admin' || await hasPageGrant(req, 'replacement-fms') || await hasPageGrant(req, 'vendor-ledger') || await hasPageGrant(req, 'vendor-bin');
 }
 app.get('/api/vendor-bin', requireAuth, async (req, res) => {
   try {
@@ -16222,7 +16224,7 @@ const ONB_FIRM_TYPES = ['Proprietorship', 'Partnership', 'Pvt Ltd', 'LLP', 'Othe
 const DEALER_DEFAULT_CREDIT_LIMIT = 25000;
 const DEALER_DEFAULT_CREDIT_DAYS = 30;
 async function canOnboardDealers(req) {
-  return req.session.role === 'admin' || (await hasPageGrant(req, 'lead-fms')) || (await canAccessDealers(req));
+  return req.session.role === 'admin' || (await hasPageGrant(req, 'lead-fms')) || (await hasPageGrant(req, 'onboarding')) || (await canAccessDealers(req));
 }
 function dealerWelcomeMessages(o, s, cats) {
   cats = (Array.isArray(cats) ? cats : [cats]).filter(Boolean);
@@ -17343,7 +17345,12 @@ async function rentTables() {
     updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (property, for_month)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   _rentOk = true;
 }
-app.get('/api/rental', requireAuth, requireAdmin, async (req, res) => {
+// Rental: admin, or anyone given the "rental" page in Users → Access (2026-11-07).
+async function requireRental(req, res, next) {
+  try { if (req.session.role === 'admin' || await hasPageGrant(req, 'rental')) return next(); res.status(403).json({ error: 'No access to Rental' }); }
+  catch (e) { sendServerError(res, e); }
+}
+app.get('/api/rental', requireAuth, requireRental, async (req, res) => {
   try {
     await rentTables();
     const [units] = await db.query('SELECT * FROM rental_units ORDER BY active DESC, property, tenant');
@@ -17364,7 +17371,7 @@ app.get('/api/rental', requireAuth, requireAdmin, async (req, res) => {
         commons: json(b.commons, []), readings: json(b.readings, {}), meterReads: json(b.meter_reads, {}) })) });
   } catch (err) { sendServerError(res, err); }
 });
-app.post('/api/rental/unit', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/rental/unit', requireAuth, requireRental, async (req, res) => {
   try {
     await rentTables();
     const b = req.body || {}, m = v => /^\d{4}-\d{2}$/.test(v || '') ? v : null;
@@ -17389,7 +17396,7 @@ app.post('/api/rental/unit', requireAuth, requireAdmin, async (req, res) => {
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
-app.post('/api/rental/payment', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/rental/payment', requireAuth, requireRental, async (req, res) => {
   try {
     await rentTables();
     const b = req.body || {};
@@ -17412,7 +17419,7 @@ app.post('/api/rental/payment', requireAuth, requireAdmin, async (req, res) => {
 });
 // Names of the accounts the rent is split into (editable — the voice note's names may need correcting).
 const RENT_ACCOUNTS_DEFAULT = ['Ajay Kumar Parwani', 'Rashi Parwani', 'Draupadi Parwani'];
-app.post('/api/rental/accounts', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/rental/accounts', requireAuth, requireRental, async (req, res) => {
   try {
     const list = (Array.isArray((req.body || {}).accounts) ? req.body.accounts : []).map(a => String(a || '').trim().slice(0, 120)).filter(Boolean).slice(0, 6);
     if (!list.length) return res.status(400).json({ error: 'Kam se kam ek account ka naam' });
@@ -17421,7 +17428,7 @@ app.post('/api/rental/accounts', requireAuth, requireAdmin, async (req, res) => 
   } catch (err) { sendServerError(res, err); }
 });
 // A property's bill for one month: water bill, ₹/kW + ₹/unit, common loads and sub-meter readings.
-app.post('/api/rental/bill', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/rental/bill', requireAuth, requireRental, async (req, res) => {
   try {
     await rentTables();
     const b = req.body || {};

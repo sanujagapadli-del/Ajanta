@@ -2644,6 +2644,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     </div>
     <div id="pcfuTiles" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
     <input id="pcfuSearch" type="search" placeholder="🔍 Naam ya kaam dhoondho" oninput="renderPcFollowup()" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900);margin-bottom:10px"/>
+    <div id="pcfuSys" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
     <div id="pcfuPeople" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
     <div id="pcfuList"></div>
   </div>
@@ -5074,9 +5075,9 @@ async function init() {
     if (canSee('vendor-outstanding')) document.getElementById('nav-vendor-outstanding').style.display = 'flex';
     if (ME.role === 'pc') MY_PAGES.add('pc-followup'); // PC role (and admin) only — client 2026-11-05
     if (canSee('pc-followup')) document.getElementById('nav-pc-followup').style.display = 'flex';
-    if (canSee('replacement-fms') || canSee('vendor-ledger')) document.getElementById('nav-vendor-bin').style.display = 'flex';
-    if (ME.role === 'admin') document.getElementById('nav-rental').style.display = 'flex';
-    if (/^md$/i.test(String(ME.department || '').trim())) document.getElementById('nav-my-expense').style.display = 'flex'; // personal — MD (Ajay sir)
+    if (canSee('replacement-fms') || canSee('vendor-ledger') || canSee('vendor-bin')) document.getElementById('nav-vendor-bin').style.display = 'flex';
+    if (ME.role === 'admin' || canSee('rental')) document.getElementById('nav-rental').style.display = 'flex';
+    if (/^md$/i.test(String(ME.department || '').trim()) || canSee('my-expense')) document.getElementById('nav-my-expense').style.display = 'flex'; // personal — MD (Ajay sir)
     if (canSee('ows')) document.getElementById('nav-ows').style.display = 'flex';
     if (canSee('vendor-ledger')) document.getElementById('nav-vendor-ledger').style.display = 'flex';
     if (canSee('samples')) document.getElementById('nav-samples').style.display = 'flex';
@@ -5101,7 +5102,7 @@ async function init() {
     if (canSee('replacement-fms')) document.getElementById('nav-replacement-fms').style.display = 'flex';
     if (canSee('lead-fms')) document.getElementById('nav-lead-fms').style.display = 'flex';
     if (canSee('dealers')) document.getElementById('nav-dealers').style.display = 'flex';
-    if (canSee('dealers') || canSee('lead-fms')) document.getElementById('nav-onboarding').style.display = 'flex';
+    if (canSee('dealers') || canSee('lead-fms') || canSee('onboarding')) document.getElementById('nav-onboarding').style.display = 'flex';
     if (canSee('price-catalogue')) document.getElementById('nav-price-catalogue').style.display = 'flex';
     if (canSee('stock')) document.getElementById('nav-stock').style.display = 'flex';
     if (canSee('records')) document.getElementById('nav-records').style.display = 'flex';
@@ -7464,6 +7465,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'leave', label: 'Leave' },
     { key: 'km', label: 'Kilometer' },
     { key: 'profile', label: 'Profile' },
+    { key: 'training-videos', label: 'Training Videos (sabko)' },
   ]},
   { label: 'Tasks & HR', locked: false, pages: [
     { key: 'checklist-master', label: 'Checklist Master (sabki checklist banaye / badle / band kare)' },
@@ -7474,6 +7476,8 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'employees', label: 'Employees (details, documents)' },
     { key: 'users', label: 'Users' },
     { key: 'records', label: 'Records' },
+    { key: 'my-expense', label: 'My Expense (apna personal kharcha — har koi sirf apna dekhe)' },
+    { key: 'pc-followup', label: 'PC Follow-up (Users me role "PC" karne se milta hai)', info: 'PC role' },
   ]},
   { label: 'Sales & Dealers', locked: false, pages: [
     { key: 'o2d-fms', label: 'O2D FMS' },
@@ -7481,6 +7485,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'lead-fms', label: 'Lead FMS + Dealer Onboarding' },
     { key: 'scot', label: 'SCOT — Calling Plan (dealers ko call, order, conversion)' },
     { key: 'dealers', label: 'Dealer Master' },
+    { key: 'onboarding', label: 'Dealer Onboarding (form + list) — Lead FMS / Dealer Master wale ko pehle se' },
     { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue)' },
     { key: 'drip-marketing', label: 'Drip Marketing (weekly plan dekhe; badle sirf Admin)' },
     { key: 'collection', label: 'Payment Follow-up (15 din WhatsApp, 25/30 din call, Delivery dues)' },
@@ -7501,6 +7506,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'cheque-fms', label: 'Collection FMS' },
     { key: 'replacement-fms', label: 'Replacement FMS' },
     { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
+    { key: 'vendor-bin', label: 'Vendor Bin — Replacement / Vendor Ledger wale ko pehle se' },
     { key: 'stock', label: 'Stock' },
   ]},
   { label: 'Reports', locked: false, pages: [
@@ -7514,6 +7520,8 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'fms-flows', label: 'FMS Workflows — har FMS ke steps aur conditions (sirf dekhne ke liye)' },
     { key: 'four-as', label: '4AS — weekly bank allocation (ICICI → PNB / IDFC / Yes), planned vs actual' },
     { key: 'vendor-outstanding', label: 'Vendor Outstanding — Tally creditors (payable / advance)' },
+    { key: 'rental', label: 'Rental (kiraya — units, bill, payment; delete sirf Admin)' },
+    { key: 'dropdown-master', label: 'Dropdown Master (sirf Admin)', info: 'sirf Admin' },
   ]},
   { label: 'Forms', locked: false, pages: [
     { key: 'form-sfms-complaint', label: '+ New Complaint (Service)', deny: true, needs: ['service-fms'] },
@@ -7576,6 +7584,8 @@ function renderAccessTable(users) {
       const cls = i === 0 ? ' class="access-group-start"' : '';
       if (isAdmin || g.locked) return `<td${cls}><span class="access-check-lock">✓</span></td>`;
       if (p.auto) return `<td${cls}><span class="access-tag" title="Salesman profile / Vishal-Ajay se apne aap">auto</span></td>`;
+      if (p.info) return `<td${cls}>${p.key === 'pc-followup' && u.role === 'pc' ? '<span class="access-check-lock">✓</span>' : `<span class="access-tag" title="${esc(p.label)}">${esc(p.info)}</span>`}</td>`;
+      if (p.key === 'training-videos') return `<td${cls}><span class="access-check-lock">✓</span></td>`;
       if (p.deny) {
         // Only meaningful once the parent page is ticked — dim it otherwise.
         const hasParent = p.needs.some(k => granted.has(k));
@@ -26284,7 +26294,7 @@ const PCFU_TYPES = {
   repl: '♻️ Replacement', lead: '📞 Lead', purchase: '🛒 Purchase', collect: '💰 Payment', attn: '🕘 Attendance', km: '🛵 KM', custom: '📌 Apna follow-up'
 };
 const PCFU_EVENING_HOUR = 18; // punch out / evening KM only count from 6 PM
-let pcfu = { tasks: [], fu: [], custom: [], today: '', person: '', view: 'todo', loading: false, holiday: '' };
+let pcfu = { tasks: [], fu: [], custom: [], today: '', person: '', sys: '', view: 'todo', loading: false, holiday: '' };
 function pcfuText(html) {
   const el = document.createElement('div');
   el.innerHTML = String(html || '').replace(/<\/div>|<br\s*\/?>/gi, ' · ');
@@ -26378,7 +26388,15 @@ function renderPcFollowup() {
       <div style="font-size:11px;color:var(--gray-500)">${v.hint}</div></button>`;
   }).join('');
   document.getElementById('pcfuNote2').innerHTML = pcfu.holiday ? `🎉 Aaj chhutti (${esc(pcfu.holiday)}) — attendance / KM nahi dikhaya` : '';
-  const rows = live.filter(t => VIEWS[pcfu.view].f(t) && match(t));
+  // System tabs (client 2026-11-07: "jaise name ke tab hai vaise system ke bhi tab") — counts within the picked tile.
+  const inView = live.filter(t => VIEWS[pcfu.view].f(t) && match(t));
+  const sysCnt = {}; inView.forEach(t => { sysCnt[t.type] = (sysCnt[t.type] || 0) + 1; });
+  if (pcfu.sys && !sysCnt[pcfu.sys]) pcfu.sys = '';
+  document.getElementById('pcfuSys').innerHTML = Object.keys(sysCnt).length > 1
+    ? `<button type="button" onclick="pcfu.sys='';pcfu.person='';renderPcFollowup()" class="btn btn-sm ${pcfu.sys ? 'btn-outline' : 'btn-primary'}">Sab system <b style="margin-left:4px">${inView.length}</b></button>`
+      + Object.keys(PCFU_TYPES).filter(k => sysCnt[k]).map(k => `<button type="button" onclick="pcfu.sys=${pcfu.sys === k ? "''" : `'${k}'`};pcfu.person='';renderPcFollowup()" class="btn btn-sm ${pcfu.sys === k ? 'btn-primary' : 'btn-outline'}">${PCFU_TYPES[k]} <b style="margin-left:4px">${sysCnt[k]}</b></button>`).join('')
+    : '';
+  const rows = inView.filter(t => !pcfu.sys || t.type === pcfu.sys);
   // Person-wise groups — most late first
   const groups = {};
   rows.forEach(t => t.people.forEach(p => { (groups[p] = groups[p] || { name: p, list: [], late: 0 }).list.push(t); if (t.overdue && !pcfuDoneToday(t)) groups[p].late++; }));
@@ -26397,7 +26415,7 @@ function renderPcFollowup() {
       <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--gray-50);border-bottom:1px solid var(--gray-100)">
         <span style="font-size:15px;font-weight:900;color:var(--gray-900)">👤 ${esc(g.name)}</span>
         <span style="font-size:12.5px;color:var(--gray-600)">${g.list.length} kaam${g.late ? ` · <b style="color:var(--color-danger)">${g.late} late</b>` : ''}</span></div>
-      ${g.list.slice(0, 60).map(t => {
+      ${g.list.sort((a, b) => (b.due || '').localeCompare(a.due || '')).slice(0, 60).map(t => { // descending — naya pehle (client 2026-11-07)
         const done = pcfuDoneToday(t), l = pcfuLast(t.key);
         return `<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-top:1px solid var(--gray-100)${done ? ';background:var(--color-success-bg)' : ''}">
           <button type="button" onclick="pcfuTick('${jsArg(t.key)}', this)" title="${done ? 'Follow-up ho gaya' : 'Follow-up kiya — tick karo'}"
