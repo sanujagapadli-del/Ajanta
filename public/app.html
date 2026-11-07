@@ -9200,7 +9200,7 @@ function renderLeaveTable(rows, isAdmin) {
   return `<div class="mis-table-wrap" style="overflow-x:auto"><table style="min-width:${isAdmin ? 800 : 640}px">
     <thead><tr>
       ${isAdmin ? '<th>Employee</th>' : ''}
-      <th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th></th>
+      <th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th>Remark</th><th></th>
     </tr></thead>
     <tbody>${rows.map(r => `<tr>
       ${isAdmin ? `<td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>` : ''}
@@ -9209,7 +9209,8 @@ function renderLeaveTable(rows, isAdmin) {
       <td>${fmtDate(r.end_date)}</td>
       <td>${r.days ?? '—'}</td>
       <td style="max-width:200px">${esc(r.reason||'—')}</td>
-      <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${r.remarks ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(r.remarks)}</div>` : ''}${isAdmin && r.approvedByName ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">by ${esc(r.approvedByName)}</div>` : ''}</td>
+      <td><span class="status-badge ${leaveStatusClass(r.status)}">${esc(r.status)}</span>${isAdmin && r.approvedByName ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">by ${esc(r.approvedByName)}</div>` : ''}</td>
+      <td style="max-width:220px;font-size:12.5px;color:var(--gray-700)">${r.remarks ? esc(r.remarks) : '<span style="color:var(--gray-300)">—</span>'}${isAdmin ? ` <button class="row-action-btn" style="padding:1px 6px;font-size:11px" onclick="editLeaveRemark(${r.id}, this.dataset.r)" data-r="${esc(r.remarks || '')}" title="Remark likho / badlo">✏️</button>` : ''}</td>
       <td style="white-space:nowrap">
         ${isAdmin && r.status === 'pending' ? `<button class="row-action-btn approve" onclick="processLeave(${r.id},'approved')">✓ Approve</button><button class="row-action-btn reject" style="margin-left:6px" onclick="processLeave(${r.id},'rejected')">✕ Reject</button>` : ''}
         ${!isAdmin && r.status === 'pending' ? `<button class="row-action-btn cancel" onclick="cancelLeave(${r.id})">Cancel</button>` : ''}
@@ -9229,6 +9230,7 @@ async function loadLeaveList() {
   const rows = await api(`/api/leave?employee=${employee}&status=${status}`);
   if (rows.error) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">${esc(rows.error)}</div>`; return; }
   if (!rows.length) { wrap.innerHTML = `<div class="empty" style="${emptyStyle}">No leave requests.</div>`; return; }
+  _leaveRows = rows;
   wrap.innerHTML = renderLeaveTable(rows, isAdmin);
 }
 
@@ -9252,7 +9254,52 @@ function deleteLeaveEntry(id) {
   });
 }
 
+// Approve with a remark, and optionally only part of the asked days (client video 2026-11-07).
+let _leaveRows = [];
+function openLeaveApprove(id) {
+  const r = _leaveRows.find(x => x.id === id);
+  if (!r) return;
+  const ymd = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : owsYmd(new Date(v)); // DATE comes as an ISO timestamp
+  const s = ymd(r.start_date), e = ymd(r.end_date);
+  vrlModal('leaveApproveModal', `${scotModalHead('leaveApproveModal', '✓ Leave approve — ' + esc(r.name || ''))}
+    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Maangi: <b>${fmtDate(r.start_date)}</b> se <b>${fmtDate(r.end_date)}</b> (${r.days} din) · ${esc(r.leave_type || '')}<br>${esc(r.reason || '')}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+      <label style="font-size:12px;font-weight:700">Approve kab se<input id="laStart" type="date" value="${s}" min="${s}" max="${e}" oninput="leaveApproveDays()" style="${VRL_IN};margin-top:3px"/></label>
+      <label style="font-size:12px;font-weight:700">Kab tak<input id="laEnd" type="date" value="${e}" min="${s}" max="${e}" oninput="leaveApproveDays()" style="${VRL_IN};margin-top:3px"/></label></div>
+    <div id="laDays" style="font-size:12.5px;font-weight:700;color:var(--color-success-text);margin-bottom:10px"></div>
+    <label style="font-size:12px;font-weight:700">Remark</label>
+    <textarea id="laRemark" rows="3" placeholder="jaise: sirf 2 din milenge, kaam zyada hai" style="${VRL_IN};margin:3px 0 12px;resize:vertical"></textarea>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveLeaveApprove(${id}, this)">✓ Approve</button>`, 440);
+  leaveApproveDays();
+}
+function leaveApproveDays() {
+  const s = document.getElementById('laStart').value, e = document.getElementById('laEnd').value, el = document.getElementById('laDays');
+  const n = s && e ? Math.round((new Date(e) - new Date(s)) / 86400000) + 1 : 0;
+  el.textContent = n > 0 ? `${n} din approve honge` : 'Dates sahi chunein';
+  el.style.color = n > 0 ? 'var(--color-success-text)' : 'var(--color-danger)';
+}
+async function saveLeaveApprove(id, btn) {
+  const s = document.getElementById('laStart').value, e = document.getElementById('laEnd').value;
+  if (!s || !e || e < s) { showToast('Dates sahi chunein', 'error'); return; }
+  btn.disabled = true;
+  const r = await api(`/api/leave/${id}`, 'PUT', { action: 'approved', approvedStart: s, approvedEnd: e, remarks: document.getElementById('laRemark').value.trim() });
+  btn.disabled = false;
+  if (r.error) { showToast(r.error, 'error'); return; }
+  closeModal('leaveApproveModal');
+  showToast('✅ Leave approved');
+  loadLeaveList();
+  loadLeaveBadge();
+}
+function editLeaveRemark(id, cur) {
+  showPrompt({ icon: '✏️', title: 'Remark', placeholder: 'Remark likhein…', value: cur || '' }, async (note) => {
+    const r = await api(`/api/leave/${id}/remark`, 'PUT', { remarks: note || '' });
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('✓ Remark save');
+    loadLeaveList();
+  });
+}
 async function processLeave(id, action) {
+  if (action === 'approved') { openLeaveApprove(id); return; }
   if (action === 'rejected') {
     showPrompt({ icon: '❌', title: 'Reason for Rejection', placeholder: 'Optional reason…' }, async (note) => {
       const r = await api(`/api/leave/${id}`, 'PUT', { action, remarks: note || '' });

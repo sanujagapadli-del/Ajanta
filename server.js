@@ -2792,22 +2792,42 @@ app.post('/api/leave', requireAuth, async (req, res) => {
 app.put('/api/leave/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { action, remarks } = req.body;
+    const { action } = req.body;
+    let remarks = String(req.body.remarks || '').trim().slice(0, 1000);
     if (!['approved', 'rejected'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+    let range = null;
     if (action === 'approved') {
       const [lr] = await db.query("SELECT user_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS s, DATE_FORMAT(end_date,'%Y-%m-%d') AS e FROM leave_requests WHERE id=?", [id]);
-      const clash = lr[0] && await findLeaveClash(lr[0].user_id, lr[0].s, lr[0].e);
+      if (!lr[0]) return res.status(404).json({ error: 'Not found' });
+      // Part approval (client video 2026-11-07: "poori leave approve nahi karna chahun") — only some of the asked days.
+      const ok = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+      const s = ok(req.body.approvedStart) ? req.body.approvedStart : lr[0].s, e = ok(req.body.approvedEnd) ? req.body.approvedEnd : lr[0].e;
+      if (s < lr[0].s || e > lr[0].e || e < s) return res.status(400).json({ error: 'Approve ki dates maangi hui leave ke andar honi chahiye' });
+      if (s !== lr[0].s || e !== lr[0].e) {
+        const dmy = v => v.split('-').reverse().join('-'), n = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000) + 1;
+        range = { s, e, days: n(s, e) };
+        remarks = `Maangi thi ${dmy(lr[0].s)} se ${dmy(lr[0].e)} (${n(lr[0].s, lr[0].e)} din), approve ${range.days} din` + (remarks ? ` — ${remarks}` : '');
+      }
+      const clash = await findLeaveClash(lr[0].user_id, s, e);
       if (clash) return res.status(400).json({ error: leaveClashMessage(clash, false) });
     }
     const [result] = await db.query(
-      `UPDATE leave_requests SET status=?,approved_by=?,approved_at=NOW(),remarks=? WHERE id=? AND status='pending'`,
-      [action, req.session.userId, remarks || '', id]
+      `UPDATE leave_requests SET status=?,approved_by=?,approved_at=NOW(),remarks=?${range ? ',start_date=?,end_date=?,days=?' : ''} WHERE id=? AND status='pending'`,
+      [action, req.session.userId, remarks, ...(range ? [range.s, range.e, range.days] : []), id]
     );
     if (!result.affectedRows) return res.status(400).json({ error: 'This request has already been processed' });
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 
+// Remark on any leave, any time (admin).
+app.put('/api/leave/:id/remark', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [r] = await db.query('UPDATE leave_requests SET remarks=? WHERE id=?', [String((req.body || {}).remarks || '').trim().slice(0, 1000), parseInt(req.params.id, 10)]);
+    if (!r.affectedRows) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
 app.delete('/api/leave/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
