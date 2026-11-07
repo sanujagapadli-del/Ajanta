@@ -4520,12 +4520,8 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     </div>
     <div class="alert error" id="rfErr" style="display:none"></div>
     <div class="form-group"><label>Party / Dealer Name <span style="color:var(--color-danger)">*</span></label>
-      <input type="hidden" id="rfParty"/>
-      <button type="button" id="rfPartyBtn" onclick="rfPartyToggle()" style="width:100%;display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800);cursor:pointer;text-align:left;box-sizing:border-box">
-        <span id="rfPartyTxt" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gray-400)">-- Dealer chunein --</span><span style="color:var(--gray-500)">▾</span></button>
-      <div id="rfPartyPop" style="display:none;margin-top:4px;border:1.5px solid var(--gray-200);border-radius:10px;background:var(--surface);box-shadow:0 8px 24px rgba(0,0,0,.12);padding:6px">
-        <input type="text" id="rfPartyQ" autocomplete="off" placeholder="🔍 Dealer ka naam likh kar dhoondo…" oninput="rfPartyRender()" style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
-        <div id="rfPartyOpts" style="max-height:240px;overflow:auto;margin-top:4px"></div></div></div>
+      <input type="text" id="rfParty" list="rplPartyList" placeholder="Type karke list se dealer chunein" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+      <datalist id="rplPartyList"></datalist></div>
     <div class="form-group"><label>Customer Mobile <span style="font-weight:400;color:var(--gray-400)">(delivery OTP isi par jayega)</span></label>
       <input type="text" id="rfMobile" inputmode="tel" placeholder="Blank = dealer profile ka number" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>Item Name / Quantity <span style="color:var(--color-danger)">*</span></label>
@@ -28952,42 +28948,14 @@ async function loadReplPartyNames() {
   if (!r || !Array.isArray(r.names) || !r.names.length) _rplNamesLoaded = false; // try again on the next open
   const names = new Set(((r && r.names) || []));
   rplData.forEach(x => names.add(x.partyName));
-  _rplNames = [...names].filter(Boolean).sort((a, b) => a.localeCompare(b));
-  if (document.getElementById('rfPartyPop').style.display !== 'none') rfPartyRender();
-}
-// Dealer dropdown (client 2026-11-07: "dealer name dropdown add karo") — a visible picker with search;
-// pick-only for non-admins, an admin may use a typed new name.
-let _rplNames = [];
-function rfPartyToggle(force) {
-  const pop = document.getElementById('rfPartyPop');
-  const show = force !== undefined ? force : pop.style.display === 'none';
-  pop.style.display = show ? '' : 'none';
-  if (show) { const q = document.getElementById('rfPartyQ'); q.value = ''; rfPartyRender(); q.focus(); }
-}
-function rfPartyRender() {
-  const q = document.getElementById('rfPartyQ').value.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
-  const cur = document.getElementById('rfParty').value;
-  const hits = _rplNames.filter(n => words.every(w => n.toLowerCase().includes(w)));
-  const row = (n, label) => `<div class="rf-opt" data-n="${esc(n)}" onclick="rfPartyPick(this.dataset.n)" style="padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;${n === cur ? 'background:var(--color-primary-light);color:var(--color-primary);font-weight:700' : ''}" onmouseover="this.style.background=this.style.background||'var(--gray-50)'">${label || esc(n)}</div>`;
-  let html = hits.slice(0, 300).map(n => row(n)).join('');
-  if (hits.length > 300) html += `<div style="padding:6px 10px;font-size:11.5px;color:var(--gray-500)">+${hits.length - 300} aur — naam likh kar chhota karo</div>`;
-  const typed = document.getElementById('rfPartyQ').value.trim();
-  if (typed && ME && ME.role === 'admin' && !_rplNames.some(n => n.toLowerCase() === typed.toLowerCase()))
-    html += row(typed, `➕ Naya naam: <b>${esc(typed)}</b>`);
-  document.getElementById('rfPartyOpts').innerHTML = html || `<div style="padding:8px 10px;font-size:12.5px;color:var(--gray-500)">${_rplNames.length ? 'Kuch nahi mila' : 'Dealer list aa rahi hai…'}</div>`;
-}
-function rfPartyPick(n) {
-  document.getElementById('rfParty').value = n;
-  const t = document.getElementById('rfPartyTxt');
-  t.textContent = n || '-- Dealer chunein --'; t.style.color = n ? 'var(--gray-900)' : 'var(--gray-400)';
-  rfPartyToggle(false);
+  // same dealer dropdown as O2D New Order (client 2026-11-07: "dropdown waisa hi rakho jaisa O2D me hai")
+  document.getElementById('rplPartyList').innerHTML = [...names].filter(Boolean).sort((a, b) => a.localeCompare(b)).map(n => `<option value="${esc(n)}">`).join('');
 }
 function openNewReplModal() {
   if (formBlocked('form-replacement')) return;
   ['rfParty', 'rfMobile', 'rfItems', 'rfDefect', 'rfBroughtBy', 'rfRemark'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('rfCondition').value = 'Full Product';
   document.getElementById('rfType').value = 'Used Product';
-  rfPartyPick('');
   const ph = document.getElementById('rfPhoto'); ph.value = ''; _rfPhotos = [];
   document.getElementById('rfPhotoPreview').innerHTML = '';
   document.getElementById('rfErr').style.display = 'none';
