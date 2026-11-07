@@ -24661,7 +24661,7 @@ function buildChequeDashboardTasks() {
   const empFilter = document.getElementById('dashEmployeeFilter');
   const empVal = empFilter ? empFilter.value : 'all';
   const isManager = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
-  const seeAll = isManager && empVal === 'all' && d.me && d.me.seeAll;
+  const seeAll = isManager && empVal === 'all' && d.me && (d.me.seeAll || (ME.role === 'pc' && d.me.listAll));
   const doerId = isManager && empVal !== 'all' ? Number(empVal) : Number(ME.id);
   const tasks = [];
   d.cheques.forEach(c => (c.tasks || []).forEach(t => {
@@ -26044,7 +26044,7 @@ function buildLeadDashboardTasks() {
   const empFilter = document.getElementById('dashEmployeeFilter');
   const empVal = empFilter ? empFilter.value : 'all';
   const isManager = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
-  const seeAll = isManager && empVal === 'all' && d.me && d.me.seeAll;
+  const seeAll = isManager && empVal === 'all' && d.me && (d.me.seeAll || (ME.role === 'pc' && d.me.listAll));
   const doerId = isManager && empVal !== 'all' ? Number(empVal) : Number(ME.id);
   const today = d.today || '';
   const tasks = [];
@@ -26341,7 +26341,8 @@ async function clearVendorBin() {
 // by hand. ☐ tick = "follow-up kiya" (logged in pc_followups); a hand-added item's tick closes it.
 const PCFU_TYPES = {
   delegation: '📋 Delegation', checklist: '✅ Checklist', o2d: '🚚 O2D', fms: '🛠️ Service', cheque: '🧾 Cheque',
-  repl: '♻️ Replacement', lead: '📞 Lead', purchase: '🛒 Purchase', collect: '💰 Payment', attn: '🕘 Attendance', km: '🛵 KM', custom: '📌 Apna follow-up'
+  repl: '♻️ Replacement', lead: '📞 Lead', purchase: '🛒 Purchase', collect: '💰 Payment', scot: '☎️ SCOT', beat: '🗺️ Beat', sample: '🎁 Sample',
+  attn: '🕘 Attendance', km: '🛵 KM', custom: '📌 Apna follow-up'
 };
 const PCFU_EVENING_HOUR = 18; // punch out / evening KM only count from 6 PM
 let pcfu = { tasks: [], fu: [], custom: [], today: '', person: '', sys: '', view: 'todo', loading: false, holiday: '' };
@@ -26366,12 +26367,15 @@ async function loadPcFollowup() {
     // A user given "PC Follow-up" in Users → Access (not the PC role): mark this page's reads so the server answers as PC.
     const asPc = !['admin', 'pc', 'hod'].includes(ME.role) && MY_PAGES.has('pc-followup');
     const pv = u => asPc ? u + (u.includes('?') ? '&' : '?') + 'pcview=1' : u;
-    const [dDel, dChl, o2d, sfms, chq, repl, lead, pur, ind, dd, fu, att, cus] = await Promise.all([
+    const [dDel, dChl, o2d, sfms, chq, repl, lead, pur, ind, dd, fu, att, cus, ext, scot, coll] = await Promise.all([
       api(pv('/api/dashboard?employee=all&taskType=delegation')), api(pv('/api/dashboard?employee=all&taskType=checklist')),
       api(pv('/api/o2d-fms?open=1')).catch(() => null), api(pv('/api/service-fms?open=1')).catch(() => null),
       api(pv('/api/cheque-fms')).catch(() => null), api(pv('/api/replacement-fms')).catch(() => null), api(pv('/api/lead-fms')).catch(() => null),
       api(pv('/api/purchase-fms')).catch(() => null), api(pv('/api/purchase-fms/indents')).catch(() => null), api(pv('/api/delivery-dues/mine')).catch(() => null),
-      api('/api/pc-followups'), api('/api/pc-followups/attendance').catch(() => null), api('/api/pc-followups/custom').catch(() => null)
+      api('/api/pc-followups'), api('/api/pc-followups/attendance').catch(() => null), api('/api/pc-followups/custom').catch(() => null),
+      // SCOT / Beat / Samples / Payment Follow-up too (client 2026-11-07)
+      api('/api/pc-followups/extra').catch(() => null), api(pv(`/api/scot?month=${owsYmd(new Date()).slice(0, 7)}`)).catch(() => null),
+      api(pv('/api/collection-followup')).catch(() => null)
     ]);
     if (fu && fu.error) { wrap.innerHTML = `<div class="empty">⚠️ ${esc(fu.error)}</div>`; return; }
     if (Array.isArray(o2d)) window._lastO2dData = o2d;
@@ -26410,6 +26414,7 @@ async function loadPcFollowup() {
       add(att.noKmMorning, 'km', 'Subah ka KM nahi daala', 'am');
       if (eve) add(att.noKmEvening, 'km', 'Shaam ka KM nahi daala', 'pm');
     }
+    pcfu.tasks.push(...pcfuExtraTasks(ext, scot, coll, pcfu.today));
     pcfu.holiday = att && att.holiday ? att.holiday : '';
     pcfu.custom = (cus && cus.items) || [];
     pcfu.custom.forEach(c => pcfu.tasks.push({ key: `custom:${c.id}`, customId: c.id, type: 'custom', title: c.text, text: c.text, people: [c.person],
@@ -26419,13 +26424,69 @@ async function loadPcFollowup() {
     renderPcFollowup();
   } finally { pcfu.loading = false; }
 }
+// SCOT calls due (today + missed in the last 7 days), Beat counters not visited today, samples still with the
+// salesman, and parties whose payment date has passed (client 2026-11-07).
+function pcfuExtraTasks(ext, scot, coll, today) {
+  const out = [], addDays = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return owsYmd(x); };
+  const inr0 = v => '₹' + Math.round(v).toLocaleString('en-IN');
+  if (ext && !ext.error) {
+    (ext.beat || []).forEach(g => out.push({ key: `beat:${today}:${g.userId}`, type: 'beat', title: 'Beat visit', people: [g.name], due: today, overdue: false,
+      text: `Aaj ki beat baaki · ${g.pending.length} / ${g.total} counter · ${g.pending.slice(0, 12).join(', ')}${g.pending.length > 12 ? ` +${g.pending.length - 12}` : ''}` }));
+    (ext.samples || []).forEach(x => {
+      const due = x.holdUntil || addDays(x.issueDate, 7);
+      out.push({ key: `sample:${x.id}`, type: 'sample', title: x.code, people: [x.salesman || '—'], due, overdue: due < today,
+        text: `Sample wapas / bill · ${x.dealer || x.item} · ${x.item} × ${x.qty} ${x.uom || ''} · ${x.code} · ${x.days} din se salesman ke paas${x.purpose ? ' · ' + x.purpose : ''}` });
+    });
+  }
+  if (scot && !scot.error && Array.isArray(scot.dealers)) {
+    const keep = [scotData, scotSched, scotFollow], mEl = document.getElementById('scotMonth'), mPrev = mEl ? mEl.value : '';
+    try {
+      if (mEl) mEl.value = scot.month;
+      scotData = { ...scot, byId: Object.fromEntries(scot.dealers.map(d => [d.id, d])) };
+      scotBuildSchedule();
+      const callDays = {};
+      (scot.calls || []).forEach(([id, d]) => (callDays[id] = callDays[id] || []).push(d));
+      const byCnt = {}; Object.values(scot.lastCalls || {}).forEach(c => { if (c.by) byCnt[c.by] = (byCnt[c.by] || 0) + 1; });
+      const caller = Object.entries(byCnt).sort((a, b) => b[1] - a[1])[0];
+      const who = caller ? caller[0] : 'SCOT team', from = addDays(today, -7);
+      Object.entries(scotSched).forEach(([day, ids]) => {
+        if (day > today || day < from) return;
+        ids.forEach(id => {
+          if ((callDays[id] || []).some(d => d >= day)) return; // called that day or later
+          const d = scotData.byId[id]; if (!d) return;
+          if (out.some(t => t.key === `scot:${id}`)) return; // one row per dealer (oldest missed day)
+          out.push({ key: `scot:${id}`, type: 'scot', title: d.name, people: [who], due: day, overdue: day < today,
+            text: `SCOT call · ${d.name} · ${[d.person, d.phone].filter(Boolean).join(' ')}${d.area ? ' · ' + d.area : ''}${d.tier ? ' · ' + d.tier : ''}` });
+        });
+      });
+    } catch (e) { console.error('pcfu scot', e); }
+    finally { scotData = keep[0]; scotSched = keep[1]; scotFollow = keep[2]; if (mEl) mEl.value = mPrev; }
+  }
+  if (coll && !coll.error && Array.isArray(coll.bills)) {
+    const byParty = {};
+    coll.bills.forEach(b => {
+      const due = b.billDate ? addDays(b.billDate, b.termDays != null ? b.termDays : 30) : '';
+      if (!due || due > today) return;
+      const k = b.party.trim().toLowerCase();
+      const g = byParty[k] = byParty[k] || { party: b.party, salesman: b.salesman || '', due, n: 0 };
+      g.n++; if (due < g.due) g.due = due; if (!g.salesman && b.salesman) g.salesman = b.salesman;
+    });
+    Object.entries(byParty).forEach(([k, g]) => {
+      const p = (coll.parties || {})[k], bal = p ? Number(p.outstanding) || 0 : 0;
+      if (bal <= 0) return;
+      out.push({ key: `collect:party:${k}`, type: 'collect', title: g.party, people: [g.salesman || 'Accounts'], due: g.due, overdue: g.due < today,
+        text: `Payment lena · ${g.party} · baaki ${inr0(bal)} · ${g.n} bill ki date nikal gayi (sabse purani ${fmtDateDMY(g.due)})` });
+    });
+  }
+  return out;
+}
 const pcfuLast = key => pcfu.fu.find(f => f.task_key === key) || null;
 const pcfuDoneToday = t => t.type === 'custom' ? !!t.doneAt : pcfu.fu.some(f => f.task_key === t.key && f.created_at.slice(0, 10) === pcfu.today);
 const pcfuDueNow = t => !t.due || t.due <= pcfu.today;
 // Look (client 2026-11-07: "dikhne me accha lagna chahiye") — tiles with a coloured strip, one filter line
 // (search · system · naam), person cards with an avatar, task rows with a system pill and a due chip.
 const PCFU_COLOR = { delegation: '#2563eb', checklist: '#16a34a', o2d: '#d97706', fms: '#7c3aed', cheque: '#0891b2', repl: '#db2777',
-  lead: '#9333ea', purchase: '#ea580c', collect: '#059669', attn: '#dc2626', km: '#b45309', custom: '#475569' };
+  lead: '#9333ea', purchase: '#ea580c', collect: '#059669', scot: '#0d9488', beat: '#4f46e5', sample: '#c026d3', attn: '#dc2626', km: '#b45309', custom: '#475569' };
 function pcfuCss() {
   if (document.getElementById('pcfuCss')) return;
   const st = document.createElement('style'); st.id = 'pcfuCss';
@@ -29470,7 +29531,7 @@ function buildReplDashboardTasks() {
   const empFilter = document.getElementById('dashEmployeeFilter');
   const empVal = empFilter ? empFilter.value : 'all';
   const isManager = ME.role === 'admin' || ME.role === 'hod' || ME.role === 'pc';
-  const seeAll = isManager && empVal === 'all' && d.me && d.me.seeAll;
+  const seeAll = isManager && empVal === 'all' && d.me && (d.me.seeAll || (ME.role === 'pc' && d.me.listAll));
   const doerId = isManager && empVal !== 'all' ? Number(empVal) : Number(ME.id);
   const tasks = [];
   d.items.forEach(r => {

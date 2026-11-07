@@ -3299,6 +3299,35 @@ app.get('/api/pc-followups/attendance', requireAuth, async (req, res) => {
     res.json(await attendanceGapsToday());
   } catch (err) { sendServerError(res, err); }
 });
+// Beat + Samples for PC Follow-up (client 2026-11-07: "SCOT, Beat, Lead FMS, Payment follow up, sample, purchase fms bhi add karo").
+// Beat = each salesman's counters of today's beat day with no entry today; Samples = still with the salesman.
+app.get('/api/pc-followups/extra', requireAuth, async (req, res) => {
+  try {
+    if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
+    const [[{ today, dow }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today, WEEKDAY(CURDATE())+1 AS dow");
+    const out = { today, beat: [], samples: [] };
+    try {
+      await beatTables();
+      const DOW = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
+      const [cs] = await db.query(`SELECT c.id, c.user_id, u.name AS user_name, c.counter_name, c.beat_day,
+          (SELECT COUNT(*) FROM beat_entries e WHERE e.counter_id=c.id AND e.entry_date=CURDATE()) AS done
+        FROM beat_counters c JOIN users u ON u.id=c.user_id WHERE c.active=1 AND u.is_active=1`);
+      const by = {};
+      cs.filter(c => DOW[String(c.beat_day || '').trim().toLowerCase().slice(0, 3)] === Number(dow)).forEach(c => {
+        const g = by[c.user_id] = by[c.user_id] || { userId: c.user_id, name: c.user_name, total: 0, pending: [] };
+        g.total++; if (!Number(c.done)) g.pending.push(c.counter_name);
+      });
+      out.beat = Object.values(by).filter(g => g.pending.length);
+    } catch (e) { console.error('pcfu beat:', e.message); }
+    try {
+      await smpTables();
+      out.samples = (await smpLoad('WHERE s.outcome_at IS NULL AND s.cancelled_at IS NULL')).filter(s => s.pendingQty > 0)
+        .map(s => ({ id: s.id, code: s.code, salesman: s.salesmanName || '', item: s.itemName, qty: s.pendingQty, uom: s.uom, dealer: s.dealerName,
+          purpose: s.purpose, issueDate: s.issueDate, days: s.days, holdUntil: s.holdUntil }));
+    } catch (e) { console.error('pcfu samples:', e.message); }
+    res.json(out);
+  } catch (err) { sendServerError(res, err); }
+});
 app.post('/api/pc-followups', requireAuth, async (req, res) => {
   try {
     if (!await canPcFollow(req)) return res.status(403).json({ error: 'Sirf PC / Admin' });
@@ -11374,12 +11403,13 @@ app.get('/api/cheque-fms', requireAuth, async (req, res) => {
   try {
     const acc = await chequeUserAccess(req);
     const today = await chequeTodayYmd();
-    const [rows] = await withChequeTables(() => acc.seeAll
+    const listAll = acc.seeAll || req.session.role === 'pc'; // PC Follow-up: PC sees every cheque (read only)
+    const [rows] = await withChequeTables(() => listAll
       ? db.query(`${CHEQUE_SELECT} ORDER BY c.id DESC`)
       : db.query(`${CHEQUE_SELECT} WHERE c.salesman_user_id=? OR c.created_by=? ORDER BY c.id DESC`, [req.session.userId, req.session.userId]));
     res.json({
       cheques: rows.map(c => chequeOut(c, acc.doersMap, today)),
-      me: { seeAll: acc.seeAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess },
+      me: { seeAll: acc.seeAll, listAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess },
       today
     });
   } catch (err) { sendServerError(res, err); }
@@ -12140,11 +12170,12 @@ app.put('/api/replacement-fms/step-doers', requireAuth, requireAdmin, async (req
 app.get('/api/replacement-fms', requireAuth, async (req, res) => {
   try {
     const acc = await replUserAccess(req);
-    const [rows] = await withReplTables(() => acc.seeAll
+    const listAll = acc.seeAll || req.session.role === 'pc'; // PC Follow-up: PC sees every replacement (read only)
+    const [rows] = await withReplTables(() => listAll
       ? db.query(`${REPL_SELECT} ORDER BY r.id DESC`)
       : db.query(`${REPL_SELECT} WHERE r.created_by=? OR r.mechanic_user_id=? OR r.delivery_user_id=? ORDER BY r.id DESC`, [req.session.userId, req.session.userId, req.session.userId]));
     const [[now]] = await db.query("SELECT DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i:%s') AS n");
-    res.json({ items: rows.map(r => replOut(r, acc.doersMap)), me: { seeAll: acc.seeAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess }, now: now.n });
+    res.json({ items: rows.map(r => replOut(r, acc.doersMap)), me: { seeAll: acc.seeAll, listAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess }, now: now.n });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -16003,7 +16034,8 @@ app.get('/api/lead-fms', requireAuth, async (req, res) => {
   try {
     const acc = await leadUserAccess(req);
     const uid = req.session.userId;
-    const [rows] = await withLeadTables(() => acc.seeAll
+    const listAll = acc.seeAll || req.session.role === 'pc'; // PC Follow-up: PC sees every lead (read only)
+    const [rows] = await withLeadTables(() => listAll
       ? db.query(`${LEAD_SELECT} ORDER BY l.id DESC`)
       : db.query(`${LEAD_SELECT} WHERE l.created_by=? OR l.salesman_user_id=? OR l.visit_user_id=? ORDER BY l.id DESC`, [uid, uid, uid]));
     const [[t]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS d");
@@ -16011,7 +16043,7 @@ app.get('/api/lead-fms', requireAuth, async (req, res) => {
     const reqCategories = await leadReqCategories().catch(() => []);
     res.json({
       leads: rows.map(l => leadOut(l, acc.doersMap)),
-      me: { seeAll: acc.seeAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess },
+      me: { seeAll: acc.seeAll, listAll, mySteps: [...acc.mySteps], isAdmin: acc.isAdmin, pageAccess: acc.pageAccess },
       today: t.d, sources: LEAD_SOURCES, callOutcomes: Object.keys(LEAD_CALL_OUTCOMES), visitOutcomes: Object.keys(LEAD_VISIT_OUTCOMES),
       catalogue: cat ? cat.fileName : '', reqCategories
     });
@@ -18177,6 +18209,7 @@ async function scotTables() {
   _scotOk = true;
 }
 async function scotAccess(req, res) {
+  if (req.method === 'GET' && req.session.role === 'pc') return true; // PC Follow-up reads the calling plan
   if (await hasPageGrant(req, 'scot')) return true;
   res.status(403).json({ error: 'No access to SCOT' });
   return false;
@@ -19073,6 +19106,7 @@ async function collectSendReminders() {
   return groups.length;
 }
 async function collectAccess(req, res) {
+  if (req.method === 'GET' && req.session.role === 'pc') return true; // PC Follow-up reads the pending payments
   if (await hasPageGrant(req, 'collection')) return true;
   res.status(403).json({ error: 'No access to Payment Follow-up' });
   return false;
