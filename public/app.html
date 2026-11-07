@@ -2021,7 +2021,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <div class="page-header">
         <div>
           <div style="font-weight:700;font-size:14px;color:var(--gray-900)">Page Access</div>
-          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">Tick the pages each user can open. Admins always have full access.</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">Bayen se user chuno → dayen switch se page do / hatao. Turant save hota hai. Admin ko sab apne aap.</div>
         </div>
         <div style="position:relative">
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)">🔍</span>
@@ -2029,7 +2029,8 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
             style="padding:8px 12px 8px 32px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;width:220px;background:var(--surface-alt);color:var(--gray-900)"/>
         </div>
       </div>
-      <div class="users-grid">
+      <div id="accEasy" class="acc-easy"></div>
+      <div class="users-grid" style="display:none">
         <div class="access-scroll">
         <table class="access-table" id="accessTable">
           <thead>
@@ -7569,46 +7570,80 @@ function filterAccessUsers() {
   ));
 }
 
+// Easy Access (client 2026-11-07: "thoda acha aur easy bana do") — users on the left, the picked user's pages
+// on the right as switches, grouped, with "Sab do / Sab hatao" per group. Saves through toggleAccess as before.
+let accSel = null;
+const accRoleLabel = r => r === 'admin' ? '👑 Admin' : r === 'hod' ? '🏢 HOD' : r === 'pc' ? '🖥️ PC' : '👤 User';
+const accSplit = l => { const m = String(l).match(/^(.*?)(?:\s+[—(]\s*|\s+\()(.*)$/); return m ? [m[1], String(l).slice(m[1].length).replace(/^\s*[—(]\s*/, '').replace(/\)\s*$/, '')] : [l, '']; };
+const accGrantable = p => !p.auto && !p.info && !p.deny && p.key !== 'training-videos';
 function renderAccessTable(users) {
-  const tbody = document.getElementById('accessTbody');
-  const totalCols = 1 + PAGE_ACCESS_GROUPS.reduce((n,g)=>n+g.pages.length,0);
-  if (!users.length) {
-    tbody.innerHTML = `<tr><td colspan="${totalCols}" style="text-align:center;padding:24px;color:var(--gray-400)">No users found</td></tr>`;
-    return;
+  const box = document.getElementById('accEasy');
+  if (!box) return;
+  if (!document.getElementById('accEasyCss')) {
+    const st = document.createElement('style'); st.id = 'accEasyCss';
+    st.textContent = `.acc-easy{display:grid;grid-template-columns:260px 1fr;gap:14px;align-items:start}
+      @media (max-width:760px){.acc-easy{grid-template-columns:1fr}}
+      .acc-users{background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;max-height:72vh;overflow:auto;padding:6px}
+      .acc-u{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:10px;cursor:pointer;color:var(--gray-800)}
+      .acc-u:hover{background:var(--gray-50)} .acc-u.on{background:var(--color-primary-light);color:var(--color-primary)}
+      .acc-card{background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+      .acc-row{display:flex;align-items:center;gap:10px;padding:8px 2px;border-top:1px solid var(--gray-100)}
+      .acc-sw{appearance:none;-webkit-appearance:none;width:40px;height:22px;border-radius:999px;background:var(--gray-300);position:relative;cursor:pointer;flex:none;transition:background .15s;margin:0}
+      .acc-sw::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+      .acc-sw:checked{background:var(--color-success,#16a34a)} .acc-sw:checked::after{left:21px}
+      .acc-sw:disabled{opacity:.35;cursor:not-allowed}`;
+    document.head.appendChild(st);
   }
-  const roleLabel = r => r==='admin'?'👑 Admin':r==='hod'?'🏢 HOD':r==='pc'?'🖥️ PC':'👤 User';
-  tbody.innerHTML = users.map(u => {
-    const isAdmin = u.role === 'admin';
-    const granted = new Set(isAdmin ? [] : (u.page_access||[]));
-    const cells = PAGE_ACCESS_GROUPS.map(g => g.pages.map((p, i) => {
-      const cls = i === 0 ? ' class="access-group-start"' : '';
-      if (isAdmin || g.locked) return `<td${cls}><span class="access-check-lock">✓</span></td>`;
-      if (p.auto) return `<td${cls}><span class="access-tag" title="Salesman profile / Vishal-Ajay se apne aap">auto</span></td>`;
-      if (p.key === 'pc-followup' && u.role === 'pc') return `<td${cls}><span class="access-check-lock">✓</span></td>`;
-      if (p.info) return `<td${cls}><span class="access-tag" title="${esc(p.label)}">${esc(p.info)}</span></td>`;
-      if (p.key === 'training-videos') return `<td${cls}><span class="access-check-lock">✓</span></td>`;
-      if (p.deny) {
-        // Only meaningful once the parent page is ticked — dim it otherwise.
-        const hasParent = p.needs.some(k => granted.has(k));
-        return `<td${cls}><input type="checkbox" class="access-check" ${granted.has('deny:' + p.key) ? '' : 'checked'} style="${hasParent ? '' : 'opacity:.35'}"
-          title="${hasParent ? '' : 'Pehle page ka access do'}" onchange="toggleAccess(${u.id},'deny:${p.key}',!this.checked,this,true)"/></td>`;
-      }
-      const checked = granted.has(p.key);
-      return `<td${cls}><input type="checkbox" class="access-check" ${checked?'checked':''} onchange="toggleAccess(${u.id},'${jsArg(p.key)}',this.checked,this)"/></td>`;
-    }).join('')).join('');
-    return `<tr>
-      <td class="access-user-cell">
-        ${esc(u.name)}<span class="access-email">${esc(u.email)}</span>
-        <span class="role-badge ${u.role}" style="margin-left:6px">${roleLabel(u.role)}</span>
-        ${isAdmin ? `<span class="access-tag" style="margin-left:4px">default (all)</span>` : ''}
-      </td>
-      ${cells}
-    </tr>`;
+  if (!users.length) { box.innerHTML = '<div class="empty">Koi user nahi mila</div>'; return; }
+  if (!accSel || !users.some(u => u.id === accSel)) accSel = users[0].id;
+  const cnt = u => u.role === 'admin' ? 'sab' : (u.page_access || []).filter(k => !String(k).startsWith('deny:')).length + ' page';
+  const list = users.map(u => `<button type="button" class="acc-u${u.id === accSel ? ' on' : ''}" onclick="accSel=${u.id};filterAccessUsers()">
+      <span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.name)}</b>
+        <span style="font-size:11px;color:var(--gray-500)">${accRoleLabel(u.role)}</span></span>
+      <span style="font-size:11px;font-weight:700;color:var(--gray-500);white-space:nowrap">${cnt(u)}</span></button>`).join('');
+  const u = users.find(x => x.id === accSel);
+  const isAdmin = u.role === 'admin', granted = new Set(isAdmin ? [] : (u.page_access || []));
+  const row = p => {
+    const [main, sub] = accSplit(p.label);
+    let ctl;
+    if (isAdmin || PAGE_ACCESS_GROUPS.find(g => g.pages.includes(p)).locked || p.key === 'training-videos' || (p.key === 'pc-followup' && u.role === 'pc'))
+      ctl = '<span style="font-size:12px;font-weight:800;color:var(--color-success-text)">✓ hai</span>';
+    else if (p.auto) ctl = '<span class="access-tag" title="Salesman profile / Vishal-Ajay se apne aap">auto</span>';
+    else if (p.info) ctl = `<span class="access-tag">${esc(p.info)}</span>`;
+    else if (p.deny) {
+      const hasParent = p.needs.some(k => granted.has(k));
+      ctl = `<input type="checkbox" class="acc-sw" ${granted.has('deny:' + p.key) ? '' : 'checked'} ${hasParent ? '' : 'disabled title="Pehle page ka access do"'} onchange="toggleAccess(${u.id},'deny:${p.key}',!this.checked,this,true)"/>`;
+    } else ctl = `<input type="checkbox" class="acc-sw" ${granted.has(p.key) ? 'checked' : ''} onchange="toggleAccess(${u.id},'${jsArg(p.key)}',this.checked,this).then(()=>filterAccessUsers())"/>`;
+    return `<div class="acc-row"><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:700;color:var(--gray-900)">${esc(main)}</div>${sub ? `<div style="font-size:11.5px;color:var(--gray-500)">${esc(sub)}</div>` : ''}</div>${ctl}</div>`;
+  };
+  const groups = PAGE_ACCESS_GROUPS.map((g, gi) => {
+    const keys = g.pages.filter(accGrantable).map(p => p.key);
+    const on = keys.filter(k => granted.has(k)).length;
+    return `<div class="acc-card"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-size:14px;font-weight:900;color:var(--gray-900);margin-right:auto">${esc(g.label)}${!g.locked && keys.length && !isAdmin ? ` <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${on}/${keys.length}</span>` : ''}</div>
+        ${!g.locked && keys.length && !isAdmin ? `<button class="btn btn-outline btn-sm" onclick="accSetGroup(${u.id},${gi},true)">✓ Sab do</button><button class="btn btn-outline btn-sm" onclick="accSetGroup(${u.id},${gi},false)">✕ Sab hatao</button>` : ''}</div>
+      ${g.pages.map(row).join('')}</div>`;
   }).join('');
+  box.innerHTML = `<div class="acc-users">${list}</div>
+    <div><div class="acc-card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div style="font-size:17px;font-weight:900;color:var(--gray-900)">${esc(u.name)}</div>
+      <span class="role-badge ${u.role}">${accRoleLabel(u.role)}</span><span style="font-size:12px;color:var(--gray-500)">${esc(u.email || '')}</span>
+      ${isAdmin ? '<span style="margin-left:auto;font-size:12.5px;font-weight:700;color:var(--color-success-text)">Admin ko sab pages apne aap</span>' : ''}</div>
+    ${groups}</div>`;
 }
-
-// `checked` = key present in page_access. For deny keys the checkbox is the
-// inverse (ticked = allowed), so the revert flips the box the other way.
+// "Sab do / Sab hatao" for one group — one save.
+async function accSetGroup(userId, gi, on) {
+  const user = allUsersData.find(x => x.id === userId) || allAccessUsersData.find(x => x.id === userId);
+  if (!user) return;
+  const keys = PAGE_ACCESS_GROUPS[gi].pages.filter(accGrantable).map(p => p.key);
+  const before = user.page_access || [], after = new Set(before);
+  keys.forEach(k => on ? after.add(k) : after.delete(k));
+  const r = await api(`/api/users/${userId}/access`, 'PUT', { pages: [...after] });
+  if (r.error) { showToast(r.error, 'error'); return; }
+  user.page_access = [...after];
+  const twin = allAccessUsersData.find(x => x.id === userId); if (twin && twin !== user) twin.page_access = user.page_access;
+  showToast(on ? `✓ ${PAGE_ACCESS_GROUPS[gi].label} — sab diye` : `${PAGE_ACCESS_GROUPS[gi].label} — sab hataye`);
+  filterAccessUsers();
+}
 async function toggleAccess(userId, pageKey, checked, cbEl, inverted) {
   const user = allUsersData.find(u => u.id === userId);
   if (!user) return;
