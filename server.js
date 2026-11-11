@@ -14679,14 +14679,21 @@ async function gpLoadData(start, end, opts = {}) {
     if (!get('R') || !status || /^no$/i.test(status) || /cancel/i.test(status) || cancelledOrders.has(String(get('Q') || ''))) return;
     // Sale month = the bill's own date (BM, from the bill / Tally) — the Make Bill step can be ticked days later
     // (Ord-0366 Anupam bill 1382 dated 21-Oct, step done 5-Nov, was counted in Nov — client 2026-11-11).
-    const date = stockSerialToYmd(get('BM')) || stockSerialToYmd(get(bill.actual));
+    // A bill can't be older than its order: rows re-used from hand-cleared lines keep an old bill no. / date
+    // (Ord-0297 placed 2-Nov showed bill 1430 of 30-Oct) — such a sale is dated by the order instead.
+    const orderDay = stockSerialToYmd(get('A'));
+    let date = stockSerialToYmd(get('BM')) || stockSerialToYmd(get(bill.actual));
     if (!date) return;
+    // 1 day's slack — a bill is sometimes made a day before the order is typed in (G.S. Enterprises bill 1345).
+    const orderMin = orderDay ? toIsoDate(new Date(new Date(orderDay + 'T00:00:00').getTime() - 86400000)) : '';
+    const staleBill = !!(orderMin && date < orderMin);
+    if (staleBill) date = orderDay;
     if (!firstBill || date < firstBill) firstBill = date;
     if (date > lastBill) lastBill = date;
     const qty = gpNum(get('O')), rate = gpNum(get('N')) * (100 - (discountBy[String(get('Q') || '')] || 0)) / 100;
     const name = String(get('M') || '').trim();
     if (!name || !(qty > 0)) return;
-    const line = { party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), billNo: String(get('BJ') || '').trim(), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date };
+    const line = { party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), billNo: String(get('BJ') || '').trim(), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date, staleBill, orderMin };
     allSales.push(line);
     if (date >= start && date <= end) sales.push(line);
   });
@@ -14695,7 +14702,9 @@ async function gpLoadData(start, end, opts = {}) {
   // (bill numbers restart each year). O2D's own name kept as o2dParty.
   if (opts.tallyParty) {
     const tp = await gpTallyBillParty().catch(() => ({}));
-    sales.forEach(s => { const t = s.billNo && tp[s.billNo]; if (t && t.some(x => Math.abs(new Date(x.d) - new Date(s.date)) <= 45 * 86400000)) { s.o2dParty = s.party; s.party = t.find(x => Math.abs(new Date(x.d) - new Date(s.date)) <= 45 * 86400000).p; } });
+    // Not for a stale bill no., and the Tally bill must be on / after the sale date's order (a bill dated before the order is someone else's).
+    const fit = s => x => x.d >= (s.orderMin || '') && Math.abs(new Date(x.d) - new Date(s.date)) <= 45 * 86400000;
+    sales.forEach(s => { const t = !s.staleBill && s.billNo && tp[s.billNo], hit = t && t.find(fit(s)); if (hit) { s.o2dParty = s.party; s.party = hit.p; } });
   }
   if (opts.exGst) {
     const [gl] = await db.query("SELECT product_name, gst_percent FROM o2d_price_list WHERE gst_percent IS NOT NULL AND gst_percent<>''").catch(() => [[]]);
