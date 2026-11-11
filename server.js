@@ -14375,22 +14375,27 @@ app.put('/api/meca/commit', requireAuth, async (req, res) => {
 async function mecaCompute(from, to) {
   await beatTables();
   const [[counters], [entries]] = await Promise.all([
-    db.query('SELECT id, user_id, counter_name, beat_day FROM beat_counters WHERE active=1'),
+    db.query('SELECT id, user_id, counter_name, beat_day, party_name FROM beat_counters WHERE active=1'),
     db.query(`SELECT e.counter_id, c.user_id, c.counter_name, c.beat_day, c.party_name, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS d, e.visit, e.order_amt, e.collection_amt,
         e.new_counter, e.reference, e.enquiry FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id WHERE e.entry_date BETWEEN ? AND ?`, [from, to])
   ]);
   const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
-  const beatVals = entries.some(e => e.party_name) ? await beatAutoValues(from, to).catch(() => ({})) : {};
   const rows = {};
   const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdValue: 0, nbdOrders: 0, nbdPlanned: 0, nbdLeads: 0, leadCalls: 0, refs: 0, calls: 0, callOrders: 0, callValue: 0, appts: 0, o2dOrders: 0, o2dValue: 0, scotCalls: 0, scotOrders: 0, scotValue: 0 };
   for (const e of entries) {
     const r = row(e.user_id, e.d);
     if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
-    // Linked counter → that day's O2D order value (client 2026-11-05: "Beat sheet mai order value o2d se aayegi"); else the typed amount.
-    const ov = e.party_name ? ((beatVals[`${e.party_name.trim().toLowerCase()}|${e.d}`] || {}).order || 0) : (Number(e.order_amt) || 0);
-    if (ov > 0) { r.ordered++; r.value += ov; }
+    // CRR orders no longer from the Beat entry (client 2026-11-11: "O2D aur Lead FMS se bhi data lena hai") — see O2D below.
     // Collection no longer from the Beat entry — see Cheque FMS below.
   }
+  // O2D counter → beat salesman: the counter's linked party, else the same shop name (no case / spaces / punctuation,
+  // 5+ letters); only when exactly one salesman has it on their beat.
+  const ckey = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const beatOwner = {};
+  const addOwner = (k, uid) => { if (k.length < 5) return; (beatOwner[k] = beatOwner[k] || new Set()).add(Number(uid)); };
+  for (const c of counters) { addOwner(ckey(c.party_name), c.user_id); addOwner(ckey(c.counter_name), c.user_id); }
+  const beatOwnerOf = name => { const s = beatOwner[ckey(name)]; return s && s.size === 1 ? [...s][0] : null; };
+  const crrSeen = new Set();
   // Planned = that weekday's beat counters, only on days the beat was filled (no plan for Sundays / leave).
   for (const r of Object.values(rows)) {
     const dow = isoDow(r.date);
@@ -14486,6 +14491,13 @@ async function mecaCompute(from, to) {
       // credited to that lead's person on the order date.
       const lead = leadOfCounter(o.counterName);
       if (lead) { const nr = row(lead.uid, d); nr.nbdOrders++; nr.nbdValue += v; nbdMatched.add(lead.id); }
+      // CRR order (client 2026-11-11) = every other O2D order (old counters), whether or not the visit was filled in Beat —
+      // under the salesman whose beat has that counter, else the order's "Order By". Order (counter) = counters, not orders.
+      else if (v > 0) {
+        const uid = beatOwnerOf(o.counterName) ?? ownerOf(o.orderBy), cr = row(uid, d), ck = `${uid}|${d}|${ckey(o.counterName)}`;
+        if (!crrSeen.has(ck)) { crrSeen.add(ck); cr.ordered++; }
+        cr.value += v;
+      }
     }
   } catch (e) { console.warn('meca o2d:', e.message); }
   // No O2D order found for a converted lead → the ₹ typed on "Order Mil Gaya", on the closing day.
