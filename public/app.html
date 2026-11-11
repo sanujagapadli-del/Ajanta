@@ -1050,6 +1050,13 @@ html:has(.modal-overlay.open),body:has(.modal-overlay.open){overscroll-behavior-
      first one on phones (Service FMS Spare Check "1 complaint"). Let the page scroll. */
   .mis-table-wrap:has(table.mcards){max-height:none !important;overflow-y:visible !important}
 }
+
+/* Payment Follow-up view only (client 2026-11-11) */
+body.col-view #page-collection [onclick*="colPay("], body.col-view #page-collection [onclick*="colEditTerm("], body.col-view #page-collection [onclick^="colSendNow"],
+body.col-view #page-collection [onclick^="ddSendNow"], body.col-view #page-collection [onclick^="ddMarkPaid"], body.col-view #page-collection [onclick^="deleteColPayment"],
+body.col-view #page-collection [onclick^="colSetPhone"], body.col-view #page-collection [onclick^="openColCall"], body.col-view #page-collection [onclick^="openDdCall"],
+body.col-view #page-collection [onclick^="ddSaveDays"], body.col-view [onclick*="colPayCheque("], body.col-view [onclick*="openCashReceiptModal("],
+body.col-view #colPartyModal [onclick*="colPay("], body.col-view [onclick^="colSetPhone"], body.col-view [onclick^="deleteColPayment"] { display: none !important; }
 </style>
 <style id="tokens-css">
 /* ══════════ tokens.css (Phase A, 2026-10-24) ══════════
@@ -5091,7 +5098,9 @@ async function init() {
     if (canSee('mechanics')) document.getElementById('nav-mechanics').style.display = 'flex';
     if (canSee('dealer-whatsapp')) document.getElementById('nav-dealer-whatsapp').style.display = 'flex';
     if (canSee('drip-marketing')) document.getElementById('nav-drip-marketing').style.display = 'flex';
-    if (canSee('collection')) document.getElementById('nav-collection').style.display = 'flex';
+    if (canSee('collection') || canSee('collection-view')) document.getElementById('nav-collection').style.display = 'flex';
+    // Payment Follow-up view only (client 2026-11-11): page opens, every action button hidden (server refuses writes too).
+    if (ME.role !== 'admin' && !MY_PAGES.has('collection') && MY_PAGES.has('collection-view')) { MY_PAGES.add('collection'); document.body.classList.add('col-view'); }
     if (canSee('call-reports')) document.getElementById('nav-call-reports').style.display = 'flex';
     if (canSee('meca')) document.getElementById('nav-meca').style.display = 'flex';
     if (canSee('beat')) document.getElementById('nav-beat').style.display = 'flex';
@@ -7495,6 +7504,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue)' },
     { key: 'drip-marketing', label: 'Drip Marketing (weekly plan dekhe; badle sirf Admin)' },
     { key: 'collection', label: 'Payment Follow-up (15 din WhatsApp, 25/30 din call, Delivery dues)' },
+    { key: 'collection-view', label: 'Payment Follow-up — sirf dekhna (salesman: apni parties, koi button nahi)' },
     { key: 'call-reports', label: 'Call Reports — SAB salesmen ki call recordings (salesman ko apni calls iske bina bhi dikhti hain)' },
     { key: 'sales-schedule', label: 'Sales Schedule (plan salesmen — HOD/PC/admin plan, others see own)' },
     { key: 'meca', label: 'MECA — salesman market report (visit / order / NBD)' },

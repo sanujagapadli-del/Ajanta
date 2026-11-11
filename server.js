@@ -667,7 +667,9 @@ function requireAdminOrPC(req, res, next) {
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
 const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows', 'four-as', 'vendor-outstanding',
   // 2026-11-07 (client: "access page mai sare page nahi aa rahe"): pages that had only a fixed rule.
-  'onboarding', 'vendor-bin', 'rental', 'my-expense', 'pc-followup'];
+  'onboarding', 'vendor-bin', 'rental', 'my-expense', 'pc-followup',
+  // Payment Follow-up view only (client 2026-11-11: salesman Rohit / Girdhar / Krishna) — own parties, no actions.
+  'collection-view'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -19128,6 +19130,8 @@ async function collectSendReminders() {
 async function collectAccess(req, res) {
   if (req.method === 'GET' && req.session.role === 'pc') return true; // PC Follow-up reads the pending payments
   if (await hasPageGrant(req, 'collection')) return true;
+  // View-only grant: reads only, and only this salesman's own parties (filtered by the GET routes).
+  if (req.method === 'GET' && await hasPageGrant(req, 'collection-view')) { req.colViewOnly = true; return true; }
   res.status(403).json({ error: 'No access to Payment Follow-up' });
   return false;
 }
@@ -19202,11 +19206,19 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
     const [ovr] = await db.query('SELECT bill_key, term_days FROM collect_bill_terms').catch(() => [[]]);
     const ovrBy = Object.fromEntries(ovr.map(o => [o.bill_key, Number(o.term_days)]));
     open.forEach(b => { if (ovrBy[b.key] != null) { b.termDays = ovrBy[b.key]; b.termSetByAdmin = true; } });
+    let mine = open;
+    if (req.colViewOnly) { // salesman view: only the parties whose O2D salesman is this user
+      const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+      const nm = String((me && me.name) || '').trim().toLowerCase();
+      mine = open.filter(b => String(b.salesman || '').trim().toLowerCase() === nm);
+      const mk = new Set(mine.map(b => b.party.toLowerCase()));
+      [...keys].forEach(k => { if (!mk.has(k)) keys.delete(k); });
+    }
     const partyList = Object.entries(parties).filter(([k]) => keys.has(k)).map(([k, p]) => ({ key: k, ...p }));
-    res.json({ lastSynced, steps: COLLECT_STEPS, bills: open.map(b => ({ ...b, acts: actOf[b.key] || {} })),
+    res.json({ lastSynced, steps: COLLECT_STEPS, viewOnly: !!req.colViewOnly, bills: mine.map(b => ({ ...b, acts: actOf[b.key] || {} })),
       parties: Object.fromEntries(partyList.map(p => [p.key, { outstanding: p.outstanding, ledger: p.ledger, appPaid: p.appPaid }])),
       totalOutstanding: Math.round(partyList.reduce((a, p) => a + Math.max(p.outstanding, 0), 0)),
-      payments: appPays.filter(p => keys.has(p.party.trim().toLowerCase()) || !p.inTally) });
+      payments: appPays.filter(p => keys.has(p.party.trim().toLowerCase()) || (!p.inTally && !req.colViewOnly)) });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Bills Receivable sheet with the service account.' });
     sendServerError(res, err);
@@ -19467,6 +19479,13 @@ app.get('/api/delivery-dues', requireAuth, async (req, res) => {
       orderNo: o.orderNo, dealer: o.counterName || '', orderBy: o.orderBy || '', terms: o.paymentTerms || '', onHold: !!o.onHold,
       amount: Math.round((Number(o.amount) || (o.products || []).filter(p => !p.cancelled).reduce((t, p) => t + gpNum(p.rate) * gpNum(p.qty), 0)) * 100) / 100,
       since: (o.steps && o.steps[2] && o.steps[2].actual) || o.timestamp || '' })).sort((x, y) => String(x.since).localeCompare(String(y.since)));
+    const own = list => list.filter(x => Number(x.salesmanUserId) === Number(req.session.userId));
+    if (req.colViewOnly) {
+      const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
+      const resolve = await mecaOrderByResolver().catch(() => null);
+      return res.json({ items: own(items), viewOnly: true, remindDays, unknownTerms: 0, canEdit: false,
+        billPending: resolve ? billPending.filter(o => resolve(o.orderBy) === Number(req.session.userId) || String(o.orderBy).trim().toLowerCase() === String((me && me.name) || '').trim().toLowerCase()) : [] });
+    }
     res.json({ items, billPending, remindDays, unknownTerms: Number(unk.n) || 0, canEdit: req.session.role === 'admin' });
   } catch (err) { sendServerError(res, err); }
 });
