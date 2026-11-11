@@ -14633,6 +14633,20 @@ async function purchasePoArchiveRows() {
 // mai sale rate with GST le rhe ho and cost without gst"). For profit the
 // sale side is taken without GST: the item's GST % from the Price List, else 18%.
 const GP_DEFAULT_GST_PCT = 18;
+let _gpTallyBillParty = null;
+async function gpTallyBillParty() { // bill no -> [{ p: Tally party, d: yyyy-mm-dd }], 5-min cache
+  if (_gpTallyBillParty && Date.now() - _gpTallyBillParty.ts < 5 * 60 * 1000) return _gpTallyBillParty.map;
+  const r = await tallyValuesGet(`'SalesItems'!A2:C100000`).catch(() => ({ data: { values: [] } }));
+  const map = {};
+  (r.data.values || []).forEach(row => {
+    const p = String(row[0] || '').trim(), b = String(row[1] || '').trim(), d = parseAnyDate(row[2]);
+    if (!p || !b || !d) return;
+    const ymd = toIsoDate(d), list = map[b] = map[b] || [];
+    if (!list.some(x => x.p === p && x.d === ymd)) list.push({ p, d: ymd });
+  });
+  _gpTallyBillParty = { map, ts: Date.now() };
+  return map;
+}
 async function gpLoadData(start, end, opts = {}) {
   const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets.readonly']);
   await ensureProductCosts();
@@ -14676,6 +14690,13 @@ async function gpLoadData(start, end, opts = {}) {
     allSales.push(line);
     if (date >= start && date <= end) sales.push(line);
   });
+  // Dealer = the Tally party of that bill no. (client 2026-11-11, "Tally sales register se match karo": O2D names are typed
+  // loosely — "AJANTA APPLIANCES" / "Inder electricals" on Tally's AJANTA ELECTRICALS bills). Same bill no. within 45 days only
+  // (bill numbers restart each year). O2D's own name kept as o2dParty.
+  if (opts.tallyParty) {
+    const tp = await gpTallyBillParty().catch(() => ({}));
+    sales.forEach(s => { const t = s.billNo && tp[s.billNo]; if (t && t.some(x => Math.abs(new Date(x.d) - new Date(s.date)) <= 45 * 86400000)) { s.o2dParty = s.party; s.party = t.find(x => Math.abs(new Date(x.d) - new Date(s.date)) <= 45 * 86400000).p; } });
+  }
   if (opts.exGst) {
     const [gl] = await db.query("SELECT product_name, gst_percent FROM o2d_price_list WHERE gst_percent IS NOT NULL AND gst_percent<>''").catch(() => [[]]);
     const gstBy = Object.fromEntries(gl.map(g => [gpKey(g.product_name), Number(g.gst_percent)]).filter(([, v]) => v >= 0));
@@ -14874,7 +14895,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
       return res.status(400).json({ error: 'Valid start and end dates required' });
     }
-    const { sales, poCost, costFor, stockName, firstBill, lastBill } = await gpLoadData(start, end, { exGst: true });
+    const { sales, poCost, costFor, stockName, firstBill, lastBill } = await gpLoadData(start, end, { exGst: true, tallyParty: true });
     // Vendor picked by hand for an item with no PO (client 2026-11-05, GP → Vendor: "yhi pe vendor select krne ka option").
     await ensureGpItemVendors();
     const [ivRows] = await db.query('SELECT item_key, vendor FROM gp_item_vendors');
