@@ -14641,7 +14641,7 @@ async function gpLoadData(start, end, opts = {}) {
   // P&L and OWS used to re-read them on every load (audit 2026-10-31, free-plan CPU).
   // Read-only below, so no clone.
   const [o2dRows, poRows, [manual], mapTo, [stockItems], poArchive, [cancelledRows]] = await Promise.all([
-    cachedBySheetVer('gp:o2d', () => sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BK`, valueRenderOption: 'UNFORMATTED_VALUE' }).then(r => r.data.values || []), false, 'o2d'),
+    cachedBySheetVer('gp:o2d:bm', () => sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BM`, valueRenderOption: 'UNFORMATTED_VALUE' }).then(r => r.data.values || []), false, 'o2d'),
     cachedBySheetVer('gp:purchase', () => sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }).then(r => r.data.values || []), false, 'purchase'),
     db.query("SELECT item_key, item_name, cost_rate, DATE_FORMAT(updated_at,'%Y-%m-%d') AS upd FROM product_costs"),
     gpProductMapper(),
@@ -14663,7 +14663,9 @@ async function gpLoadData(start, end, opts = {}) {
     const get = col => r[colToIdx(col)];
     const status = String(get(bill.status) || '');
     if (!get('R') || !status || /^no$/i.test(status) || /cancel/i.test(status) || cancelledOrders.has(String(get('Q') || ''))) return;
-    const date = stockSerialToYmd(get(bill.actual));
+    // Sale month = the bill's own date (BM, from the bill / Tally) — the Make Bill step can be ticked days later
+    // (Ord-0366 Anupam bill 1382 dated 21-Oct, step done 5-Nov, was counted in Nov — client 2026-11-11).
+    const date = stockSerialToYmd(get('BM')) || stockSerialToYmd(get(bill.actual));
     if (!date) return;
     if (!firstBill || date < firstBill) firstBill = date;
     if (date > lastBill) lastBill = date;
