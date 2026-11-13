@@ -51,6 +51,9 @@
 .kit-sel li{padding:8px 10px;border-radius:7px;font-size:13.5px;color:var(--gray-800,#1e293b);cursor:pointer;display:flex;align-items:center;gap:8px}
 .kit-sel li.grp{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--gray-400,#94a3b8);cursor:default;padding:10px 10px 4px}
 .kit-sel li.dis{opacity:.45;cursor:not-allowed}
+.kit-pop.kit-sel.kit-sel-touch{left:max(8px,calc(50vw - 260px));right:max(8px,calc(50vw - 260px));top:max(8px,env(safe-area-inset-top));width:auto;max-width:none;max-height:min(62dvh,560px)}
+.kit-sel-touch input{height:44px;font-size:16px}
+.kit-sel-touch li{padding:12px 12px;font-size:15px}
 .kit-sel li.act{background:var(--gray-100,#f1f5f9)}
 .kit-sel li.sel{font-weight:700;color:var(--brand-600,#010371)}
 .kit-sel li.sel::after{content:'';margin-left:auto;width:14px;height:14px;flex-shrink:0;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat}
@@ -108,11 +111,16 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     if (p.anchor) p.anchor.setAttribute('aria-expanded', 'false');
     if (p.onClose) p.onClose();
   }
-  function showPop(el, anchor, { sheet = false, onClose } = {}) {
+  function showPop(el, anchor, { sheet = false, touchTop = false, onClose } = {}) {
     closePop();
     el.classList.add('kit-pop');
     let backdrop = null;
-    if (sheet && isPhone()) {
+    if (touchTop) { // touch select search: pinned at the top so the keyboard doesn't cover it
+      backdrop = document.createElement('div');
+      backdrop.className = 'kit-backdrop';
+      backdrop.addEventListener('click', closePop);
+      document.body.appendChild(backdrop);
+    } else if (sheet && isPhone()) {
       el.classList.add('kit-sheet');
       backdrop = document.createElement('div');
       backdrop.className = 'kit-backdrop';
@@ -125,7 +133,7 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     placePop();
   }
   function placePop() {
-    if (!openPop || openPop.el.classList.contains('kit-sheet')) return;
+    if (!openPop || openPop.el.classList.contains('kit-sheet') || openPop.el.classList.contains('kit-sel-touch')) return;
     const { el, anchor } = openPop;
     const r = anchor.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
     el.style.minWidth = Math.max(r.width, 0) + 'px';
@@ -325,9 +333,11 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
   // ── 2. searchable <select> ─────────────────────────────────────
   const SEL_MIN = 8;
   const norm = s => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
-  function openSelect(s) {
+  // touch = opened by a tap on a phone / tablet (client video 2026-11-13: Replacement
+  // "Item chunein" had search on the PC but not on the phone — "ye har jagah phone view mai").
+  function openSelect(s, touch) {
     const el = document.createElement('div');
-    el.className = 'kit-sel';
+    el.className = 'kit-sel' + (touch ? ' kit-sel-touch' : '');
     el.setAttribute('role', 'dialog');
     el.innerHTML = '<input type="text" autocomplete="off" spellcheck="false" placeholder="Search…" aria-label="Search options"><ul role="listbox"></ul>';
     const q = el.querySelector('input'), ul = el.querySelector('ul');
@@ -373,7 +383,8 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     const pick = i => {
       const it = shown[i];
       if (!it || it.dis) return;
-      closePop(); s.focus({ preventScroll: true });
+      closePop();
+      if (!touch) s.focus({ preventScroll: true }); // on iPhone a focused select opens its own picker
       if (it.o.selected) return;
       it.o.selected = true;
       s.dispatchEvent(new Event('input', { bubbles: true }));
@@ -388,11 +399,27 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     });
     ul.addEventListener('mousemove', e => { const li = e.target.closest('li[data-i]'); if (li && +li.dataset.i !== act) setAct(+li.dataset.i); });
     ul.addEventListener('click', e => { const li = e.target.closest('li[data-i]'); if (li) pick(+li.dataset.i); });
-    showPop(el, s);
-    el.style.width = Math.min(Math.max(s.getBoundingClientRect().width, 220), 440) + 'px';
+    showPop(el, s, { touchTop: !!touch });
+    if (!touch) el.style.width = Math.min(Math.max(s.getBoundingClientRect().width, 220), 440) + 'px';
     render(); placePop();
     q.focus({ preventScroll: true });
   }
+  // Phones / tablets: a tap (not a scroll) on a long select opens the same search list.
+  let selTouch = null;
+  document.addEventListener('touchstart', e => {
+    const s = e.target.closest && e.target.closest('select');
+    selTouch = s && e.touches.length === 1 ? { s, x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+  }, { capture: true, passive: true });
+  document.addEventListener('touchend', e => {
+    const t = selTouch; selTouch = null;
+    if (!t) return;
+    const s = t.s, c = e.changedTouches && e.changedTouches[0];
+    if (s.multiple || s.size > 1 || s.disabled || s.closest('.no-kit') || s.options.length < SEL_MIN) return;
+    if (!c || Math.abs(c.clientX - t.x) > 10 || Math.abs(c.clientY - t.y) > 10) return;
+    e.preventDefault(); // no native picker (and no mouse events after the tap)
+    if (openPop && openPop.anchor === s) { closePop(); return; }
+    openSelect(s, true);
+  }, { capture: true, passive: false });
   document.addEventListener('mousedown', e => {
     if (e.button !== 0 || !finePointer.matches) return;
     const s = e.target.closest && e.target.closest('select');
