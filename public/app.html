@@ -6169,46 +6169,121 @@ async function loadAllTasks() {
     }
   }
 
-  const data = await api(`/api/tasks?type=${tasksType}&includeFuture=1`);
+  allTasksPage = 1;
+  _tasksPeopleFor = (isPC && isDesktop) ? '' : null; // refill the PC employee list for this tab
+  await fetchTasksView();
+}
+
+// Paged All Tasks (2026-11-13): the list used to download every task at once
+// (~38k checklist rows to 2028, cut to the oldest 5000) and filter in the
+// browser. Now the filters go to /api/tasks?paged=1 and only what is on screen
+// comes back: PC / users get 50 a page; admin / HOD get per-employee counts and
+// an employee's tasks load when the group is opened (50 at a time).
+const TASKS_GROUP_PAGE = 50;
+let _tasksLoadSeq = 0, _tasksTotal = 0, _tasksGroups = [], _tasksPeopleFor = null, _tasksLoadedFor = '';
+const _empGroupRows = {};          // uid -> { tasks, total, page, loading }
+const _tasksLoaded = new Map();    // selection key -> task (for Export of ticked rows)
+function _tasksIsGrouped() { return ME.role === 'admin' || ME.role === 'hod'; }
+function _tasksFilterQs() {
+  const v = id => document.getElementById(id)?.value || '';
+  const isChecklist = tasksType === 'checklist';
+  const qs = new URLSearchParams({ type: tasksType, paged: '1', status: taskStatusFilter });
+  if (isChecklist) qs.set('includeFuture', '1');
+  const s = v('taskSearch').trim(); if (s) qs.set('q', s);
+  const u = v('tasksUserFilter'); if (u && u !== 'all') qs.set('user', u);
+  if (v('tasksDateFrom')) qs.set('from', v('tasksDateFrom'));
+  if (v('tasksDateTo')) qs.set('to', v('tasksDateTo'));
+  const f = v('tasksFreqFilter'); if (isChecklist && f && f !== 'all') qs.set('freq', f);
+  return qs.toString();
+}
+function _tasksRemember(list) { list.forEach(t => _tasksLoaded.set(_taskSelKey(t), t)); }
+async function fetchTasksView() {
+  const seq = ++_tasksLoadSeq;
+  const base = _tasksFilterQs();
+  if (base !== _tasksLoadedFor) { _tasksLoaded.clear(); _tasksLoadedFor = base; } // ticks belong to one filter
+  const grouped = _tasksIsGrouped();
+  const wantPeople = _tasksPeopleFor === '' ? '&people=1' : '';
+  const data = await api(grouped ? `/api/tasks?${base}&view=groups` : `/api/tasks?${base}&page=${allTasksPage}&size=${ALL_TASKS_PAGE_SIZE}${wantPeople}`);
+  if (seq !== _tasksLoadSeq) return; // a newer filter change is already loading
   if (!data || data.error) { // used to look like "no tasks" when the call failed
     const tc = document.getElementById('tasksContent');
     if (tc) tc.innerHTML = `<div class="empty">⚠️ ${esc((data && data.error) || 'Tasks load nahi hue')}</div>`;
     return;
   }
-
-  // Flatten all tasks — admin, HOD and PC get grouped response
-  let allTasks = [];
-  if (isAdmin || isHod || ME.role==='pc') {
-    (data.grouped||[]).forEach(g => {
-      g.tasks.forEach(t => allTasks.push(t));
-    });
+  _tasksTotal = data.total || 0;
+  if (grouped) {
+    _tasksGroups = data.groups || [];
+    Object.keys(_empGroupRows).forEach(k => delete _empGroupRows[k]);
+    Object.keys(_empGroupOpen).forEach(k => delete _empGroupOpen[k]);
+    allTasksData = [];
   } else {
-    allTasks = data.tasks || [];
+    allTasksData = data.tasks || [];
+    _tasksRemember(allTasksData);
   }
-  allTasksData = allTasks;
-  allTasksPage = 1;
-
-  // PC desktop: populate user dropdown
-  if (isPC && isDesktop) {
+  if (data.people) {
+    _tasksPeopleFor = null;
     const userSel = document.getElementById('tasksUserFilter');
     if (userSel) {
       const prevVal = userSel.value;
-      const uniqueUsers = {};
-      allTasks.forEach(t => {
-        if (t.assigned_to && t.assignedToName) uniqueUsers[t.assigned_to] = t.assignedToName;
-      });
-      userSel.innerHTML = '<option value="all">All Employees</option>';
-      Object.entries(uniqueUsers).sort((a,b)=>a[1].localeCompare(b[1])).forEach(([id,name]) => {
-        const opt = document.createElement('option');
-        opt.value = id;
-        opt.textContent = name;
-        userSel.appendChild(opt);
-      });
+      userSel.innerHTML = '<option value="all">All Employees</option>' + data.people.slice().sort((a, b) => a.name.localeCompare(b.name))
+        .map(p => `<option value="${esc(String(p.id))}">${esc(p.name)}</option>`).join('');
       if (prevVal && [...userSel.options].some(o => o.value === prevVal)) userSel.value = prevVal;
     }
   }
-
   renderTasksTable();
+  if (grouped) {
+    const self = _tasksGroups.find(g => String(g.userId) === String(ME.id));
+    if (self) toggleEmpGroup(String(self.userId));
+  }
+}
+async function loadEmpGroupRows(uid, more) {
+  const st = _empGroupRows[uid] || (_empGroupRows[uid] = { tasks: [], total: 0, page: 0 });
+  if (st.loading) return;
+  st.loading = true;
+  const seq = _tasksLoadSeq;
+  const page = more ? st.page + 1 : 1;
+  const r = await api(`/api/tasks?${_tasksFilterQs()}&user=${encodeURIComponent(uid)}&page=${page}&size=${TASKS_GROUP_PAGE}`);
+  st.loading = false;
+  if (seq !== _tasksLoadSeq) return;
+  const body = document.getElementById(`empBody_${uid}`);
+  if (!r || r.error) { if (body) body.innerHTML = `<div class="empty" style="padding:14px">⚠️ ${esc((r && r.error) || 'Tasks load nahi hue')}</div>`; return; }
+  st.tasks = more ? st.tasks.concat(r.tasks || []) : (r.tasks || []);
+  st.total = r.total || 0;
+  st.page = page;
+  _tasksRemember(r.tasks || []);
+  allTasksData = Object.values(_empGroupRows).flatMap(g => g.tasks);
+  if (body) body.innerHTML = _empGroupTableHtml(uid, st);
+  _tasksRefreshSelBar();
+}
+function _empGroupTableHtml(uid, st) {
+  const isChecklist = tasksType === 'checklist';
+  const freqTh = isChecklist ? `<th style="min-width:90px">Frequency</th>` : '';
+  const rows = st.tasks.map(t => {
+    const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>` : '';
+    const statusLabel = t.status==='revised'?'Revision Req':t.status.charAt(0).toUpperCase()+t.status.slice(1);
+    return `<tr>
+      <td>${_taskSelCb(t)}</td>
+      <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(t.assignedToDept||'—')}</td>
+      <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${esc(t.title||'—')}</td>
+      <td style="max-width:240px;font-size:12px;color:var(--gray-600)">${esc(t.description||'')}${taskAttachmentsHtml(t)}</td>
+      <td><span class="priority-badge ${esc(t.priority||'low')}">${esc(t.priority||'low')}</span></td>
+      ${freqTd}
+      <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
+      <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}${entrySubHtml(t.created_at)}</td>
+      <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}</td>
+      <td><span class="status-badge ${t.status}">${statusLabel}</span>${taskTimesHtml(t)}</td>
+      <td style="white-space:nowrap">${_taskActionBtns(t, true, isChecklist)}</td>
+    </tr>`;
+  }).join('');
+  const left = st.total - st.tasks.length;
+  const more = left > 0 ? `<div class="tasks-group-more" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:10px;border-top:1px solid var(--gray-100);font-size:12px;color:var(--gray-500)">${st.tasks.length} / ${st.total} dikh rahe <button class="btn btn-outline btn-sm" onclick="loadEmpGroupRows('${jsArg(uid)}', true)">Aur ${Math.min(TASKS_GROUP_PAGE, left)} dikhao</button></div>` : '';
+  return `<table style="min-width:760px">
+      <thead><tr style="background:var(--surface-alt)">
+        <th style="width:28px"></th><th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}
+        <th>Assigned To</th><th>Start Date</th><th>Due Date</th><th>Status</th><th>Action</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>${more}`;
 }
 
 function clearTasksDateFilter() {
@@ -6243,15 +6318,19 @@ function filterTasks() {
   // Highlight active date inputs
   if (f) f.style.borderColor = f.value ? 'var(--color-primary)' : 'var(--border-base)';
   if (t) t.style.borderColor = t.value ? 'var(--color-primary)' : 'var(--border-base)';
-  renderTasksTable();
+  // Typing in search waits a moment so each key isn't its own server call.
+  clearTimeout(_tasksFilterTimer);
+  const typing = document.activeElement && document.activeElement.id === 'taskSearch';
+  _tasksFilterTimer = setTimeout(fetchTasksView, typing ? 350 : 0);
 }
+let _tasksFilterTimer = null;
 
 function filterTaskStatus(status, el) {
   taskStatusFilter = status;
   allTasksPage = 1;
   document.querySelectorAll('#page-alltasks .tab-group .tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  renderTasksTable();
+  fetchTasksView();
 }
 
 // Photo / reference file / voice note attached when the task was delegated.
@@ -6329,6 +6408,10 @@ function toggleEmpGroup(uid) {
   const arrow = document.getElementById(`empArrow_${uid}`);
   if (body) body.style.display = _empGroupOpen[uid] ? '' : 'none';
   if (arrow) arrow.textContent = _empGroupOpen[uid] ? '▼' : '▶';
+  if (_empGroupOpen[uid] && _tasksIsGrouped() && !_empGroupRows[uid]) {
+    if (body) body.innerHTML = '<div style="padding:14px;color:var(--gray-400);font-size:13px">Loading…</div>';
+    loadEmpGroupRows(uid, false);
+  }
 }
 
 // Done / transferred time under a task's status (client, 2026-10-17).
@@ -6339,10 +6422,9 @@ function taskTimesHtml(t) {
   return bits.length ? `<div style="font-size:10.5px;color:var(--gray-500);margin-top:3px;white-space:nowrap;line-height:1.5">${bits.join('<br>')}</div>` : '';
 }
 function renderTasksTable() {
-  const isAdmin = ME.role==='admin' || ME.role==='hod';
-  const isPC = ME.role==='pc';
+  const isAdmin = _tasksIsGrouped();
   const isChecklist = tasksType === 'checklist';
-  const search = (document.getElementById('taskSearch')?.value||'').toLowerCase();
+  const search = (document.getElementById('taskSearch')?.value||'').trim();
   const userFilterVal = document.getElementById('tasksUserFilter')?.value || 'all';
   const freqEl = document.getElementById('tasksFreqFilter');
   if (freqEl) freqEl.style.display = isChecklist ? '' : 'none';
@@ -6351,29 +6433,10 @@ function renderTasksTable() {
   const dateTo = document.getElementById('tasksDateTo')?.value || '';
   const container = document.getElementById('tasksContent');
 
-  let tasks = allTasksData.filter(t => {
-    const matchStatus = taskStatusFilter === 'all' || t.status === taskStatusFilter;
-    const matchSearch = !search ||
-      (t.description||'').toLowerCase().includes(search) ||
-      (t.assignedToName||'').toLowerCase().includes(search) ||
-      (t.assignedToDept||'').toLowerCase().includes(search) ||
-      (t.due_date||'').includes(search) ||
-      (t.remarks||'').toLowerCase().includes(search) ||
-      (t.status||'').toLowerCase().includes(search) ||
-      (t.priority||'').toLowerCase().includes(search) ||
-      (t.frequency||'').toLowerCase().includes(search);
-    const matchUser = userFilterVal === 'all' || String(t.assigned_to) === String(userFilterVal);
-    const matchDateFrom = !dateFrom || (t.due_date && t.due_date >= dateFrom);
-    const matchDateTo = !dateTo || (t.due_date && t.due_date <= dateTo);
-    const matchFreq = !isChecklist || freqFilterVal === 'all' || (t.frequency || '') === freqFilterVal;
-    return matchStatus && matchSearch && matchUser && matchDateFrom && matchDateTo && matchFreq;
-  });
-
   const _badge = document.getElementById('tasksCountBadge');
-  if (_badge) { _badge.textContent = `${tasks.length} task${tasks.length===1?'':'s'}`; _badge.style.display = ''; }
-  _tasksFiltered = tasks;
+  if (_badge) { _badge.textContent = `${_tasksTotal} task${_tasksTotal===1?'':'s'}`; _badge.style.display = ''; }
 
-  if (!tasks.length) {
+  if (!_tasksTotal) {
     const hasFilter = (dateFrom || dateTo || search || userFilterVal !== 'all' || (isChecklist && freqFilterVal !== 'all'));
     container.innerHTML = `<div class="tasks-empty">
       <div class="tasks-empty-icon">${hasFilter ? '🔍' : '📋'}</div>
@@ -6383,65 +6446,35 @@ function renderTasksTable() {
     return;
   }
 
-  // ── ADMIN / HOD: Grouped by employee ──────────────────────────────
+  // ── ADMIN / HOD: Grouped by employee (rows load when a group opens) ──
   if (isAdmin) {
-    const grouped = {};
-    tasks.forEach(t => {
-      const key = t.assigned_to || 'unknown';
-      if (!grouped[key]) grouped[key] = { name: t.assignedToName||'—', dept: t.assignedToDept||'', tasks: [] };
-      grouped[key].tasks.push(t);
-    });
-    const freqTh = isChecklist ? `<th style="min-width:90px">Frequency</th>` : '';
-    const groupHtml = Object.entries(grouped).sort((a,b)=>(a[1].name).localeCompare(b[1].name)).map(([uid, g]) => {
-      const initials = g.name.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
-      const tc = g.tasks.length;
-      const rows = g.tasks.map(t => {
-        const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600;white-space:nowrap">${esc(t.frequency||'—')}</td>` : '';
-        const statusLabel = t.status==='revised'?'Revision Req':t.status.charAt(0).toUpperCase()+t.status.slice(1);
-        return `<tr>
-          <td>${_taskSelCb(t)}</td>
-          <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(t.assignedToDept||'—')}</td>
-          <td style="font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap">${esc(t.title||'—')}</td>
-          <td style="max-width:240px;font-size:12px;color:var(--gray-600)">${esc(t.description||'')}${taskAttachmentsHtml(t)}</td>
-          <td><span class="priority-badge ${esc(t.priority||'low')}">${esc(t.priority||'low')}</span></td>
-          ${freqTd}
-          <td style="white-space:nowrap;font-size:12px;color:var(--gray-800);font-weight:600">${esc(t.assignedToName||'—')}</td>
-          <td style="white-space:nowrap;font-size:12px">${fmtDate(t.start_date||'')||'—'}${entrySubHtml(t.created_at)}</td>
-          <td style="white-space:nowrap;font-size:12px">${fmtDate(t.due_date||'')||'—'}</td>
-          <td><span class="status-badge ${t.status}">${statusLabel}</span>${taskTimesHtml(t)}</td>
-          <td style="white-space:nowrap">${_taskActionBtns(t, true, isChecklist)}</td>
-        </tr>`;
-      }).join('');
-      const isSelf = String(uid) === String(ME.id);
-      _empGroupOpen[uid] = isSelf;
+    const groupHtml = _tasksGroups.slice().sort((a,b)=>(a.name||'—').localeCompare(b.name||'—')).map(g => {
+      const uid = String(g.userId);
+      const name = g.name || '—';
+      const initials = name.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+      const tc = g.count;
+      const isSelf = uid === String(ME.id);
+      _empGroupOpen[uid] = false;
       return `<div class="emp-group" style="background:var(--surface);border:1.5px solid ${isSelf?'var(--color-primary-ring)':'#e8ecf4'};border-radius:14px;margin-bottom:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.04)">
         <div onclick="toggleEmpGroup('${jsArg(uid)}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;background:linear-gradient(90deg,${isSelf?'var(--color-primary-light)':'var(--surface-alt)'},#fff);border-bottom:1px solid var(--color-primary-light)">
           <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),#818cf8);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${esc(initials)}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:14px;color:var(--gray-800)">${esc(g.name)}${isSelf?' <span style="font-size:10px;font-weight:600;color:var(--color-primary);background:var(--color-primary-light);padding:2px 6px;border-radius:8px;margin-left:6px">Me</span>':''}</div>
+            <div style="font-weight:700;font-size:14px;color:var(--gray-800)">${esc(name)}${isSelf?' <span style="font-size:10px;font-weight:600;color:var(--color-primary);background:var(--color-primary-light);padding:2px 6px;border-radius:8px;margin-left:6px">Me</span>':''}</div>
             <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${esc(g.dept||'—')}</div>
           </div>
           <span style="background:var(--color-primary-light);color:var(--color-primary);font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">${tc} task${tc===1?'':'s'}</span>
-          <span id="empArrow_${uid}" style="color:var(--gray-400);font-size:12px;margin-left:4px">${isSelf?'▼':'▶'}</span>
+          <span id="empArrow_${esc(uid)}" style="color:var(--gray-400);font-size:12px;margin-left:4px">▶</span>
         </div>
-        <div id="empBody_${uid}" style="overflow-x:auto;${isSelf?'':'display:none'}">
-          <table style="min-width:760px">
-            <thead><tr style="background:var(--surface-alt)">
-              <th style="width:28px"></th><th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}
-              <th>Assigned To</th><th>Start Date</th><th>Due Date</th><th>Status</th><th>Action</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
+        <div id="empBody_${esc(uid)}" style="overflow-x:auto;display:none"></div>
       </div>`;
     }).join('');
     container.innerHTML = _tasksToolbarHtml() + groupHtml;
     return;
   }
 
-  // ── PC / Regular user: flat table ─────────────────────────────────
-  const totalPages = Math.ceil(tasks.length / ALL_TASKS_PAGE_SIZE);
-  const pageTasks = tasks.slice((allTasksPage-1)*ALL_TASKS_PAGE_SIZE, allTasksPage*ALL_TASKS_PAGE_SIZE);
+  // ── PC / Regular user: flat table, one server page at a time ──────
+  const totalPages = Math.max(1, Math.ceil(_tasksTotal / ALL_TASKS_PAGE_SIZE));
+  const pageTasks = allTasksData;
   const freqTh = isChecklist ? `<th>Frequency</th>` : '';
   const pageRows = pageTasks.map(t => {
     const freqTd = isChecklist ? `<td style="font-size:11px;color:var(--color-primary);font-weight:600">${esc(t.frequency||'—')}</td>` : '';
@@ -6462,30 +6495,43 @@ function renderTasksTable() {
   }).join('');
   const paginationHtml = totalPages > 1 ? `
     <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;border-top:1px solid var(--gray-100);font-size:13px;color:var(--gray-500)">
-      <button onclick="if(allTasksPage>1){allTasksPage--;renderTasksTable();}" style="padding:4px 12px;border:1.5px solid var(--gray-200);border-radius:6px;background:var(--surface);cursor:pointer;font-size:12px;${allTasksPage===1?'opacity:.4;cursor:not-allowed;pointer-events:none;':''}">◀ Prev</button>
-      <span>Page <strong>${allTasksPage}</strong> of <strong>${totalPages}</strong> &nbsp;(${tasks.length} tasks)</span>
-      <button onclick="if(allTasksPage<${totalPages}){allTasksPage++;renderTasksTable();}" style="padding:4px 12px;border:1.5px solid var(--gray-200);border-radius:6px;background:var(--surface);cursor:pointer;font-size:12px;${allTasksPage===totalPages?'opacity:.4;cursor:not-allowed;pointer-events:none;':''}">Next ▶</button>
+      <button onclick="tasksGoPage(-1)" style="padding:4px 12px;border:1.5px solid var(--gray-200);border-radius:6px;background:var(--surface);cursor:pointer;font-size:12px;${allTasksPage===1?'opacity:.4;cursor:not-allowed;pointer-events:none;':''}">◀ Prev</button>
+      <span>Page <strong>${allTasksPage}</strong> of <strong>${totalPages}</strong> &nbsp;(${_tasksTotal} tasks)</span>
+      <button onclick="tasksGoPage(1)" style="padding:4px 12px;border:1.5px solid var(--gray-200);border-radius:6px;background:var(--surface);cursor:pointer;font-size:12px;${allTasksPage===totalPages?'opacity:.4;cursor:not-allowed;pointer-events:none;':''}">Next ▶</button>
     </div>` : '';
   container.innerHTML = _tasksToolbarHtml() + `<div class="flat-tasks-table"><div style="overflow-x:auto">
     <table style="min-width:760px"><thead><tr>
       <th style="width:28px"></th><th>Action</th><th>Department</th><th>Title</th><th>Description</th><th>Priority</th>${freqTh}<th>Assigned To</th><th>Start Date</th><th>Due Date</th><th>Status</th>
     </tr></thead><tbody>${pageRows}</tbody></table></div>${paginationHtml}</div>`;
 }
+function tasksGoPage(step) {
+  const totalPages = Math.max(1, Math.ceil(_tasksTotal / ALL_TASKS_PAGE_SIZE));
+  const next = Math.min(totalPages, Math.max(1, allTasksPage + step));
+  if (next === allTasksPage) return;
+  allTasksPage = next;
+  fetchTasksView();
+}
 
 // Select All + Export with the current filters (client, 2026-10-17). The
 // selection survives paging / group toggles; Export takes the ticked tasks,
 // or every filtered task when nothing is ticked.
-let _tasksFiltered = [];
+
 const _taskSel = new Set();
 const _taskSelKey = t => `${tasksType}:${t.id}`;
 function _taskSelCb(t) {
   return `<input type="checkbox" class="task-sel-cb" ${_taskSel.has(_taskSelKey(t)) ? 'checked' : ''} onchange="taskSelToggle('${jsArg(_taskSelKey(t))}',this.checked)" style="width:16px;height:16px;accent-color:var(--color-primary);cursor:pointer"/>`;
 }
+// With paging only the rows on screen are in the browser: ticks are kept per
+// filter (_tasksLoaded = every row loaded under the current filters), "Select
+// All" ticks the loaded rows, and Export with nothing ticked fetches every
+// filtered task from the server in chunks.
+function _tasksPicked() { return [..._tasksLoaded.entries()].filter(([k]) => _taskSel.has(k)).map(([, t]) => t); }
 function _tasksToolbarHtml() {
-  const n = _tasksFiltered.filter(t => _taskSel.has(_taskSelKey(t))).length, all = _tasksFiltered.length;
+  const n = _tasksPicked().length, all = _tasksTotal, shown = allTasksData.length;
+  const shownAllTicked = shown && allTasksData.every(t => _taskSel.has(_taskSelKey(t)));
   return `<div id="tasksSelBar" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 12px;margin-bottom:10px;background:var(--surface);border:1px solid var(--gray-200);border-radius:12px">
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0;margin:0">
-      <input type="checkbox" ${all && n === all ? 'checked' : ''} onchange="taskSelAll(this.checked)" style="width:16px;height:16px;accent-color:var(--color-primary)"/> Select All (${all})</label>
+      <input type="checkbox" ${shownAllTicked ? 'checked' : ''} onchange="taskSelAll(this.checked)" style="width:16px;height:16px;accent-color:var(--color-primary)"/> Select All (${shown}${shown < all ? ` dikh rahe / ${all}` : ''})</label>
     <span style="font-size:12px;color:var(--gray-500)">${n ? `${n} selected` : 'kuch select nahi — Export me saare filtered tasks aayenge'}</span>
     ${n ? `<button class="btn btn-outline btn-sm" onclick="taskSelAll(false)">Clear</button>` : ''}
     <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="exportAllTasks()">⬇ Export ${n ? `(${n})` : `(${all})`}</button>
@@ -6497,13 +6543,26 @@ function _tasksRefreshSelBar() {
 }
 function taskSelToggle(key, on) { if (on) _taskSel.add(key); else _taskSel.delete(key); _tasksRefreshSelBar(); }
 function taskSelAll(on) {
-  _tasksFiltered.forEach(t => { if (on) _taskSel.add(_taskSelKey(t)); else _taskSel.delete(_taskSelKey(t)); });
+  if (on) allTasksData.forEach(t => _taskSel.add(_taskSelKey(t)));
+  else _tasksLoaded.forEach((t, k) => _taskSel.delete(k));
   document.querySelectorAll('#tasksContent .task-sel-cb').forEach(cb => { cb.checked = on; });
   _tasksRefreshSelBar();
 }
-function exportAllTasks() {
-  const picked = _tasksFiltered.filter(t => _taskSel.has(_taskSelKey(t)));
-  const list = picked.length ? picked : _tasksFiltered;
+async function _tasksFetchAllFiltered() {
+  const base = _tasksFilterQs(), out = [], CHUNK = 2000;
+  for (let page = 1; page <= 40; page++) {
+    const r = await api(`/api/tasks?${base}&page=${page}&size=${CHUNK}`);
+    if (!r || r.error) { showToast((r && r.error) || 'Export ke tasks load nahi hue', 'error'); return null; }
+    out.push(...(r.tasks || []));
+    if (out.length >= (r.total || 0) || !(r.tasks || []).length) break;
+    showToast(`⬇ ${out.length} / ${r.total} tasks…`);
+  }
+  return out;
+}
+async function exportAllTasks() {
+  const picked = _tasksPicked();
+  const list = picked.length ? picked : await _tasksFetchAllFiltered();
+  if (!list) return;
   if (!list.length) { showToast('Export ke liye koi task nahi', 'error'); return; }
   const isChecklist = tasksType === 'checklist';
   const statusLabel = st => st === 'revised' ? 'Revision Requested' : String(st || '').charAt(0).toUpperCase() + String(st || '').slice(1);
@@ -9911,6 +9970,10 @@ const FMS_WRITE_KEYS = [['/api/o2d-fms', 'o2d'], ['/api/service-fms', 'sfms'], [
 const API_REUSE = [
   [/^\/api\/(o2d-fms|service-fms|replacement-fms|lead-fms|cheque-fms|purchase-fms)(\/|\?|$)/, 60000],
   [/^\/api\/(dashboard|attendance\/today|km\/today|approvals\/count|transfers\/count|delivery-dues\/mine)(\?|$)/, 60000],
+  // Page lists that were re-downloaded on every sidebar switch (2026-11-13):
+  // Beat 1.3 s, Collection Follow-up 1 s, Sales Schedule 217 KB, Petty Cash
+  // 376 KB, SCOT 170 KB, Checklist Master 100 KB, roster (~35 callers)…
+  [/^\/api\/(beat|beat\/report|scot|sales-schedule|checklist-master|collection-followup|users\/roster|tea|wa\/meta|petty-cash)(\?|$)/, 60000],
   [/^\/api\/(dd-lists|salesman-pl\/access)(\?|$)/, 300000]
 ];
 const _apiReuse = new Map(); // url -> { t, data } | { p }
@@ -31608,19 +31671,22 @@ async function onBdDateChange() {
   document.getElementById('bdCancelBtn').style.display = 'none';
   document.getElementById('bdDateLabel').textContent = date;
 
-  // v16: includeFuture=1 so upcoming checklist tasks bhi dikhe (jaise daily/weekly)
+  // v16: includeFuture=1 so upcoming checklist tasks bhi dikhe (jaise daily/weekly).
+  // Only this employee + date come back (the full list stopped at early December).
+  const qs = `paged=1&size=2000&status=open&user=${_bdFromUserId}&date=${encodeURIComponent(date)}`;
   const [delData, chlData] = await Promise.all([
-    api('/api/tasks?type=delegation'),
-    api('/api/tasks?type=checklist&includeFuture=1')
+    api(`/api/tasks?type=delegation&${qs}`),
+    api(`/api/tasks?type=checklist&includeFuture=1&${qs}`)
   ]);
+  if (delData.error || chlData.error) {
+    document.getElementById('bdTasksList').innerHTML = `<div style="padding:12px;color:var(--color-danger);font-size:13px">⚠️ ${esc(delData.error || chlData.error)}</div>`;
+    return;
+  }
 
   const allTasks = [];
   const pick = (data, type) => {
-    const list = data.grouped
-      ? (data.grouped.find(g => g.userId === _bdFromUserId)?.tasks || [])
-      : (data.tasks || []);
     // v16: completed tasks ko bulk-delete me NEVER show — wo delete nahi honge
-    list.forEach(t => { if (t.due_date === date && t.status !== 'completed') allTasks.push({...t, taskType: type}); });
+    (data.tasks || []).forEach(t => { if (t.due_date === date && t.status !== 'completed') allTasks.push({...t, taskType: type}); });
   };
   pick(delData, 'delegation');
   pick(chlData, 'checklist');
@@ -31787,18 +31853,21 @@ async function onTransferDateChange() {
   document.getElementById('transferCancelBtn').style.display = 'none';
   document.getElementById('transferDateLabel').textContent = date;
 
-  // v16: includeFuture=1 so upcoming checklist tasks bhi dikhe (transfer ke liye)
+  // v16: includeFuture=1 so upcoming checklist tasks bhi dikhe (transfer ke liye).
+  // Only this employee + date come back (the full list stopped at early December).
+  const qs = `paged=1&size=2000&status=pending&user=${_transferFromUserId}&date=${encodeURIComponent(date)}`;
   const [delData, chlData] = await Promise.all([
-    api('/api/tasks?type=delegation'),
-    api('/api/tasks?type=checklist&includeFuture=1')
+    api(`/api/tasks?type=delegation&${qs}`),
+    api(`/api/tasks?type=checklist&includeFuture=1&${qs}`)
   ]);
+  if (delData.error || chlData.error) {
+    document.getElementById('transferTasksListNew').innerHTML = `<div style="padding:12px;color:var(--color-danger);font-size:13px">⚠️ ${esc(delData.error || chlData.error)}</div>`;
+    return;
+  }
 
   const allTasks = [];
   const pick = (data, type) => {
-    const list = data.grouped
-      ? (data.grouped.find(g => g.userId === _transferFromUserId)?.tasks || [])
-      : (data.tasks || []);
-    list.forEach(t => { if (t.due_date === date && t.status === 'pending') allTasks.push({...t, taskType: type}); });
+    (data.tasks || []).forEach(t => { if (t.due_date === date && t.status === 'pending') allTasks.push({...t, taskType: type}); });
   };
   pick(delData, 'delegation');
   pick(chlData, 'checklist');

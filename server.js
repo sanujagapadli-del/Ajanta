@@ -1637,6 +1637,65 @@ app.get('/api/task-reminders', requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════
 // TASKS
 // ══════════════════════════════════════════════════════
+function taskListCols(isDeleg, freqCol) {
+  return `t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,t.photo_link,t.ref_file_link,t.ref_file_name,t.audio_link,":"'no' AS approval,0 AS waiting_approval,t.remarks,'no' AS attachment_required,NULL AS attachment_link,NULL AS photo_link,NULL AS ref_file_link,NULL AS ref_file_name,NULL AS audio_link,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on,t.created_at,DATE_FORMAT(t.completed_at,'%Y-%m-%d %H:%i:%s') AS completed_at,DATE_FORMAT(t.transferred_at,'%Y-%m-%d %H:%i:%s') AS transferred_at,t.transferred_from`;
+}
+function withTaskNames(t, type, uMap) {
+  return { ...t, type, assignedToName: uMap[t.assigned_to]?.name||'', assignedToDept: uMap[t.assigned_to]?.dept||'', assignedByName: uMap[t.assigned_by]?.name||'', transferredFromName: t.transferred_from ? uMap[t.transferred_from]?.name||'' : '' };
+}
+// All Tasks with paging (2026-11-13). The plain list sent every checklist task
+// up to 2028 (~38k rows, cut to the OLDEST 5000 — so anything after early
+// December never showed, and Transfer / Bulk Delete found "no tasks" on later
+// dates). Here the role scope from /api/tasks stays exactly as it is, and the
+// page's own filters (status, search, employee, due-date range, frequency) run
+// in SQL, so only one page of rows goes out.
+//   view=groups → per-employee counts only (admin/HOD grouped view)
+//   otherwise   → { tasks, total, page, size } ordered by due date
+const TASK_PAGE_MAX = 2000;
+async function sendPagedTasks(req, res, { table, isDeleg, type, where, params, uMap, freqCol }) {
+  const q = req.query;
+  let w = where;
+  const p = [...params];
+  const status = String(q.status || 'all');
+  if (['pending', 'completed', 'revised'].includes(status)) { w += ' AND t.status=?'; p.push(status); }
+  else if (status === 'open') w += " AND t.status IN ('pending','revised')";
+  const user = parseInt(q.user, 10);
+  if (Number.isFinite(user)) { w += ' AND t.assigned_to=?'; p.push(user); }
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  if (ymd.test(q.date || '')) { w += ' AND t.due_date=?'; p.push(q.date); }
+  if (ymd.test(q.from || '')) { w += ' AND t.due_date>=?'; p.push(q.from); }
+  if (ymd.test(q.to || '')) { w += ' AND t.due_date<=?'; p.push(q.to); }
+  if (!isDeleg && q.freq && q.freq !== 'all') { w += " AND COALESCE(t.frequency,'')=?"; p.push(String(q.freq)); }
+  const s = String(q.q || '').trim().slice(0, 100);
+  if (s) {
+    // Same fields the page searched before (+ title); doer name / department via the user list.
+    const like = '%' + s.replace(/[\\%_]/g, m => '\\' + m) + '%';
+    const low = s.toLowerCase();
+    const ids = Object.keys(uMap).filter(id => uMap[id].name.toLowerCase().includes(low) || uMap[id].dept.toLowerCase().includes(low)).map(Number);
+    const cols = ['t.description', "COALESCE(t.title,'')", 't.remarks', 't.status', "COALESCE(t.priority,'low')", "DATE_FORMAT(t.due_date,'%Y-%m-%d')"];
+    if (!isDeleg) cols.push("COALESCE(t.frequency,'')");
+    w += ` AND (${cols.map(c => `${c} LIKE ?`).join(' OR ')}${ids.length ? ' OR t.assigned_to IN (?)' : ''})`;
+    p.push(...cols.map(() => like));
+    if (ids.length) p.push(ids);
+  }
+  if (q.view === 'groups') {
+    const [g] = await db.query(`SELECT t.assigned_to AS userId, COUNT(*) AS n FROM ${table} t ${w} GROUP BY t.assigned_to`, p);
+    const groups = g.map(r => ({ userId: r.userId, name: uMap[r.userId]?.name || '', dept: uMap[r.userId]?.dept || '', count: Number(r.n) }));
+    return res.json({ groups, total: groups.reduce((a, x) => a + x.count, 0) });
+  }
+  const size = Math.min(TASK_PAGE_MAX, Math.max(1, parseInt(q.size, 10) || 50));
+  const page = Math.max(1, parseInt(q.page, 10) || 1);
+  const [[{ n }]] = await db.query(`SELECT COUNT(*) AS n FROM ${table} t ${w}`, p);
+  const [rows] = await db.query(`SELECT ${taskListCols(isDeleg, freqCol)} FROM ${table} t ${w} ORDER BY t.due_date ASC, t.id ASC LIMIT ? OFFSET ?`, [...p, size, (page - 1) * size]);
+  const out = { tasks: rows.map(t => withTaskNames(t, type, uMap)), total: Number(n), page, size };
+  if (q.people === '1') {
+    // Employee dropdown (PC): everyone with a task in this list, whatever the filters.
+    const [pp] = await db.query(`SELECT DISTINCT t.assigned_to AS id FROM ${table} t ${where}`, params);
+    out.people = pp.map(r => ({ id: r.id, name: uMap[r.id]?.name || '' })).filter(x => x.name);
+  }
+  res.json(out);
+}
+
 app.get('/api/tasks', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
@@ -1691,11 +1750,12 @@ app.get('/api/tasks', requireAuth, async (req, res) => {
 
     const freqCol = isDeleg ? "'' AS frequency" : "COALESCE(t.frequency,'') AS frequency";
     await ensureTaskTransferCols();
+    if (req.query.paged === '1') return sendPagedTasks(req, res, { table, isDeleg, type: type || 'delegation', where, params, uMap, freqCol });
     // LIMIT is a safety ceiling (matches /api/dashboard's own cap), not a
     // real pagination UX — this endpoint's grouped-by-user response isn't
     // set up for paging without also changing the frontend's "All Tasks" view.
-    const [rawTasks] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,${freqCol},${isDeleg?"COALESCE(t.approval,'no') AS approval,COALESCE(t.waiting_approval,0) AS waiting_approval,t.remarks,COALESCE(t.attachment_required,'no') AS attachment_required,t.attachment_link,t.photo_link,t.ref_file_link,t.ref_file_name,t.audio_link,":"'no' AS approval,0 AS waiting_approval,t.remarks,'no' AS attachment_required,NULL AS attachment_link,NULL AS photo_link,NULL AS ref_file_link,NULL AS ref_file_name,NULL AS audio_link,"}DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,DATE_FORMAT(t.created_at,'%Y-%m-%d') AS assigned_on,t.created_at,DATE_FORMAT(t.completed_at,'%Y-%m-%d %H:%i:%s') AS completed_at,DATE_FORMAT(t.transferred_at,'%Y-%m-%d %H:%i:%s') AS transferred_at,t.transferred_from FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
-    const tasks = rawTasks.map(t => ({ ...t, type: type||'delegation', assignedToName: uMap[t.assigned_to]?.name||'', assignedToDept: uMap[t.assigned_to]?.dept||'', assignedByName: uMap[t.assigned_by]?.name||'', transferredFromName: t.transferred_from ? uMap[t.transferred_from]?.name||'' : '' }));
+    const [rawTasks] = await db.query(`SELECT ${taskListCols(isDeleg, freqCol)} FROM ${table} t ${where} ORDER BY t.due_date ASC LIMIT 5000`, params);
+    const tasks = rawTasks.map(t => withTaskNames(t, type || 'delegation', uMap));
 
     // mine=1 mode always returns flat tasks (not grouped)
     if (isMine) {
@@ -7313,6 +7373,9 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       const creditTier = computeCreditTier(d.aging ? d.aging.buckets : {}, d.aging ? d.aging.total : 0, rating.source === 'tally' ? rating : null);
       const kycCount = Object.values(d.kyc).filter(Boolean).length;
       delete d.payments; delete d.tallyKey;
+      // Bill-by-bill list was only needed for Outstanding above; the page never
+      // reads it (~96 KB of the ~1.1 MB list, 2026-11-13). Statement has its own.
+      if (d.aging && d.aging.openBills) { const { openBills, ...rest } = d.aging; d.aging = rest; }
       return { ...d, kycCount, rating, creditTier };
     }).filter(d => !d.hiddenAt || (d.lastOrder && String(d.lastOrder.timestamp) > d.hiddenAt)).sort((a, b) => a.name.localeCompare(b.name));
 
