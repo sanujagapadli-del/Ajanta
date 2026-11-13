@@ -1842,7 +1842,6 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
           <option value="all">All Employees</option>
         </select>
         <!-- Admin: everyone's checklist / delegation, or only own (client list 2026-10-30 #6) -->
-        <label id="dashSelfOnlyWrap" style="display:none;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-700);cursor:pointer" title="Tick = sirf mere checklist / delegation; khaali = sab employees ke"><input type="checkbox" id="dashSelfOnly" onchange="dashSelfOnlyChanged(this)"/> Sirf mere tasks</label>
         <!-- PC-only date range filter -->
         <div id="pcDateRangeFilter" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;">
           <label style="font-size:12px;color:var(--gray-500);font-weight:600">From:</label>
@@ -3415,9 +3414,21 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <input type="text" id="hName" placeholder="e.g. Diwali"/>
       </div>
     </div>
-    <button class="btn btn-primary" style="width:100%;margin-bottom:16px" onclick="addHoliday()">Add Holiday</button>
+    <button class="btn btn-primary" id="hAddBtn" style="width:100%;margin-bottom:6px" onclick="addHoliday()">Add Holiday</button>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:16px">Office holiday = Sunday jaisa: us din ke checklist task kisi ke pending nahi dikhenge, delegation agle working day par chale jaayenge.</div>
     <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Holiday List</div>
-    <div id="holidayList" style="max-height:280px;overflow-y:auto"></div>
+    <div id="holidayList" style="max-height:220px;overflow-y:auto;margin-bottom:18px"></div>
+    <div style="border-top:1px solid var(--gray-200);padding-top:14px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px">Chhutti / Absent — pending checklist hatao</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Employee ke in tareekhon ke pending checklist task hat jaayenge (Done nahi karne padenge). Done task aur delegation nahi hatenge.</div>
+      <div class="form-group"><label>Employee</label><select id="dayOffUser" onchange="dayOffCount()"></select></div>
+      <div class="form-row">
+        <div class="form-group"><label>From</label><input type="date" id="dayOffFrom" onchange="dayOffCount()"/></div>
+        <div class="form-group"><label>To</label><input type="date" id="dayOffTo" onchange="dayOffCount()"/></div>
+      </div>
+      <div id="dayOffInfo" style="font-size:13px;margin-bottom:8px;color:var(--gray-600)"></div>
+      <button class="btn btn-outline" id="dayOffBtn" style="width:100%;color:var(--color-danger)" onclick="dayOffClear()" disabled>Pending checklist hatao</button>
+    </div>
   </div>
 </div>
 
@@ -4070,7 +4081,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       </div>
       <div class="form-group" id="scDealerNameWrap" style="display:none">
         <label>Dealer Name</label>
-        <input type="text" id="scDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>
+        <input type="text" id="scDealerName" list="noCounterNameList" placeholder="Type karke list se dealer chunein" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>
         <label>Product Ownership <span style="color:var(--color-danger)">*</span></label>
         <select id="scProductOwnership" onchange="onScOwnershipChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
           <option value="Dealer Stock Piece">Dealer Stock Piece</option>
@@ -4163,7 +4174,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       </div>
       <div class="form-group" id="ecDealerNameWrap" style="display:none">
         <label>Dealer Name</label>
-        <input type="text" id="ecDealerName" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>
+        <input type="text" id="ecDealerName" list="noCounterNameList" placeholder="Type karke list se dealer chunein" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>
         <label>Product Ownership <span style="color:var(--color-danger)">*</span></label>
         <select id="ecProductOwnership" onchange="onEcOwnershipChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box">
           <option value="Dealer Stock Piece">Dealer Stock Piece</option>
@@ -4252,6 +4263,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
         <button type="button" class="btn btn-outline btn-sm" onclick="goToO2dOrderStep1()">← Back</button>
         <span style="font-size:13px;font-weight:700;color:var(--gray-800)" id="noStep2DealerName"></span>
+      </div>
+      <div class="form-group" id="noBackDateWrap" style="display:none">
+        <label>Order Date <span style="font-weight:400;color:var(--gray-500)">(sirf Admin · purana bill chadhana ho to pichhli tareekh, warna khaali = aaj)</span></label>
+        <input type="date" id="noBackDate" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
@@ -5716,25 +5731,12 @@ function refreshDashboardO2dLocally() {
   renderDashTable(merged, dashType);
 }
 
-function dashSelfOnlyChanged(cb) {
-  try { localStorage.setItem('dashSelfOnly', cb.checked ? '1' : '0'); } catch (e) { /* private mode */ }
-  const sel = document.getElementById('dashEmployeeFilter');
-  if (sel) sel.disabled = cb.checked;
-  loadDashboard();
-}
 async function loadDashboard() {
   loadAttendanceToday();
   loadKmState();
   const empFilter = document.getElementById('dashEmployeeFilter');
-  // Admin 'Sirf mere tasks' tick: own checklist / delegation only.
-  const selfBox = document.getElementById('dashSelfOnly');
-  if (selfBox && ME.role === 'admin' && !selfBox.dataset.init) {
-    selfBox.dataset.init = '1';
-    try { selfBox.checked = localStorage.getItem('dashSelfOnly') === '1'; } catch (e) { /* private mode */ }
-    if (empFilter) empFilter.disabled = selfBox.checked;
-  }
-  const selfOnly = ME.role === 'admin' && selfBox && selfBox.checked;
-  const empVal = selfOnly ? String(ME.id) : (empFilter ? empFilter.value : 'all');
+  // The admin 'Sirf mere tasks' tick was removed (client 2026-11-13) — the employee dropdown alone picks whose tasks.
+  const empVal = empFilter ? empFilter.value : 'all';
   const isAdmin = ME.role === 'admin';
   const isHod = ME.role === 'hod';
   const isPC = ME.role === 'pc';
@@ -5793,7 +5795,6 @@ async function loadDashboard() {
 
   if (isAdmin || isHod || isPC) {
     empFilter.style.display = 'block';
-    if (isAdmin) document.getElementById('dashSelfOnlyWrap').style.display = 'flex';
 
     if (isPC) {
       // Show date range filter for PC
@@ -7189,7 +7190,8 @@ async function saveChecklist() {
 
   const created = result.count ?? dates.length;
   suc.textContent = `✅ ${created} tasks generated! (${weekOff ? 'Week off days skipped' : 'No week off set'})` +
-    (result.skipped ? ` — ${result.skipped} already existed, not duplicated` : '');
+    (result.skipped ? ` — ${result.skipped} already existed, not duplicated` : '') +
+    (result.holidays ? ` — ${result.holidays} office holiday skipped` : '');
   suc.style.display='block';
 
   setTimeout(()=>{ closeModal('checklistModal'); }, 2000);
@@ -7205,17 +7207,57 @@ async function openHoliday() {
   document.getElementById('hName').value='';
   document.getElementById('holidayModal').classList.add('open');
   renderHolidayList(); // show existing immediately
+  dayOffInit();
   // Refresh from server
   const rows = await api('/api/holidays');
   if (!rows.error) { holidays = rows; renderHolidayList(); }
 }
 
+// Chhutti / absent: clear an employee's pending checklist for some days (client 2026-11-13).
+async function dayOffInit() {
+  const sel = document.getElementById('dayOffUser');
+  ['dayOffFrom', 'dayOffTo'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('dayOffInfo').textContent = '';
+  document.getElementById('dayOffBtn').disabled = true;
+  if (sel.options.length > 1) { sel.value = ''; return; }
+  const users = await api('/api/users/roster');
+  const list = (Array.isArray(users) ? users : []).filter(u => +u.is_active).sort((x, y) => String(x.name).localeCompare(String(y.name)));
+  sel.innerHTML = '<option value="">— Employee chunein —</option>' + list.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+}
+let _dayOffSeq = 0;
+async function dayOffCount() {
+  const userId = document.getElementById('dayOffUser').value, from = document.getElementById('dayOffFrom').value;
+  const toEl = document.getElementById('dayOffTo');
+  if (from && !toEl.value) toEl.value = from;
+  const to = toEl.value, info = document.getElementById('dayOffInfo'), btn = document.getElementById('dayOffBtn');
+  btn.disabled = true;
+  if (!userId || !from) { info.textContent = ''; return; }
+  const seq = ++_dayOffSeq;
+  info.textContent = 'Gin rahe hain…';
+  const r = await api(`/api/tasks/day-off-count?userId=${encodeURIComponent(userId)}&from=${from}&to=${to}`);
+  if (seq !== _dayOffSeq) return;
+  if (r.error) { info.textContent = r.error; return; }
+  info.textContent = r.count ? `${r.count} pending checklist task milenge` : 'In tareekhon me koi pending checklist task nahi';
+  btn.disabled = !r.count;
+}
+async function dayOffClear() {
+  const sel = document.getElementById('dayOffUser'), from = document.getElementById('dayOffFrom').value, to = document.getElementById('dayOffTo').value;
+  const name = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+  if (!confirm(`${name} ke ${formatDate(from)}${to !== from ? ' se ' + formatDate(to) : ''} tak ke pending checklist task hata dein? Ye wapas nahi aayenge.`)) return;
+  const btn = document.getElementById('dayOffBtn');
+  btn.disabled = true;
+  const r = await api('/api/tasks/day-off-clear', 'POST', { userId: sel.value, from, to });
+  if (r.error) { showToast(r.error, 'error'); btn.disabled = false; return; }
+  showToast(`${r.removed} pending checklist task hata diye`);
+  document.getElementById('dayOffInfo').textContent = '';
+  scheduleDashboardRefresh();
+}
 async function addHoliday() {
   const date = document.getElementById('hDate').value;
   const name = document.getElementById('hName').value.trim();
   if (!date || !name) { showToast('Date and name required!'); return; }
 
-  const btn = document.querySelector('#holidayModal .btn-primary');
+  const btn = document.getElementById('hAddBtn');
   btn.disabled = true; btn.textContent = 'Adding…';
   try {
     const result = await api('/api/holidays', 'POST', { date, name });
@@ -7229,12 +7271,12 @@ async function addHoliday() {
     if (!rows.error) holidays = rows;
     renderHolidayList();
 
-    const shifted = result.shifted || 0;
-    if (shifted > 0) {
-      showToast(`Holiday added! ${shifted} task(s) shifted from ${formatDate(date)} → ${formatDate(result.shiftedTo)}`);
-    } else {
-      showToast(`Holiday added! No tasks were due on ${formatDate(date)}`);
-    }
+    const shifted = result.shifted || 0, removed = result.removed || 0;
+    const bits = [];
+    if (removed) bits.push(`${removed} checklist task hataye`);
+    if (shifted) bits.push(`${shifted} delegation ${formatDate(result.shiftedTo)} par gaye`);
+    showToast(`Holiday added! ${bits.length ? bits.join(', ') : 'Us din koi pending task nahi tha'}`);
+    scheduleDashboardRefresh();
   } finally {
     btn.disabled = false; btn.textContent = 'Add Holiday';
   }
@@ -13782,6 +13824,7 @@ function sfmsSetSelectKeepingLegacy(selId, value) {
 function onScCustomerTypeChange() {
   const type = document.querySelector('input[name="scCustomerType"]:checked').value;
   document.getElementById('scDealerNameWrap').style.display = (type === 'Dealer') ? '' : 'none';
+  if (type === 'Dealer') loadO2dCounterNames(); // dealer = pick from the O2D dealer list (client 2026-11-13)
   sfmsApplyCustomerTypeOptions(type, 'scProductOwnership', 'scProductLocation');
   onScOwnershipChange();
 }
@@ -13960,6 +14003,7 @@ async function submitNewComplaint() {
 function onEcCustomerTypeChange() {
   const type = document.querySelector('input[name="ecCustomerType"]:checked').value;
   document.getElementById('ecDealerNameWrap').style.display = (type === 'Dealer') ? '' : 'none';
+  if (type === 'Dealer') loadO2dCounterNames();
   // Same rules as the create form — openEditComplaintModal calls this BEFORE
   // loading the complaint's saved values, so this never overwrites real data
   // on initial load, only on an actual toggle.
@@ -14739,13 +14783,14 @@ async function sfmsBackToAssign(row, btn) {
 }
 function sfmsToReplacement(row) {
   const c = sfmsData.find(x => x.row === row);
+  if (c && c.dealerName) loadReplPartyNames(); // dealer = pick from the list (client 2026-11-13)
   if (!c) return;
   const IN = 'width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:8px';
   const spares = sfmsTakeoutItems(c).filter(it => it.item);
   vrlModal('sfmsReplModal', `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">↪ ${esc(c.complainNo)} → Replacement FMS</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('sfmsReplModal')" aria-label="Close">✕</button></div>
     <div style="font-size:12px;color:var(--gray-600);margin-bottom:10px">Product office wapas aa gaya — Replacement FMS mein entry banegi aur ye complaint yahan band ho jayegi.</div>
-    <label style="font-size:12px;font-weight:600">Party / customer *</label><input id="srParty" value="${esc(c.dealerName || c.filledByName || '')}" style="${IN}"/>
+    <label style="font-size:12px;font-weight:600">Party / customer *</label><input id="srParty"${c.dealerName ? ' list="rplPartyList"' : ''} value="${esc(c.dealerName || c.filledByName || '')}" style="${IN}"/>
     <label style="font-size:12px;font-weight:600">Mobile</label><input id="srMobile" value="${esc(c.mobile || '')}" style="${IN}"/>
     <label style="font-size:12px;font-weight:600">Item & qty *</label><input id="srItems" value="${esc(c.productName || '')}" style="${IN}"/>
     <label style="font-size:12px;font-weight:600">Defect *</label><input id="srDefect" value="${esc(c.problemDescription || '')}" style="${IN}"/>
@@ -18038,6 +18083,9 @@ async function goToO2dOrderStep2() {
   document.getElementById('noCounterType').value = d ? 'Old Counter' : 'New Counter';
   document.getElementById('noStep1').style.display = 'none';
   document.getElementById('noStep2').style.display = '';
+  // Back-dated order (client 2026-11-13: "AH ka bill O2D me chadana hai back date par") — admin only.
+  document.getElementById('noBackDateWrap').style.display = ME.role === 'admin' ? '' : 'none';
+  document.getElementById('noBackDate').max = owsYmd(new Date());
   document.getElementById('noFooterButtons').style.display = 'flex';
 }
 
@@ -18125,6 +18173,7 @@ async function submitNewO2dOrder() {
     dateToSend: document.getElementById('noDateToSend').value,
     remark: document.getElementById('noRemark').value.trim(),
     discountPct: document.getElementById('noDiscPct').value.trim(),
+    orderDate: ME.role === 'admin' ? document.getElementById('noBackDate').value : '',
     products
   };
   const dp = Number(body.discountPct) || 0;
@@ -18593,7 +18642,7 @@ function renderO2dDetailBody(o, hideProgress) {
   const grossAmount = liveProducts.reduce((s, p) => s + (Number(p.qty) || 0) * (Number(p.rate) || 0), 0);
   const discPct = Number(o.discountPct) || 0;
   const totalAmount = o2dOrderValue(o);
-  const canEditDisc = !o.cancelled && o2dCanControl();
+  const canEditDisc = !o.cancelled && o2dCanEdit();
   const productsInfoListHtml = (o.products || []).map(p => `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
       <span${p.cancelled ? ' style="text-decoration:line-through;color:var(--gray-400)"' : ''}>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span></span>
@@ -18779,7 +18828,15 @@ function linkOrText(v) {
 }
 
 // ── O2D order controls (client, 2026-10-12): Hold / Resume, Cancel, Restart from step 1 ──
+// Hold / Resume = admin + Accounts (dept, or the step 1 "Accounts is ok" doer); Cancel = admin only (client 2026-11-13).
 function o2dCanControl() {
+  if (ME.role === 'admin') return true;
+  if (/^accounts?$/i.test(String(ME.department || '').trim())) return true;
+  const s1 = O2D_STEP_DEFS.find(sd => sd.n === 1);
+  return !!(s1 && (s1.doers || []).some(d => Number(d.id) === Number(ME.id)));
+}
+// CD % / remove one item — admin / HOD / PC / any O2D step doer (unchanged).
+function o2dCanEdit() {
   if (['admin', 'hod', 'pc'].includes(ME.role)) return true;
   return O2D_STEP_DEFS.some(sd => (sd.doers || []).some(d => Number(d.id) === Number(ME.id)));
 }
@@ -18795,6 +18852,8 @@ function o2dOrderControlsHtml(o) {
     btns.push(o.onHold
       ? `<button class="btn btn-outline btn-sm" onclick="o2dSetHold('${jsArg(no)}', false)">▶ Resume Order</button>`
       : `<button class="btn btn-outline btn-sm" onclick="o2dSetHold('${jsArg(no)}', true)">⏸ Hold</button>`);
+  }
+  if (!o.closed && ME.role === 'admin') {
     btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="o2dCancelOrder('${jsArg(no)}')">✖ Cancel Order</button>`);
   }
   if (['admin', 'pc'].includes(ME.role) && (o.currentStep > 0 || o.cancelled)) {
@@ -18838,7 +18897,7 @@ async function o2dRemoveItem(orderNo, row, name) {
 }
 function o2dRemoveBtn(o, p) {
   const active = (o.products || []).filter(x => !x.cancelled).length;
-  if (o.closed || p.cancelled || p.currentStep >= 4 || active < 2 || !o2dCanControl()) return '';
+  if (o.closed || p.cancelled || p.currentStep >= 4 || active < 2 || !o2dCanEdit()) return '';
   return `<button type="button" onclick="event.stopPropagation();o2dRemoveItem('${o2dJsEsc(o.orderNo)}',${p.row},'${o2dJsEsc(p.productName)}')" title="Item hatao (jaise do baar jud gaya ho)" style="border:none;background:none;color:var(--color-danger);cursor:pointer;font-size:13px;padding:0 2px">🗑</button>`;
 }
 async function o2dReloadAfterControl(msg) {
@@ -25428,8 +25487,8 @@ async function openNewLeadModal() {
     </div>
     ${L('Requirement (product)')}${leadReqSelectHtml('nlReqCat', '')}
     ${L('Note')}<textarea id="nlReq" rows="2" placeholder="e.g. 10 piece chahiye · catalogue maanga" style="${CHQ_INPUT};resize:vertical"></textarea>
-    <label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="nlIsRef" onchange="document.getElementById('nlRefWrap').style.display=this.checked?'':'none'"/> Ye dealer kisi dealer ke reference se aaya hai</label>
-    <div id="nlRefWrap" style="display:none">${L('Reference kis dealer ne diya?', true)}<input id="nlRefDealer" placeholder="Reference dene wale dealer ka naam" style="${CHQ_INPUT}"/></div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="nlIsRef" onchange="document.getElementById('nlRefWrap').style.display=this.checked?'':'none';if(this.checked)loadO2dCounterNames()"/> Ye dealer kisi dealer ke reference se aaya hai</label>
+    <div id="nlRefWrap" style="display:none">${L('Reference kis dealer ne diya?', true)}<input id="nlRefDealer" list="noCounterNameList" placeholder="Type karke list se dealer chunein" style="${CHQ_INPUT}"/></div>
     <div id="nlSalesmanWrap" style="display:${leadMe.seeAll ? '' : 'none'}">${L('Salesman (jo dealer se mila / us area ka)')}<select id="nlSalesman" style="${CHQ_INPUT}"><option value="">— None —</option></select></div>
     <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Mobile ya card photo me se ek zaroori hai. Lead save hote hi SC-NBD ke dashboard par call aa jayegi.</div>
     <button class="btn btn-primary" id="nlSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitNewLead()">Save Lead</button>`;

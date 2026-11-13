@@ -1832,6 +1832,12 @@ app.post('/api/tasks/bulk-checklist', requireAuth, requireChecklistManager, asyn
       return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
     }).filter(Boolean);
     if (!normalizeDates.length) return res.status(400).json({ error: 'No valid dates generated — check start_date format (use DD/MM/YYYY or YYYY-MM-DD)' });
+    // Office holidays are skipped like Sundays (client 2026-11-13).
+    const [holRows] = await db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date IN (?)", [normalizeDates]);
+    const holSet = new Set(holRows.map(h => h.d));
+    const holSkipped = normalizeDates.filter(d => holSet.has(d)).length;
+    if (holSkipped) for (let i = normalizeDates.length - 1; i >= 0; i--) if (holSet.has(normalizeDates[i])) normalizeDates.splice(i, 1);
+    if (!normalizeDates.length) return res.json({ success: true, count: 0, skipped: 0, holidays: holSkipped });
     // Never create the same checklist task twice for a day — a double
     // Generate (or re-uploading a CSV) was leaving identical twins, so
     // marking one done left the other "pending" (2026-10-03).
@@ -2009,21 +2015,20 @@ app.post('/api/holidays', requireAuth, requireAdmin, async (req, res) => {
 
     const target = nextWorkingDay(date, holidaySet);
 
-    // Shift ALL pending/revised tasks (delegation + checklist) on this date —
-    // both updates (and the holiday insert above) commit or roll back together,
-    // so a failure partway through can't leave only one task table shifted.
+    // Delegation tasks on this date move to the next working day. Checklist tasks of the day are removed — an office
+    // holiday works like a Sunday, no checklist that day (client 2026-11-13; shifting them doubled the next day's list).
+    // All in one transaction with the holiday insert above.
     const [dr] = await conn.query(
       "UPDATE delegation_tasks SET due_date=? WHERE due_date=? AND status IN ('pending','revised')",
       [target, date]
     );
     const [cr] = await conn.query(
-      "UPDATE checklist_tasks SET due_date=? WHERE due_date=? AND status IN ('pending','revised')",
-      [target, date]
+      "DELETE FROM checklist_tasks WHERE due_date=? AND status IN ('pending','revised')",
+      [date]
     );
-    const shifted = (dr.affectedRows || 0) + (cr.affectedRows || 0);
     await conn.commit();
 
-    res.json({ success: true, shifted, shiftedTo: target });
+    res.json({ success: true, shifted: dr.affectedRows || 0, shiftedTo: target, removed: cr.affectedRows || 0 });
   } catch (err) { await conn.rollback(); sendServerError(res, err); } finally { conn.release(); }
 });
 
@@ -2033,6 +2038,35 @@ app.delete('/api/holidays/:id', requireAuth, requireAdmin, async (req, res) => {
     if (!id) return res.status(400).json({ error: 'Invalid id' });
     await db.query('DELETE FROM holidays WHERE id=?', [id]);
     res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// Leave / absent (client 2026-11-13: "jis din employee chhutti leta hai ya absent rahta hai to bad mein wo pending
+// tasks ko ek sath remove kar sake bina sabhi task ko Done kiye") — the employee's pending / revised CHECKLIST tasks
+// due in a date range are removed, as if those days were off. Done tasks and delegations are never touched.
+function dayOffRange(q) {
+  const ok = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+  const userId = parseInt(q.userId, 10), from = q.from, to = ok(q.to) ? q.to : q.from;
+  if (!(userId > 0) || !ok(from)) return { error: 'Employee aur tareekh chunein' };
+  if (from > to) return { error: 'From date To se pehle honi chahiye' };
+  if ((new Date(to) - new Date(from)) / 86400000 > 62) return { error: 'Ek baar me 2 mahine tak ki tareekh' };
+  return { userId, from, to };
+}
+app.get('/api/tasks/day-off-count', requireAuth, requireChecklistManager, async (req, res) => {
+  try {
+    const r = dayOffRange(req.query);
+    if (r.error) return res.status(400).json({ error: r.error });
+    const [[c]] = await db.query("SELECT COUNT(*) AS n FROM checklist_tasks WHERE assigned_to=? AND due_date BETWEEN ? AND ? AND status IN ('pending','revised')", [r.userId, r.from, r.to]);
+    res.json({ count: Number(c.n) || 0 });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/tasks/day-off-clear', requireAuth, requireChecklistManager, async (req, res) => {
+  try {
+    const r = dayOffRange(req.body || {});
+    if (r.error) return res.status(400).json({ error: r.error });
+    const [d] = await db.query("DELETE FROM checklist_tasks WHERE assigned_to=? AND due_date BETWEEN ? AND ? AND status IN ('pending','revised')", [r.userId, r.from, r.to]);
+    console.log(`[day-off-clear] by ${req.session.userId}: user ${r.userId} ${r.from}..${r.to} → ${d.affectedRows} checklist tasks removed`);
+    res.json({ success: true, removed: d.affectedRows || 0 });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -9222,7 +9256,15 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       nextOrderIdCandidate = claimed + 1;
     }
 
-    const nowSerial = sfmsDateToSerial(new Date());
+    // Admin may back-date the order (client 2026-11-13: an old bill entered late) — that day, at the current time.
+    let nowSerial = sfmsDateToSerial(new Date());
+    const backDate = String(req.body.orderDate || '');
+    if (backDate) {
+      if (req.session.role !== 'admin') return res.status(403).json({ error: 'Pichhli tareekh ka order sirf Admin daal sakta hai' });
+      const todayIst = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(backDate) || backDate > todayIst) return res.status(400).json({ error: 'Order date sahi nahi (aage ki tareekh nahi)' });
+      if (backDate < todayIst) nowSerial = nowSerial - Math.round((new Date(todayIst) - new Date(backDate)) / 86400000);
+    }
     const dateToSendSerial = dateToSend ? sfmsDateToSerial(new Date(dateToSend + 'T00:00:00')) : '';
 
     rows = products.map((p, i) => [
@@ -9690,8 +9732,17 @@ async function getO2dOrderExtras() {
   return { flagBy, mediaBy };
 }
 
-// Who may Hold / Cancel an order: admin, HOD/PC, or anyone assigned to an O2D step.
+// Who may Hold an order (client 2026-11-13: "hold ka option only account ke pass ho"): admin, the Accounts
+// department, or the "Accounts is ok or not" (step 1) doer. Cancel is admin only (canCancelO2dOrder).
 async function canControlO2dOrder(req) {
+  if (req.session.role === 'admin') return true;
+  const [[u]] = await db.query('SELECT department FROM users WHERE id=?', [req.session.userId]);
+  if (u && /^accounts?$/i.test(String(u.department || '').trim())) return true;
+  const [rows] = await withO2dStepDoersTable(() => db.query('SELECT 1 FROM o2d_step_doers WHERE user_id=? AND step_n=1 LIMIT 1', [req.session.userId]));
+  return rows.length > 0;
+}
+// CD % / remove one item: admin, HOD/PC, or anyone assigned to an O2D step (unchanged since 2026-10-12).
+async function canEditO2dOrder(req) {
   if (['admin', 'hod', 'pc'].includes(req.session.role)) return true;
   const [rows] = await withO2dStepDoersTable(() => db.query('SELECT 1 FROM o2d_step_doers WHERE user_id=? LIMIT 1', [req.session.userId]));
   return rows.length > 0;
@@ -9708,7 +9759,7 @@ async function readO2dOrderRows(sheetsApi, orderNo, lastCol) {
 
 app.post('/api/o2d-fms/order/:orderNo/hold', requireAuth, async (req, res) => {
   try {
-    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Only O2D step doers / admin can hold an order' });
+    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Hold / Resume sirf Accounts ya Admin kar sakta hai' });
     const orderNo = req.params.orderNo;
     const hold = !!req.body.hold;
     // Two kinds (client video, 2026-10-17): "Stock not available" is counted
@@ -9727,7 +9778,8 @@ app.post('/api/o2d-fms/order/:orderNo/hold', requireAuth, async (req, res) => {
 
 app.post('/api/o2d-fms/order/:orderNo/cancel', requireAuth, async (req, res) => {
   try {
-    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Only O2D step doers / admin can cancel an order' });
+    // Client 2026-11-13: "cancel order ka option ... only for admin".
+    if (req.session.role !== 'admin') return res.status(403).json({ error: 'Order cancel sirf Admin kar sakta hai' });
     const orderNo = req.params.orderNo;
     const reason = String(req.body.reason || '').trim().slice(0, 500);
     if (!reason) return res.status(400).json({ error: 'Cancel ka reason likhein' });
@@ -9813,7 +9865,7 @@ async function setO2dDiscountPct(orderNo, pct) {
 // Set / change it later (older orders, or forgotten on the form): anyone who may control the order.
 app.post('/api/o2d-fms/order/:orderNo/discount', requireAuth, async (req, res) => {
   try {
-    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Sirf Admin / PC / O2D step doer discount badal sakta hai' });
+    if (!(await canEditO2dOrder(req))) return res.status(403).json({ error: 'Sirf Admin / PC / O2D step doer discount badal sakta hai' });
     const pct = parseO2dDiscountPct(req.body.discountPct);
     if (pct === null) return res.status(400).json({ error: 'CD / Discount % 0 se 50 ke beech ho' });
     await setO2dDiscountPct(String(req.params.orderNo).slice(0, 64), pct);
@@ -9827,7 +9879,7 @@ app.post('/api/o2d-fms/order/:orderNo/discount', requireAuth, async (req, res) =
 // are left alone. The order must keep at least one line.
 app.post('/api/o2d-fms/order/:orderNo/remove-item', requireAuth, async (req, res) => {
   try {
-    if (!(await canControlO2dOrder(req))) return res.status(403).json({ error: 'Only O2D step doers / admin can remove an item' });
+    if (!(await canEditO2dOrder(req))) return res.status(403).json({ error: 'Only O2D step doers / admin can remove an item' });
     const orderNo = req.params.orderNo, row = Number(req.body.row);
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
     const billStep = O2D_STEPS.find(s => s.n === 4);
@@ -15368,15 +15420,19 @@ async function buildSalesmanPl(start, end, onlyUserId) {
     FROM salesman_profiles p JOIN users u ON u.id=p.user_id WHERE u.is_active=1 AND ((p.o2d_names IS NOT NULL AND p.o2d_names<>'') OR p.monthly_salary > 0)${onlyUserId ? ' AND u.id=?' : ''} ORDER BY u.name`, onlyUserId ? [onlyUserId] : []);
   if (!profiles.length && onlyUserId) return { rows: [], unassigned: [], today, salaryFrom };
   const ids = profiles.length ? profiles.map(p => p.id) : [0];
-  const [[att], [leaves], [kms], [tours], hol] = await withAttendanceTables(() => Promise.all([
+  const [[att], [leaves], [kms], [tours], hol, [firsts]] = await withAttendanceTables(() => Promise.all([
     db.query("SELECT user_id, DATE_FORMAT(date,'%Y-%m-%d') AS d FROM attendance WHERE time_in IS NOT NULL AND date BETWEEN ? AND ? AND user_id IN (?)", [start, end, ids]),
     db.query("SELECT user_id, DATE_FORMAT(start_date,'%Y-%m-%d') AS s, DATE_FORMAT(end_date,'%Y-%m-%d') AS e FROM leave_requests WHERE status='approved' AND end_date>=? AND start_date<=? AND user_id IN (?)", [start, end, ids]),
     db.query('SELECT user_id, SUM(GREATEST(evening_km - morning_km, 0)) AS km, COUNT(evening_km) AS days FROM daily_km WHERE date BETWEEN ? AND ? AND morning_km IS NOT NULL AND evening_km IS NOT NULL' + (onlyUserId ? ' AND user_id IN (?)' : '') + ' GROUP BY user_id', onlyUserId ? [start, end, ids] : [start, end]),
     db.query("SELECT user_id, status, SUM(total) AS amt, COUNT(*) AS n FROM tour_expenses WHERE tour_date BETWEEN ? AND ?" + (onlyUserId ? ' AND user_id IN (?)' : '') + " GROUP BY user_id, status", onlyUserId ? [start, end, ids] : [start, end]),
-    db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [start, end]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; })
+    db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date BETWEEN ? AND ?", [start, end]).catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; }),
+    // Each salesman's first punch: days before it are not absent — e.g. Lakshita, first punch 19-Oct, showed 15 absent
+    // for 1–18 Oct (client video 2026-11-13: "Lakshita ki 15 chhutti kaise").
+    db.query("SELECT user_id, DATE_FORMAT(MIN(date),'%Y-%m-%d') AS f FROM attendance WHERE time_in IS NOT NULL AND user_id IN (?) GROUP BY user_id", [ids])
   ]));
   const ctx = { present: new Set(att.map(a => `${a.user_id}|${a.d}`)), holidays: new Set((hol[0] || []).map(h => h.d)), leaves: {} };
   leaves.forEach(l => (ctx.leaves[l.user_id] = ctx.leaves[l.user_id] || []).push(l));
+  const firstPunch = Object.fromEntries(firsts.map(f => [f.user_id, f.f]));
   const kmBy = Object.fromEntries(kms.map(k => [k.user_id, { km: Number(k.km) || 0, days: Number(k.days) || 0 }]));
   const tourBy = {};
   tours.forEach(t => { const x = tourBy[t.user_id] = tourBy[t.user_id] || { approved: 0, pending: 0, pendingCount: 0 }; if (t.status === 'approved') x.approved += Number(t.amt) || 0; else if (t.status === 'pending') { x.pending += Number(t.amt) || 0; x.pendingCount += Number(t.n); } });
@@ -15420,7 +15476,8 @@ async function buildSalesmanPl(start, end, onlyUserId) {
 
   const kmRate = await getKmRate(); // one rate for every salesman
   const rows = profiles.map(p => {
-    const sal = plSalaryFor(p, p, salaryFrom, end, today, ctx);
+    const fromU = firstPunch[p.id] && firstPunch[p.id] > salaryFrom ? firstPunch[p.id] : salaryFrom;
+    const sal = firstPunch[p.id] ? plSalaryFor(p, p, fromU, end, today, ctx) : { days: 0, present: 0, off: 0, leave: 0, absent: 0, salary: 0 };
     const km = kmBy[p.id] || { km: 0, days: 0 };
     const petrol = plRound(km.km * kmRate);
     const tour = tourBy[p.id] || { approved: 0, pending: 0, pendingCount: 0 };
