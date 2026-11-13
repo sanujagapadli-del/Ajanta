@@ -7442,6 +7442,9 @@ async function loadUsers() {
     return;
   }
   allUsersData = res;
+  // Access screen reads the same list — a stale copy there showed a just-saved switch as OFF again
+  // (client video 2026-11-13: Payment Follow-up tick for Kavita "on hota hai phir automatic off").
+  allAccessUsersData = allUsersData;
   renderUsersTable(allUsersData);
 }
 
@@ -7702,8 +7705,8 @@ async function accSetGroup(userId, gi, on) {
   filterAccessUsers();
 }
 async function toggleAccess(userId, pageKey, checked, cbEl, inverted) {
-  const user = allUsersData.find(u => u.id === userId);
-  if (!user) return;
+  const user = allUsersData.find(u => u.id === userId) || allAccessUsersData.find(u => u.id === userId);
+  if (!user) { if (cbEl) cbEl.checked = inverted ? checked : !checked; showToast('User list purani hai — page refresh karein', 'error'); return; }
   const before = new Set(user.page_access||[]);
   // Optimistic update — flip immediately, revert only if the save fails
   const after = new Set(before);
@@ -7716,6 +7719,7 @@ async function toggleAccess(userId, pageKey, checked, cbEl, inverted) {
     showToast(r.error || 'Failed to update access', 'error');
     return;
   }
+  const twin = allAccessUsersData.find(x => x.id === userId); if (twin && twin !== user) twin.page_access = user.page_access;
   // A page tick changes whether its forms are dimmed — redraw that row's cells.
   if (!inverted && cbEl && PAGE_ACCESS_GROUPS.some(g => g.pages.some(p => p.deny && p.needs.includes(pageKey)))) {
     filterAccessUsers();
