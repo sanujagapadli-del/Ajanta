@@ -19807,7 +19807,8 @@ async function openPoGenerator(vendorPreset) {
 }
 function poVendorChanged() {
   const name = document.getElementById('poVendor').value;
-  const v = (_poForm.vendors || []).find(x => x.name.toLowerCase() === name.toLowerCase()) || {};
+  const vk = s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); // master / sheet spell spaces differently
+  const v = (_poForm.vendors || []).find(x => vk(x.name) === vk(name)) || {};
   [['poVAddr', 'address'], ['poVState', 'state'], ['poVGst', 'gst'], ['poVContact', 'contact'], ['poVPhone', 'phone']].forEach(([id, k]) => { document.getElementById(id).value = v[k] || ''; });
   const lines = _poForm.lines.filter(l => l.vendorName === name);
   const lead = Math.max(0, ...lines.map(l => l.leadTime || 0));

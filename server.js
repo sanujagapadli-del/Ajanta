@@ -1059,7 +1059,12 @@ async function getMasterWorkbookData() {
   const vendorRows = vendorSheet ? XLSX.utils.sheet_to_json(vendorSheet, { header: 1, raw: false, defval: '' }) : [];
   const vendors = vendorRows.slice(2)
     .filter(r => (r[1] || '').trim() && !/^(inactive|discontinued|closed)$/i.test((r[15] || '').trim()))
-    .map(r => ({ code: (r[0] || '').trim(), name: (r[1] || '').trim() }));
+    .map(r => {
+      // Contact columns feed Generate PO's vendor details ("—" = not filled).
+      const c = i => { const v = String(r[i] || '').trim(); return /^[—–-]*$/.test(v) ? '' : v; };
+      return { code: (r[0] || '').trim(), name: (r[1] || '').trim(), address: [c(7), c(6)].filter(Boolean).join(', '), gst: c(9).toUpperCase(),
+        contact: c(2) || c(4), phone: c(3) || c(5) };
+    });
   _masterWorkbookCache = { products, dealerNames, spareParts, vendors, ts: Date.now() };
   return _masterWorkbookCache;
 }
@@ -10795,7 +10800,18 @@ async function erpPoFormData() {
     db.query("SELECT vendor_json, lines_json FROM erp_purchase_orders WHERE status='done' ORDER BY id")
   ]);
   const vendors = {};
-  const put = v => { if (v && v.name) vendors[v.name.trim().toLowerCase()] = { name: v.name.trim(), address: v.address || '', state: v.state || '', gst: v.gst || '', contact: v.contact || '', phone: v.phone || '' }; };
+  // A later PO only overrides the fields it actually has — an ERP PO made with the
+  // boxes empty (Saksham PO-0107 / PO-0112) used to wipe the address / GST / contact
+  // the old script POs had, so every later PO came up blank (client video 2026-11-13).
+  const put = v => {
+    if (!v || !v.name || !String(v.name).trim()) return;
+    const key = String(v.name).trim().replace(/\s+/g, ' ').toLowerCase(); // "LORDS  INDUSTRIES" = "Lords Industries"
+    const cur = vendors[key] || { name: String(v.name).trim(), address: '', state: '', gst: '', contact: '', phone: '' };
+    ['address', 'state', 'gst', 'contact', 'phone'].forEach(k => { const x = String(v[k] == null ? '' : v[k]).trim(); if (x) cur[k] = x; });
+    vendors[key] = cur;
+  };
+  // Vendor Master (address / GST / owner) first, then old script POs, then our own POs.
+  (master.vendors || []).forEach(v => put(v));
   web.forEach(x => put({ name: x[2], address: x[3], state: x[4], gst: x[5], contact: x[6], phone: x[7] }));
   mine.forEach(m => { try { put(JSON.parse(m.vendor_json)); } catch (e) {} });
   // Lines already on an ERP PO stay off the form even before the sheet shows the PO
