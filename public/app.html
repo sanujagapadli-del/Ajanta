@@ -4540,7 +4540,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
 <div class="modal-overlay" id="newReplModal">
   <div class="modal" style="max-width:520px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <h3 style="margin:0">♻️ Replacement Form</h3>
+      <h3 style="margin:0" id="rfTitle">♻️ Replacement Form</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('newReplModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="alert error" id="rfErr" style="display:none"></div>
@@ -4561,12 +4561,13 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     </div>
     <div class="form-group"><label>Product Defect <span style="color:var(--color-danger)">*</span></label>
       <input type="text" id="rfDefect" placeholder="प्रोडक्ट की खराबी — e.g. not working, tuta hua" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
-    <div class="form-group"><label>Product Photo <span style="color:var(--color-danger)">*</span> <span style="font-weight:400;color:var(--gray-400)">(saare pcs ek saath rakh kar)</span></label>
+    <div class="form-group" id="rfPhotoGroup"><label>Product Photo <span style="color:var(--color-danger)">*</span> <span style="font-weight:400;color:var(--gray-400)">(saare pcs ek saath rakh kar)</span></label>
       <input type="file" id="rfPhoto" accept="image/*" multiple onchange="onRfPhotosSelected(this)" style="width:100%;font-size:13px"/>
       <div style="font-size:11px;color:var(--gray-400);margin-top:2px">Ek saath kai photos chun sakte hain (max 6) — camera ya gallery / PC se.</div>
       <div id="rfPhotoPreview" style="font-size:12px;margin-top:4px"></div></div>
     <div class="form-group"><label>Salesman <span style="font-weight:400;color:var(--gray-400)">(kiska counter hai)</span></label>
-      <select id="rfSalesman" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"><option value="">-- Select --</option></select></div>
+      <select id="rfSalesman" onchange="onRfSalesmanChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"><option value="">-- Select --</option></select>
+      <input type="text" id="rfSalesmanNew" placeholder="Naye salesman ka naam" style="display:none;width:100%;margin-top:6px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>Who Got the Product <span style="color:var(--color-danger)">*</span></label>
       <input type="text" id="rfBroughtBy" placeholder="Salesman / courier / self customer" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group"><label>Remark</label>
@@ -26322,6 +26323,9 @@ const DD_FIELDS = [['#uDepartment', 'department'], ['#plUom', 'uom'], ['#stkUom'
   ['#onb_city', 'city'], ['#onb_area', 'area'], ['#onb_tname', 'transport'], ['#o2dHoldReason', 'hold_reason'], ['[id^="sfmsInReason_"]', 'inout_reason'],
   ['#o2dDvBy', 'received_by'], ['#ssNewCounterCity', 'city'], ['#ssUpPlace', 'city'], ['[id^="rpl_"][id$="_reason"]', 'repl_not_ours'], ['[id^="rpl_"][id$="_owr"]', 'ow_reason'],
   ['[id^="rpl_"][id$="_staff"]', 'staff']];
+// Non-admins who may still type a new value in one list (user ids).
+// Replacement "Who Got the Product" — Shalu, Service PC (client 2026-11-13).
+const DD_OTHER_USERS = { brought_by: [14] };
 let ddLists = {};
 async function loadDdLists() {
   const r = await api('/api/dd-lists');
@@ -26337,8 +26341,9 @@ function ddEnhance(inp, key) {
   sel.className = inp.className;
   sel.style.cssText = inp.style.cssText;
   const cur = inp.value.trim(), known = items.some(v => v.toLowerCase() === cur.toLowerCase());
-  // Client 2026-11-05: dropdown se hi chunna; "Doosra (likho)" = naya option — sirf Admin.
-  const admin = ME && ME.role === 'admin';
+  // Client 2026-11-05: dropdown se hi chunna; "Doosra (likho)" = naya option — sirf Admin
+  // (+ the people in DD_OTHER_USERS for that one list).
+  const admin = ME && (ME.role === 'admin' || (DD_OTHER_USERS[key] || []).includes(Number(ME.id)));
   sel.innerHTML = `<option value="">-- Chunein --</option>${items.map(v => `<option ${cur && v.toLowerCase() === cur.toLowerCase() ? 'selected' : ''}>${esc(v)}</option>`).join('')}${
     admin ? `<option value="__dd_other__" ${cur && !known ? 'selected' : ''}>➕ Doosra (likho)</option>` : (cur && !known ? `<option selected>${esc(cur)}</option>` : '')}`;
   if (!cur || known || !admin) inp.style.display = 'none';
@@ -29275,8 +29280,16 @@ async function loadReplPartyNames() {
   // same dealer dropdown as O2D New Order (client 2026-11-07: "dropdown waisa hi rakho jaisa O2D me hai")
   document.getElementById('rplPartyList').innerHTML = [...names].filter(Boolean).sort((a, b) => a.localeCompare(b)).map(n => `<option value="${esc(n)}">`).join('');
 }
+let _rfEditId = null; // set = the form is editing that entry (admin)
 function openNewReplModal() {
   if (formBlocked('form-replacement')) return;
+  _rfEditId = null;
+  document.getElementById('newReplModal').style.zIndex = '';
+  document.getElementById('rfTitle').textContent = '♻️ Replacement Form';
+  document.getElementById('rfPhotoGroup').style.display = '';
+  document.getElementById('rfSubmitBtn').textContent = 'Submit';
+  document.getElementById('rfSalesmanNew').value = '';
+  document.getElementById('rfSalesmanNew').style.display = 'none';
   ['rfParty', 'rfMobile', 'rfItems', 'rfDefect', 'rfBroughtBy', 'rfRemark'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('rfCondition').value = 'Full Product';
   document.getElementById('rfType').value = 'Used Product';
@@ -29298,7 +29311,39 @@ async function loadReplSalesmen() {
   const isSales = u => /sale|market/i.test(u.department || '');
   const opt = u => `<option value="${u.id}">${esc(u.name)}</option>`;
   const sales = act.filter(isSales), rest = act.filter(u => !isSales(u));
-  sel.innerHTML = '<option value="">-- Select --</option>' + (sales.length ? `<optgroup label="Sales">${sales.map(opt).join('')}</optgroup><optgroup label="Others">${rest.map(opt).join('')}</optgroup>` : rest.map(opt).join(''));
+  sel.innerHTML = '<option value="">-- Select --</option>' + (sales.length ? `<optgroup label="Sales">${sales.map(opt).join('')}</optgroup><optgroup label="Others">${rest.map(opt).join('')}</optgroup>` : rest.map(opt).join(''))
+    // Admin can name a salesman who isn't in Users yet (client 2026-11-13).
+    + (ME.role === 'admin' ? '<option value="__new__">➕ Naya salesman (likho)</option>' : '');
+}
+function onRfSalesmanChange() {
+  const inp = document.getElementById('rfSalesmanNew');
+  const isNew = document.getElementById('rfSalesman').value === '__new__';
+  inp.style.display = isNew ? '' : 'none';
+  if (isNew) inp.focus(); else inp.value = '';
+}
+// ✏️ Edit (admin, client 2026-11-13): the same form, filled with the entry's
+// details; photos and steps already done are not touched.
+async function openEditRepl(id) {
+  if (ME.role !== 'admin') return;
+  const r = rplData.find(x => x.id === id);
+  if (!r) { showToast('Not found — please refresh', 'error'); return; }
+  openNewReplModal();
+  _rfEditId = id;
+  // Opens from the detail modal, which comes later in the page — sit above it.
+  const z = parseInt(getComputedStyle(document.getElementById('replDetailModal')).zIndex, 10);
+  document.getElementById('newReplModal').style.zIndex = Number.isFinite(z) ? z + 1 : '';
+  document.getElementById('rfTitle').textContent = `✏️ Edit ${rplCodeLabel(r)}`;
+  document.getElementById('rfPhotoGroup').style.display = 'none';
+  document.getElementById('rfSubmitBtn').textContent = 'Save Changes';
+  const set = (elId, v) => { document.getElementById(elId).value = v || ''; };
+  set('rfParty', r.partyName); set('rfMobile', r.customerMobile); set('rfItems', r.items); set('rfDefect', r.defect);
+  set('rfBroughtBy', r.broughtBy); set('rfRemark', r.remark);
+  const pick = (elId, v) => { const s = document.getElementById(elId); if (v && ![...s.options].some(o => o.value === v || o.text === v)) s.insertAdjacentHTML('beforeend', `<option>${esc(v)}</option>`); if (v) s.value = v; };
+  pick('rfCondition', r.condition); pick('rfType', r.productType);
+  await loadReplSalesmen();
+  const sel = document.getElementById('rfSalesman');
+  if (r.salesmanUserId && [...sel.options].some(o => o.value === String(r.salesmanUserId))) sel.value = String(r.salesmanUserId);
+  else if (r.salesmanName) { sel.value = '__new__'; onRfSalesmanChange(); document.getElementById('rfSalesmanNew').value = r.salesmanName; }
 }
 // Product photos (client, 2026-10-17): several at once, from camera, gallery or a
 // PC — the CRM desk gets them on WhatsApp, so the "fresh photo only" rule
@@ -29329,14 +29374,28 @@ async function submitNewRepl() {
   const v = id => document.getElementById(id).value.trim();
   const body = { partyName: v('rfParty'), customerMobile: v('rfMobile'), items: v('rfItems'), condition: v('rfCondition'), productType: v('rfType'),
     defect: v('rfDefect'), broughtBy: v('rfBroughtBy'), remark: v('rfRemark'), salesmanUserId: v('rfSalesman'), photos: _rfPhotos.slice() };
-  const miss = !body.partyName ? 'Party name' : !body.items ? 'Item name & quantity' : !body.defect ? 'Product defect' : !body.photos.length ? 'Product photo' : !body.broughtBy ? 'Who brought the product' : '';
+  if (body.salesmanUserId === '__new__') {
+    body.salesmanUserId = '';
+    body.salesmanName = v('rfSalesmanNew');
+    if (!body.salesmanName) { err.textContent = 'Naye salesman ka naam likhein'; err.style.display = 'block'; return; }
+  }
+  const editId = _rfEditId;
+  const miss = !body.partyName ? 'Party name' : !body.items ? 'Item name & quantity' : !body.defect ? 'Product defect' : (!editId && !body.photos.length) ? 'Product photo' : !body.broughtBy ? 'Who brought the product' : '';
   if (miss) { err.textContent = `${miss} is required`; err.style.display = 'block'; return; }
   const btn = document.getElementById('rfSubmitBtn');
+  const label = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ Saving…';
-  const r = await api('/api/replacement-fms', 'POST', body);
-  btn.disabled = false; btn.textContent = 'Submit';
+  if (editId) delete body.photos;
+  const r = await api(editId ? `/api/replacement-fms/${editId}` : '/api/replacement-fms', editId ? 'PUT' : 'POST', body);
+  btn.disabled = false; btn.textContent = label;
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   closeModal('newReplModal');
+  if (editId) {
+    showToast(r.unchanged ? 'Kuch badla nahi' : '✅ Changes saved');
+    await loadReplFmsList();
+    if (document.getElementById('replDetailModal').classList.contains('open')) openReplDetail(editId);
+    return;
+  }
   showToast(`✅ ${rplCodeLabel(r)} saved — Diary me entry karke sticker lagayein${r.hasMobile ? ' · Diary No. bharte hi dealer ko WhatsApp jayega' : ' · mobile nahi hai, WhatsApp nahi jayega'}`);
   if (document.getElementById('page-replacement-fms').classList.contains('active')) loadReplFmsList();
 }
@@ -29575,13 +29634,13 @@ function renderReplDetailBody(r) {
       <div style="grid-column:1/-1">${f('Remark', esc(r.remark))}</div>
       ${r.cancelledAt ? f('Cancelled', esc(r.cancelReason)) : ''}
     </div>
-    ${(rplMe.isAdmin || rplMe.mySteps.includes(1)) && r.task ? `<div style="margin-top:10px"><button class="btn btn-outline btn-sm" onclick="cancelRepl(${r.id})">🚫 Cancel entry</button></div>` : ''}
+    ${(ME.role === 'admin') || ((rplMe.isAdmin || rplMe.mySteps.includes(1)) && r.task) ? `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${ME.role === 'admin' ? `<button class="btn btn-outline btn-sm" onclick="openEditRepl(${r.id})">✏️ Edit</button>` : ''}${(rplMe.isAdmin || rplMe.mySteps.includes(1)) && r.task ? `<button class="btn btn-outline btn-sm" onclick="cancelRepl(${r.id})">🚫 Cancel entry</button>` : ''}</div>` : ''}
   </div>`;
   const action = r.task ? rplTaskFormHtml(r)
     : `<div style="text-align:center;color:var(--color-success-text);font-weight:700;padding:14px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:12px">${r.stage === 'cancelled' ? 'Cancelled' : 'Complete — entry closed'}</div>`;
   document.getElementById('rplBody').innerHTML = info + action + `<div style="${RPL_LABEL};margin:6px 0 8px">History</div><div id="rplEvents_${r.id}" style="font-size:12.5px"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>`;
 }
-const RPL_EVENT_LABEL = { created: '📝 Form filled', imported: '📥 Imported', check: '📒 Diary / ownership', category: '🗂 Category', warranty: '🛡 Warranty',
+const RPL_EVENT_LABEL = { created: '📝 Form filled', edited: '✏️ Admin ne edit kiya', imported: '📥 Imported', check: '📒 Diary / ownership', category: '🗂 Category', warranty: '🛡 Warranty',
   assign: '🔧 Given to mechanic', spareissue: '🔩 Spare issued', repair: '✅ Repaired & tested', takeout: '📦 Spare takeout', sparecheck: '🔍 Spare check', exchange: '🔄 Exchanged', inform: '📞 Informed', bin: '🔍 Maal check', cn: '🧾 Credit note',
   cnsend: '📤 CN shared', deliveryassign: '🚚 Delivery assigned', otp: '🔐 OTP', handover: '🤝 Handed over', cashstaff: '💵 Cash from staff', cancelled: '🚫 Cancelled' };
 async function loadReplEvents(id) {

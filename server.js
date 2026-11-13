@@ -12359,7 +12359,19 @@ async function replDealerPhone(party) {
 // Replacement Form — anyone with the page (salesman / purchase assistant).
 // New replacement entry — the Replacement form, and a Service FMS complaint
 // sent over (product came back to the office). Returns { error } or { id, code }.
-async function replCreate(b, userId) {
+// Salesman on the form: a user (id), or — admin only — a typed name of someone
+// not in Users yet (client 2026-11-13: "admin can add new sales person").
+async function replSalesmanFrom(b, isAdmin) {
+  if (Number(b.salesmanUserId)) {
+    const [[u]] = await db.query('SELECT id, name FROM users WHERE id=?', [Number(b.salesmanUserId)]);
+    if (!u) return { error: 'Salesman not found' };
+    return { salesman: u };
+  }
+  const typed = String(b.salesmanName || '').trim().replace(/\s+/g, ' ').slice(0, 255);
+  if (typed && !isAdmin) return { error: 'Naya salesman sirf Admin likh sakta hai — list se chunein' };
+  return { salesman: typed ? { id: null, name: typed } : null };
+}
+async function replCreate(b, userId, isAdmin) {
   const t = (v, n = 500) => String(v || '').trim().slice(0, n);
   const party = t(b.partyName, 255), items = t(b.items, 2000), defect = t(b.defect, 1000);
   if (!party || !items || !defect) return { error: 'Party name, item & quantity and defect are required' };
@@ -12373,12 +12385,9 @@ async function replCreate(b, userId) {
   const photoUrl = urls.join('\n').slice(0, 1000); // photo_url VARCHAR(1000); rplPhoto() splits on newlines
   const mobile = t(b.customerMobile, 30) || await replDealerPhone(party);
   // Whose counter it is (client, 2026-10-13) — told when the item is ready.
-  let salesman = null;
-  if (Number(b.salesmanUserId)) {
-    const [[u]] = await db.query('SELECT id, name FROM users WHERE id=?', [Number(b.salesmanUserId)]);
-    if (!u) return { error: 'Salesman not found' };
-    salesman = u;
-  }
+  const sm = await replSalesmanFrom(b, isAdmin);
+  if (sm.error) return { error: sm.error };
+  const salesman = sm.salesman;
   if (!_replColsOk) await ensureReplCols();
   const [r] = await db.query(`INSERT INTO replacements (code, created_by, party_name, customer_mobile, items, product_condition, product_type, defect, photo_url, brought_by, remark, salesman_user_id, salesman_name)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -12393,13 +12402,44 @@ app.post('/api/replacement-fms', requireAuth, async (req, res) => {
     const acc = await replUserAccess(req);
     if (!acc.pageAccess) return res.status(403).json({ error: 'You do not have access to Replacement FMS' });
     if (await hasPageDeny(req, 'form-replacement')) return res.status(403).json(FORM_DENIED);
-    const out = await replCreate(req.body || {}, req.session.userId);
+    const out = await replCreate(req.body || {}, req.session.userId, req.session.role === 'admin');
     if (out.error) return res.status(400).json({ error: out.error });
     res.json({ success: true, id: out.id, code: out.code, hasMobile: out.hasMobile });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);
   }
+});
+
+// Admin edits the form details of an entry (client 2026-11-13: "replacement mai
+// admin can edit") — party, mobile, items, condition, type, defect, who got it,
+// salesman, remark. Steps already done and photos stay as they are; the change
+// goes into the entry's history.
+app.put('/api/replacement-fms/:id(\\d+)', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const t = (v, n = 500) => String(v || '').trim().slice(0, n);
+    const [[r]] = await withReplTables(() => db.query(`${REPL_SELECT} WHERE r.id=?`, [req.params.id]));
+    if (!r) return res.status(404).json({ error: 'Not found' });
+    const party = t(b.partyName, 255), items = t(b.items, 2000), defect = t(b.defect, 1000);
+    if (!party || !items || !defect) return res.status(400).json({ error: 'Party name, item & quantity and defect are required' });
+    const sm = await replSalesmanFrom(b, true);
+    if (sm.error) return res.status(400).json({ error: sm.error });
+    if (!_replColsOk) await ensureReplCols();
+    const next = {
+      party_name: party, customer_mobile: t(b.customerMobile, 30) || null, items, product_condition: t(b.condition, 100) || null,
+      product_type: t(b.productType, 50) || null, defect, brought_by: t(b.broughtBy, 255) || null, remark: t(b.remark, 2000) || null,
+      salesman_user_id: sm.salesman ? sm.salesman.id : null, salesman_name: sm.salesman ? sm.salesman.name : null
+    };
+    const LABEL = { party_name: 'Party', customer_mobile: 'Mobile', items: 'Items', product_condition: 'Condition', product_type: 'Type', defect: 'Defect', brought_by: 'Who got', remark: 'Remark', salesman_name: 'Salesman' };
+    const changed = Object.keys(LABEL).filter(k => String(r[k] ?? '') !== String(next[k] ?? ''));
+    if (String(r.salesman_user_id ?? '') !== String(next.salesman_user_id ?? '') && !changed.includes('salesman_name')) changed.push('salesman_name');
+    if (!changed.length) return res.json({ success: true, unchanged: true });
+    const cols = Object.keys(next);
+    await db.query(`UPDATE replacements SET ${cols.map(c => `${c}=?`).join(', ')} WHERE id=?`, [...cols.map(c => next[c]), r.id]);
+    await logReplEvent(r.id, 'edited', changed.map(k => `${LABEL[k]}: ${String(r[k] ?? '—').slice(0, 60) || '—'} → ${String(next[k] ?? '—').slice(0, 60) || '—'}`).join(' · ').slice(0, 1000), req.session.userId);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
 });
 
 // Client's own text (2026-10-14), English + Hindi.
