@@ -4252,6 +4252,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <label>Counter / Dealer Name <span style="color:var(--color-danger)">*</span></label>
         <input type="text" id="noCounterName" list="noCounterNameList" oninput="onO2dCounterNameInput()" placeholder="Type karke list se dealer chunein" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
         <datalist id="noCounterNameList"></datalist>
+        <button type="button" id="noAddDealerBtn" class="btn btn-outline btn-sm" style="display:none;margin-top:6px" onclick="openAddDealerFromOrder()">+ Naya dealer jodo</button>
       </div>
       <div id="noDealerDetailBox" style="margin-top:4px"></div>
       <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="goToO2dOrderStep2()">Continue →</button>
@@ -4602,7 +4603,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
 <div class="modal-overlay" id="addDealerModal">
   <div class="modal" style="max-width:420px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <h3 style="margin:0">🏪 Purana Dealer — sirf naam / phone</h3>
+      <h3 style="margin:0" id="addDealerTitle">🏪 Purana Dealer — sirf naam / phone</h3>
       <button class="modal-close-x modal-close" onclick="closeModal('addDealerModal')" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="alert error" id="addDealerErr" style="display:none"></div>
@@ -16340,7 +16341,21 @@ async function submitDealerDetails() {
   refreshDealerViews();
 }
 
+// New Order → "+ Naya dealer jodo" (admin): same Add Dealer form, opened over the
+// order with the typed name filled in; after Save the new dealer is picked.
+let _addDealerForOrder = false;
+function openAddDealerFromOrder() {
+  if (ME.role !== 'admin') return;
+  const typed = document.getElementById('noCounterName').value.trim().replace(/\s+/g, ' ');
+  openAddDealerModal();
+  _addDealerForOrder = true;
+  document.getElementById('addDealerTitle').textContent = '🏪 Naya Dealer — naam / city / phone';
+  document.getElementById('adName').value = typed;
+  setTimeout(() => document.getElementById(typed ? 'adCity' : 'adName').focus(), 50);
+}
 function openAddDealerModal() {
+  _addDealerForOrder = false;
+  document.getElementById('addDealerTitle').textContent = '🏪 Purana Dealer — sirf naam / phone';
   document.getElementById('adName').value = '';
   document.getElementById('adCity').value = '';
   document.getElementById('adPhone').value = '';
@@ -16348,7 +16363,7 @@ function openAddDealerModal() {
   document.getElementById('addDealerModal').classList.add('open');
 }
 async function submitAddDealer() {
-  const name = document.getElementById('adName').value.trim();
+  const name = document.getElementById('adName').value.trim().replace(/\s+/g, ' ');
   const errEl = document.getElementById('addDealerErr');
   if (!name) { errEl.textContent = 'Dealer name is required'; errEl.style.display = 'block'; return; }
   const r = await api('/api/o2d-fms/dealers', 'POST', {
@@ -16357,6 +16372,14 @@ async function submitAddDealer() {
   if (r.error) { errEl.textContent = r.error; errEl.style.display = 'block'; return; }
   showToast('Dealer added!');
   closeModal('addDealerModal');
+  if (_addDealerForOrder) {
+    _addDealerForOrder = false;
+    _o2dCounterNames = null; // list now has the new dealer
+    await loadO2dCounterNames();
+    const inp = document.getElementById('noCounterName');
+    inp.value = name.replace(/\s+/g, ' ');
+    inp.style.borderColor = '';
+  }
   await loadO2dDealers(true);
   refreshDealerViews();
 }
@@ -18106,6 +18129,8 @@ function openNewO2dOrderModal() {
   addO2dProductRow();
   o2dNoTotal();
   document.getElementById('noDealerDetailBox').innerHTML = '';
+  // Admin adds a new dealer right here (client 2026-11-13: "admin ke pass yhi se dealer add krne ka option").
+  document.getElementById('noAddDealerBtn').style.display = ME.role === 'admin' ? '' : 'none';
   document.getElementById('newO2dOrderModal').classList.add('open');
   goToO2dOrderStep1();
   loadO2dCounterNames();
@@ -18137,6 +18162,10 @@ async function goToO2dOrderStep2() {
   // Must be picked from the list (client 2026-11-04) — typing only searches it.
   if (!_o2dCounterNames) await loadO2dCounterNames();
   const picked = (_o2dCounterNames || []).find(n => n.toLowerCase() === name.toLowerCase());
+  if (!picked && ME.role === 'admin') {
+    if (await uiConfirm(`"${name}" dealer list me nahi hai.\n\nNaya dealer jodna hai?`)) openAddDealerFromOrder();
+    return;
+  }
   if (!picked) { showToast('List se dealer chunein — naya dealer ho to pehle Dealer Master me jodein', 'error'); document.getElementById('noCounterName').focus(); return; }
   name = picked;
   document.getElementById('noCounterName').value = picked;
