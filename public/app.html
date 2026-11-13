@@ -26353,9 +26353,11 @@ const DD_FIELDS = [['#uDepartment', 'department'], ['#plUom', 'uom'], ['#stkUom'
   ['#onb_city', 'city'], ['#onb_area', 'area'], ['#onb_tname', 'transport'], ['#o2dHoldReason', 'hold_reason'], ['[id^="sfmsInReason_"]', 'inout_reason'],
   ['#o2dDvBy', 'received_by'], ['#ssNewCounterCity', 'city'], ['#ssUpPlace', 'city'], ['[id^="rpl_"][id$="_reason"]', 'repl_not_ours'], ['[id^="rpl_"][id$="_owr"]', 'ow_reason'],
   ['[id^="rpl_"][id$="_staff"]', 'staff']];
-// Non-admins who may still type a new value in one list (user ids).
+// Non-admins who may still type a new value in one list (user ids, or 'all').
 // Replacement "Who Got the Product" — Shalu, Service PC (client 2026-11-13).
-const DD_OTHER_USERS = { brought_by: [14] };
+// Petty Cash Payee + Vehicle — anyone on the (granted) Petty Cash page: a new
+// person / train / bus isn't in the list yet (client video 2026-11-13, Aziz).
+const DD_OTHER_USERS = { brought_by: [14], payee: 'all', vehicle: 'all' };
 let ddLists = {};
 async function loadDdLists() {
   const r = await api('/api/dd-lists');
@@ -26373,7 +26375,8 @@ function ddEnhance(inp, key) {
   const cur = inp.value.trim(), known = items.some(v => v.toLowerCase() === cur.toLowerCase());
   // Client 2026-11-05: dropdown se hi chunna; "Doosra (likho)" = naya option — sirf Admin
   // (+ the people in DD_OTHER_USERS for that one list).
-  const admin = ME && (ME.role === 'admin' || (DD_OTHER_USERS[key] || []).includes(Number(ME.id)));
+  const other = DD_OTHER_USERS[key];
+  const admin = ME && (ME.role === 'admin' || other === 'all' || (Array.isArray(other) && other.includes(Number(ME.id))));
   sel.innerHTML = `<option value="">-- Chunein --</option>${items.map(v => `<option ${cur && v.toLowerCase() === cur.toLowerCase() ? 'selected' : ''}>${esc(v)}</option>`).join('')}${
     admin ? `<option value="__dd_other__" ${cur && !known ? 'selected' : ''}>➕ Doosra (likho)</option>` : (cur && !known ? `<option selected>${esc(cur)}</option>` : '')}`;
   if (!cur || known || !admin) inp.style.display = 'none';
