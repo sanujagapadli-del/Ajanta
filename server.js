@@ -3149,6 +3149,7 @@ async function misAttendanceAndKm(userIds, start, end) {
   ]));
   const kmFull = new Set(kmDays.map(k => `${k.user_id}|${k.d}`));
   const ctx = { present: new Set(att.map(a => `${a.user_id}|${a.d}`)), holidays: new Set((hol[0] || []).map(h => h.d)), leaves: {} };
+  (await beatPresentKeys(from, end, userIds).catch(() => [])).forEach(k => ctx.present.add(k)); // Beat visit = present
   leaves.forEach(l => (ctx.leaves[l.user_id] = ctx.leaves[l.user_id] || []).push(l));
   const kmBy = Object.fromEntries(kms.map(k => [k.user_id, k]));
   // Today counts only once punched in — not "absent" at 10 AM.
@@ -14141,6 +14142,15 @@ function beatDow(beatDay) {
   const k = String(beatDay || '').trim().toLowerCase().slice(0, 3);
   return { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 }[k] || 0;
 }
+// Days a salesman worked in the field without punching (client 2026-11-13: "haan" — a day with a real Beat visit
+// counts as present; Girdhar ji had 10 such October days shown as chhutti). Returns 'userId|YYYY-MM-DD' keys.
+async function beatPresentKeys(from, to, userIds) {
+  if (!userIds || !userIds.length) return [];
+  const [rows] = await db.query(`SELECT c.user_id, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS d, e.visit, e.order_amt, e.collection_amt
+    FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id WHERE e.entry_date BETWEEN ? AND ? AND c.user_id IN (?)`, [from, to, userIds])
+    .catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+  return [...new Set(rows.filter(beatVisited).map(r => `${r.user_id}|${r.d}`))];
+}
 // Visit cell → visited? "yes" / "sir ke sath" (went with sir) or any order / collection = visited;
 // "no", "out of city", "out of visit" = not visited.
 function beatVisited(e) {
@@ -15433,6 +15443,7 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   const ctx = { present: new Set(att.map(a => `${a.user_id}|${a.d}`)), holidays: new Set((hol[0] || []).map(h => h.d)), leaves: {} };
   leaves.forEach(l => (ctx.leaves[l.user_id] = ctx.leaves[l.user_id] || []).push(l));
   const firstPunch = Object.fromEntries(firsts.map(f => [f.user_id, f.f]));
+  (await beatPresentKeys(start, end, ids).catch(() => [])).forEach(k => ctx.present.add(k)); // Beat visit = present (client 2026-11-13)
   const kmBy = Object.fromEntries(kms.map(k => [k.user_id, { km: Number(k.km) || 0, days: Number(k.days) || 0 }]));
   const tourBy = {};
   tours.forEach(t => { const x = tourBy[t.user_id] = tourBy[t.user_id] || { approved: 0, pending: 0, pendingCount: 0 }; if (t.status === 'approved') x.approved += Number(t.amt) || 0; else if (t.status === 'pending') { x.pending += Number(t.amt) || 0; x.pendingCount += Number(t.n); } });
