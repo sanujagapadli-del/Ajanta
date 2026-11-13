@@ -5422,6 +5422,34 @@ function closeMobileSidebar() {
 // Leave / Kilometer / Tour Expense are separate sidebar pages (client,
 // 2026-10-09) but live as panels inside #page-attendance.
 const ATTN_SUB_PAGES = ['leave', 'km', 'tour'];
+// New deploy while this tab stays open (client video 2026-11-12: a tab opened
+// before the 11-07 PC Follow-up change still showed the old list). /app carries
+// X-App-Ver; it is read at start and again — at most every 10 min — on a page
+// switch or when the tab comes back. A newer one: the next page switch reloads
+// into it (no form open), else a "Refresh" bar. A CDN HEAD, no polling.
+let _appVer = null, _appVerAt = 0, _appStale = false;
+async function checkAppVersion() {
+  if (_appStale || (_appVer && Date.now() - _appVerAt < 10 * 60 * 1000)) return;
+  _appVerAt = Date.now();
+  try {
+    const r = await fetch('/app', { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' });
+    const v = r.ok && r.headers.get('X-App-Ver');
+    if (!v || v === 'x') return;
+    if (!_appVer) { _appVer = v; return; }
+    if (v !== _appVer) { _appStale = true; showAppUpdateBar(); }
+  } catch (e) { /* offline — try on a later switch */ }
+}
+function showAppUpdateBar() {
+  if (document.getElementById('appUpdateBar')) return;
+  document.body.insertAdjacentHTML('beforeend', `<div id="appUpdateBar" style="position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;display:flex;gap:10px;align-items:center;background:#1e293b;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:13px">🔄 ERP ka naya version aa gaya <button type="button" class="btn btn-primary btn-sm" onclick="location.reload()">Refresh</button></div>`);
+}
+function appReloadIfStale(page) {
+  if (!_appStale || document.querySelector('.modal-overlay.open')) return false;
+  try { history.replaceState({ page }, '', '#/' + page); } catch (e) {}
+  location.reload();
+  return true;
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkAppVersion(); });
 function navigate(page, el) {
   if (page === 'net-profit') { gpView = 'np'; page = 'gross-profit'; } // old saved page: Net Profit is a Gross Profit tab now
   const noAccess = ME && ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page))
@@ -5432,6 +5460,8 @@ function navigate(page, el) {
     return;
   }
   if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics', 'fms-flows', 'pc-followup', 'four-as', 'vendor-outstanding'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
+  if (appReloadIfStale(page)) return;
+  checkAppVersion();
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));

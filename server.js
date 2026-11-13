@@ -19790,8 +19790,21 @@ app.get('/vendor', (req, res) => {
   res.set('Cache-Control', CDN_CACHE);
   res.sendFile(path.join(__dirname, 'public', 'vendor.html'));
 });
+// X-App-Ver = this deploy's app.html: a tab left open shows/loads the new version
+// instead of running old code for days (client video 2026-11-12 — PC Follow-up
+// looked "wapas waisa" on a tab opened before the 11-07 change). Vercel gives
+// every file the same mtime, so the plain ETag only changes with the file size.
+let _appHtmlVer = null;
+function appHtmlVer() {
+  if (!_appHtmlVer) {
+    try { _appHtmlVer = crypto.createHash('sha1').update(require('fs').readFileSync(path.join(__dirname, 'public', 'app.html'))).digest('hex').slice(0, 12); }
+    catch (e) { _appHtmlVer = 'x'; }
+  }
+  return _appHtmlVer;
+}
 app.get('/app', (req, res) => {
   res.set('Cache-Control', CDN_CACHE);
+  res.set('X-App-Ver', appHtmlVer());
   res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
 
