@@ -19792,6 +19792,8 @@ async function openPoGenerator(vendorPreset) {
       <div>${L('Address')}<input id="poVAddr" style="${IN}"/></div><div>${L('State')}<input id="poVState" oninput="poRecalc()" style="${IN}"/></div>
       <div>${L('GST No.')}<input id="poVGst" oninput="this.value=this.value.toUpperCase();poRecalc()" style="${IN}"/></div>
       <div>${L('Contact person')}<input id="poVContact" style="${IN}"/></div><div>${L('Phone')}<input id="poVPhone" inputmode="tel" style="${IN}"/></div></div>
+    <div id="poVSaveRow" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 0 6px"><span id="poVHint" style="font-size:12px;color:var(--gray-500)"></span>
+      <button type="button" id="poVSaveBtn" class="btn btn-outline btn-sm" onclick="saveErpVendorDetails(this)">💾 Vendor details save karo</button></div>
     <div id="poLines" style="margin:6px 0 10px"></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0 10px">
       <div>${L('Shipping mode')}<input id="poShipMode" value="Road Transport" style="${IN}"/></div>
@@ -19810,6 +19812,9 @@ function poVendorChanged() {
   const vk = s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); // master / sheet spell spaces differently
   const v = (_poForm.vendors || []).find(x => vk(x.name) === vk(name)) || {};
   [['poVAddr', 'address'], ['poVState', 'state'], ['poVGst', 'gst'], ['poVContact', 'contact'], ['poVPhone', 'phone']].forEach(([id, k]) => { document.getElementById(id).value = v[k] || ''; });
+  const empty = !['address', 'state', 'gst', 'contact', 'phone'].some(k => String(v[k] || '').trim());
+  document.getElementById('poVSaveRow').style.display = name ? 'flex' : 'none';
+  document.getElementById('poVHint').textContent = empty ? '⚠️ Is vendor ki details kahin save nahi hain — ek baar bhar ke save karein, agli baar khud aa jayengi.' : '';
   const lines = _poForm.lines.filter(l => l.vendorName === name);
   const lead = Math.max(0, ...lines.map(l => l.leadTime || 0));
   if (lead) { const d = new Date(); d.setDate(d.getDate() + lead); document.getElementById('poDelDate').value = owsYmd(d); }
@@ -19827,6 +19832,20 @@ function poVendorChanged() {
       <td class="po-amt" style="text-align:right;white-space:nowrap"></td></tr>`).join('')}</tbody></table></div>`
     : `<div class="empty" style="padding:14px">Is vendor ka koi indent item Generate PO par nahi hai. Pehle indent banayein (Purchase FMS → + New Indent) — wahan stationery / koi bhi item haath se bhi likh sakte hain.</div>`;
   poRecalc();
+}
+async function saveErpVendorDetails(btn) {
+  const v = poCollect().vendor;
+  if (!v.name) return showToast('Pehle vendor chunein', 'error');
+  if (!v.address && !v.state && !v.gst && !v.contact && !v.phone) return showToast('Address / GST / phone bhariye', 'error');
+  btn.disabled = true;
+  const r = await api('/api/purchase-fms/vendor-details', 'POST', v);
+  btn.disabled = false;
+  if (r.error) return showToast(r.error, 'error');
+  const vk = s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const cur = (_poForm.vendors || []).find(x => vk(x.name) === vk(v.name));
+  if (cur) ['address', 'state', 'gst', 'contact', 'phone'].forEach(k => { if (v[k]) cur[k] = v[k]; }); else (_poForm.vendors = _poForm.vendors || []).push(v);
+  document.getElementById('poVHint').textContent = '';
+  showToast('✅ ' + v.name + ' ki details save ho gayi — agli baar khud aa jayengi', 'success');
 }
 function poCollect() {
   const vendor = { name: document.getElementById('poVendor').value, address: document.getElementById('poVAddr').value.trim(), state: document.getElementById('poVState').value.trim(),

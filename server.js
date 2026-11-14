@@ -10785,6 +10785,27 @@ function erpPoTable() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(e => { _erpPoReady = null; throw e; });
   return _erpPoReady;
 }
+// Vendor details typed in Generate PO (💾 Save) — for vendors whose address / GST is
+// nowhere else (Saksham: blank in Vendor Master, Tally, old POs — client 2026-11-14).
+let _erpVendorReady = null;
+function erpVendorTable() {
+  if (!_erpVendorReady) _erpVendorReady = db.query(`CREATE TABLE IF NOT EXISTS erp_vendor_details (
+      name_key VARCHAR(255) PRIMARY KEY, name VARCHAR(255) NOT NULL, address VARCHAR(500), state VARCHAR(60), gst VARCHAR(20),
+      contact VARCHAR(120), phone VARCHAR(40), updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(e => { _erpVendorReady = null; throw e; });
+  return _erpVendorReady;
+}
+const erpVendorKey = n => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 255);
+// Only non-empty fields overwrite — an empty box never wipes a saved value.
+async function saveErpVendorDetails(v, userId) {
+  if (!v || !erpVendorKey(v.name)) return;
+  await erpVendorTable();
+  const f = k => (String(v[k] == null ? '' : v[k]).trim() || null);
+  await db.query(`INSERT INTO erp_vendor_details (name_key, name, address, state, gst, contact, phone, updated_by) VALUES (?,?,?,?,?,?,?,?)
+    ON DUPLICATE KEY UPDATE address=COALESCE(VALUES(address),address), state=COALESCE(VALUES(state),state), gst=COALESCE(VALUES(gst),gst),
+      contact=COALESCE(VALUES(contact),contact), phone=COALESCE(VALUES(phone),phone), updated_by=VALUES(updated_by)`,
+    [erpVendorKey(v.name), String(v.name).trim().replace(/\s+/g, ' ').slice(0, 255), f('address'), f('state'), f('gst'), f('contact'), f('phone'), userId || null]);
+}
 const poNum = v => parseInt(String(v || '').replace(/^PO-/i, ''), 10) || 0;
 // Rajasthan vendor (GSTIN 08… / state) → CGST + SGST, else IGST — as on the old POs.
 const poIntraState = v => /^08/.test(String(v.gst || '').trim()) || /rajasthan/i.test(String(v.state || ''));
@@ -10799,6 +10820,7 @@ async function erpPoFormData() {
     getMasterWorkbookData().catch(() => ({ vendors: [] })),
     db.query("SELECT vendor_json, lines_json FROM erp_purchase_orders WHERE status='done' ORDER BY id")
   ]);
+  const saved = await erpVendorTable().then(() => db.query('SELECT name, address, state, gst, contact, phone FROM erp_vendor_details')).then(([r]) => r).catch(() => []);
   const vendors = {};
   // A later PO only overrides the fields it actually has — an ERP PO made with the
   // boxes empty (Saksham PO-0107 / PO-0112) used to wipe the address / GST / contact
@@ -10814,6 +10836,7 @@ async function erpPoFormData() {
   (master.vendors || []).forEach(v => put(v));
   web.forEach(x => put({ name: x[2], address: x[3], state: x[4], gst: x[5], contact: x[6], phone: x[7] }));
   mine.forEach(m => { try { put(JSON.parse(m.vendor_json)); } catch (e) {} });
+  saved.forEach(v => put(v)); // 💾 saved in Generate PO — newest, wins
   // Lines already on an ERP PO stay off the form even before the sheet shows the PO
   // (client 2026-10-27: IND-000017 got PO-0107 and PO-0108 while the link lagged).
   const onPo = new Set();
@@ -10836,6 +10859,18 @@ app.get('/api/purchase-fms/po-form', requireAuth, async (req, res) => {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
     sendServerError(res, err);
   }
+});
+// 💾 Save vendor details from the Generate PO form (no PO needed) — next time they fill in by themselves.
+app.post('/api/purchase-fms/vendor-details', requireAuth, async (req, res) => {
+  try {
+    if (!(await assertIsStepDoer(res, 'purchase_step_doers', PO_STEP_N, req.session.userId, req.session.role))) return;
+    const b = req.body || {}, s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    const v = { name: s(b.name, 255), address: s(b.address, 500), state: s(b.state, 60), gst: s(b.gst, 20).toUpperCase(), contact: s(b.contact, 120), phone: s(b.phone, 40) };
+    if (!v.name) return res.status(400).json({ error: 'Vendor chunein' });
+    if (!v.address && !v.state && !v.gst && !v.contact && !v.phone) return res.status(400).json({ error: 'Koi detail bhariye' });
+    await saveErpVendorDetails(v, req.session.userId);
+    res.json({ ok: true });
+  } catch (err) { sendServerError(res, err); }
 });
 // Step 1: check the lines, work out the totals and claim the PO number (the PDF needs it).
 app.post('/api/purchase-fms/po/reserve', requireAuth, async (req, res) => {
@@ -10882,6 +10917,7 @@ app.post('/api/purchase-fms/po/reserve', requireAuth, async (req, res) => {
     const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
     await db.query(`INSERT INTO erp_purchase_orders (po_number, po_date, vendor_name, vendor_json, lines_json, shipping_json, subtotal, gst_total, discount, grand_total, created_by, created_by_name)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [poNumber, today, vendor.name, JSON.stringify(vendor), JSON.stringify(lines), JSON.stringify(shipping), subtotal, gstTotal, discount, grand, req.session.userId, u ? u.name : '']);
+    await saveErpVendorDetails(vendor, req.session.userId).catch(e => console.warn('vendor details save:', e.message));
     res.json({ success: true, po: { poNumber, date: today, vendor, lines, shipping, subtotal, gstTotal, discount, grand, intra } });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — PO sheet / Purchase FMS sheet' });
