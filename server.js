@@ -669,7 +669,9 @@ const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms',
   // 2026-11-07 (client: "access page mai sare page nahi aa rahe"): pages that had only a fixed rule.
   'onboarding', 'vendor-bin', 'rental', 'my-expense', 'pc-followup',
   // Payment Follow-up view only (client 2026-11-11: salesman Rohit / Girdhar / Krishna) — own parties, no actions.
-  'collection-view'];
+  'collection-view',
+  // Replacement FMS View — every open entry by its current step, read only (client 2026-11-14: Shalu).
+  'repl-fms-view'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -11658,6 +11660,13 @@ app.post('/api/cheque-fms', requireAuth, async (req, res) => {
     const [[su]] = await db.query('SELECT name FROM users WHERE id=?', [sid]);
     if (!su) return res.status(400).json({ error: 'Salesman not found' });
     await ensureChequeTables();
+    // Same person, same note (party), last 10 min, details not filled yet → ask before a second copy
+    // (client 2026-11-14: one cheque went in 4 times from Payment Follow-up).
+    if (!req.body.confirmDuplicate) {
+      const [[dup]] = await db.query(`SELECT cheque_code FROM cheques WHERE created_by=? AND cancelled_at IS NULL AND details_at IS NULL
+        AND COALESCE(salesman_note,'')=? AND created_at >= NOW() - INTERVAL 10 MINUTE ORDER BY id DESC LIMIT 1`, [req.session.userId, String(note || '').slice(0, 500)]);
+      if (dup) return res.status(409).json({ duplicate: dup.cheque_code, error: `Ye cheque abhi ${dup.cheque_code} me ja chuka hai` });
+    }
     const code = await nextChequeCode();
     const photoUrl = await uploadChequePhoto(photo, code, 'cheque');
     const [r] = await db.query('INSERT INTO cheques (cheque_code, created_by, salesman_user_id, salesman_name, photo_url, salesman_note) VALUES (?,?,?,?,?,?)',
@@ -12360,7 +12369,8 @@ app.put('/api/replacement-fms/step-doers', requireAuth, requireAdmin, async (req
 app.get('/api/replacement-fms', requireAuth, async (req, res) => {
   try {
     const acc = await replUserAccess(req);
-    const listAll = acc.seeAll || req.session.role === 'pc'; // PC Follow-up: PC sees every replacement (read only)
+    // PC Follow-up: PC sees every replacement (read only); so does the "Replacement FMS View" grant (client 2026-11-14, Shalu).
+    const listAll = acc.seeAll || req.session.role === 'pc' || (await hasPageGrant(req, 'repl-fms-view'));
     const [rows] = await withReplTables(() => listAll
       ? db.query(`${REPL_SELECT} ORDER BY r.id DESC`)
       : db.query(`${REPL_SELECT} WHERE r.created_by=? OR r.mechanic_user_id=? OR r.delivery_user_id=? ORDER BY r.id DESC`, [req.session.userId, req.session.userId, req.session.userId]));
@@ -12428,12 +12438,12 @@ async function replCreate(b, userId, isAdmin) {
   const party = t(b.partyName, 255), items = t(b.items, 2000), defect = t(b.defect, 1000);
   if (!party || !items || !defect) return { error: 'Party name, item & quantity and defect are required' };
   // Several product photos (client, 2026-10-17); old clients still send one `photo`.
-  const photos = (Array.isArray(b.photos) ? b.photos : [b.photo]).filter(p => typeof p === 'string' && p.startsWith('data:image/')).slice(0, 6);
+  const photos = (Array.isArray(b.photos) ? b.photos : [b.photo]).filter(p => typeof p === 'string' && p.startsWith('data:image/')).slice(0, 10);
   if (!photos.length) return { error: 'Product photo is required' };
   await ensureReplTables();
   const code = await nextReplCode();
-  const urls = [];
-  for (const [i, p] of photos.entries()) urls.push(await uploadPhotoToDrive(p, `${code}-product-${Date.now()}-${i + 1}.jpg`));
+  const stamp = Date.now();
+  const urls = await Promise.all(photos.map((p, i) => uploadPhotoToDrive(p, `${code}-product-${stamp}-${i + 1}.jpg`)));
   const photoUrl = urls.join('\n').slice(0, 1000); // photo_url VARCHAR(1000); rplPhoto() splits on newlines
   const mobile = t(b.customerMobile, 30) || await replDealerPhone(party);
   // Whose counter it is (client, 2026-10-13) — told when the item is ready.
@@ -19482,10 +19492,20 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
       [...keys].forEach(k => { if (!mk.has(k)) keys.delete(k); });
     }
     const partyList = Object.entries(parties).filter(([k]) => keys.has(k)).map(([k, p]) => ({ key: k, ...p }));
+    // ✅ Paid tab (client 2026-11-14: "cheque details fill hone ke baad dealer hat jati hai — completed / paid
+    // section do, bounce ho to change kar sakein"): last 60 days' app payments + cheques, paid-off parties too.
+    const since = new Date(Date.now() + 5.5 * 3600 * 1000 - 60 * 86400000).toISOString().slice(0, 10);
+    const [chqRows] = await db.query(`SELECT id, cheque_code, party_name, salesman_note, salesman_name, cheque_no, bank_name, amount, clearance, details_at, deposited_at,
+        resolution, penalty_at, cancelled_at, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') AS created_at, DATE_FORMAT(cheque_date,'%Y-%m-%d') AS cheque_date
+      FROM cheques WHERE cancelled_at IS NULL AND created_at >= ? ORDER BY id DESC`, [since]).catch(() => [[]]);
+    let cheques = chqRows.map(c => ({ id: c.id, code: c.cheque_code, stage: chequeStage(c), amount: c.amount == null ? null : Number(c.amount),
+      party: c.party_name || (String(c.salesman_note || '').match(/^Party:\s*(.+)$/m) || [])[1] || '', note: c.salesman_note || '', salesman: c.salesman_name || '',
+      chequeNo: c.cheque_no || '', bank: c.bank_name || '', chequeDate: c.cheque_date || '', createdAt: c.created_at }));
+    if (req.colViewOnly) cheques = cheques.filter(c => keys.has(c.party.trim().toLowerCase()));
     res.json({ lastSynced, steps: COLLECT_STEPS, viewOnly: !!req.colViewOnly, bills: mine.map(b => ({ ...b, acts: actOf[b.key] || {} })),
       parties: Object.fromEntries(partyList.map(p => [p.key, { outstanding: p.outstanding, ledger: p.ledger, appPaid: p.appPaid }])),
       totalOutstanding: Math.round(partyList.reduce((a, p) => a + Math.max(p.outstanding, 0), 0)),
-      payments: appPays.filter(p => keys.has(p.party.trim().toLowerCase()) || (!p.inTally && !req.colViewOnly)) });
+      payments: appPays.filter(p => keys.has(p.party.trim().toLowerCase()) || (!req.colViewOnly && (!p.inTally || p.paidOn >= since))), cheques });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Bills Receivable sheet with the service account.' });
     sendServerError(res, err);

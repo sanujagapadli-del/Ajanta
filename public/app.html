@@ -2398,6 +2398,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <div class="tab active" id="o2dViewFms" onclick="switchO2dView('fms',this)">FMS View</div>
         <div class="tab" id="o2dViewPC" onclick="switchO2dView('pc',this)">PC View</div>
         <div class="tab" id="o2dViewDelivery" onclick="switchO2dView('delivery',this)">🚚 Delivery Tracking</div>
+        <div class="tab" id="o2dViewPending" onclick="switchO2dView('pending',this)">⏳ Pending Items</div>
         <div class="tab" id="o2dViewReports" onclick="switchO2dView('reports',this)">📊 Reports</div>
         <div class="tab" id="o2dViewBillsReceivable" onclick="switchO2dView('bills',this)">💰 Bills Receivable</div>
       </div>
@@ -2553,6 +2554,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     <div style="display:flex;gap:6px;margin-bottom:16px">
       <div class="tab-group">
         <div class="tab active" onclick="switchReplView('queue',this)">⚡ Action Queue</div>
+        <div class="tab" id="rplFmsViewTab" style="display:none" onclick="switchReplView('fms',this)">🗂 FMS View</div>
         <div class="tab" onclick="switchReplView('all',this)">All Entries</div>
         <div class="tab" onclick="switchReplView('reports',this)">📊 Reports</div>
       </div>
@@ -4563,7 +4565,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <input type="text" id="rfDefect" placeholder="प्रोडक्ट की खराबी — e.g. not working, tuta hua" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/></div>
     <div class="form-group" id="rfPhotoGroup"><label>Product Photo <span style="color:var(--color-danger)">*</span> <span style="font-weight:400;color:var(--gray-400)">(saare pcs ek saath rakh kar)</span></label>
       <input type="file" id="rfPhoto" accept="image/*" multiple onchange="onRfPhotosSelected(this)" style="width:100%;font-size:13px"/>
-      <div style="font-size:11px;color:var(--gray-400);margin-top:2px">Ek saath kai photos chun sakte hain (max 6) — camera ya gallery / PC se.</div>
+      <div style="font-size:11px;color:var(--gray-400);margin-top:2px">Ek-ek karke ya ek saath kai photos lagayein (max 10) — har baar chuni photo judti jaayegi, ✕ se hatao.</div>
       <div id="rfPhotoPreview" style="font-size:12px;margin-top:4px"></div></div>
     <div class="form-group"><label>Salesman <span style="font-weight:400;color:var(--gray-400)">(kiska counter hai)</span></label>
       <select id="rfSalesman" onchange="onRfSalesmanChange()" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"><option value="">-- Select --</option></select>
@@ -7657,6 +7659,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'purchase-fms', label: 'Purchase FMS' },
     { key: 'cheque-fms', label: 'Collection FMS' },
     { key: 'replacement-fms', label: 'Replacement FMS' },
+    { key: 'repl-fms-view', label: 'Replacement FMS View (sab steps dekhein — kaam sirf apne step ka)' },
     { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
     { key: 'vendor-bin', label: 'Vendor Bin — Replacement / Vendor Ledger wale ko pehle se' },
     { key: 'stock', label: 'Stock' },
@@ -15313,7 +15316,50 @@ function renderO2dActiveView() {
   if (o2dView === 'pc') return renderO2dPCView();
   if (o2dView === 'bills') return renderBillsReceivableView();
   if (o2dView === 'delivery') return renderO2dDeliveryView();
+  if (o2dView === 'pending') return renderO2dPendingItemsView();
   return renderO2dReportsView();
+}
+
+// ⏳ Pending Items (client 2026-11-14: "dealer ne 5 item ka order diya, 4 dispatch hue, 1 unavailable karke
+// pending chhoda — wo kahin show nahi hota"): every item marked Not Available at Good Check — which party,
+// which order / day, qty and ₹ (shown minus: not billed) — party totals + Excel (CSV) export.
+function o2dPendingItems() {
+  const q = (document.getElementById('o2dSearch').value || '').trim().toLowerCase();
+  const out = [];
+  (o2dData || []).forEach(o => (o.products || []).forEach(p => {
+    if (p.availability !== 'No') return;
+    const qty = Number(p.qty) || 0, rate = Number(p.rate) || 0;
+    const gc = (o.steps || [])[1] || {};
+    const r = { orderNo: o.orderNo, orderDate: String(o.timestamp || ''), leftOn: gc.actual || '', party: o.counterName || '', area: o.area || '', orderBy: o.orderBy || '',
+      billNo: o.billNo || '', item: p.productName || '', qty, rate, amount: Math.round(qty * rate * 100) / 100 };
+    if (!q || [r.orderNo, r.party, r.area, r.item, r.orderBy, r.billNo].some(v => String(v).toLowerCase().includes(q))) out.push(r);
+  }));
+  return out.sort((a, b) => String(b.orderDate).localeCompare(String(a.orderDate)));
+}
+function renderO2dPendingItemsView() {
+  const wrap = document.getElementById('o2dListWrap');
+  const rows = o2dPendingItems();
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">Koi pending (Not Available) item nahi 🎉</div>'; return; }
+  const byParty = new Map();
+  rows.forEach(r => { const k = r.party.toLowerCase(); if (!byParty.has(k)) byParty.set(k, { party: r.party, qty: 0, amount: 0, n: 0 }); const g = byParty.get(k); g.qty += r.qty; g.amount += r.amount; g.n++; });
+  const parties = [...byParty.values()].sort((a, b) => b.amount - a.amount);
+  const totQty = rows.reduce((a, r) => a + r.qty, 0), totAmt = rows.reduce((a, r) => a + r.amount, 0);
+  const minus = v => `<b style="color:var(--color-danger)">−${inr(v)}</b>`;
+  wrap.innerHTML = `<div style="padding:14px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <div style="font-size:13px"><b>${rows.length}</b> item pending · <b>${totQty}</b> pcs · ${minus(totAmt)} <span style="color:var(--gray-500);font-size:12px">(nahi bheja — bill me nahi)</span> · ${parties.length} party</div>
+      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="exportO2dPendingItems()">⬇ Excel (CSV)</button></div>
+    <div style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap">${parties.slice(0, 12).map(g => `<span onclick="document.getElementById('o2dSearch').value='${o2dJsEsc(g.party)}';o2dSearchChanged()" title="Sirf is party ke item" style="cursor:pointer;font-size:12px;border:1px solid var(--gray-200);border-radius:14px;padding:3px 10px;background:var(--surface)">${esc(g.party)} · ${g.n} item · <b style="color:var(--color-danger)">−${inr(g.amount)}</b></span>`).join('')}</div>
+    <table style="font-size:12.5px"><thead><tr><th>Order date</th><th>Order No</th><th>Party</th><th>Item (nahi bheja)</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th><th>Kab chhoda</th><th>Order by</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(r.orderDate))}</td><td style="white-space:nowrap;font-weight:600">${esc(r.orderNo)}${r.billNo ? `<div style="font-size:11px;color:var(--gray-500)">Bill ${esc(r.billNo)}</div>` : ''}</td>
+      <td style="font-weight:700">${esc(r.party)}${r.area ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(r.area)}</div>` : ''}</td>
+      <td>${esc(r.item)}</td><td style="text-align:right">${r.qty}</td><td style="text-align:right">${r.rate ? inr(r.rate) : '—'}</td><td style="text-align:right">${r.amount ? minus(r.amount) : '—'}</td>
+      <td style="white-space:nowrap">${r.leftOn ? esc(fmtDateDMY(r.leftOn, true)) : '—'}</td><td>${esc(r.orderBy || '—')}</td></tr>`).join('')}</tbody></table>`;
+}
+function exportO2dPendingItems() {
+  const rows = o2dPendingItems();
+  csvDownload([['Order Date', 'Order No', 'Party', 'Area', 'Item (not sent)', 'Qty', 'Rate', 'Amount (minus)', 'Left on (Good Check)', 'Order By', 'Bill No'],
+    ...rows.map(r => [fmtDateDMY(r.orderDate), r.orderNo, r.party, r.area, r.item, r.qty, r.rate, -r.amount, r.leftOn ? fmtDateDMY(r.leftOn, true) : '', r.orderBy, r.billNo])],
+    `o2d-pending-items-${stockTodayYmd()}.csv`);
 }
 
 // ── 🚚 Delivery Tracking: order date → dispatch (Load Goods) → delivered to customer ──
@@ -21336,7 +21382,8 @@ function renderCollection() {
   colData.bills.forEach(b => ['call25', 'call30'].forEach(step => { if (b.acts[step]) done.push({ b, step, a: b.acts[step] }); }));
   done.sort((x, y) => String(y.a.at).localeCompare(String(x.a.at)));
   const parties = colParties();
-  document.getElementById('colTabs').innerHTML = colFilterBar() + tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`) + tab('parties', `👥 Parties (${parties.length})`) + ddTab;
+  const paidRows = colPaidRows();
+  document.getElementById('colTabs').innerHTML = colFilterBar() + tab('calls', `📞 Call karne hain (${calls.length})`) + tab('msgs', `💬 15 din WhatsApp (${msgs.length})`) + tab('done', `✅ Call ho gaye (${done.length})`) + tab('parties', `👥 Parties (${parties.length})`) + tab('paid', `💰 Paid / Jama (${paidRows.length})`) + ddTab;
   if (colTab === 'dues') return renderDeliveryDues();
   const synced = colData.lastSynced ? new Date(colData.lastSynced) : null;
   const stale = synced ? Math.floor((Date.now() - synced.getTime()) / 86400000) : null;
@@ -21401,6 +21448,8 @@ function renderCollection() {
         <td>${billAge(b)}</td><td style="text-align:right">${inr(colPartyOf(b.party).outstanding)}</td><td><span class="status-badge" style="background:${step === 'call30' ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)'};color:${step === 'call30' ? 'var(--color-danger-text)' : 'var(--color-warning-text)'}">${step === 'call30' ? '30 din call' : '25 din call'}</span></td>
         <td>${tel(b)}</td><td style="white-space:nowrap"><button class="btn btn-sm btn-green row-act" onclick="openColCall('${o2dJsEsc(b.key)}','${jsArg(step)}')">✓ Call ho gaya</button> <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();colPay('${o2dJsEsc(b.party)}')" title="Payment aaya — Collection FMS me daalo">💰 Payment</button> </td></tr>`).join('')}</tbody></table></div>`
       : '<div class="empty">Aaj koi call due nahi 🎉</div>');
+  } else if (colTab === 'paid') {
+    wrap.innerHTML = colPaidHtml(paidRows);
   } else if (colTab === 'parties') {
     wrap.innerHTML = note + `<input placeholder="🔍 Party search…" value="${esc(colPartyQ)}" oninput="colPartyQ=this.value;colRenderPartyRows()" style="${VRL_IN};margin-bottom:8px;max-width:340px"/><div id="colPartyRows"></div>`;
     colRenderPartyRows();
@@ -21420,6 +21469,44 @@ function renderCollection() {
 }
 // One line per party with unpaid bills: outstanding (ledger based), bills, oldest bill.
 let colPartyQ = '';
+// 💰 Paid / Jama (client 2026-11-14: "cheque details fill hone ke baad dealer hat jati hai — completed / paid
+// section do, cheque bounce ho to change kar sakein"): last 60 days' cash / online / cheque entries + cheques,
+// paid-off parties included. Cheque → opens it in Collection FMS (Pass / Bounce there); app entry → ↩ hatao.
+const COL_CHQ_STAGE = { details: ['Details baaki', 'var(--color-warning-text)'], deposit: ['Deposit baaki', 'var(--color-warning-text)'],
+  clearance: ['Pass / Bounce baaki', 'var(--color-warning-text)'], cleared: ['✓ Pass', 'var(--color-success-text)'],
+  bounced: ['⚠️ Bounce', 'var(--color-danger)'], recovered: ['Bounce → recovered', 'var(--color-success-text)'], written_off: ['Bounce → written off', 'var(--color-danger)'] };
+function colPaidRows() {
+  if (!colData) return [];
+  const q = colF.q.trim().toLowerCase();
+  const rows = [];
+  (colData.payments || []).forEach(p => rows.push({ kind: 'pay', at: p.paidOn, party: p.party, amount: p.amount, mode: p.mode || 'Payment', p }));
+  (colData.cheques || []).forEach(c => rows.push({ kind: 'chq', at: String(c.createdAt || '').slice(0, 10), party: c.party, amount: c.amount, mode: 'Cheque', c }));
+  return rows.filter(r => !q || [r.party, r.mode, r.c && r.c.code, r.c && r.c.chequeNo].some(v => String(v || '').toLowerCase().includes(q)))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+function colPaidHtml(rows) {
+  const canChq = ME.role === 'admin' || MY_PAGES.has('cheque-fms');
+  const body = rows.map(r => {
+    if (r.kind === 'chq') {
+      const c = r.c, [st, col] = COL_CHQ_STAGE[c.stage] || [c.stage, 'var(--gray-600)'];
+      return `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(r.at))}</td><td style="font-weight:700">${esc(r.party || '—')}${c.salesman ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">👤 ${esc(c.salesman)}</div>` : ''}</td>
+        <td>🧾 Cheque <b>${esc(c.code)}</b>${c.chequeNo ? `<div style="font-size:11px;color:var(--gray-500)">No. ${esc(c.chequeNo)}${c.bank ? ' · ' + esc(c.bank) : ''}</div>` : ''}</td>
+        <td style="text-align:right;font-weight:800">${r.amount != null ? inr(r.amount) : '<span style="color:var(--gray-400);font-weight:400">details baaki</span>'}</td>
+        <td><b style="color:${col}">${esc(st)}</b></td>
+        <td style="white-space:nowrap">${canChq ? `<button class="btn btn-sm btn-outline" onclick="openChequeQuickAction(${c.id})" title="Cheque kholo — Pass / Bounce yahin se">🧾 Kholo / Bounce</button>` : ''}</td></tr>`;
+    }
+    const p = r.p;
+    return `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(r.at))}</td><td style="font-weight:700">${esc(r.party)}${p.by ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">${esc(p.by)}</div>` : ''}</td>
+      <td>${esc(r.mode)}${p.receiptNo || p.remark ? `<div style="font-size:11px;color:var(--gray-500)">${esc([p.receiptNo, p.remark].filter(Boolean).join(' · '))}</div>` : ''}</td>
+      <td style="text-align:right;font-weight:800">${inr(r.amount)}</td>
+      <td>${p.inTally ? '<b style="color:var(--color-success-text)">✓ Tally me aa gaya</b>' : '<span style="color:var(--color-warning-text);font-weight:700">Tally me abhi nahi</span>'}</td>
+      <td style="white-space:nowrap">${p.inTally ? '<span style="font-size:11px;color:var(--gray-500)" title="Tally me entry ho chuki — wapas karna ho to Tally me reverse karein">Tally me badlein</span>'
+        : (ME.role === 'admin' || Number(p.byId) === Number(ME.id)) ? `<button class="btn btn-sm btn-outline" onclick="deleteColPayment(${p.id},'${o2dJsEsc(r.party)}',this)" title="Payment nahi aaya / bounce — entry hatao, party ka outstanding wapas">↩ Wapas lo</button>` : ''}</td></tr>`;
+  }).join('');
+  return `<div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">Pichhle 60 din me jo payment / cheque aaye — party ka bill poora jama hone ke baad bhi yahan dikhte hain. Cheque bounce ho to <b>🧾 Kholo / Bounce</b>; cash / online entry galat ho to <b>↩ Wapas lo</b>.</div>`
+    + (rows.length ? `<div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Date</th><th>Party</th><th>Kaise</th><th style="text-align:right">Amount</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
+      : '<div class="empty">Pichhle 60 din me koi payment entry nahi</div>');
+}
 function colParties() {
   const m = {};
   colData.bills.forEach(b => {
@@ -24682,12 +24769,18 @@ async function submitNewCheque() {
   btn.disabled = true; btn.textContent = '⏳ Uploading…';
   const body = { photo, note: document.getElementById('ncNote').value.trim() };
   if (chqMe.seeAll) body.salesmanUserId = Number(document.getElementById('ncSalesman').value);
-  const r = await api('/api/cheque-fms', 'POST', body);
+  let r = await api('/api/cheque-fms', 'POST', body);
+  // Same cheque sent again within 10 min (client 2026-11-14: one cheque went in 4 times) — ask first.
+  if (r && r.duplicate) {
+    if (await uiConfirm(`Ye cheque ${r.duplicate} me abhi bheja ja chuka hai.\nKya ye DOOSRA cheque hai? (Haan = naya cheque banao)`)) r = await api('/api/cheque-fms', 'POST', { ...body, confirmDuplicate: true });
+    else { btn.disabled = false; btn.textContent = 'Submit Cheque'; closeModal('newChequeModal'); showToast(`${r.duplicate} pehle se hai — dobara nahi bheja`); return; }
+  }
   btn.disabled = false; btn.textContent = 'Submit Cheque';
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   closeModal('newChequeModal');
   showToast(`✅ ${r.code} submitted — Accounts will fill the details`);
   if (document.getElementById('page-cheque-fms').classList.contains('active')) loadChequeFmsList();
+  if (document.getElementById('page-collection') && document.getElementById('page-collection').classList.contains('active')) loadCollection();
 }
 
 // ── Detail modal ──
@@ -29054,6 +29147,7 @@ async function loadReplFmsList() {
   rplApplyData(d);
   document.getElementById('rplImportBtn').style.display = rplMe.isAdmin ? 'inline-flex' : 'none';
   document.getElementById('rplStepDoersBtn').style.display = rplMe.isAdmin ? 'inline-flex' : 'none';
+  document.getElementById('rplFmsViewTab').style.display = rplFmsViewAllowed() ? '' : 'none';
   renderReplActiveView();
 }
 function rplApplyData(d) { rplData = d.items; rplMe = d.me || rplMe; rplNow = d.now || ''; window._lastReplData = d; }
@@ -29068,6 +29162,7 @@ function switchReplView(view, el) {
 function renderReplActiveView() {
   if (rplView === 'queue') return renderReplQueue();
   if (rplView === 'all') return renderReplAll();
+  if (rplView === 'fms') return renderReplFmsView();
   return renderReplReports();
 }
 const rplStageBadge = r => { const s = RPL_STAGE[r.stage] || { label: r.stage, bg: 'var(--gray-100)', fg: 'var(--gray-600)' };
@@ -29113,6 +29208,28 @@ function renderReplQueue() {
       </tr>`; }).join('')}</tbody></table>`).join('');
 }
 
+// 🗂 FMS View (client 2026-11-14: "Replacement FMS mein Shalu madam ko FMS view access"): every open entry
+// under its current step with the doer and planned time — read only; the action stays with that step's doer.
+const rplFmsViewAllowed = () => !!(rplMe && rplMe.isAdmin) || (typeof MY_PAGES !== 'undefined' && MY_PAGES.has('repl-fms-view'));
+function renderReplFmsView() {
+  const wrap = document.getElementById('rplListWrap');
+  const q = (document.getElementById('rplSearch').value || '').trim().toLowerCase();
+  const groups = REPL_STEP_DEFS.map(sd => ({ ...sd, items: [] }));
+  rplData.filter(r => r.task && rplSearchMatch(r, q)).forEach(r => { const g = groups.find(x => x.key === r.task.key); if (g) g.items.push(r); });
+  const nonEmpty = groups.filter(g => g.items.length);
+  const total = nonEmpty.reduce((a, g) => a + g.items.length, 0), late = nonEmpty.reduce((a, g) => a + g.items.filter(r => rplIsLate(r.task)).length, 0);
+  if (!nonEmpty.length) { wrap.innerHTML = '<div class="empty">Koi entry kisi step par pending nahi 🎉</div>'; return; }
+  wrap.innerHTML = `<div style="padding:12px 16px 0;font-size:12.5px;color:var(--gray-600)">Sab open entries — kis step par ruki hain, kiske paas. <b>${total}</b> pending${late ? ` · <b style="color:var(--color-danger)">${late} late</b>` : ''}. Kaam (action) sirf us step ka doer karega.</div>`
+    + nonEmpty.map(g => `<div style="padding:14px 16px 4px;font-size:13px;font-weight:800;color:var(--gray-800)">${g.no}. ${esc(g.label)} <span style="color:var(--gray-400);font-weight:600">(${g.items.length})</span></div>
+    <table style="font-size:12.5px"><thead><tr><th>Repl. No</th><th>Party</th><th>Items</th><th>Category</th><th>Doer</th><th>Planned</th></tr></thead><tbody>
+    ${g.items.sort((a, b) => String(a.task.planned).localeCompare(String(b.task.planned))).map(r => {
+      const late = rplIsLate(r.task), who = (r.task.doers || []).map(d => d.name).filter(Boolean).join(', ') || r.task.doer || '—';
+      return `<tr onclick="openReplDetail(${r.id})" style="cursor:pointer;${late ? 'background:var(--color-danger-bg)' : ''}">
+        <td style="font-weight:600;white-space:nowrap">${esc(rplCodeLabel(r))}${entrySubHtml(r.createdAt)}</td>
+        <td>${esc(r.partyName)}</td><td style="max-width:260px">${esc(r.items)}</td>
+        <td>${rplCatChip(r) || '—'}</td><td>${esc(who)}${rplCanDo(r) ? ' <span style="font-size:11px;color:var(--color-success-text);font-weight:700">(aap)</span>' : ''}</td>
+        <td style="white-space:nowrap;${late ? 'color:var(--color-danger);font-weight:700' : ''}">${fmtDateDMY(r.task.planned, true) || '—'}${late ? ' ⚠️' : ''}</td></tr>`; }).join('')}</tbody></table>`).join('');
+}
 function renderReplAll() {
   const wrap = document.getElementById('rplListWrap');
   const q = (document.getElementById('rplSearch').value || '').trim().toLowerCase();
@@ -29405,16 +29522,22 @@ async function openEditRepl(id) {
 // Product photos (client, 2026-10-17): several at once, from camera, gallery or a
 // PC — the CRM desk gets them on WhatsApp, so the "fresh photo only" rule
 // (no capture attr here) doesn't apply. Kept small: the request must stay < 4.5 MB.
-const RF_MAX_PHOTOS = 6;
+const RF_MAX_PHOTOS = 10;
 let _rfPhotos = [];
 async function onRfPhotosSelected(input) {
   const preview = document.getElementById('rfPhotoPreview');
-  const files = [...(input.files || [])].slice(0, RF_MAX_PHOTOS);
-  _rfPhotos = [];
-  if (!files.length) { preview.innerHTML = ''; return; }
-  if ((input.files || []).length > RF_MAX_PHOTOS) showToast(`Sirf pehli ${RF_MAX_PHOTOS} photos li gayi`, 'error');
+  // Each pick ADDS to the photos already chosen (client 2026-11-14: "multiple product photos add kar sake" —
+  // on a phone the camera gives one photo per pick, and the next pick used to replace it).
+  const room = RF_MAX_PHOTOS - _rfPhotos.length;
+  const all = [...(input.files || [])];
+  input.value = '';
+  if (!all.length) return;
+  if (room <= 0) { showToast(`Max ${RF_MAX_PHOTOS} photos — pehle koi ✕ se hatao`, 'error'); return; }
+  const files = all.slice(0, room);
+  if (all.length > room) showToast(`Sirf ${room} aur photo li gayi (max ${RF_MAX_PHOTOS})`, 'error');
+  const keep = preview.innerHTML;
   preview.textContent = 'Compressing…';
-  const budget = 3400000 / files.length;
+  const budget = 3400000 / RF_MAX_PHOTOS;
   for (const f of files) {
     try {
       let d = await compressImageToDataURL(f, 1400, 0.72);
@@ -29423,7 +29546,15 @@ async function onRfPhotosSelected(input) {
       _rfPhotos.push(d);
     } catch (e) { showToast(`⚠️ ${f.name} padh nahi paaye`, 'error'); }
   }
-  preview.innerHTML = _rfPhotos.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${_rfPhotos.map(d => `<img src="${d}" style="height:90px;border-radius:8px;border:1px solid var(--gray-200)"/>`).join('')}</div><div style="margin-top:4px;color:var(--gray-500)">${_rfPhotos.length} photo</div>` : '⚠️ Koi photo nahi padh paaye';
+  if (!_rfPhotos.length && keep === '') { preview.innerHTML = '⚠️ Koi photo nahi padh paaye'; return; }
+  rfRenderPhotos();
+}
+function rfRenderPhotos() {
+  const preview = document.getElementById('rfPhotoPreview');
+  preview.innerHTML = _rfPhotos.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${_rfPhotos.map((d, i) => `<div style="position:relative">
+      <img src="${d}" style="height:90px;border-radius:8px;border:1px solid var(--gray-200);display:block"/>
+      <button type="button" onclick="_rfPhotos.splice(${i},1);rfRenderPhotos()" title="Photo hatao" style="position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;border:none;background:var(--color-danger);color:#fff;font-weight:800;cursor:pointer;line-height:24px;padding:0">✕</button></div>`).join('')}</div>
+    <div style="margin-top:4px;color:var(--gray-500)">${_rfPhotos.length} photo${_rfPhotos.length < RF_MAX_PHOTOS ? ' · aur photo ke liye upar file / camera dobara chunein' : ' (max)'}</div>` : '';
 }
 async function submitNewRepl() {
   const err = document.getElementById('rfErr');
