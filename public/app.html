@@ -21233,6 +21233,9 @@ function colPay(party) {
 async function colPayCheque(party) {
   if (typeof chqMe === 'undefined' || !chqMe || chqMe.seeAll == null) { const d = await api('/api/cheque-fms'); if (d && !d.error) chqApplyData(d); }
   await openNewChequeModal();
+  // Payment Follow-up = office desk on a PC with the cheque photo from WhatsApp —
+  // any photo / gallery / PC file allowed (client 2026-11-14: "photo upload nahi ho rahi").
+  document.getElementById('ncPhoto').removeAttribute('capture');
   const n = document.getElementById('ncNote'); if (n && !n.value) n.value = `Party: ${party}`;
 }
 // Filters (client 2026-11-05: "Payment Follow-up mai filter missing hai") — search, salesman, bill age, amount.
@@ -24611,6 +24614,7 @@ function renderChequeReports() {
 let _chqUsers = null;
 async function openNewChequeModal() {
   if (formBlocked('form-cheque')) return;
+  document.getElementById('ncPhoto').setAttribute('capture', 'environment'); // salesman: fresh camera photo only
   document.getElementById('ncPhoto').value = '';
   document.getElementById('ncPhoto').dataset.compressed = '';
   document.getElementById('ncPhotoPreview').innerHTML = '';
