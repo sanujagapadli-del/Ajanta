@@ -19518,7 +19518,20 @@ app.get('/api/collection-followup', requireAuth, async (req, res) => {
       orders.forEach(o => { const k = String(o.counterName || '').trim().toLowerCase(); if (k && o.orderBy && (!lastBy[k] || String(o.timestamp) > lastBy[k].t)) lastBy[k] = { t: String(o.timestamp), by: o.orderBy }; });
       const [us] = await db.query('SELECT id, name FROM users');
       const uName = Object.fromEntries(us.map(u => [u.id, u.name]));
-      open.forEach(b => { const l = lastBy[b.party.trim().toLowerCase()]; if (!l) return; const uid = resolve(l.by);
+      // Tally name ≠ O2D counter name (client 2026-11-17: "Arihant Electricals,Chandpole" showed as Accounts) —
+      // use the dealer's Tally-name link, else the name before the comma when exactly one O2D counter has it.
+      const [dl] = await db.query('SELECT counter_name, tally_name FROM o2d_dealers').catch(() => [[]]);
+      const viaTally = {};
+      dl.forEach(d => { if (d.tally_name && d.counter_name) viaTally[d.tally_name.trim().toLowerCase()] = d.counter_name.trim().toLowerCase(); });
+      const lastFor = party => {
+        const k = party.trim().toLowerCase();
+        if (lastBy[k]) return lastBy[k];
+        if (viaTally[k] && lastBy[viaTally[k]]) return lastBy[viaTally[k]];
+        const head = k.split(',')[0].trim();
+        if (head && head !== k && lastBy[head] && dl.filter(d => String(d.counter_name || '').trim().toLowerCase() === head).length <= 1) return lastBy[head];
+        return null;
+      };
+      open.forEach(b => { const l = lastFor(b.party); if (!l) return; const uid = resolve(l.by);
         b.salesman = typeof uid === 'number' ? (uName[uid] || l.by) : String(l.by).trim(); });
       // O2D payment terms of the bill ("7 days ki baat", client 2026-11-05) — the O2D order with this bill no.
       const termsBy = {};
