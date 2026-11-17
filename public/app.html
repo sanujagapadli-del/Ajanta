@@ -26737,8 +26737,8 @@ const PCFU_SRC = {
   repl: { page: 'replacement-fms', where: 'Replacement FMS', why: 'Replacement ka ye step is insaan ke paas ruka hai (Sunday / chhutti nahi gini jaati)' },
   lead: { page: 'lead-fms', where: 'Lead FMS', why: 'Lead ka ye step baaki hai' },
   purchase: { page: 'purchase-fms', where: 'Purchase FMS', why: 'Indent / PO ka ye step baaki hai' },
-  collect: { page: 'collection', where: 'Payment Follow-up', why: 'Delivery ke baad payment ki date nikal gayi' },
-  collectParty: { page: 'collection', where: 'Payment Follow-up (Tally ke bill)', why: 'Bill ki payment date (credit days) nikal gayi, paisa baaki — party ka salesman (O2D ka aakhri order lene wala) follow-up kare' },
+  collect: { page: 'collection', where: 'Payment Follow-up', why: 'Delivery ke baad payment ki date nikal gayi — Kavita follow-up kare' },
+  collectParty: { page: 'collection', where: 'Payment Follow-up (Tally ke bill)', why: 'Bill ki payment date (credit days) nikal gayi, paisa baaki — Kavita follow-up kare (salesman = O2D ka aakhri order lene wala, sirf jaankari)' },
   scot: { page: 'scot', where: 'SCOT', why: 'Aaj / pichhle 7 din me is dealer ko call karna tha, call nahi hua' },
   beat: { page: 'beat', where: 'Beat', why: 'Aaj ki beat ke counter visit nahi hue' },
   sample: { page: 'samples', where: 'Samples', why: 'Sample salesman ke paas hai — wapas ya bill karna hai' },
@@ -26753,6 +26753,7 @@ function pcfuSrc(t) {
     ? ` <button type="button" class="pcfu-open" onclick="navigate('${src.page}')" title="${esc(src.where)} kholo">Kholo ↗</button>` : '';
   return `<div class="pcfu-src">📍 <b>${esc(src.where)}</b>${why ? ` — ${esc(why)}` : ''}${open}</div>`;
 }
+const PCFU_PAYMENT_DOER = 'Kavita';
 const PCFU_EVENING_HOUR = 18; // punch out / evening KM only count from 6 PM
 let pcfu = { tasks: [], fu: [], custom: [], today: '', person: '', sys: '', view: 'todo', loading: false, holiday: '' };
 function pcfuText(html) {
@@ -26826,6 +26827,14 @@ async function loadPcFollowup() {
     }
     pcfu.tasks.push(...pcfuExtraTasks(ext, scot, coll, pcfu.today));
     // Sunday is a full off — a payment date landing on it moves to Monday (client 2026-11-17).
+    // Every payment follow-up is Kavita's (client 2026-11-17); the party's salesman stays in the text for info.
+    pcfu.tasks.forEach(t => {
+      if (t.type !== 'collect') return;
+      const sm = t.people.filter(p => p && p !== '—' && p !== 'Accounts' && p !== PCFU_PAYMENT_DOER);
+      t.people = [PCFU_PAYMENT_DOER];
+      if (sm.length) t.text = `${t.text} · salesman ${sm.join(', ')}`;
+      t.noSalesman = false;
+    });
     pcfu.tasks.forEach(t => {
       if (t.type !== 'collect' || !t.due) return;
       const d = new Date(t.due + 'T00:00:00');
