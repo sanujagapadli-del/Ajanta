@@ -18818,9 +18818,21 @@ function renderO2dDetailBody(o, hideProgress) {
   const discPct = Number(o.discountPct) || 0;
   const totalAmount = o2dOrderValue(o);
   const canEditDisc = !o.cancelled && o2dCanEdit();
+  // Partial dispatch (client 2026-11-17: "Ord-0450 me 6 kyu dikha raha hai"): the short pcs moved to "-P1"
+  // orders — say so under the item: how many were ordered and where the rest went.
+  const splitOrders = (o2dData || []).filter(x => String(x.orderNo || '').startsWith(o.orderNo + '-P'));
+  const splitNote = p => {
+    const k = String(p.productName || '').trim().toLowerCase();
+    const hits = [];
+    splitOrders.forEach(x => (x.products || []).forEach(q => { if (String(q.productName || '').trim().toLowerCase() === k) hits.push({ no: x.orderNo, qty: Number(q.qty) || 0, x }); }));
+    if (!hits.length) return '';
+    const moved = hits.reduce((a, h) => a + h.qty, 0);
+    const where = h => h.x.closed ? 'bhej diya' : h.x.cancelled ? 'cancel' : h.x.onHold ? 'hold' : ((O2D_STEP_DEFS.find(d => d.n === h.x.currentStep + 1) || {}).label || 'pending');
+    return `<div style="font-size:11px;color:var(--color-warning-text);margin-top:2px">${(Number(p.qty) || 0) + moved} order hue the · stock kam tha — ${hits.map(h => `<b>${h.qty} → ${esc(h.no)}</b> (${esc(where(h))})`).join(', ')}</div>`;
+  };
   const productsInfoListHtml = (o.products || []).map(p => `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--gray-100)">
-      <span${p.cancelled ? ' style="text-decoration:line-through;color:var(--gray-400)"' : ''}>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span></span>
+      <span${p.cancelled ? ' style="text-decoration:line-through;color:var(--gray-400)"' : ''}>${esc(p.productName)} <span style="color:var(--gray-500)">— ${esc(p.qty)}${p.rate ? ' @ ₹' + esc(p.rate) : ''}</span>${splitNote(p)}</span>
       <span style="display:flex;align-items:center;gap:6px">${o2dAvailabilityBadge(p)}${o2dRemoveBtn(o, p)}</span>
     </div>`).join('')
     + (discPct && grossAmount ? `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:7px 0 0;color:var(--gray-500)">
