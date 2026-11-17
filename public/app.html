@@ -26472,9 +26472,7 @@ const DD_FIELDS = [['#uDepartment', 'department'], ['#plUom', 'uom'], ['#stkUom'
   ['#rfDefect', 'repl_defect'], ['#rfBroughtBy', 'brought_by'], ['#pePayee', 'payee'], ['#peVehicle', 'vehicle'], ['#dd_city', 'city'], ['#dd_area', 'area'],
   ['#onb_city', 'city'], ['#onb_area', 'area'], ['#onb_tname', 'transport'], ['#o2dHoldReason', 'hold_reason'], ['[id^="sfmsInReason_"]', 'inout_reason'],
   ['#o2dDvBy', 'received_by'], ['#ssNewCounterCity', 'city'], ['#ssUpPlace', 'city'], ['[id^="rpl_"][id$="_reason"]', 'repl_not_ours'], ['[id^="rpl_"][id$="_owr"]', 'ow_reason'],
-  ['[id^="rpl_"][id$="_staff"]', 'staff'],
-  // Bahar ke Mechanics city — the shared City list (client video 2026-11-16: only "Jaipur" came in the dropdown).
-  ['#mcCity', 'city']];
+  ['[id^="rpl_"][id$="_staff"]', 'staff']];
 // Non-admins who may still type a new value in one list (user ids, or 'all').
 // Replacement "Who Got the Product" — Shalu, Service PC (client 2026-11-13).
 // Petty Cash Payee + Vehicle — anyone on the (granted) Petty Cash page: a new
@@ -27591,12 +27589,14 @@ function openMechForm(id) {
   const m = id ? mechData.items.find(x => x.id === id) : null;
   const rates = (m ? m.rates : []).concat(m ? [{}, {}] : MECH_CATEGORIES.slice(0, 5).map(c => ({ category: c })));
   const L = t => `<label style="font-size:12px;font-weight:600">${t}</label>`;
-  const cities = [...new Set(mechData.items.map(x => x.city).concat(['Jaipur']))], areas = [...new Set(mechData.items.map(x => x.area).filter(Boolean))];
+  // City: typed by hand, suggestions only (client 2026-11-17: "manual fill karne ka option aana chahiye") —
+  // mechanics' own cities + the shared City list.
+  const cities = [...new Set(mechData.items.map(x => x.city).concat(['Jaipur'], ((ddLists.city || {}).items || [])).filter(Boolean))], areas = [...new Set(mechData.items.map(x => x.area).filter(Boolean))];
   vrlModal('mechModal', `${scotModalHead('mechModal', m ? '✏️ Mechanic' : '＋ Mechanic onboard')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div>${L('Naam *')}<input id="mcName" value="${esc(m ? m.name : '')}" style="${VRL_IN}"/></div>
       <div>${L('Mobile')}<input id="mcMobile" value="${esc(m ? m.mobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
-      <div>${L('City *')}<input id="mcCity" list="mcCityList" value="${esc(m ? m.city : 'Jaipur')}" style="${VRL_IN}"/></div>
+      <div>${L('City *')}<input id="mcCity" list="mcCityList" data-free="1" autocomplete="off" placeholder="City likhein" value="${esc(m ? m.city : 'Jaipur')}" style="${VRL_IN}"/></div>
       <div>${L('Area / point (jaise Vatika Road, Agra Road)')}<input id="mcArea" list="mcAreaList" value="${esc(m ? m.area : '')}" style="${VRL_IN}"/></div>
       <div>${L('Doosra mobile')}<input id="mcAlt" value="${esc(m ? m.altMobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
       <div>${L('Aadhaar no.')}<input id="mcAadhaar" value="${esc(m ? m.aadhaarNo : '')}" inputmode="numeric" maxlength="14" style="${VRL_IN}"/></div></div>
