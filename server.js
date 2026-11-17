@@ -9481,7 +9481,7 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
   // brand-new Order No. — order-wide progress is bottlenecked by its
   // worst-off line (see getO2dOrders), so leaving a still-pending line under
   // the SAME Order No. would freeze the part that's ready to ship. The
-  // clone starts fresh at step 1 like any newly added order line, and its
+  // clone starts at Good Check (Accounts copied as done — the parent already passed it), and its
   // Remark points back at the original order so the split is traceable.
   if (splitRows.length) {
     const rowNums = splitRows.map(s => s.origRow);
@@ -9535,7 +9535,14 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
         nextOrderIdCandidate = claimedId + 1;
         row[17] = `Order-${claimedId}`;
       }
-      await o2dWriteRowsAtEnd(sheetsApi, cloneRows);
+      const firstClone = await o2dWriteRowsAtEnd(sheetsApi, cloneRows);
+      // Accounts already passed the parent order — the split waits at Good Check (stock), not Accounts again
+      // (client 2026-11-17, Ord-0450-P1: "account to already ok hai, tabhi to aage gaya").
+      if (firstClone) {
+        const acc = O2D_STEPS[0];
+        await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: O2D_SHEET_ID, requestBody: { valueInputOption: 'RAW',
+          data: cloneRows.flatMap((_, i) => [{ range: `'${O2D_TAB}'!${acc.actual}${firstClone + i}`, values: [[now]] }, { range: `'${O2D_TAB}'!${acc.status}${firstClone + i}`, values: [['Yes']] }]) } });
+      }
     }
   }
 
