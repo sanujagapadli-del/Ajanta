@@ -2654,6 +2654,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     <div id="pcfuTiles" class="pcfu-tiles"></div>
     <div class="pcfu-bar">
       <input id="pcfuSearch" type="search" placeholder="🔍 Naam ya kaam dhoondho" oninput="renderPcFollowup()"/>
+      <input id="pcfuFrom" type="date" title="Due date — se" onchange="pcfuDateChanged()"/> <input id="pcfuTo" type="date" title="Due date — tak" onchange="pcfuDateChanged()"/>
       <span id="pcfuCount"></span>
     </div>
     <div class="pcfu-filters">
@@ -26922,11 +26923,20 @@ function pcfuCss() {
   document.head.appendChild(st);
 }
 function pcfuAvatarColor(name) { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h},55%,45%)`; }
+// A range reaching past today would show nothing on "Aaj karna hai" — switch to Sab.
+function pcfuDateChanged() {
+  const to = document.getElementById('pcfuTo').value;
+  if (pcfu.view === 'todo' && (!to || to > pcfu.today) && document.getElementById('pcfuFrom').value + to) pcfu.view = 'all';
+  renderPcFollowup();
+}
 function renderPcFollowup() {
   pcfuCss();
   const q = (document.getElementById('pcfuSearch').value || '').trim().toLowerCase();
   const live = pcfu.tasks.filter(t => !(t.type === 'custom' && t.doneAt && t.doneAt.slice(0, 10) !== pcfu.today)); // old ticked customs drop off
-  const match = t => !q || (t.text + ' ' + t.title + ' ' + t.people.join(' ')).toLowerCase().includes(q);
+  // Date filter (client 2026-11-17): due date within From–To; bina date wale kaam tab chhup jaate hain.
+  const dFrom = (document.getElementById('pcfuFrom') || {}).value || '', dTo = (document.getElementById('pcfuTo') || {}).value || '';
+  const inDates = t => (!dFrom && !dTo) || (!!t.due && (!dFrom || t.due >= dFrom) && (!dTo || t.due <= dTo));
+  const match = t => inDates(t) && (!q || (t.text + ' ' + t.title + ' ' + t.people.join(' ')).toLowerCase().includes(q));
   const VIEWS = {
     late: { c: '#dc2626', label: 'Late', hint: 'time nikal gaya', f: t => t.overdue && !pcfuDoneToday(t) },
     todo: { c: '#d97706', label: 'Aaj karna hai', hint: 'aaj tak ka, baaki', f: t => pcfuDueNow(t) && !pcfuDoneToday(t) },
@@ -27664,7 +27674,7 @@ function datePresetRange(k) {
 // [from input, to input, what reloads that page]
 const DATE_PRESET_PAIRS = [['attnHistFrom', 'attnHistTo', 'loadAttendanceHistory'], ['attnKmFrom', 'attnKmTo', 'loadKmHistory'], ['crFrom', 'crTo', 'loadCallReports'],
   ['gpStart', 'gpEnd', 'loadGrossProfit'], ['mecaFrom', 'mecaTo', 'loadMeca'], ['pcDateFrom', 'pcDateTo', 'onPCFilterChange'],
-  ['pettyFrom', 'pettyTo', 'renderPettyCash'], ['recStart', 'recEnd', 'generateRecords'], ['tasksDateFrom', 'tasksDateTo', 'filterTasks'], ['tourFrom', 'tourTo', 'loadTourList'], ['myExpFrom', 'myExpTo', 'loadMyExpense']];
+  ['pettyFrom', 'pettyTo', 'renderPettyCash'], ['pcfuFrom', 'pcfuTo', 'pcfuDateChanged'], ['recStart', 'recEnd', 'generateRecords'], ['tasksDateFrom', 'tasksDateTo', 'filterTasks'], ['tourFrom', 'tourTo', 'loadTourList'], ['myExpFrom', 'myExpTo', 'loadMyExpense']];
 function datePresetApply(fromId, toId, fn, k) {
   const r = datePresetRange(k), f = document.getElementById(fromId), t = document.getElementById(toId);
   if (!r || !f || !t) return;

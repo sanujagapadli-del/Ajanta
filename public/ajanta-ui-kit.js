@@ -213,7 +213,7 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
     if (chips) chips.style.display = 'none';
     else { const ph = document.createElement('div'); ph.dataset.dp = fromId; ph.hidden = true; tb.insertAdjacentElement('afterend', ph); }
     // "Sab dates" (clear) only where the page itself had a Clear / All button.
-    const allowEmpty = ['tasksDateFrom', 'pcDateFrom', 'pettyFrom'].includes(fromId);
+    const allowEmpty = ['tasksDateFrom', 'pcDateFrom', 'pettyFrom', 'pcfuFrom'].includes(fromId);
 
     const btn = document.createElement('button');
     btn.type = 'button'; btn.className = 'kit-range';
