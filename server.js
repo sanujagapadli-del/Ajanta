@@ -9513,6 +9513,18 @@ async function writeO2dStepForOrder(sheetsApi, orderNo, stepNum, body) {
           spreadsheetId: O2D_SHEET_ID, requestBody: { valueInputOption: 'RAW', data: shrinkData }
         });
       }
+      // The short pcs are NOT made into an order any more (client 2026-11-17: "iska order nahi banana chahta, ye
+      // kahin aur store ho ... ek button dabaye aur order flow me aa jaye, step 1 se") - they wait in
+      // o2d_short_items until someone presses Order banao (POST /api/o2d-fms/short-items/process).
+      await ensureO2dShortItems();
+      for (const row of cloneRows) {
+        await db.query('INSERT INTO o2d_short_items (parent_order_no, party, product, qty, rate, row_json, created_by) VALUES (?,?,?,?,?,?,?)',
+          [orderNo, String(row[2] || '').slice(0, 255), String(row[12] || '').slice(0, 255), Number(row[14]) || 0, Number(row[13]) || 0,
+            JSON.stringify(row.slice(1, 16)), body._userId || null]);
+      }
+      cloneRows.length = 0;
+    }
+    if (cloneRows.length) {
       // Next unused "-P{n}" suffix for this Order No. (more than one product
       // on the same order can each fall short, each getting its own suffix)
       // and the next Order Id, same claiming scheme as add-order-items.
@@ -9659,7 +9671,7 @@ app.put('/api/o2d-fms/order/:orderNo/step/:stepNum', requireAuth, async (req, re
     if (!(await assertIsStepDoer(res, 'o2d_step_doers', stepNum, req.session.userId, req.session.role))) return;
     if (await o2dOrderOnHold(orderNo)) return res.status(409).json({ error: 'Order is on Hold — resume it first' });
     const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
-    const { rowsUpdated, counterName } = await writeO2dStepForOrder(sheetsApi, orderNo, stepNum, req.body);
+    const { rowsUpdated, counterName } = await writeO2dStepForOrder(sheetsApi, orderNo, stepNum, { ...req.body, _userId: req.session.userId });
     if (rowsUpdated === -1) return res.status(400).json({ error: 'Invalid step number' });
     if (rowsUpdated === 0) return res.status(404).json({ error: `No pending rows for this step under order ${orderNo}` });
 
@@ -9914,6 +9926,93 @@ app.post('/api/o2d-fms/order/:orderNo/restart', requireAuth, async (req, res) =>
 
 // Accountant marks that a salesman is taking the party's goods himself
 // (client, 2026-10-13). salesman '' clears it. Make Bill doer or admin / PC.
+// ── 📦 Stock kam items (short pcs from a Good Check partial dispatch) — waiting, not an order ──
+async function ensureO2dShortItems() {
+  await db.query(`CREATE TABLE IF NOT EXISTS o2d_short_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    parent_order_no VARCHAR(50) NOT NULL, party VARCHAR(255), product VARCHAR(255), qty DECIMAL(12,2), rate DECIMAL(12,2),
+    row_json TEXT NOT NULL, status VARCHAR(12) NOT NULL DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP, created_by INT,
+    new_order_no VARCHAR(60), done_at DATETIME, done_by INT, drop_reason VARCHAR(255),
+    INDEX (status), INDEX (parent_order_no))`);
+}
+app.get('/api/o2d-fms/short-items', requireAuth, async (req, res) => {
+  try {
+    await ensureO2dShortItems();
+    const [rows] = await db.query(`SELECT s.id, s.parent_order_no, s.party, s.product, s.qty, s.rate, s.status, s.new_order_no, s.drop_reason,
+        DATE_FORMAT(s.created_at,'%Y-%m-%d %H:%i:%s') AS created_at, DATE_FORMAT(s.done_at,'%Y-%m-%d %H:%i:%s') AS done_at, u.name AS done_by_name
+      FROM o2d_short_items s LEFT JOIN users u ON u.id=s.done_by
+      WHERE s.status IN ('pending','processing') OR s.done_at >= NOW() - INTERVAL 30 DAY ORDER BY s.status='pending' DESC, s.created_at DESC`);
+    res.json({ rows, canAct: await canEditO2dOrder(req) });
+  } catch (err) { sendServerError(res, err); }
+});
+// ▶ Order banao: the picked short items (same parent order → one new order) go into the O2D sheet as a
+// fresh order at step 1 (Accounts), all details copied from the parent — nothing to fill.
+app.post('/api/o2d-fms/short-items/process', requireAuth, async (req, res) => {
+  try {
+    if (!(await canEditO2dOrder(req))) return res.status(403).json({ error: 'Sirf O2D team / Admin order bana sakta hai' });
+    const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(n => n > 0);
+    if (!ids.length) return res.status(400).json({ error: 'Koi item nahi chuna' });
+    await ensureO2dShortItems();
+    const conn = await db.getConnection();
+    let items;
+    try {
+      await conn.beginTransaction();
+      [items] = await conn.query("SELECT * FROM o2d_short_items WHERE id IN (?) AND status='pending' FOR UPDATE", [ids]);
+      if (!items.length) { await conn.rollback(); return res.status(409).json({ error: 'Ye item pehle hi process / hata diye gaye — refresh karein' }); }
+      await conn.query("UPDATE o2d_short_items SET status='processing' WHERE id IN (?)", [items.map(i => i.id)]);
+      await conn.commit();
+    } catch (e) { await conn.rollback().catch(() => {}); throw e; } finally { conn.release(); }
+    const made = [];
+    try {
+      const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+      const existing = await sheetsApi.spreadsheets.values.get({
+        spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!Q${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE' });
+      const existingRows = existing.data.values || [];
+      let maxOrderId = 0;
+      existingRows.forEach(r => { const m = String(r[1] || '').match(/Order-(\d+)/); if (m) maxOrderId = Math.max(maxOrderId, parseInt(m[1], 10)); });
+      const byParent = {};
+      items.forEach(i => (byParent[i.parent_order_no] = byParent[i.parent_order_no] || []).push(i));
+      const now = sfmsDateToSerial(new Date());
+      let nextOrderIdCandidate = maxOrderId + 1;
+      for (const [parent, list] of Object.entries(byParent)) {
+        const prefix = `${parent}-P`;
+        let maxN = 0;
+        existingRows.forEach(r => { const on = String(r[0] || ''); if (on.startsWith(prefix)) { const n = parseInt(on.slice(prefix.length), 10); if (n) maxN = Math.max(maxN, n); } });
+        const newNo = `${prefix}${maxN + 1}`;
+        const rows = [];
+        for (const it of list) {
+          const b2p = JSON.parse(it.row_json); // B..P of the parent line, qty (O) already = the short pcs
+          b2p[10] = `Pending stock — from ${parent} (${Number(it.qty)} short)`; // L = remark
+          const claimedId = await claimNextSeqValue('o2d_order_id', nextOrderIdCandidate);
+          nextOrderIdCandidate = claimedId + 1;
+          rows.push([now, ...b2p, newNo, `Order-${claimedId}`]);
+        }
+        await o2dWriteRowsAtEnd(sheetsApi, rows); // no step written → the order starts at step 1 (Accounts)
+        await db.query("UPDATE o2d_short_items SET status='processed', new_order_no=?, done_at=NOW(), done_by=? WHERE id IN (?)",
+          [newNo, req.session.userId, list.map(i => i.id)]);
+        existingRows.push([newNo, '']);
+        made.push(newNo);
+      }
+      res.json({ success: true, orders: made });
+    } catch (e) {
+      await db.query("UPDATE o2d_short_items SET status='pending' WHERE id IN (?) AND status='processing'", [items.map(i => i.id)]).catch(() => {});
+      throw e;
+    }
+  } catch (err) { sendServerError(res, err); }
+});
+// ✕ Hatao: not needed any more (dealer doesn't want it) — kept in the 30-day history.
+app.post('/api/o2d-fms/short-items/:id/drop', requireAuth, async (req, res) => {
+  try {
+    if (!(await canEditO2dOrder(req))) return res.status(403).json({ error: 'Sirf O2D team / Admin' });
+    await ensureO2dShortItems();
+    const [r] = await db.query("UPDATE o2d_short_items SET status='dropped', drop_reason=?, done_at=NOW(), done_by=? WHERE id=? AND status='pending'",
+      [String(req.body.reason || '').trim().slice(0, 255) || null, req.session.userId, Number(req.params.id)]);
+    if (!r.affectedRows) return res.status(409).json({ error: 'Item pehle hi process / hata diya gaya' });
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
 app.post('/api/o2d-fms/order/:orderNo/carry', requireAuth, async (req, res) => {
   try {
     if (!['admin', 'pc'].includes(req.session.role) && !(await assertIsStepDoer(res, 'o2d_step_doers', 4, req.session.userId, req.session.role))) return;

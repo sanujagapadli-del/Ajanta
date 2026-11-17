@@ -2398,7 +2398,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <div class="tab active" id="o2dViewFms" onclick="switchO2dView('fms',this)">FMS View</div>
         <div class="tab" id="o2dViewPC" onclick="switchO2dView('pc',this)">PC View</div>
         <div class="tab" id="o2dViewDelivery" onclick="switchO2dView('delivery',this)">🚚 Delivery Tracking</div>
-        <div class="tab" id="o2dViewPending" onclick="switchO2dView('pending',this)">⏳ Pending Items</div>
+        <div class="tab" id="o2dViewPending" onclick="switchO2dView('pending',this)">⏳ Pending / Stock kam</div>
         <div class="tab" id="o2dViewReports" onclick="switchO2dView('reports',this)">📊 Reports</div>
         <div class="tab" id="o2dViewBillsReceivable" onclick="switchO2dView('bills',this)">💰 Bills Receivable</div>
       </div>
@@ -15285,6 +15285,7 @@ async function loadO2dFmsList() {
   if (!Array.isArray(data)) { wrap.innerHTML = `<div class="empty">⚠️ ${data.error || 'Failed to load'}</div>`; return; }
   o2dData = data;
   window._lastO2dData = data;
+  o2dLoadShort(); // 📦 Stock kam list — for the Pending tab and the "→ Stock kam" note in order detail
   // Phones open on PC View (one line per order: pending step / planned /
   // doer — reads well as cards); the wide Planned/Actual grid stays a tab away.
   if (!_o2dPhoneDefaulted && window.matchMedia('(max-width:768px)').matches && o2dView === 'fms') {
@@ -15300,6 +15301,7 @@ function o2dSearchChanged() { o2dPage = 1; renderO2dActiveView(); }
 
 function switchO2dView(view, el) {
   o2dView = view;
+  if (view === 'pending') o2dShort = null; // fresh 📦 Stock kam list each time the tab opens
   o2dPage = 1;
   document.querySelectorAll('#page-o2d-fms .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
@@ -15337,16 +15339,74 @@ function o2dPendingItems() {
   }));
   return out.sort((a, b) => String(b.orderDate).localeCompare(String(a.orderDate)));
 }
+// 📦 Stock kam (client 2026-11-17): short pcs of a partial Good Check wait here — not an order — until
+// ▶ Order banao puts them in the O2D flow as a new order from step 1 (all details copied, nothing to fill).
+let o2dShort = null, o2dShortBusy = false;
+async function o2dLoadShort() {
+  const r = await api('/api/o2d-fms/short-items').catch(e => ({ error: e.message }));
+  o2dShort = r && !r.error ? r : { rows: [], canAct: false, error: (r && r.error) || 'Load nahi hua' };
+  if (o2dView === 'pending') renderO2dPendingItemsView();
+}
+function o2dShortHtml() {
+  if (!o2dShort) return '<div class="empty ui-skel" style="margin:12px 16px">📦 Stock kam wale items laa rahe hain…</div>';
+  if (o2dShort.error) return `<div class="empty" style="margin:12px 16px">⚠️ ${esc(o2dShort.error)}</div>`;
+  const q = (document.getElementById('o2dSearch').value || '').trim().toLowerCase();
+  const hit = r => !q || [r.parent_order_no, r.party, r.product, r.new_order_no].some(v => String(v || '').toLowerCase().includes(q));
+  const pend = o2dShort.rows.filter(r => r.status === 'pending' && hit(r)), done = o2dShort.rows.filter(r => r.status !== 'pending' && r.status !== 'processing' && hit(r));
+  const groups = {};
+  pend.forEach(r => (groups[r.parent_order_no] = groups[r.parent_order_no] || []).push(r));
+  const can = o2dShort.canAct;
+  const head = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:14px 16px 6px">
+      <div style="font-size:15px;font-weight:800;color:var(--gray-900)">📦 Stock kam — rakhe hue items <span style="font-size:12px;font-weight:600;color:var(--gray-500)">(${pend.length})</span></div>
+      <div style="font-size:12px;color:var(--gray-500);flex-basis:100%">Good Check pe stock kam tha to bache hue pcs yahan rakhe jaate hain — <b>order nahi banta</b>. Maal aa jaye to <b>▶ Order banao</b> dabao: naya order (jaise Ord-0450-P1) <b>step 1 (Accounts)</b> se shuru hoga, party / rate / baaki sab purane order se — kuch bharna nahi.</div></div>`;
+  const groupHtml = Object.entries(groups).map(([parent, list]) => `<div style="margin:8px 16px;border:1px solid var(--gray-200);border-radius:12px;background:var(--surface);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">
+        <b>${esc(list[0].party || '—')}</b><span style="font-size:12px;color:var(--gray-500)">· order ${esc(parent)} · ${esc(fmtDateDMY(list[0].created_at.slice(0, 10)))}</span>
+        ${can ? `<button class="btn btn-primary btn-sm" style="margin-left:auto" ${o2dShortBusy ? 'disabled' : ''} onclick="o2dShortProcess('${o2dJsEsc(parent)}')">▶ Order banao (step 1 se)</button>` : ''}</div>
+      <table style="font-size:12.5px"><tbody>${list.map(r => `<tr>
+        ${can && list.length > 1 ? `<td style="width:34px"><input type="checkbox" class="o2dShortChk" data-parent="${esc(parent)}" value="${r.id}" checked title="Is order me lena hai?"></td>` : ''}
+        <td>${esc(r.product || '—')}</td><td style="text-align:right;white-space:nowrap"><b>${Number(r.qty)}</b> pcs</td>
+        <td style="text-align:right;white-space:nowrap;color:var(--gray-500)">${Number(r.rate) ? inr(Number(r.rate)) : '—'}</td>
+        <td style="text-align:right;width:90px">${can ? `<button class="btn btn-outline btn-sm" onclick="o2dShortDrop(${r.id})" title="Ab nahi chahiye — list se hatao">✕ Hatao</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`).join('');
+  const hist = done.length ? `<details style="margin:6px 16px 4px"><summary style="cursor:pointer;font-size:12px;color:var(--gray-500)">Pichhle 30 din — ${done.length} process / hataye</summary>
+      <table style="font-size:12px;margin-top:6px"><tbody>${done.map(r => `<tr><td>${esc(r.party || '')}</td><td>${esc(r.product || '')} × ${Number(r.qty)}</td><td>${esc(r.parent_order_no)}</td>
+        <td>${r.status === 'processed' ? `▶ <b>${esc(r.new_order_no || '')}</b>` : `✕ hataya${r.drop_reason ? ' — ' + esc(r.drop_reason) : ''}`}</td>
+        <td style="white-space:nowrap;color:var(--gray-500)">${r.done_at ? esc(fmtDateDMY(r.done_at.slice(0, 10))) : ''} ${esc(r.done_by_name || '')}</td></tr>`).join('')}</tbody></table></details>` : '';
+  return head + (groupHtml || '<div style="padding:4px 16px 8px;font-size:12.5px;color:var(--gray-500)">Abhi koi item nahi rakha 🎉</div>') + hist
+    + '<div style="height:1px;background:var(--gray-200);margin:12px 0 0"></div>';
+}
+async function o2dShortProcess(parent) {
+  const boxes = [...document.querySelectorAll('.o2dShortChk')].filter(b => b.dataset.parent === parent);
+  const ids = boxes.length ? boxes.filter(b => b.checked).map(b => Number(b.value)) : o2dShort.rows.filter(r => r.status === 'pending' && r.parent_order_no === parent).map(r => r.id);
+  if (!ids.length) { showToast('Kam se kam ek item chuno', 'error'); return; }
+  if (!(await uiConfirm(`${ids.length} item ka naya order banega (${parent} ki details se) aur step 1 — Accounts se shuru hoga. Banayein?`, { okLabel: '▶ Haan, order banao', cancelLabel: 'Nahi' }))) return;
+  o2dShortBusy = true; renderO2dPendingItemsView();
+  const r = await api('/api/o2d-fms/short-items/process', 'POST', { ids }).catch(e => ({ error: e.message }));
+  o2dShortBusy = false;
+  if (!r || r.error) { showToast((r && r.error) || 'Order nahi bana', 'error'); o2dLoadShort(); return; }
+  showToast(`✅ Order ${r.orders.join(', ')} ban gaya — step 1 (Accounts) pe`, 'success');
+  await o2dLoadShort();
+  if (typeof loadO2dFmsList === 'function') loadO2dFmsList();
+}
+async function o2dShortDrop(id) {
+  const reason = await uiPrompt('Kyu hata rahe ho? (optional — jaise: dealer ko ab nahi chahiye)', '', { placeholder: 'jaise: dealer ko ab nahi chahiye' }).catch(() => null);
+  if (reason === null || reason === undefined) return;
+  const r = await api(`/api/o2d-fms/short-items/${id}/drop`, 'POST', { reason }).catch(e => ({ error: e.message }));
+  if (!r || r.error) { showToast((r && r.error) || 'Nahi hua', 'error'); return; }
+  showToast('Hata diya', 'success');
+  o2dLoadShort();
+}
 function renderO2dPendingItemsView() {
   const wrap = document.getElementById('o2dListWrap');
+  if (!o2dShort && !o2dShortBusy) { o2dShort = null; setTimeout(o2dLoadShort, 0); }
   const rows = o2dPendingItems();
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">Koi pending (Not Available) item nahi 🎉</div>'; return; }
+  if (!rows.length) { wrap.innerHTML = o2dShortHtml() + '<div class="empty">Koi Not Available item nahi 🎉</div>'; return; }
   const byParty = new Map();
   rows.forEach(r => { const k = r.party.toLowerCase(); if (!byParty.has(k)) byParty.set(k, { party: r.party, qty: 0, amount: 0, n: 0 }); const g = byParty.get(k); g.qty += r.qty; g.amount += r.amount; g.n++; });
   const parties = [...byParty.values()].sort((a, b) => b.amount - a.amount);
   const totQty = rows.reduce((a, r) => a + r.qty, 0), totAmt = rows.reduce((a, r) => a + r.amount, 0);
   const minus = v => `<b style="color:var(--color-danger)">−${inr(v)}</b>`;
-  wrap.innerHTML = `<div style="padding:14px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  wrap.innerHTML = o2dShortHtml() + `<div style="padding:14px 16px 0;font-size:15px;font-weight:800;color:var(--gray-900)">⛔ Not Available — nahi bheje</div><div style="padding:6px 16px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <div style="font-size:13px"><b>${rows.length}</b> item pending · <b>${totQty}</b> pcs · ${minus(totAmt)} <span style="color:var(--gray-500);font-size:12px">(nahi bheja — bill me nahi)</span> · ${parties.length} party</div>
       <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="exportO2dPendingItems()">⬇ Excel (CSV)</button></div>
     <div style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap">${parties.slice(0, 12).map(g => `<span onclick="document.getElementById('o2dSearch').value='${o2dJsEsc(g.party)}';o2dSearchChanged()" title="Sirf is party ke item" style="cursor:pointer;font-size:12px;border:1px solid var(--gray-200);border-radius:14px;padding:3px 10px;background:var(--surface)">${esc(g.party)} · ${g.n} item · <b style="color:var(--color-danger)">−${inr(g.amount)}</b></span>`).join('')}</div>
@@ -18796,7 +18856,7 @@ function renderO2dDetailBody(o, hideProgress) {
     // off into a new pending order on save (see writeO2dStepForOrder).
     const control = itemDone
       ? o2dAvailabilityBadge(p)
-      : `<input type="number" id="o2dItemQty_${o.orderNo}_${p.row}" value="${esc(p.qty)}" min="0" max="${esc(p.qty)}" step="1" style="width:52px;font-size:12px;padding:4px 6px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)" title="Available qty — reduce if fewer are in stock; the rest becomes a new pending order"/>
+      : `<input type="number" id="o2dItemQty_${o.orderNo}_${p.row}" value="${esc(p.qty)}" min="0" max="${esc(p.qty)}" step="1" style="width:52px;font-size:12px;padding:4px 6px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)" title="Available qty — kam stock ho to ghatao; bache pcs ⏳ Pending / Stock kam list me rakhe jaayenge (order nahi banega)"/>
         <select id="o2dItemStatus_${o.orderNo}_${p.row}" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;background:var(--surface)">
           <option value="">-- Select --</option>
           <option value="Available">Available</option>
@@ -18826,9 +18886,12 @@ function renderO2dDetailBody(o, hideProgress) {
     const k = String(p.productName || '').trim().toLowerCase();
     const hits = [];
     splitOrders.forEach(x => (x.products || []).forEach(q => { if (String(q.productName || '').trim().toLowerCase() === k) hits.push({ no: x.orderNo, qty: Number(q.qty) || 0, x }); }));
+    // Short pcs still waiting in 📦 Stock kam (no order yet).
+    ((o2dShort && o2dShort.rows) || []).forEach(r => { if (r.parent_order_no === o.orderNo && (r.status === 'pending' || r.status === 'processing') && String(r.product || '').trim().toLowerCase() === k)
+      hits.push({ no: '📦 Stock kam list', qty: Number(r.qty) || 0, x: { waiting: true } }); });
     if (!hits.length) return '';
     const moved = hits.reduce((a, h) => a + h.qty, 0);
-    const where = h => h.x.closed ? 'bhej diya' : h.x.cancelled ? 'cancel' : h.x.onHold ? 'hold' : ((O2D_STEP_DEFS.find(d => d.n === h.x.currentStep + 1) || {}).label || 'pending');
+    const where = h => h.x.waiting ? 'order nahi bana — Pending tab me ▶ Order banao' : h.x.closed ? 'bhej diya' : h.x.cancelled ? 'cancel' : h.x.onHold ? 'hold' : ((O2D_STEP_DEFS.find(d => d.n === h.x.currentStep + 1) || {}).label || 'pending');
     return `<div style="font-size:11px;color:var(--color-warning-text);margin-top:2px">${(Number(p.qty) || 0) + moved} order hue the · stock kam tha — ${hits.map(h => `<b>${h.qty} → ${esc(h.no)}</b> (${esc(where(h))})`).join(', ')}</div>`;
   };
   const productsInfoListHtml = (o.products || []).map(p => `
