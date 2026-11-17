@@ -12217,7 +12217,18 @@ app.post('/api/vendor-bin/clear', requireAuth, async (req, res) => {
 });
 
 let _replStepDoersCache = null;
+// Office holidays for Replacement Planned times (refreshed with the doers map, 10 min).
+const _replHolidays = { set: new Set(), ts: 0 };
+async function refreshReplHolidays() {
+  if (Date.now() - _replHolidays.ts < 10 * 60 * 1000) return;
+  _replHolidays.ts = Date.now();
+  try {
+    const [rows] = await db.query("SELECT DATE_FORMAT(date,'%Y-%m-%d') AS d FROM holidays WHERE date >= CURDATE() - INTERVAL 120 DAY");
+    _replHolidays.set = new Set(rows.map(r => r.d));
+  } catch (e) { /* keep the old set */ }
+}
 async function getReplStepDoersMap() {
+  await refreshReplHolidays();
   if (_replStepDoersCache && Date.now() - _replStepDoersCache.ts < 60 * 1000) return _replStepDoersCache.map;
   const [rows] = await withReplTables(() => db.query(
     'SELECT d.step_n, u.id, u.name FROM replacement_step_doers d JOIN users u ON d.user_id=u.id ORDER BY u.name'));
@@ -12288,8 +12299,16 @@ function replStage(r) {
 function replAddHours(dt, hours) {
   const m = String(dt || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
   if (!m) return '';
-  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) + hours * 3600000);
-  return d.toISOString().slice(0, 19).replace('T', ' ');
+  // Sundays + office holidays don't count (client 2026-11-17: "15/11 ko Sunday tha us din ke task kyu aa rahe hai")
+  // — every off day the time passes over pushes Planned one more day.
+  let t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  const end0 = t + hours * 3600000;
+  let end = end0;
+  for (let day = Date.UTC(+m[1], +m[2] - 1, +m[3]) + 86400000, i = 0; day <= end && i < 400; day += 86400000, i++) {
+    const ymd = new Date(day).toISOString().slice(0, 10);
+    if (new Date(day).getUTCDay() === 0 || _replHolidays.set.has(ymd)) end += 86400000;
+  }
+  return new Date(end).toISOString().slice(0, 19).replace('T', ' ');
 }
 function replTask(r, doersMap) {
   const stage = replStage(r);
