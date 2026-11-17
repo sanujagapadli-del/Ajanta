@@ -2648,7 +2648,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <button class="btn btn-primary btn-sm" onclick="openPcfuAdd()">+ Follow-up jodo</button>
         <button class="btn btn-outline btn-sm" onclick="loadPcFollowup()">⟳ Refresh</button>
       </div>
-      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px;line-height:1.5">Team ke saare baaki kaam — <b>date ke hisaab se, aaj ke upar</b>. System / naam ke button dabao to sirf wahi dikhe. Follow-up kar liya to <b>☐ par tick</b> karo. Baat likhni ho to <b>📝</b>. Kuch aur yaad rakhna ho to <b>+ Follow-up jodo</b>. Har kaam ke neeche <b>📍</b> line batati hai wo <b>kis page se aaya aur kyu dikh raha hai</b> — <b>Kholo ↗</b> se wahi page khulta hai.</div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px;line-height:1.5">Team ke saare baaki kaam — <b>date ke hisaab se, aaj ke upar</b>. System / naam ke button dabao to sirf wahi dikhe. Follow-up kar liya to <b>☐ par tick</b> karo. Baat likhni ho to <b>📝</b>. Kuch aur yaad rakhna ho to <b>+ Follow-up jodo</b>. Har kaam ke neeche <b>📍</b> line batati hai wo <b>kis page se aaya aur kyu dikh raha hai</b> — <b>Open ↗</b> se wahi page usi party / kaam ke filter ke saath khulta hai.</div>
       <div id="pcfuNote2" style="font-size:12px;color:var(--gray-500);margin-top:4px"></div>
     </div>
     <div id="pcfuTiles" class="pcfu-tiles"></div>
@@ -26750,10 +26750,30 @@ function pcfuSrc(t) {
   const src = PCFU_SRC[t.type === 'collect' && String(t.key).startsWith('collect:party:') ? 'collectParty' : t.type] || { page: '', where: PCFU_TYPES[t.type] || '', why: '' };
   const why = t.noSalesman ? 'Bill ki date nikal gayi — is party ka O2D me salesman nahi mila (naam Tally se alag hai ya O2D order nahi), isliye Accounts ke naam' : src.why;
   const open = src.page && (ME.role === 'admin' || MY_PAGES.has(src.page) || ['alltasks', 'attendance', 'km'].includes(src.page))
-    ? ` <button type="button" class="pcfu-open" onclick="navigate('${src.page}')" title="${esc(src.where)} kholo">Kholo ↗</button>` : '';
+    ? ` <button type="button" class="pcfu-open" onclick="pcfuOpen('${jsArg(t.key)}')" title="${esc(src.where)} me isi ko dhoondh ke kholo">Open ↗</button>` : '';
   return `<div class="pcfu-src">📍 <b>${esc(src.where)}</b>${why ? ` — ${esc(why)}` : ''}${open}</div>`;
 }
 const PCFU_PAYMENT_DOER = 'Kavita';
+// Open ↗ → that page with its search already filled with this party / task (client 2026-11-17).
+const PCFU_SEARCH = { alltasks: 'taskSearch', 'service-fms': 'sfmsSearch', 'o2d-fms': 'o2dSearch', 'purchase-fms': 'pfmsSearch', 'cheque-fms': 'chqSearch',
+  'lead-fms': 'leadSearch', 'replacement-fms': 'rplSearch', samples: 'smpSearch', scot: 'scotSearch' };
+function pcfuOpen(key) {
+  const t = pcfu.tasks.find(x => x.key === key); if (!t) return;
+  const src = PCFU_SRC[t.type === 'collect' && String(t.key).startsWith('collect:party:') ? 'collectParty' : t.type];
+  if (!src || !src.page) return;
+  const parts = String(t.text || '').split(' · ');
+  const q = ['delegation', 'checklist', 'scot', 'sample'].includes(t.type) || String(t.key).startsWith('collect:party:') ? t.title
+    : (parts.length >= 2 ? parts[1] : t.title) || '';
+  if (src.page === 'collection') { // party bills → "Total outstanding" view; O2D delivery dues → their own tab
+    colF = { q: q.trim(), sm: '', days: '', amt: '' };
+    if (t.key.startsWith('collect:party:')) { colAge = 0; colTerm = null; colTab = 'age'; } else colTab = 'dues';
+  }
+  const el = PCFU_SEARCH[src.page] && document.getElementById(PCFU_SEARCH[src.page]);
+  if (el) el.value = q.trim();
+  navigate(src.page);
+  if (el) el.dispatchEvent(new Event('input', { bubbles: true }));
+  else if (src.page === 'collection' && typeof colApplyFilter === 'function') colApplyFilter();
+}
 const PCFU_EVENING_HOUR = 18; // punch out / evening KM only count from 6 PM
 let pcfu = { tasks: [], fu: [], custom: [], today: '', person: '', sys: '', view: 'todo', loading: false, holiday: '' };
 function pcfuText(html) {
