@@ -11092,8 +11092,8 @@ function taCommitFoot(metric, actual, color) {
   const shortOf = actual == null ? null : MIS_COMMIT_POS_BOX[metric] ? Math.round((actual - 100) * 10) / 10 : actual;
   const met = isLastWeek && last != null && shortOf != null ? shortOf >= last : null;
   const badge = met === null ? '' : `<span style="margin-left:6px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:800;background:${met ? 'var(--color-success-bg)' : 'var(--color-danger-bg)'};color:${met ? 'var(--color-success-text)' : 'var(--color-danger-text)'}">${met ? '✓ Hua' : '✗ Nahi'}</span>`;
-  const tile = (label, inner) => `<div style="flex:1;min-width:0;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:8px 10px">
-      <div style="font-size:10px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap">${label}</div>
+  const tile = (label, inner) => `<div style="flex:1 1 170px;min-width:170px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:12px;padding:8px 10px">
+      <div style="font-size:10px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
       <div style="display:flex;align-items:center;min-height:30px;margin-top:2px">${inner}</div></div>`;
   const lastInner = last == null ? '<span style="font-size:18px;font-weight:800;color:var(--gray-300)">—</span>'
     : `<span style="font-size:18px;font-weight:900;color:var(--gray-900)">${last}%</span>${badge}${lastNote ? `<span style="margin-left:6px;font-size:10.5px;color:var(--gray-500)">${lastNote}</span>` : ''}`;
@@ -11102,8 +11102,8 @@ function taCommitFoot(metric, actual, color) {
   const inId = `misCommitIn_${metric}`, save = `misSaveCommit(${emp ? emp.id : "'team'"}, '${metric}', document.getElementById('${inId}'), this)`;
   const nextInner = canEdit
     ? `<span style="display:flex;align-items:center;gap:6px;width:100%">
-        <span style="position:relative;display:inline-flex;align-items:center;flex:1;min-width:0">
-        <input id="${inId}" type="number" inputmode="numeric" min="-100" max="0" step="1" value="${next == null ? '' : next}" placeholder="jaise -10"
+        <span style="position:relative;display:inline-flex;align-items:center;flex:1;min-width:72px">
+        <input id="${inId}" type="text" inputmode="decimal" autocomplete="off" value="${next == null ? '' : next}" placeholder="jaise -10"
           aria-label="${esc(emp ? emp.name : 'Team')} — agle hafte ka commitment" onkeydown="if(event.key==='Enter'){event.preventDefault();this.parentNode.nextElementSibling.click()}"
           oninput="const b=this.parentNode.nextElementSibling;b.textContent='Submit';b.style.background='${color}';b.style.color='#fff'"
           style="width:100%;padding:5px 26px 5px 10px;border:1.5px solid ${color}55;border-radius:9px;background:var(--surface);font-weight:900;font-size:16px;color:var(--gray-900);outline:none"
@@ -11111,7 +11111,7 @@ function taCommitFoot(metric, actual, color) {
         <span style="position:absolute;right:9px;font-weight:800;color:var(--gray-400);pointer-events:none">%</span></span>
         <button type="button" onclick="${save}" style="flex:none;padding:6px 10px;border:none;border-radius:9px;font-weight:800;font-size:12px;cursor:pointer;${next == null ? `background:${color};color:#fff` : 'background:var(--color-success-bg);color:var(--color-success-text)'}">${next == null ? 'Submit' : '✓ Saved'}</button></span>`
     : next == null ? '<span style="font-size:18px;font-weight:800;color:var(--gray-300)">—</span>' : `<span style="font-size:18px;font-weight:900;color:var(--gray-900)">${next}%</span>`;
-  return `<div style="display:flex;gap:8px;margin-top:14px">${tile('🎯 Last week committed', lastInner)}${tile('➡️ Next week commit', nextInner)}</div>`;
+  return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">${tile('🎯 Last week committed', lastInner)}${tile('➡️ Next week commit', nextInner)}</div>`;
 }
 function taEmpBreakdownHtml(rows, card, th, td) {
   const pc = (n, t) => t ? Math.round(n * 1000 / t) / 10 : null;
@@ -15475,7 +15475,7 @@ async function exportO2dPending() {
   if (!list.length) { showToast('Koi pending order nahi', 'error'); return; }
   // Hold + its reason (client list 2026-10-27 #21).
   const head = ['Order No', 'Order Date', 'Counter', 'Area', 'Order By', 'Product', 'Qty', 'Rate', 'Pending Step', 'Payment Terms', 'Hold', 'Hold Reason'];
-  const holdCols = o => o.onHold ? [`${o.holdType === 'stock' ? 'Stock nahi' : 'Hold'}${o.holdAt ? ' · ' + fmtDateDMY(o.holdAt) : ''}${o.holdBy ? ' · ' + o.holdBy : ''}`, o.holdReason || ''] : ['', ''];
+  const holdCols = o => o.onHold ? [`${o.holdType === 'stock' ? 'Stock nahi' : 'Outstanding'}${o.holdAt ? ' · ' + fmtDateDMY(o.holdAt) : ''}${o.holdBy ? ' · ' + o.holdBy : ''}`, o.holdReason || ''] : ['', ''];
   const num = v => { const n = Number(String(v ?? '').replace(/[,₹\s]/g, '')); return v !== '' && v != null && isFinite(n) ? n : (v ?? ''); };
   const rows = [];
   list.forEach(o => {
@@ -15553,19 +15553,21 @@ function renderO2dFmsView() {
   if (strip) strip.innerHTML = o2dHoldListHtml((o2dData || []).filter(o => o.onHold && !o.closed), 'o2d');
   const today = o2dReportsFmtDate(new Date());
   const fresh = (o2dData || []).filter(o => !o.closed && !o.cancelled && !o.onHold);
+  const held = (o2dData || []).filter(o => o.onHold && !o.closed);
   const box = document.getElementById('o2dPendingBox');
   if (box) { const n = fresh.filter(o => String(o.timestamp || '').startsWith(today)).length; box.innerHTML = `⏳ Pending orders <b>${fresh.length}</b>${n ? ` <span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">🆕 ${n} aaj</span>` : ''}`; }
   const wrap = document.getElementById('o2dListWrap');
   const subBtn = (k, l) => `<button onclick="switchO2dFmsSubView('${k}')" style="padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid ${o2dFmsSubView===k?'var(--color-primary)':'var(--gray-200)'};background:${o2dFmsSubView===k?'var(--color-primary-light)':'#fff'};color:${o2dFmsSubView===k?'var(--color-primary)':'var(--gray-600)'}">${l}</button>`;
   const subTabsHtml = `<div style="display:flex;gap:6px;padding:14px 16px;border-bottom:1px solid var(--gray-200);flex-wrap:wrap">
-    ${subBtn('fresh', `⏳ Pending — naye pehle (${fresh.length})`)}${subBtn('pending', 'Sab pending (hold bhi)')}${subBtn('completed', 'Completed (All Steps)')}
+    ${subBtn('fresh', `⏳ Pending — naye pehle (${fresh.length})`)}${subBtn('hold-stock', `📦 Hold — Stock nahi (${held.filter(o => o.holdType === 'stock').length})`)}${subBtn('hold-out', `💰 Hold — Outstanding (${held.filter(o => o.holdType !== 'stock').length})`)}${subBtn('pending', 'Sab pending (hold bhi)')}${subBtn('completed', 'Completed (All Steps)')}
   </div>`;
 
   const rows = o2dFmsSubView === 'fresh'
     ? o2dFilteredRows().filter(o => !o.closed && !o.cancelled && !o.onHold).sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
+    : o2dFmsSubView.startsWith('hold-') ? o2dFilteredRows().filter(o => o.onHold && !o.closed && (o2dFmsSubView === 'hold-stock') === (o.holdType === 'stock'))
     : o2dFilteredRows().filter(o => o2dFmsSubView === 'pending' ? !o.closed : o.closed);
   if (!rows.length) {
-    wrap.innerHTML = subTabsHtml + `<div class="empty">${o2dFmsSubView === 'completed' ? 'No completed orders yet.' : 'No pending orders.'}</div>`;
+    wrap.innerHTML = subTabsHtml + `<div class="empty">${o2dFmsSubView === 'completed' ? 'No completed orders yet.' : o2dFmsSubView.startsWith('hold-') ? 'Is reason se koi order hold par nahi.' : 'No pending orders.'}</div>`;
     return;
   }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
@@ -19088,7 +19090,7 @@ async function o2dSetHold(orderNo, hold) {
   }
   vrlModal('o2dHoldModal', `${scotModalHead('o2dHoldModal', '⏸ Hold ' + esc(orderNo))}
     <label style="display:flex;gap:8px;align-items:center;padding:10px;border:1.5px solid var(--gray-200);border-radius:10px;margin-bottom:8px;cursor:pointer"><input type="radio" name="o2dHoldType" value="stock" checked onchange="document.getElementById('o2dHoldReasonLbl').textContent='Kaunsa item nahi hai (optional)'"/> <b>📦 Stock not available</b> <span style="font-size:12px;color:var(--gray-500)">— Reports me "sale on hold for stock" alag dikhega</span></label>
-    <label style="display:flex;gap:8px;align-items:center;padding:10px;border:1.5px solid var(--gray-200);border-radius:10px;margin-bottom:10px;cursor:pointer"><input type="radio" name="o2dHoldType" value="other" onchange="document.getElementById('o2dHoldReasonLbl').textContent='Reason *'"/> <b>Other reason</b></label>
+    <label style="display:flex;gap:8px;align-items:center;padding:10px;border:1.5px solid var(--gray-200);border-radius:10px;margin-bottom:10px;cursor:pointer"><input type="radio" name="o2dHoldType" value="other" onchange="document.getElementById('o2dHoldReasonLbl').textContent='Kitna baaki / note (optional)'"/> <b>💰 Outstanding</b> <span style="font-size:12px;color:var(--gray-500)">— payment baaki hai</span></label>
     <label id="o2dHoldReasonLbl" style="font-size:12px;font-weight:600">Kaunsa item nahi hai (optional)</label>
     <input id="o2dHoldReason" placeholder="e.g. 48&quot; Runner brown khatam" style="${VRL_IN};margin-bottom:10px"/>
     <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="o2dSaveHold('${o2dJsEsc(orderNo)}',this)">⏸ Hold karo</button>`, 460);
@@ -19096,7 +19098,6 @@ async function o2dSetHold(orderNo, hold) {
 async function o2dSaveHold(orderNo, btn) {
   const holdType = (document.querySelector('input[name="o2dHoldType"]:checked') || {}).value || 'other';
   const reason = document.getElementById('o2dHoldReason').value.trim();
-  if (holdType === 'other' && !reason) { showToast('Hold ka reason likhein', 'error'); return; }
   const restore = btnLoading(btn, 'Saving…');
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/hold`, 'POST', { hold: true, holdType, reason });
   restore();
@@ -19148,7 +19149,9 @@ function renderDashO2dHold() {
     (!who || ((o.steps[o.currentStep] || {}).doers || []).some(d => d.id === who)));
   el.innerHTML = o2dHoldListHtml(list, 'dash');
 }
-const o2dHoldBadge = o => o.onHold ? ` <span class="status-badge" style="background:${o.holdType === 'stock' ? 'var(--color-danger-bg);color:var(--color-danger-text)' : 'var(--color-warning-bg);color:var(--color-warning-text)'}" title="${esc(o.holdReason || '')}">⏸ ${o.holdType === 'stock' ? 'Stock nahi' : 'Hold'}</span>` : '';
+// Two hold reasons (client video 2026-11-16): 📦 Stock nahi / 💰 Outstanding — own icon each.
+const o2dHoldLabel = o => o.holdType === 'stock' ? '📦 Stock nahi' : '💰 Outstanding';
+const o2dHoldBadge = o => o.onHold ? ` <span class="status-badge" style="background:${o.holdType === 'stock' ? 'var(--color-danger-bg);color:var(--color-danger-text)' : 'var(--color-warning-bg);color:var(--color-warning-text)'}" title="⏸ Hold — ${esc(o.holdReason || '')}">⏸ ${o2dHoldLabel(o)}</span>` : '';
 // Net of the order's CD % (client video 2026-10-29) — matches the Tally bill.
 const o2dOrderValue = o => (o.products || []).filter(p => !p.cancelled).reduce((a, p) => a + (Number(p.rate) || 0) * (Number(p.qty) || 0), 0) * (100 - (Number(o.discountPct) || 0)) / 100;
 async function o2dCancelOrder(orderNo) {
@@ -26469,7 +26472,9 @@ const DD_FIELDS = [['#uDepartment', 'department'], ['#plUom', 'uom'], ['#stkUom'
   ['#rfDefect', 'repl_defect'], ['#rfBroughtBy', 'brought_by'], ['#pePayee', 'payee'], ['#peVehicle', 'vehicle'], ['#dd_city', 'city'], ['#dd_area', 'area'],
   ['#onb_city', 'city'], ['#onb_area', 'area'], ['#onb_tname', 'transport'], ['#o2dHoldReason', 'hold_reason'], ['[id^="sfmsInReason_"]', 'inout_reason'],
   ['#o2dDvBy', 'received_by'], ['#ssNewCounterCity', 'city'], ['#ssUpPlace', 'city'], ['[id^="rpl_"][id$="_reason"]', 'repl_not_ours'], ['[id^="rpl_"][id$="_owr"]', 'ow_reason'],
-  ['[id^="rpl_"][id$="_staff"]', 'staff']];
+  ['[id^="rpl_"][id$="_staff"]', 'staff'],
+  // Bahar ke Mechanics city — the shared City list (client video 2026-11-16: only "Jaipur" came in the dropdown).
+  ['#mcCity', 'city']];
 // Non-admins who may still type a new value in one list (user ids, or 'all').
 // Replacement "Who Got the Product" — Shalu, Service PC (client 2026-11-13).
 // Petty Cash Payee + Vehicle — anyone on the (granted) Petty Cash page: a new
@@ -26558,12 +26563,12 @@ async function loadFourAs() {
 }
 function renderFourAs() {
   const d = faData; if (!d) return;
-  document.getElementById('faRuleTxt').innerHTML = `Planned: <b>ICICI</b> = hafte ka collection (cash + online + pass cheque) · <b>PNB</b> = ICICI ka <b>${d.rule.pnbPct}%</b> · <b>IDFC</b> = <b>${inr(d.rule.idfcFixed)}</b> · <b>Yes Bank</b> = baaki. Actual aap bharke <b>Submit</b> karein.${d.isAdmin ? ` <a href="#" onclick="editFourAsRule();return false">⚙ rule badlo</a>` : ''}`;
+  document.getElementById('faRuleTxt').innerHTML = `Planned: <b>ICICI</b> = Tally ICICI Bank book me hafte ki Receipts (Tally sync nahi hua to app ka collection) · <b>PNB</b> = ICICI ka <b>${d.rule.pnbPct}%</b> · <b>IDFC</b> = <b>${inr(d.rule.idfcFixed)}</b> · <b>Yes Bank</b> = baaki. Actual aap bharke <b>Submit</b> karein.${d.isAdmin ? ` <a href="#" onclick="editFourAsRule();return false">⚙ rule badlo</a>` : ''}`;
   const th = 'padding:8px 10px;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--gray-500);background:var(--gray-50);text-align:right;white-space:nowrap';
   const td = 'padding:8px 10px;border-top:1px solid var(--gray-100);font-size:12.5px;text-align:right;vertical-align:top;white-space:nowrap';
   const inp = (w, k, v, locked) => `<input type="number" min="0" step="any" id="fa_${k}_${w}" value="${v == null ? '' : v}" ${locked ? 'disabled' : ''} style="width:110px;padding:5px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12.5px;text-align:right;background:var(--surface);color:var(--gray-900)"/>`;
   const diff = (p, a) => a == null ? '' : `<div style="font-size:11px;color:${Math.abs(a - p) < 1 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${Math.abs(a - p) < 1 ? '✓ planned jaisa' : (a > p ? '+' : '−') + inr(Math.abs(a - p))}</div>`;
-  const cell = (w, k, x, locked) => `<td style="${td}"><div style="color:var(--gray-500);font-size:11.5px">Plan ${inr(x.planned)}</div>${inp(w, k, x.actual, locked)}${diff(x.planned, x.actual)}</td>`;
+  const cell = (w, k, x, locked) => `<td style="${td}"><div style="color:var(--gray-500);font-size:11.5px">Plan ${inr(x.planned)}</div>${x.source ? `<div style="font-size:10.5px;color:${x.source === 'tally' ? 'var(--color-success-text)' : 'var(--color-warning-text)'}">${x.source === 'tally' ? 'Tally ICICI book se' : 'app entries (Tally baaki)'}</div>` : ''}${inp(w, k, x.actual, locked)}${diff(x.planned, x.actual)}</td>`;
   document.getElementById('faWrap').innerHTML = `<div style="border:1px solid var(--gray-200);border-radius:12px;overflow:auto;background:var(--surface)"><table style="width:100%;border-collapse:collapse">
     <thead><tr><th style="${th};text-align:left">Hafta</th><th style="${th}">Collection</th><th style="${th}">ICICI receive</th><th style="${th}">PNB (${d.rule.pnbPct}%)</th><th style="${th}">IDFC</th><th style="${th}">Yes Bank</th><th style="${th};text-align:left">Status</th></tr></thead>
     <tbody>${d.rows.map(x => { const done = !!x.submittedAt, w = x.week;

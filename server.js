@@ -9837,7 +9837,8 @@ app.post('/api/o2d-fms/order/:orderNo/hold', requireAuth, async (req, res) => {
     // separately as sale held for stock; "other" needs a reason.
     const holdType = req.body.holdType === 'stock' ? 'stock' : 'other';
     let reason = String(req.body.reason || '').trim().slice(0, 500);
-    if (hold && holdType === 'other' && !reason) return res.status(400).json({ error: 'Hold ka reason likhein' });
+    // The 2nd kind is "Outstanding" (client video 2026-11-16: "do hi kaaran hain — stock nahi aur hold"); reason optional.
+    if (hold && holdType === 'other' && !reason) reason = 'Outstanding';
     if (hold && holdType === 'stock' && !reason) reason = 'Stock not available';
     await withO2dOrderTables(() => db.query(
       `INSERT INTO o2d_order_flags (order_no, on_hold, hold_reason, hold_type, hold_by, hold_at) VALUES (?,?,?,?,?,NOW())
@@ -15318,16 +15319,34 @@ app.get('/api/four-as', requireAuth, async (req, res) => {
     const add = (d, k, v) => { const w = mon(d), c = coll[w] = coll[w] || { cash: 0, online: 0, cheque: 0 }; c[k] += Number(v) || 0; };
     pays.forEach(p => add(p.d, p.mode === 'Online' ? 'online' : 'cash', p.amount));
     chqs.forEach(c => add(c.d, 'cheque', c.amount));
+    // ICICI receive = what Tally's ICICI Bank ledger actually got on Receipt vouchers that week — the bank book
+    // (client 2026-11-16: 9–15 Nov showed ₹2,47,600 from app entries, ICICI book ₹5,75,098 — most receipts are
+    // entered only in Tally). Weeks Tally has nothing for yet (not synced) keep the app entries.
+    const tallyIcici = {};
+    try {
+      const v = await getLedgerVouchers();
+      Object.values(v.byKey).forEach(x => {
+        if (!/^receipt$/i.test(String(x.vchType).trim())) return;
+        // Tally export sign: negative = Dr — money coming INTO the bank is a negative ICICI leg.
+        const leg = x.legs.filter(l => /^icici\b/.test(l.ledgerKey) && l.amount < 0).reduce((a, l) => a - l.amount, 0);
+        const d = leg > 0 && parseAnyDate(x.date);
+        if (!d) return;
+        const ymd = toIsoDate(d);
+        if (ymd < from || ymd > to) return;
+        const w = mon(ymd); tallyIcici[w] = (tallyIcici[w] || 0) + leg;
+      });
+    } catch (e) { console.warn('4AS tally icici:', e.message); }
     const sv = Object.fromEntries(saved.map(s => [s.w, s]));
     const num = v => v == null ? null : Number(v);
     const r2 = v => Math.round(v);
     const rows = weeks.map(w => {
       const c = coll[w] || { cash: 0, online: 0, cheque: 0 }, s = sv[w] || {};
-      const iciciPlanned = r2(c.cash + c.online + c.cheque), iciciActual = num(s.icici_actual);
+      const fromTally = tallyIcici[w] > 0;
+      const iciciPlanned = r2(fromTally ? tallyIcici[w] : c.cash + c.online + c.cheque), iciciActual = num(s.icici_actual);
       const base = iciciActual != null ? iciciActual : iciciPlanned;
       const pnbPlanned = r2(base * rule.pnbPct / 100), idfcPlanned = base > 0 ? Math.min(rule.idfcFixed, Math.max(0, base - pnbPlanned)) : 0;
       return { week: w, weekEnd: ymdAddDays(w, 6), collection: { cash: r2(c.cash), online: r2(c.online), cheque: r2(c.cheque) },
-        icici: { planned: iciciPlanned, actual: iciciActual }, pnb: { planned: pnbPlanned, actual: num(s.pnb_actual) },
+        icici: { planned: iciciPlanned, actual: iciciActual, source: fromTally ? 'tally' : 'app' }, pnb: { planned: pnbPlanned, actual: num(s.pnb_actual) },
         idfc: { planned: idfcPlanned, actual: num(s.idfc_actual) }, yes: { planned: Math.max(0, base - pnbPlanned - idfcPlanned), actual: num(s.yes_actual) },
         note: s.note || '', submittedAt: s.submitted_at || '', submittedBy: s.submitted_by_name || '' };
     });
