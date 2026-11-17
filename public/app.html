@@ -2648,7 +2648,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <button class="btn btn-primary btn-sm" onclick="openPcfuAdd()">+ Follow-up jodo</button>
         <button class="btn btn-outline btn-sm" onclick="loadPcFollowup()">⟳ Refresh</button>
       </div>
-      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px;line-height:1.5">Team ke saare baaki kaam — <b>date ke hisaab se, aaj ke upar</b>. System / naam ke button dabao to sirf wahi dikhe. Follow-up kar liya to <b>☐ par tick</b> karo. Baat likhni ho to <b>📝</b>. Kuch aur yaad rakhna ho to <b>+ Follow-up jodo</b>.</div>
+      <div style="font-size:12.5px;color:var(--gray-500);margin-top:4px;line-height:1.5">Team ke saare baaki kaam — <b>date ke hisaab se, aaj ke upar</b>. System / naam ke button dabao to sirf wahi dikhe. Follow-up kar liya to <b>☐ par tick</b> karo. Baat likhni ho to <b>📝</b>. Kuch aur yaad rakhna ho to <b>+ Follow-up jodo</b>. Har kaam ke neeche <b>📍</b> line batati hai wo <b>kis page se aaya aur kyu dikh raha hai</b> — <b>Kholo ↗</b> se wahi page khulta hai.</div>
       <div id="pcfuNote2" style="font-size:12px;color:var(--gray-500);margin-top:4px"></div>
     </div>
     <div id="pcfuTiles" class="pcfu-tiles"></div>
@@ -26727,6 +26727,32 @@ const PCFU_TYPES = {
   repl: '♻️ Replacement', lead: '📞 Lead', purchase: '🛒 Purchase', collect: '💰 Payment', scot: '☎️ SCOT', beat: '🗺️ Beat', sample: '🎁 Sample',
   attn: '🕘 Attendance', km: '🛵 KM', custom: '📌 Apna follow-up'
 };
+// Where each row comes from + why it shows (client 2026-11-17: "clear samajh nahi aa raha konsa task kahan se aa raha hai").
+const PCFU_SRC = {
+  delegation: { page: 'alltasks', where: 'All Tasks → Delegation', why: 'Kisi ne ye kaam diya hai, abhi tak Done nahi hua' },
+  checklist: { page: 'alltasks', where: 'All Tasks → Checklist', why: 'Fixed roz / hafte ka kaam (Checklist Master se), Done nahi hua' },
+  o2d: { page: 'o2d-fms', where: 'O2D FMS (order → dispatch)', why: 'Order ka ye step is insaan ke paas ruka hai' },
+  fms: { page: 'service-fms', where: 'Service FMS', why: 'Service ka ye step is insaan ke paas ruka hai' },
+  cheque: { page: 'cheque-fms', where: 'Collection FMS (cheque)', why: 'Cheque ka ye step baaki hai' },
+  repl: { page: 'replacement-fms', where: 'Replacement FMS', why: 'Replacement ka ye step is insaan ke paas ruka hai (Sunday / chhutti nahi gini jaati)' },
+  lead: { page: 'lead-fms', where: 'Lead FMS', why: 'Lead ka ye step baaki hai' },
+  purchase: { page: 'purchase-fms', where: 'Purchase FMS', why: 'Indent / PO ka ye step baaki hai' },
+  collect: { page: 'collection', where: 'Payment Follow-up', why: 'Delivery ke baad payment ki date nikal gayi' },
+  collectParty: { page: 'collection', where: 'Payment Follow-up (Tally ke bill)', why: 'Bill ki payment date (credit days) nikal gayi, paisa baaki — party ka salesman (O2D ka aakhri order lene wala) follow-up kare' },
+  scot: { page: 'scot', where: 'SCOT', why: 'Aaj / pichhle 7 din me is dealer ko call karna tha, call nahi hua' },
+  beat: { page: 'beat', where: 'Beat', why: 'Aaj ki beat ke counter visit nahi hue' },
+  sample: { page: 'samples', where: 'Samples', why: 'Sample salesman ke paas hai — wapas ya bill karna hai' },
+  attn: { page: 'attendance', where: 'Attendance', why: 'Aaj punch nahi kiya' },
+  km: { page: 'km', where: 'Kilometer', why: 'Aaj ka KM nahi daala' },
+  custom: { page: '', where: '+ Follow-up jodo', why: 'Haath se joda hua follow-up' }
+};
+function pcfuSrc(t) {
+  const src = PCFU_SRC[t.type === 'collect' && String(t.key).startsWith('collect:party:') ? 'collectParty' : t.type] || { page: '', where: PCFU_TYPES[t.type] || '', why: '' };
+  const why = t.noSalesman ? 'Bill ki date nikal gayi — is party ka O2D me salesman nahi mila (naam Tally se alag hai ya O2D order nahi), isliye Accounts ke naam' : src.why;
+  const open = src.page && (ME.role === 'admin' || MY_PAGES.has(src.page) || ['alltasks', 'attendance', 'km'].includes(src.page))
+    ? ` <button type="button" class="pcfu-open" onclick="navigate('${src.page}')" title="${esc(src.where)} kholo">Kholo ↗</button>` : '';
+  return `<div class="pcfu-src">📍 <b>${esc(src.where)}</b>${why ? ` — ${esc(why)}` : ''}${open}</div>`;
+}
 const PCFU_EVENING_HOUR = 18; // punch out / evening KM only count from 6 PM
 let pcfu = { tasks: [], fu: [], custom: [], today: '', person: '', sys: '', view: 'todo', loading: false, holiday: '' };
 function pcfuText(html) {
@@ -26857,7 +26883,7 @@ function pcfuExtraTasks(ext, scot, coll, today) {
     Object.entries(byParty).forEach(([k, g]) => {
       const p = (coll.parties || {})[k], bal = p ? Number(p.outstanding) || 0 : 0;
       if (bal <= 0) return;
-      out.push({ key: `collect:party:${k}`, type: 'collect', title: g.party, people: [g.salesman || 'Accounts'], due: g.due, overdue: g.due < today,
+      out.push({ key: `collect:party:${k}`, type: 'collect', title: g.party, people: [g.salesman || 'Accounts'], noSalesman: !g.salesman, due: g.due, overdue: g.due < today,
         text: `Payment lena · ${g.party} · baaki ${inr0(bal)} · ${g.n} bill ki date nikal gayi (sabse purani ${fmtDateDMY(g.due)})` });
     });
   }
@@ -26878,6 +26904,10 @@ function pcfuCss() {
     .pcfu-tile{text-align:left;padding:12px 14px 11px;border-radius:14px;cursor:pointer;background:var(--surface);border:1px solid var(--gray-200);border-top:4px solid var(--c);transition:box-shadow .15s,transform .15s}
     .pcfu-tile:hover{box-shadow:0 4px 14px rgba(15,23,42,.08);transform:translateY(-1px)}
     .pcfu-tile.on{background:color-mix(in srgb,var(--c) 9%,var(--surface));box-shadow:0 0 0 2px color-mix(in srgb,var(--c) 45%,transparent)}
+    .pcfu-src{margin-top:5px;font-size:11.5px;line-height:1.45;color:var(--gray-600);background:var(--gray-50);border-left:3px solid var(--c,#94a3b8);border-radius:6px;padding:4px 8px}
+    .pcfu-src b{color:var(--gray-800)}
+    .pcfu-open{margin-left:6px;border:1px solid var(--gray-300);background:var(--surface);color:var(--brand-600,#010371);font-weight:700;font-size:11px;border-radius:999px;padding:1px 9px;cursor:pointer}
+    .pcfu-open:hover{border-color:var(--brand-600,#010371)}
     .pcfu-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:8px}
     .pcfu-bar input,.pcfu-bar select{padding:8px 11px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900)}
     .pcfu-bar input{flex:1 1 200px;min-width:160px} .pcfu-bar select{flex:0 1 220px;min-width:150px}
@@ -26992,7 +27022,7 @@ function renderPcFollowup() {
     const list = byDay[k].slice(0, left); left -= list.length;
     const dn = k === 'none' ? null : dayDiff(k), dcls = dn === null ? '' : dn === 0 ? ' today' : dn > 0 ? ' past' : ' future';
     return `<div class="pcfu-card"><div class="pcfu-date${dcls}">📅 ${dayLabel(k)}<span class="pcfu-badge" style="margin-left:auto">${byDay[k].length} kaam</span></div>
-      <div class="no-kit no-mcards" style="overflow-x:auto"><table class="pcfu-tbl"><thead><tr><th style="width:44px">✓</th><th style="width:120px">System</th><th>Kaam</th><th style="width:170px">Kiska</th><th style="width:90px">Due</th><th style="width:80px"></th></tr></thead><tbody>
+      <div class="no-kit no-mcards" style="overflow-x:auto"><table class="pcfu-tbl"><thead><tr><th style="width:44px">✓</th><th style="width:120px">System</th><th>Kaam · kahan se aaya</th><th style="width:170px">Kiska</th><th style="width:90px">Due</th><th style="width:80px"></th></tr></thead><tbody>
       ${list.map(t => {
         const done = pcfuDoneToday(t), l = pcfuLast(t.key), c = PCFU_COLOR[t.type] || '#475569';
         const txt = String(t.text || t.title || '—'), parts = txt.split(' · ');
@@ -27003,7 +27033,7 @@ function renderPcFollowup() {
         return `<tr class="r${done ? ' done' : ''}${late ? ' late' : ''}" style="--c:${c}">
           <td><button type="button" class="pcfu-tick${done ? ' on' : ''}" onclick="pcfuTick('${jsArg(t.key)}', this)" title="${done ? 'Follow-up ho gaya' : 'Follow-up kiya — tick karo'}">${done ? '✓' : ''}</button></td>
           <td><span class="pcfu-pill" style="--c:${c}">${PCFU_TYPES[t.type]}</span></td>
-          <td>${body}${t.by ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">joda: ${esc(t.by)}</div>` : ''}
+          <td>${body}${pcfuSrc(t)}${t.by ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">joda: ${esc(t.by)}</div>` : ''}
             ${l ? `<div class="pcfu-note">💬 ${esc(l.note)} <span style="color:var(--gray-400)">— ${esc(l.created_by_name || '')}, ${fmtDateDMY(l.created_at.slice(0, 10))} ${l.created_at.slice(11, 16)}${l.next_date ? ` · agla ${fmtDateDMY(l.next_date)}` : ''}</span></div>` : ''}</td>
           <td>${t.people.map(p => `<div class="pcfu-who" style="margin:0 0 3px"><i style="background:${pcfuAvatarColor(p)}">${esc(initials(p))}</i>${esc(p)}</div>`).join('')}</td>
           <td class="due">${due(t) || (t.due ? `<span class="pcfu-due">${fmtDateDMY(t.due)}</span>` : '—')}</td>
