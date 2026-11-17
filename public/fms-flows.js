@@ -17,7 +17,7 @@ window.FMS_FLOWS = [
   steps: [
     { no: 1, name: 'Accounts is ok or not', doer: 'Accountant', due: '10 min', fill: 'Yes / No (+ reason)', cond: ['No → poora order CANCEL'] },
     { no: 2, name: 'Good Check', doer: 'Niranjan (Warehouse)', due: '10 min', fill: 'Har item: Available / Not Available (+ available qty)',
-      cond: ['Not Available → sirf wo item hatta hai; saare Not Available → order cancel', 'Stock kam hai → line available qty tak, baaki naya order "Ord-XXXX-P1" Step 1 se ("Pending stock")'] },
+      cond: ['Not Available → sirf wo item hatta hai; saare Not Available → order cancel', 'Stock kam hai → line available qty tak, baaki naya order "Ord-XXXX-P1" — Accounts pehle se ok, seedha Good Check pe ("Pending stock")'] },
     { no: 3, name: 'Call Made By CRM (Add More Order)', doer: 'Kavita', due: '10 min', fill: 'Done, ya "+ Add Order" se aur items', cond: ['Naye items Step 1 se chalte hain — tab tak poora order rukta hai'] },
     { no: 4, name: 'Make Bill', doer: 'Accountant', due: '10 min', fill: 'Bill No, Amount, Invoice (zaroori), Bill Date',
       cond: ['Bill se pehle item ka naam / rate / qty badal sakte hain (qty 0 = item hata)', 'Dealer ko WhatsApp: bill PDF + Google review link (phone ho to)'] },
