@@ -15344,7 +15344,8 @@ app.get('/api/four-as', requireAuth, async (req, res) => {
       const fromTally = tallyIcici[w] > 0;
       const iciciPlanned = r2(fromTally ? tallyIcici[w] : c.cash + c.online + c.cheque), iciciActual = num(s.icici_actual);
       const base = iciciActual != null ? iciciActual : iciciPlanned;
-      const pnbPlanned = r2(base * rule.pnbPct / 100), idfcPlanned = base > 0 ? Math.min(rule.idfcFixed, Math.max(0, base - pnbPlanned)) : 0;
+      // Paise dropped, not rounded — as Accounts does it (Lucky 16-11: 5,75,098 × 5% = 28,754, Yes 3,96,344).
+      const pnbPlanned = Math.floor(base * rule.pnbPct / 100 + 1e-6), idfcPlanned = base > 0 ? Math.min(rule.idfcFixed, Math.max(0, base - pnbPlanned)) : 0;
       return { week: w, weekEnd: ymdAddDays(w, 6), collection: { cash: r2(c.cash), online: r2(c.online), cheque: r2(c.cheque) },
         icici: { planned: iciciPlanned, actual: iciciActual, source: fromTally ? 'tally' : 'app' }, pnb: { planned: pnbPlanned, actual: num(s.pnb_actual) },
         idfc: { planned: idfcPlanned, actual: num(s.idfc_actual) }, yes: { planned: Math.max(0, base - pnbPlanned - idfcPlanned), actual: num(s.yes_actual) },
