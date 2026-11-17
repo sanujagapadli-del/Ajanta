@@ -27010,6 +27010,9 @@ function renderPcFollowup() {
   // Date-wise (client 2026-11-07): aaj upar, phir kal, parso… ; aage ki dates uske baad, bina date wale aakhir me.
   const byDay = {};
   shown.forEach(t => { const k = (t.due || '').slice(0, 10) || 'none'; (byDay[k] = byDay[k] || []).push(t); });
+  // Punch In / KM first within a day (client 2026-11-17: "punch in nahi kiya sabse pehle aana chahiye"), rest as before.
+  const PRI = { attn: 0, km: 1 };
+  Object.values(byDay).forEach(l => l.sort((a, b) => (PRI[a.type] ?? 9) - (PRI[b.type] ?? 9)));
   const rank = k => k === 'none' ? [2, 0] : k <= pcfu.today ? [0, dayDiff(k)] : [1, -dayDiff(k)];
   const days = Object.keys(byDay).sort((a, b) => { const ra = rank(a), rb = rank(b); return ra[0] - rb[0] || ra[1] - rb[1]; });
   const dayLabel = k => {
