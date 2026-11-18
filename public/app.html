@@ -12557,6 +12557,8 @@ async function ensureSfmsAccess(force) {
 }
 function sfmsCanAct(n) { return sfmsAccess.pcView || sfmsAccess.steps.includes(n); }
 function sfmsCanEdit() { return sfmsAccess.pcView || sfmsAccess.steps.length > 0 || sfmsAccess.mechanic; }
+// Mechanic-only logins can't edit name / mobile (client list 11-18 #11: own number → OTP to himself).
+function sfmsCanEditDetails() { return sfmsAccess.pcView || sfmsAccess.steps.length > 0; }
 // Solve belongs to the mechanic named at Assign (server puts that login in
 // the step's doers) — a mechanic gets it for his own complaints. Check In/Out
 // is done by store staff (the Takeout doers), never the mechanic himself.
@@ -14506,7 +14508,7 @@ function renderComplaintDetailBody(c) {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
           <a href="tel:${esc(c.mobile)}" class="btn btn-outline btn-sm" style="white-space:nowrap">${esc(c.mobile)}</a>
-          ${sfmsCanEdit() ? `<button class="btn btn-outline btn-sm" onclick="openEditComplaintModal(${c.row})">✏️ Edit</button>` : ''}
+          ${sfmsCanEditDetails() ? `<button class="btn btn-outline btn-sm" onclick="openEditComplaintModal(${c.row})">✏️ Edit</button>` : ''}
           ${sfmsCanEdit() && !c.closed ? `<button class="btn btn-outline btn-sm" onclick="sfmsToggleUrgent(${c.row}, this)" style="white-space:nowrap;${c.urgent ? '' : 'color:var(--color-danger);border-color:var(--color-danger-border)'}">${c.urgent ? 'Remove Urgent' : '🚨 Mark Urgent'}</button>` : ''}
         </div>
       </div>

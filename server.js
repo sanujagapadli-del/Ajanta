@@ -4915,6 +4915,9 @@ async function sfmsUserAccess(req) {
 }
 function sfmsCanActOn(acc, stepN) { return acc.pcView || acc.steps.includes(stepN); }
 function sfmsCanEdit(acc) { return acc.pcView || acc.steps.length > 0 || acc.mechanic; }
+// Editing complaint details (name / mobile …) is NOT for mechanic-only logins (client list 11-18 #11: a mechanic
+// could put his own number and send the OTP to himself).
+function sfmsCanEditDetails(acc) { return acc.pcView || acc.steps.length > 0; }
 // Step-level access, or — for a mechanic step — being that row's AF mechanic.
 async function sfmsCanActOnRow(req, acc, stepN, row, sheetsApi) {
   if (sfmsCanActOn(acc, stepN)) return true;
@@ -5780,6 +5783,7 @@ async function sfmsRowMoved(res, sheetsApi, row, expectComplainNo) {
 
 app.put('/api/service-fms/:row(\\d+)', requireAuth, requireSfmsEditor, async (req, res) => {
   try {
+    if (!sfmsCanEditDetails(await sfmsUserAccess(req))) return res.status(403).json({ error: 'Mechanic complaint details (naam / mobile) edit nahi kar sakte' });
     const row = parseInt(req.params.row, 10);
     if (!row) return res.status(400).json({ error: 'Invalid row' });
     const {
