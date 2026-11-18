@@ -2126,7 +2126,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     <div style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px;width:fit-content;margin-bottom:18px">
       <div class="tab active" id="apprTabTask" onclick="switchApprovalTab('task',this)">📋 Task Approvals</div>
       <div class="tab" id="apprTabTransfer" onclick="switchApprovalTab('transfer',this)" style="display:none">🔀 Transfer Requests</div>
-      <div class="tab" id="apprTabSfmsCash" onclick="switchApprovalTab('cash',this)" style="display:none">💰 Spare Cash (Service FMS)</div>
+      <div class="tab" id="apprTabSfmsCash" onclick="switchApprovalTab('cash',this)" style="display:none">💰 Service Cash (Service FMS)</div>
     </div>
 
     <!-- Service FMS: cash taken for short spare pieces at Check In/Out -->
@@ -8072,12 +8072,12 @@ async function loadSfmsCashApprovals() {
   const rows = Array.isArray(list) ? list : [];
   const tab = document.getElementById('apprTabSfmsCash');
   if (rows.length || ME.role === 'admin' || ME.role === 'pc') tab.style.display = 'block';
-  tab.textContent = `💰 Spare Cash (Service FMS)${rows.length ? ` · ${rows.length}` : ''}`;
+  tab.textContent = `💰 Service Cash (Service FMS)${rows.length ? ` · ${rows.length}` : ''}`;
   if (!Array.isArray(list)) { el.innerHTML = `<div class="empty">⚠️ ${esc((list && list.error) || 'Failed to load')}</div>`; return rows; }
   el.innerHTML = !rows.length
     ? `<div class="empty" style="background:var(--surface);border-radius:12px;border:1px solid var(--gray-200);">✅ No pending spare-cash approvals!</div>`
     : `<div class="flat-tasks-table mis-table-wrap"><table>
-        <thead><tr><th>Complain No</th><th>Customer</th><th>Mechanic</th><th>Short Pieces</th><th>Cash</th><th>Requested</th><th>Approve / Reject</th></tr></thead>
+        <thead><tr><th>Complain No</th><th>Customer</th><th>Mechanic</th><th>Short Pieces / Out of Warranty</th><th>Cash</th><th>Requested</th><th>Approve / Reject</th></tr></thead>
         <tbody>${rows.map(a => `<tr>
           <td style="font-weight:600;white-space:nowrap">${esc(a.complain_no)}</td>
           <td>${esc(a.customer || '—')}</td>
@@ -13332,9 +13332,9 @@ function sfmsInOutRows(c) {
 }
 function sfmsInOutStateLabel(c) {
   const s = sfmsStep(c, 'inout');
-  if (s.status) return s.cashStatus === 'Approved' ? `✅ Done (cash ₹${esc(s.cashAmount)} approved)` : '✅ Done';
-  if (s.cashStatus === 'Pending Approval') return `⏳ Cash ₹${esc(s.cashAmount)} — approval pending`;
-  if (s.cashStatus === 'Rejected') return `❌ Cash ₹${esc(s.cashAmount)} rejected`;
+  if (s.status) return s.cashStatus === 'Approved' ? `✅ Done (cash ₹${esc(sfmsInOutAmt(s))} approved)` : '✅ Done';
+  if (s.cashStatus === 'Pending Approval') return `⏳ Cash ₹${esc(sfmsInOutAmt(s))} — approval pending`;
+  if (s.cashStatus === 'Rejected') return `❌ Cash ₹${esc(sfmsInOutAmt(s))} rejected`;
   if (s.spareInJson) return '⏸ Pieces pending';
   return '—';
 }
@@ -13537,7 +13537,7 @@ function renderSfmsOverviewReport() {
     if (wa.status === 'No' && c.warrantyChargesAgreed) agreedN++;
     if (!c.closed && sc.status === 'Need to be Purchased') needBuy.push(c);
     if (sv.repairStatus === 'Brought to Office') office.push(c);
-    const cash = Number(io.cashAmount) || 0;
+    const cash = sfmsInOutAmt(io);
     if (io.cashStatus === 'Approved' && cash) { cashOk.push(c); cashOkSum += cash; }
     if (io.cashStatus === 'Pending Approval' && cash) { cashWait.push(c); cashWaitSum += cash; }
     if (sd != null) {
@@ -14477,11 +14477,11 @@ function buildSfmsNextActionHtml(c, compact) {
     } else if (nextStepDef.n === SN.inout && stepData.cashStatus === 'Pending Approval') {
       // Shortage settled in cash — nothing to do here until it's approved.
       actionHtml = `<div style="background:var(--color-warning-bg);color:var(--color-warning-text);border-radius:10px;padding:${compact ? '6px 8px' : '12px 14px'};font-size:${compact ? '11.5px' : '13px'};font-weight:600;margin-bottom:${compact ? '0' : '16px'}">
-        ⏳ Cash ₹${esc(stepData.cashAmount)} for short pieces — approval pending${sfmsCashApproverName ? ` (${esc(sfmsCashApproverName)})` : ''}</div>`;
+        ⏳ Cash ₹${esc(sfmsInOutAmt(stepData))}${stepData.cashAmount ? ' (short pieces)' : ''}${Number(stepData.serviceCharge) || Number(stepData.spareAmount) ? ` (Out of Warranty: service ₹${esc(stepData.serviceCharge || 0)} + spare ₹${esc(stepData.spareAmount || 0)})` : ''} — approval pending${sfmsCashApproverName ? ` (${esc(sfmsCashApproverName)})` : ''}</div>`;
     } else if (nextStepDef.n === SN.inout) {
       // Check In/Out: one row per spare taken out (new back / bad back).
       const rejectedHtml = (nextStepDef.n === SN.inout && stepData.cashStatus === 'Rejected')
-        ? `<div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:8px;padding:6px 8px;font-size:12px;font-weight:600;margin-bottom:8px">Cash ₹${esc(stepData.cashAmount)} reject hua — pieces wapas lao ya dobara bharo.</div>` : '';
+        ? `<div style="background:var(--color-danger-bg);color:var(--color-danger-text);border-radius:8px;padding:6px 8px;font-size:12px;font-weight:600;margin-bottom:8px">Cash ₹${esc(sfmsInOutAmt(stepData))} reject hua — pieces wapas lao / amount sahi karke dobara bharo.</div>` : '';
       actionHtml = `<div style="${compact ? 'min-width:260px' : ''}">
         ${compact ? '' : `<div style="${titleStyle}">${nextStepDef.label}</div>`}
         ${doerHtml}
@@ -14812,13 +14812,15 @@ function sfmsBuildSpareInRowsHtml(c) {
       </div>
     </div>${sfmsIsOutOfWarranty(c) ? `
     <div style="background:var(--color-warning-bg);border-radius:8px;padding:8px;margin-bottom:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--color-warning-text);margin-bottom:6px">💰 Out of Warranty — customer se liya</div>
+      <div style="font-size:12px;font-weight:700;color:var(--color-warning-text);margin-bottom:6px">💰 Out of Warranty — customer se liya <span style="font-weight:500">(amount bharne par ${esc(sfmsCashApproverName || 'approver')} ke paas approval jayega, approve hote hi complaint close)</span></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <label style="font-size:11px;font-weight:600;margin:0;text-transform:none;letter-spacing:0">Service charge ₹<input type="number" min="0" id="sfmsInSvc_${c.row}" value="${esc(s.serviceCharge || '')}" placeholder="0" style="display:block;width:110px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/></label>
         <label style="font-size:11px;font-weight:600;margin:0;text-transform:none;letter-spacing:0">Spare part amount ₹<input type="number" min="0" id="sfmsInSpAmt_${c.row}" value="${esc(s.spareAmount || '')}" placeholder="0" style="display:block;width:110px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/></label>
       </div>
     </div>` : ''}`;
 }
+// Total waiting on / approved by the cash approver: short-piece cash + Out of Warranty charges.
+function sfmsInOutAmt(s) { return (Number(s.cashAmount) || 0) + (Number(s.serviceCharge) || 0) + (Number(s.spareAmount) || 0); }
 // Warranty step answered "No" (or "Bill nahi hai" at intake) = Out of Warranty.
 function sfmsIsOutOfWarranty(c) { return sfmsStep(c, 'warranty').status === 'No' || !!c.noBill; }
 function sfmsInReceiveTick(row, i, newBack, oldBack, on) {

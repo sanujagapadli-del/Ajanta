@@ -6460,16 +6460,22 @@ async function sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal) {
     cell(col('usedBy'), usedBy),
     cell(col('reasonIfShort'), String(req.body.reasonIfShort || '').trim())
   ];
-  // Out of Warranty charges — written only when sent, so an older form doesn't blank them.
-  const amt = v => { const n = Math.round(Number(v) * 100) / 100; return n > 0 ? n : ''; };
-  for (const k of ['serviceCharge', 'spareAmount']) if (req.body[k] !== undefined) data.push(cell(col(k), amt(req.body[k])));
+  // Out of Warranty charges (client 2026-11-18) — like short-piece cash, they go to
+  // the cash approver (Ajay sir) and the complaint closes on approval.
+  const amt = v => { const n = Math.round(Number(v) * 100) / 100; return n > 0 ? n : 0; };
+  const svc = amt(req.body.serviceCharge), spAmt = amt(req.body.spareAmount), owTotal = svc + spAmt;
+  data.push(cell(col('serviceCharge'), svc || ''), cell(col('spareAmount'), spAmt || ''));
+  const settledCash = totalShort > 0 ? cashAmount : 0;
   let outcome;
-  if (totalShort === 0) {
+  if (totalShort > 0 && !(cashAmount > 0)) {
+    data.push(cell(col('cashAmount'), ''), cell(col('cashStatus'), ''));
+    outcome = 'pendingPieces';
+  } else if (settledCash > 0 || owTotal > 0) {
+    data.push(cell(col('cashAmount'), settledCash || ''), cell(col('cashStatus'), 'Pending Approval'));
+    outcome = 'pendingApproval';
+  } else if (totalShort === 0) {
     data.push(cell(stepDef.actual, nowVal), cell(stepDef.status, 'Yes'), cell(col('cashAmount'), ''), cell(col('cashStatus'), ''));
     outcome = 'completed';
-  } else if (cashAmount > 0) {
-    data.push(cell(col('cashAmount'), cashAmount), cell(col('cashStatus'), 'Pending Approval'));
-    outcome = 'pendingApproval';
   } else {
     data.push(cell(col('cashAmount'), ''), cell(col('cashStatus'), ''));
     outcome = 'pendingPieces';
@@ -6487,11 +6493,14 @@ async function sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal) {
     const [complainNo = '', customer = ''] = (info.data.values && info.data.values[0]) || [];
     const approver = await sfmsCashApprover();
     approverName = approver ? approver.name : '';
-    const shortDetails = clean.filter(x => x.shortQty > 0).map(x => `${x.item}: ${x.shortQty} short (took ${x.takenQty}, new ${x.newQty}, old ${x.oldQty})`).join('; ');
+    const shortDetails = [
+      ...clean.filter(x => x.shortQty > 0).map(x => `${x.item}: ${x.shortQty} short (took ${x.takenQty}, new ${x.newQty}, old ${x.oldQty})${settledCash ? ` — ₹${settledCash}` : ''}`),
+      ...(owTotal ? [`Out of Warranty — service charge ₹${svc}, spare part ₹${spAmt}`] : [])
+    ].join('; ');
     await db.query(
       `INSERT INTO sfms_cash_approvals (sheet_row, complain_no, customer, mechanic, amount, short_details, requested_by, requested_to)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [row, complainNo, customer, usedBy, cashAmount, shortDetails, req.session.userId, approver ? approver.id : null]
+      [row, complainNo, customer, usedBy, settledCash + owTotal, shortDetails, req.session.userId, approver ? approver.id : null]
     );
   }
   res.json({ success: true, outcome, totalShort, approverName });
