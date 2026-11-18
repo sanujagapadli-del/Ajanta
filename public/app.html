@@ -1488,6 +1488,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         <span class="nav-label-text">New Order</span>
       </div>
+      <div class="nav-item" id="nav-delivery-partners" style="display:none" onclick="navigate('delivery-partners',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zm10 0a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m10 0H9m4 0h2m4 0h2v-3.4a1 1 0 00-.3-.7l-3.6-3.6a1 1 0 00-.7-.3H13"/></svg>
+        <span class="nav-label-text">Delivery Partners</span>
+      </div>
       <div class="nav-item" id="nav-lead-fms" style="display:none" onclick="navigate('lead-fms',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h4l2 5-2.5 1.5a11 11 0 005 5L13 14l5 2v4a1 1 0 01-1 1A16 16 0 013 6a1 1 0 011-1z"/></svg>
         <span class="nav-label-text">Lead FMS</span>
@@ -2743,6 +2747,16 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       
     </div>
     <div id="mhWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
+  </div>
+
+  <div id="page-delivery-partners" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);box-shadow:0 2px 12px rgba(1,80,170,.05);padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">🛺 Delivery Partners <span style="font-size:12px;font-weight:600;color:var(--gray-500)">— rickshaw / tempo wale, number aur details</span></div>
+        <input id="dpSearch" placeholder="🔍 Naam / number / area / gaadi no…" oninput="renderDp()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:200px"/><button class="btn btn-primary" onclick="openDpForm(0)">＋ Delivery Partner</button>
+      </div>
+    </div>
+    <div id="dpWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
 
   <div id="page-mechanics" class="page">
@@ -5131,6 +5145,7 @@ async function init() {
     if (canSee('employees')) document.getElementById('nav-employees').style.display = 'flex';
     if (canSee('service-fms')) document.getElementById('nav-service-fms').style.display = 'flex';
     if (canSee('o2d-fms')) document.getElementById('nav-o2d-fms').style.display = 'flex';
+    if (canSee('o2d-fms')) document.getElementById('nav-delivery-partners').style.display = 'flex';
     if ((canSee('o2d-fms') || canSee('o2d-new-order')) && canForm('form-o2d-order')) document.getElementById('nav-o2d-new-order').style.display = 'flex';
     document.querySelectorAll('[data-form]').forEach(b => { if (!canForm(b.dataset.form)) b.style.display = 'none'; }); // Users → Access → Forms
     if (canSee('purchase-fms')) document.getElementById('nav-purchase-fms').style.display = 'flex';
@@ -5412,7 +5427,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Collection FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows','pc-followup':'PC Follow-up','vendor-bin':'Vendor Bin','four-as':'4AS — Bank allocation','vendor-outstanding':'Vendor Outstanding'};
+const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Collection FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','delivery-partners':'Delivery Partners','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows','pc-followup':'PC Follow-up','vendor-bin':'Vendor Bin','four-as':'4AS — Bank allocation','vendor-outstanding':'Vendor Outstanding'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -5458,6 +5473,7 @@ function navigate(page, el) {
   if (page === 'net-profit') { gpView = 'np'; page = 'gross-profit'; } // old saved page: Net Profit is a Gross Profit tab now
   const noAccess = ME && ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(page) && !MY_PAGES.has(page))
     || (page === 'dealers' && !MY_PAGES.has('dealers')));
+  if (page === 'delivery-partners' && ME && ME.role !== 'admin' && !MY_PAGES.has('o2d-fms')) { showToast("You don't have access to this page", 'error'); return; }
   if (page === 'onboarding' && ME && ME.role !== 'admin' && !MY_PAGES.has('dealers') && !MY_PAGES.has('lead-fms')) { showToast("You don't have access to this page", 'error'); return; }
   if (noAccess) {
     showToast("You don't have access to this page", 'error');
@@ -5514,6 +5530,7 @@ function navigate(page, el) {
   if (page==='samples') loadSmp();
   if (page==='market-holidays') loadMh();
   if (page==='mechanics') loadMech();
+  if (page==='delivery-partners') loadDp();
   if (page==='dealer-whatsapp') loadWa();
   if (page==='drip-marketing') loadDrip();
   if (page==='collection') loadCollection();
@@ -27796,6 +27813,69 @@ async function deleteRentPay(pid, uid) {
   if (r.error) { showToast(r.error, 'error'); return; }
   await loadRental();
   openRentHistory(uid);
+}
+
+// ── 🛺 Delivery Partners (client list 2026-11-18 #4): rickshaw / delivery partner list under O2D —
+// naam, number, gaadi, area, charges; O2D access wale add / edit / delete.
+let dpData = null;
+const DP_TYPES = ['Rickshaw', 'E-Rickshaw', 'Tempo', 'Pickup', 'Loading Auto', 'Bike', 'Transport'];
+async function loadDp() {
+  const r = await api('/api/delivery-partners');
+  if (!r || r.error) { document.getElementById('dpWrap').innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load nahi hua')}</div>`; return; }
+  dpData = r;
+  renderDp();
+}
+function renderDp() {
+  if (!dpData) return;
+  const q = document.getElementById('dpSearch').value.trim().toLowerCase();
+  const list = dpData.items.filter(d => !q || `${d.name} ${d.mobile} ${d.altMobile} ${d.vehicleType} ${d.vehicleNo} ${d.area} ${d.notes}`.toLowerCase().includes(q));
+  const tel = m => m ? `<a href="tel:${esc(m)}">📞 ${esc(m)}</a> <a href="https://wa.me/91${esc(m.replace(/\D/g, '').slice(-10))}" target="_blank" title="WhatsApp">💬</a>` : '';
+  document.getElementById('dpWrap').innerHTML = list.length ? `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden">
+    <div class="table-wrap"><table style="font-size:12.5px"><thead><tr><th>Naam</th><th>Mobile</th><th>Gaadi</th><th>Area / route</th><th>Charges</th><th>Note</th><th></th></tr></thead><tbody>
+    ${list.map(d => `<tr style="${d.active ? '' : 'opacity:.5'}"><td style="font-weight:700">${esc(d.name)}${d.active ? '' : ' <span class="status-badge">Band</span>'}</td>
+      <td style="white-space:nowrap">${tel(d.mobile)}${d.altMobile ? `<div style="font-size:11.5px">${tel(d.altMobile)}</div>` : ''}</td>
+      <td>${esc(d.vehicleType || '—')}${d.vehicleNo ? `<div style="font-size:11.5px;color:var(--gray-500)">${esc(d.vehicleNo)}</div>` : ''}</td>
+      <td>${esc(d.area || '—')}</td><td>${esc(d.charges || '—')}</td><td style="font-size:12px;color:var(--gray-600)">${esc(d.notes || '—')}</td>
+      <td style="white-space:nowrap"><button class="btn btn-sm btn-outline" onclick="openDpForm(${d.id})">✏️</button> <button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="deleteDp(${d.id})">🗑</button></td></tr>`).join('')}
+    </tbody></table></div><div style="padding:8px 14px;font-size:11.5px;color:var(--gray-500)">${list.length} / ${dpData.items.length} delivery partners</div></div>`
+    : `<div class="empty">${dpData.items.length ? 'Koi match nahi' : 'Abhi koi delivery partner nahi — "＋ Delivery Partner" se add karein'}</div>`;
+}
+function openDpForm(id) {
+  const d = id ? dpData.items.find(x => x.id === id) : null;
+  const L = t => `<label style="font-size:12px;font-weight:600">${t}</label>`;
+  const areas = [...new Set(dpData.items.map(x => x.area).filter(Boolean))];
+  vrlModal('dpModal', `${scotModalHead('dpModal', d ? '✏️ Delivery Partner' : '＋ Delivery Partner')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div>${L('Naam *')}<input id="dpName" value="${esc(d ? d.name : '')}" style="${VRL_IN}"/></div>
+      <div>${L('Mobile *')}<input id="dpMobile" value="${esc(d ? d.mobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
+      <div>${L('Gaadi')}<select id="dpType" style="${VRL_IN}"><option value="">-- chuno --</option>${DP_TYPES.concat(d && d.vehicleType && !DP_TYPES.includes(d.vehicleType) ? [d.vehicleType] : []).map(t => `<option ${d && d.vehicleType === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
+      <div>${L('Gaadi number')}<input id="dpNo" value="${esc(d ? d.vehicleNo : '')}" placeholder="RJ14 …" style="${VRL_IN}"/></div>
+      <div>${L('Doosra mobile')}<input id="dpAlt" value="${esc(d ? d.altMobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
+      <div>${L('Area / route')}<input id="dpArea" list="dpAreaList" value="${esc(d ? d.area : '')}" placeholder="Jaise Sanganer, Tonk Road" style="${VRL_IN}"/></div></div>
+    ${L('Charges (andaza)')}<input id="dpCharges" value="${esc(d ? d.charges : '')}" placeholder="Jaise ₹300 shehar me, ₹50 per drop" style="${VRL_IN};margin-bottom:8px"/>
+    ${L('Note / details')}<input id="dpNotes" value="${esc(d ? d.notes : '')}" placeholder="Address, kab milta hai…" style="${VRL_IN};margin-bottom:8px"/>
+    ${d ? `<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:8px"><input type="checkbox" id="dpActive" ${d.active ? 'checked' : ''}/> Abhi kaam kar raha hai</label>` : ''}
+    <datalist id="dpAreaList">${areas.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
+    <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveDp(${id || 0},this)">✓ Save</button>`, 560);
+}
+async function saveDp(id, btn) {
+  const g = i => document.getElementById(i).value.trim(), act = document.getElementById('dpActive');
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/delivery-partners', 'POST', { id: id || undefined, name: g('dpName'), mobile: g('dpMobile'), altMobile: g('dpAlt'), vehicleType: g('dpType'),
+    vehicleNo: g('dpNo'), area: g('dpArea'), charges: g('dpCharges'), notes: g('dpNotes'), active: act ? act.checked : true });
+  restore();
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  closeModal('dpModal');
+  showToast('✅ Delivery partner save ho gaya');
+  loadDp();
+}
+async function deleteDp(id) {
+  const d = dpData.items.find(x => x.id === id);
+  if (!await uiConfirm(`${d ? d.name : 'Ye delivery partner'} ko list se hata dein?`)) return;
+  const r = await api(`/api/delivery-partners/${id}`, 'DELETE');
+  if (!r || r.error) { showToast((r && r.error) || 'Delete nahi hua', 'error'); return; }
+  showToast('🗑 Hata diya');
+  loadDp();
 }
 
 // ── 🔧 Bahar ke Mechanics (client voice note 2026-10-25): outsourced mechanics by

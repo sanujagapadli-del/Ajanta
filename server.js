@@ -19047,6 +19047,55 @@ app.delete('/api/mechanics/:id', requireAuth, requireAdmin, async (req, res) => 
 });
 
 // ══════════════════════════════════════════════════════
+// DELIVERY PARTNERS (client list 2026-11-18 #4): rickshaw drivers / delivery partners with number + details,
+// under O2D. Anyone with O2D FMS access adds / edits / deletes.
+// ══════════════════════════════════════════════════════
+let _dpOk = false;
+async function dpTable() {
+  if (_dpOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS delivery_partners (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, mobile VARCHAR(30),
+    alt_mobile VARCHAR(30), vehicle_type VARCHAR(60), vehicle_no VARCHAR(40), area VARCHAR(255), charges VARCHAR(255), notes VARCHAR(1000),
+    active TINYINT NOT NULL DEFAULT 1, created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_by INT, updated_at DATETIME
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _dpOk = true;
+}
+const dpAllowed = req => hasPageGrant(req, 'o2d-fms');
+app.get('/api/delivery-partners', requireAuth, async (req, res) => {
+  try {
+    if (!(await dpAllowed(req))) return res.status(403).json({ error: 'No access (O2D FMS access chahiye)' });
+    await dpTable();
+    const [rows] = await db.query(`SELECT d.*, u.name AS by_name FROM delivery_partners d LEFT JOIN users u ON u.id=d.created_by ORDER BY d.active DESC, d.name`);
+    res.json({ items: rows.map(d => ({ id: d.id, name: d.name, mobile: d.mobile || '', altMobile: d.alt_mobile || '', vehicleType: d.vehicle_type || '',
+      vehicleNo: d.vehicle_no || '', area: d.area || '', charges: d.charges || '', notes: d.notes || '', active: !!d.active, by: d.by_name || '' })) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/delivery-partners', requireAuth, async (req, res) => {
+  try {
+    if (!(await dpAllowed(req))) return res.status(403).json({ error: 'No access (O2D FMS access chahiye)' });
+    await dpTable();
+    const b = req.body || {}, s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    const r = [s(b.name, 255), s(b.mobile, 30), s(b.altMobile, 30), s(b.vehicleType, 60), s(b.vehicleNo, 40).toUpperCase(), s(b.area, 255), s(b.charges, 255), s(b.notes, 1000)];
+    if (!r[0]) return res.status(400).json({ error: 'Naam likhein' });
+    if (!r[1]) return res.status(400).json({ error: 'Mobile number likhein' });
+    for (const p of [r[1], r[2]]) if (p && !sfmsNormalizeMobile(p)) return res.status(400).json({ error: `Mobile number galat lag raha hai: ${p}` });
+    const vals = [...r.map(x => x || null), b.active === false ? 0 : 1];
+    let id = Number(b.id) || 0;
+    if (id) await db.query('UPDATE delivery_partners SET name=?, mobile=?, alt_mobile=?, vehicle_type=?, vehicle_no=?, area=?, charges=?, notes=?, active=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, req.session.userId, id]);
+    else id = (await db.query('INSERT INTO delivery_partners (name, mobile, alt_mobile, vehicle_type, vehicle_no, area, charges, notes, active, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)', [...vals, req.session.userId]))[0].insertId;
+    res.json({ success: true, id });
+  } catch (err) { sendServerError(res, err); }
+});
+app.delete('/api/delivery-partners/:id', requireAuth, async (req, res) => {
+  try {
+    if (!(await dpAllowed(req))) return res.status(403).json({ error: 'No access (O2D FMS access chahiye)' });
+    await dpTable();
+    await db.query('DELETE FROM delivery_partners WHERE id=?', [Number(req.params.id)]);
+    console.log(`delivery partner ${req.params.id} deleted by user ${req.session.userId}`);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+
+// ══════════════════════════════════════════════════════
 // DEALER WHATSAPP — broadcasts + weekly drip plan (client, 2026-10-16:
 // "price change par naya catalogue sab dealers ko", "har hafte kaunsa
 // catalogue / photo / scheme jayega — admin tay kare"). Messages go out from
