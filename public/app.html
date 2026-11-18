@@ -17105,13 +17105,20 @@ function renderCatVideosBody() {
   const d = catVideos, q = catVideosQ.trim().toLowerCase();
   const body = document.getElementById('catVideosBody');
   if (!q && !catVideosDept) { body.innerHTML = `<div style="padding:12px 14px;font-size:13px;color:var(--gray-500)">${d.videos.length} videos — upar department chunein ya search karein</div>`; return; }
-  const list = d.videos.filter(v => (!catVideosDept || v.dept === catVideosDept) && (!q || `${v.title} ${v.dept}`.toLowerCase().includes(q)));
+  // Search looks in EVERY tab (client video 2026-11-18: "selection koi bhi tab pe ho, ceiling fan search karein to
+  // ceiling fan ke video aane chahiye") and matches each typed word anywhere in the video's name / details / tab.
+  const words = q.split(/[\s,]+/).filter(Boolean);
+  const list = d.videos.filter(v => {
+    if (!words.length) return !catVideosDept || v.dept === catVideosDept;
+    const hay = `${v.title} ${v.dept} ${v.url}`.toLowerCase();
+    return words.every(w => hay.includes(w));
+  });
   const ytId = u => (u.match(/(?:youtu\.be\/|v=|shorts\/)([\w-]{11})/) || [])[1];
   body.innerHTML = list.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;padding:12px 14px">${list.map(v => { const id = ytId(v.url); return `
       <a href="${esc(v.url)}" target="_blank" rel="noopener" style="display:flex;gap:10px;align-items:center;padding:8px;border:1px solid var(--gray-200);border-radius:10px;text-decoration:none;color:var(--gray-800);background:var(--surface)">
         ${id ? `<img src="https://i.ytimg.com/vi/${id}/mqdefault.jpg" loading="lazy" style="width:96px;height:54px;object-fit:cover;border-radius:6px;flex-shrink:0" onerror="this.remove()"/>` : '<span style="font-size:28px">▶️</span>'}
         <span style="min-width:0"><b style="font-size:13px;display:block">${esc(v.title)}</b><span style="font-size:11px;color:var(--gray-500)">${esc(v.dept)}</span></span></a>`; }).join('')}</div>
-      <div style="padding:0 14px 10px;font-size:11.5px;color:var(--gray-500)">${list.length} / ${d.videos.length} videos</div>` : '<div class="empty">Koi video nahi mila</div>';
+      <div style="padding:0 14px 10px;font-size:11.5px;color:var(--gray-500)">${list.length} / ${d.videos.length} videos${words.length ? ' · saare tabs me dhoondha' : ''}</div>` : `<div class="empty">Koi video nahi mila${words.length ? ' (saare tabs me dhoondha)' : ''}</div>`;
 }
 async function setCatVideosSheet() {
   const url = await uiPrompt('YouTube videos wali Google Sheet ka link (sheet service account ke saath share honi chahiye):', (catVideos && catVideos.url) || '');
