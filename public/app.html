@@ -20832,6 +20832,17 @@ async function submitPurchaseStepDoers() {
   if (document.getElementById('page-purchase-fms').classList.contains('active')) loadPurchaseFmsList();
 }
 
+// Duplicate / wrong PO (client list 2026-11-18 #1): only an ERP PO with no material received; items go back to Generate PO.
+async function pfmsDeletePo(poNumber) {
+  const reason = await uiPrompt(`${poNumber} delete karna hai? Iske items wapas "Generate PO" me aa jayenge. Reason likho:`, '', { placeholder: 'Duplicate PO / galat rate / galat vendor …' });
+  if (reason == null) return;
+  if (!String(reason).trim()) { showToast('Reason zaroori hai', 'error'); return; }
+  const r = await api(`/api/purchase-fms/po/${encodeURIComponent(poNumber)}/delete`, 'POST', { reason: String(reason).trim() });
+  if (!r || r.error) { showToast((r && r.error) || 'Delete nahi hua', 'error'); return; }
+  showToast(`🗑 ${poNumber} delete ho gaya — items Generate PO me wapas`);
+  document.getElementById('purchaseDetailModal').classList.remove('open');
+  loadPurchaseFmsList();
+}
 async function openPurchaseDetail(poNumber) {
   const o = pfmsData.find(x => x.poNumber === poNumber);
   if (!o) { showToast('PO not found — please refresh', 'error'); return; }
@@ -21023,6 +21034,7 @@ function renderPurchaseDetailBody(o) {
       ${pfmsPoLinks[o.poNumber] ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
         <a class="btn btn-outline btn-sm" href="${esc(pfmsPoLinks[o.poNumber])}" target="_blank" rel="noopener">📄 View PO</a>
         <button class="btn btn-green btn-sm" onclick="sendPoToVendor('${jsArg(o.poNumber)}')">📤 Send PO to vendor (WhatsApp)</button>
+        ${!(o.products || []).some(p => p.receivedQty > 0) ? `<button class="btn btn-outline btn-sm" style="color:var(--color-danger);border-color:var(--color-danger-border)" onclick="pfmsDeletePo('${jsArg(o.poNumber)}')">🗑 Delete PO</button>` : ''}
       </div>` : ''}
       <div style="${PFMS_FIELD_LABEL_STYLE}">Items (${(o.products||[]).length})</div>
       <div style="margin-bottom:14px">${productsInfoListHtml || '—'}</div>

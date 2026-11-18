@@ -11105,6 +11105,53 @@ app.post('/api/purchase-fms/po/:poNumber/finish', requireAuth, async (req, res) 
   }
 });
 
+// Delete a duplicate / wrong ERP PO (client list 2026-11-18 #1). Only while nothing has been received on it.
+// 'Purchase Fms' A:K is a QUERY in PO order, so the PO's rows vanish and every later PO moves up — the typed
+// follow-up (M:P) and receive (R:V) cells of those rows are deleted with shift-up IN THE SAME batchUpdate as
+// clearing the PO's 'ERP PO' lines, so nothing misaligns (L, Q, T are row-6 ARRAYFORMULAs — left alone).
+// The indent lines go back to Generate PO. The number is not reused.
+app.post('/api/purchase-fms/po/:poNumber/delete', requireAuth, async (req, res) => {
+  try {
+    if (!(await assertIsStepDoer(res, 'purchase_step_doers', PO_STEP_N, req.session.userId, req.session.role))) return;
+    const poNumber = String(req.params.poNumber || '').trim();
+    const reason = String((req.body || {}).reason || '').trim().slice(0, 300);
+    if (!reason) return res.status(400).json({ error: 'Delete ka reason likho (duplicate / galat PO …)' });
+    await erpPoTable();
+    const [[po]] = await db.query('SELECT * FROM erp_purchase_orders WHERE po_number=?', [poNumber]);
+    if (!po || po.status !== 'done') return res.status(400).json({ error: 'Sirf ERP me bana PO delete ho sakta hai' });
+    const sheetsW = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const [pf, ep, meta] = await Promise.all([
+      sheetsW.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!B${PURCHASE_DATA_START_ROW}:V`, valueRenderOption: 'UNFORMATTED_VALUE' }),
+      sheetsW.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${ERP_PO_TAB}'!B:B` }),
+      sheetsW.spreadsheets.get({ spreadsheetId: PURCHASE_SHEET_ID, fields: 'sheets.properties(sheetId,title)' }),
+    ]);
+    const bOff = colToIdx('B');
+    const rows = (pf.data.values || []).map((r, i) => ({ rn: PURCHASE_DATA_START_ROW + i, get: c => r[colToIdx(c) - bOff] }))
+      .filter(x => String(x.get('B') || '') === poNumber);
+    if (rows.some(x => Number(x.get('S')) > 0 || x.get('R') || x.get('U')))
+      return res.status(400).json({ error: 'Is PO ka maal aa chuka hai (Material Received) — delete nahi ho sakta' });
+    const rn = rows.map(x => x.rn);
+    if (rn.length && rn[rn.length - 1] - rn[0] + 1 !== rn.length) return res.status(409).json({ error: 'PO ki lines sheet me ek saath nahi hain — admin se check karwao' });
+    const epRows = (ep.data.values || []).map((r, i) => ({ rn: i + 1, b: String(r[0] || '') })).filter(x => x.rn > 1 && x.b === poNumber);
+    const sid = t => (meta.data.sheets.find(s => s.properties.title === t) || {}).properties?.sheetId;
+    const pfId = sid(PURCHASE_TAB), epId = sid(ERP_PO_TAB);
+    const requests = [];
+    if (rn.length) {
+      for (const [a, b] of [['M', 'P'], ['R', 'V']]) requests.push({ deleteRange: { shiftDimension: 'ROWS', range: {
+        sheetId: pfId, startRowIndex: rn[0] - 1, endRowIndex: rn[rn.length - 1], startColumnIndex: colToIdx(a), endColumnIndex: colToIdx(b) + 1 } } });
+    }
+    for (const x of epRows) requests.push({ updateCells: { fields: 'userEnteredValue', range: { sheetId: epId, startRowIndex: x.rn - 1, endRowIndex: x.rn, startColumnIndex: 0, endColumnIndex: ERP_PO_HEADER.length } } });
+    if (requests.length) await sheetsW.spreadsheets.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { requests } });
+    await db.query("UPDATE erp_purchase_orders SET status='deleted', shipping_json=JSON_SET(COALESCE(NULLIF(shipping_json,''),'{}'), '$.deleted', JSON_OBJECT('by', ?, 'at', NOW(), 'reason', ?)) WHERE id=?",
+      [req.session.name || String(req.session.userId), reason, po.id]).catch(() => db.query("UPDATE erp_purchase_orders SET status='deleted' WHERE id=?", [po.id]));
+    console.log(`ERP PO ${poNumber} DELETED by user ${req.session.userId} (${reason}); sheet rows ${rn.join(',')}, ERP PO rows ${epRows.map(x => x.rn).join(',')}`);
+    res.json({ success: true, lines: epRows.length });
+  } catch (err) {
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the Purchase FMS sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
 // Admin fixes a wrong / test indent (client list 10-26 #11) — only while none of
 // its lines has a PO. Edits rewrite the indent's own "Indent Data" rows (Indent
 // FMS is a QUERY over them); a product is renamed only before Check Stock, since
