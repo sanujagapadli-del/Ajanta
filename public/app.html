@@ -30365,7 +30365,7 @@ const gpShowSalesman = () => ME && (ME.pl_viewer || ME.sales_profile || !gpSales
 function gpTabsHtml() {
   const t = (v, label) => `<div class="tab ${gpView === v ? 'active' : ''}" onclick="gpSetView('${jsArg(v)}')">${label}</div>`;
   // Net Profit lives only here as a tab (client, 2026-10-17: sidebar page removed); Users → Access can untick it.
-  return `<div class="tab-group">${gpSalesOnly() ? '' : t('product', '📦 Product-wise') + t('dealer', '🏪 Dealer-wise') + t('vendor', '🏭 Vendor-wise')}${gpShowSalesman() ? t('salesman', '👤 Salesman-wise') : ''}${gpCanNp() ? t('np', '💰 Net Profit') : ''}</div>`;
+  return `<div class="tab-group">${gpSalesOnly() ? '' : t('product', '📦 Product-wise') + t('dealer', '🏪 Dealer-wise') + t('vendor', '🏭 Vendor-wise')}${gpShowSalesman() ? t('salesman', '👤 Salesman-wise') : ''}${gpCanNp() ? t('np', '💰 Net Profit') + t('dnp', '🧮 Daily NP Calculator') : ''}</div>`;
 }
 const gpCanNp = () => !gpSalesOnly() && canForm('net-profit');
 // ── Net Profit (client, 2026-10-12) = Gross Profit − expenses from Tally
@@ -30373,6 +30373,106 @@ const gpCanNp = () => !gpSalesOnly() && canForm('net-profit');
 // shown for reference only — the client confirmed it's already entered in
 // Tally's expenses, so deducting it again would count it twice. ──
 let npData = null, npOpenGroup = '';
+// ── 🧮 Daily NP Calculator (client video 2026-11-18): monthly expense ÷ working days (25) = fixed expense per day.
+// Each day: Sales + GP (from the O2D bills, same as Gross Profit) − that expense = the day's Net Profit.
+// Sundays have no expense (off). Dates = the page's From–To picker.
+let dnpSet = null;
+async function loadDailyNp() {
+  const s = document.getElementById('gpStart').value, e = document.getElementById('gpEnd').value;
+  const out = document.getElementById('gpResults');
+  out.innerHTML = `<div style="margin-bottom:12px">${gpTabsHtml()}</div><div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:14px;border:1px solid var(--gray-200)">Loading…</div>`;
+  const [gp, st] = await Promise.all([
+    gpData && gpData.start === s && gpData.end === e ? gpData : api(`/api/reports/gross-profit?start=${s}&end=${e}`),
+    api('/api/reports/daily-np-setting')
+  ]);
+  if (gpView !== 'dnp') return;
+  if (!gp || gp.error || !st || st.error) { out.innerHTML = `<div class="empty" style="background:var(--surface);border-radius:14px;border:1px solid var(--color-danger-border);color:var(--color-danger)">⚠️ ${esc((gp && gp.error) || (st && st.error) || 'Failed')}</div>`; return; }
+  gpData = gp; dnpSet = st;
+  renderDailyNp();
+}
+function dnpRows() {
+  const d = gpData, perDay = dnpSet.monthly && dnpSet.days ? dnpSet.monthly / dnpSet.days : 0;
+  const today = gpYmd(new Date()), by = {};
+  (d.orders || []).forEach(o => { const k = String(o.date || '').slice(0, 10); if (!k) return;
+    const r = by[k] = by[k] || { sales: 0, gp: 0, uncosted: 0, bills: 0 };
+    r.sales += o.sales || 0; r.gp += o.gp || 0; r.uncosted += o.uncostedSales || 0; r.bills++; });
+  const rows = [];
+  for (let x = new Date(d.start + 'T00:00:00'); gpYmd(x) <= d.end && gpYmd(x) <= today; x.setDate(x.getDate() + 1)) {
+    const k = gpYmd(x), sun = x.getDay() === 0, r = by[k] || { sales: 0, gp: 0, uncosted: 0, bills: 0 };
+    const exp = sun ? 0 : perDay;
+    rows.push({ date: k, sun, ...r, exp, np: r.gp - exp });
+  }
+  return { rows: rows.reverse(), perDay };
+}
+function renderDailyNp() {
+  const out = document.getElementById('gpResults'), st = dnpSet;
+  const { rows, perDay } = dnpRows();
+  const card = 'background:var(--surface);border:1px solid var(--gray-200);border-radius:16px;box-shadow:0 2px 12px rgba(1,80,170,.05)';
+  const good = 'var(--color-success-text)', bad = 'var(--color-danger)';
+  const tot = rows.reduce((a, r) => ({ sales: a.sales + r.sales, gp: a.gp + r.gp, exp: a.exp + r.exp, uncosted: a.uncosted + r.uncosted }), { sales: 0, gp: 0, exp: 0, uncosted: 0 });
+  const np = tot.gp - tot.exp, workDays = rows.filter(r => !r.sun).length;
+  const kpi = (label, value, sub, color, hero) => `<div style="${card};padding:14px 16px;${hero ? `border:2px solid ${color};` : ''}">
+      <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">${label}</div>
+      <div style="font-size:${hero ? 26 : 21}px;font-weight:900;color:${color || 'var(--gray-900)'};margin-top:4px;white-space:nowrap">${value}</div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">${sub}</div></div>`;
+  const inp = 'padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;background:var(--surface);color:var(--gray-900);text-align:right';
+  const setting = `<div style="${card};padding:14px 18px;margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+      <div><div style="font-size:11.5px;font-weight:700;color:var(--gray-500);margin-bottom:4px">Monthly expense (₹)</div>
+        <input id="dnpMonthly" type="number" min="0" step="1000" value="${st.monthly || ''}" placeholder="jaise 600000" ${st.canEdit ? '' : 'disabled'} oninput="dnpPreview()" style="${inp};width:170px"/></div>
+      <div style="font-size:20px;color:var(--gray-400);padding-bottom:6px">÷</div>
+      <div><div style="font-size:11.5px;font-weight:700;color:var(--gray-500);margin-bottom:4px">Working days</div>
+        <input id="dnpDays" type="number" min="1" max="31" step="1" value="${st.days}" ${st.canEdit ? '' : 'disabled'} oninput="dnpPreview()" style="${inp};width:90px"/></div>
+      <div style="font-size:20px;color:var(--gray-400);padding-bottom:6px">=</div>
+      <div><div style="font-size:11.5px;font-weight:700;color:var(--gray-500);margin-bottom:4px">Roz ka expense (fix)</div>
+        <div id="dnpPerDay" style="font-size:22px;font-weight:900;color:${bad};padding:4px 0">${gpInr(perDay)}</div></div>
+      ${st.canEdit ? `<button class="btn btn-primary btn-sm" style="margin-bottom:6px" onclick="saveDailyNp(this)">💾 Save</button>` : ''}
+      <div style="font-size:11.5px;color:var(--gray-500);flex-basis:100%">${st.updatedAt ? `Aakhri badlaav: ${esc(st.updatedBy)} · ${esc(st.updatedAt)} · ` : ''}Expense kabhi bhi badal sakte hain. Sunday ko expense nahi lagta. Dates upar wale From–To se chunein.</div></div>`;
+  const td = 'padding:9px 10px;border-top:1px solid var(--gray-100);font-size:13px;text-align:right;white-space:nowrap';
+  const th = 'padding:8px 10px;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--gray-500);background:var(--gray-50);text-align:right;white-space:nowrap';
+  const wd = k => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(k + 'T00:00:00').getDay()];
+  const table = `<div style="${card};overflow:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="${th};text-align:left">Date</th><th style="${th}">Sales (bina GST)</th><th style="${th}">Gross Profit</th><th style="${th}">GP %</th><th style="${th}">Expense</th><th style="${th}">Net Profit</th></tr></thead>
+      <tbody>${rows.map(r => `<tr style="${r.sun ? 'background:var(--gray-50);color:var(--gray-400)' : ''}">
+        <td style="${td};text-align:left;font-weight:700">${esc(fmtDateDMY(r.date))} <span style="font-weight:500;font-size:11.5px;color:var(--gray-500)">${wd(r.date)}${r.sun ? ' · chhutti' : ''}</span>${r.bills ? `<div style="font-size:11px;font-weight:500;color:var(--gray-400)">${r.bills} order</div>` : ''}</td>
+        <td style="${td}">${r.sales ? gpInr(r.sales) : '—'}${r.uncosted ? `<div style="font-size:10.5px;color:var(--color-warning-text)" title="In ki laagat pata nahi — GP me nahi">${gpInr(r.uncosted)} bina laagat</div>` : ''}</td>
+        <td style="${td};color:${r.gp >= 0 ? good : bad}">${r.sales ? gpInr(r.gp) : '—'}</td>
+        <td style="${td};text-align:center">${r.sales - r.uncosted > 0 ? gpPctPill(Math.round(r.gp * 1000 / (r.sales - r.uncosted)) / 10) : '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="${td};color:${bad}">${r.exp ? '−' + gpInr(r.exp) : '—'}</td>
+        <td style="${td};font-weight:900;color:${r.np >= 0 ? good : bad}">${r.sun && !r.sales ? '—' : gpInr(r.np)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr style="background:var(--gray-50);font-weight:900"><td style="${td};text-align:left">Total (${workDays} working din)</td><td style="${td}">${gpInr(tot.sales)}</td><td style="${td};color:${tot.gp >= 0 ? good : bad}">${gpInr(tot.gp)}</td><td style="${td}"></td><td style="${td};color:${bad}">−${gpInr(tot.exp)}</td><td style="${td};color:${np >= 0 ? good : bad}">${gpInr(np)}</td></tr></tfoot></table></div>`;
+  out.innerHTML = `<div style="margin-bottom:12px">${gpTabsHtml()}</div>${setting}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px">
+      ${kpi('🧾 Sales', gpInr(tot.sales), `${esc(fmtDateDMY(gpData.start))} – ${esc(fmtDateDMY(gpData.end))}`)}
+      ${kpi('📈 Gross Profit', gpInr(tot.gp), 'sales ke hisaab se badalta hai', tot.gp >= 0 ? good : bad)}
+      ${kpi('💸 Expense', gpInr(tot.exp), `${gpInr(perDay)} × ${workDays} din`, bad)}
+      ${kpi('💰 Net Profit', gpInr(np), 'GP − roz ka expense', np >= 0 ? good : bad, true)}
+    </div>
+    ${!st.monthly ? `<div style="padding:12px 14px;border-radius:12px;background:var(--color-warning-bg);color:var(--color-warning-text);font-size:12.5px;margin-bottom:12px">⚠️ Monthly expense abhi nahi daala — upar box me daal ke Save karein.</div>` : ''}
+    ${table}
+    <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Sales / GP = Gross Profit wala hi hisaab (O2D bill date, bina GST). Jin items ki laagat pata nahi, woh GP me nahi.</div>`;
+}
+function dnpPreview() {
+  const m = Number(document.getElementById('dnpMonthly').value) || 0, d = Number(document.getElementById('dnpDays').value) || 0;
+  const el = document.getElementById('dnpPerDay'); if (el) el.textContent = d ? gpInr(m / d) : '—';
+}
+async function saveDailyNp(btn) {
+  const monthly = Number(document.getElementById('dnpMonthly').value) || 0, days = Number(document.getElementById('dnpDays').value) || 0;
+  if (!(days >= 1 && days <= 31)) { showToast('Working days 1 se 31 ke beech', 'error'); return; }
+  btn.disabled = true;
+  const r = await api('/api/reports/daily-np-setting', 'PUT', { monthly, days });
+  btn.disabled = false;
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  dnpSet = { ...dnpSet, ...r };
+  showToast('✅ Expense save ho gaya');
+  renderDailyNp();
+}
+function exportDailyNp() {
+  if (!gpData || !dnpSet) return;
+  const { rows } = dnpRows();
+  csvDownload([['Date', 'Day', 'Orders', 'Sales (ex GST)', 'Sales without cost', 'Gross Profit', 'Expense', 'Net Profit'],
+    ...rows.map(r => [fmtDateDMY(r.date), r.sun ? 'Sunday' : '', r.bills, Math.round(r.sales), Math.round(r.uncosted), Math.round(r.gp), Math.round(r.exp), Math.round(r.np)])],
+    `daily-net-profit-${gpData.start}-to-${gpData.end}.csv`);
+}
 async function loadNetProfit() {
   const s = document.getElementById('gpStart').value, e = document.getElementById('gpEnd').value;
   const out = document.getElementById('gpResults');
@@ -30637,9 +30737,10 @@ async function loadGrossProfit() {
   if (!s.value || !e.value) { const [a, b] = plMonthRange('month'); setDmyDate('gpStart', a); setDmyDate('gpEnd', b); } // client: open on this month
   if (s.value > e.value) { showToast('Start date End date se pehle honi chahiye', 'error'); return; }
   if (gpSalesOnly()) gpView = 'salesman';
-  if (gpView === 'np' && !gpCanNp()) gpView = 'product';
+  if ((gpView === 'np' || gpView === 'dnp') && !gpCanNp()) gpView = 'product';
   if (gpView === 'salesman') return loadSalesmanPl();
   if (gpView === 'np') return loadNetProfit();
+  if (gpView === 'dnp') return loadDailyNp();
   const out = document.getElementById('gpResults');
   out.innerHTML = '<div class="empty ui-skel" aria-busy="true" style="background:var(--surface);border-radius:14px;border:1px solid var(--gray-200)">Loading…</div>';
   const d = await api(`/api/reports/gross-profit?start=${s.value}&end=${e.value}`);
@@ -30662,7 +30763,7 @@ function gpPctPill(v) {
   const [bg, fg] = v >= 20 ? ['var(--color-success-bg)', 'var(--color-success-text)'] : v >= 10 ? ['var(--color-warning-bg)', 'var(--color-warning-text)'] : ['var(--color-danger-bg)', 'var(--color-danger-text)'];
   return `<span style="display:inline-block;min-width:54px;padding:3px 9px;border-radius:999px;background:${bg};color:${fg};font-weight:800;font-size:12px;text-align:center">${v}%</span>`;
 }
-function gpSetView(v) { gpView = v; gpShown = 60; gpOpenDealer = ''; if (v === 'salesman' || v === 'np' || !gpData) loadGrossProfit(); else renderGrossProfit(); }
+function gpSetView(v) { gpView = v; gpShown = 60; gpOpenDealer = ''; if (v === 'salesman' || v === 'np' || v === 'dnp' || !gpData) loadGrossProfit(); else renderGrossProfit(); }
 function gpSearch(v) {
   gpQuery = v; gpShown = 60;
   clearTimeout(gpSearch._t);
@@ -30815,6 +30916,7 @@ function renderGrossProfit() {
   gpCostBar();
 }
 function exportGrossProfit() {
+  if (gpView === 'dnp') return exportDailyNp();
   if (gpView === 'salesman') return exportSalesmanPl();
   if (gpView === 'np') return exportNetProfit();
   if (!gpData) return;

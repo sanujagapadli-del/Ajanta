@@ -15610,6 +15610,30 @@ app.put('/api/reports/product-cost', requireAuth, requireAdmin, async (req, res)
 // Admin: many cost rates in one submit (client list #14, 2026-10-24: "rates
 // daal ke ek saath submit"). Body { costs: [{ itemName, costRate }] }; a blank
 // rate clears that item. All checked first, then written in one transaction.
+// Daily Net Profit calculator (client video 2026-11-18): monthly expense ÷ working days = fixed expense per day;
+// that day's GP (O2D bills, same as Gross Profit) − it = the day's net profit. Admin sets the figures.
+const DAILY_NP_KEY = 'daily_np_setting';
+async function dailyNpSetting() {
+  let r = {};
+  try { r = JSON.parse(await getAppSetting(DAILY_NP_KEY) || '{}') || {}; } catch (_) { r = {}; }
+  return { monthly: Number(r.monthly) > 0 ? Number(r.monthly) : 0, days: Number(r.days) > 0 ? Number(r.days) : 25, updatedBy: r.updatedBy || '', updatedAt: r.updatedAt || '' };
+}
+app.get('/api/reports/daily-np-setting', requireAuth, async (req, res) => {
+  try {
+    if (!(await canSeeGrossProfit(req))) return res.status(403).json({ error: 'You do not have access to Gross Profit' });
+    res.json({ ...(await dailyNpSetting()), canEdit: req.session.role === 'admin' });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/reports/daily-np-setting', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const monthly = Number(req.body.monthly), days = Number(req.body.days);
+    if (!(monthly >= 0) || monthly > 1e9) return res.status(400).json({ error: 'Monthly expense sahi number daalein' });
+    if (!(days >= 1 && days <= 31)) return res.status(400).json({ error: 'Working days 1 se 31 ke beech' });
+    const [[now]] = await db.query("SELECT DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i') AS t");
+    await setAppSetting(DAILY_NP_KEY, JSON.stringify({ monthly: Math.round(monthly), days: Math.round(days), updatedBy: req.session.name || '', updatedAt: now.t }));
+    res.json({ success: true, ...(await dailyNpSetting()) });
+  } catch (err) { sendServerError(res, err); }
+});
 app.put('/api/reports/product-costs', requireAuth, requireAdmin, async (req, res) => {
   try {
     const list = Array.isArray(req.body && req.body.costs) ? req.body.costs : [];
