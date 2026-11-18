@@ -12276,7 +12276,9 @@ const SFMS_STEP_DEFS = [
       { key: 'spareInJson', label: 'Spares Returned (all items)' },
       { key: 'usedBy', label: 'Filled By (Mechanic)' },
       { key: 'cashAmount', label: 'Cash for Short Pieces' },
-      { key: 'cashStatus', label: 'Cash Approval' }
+      { key: 'cashStatus', label: 'Cash Approval' },
+      { key: 'serviceCharge', label: 'Service Charge (Out of Warranty) ₹' },
+      { key: 'spareAmount', label: 'Spare Part Amount (Out of Warranty) ₹' }
     ] }
 ];
 const SN = Object.fromEntries(SFMS_STEP_DEFS.map(d => [d.key, d.n]));
@@ -14808,8 +14810,17 @@ function sfmsBuildSpareInRowsHtml(c) {
         </div>
         <div style="font-size:10.5px;color:var(--gray-500);margin-top:4px">Submit karte hi ${esc(sfmsCashApproverName || 'approver')} ke paas approval jayega; approve hote hi complaint close.</div>
       </div>
-    </div>`;
+    </div>${sfmsIsOutOfWarranty(c) ? `
+    <div style="background:var(--color-warning-bg);border-radius:8px;padding:8px;margin-bottom:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--color-warning-text);margin-bottom:6px">💰 Out of Warranty — customer se liya</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <label style="font-size:11px;font-weight:600;margin:0;text-transform:none;letter-spacing:0">Service charge ₹<input type="number" min="0" id="sfmsInSvc_${c.row}" value="${esc(s.serviceCharge || '')}" placeholder="0" style="display:block;width:110px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/></label>
+        <label style="font-size:11px;font-weight:600;margin:0;text-transform:none;letter-spacing:0">Spare part amount ₹<input type="number" min="0" id="sfmsInSpAmt_${c.row}" value="${esc(s.spareAmount || '')}" placeholder="0" style="display:block;width:110px;padding:6px 7px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;box-sizing:border-box"/></label>
+      </div>
+    </div>` : ''}`;
 }
+// Warranty step answered "No" (or "Bill nahi hai" at intake) = Out of Warranty.
+function sfmsIsOutOfWarranty(c) { return sfmsStep(c, 'warranty').status === 'No' || !!c.noBill; }
 function sfmsInReceiveTick(row, i, newBack, oldBack, on) {
   const n = sfmsById(`sfmsInNew_${row}_${i}`), o = sfmsById(`sfmsInBad_${row}_${i}`);
   if (n) n.value = on ? newBack : '';
@@ -15162,7 +15173,11 @@ function sfmsCollectStepBody(row, step, stage) {
     body.spareInJson = JSON.stringify(items.map(({ filled, ...r }) => r));
     body.cashAmount = cash;
     body.reasonIfShort = settleCash && reasonEl ? reasonEl.value.trim() : '';
-    ['qtyReturned', 'spareInJson', 'cashAmount', 'cashStatus', 'reasonIfShort'].forEach(k => skipGenericKeys.add(k));
+    const svcEl = sfmsById(`sfmsInSvc_${row}`), spEl = sfmsById(`sfmsInSpAmt_${row}`);
+    if (svcEl) body.serviceCharge = svcEl.value.trim();
+    if (spEl) body.spareAmount = spEl.value.trim();
+    if ([body.serviceCharge, body.spareAmount].some(v => v && !(Number(v) >= 0))) return { error: 'Service charge / spare amount sahi bharo' };
+    ['qtyReturned', 'spareInJson', 'cashAmount', 'cashStatus', 'reasonIfShort', 'serviceCharge', 'spareAmount'].forEach(k => skipGenericKeys.add(k));
   }
 
   if (step === SN.solve) {

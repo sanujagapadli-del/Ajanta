@@ -4703,7 +4703,7 @@ const SFMS_SHEET_ID = '1sim5xXi7uKiUdLh_O1NjWbB9b047p9VVW-Z8oAG1gSE';
 const SFMS_TAB = 'Complain FMS';
 const SFMS_HEADER_ROW = 6;
 const SFMS_DATA_START_ROW = 7;
-const SFMS_LAST_COL = 'BU';
+const SFMS_LAST_COL = 'BW';
 // Photos go to Drive (the sheet only keeps the link), so the old 40k-char
 // cell cap is gone: ~500 KB per photo, the browser shrinks to fit (2026-10-13).
 const SFMS_PHOTO_MAX_CHARS = 700000;
@@ -4818,7 +4818,10 @@ const SFMS_STEPS = [
       { key: 'spareInJson', col: SFMS_SPARE_IN_COL, label: 'Spares Returned (all items, new/old/short)' },
       { key: 'usedBy', col: SFMS_SPARE_USED_BY_COL, label: 'Filled By (Mechanic)' },
       { key: 'cashAmount', col: 'BQ', label: 'Cash for Short Pieces' },
-      { key: 'cashStatus', col: 'BR', label: 'Cash Approval' }
+      { key: 'cashStatus', col: 'BR', label: 'Cash Approval' },
+      // Out of Warranty (Warranty step = No): what the customer paid (client 2026-11-18).
+      { key: 'serviceCharge', col: 'BV', label: 'Service Charge (Out of Warranty)' },
+      { key: 'spareAmount', col: 'BW', label: 'Spare Part Amount (Out of Warranty)' }
     ],
     timeDelay: 'AU' }
 ];
@@ -4835,7 +4838,9 @@ const SFMS_NEW_COLUMN_HEADERS = {
   BR: 'In/Out - Cash Approval Status',
   BS: 'Urgent',
   BT: 'Solve - Spares Fitted (JSON)',
-  BU: 'Solve - Kya Kiya (Work Done)'
+  BU: 'Solve - Kya Kiya (Work Done)',
+  BV: 'In/Out - Service Charge (Out of Warranty)',
+  BW: 'In/Out - Spare Part Amount (Out of Warranty)'
 };
 // Users page toggle: sees and can act on every Service FMS step, not just
 // the ones they're assigned to in Step Doers.
@@ -5560,6 +5565,8 @@ app.get('/api/service-fms/export.xlsx', requireAuth, async (req, res) => {
         'Reason (if Short)': inout.reasonIfShort,
         'Cash for Short Pieces': inout.cashAmount,
         'Cash Approval': inout.cashStatus,
+        'Service Charge (OW)': inout.serviceCharge,
+        'Spare Part Amount (OW)': inout.spareAmount,
         'Closed On': c.closed ? sfmsDmy(inout.actual, true) : ''
       };
     });
@@ -6453,6 +6460,9 @@ async function sfmsHandleInOut(req, res, sheetsApi, row, stepDef, nowVal) {
     cell(col('usedBy'), usedBy),
     cell(col('reasonIfShort'), String(req.body.reasonIfShort || '').trim())
   ];
+  // Out of Warranty charges — written only when sent, so an older form doesn't blank them.
+  const amt = v => { const n = Math.round(Number(v) * 100) / 100; return n > 0 ? n : ''; };
+  for (const k of ['serviceCharge', 'spareAmount']) if (req.body[k] !== undefined) data.push(cell(col(k), amt(req.body[k])));
   let outcome;
   if (totalShort === 0) {
     data.push(cell(stepDef.actual, nowVal), cell(stepDef.status, 'Yes'), cell(col('cashAmount'), ''), cell(col('cashStatus'), ''));

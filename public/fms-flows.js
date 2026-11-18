@@ -56,7 +56,7 @@ window.FMS_FLOWS = [
     { no: 4, name: 'Takeout Spare', doer: 'Niranjan', due: 'Usi din 5 PM', fill: 'Kam se kam 1 spare, qty 1+ (spare master list se; naya spare sirf admin)', cond: ['Bill wala rule yahan bhi check hota hai'] },
     { no: 5, name: "Mechanic's Complaint Solve", doer: 'Wahi mechanic jo assign hua', due: 'Usi din 6 PM', fill: '"Kya kiya", kitne spare lagaye, Repair Status: Repaired at Location / Brought to Office',
       cond: ['Customer ko 6 digit OTP WhatsApp par — mechanic OTP daale tabhi done', 'Admin bina OTP kar sakta hai ("Bina OTP — admin" likha jaata hai)', 'OTP ke saath Google review link'] },
-    { no: 6, name: 'Check In/Out (Spare Return)', doer: 'Niranjan (store)', due: 'Solve + sheet ke working days', fill: 'Har spare: naye wapas + purane wapas (short = liya − naye − purane)', end: true,
+    { no: 6, name: 'Check In/Out (Spare Return)', doer: 'Niranjan (store)', due: 'Solve + sheet ke working days', fill: 'Har spare: naye wapas + purane wapas (short = liya − naye − purane); Out of Warranty par service charge + spare part amount ₹', end: true,
       cond: ['Kuch short nahi → done, complaint BAND', 'Short ka cash → "Pending Approval" (cash approver, default Ajay) → Approve = band, Reject = dobara bharo', 'Short, cash nahi → step pending jab tak piece wapas na aaye'] },
   ],
   rules: [
