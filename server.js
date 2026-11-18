@@ -9641,6 +9641,14 @@ app.post('/api/o2d-fms/add-order-items', requireAuth, async (req, res) => {
       }
 
       const nowSerial = sfmsDateToSerial(new Date());
+      // Same item + qty added to this order a moment ago = a double tap (client video 2026-11-18: Ord-0447 Tube Lights
+      // 40 pcs went in twice, 23 s apart, both billed 1544 → GP showed 80). Refuse within 3 minutes.
+      if (!req.body.confirmDuplicate) {
+        const key = x => String(x || '').trim().toLowerCase();
+        const dup = products.find(p => existingRows.some(r => (r[16] || '') === orderNo && key(r[12]) === key(p.productName)
+          && Number(r[14]) === Number(p.qty) && Number(r[0]) > 0 && nowSerial - Number(r[0]) < 3 / 1440));
+        if (dup) return res.status(409).json({ duplicate: true, error: `"${dup.productName}" × ${dup.qty} is order me abhi-abhi add ho chuka hai — dobara add nahi kiya. Refresh karke dekhein.` });
+      }
       const rows = products.map((p, i) => [
         nowSerial, template[1] || '', template[2] || '', template[3] || '', template[4] || '', template[5] || '',
         template[6] || '', template[7] || 'No', template[8] || 'No', template[9] || '',
@@ -15157,12 +15165,14 @@ async function gpLoadData(start, end, opts = {}) {
   } catch (e) { console.error('GP FIFO:', e.message); }
   // A typed cost holds until a newer PO for the item comes in (client list 2026-10-26 #21: "manual cost
   // daali ho, jaise hi us product ka PO bane to cost update ho jaye") — a PO dated after the day the cost was typed wins.
+  // A rate typed on the page beats FIFO too, until a newer PO comes in (client video 2026-11-18: "rate edit karke save
+  // kiya, '1 rate saved' aaya, par wapas wahi rate" — FIFO was checked first, so the typed rate never showed).
   const costFor = s => {
-    if (s.fifoRate != null) return { rate: s.fifoRate, source: s.fifoSrc || 'FIFO' };
     const mk = manualBy[gpKey(s.item)];
     const c = poCost[s.code];
     const poAfter = mk && c && c.qty > 0 && c.last.date && mk.upd && c.last.date > mk.upd;
     if (mk && mk.rate > 0 && !poAfter) return { rate: mk.rate, source: 'Manual' };
+    if (s.fifoRate != null) return { rate: s.fifoRate, source: s.fifoSrc || 'FIFO' };
     if (c && c.qty > 0) return { rate: Math.round(c.last.rate * 100) / 100, source: c.last.po ? `Last PO ${c.last.po}` : 'Last PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
     return null;
   };
