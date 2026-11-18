@@ -2108,6 +2108,62 @@ app.delete('/api/holidays/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (err) { sendServerError(res, err); }
 });
 
+// 12 baje ka attendance check (client list 2026-11-18 #2): after 12:00 the checker (Lakshita, or app_settings
+// 'noon_attendance_checker_user_id') gets a popup of everyone due today with no punch-in. She marks each one:
+// Present → tasks stay; Absent → that day's pending checklist tasks are removed (same as the Holidays-box
+// "Chhutti / Absent" clear). Marks live in attendance_marks; nothing is written to the punch table.
+const NOON_CHECK_SETTING = 'noon_attendance_checker_user_id';
+let _noonChecker = { id: null, ts: 0 };
+async function noonCheckerId() {
+  if (_noonChecker.id && Date.now() - _noonChecker.ts < 10 * 60 * 1000) return _noonChecker.id;
+  let id = parseInt(await getAppSetting(NOON_CHECK_SETTING), 10) || 0;
+  if (!id) { const [[u]] = await db.query("SELECT id FROM users WHERE is_active=1 AND name LIKE 'Lakshita%' ORDER BY id LIMIT 1"); id = u ? u.id : 0; }
+  _noonChecker = { id, ts: Date.now() };
+  return id;
+}
+let _attMarksOk = false;
+async function attMarksTable() {
+  if (_attMarksOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS attendance_marks (user_id INT NOT NULL, date DATE NOT NULL, status VARCHAR(10) NOT NULL,
+    removed_tasks INT NOT NULL DEFAULT 0, marked_by INT, marked_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, date)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _attMarksOk = true;
+}
+app.get('/api/attendance/noon-check', requireAuth, async (req, res) => {
+  try {
+    const checker = await noonCheckerId();
+    const isChecker = req.session.userId === checker || req.session.role === 'admin';
+    if (!isChecker) return res.json({ isChecker: false, items: [] });
+    const g = await attendanceGapsToday();
+    if (g.holiday || g.hour < 12) return res.json({ isChecker: true, items: [], hour: g.hour, holiday: g.holiday });
+    await attMarksTable();
+    const [marks] = await db.query('SELECT user_id FROM attendance_marks WHERE date=?', [g.today]);
+    const marked = new Set(marks.map(m => m.user_id));
+    const left = g.notIn.filter(u => !marked.has(u.id));
+    const counts = left.length ? (await db.query("SELECT assigned_to, COUNT(*) AS n FROM checklist_tasks WHERE due_date=? AND status IN ('pending','revised') AND assigned_to IN (?) GROUP BY assigned_to", [g.today, left.map(u => u.id)]))[0] : [];
+    const cBy = Object.fromEntries(counts.map(c => [c.assigned_to, Number(c.n)]));
+    res.json({ isChecker: true, popup: req.session.userId === checker, today: g.today, items: left.map(u => ({ id: u.id, name: u.name, tasks: cBy[u.id] || 0 })) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/attendance/noon-mark', requireAuth, async (req, res) => {
+  try {
+    const checker = await noonCheckerId();
+    if (req.session.userId !== checker && req.session.role !== 'admin') return res.status(403).json({ error: 'Sirf attendance check karne wala mark kar sakta hai' });
+    const userId = parseInt((req.body || {}).userId, 10), status = (req.body || {}).status;
+    if (!(userId > 0) || !['present', 'absent'].includes(status)) return res.status(400).json({ error: 'Employee aur Present / Absent chunein' });
+    await attMarksTable();
+    const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
+    let removed = 0;
+    if (status === 'absent') {
+      const [d] = await db.query("DELETE FROM checklist_tasks WHERE assigned_to=? AND due_date=? AND status IN ('pending','revised')", [userId, today]);
+      removed = d.affectedRows || 0;
+    }
+    await db.query(`INSERT INTO attendance_marks (user_id, date, status, removed_tasks, marked_by) VALUES (?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE status=VALUES(status), removed_tasks=removed_tasks+VALUES(removed_tasks), marked_by=VALUES(marked_by), marked_at=NOW()`, [userId, today, status, removed, req.session.userId]);
+    console.log(`[noon-mark] by ${req.session.userId}: user ${userId} ${today} ${status}, ${removed} checklist tasks removed`);
+    res.json({ success: true, removed });
+  } catch (err) { sendServerError(res, err); }
+});
+
 // Leave / absent (client 2026-11-13: "jis din employee chhutti leta hai ya absent rahta hai to bad mein wo pending
 // tasks ko ek sath remove kar sake bina sabhi task ko Done kiye") — the employee's pending / revised CHECKLIST tasks
 // due in a date range are removed, as if those days were off. Done tasks and delegations are never touched.

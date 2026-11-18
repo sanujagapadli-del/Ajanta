@@ -5101,6 +5101,7 @@ async function init() {
 
     setAvatarDisplay(ME.profile_image, initials);
     if (ME.role === 'admin') setTimeout(checkTallySyncHealth, 4000);
+    setTimeout(noonAttendanceCheck, 5000);
 
     // MIS Report: admin, hod, and regular users all see it
     // Per-user page access (Users → Access tab). Admins always see everything.
@@ -27813,6 +27814,43 @@ async function deleteRentPay(pid, uid) {
   if (r.error) { showToast(r.error, 'error'); return; }
   await loadRental();
   openRentHistory(uid);
+}
+
+// ── 12 baje ka attendance check (client list 2026-11-18 #2): after 12:00 IST the checker (Lakshita) gets a popup of
+// everyone with no punch-in → Present (tasks stay) / Absent (today's pending checklist removed). One call when the
+// app opens after 12 and again when the tab comes back (only for the checker) — no polling.
+let _noonChecker = null, _noonLaterUntil = 0;
+function istHourNow() { return new Date(Date.now() + 5.5 * 3600000).getUTCHours(); }
+async function noonAttendanceCheck() {
+  if (_noonChecker === false || istHourNow() < 12 || Date.now() < _noonLaterUntil || document.getElementById('noonAttModal')?.classList.contains('open')) return;
+  const r = await api('/api/attendance/noon-check');
+  if (!r || r.error) return;
+  _noonChecker = !!r.popup;
+  if (!r.popup || !r.items.length) return;
+  renderNoonAtt(r.items);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && _noonChecker) noonAttendanceCheck(); });
+function renderNoonAtt(items) {
+  window._noonItems = items;
+  vrlModal('noonAttModal', `${scotModalHead('noonAttModal', '🕛 12 baj gaye — inka punch-in nahi hua')}
+    <div style="font-size:12.5px;color:var(--gray-600);margin-bottom:10px">Har ek ke liye batao: <b>Present</b> = aaj ke tasks dikhte rahenge · <b>Absent</b> = aaj ke pending checklist tasks hat jayenge.</div>
+    <div id="noonAttList">${items.map(u => `<div id="noonRow${u.id}" style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--gray-100)">
+      <div style="flex:1;min-width:0"><b>${esc(u.name)}</b><div style="font-size:11.5px;color:var(--gray-500)">${u.tasks} checklist task aaj ke</div></div>
+      <button class="btn btn-sm btn-green" onclick="noonMark(${u.id},'present',this)">✓ Present</button>
+      <button class="btn btn-sm btn-outline" style="color:var(--color-danger);border-color:var(--color-danger-border)" onclick="noonMark(${u.id},'absent',this)">✗ Absent</button></div>`).join('')}</div>
+    <button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:12px" onclick="_noonLaterUntil=Date.now()+30*60000;closeModal('noonAttModal')">Baad me (30 min)</button>`, 480);
+}
+async function noonMark(userId, status, btn) {
+  const u = (window._noonItems || []).find(x => x.id === userId);
+  if (status === 'absent' && u && u.tasks && !await uiConfirm(`${u.name} ko Absent mark karein? Aaj ke ${u.tasks} pending checklist task hat jayenge.`)) return;
+  const restore = btnLoading(btn, '…');
+  const r = await api('/api/attendance/noon-mark', 'POST', { userId, status });
+  restore();
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  document.getElementById('noonRow' + userId)?.remove();
+  window._noonItems = (window._noonItems || []).filter(x => x.id !== userId);
+  showToast(status === 'absent' ? `${u ? u.name : ''} Absent — ${r.removed} task hataye` : `${u ? u.name : ''} Present ✓`);
+  if (!window._noonItems.length) { closeModal('noonAttModal'); showToast('✅ Sabka attendance mark ho gaya'); }
 }
 
 // ── 🛺 Delivery Partners (client list 2026-11-18 #4): rickshaw / delivery partner list under O2D —
