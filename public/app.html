@@ -2027,8 +2027,9 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <div class="page-header">
         <div>
           <div style="font-weight:700;font-size:14px;color:var(--gray-900)">Page Access</div>
-          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">Bayen se user chuno → dayen switch se page do / hatao. Turant save hota hai. Admin ko sab apne aap.</div>
+          <div id="accHelp" style="font-size:12px;color:var(--gray-500);margin-top:2px">Bayen se user chuno → dayen switch se page do / hatao. Turant save hota hai. Admin ko sab apne aap.</div>
         </div>
+        <div id="accModeBar" style="display:flex;gap:6px;margin-left:auto"></div>
         <div style="position:relative">
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)">🔍</span>
           <input type="text" id="accessSearch" placeholder="Search user…" oninput="filterAccessUsers()"
@@ -7714,10 +7715,65 @@ async function loadAccessTab() {
   _renderAccessTableHeader();
   if (!allUsersData.length) await loadUsers();
   allAccessUsersData = allUsersData;
-  renderAccessTable(allAccessUsersData);
+  filterAccessUsers();
+}
+// Two ways to look (client video 2026-11-18: "pehle wala view better tha — training video ke kis-kis ko rights diye
+// hain, har aadmi me jaake dekhna padta hai … aadmi ke naam se bhi aur module ke naam se bhi").
+let accMode = 'user', accPageSel = '';
+function accModeBar() {
+  const bar = document.getElementById('accModeBar'); if (!bar) return;
+  const b = (k, l) => `<button type="button" class="btn btn-sm ${accMode === k ? 'btn-primary' : 'btn-outline'}" onclick="accMode='${k}';document.getElementById('accessSearch').value='';filterAccessUsers()">${l}</button>`;
+  bar.innerHTML = b('user', '👤 Aadmi se') + b('page', '📄 Page / module se');
+  const help = document.getElementById('accHelp'), inp = document.getElementById('accessSearch');
+  if (help) help.textContent = accMode === 'page' ? 'Bayen se page chuno → dayen dikhega kis-kis ko access hai; switch se do / hatao. Turant save hota hai. Admin ko sab apne aap.'
+    : 'Bayen se user chuno → dayen switch se page do / hatao. Turant save hota hai. Admin ko sab apne aap.';
+  if (inp) inp.placeholder = accMode === 'page' ? 'Search page…' : 'Search user…';
+}
+function renderAccessByPage() {
+  renderAccessTable([]); // injects the shared CSS
+  const box = document.getElementById('accEasy');
+  const q = (document.getElementById('accessSearch')?.value || '').toLowerCase().trim();
+  const users = (allAccessUsersData || []).filter(u => u.is_active !== 0 && u.is_active !== false);
+  const pages = [];
+  PAGE_ACCESS_GROUPS.forEach(g => g.pages.forEach(pg => { if (!pg.info && !pg.auto) pages.push({ g, p: pg }); }));
+  const shown = pages.filter(x => !q || `${x.p.label} ${x.g.label}`.toLowerCase().includes(q));
+  if (!shown.length) { box.innerHTML = '<div class="empty">Koi page nahi mila</div>'; return; }
+  const everyone = x => x.g.locked || x.p.key === 'training-videos';
+  const has = (u, x) => u.role === 'admin' || everyone(x) || (x.p.key === 'pc-followup' && u.role === 'pc')
+    || (x.p.deny ? x.p.needs.some(k => (u.page_access || []).includes(k)) && !(u.page_access || []).includes('deny:' + x.p.key) : (u.page_access || []).includes(x.p.key));
+  if (!accPageSel || !shown.some(x => x.p.key === accPageSel)) accPageSel = shown[0].p.key;
+  let lastG = null;
+  const list = shown.map(x => {
+    const n = users.filter(u => has(u, x)).length, [main] = accSplit(x.p.label);
+    const head = x.g !== lastG ? `<div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--gray-400);padding:8px 10px 2px">${esc(x.g.label)}</div>` : '';
+    lastG = x.g;
+    return `${head}<button type="button" class="acc-u${x.p.key === accPageSel ? ' on' : ''}" onclick="accPageSel='${jsArg(x.p.key)}';renderAccessByPage()">
+      <span style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(main)}</b></span>
+      <span style="font-size:11px;font-weight:700;color:var(--gray-500);white-space:nowrap">${everyone(x) ? 'sabko' : n + ' log'}</span></button>`;
+  }).join('');
+  const x = shown.find(y => y.p.key === accPageSel), [main, sub] = accSplit(x.p.label);
+  const sorted = users.slice().sort((a, b) => (has(b, x) - has(a, x)) || String(a.name).localeCompare(String(b.name)));
+  const yes = sorted.filter(u => has(u, x)).length;
+  const row = u => {
+    let ctl;
+    if (u.role === 'admin' || everyone(x) || (x.p.key === 'pc-followup' && u.role === 'pc')) ctl = '<span style="font-size:12px;font-weight:800;color:var(--color-success-text)">✓ hai</span>';
+    else if (x.p.deny) {
+      const parent = x.p.needs.some(k => (u.page_access || []).includes(k));
+      ctl = `<input type="checkbox" class="acc-sw" ${parent && !(u.page_access || []).includes('deny:' + x.p.key) ? 'checked' : ''} ${parent ? '' : 'disabled title="Pehle page ka access do"'} onchange="toggleAccess(${u.id},'deny:${x.p.key}',!this.checked,this,true).then(()=>renderAccessByPage())"/>`;
+    } else ctl = `<input type="checkbox" class="acc-sw" ${(u.page_access || []).includes(x.p.key) ? 'checked' : ''} onchange="toggleAccess(${u.id},'${jsArg(x.p.key)}',this.checked,this).then(()=>renderAccessByPage())"/>`;
+    return `<div class="acc-row"><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:700;color:var(--gray-900)">${esc(u.name)}</div>
+      <div style="font-size:11.5px;color:var(--gray-500)">${accRoleLabel(u.role)}${u.department ? ' · ' + esc(u.department) : ''}</div></div>${ctl}</div>`;
+  };
+  box.innerHTML = `<div class="acc-users">${list}</div>
+    <div><div class="acc-card"><div style="font-size:17px;font-weight:900;color:var(--gray-900)">${esc(main)}</div>
+      ${sub ? `<div style="font-size:12px;color:var(--gray-500)">${esc(sub)}</div>` : ''}
+      <div style="font-size:12.5px;margin-top:4px;color:var(--gray-600)">${everyone(x) ? '<b style="color:var(--color-success-text)">Sabko apne aap</b> — alag se dene ki zarurat nahi' : `<b>${yes}</b> logon ko access hai · ${sorted.length - yes} ko nahi`}</div></div>
+    <div class="acc-card">${sorted.map(row).join('')}</div></div>`;
 }
 
 function filterAccessUsers() {
+  accModeBar();
+  if (accMode === 'page') { renderAccessByPage(); return; }
   const q = (document.getElementById('accessSearch')?.value||'').toLowerCase().trim();
   if (!q) { renderAccessTable(allAccessUsersData); return; }
   renderAccessTable(allAccessUsersData.filter(u =>
