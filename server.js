@@ -10951,6 +10951,7 @@ app.get('/api/purchase-fms/indents', requireAuth, async (req, res) => {
 const PO_DATA_SHEET_ID = '1YJXakakXlui9HNgc2BmaZ5bY3zN0DN6lSYfWqvMsIPY';
 const ERP_PO_TAB = 'ERP PO';
 const PO_LINK_TAB = 'PO CREATION FOR USE DATA';
+const DELETED_PO_TAB = 'Deleted PO'; // old-sheet POs deleted in the ERP (L1 filters them out)
 const ERP_PO_HEADER = ['Timestamp', 'PO Number', 'Indent No', 'Item ID', 'Product Name', 'Order Qty', 'PDF Link', 'Vendor Name', 'UOM', 'Rate', 'GST %', 'Amount', 'Created By'];
 const PO_STEP_N = 14; // Generate PO & Send (INDENT_STEPS)
 let _erpPoReady = null;
@@ -11174,8 +11175,16 @@ app.post('/api/purchase-fms/po/:poNumber/delete', requireAuth, async (req, res) 
     if (!reason) return res.status(400).json({ error: 'Delete ka reason likho (duplicate / galat PO …)' });
     await erpPoTable();
     const [[po]] = await db.query('SELECT * FROM erp_purchase_orders WHERE po_number=?', [poNumber]);
-    if (!po || po.status !== 'done') return res.status(400).json({ error: 'Sirf ERP me bana PO delete ho sakta hai' });
+    if (po && po.status !== 'done') return res.status(400).json({ error: `Ye PO pehle se ${po.status} hai` });
     const sheetsW = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    // A PO from before the ERP generator (2026-10-27) lives in the old "Purchase
+    // Order data" Sheet2, which 'PO CREATION FOR USE DATA'!L1 IMPORTRANGEs.
+    let oldRows = [];
+    if (!po) {
+      const s2 = await sheetsW.spreadsheets.values.get({ spreadsheetId: PO_DATA_SHEET_ID, range: "'Sheet2'!A1:G" });
+      oldRows = (s2.data.values || []).map((r, i) => ({ rn: i + 1, r })).filter(x => x.rn > 1 && String(x.r[1] || '').trim() === poNumber);
+      if (!oldRows.length) return res.status(404).json({ error: 'Ye PO na ERP me mila na purani PO sheet me' });
+    }
     const [pf, ep, meta] = await Promise.all([
       sheetsW.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!B${PURCHASE_DATA_START_ROW}:V`, valueRenderOption: 'UNFORMATTED_VALUE' }),
       sheetsW.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${ERP_PO_TAB}'!B:B` }),
@@ -11197,6 +11206,39 @@ app.post('/api/purchase-fms/po/:poNumber/delete', requireAuth, async (req, res) 
         sheetId: pfId, startRowIndex: rn[0] - 1, endRowIndex: rn[rn.length - 1], startColumnIndex: colToIdx(a), endColumnIndex: colToIdx(b) + 1 } } });
     }
     for (const x of epRows) requests.push({ updateCells: { fields: 'userEnteredValue', range: { sheetId: epId, startRowIndex: x.rn - 1, endRowIndex: x.rn, startColumnIndex: 0, endColumnIndex: ERP_PO_HEADER.length } } });
+    if (oldRows.length) {
+      // The service account can't edit the old sheet, so the PO number goes on a
+      // 'Deleted PO' list here and L1 filters those out of the old IMPORTRANGE —
+      // in the same batchUpdate as the typed-cell shift, so both land or neither.
+      let delId = sid(DELETED_PO_TAB);
+      if (delId == null) {
+        const add = await sheetsW.spreadsheets.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { requests: [{ addSheet: { properties: { title: DELETED_PO_TAB, hidden: true, gridProperties: { rowCount: 500, columnCount: 4 } } } }] } });
+        delId = add.data.replies[0].addSheet.properties.sheetId;
+        await sheetsW.spreadsheets.values.update({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${DELETED_PO_TAB}'!A1:D1`, valueInputOption: 'RAW', requestBody: { values: [['PO Number', 'Deleted At', 'By', 'Reason']] } });
+      }
+      const cur = await sheetsW.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PO_LINK_TAB}'!L1`, valueRenderOption: 'FORMULA' });
+      const f = String(((cur.data.values || [])[0] || [])[0] || '');
+      if (!f.includes(DELETED_PO_TAB)) {
+        const old = String((await getAppSetting('erp_po_old_l1')) || '').replace(/^=\s*/, '');
+        const mine = `FILTER('${ERP_PO_TAB}'!A:G,'${ERP_PO_TAB}'!B:B<>"",ROW('${ERP_PO_TAB}'!B:B)>1)`;
+        if (!old || f.replace(/\s/g, '') !== `=IFERROR({${old};${mine}},${old})`.replace(/\s/g, ''))
+          return res.status(409).json({ error: `'${PO_LINK_TAB}'!L1 ka formula badla hua hai — admin se check karwao` });
+        const kept = `LET(o,${old},FILTER(o,ISNA(MATCH(INDEX(o,0,2),'${DELETED_PO_TAB}'!A2:A,0))))`;
+        const pl = meta.data.sheets.find(s => s.properties.title === PO_LINK_TAB);
+        requests.push({ updateCells: { fields: 'userEnteredValue', rows: [{ values: [{ userEnteredValue: { formulaValue: `=IFERROR({${kept};${mine}},${old})` } }] }],
+          start: { sheetId: pl.properties.sheetId, rowIndex: 0, columnIndex: colToIdx('L') } } });
+      }
+      const at = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 19).replace('T', ' ');
+      requests.push({ appendCells: { sheetId: delId, fields: 'userEnteredValue', rows: [{ values: [poNumber, at, req.session.name || String(req.session.userId), reason].map(v => ({ userEnteredValue: { stringValue: v } })) }] } });
+      await sheetsW.spreadsheets.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { requests } });
+      const today = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+      const vendor = String((rows[0] && rows[0].get('I')) || '').slice(0, 255);
+      await db.query(`INSERT INTO erp_purchase_orders (po_number, po_date, vendor_name, lines_json, shipping_json, status, created_by, created_by_name) VALUES (?,?,?,?,?,'deleted',?,?)`,
+        [poNumber, today, vendor, JSON.stringify(oldRows.map(x => x.r)), JSON.stringify({ oldSheetPo: true, deleted: { by: req.session.name || String(req.session.userId), at: new Date().toISOString(), reason } }),
+          req.session.userId, req.session.name || '']).catch(e => console.error(`PO ${poNumber} delete record:`, e.message));
+      console.log(`OLD PO ${poNumber} DELETED by user ${req.session.userId} (${reason}); Sheet2 rows ${oldRows.map(x => x.rn).join(',')}, Purchase Fms rows ${rn.join(',')}`);
+      return res.json({ success: true, lines: oldRows.length });
+    }
     if (requests.length) await sheetsW.spreadsheets.batchUpdate({ spreadsheetId: PURCHASE_SHEET_ID, requestBody: { requests } });
     await db.query("UPDATE erp_purchase_orders SET status='deleted', shipping_json=JSON_SET(COALESCE(NULLIF(shipping_json,''),'{}'), '$.deleted', JSON_OBJECT('by', ?, 'at', NOW(), 'reason', ?)) WHERE id=?",
       [req.session.name || String(req.session.userId), reason, po.id]).catch(() => db.query("UPDATE erp_purchase_orders SET status='deleted' WHERE id=?", [po.id]));

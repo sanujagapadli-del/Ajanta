@@ -28020,7 +28020,7 @@ function openMechForm(id) {
       <div>${L('Naam *')}<input id="mcName" value="${esc(m ? m.name : '')}" style="${VRL_IN}"/></div>
       <div>${L('Mobile')}<input id="mcMobile" value="${esc(m ? m.mobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
       <div>${L('City *')}<input id="mcCity" list="mcCityList" data-free="1" autocomplete="off" placeholder="City likhein" value="${esc(m ? m.city : 'Jaipur')}" style="${VRL_IN}"/></div>
-      <div>${L('Area / point (jaise Vatika Road, Agra Road)')}<input id="mcArea" list="mcAreaList" value="${esc(m ? m.area : '')}" style="${VRL_IN}"/></div>
+      <div>${L('Area / point (jaise Vatika Road, Agra Road)')}<input id="mcArea" list="mcAreaList" data-free="1" autocomplete="off" placeholder="Area likhein" value="${esc(m ? m.area : '')}" style="${VRL_IN}"/></div>
       <div>${L('Doosra mobile')}<input id="mcAlt" value="${esc(m ? m.altMobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
       <div>${L('Aadhaar no.')}<input id="mcAadhaar" value="${esc(m ? m.aadhaarNo : '')}" inputmode="numeric" maxlength="14" style="${VRL_IN}"/></div></div>
     ${L(m && m.aadhaarUrl ? 'Aadhaar photo (badalni ho to)' : 'Aadhaar photo')}<input id="mcAadhaarFile" type="file" accept="image/*" style="${VRL_IN};margin-bottom:8px"/>
@@ -28035,7 +28035,7 @@ function openMechForm(id) {
     <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveMech(${id || 0},this)">✓ Save</button>`, 600);
 }
 function mechRateRow(x) {
-  return `<div class="mc-rate" style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:6px;margin-bottom:6px"><input list="mcCatList" value="${esc(x.category || '')}" placeholder="Product" style="${VRL_IN};margin:0"/><input value="${esc(x.charge || '')}" placeholder="₹" style="${VRL_IN};margin:0"/><input value="${esc(x.note || '')}" placeholder="Note (part alag…)" style="${VRL_IN};margin:0"/></div>`;
+  return `<div class="mc-rate" style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:6px;margin-bottom:6px"><input list="mcCatList" data-free="1" autocomplete="off" value="${esc(x.category || '')}" placeholder="Product (likh bhi sakte)" style="${VRL_IN};margin:0"/><input value="${esc(x.charge || '')}" placeholder="₹" style="${VRL_IN};margin:0"/><input value="${esc(x.note || '')}" placeholder="Note (part alag…)" style="${VRL_IN};margin:0"/></div>`;
 }
 async function saveMech(id, btn) {
   const g = i => document.getElementById(i).value.trim(), act = document.getElementById('mcActive'), file = document.getElementById('mcAadhaarFile').files[0];
