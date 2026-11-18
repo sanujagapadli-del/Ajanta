@@ -15434,6 +15434,7 @@ function o2dShortHtml() {
   const can = o2dShort.canAct;
   const head = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:14px 16px 6px">
       <div style="font-size:15px;font-weight:800;color:var(--gray-900)">📦 Stock kam — rakhe hue items <span style="font-size:12px;font-weight:600;color:var(--gray-500)">(${pend.length})</span></div>
+      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="exportO2dPendingItems()" title="Pending orders sheet — Stock kam + Not Available + Hold, party-wise">⬇ Pending Excel</button>
       <div style="font-size:12px;color:var(--gray-500);flex-basis:100%">Good Check pe stock kam tha to bache hue pcs yahan rakhe jaate hain — <b>order nahi banta</b>. Maal aa jaye to <b>▶ Order banao</b> dabao: naya order (jaise Ord-0450-P1) <b>step 1 (Accounts)</b> se shuru hoga, party / rate / baaki sab purane order se — kuch bharna nahi.</div></div>`;
   const groupHtml = Object.entries(groups).map(([parent, list]) => `<div style="margin:8px 16px;border:1px solid var(--gray-200);border-radius:12px;background:var(--surface);overflow:hidden">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">
@@ -15483,8 +15484,7 @@ function renderO2dPendingItemsView() {
   const totQty = rows.reduce((a, r) => a + r.qty, 0), totAmt = rows.reduce((a, r) => a + r.amount, 0);
   const minus = v => `<b style="color:var(--color-danger)">−${inr(v)}</b>`;
   wrap.innerHTML = o2dShortHtml() + `<div style="padding:14px 16px 0;font-size:15px;font-weight:800;color:var(--gray-900)">⛔ Not Available — nahi bheje</div><div style="padding:6px 16px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <div style="font-size:13px"><b>${rows.length}</b> item pending · <b>${totQty}</b> pcs · ${minus(totAmt)} <span style="color:var(--gray-500);font-size:12px">(nahi bheja — bill me nahi)</span> · ${parties.length} party</div>
-      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="exportO2dPendingItems()">⬇ Excel (CSV)</button></div>
+      <div style="font-size:13px"><b>${rows.length}</b> item pending · <b>${totQty}</b> pcs · ${minus(totAmt)} <span style="color:var(--gray-500);font-size:12px">(nahi bheja — bill me nahi)</span> · ${parties.length} party</div></div>
     <div style="padding:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap">${parties.slice(0, 12).map(g => `<span onclick="document.getElementById('o2dSearch').value='${o2dJsEsc(g.party)}';o2dSearchChanged()" title="Sirf is party ke item" style="cursor:pointer;font-size:12px;border:1px solid var(--gray-200);border-radius:14px;padding:3px 10px;background:var(--surface)">${esc(g.party)} · ${g.n} item · <b style="color:var(--color-danger)">−${inr(g.amount)}</b></span>`).join('')}</div>
     <table style="font-size:12.5px"><thead><tr><th>Order date</th><th>Order No</th><th>Party</th><th>Item (nahi bheja)</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th><th>Kab chhoda</th><th>Order by</th></tr></thead><tbody>
     ${rows.map(r => `<tr><td style="white-space:nowrap">${esc(fmtDateDMY(r.orderDate))}</td><td style="white-space:nowrap;font-weight:600">${esc(r.orderNo)}${r.billNo ? `<div style="font-size:11px;color:var(--gray-500)">Bill ${esc(r.billNo)}</div>` : ''}</td>
@@ -15492,11 +15492,74 @@ function renderO2dPendingItemsView() {
       <td>${esc(r.item)}</td><td style="text-align:right">${r.qty}</td><td style="text-align:right">${r.rate ? inr(r.rate) : '—'}</td><td style="text-align:right">${r.amount ? minus(r.amount) : '—'}</td>
       <td style="white-space:nowrap">${r.leftOn ? esc(fmtDateDMY(r.leftOn, true)) : '—'}</td><td>${esc(r.orderBy || '—')}</td></tr>`).join('')}</tbody></table>`;
 }
-function exportO2dPendingItems() {
-  const rows = o2dPendingItems();
-  csvDownload([['Order Date', 'Order No', 'Party', 'Area', 'Item (not sent)', 'Qty', 'Rate', 'Amount (minus)', 'Left on (Good Check)', 'Order By', 'Bill No'],
-    ...rows.map(r => [fmtDateDMY(r.orderDate), r.orderNo, r.party, r.area, r.item, r.qty, r.rate, -r.amount, r.leftOn ? fmtDateDMY(r.leftOn, true) : '', r.orderBy, r.billNo])],
-    `o2d-pending-items-${stockTodayYmd()}.csv`);
+// Excel in the client's own "Pending orders" sheet format (client list 2026-11-18 #3, PDF): DATE | PARTY NAME | ITEM |
+// QUANTITY | AREA | remark (red) — one block per party/date with DATE, PARTY, AREA and remark merged, landscape.
+// Rows: 📦 Stock kam items + ⛔ Not Available items + orders on Hold (remark = hold reason / "Payment pending").
+async function exportO2dPendingItems() {
+  const byNo = Object.fromEntries((o2dData || []).map(o => [o.orderNo, o]));
+  const holdRemark = o => o.holdType === 'stock' ? (o.holdReason || 'Stock not available') : ('Payment pending' + (o.holdReason ? ' — ' + o.holdReason : ''));
+  const blocks = new Map(); // key → { date, party, area, remark, items: [[item, qty]] }
+  const add = (date, party, area, remark, item, qty) => {
+    const k = `${date}|${String(party).toLowerCase()}|${remark}`;
+    if (!blocks.has(k)) blocks.set(k, { date, party, area, remark, items: [] });
+    const b = blocks.get(k); if (!b.area && area) b.area = area;
+    const same = b.items.find(x => x[0] === item); if (same) same[1] += qty; else b.items.push([item, qty]);
+  };
+  ((o2dShort && o2dShort.rows) || []).filter(r => r.status === 'pending').forEach(r => {
+    const o = byNo[r.parent_order_no] || {};
+    add(String(r.created_at || '').slice(0, 10), r.party || o.counterName || '', o.area || '', o.onHold ? holdRemark(o) : 'Stock not available', r.product || '', Number(r.qty) || 0);
+  });
+  o2dPendingItems().forEach(r => { const o = byNo[r.orderNo] || {}; add(String(r.orderDate).slice(0, 10), r.party, r.area, o.onHold ? holdRemark(o) : 'Stock not available', r.item, r.qty); });
+  (o2dData || []).filter(o => o.onHold && !o.closed && !o.cancelled).forEach(o => (o.products || []).filter(p => !p.cancelled && p.availability !== 'No')
+    .forEach(p => add(String(o.timestamp || '').slice(0, 10), o.counterName || '', o.area || '', holdRemark(o), p.productName || '', Number(p.qty) || 0)));
+  const list = [...blocks.values()].filter(b => b.items.length).sort((a, b) => a.date.localeCompare(b.date) || a.party.localeCompare(b.party));
+  if (!list.length) { showToast('Koi pending item nahi', 'error'); return; }
+  const name = `Pending-orders-${stockTodayYmd()}`;
+  const dmy = d => { const [y, m, dd] = d.split('-'); return y ? `${dd}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m - 1]}-${y}` : ''; };
+  let ExcelJS;
+  try { ExcelJS = await loadExcelJs(); }
+  catch (e) {
+    showToast(e.message + ' — CSV de rahe hain', 'error');
+    csvDownload([['DATE', 'PARTY NAME', 'ITEM', 'QUANTITY', 'AREA', 'REMARK'], ...list.flatMap(b => b.items.map(([it, q]) => [dmy(b.date), b.party, it, q, b.area, b.remark]))], name + '.csv');
+    return;
+  }
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Sheet1', { views: [{ state: 'frozen', ySplit: 1 }],
+    pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: '1:1', margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } } });
+  ws.columns = [15, 26, 44, 13, 17, 22].map(width => ({ width }));
+  const thin = { style: 'thin', color: { argb: 'FF000000' } }, light = { style: 'thin', color: { argb: 'FFD0D0D0' } };
+  const hdr = ws.addRow(['DATE', 'PARTY NAME', 'ITEM', 'QUANTITY', 'AREA', '-']);
+  hdr.height = 26;
+  hdr.eachCell(c => { c.font = { name: 'Arial', size: 13, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCCCCCC' } };
+    c.alignment = { horizontal: 'center', vertical: 'middle' }; c.border = { top: thin, left: thin, bottom: thin, right: thin }; });
+  hdr.getCell(4).font = { name: 'Arial', size: 10, bold: true };
+  list.forEach(b => {
+    const first = ws.rowCount + 1;
+    b.items.forEach(([it, q], i) => ws.addRow([i ? '' : dmy(b.date), i ? '' : b.party, it, q, i ? '' : b.area, i ? '' : b.remark]));
+    const last = ws.rowCount;
+    if (last > first) [1, 2, 5, 6].forEach(c => ws.mergeCells(first, c, last, c));
+    for (let r = first; r <= last; r++) {
+      const row = ws.getRow(r);
+      row.height = 19;
+      [1, 2, 3, 4, 5, 6].forEach(c => {
+        const cell = row.getCell(c);
+        cell.border = { top: r === first ? thin : light, bottom: r === last ? thin : light, left: thin, right: thin };
+        cell.alignment = { horizontal: c === 3 ? 'left' : 'center', vertical: 'middle', wrapText: true };
+        cell.font = { name: 'Arial', size: 10.5 };
+      });
+      row.getCell(1).font = { name: 'Arial', size: 10.5, italic: true };
+      row.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8F9FA' } };
+      row.getCell(4).font = { name: 'Arial', size: 10.5, bold: true };
+      row.getCell(6).font = { name: 'Arial', size: 10.5, bold: true, color: { argb: 'FFB00000' } };
+      row.getCell(6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEFEF' } };
+    }
+  });
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = name + '.xlsx'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  showToast(`⬇ ${list.length} party block · ${list.reduce((n, b) => n + b.items.length, 0)} item`);
 }
 
 // ── 🚚 Delivery Tracking: order date → dispatch (Load Goods) → delivered to customer ──
