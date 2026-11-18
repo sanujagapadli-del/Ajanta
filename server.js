@@ -15447,18 +15447,23 @@ app.get('/api/four-as', requireAuth, async (req, res) => {
     // ICICI receive = what Tally's ICICI Bank ledger actually got on Receipt vouchers that week — the bank book
     // (client 2026-11-16: 9–15 Nov showed ₹2,47,600 from app entries, ICICI book ₹5,75,098 — most receipts are
     // entered only in Tally). Weeks Tally has nothing for yet (not synced) keep the app entries.
-    const tallyIcici = {};
+    const tallyIcici = {}, tallyAll = {};
     try {
       const v = await getLedgerVouchers();
       Object.values(v.byKey).forEach(x => {
         if (!/^receipt$/i.test(String(x.vchType).trim())) return;
         // Tally export sign: negative = Dr — money coming INTO the bank is a negative ICICI leg.
         const leg = x.legs.filter(l => /^icici\b/.test(l.ledgerKey) && l.amount < 0).reduce((a, l) => a - l.amount, 0);
-        const d = leg > 0 && parseAnyDate(x.date);
+        // Whole receipt (every Dr leg: ICICI, other banks, cash) = the week's collection in Tally
+        // (client video 2026-11-17: "bank sahi hai, par ye 2,63,100 idhar kyu" - Collection showed only app entries).
+        const all = x.legs.filter(l => l.amount < 0).reduce((a, l) => a - l.amount, 0);
+        const d = all > 0 && parseAnyDate(x.date);
         if (!d) return;
         const ymd = toIsoDate(d);
         if (ymd < from || ymd > to) return;
-        const w = mon(ymd); tallyIcici[w] = (tallyIcici[w] || 0) + leg;
+        const w = mon(ymd);
+        tallyAll[w] = (tallyAll[w] || 0) + all;
+        if (leg > 0) tallyIcici[w] = (tallyIcici[w] || 0) + leg;
       });
     } catch (e) { console.warn('4AS tally icici:', e.message); }
     const sv = Object.fromEntries(saved.map(s => [s.w, s]));
@@ -15471,7 +15476,8 @@ app.get('/api/four-as', requireAuth, async (req, res) => {
       const base = iciciActual != null ? iciciActual : iciciPlanned;
       // Paise dropped, not rounded — as Accounts does it (Lucky 16-11: 5,75,098 × 5% = 28,754, Yes 3,96,344).
       const pnbPlanned = Math.floor(base * rule.pnbPct / 100 + 1e-6), idfcPlanned = base > 0 ? Math.min(rule.idfcFixed, Math.max(0, base - pnbPlanned)) : 0;
-      return { week: w, weekEnd: ymdAddDays(w, 6), collection: { cash: r2(c.cash), online: r2(c.online), cheque: r2(c.cheque) },
+      return { week: w, weekEnd: ymdAddDays(w, 6), collection: { cash: r2(c.cash), online: r2(c.online), cheque: r2(c.cheque),
+          tally: tallyAll[w] > 0 ? r2(tallyAll[w]) : null, tallyIcici: r2(tallyIcici[w] || 0) },
         icici: { planned: iciciPlanned, actual: iciciActual, source: fromTally ? 'tally' : 'app' }, pnb: { planned: pnbPlanned, actual: num(s.pnb_actual) },
         idfc: { planned: idfcPlanned, actual: num(s.idfc_actual) }, yes: { planned: Math.max(0, base - pnbPlanned - idfcPlanned), actual: num(s.yes_actual) },
         note: s.note || '', submittedAt: s.submitted_at || '', submittedBy: s.submitted_by_name || '' };

@@ -26635,6 +26635,15 @@ async function loadFourAs() {
   if (!r || r.error) { document.getElementById('faWrap').innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load nahi hua')}</div>`; return; }
   faData = r; renderFourAs();
 }
+// Collection = Tally's Receipts of the week (all banks + cash) when synced; app entries shown under it
+// (client video 2026-11-17: "ye 2,63,100 idhar kyu" — it was app entries only, Tally ICICI book was 5,75,098).
+function faCollCell(c) {
+  const appLine = `cash ${inr(c.cash)} · online ${inr(c.online)} · cheque ${inr(c.cheque)}`;
+  if (c.tally == null) return `${inr(c.cash + c.online + c.cheque)}<div style="font-size:10.5px;color:var(--color-warning-text)">app entries (Tally baaki)</div><div style="font-size:11px">${appLine}</div>`;
+  const other = c.tally - c.tallyIcici;
+  return `<b style="color:var(--gray-900)">${inr(c.tally)}</b><div style="font-size:10.5px;color:var(--color-success-text)">Tally Receipts se</div>
+    <div style="font-size:11px">ICICI ${inr(c.tallyIcici)}${other > 0 ? ` · baaki bank / cash ${inr(other)}` : ''}</div><div style="font-size:10.5px;color:var(--gray-400)">app me: ${appLine}</div>`;
+}
 function renderFourAs() {
   const d = faData; if (!d) return;
   document.getElementById('faRuleTxt').innerHTML = `Planned: <b>ICICI</b> = Tally ICICI Bank book me hafte ki Receipts (Tally sync nahi hua to app ka collection) · <b>PNB</b> = ICICI ka <b>${d.rule.pnbPct}%</b> · <b>IDFC</b> = <b>${inr(d.rule.idfcFixed)}</b> · <b>Yes Bank</b> = baaki. Actual aap bharke <b>Submit</b> karein.${d.isAdmin ? ` <a href="#" onclick="editFourAsRule();return false">⚙ rule badlo</a>` : ''}`;
@@ -26648,7 +26657,7 @@ function renderFourAs() {
     <tbody>${d.rows.map(x => { const done = !!x.submittedAt, w = x.week;
       return `<tr style="${done ? 'background:var(--color-success-bg)' : ''}">
         <td style="${td};text-align:left;font-weight:700">${fmtDateDMY(w).slice(0, 5)} – ${fmtDateDMY(x.weekEnd)}${w === d.rows[0].week ? '<div style="font-size:11px;color:var(--color-primary)">is hafte</div>' : ''}</td>
-        <td style="${td};color:var(--gray-600)">${inr(x.collection.cash + x.collection.online + x.collection.cheque)}<div style="font-size:11px">cash ${inr(x.collection.cash)} · online ${inr(x.collection.online)} · cheque ${inr(x.collection.cheque)}</div></td>
+        <td style="${td};color:var(--gray-600)">${faCollCell(x.collection)}</td>
         ${cell(w, 'icici', x.icici, done && !d.isAdmin)}${cell(w, 'pnb', x.pnb, done && !d.isAdmin)}${cell(w, 'idfc', x.idfc, done && !d.isAdmin)}${cell(w, 'yes', x.yes, done && !d.isAdmin)}
         <td style="${td};text-align:left">${done ? `<b style="color:var(--color-success-text)">✓ Submitted</b><div style="font-size:11px;color:var(--gray-500)">${esc(x.submittedBy)} · ${esc(x.submittedAt)}</div>` : ''}
           ${!done || d.isAdmin ? `<div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-outline btn-sm" onclick="saveFourAs('${w}', false, this)">Save</button><button class="btn btn-primary btn-sm" onclick="saveFourAs('${w}', true, this)">✓ Submit</button></div>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
