@@ -2533,6 +2533,20 @@ app.get('/api/attendance/history', requireAuth, async (req, res) => {
       );
       return r;
     });
+    // 12 baje check marks (client list 2026-11-19 #1): shown on that day's row, or as their own row when nobody punched.
+    try {
+      const mw = ['m.date BETWEEN ? AND ?'], mp = params.slice(0, 2);
+      if (where.length > 1) { mw.push('m.user_id=?'); mp.push(params[2]); }
+      const [marks] = await db.query(`SELECT m.user_id, DATE_FORMAT(m.date,'%Y-%m-%d') AS date, m.status, u.name, u.department, mb.name AS marked_by_name
+        FROM attendance_marks m JOIN users u ON u.id=m.user_id LEFT JOIN users mb ON mb.id=m.marked_by WHERE ${mw.join(' AND ')}`, mp);
+      const byKey = Object.fromEntries(rows.map(r => [`${r.user_id}|${r.date}`, r]));
+      marks.forEach(m => {
+        const r = byKey[`${m.user_id}|${m.date}`];
+        if (r) { r.mark = m.status; r.marked_by_name = m.marked_by_name || ''; }
+        else rows.push({ id: null, user_id: m.user_id, date: m.date, name: m.name, department: m.department, time_in: null, time_out: null, mark: m.status, marked_by_name: m.marked_by_name || '' });
+      });
+      if (marks.length) rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.name).localeCompare(String(b.name)));
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     res.json(rows);
   } catch (err) { sendServerError(res, err); }
 });
@@ -2589,11 +2603,19 @@ async function attendanceGapsToday() {
   const leaveIds = new Set(onLeave.map(r => r.user_id));
   const attnBy = Object.fromEntries(attn.map(a => [a.user_id, a]));
   const kmBy = Object.fromEntries(kmRows.map(k => [k.user_id, k]));
-  const expected = working.filter(u => !leaveIds.has(u.id));
+  // 12 baje check marks (client list 2026-11-19 #1): Absent = off for the day (no punch / KM / task follow-up);
+  // Present = came without punching, so not in "Punch In nahi kiya".
+  let marks = [];
+  try { marks = (await db.query('SELECT user_id, status FROM attendance_marks WHERE date=?', [today]))[0]; }
+  catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+  const absentIds = new Set(marks.filter(m => m.status === 'absent').map(m => m.user_id));
+  const presentIds = new Set(marks.filter(m => m.status === 'present').map(m => m.user_id));
+  const expected = working.filter(u => !leaveIds.has(u.id) && !absentIds.has(u.id));
   const pick = f => expected.filter(f).map(u => ({ id: u.id, name: u.name }));
   return {
     today, hour: Number(clock.h), holiday,
-    notIn: pick(u => !(attnBy[u.id] && attnBy[u.id].time_in)),
+    absentMarked: users.filter(u => absentIds.has(u.id)).map(u => ({ id: u.id, name: u.name })),
+    notIn: pick(u => !(attnBy[u.id] && attnBy[u.id].time_in) && !presentIds.has(u.id)),
     notOut: pick(u => attnBy[u.id] && attnBy[u.id].time_in && !attnBy[u.id].time_out),
     // KM staff (users.track_km) — KM is paid only on readings entered in the app (client 2026-10-06).
     noKmMorning: pick(u => +u.track_km && !(kmBy[u.id] && kmBy[u.id].morning_km != null)),
@@ -4130,12 +4152,23 @@ app.get('/api/users', requireAuth, async (req, res) => {
 // Update a user's per-page access (admin only; admins always keep full access)
 app.put('/api/users/:id/access', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { pages } = req.body;
-    if (!Array.isArray(pages)) return res.status(400).json({ error: 'pages must be an array' });
-    const [rows] = await db.query('SELECT role FROM users WHERE id=?', [req.params.id]);
+    // {add:[…], remove:[…]} changes only those keys on the CURRENT saved list — the old {pages} form sent the whole list
+    // from the admin's screen, so a stale screen wiped changes made since (client 2026-11-19: CRM got + New Lead,
+    // lost + New Order). {pages} still works.
+    const { pages, add, remove } = req.body || {};
+    const delta = Array.isArray(add) || Array.isArray(remove);
+    if (!delta && !Array.isArray(pages)) return res.status(400).json({ error: 'pages must be an array' });
+    const [rows] = await db.query('SELECT role, page_access FROM users WHERE id=?', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });
     if (rows[0].role === 'admin') return res.status(400).json({ error: 'Admins always have full access' });
-    const cleaned = pages.filter(p => RESTRICTABLE_PAGES.includes(p) || DENY_KEYS.includes(p));
+    let list = pages;
+    if (delta) {
+      const cur = new Set(parsePageAccess(rows[0].page_access, rows[0].role));
+      (Array.isArray(add) ? add : []).forEach(k => cur.add(k));
+      (Array.isArray(remove) ? remove : []).forEach(k => cur.delete(k));
+      list = [...cur];
+    }
+    const cleaned = list.filter(p => RESTRICTABLE_PAGES.includes(p) || DENY_KEYS.includes(p));
     await db.query('UPDATE users SET page_access=? WHERE id=?', [JSON.stringify(cleaned), req.params.id]);
     res.json({ success: true, page_access: cleaned });
   } catch (err) { sendServerError(res, err); }
@@ -19206,7 +19239,7 @@ function mechClean(b) {
   if (!r.city) return { error: 'City likhein' };
   if (!r.source) return { error: 'Mechanic ki details kaha se li — chunein' };
   if (r.source === 'Dealer' && !r.sourceDetail) return { error: 'Kis dealer ne diya — naam likhein' };
-  if (r.source !== 'Dealer') r.sourceDetail = r.source === 'Online search' ? r.sourceDetail : '';
+  if (r.source === 'Manual' && !r.sourceDetail) return { error: 'Manual — kaha se mili, likhein' };
   for (const p of [r.mobile, r.alt]) if (p && !sfmsNormalizeMobile(p)) return { error: `Mobile number galat lag raha hai: ${p}` };
   if (r.aadhaar && !/^\d{12}$/.test(r.aadhaar)) return { error: 'Aadhaar 12 ank ka hona chahiye' };
   return r;

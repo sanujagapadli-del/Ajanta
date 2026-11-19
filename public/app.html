@@ -7866,9 +7866,9 @@ async function accSetGroup(userId, gi, on) {
   const keys = PAGE_ACCESS_GROUPS[gi].pages.filter(accGrantable).map(p => p.key);
   const before = user.page_access || [], after = new Set(before);
   keys.forEach(k => on ? after.add(k) : after.delete(k));
-  const r = await api(`/api/users/${userId}/access`, 'PUT', { pages: [...after] });
+  const r = await api(`/api/users/${userId}/access`, 'PUT', on ? { add: keys } : { remove: keys });
   if (r.error) { showToast(r.error, 'error'); return; }
-  user.page_access = [...after];
+  user.page_access = r.page_access || [...after];
   const twin = allAccessUsersData.find(x => x.id === userId); if (twin && twin !== user) twin.page_access = user.page_access;
   showToast(on ? `✓ ${PAGE_ACCESS_GROUPS[gi].label} — sab diye` : `${PAGE_ACCESS_GROUPS[gi].label} — sab hataye`);
   filterAccessUsers();
@@ -7881,7 +7881,9 @@ async function toggleAccess(userId, pageKey, checked, cbEl, inverted) {
   const after = new Set(before);
   if (checked) after.add(pageKey); else after.delete(pageKey);
   user.page_access = [...after];
-  const r = await api(`/api/users/${userId}/access`, 'PUT', { pages: user.page_access });
+  // Only this one key goes to the server — it is applied to the saved list, so a stale screen can't undo other changes.
+  const r = await api(`/api/users/${userId}/access`, 'PUT', checked ? { add: [pageKey] } : { remove: [pageKey] });
+  if (!r.error && r.page_access) user.page_access = r.page_access;
   if (r.error) {
     user.page_access = [...before];
     if (cbEl) cbEl.checked = inverted ? checked : !checked;
@@ -9286,13 +9288,19 @@ function setAttnHistoryDefaultDates() {
   if (!from.value) from.value = today;
 }
 
+// 12 baje check mark (client list 2026-11-19 #1) — Absent / Present marked without a punch.
+function attMarkBadge(r) {
+  if (!r.mark) return '';
+  const ab = r.mark === 'absent';
+  return ` <span title="12 baje check${r.marked_by_name ? ' — ' + esc(r.marked_by_name) : ''}" style="display:inline-block;font-size:11px;font-weight:800;padding:1px 8px;border-radius:999px;background:var(${ab ? '--color-danger-bg' : '--color-success-bg'});color:var(${ab ? '--color-danger-text' : '--color-success-text'})">${ab ? 'Absent' : 'Present'} (12 baje check${r.marked_by_name ? ' · ' + esc(r.marked_by_name) : ''})</span>`;
+}
 // One employee's rows (self, or Admin viewing one specific employee) — a
 // day-card timeline, easy to scan.
 function renderAttendanceCards(rows) {
   return rows.map(r => {
     const d = new Date(r.date + 'T00:00:00');
     const hasIn = !!r.time_in, hasOut = !!r.time_out;
-    const delBtn = ME.role === 'admin'
+    const delBtn = ME.role === 'admin' && r.id
       ? `<div style="display:flex;gap:6px">${hasOut ? `<button class="row-action-btn cancel" onclick="clearAttendanceOut(${r.id})" title="Undo a mistaken punch-out">↺ Undo Out</button>` : ''}<button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button></div>` : '';
     return `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:12px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
       <div style="display:flex;align-items:center;gap:14px">
@@ -9301,7 +9309,7 @@ function renderAttendanceCards(rows) {
           <div style="font-size:17px;font-weight:800;color:var(--color-primary);line-height:1.1">${d.getDate()}</div>
         </div>
         <div>
-          <div style="font-size:13px;font-weight:700;color:var(--gray-800)">${d.toLocaleDateString('en-IN',{weekday:'long'})}</div>
+          <div style="font-size:13px;font-weight:700;color:var(--gray-800)">${d.toLocaleDateString('en-IN',{weekday:'long'})}${attMarkBadge(r)}</div>
           <div style="font-size:12px;color:var(--gray-500);display:flex;gap:18px;margin-top:3px;flex-wrap:wrap">
             <span><span style="color:${hasIn?'var(--color-success)':'var(--gray-300)'}">●</span> In: ${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in, r.address_in)}</span>
             <span><span style="color:${hasOut?'var(--color-danger)':'var(--gray-300)'}">●</span> Out: ${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out, r.address_out)}</span>
@@ -9320,9 +9328,9 @@ function renderAttendanceTable(rows) {
     <tbody>${rows.map(r => `<tr>
       <td><div style="font-weight:600">${esc(r.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(r.department||'—')}</div></td>
       <td>${fmtDate(r.date)}</td>
-      <td>${fmtTime(r.time_in)}${gpsLinkHtml(r.lat_in, r.lng_in, r.address_in)}</td>
+      <td>${r.time_in || !r.mark ? fmtTime(r.time_in) : ''}${gpsLinkHtml(r.lat_in, r.lng_in, r.address_in)}${attMarkBadge(r)}</td>
       <td>${fmtTime(r.time_out)}${gpsLinkHtml(r.lat_out, r.lng_out, r.address_out)}</td>
-      <td style="white-space:nowrap">${r.time_out ? `<button class="row-action-btn cancel" onclick="clearAttendanceOut(${r.id})" title="Undo a mistaken punch-out">↺ Undo Out</button> ` : ''}<button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button></td>
+      <td style="white-space:nowrap">${!r.id ? '' : `${r.time_out ? `<button class="row-action-btn cancel" onclick="clearAttendanceOut(${r.id})" title="Undo a mistaken punch-out">↺ Undo Out</button> ` : ''}<button class="row-action-btn del" onclick="deleteAttendanceEntry(${r.id})" title="Delete">🗑</button>`}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
@@ -14095,6 +14103,13 @@ async function onScPhotoSelected(input, previewId) {
   }
 }
 
+// The error box sits at the top of a long form — Save is at the bottom, so it went unseen and the form
+// looked dead (client list 2026-11-19 #4, Shalu). Scroll it into view + toast.
+function scShowErr(err) {
+  err.style.display = 'block';
+  try { err.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* old browser */ }
+  showToast(err.textContent, 'error');
+}
 async function submitNewComplaint() {
   const err = document.getElementById('newComplaintErr');
   err.style.display = 'none';
@@ -14113,12 +14128,12 @@ async function submitNewComplaint() {
 
   if (!filledByName || !mobile) {
     err.textContent = 'Name and mobile are required';
-    err.style.display = 'block';
+    scShowErr(err);
     return;
   }
   if (!productOwnership) {
     err.textContent = 'Select whether this is a Dealer Stock Piece or a Customer Purchased Piece';
-    err.style.display = 'block';
+    scShowErr(err);
     return;
   }
   // Point 2 — bill photo is optional at intake; it's only required later,
@@ -14133,7 +14148,7 @@ async function submitNewComplaint() {
     if (!productName && !problemDescription) continue; // an untouched extra row — skip rather than error
     if (!productName || !problemDescription) {
       err.textContent = 'Every product needs a product name and problem description';
-      err.style.display = 'block';
+      scShowErr(err);
       return;
     }
     const warrantyBanner = document.getElementById(`scProdWarrantyBanner_${id}`);
@@ -14141,7 +14156,7 @@ async function submitNewComplaint() {
     const warrantyAgree = document.getElementById(`scProdWarrantyAgree_${id}`).checked;
     if (outOfWarranty && !warrantyAgree) {
       err.textContent = `"${productName}" is out of warranty — please confirm the customer agrees to pay service charges to proceed`;
-      err.style.display = 'block';
+      scShowErr(err);
       return;
     }
     products.push({
@@ -14154,7 +14169,7 @@ async function submitNewComplaint() {
   }
   if (products.length === 0) {
     err.textContent = 'At least one product is required';
-    err.style.display = 'block';
+    scShowErr(err);
     return;
   }
 
@@ -14170,7 +14185,7 @@ async function submitNewComplaint() {
   } else if (res && res.needsConfirm) { btn.disabled = false; btn.textContent = 'Save Complaint'; closeModal('newComplaintModal'); showToast(`Complaint ${res.duplicateOf} pehle se hai — nayi nahi banayi`); return; }
   btn.disabled = false; btn.textContent = 'Save Complaint';
 
-  if (res.error) { err.textContent = res.error; err.style.display = 'block'; return; }
+  if (res.error) { err.textContent = res.error; scShowErr(err); return; }
   closeModal('newComplaintModal');
   showToast(`✅ Complaint ${res.groupNo} created!`);
   loadServiceFmsList();
@@ -27147,6 +27162,17 @@ async function loadPcFollowup() {
       if (t.text) t.text = t.text.replace(/sabse purani [^)]*\)/, `sabse purani ${fmtDateDMY(t.due)} — Sunday tha, Monday kiya)`);
     });
     pcfu.holiday = att && att.holiday ? att.holiday : '';
+    // Marked Absent at the 12 baje check — their tasks are not chased today (client list 2026-11-19 #1).
+    pcfu.absent = (att && !att.error && att.absentMarked) || [];
+    if (pcfu.absent.length) {
+      const off = new Set(pcfu.absent.map(u => String(u.name).trim().toLowerCase()));
+      pcfu.tasks = pcfu.tasks.filter(t => {
+        const left = t.people.filter(p => !off.has(String(p).trim().toLowerCase()));
+        if (left.length === t.people.length) return true;
+        t.people = left;
+        return left.length > 0;
+      });
+    }
     pcfu.custom = (cus && cus.items) || [];
     pcfu.custom.forEach(c => pcfu.tasks.push({ key: `custom:${c.id}`, customId: c.id, type: 'custom', title: c.text, text: c.text, people: [c.person],
       due: c.due_date || '', overdue: !c.done_at && !!c.due_date && c.due_date < pcfu.today, doneAt: c.done_at || '', by: c.created_by_name || '' }));
@@ -27300,7 +27326,8 @@ function renderPcFollowup() {
       <div style="font-size:28px;font-weight:900;color:${v.c};line-height:1">${counts[k]}</div>
       <div style="font-size:13px;font-weight:800;color:var(--gray-900);margin-top:6px">${v.label}</div>
       <div style="font-size:11px;color:var(--gray-500)">${v.hint}</div></button>`).join('');
-  document.getElementById('pcfuNote2').innerHTML = pcfu.holiday ? `🎉 Aaj chhutti (${esc(pcfu.holiday)}) — attendance / KM nahi dikhaya` : '';
+  document.getElementById('pcfuNote2').innerHTML = [pcfu.holiday ? `🎉 Aaj chhutti (${esc(pcfu.holiday)}) — attendance / KM nahi dikhaya` : '',
+    (pcfu.absent || []).length ? `🚫 Aaj absent (12 baje check): <b>${pcfu.absent.map(u => esc(u.name)).join(', ')}</b> — inke kaam aaj yahan nahi dikhaye` : ''].filter(Boolean).join('<br>');
   const inView = live.filter(t => VIEWS[pcfu.view].f(t) && match(t));
   const sysCnt = {}; inView.forEach(t => { sysCnt[t.type] = (sysCnt[t.type] || 0) + 1; });
   if (pcfu.sys && !sysCnt[pcfu.sys]) pcfu.sys = '';
@@ -28058,7 +28085,7 @@ function renderMech() {
     ${items.map(m => `<tr style="${m.active ? '' : 'opacity:.5'}"><td style="font-weight:700;vertical-align:top">${esc(m.area || '—')}${m.active ? '' : ' <span class="status-badge">Band</span>'}</td>
       <td style="vertical-align:top"><b>${esc(m.name)}</b>${m.mobile ? `<div><a href="tel:${esc(m.mobile)}">📞 ${esc(m.mobile)}</a> <a href="https://wa.me/91${esc(m.mobile.replace(/\D/g, '').slice(-10))}" target="_blank" title="WhatsApp">💬</a></div>` : ''}${m.altMobile ? `<div style="font-size:11.5px"><a href="tel:${esc(m.altMobile)}">📞 ${esc(m.altMobile)}</a></div>` : ''}${m.aadhaarNo || m.aadhaarUrl ? `<div style="font-size:11px;color:var(--gray-500)">Aadhaar ${m.aadhaarNo ? 'xxxx ' + esc(m.aadhaarNo.slice(-4)) : ''} ${m.aadhaarUrl ? `<a href="${esc(m.aadhaarUrl)}" target="_blank">photo</a>` : ''}</div>` : ''}</td>
       <td style="vertical-align:top">${m.rates.length ? m.rates.map(x => `<div>${esc(x.category)}${x.charge ? ` — <b>₹${esc(x.charge)}</b>` : ''}${x.note ? ` <span style="color:var(--gray-500)">(${esc(x.note)})</span>` : ''}</div>`).join('') : '—'}</td>
-      <td style="vertical-align:top;font-size:12px;color:var(--gray-600)">${esc([m.address, m.notes].filter(Boolean).join(' · ') || '—')}${m.source ? `<div style="font-size:11px;color:var(--gray-500)">📌 ${esc(m.source === 'Dealer' ? `Dealer ne diya${m.sourceDetail ? ': ' + m.sourceDetail : ''}` : m.source === 'Online search' ? `Online search${m.sourceDetail ? ': ' + m.sourceDetail : ''}` : 'Manual type')}</div>` : ''}</td>
+      <td style="vertical-align:top;font-size:12px;color:var(--gray-600)">${esc([m.address, m.notes].filter(Boolean).join(' · ') || '—')}${m.source ? `<div style="font-size:11px;color:var(--gray-500)">📌 ${esc(m.source === 'Dealer' ? `Dealer ne diya${m.sourceDetail ? ': ' + m.sourceDetail : ''}` : m.source === 'Online search' ? `Online search${m.sourceDetail ? ': ' + m.sourceDetail : ''}` : `Manual${m.sourceDetail ? ': ' + m.sourceDetail : ''}`)}</div>` : ''}</td>
       <td style="white-space:nowrap;vertical-align:top"><button class="btn btn-sm btn-outline" onclick="openMechForm(${m.id})">✏️</button>${mechData.isAdmin ? ` <button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="deleteMech(${m.id})">🗑</button>` : ''}</td></tr>`).join('')}
     </tbody></table></div></div>`).join('') : '<div class="empty">Abhi koi mechanic nahi — "＋ Mechanic" se onboard karein</div>';
 }
@@ -28078,7 +28105,7 @@ function openMechForm(id) {
       <div>${L('Doosra mobile')}<input id="mcAlt" value="${esc(m ? m.altMobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
       <div>${L('Aadhaar no.')}<input id="mcAadhaar" value="${esc(m ? m.aadhaarNo : '')}" inputmode="numeric" maxlength="14" style="${VRL_IN}"/></div></div>
     ${L('Details kaha se li *')}<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">${[['Dealer', '🏪 Dealer ne diya'], ['Online search', '🔍 Online search kiya'], ['Manual', '✍️ Manual type kiya']].map(([v, l]) => `<label style="display:flex;gap:5px;align-items:center;font-size:13px;margin:0;text-transform:none;letter-spacing:0;cursor:pointer"><input type="radio" name="mcSource" value="${v}" ${m && m.source === v ? 'checked' : ''} onchange="mechSourceUi()"/> ${l}</label>`).join('')}</div>
-    <input id="mcSourceDetail" list="mcDealerList" data-free="1" autocomplete="off" value="${esc(m ? m.sourceDetail : '')}" style="${VRL_IN};margin-bottom:8px;display:${m && (m.source === 'Dealer' || m.source === 'Online search') ? '' : 'none'}" placeholder="${m && m.source === 'Online search' ? 'Kaha se (Google / JustDial…) — optional' : 'Kis dealer ne diya *'}"/>
+    <input id="mcSourceDetail" ${!m || !m.source || m.source === 'Dealer' ? 'list="mcDealerList"' : ''} data-free="1" autocomplete="off" value="${esc(m ? m.sourceDetail : '')}" style="${VRL_IN};margin-bottom:8px;display:${m && m.source ? '' : 'none'}" placeholder="${m && m.source === 'Online search' ? 'Kaha se (Google / JustDial…) — optional' : m && m.source === 'Manual' ? 'Kaha se mili — kuch bhi likhein *' : 'Kis dealer ne diya *'}"/>
     <datalist id="mcDealerList"></datalist>
     ${L(m && m.aadhaarUrl ? 'Aadhaar photo (badalni ho to)' : 'Aadhaar photo')}<input id="mcAadhaarFile" type="file" accept="image/*" style="${VRL_IN};margin-bottom:8px"/>
     ${L('Pura address')}<input id="mcAddress" value="${esc(m ? m.address : '')}" style="${VRL_IN};margin-bottom:8px"/>
@@ -28101,8 +28128,10 @@ function mechFillDealers() {
 }
 function mechSourceUi() {
   const v = (document.querySelector('input[name="mcSource"]:checked') || {}).value, inp = document.getElementById('mcSourceDetail');
-  inp.style.display = v === 'Dealer' || v === 'Online search' ? '' : 'none';
-  inp.placeholder = v === 'Dealer' ? 'Kis dealer ne diya *' : 'Kaha se (Google / JustDial…) — optional';
+  // Manual = koi bhi baat khud likho (client list 2026-11-19 #2).
+  inp.style.display = v ? '' : 'none';
+  if (v === 'Dealer') inp.setAttribute('list', 'mcDealerList'); else inp.removeAttribute('list');
+  inp.placeholder = v === 'Dealer' ? 'Kis dealer ne diya *' : v === 'Manual' ? 'Kaha se mili — kuch bhi likhein *' : 'Kaha se (Google / JustDial…) — optional';
 }
 function mechRateRow(x) {
   return `<div class="mc-rate" style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:6px;margin-bottom:6px"><input list="mcCatList" data-free="1" autocomplete="off" value="${esc(x.category || '')}" placeholder="Product (likh bhi sakte)" style="${VRL_IN};margin:0"/><input value="${esc(x.charge || '')}" placeholder="₹" style="${VRL_IN};margin:0"/><input value="${esc(x.note || '')}" placeholder="Note (part alag…)" style="${VRL_IN};margin:0"/></div>`;
