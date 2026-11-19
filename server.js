@@ -7201,7 +7201,15 @@ const DEALER_DETAIL_COLS = [['owner_name', 'VARCHAR(255)'], ['alt_phone', 'VARCH
   // bilty: a sample bilty photo of an outstation dealer, so everyone knows which transport his goods go by (client 2026-10-24)
   ['bilty_url', 'VARCHAR(1000)'], ['bilty_transport', 'VARCHAR(255)'], ['bilty_updated_at', 'DATETIME'],
   // hidden_at: admin deleted the dealer from the list (client list 2026-10-26 #3) — a later O2D order brings him back
-  ['hidden_at', 'DATETIME'], ['hidden_by', 'INT']];
+  ['hidden_at', 'DATETIME'], ['hidden_by', 'INT'],
+  // owners_json: up to 4 owners [{name, relation, dob, anniversary}] — papa + bete, bhai-bhai partners (client video 2026-11-19).
+  // owner_name / dob / anniversary keep owner #1 so greetings and old screens work as before.
+  ['owners_json', 'TEXT']];
+// Owners of a dealer row: the saved list, or owner #1 from the old columns.
+function dealerOwners(row) {
+  try { const a = JSON.parse(row.owners_json || 'null'); if (Array.isArray(a) && a.length) return a; } catch (e) { /* old row */ }
+  return row.owner_name || row.dob || row.anniversary ? [{ name: row.owner_name || '', relation: '', dob: row.dob || '', anniversary: row.anniversary || '' }] : [];
+}
 let _dealerDetailColsOk = false;
 async function ensureDealerDetailCols() {
   await addMissingColumns('o2d_dealers', DEALER_DETAIL_COLS);
@@ -7356,7 +7364,7 @@ app.get('/api/o2d-fms/dealers', requireAuth, async (req, res) => {
       d.kyc = { aadhar: row.kyc_aadhar_url || null, pan: row.kyc_pan_url || null, gst: row.kyc_gst_url || null, shop: row.kyc_shop_url || null };
       d.details = { ownerName: row.owner_name || '', altPhone: row.alt_phone || '', area: row.area || '', address: row.address || '',
         dob: row.dob || '', anniversary: row.anniversary || '', gstNo: row.gst_no || '', notes: row.notes || '',
-        updatedAt: row.details_updated_at || '', updatedBy: row.details_by_name || '' };
+        owners: dealerOwners(row), updatedAt: row.details_updated_at || '', updatedBy: row.details_by_name || '' };
       d.hiddenAt = row.hidden_at_s || '';
       d.bilty = row.bilty_url || row.bilty_transport ? { url: row.bilty_url || '', transport: row.bilty_transport || '', updatedAt: row.bilty_updated_at || '' } : null;
     });
@@ -7549,6 +7557,20 @@ app.put('/api/o2d-fms/dealers/:name/details', requireAuth, async (req, res) => {
     const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n) || null;
     const ymd = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : null;
     for (const k of ['dob', 'anniversary']) if (b[k] && !ymd(b[k])) return res.status(400).json({ error: 'Date galat hai' });
+    // Several owners (client video 2026-11-19) — owner #1 also goes to the old owner_name / dob / anniversary columns.
+    let owners = null;
+    if (Array.isArray(b.owners)) {
+      owners = [];
+      for (const o of b.owners.slice(0, 4)) {
+        if (!o) continue;
+        const ow = { name: str(o.name, 120) || '', relation: str(o.relation, 60) || '', dob: o.dob || '', anniversary: o.anniversary || '' };
+        if ((ow.dob && !ymd(ow.dob)) || (ow.anniversary && !ymd(ow.anniversary))) return res.status(400).json({ error: `Date galat hai${ow.name ? ' — ' + ow.name : ''}` });
+        if (!ow.name && (ow.relation || ow.dob || ow.anniversary)) return res.status(400).json({ error: 'Har malik ka naam likhein' });
+        if (ow.name) owners.push(ow);
+      }
+      const o1 = owners[0] || {};
+      b.ownerName = o1.name || ''; b.dob = o1.dob || ''; b.anniversary = o1.anniversary || '';
+    }
     const phone = str(b.phone, 50), alt = str(b.altPhone, 50);
     for (const p of [phone, alt]) if (p && !sfmsNormalizeMobile(p)) return res.status(400).json({ error: `Mobile number galat lag raha hai: ${p}` });
     // Only a number that changed is checked — old duplicates (same phone under spelling variants) can still save their details.
@@ -7560,13 +7582,14 @@ app.put('/api/o2d-fms/dealers/:name/details', requireAuth, async (req, res) => {
     const hasLoc = b.locationLat != null && b.locationLat !== '' && isFinite(lat) && isFinite(lng) && (lat || lng);
     const vals = [str(b.ownerName, 255), phone, alt, str(b.city, 255), str(b.area, 255), str(b.address, 1000), ymd(b.dob), ymd(b.anniversary),
       str(b.gstNo, 30) && str(b.gstNo, 30).toUpperCase(), str(b.notes, 1000)];
+    if (owners) await ensureDealerDetailCols();
     await withDealerTables(() => db.query(
-      `INSERT INTO o2d_dealers (counter_name, owner_name, phone, alt_phone, city, area, address, dob, anniversary, gst_no, notes, details_updated_by, details_updated_at${hasLoc ? ', location_lat, location_lng' : ''})
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW()${hasLoc ? ',?,?' : ''})
+      `INSERT INTO o2d_dealers (counter_name, owner_name, phone, alt_phone, city, area, address, dob, anniversary, gst_no, notes, details_updated_by, details_updated_at${owners ? ', owners_json' : ''}${hasLoc ? ', location_lat, location_lng' : ''})
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW()${owners ? ',?' : ''}${hasLoc ? ',?,?' : ''})
        ON DUPLICATE KEY UPDATE owner_name=VALUES(owner_name), phone=VALUES(phone), alt_phone=VALUES(alt_phone), city=VALUES(city), area=VALUES(area),
          address=VALUES(address), dob=VALUES(dob), anniversary=VALUES(anniversary), gst_no=VALUES(gst_no), notes=VALUES(notes),
-         details_updated_by=VALUES(details_updated_by), details_updated_at=NOW()${hasLoc ? ', location_lat=VALUES(location_lat), location_lng=VALUES(location_lng)' : ''}`,
-      [name, ...vals, req.session.userId, ...(hasLoc ? [lat, lng] : [])]));
+         details_updated_by=VALUES(details_updated_by), details_updated_at=NOW()${owners ? ', owners_json=VALUES(owners_json)' : ''}${hasLoc ? ', location_lat=VALUES(location_lat), location_lng=VALUES(location_lng)' : ''}`,
+      [name, ...vals, req.session.userId, ...(owners ? [JSON.stringify(owners)] : []), ...(hasLoc ? [lat, lng] : [])]));
     if (phone) await syncDealerPhone(name, phone, 'dealer');
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
