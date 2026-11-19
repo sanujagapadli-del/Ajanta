@@ -671,7 +671,9 @@ const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms',
   // Payment Follow-up view only (client 2026-11-11: salesman Rohit / Girdhar / Krishna) — own parties, no actions.
   'collection-view',
   // Replacement FMS View — every open entry by its current step, read only (client 2026-11-14: Shalu).
-  'repl-fms-view'];
+  'repl-fms-view',
+  // Lead FMS — every lead, read only (client 2026-11-19: CRM "pahle ka data show nahi ho raha").
+  'lead-fms-all'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -16798,7 +16800,8 @@ app.get('/api/lead-fms', requireAuth, async (req, res) => {
   try {
     const acc = await leadUserAccess(req);
     const uid = req.session.userId;
-    const listAll = acc.seeAll || req.session.role === 'pc'; // PC Follow-up: PC sees every lead (read only)
+    // PC Follow-up: PC sees every lead (read only); 'lead-fms-all' grant too (CRM, client 2026-11-19)
+    const listAll = acc.seeAll || req.session.role === 'pc' || (await hasPageGrant(req, 'lead-fms-all'));
     const [rows] = await withLeadTables(() => listAll
       ? db.query(`${LEAD_SELECT} ORDER BY l.id DESC`)
       : db.query(`${LEAD_SELECT} WHERE l.created_by=? OR l.salesman_user_id=? OR l.visit_user_id=? ORDER BY l.id DESC`, [uid, uid, uid]));
@@ -16819,7 +16822,7 @@ app.get('/api/lead-fms/:id/events', requireAuth, async (req, res) => {
     const acc = await leadUserAccess(req);
     const l = await loadLead(req.params.id);
     if (!l) return res.status(404).json({ error: 'Lead not found' });
-    if (!acc.seeAll && !leadOwnedBy(l, req.session.userId)) return res.status(403).json({ error: 'Not your lead' });
+    if (!acc.seeAll && !leadOwnedBy(l, req.session.userId) && !(await hasPageGrant(req, 'lead-fms-all'))) return res.status(403).json({ error: 'Not your lead' });
     const [rows] = await db.query(`SELECT e.event, e.detail, e.created_at, u.name AS user_name FROM lead_events e
       LEFT JOIN users u ON u.id=e.user_id WHERE e.lead_id=? ORDER BY e.created_at DESC, e.id DESC`, [l.id]);
     res.json(rows);
