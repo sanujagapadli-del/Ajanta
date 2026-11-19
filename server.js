@@ -673,7 +673,9 @@ const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms',
   // Replacement FMS View — every open entry by its current step, read only (client 2026-11-14: Shalu).
   'repl-fms-view',
   // Lead FMS — every lead, read only (client 2026-11-19: CRM "pahle ka data show nahi ho raha").
-  'lead-fms-all'];
+  'lead-fms-all',
+  // MECA — every salesman's rows, like PC / HOD (client 2026-11-19: CRM saw only her own SCOT column).
+  'meca-all'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -15124,6 +15126,7 @@ async function mecaOrderByResolver() {
 // the SCOT row also to SCOT page users (the callers' shared login).
 async function mecaScope(req) {
   if (['admin', 'pc', 'hod'].includes(req.session.role)) return null;
+  if (await hasPageGrant(req, 'meca-all')) return null;
   const ids = new Set([Number(req.session.userId)]);
   if (await hasPageGrant(req, 'scot')) ids.add(0);
   return ids;
