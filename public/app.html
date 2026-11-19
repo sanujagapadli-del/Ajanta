@@ -28021,7 +28021,7 @@ function renderMech() {
     ${items.map(m => `<tr style="${m.active ? '' : 'opacity:.5'}"><td style="font-weight:700;vertical-align:top">${esc(m.area || '—')}${m.active ? '' : ' <span class="status-badge">Band</span>'}</td>
       <td style="vertical-align:top"><b>${esc(m.name)}</b>${m.mobile ? `<div><a href="tel:${esc(m.mobile)}">📞 ${esc(m.mobile)}</a> <a href="https://wa.me/91${esc(m.mobile.replace(/\D/g, '').slice(-10))}" target="_blank" title="WhatsApp">💬</a></div>` : ''}${m.altMobile ? `<div style="font-size:11.5px"><a href="tel:${esc(m.altMobile)}">📞 ${esc(m.altMobile)}</a></div>` : ''}${m.aadhaarNo || m.aadhaarUrl ? `<div style="font-size:11px;color:var(--gray-500)">Aadhaar ${m.aadhaarNo ? 'xxxx ' + esc(m.aadhaarNo.slice(-4)) : ''} ${m.aadhaarUrl ? `<a href="${esc(m.aadhaarUrl)}" target="_blank">photo</a>` : ''}</div>` : ''}</td>
       <td style="vertical-align:top">${m.rates.length ? m.rates.map(x => `<div>${esc(x.category)}${x.charge ? ` — <b>₹${esc(x.charge)}</b>` : ''}${x.note ? ` <span style="color:var(--gray-500)">(${esc(x.note)})</span>` : ''}</div>`).join('') : '—'}</td>
-      <td style="vertical-align:top;font-size:12px;color:var(--gray-600)">${esc([m.address, m.notes].filter(Boolean).join(' · ') || '—')}</td>
+      <td style="vertical-align:top;font-size:12px;color:var(--gray-600)">${esc([m.address, m.notes].filter(Boolean).join(' · ') || '—')}${m.source ? `<div style="font-size:11px;color:var(--gray-500)">📌 ${esc(m.source === 'Dealer' ? `Dealer ne diya${m.sourceDetail ? ': ' + m.sourceDetail : ''}` : m.source === 'Online search' ? `Online search${m.sourceDetail ? ': ' + m.sourceDetail : ''}` : 'Manual type')}</div>` : ''}</td>
       <td style="white-space:nowrap;vertical-align:top"><button class="btn btn-sm btn-outline" onclick="openMechForm(${m.id})">✏️</button>${mechData.isAdmin ? ` <button class="btn btn-sm btn-outline" style="color:var(--color-danger)" onclick="deleteMech(${m.id})">🗑</button>` : ''}</td></tr>`).join('')}
     </tbody></table></div></div>`).join('') : '<div class="empty">Abhi koi mechanic nahi — "＋ Mechanic" se onboard karein</div>';
 }
@@ -28040,6 +28040,9 @@ function openMechForm(id) {
       <div>${L('Area / point (jaise Vatika Road, Agra Road)')}<input id="mcArea" list="mcAreaList" data-free="1" autocomplete="off" placeholder="Area likhein" value="${esc(m ? m.area : '')}" style="${VRL_IN}"/></div>
       <div>${L('Doosra mobile')}<input id="mcAlt" value="${esc(m ? m.altMobile : '')}" inputmode="tel" style="${VRL_IN}"/></div>
       <div>${L('Aadhaar no.')}<input id="mcAadhaar" value="${esc(m ? m.aadhaarNo : '')}" inputmode="numeric" maxlength="14" style="${VRL_IN}"/></div></div>
+    ${L('Details kaha se li *')}<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">${[['Dealer', '🏪 Dealer ne diya'], ['Online search', '🔍 Online search kiya'], ['Manual', '✍️ Manual type kiya']].map(([v, l]) => `<label style="display:flex;gap:5px;align-items:center;font-size:13px;margin:0;text-transform:none;letter-spacing:0;cursor:pointer"><input type="radio" name="mcSource" value="${v}" ${m && m.source === v ? 'checked' : ''} onchange="mechSourceUi()"/> ${l}</label>`).join('')}</div>
+    <input id="mcSourceDetail" list="mcDealerList" data-free="1" autocomplete="off" value="${esc(m ? m.sourceDetail : '')}" style="${VRL_IN};margin-bottom:8px;display:${m && (m.source === 'Dealer' || m.source === 'Online search') ? '' : 'none'}" placeholder="${m && m.source === 'Online search' ? 'Kaha se (Google / JustDial…) — optional' : 'Kis dealer ne diya *'}"/>
+    <datalist id="mcDealerList"></datalist>
     ${L(m && m.aadhaarUrl ? 'Aadhaar photo (badalni ho to)' : 'Aadhaar photo')}<input id="mcAadhaarFile" type="file" accept="image/*" style="${VRL_IN};margin-bottom:8px"/>
     ${L('Pura address')}<input id="mcAddress" value="${esc(m ? m.address : '')}" style="${VRL_IN};margin-bottom:8px"/>
     <div style="font-weight:700;font-size:12.5px;margin:6px 0 4px">Kya theek karta hai — kitne paise leta hai (andaza)</div>
@@ -28050,6 +28053,19 @@ function openMechForm(id) {
     <datalist id="mcCityList">${cities.map(c => `<option value="${esc(c)}">`).join('')}</datalist><datalist id="mcAreaList">${areas.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
     <datalist id="mcCatList">${MECH_CATEGORIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <button class="btn btn-green" style="width:100%;justify-content:center" onclick="saveMech(${id || 0},this)">✓ Save</button>`, 600);
+  mechFillDealers();
+}
+// "Kis dealer ne diya" suggestions — the Dealer Master list (no O2D access → just type the name).
+function mechFillDealers() {
+  loadO2dDealers().catch(() => {}).then(() => {
+    const dl = document.getElementById('mcDealerList');
+    if (dl) dl.innerHTML = [...new Set(o2dDealers.map(d => d.counterName || d.name).filter(Boolean))].map(n => `<option value="${esc(n)}">`).join('');
+  });
+}
+function mechSourceUi() {
+  const v = (document.querySelector('input[name="mcSource"]:checked') || {}).value, inp = document.getElementById('mcSourceDetail');
+  inp.style.display = v === 'Dealer' || v === 'Online search' ? '' : 'none';
+  inp.placeholder = v === 'Dealer' ? 'Kis dealer ne diya *' : 'Kaha se (Google / JustDial…) — optional';
 }
 function mechRateRow(x) {
   return `<div class="mc-rate" style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:6px;margin-bottom:6px"><input list="mcCatList" data-free="1" autocomplete="off" value="${esc(x.category || '')}" placeholder="Product (likh bhi sakte)" style="${VRL_IN};margin:0"/><input value="${esc(x.charge || '')}" placeholder="₹" style="${VRL_IN};margin:0"/><input value="${esc(x.note || '')}" placeholder="Note (part alag…)" style="${VRL_IN};margin:0"/></div>`;
@@ -28065,7 +28081,8 @@ async function saveMech(id, btn) {
     catch (e) { restore(); showToast('Aadhaar photo khul nahi rahi — dusri photo try karo', 'error'); return; }
   }
   const r = await api('/api/mechanics', 'POST', { id: id || undefined, name: g('mcName'), mobile: g('mcMobile'), altMobile: g('mcAlt'), city: g('mcCity'), area: g('mcArea'),
-    address: g('mcAddress'), aadhaarNo: g('mcAadhaar'), notes: g('mcNotes'), rates, aadhaarImage, active: act ? act.checked : true });
+    address: g('mcAddress'), aadhaarNo: g('mcAadhaar'), notes: g('mcNotes'), rates, aadhaarImage, active: act ? act.checked : true,
+    source: (document.querySelector('input[name="mcSource"]:checked') || {}).value || '', sourceDetail: g('mcSourceDetail') });
   restore();
   if (r.error) { showToast(r.error, 'error'); return; }
   closeModal('mechModal');
@@ -30793,6 +30810,60 @@ function openGpOrders() {
   renderGpOrders();
   setTimeout(() => { const i = document.getElementById('gpOrdSearch'); if (i) i.focus(); }, 60);
 }
+// GP → one item of one order: ♻ cost = sale rate (replacement sent to a vendor), a typed rate, or back to normal (client list 2026-11-18 #8).
+async function gpLineCost(orderNo, item, mode) {
+  const body = { orderNo, itemName: item };
+  if (mode === 'clear') body.clear = true;
+  else if (mode === 'same') body.sameAsSale = true;
+  else {
+    const v = await uiPrompt(`${item} (${orderNo}) — cost rate ₹ (bina GST, per piece)`, '', { placeholder: 'jaise 450' });
+    if (v == null) return;
+    if (!(Number(v) >= 0) || String(v).trim() === '') { showToast('Rate sahi daalein', 'error'); return; }
+    body.costRate = Number(v);
+  }
+  const r = await api('/api/reports/gp-line-cost', 'PUT', body);
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  showToast(mode === 'clear' ? 'Normal cost wapas' : '✅ Cost save ho gayi');
+  gpOrdOpen = orderNo;
+  await loadGrossProfit();
+  const ob = document.getElementById('gpOrdBody'); if (ob) renderGpOrders();
+}
+// GP → product with no cost: "🔗 ye wahi product hai" — O2D names change month to month
+// ("Roto grill" vs "Cabin Fan 12\" Roto Grill ABS"); linked, the name gets that item's cost every month.
+let gpStockItems = null;
+async function gpOpenLink(item, cur) {
+  if (!gpStockItems) {
+    const r = await api('/api/reports/gp-stock-items');
+    if (!r || r.error) { showToast((r && r.error) || 'Stock list nahi aayi', 'error'); return; }
+    gpStockItems = r.items;
+  }
+  const label = s => `${s.name} — ${s.code}`;
+  const curItem = gpStockItems.find(s => s.code === cur);
+  vrlModal('gpLinkModal', `${scotModalHead('gpLinkModal', '🔗 Ye kaunsa product hai?')}
+    <div style="font-size:13px;margin-bottom:8px">GP me <b>${esc(item)}</b> ki laagat nahi mil rahi. Pichhle mahine ye kisi aur naam se bika tha to wo product chuno — uski laagat (PO / FIFO / manual) har mahine isme lagegi.</div>
+    <input id="gpLinkInp" list="gpLinkList" data-free="1" autocomplete="off" placeholder="Product ka naam likh ke chuno" value="${esc(curItem ? label(curItem) : '')}" style="${VRL_IN}"/>
+    <datalist id="gpLinkList">${gpStockItems.map(s => `<option value="${esc(label(s))}">`).join('')}</datalist>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-green" style="flex:1;justify-content:center" onclick="gpSaveLink('${jsArg(item)}',this)">✓ Save</button>
+      ${cur ? `<button class="btn btn-outline" onclick="gpSaveLink('${jsArg(item)}',this,true)">Link hatao</button>` : ''}
+    </div>`, 520);
+}
+async function gpSaveLink(item, btn, clear) {
+  let code = '';
+  if (!clear) {
+    const v = document.getElementById('gpLinkInp').value.trim();
+    const hit = gpStockItems.find(s => `${s.name} — ${s.code}` === v);
+    if (!hit) { showToast('List me se product chuno', 'error'); return; }
+    code = hit.code;
+  }
+  const restore = btnLoading(btn, 'Saving…');
+  const r = await api('/api/reports/gp-item-link', 'PUT', { itemName: item, itemCode: code });
+  restore();
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  closeModal('gpLinkModal');
+  showToast(clear ? 'Link hata diya' : '✅ Link ho gaya — laagat lag gayi');
+  loadGrossProfit();
+}
 function renderGpOrders() {
   const body = document.getElementById('gpOrdBody');
   if (!body) return;
@@ -30812,7 +30883,9 @@ function renderGpOrders() {
         <td style="${td};font-weight:700;color:${o.gp == null ? 'var(--gray-300)' : o.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(o.gp)}</td>
         <td style="${td};text-align:center">${gpPctPill(o.gpPct)}</td></tr>
         ${open ? o.items.map(it => `<tr style="background:var(--gray-50)"><td></td><td colspan="3" style="${td};text-align:left;white-space:normal;color:var(--gray-700)">↳ ${esc(it.item)} <span style="color:var(--gray-400)">@ ${gpInr(it.rate)}</span></td>
-          <td style="${td}">${Math.round(it.qty).toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}</td>
+          <td style="${td}">${Math.round(it.qty).toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}${it.lineCost ? `<div style="font-size:10px;color:var(--color-primary);font-weight:700">${esc(it.costSource)}</div>` : ''}${gpData.canEditCost && o.orderNo ? `<div style="white-space:nowrap" onclick="event.stopPropagation()">${it.lineCost
+            ? `<a href="#" onclick="event.preventDefault();gpLineCost('${jsArg(o.orderNo)}','${jsArg(it.item)}','clear')" style="font-size:10.5px">↺ normal cost</a>`
+            : `<a href="#" onclick="event.preventDefault();gpLineCost('${jsArg(o.orderNo)}','${jsArg(it.item)}','same')" style="font-size:10.5px;font-weight:700" title="Vendor ko replacement bheja — cost = sale rate, GP 0">♻ Cost = Sale</a> · <a href="#" onclick="event.preventDefault();gpLineCost('${jsArg(o.orderNo)}','${jsArg(it.item)}','rate')" style="font-size:10.5px">✏️ rate</a>`}</div>` : ''}</td>
           <td style="${td};color:${it.cost == null ? 'var(--gray-300)' : it.sales - it.cost >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${it.cost == null ? '—' : gpInr(it.sales - it.cost)}</td><td></td></tr>`).join('') : ''}`; }).join('')}
     </tbody></table></div>` : '<div class="empty">Koi order nahi mila</div>'}`;
 }
@@ -31040,7 +31113,7 @@ function renderGrossProfit() {
         <td style="${td};color:var(--gray-600)">${gpInr(p.avgRate)}</td>
         <td style="${td}">${d.canEditCost
           ? `<input type="number" min="0" step="0.01" value="${esc(p.item in gpCostDraft ? gpCostDraft[p.item] : p.costRate == null ? '' : String(p.costRate))}" data-item="${esc(p.item)}" data-orig="${p.costRate == null ? '' : p.costRate}" placeholder="enter cost" oninput="gpCostEdit(this)" onkeydown="if(event.key==='Enter'){const b=document.getElementById('gpSaveCostsBtn');if(b&&b.style.display!=='none')gpSaveCosts(b)}" style="width:92px;padding:5px 7px;border:1.5px solid ${p.item in gpCostDraft ? 'var(--color-primary)' : p.costRate == null ? 'var(--color-warning-border)' : 'var(--gray-200)'};border-radius:7px;font-size:12px;text-align:right;background:var(--surface);color:var(--gray-900)"/>`
-          : gpInr(p.costRate)}${p.costSource ? `<div style="font-size:10px;color:var(--gray-400)">${esc(p.costSource)}</div>` : ''}</td>
+          : gpInr(p.costRate)}${p.costSource ? `<div style="font-size:10px;color:var(--gray-400)">${esc(p.costSource)}</div>` : ''}${d.canEditCost && (p.costRate == null || p.linkedCode) ? `<div><a href="#" onclick="event.preventDefault();gpOpenLink('${jsArg(p.item)}','${jsArg(p.linkedCode || '')}')" style="font-size:10.5px;font-weight:700;white-space:nowrap" title="Ye product pehle kisi aur naam se bika tha? Use chuno — wahi laagat lagegi">🔗 ${p.linkedCode ? 'Linked: ' + esc(p.stockItem || p.linkedCode) : 'Pehle wala product'}</a></div>` : ''}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
         <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
         <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>`;

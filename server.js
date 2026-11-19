@@ -15134,6 +15134,15 @@ async function ensureProductCosts() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  // GP-only "🔗 ye wahi product hai" (client video 2026-11-18: O2D names change month to month —
+  // "Roto grill" vs "Ajanta Cabin Fan Ceiling 12\" Roto Grill ABS" — and the new name came up uncosted).
+  await db.query(`CREATE TABLE IF NOT EXISTS gp_item_links (item_key VARCHAR(191) PRIMARY KEY, item_name VARCHAR(255) NOT NULL,
+    item_code VARCHAR(32) NOT NULL, updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // Cost of one order's item set by hand (client list 2026-11-18 #8: replacement sent to a
+  // vendor — cost = the sale rate). same_as_sale=1 → cost rate follows the sale rate.
+  await db.query(`CREATE TABLE IF NOT EXISTS gp_line_costs (order_no VARCHAR(40) NOT NULL, item_key VARCHAR(191) NOT NULL, item_name VARCHAR(255) NOT NULL,
+    same_as_sale TINYINT(1) NOT NULL DEFAULT 0, cost_rate DECIMAL(12,2) NULL, note VARCHAR(255) NULL, updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (order_no, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 }
 const gpKey = name => String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 191);
 const gpNum = v => typeof v === 'number' ? v : (parseFloat(String(v == null ? '' : v).replace(/,/g, '').replace(/[^\d.\-]/g, '')) || 0);
@@ -15195,15 +15204,20 @@ async function gpLoadData(start, end, opts = {}) {
   // Both whole-sheet reads are cached on the sheets' write versions — GP, Salesman
   // P&L and OWS used to re-read them on every load (audit 2026-10-31, free-plan CPU).
   // Read-only below, so no clone.
-  const [o2dRows, poRows, [manual], mapTo, [stockItems], poArchive, [cancelledRows]] = await Promise.all([
+  const [o2dRows, poRows, [manual], mapTo0, [stockItems], poArchive, [cancelledRows], [linkRows], [lineCostRows]] = await Promise.all([
     cachedBySheetVer('gp:o2d:bm', () => sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!A${O2D_DATA_START_ROW}:BM`, valueRenderOption: 'UNFORMATTED_VALUE' }).then(r => r.data.values || []), false, 'o2d'),
     cachedBySheetVer('gp:purchase', () => sheetsApi.spreadsheets.values.get({ spreadsheetId: PURCHASE_SHEET_ID, range: `'${PURCHASE_TAB}'!A${PURCHASE_DATA_START_ROW}:I`, valueRenderOption: 'UNFORMATTED_VALUE' }).then(r => r.data.values || []), false, 'purchase'),
     db.query("SELECT item_key, item_name, cost_rate, DATE_FORMAT(updated_at,'%Y-%m-%d') AS upd FROM product_costs"),
     gpProductMapper(),
     withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items')),
     purchasePoArchiveRows(),
-    withO2dOrderTables(() => db.query('SELECT order_no, cancelled, discount_pct FROM o2d_order_flags WHERE cancelled=1 OR discount_pct>0')).catch(() => [[]])
+    withO2dOrderTables(() => db.query('SELECT order_no, cancelled, discount_pct FROM o2d_order_flags WHERE cancelled=1 OR discount_pct>0')).catch(() => [[]]),
+    db.query('SELECT item_key, item_code FROM gp_item_links'),
+    db.query('SELECT order_no, item_key, same_as_sale, cost_rate, note FROM gp_line_costs')
   ]);
+  const linkBy = Object.fromEntries(linkRows.map(l => [l.item_key, l.item_code]));
+  const mapTo = name => linkBy[gpKey(name)] || mapTo0(name);
+  const lineCostBy = Object.fromEntries(lineCostRows.map(l => [`${l.order_no}|${l.item_key}`, l]));
   const stockName = Object.fromEntries(stockItems.map(i => [i.item_code, i.description]));
   // An order cancelled after billing keeps "Yes" on Make Bill (cancel writes
   // "No" on the later pending step only) — it is not a sale (OWS / GP).
@@ -15335,8 +15349,15 @@ async function gpLoadData(start, end, opts = {}) {
   // daali ho, jaise hi us product ka PO bane to cost update ho jaye") — a PO dated after the day the cost was typed wins.
   // A rate typed on the page beats FIFO too, until a newer PO comes in (client video 2026-11-18: "rate edit karke save
   // kiya, '1 rate saved' aaya, par wapas wahi rate" — FIFO was checked first, so the typed rate never showed).
+  // A manual rate typed under one name costs every name of the same stock item
+  // (newest wins) — the O2D name of a product changes month to month.
+  const manualByCode = {};
+  manual.forEach(m => { const code = mapTo(m.item_name); if (code.startsWith('name:')) return; const x = manualByCode[code];
+    if (!x || (m.upd || '') > x.upd) manualByCode[code] = { rate: Number(m.cost_rate), upd: m.upd || '' }; });
   const costFor = s => {
-    const mk = manualBy[gpKey(s.item)];
+    const lc = s.orderNo && lineCostBy[`${s.orderNo}|${gpKey(s.item)}`];
+    if (lc) return lc.same_as_sale ? { rate: s.rate, source: 'Replacement (cost = sale)', line: true } : { rate: Number(lc.cost_rate), source: 'Is order ka rate', line: true };
+    const mk = manualBy[gpKey(s.item)] || (!s.code.startsWith('name:') && manualByCode[s.code]);
     const c = poCost[s.code];
     const poAfter = mk && c && c.qty > 0 && c.last.date && mk.upd && c.last.date > mk.upd;
     if (mk && mk.rate > 0 && !poAfter) return { rate: mk.rate, source: 'Manual' };
@@ -15344,7 +15365,7 @@ async function gpLoadData(start, end, opts = {}) {
     if (c && c.qty > 0) return { rate: Math.round(c.last.rate * 100) / 100, source: c.last.po ? `Last PO ${c.last.po}` : 'Last PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
     return null;
   };
-  return { sales, poCost, costFor, stockName, firstBill, lastBill };
+  return { sales, poCost, costFor, stockName, firstBill, lastBill, linkBy };
 }
 
 // ── Net Profit (client, 2026-10-12: "GP ke baad NP nikalna hai, office exp
@@ -15447,7 +15468,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
       return res.status(400).json({ error: 'Valid start and end dates required' });
     }
-    const { sales, poCost, costFor, stockName, firstBill, lastBill } = await gpLoadData(start, end, { exGst: true, tallyParty: true });
+    const { sales, poCost, costFor, stockName, firstBill, lastBill, linkBy } = await gpLoadData(start, end, { exGst: true, tallyParty: true });
     // Vendor picked by hand for an item with no PO (client 2026-11-05, GP → Vendor: "yhi pe vendor select krne ka option").
     await ensureGpItemVendors();
     const [ivRows] = await db.query('SELECT item_key, vendor FROM gp_item_vendors');
@@ -15475,7 +15496,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       const c = costFor(s);
       const cost = c ? c.rate * s.qty : null;
       const ik = gpKey(s.item);
-      const it = byItem[ik] = byItem[ik] || { item: s.item, stockItem: s.code.startsWith('name:') ? '' : (stockName[s.code] || ''), qty: 0, sales: 0,
+      const it = byItem[ik] = byItem[ik] || { item: s.item, stockItem: s.code.startsWith('name:') ? '' : (stockName[s.code] || ''), linkedCode: linkBy[ik] || '', qty: 0, sales: 0,
         costRate: c ? c.rate : null, costSource: c ? c.source : '', poName: c && c.poName || '', cost: 0 };
       it.qty += s.qty; it.sales += s.amount; if (c) { it.cost += cost; it.costedQty = (it.costedQty || 0) + s.qty; if (it.costRate == null) Object.assign(it, { costRate: c.rate, costSource: c.source }); }
       const pk = s.party.toLowerCase();
@@ -15493,7 +15514,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       const o = byOrder[ok] = byOrder[ok] || { orderNo: s.orderNo, date: s.date, party: s.party, orderBy: s.orderBy, qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: [] };
       o.qty += s.qty; o.sales += s.amount; if (s.date > o.date) o.date = s.date;
       if (c) { o.costedSales += s.amount; o.cost += cost; o.hasCost = true; } else o.uncostedSales += s.amount;
-      o.items.push({ item: s.item, qty: round(s.qty), rate: round(s.rate), sales: round(s.amount), cost: c ? round(cost) : null });
+      o.items.push({ item: s.item, qty: round(s.qty), rate: round(s.rate), sales: round(s.amount), cost: c ? round(cost) : null, costSource: c ? c.source : '', lineCost: !!(c && c.line) });
       const pc = poCost[s.code];
       const vendors = pc ? Object.values(pc.vendors) : [];
       if (!vendors.length) { const mv = itemVendor[gpKey(s.item)]; addVendor(mv || NO_PO_VENDOR, s, 1, c ? cost : null, !!mv); }
@@ -15800,6 +15821,41 @@ app.put('/api/reports/daily-np-setting', requireAuth, requireAdmin, async (req, 
     const [[now]] = await db.query("SELECT DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i') AS t");
     await setAppSetting(DAILY_NP_KEY, JSON.stringify({ monthly: Math.round(monthly), days: Math.round(days), updatedBy: req.session.name || '', updatedAt: now.t }));
     res.json({ success: true, ...(await dailyNpSetting()) });
+  } catch (err) { sendServerError(res, err); }
+});
+// GP → product with no cost: "🔗 ye wahi product hai" — costed like that stock item from now on.
+app.get('/api/reports/gp-stock-items', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [items] = await withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items ORDER BY description'));
+    res.json({ items: items.map(i => ({ code: i.item_code, name: i.description })) });
+  } catch (err) { sendServerError(res, err); }
+});
+app.put('/api/reports/gp-item-link', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const name = String((req.body || {}).itemName || '').trim(), k = gpKey(name), code = String((req.body || {}).itemCode || '').trim();
+    if (!k) return res.status(400).json({ error: 'Item name required' });
+    await ensureProductCosts();
+    if (!code) { await db.query('DELETE FROM gp_item_links WHERE item_key=?', [k]); return res.json({ success: true, cleared: true }); }
+    const [[it]] = await withStockTable(() => db.query('SELECT item_code FROM ajanta_stock_items WHERE item_code=?', [code]));
+    if (!it) return res.status(400).json({ error: 'Ye stock item nahi mila' });
+    await db.query('INSERT INTO gp_item_links (item_key, item_name, item_code, updated_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), item_code=VALUES(item_code), updated_by=VALUES(updated_by)',
+      [k, name.slice(0, 255), code, req.session.userId]);
+    res.json({ success: true });
+  } catch (err) { sendServerError(res, err); }
+});
+// GP → order-wise → one item of one order: cost = sale rate (replacement to a vendor), a typed rate, or back to normal.
+app.put('/api/reports/gp-line-cost', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {}, orderNo = String(b.orderNo || '').trim().slice(0, 40), name = String(b.itemName || '').trim(), k = gpKey(name);
+    if (!orderNo || !k) return res.status(400).json({ error: 'Order no. aur item chahiye' });
+    await ensureProductCosts();
+    if (b.clear) { await db.query('DELETE FROM gp_line_costs WHERE order_no=? AND item_key=?', [orderNo, k]); return res.json({ success: true, cleared: true }); }
+    const same = !!b.sameAsSale, rate = same ? null : Number(b.costRate);
+    if (!same && !(rate >= 0)) return res.status(400).json({ error: 'Cost rate sahi daalein' });
+    await db.query(`INSERT INTO gp_line_costs (order_no, item_key, item_name, same_as_sale, cost_rate, note, updated_by) VALUES (?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), same_as_sale=VALUES(same_as_sale), cost_rate=VALUES(cost_rate), note=VALUES(note), updated_by=VALUES(updated_by)`,
+      [orderNo, k, name.slice(0, 255), same ? 1 : 0, rate, String(b.note || '').slice(0, 255) || null, req.session.userId]);
+    res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
 app.put('/api/reports/product-costs', requireAuth, requireAdmin, async (req, res) => {
@@ -19111,15 +19167,23 @@ async function mechTable() {
     alt_mobile VARCHAR(30), city VARCHAR(120) NOT NULL, area VARCHAR(255), address VARCHAR(1000), aadhaar_no VARCHAR(20), aadhaar_url VARCHAR(1000),
     rates TEXT, notes VARCHAR(1000), active TINYINT NOT NULL DEFAULT 1, created_by INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_by INT, updated_at DATETIME, KEY (city)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // Where the details came from (client list 2026-11-18 #7): dealer (which one) / online search / typed by hand.
+  const [cols] = await db.query("SHOW COLUMNS FROM outside_mechanics LIKE 'source%'");
+  if (!cols.some(c => c.Field === 'source')) await db.query('ALTER TABLE outside_mechanics ADD COLUMN source VARCHAR(30) NULL, ADD COLUMN source_detail VARCHAR(255) NULL');
   _mechOk = true;
 }
+const MECH_SOURCES = ['Dealer', 'Online search', 'Manual'];
 function mechClean(b) {
   const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
   const r = { name: str(b.name, 255), mobile: str(b.mobile, 30), alt: str(b.altMobile, 30), city: str(b.city, 120), area: str(b.area, 255), address: str(b.address, 1000),
     aadhaar: str(b.aadhaarNo, 20).replace(/\s+/g, ''), notes: str(b.notes, 1000), active: b.active === false ? 0 : 1,
+    source: MECH_SOURCES.includes(b.source) ? b.source : '', sourceDetail: str(b.sourceDetail, 255),
     rates: (Array.isArray(b.rates) ? b.rates : []).map(x => ({ category: str(x.category, 80), charge: str(x.charge, 60), note: str(x.note, 200) })).filter(x => x.category).slice(0, 30) };
   if (!r.name) return { error: 'Mechanic ka naam likhein' };
   if (!r.city) return { error: 'City likhein' };
+  if (!r.source) return { error: 'Mechanic ki details kaha se li — chunein' };
+  if (r.source === 'Dealer' && !r.sourceDetail) return { error: 'Kis dealer ne diya — naam likhein' };
+  if (r.source !== 'Dealer') r.sourceDetail = r.source === 'Online search' ? r.sourceDetail : '';
   for (const p of [r.mobile, r.alt]) if (p && !sfmsNormalizeMobile(p)) return { error: `Mobile number galat lag raha hai: ${p}` };
   if (r.aadhaar && !/^\d{12}$/.test(r.aadhaar)) return { error: 'Aadhaar 12 ank ka hona chahiye' };
   return r;
@@ -19133,7 +19197,7 @@ app.get('/api/mechanics', requireAuth, async (req, res) => {
     const rates = s => { try { return JSON.parse(s || '[]'); } catch (e) { return []; } };
     res.json({ isAdmin: req.session.role === 'admin', items: rows.map(m => ({ id: m.id, name: m.name, mobile: m.mobile || '', altMobile: m.alt_mobile || '', city: m.city,
       area: m.area || '', address: m.address || '', aadhaarNo: m.aadhaar_no || '', aadhaarUrl: m.aadhaar_url || '', rates: rates(m.rates), notes: m.notes || '',
-      active: !!m.active, createdAt: m.created_at, by: m.by_name || '' })) });
+      active: !!m.active, createdAt: m.created_at, by: m.by_name || '', source: m.source || '', sourceDetail: m.source_detail || '' })) });
   } catch (err) { sendServerError(res, err); }
 });
 // Add (id empty) or edit. Anyone with the page grant onboards; deleting is Admin only.
@@ -19143,10 +19207,10 @@ app.post('/api/mechanics', requireAuth, async (req, res) => {
     await mechTable();
     const b = req.body || {}, r = mechClean(b);
     if (r.error) return res.status(400).json(r);
-    const vals = [r.name, r.mobile || null, r.alt || null, r.city, r.area || null, r.address || null, r.aadhaar || null, JSON.stringify(r.rates), r.notes || null, r.active];
+    const vals = [r.name, r.mobile || null, r.alt || null, r.city, r.area || null, r.address || null, r.aadhaar || null, JSON.stringify(r.rates), r.notes || null, r.active, r.source, r.sourceDetail || null];
     let id = Number(b.id) || 0;
-    if (id) await db.query('UPDATE outside_mechanics SET name=?, mobile=?, alt_mobile=?, city=?, area=?, address=?, aadhaar_no=?, rates=?, notes=?, active=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, req.session.userId, id]);
-    else id = (await db.query('INSERT INTO outside_mechanics (name, mobile, alt_mobile, city, area, address, aadhaar_no, rates, notes, active, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [...vals, req.session.userId]))[0].insertId;
+    if (id) await db.query('UPDATE outside_mechanics SET name=?, mobile=?, alt_mobile=?, city=?, area=?, address=?, aadhaar_no=?, rates=?, notes=?, active=?, source=?, source_detail=?, updated_by=?, updated_at=NOW() WHERE id=?', [...vals, req.session.userId, id]);
+    else id = (await db.query('INSERT INTO outside_mechanics (name, mobile, alt_mobile, city, area, address, aadhaar_no, rates, notes, active, source, source_detail, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', [...vals, req.session.userId]))[0].insertId;
     // Aadhaar photo: saved as "mech-aadhaar-…" so /api/drive-file only serves it to people with this page.
     if (b.aadhaarImage) {
       const link = await uploadPhotoToDrive(b.aadhaarImage, `mech-aadhaar-${id}-${Date.now()}.jpg`);
