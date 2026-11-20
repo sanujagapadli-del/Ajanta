@@ -7667,6 +7667,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'lead-fms-all', label: 'Lead FMS — sab leads dekhe (sirf dekhna; kaam apne step ka)' },
     { key: 'scot', label: 'SCOT — Calling Plan (dealers ko call, order, conversion)' },
     { key: 'dealers', label: 'Dealer Master' },
+    { key: 'dealers-edit', label: 'Dealer Master — dealer details add / edit (malik, DOB, address; credit limit sirf Admin)' },
     { key: 'onboarding', label: 'Dealer Onboarding (form + list) — Lead FMS / Dealer Master wale ko pehle se' },
     { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue)' },
     { key: 'drip-marketing', label: 'Drip Marketing (weekly plan dekhe; badle sirf Admin)' },
@@ -16602,7 +16603,9 @@ function openDealerDetailsModal(name) {
   const L = t => `<div style="${CHQ_LABEL}">${t}</div>`;
   const inp = (id, label, val, attrs) => `<div>${L(label)}<input id="dd_${id}" value="${esc(val || '')}" ${attrs || ''} style="${CHQ_INPUT}"/></div>`;
   const admin = ME.role === 'admin';
-  document.getElementById('ddTitle').textContent = `${admin ? '✏️' : '🏪'} ${name}`;
+  // Details: admin, or the 'dealers-edit' Access tick (CRM, 2026-11-20); the name stays admin-only.
+  const canEdit = admin || MY_PAGES.has('dealers-edit');
+  document.getElementById('ddTitle').textContent = `${canEdit ? '✏️' : '🏪'} ${name}`;
   document.getElementById('ddBody').innerHTML = `
     <div class="alert error" id="ddErr" style="display:none"></div>
     ${d.onboarding ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--color-success-bg);color:var(--color-success-text);font-size:12.5px;margin-bottom:12px">
@@ -16629,10 +16632,10 @@ function openDealerDetailsModal(name) {
     </div>
     ${L('Notes (kya bechta hai, kab milta hai, family…)')}<textarea id="dd_notes" rows="2" style="${CHQ_INPUT};resize:vertical">${esc(x.notes || '')}</textarea>
     ${x.updatedAt ? `<div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Last update: ${esc(fmtDateDMY(x.updatedAt, true))}${x.updatedBy ? ' · ' + esc(x.updatedBy) : ''}</div>` : ''}
-    ${admin ? '<button class="btn btn-primary" id="ddSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerDetails()">Save</button>' : ''}`;
+    ${canEdit ? '<button class="btn btn-primary" id="ddSaveBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerDetails()">Save</button>' : ''}`;
   const owners = (x.owners && x.owners.length) ? x.owners : [{}];
   owners.forEach(o => ddAddOwner(o));
-  if (!admin) document.querySelectorAll('#ddBody input, #ddBody textarea, #ddBody button:not(#ddOnbBtn)').forEach(el => { el.disabled = true; });
+  if (!canEdit) document.querySelectorAll('#ddBody input, #ddBody textarea, #ddBody button:not(#ddOnbBtn)').forEach(el => { el.disabled = true; });
   document.getElementById('dealerDetailsModal').classList.add('open');
 }
 // Several owners per dealer — name, relation, DOB, anniversary each (client video 2026-11-19).
@@ -16676,7 +16679,7 @@ function ddCaptureLocation(btn) {
 }
 async function submitDealerDetails() {
   const err = document.getElementById('ddErr'); err.style.display = 'none';
-  const v = id => document.getElementById('dd_' + id).value.trim();
+  const v = id => { const el = document.getElementById('dd_' + id); return el ? el.value.trim() : ''; };
   const loc = document.getElementById('dd_locBtn');
   const owners = [...document.querySelectorAll('#ddOwners .dd-owner')].map(r => ({ name: r.querySelector('.dd-o-name').value.trim(),
     relation: r.querySelector('.dd-o-rel').value.trim(), dob: r.querySelector('.dd-o-dob').value, anniversary: r.querySelector('.dd-o-anniv').value }));

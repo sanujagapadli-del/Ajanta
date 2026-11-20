@@ -677,7 +677,9 @@ const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms',
   // Lead FMS — every lead, read only (client 2026-11-19: CRM "pahle ka data show nahi ho raha").
   'lead-fms-all',
   // MECA — every salesman's rows, like PC / HOD (client 2026-11-19: CRM saw only her own SCOT column).
-  'meca-all'];
+  'meca-all',
+  // Dealer Master — dealer ki details (malik, DOB, address…) add / edit, bina Admin ke (client 2026-11-20: CRM).
+  'dealers-edit'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -7590,8 +7592,8 @@ app.put('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
 
 app.put('/api/o2d-fms/dealers/:name/details', requireAuth, async (req, res) => {
   try {
-    // Client, 2026-10-16: only Admin edits a dealer's details.
-    if (!canEditDealers(req)) return res.status(403).json({ error: 'Dealer details sirf Admin badal sakta hai' });
+    // Client, 2026-10-16: only Admin edits a dealer's details; 2026-11-20: or the 'dealers-edit' Access tick (CRM).
+    if (!canEditDealers(req) && !(await hasPageGrant(req, 'dealers-edit'))) return res.status(403).json({ error: 'Dealer details sirf Admin (ya Users → Access me "Dealer details edit" wala) badal sakta hai' });
     const name = req.params.name.trim();
     const b = req.body || {};
     const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n) || null;
