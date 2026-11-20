@@ -18142,6 +18142,8 @@ async function rentTables() {
     ['elec_mode', "VARCHAR(10) NOT NULL DEFAULT 'own'"], ['elec_kw', 'DECIMAL(6,2)'], ['hike_pct', 'DECIMAL(5,2)'], ['hike_month', 'CHAR(7)']]);
   // Every tenant pays his total in equal parts into the family's accounts (voice note 2026-10-25).
   await addMissingColumns('rental_payments', [['account', 'VARCHAR(120)']]);
+  // photo_urls: payment screenshots, newline-separated (client video 2026-11-20 — "team screenshot upload kare")
+  await addMissingColumns('rental_payments', [['photo_urls', 'TEXT']]);
   // meter: sub-meter name shared by units (Ground floor's one "GF" meter is split 1/3 : 2/3 by kW);
   // opening_due: what was pending from the old sheet when the tenant moved to the app (client 2026-10-26).
   await addMissingColumns('rental_units', [['meter', 'VARCHAR(30)'], ['opening_due', 'DECIMAL(12,2)'], ['opening_note', 'VARCHAR(255)']]);
@@ -18162,7 +18164,7 @@ app.get('/api/rental', requireAuth, requireRental, async (req, res) => {
   try {
     await rentTables();
     const [units] = await db.query('SELECT * FROM rental_units ORDER BY active DESC, property, tenant');
-    const [pays] = await db.query("SELECT id, unit_id, for_month, amount, DATE_FORMAT(paid_on,'%Y-%m-%d') AS paid_on, mode, note, account FROM rental_payments ORDER BY paid_on DESC, id DESC");
+    const [pays] = await db.query("SELECT id, unit_id, for_month, amount, DATE_FORMAT(paid_on,'%Y-%m-%d') AS paid_on, mode, note, account, photo_urls FROM rental_payments ORDER BY paid_on DESC, id DESC");
     let accounts = RENT_ACCOUNTS_DEFAULT;
     try { const a = JSON.parse(await getAppSetting('rental_accounts') || 'null'); if (Array.isArray(a) && a.length) accounts = a; } catch (e) {}
     const [bills] = await db.query('SELECT * FROM rental_bills ORDER BY for_month DESC');
@@ -18174,7 +18176,7 @@ app.get('/api/rental', requireAuth, requireRental, async (req, res) => {
       waterFrac: num(u.water_frac), elecMode: u.elec_mode, elecKw: num(u.elec_kw) || 0, hikePct: num(u.hike_pct), hikeMonth: u.hike_month || '',
       meter: u.meter || '', openingDue: num(u.opening_due) || 0, openingNote: u.opening_note || '' })),
       accounts,
-      payments: pays.map(p => ({ id: p.id, unitId: p.unit_id, month: p.for_month, amount: Number(p.amount), paidOn: p.paid_on, mode: p.mode || '', note: p.note || '', account: p.account || '' })),
+      payments: pays.map(p => ({ id: p.id, unitId: p.unit_id, month: p.for_month, amount: Number(p.amount), paidOn: p.paid_on, mode: p.mode || '', note: p.note || '', account: p.account || '', photos: String(p.photo_urls || '').split('\n').filter(Boolean) })),
       bills: bills.map(b => ({ property: b.property, month: b.for_month, waterBill: num(b.water_bill) || 0, fixedPerKw: Number(b.fixed_per_kw), unitRate: Number(b.unit_rate),
         commons: json(b.commons, []), readings: json(b.readings, {}), meterReads: json(b.meter_reads, {}) })) });
   } catch (err) { sendServerError(res, err); }
@@ -18215,12 +18217,16 @@ app.post('/api/rental/payment', requireAuth, requireRental, async (req, res) => 
     // account '*' = the amount came split equally into every account → one row per account.
     let accounts = [String(b.account || '').trim().slice(0, 120) || null];
     if (b.account === '*') { try { accounts = JSON.parse(await getAppSetting('rental_accounts') || 'null') || RENT_ACCOUNTS_DEFAULT; } catch (e) { accounts = RENT_ACCOUNTS_DEFAULT; } }
+    const shots = (Array.isArray(b.photos) ? b.photos : []).filter(x => typeof x === 'string' && x.startsWith('data:image/')).slice(0, 3);
+    if (shots.some(x => x.length > 2_000_000)) return res.status(400).json({ error: 'Screenshot bahut bada hai' });
+    const stamp = Date.now();
+    const photoUrls = (await Promise.all(shots.map((x, i) => uploadPhotoToDrive(x, `rent-${unitId}-${month}-${stamp}-${i + 1}.jpg`)))).filter(Boolean).join('\n') || null;
     const part = Math.round(amount / accounts.length * 100) / 100;
     for (let i = 0; i < accounts.length; i++) {
       // the last part takes the rounding paisa so the parts add up to the amount
       const a = i === accounts.length - 1 ? Math.round((amount - part * (accounts.length - 1)) * 100) / 100 : part;
-      await db.query('INSERT INTO rental_payments (unit_id, for_month, amount, paid_on, mode, note, account, created_by) VALUES (?,?,?,?,?,?,?,?)',
-        [unitId, month, a, paidOn, String(b.mode || '').trim().slice(0, 20) || null, String(b.note || '').trim().slice(0, 500) || null, accounts[i], req.session.userId]);
+      await db.query('INSERT INTO rental_payments (unit_id, for_month, amount, paid_on, mode, note, account, created_by, photo_urls) VALUES (?,?,?,?,?,?,?,?,?)',
+        [unitId, month, a, paidOn, String(b.mode || '').trim().slice(0, 20) || null, String(b.note || '').trim().slice(0, 500) || null, accounts[i], req.session.userId, photoUrls]);
     }
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
