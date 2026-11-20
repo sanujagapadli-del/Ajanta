@@ -142,7 +142,9 @@ const SHEET_VER_ROUTES = [
 // chunk POSTs) used to force full O2D sheet re-reads everywhere, and every
 // stock entry re-read the Purchase sheet (audit 2026-10-31).
 const SHEET_VER_SKIP = ['/api/o2d-fms/dealers', '/api/o2d-fms/catalogue-pdfs', '/api/o2d-fms/price-list', '/api/o2d-fms/team-group', '/api/purchase-fms/vendor-logins'];
-const SHEET_CACHE_TTL_MS = 3 * 60 * 1000;
+// 10 min (was 3) — Vercel free plan Active CPU hit 90% on 2026-11-20; every ERP write bumps the sheet version,
+// so only a hand edit inside the Google Sheet waits up to 10 min to show.
+const SHEET_CACHE_TTL_MS = 10 * 60 * 1000;
 const _sheetVerCache = new Map(); // key -> { ver, ts, data }
 async function sheetVer(key) {
   const [[r]] = await db.query('SELECT setting_value AS v FROM app_settings WHERE setting_key=?', [`ver_${key}`]);
@@ -159,7 +161,7 @@ function bumpSheetVer(key) {
 // repeat call is one small DB read instead of rebuilding + serialising ~700 KB
 // (Vercel CPU over the free limit, 2026-10-29).
 const _jsonCache = new Map(); // key -> { ver, ts, body }
-async function sendCachedJson(res, key, verKey, build, ttl = 60 * 1000) {
+async function sendCachedJson(res, key, verKey, build, ttl = SHEET_CACHE_TTL_MS) { // was 60 s — O2D / SFMS list rebuilds were the top CPU (2026-11-20)
   let ver = null;
   try { ver = await sheetVer(verKey); } catch (e) { console.error(`ver_${verKey} read:`, e.message); }
   const c = _jsonCache.get(key);
