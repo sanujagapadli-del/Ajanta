@@ -11,8 +11,8 @@ window.FMS_FLOWS = [
   summary: 'Dealer ka order → accounts OK → stock check → bill → maal nikalna → loading. Har product line alag chalti hai.',
   start: {
     who: 'Koi bhi logged-in user ("+ New Order"), jab tak form block na ho',
-    fill: ['Dealer — list se hi chunna (Tally debtors + Dealer Master); type karne se sirf search hota hai', 'Kam se kam 1 product, qty > 0 (rate optional, minus nahi)', 'CD / Discount % 0 se 50 ke beech'],
-    notes: ['Naya dealer ho to pehle Dealer Master me daalo', 'Rate ₹20 se kam aur qty 100 se zyada → "Qty aur Rate ulte to nahi bhare?"', 'Usi dealer ka 30 min ke andar order → "Phir bhi naya order banana hai?"', 'Ord-NNNN number; Old / New Counter khud lagta hai', 'Team WhatsApp group me "नया ऑर्डर प्राप्त हुआ" (items, total, CD, net)'],
+    fill: ['Dealer — list se hi chunna (Tally debtors + Dealer Master); type karne se sirf search hota hai', 'Kam se kam 1 product, qty > 0 (rate optional, minus nahi)', 'CD / Discount % 0 se 50 ke beech', 'Order Type: 📦 New Order / ♻ Replacement (default New Order)'],
+    notes: ['Naya dealer ho to pehle Dealer Master me daalo', 'Rate ₹20 se kam aur qty 100 se zyada → "Qty aur Rate ulte to nahi bhare?"', 'Usi dealer ka 30 min ke andar order → "Phir bhi naya order banana hai?"', 'Ord-NNNN number; Old / New Counter khud lagta hai', '♻ Replacement order: Gross Profit / Salesman P&L me sale nahi ginta (GP Dealer-wise me alag dikhta hai); order detail me ✏️ se baad me badal sakte hain', 'Team WhatsApp group me "नया ऑर्डर प्राप्त हुआ" (items, total, CD, net)'],
   },
   steps: [
     { no: 1, name: 'Accounts is ok or not', doer: 'Accountant', due: '10 min', fill: 'Yes / No (+ reason)', cond: ['No → poora order CANCEL'] },

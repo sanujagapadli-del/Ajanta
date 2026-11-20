@@ -6883,6 +6883,7 @@ async function getO2dOrders() {
     o.videos = extras.mediaBy[o.orderNo] || [];
     if (!f) return;
     if (Number(f.discount_pct) > 0) o.discountPct = Number(f.discount_pct);
+    if (f.order_type === 'replacement') o.orderType = 'replacement';
     o.restartCount = f.restart_count || 0;
     // Shown on the Dashboard row — a restarted order comes back to every step's doer (client list 10-26 #4).
     if (o.restartCount && f.restarted_at) Object.assign(o, { restartedBy: f.restarted_by || '', restartedAt: f.restarted_at });
@@ -9511,6 +9512,9 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
       lockConn.release();
     }
     if (discountPct > 0) await setO2dDiscountPct(orderNo, discountPct);
+    // New Order / Replacement (client 2026-11-20): a replacement is not a sale in Gross Profit.
+    const isRepl = req.body.orderType === 'replacement';
+    if (isRepl) await setO2dOrderType(orderNo, 'replacement');
 
     // Team-group heads-up so everyone knows to check the dashboard. Fire-
     // and-forget: the order is already safely saved by this point, and
@@ -9536,7 +9540,7 @@ app.post('/api/o2d-fms/new-order', requireAuth, async (req, res) => {
           ? `\n\nTotal: ${inr(total)}\nCD ${discountPct}%: −${inr(total * discountPct / 100)}\n💰 *Net Amount: ${inr(total * (1 - discountPct / 100))}*`
           : `\n\n💰 *Total Amount: ${inr(total)}*`) : '');
         sendWhatsAppInBackground(group.id,
-          `नया ऑर्डर प्राप्त हुआ\nकृपया ऑर्डर की जाँच करें।\n\n` +
+          `${isRepl ? '♻ REPLACEMENT\n' : ''}नया ऑर्डर प्राप्त हुआ\nकृपया ऑर्डर की जाँच करें।\n\n` +
           `Order ID: ${orderNo}\nDealer / Customer Name: ${counterName}\n\n${productLines}\n\n` +
           `Order By : ${orderBy || '—'}\nOrder Form Filled By: ${req.session.name || '—'}\n\n` +
           `कृपया ऑर्डर की जाँच करके आगे की प्रक्रिया अभी तुरंत पूरी करें।`,
@@ -9881,7 +9885,7 @@ async function ensureO2dOrderTables() {
       cancel_reason VARCHAR(500), cancelled_by VARCHAR(255), cancelled_at DATETIME,
       restart_count INT NOT NULL DEFAULT 0, restarted_by VARCHAR(255), restarted_at DATETIME,
       carried_by VARCHAR(255), carried_set_by VARCHAR(255), carried_at DATETIME,
-      hold_type VARCHAR(20), discount_pct DECIMAL(5,2)
+      hold_type VARCHAR(20), discount_pct DECIMAL(5,2), order_type VARCHAR(20)
     )`);
   await db.query(`
     CREATE TABLE IF NOT EXISTS o2d_media (
@@ -9942,7 +9946,7 @@ async function withO2dOrderTables(fn) {
     if (e.code === 'ER_BAD_FIELD_ERROR') {
       // carried_by* came after the table (client, 2026-10-13) — add them once.
       // discount_pct = CD % on the order (client video 2026-10-29) — order value net of it matches the Tally bill.
-      for (const col of ['carried_by VARCHAR(255)', 'carried_set_by VARCHAR(255)', 'carried_at DATETIME', 'hold_type VARCHAR(20)', 'discount_pct DECIMAL(5,2)']) {
+      for (const col of ['carried_by VARCHAR(255)', 'carried_set_by VARCHAR(255)', 'carried_at DATETIME', 'hold_type VARCHAR(20)', 'discount_pct DECIMAL(5,2)', 'order_type VARCHAR(20)']) {
         await db.query(`ALTER TABLE o2d_order_flags ADD COLUMN ${col}`).catch(err => { if (err.code !== 'ER_DUP_FIELDNAME') throw err; });
       }
       return await fn();
@@ -9960,7 +9964,7 @@ async function getO2dOrderExtras() {
   const [[flags], [media]] = await withO2dOrderTables(() => Promise.all([
     db.query(`SELECT order_no, on_hold, hold_reason, hold_type, hold_by, DATE_FORMAT(hold_at,'%Y-%m-%d %H:%i') AS hold_at,
                 cancelled, cancel_reason, cancelled_by, DATE_FORMAT(cancelled_at,'%Y-%m-%d %H:%i') AS cancelled_at, restart_count,
-                restarted_by, DATE_FORMAT(restarted_at,'%Y-%m-%d %H:%i') AS restarted_at, carried_by, carried_set_by, discount_pct
+                restarted_by, DATE_FORMAT(restarted_at,'%Y-%m-%d %H:%i') AS restarted_at, carried_by, carried_set_by, discount_pct, order_type
               FROM o2d_order_flags`),
     db.query(`SELECT id, order_no, step_n, url, kind, seconds, created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i') AS created_at
               FROM o2d_media ORDER BY id`)
@@ -10189,6 +10193,21 @@ async function setO2dDiscountPct(orderNo, pct) {
     `INSERT INTO o2d_order_flags (order_no, discount_pct) VALUES (?,?) ON DUPLICATE KEY UPDATE discount_pct=VALUES(discount_pct)`,
     [orderNo, pct || null]));
 }
+async function setO2dOrderType(orderNo, type) {
+  await withO2dOrderTables(() => db.query(
+    `INSERT INTO o2d_order_flags (order_no, order_type) VALUES (?,?) ON DUPLICATE KEY UPDATE order_type=VALUES(order_type)`,
+    [orderNo, type === 'replacement' ? 'replacement' : null]));
+}
+// New Order / Replacement changed later (older orders, or picked wrong on the form).
+app.post('/api/o2d-fms/order/:orderNo/type', requireAuth, async (req, res) => {
+  try {
+    if (!(await canEditO2dOrder(req))) return res.status(403).json({ error: 'Sirf Admin / PC / O2D step doer badal sakta hai' });
+    const type = req.body.orderType === 'replacement' ? 'replacement' : '';
+    await setO2dOrderType(String(req.params.orderNo).slice(0, 64), type);
+    await bumpSheetVer('o2d').catch(() => {});
+    res.json({ success: true, orderType: type });
+  } catch (err) { sendServerError(res, err); }
+});
 // Set / change it later (older orders, or forgotten on the form): anyone who may control the order.
 app.post('/api/o2d-fms/order/:orderNo/discount', requireAuth, async (req, res) => {
   try {
@@ -15274,7 +15293,7 @@ async function gpLoadData(start, end, opts = {}) {
     gpProductMapper(),
     withStockTable(() => db.query('SELECT item_code, description FROM ajanta_stock_items')),
     purchasePoArchiveRows(),
-    withO2dOrderTables(() => db.query('SELECT order_no, cancelled, discount_pct FROM o2d_order_flags WHERE cancelled=1 OR discount_pct>0')).catch(() => [[]]),
+    withO2dOrderTables(() => db.query("SELECT order_no, cancelled, discount_pct, order_type FROM o2d_order_flags WHERE cancelled=1 OR discount_pct>0 OR order_type='replacement'")).catch(() => [[]]),
     db.query('SELECT item_key, item_code FROM gp_item_links'),
     db.query('SELECT order_no, item_key, same_as_sale, cost_rate, note FROM gp_line_costs')
   ]);
@@ -15287,6 +15306,8 @@ async function gpLoadData(start, end, opts = {}) {
   const cancelledOrders = new Set(cancelledRows.filter(c => c.cancelled).map(c => String(c.order_no)));
   // CD % on the order — the sale is the billed (net) amount, as in Tally.
   const discountBy = Object.fromEntries(cancelledRows.filter(c => Number(c.discount_pct) > 0).map(c => [String(c.order_no), Number(c.discount_pct)]));
+  // Replacement orders (O2D form, client 2026-11-20) — goods go out, but it is not a sale. A -P1 part order follows its parent.
+  const replOrders = new Set(cancelledRows.filter(c => c.order_type === 'replacement').map(c => String(c.order_no)));
 
   // Sales lines from O2D (billed). allSales = every billed line (FIFO needs the ones before the range too).
   const sales = [], allSales = [];
@@ -15311,7 +15332,7 @@ async function gpLoadData(start, end, opts = {}) {
     const qty = gpNum(get('O')), rate = gpNum(get('N')) * (100 - (discountBy[String(get('Q') || '')] || 0)) / 100;
     const name = String(get('M') || '').trim();
     if (!name || !(qty > 0)) return;
-    const line = { party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), billNo: String(get('BJ') || '').trim(), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date, staleBill, orderMin };
+    const line = { party: String(get('C') || '').trim() || '—', orderBy: String(get('J') || '').trim(), orderNo: String(get('Q') || ''), billNo: String(get('BJ') || '').trim(), item: name, qty, rate, amount: qty * rate, code: mapTo(name), date, staleBill, orderMin, replacement: replOrders.has(String(get('Q') || '')) || replOrders.has(String(get('Q') || '').replace(/-P\d+$/, '')) };
     allSales.push(line);
     if (date >= start && date <= end) sales.push(line);
   });
@@ -15554,8 +15575,24 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       vi.qty += qty; vi.sales += amount; if (cost != null) vi.cost = (vi.cost || 0) + cost;
     };
     const byItem = {}, byParty = {}, byOrder = {}; // byOrder: Sales card → order-wise detail (2026-10-24)
-    const totals = { sales: 0, qty: 0, costedSales: 0, cost: 0, uncostedSales: 0, lines: sales.length };
+    const totals = { sales: 0, qty: 0, costedSales: 0, cost: 0, uncostedSales: 0, lines: sales.length, replacement: 0, replQty: 0 };
+    const newParty = s => ({ party: s.party, bills: new Set(), qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {}, billList: {}, replAmount: 0, replQty: 0, saleLines: 0, replLines: 0 });
     for (const s of sales) {
+      // Replacement (client 2026-11-20: "replacement hone par uska amount sale me count nahi hona chahiye").
+      if (s.replacement) {
+        const p = byParty[s.party.toLowerCase()] = byParty[s.party.toLowerCase()] || newParty(s);
+        p.replAmount += s.amount; p.replQty += s.qty; p.replLines++;
+        const bk = s.billNo || s.orderNo || s.date;
+        const pb = p.billList[bk] = p.billList[bk] || { billNo: s.billNo, orderNo: s.orderNo, date: s.date, sales: 0, cost: 0, costed: false, items: [], replacement: true, replAmount: 0 };
+        pb.replAmount = (pb.replAmount || 0) + s.amount;
+        pb.items.push({ item: s.item, qty: round(s.qty), rate: round(s.rate), sales: 0, replAmount: round(s.amount), cost: null, gp: null, replacement: true });
+        const ok = s.orderNo || `${s.party}|${s.date}`;
+        const o = byOrder[ok] = byOrder[ok] || { orderNo: s.orderNo, date: s.date, party: s.party, orderBy: s.orderBy, qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: [] };
+        o.replacement = true; o.replAmount = (o.replAmount || 0) + s.amount;
+        o.items.push({ item: s.item, qty: round(s.qty), rate: round(s.rate), sales: 0, replAmount: round(s.amount), cost: null, costSource: 'Replacement', replacement: true });
+        totals.replacement += s.amount; totals.replQty += s.qty; totals.lines--;
+        continue;
+      }
       const c = costFor(s);
       const cost = c ? c.rate * s.qty : null;
       const ik = gpKey(s.item);
@@ -15563,8 +15600,8 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
         costRate: c ? c.rate : null, costSource: c ? c.source : '', poName: c && c.poName || '', cost: 0 };
       it.qty += s.qty; it.sales += s.amount; if (c) { it.cost += cost; it.costedQty = (it.costedQty || 0) + s.qty; if (it.costRate == null) Object.assign(it, { costRate: c.rate, costSource: c.source }); }
       const pk = s.party.toLowerCase();
-      const p = byParty[pk] = byParty[pk] || { party: s.party, bills: new Set(), qty: 0, sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, items: {}, billList: {} };
-      p.bills.add(s.billNo || s.orderNo); p.qty += s.qty; p.sales += s.amount;
+      const p = byParty[pk] = byParty[pk] || newParty(s);
+      p.bills.add(s.billNo || s.orderNo); p.qty += s.qty; p.sales += s.amount; p.saleLines++;
       // Dealer → bill-wise items (client 2026-11-02: "bill 123 me ye item itne pcs, bill 321 me …").
       const bk = s.billNo || s.orderNo || s.date;
       const pb = p.billList[bk] = p.billList[bk] || { billNo: s.billNo, orderNo: s.orderNo, date: s.date, sales: 0, cost: 0, costed: false, items: [] };
@@ -15598,11 +15635,12 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
     const dealers = Object.values(byParty).map(p => {
       const gp = p.costedSales ? p.costedSales - p.cost : null;
-      return { party: p.party, bills: p.bills.size, qty: round(p.qty), sales: round(p.sales), costedSales: round(p.costedSales), cost: round(p.cost),
+      return { party: p.party, bills: p.bills.size, qty: round(p.qty), sales: round(p.sales), replAmount: round(p.replAmount), replQty: round(p.replQty),
+        orderType: p.saleLines && p.replLines ? 'Sale + Replacement' : p.replLines ? 'Replacement' : 'Sale order', costedSales: round(p.costedSales), cost: round(p.cost),
         uncostedSales: round(p.uncostedSales), gp: gp == null ? null : round(gp), gpPct: gp == null ? null : round(gp * 100 / p.costedSales),
         items: Object.values(p.items).map(i => ({ item: i.item, qty: round(i.qty), sales: round(i.sales), cost: i.cost == null ? null : round(i.cost),
           gp: i.cost == null ? null : round(i.sales - i.cost) })).sort((a, b) => b.sales - a.sales),
-        billList: Object.values(p.billList).map(b => ({ billNo: b.billNo, orderNo: b.orderNo, date: b.date, sales: round(b.sales), cost: b.costed ? round(b.cost) : null,
+        billList: Object.values(p.billList).map(b => ({ billNo: b.billNo, orderNo: b.orderNo, date: b.date, sales: round(b.sales), cost: b.costed ? round(b.cost) : null, replacement: !!b.replacement, replAmount: round(b.replAmount || 0),
           gp: b.costed ? round(b.sales - b.cost) : null, items: b.items })).sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.billNo).localeCompare(String(a.billNo), undefined, { numeric: true })) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
     const vendorRows = Object.values(byVendor).map(v => {
@@ -15625,14 +15663,15 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     const orders = Object.values(byOrder).map(o => {
       // a ₹0 line with a known cost (free piece) still counts, so orders add up to the GP card
       const g = o.hasCost ? o.costedSales - o.cost : null;
-      return { orderNo: o.orderNo, date: o.date, party: o.party, orderBy: o.orderBy, qty: round(o.qty), sales: round(o.sales), cost: round(o.cost),
+      return { orderNo: o.orderNo, date: o.date, party: o.party, orderBy: o.orderBy, qty: round(o.qty), sales: round(o.sales), cost: round(o.cost), replacement: !!o.replacement, replAmount: round(o.replAmount || 0),
         uncostedSales: round(o.uncostedSales), gp: g == null ? null : round(g), gpPct: g == null || !o.costedSales ? null : round(g * 100 / o.costedSales), items: o.items };
     }).sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.orderNo).localeCompare(String(a.orderNo)));
     const gp = totals.costedSales - totals.cost;
     res.json({
       start, end, source: 'fms',
       totals: { sales: round(totals.sales), qty: round(totals.qty), costedSales: round(totals.costedSales), cost: round(totals.cost),
-        uncostedSales: round(totals.uncostedSales), gp: round(gp), gpPct: totals.costedSales ? round(gp * 100 / totals.costedSales) : null, lines: totals.lines },
+        uncostedSales: round(totals.uncostedSales), gp: round(gp), gpPct: totals.costedSales ? round(gp * 100 / totals.costedSales) : null, lines: totals.lines,
+        replacement: round(totals.replacement), replQty: round(totals.replQty) },
       products, dealers, vendors: vendorRows, vendorChoices, orders,
       dataRange: { from: firstBill, to: lastBill },
       canEditCost: req.session.role === 'admin'
@@ -16106,6 +16145,7 @@ async function buildSalesmanPl(start, end, onlyUserId) {
   // hai" — no salaries were set, so the tab was empty).
   const sold = {}, unassigned = {};
   sales.forEach(s => {
+    if (s.replacement) return; // not a sale (client 2026-11-20)
     const uid = owner[plNameKey(s.orderBy)];
     let x;
     if (uid) x = sold[uid] = sold[uid] || { sales: 0, costedSales: 0, cost: 0, uncostedSales: 0, orders: new Set(), qty: 0 };

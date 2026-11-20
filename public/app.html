@@ -4283,6 +4283,14 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <button type="button" class="btn btn-outline btn-sm" onclick="goToO2dOrderStep1()">← Back</button>
         <span style="font-size:13px;font-weight:700;color:var(--gray-800)" id="noStep2DealerName"></span>
       </div>
+      <div class="form-group">
+        <label>Order Type <span style="color:var(--color-danger)">*</span></label>
+        <div style="display:flex;gap:8px">
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;cursor:pointer;margin:0"><input type="radio" name="noOrderType" value="new" checked style="width:auto;margin:0"/> 📦 New Order</label>
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;cursor:pointer;margin:0"><input type="radio" name="noOrderType" value="replacement" style="width:auto;margin:0"/> ♻ Replacement</label>
+        </div>
+        <div style="font-size:11px;color:var(--gray-500);margin-top:3px">Replacement ka amount Gross Profit me sale nahi ginta</div>
+      </div>
       <div class="form-group" id="noBackDateWrap" style="display:none">
         <label>Order Date <span style="font-weight:400;color:var(--gray-500)">(sirf Admin · purana bill chadhana ho to pichhli tareekh, warna khaali = aaj)</span></label>
         <input type="date" id="noBackDate" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
@@ -18471,6 +18479,7 @@ function openNewO2dOrderModal() {
   document.getElementById('newO2dOrderErr').style.display = 'none';
   document.getElementById('noCounterName').value = '';
   ['noArea','noOrderBy','noPaymentTerms','noWhenToSend','noDateToSend','noRemark','noDiscPct'].forEach(id => document.getElementById(id).value = '');
+  document.querySelectorAll('input[name="noOrderType"]').forEach(r => { r.checked = r.value === 'new'; });
   document.getElementById('noChannel').value = '';
   document.getElementById('noChannelOther').value = '';
   document.getElementById('noChannelOther').style.display = 'none';
@@ -18626,6 +18635,7 @@ async function submitNewO2dOrder() {
     dateToSend: document.getElementById('noDateToSend').value,
     remark: document.getElementById('noRemark').value.trim(),
     discountPct: document.getElementById('noDiscPct').value.trim(),
+    orderType: (document.querySelector('input[name="noOrderType"]:checked') || {}).value === 'replacement' ? 'replacement' : 'new',
     orderDate: ME.role === 'admin' ? document.getElementById('noBackDate').value : '',
     products
   };
@@ -19121,7 +19131,7 @@ function renderO2dDetailBody(o, hideProgress) {
     </div>` : '')
     + `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:7px 0 0;color:var(--gray-700)">
       <span>Total — ${totalQty} pcs${liveProducts.length < (o.products || []).length ? ` <span style="font-weight:500;color:var(--gray-400)">(Not Available chhod ke)</span>` : ''}</span>
-      <span style="display:flex;align-items:center;gap:8px">${canEditDisc ? `<button type="button" class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px" onclick="o2dSetDiscount('${jsArg(o.orderNo)}', ${discPct})">${discPct ? `CD ${discPct}% ✏️` : '+ CD %'}</button>` : ''}${totalAmount ? inr(totalAmount) : '—'}</span>
+      <span style="display:flex;align-items:center;gap:8px">${canEditDisc ? `<button type="button" class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px" onclick="o2dSetOrderType('${jsArg(o.orderNo)}', ${o.orderType === 'replacement' ? 0 : 1})" title="New Order / Replacement badlein">${o.orderType === 'replacement' ? '♻ Replacement ✏️' : '📦 New Order ✏️'}</button>` : o.orderType === 'replacement' ? '<span style="font-size:11px;color:var(--color-warning-text)">♻ Replacement</span>' : ''}${canEditDisc ? `<button type="button" class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px" onclick="o2dSetDiscount('${jsArg(o.orderNo)}', ${discPct})">${discPct ? `CD ${discPct}% ✏️` : '+ CD %'}</button>` : ''}${totalAmount ? inr(totalAmount) : '—'}</span>
     </div>`;
 
   const itemsBlockHtml = showItemsInAction ? '' : `
@@ -19346,6 +19356,12 @@ async function o2dSetCarry(orderNo, on) {
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/carry`, 'POST', { salesman });
   if (res.error) { showToast(res.error, 'error'); return; }
   o2dReloadAfterControl(on ? `🧍 ${salesman} le jaayega — mark ho gaya` : 'Mark hata diya');
+}
+async function o2dSetOrderType(orderNo, toRepl) {
+  if (!await uiConfirm(toRepl ? `${orderNo} ko ♻ Replacement banayein? Iska amount Gross Profit me sale nahi ginega.` : `${orderNo} ko 📦 New Order (sale) banayein?`)) return;
+  const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/type`, 'POST', { orderType: toRepl ? 'replacement' : 'new' });
+  if (res.error) { showToast(res.error, 'error'); return; }
+  o2dReloadAfterControl(toRepl ? '♻ Replacement mark ho gaya' : '📦 New Order mark ho gaya');
 }
 async function o2dSetDiscount(orderNo, cur) {
   const v = await uiPrompt('CD / Discount % (0 = koi discount nahi)', cur ? String(cur) : '');
@@ -30639,15 +30655,20 @@ let gpQuery = '';
 let gpShown = 60;
 let gpOpenDealer = '';
 // Dealer opened → bill by bill: "Bill 123 · date · ₹" then its items (client 2026-11-02).
+// Dealer-wise "Sale Order / Replacement" (client 2026-11-20).
+function gpTypeBadge(t) {
+  const repl = /Replacement/.test(t || ''), both = /\+/.test(t || '');
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${both ? 'var(--color-warning-bg, #fff4e0)' : repl ? 'var(--gray-100)' : 'var(--color-success-bg, #e8f7ee)'};color:${both ? 'var(--color-warning-text)' : repl ? 'var(--gray-700)' : 'var(--color-success-text)'}">${esc(t || 'Sale order')}</span>`;
+}
 function gpDealerBillRows(p, td) {
   const gpCell = (gp, sales, bold) => `<td style="${td};${bold ? 'font-weight:700;' : ''}color:${gp == null ? 'var(--gray-300)' : gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(gp)}</td>
     <td style="${td};text-align:center">${gpPctPill(gp == null || !sales ? null : Math.round(gp * 1000 / sales) / 10)}</td>`;
   return p.billList.map(b => `<tr style="background:var(--color-primary-light)"><td style="${td}"></td>
       <td style="${td};text-align:left;padding-left:18px;font-weight:800;color:var(--gray-900)">🧾 Bill ${esc(b.billNo || '—')} <span style="font-weight:500;font-size:11.5px;color:var(--gray-600)">· ${esc(fmtDateDMY(b.date))}${b.orderNo ? ' · ' + esc(b.orderNo) : ''}</span></td>
-      <td style="${td}"></td><td style="${td};font-weight:700">${b.items.reduce((a, it) => a + it.qty, 0).toLocaleString('en-IN')}</td>
+      <td style="${td};text-align:left">${gpTypeBadge(b.replacement ? 'Replacement' : 'Sale order')}${b.replAmount ? `<div style="font-size:10.5px;color:var(--gray-500)">♻ ${gpInr(b.replAmount)}</div>` : ''}</td><td style="${td}"></td><td style="${td};font-weight:700">${b.items.reduce((a, it) => a + it.qty, 0).toLocaleString('en-IN')}</td>
       <td style="${td};font-weight:800">${gpInr(b.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(b.cost)}</td>${gpCell(b.gp, b.sales, true)}</tr>
     ${b.items.map(it => `<tr style="background:var(--gray-50)"><td style="${td}"></td>
-      <td style="${td};text-align:left;white-space:normal;padding-left:34px;color:var(--gray-700)">↳ ${esc(it.item)} <span style="font-size:11px;color:var(--gray-500)">@ ${gpInr(it.rate)}</span></td><td style="${td}"></td>
+      <td style="${td};text-align:left;white-space:normal;padding-left:34px;color:var(--gray-700)">↳ ${esc(it.item)} <span style="font-size:11px;color:var(--gray-500)">@ ${gpInr(it.rate)}</span></td><td style="${td};text-align:left;font-size:11px;color:var(--gray-500)">${it.replacement ? `♻ ${gpInr(it.replAmount)}` : ''}</td><td style="${td}"></td>
       <td style="${td}">${Number(it.qty).toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}</td>${gpCell(it.gp, it.sales)}</tr>`).join('')}`).join('');
 }
 let gpOnlyNoCost = false;
@@ -31236,18 +31257,19 @@ function renderGrossProfit() {
     const rows = gpSortRows((vendorView ? (d.vendors || []) : d.dealers).filter(p => !q || nameOf(p).toLowerCase().includes(q)));
     const page = rows.slice(0, gpShown);
     table = rows.length ? `<table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">${vendorView ? 'Vendor' : 'Dealer'}</th><th style="${th}">${vendorView ? 'Products' : 'Bills'}</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
+      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">${vendorView ? 'Vendor' : 'Dealer'}</th>${vendorView ? '' : `<th style="${th};text-align:left">Sale Order / Replacement</th>`}<th style="${th}">${vendorView ? 'Products' : 'Bills'}</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
       <tbody>${page.map((p, i) => {
         const open = gpOpenDealer === nameOf(p);
         return `<tr style="background:${open ? 'var(--color-primary-light)' : i % 2 ? 'var(--surface-alt)' : 'var(--surface)'};cursor:pointer" onclick="gpOpenDealer=gpOpenDealer===this.dataset.p?'':this.dataset.p;renderGrossProfit()" data-p="${esc(nameOf(p))}">
           <td style="${td};text-align:center">${rank(i)}</td>
           <td style="${td};text-align:left;white-space:normal;min-width:220px"><b style="color:${p.noPo ? 'var(--gray-500)' : 'var(--gray-900)'}">${esc(nameOf(p))}</b> <span style="font-size:11px;color:var(--color-primary)">${open ? '▾' : '▸'} items</span>${p.uncostedSales ? `<div style="font-size:10.5px;color:var(--color-warning-text)">${gpInr(p.uncostedSales)} sales without cost — not in GP</div>` : ''}</td>
+          ${vendorView ? '' : `<td style="${td};text-align:left;white-space:nowrap">${gpTypeBadge(p.orderType)}${p.replAmount ? `<div style="font-size:10.5px;color:var(--gray-500)" title="Replacement ka maal — Sales me nahi gina">♻ ${gpInr(p.replAmount)} · ${Math.round(p.replQty)} pcs (sale me nahi)</div>` : ''}</td>`}
           <td style="${td}">${vendorView ? p.products : p.bills}</td><td style="${td}">${Math.round(p.qty).toLocaleString('en-IN')}</td>
           <td style="${td};font-weight:700">${gpInr(p.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
           <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
           <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>
           ${open && !vendorView && p.billList ? gpDealerBillRows(p, td) : open ? p.items.map(it => `<tr style="background:var(--gray-50)"><td style="${td}"></td>
-            <td style="${td};text-align:left;white-space:normal;padding-left:26px;color:var(--gray-700)">↳ ${gpItemLink(it.item)}${vendorView && d.canEditCost && (p.noPo || it.manualVendor) ? gpVendorPick(it, p) : ''}</td><td style="${td}"></td>
+            <td style="${td};text-align:left;white-space:normal;padding-left:26px;color:var(--gray-700)">↳ ${gpItemLink(it.item)}${vendorView && d.canEditCost && (p.noPo || it.manualVendor) ? gpVendorPick(it, p) : ''}</td>${vendorView ? '' : `<td style="${td}"></td>`}<td style="${td}"></td>
             <td style="${td}">${Math.round(it.qty).toLocaleString('en-IN')}</td><td style="${td}">${gpInr(it.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(it.cost)}</td>
             <td style="${td};font-weight:700;color:${it.gp == null ? 'var(--gray-300)' : it.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(it.gp)}</td>
             <td style="${td};text-align:center">${gpPctPill(it.gp == null || !it.sales ? null : Math.round(it.gp * 1000 / it.sales) / 10)}</td></tr>`).join('') : ''}`;
@@ -31257,7 +31279,7 @@ function renderGrossProfit() {
   const noCost = d.products.filter(p => p.costRate == null).length;
   out.innerHTML = `
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-      ${kpi('Sales (O2D billed)', gpInr(t.sales), `${t.lines.toLocaleString('en-IN')} order lines · ${t.qty.toLocaleString('en-IN')} pcs`, 'var(--gray-900)', d.orders ? 'orders' : 'sales', 'desc')}
+      ${kpi('Sales (O2D billed)', gpInr(t.sales), `${t.lines.toLocaleString('en-IN')} order lines · ${t.qty.toLocaleString('en-IN')} pcs${t.replacement ? ` · ♻ ${gpInr(t.replacement)} replacement alag` : ''}`, 'var(--gray-900)', d.orders ? 'orders' : 'sales', 'desc')}
       ${kpi('Cost', gpInr(t.cost), `on ${gpInr(t.costedSales)} of sales (${costPct}%)`, 'var(--gray-700)', 'cost', 'desc')}
       ${kpi('Gross Profit', gpInr(t.gp), 'sales with a known cost − cost', t.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)', 'gp', 'desc')}
       ${kpi('GP %', t.gpPct == null ? '—' : t.gpPct + '%', 'of sales with a known cost', 'var(--color-primary)', 'gpPct', 'asc')}
@@ -31291,7 +31313,7 @@ function exportGrossProfit() {
     ? [['Product', 'Qty', 'Sales (ex GST)', 'Avg Sale Rate (ex GST)', 'Cost Rate (ex GST)', 'Cost Source', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.products).map(p => [p.item, p.qty, p.sales, p.avgRate, p.costRate, p.costSource, p.cost, p.gp, p.gpPct].map(q).join(',')))
     : gpView === 'vendor'
     ? [['Vendor', 'Products', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.vendors || []).map(p => [p.vendor, p.products, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')))
-    : [['Dealer', 'Bills', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.dealers).map(p => [p.party, p.bills, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')));
+    : [['Dealer', 'Sale Order / Replacement', 'Replacement amount (not in sales)', 'Bills', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.dealers).map(p => [p.party, p.orderType || 'Sale order', p.replAmount || 0, p.bills, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')));
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
   a.download = `Gross_Profit_${gpView}_${gpData.start}_to_${gpData.end}.csv`;
