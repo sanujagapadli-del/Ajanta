@@ -16613,7 +16613,7 @@ function openDealerDetailsModal(name) {
       <button id="ddOnbBtn" class="btn btn-sm btn-green" style="margin-left:auto" onclick="closeModal('dealerDetailsModal');openOnboardDetail(${Number(d.onboarding.id)})">📷 Form + photos dekho</button></div>` : ''}
     ${admin ? `${L('Dealer / dukaan ka naam (galat ho to yahan sudharein)')}<input id="dd_name" value="${esc(name)}" style="${CHQ_INPUT}"/>
       <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Naam badalne par purane orders, payments aur beat naye naam me jud jaate hain.</div>`
-      : '<div style="font-size:12px;color:var(--color-warning-text);background:var(--color-warning-bg);padding:8px 10px;border-radius:8px;margin-bottom:10px">Sirf dekh sakte hain — galat detail ho to Admin ko batayein.</div>'}
+      : canEdit ? '' : '<div style="font-size:12px;color:var(--color-warning-text);background:var(--color-warning-bg);padding:8px 10px;border-radius:8px;margin-bottom:10px">Sirf dekh sakte hain — galat detail ho to Admin ko batayein.</div>'}
     ${L('Malik (papa, bete, bhai, partner — 4 tak)')}
     <div id="ddOwners"></div>
     <button class="btn btn-outline btn-sm" type="button" id="ddOwnerAdd" onclick="ddAddOwner()" style="margin:0 0 12px">➕ Aur malik jodo</button>
@@ -16640,9 +16640,10 @@ function openDealerDetailsModal(name) {
 }
 // Several owners per dealer — name, relation, DOB, anniversary each (client video 2026-11-19).
 const DD_OWNER_RELATIONS = ['Malik', 'Papa', 'Beta', 'Bhai', 'Partner', 'Patni', 'Manager'];
-function ddAddOwner(o) {
+function ddAddOwner(o, boxId) {
   o = o || {};
-  const box = document.getElementById('ddOwners');
+  boxId = boxId || 'ddOwners';
+  const box = document.getElementById(boxId);
   if (box.children.length >= 4) return;
   const n = box.children.length + 1;
   const L = t => `<div style="${CHQ_LABEL}">${t}</div>`;
@@ -16655,13 +16656,19 @@ function ddAddOwner(o) {
       <div>${L('Date of birth')}<input class="dd-o-dob" type="date" value="${esc(o.dob || '')}" style="${CHQ_INPUT}"/></div>
       <div>${L('Anniversary')}<input class="dd-o-anniv" type="date" value="${esc(o.anniversary || '')}" style="${CHQ_INPUT}"/></div>
     </div>
-    ${n > 1 ? '<button type="button" class="btn btn-sm" title="Hatao" style="position:absolute;top:4px;right:6px;padding:2px 8px" onclick="this.parentElement.remove();ddOwnerBtn()">✕</button>' : ''}`;
+    ${n > 1 ? '<button type="button" class="btn btn-sm" title="Hatao" style="position:absolute;top:4px;right:6px;padding:2px 8px" onclick="const bx=this.parentElement.parentElement.id;this.parentElement.remove();ddOwnerBtn(bx)">✕</button>' : ''}`;
   box.appendChild(row);
-  ddOwnerBtn();
+  ddOwnerBtn(boxId);
 }
-function ddOwnerBtn() {
-  const b = document.getElementById('ddOwnerAdd');
-  if (b) b.style.display = document.querySelectorAll('#ddOwners .dd-owner').length >= 4 ? 'none' : '';
+function ddOwnerBtn(boxId) {
+  boxId = boxId || 'ddOwners';
+  const b = document.getElementById(boxId === 'ddOwners' ? 'ddOwnerAdd' : boxId + 'Add');
+  if (b) b.style.display = document.querySelectorAll(`#${boxId} .dd-owner`).length >= 4 ? 'none' : '';
+}
+// The owner rows of a box → [{name, relation, dob, anniversary}].
+function ddReadOwners(boxId) {
+  return [...document.querySelectorAll(`#${boxId} .dd-owner`)].map(r => ({ name: r.querySelector('.dd-o-name').value.trim(),
+    relation: r.querySelector('.dd-o-rel').value.trim(), dob: r.querySelector('.dd-o-dob').value, anniversary: r.querySelector('.dd-o-anniv').value }));
 }
 // All owners of a dealer (old rows: owner #1 from the old fields).
 function dealerOwnerList(d) {
@@ -16681,8 +16688,7 @@ async function submitDealerDetails() {
   const err = document.getElementById('ddErr'); err.style.display = 'none';
   const v = id => { const el = document.getElementById('dd_' + id); return el ? el.value.trim() : ''; };
   const loc = document.getElementById('dd_locBtn');
-  const owners = [...document.querySelectorAll('#ddOwners .dd-owner')].map(r => ({ name: r.querySelector('.dd-o-name').value.trim(),
-    relation: r.querySelector('.dd-o-rel').value.trim(), dob: r.querySelector('.dd-o-dob').value, anniversary: r.querySelector('.dd-o-anniv').value }));
+  const owners = ddReadOwners('ddOwners');
   if (owners.some(o => !o.name && (o.relation || o.dob || o.anniversary))) { err.textContent = 'Har malik ka naam likhein'; err.style.display = 'block'; return; }
   const body = { owners: owners.filter(o => o.name), phone: v('phone'), altPhone: v('alt'), city: v('city'), area: v('area'),
     gstNo: v('gst'), address: v('address'), notes: v('notes'), locationLat: loc ? loc.dataset.lat : null, locationLng: loc ? loc.dataset.lng : null };
@@ -26465,7 +26471,7 @@ function onbSaveDraft() {
       else fields[el.id] = el.value;
     });
     const loc = document.getElementById('onb_locBtn');
-    const draft = { at: Date.now(), fields, photos, loc: loc ? { lat: loc.dataset.lat, lng: loc.dataset.lng } : null };
+    const draft = { at: Date.now(), fields, photos, owners: ddReadOwners('onbOwners'), loc: loc ? { lat: loc.dataset.lat, lng: loc.dataset.lng } : null };
     onbDraftStore('readwrite', st => st.put(draft, 'dealerOnboarding'));
   }, 400);
 }
@@ -26484,6 +26490,10 @@ const onbLoadDraft = async () => {
   return d && Date.now() - d.at < ONB_DRAFT_MAX_AGE_MS && (Object.keys(d.photos || {}).length || Object.entries(d.fields || {}).some(([k, v]) => typeof v === 'string' && k !== 'onb_leadId' && v.trim())) ? d : null;
 };
 function onbApplyDraft(d) {
+  if (Array.isArray(d.owners) && d.owners.length) {
+    document.getElementById('onbOwners').innerHTML = '';
+    d.owners.slice(0, 4).forEach(o => ddAddOwner(o, 'onbOwners'));
+  }
   Object.entries(d.fields || {}).forEach(([id, v]) => { const el = document.getElementById(id); if (!el) return; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; });
   Object.entries(d.photos || {}).forEach(([id, url]) => {
     const el = document.getElementById(id); if (!el) return;
@@ -26528,7 +26538,6 @@ async function openDealerOnboardModal(leadId, fresh) {
     <div style="font-size:13px;font-weight:800;color:var(--gray-800);margin-bottom:8px">Dealer / Dukaan</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
       ${inp('shop', 'Dukaan / Firm ka naam', true, '', l && l.shopName)}
-      ${inp('owner', 'Dealer (malik) ka naam', true, '', l && l.contactName)}
       ${inp('mobile', 'Mobile (WhatsApp)', true, 'inputmode="tel"', l && l.mobile)}
       ${inp('alt', 'Doosra Mobile', false, 'inputmode="tel"')}
       ${inp('city', 'City', false, '', l && l.city)}
@@ -26536,6 +26545,10 @@ async function openDealerOnboardModal(leadId, fresh) {
       ${inp('pincode', 'Pincode', false, 'inputmode="numeric" maxlength="6"')}
       ${inp('email', 'Email', false, 'type="email"')}
     </div>
+    ${L('Malik (papa, bete, bhai, partner — 4 tak) <span style="color:var(--color-danger)">*</span>')}
+    <div id="onbOwners"></div>
+    <button class="btn btn-outline btn-sm" type="button" id="onbOwnersAdd" onclick="ddAddOwner(null,'onbOwners');onbSaveDraft()" style="margin:0 0 12px">➕ Aur malik jodo</button>
+    <datalist id="ddRelList">${DD_OWNER_RELATIONS.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
     ${L('Pura Address')}<textarea id="onb_address" rows="2" style="${CHQ_INPUT};resize:vertical"></textarea>
     <button class="btn btn-outline btn-sm" type="button" onclick="onbCaptureLocation(this)" style="margin-bottom:6px">📍 Dukaan ki location lo</button> <span id="onb_locText" style="font-size:12px;color:var(--gray-500)"></span>
 
@@ -26578,6 +26591,7 @@ async function openDealerOnboardModal(leadId, fresh) {
     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px"><input type="checkbox" id="onb_welcome" checked/> Dealer ko WhatsApp par welcome kit bhejo (service number, warranty chart, T&amp;C, bank details, QR, catalogue)</label>
     <button class="btn btn-green" id="onbSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitDealerOnboarding()">Submit Dealer</button>`;
   document.getElementById('dealerOnboardModal').classList.add('open');
+  ddAddOwner({ name: (l && l.contactName) || '', relation: 'Malik' }, 'onbOwners');
   const bodyEl = document.getElementById('onbBody');
   bodyEl.oninput = bodyEl.onchange = onbSaveDraft;
   const d = fresh ? null : await onbLoadDraft();
@@ -26604,14 +26618,17 @@ async function submitDealerOnboarding() {
   const v = id => { const el = document.getElementById(`onb_${id}`); return el ? el.value.trim() : ''; };
   const ph = id => (document.getElementById(`onb_${id}`) || {}).dataset ? document.getElementById(`onb_${id}`).dataset.compressed || '' : '';
   const loc = document.getElementById('onb_locBtn');
-  const body = { leadId: v('leadId') ? Number(v('leadId')) : null, shopName: v('shop'), ownerName: v('owner'), mobile: v('mobile'), altMobile: v('alt'), city: v('city'), area: v('area'),
+  const owners = ddReadOwners('onbOwners');
+  if (owners.some(o => !o.name && (o.relation || o.dob || o.anniversary))) { err.textContent = 'Har malik ka naam likhein'; err.style.display = 'block'; err.scrollIntoView({ block: 'nearest' }); return; }
+  const named = owners.filter(o => o.name);
+  const body = { leadId: v('leadId') ? Number(v('leadId')) : null, shopName: v('shop'), ownerName: (named[0] || {}).name || '', owners: named, mobile: v('mobile'), altMobile: v('alt'), city: v('city'), area: v('area'),
     pincode: v('pincode'), email: v('email'), address: v('address'), firmType: v('firm'), partners: v('partners'), gstNo: v('gst'), panNo: v('pan'), shopOwnership: v('own'),
     yearsInBusiness: v('years'), shopSize: v('size'), stockLevel: v('stock'), brandsDealt: v('brands'), monthlyPotential: v('potential'), suggestedCredit: v('credit'), remark: v('remark'),
     gstPhoto: ph('gstPhoto'), noGst: document.getElementById('onb_noGst').checked, outsidePhoto: ph('out'), aadhaarPhoto: ph('aadhaar'), chequePhoto: ph('cheque'), biltyPhoto: ph('bilty'),
     transportName: v('tname'), transportPhone: v('tphone'), transportStation: v('tstation'), insidePhotos: ['in1', 'in2', 'in3', 'in4'].map(ph),
     locationLat: loc ? loc.dataset.lat : null, locationLng: loc ? loc.dataset.lng : null, sendWelcome: document.getElementById('onb_welcome').checked };
   const missing = [];
-  if (!body.shopName) missing.push('dukaan ka naam'); if (!body.ownerName) missing.push('dealer ka naam'); if (!body.mobile) missing.push('mobile');
+  if (!body.shopName) missing.push('dukaan ka naam'); if (!body.ownerName) missing.push('malik ka naam'); if (!body.mobile) missing.push('mobile');
   if (!body.firmType) missing.push('firm type'); if (!body.shopOwnership) missing.push('apni / kiraye ki'); if (!body.shopSize) missing.push('dukaan ka size'); if (!body.stockLevel) missing.push('maal kitna');
   if (!body.gstPhoto && !body.noGst) missing.push('GST photo'); if (!body.outsidePhoto) missing.push('bahar ki photo');
   if (!body.chequePhoto) missing.push('cheque photo');

@@ -17180,6 +17180,17 @@ app.post('/api/dealer-onboarding', requireAuth, async (req, res) => {
       [shop, leadStr(b.city, 255), mobile, gstUrl, outsideUrl, hasLoc ? lat : null, hasLoc ? lng : null, leadStr(b.address, 500),
         aadhaarUrl, owner, leadStr(b.altMobile, 50), leadStr(b.area, 255), leadStr(b.address, 1000), leadStr(b.gstNo, 30) && leadStr(b.gstNo, 30).toUpperCase()]));
 
+    // Owners from the form (client video 2026-11-21: "naye dealer onboard me bhi aur malik jodo") — into the dealer
+    // profile like ✏️ Details; an older profile that already has its owners keeps them.
+    const ymdO = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : '';
+    const owners = (Array.isArray(b.owners) ? b.owners : []).slice(0, 4).filter(o => o && leadStr(o.name, 120))
+      .map(o => ({ name: leadStr(o.name, 120), relation: leadStr(o.relation, 60) || '', dob: ymdO(o.dob), anniversary: ymdO(o.anniversary) }));
+    if (owners.length) {
+      await ensureDealerDetailCols();
+      await withDealerTables(() => db.query(`UPDATE o2d_dealers SET owners_json=COALESCE(owners_json, ?), dob=COALESCE(dob, ?), anniversary=COALESCE(anniversary, ?) WHERE counter_name=?`,
+        [JSON.stringify(owners), owners[0].dob || null, owners[0].anniversary || null, shop]));
+    }
+
     if (lead && !lead.result && !lead.cancelled_at) {
       await db.query("UPDATE leads SET result='Dealer Onboarded', needs_visit=0, closed_at=NOW(), closed_by=?, onboarding_id=? WHERE id=?", [req.session.userId, r.insertId, lead.id]);
       await logLeadEvent(lead.id, 'onboarded', `${code} · ${shop}`, req.session.userId);
