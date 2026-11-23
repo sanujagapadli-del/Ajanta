@@ -15707,29 +15707,33 @@ app.put('/api/reports/item-vendor', requireAuth, requireAdmin, async (req, res) 
 });
 
 // ══════════════════════════════════════════════════════
-// 4AS — weekly bank allocation (client 2026-11-05: "week ka receive ICICI me, ICICI ka 5% to PNB, IDFC me
-// 1,50,000, baaki bacha hua Yes bank me — planned hai, actual ham khud daal ke submit karenge").
+// 5AS (was 4AS) — weekly bank allocation (client 2026-11-05: "week ka receive ICICI me, ICICI ka 5% to PNB, IDFC me
+// 1,50,000, baaki bacha hua Yes bank me — planned hai, actual ham khud daal ke submit karenge"; client video 2026-11-23:
+// 4AS → 5AS, ICICI ka 1% Kotak me bhi — ① PNB 5% ② Kotak 1% ③ IDFC 1,50,000 ④ baaki Yes;
+// e.g. 8,92,793 → 44,640 / 8,928 / 1,50,000 / 6,89,225).
 // Planned: ICICI = the week's collection (Collection FMS cash / online receipts + cheques passed that week);
-// PNB = 5% of ICICI (actual if typed, else planned), IDFC = fixed, Yes = the rest. Actual = typed, then Submit.
+// PNB = 5% / Kotak = 1% of ICICI (actual if typed, else planned), IDFC = fixed, Yes = the rest. Actual = typed, then Submit.
 // ══════════════════════════════════════════════════════
 const FOUR_AS_RULE_KEY = 'four_as_rule';
 let _fourAsOk = false;
 async function ensureFourAs() {
   if (_fourAsOk) return;
   await db.query(`CREATE TABLE IF NOT EXISTS four_as_weeks (week_start DATE PRIMARY KEY, icici_actual DECIMAL(14,2) NULL, pnb_actual DECIMAL(14,2) NULL,
-    idfc_actual DECIMAL(14,2) NULL, yes_actual DECIMAL(14,2) NULL, note VARCHAR(500) NULL, submitted_at DATETIME NULL, submitted_by_name VARCHAR(150) NULL,
+    idfc_actual DECIMAL(14,2) NULL, yes_actual DECIMAL(14,2) NULL, kotak_actual DECIMAL(14,2) NULL, note VARCHAR(500) NULL, submitted_at DATETIME NULL, submitted_by_name VARCHAR(150) NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await db.query('ALTER TABLE four_as_weeks ADD COLUMN kotak_actual DECIMAL(14,2) NULL AFTER pnb_actual').catch(e => { if (e.code !== 'ER_DUP_FIELDNAME') throw e; });
   _fourAsOk = true;
 }
 async function fourAsRule() {
   let r = {};
   try { r = JSON.parse(await getAppSetting(FOUR_AS_RULE_KEY) || '{}') || {}; } catch (_) { r = {}; }
-  return { pnbPct: Number(r.pnbPct) >= 0 ? Number(r.pnbPct) : 5, idfcFixed: Number(r.idfcFixed) >= 0 ? Number(r.idfcFixed) : 150000 };
+  return { pnbPct: Number(r.pnbPct) >= 0 ? Number(r.pnbPct) : 5, kotakPct: r.kotakPct != null && Number(r.kotakPct) >= 0 ? Number(r.kotakPct) : 1,
+    idfcFixed: Number(r.idfcFixed) >= 0 ? Number(r.idfcFixed) : 150000 };
 }
 async function canFourAs(req) { return req.session.role === 'admin' || await hasPageGrant(req, 'four-as'); }
 app.get('/api/four-as', requireAuth, async (req, res) => {
   try {
-    if (!await canFourAs(req)) return res.status(403).json({ error: 'No access to 4AS' });
+    if (!await canFourAs(req)) return res.status(403).json({ error: 'No access to 5AS' });
     await ensureFourAs();
     const rule = await fourAsRule();
     const [[{ today }]] = await db.query("SELECT DATE_FORMAT(CURDATE(),'%Y-%m-%d') AS today");
@@ -15741,7 +15745,7 @@ app.get('/api/four-as', requireAuth, async (req, res) => {
     const [[pays], [chqs], [saved]] = await Promise.all([
       db.query("SELECT DATE_FORMAT(paid_on,'%Y-%m-%d') AS d, mode, amount FROM collect_payments WHERE source='cheque-fms' AND paid_on BETWEEN ? AND ?", [from, to]).catch(skip),
       db.query("SELECT DATE_FORMAT(clearance_at,'%Y-%m-%d') AS d, amount FROM cheques WHERE clearance='Pass' AND cancelled_at IS NULL AND clearance_at >= ? AND clearance_at < DATE_ADD(?, INTERVAL 1 DAY)", [from, to]).catch(skip),
-      db.query("SELECT DATE_FORMAT(week_start,'%Y-%m-%d') AS w, icici_actual, pnb_actual, idfc_actual, yes_actual, note, DATE_FORMAT(submitted_at,'%Y-%m-%d %H:%i') AS submitted_at, submitted_by_name FROM four_as_weeks WHERE week_start BETWEEN ? AND ?", [from, weeks[0]])
+      db.query("SELECT DATE_FORMAT(week_start,'%Y-%m-%d') AS w, icici_actual, pnb_actual, kotak_actual, idfc_actual, yes_actual, note, DATE_FORMAT(submitted_at,'%Y-%m-%d %H:%i') AS submitted_at, submitted_by_name FROM four_as_weeks WHERE week_start BETWEEN ? AND ?", [from, weeks[0]])
     ]);
     const coll = {};
     const add = (d, k, v) => { const w = mon(d), c = coll[w] = coll[w] || { cash: 0, online: 0, cheque: 0 }; c[k] += Number(v) || 0; };
@@ -15768,7 +15772,7 @@ app.get('/api/four-as', requireAuth, async (req, res) => {
         tallyAll[w] = (tallyAll[w] || 0) + all;
         if (leg > 0) tallyIcici[w] = (tallyIcici[w] || 0) + leg;
       });
-    } catch (e) { console.warn('4AS tally icici:', e.message); }
+    } catch (e) { console.warn('5AS tally icici:', e.message); }
     const sv = Object.fromEntries(saved.map(s => [s.w, s]));
     const num = v => v == null ? null : Number(v);
     const r2 = v => Math.round(v);
@@ -15777,12 +15781,13 @@ app.get('/api/four-as', requireAuth, async (req, res) => {
       const fromTally = tallyIcici[w] > 0;
       const iciciPlanned = r2(fromTally ? tallyIcici[w] : c.cash + c.online + c.cheque), iciciActual = num(s.icici_actual);
       const base = iciciActual != null ? iciciActual : iciciPlanned;
-      // Paise dropped, not rounded — as Accounts does it (Lucky 16-11: 5,75,098 × 5% = 28,754, Yes 3,96,344).
-      const pnbPlanned = Math.floor(base * rule.pnbPct / 100 + 1e-6), idfcPlanned = base > 0 ? Math.min(rule.idfcFixed, Math.max(0, base - pnbPlanned)) : 0;
+      // Rounded to the rupee as in the client's 5AS sheet 23-11 (8,92,793 × 5% = 44,640, × 1% = 8,928).
+      const pnbPlanned = Math.round(base * rule.pnbPct / 100), kotakPlanned = Math.round(base * rule.kotakPct / 100);
+      const idfcPlanned = base > 0 ? Math.min(rule.idfcFixed, Math.max(0, base - pnbPlanned - kotakPlanned)) : 0;
       return { week: w, weekEnd: ymdAddDays(w, 6), collection: { cash: r2(c.cash), online: r2(c.online), cheque: r2(c.cheque),
           tally: tallyAll[w] > 0 ? r2(tallyAll[w]) : null, tallyIcici: r2(tallyIcici[w] || 0) },
-        icici: { planned: iciciPlanned, actual: iciciActual, source: fromTally ? 'tally' : 'app' }, pnb: { planned: pnbPlanned, actual: num(s.pnb_actual) },
-        idfc: { planned: idfcPlanned, actual: num(s.idfc_actual) }, yes: { planned: Math.max(0, base - pnbPlanned - idfcPlanned), actual: num(s.yes_actual) },
+        icici: { planned: iciciPlanned, actual: iciciActual, source: fromTally ? 'tally' : 'app' }, pnb: { planned: pnbPlanned, actual: num(s.pnb_actual) }, kotak: { planned: kotakPlanned, actual: num(s.kotak_actual) },
+        idfc: { planned: idfcPlanned, actual: num(s.idfc_actual) }, yes: { planned: Math.max(0, base - pnbPlanned - kotakPlanned - idfcPlanned), actual: num(s.yes_actual) },
         note: s.note || '', submittedAt: s.submitted_at || '', submittedBy: s.submitted_by_name || '' };
     });
     res.json({ today, rule, rows, isAdmin: req.session.role === 'admin' });
@@ -15790,18 +15795,18 @@ app.get('/api/four-as', requireAuth, async (req, res) => {
 });
 app.put('/api/four-as/:week', requireAuth, async (req, res) => {
   try {
-    if (!await canFourAs(req)) return res.status(403).json({ error: 'No access to 4AS' });
+    if (!await canFourAs(req)) return res.status(403).json({ error: 'No access to 5AS' });
     const w = req.params.week;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(w) || new Date(w + 'T00:00:00Z').getUTCDay() !== 1) return res.status(400).json({ error: 'Hafte ka Monday chahiye' });
     const b = req.body || {};
     const amt = v => v === '' || v == null ? null : (Number(v) >= 0 ? Math.round(Number(v) * 100) / 100 : NaN);
-    const vals = [amt(b.icici), amt(b.pnb), amt(b.idfc), amt(b.yes)];
+    const vals = [amt(b.icici), amt(b.pnb), amt(b.kotak), amt(b.idfc), amt(b.yes)];
     if (vals.some(v => Number.isNaN(v))) return res.status(400).json({ error: 'Amount galat hai' });
-    if (b.submit && vals.some(v => v == null)) return res.status(400).json({ error: 'Submit ke liye charo actual bharein (ICICI, PNB, IDFC, Yes)' });
+    if (b.submit && vals.some(v => v == null)) return res.status(400).json({ error: 'Submit ke liye paancho actual bharein (ICICI, PNB, Kotak, IDFC, Yes)' });
     await ensureFourAs();
     const [[me]] = await db.query('SELECT name FROM users WHERE id=?', [req.session.userId]);
-    await db.query(`INSERT INTO four_as_weeks (week_start, icici_actual, pnb_actual, idfc_actual, yes_actual, note, submitted_at, submitted_by_name) VALUES (?,?,?,?,?,?,?,?)
-      ON DUPLICATE KEY UPDATE icici_actual=VALUES(icici_actual), pnb_actual=VALUES(pnb_actual), idfc_actual=VALUES(idfc_actual), yes_actual=VALUES(yes_actual), note=VALUES(note),
+    await db.query(`INSERT INTO four_as_weeks (week_start, icici_actual, pnb_actual, kotak_actual, idfc_actual, yes_actual, note, submitted_at, submitted_by_name) VALUES (?,?,?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE icici_actual=VALUES(icici_actual), pnb_actual=VALUES(pnb_actual), kotak_actual=VALUES(kotak_actual), idfc_actual=VALUES(idfc_actual), yes_actual=VALUES(yes_actual), note=VALUES(note),
         submitted_at=COALESCE(VALUES(submitted_at), submitted_at), submitted_by_name=COALESCE(VALUES(submitted_by_name), submitted_by_name)`,
       [w, ...vals, String(b.note || '').trim().slice(0, 500) || null, b.submit ? new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 19).replace('T', ' ') : null, b.submit ? ((me && me.name) || '') : null]);
     res.json({ success: true });
@@ -15810,9 +15815,9 @@ app.put('/api/four-as/:week', requireAuth, async (req, res) => {
 app.put('/api/four-as-rule', requireAuth, requireAdmin, async (req, res) => {
   try {
     const b = req.body || {};
-    const pnbPct = Number(b.pnbPct), idfcFixed = Number(b.idfcFixed);
-    if (!(pnbPct >= 0 && pnbPct <= 100) || !(idfcFixed >= 0)) return res.status(400).json({ error: 'PNB % 0-100 aur IDFC amount sahi daalein' });
-    await setAppSetting(FOUR_AS_RULE_KEY, JSON.stringify({ pnbPct, idfcFixed }));
+    const pnbPct = Number(b.pnbPct), kotakPct = Number(b.kotakPct), idfcFixed = Number(b.idfcFixed);
+    if (!(pnbPct >= 0 && pnbPct <= 100) || !(kotakPct >= 0 && kotakPct <= 100) || !(idfcFixed >= 0)) return res.status(400).json({ error: 'PNB % / Kotak % 0-100 aur IDFC amount sahi daalein' });
+    await setAppSetting(FOUR_AS_RULE_KEY, JSON.stringify({ pnbPct, kotakPct, idfcFixed }));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
 });
