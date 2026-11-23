@@ -17603,6 +17603,7 @@ function stockRowHtml(item) {
   const editBtns = stockCanEdit ? `
     <div style="display:flex;gap:4px">
       <button class="btn btn-outline btn-sm" onclick="openEditStockModal(${item.id})">✎ Edit</button>
+      <button class="btn btn-outline btn-sm" onclick="openStockMerge('${jsArg(item.item_code)}')" title="Ye duplicate hai — sahi item me milao">🔀 Merge</button>
       <button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${jsArg(item.description)}')" title="Remove">🗑</button>
     </div>` : '';
   const stock = Number(item.current_stock);
@@ -17629,7 +17630,7 @@ function renderStockGrid() {
       <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
       <button class="btn btn-outline" onclick="exportStockReport()">⬇ Excel</button>
       <div style="display:flex;gap:6px;width:100%">${[['finished', '📦 Finished Goods'], ['spare', '🔧 Spare Parts']].map(([k, l]) => `<button class="btn btn-sm ${stockCat === k ? 'btn-primary' : 'btn-outline'}" onclick="stockCat='${k}';renderStockGrid()">${l} <b style="margin-left:4px">${stockItems.filter(it => (it.category === 'spare' ? 'spare' : 'finished') === k).length}</b></button>`).join('')}</div>
-      ${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
+      ${stockCanEdit ? `<button class="btn btn-outline" onclick="openStockDupes()" title="Ek hi product do baar bana ho to yahan dikhega">🔀 Duplicate dhundo</button><button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
     </div>
     <div id="stockGridRows"></div>`;
   renderStockGridRows();
@@ -17960,6 +17961,67 @@ async function submitStockItem() {
   renderStockGrid();
 }
 
+// ── 🔀 Merge duplicate IMS items (client 2026-11-23). Similarity = shared words, numbers (sizes) must agree.
+const stockWords = d => String(d || '').toLowerCase().replace(/^\s*ajanta\s+/, '').replace(/(\d)([a-z])/g, '$1 $2').replace(/([a-z])(\d)/g, '$1 $2').split(/[^a-z0-9]+/).filter(Boolean);
+function stockSimilar(a, b) {
+  const wa = stockWords(a), wb = stockWords(b);
+  if (!wa.length || !wb.length) return 0;
+  if (wa.join('') === wb.join('')) return 1;
+  const na = wa.filter(w => /^\d/.test(w)).sort().join(','), nb = wb.filter(w => /^\d/.test(w)).sort().join(',');
+  if (na !== nb) return 0;
+  const A = new Set(wa), B = new Set(wb), inter = [...A].filter(w => B.has(w)).length;
+  return inter / (A.size + B.size - inter);
+}
+function stockMergeSuggest(code) {
+  const a = stockItems.find(x => x.item_code === code);
+  return a ? stockItems.filter(x => x.item_code !== code).map(x => ({ x, s: stockSimilar(a.description, x.description) })).filter(o => o.s >= 0.5).sort((p, q) => q.s - p.s).slice(0, 6).map(o => o.x) : [];
+}
+function openStockMerge(code, intoCode) {
+  const a = stockItems.find(x => x.item_code === code);
+  if (!a) { showToast('Item nahi mila — refresh karein', 'error'); return; }
+  const sugg = stockMergeSuggest(code);
+  const opt = x => `<option value="${esc(x.item_code)}" ${x.item_code === intoCode ? 'selected' : ''}>${esc(x.description)} · ${esc(x.item_code)} · stock ${Number(x.current_stock).toLocaleString('en-IN')}</option>`;
+  vrlModal('stockMergeModal', `${scotModalHead('stockMergeModal', '🔀 Duplicate item milao')}
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:4px">Ye item hat jaayega (duplicate / galat naam)</div>
+    <div style="padding:9px 12px;border:1.5px solid var(--color-danger);border-radius:10px;background:var(--color-danger-bg);margin-bottom:10px"><b>${esc(a.description)}</b>
+      <div style="font-size:11.5px;color:var(--gray-600)">${esc(a.item_code)} · stock ${Number(a.current_stock).toLocaleString('en-IN')} ${esc(a.uom || '')}</div></div>
+    <label style="font-size:12px;font-weight:700">Kis sahi item me milana hai? *</label>
+    <select id="stkMergeInto" style="${VRL_IN};margin-bottom:6px"><option value="">-- Chunein --</option>
+      ${sugg.length ? `<optgroup label="Milte-julte naam">${sugg.map(opt).join('')}</optgroup>` : ''}
+      <optgroup label="Sab items">${stockItems.filter(x => x.item_code !== code).slice().sort((p, q) => p.description.localeCompare(q.description)).map(opt).join('')}</optgroup></select>
+    <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:12px">Iska stock, IN/OUT history, FMS naam-link, GP aur samples sab sahi item me chale jaayenge. Ye naam dropdown me nahi aayega. Wapas alag nahi hota.</div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doStockMerge('${jsArg(code)}', this)">🔀 Merge karo</button>`, 520);
+}
+async function doStockMerge(code, btn) {
+  const into = document.getElementById('stkMergeInto').value;
+  if (!into) { showToast('Sahi item chunein', 'error'); return; }
+  const a = stockItems.find(x => x.item_code === code), b = stockItems.find(x => x.item_code === into);
+  if (!await uiConfirm(`"${a ? a.description : code}" ko "${b ? b.description : into}" me milayein? Ye wapas alag nahi hoga.`)) return;
+  const restore = btnLoading(btn, 'Merge ho raha hai…');
+  const r = await api('/api/stock/merge', 'POST', { from: code, into });
+  restore();
+  if (!r || r.error) { showToast((r && r.error) || 'Merge nahi hua', 'error'); return; }
+  closeModal('stockMergeModal');
+  showToast(`✅ Merge ho gaya — ${r.movedTxns} entries + stock ${r.movedStock} gaya`);
+  await loadStock(true);
+  if (document.getElementById('stockDupeModal') && document.getElementById('stockDupeModal').classList.contains('open')) openStockDupes(); else renderStockGrid();
+}
+// Pairs that look like the same product (same words / sizes), across both tabs.
+function openStockDupes() {
+  const items = stockItems.slice(), pairs = [];
+  for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+    const s = stockSimilar(items[i].description, items[j].description);
+    if (s >= 0.75) pairs.push({ a: items[i], b: items[j], s });
+  }
+  pairs.sort((p, q) => q.s - p.s);
+  const cell = x => `<b>${esc(x.description)}</b><div style="font-size:11px;color:var(--gray-500)">${esc(x.item_code)} · stock ${Number(x.current_stock).toLocaleString('en-IN')}${x.category === 'spare' ? ' · 🔧' : ''}</div>`;
+  vrlModal('stockDupeModal', `${scotModalHead('stockDupeModal', `🔀 Duplicate lag rahe items (${pairs.length})`)}
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Jo item galat / duplicate hai uske aage "ise milao" dabayein — wo doosre wale me mil jaayega.</div>
+    ${pairs.length ? `<div style="max-height:62dvh;overflow:auto"><table style="font-size:12.5px;width:100%"><tbody>${pairs.slice(0, 150).map(p => `<tr>
+      <td style="vertical-align:top">${cell(p.a)}<button class="btn btn-outline btn-sm" style="margin-top:4px" onclick="openStockMerge('${jsArg(p.a.item_code)}','${jsArg(p.b.item_code)}')">ise milao →</button></td>
+      <td style="vertical-align:top">${cell(p.b)}<button class="btn btn-outline btn-sm" style="margin-top:4px" onclick="openStockMerge('${jsArg(p.b.item_code)}','${jsArg(p.a.item_code)}')">← ise milao</button></td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">Koi duplicate nahi mila 🎉</div>'}`, 760);
+}
 async function deleteStockItem(id, name) {
   if (!await uiConfirm(`Remove "${name}" from Stock?`)) return;
   const res = await api(`/api/stock/${id}`, 'DELETE');
@@ -26814,6 +26876,26 @@ const DD_FIELDS = [['#uDepartment', 'department'], ['#plUom', 'uom'], ['#stkUom'
   ['#onb_city', 'city'], ['#onb_area', 'area'], ['#onb_tname', 'transport'], ['#o2dHoldReason', 'hold_reason'], ['[id^="sfmsInReason_"]', 'inout_reason'],
   ['#o2dDvBy', 'received_by'], ['#ssNewCounterCity', 'city'], ['#ssUpPlace', 'city'], ['[id^="rpl_"][id$="_reason"]', 'repl_not_ours'], ['[id^="rpl_"][id$="_owr"]', 'ow_reason'],
   ['[id^="rpl_"][id$="_staff"]', 'staff']];
+// Where each list shows up (Dropdown Master "Kahan use hota hai", client 2026-11-23). Keep in step with DD_FIELDS.
+const DD_USED_IN = {
+  city: ['Dealer Master → ✏️ Details (City)', 'Dealer Onboarding form (City)', 'Sales Schedule → naya counter (City)', 'Sales Schedule → upcountry jagah', 'Bahar ke Mechanics (City)'],
+  area: ['Lead FMS → New Lead (Area)', 'Dealer Master → ✏️ Details (Area)', 'Dealer Onboarding form (Area)'],
+  transport: ['Dealer Onboarding form (Transport ka naam)'],
+  vehicle: ['Petty Cash → entry (Vehicle)'],
+  payee: ['Petty Cash → entry (kisko diya)'],
+  department: ['Users → add / edit user (Department)'],
+  uom: ['O2D Price List → Add Product (UOM)', 'IMS Stock → Add Item (UOM)'],
+  gst: ['O2D Price List → Add Product (GST %)'],
+  brought_by: ['Replacement FMS → form (kaun laaya)'],
+  repl_defect: ['Replacement FMS → form (kharabi)'],
+  repl_not_ours: ['Replacement FMS → check step (apna kyun nahi)'],
+  ow_reason: ['Replacement FMS → Out of Warranty reason'],
+  hold_reason: ['O2D FMS → order Hold (reason)'],
+  delay_reason: ['Task late Done → delay reason (Checklist / Delegation / sab FMS)'],
+  inout_reason: ['Service FMS → Check In/Out (spare kam kyun)'],
+  received_by: ['O2D FMS → Delivery (kisne liya)'],
+  staff: ['Replacement FMS → Cash from staff (staff ka naam)']
+};
 // Non-admins who may still type a new value in one list (user ids, or 'all').
 // Replacement "Who Got the Product" — Shalu, Service PC (client 2026-11-13).
 // Petty Cash Payee + Vehicle — anyone on the (granted) Petty Cash page: a new
@@ -27669,6 +27751,7 @@ async function loadDropdownMaster() {
   wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${Object.entries(r.lists).map(([k, l]) => `
     <div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;padding:12px 14px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b style="flex:1">${esc(DD_LABELS[k] || k)}</b><span style="font-size:11px;color:var(--gray-500)">${l.items.length}${l.saved ? '' : ' · purane data se'}</span></div>
+      <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;line-height:1.5">🔗 <b>Kahan use hota hai:</b> ${(DD_USED_IN[k] || ['—']).map(u => `<span style="display:inline-block;background:var(--gray-100);color:var(--gray-700);border-radius:8px;padding:1px 7px;margin:2px 3px 0 0">${esc(u)}</span>`).join('')}</div>
       <textarea id="ddm_${k}" rows="8" style="${VRL_IN};resize:vertical;font-size:12.5px">${esc(l.items.join('\n'))}</textarea>
       <button class="btn btn-sm btn-primary" style="margin-top:6px" onclick="saveDropdownList('${k}',this)">✓ Save</button></div>`).join('')}</div>`;
 }

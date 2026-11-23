@@ -1084,20 +1084,41 @@ async function getMasterWorkbookData() {
 // (New Order's product field is free-text — this just makes a name typed
 // once show up as a suggestion next time). Deliberately separate from the
 // Price List & Catalogue table — that's for pricing/photos, not this.
+// Client 2026-11-23: "product name add dropdown me nhi aa rha" — an item added in IMS (Stock) now shows here too
+// (finished goods; spares go to the Service spare list). Names merged away in IMS (🔀 Merge) are left out.
+async function imsCatalogForDropdowns() {
+  const [items] = await withStockTable(() => db.query('SELECT item_code, description, category FROM ajanta_stock_items ORDER BY description')).catch(() => [[]]);
+  const hidden = await stockMergedKeys();
+  return { items: items.filter(i => String(i.description || '').trim() && !hidden.has(stockNameKey(i.description))), hidden };
+}
+async function stockMergedKeys() {
+  const hidden = new Set();
+  const [rows] = await db.query('SELECT from_desc, into_desc, alias_keys FROM stock_item_merges').catch(() => [[]]);
+  const keep = new Set(rows.map(r => stockNameKey(r.into_desc)));
+  rows.forEach(r => {
+    hidden.add(stockNameKey(r.from_desc));
+    try { (JSON.parse(r.alias_keys || '[]') || []).forEach(k => hidden.add(k)); } catch (_) { /* old row */ }
+  });
+  keep.forEach(k => hidden.delete(k));
+  return hidden;
+}
 app.get('/api/o2d-fms/product-names', requireAuth, async (req, res) => {
   try {
-    const [{ products }, orders] = await Promise.all([
+    const [{ products }, orders, ims] = await Promise.all([
       getMasterWorkbookData(),
-      getO2dOrders().catch(() => [])
+      getO2dOrders().catch(() => []),
+      imsCatalogForDropdowns().catch(() => ({ items: [], hidden: new Set() }))
     ]);
-    const seen = new Set(products.map(p => p.name.toLowerCase()));
-    const merged = products.slice();
-    orders.forEach(o => (o.products || []).forEach(p => {
-      const name = (p.productName || '').trim();
-      if (!name || seen.has(name.toLowerCase())) return;
-      seen.add(name.toLowerCase());
-      merged.push({ name, category: '' });
-    }));
+    const seen = new Set(products.map(p => p.name.toLowerCase())), seenKey = new Set(products.map(p => stockNameKey(p.name)));
+    const merged = products.filter(p => !ims.hidden.has(stockNameKey(p.name)));
+    const add = (name, category) => {
+      const k = stockNameKey(name);
+      if (!name || !k || seen.has(name.toLowerCase()) || seenKey.has(k) || ims.hidden.has(k)) return;
+      seen.add(name.toLowerCase()); seenKey.add(k);
+      merged.push({ name, category });
+    };
+    ims.items.filter(i => i.category !== 'spare').forEach(i => add(String(i.description).trim(), ''));
+    orders.forEach(o => (o.products || []).forEach(p => add((p.productName || '').trim(), '')));
     res.json({ products: merged });
   } catch (err) { sendServerError(res, err); }
 });
@@ -6233,8 +6254,15 @@ async function sfmsAddToList(tab, name) {
 // anything not in this master catalog.
 app.get('/api/service-fms/spare-parts', requireAuth, async (req, res) => {
   try {
-    const { spareParts } = await getMasterWorkbookData();
-    res.json(spareParts);
+    const [{ spareParts }, ims] = await Promise.all([getMasterWorkbookData(), imsCatalogForDropdowns().catch(() => ({ items: [], hidden: new Set() }))]);
+    // + spares added in IMS (client 2026-11-23), minus names merged away there.
+    const seen = new Set(spareParts.map(p => stockNameKey(p.name)));
+    const out = spareParts.filter(p => !ims.hidden.has(stockNameKey(p.name)));
+    ims.items.filter(i => i.category === 'spare').forEach(i => {
+      const k = stockNameKey(i.description);
+      if (k && !seen.has(k)) { seen.add(k); out.push({ code: i.item_code, name: String(i.description).trim(), category: 'IMS' }); }
+    });
+    res.json(out);
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -8052,6 +8080,53 @@ app.delete('/api/stock/:id', requireAuth, async (req, res) => {
     await withStockTable(() => db.query('DELETE FROM ajanta_stock_items WHERE id = ?', [parseInt(req.params.id, 10)]));
     res.json({ success: true });
   } catch (err) { sendServerError(res, err); }
+});
+
+// 🔀 Merge two IMS items (client 2026-11-23: "emp uneducated hai to product ke multiple create kr deta hai — product
+// merge system bhi bnao"). The duplicate's stock, IN/OUT history, FMS name links, GP links and samples move to the
+// item that stays; the duplicate is removed. Logged in stock_item_merges (its names stay out of the dropdowns).
+app.get('/api/stock/merges', requireAuth, async (req, res) => {
+  try {
+    if (!canEditStock(req)) return res.status(403).json({ error: 'Sirf Admin' });
+    const [rows] = await db.query('SELECT id, from_code, from_desc, into_code, into_desc, from_stock, moved_txns, merged_by, DATE_FORMAT(merged_at, "%Y-%m-%d %H:%i") AS merged_at FROM stock_item_merges ORDER BY id DESC LIMIT 200').catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
+    res.json({ merges: rows });
+  } catch (err) { sendServerError(res, err); }
+});
+app.post('/api/stock/merge', requireAuth, async (req, res) => {
+  if (!canEditStock(req)) return res.status(403).json({ error: 'Sirf Admin merge kar sakta hai' });
+  const from = String((req.body || {}).from || '').trim(), into = String((req.body || {}).into || '').trim();
+  if (!from || !into || from === into) return res.status(400).json({ error: 'Do alag item chunein' });
+  let conn;
+  try {
+    await db.query(`CREATE TABLE IF NOT EXISTS stock_item_merges (id INT AUTO_INCREMENT PRIMARY KEY, from_code VARCHAR(32) NOT NULL, from_desc VARCHAR(255),
+      into_code VARCHAR(32) NOT NULL, into_desc VARCHAR(255), from_stock DECIMAL(12,2), moved_txns INT, alias_keys TEXT, snapshot TEXT, merged_by VARCHAR(150),
+      merged_at DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await ensureStockTxnSchema().catch(() => {});
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+    const [[a]] = await conn.query('SELECT * FROM ajanta_stock_items WHERE item_code=? FOR UPDATE', [from]);
+    const [[b]] = await conn.query('SELECT * FROM ajanta_stock_items WHERE item_code=? FOR UPDATE', [into]);
+    if (!a || !b) { await conn.rollback(); return res.status(404).json({ error: 'Item nahi mila — refresh karein' }); }
+    const [aliasRows] = await conn.query('SELECT alias_key FROM ajanta_stock_aliases WHERE item_code=?', [from]);
+    const [t] = await conn.query('UPDATE ajanta_stock_transactions SET item_code=?, item_name=?, uom=? WHERE item_code=?', [b.item_code, b.description, b.uom, a.item_code]);
+    await conn.query('UPDATE ajanta_stock_items SET current_stock = current_stock + ? WHERE item_code=?', [Number(a.current_stock) || 0, b.item_code]);
+    await conn.query('UPDATE ajanta_stock_aliases SET item_code=? WHERE item_code=?', [b.item_code, a.item_code]);
+    const fromKey = stockNameKey(a.description);
+    if (fromKey && fromKey !== stockNameKey(b.description))
+      await conn.query('INSERT INTO ajanta_stock_aliases (alias_key, item_code) VALUES (?,?) ON DUPLICATE KEY UPDATE item_code=VALUES(item_code)', [fromKey, b.item_code]);
+    const opt = async (sql, p) => { try { await conn.query(sql, p); } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; } };
+    await opt('UPDATE gp_item_links SET item_code=? WHERE item_code=?', [b.item_code, a.item_code]);
+    await opt('UPDATE sample_issues SET item_code=?, item_name=? WHERE item_code=?', [b.item_code, b.description, a.item_code]);
+    await conn.query('DELETE FROM ajanta_stock_items WHERE item_code=?', [a.item_code]);
+    const aliasKeys = [...new Set([fromKey, ...aliasRows.map(r => r.alias_key)])].filter(k => k && k !== stockNameKey(b.description));
+    await conn.query('INSERT INTO stock_item_merges (from_code, from_desc, into_code, into_desc, from_stock, moved_txns, alias_keys, snapshot, merged_by) VALUES (?,?,?,?,?,?,?,?,?)',
+      [a.item_code, a.description, b.item_code, b.description, Number(a.current_stock) || 0, t.affectedRows, JSON.stringify(aliasKeys), JSON.stringify(a), req.session.name || '']);
+    await conn.commit();
+    res.json({ success: true, movedTxns: t.affectedRows, movedStock: Number(a.current_stock) || 0, into: b.item_code });
+  } catch (err) {
+    if (conn) await conn.rollback().catch(() => {});
+    sendServerError(res, err);
+  } finally { if (conn) conn.release(); }
 });
 
 // ── Stock Inward/Outward ledger ───────────────────────────────────────────
