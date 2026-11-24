@@ -42,7 +42,9 @@
  */
 
 const CFG = PropertiesService.getScriptProperties();
-const cfg = (k, d) => CFG.getProperty(k) || d || '';
+// All settings read once per run (one call instead of one per use).
+let CFG_CACHE = null;
+const cfg = (k, d) => { if (!CFG_CACHE) CFG_CACHE = CFG.getProperties(); return CFG_CACHE[k] || d || ''; };
 const RUN_BUDGET_MS = 4.5 * 60 * 1000;   // Apps Script stops a run at 6 min
 const BATCH = 10;                         // POST to the ERP every 10 calls
 const AUDIO_RX = /\.(m4a|mp3|mp4|wav|ogg|opus|flac|webm|mpeg|mpga|aac|amr|3gp|3gpp|awb)$/i;
@@ -64,10 +66,11 @@ function processCalls() {
       if (stop || !timeLeft()) break;
       const files = listNewRecordings_(d);
       if (!files.length) continue;
-      const known = erpPost_('/api/calls/known', { drive: d.name, names: files.map(f => f.name) }).known || [];
+      const known = new Set(erpPost_('/api/calls/known', { drive: d.name, names: files.map(f => f.name) }).known || []);
+      setErpMarks_(files.filter(f => known.has(f.name)).map(f => f.id), 'done');   // already in the ERP: mark all at once
       for (const f of files) {
+        if (known.has(f.name)) continue;
         if (!timeLeft()) { stop = true; break; }
-        if (known.indexOf(f.name) >= 0) { markDone_(f.id); continue; }
         let call;
         try { call = processOne_(d.name, f); }
         catch (e) {
@@ -161,14 +164,14 @@ function sarvamApi_(method, path, body) {
   return JSON.parse(fetch_('Sarvam', 'https://api.sarvam.ai' + path, opts).getContentText() || '{}');
 }
 function setErpMark_(fileId, value) {   // value null = not sent anywhere yet
-  Drive.Files.update({ appProperties: { erp: value } }, fileId, null, { supportsAllDrives: true });
+  setErpMarks_([fileId], value);
 }
 function sarvamCycle_(timeLeft) {
   let done = 0, started = 0;
   // 1) Collect jobs sent in earlier runs.
   CFG.getKeys().filter(k => k.indexOf('SJOB_') === 0).forEach(k => {
     if (timeLeft()) {
-      try { done += sarvamCollect_(k); }
+      try { done += sarvamCollect_(k, timeLeft); }
       catch (e) { console.warn(`${k}: ${e.message}`); }
     }
   });
@@ -177,10 +180,11 @@ function sarvamCycle_(timeLeft) {
     if (!timeLeft() || started >= 3) break;
     let files = listNewRecordings_(d);
     if (!files.length) continue;
-    const known = erpPost_('/api/calls/known', { drive: d.name, names: files.map(f => f.name) }).known || [];
+    const known = new Set(erpPost_('/api/calls/known', { drive: d.name, names: files.map(f => f.name) }).known || []);
+    setErpMarks_(files.filter(f => known.has(f.name)).map(f => f.id), 'done');   // already in the ERP: mark all at once
     const big = [];
     files = files.filter(f => {
-      if (known.indexOf(f.name) >= 0) { markDone_(f.id); return false; }
+      if (known.has(f.name)) return false;
       if (Number(f.size) > SARVAM_MAX_BYTES) { big.push({ id: f.id, call: Object.assign(baseCall_(d.name, f).call, { error: 'Recording 45 MB se badi hai' }) }); return false; }
       return true;
     });
@@ -200,25 +204,31 @@ function sarvamStart_(drive, files) {
   // Plain names on Sarvam's side ("0.m4a"…); the real names stay in our job record.
   const names = files.map((f, i) => `${i}.${(String(f.name).split('.').pop() || 'm4a').toLowerCase()}`);
   const up = sarvamApi_('post', '/speech-to-text/job/v1/upload-files', { job_id: job.job_id, files: names });
+  // Upload a few files at once (up to 5 files / 40 MB together, so memory stays safe).
+  let group = [], bytes = 0;
+  const send = () => { fetchAllOk_('Sarvam upload', group); group = []; bytes = 0; };
   files.forEach((f, i) => {
+    const size = Number(f.size) || 0;
+    if (group.length && (group.length >= 5 || bytes + size > 40 * 1024 * 1024)) send();
     const blob = DriveApp.getFileById(f.id).getBlob();
-    fetch_('Sarvam upload', up.upload_urls[names[i]].file_url, {
-      method: 'put', contentType: blob.getContentType() || 'application/octet-stream', headers: { 'x-ms-blob-type': 'BlockBlob' }, payload: blob.getBytes()
-    });
+    group.push({ url: up.upload_urls[names[i]].file_url,
+      method: 'put', contentType: blob.getContentType() || 'application/octet-stream', headers: { 'x-ms-blob-type': 'BlockBlob' }, payload: blob.getBytes() });
+    bytes += size;
   });
+  if (group.length) send();
   sarvamApi_('post', `/speech-to-text/job/v1/${job.job_id}/start`);
   CFG.setProperty('SJOB_' + job.job_id, JSON.stringify({ at: Date.now(), drive,
     files: files.map((f, i) => ({ n: names[i], id: f.id, name: f.name, ct: f.createdTime, p: f.properties || {} })) }));
-  files.forEach(f => setErpMark_(f.id, 'job'));
+  setErpMarks_(files.map(f => f.id), 'job');
   console.log(`Sarvam job ${job.job_id}: ${files.length} recording(s) of ${drive}`);
 }
-function sarvamCollect_(key) {
+function sarvamCollect_(key, timeLeft) {
   const jobId = key.slice(5), st = JSON.parse(CFG.getProperty(key));
   const ageH = (Date.now() - st.at) / 3600000;
   const s = sarvamApi_('get', `/speech-to-text/job/v1/${jobId}/status`);
   if (['Accepted', 'Pending', 'Running'].indexOf(s.job_state) >= 0) {
     if (ageH < 6) return 0;               // still working — look again next run
-    st.files.forEach(f => setErpMark_(f.id, null));   // stuck: send these again
+    setErpMarks_(st.files.map(f => f.id), null);   // stuck: send these again
     CFG.deleteProperty(key);
     return 0;
   }
@@ -231,12 +241,24 @@ function sarvamCollect_(key) {
   });
   const outs = Object.keys(outByIn).map(k => outByIn[k]);
   const urls = outs.length ? (sarvamApi_('post', '/speech-to-text/job/v1/download-files', { job_id: jobId, files: outs }).download_urls || {}) : {};
-  let items = [], done = 0;
-  st.files.forEach(f => {
+  // All ready texts downloaded together instead of one by one.
+  const ready = st.files.filter(f => outByIn[f.n] && urls[outByIn[f.n]]);
+  const textOf = {};
+  fetchAllOk_('Sarvam download', ready.map(f => ({ url: urls[outByIn[f.n]].file_url, method: 'get' })))
+    .forEach((res, i) => { textOf[ready[i].n] = JSON.parse(res.getContentText()); });
+  let items = [], done = 0, next = 0;
+  // Files not sent yet stay in the job record, so a stopped run never pays Claude twice.
+  const saveRest = () => {
+    const rest = st.files.slice(next);
+    if (rest.length) CFG.setProperty(key, JSON.stringify(Object.assign({}, st, { files: rest })));
+    else CFG.deleteProperty(key);
+  };
+  const send = () => { done += flush_(items); items = []; saveRest(); };
+  for (const f of st.files) {
+    if (!timeLeft()) break;               // near the 6-min limit: the rest go next run
     const { call, meta } = baseCall_(st.drive, { id: f.id, name: f.name, createdTime: f.ct, properties: f.p });
-    const out = outByIn[f.n];
-    if (out && urls[out]) {
-      const r = JSON.parse(fetch_('Sarvam download', urls[out].file_url, { method: 'get' }).getContentText());
+    const r = textOf[f.n];
+    if (r) {
       call.transcript = r.transcript;
       const ends = (r.timestamps && r.timestamps.end_time_seconds) || [];
       call.durationSec = Math.round(ends.length ? Math.max.apply(null, ends) : 0);
@@ -245,10 +267,11 @@ function sarvamCollect_(key) {
       call.error = 'Text nahi bana (Sarvam): ' + String(errByIn[f.n] || s.job_state).slice(0, 300);
     }
     items.push({ id: f.id, call });
-    if (items.length >= BATCH) { done += flush_(items); items = []; }
-  });
-  if (items.length) done += flush_(items);
-  CFG.deleteProperty(key);
+    next++;
+    if (items.length >= BATCH) send();
+  }
+  if (items.length) send();
+  else saveRest();
   return done;
 }
 
@@ -307,7 +330,24 @@ function listNewRecordings_(src) {
   return out;
 }
 function markDone_(fileId) {
-  Drive.Files.update({ appProperties: { erp: 'done' } }, fileId, null, { supportsAllDrives: true });
+  setErpMarks_([fileId], 'done');
+}
+// Many Drive files at once (20 together via UrlFetchApp.fetchAll) instead of one call per file.
+// method 'patch' + body = update, 'delete' = delete for ever (same as Drive.Files.remove).
+function driveMany_(method, ids, body) {
+  if (!ids.length) return;
+  const token = ScriptApp.getOAuthToken();
+  for (let i = 0; i < ids.length; i += 20) {
+    fetchAllOk_('Drive', ids.slice(i, i + 20).map(id => {
+      const req = { url: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id`,
+        method, headers: { Authorization: 'Bearer ' + token } };
+      if (body) { req.contentType = 'application/json'; req.payload = JSON.stringify(body); }
+      return req;
+    }));
+  }
+}
+function setErpMarks_(ids, value) {   // value null = not sent anywhere yet
+  driveMany_('patch', ids, { appProperties: { erp: value } });
 }
 
 // ── File name → call time, number, saved contact name ────────────────────
@@ -413,6 +453,22 @@ function fetch_(who, url, opts) {
   if (who === 'Groq' && code >= 400 && code < 500 && code !== 401 && code !== 429) err.permanent = true;
   throw err;
 }
+// Same as fetch_, for many requests at once (each request has its own url). Any failure throws.
+function fetchAllOk_(who, reqs) {
+  if (!reqs.length) return [];
+  reqs.forEach(r => { r.muteHttpExceptions = true; });
+  let out;
+  try { out = UrlFetchApp.fetchAll(reqs); }
+  catch (e) { const err = new Error(`${who}: ${e.message}`); err.code = 0; throw err; }
+  out.forEach(res => {
+    const code = res.getResponseCode();
+    if (code >= 200 && code < 300) return;
+    const err = new Error(`${who} ${code}: ${res.getContentText().slice(0, 300)}`);
+    err.code = code;
+    throw err;
+  });
+  return out;
+}
 
 // ── Cleanup (trigger: daily ~2 am): delete audio older than KEEP_DAYS ────
 // Only files already in the ERP; the text stays there forever.
@@ -421,18 +477,21 @@ function cleanupOldAudio() {
   const cutoff = new Date(Date.now() - keep * 86400000).toISOString();
   const started = Date.now();
   for (const d of listSources_()) {
-    const names = [];
-    let token;
+    let token, total = 0;
     do {
       const r = Drive.Files.list(Object.assign(scope_(d.driveId), {
         pageSize: 200, pageToken: token, fields: 'nextPageToken, files(id, name)',
         q: `trashed=false and createdTime < '${cutoff}' and appProperties has { key='erp' and value='done' }` + inSource_(d)
       }));
-      (r.files || []).forEach(f => { Drive.Files.remove(f.id, { supportsAllDrives: true }); names.push(f.name); });
+      const files = r.files || [];
+      driveMany_('delete', files.map(f => f.id));   // 20 deletes at a time
+      // Tell the ERP after every page, so a run stopped by the time limit loses nothing.
+      const names = files.map(f => f.name);
+      for (let i = 0; i < names.length; i += 500) erpPost_('/api/calls/audio-removed', { drive: d.name, names: names.slice(i, i + 500) });
+      total += names.length;
       token = r.nextPageToken;
     } while (token && Date.now() - started < RUN_BUDGET_MS);
-    for (let i = 0; i < names.length; i += 500) erpPost_('/api/calls/audio-removed', { drive: d.name, names: names.slice(i, i + 500) });
-    if (names.length) console.log(`${d.name}: ${names.length} old recording(s) deleted`);
+    if (total) console.log(`${d.name}: ${total} old recording(s) deleted`);
     if (Date.now() - started > RUN_BUDGET_MS) break;
   }
 }
