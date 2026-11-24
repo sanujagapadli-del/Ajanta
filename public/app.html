@@ -10,7 +10,7 @@
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Ajanta ERP"/>
 <title>Ajanta Appliances Task Manager</title>
-<link rel="icon" type="image/png" href="/logo-mark.png"/>
+<link rel="icon" type="image/png" href="/logo-mark-sm.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" id="chartJsTag" defer></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
@@ -1411,10 +1411,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo" style="position:relative">
     <div class="logo-icon-only" style="background:#fff;border-radius:9px;padding:4px;width:40px;height:40px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:opacity .22s;box-shadow:var(--shadow-sm)">
-      <img src="/logo-mark.png" alt="Ajanta Appliances" style="width:100%;height:100%;object-fit:contain"/>
+      <img src="/logo-mark-sm.png" alt="Ajanta Appliances" style="width:100%;height:100%;object-fit:contain"/>
     </div>
     <div class="logo-full-lockup" style="position:absolute;left:13px;top:50%;transform:translateY(-50%);background:#fff;border-radius:9px;padding:5px 10px;opacity:0;transition:opacity .22s;box-shadow:var(--shadow-sm)">
-      <img src="/logo-horizontal.png" alt="Ajanta Appliances" style="height:26px;width:auto;display:block"/>
+      <img src="/logo-horizontal-sm.png" alt="Ajanta Appliances" style="height:26px;width:auto;display:block"/>
     </div>
     <button class="sb-pin" id="sbPinBtn" type="button" onclick="toggleSidebarPin()" title="Sidebar khula rakho (pin)" aria-label="Pin sidebar">
       <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
@@ -5831,10 +5831,14 @@ async function loadDashboard() {
     (ME.role === 'admin' || MY_PAGES.has('purchase-fms')) ? api('/api/purchase-fms/indents').catch(() => null) : null,
     api('/api/delivery-dues/mine').catch(() => null)
   ]);
-  const [dDel, dChl] = await Promise.all([
-    api(baseUrl + 'delegation'),
-    api(baseUrl + 'checklist')
-  ]);
+  // One call for both task types (was one per type — performance audit
+  // 2026-11-24); the server splits counts in byType. Without byType (older
+  // server) it falls back to the two calls, so counts never double up.
+  const dBoth = (await api(baseUrl + 'both')) || {};
+  const asType = type => ({ ...dBoth.byType[type], todayPending: (dBoth.todayPending || []).filter(t => t.type === type) });
+  const [dDel, dChl] = dBoth.error ? [dBoth, dBoth]
+    : dBoth.byType && dBoth.byType.delegation && dBoth.byType.checklist ? [asType('delegation'), asType('checklist')]
+    : await Promise.all([api(baseUrl + 'delegation'), api(baseUrl + 'checklist')]);
   if (loadSeq !== _dashLoadSeq) return;
 
   // Error check: agar DB ya API fail ho toh user ko dikhao
@@ -10097,6 +10101,9 @@ const FMS_WRITE_KEYS = [['/api/o2d-fms', 'o2d'], ['/api/service-fms', 'sfms'], [
 // empties it, and a click on a Refresh / 🔄 button always fetches fresh.
 // Another user's change shows up at the latest after the window (60 s).
 const API_REUSE = [
+  // Service FMS master lists (spare parts, items, mechanics, zones) + product names hardly change:
+  // 5 min, like dd-lists (opening Service FMS was 10 calls each time — performance audit 2026-11-24).
+  [/^\/api\/(service-fms\/(spare-parts|items|mechanics|zones|area-zone-map)|o2d-fms\/product-names)(\?|$)/, 300000],
   [/^\/api\/(o2d-fms|service-fms|replacement-fms|lead-fms|cheque-fms|purchase-fms)(\/|\?|$)/, 60000],
   [/^\/api\/(dashboard|attendance\/today|km\/today|approvals\/count|transfers\/count|delivery-dues\/mine)(\?|$)/, 60000],
   // Page lists that were re-downloaded on every sidebar switch (2026-11-13):
@@ -31010,7 +31017,7 @@ function openGpOrders() {
   gpOrdQ = ''; gpOrdOpen = '';
   vrlModal('gpOrdersModal', `${scotModalHead('gpOrdersModal', 'Order-wise sales')}
     <div style="font-size:12.5px;color:var(--gray-500);margin:-6px 0 10px">${esc(fmtDateDMY(gpData.start))} – ${esc(fmtDateDMY(gpData.end))} · bill date ke hisaab se · amounts bina GST</div>
-    <input id="gpOrdSearch" placeholder="Order no, party ya salesman likhein…" oninput="gpOrdQ=this.value;renderGpOrders()" style="${VRL_IN};margin-bottom:10px"/>
+    <input id="gpOrdSearch" placeholder="Order no, party ya salesman likhein…" oninput="gpOrdQ=this.value;clearTimeout(window._gpOrdT);window._gpOrdT=setTimeout(renderGpOrders,180)" style="${VRL_IN};margin-bottom:10px"/>
     <div id="gpOrdBody"></div>`, 980);
   document.querySelector('#gpOrdersModal .modal').style.width = 'min(980px, 96vw)';
   renderGpOrders();
@@ -32431,7 +32438,7 @@ async function loadFMSTaskRows() {
     <div class="fms-search-bar">
       <span style="font-size:14px">🔍</span>
       <input type="text" id="fmsRowSearch" placeholder="Search tasks (kisi bhi column me)..."
-        oninput="filterFMSTaskRows()" autocomplete="off"/>
+        oninput="clearTimeout(window._fmsRowT);window._fmsRowT=setTimeout(filterFMSTaskRows,180)" autocomplete="off"/>
       <span class="fms-search-count" id="fmsRowSearchCount">${r.rows.length} row(s)</span>
       <button class="fms-search-clear" onclick="clearFMSRowSearch()" style="display:none" id="fmsRowSearchClearBtn">✕ Clear</button>
     </div>
@@ -32462,8 +32469,9 @@ function renderFMSTaskRows(rowsToShow) {
     tbody.innerHTML = `<tr><td colspan="${colKeys.length + 2}" style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">No matching rows. Try a different search.</td></tr>`;
     return;
   }
+  const idxOf = new Map(allRows.map((r, i) => [r, i])); // was allRows.indexOf per row (n×n on big sheets)
   tbody.innerHTML = rowsToShow.map(row => {
-    const origIdx = allRows.indexOf(row);
+    const origIdx = idxOf.has(row) ? idxOf.get(row) : -1;
     return `<tr>
       <td><button class="fms-done-btn" onclick="openFMSDoneModal(${origIdx})">✅ Done</button></td>
       ${colKeys.map(k => `<td>${esc(row.data[k] || '—')}</td>`).join('')}

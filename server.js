@@ -1611,14 +1611,19 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 
     const taskType = req.query.taskType || 'both';
     let pending = 0, revised = 0, completed = 0;
+    // Per-type counts too, so the Dashboard can ask once with taskType=both instead of
+    // once per type (it needs delegation's revised count on its own — performance audit 2026-11-24).
+    const byType = {};
 
     if (taskType === 'delegation' || taskType === 'both') {
       const [d] = await db.query(`SELECT SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed FROM delegation_tasks t WHERE 1=1 ${userFilter} ${delDateClause}`, [...params, ...dateClauseParams]);
       pending += parseInt(d[0].pending)||0; revised += parseInt(d[0].revised)||0; completed += parseInt(d[0].completed)||0;
+      byType.delegation = { pending: parseInt(d[0].pending)||0, revised: parseInt(d[0].revised)||0, completed: parseInt(d[0].completed)||0 };
     }
     if (taskType === 'checklist' || taskType === 'both') {
       const [d] = await db.query(`SELECT SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN status='revised' THEN 1 ELSE 0 END) AS revised,SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed FROM checklist_tasks t WHERE 1=1 ${userFilter} ${chkDateClause}`, [...params, ...dateClauseParams]);
       pending += parseInt(d[0].pending)||0; revised += parseInt(d[0].revised)||0; completed += parseInt(d[0].completed)||0;
+      byType.checklist = { pending: parseInt(d[0].pending)||0, revised: parseInt(d[0].revised)||0, completed: parseInt(d[0].completed)||0 };
     }
 
     // Load user names + departments once
@@ -1639,7 +1644,7 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
       const [rows] = await db.query(`SELECT t.id,COALESCE(t.title,'') AS title,t.description,t.status,t.assigned_to,t.assigned_by,COALESCE(t.priority,'low') AS priority,COALESCE(t.frequency,'') AS frequency,t.remarks,DATE_FORMAT(t.due_date,'%Y-%m-%d') AS due_date,DATE_FORMAT(t.start_date,'%Y-%m-%d') AS start_date,t.created_at FROM checklist_tasks t WHERE t.status IN ('pending','revised') ${chkDateClause} ${userFilter} ORDER BY t.due_date ASC LIMIT 500`, [...dateClauseParams, ...params]);
       checklistPending = rows.map(t => ({ ...t, type: 'checklist', approval: 'no', waiting_approval: 0, attachment_required: 'no', assignedToName: userMap[t.assigned_to]?.name||'', assignedToDept: userMap[t.assigned_to]?.dept||'', assignedByName: userMap[t.assigned_by]?.name||'' }));
     }
-    res.json({ pending, revised, completed, todayPending: [...delegationPending, ...checklistPending] });
+    res.json({ pending, revised, completed, todayPending: [...delegationPending, ...checklistPending], ...(taskType === 'both' ? { byType } : {}) });
   } catch (err) { sendServerError(res, err); }
 });
 
