@@ -281,47 +281,44 @@ const _dbReady = db.init()
         }
       }
     } catch(e) { console.warn('  ⚠️ is_active migration skipped:', e.message); }
-    // Migration: add page_access column (per-user page permissions, added after initial deploy)
+    // Migrations: columns added after the first deploy (users: page_access,
+    // force_logout_at, track_km; delegation_tasks: photo-proof, reference
+    // photo, reference file + voice note; attendance: GPS + address text —
+    // KM lives in its own `daily_km` table). A brand new install gets the
+    // attendance ones from CREATE TABLE in ensureAttendanceTables.
+    // One look at the existing columns, then ALTER only what is missing:
+    // this used to run 15 ALTERs on every cold start, and every request
+    // waits for _dbReady (performance audit 2026-11-24).
     if (_usingMysql) {
-      try { await db.query('ALTER TABLE users ADD COLUMN page_access TEXT DEFAULT NULL'); }
-      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ page_access migration skipped:', e.message); }
-      // Migration: add force_logout_at column (admin-triggered remote sign-out)
-      try { await db.query('ALTER TABLE users ADD COLUMN force_logout_at DATETIME DEFAULT NULL'); }
-      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ force_logout_at migration skipped:', e.message); }
-      // Migration: add track_km column — a dedicated per-user flag (set from
-      // the Users page) for whether Attendance shows the KM Start/End fields,
-      // kept separate from the free-text department column on purpose.
-      try { await db.query('ALTER TABLE users ADD COLUMN track_km TINYINT DEFAULT 0'); }
-      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ track_km migration skipped:', e.message); }
-      // Migration: add photo-proof-of-completion columns to delegation_tasks
-      // — attachment_required (set from the Delegate/Edit Task modal) gates
-      // whether "Mark Done" first needs a photo upload; attachment_link is
-      // the resulting Drive link once one's been provided.
-      try { await db.query("ALTER TABLE delegation_tasks ADD COLUMN attachment_required VARCHAR(10) DEFAULT 'no'"); }
-      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attachment_required migration skipped:', e.message); }
-      try { await db.query('ALTER TABLE delegation_tasks ADD COLUMN attachment_link TEXT DEFAULT NULL'); }
-      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attachment_link migration skipped:', e.message); }
-      // Migration: reference photo attached by whoever delegates the task.
-      try { await db.query('ALTER TABLE delegation_tasks ADD COLUMN photo_link TEXT DEFAULT NULL'); }
-      catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ photo_link migration skipped:', e.message); }
-      // Migration: reference file + voice note attached when delegating.
-      for (const col of ['ref_file_link TEXT DEFAULT NULL', 'ref_file_name VARCHAR(255) DEFAULT NULL', 'audio_link TEXT DEFAULT NULL']) {
-        try { await db.query(`ALTER TABLE delegation_tasks ADD COLUMN ${col}`); }
-        catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ delegation attachment migration skipped:', e.message); }
-      }
-      // Migration: add GPS columns to an already-created attendance table
-      // (a brand new install instead gets them straight from CREATE TABLE
-      // in ensureAttendanceTables — ER_NO_SUCH_TABLE here is expected then).
-      for (const col of ['lat_in DECIMAL(10,7)', 'lng_in DECIMAL(10,7)', 'lat_out DECIMAL(10,7)', 'lng_out DECIMAL(10,7)']) {
-        try { await db.query(`ALTER TABLE attendance ADD COLUMN ${col}`); }
-        catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attendance GPS migration skipped:', e.message); }
-      }
-      // Migration: add reverse-geocoded address text columns to attendance.
-      // KM lives in its own `daily_km` table, not on attendance —
-      // the old km_start/km_end columns are left in place, just unused.
-      for (const col of ['address_in VARCHAR(500)', 'address_out VARCHAR(500)']) {
-        try { await db.query(`ALTER TABLE attendance ADD COLUMN ${col}`); }
-        catch(e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn('  ⚠️ attendance address migration skipped:', e.message); }
+      const STARTUP_COLS = [
+        ['users', 'page_access', 'TEXT DEFAULT NULL'],
+        ['users', 'force_logout_at', 'DATETIME DEFAULT NULL'],
+        ['users', 'track_km', 'TINYINT DEFAULT 0'],
+        ['delegation_tasks', 'attachment_required', "VARCHAR(10) DEFAULT 'no'"],
+        ['delegation_tasks', 'attachment_link', 'TEXT DEFAULT NULL'],
+        ['delegation_tasks', 'photo_link', 'TEXT DEFAULT NULL'],
+        ['delegation_tasks', 'ref_file_link', 'TEXT DEFAULT NULL'],
+        ['delegation_tasks', 'ref_file_name', 'VARCHAR(255) DEFAULT NULL'],
+        ['delegation_tasks', 'audio_link', 'TEXT DEFAULT NULL'],
+        ['attendance', 'lat_in', 'DECIMAL(10,7)'],
+        ['attendance', 'lng_in', 'DECIMAL(10,7)'],
+        ['attendance', 'lat_out', 'DECIMAL(10,7)'],
+        ['attendance', 'lng_out', 'DECIMAL(10,7)'],
+        ['attendance', 'address_in', 'VARCHAR(500)'],
+        ['attendance', 'address_out', 'VARCHAR(500)']
+      ];
+      let haveCol = null, haveTable = null;
+      try {
+        const [cols] = await db.query(`SELECT LOWER(table_name) AS t, LOWER(column_name) AS c FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name IN ('users', 'delegation_tasks', 'attendance')`);
+        haveCol = new Set(cols.map(r => `${r.t}.${r.c}`));
+        haveTable = new Set(cols.map(r => r.t));
+      } catch (e) { console.warn('  ⚠️ column check skipped, trying every migration:', e.message); }
+      for (const [table, col, def] of STARTUP_COLS) {
+        // Missing table = nothing to migrate yet (it is created with these columns).
+        if (haveCol && (haveCol.has(`${table}.${col}`) || !haveTable.has(table))) continue;
+        try { await db.query(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); }
+        catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') console.warn(`  ⚠️ ${table}.${col} migration skipped:`, e.message); }
       }
     }
   })
@@ -822,8 +819,19 @@ function loadGoogleCreds() {
   return creds;
 }
 
-async function getSheetsClient(scopes) {
+// Google Sheets / Drive calls had no time limit: a slow Google answer held the
+// request until Vercel cut it at 60 s (a bare 504). 45 s gives a clear error
+// first; every upload here is under Vercel's 4.5 MB body limit, so it fits.
+const GOOGLE_API_TIMEOUT_MS = 45000;
+let _googleOptsSet = false;
+function googleLib() {
   const { google } = require('googleapis');
+  if (!_googleOptsSet) { google.options({ timeout: GOOGLE_API_TIMEOUT_MS }); _googleOptsSet = true; }
+  return google;
+}
+
+async function getSheetsClient(scopes) {
+  const google = googleLib();
   const creds = loadGoogleCreds();
   const isWrite = scopes.some(s => !s.includes('readonly'));
   if (isWrite) {
@@ -859,7 +867,7 @@ const SFMS_PHOTOS_DRIVE_ID = '0APU6dyk7HwhXUk9PVA';
 let _driveClient = null;
 async function getDriveClient() {
   if (_driveClient) return _driveClient;
-  const { google } = require('googleapis');
+  const google = googleLib();
   const creds = loadGoogleCreds();
   const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/drive'] });
   _driveClient = google.drive({ version: 'v3', auth: await auth.getClient() });
@@ -14110,7 +14118,7 @@ const CALL_FOLDER_KEY = 'call_rec_folder_id', CALL_USER_FOLDERS_KEY = 'call_rec_
 let _callDriveAuth = null;
 async function callDriveToken() {
   if (!_callDriveAuth) {
-    const { google } = require('googleapis');
+    const google = googleLib();
     _callDriveAuth = new google.auth.GoogleAuth({ credentials: loadGoogleCreds(), scopes: ['https://www.googleapis.com/auth/drive'] });
   }
   const t = await (await _callDriveAuth.getClient()).getAccessToken();
@@ -14177,8 +14185,10 @@ app.post('/api/call-uploads/start', requireAuth, async (req, res) => {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', Origin: origin,
           'X-Upload-Content-Type': callStr(f.type, 100) || 'application/octet-stream', 'X-Upload-Content-Length': String(size) },
-        body: JSON.stringify({ name, parents: [folder.id], properties })
-      });
+        body: JSON.stringify({ name, parents: [folder.id], properties }),
+        signal: AbortSignal.timeout(15000)   // no time limit before: a slow Drive held the whole request
+      }).catch(e => { if (e.name === 'TimeoutError' || e.name === 'AbortError') return null; throw e; });
+      if (!r) return { name, error: 'Drive ne time pe jawab nahi diya — dobara try karein' };
       const url = r.headers.get('location');
       return r.ok && url ? { name, url } : { name, error: `Drive ${r.status}: ${(await r.text()).slice(0, 200)}` };
     }));
@@ -17357,44 +17367,57 @@ app.post('/api/transfers', requireAuth, async (req, res) => {
     const uid = req.session.userId;
     const role = req.session.role;
 
+    // All tasks are read in one query per task type, the pending check is one
+    // query and the inserts go 500 rows at a time — this used to be 4–6
+    // queries PER task, so a bulk transfer of a few hundred checklist days
+    // could run past Vercel's 60 s limit (performance audit 2026-11-24).
+    const taskKey = t => `${getTable(t.taskType)}|${t.taskId}`;
+    const idsByTable = {};
+    for (const t of tasks) (idsByTable[getTable(t.taskType)] = idsByTable[getTable(t.taskType)] || new Set()).add(t.taskId);
+    const assignedOf = new Map();   // taskKey -> assigned_to
+    for (const [table, ids] of Object.entries(idsByTable)) {
+      const [rows] = await db.query(`SELECT id, assigned_to FROM ${table} WHERE id IN (?)`, [[...ids]]);
+      rows.forEach(r => assignedOf.set(`${table}|${r.id}`, r.assigned_to));
+    }
+    let deptOf = null;   // HOD only: user id -> department
+    if (role === 'hod') {
+      const ids = [...new Set([uid, ...assignedOf.values()].filter(x => x != null).map(Number))];
+      const [us] = await db.query('SELECT id, department FROM users WHERE id IN (?)', [ids]);
+      deptOf = new Map(us.map(u => [Number(u.id), u.department]));
+    }
+
     // Validate each task — user can only transfer their own, HOD dept, admin any
     for (const t of tasks) {
-      const table = getTable(t.taskType);
-      const [rows] = await db.query(`SELECT * FROM ${table} WHERE id=?`, [t.taskId]);
-      if (!rows[0]) return res.status(404).json({ error: `Task ${t.taskId} not found` });
-      const task = rows[0];
+      if (!assignedOf.has(taskKey(t))) return res.status(404).json({ error: `Task ${t.taskId} not found` });
+      const assignedTo = assignedOf.get(taskKey(t));
 
-      if (role === 'user' && task.assigned_to !== uid)
+      if (role === 'user' && assignedTo !== uid)
         return res.status(403).json({ error: 'You can only transfer your own tasks' });
 
-      if (role === 'hod') {
-        const [taskUser] = await db.query('SELECT department FROM users WHERE id=?', [task.assigned_to]);
-        const [hodUser] = await db.query('SELECT department FROM users WHERE id=?', [uid]);
-        if (taskUser[0]?.department !== hodUser[0]?.department)
-          return res.status(403).json({ error: 'HOD can only transfer tasks of their department' });
-      }
+      if (role === 'hod' && deptOf.get(Number(assignedTo)) !== deptOf.get(Number(uid)))
+        return res.status(403).json({ error: 'HOD can only transfer tasks of their department' });
     }
 
-    // Insert transfer requests — skip if already pending
-    let inserted = 0, skipped = 0;
+    // Insert transfer requests — skip if already pending (or listed twice in this request)
+    const [pend] = await db.query(`SELECT task_id, task_type FROM task_transfers WHERE status='pending' AND task_id IN (?)`,
+      [[...new Set(tasks.map(t => t.taskId))]]);
+    const pendKey = (id, type) => `${String(type || '').toLowerCase()}|${id}`;
+    const pending = new Set(pend.map(p => pendKey(p.task_id, p.task_type)));
+    const values = [];
+    let skipped = 0;
     for (const t of tasks) {
-      const table = getTable(t.taskType);
-      const [rows] = await db.query(`SELECT assigned_to FROM ${table} WHERE id=?`, [t.taskId]);
-      const fromUser = rows[0].assigned_to;
-      const [existing] = await db.query(
-        `SELECT id FROM task_transfers WHERE task_id=? AND task_type=? AND status='pending'`,
-        [t.taskId, t.taskType]
-      );
-      if (existing[0]) { skipped++; continue; }
+      const k = pendKey(t.taskId, t.taskType);
+      if (pending.has(k)) { skipped++; continue; }
+      pending.add(k);
+      values.push([t.taskId, t.taskType, assignedOf.get(taskKey(t)), toUserId, uid, 'pending', t.taskType === 'checklist' ? allFuture : 0]);
+    }
+    if (values.length) {
       await ensureTaskTransferCols();
-      await db.query(
-        `INSERT INTO task_transfers (task_id, task_type, from_user, to_user, requested_by, status, all_future) VALUES (?,?,?,?,?,'pending',?)`,
-        [t.taskId, t.taskType, fromUser, toUserId, uid, t.taskType === 'checklist' ? allFuture : 0]
-      );
-      inserted++;
+      for (let i = 0; i < values.length; i += 500)
+        await db.query('INSERT INTO task_transfers (task_id, task_type, from_user, to_user, requested_by, status, all_future) VALUES ?', [values.slice(i, i + 500)]);
     }
 
-    res.json({ success: true, count: inserted, skipped });
+    res.json({ success: true, count: values.length, skipped });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -17442,12 +17465,7 @@ app.get('/api/transfers', requireAuth, requireAdminOrHod, async (req, res) => {
     }));
 
     // Attach task description
-    for (const r of rows) {
-      const table = getTable(r.task_type);
-      const [t] = await db.query(`SELECT description, DATE_FORMAT(due_date,'%Y-%m-%d') AS due_date FROM ${table} WHERE id=?`, [r.task_id]);
-      r.description = t[0]?.description || '—';
-      r.due_date = t[0]?.due_date || '—';
-    }
+    await attachTransferTaskInfo(rows, true);
 
     res.json(rows);
   } catch (err) { sendServerError(res, err); }
@@ -17520,6 +17538,22 @@ app.put('/api/transfers/:id', requireAuth, requireAdminOrHod, async (req, res) =
 // When a task changed hands (client, 2026-10-17: "kab transfer hua ye show
 // karna chahiye") — the approval time on the transfer and on the task itself.
 let _taskTransferColsOk = false;
+// Task description (+ due date) for transfer rows: one query per task type
+// instead of one per row (performance audit 2026-11-24).
+async function attachTransferTaskInfo(rows, withDue) {
+  const idsByTable = {};
+  rows.forEach(r => { if (r.task_id != null) (idsByTable[getTable(r.task_type)] = idsByTable[getTable(r.task_type)] || new Set()).add(r.task_id); });
+  const info = new Map();
+  for (const [table, ids] of Object.entries(idsByTable)) {
+    const [list] = await db.query(`SELECT id, description, DATE_FORMAT(due_date,'%Y-%m-%d') AS due_date FROM ${table} WHERE id IN (?)`, [[...ids]]);
+    list.forEach(t => info.set(`${table}|${t.id}`, t));
+  }
+  rows.forEach(r => {
+    const t = info.get(`${getTable(r.task_type)}|${r.task_id}`);
+    r.description = t?.description || '—';
+    if (withDue) r.due_date = t?.due_date || '—';
+  });
+}
 async function ensureTaskTransferCols() {
   if (_taskTransferColsOk) return;
   await addMissingColumns('task_transfers', [['decided_at', 'DATETIME NULL'], ['decided_by', 'INT NULL'], ['all_future', 'TINYINT NOT NULL DEFAULT 0']]);
@@ -17536,11 +17570,7 @@ app.get('/api/transfers/my', requireAuth, async (req, res) => {
 
     const [rawMy] = await db.query(`SELECT tt.* FROM task_transfers tt WHERE tt.requested_by=? ORDER BY tt.created_at DESC LIMIT 20`, [req.session.userId]);
     const rows = rawMy.map(tt => ({ ...tt, fromUserName: uMapMy[tt.from_user]||'', toUserName: uMapMy[tt.to_user]||'' }));
-    for (const r of rows) {
-      const table = getTable(r.task_type);
-      const [t] = await db.query(`SELECT description FROM ${table} WHERE id=?`, [r.task_id]);
-      r.description = t[0]?.description || '—';
-    }
+    await attachTransferTaskInfo(rows, false);
     res.json(rows);
   } catch (err) { sendServerError(res, err); }
 });
