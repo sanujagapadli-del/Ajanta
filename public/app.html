@@ -1601,6 +1601,10 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M5 10V20h14V10M12 3l9 5H3l9-5zM9 14v3m6-3v3"/></svg>
         <span class="nav-label-text">5AS (Bank)</span>
       </div>
+      <div class="nav-item" id="nav-asmp" style="display:none" onclick="navigate('asmp',this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M7 15l4-4 3 3 5-6"/></svg>
+        <span class="nav-label-text">ASMP</span>
+      </div>
       <div class="nav-item" id="nav-vendor-outstanding" style="display:none" onclick="navigate('vendor-outstanding',this)">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
         <span class="nav-label-text">Vendor Outstanding</span>
@@ -2638,6 +2642,17 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       <div id="faRuleTxt" style="font-size:12.5px;color:var(--gray-600);margin-top:6px"></div>
     </div>
     <div id="faWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
+  </div>
+  <div id="page-asmp" class="page">
+    <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><div style="font-size:19px;font-weight:900;color:var(--gray-900);margin-right:auto">📈 ASMP</div>
+        <select id="asmpFy" onchange="loadAsmp()" style="padding:8px 10px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-900)"></select>
+        <select id="asmpQ" onchange="loadAsmp()" style="padding:8px 10px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface);color:var(--gray-900)"><option value="1">Q1 (Apr–Jun)</option><option value="2">Q2 (Jul–Sep)</option><option value="3">Q3 (Oct–Dec)</option><option value="4">Q4 (Jan–Mar)</option></select>
+        <input id="asmpSearch" type="search" placeholder="🔍 Client" oninput="asmpShown=30;renderAsmp()" style="padding:8px 11px;border:1.5px solid var(--border-base);border-radius:10px;font-size:13px;background:var(--surface-alt);color:var(--gray-900);min-width:160px"/>
+        <button class="btn btn-outline btn-sm" onclick="asmpBust=Date.now();loadAsmp()">↻ Refresh</button></div>
+      <div style="font-size:12.5px;color:var(--gray-600);margin-top:6px">MCAP · NBD CRR · Upsell Cross-Sell · Wallet Share · Leaking Bucket · 80/20 — ERP se apne aap; <span style="background:#fffdf0;border:1px solid #c9d3e0;border-radius:4px;padding:0 5px">peele box</span> haath se bharein (save apne aap).</div>
+    </div>
+    <div id="asmpWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
   </div>
   <div id="page-vendor-outstanding" class="page">
     <div style="background:var(--surface);border-radius:16px;border:1px solid var(--gray-200);padding:14px 18px;margin-bottom:14px">
@@ -5133,6 +5148,7 @@ async function init() {
     if (canSee('fms-flows')) document.getElementById('nav-fms-flows').style.display = 'flex';
     if (canSee('four-as')) document.getElementById('nav-four-as').style.display = 'flex';
     if (canSee('vendor-outstanding')) document.getElementById('nav-vendor-outstanding').style.display = 'flex';
+    if (canSee('asmp')) document.getElementById('nav-asmp').style.display = 'flex';
     if (ME.role === 'pc') MY_PAGES.add('pc-followup'); // PC role (and admin) only — client 2026-11-05
     if (canSee('pc-followup')) document.getElementById('nav-pc-followup').style.display = 'flex';
     if (canSee('replacement-fms') || canSee('vendor-ledger') || canSee('vendor-bin')) document.getElementById('nav-vendor-bin').style.display = 'flex';
@@ -5195,7 +5211,7 @@ async function init() {
     const savedPageBlocked = ME.role !== 'admin' && ((['mis','users','employees','records','service-fms','o2d-fms','purchase-fms','cheque-fms','replacement-fms','lead-fms','gross-profit','price-catalogue','stock'].includes(savedPage) && !MY_PAGES.has(savedPage))
       || (savedPage === 'dealers' && !MY_PAGES.has('dealers')));
     const savedPageExists = savedPage && (ATTN_SUB_PAGES.includes(savedPage) || savedPage === 'net-profit' || document.getElementById('page-' + savedPage))
-      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics', 'fms-flows', 'pc-followup', 'four-as', 'vendor-outstanding'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
+      && !(['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics', 'fms-flows', 'pc-followup', 'four-as', 'vendor-outstanding', 'asmp'].includes(savedPage) && ME.role !== 'admin' && !MY_PAGES.has(savedPage));
     // MD (Ajay sir, 2026-10-24): MD Summary is the home page whenever the app
     // is opened fresh; a refresh in the same tab still restores the last page.
     let freshOpen = false;
@@ -5439,7 +5455,7 @@ function setMinDates() {
 // ══════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════
-const pageTitles = {'training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Collection FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','delivery-partners':'Delivery Partners','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows','pc-followup':'PC Follow-up','vendor-bin':'Vendor Bin','four-as':'5AS — Bank allocation','vendor-outstanding':'Vendor Outstanding'};
+const pageTitles = {asmp:'ASMP','training-videos':'Training Videos',beat:'Beat','my-expense':'My Expense',rental:'Rental','dropdown-master':'Dropdown Master',dashboard:'Dashboard',alltasks:'All Tasks',approvals:'Approvals',attendance:'Attendance',leave:'Leave',km:'Kilometer',tour:'Tour Expense',dealers:'Dealer Master',onboarding:'Dealer Onboarding',users:'Users',employees:'Employees',profile:'Profile',mis:'MIS Report',fms:'FMS Admin','fms-tasks':'FMS Tasks',records:'Employee Records','service-fms':'Service FMS','o2d-fms':'O2D FMS','purchase-fms':'Purchase FMS','cheque-fms':'Collection FMS','replacement-fms':'Replacement FMS','lead-fms':'Lead FMS','gross-profit':'Gross Profit','petty-cash':'Petty Cash','net-profit':'Net Profit','sales-schedule':'Sales Schedule','price-catalogue':'Price List & Catalogue',stock:'Stock','checklist-master':'Checklist Master',ows:'OWS — Weekly Sales','vendor-ledger':'Vendor Replacement Ledger',samples:'Samples','market-holidays':'Market Holidays',mechanics:'Bahar ke Mechanics','delivery-partners':'Delivery Partners','dealer-whatsapp':'Dealer WhatsApp','drip-marketing':'Drip Marketing',collection:'Payment Follow-up','call-reports':'Call Reports',tea:'Tea Register',meca:'MECA',scot:'SCOT','md-summary':'MD Summary','fms-flows':'FMS Workflows','pc-followup':'PC Follow-up','vendor-bin':'Vendor Bin','four-as':'5AS — Bank allocation','vendor-outstanding':'Vendor Outstanding'};
 
 function toggleMobileSidebar() {
   document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -5491,7 +5507,7 @@ function navigate(page, el) {
     showToast("You don't have access to this page", 'error');
     return;
   }
-  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics', 'fms-flows', 'pc-followup', 'four-as', 'vendor-outstanding'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
+  if (ME && ME.role !== 'admin' && ((['petty-cash', 'sales-schedule', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'mechanics', 'fms-flows', 'pc-followup', 'four-as', 'vendor-outstanding', 'asmp'].includes(page) && !MY_PAGES.has(page)))) { showToast("You don't have access to this page", 'error'); return; }
   if (appReloadIfStale(page)) return;
   checkAppVersion();
   const basePage = ATTN_SUB_PAGES.includes(page) ? 'attendance' : page;
@@ -5534,6 +5550,7 @@ function navigate(page, el) {
   if (page==='pc-followup') loadPcFollowup();
   if (page==='four-as') loadFourAs();
   if (page==='vendor-outstanding') loadVendorOut();
+  if (page==='asmp') loadAsmp();
   if (page==='vendor-bin') loadVendorBin();
   if (page==='my-expense') loadMyExpense();
   if (page==='rental') loadRental();
@@ -7713,6 +7730,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'fms-flows', label: 'FMS Workflows — har FMS ke steps aur conditions (sirf dekhne ke liye)' },
     { key: 'four-as', label: '5AS — weekly bank allocation (ICICI → PNB / Kotak / IDFC / Yes), planned vs actual' },
     { key: 'vendor-outstanding', label: 'Vendor Outstanding — Tally creditors (payable / advance)' },
+    { key: 'asmp', label: 'ASMP — MCAP, NBD CRR, Upsell Cross-Sell, Wallet Share, Leaking Bucket, 80/20 (boxes bhar sakte hain)' },
     { key: 'rental', label: 'Rental (kiraya — units, bill, payment; delete sirf Admin)' },
     { key: 'dropdown-master', label: 'Dropdown Master (sirf Admin)', info: 'sirf Admin' },
   ]},
@@ -27016,6 +27034,206 @@ async function saveFourAsRule() {
 }
 // ── Vendor Outstanding (client 2026-11-05) — Tally creditors.
 let voData = null;
+// ══════════════════════════════════════════════════════
+// ASMP (client list 2026-11-25 #9-12) — MCAP, NBD CRR Analysis, Upsell Cross-Sell, Wallet Share, Leaking Bucket,
+// 80/20 Analysis: the coaching sheets, filled from the ERP (Tally sales, O2D GP, Beat / Lead FMS, SCOT, IMS) with
+// boxes for what only the team knows (plan, profit, a client's total business). Boxes save on change.
+// ══════════════════════════════════════════════════════
+let asmpData = null, asmpTab = 'mcap', asmpShown = 30, asmpBust = 0;
+const ASMP_TABS = [['mcap', 'MCAP'], ['nbdcrr', 'NBD CRR Analysis'], ['upsell', 'Upsell Cross-Sell'], ['wallet', 'Wallet Share'], ['leak', 'Leaking Bucket'], ['8020', '80/20 Analysis']];
+const asmpMon = m => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m.slice(5, 7) - 1];
+const asmpRs = v => v == null || !isFinite(v) ? '—' : '₹' + Math.round(v).toLocaleString('en-IN');
+const asmpN = v => v == null || !isFinite(v) ? '—' : Math.round(v).toLocaleString('en-IN');
+const asmpPct = v => v == null || !isFinite(v) ? '—' : (Math.round(v * 10) / 10) + '%';
+const asmpIn = (s, r, c) => { const v = ((asmpData.inputs[s] || {})[r] || {})[c]; return v == null || v === '' ? null : Number(v); };
+function asmpBox(s, r, c, placeholder) {
+  const v = asmpIn(s, r, c);
+  return `<input class="asmp-in" inputmode="decimal" value="${v == null ? '' : v}" placeholder="${esc(placeholder || '')}" data-s="${esc(s)}" data-r="${esc(r)}" data-c="${esc(c)}"
+    onkeydown="if(event.key==='Enter')this.blur()" onchange="asmpSave(this)"/>`;
+}
+async function asmpSave(el) {
+  const { s, r, c } = el.dataset, value = el.value.trim();
+  el.disabled = true;
+  const res = await api('/api/asmp/input', 'PUT', { sheet: s, row: r, col: c, value });
+  el.disabled = false;
+  if (!res || res.error) { showToast((res && res.error) || 'Save nahi hua', 'error'); return; }
+  const sh = asmpData.inputs[s] = asmpData.inputs[s] || {}, row = sh[r] = sh[r] || {};
+  if (res.cleared) delete row[c]; else row[c] = String(res.value);
+  asmpBust = Date.now();
+  renderAsmp();
+}
+function asmpInitFilters() {
+  const fyEl = document.getElementById('asmpFy'), qEl = document.getElementById('asmpQ');
+  if (fyEl.options.length) return;
+  const now = new Date(), cur = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  fyEl.innerHTML = [cur, cur - 1].map(y => `<option value="${y}">FY ${y}-${String(y + 1).slice(2)}</option>`).join('');
+  qEl.value = String(Math.floor(((now.getMonth() + 9) % 12) / 3) + 1);
+}
+async function loadAsmp() {
+  asmpInitFilters();
+  const fy = document.getElementById('asmpFy').value, q = document.getElementById('asmpQ').value;
+  document.getElementById('asmpWrap').innerHTML = '<div class="empty ui-skel" aria-busy="true">Loading…</div>';
+  const r = await api(`/api/asmp?fy=${fy}&q=${q}${asmpBust ? '&v=' + asmpBust : ''}`);
+  if (!r || r.error) { document.getElementById('asmpWrap').innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load nahi hua')}</div>`; return; }
+  asmpData = r;
+  renderAsmp();
+}
+function asmpSetTab(t) { asmpTab = t; renderAsmp(); }
+function renderAsmp() {
+  const wrap = document.getElementById('asmpWrap');
+  if (!asmpData) return;
+  const tabs = `<div class="tab-group" style="margin-bottom:12px;flex-wrap:wrap">${ASMP_TABS.map(([k, l]) => `<div class="tab${asmpTab === k ? ' active' : ''}" onclick="asmpSetTab('${k}')">${l}</div>`).join('')}</div>`;
+  const body = { mcap: asmpMcapHtml, nbdcrr: asmpNbdHtml, upsell: () => asmpClientsHtml(false), wallet: () => asmpClientsHtml(true), leak: asmpLeakHtml, 8020: asmp8020Html }[asmpTab]();
+  wrap.innerHTML = `<style>
+      .asmp-t{border-collapse:collapse;width:100%;background:#fff;color:#222;font-size:12.5px}
+      .asmp-t th,.asmp-t td{border:1px solid #9aa7b8;padding:6px 8px;text-align:center}
+      .asmp-t th{background:#8eaadb;color:#111;font-weight:800}
+      .asmp-t th.g{background:#d8e4bc} .asmp-t th.p{background:#e6b8b7} .asmp-t td.p{background:#fbeaea} .asmp-t td.b{background:#dce6f2}
+      .asmp-t td.l{text-align:left;font-weight:700;white-space:nowrap} .asmp-t tr.q td{background:#b4c6e7;font-weight:800}
+      .asmp-t tr.tot td{background:#ffff99;font-weight:900} .asmp-t td.red{color:#c00000;font-weight:800}
+      .asmp-in{width:100%;min-width:56px;box-sizing:border-box;padding:4px 5px;border:1px solid #c9d3e0;border-radius:5px;text-align:right;font-size:12.5px;background:#fffdf0}
+      .asmp-note{font-size:11.5px;color:var(--gray-500);margin-top:8px;line-height:1.5}
+    </style>${tabs}<div style="overflow:auto">${body}</div>`;
+}
+// MCAP: the quarter's months + quarter average.
+function asmpMcapHtml() {
+  const d = asmpData, months = d.mcap, done = months.filter(x => x.meetings != null);
+  const prof = m => asmpIn('mcap', m, 'profit');
+  const sum = (k, list = done) => list.reduce((a, x) => a + (Number(x[k]) || 0), 0), n = Math.max(1, done.length);
+  const gpList = done.filter(x => x.gp != null);
+  const profits = done.map(x => prof(x.m)).filter(v => v != null);
+  const avg = { meetings: sum('meetings') / n, clients: sum('clients') / n, revenue: sum('revenue') / n,
+    conv: sum('meetings') ? sum('clients') * 100 / sum('meetings') : null, sale: sum('clients') ? sum('revenue') / sum('clients') : null,
+    gp: gpList.length ? sum('gp', gpList) / gpList.length : null, gpPct: sum('gpSales', gpList) ? sum('gp', gpList) * 100 / sum('gpSales', gpList) : null,
+    profit: profits.length ? profits.reduce((a, v) => a + v, 0) / profits.length : null };
+  const cell = (x, f) => x.meetings == null ? '<td style="color:#999">—</td>' : `<td>${f(x)}</td>`;
+  const row = (label, f, a, cls = '') => `<tr><td class="l ${cls}">${label}</td>${months.map(x => cell(x, f)).join('')}<td class="b"><b>${a}</b></td></tr>`;
+  return `<table class="asmp-t" style="max-width:900px">
+    <thead><tr><th style="text-align:left">Monthly</th>${months.map(x => `<th>${asmpMon(x.m)}</th>`).join('')}<th>Q${d.q} Avg</th></tr></thead>
+    <tbody>
+      ${row('No. of Meetings', x => asmpN(x.meetings), asmpN(avg.meetings), 'b')}
+      ${row('Conversion Ratio', x => asmpPct(x.meetings ? x.clients * 100 / x.meetings : null), asmpPct(avg.conv), 'b')}
+      ${row('Clients', x => asmpN(x.clients), asmpN(avg.clients))}
+      ${row('Average Rs Sale', x => asmpRs(x.clients ? x.revenue / x.clients : null), asmpRs(avg.sale), 'b')}
+      ${row('REVENUE', x => asmpRs(x.revenue), asmpRs(avg.revenue))}
+      ${row('<span style="color:#c00000">Margin (G.P.)</span>', x => x.gp == null ? '—' : `${asmpRs(x.gp)}<div style="font-size:11px;color:#555">${asmpPct(x.gpSales ? x.gp * 100 / x.gpSales : null)}</div>`, `${asmpRs(avg.gp)}<div style="font-size:11px;color:#555">${asmpPct(avg.gpPct)}</div>`, 'b')}
+      <tr><td class="l">PROFIT</td>${months.map(x => x.meetings == null ? '<td style="color:#999">—</td>' : `<td>${asmpBox('mcap', x.m, 'profit', '₹ likhein')}</td>`).join('')}<td class="b"><b>${asmpRs(avg.profit)}</b></td></tr>
+    </tbody></table>
+    <div class="asmp-note">Meetings = Beat counter visit + Lead FMS market visit / visit · Clients = jinhe us mahine bill hua (Tally) · Conversion = clients ÷ meetings · Revenue = Tally bikri (bina GST) · Margin = O2D GP (21 Sep 2026 se, sirf jinki laagat pata hai) · Profit = haath se bharein.</div>`;
+}
+// NBD CRR Analysis: each FY month (plan typed, actual from Tally) with a row per quarter.
+function asmpNbdHtml() {
+  const d = asmpData, rows = d.nbdcrr, P = (m, k) => asmpIn('nbdcrr', m, k);
+  const act = x => ({ tOrd: x.tOrd, tRev: x.tRev, nOrd: x.nOrd, nRev: x.nRev, cOrd: x.tOrd - x.nOrd, cRev: x.tRev - x.nRev });
+  const pl = m => { const o = {}; ['tOrd', 'tRev', 'cOrd', 'cRev', 'nOrd', 'nRev'].forEach(k => { o[k] = P(m, k); }); return o; };
+  const pct = (a, b) => a != null && b ? a * 100 / b : null;
+  const cells = (p, a, edit, m) => {
+    const box = k => edit ? `<td>${asmpBox('nbdcrr', m, k, '')}</td>` : `<td>${k.endsWith('Rev') ? asmpRs(p[k]) : asmpN(p[k])}</td>`;
+    const A = k => `<td class="b">${k.endsWith('Rev') ? asmpRs(a[k]) : asmpN(a[k])}</td>`;
+    const pc = (x, y, cls = '') => `<td class="${cls}">${asmpPct(pct(x, y))}</td>`;
+    return box('tOrd') + A('tOrd') + box('tRev') + A('tRev')
+      + box('cOrd') + A('cOrd') + box('cRev') + A('cRev') + pc(p.cOrd, p.tOrd) + pc(a.cOrd, a.tOrd, 'b') + pc(p.cRev, p.tRev) + pc(a.cRev, a.tRev, 'b')
+      + box('nOrd') + A('nOrd') + box('nRev') + A('nRev') + pc(p.nOrd, p.tOrd) + pc(a.nOrd, a.tOrd, 'b') + pc(p.nRev, p.tRev) + pc(a.nRev, a.tRev, 'b');
+  };
+  const addUp = list => { const o = {}; list.forEach(x => Object.entries(x).forEach(([k, v]) => { if (v != null) o[k] = (o[k] || 0) + v; })); return o; };
+  let html = '', qa = [], qp = [];
+  rows.forEach((x, i) => {
+    const a = act(x), p = pl(x.m);
+    qa.push(a); qp.push(p);
+    html += `<tr><td class="l">${asmpMon(x.m)} ${x.m.slice(2, 4)}</td>${cells(p, a, true, x.m)}</tr>`;
+    if ((i + 1) % 3 === 0 || i === rows.length - 1) {
+      html += `<tr class="q"><td class="l">Q${Math.floor(i / 3) + 1}</td>${cells(addUp(qp), addUp(qa), false)}</tr>`;
+      qa = []; qp = [];
+    }
+  });
+  const g = (t, n, c) => `<th colspan="${n}" class="${c}">${t}</th>`, pa = n => Array.from({ length: n }, (_, i) => `<th>${i % 2 ? 'Act' : 'Pl'}</th>`).join('');
+  return `<table class="asmp-t" style="font-size:12px">
+    <thead><tr><th rowspan="3"></th>${g('TOTAL', 4, '')}${g('Existing Clients (CRR)', 8, 'g')}${g('New Clients (NBD)', 8, '')}</tr>
+      <tr><th colspan="2">Total No of Orders</th><th colspan="2">Rev</th><th colspan="2" class="g">No of Orders</th><th colspan="2" class="g">Rev</th><th colspan="2" class="g">% of Total No of Orders</th><th colspan="2" class="g">% of Total Rev</th>
+        <th colspan="2">No of Orders</th><th colspan="2">Rev</th><th colspan="2">% of Total No of Orders</th><th colspan="2">% of Total Rev</th></tr>
+      <tr>${pa(20)}</tr></thead>
+    <tbody>${html}</tbody></table>
+    <div class="asmp-note">Pl = plan (box me bharein) · Act = Tally se: Orders = bill, Rev = bikri bina GST · NBD = jo client us mahine pehli baar bill hua (Tally ke purane bills me bhi nahi tha) — FY ka pehla mahina (Apr) sab CRR, kyunki data wahin se shuru · CRR = baaki.</div>`;
+}
+// Upsell Cross-Sell / Wallet Share: client-wise (FY billing from Tally; total business + products we can sell typed).
+function asmpClientsHtml(wallet) {
+  const d = asmpData, q = (document.getElementById('asmpSearch').value || '').trim().toLowerCase();
+  const list = d.clients.filter(c => !q || c.party.toLowerCase().includes(q));
+  const calc = c => {
+    const avail = asmpIn('wallet', c.pk, 'avail'), canSell = asmpIn('wallet', c.pk, 'canSell') ?? d.cats.length, bought = c.cats.length;
+    const perCat = bought ? c.billing / bought : null, missing = Math.max(0, canSell - bought);
+    const share = avail ? c.billing * 100 / avail : null, scope = avail != null ? Math.max(0, avail - c.billing) : null;
+    const cross = perCat != null ? perCat * missing : null, all = perCat != null ? perCat * canSell : null;
+    return { avail, canSell, bought, share, scope, cross, all, missing, total: (scope || 0) + (cross || 0) };
+  };
+  const rows = list.slice(0, asmpShown);
+  const T = list.reduce((a, c) => { const x = calc(c); a.bill += c.billing; if (x.avail != null) { a.avail += x.avail; a.billA += c.billing; } a.scope += x.scope || 0; a.cross += x.cross || 0; a.all += x.all || 0; a.total += x.total; return a; },
+    { bill: 0, avail: 0, billA: 0, scope: 0, cross: 0, all: 0, total: 0 });
+  const name = c => `<td class="l" title="${esc(c.cats.join(', ') || 'koi product line nahi')}">${esc(c.party)}</td>`;
+  const head = wallet
+    ? `<tr><th rowspan="2" style="text-align:left">Client</th><th colspan="5">Wallet Share</th><th colspan="5">Cross Sell</th><th rowspan="2">Total New Buss Scope of this client (Rs)</th><th rowspan="2" class="p">Total New Buss Lost from this client (Rs)</th></tr>
+       <tr><th>Total Buss Available with this Client</th><th>Billing we do with this client</th><th>% of Billing we do - Our Wallet Share</th><th class="p">% of Billing we LOOSE</th><th class="p">Rs of Billing we LOOSE</th>
+         <th>No of Products he buys from us</th><th>No of products we can sell to him</th><th class="p">% products he does not buy</th><th>New Buss (Rs) we can get by selling all products</th><th class="p">New Buss (Rs) we are Loosing by selling NOT all products</th></tr>`
+    : `<tr><th rowspan="2" style="text-align:left">Client</th><th colspan="4">Wallet Share</th><th colspan="3">Cross Sell</th><th rowspan="2" class="p">Total Buss Scope of this client (Rs)</th></tr>
+       <tr><th>Total Buss Available with this Client</th><th>Billing we do with this client</th><th>% of Billing we do - Wallet Share</th><th class="p">Scope to sell to him</th>
+         <th>No of Products he buys from us</th><th>No of products we can sell to him</th><th class="p">Buss (Rs) we can get by selling all products</th></tr>`;
+  const body = rows.map(c => {
+    const x = calc(c);
+    const common = `${name(c)}<td>${asmpBox('wallet', c.pk, 'avail', '₹')}</td><td class="b">${asmpRs(c.billing)}</td><td class="b">${asmpPct(x.share)}</td>`;
+    const canSell = `<td>${asmpBox('wallet', c.pk, 'canSell', String(d.cats.length))}</td>`;
+    return wallet
+      ? `<tr>${common}<td class="p">${asmpPct(x.share == null ? null : 100 - x.share)}</td><td class="p">${asmpRs(x.scope)}</td><td class="b">${x.bought}</td>${canSell}<td class="p">${asmpPct(x.canSell ? x.missing * 100 / x.canSell : null)}</td><td>${asmpRs(x.all)}</td><td class="p">${asmpRs(x.cross)}</td><td><b>${asmpRs(x.avail != null ? x.avail + (x.cross || 0) : x.all)}</b></td><td class="p"><b>${asmpRs(x.total)}</b></td></tr>`
+      : `<tr>${common}<td class="p">${asmpRs(x.scope)}</td><td class="b">${x.bought}</td>${canSell}<td class="p">${asmpRs(x.cross)}</td><td class="p"><b>${asmpRs(x.total)}</b></td></tr>`;
+  }).join('');
+  const tot = wallet
+    ? `<tr class="tot"><td class="l">TOTAL (${list.length})</td><td>${asmpRs(T.avail || null)}</td><td>${asmpRs(T.bill)}</td><td>${asmpPct(T.avail ? T.billA * 100 / T.avail : null)}</td><td>${asmpPct(T.avail ? 100 - T.billA * 100 / T.avail : null)}</td><td>${asmpRs(T.scope)}</td><td></td><td></td><td></td><td>${asmpRs(T.all)}</td><td>${asmpRs(T.cross)}</td><td></td><td>${asmpRs(T.total)}</td></tr>`
+    : `<tr class="tot"><td class="l">TOTAL (${list.length})</td><td>${asmpRs(T.avail || null)}</td><td>${asmpRs(T.bill)}</td><td>${asmpPct(T.avail ? T.billA * 100 / T.avail : null)}</td><td>${asmpRs(T.scope)}</td><td></td><td></td><td>${asmpRs(T.cross)}</td><td>${asmpRs(T.total)}</td></tr>`;
+  return `<table class="asmp-t"><thead>${head}</thead><tbody>${body}${tot}</tbody></table>
+    ${list.length > asmpShown ? `<div style="text-align:center;margin-top:10px"><button class="btn btn-outline btn-sm" onclick="asmpShown+=50;renderAsmp()">Aur ${Math.min(50, list.length - asmpShown)} client dikhao (${list.length - asmpShown} baaki)</button></div>` : ''}
+    <div class="asmp-note">Billing = is FY me ab tak Tally bikri (bina GST), sabse bade client upar · <b>Total Buss Available</b> = client kul kitna maal leta hai (sab companies se) — box me bharein · Products = Price List ki ${d.cats.length} lines (${esc(d.cats.join(', '))}); naam par mouse = jo wo humse leta hai · "we can sell" khali = ${d.cats.length} · Cross-sell ₹ = (billing ÷ jitni lines leta hai) × jo lines nahi leta.</div>`;
+}
+// Leaking Bucket: the quarter's months + quarter average.
+function asmpLeakHtml() {
+  const d = asmpData, months = d.leak, done = months.filter(x => !x.future), n = Math.max(1, done.length);
+  const pct = (a, b) => b ? a * 100 / b : null;
+  const total = x => (x.noFollowRs || 0) + (x.inactRs || 0) + (x.irrRs || 0) + (x.belowRs || 0);
+  const av = f => { const v = done.map(f).filter(v => v != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const row = (label, f, fmt, red) => `<tr><td class="l${red ? ' red' : ''}" style="font-weight:${red ? 800 : 600}">${label}</td>${months.map(x => x.future ? '<td style="color:#999">—</td>' : `<td${red ? ' class="red"' : ''}>${fmt(f(x))}</td>`).join('')}<td class="b${red ? ' red' : ''}">${fmt(av(f))}</td></tr>`;
+  const sec = t => `<tr><td class="l" colspan="${months.length + 2}" style="background:#dce6f2;font-weight:900">${t}</td></tr>`;
+  return `<table class="asmp-t" style="max-width:1000px">
+    <thead><tr><th style="text-align:left">Leaking Bucket</th>${months.map(x => `<th>${asmpMon(x.m)}</th>`).join('')}<th>Q${d.q} Avg</th></tr></thead>
+    <tbody>
+      ${sec('From Enq Capture Sheet (Lead FMS)')}
+      ${row('% of Orders that do not get follow Up', x => pct(x.noFollow, x.leads), asmpPct)}
+      ${row('Approx Value of Orders that do not get follow Up', x => x.noFollowRs, asmpRs, true)}
+      ${sec('From SCOT Sheet')}
+      ${row('No of Clients who are Inactive since 1/2 Year', x => x.inact, asmpN)}
+      ${row('% of Clients who are Inactive since 1/2 Year', x => pct(x.inact, x.base), asmpPct)}
+      ${row('Rs Lost Sale of Clients who are Inactive since 1/2 Year', x => x.inactRs, asmpRs, true)}
+      ${row('No of Clients who do not order Regularly', x => x.irr, asmpN)}
+      ${row('% of Clients who do not order Regularly', x => pct(x.irr, x.scBase), asmpPct)}
+      ${row('Rs Lost Sale of Clients who do not order Regularly', x => x.irrRs, asmpRs, true)}
+      ${row('No of Clients who Order below their Benchmark order Value', x => x.below, asmpN)}
+      ${row('% of Clients who Order below their Benchmark order Value', x => pct(x.below, x.active), asmpPct)}
+      ${row('Rs Lost Sale of Clients who Order below Benchmark order', x => x.belowRs, asmpRs, true)}
+      <tr class="tot"><td class="l">Total Value of all Lost Business (in Rs)</td>${months.map(x => x.future ? '<td>—</td>' : `<td>${asmpRs(total(x))}</td>`).join('')}<td>${asmpRs(av(total))}</td></tr>
+    </tbody></table>
+    <div class="asmp-note">Follow up nahi = Lead FMS ki lead jis par na call hui na visit (aur band bhi nahi hui); ₹ = aisi leads × us mahine ka average bill · Inactive = Tally me pehle bill hua par mahine ke ant tak 180 din se koi bill nahi (Tally data 1 Apr se); ₹ = unka average mahine ka bill · Regular nahi = SCOT dealer jiska aakhri bill uski SCOT frequency ke 1.5 guna din se purana; ₹ = unka average bill · Benchmark se kam = client ka bill uske apne average bill se kam (2+ bill wale); ₹ = kami.</div>`;
+}
+// 80/20: clients (Tally FY billing) and products (O2D bills) in top 20% / next 60% / bottom 20%.
+function asmp8020Html() {
+  const e = asmpData.eighty, L = ['Top 20%', 'Next 60%', 'Bottom 20%'];
+  const r = (label, g, kind, tot) => `<tr class="${tot ? 'tot' : ''}"><td class="l">${label} ${kind}<div style="font-size:10.5px;font-weight:600;color:#555">${g.count} ${kind.toLowerCase()}</div></td>
+    <td>${asmpRs(g.rev)}</td><td>${asmpPct(g.gpPct)}</td><td>${asmpRs(g.gp)}</td><td>${asmpRs(g.avgProfit)}</td>
+    <td>${g.conv == null ? '—' : g.conv.toLocaleString('en-IN')}</td><td>${g.itr == null ? '—' : g.itr}</td><td>${g.retention == null ? '—' : g.retention + ' mahine'}</td>
+    <td>${asmpRs(g.ltv)}</td><td>${asmpPct(g.collection)}</td></tr>`;
+  const head = `<tr><th></th><th>Rev</th><th>GP%</th><th>Total GP</th><th>Avg Rs Profit</th><th>Con. Ratio</th><th>Inventory Turns</th><th>Avg Client Retention</th><th>Lifetime Value of Client</th><th>% On Time Payments</th></tr>`;
+  return `<table class="asmp-t"><thead>${head}</thead><tbody>
+      ${e.clients.map((g, i) => r(L[i], g, 'Clients')).join('')}${r('TOTAL', e.clientTotal, 'Clients', true)}
+      ${e.products.map((g, i) => r(L[i], g, 'Products').replace('<tr class="">', '<tr class="" style="background:#eef3e2">')).join('')}${r('TOTAL', e.productTotal, 'Products', true)}
+    </tbody></table>
+    <div class="asmp-note">Clients = is FY ki Tally bikri se ranking (Rev); GP / GP% = unke O2D bills (21 Sep se) jinki laagat pata hai; Avg Rs Profit = GP ÷ clients · Con. Ratio = order ÷ Beat visit (jude counters) · Retention = kitne mahine bill hua (FY me ab tak) · Lifetime Value = FY me average billing per client · On Time Payments = Tally payment ÷ bikri (GST ke saath) · Products = O2D bills (21 Sep se); Inventory Turns = bika qty ÷ average IMS stock.</div>`;
+}
 async function loadVendorOut() {
   const r = await api('/api/reports/vendor-outstanding');
   if (!r || r.error) { document.getElementById('voWrap').innerHTML = `<div class="empty">⚠️ ${esc((r && r.error) || 'Load nahi hua')}</div>`; return; }

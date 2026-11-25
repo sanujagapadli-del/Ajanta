@@ -664,7 +664,7 @@ function requireAdminOrPC(req, res, next) {
 // else (dashboard, all tasks, approvals, profile) stays open to everyone.
 // 'sfms-pc-view' isn't a page — it's the Service FMS "see/act on every step" grant (see sfmsUserAccess).
 // 'all-delegations' isn't a page either — sees every employee's delegation tasks (view + comment only).
-const RESTRICTABLE_PAGES = ['mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows', 'four-as', 'vendor-outstanding',
+const RESTRICTABLE_PAGES = ['asmp', 'mis', 'users', 'records', 'service-fms', 'o2d-fms', 'o2d-new-order', 'price-catalogue', 'stock', 'purchase-fms', 'cheque-fms', 'replacement-fms', 'gross-profit', 'lead-fms', 'dealers', 'petty-cash', 'sales-schedule', 'sfms-pc-view', 'all-delegations', 'employees', 'checklist-master', 'ows', 'vendor-ledger', 'samples', 'meca', 'beat', 'scot', 'market-holidays', 'dealer-whatsapp', 'drip-marketing', 'collection', 'call-reports', 'tea', 'md-summary', 'delegate', 'mechanics', 'fms-flows', 'four-as', 'vendor-outstanding',
   // 2026-11-07 (client: "access page mai sare page nahi aa rahe"): pages that had only a fixed rule.
   'onboarding', 'vendor-bin', 'rental', 'my-expense', 'pc-followup',
   // Payment Follow-up view only (client 2026-11-11: salesman Rohit / Girdhar / Krishna) — own parties, no actions.
@@ -15817,6 +15817,256 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
   }
 });
 
+// ══════════════════════════════════════════════════════
+// ASMP (client list 2026-11-25 #9-12) — the BCI coaching sheets in one page: MCAP, NBD CRR Analysis,
+// Upsell Cross-Sell, Wallet Share, Leaking Bucket, 80/20. Filled from the ERP where it has the data
+// (Tally sales from 1 Apr of the FY, O2D GP, Beat / Lead FMS visits, SCOT, IMS stock) — what the ERP
+// can't know (plan, profit, a client's total business) is typed into boxes and kept in asmp_inputs.
+// ══════════════════════════════════════════════════════
+const ASMP_CATS = ['Fans', 'Water Heaters', 'Room Heaters', 'Cooler', 'Kitchen Appliances', 'Iron', 'Pest Control'];
+// Tally item name → Price List category (Spares / Lighting / Other are not product lines to cross-sell).
+function asmpCategory(name) {
+  const n = String(name || '').toLowerCase();
+  if (/stator|bearing|choke|cupp?ling|coupling|pump|capacitor|circuit|switch|element|thermostat|spare|motor|blade|knob|winding|gasket|regulator|rotor|carbon/.test(n)) return 'Spares';
+  if (/fly ?catcher|mosquito|insect|killer|zapper/.test(n)) return 'Pest Control';
+  if (/geyser|water heater|immersion/.test(n)) return 'Water Heaters';
+  if (/heater|convector|blow ?hot|halogen|quartz/.test(n)) return 'Room Heaters';
+  if (/cooler/.test(n)) return 'Cooler';
+  if (/\biron\b/.test(n)) return 'Iron';
+  if (/mixer|grinder|blender|madhani|chakla|hot ?case|tandoor|kettle|toaster|juice|jmg|roto ?grill|sandwich|cooker|chopper/.test(n)) return 'Kitchen Appliances';
+  if (/fan|celling|ceiling|cutie|air ?maxx?|farrata|bullet|ventilat|fresh air|exhaust|\d{3,4} ?mm|cabin|\bap\b/.test(n)) return 'Fans';
+  if (/tube|led|light|bulb|batten/.test(n)) return 'Lighting';
+  return 'Other';
+}
+let _asmpTableOk = false;
+async function asmpTable() {
+  if (_asmpTableOk) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS asmp_inputs (sheet VARCHAR(20) NOT NULL, row_key VARCHAR(191) NOT NULL, col_key VARCHAR(40) NOT NULL,
+    value VARCHAR(60) NOT NULL, updated_by INT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (sheet, row_key, col_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  _asmpTableOk = true;
+}
+const ASMP_SHEETS = { mcap: ['profit'], nbdcrr: ['tOrd', 'tRev', 'cOrd', 'cRev', 'nOrd', 'nRev'], wallet: ['avail', 'canSell'] };
+async function asmpAccess(req) { return req.session.role === 'admin' || await hasPageGrant(req, 'asmp'); }
+// Tally SalesItems (the whole FY, ex GST) and BillRegistry (older bills — tells an old client from a new one).
+let _asmpTallyCache = null;
+async function asmpTallyData() {
+  if (_asmpTallyCache && Date.now() - _asmpTallyCache.ts < 5 * 60 * 1000) return _asmpTallyCache;
+  const [si, br, pay] = await Promise.all([
+    tallyValuesGet(`'SalesItems'!A2:H100000`).catch(() => ({ data: { values: [] } })),
+    tallyValuesGet(`'BillRegistry'!A2:D100000`).catch(() => ({ data: { values: [] } })),
+    tallyValuesGet(`'Payments'!A2:E100000`).catch(() => ({ data: { values: [] } }))]);
+  const sales = [];
+  (si.data.values || []).forEach(v => {
+    const party = String(v[0] || '').trim(), d = parseAnyDate(v[2]);
+    if (!party || !d || party === 'Party Name') return;
+    sales.push({ party, pk: party.toLowerCase(), bill: String(v[1] || '').trim(), ymd: toIsoDate(d), item: String(v[3] || '').trim(), amount: Number(v[6]) || 0, cat: asmpCategory(v[3]) });
+  });
+  const oldBill = {}; // party → oldest bill date in Tally's bill register
+  (br.data.values || []).forEach(v => {
+    const pk = String(v[0] || '').trim().toLowerCase(), d = parseAnyDate(v[2]);
+    if (!pk || !d) return;
+    const y = toIsoDate(d);
+    if (!oldBill[pk] || y < oldBill[pk]) oldBill[pk] = y;
+  });
+  const payments = [];
+  (pay.data.values || []).forEach(v => {
+    const pk = String(v[0] || '').trim().toLowerCase(), d = parseAnyDate(v[1]);
+    if (pk && d) payments.push({ pk, ymd: toIsoDate(d), amount: Number(v[3]) || 0 });
+  });
+  return (_asmpTallyCache = { sales, oldBill, payments, ts: Date.now() });
+}
+const _asmpCache = new Map(); // `${fy}|${q}|${upTo}` → { ts, data }
+const asmpMonthEnd = m => { const [y, mo] = m.split('-').map(Number); return toIsoDate(new Date(y, mo, 0)); };
+const asmpAddDays = (ymd, n) => toIsoDate(new Date(new Date(ymd + 'T00:00:00').getTime() + n * 86400000));
+app.get('/api/asmp', requireAuth, async (req, res) => {
+  try {
+    if (!(await asmpAccess(req))) return res.status(403).json({ error: 'No access to ASMP' });
+    await asmpTable();
+    const now = new Date(Date.now() + 5.5 * 3600000), today = now.toISOString().slice(0, 10);
+    const curFy = now.getUTCMonth() >= 3 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+    const fy = Number(req.query.fy) >= 2020 && Number(req.query.fy) <= curFy ? Number(req.query.fy) : curFy;
+    const curQ = Math.floor(((now.getUTCMonth() + 9) % 12) / 3) + 1;
+    const q = [1, 2, 3, 4].includes(Number(req.query.q)) ? Number(req.query.q) : (fy === curFy ? curQ : 4);
+    const fyStart = `${fy}-04-01`, fyEnd = `${fy + 1}-03-31`, upTo = today < fyEnd ? today : fyEnd;
+    const fyMonths = Array.from({ length: 12 }, (_, i) => { const d = new Date(fy, 3 + i, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
+    const qMonths = fyMonths.slice((q - 1) * 3, q * 3);
+    const qStart = `${qMonths[0]}-01`, qEnd = asmpMonthEnd(qMonths[2]), qUpTo = qEnd < upTo ? qEnd : upTo;
+    const [inp] = await db.query('SELECT sheet, row_key, col_key, value FROM asmp_inputs');
+    const inputs = {};
+    inp.forEach(r => { ((inputs[r.sheet] = inputs[r.sheet] || {})[r.row_key] = inputs[r.sheet][r.row_key] || {})[r.col_key] = r.value; });
+    const canEdit = true; // anyone who can open ASMP fills its boxes
+    res.set('Cache-Control', 'private, max-age=60');
+    // The figures (Tally + O2D + MECA reads, ~1.5 s) are kept 10 min per FY / quarter; typed boxes are always fresh.
+    const ck = `${fy}|${q}|${upTo}`, hit = _asmpCache.get(ck);
+    if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return res.json({ ...hit.data, inputs, canEdit });
+    const tally = await asmpTallyData();
+    const fySales = tally.sales.filter(s => s.ymd >= fyStart && s.ymd <= fyEnd);
+    // First purchase per client: an older bill in Tally's register, else its first sale this FY. The FY's first
+    // month can't tell old from new (data starts there), so a client first seen then counts as existing (CRR).
+    const first = { ...tally.oldBill };
+    tally.sales.forEach(s => { if (!first[s.pk] || s.ymd < first[s.pk]) first[s.pk] = s.ymd; });
+    const isNewIn = (pk, m) => first[pk] && first[pk].slice(0, 7) === m && m !== fyMonths[0] && first[pk] >= fyStart;
+    const byMonth = {};
+    fySales.forEach(s => {
+      const m = s.ymd.slice(0, 7), b = byMonth[m] = byMonth[m] || { rev: 0, bills: new Set(), parties: new Set(), nRev: 0, nBills: new Set(), nParties: new Set() };
+      b.rev += s.amount; b.bills.add(`${s.pk}|${s.bill}`); b.parties.add(s.pk);
+      if (isNewIn(s.pk, m)) { b.nRev += s.amount; b.nBills.add(`${s.pk}|${s.bill}`); b.nParties.add(s.pk); }
+    });
+    // O2D GP (bills from 21 Sep 2026; Tally party names) for margin, products and the client groups' GP.
+    let gpLines = [], costFor = () => null, poStock = null;
+    try {
+      const g = await gpLoadData(fyStart, upTo, { exGst: true, tallyParty: true });
+      gpLines = g.sales.filter(s => !s.replacement); costFor = g.costFor; poStock = g.stockName;
+    } catch (e) { console.warn('asmp gp:', e.message); }
+    const gpOf = s => { const c = costFor(s); return c ? { cost: c.rate * s.qty } : null; };
+    const gpByMonth = {};
+    gpLines.forEach(s => { const c = gpOf(s); if (!c) return; const m = s.date.slice(0, 7), g = gpByMonth[m] = gpByMonth[m] || { sales: 0, gp: 0 }; g.sales += s.amount; g.gp += s.amount - c.cost; });
+    // Meetings = counter visits (Beat) + new-counter visits (Lead FMS market visits / visits), as in MECA.
+    const meet = {};
+    try {
+      const mc = await mecaCompute(qStart, qUpTo);
+      mc.rows.forEach(r => { const m = r.date.slice(0, 7); meet[m] = (meet[m] || 0) + (Number(r.visited) || 0) + (Number(r.nbdVisits) || 0); });
+    } catch (e) { console.warn('asmp meca:', e.message); }
+    const round = v => Math.round(v * 100) / 100;
+    const mcap = qMonths.map(m => {
+      const b = byMonth[m], g = gpByMonth[m] || null;
+      return { m, meetings: m <= upTo.slice(0, 7) ? meet[m] || 0 : null, clients: b ? b.parties.size : 0, orders: b ? b.bills.size : 0, revenue: b ? round(b.rev) : 0,
+        gp: g ? round(g.gp) : null, gpSales: g ? round(g.sales) : null };
+    });
+    const nbdcrr = fyMonths.filter(m => m <= upTo.slice(0, 7)).map(m => {
+      const b = byMonth[m];
+      return { m, tOrd: b ? b.bills.size : 0, tRev: b ? round(b.rev) : 0, nOrd: b ? b.nBills.size : 0, nRev: b ? round(b.nRev) : 0, nClients: b ? b.nParties.size : 0 };
+    });
+    // Clients (FY so far): billing, product lines bought — for Upsell / Wallet Share / 80-20.
+    const cl = {};
+    fySales.forEach(s => {
+      const c = cl[s.pk] = cl[s.pk] || { party: s.party, pk: s.pk, billing: 0, bills: new Set(), cats: new Set(), months: new Set(), last: '' };
+      c.billing += s.amount; c.bills.add(s.bill); c.months.add(s.ymd.slice(0, 7)); if (s.ymd > c.last) c.last = s.ymd;
+      if (ASMP_CATS.includes(s.cat)) c.cats.add(s.cat);
+    });
+    const clients = Object.values(cl).map(c => ({ party: c.party, pk: c.pk, billing: round(c.billing), bills: c.bills.size, cats: [...c.cats], months: c.months.size, last: c.last }))
+      .sort((a, b) => b.billing - a.billing);
+    // Leaking bucket, per month of the quarter (as of that month's end).
+    const [leads, evs] = await Promise.all([
+      db.query(`SELECT id, DATE_FORMAT(created_at,'%Y-%m-%d') AS d, result FROM leads WHERE cancelled_at IS NULL AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`, [qStart, qUpTo]).then(r => r[0]).catch(() => []),
+      db.query(`SELECT DISTINCT lead_id FROM lead_events WHERE event IN ('call','visit')`).then(r => r[0]).catch(() => [])]);
+    const followed = new Set(evs.map(e => e.lead_id));
+    await scotTables().catch(() => null);
+    const [scot] = await db.query('SELECT name, freq FROM scot_dealers WHERE active=1').catch(() => [[]]);
+    const nameKey = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const lastSaleBy = {}; // pk → sorted dates (all Tally sales)
+    tally.sales.forEach(s => { (lastSaleBy[s.pk] = lastSaleBy[s.pk] || []).push(s.ymd); });
+    Object.values(lastSaleBy).forEach(a => a.sort());
+    const pkByKey = {};
+    Object.keys(lastSaleBy).forEach(pk => { pkByKey[nameKey(pk)] = pk; });
+    const leak = qMonths.map(m => {
+      const mEnd = asmpMonthEnd(m), asOf = mEnd < upTo ? mEnd : upTo, future = `${m}-01` > upTo;
+      if (future) return { m, future: true };
+      const b = byMonth[m], avgOrder = b && b.bills.size ? b.rev / b.bills.size : 0;
+      const ml = leads.filter(l => l.d.slice(0, 7) === m), noFollow = ml.filter(l => !followed.has(l.id) && !l.result);
+      // Inactive half a year: bought before (Tally, this FY data) but nothing in the 180 days up to the month end.
+      const cut = asmpAddDays(asOf, -180);
+      let base = 0, inact = 0, inactRs = 0;
+      Object.entries(lastSaleBy).forEach(([pk, ds]) => {
+        const upto = ds.filter(d => d <= asOf);
+        if (!upto.length) return;
+        base++;
+        if (upto[upto.length - 1] < cut) { inact++; const c = cl[pk]; inactRs += c ? c.billing / Math.max(1, c.months.size) : 0; }
+      });
+      // Not ordering regularly (SCOT): last order older than 1.5 × the dealer's SCOT frequency.
+      let scBase = 0, irr = 0, irrRs = 0;
+      scot.forEach(d => {
+        const pk = pkByKey[nameKey(d.name)];
+        const ds = pk ? (lastSaleBy[pk] || []).filter(x => x <= asOf) : [];
+        if (!ds.length) return;
+        scBase++;
+        if (ds[ds.length - 1] < asmpAddDays(asOf, -Math.round((Number(d.freq) || 30) * 1.5))) { irr++; const c = cl[pk]; irrRs += c && c.bills.size ? c.billing / c.bills.size : 0; }
+      });
+      // Below their own benchmark: a client's bills this month under its average bill (FY so far).
+      const bills = {};
+      fySales.filter(s => s.ymd.slice(0, 7) === m).forEach(s => { const k = `${s.pk}|${s.bill}`; bills[k] = (bills[k] || 0) + s.amount; });
+      const below = new Set(); let belowRs = 0;
+      Object.entries(bills).forEach(([k, v]) => {
+        const pk = k.split('|')[0], c = cl[pk], bench = c && c.bills.size ? c.billing / c.bills.size : 0;
+        if (bench && v < bench && c.bills.size >= 2) { below.add(pk); belowRs += bench - v; }
+      });
+      const active = b ? b.parties.size : 0;
+      return { m, leads: ml.length, noFollow: noFollow.length, noFollowRs: round(noFollow.length * avgOrder),
+        base, inact, inactRs: round(inactRs), scBase, irr, irrRs: round(irrRs), active, below: below.size, belowRs: round(belowRs) };
+    });
+    // 80/20 — clients by FY billing (Tally); GP from O2D lines of those clients; products from O2D bills.
+    const gpByParty = {}, prod = {};
+    gpLines.forEach(s => {
+      const c = gpOf(s), pk = String(s.party || '').toLowerCase();
+      const g = gpByParty[pk] = gpByParty[pk] || { sales: 0, gp: 0 };
+      if (c) { g.sales += s.amount; g.gp += s.amount - c.cost; }
+      const k = s.code && !s.code.startsWith('name:') ? s.code : 'n:' + String(s.item).toLowerCase();
+      const p = prod[k] = prod[k] || { name: (poStock && poStock[s.code]) || s.item, code: s.code && !s.code.startsWith('name:') ? s.code : '', rev: 0, qty: 0, costed: 0, gp: 0 };
+      p.rev += s.amount; p.qty += s.qty; if (c) { p.costed += s.amount; p.gp += s.amount - c.cost; }
+    });
+    const [visits] = await db.query(`SELECT LOWER(c.party_name) AS pk, COUNT(*) AS n FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id
+      WHERE c.party_name IS NOT NULL AND e.entry_date BETWEEN ? AND ? AND (e.visit IS NULL OR e.visit NOT REGEXP '^(no|nahi|out)') GROUP BY LOWER(c.party_name)`, [fyStart, upTo]).catch(() => [[]]);
+    const visitBy = Object.fromEntries(visits.map(v => [v.pk, Number(v.n) || 0]));
+    const paidBy = {};
+    tally.payments.forEach(p => { if (p.ymd >= fyStart && p.ymd <= upTo) paidBy[p.pk] = (paidBy[p.pk] || 0) + p.amount; });
+    const fyMonthsSoFar = Math.max(1, fyMonths.filter(m => m <= upTo.slice(0, 7)).length);
+    const split = list => { const n = list.length, a = Math.ceil(n * 0.2), b = Math.max(a, n - Math.ceil(n * 0.2)); return [list.slice(0, a), list.slice(a, b), list.slice(b)]; };
+    const clientGroup = list => {
+      const rev = list.reduce((a, c) => a + c.billing, 0), g = list.reduce((a, c) => { const x = gpByParty[c.pk]; if (x) { a.s += x.sales; a.gp += x.gp; } return a; }, { s: 0, gp: 0 });
+      const vis = list.reduce((a, c) => a + (visitBy[c.pk] || 0), 0), vBills = list.filter(c => visitBy[c.pk]).reduce((a, c) => a + c.bills, 0);
+      const paid = list.reduce((a, c) => a + (paidBy[c.pk] || 0), 0);
+      return { count: list.length, rev: round(rev), gpPct: g.s ? round(g.gp * 100 / g.s) : null, gp: g.s ? round(g.gp) : null, avgProfit: g.s && list.length ? round(g.gp / list.length) : null,
+        conv: vis ? round(vBills / vis) : null /* orders per Beat visit of linked counters */, retention: list.length ? round(list.reduce((a, c) => a + c.months, 0) / list.length) : null,
+        ltv: list.length ? round(rev / list.length) : null, collection: rev ? round(paid * 100 / (rev * 1.18)) : null, monthsSoFar: fyMonthsSoFar };
+    };
+    // Inventory turns of a product group = its qty sold ÷ average IMS stock (start and end of the period).
+    const codes = [...new Set(Object.values(prod).map(p => p.code).filter(Boolean))];
+    const avgStock = {};
+    if (codes.length) {
+      const [[cur], [mv]] = await Promise.all([
+        db.query('SELECT item_code, current_stock FROM ajanta_stock_items WHERE item_code IN (?)', [codes]),
+        db.query(`SELECT item_code, SUM(CASE WHEN direction='IN' THEN quantity ELSE 0 END) AS i1, SUM(CASE WHEN direction='OUT' THEN quantity ELSE 0 END) AS o1,
+            SUM(CASE WHEN direction='IN' AND txn_date > ? THEN quantity ELSE 0 END) AS i2, SUM(CASE WHEN direction='OUT' AND txn_date > ? THEN quantity ELSE 0 END) AS o2
+          FROM ajanta_stock_transactions WHERE status<>'Cancelled' AND applied=1 AND txn_date >= ? AND item_code IN (?) GROUP BY item_code`, [upTo, upTo, fyStart, codes])
+      ]).catch(() => [[[]], [[]]]);
+      const mvBy = Object.fromEntries(mv.map(r => [r.item_code, r]));
+      cur.forEach(r => {
+        const m = mvBy[r.item_code] || {}, n = k => Number(m[k]) || 0, now0 = Number(r.current_stock) || 0;
+        const s0 = now0 - n('i1') + n('o1'), s1 = now0 - n('i2') + n('o2');
+        if (s0 >= 0 && s1 >= 0 && s0 + s1 > 0) avgStock[r.item_code] = (s0 + s1) / 2;
+      });
+    }
+    const prodList = Object.values(prod).sort((a, b) => b.rev - a.rev);
+    const prodGroup = list => {
+      const rev = list.reduce((a, p) => a + p.rev, 0), costed = list.reduce((a, p) => a + p.costed, 0), gp = list.reduce((a, p) => a + p.gp, 0);
+      const st = list.filter(p => avgStock[p.code]), qty = st.reduce((a, p) => a + p.qty, 0), avg = st.reduce((a, p) => a + avgStock[p.code], 0);
+      return { count: list.length, rev: round(rev), gpPct: costed ? round(gp * 100 / costed) : null, gp: costed ? round(gp) : null, avgProfit: costed && list.length ? round(gp / list.length) : null,
+        itr: avg > 0 ? round(qty / avg) : null };
+    };
+    const eighty = { clients: split(clients).map(clientGroup), products: split(prodList).map(prodGroup), clientTotal: clientGroup(clients), productTotal: prodGroup(prodList) };
+    const data = { fy, q, curFy, fyStart, upTo, qMonths, fyMonths, cats: ASMP_CATS, mcap, nbdcrr, clients, leak, eighty };
+    _asmpCache.set(ck, { ts: Date.now(), data });
+    if (_asmpCache.size > 12) _asmpCache.delete(_asmpCache.keys().next().value);
+    res.json({ ...data, inputs, canEdit });
+  } catch (err) { sendServerError(res, err); }
+});
+// A typed box on an ASMP sheet (plan, profit, a client's total business…). Empty = cleared.
+app.put('/api/asmp/input', requireAuth, async (req, res) => {
+  try {
+    if (!(await asmpAccess(req))) return res.status(403).json({ error: 'No access to ASMP' });
+    const b = req.body || {}, sheet = String(b.sheet || ''), row = String(b.row || '').trim().slice(0, 191), col = String(b.col || '');
+    if (!ASMP_SHEETS[sheet] || !ASMP_SHEETS[sheet].includes(col) || !row) return res.status(400).json({ error: 'Galat box' });
+    const raw = String(b.value == null ? '' : b.value).trim().replace(/,/g, '');
+    await asmpTable();
+    if (raw === '') { await db.query('DELETE FROM asmp_inputs WHERE sheet=? AND row_key=? AND col_key=?', [sheet, row, col]); return res.json({ success: true, cleared: true }); }
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v < 0) return res.status(400).json({ error: 'Sirf number (0 ya zyada)' });
+    await db.query('INSERT INTO asmp_inputs (sheet, row_key, col_key, value, updated_by) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value), updated_by=VALUES(updated_by)',
+      [sheet, row, col, String(v), req.session.userId]);
+    res.json({ success: true, value: v });
+  } catch (err) { sendServerError(res, err); }
+});
 // Name → { nums, words } for matching O2D spellings ("Classic Plus 15litr" ≈ "Geyser 15 Ltr Classic Plus").
 function gpNameTokens(v) {
   const unit = { litre: 'l', litr: 'l', ltr: 'l', liter: 'l', ltrs: 'l', lit: 'l', litres: 'l', celling: 'ceiling', watt: 'w', watts: 'w', feet: 'ft', foot: 'ft' };
