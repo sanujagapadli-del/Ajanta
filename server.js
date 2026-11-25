@@ -14774,7 +14774,8 @@ async function beatTables() {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   // Link to the O2D / Tally dealer name (client 2026-11-05: Beat order value O2D se, collection Cheque FMS se).
   // party_tried = the auto-match already ran for this counter (so it isn't retried on every load).
-  await addMissingColumns('beat_counters', [['party_name', 'VARCHAR(255) NULL'], ['party_tried', 'TINYINT NULL']]);
+  // lead_id = the counter came from a Lead FMS market-visit lead (client list 2026-11-25 #3): that first visit is NBD, later Beat visits CRR.
+  await addMissingColumns('beat_counters', [['party_name', 'VARCHAR(255) NULL'], ['party_tried', 'TINYINT NULL'], ['lead_id', 'INT NULL']]);
   _beatTablesOk = true;
 }
 // "Monday", "Mon New", "Thuresday" → 1 … 7; "Upcountry" / blank → 0 (no fixed weekday).
@@ -15079,12 +15080,14 @@ async function mecaCompute(from, to) {
   const [[counters], [entries]] = await Promise.all([
     db.query('SELECT id, user_id, counter_name, beat_day, party_name FROM beat_counters WHERE active=1'),
     db.query(`SELECT e.counter_id, c.user_id, c.counter_name, c.beat_day, c.party_name, DATE_FORMAT(e.entry_date,'%Y-%m-%d') AS d, e.visit, e.order_amt, e.collection_amt,
-        e.new_counter, e.reference, e.enquiry FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id WHERE e.entry_date BETWEEN ? AND ?`, [from, to])
+        e.new_counter, e.reference, e.enquiry, DATE_FORMAT(l.created_at,'%Y-%m-%d') AS lead_d
+        FROM beat_entries e JOIN beat_counters c ON c.id=e.counter_id LEFT JOIN leads l ON l.id=c.lead_id WHERE e.entry_date BETWEEN ? AND ?`, [from, to])
   ]);
   const isoDow = d => { const x = new Date(d + 'T00:00:00Z').getUTCDay(); return x === 0 ? 7 : x; };
   const rows = {};
   const row = (uid, d) => rows[`${uid}|${d}`] = rows[`${uid}|${d}`] || { userId: uid, date: d, planned: 0, visited: 0, notVisited: 0, ordered: 0, value: 0, collection: 0, collCount: 0, upcountry: 0, beatHit: 0, nbdVisits: 0, nbdWon: 0, nbdValue: 0, nbdOrders: 0, nbdPlanned: 0, nbdLeads: 0, leadCalls: 0, refs: 0, calls: 0, callOrders: 0, callValue: 0, appts: 0, o2dOrders: 0, o2dValue: 0, scotCalls: 0, scotOrders: 0, scotValue: 0 };
   for (const e of entries) {
+    if (e.lead_d && e.lead_d === e.d) continue; // the counter's first visit = its Lead FMS market-visit lead (NBD), not CRR
     const r = row(e.user_id, e.d);
     if (beatVisited(e)) { r.visited++; const bd = beatDow(e.beat_day); if (!bd) r.upcountry++; else if (bd === isoDow(e.d)) r.beatHit++; } else if (e.visit) r.notVisited++;
     // CRR orders no longer from the Beat entry (client 2026-11-11: "O2D aur Lead FMS se bhi data lena hai") — see O2D below.
@@ -15183,12 +15186,15 @@ async function mecaCompute(from, to) {
   // every order — Beat, SCOT, Lead FMS — gets booked, so it is shown on its own, never added to those.
   try {
     const [orders, ownerOf] = await Promise.all([getO2dOrders(), mecaOrderByResolver()]);
+    // ERP Sales = only what CRM books after calling (client list 2026-11-25 #2): orders whose "Order By"
+    // resolves to the same person as "CRM" (Kavita).
+    const crmOwner = ownerOf('CRM');
     for (const o of orders) {
       const d = String(o.timestamp || '').slice(0, 10);
       if (o.cancelled || d < from || d > to) continue;
       const v = (o.products || []).filter(x => !x.cancelled).reduce((a, x) => a + (Number(x.rate) || 0) * (Number(x.qty) || 0), 0) * (100 - (Number(o.discountPct) || 0)) / 100;
-      const r = row(ownerOf(o.orderBy), d);
-      r.o2dOrders++; r.o2dValue += v;
+      const owner = ownerOf(o.orderBy);
+      if (owner === crmOwner) { const r = row(owner, d); r.o2dOrders++; r.o2dValue += v; }
       // NBD order value (client 2026-10-31): an order from a counter that came through Lead FMS and converted —
       // credited to that lead's person on the order date.
       const lead = leadOfCounter(o.counterName);
@@ -15541,7 +15547,9 @@ async function gpLoadData(start, end, opts = {}) {
     if (c && c.qty > 0) return { rate: Math.round(c.last.rate * 100) / 100, source: c.last.po ? `Last PO ${c.last.po}` : 'Last PO rate', poName: [...c.names].slice(0, 2).join(' / ') };
     return null;
   };
-  return { sales, poCost, costFor, stockName, firstBill, lastBill, linkBy };
+  // Stock items that have a cost (PO lots or a typed rate) — GP suggests one of these for a new O2D name with none.
+  const costedCodes = [...new Set([...Object.keys(poCost).filter(k => poCost[k].qty > 0), ...Object.keys(manualByCode)])];
+  return { sales, poCost, costFor, stockName, firstBill, lastBill, linkBy, costedCodes };
 }
 
 // ── Net Profit (client, 2026-10-12: "GP ke baad NP nikalna hai, office exp
@@ -15644,7 +15652,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '') || start > end) {
       return res.status(400).json({ error: 'Valid start and end dates required' });
     }
-    const { sales, poCost, costFor, stockName, firstBill, lastBill, linkBy } = await gpLoadData(start, end, { exGst: true, tallyParty: true });
+    const { sales, poCost, costFor, stockName, firstBill, lastBill, linkBy, costedCodes } = await gpLoadData(start, end, { exGst: true, tallyParty: true });
     // Vendor picked by hand for an item with no PO (client 2026-11-05, GP → Vendor: "yhi pe vendor select krne ka option").
     await ensureGpItemVendors();
     const [ivRows] = await db.query('SELECT item_key, vendor FROM gp_item_vendors');
@@ -15688,7 +15696,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       const c = costFor(s);
       const cost = c ? c.rate * s.qty : null;
       const ik = gpKey(s.item);
-      const it = byItem[ik] = byItem[ik] || { item: s.item, stockItem: s.code.startsWith('name:') ? '' : (stockName[s.code] || ''), linkedCode: linkBy[ik] || '', qty: 0, sales: 0,
+      const it = byItem[ik] = byItem[ik] || { item: s.item, stockItem: s.code.startsWith('name:') ? '' : (stockName[s.code] || ''), stockCode: s.code.startsWith('name:') ? '' : s.code, linkedCode: linkBy[ik] || '', qty: 0, sales: 0,
         costRate: c ? c.rate : null, costSource: c ? c.source : '', poName: c && c.poName || '', cost: 0 };
       it.qty += s.qty; it.sales += s.amount; if (c) { it.cost += cost; it.costedQty = (it.costedQty || 0) + s.qty; if (it.costRate == null) Object.assign(it, { costRate: c.rate, costSource: c.source }); }
       const pk = s.party.toLowerCase();
@@ -15725,6 +15733,41 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       return { ...it, qty: round(it.qty), sales: round(it.sales), cost: it.costRate == null ? null : round(it.cost),
         avgRate: it.qty ? round(it.sales / it.qty) : null, gp: gp == null ? null : round(gp), gpPct: gp == null || !it.sales ? null : round(gp * 100 / it.sales) };
     }).sort((a, b) => (b.gp == null ? -Infinity : b.gp) - (a.gp == null ? -Infinity : a.gp) || b.sales - a.sales);
+    // Inventory Turn Ratio (client list 2026-11-25 #7) per product for this period = qty sold ÷ average stock
+    // (IMS stock at the start and at the end of the period, worked back from today's stock and the IN / OUT after
+    // those dates). Same idea as the Stock page's 90-day turn. Items not in IMS show no ITR.
+    const itrCodes = [...new Set(products.map(x => x.stockCode).filter(Boolean))];
+    let itrAvgSum = 0, itrQtySum = 0;
+    if (itrCodes.length) {
+      const [[cur], [mv]] = await Promise.all([
+        db.query('SELECT item_code, current_stock FROM ajanta_stock_items WHERE item_code IN (?)', [itrCodes]),
+        db.query(`SELECT item_code,
+            SUM(CASE WHEN direction='IN' THEN quantity ELSE 0 END) AS in_from, SUM(CASE WHEN direction='OUT' THEN quantity ELSE 0 END) AS out_from,
+            SUM(CASE WHEN direction='IN' AND txn_date > ? THEN quantity ELSE 0 END) AS in_after, SUM(CASE WHEN direction='OUT' AND txn_date > ? THEN quantity ELSE 0 END) AS out_after
+          FROM ajanta_stock_transactions WHERE status<>'Cancelled' AND applied=1 AND txn_date >= ? AND item_code IN (?) GROUP BY item_code`, [end, end, start, itrCodes])
+      ]).catch(() => [[[]], [[]]]);
+      const curBy = Object.fromEntries(cur.map(r => [r.item_code, Number(r.current_stock) || 0]));
+      const mvBy = Object.fromEntries(mv.map(r => [r.item_code, r]));
+      products.forEach(x => {
+        if (!x.stockCode || !(x.stockCode in curBy)) return;
+        const m = mvBy[x.stockCode] || {}, n = k => Number(m[k]) || 0, now = curBy[x.stockCode];
+        const endStock = now - n('in_after') + n('out_after'), startStock = now - n('in_from') + n('out_from');
+        // Stock below zero = IMS opening stock never filled for this item → no ITR (it would be meaningless).
+        const ok = startStock >= 0 && endStock >= 0, avg = ok ? (startStock + endStock) / 2 : 0;
+        x.stockEnd = round(endStock);
+        x.avgStock = round(avg);
+        x.itr = avg > 0 ? round(x.qty / avg) : null;
+        if (avg > 0) { itrAvgSum += avg; itrQtySum += x.qty; }
+      });
+    }
+    // Cost carried to a renamed product (client list 2026-11-25 #8: "cost ek baar dal di to next month automatic"):
+    // the cost already carries for the same name / stock item; a NEW O2D spelling of an old product gets a one-click
+    // suggestion of the costed stock item it most likely is — never applied by itself (10 L vs 15 L must not mix).
+    products.forEach(x => {
+      if (x.costRate != null || x.linkedCode) return;
+      const sug = gpSuggestCosted(x.item, (costedCodes || []).map(code => ({ code, name: stockName[code] })).filter(c => c.name && c.code !== x.stockCode));
+      if (sug) x.suggest = sug;
+    });
     const dealers = Object.values(byParty).map(p => {
       const gp = p.costedSales ? p.costedSales - p.cost : null;
       return { party: p.party, bills: p.bills.size, qty: round(p.qty), sales: round(p.sales), replAmount: round(p.replAmount), replQty: round(p.replQty),
@@ -15763,7 +15806,7 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
       start, end, source: 'fms',
       totals: { sales: round(totals.sales), qty: round(totals.qty), costedSales: round(totals.costedSales), cost: round(totals.cost),
         uncostedSales: round(totals.uncostedSales), gp: round(gp), gpPct: totals.costedSales ? round(gp * 100 / totals.costedSales) : null, lines: totals.lines,
-        replacement: round(totals.replacement), replQty: round(totals.replQty) },
+        replacement: round(totals.replacement), replQty: round(totals.replQty), itr: itrAvgSum > 0 ? round(itrQtySum / itrAvgSum) : null },
       products, dealers, vendors: vendorRows, vendorChoices, orders,
       dataRange: { from: firstBill, to: lastBill },
       canEditCost: req.session.role === 'admin'
@@ -15774,6 +15817,28 @@ app.get('/api/reports/gross-profit', requireAuth, async (req, res) => {
   }
 });
 
+// Name → { nums, words } for matching O2D spellings ("Classic Plus 15litr" ≈ "Geyser 15 Ltr Classic Plus").
+function gpNameTokens(v) {
+  const unit = { litre: 'l', litr: 'l', ltr: 'l', liter: 'l', ltrs: 'l', lit: 'l', litres: 'l', celling: 'ceiling', watt: 'w', watts: 'w', feet: 'ft', foot: 'ft' };
+  const t = String(v || '').toLowerCase().replace(/ajanta/g, ' ').replace(/(\d+(?:\.\d+)?)/g, ' $1 ').split(/[^a-z0-9.]+/).filter(Boolean).map(w => unit[w] || w);
+  return { nums: new Set(t.filter(w => /^\d/.test(w)).map(w => String(Number(w)))), words: new Set(t.filter(w => !/^\d/.test(w) && w.length > 1)) };
+}
+// Best costed stock item for a name: every number of the name in it (sizes must agree, at most one extra),
+// 2+ shared words, one word set inside the other, and a single clear winner — else no suggestion.
+function gpSuggestCosted(name, cands) {
+  const u = gpNameTokens(name);
+  if (u.words.size < 2) return null;
+  let best = null, bestScore = 0, tie = false;
+  for (const c of cands) {
+    const t = gpNameTokens(c.name);
+    if (![...u.nums].every(n => t.nums.has(n)) || t.nums.size - u.nums.size > 1) continue;
+    const shared = [...u.words].filter(w => t.words.has(w)).length;
+    if (shared < 2 || (shared !== u.words.size && shared !== t.words.size)) continue;
+    const score = shared / Math.max(u.words.size, t.words.size) - (t.nums.size - u.nums.size) * 0.01;
+    if (score > bestScore + 1e-9) { best = c; bestScore = score; tie = false; } else if (Math.abs(score - bestScore) < 1e-9 && best && best.code !== c.code) tie = true;
+  }
+  return best && !tie ? { code: best.code, name: best.name } : null;
+}
 let _gpItemVendorsOk = false;
 async function ensureGpItemVendors() {
   if (_gpItemVendorsOk) return;
@@ -16727,7 +16792,9 @@ async function ensureLeadTables() {
     // "Ye dealer reference se aaya? Kis dealer ne diya" (client recording 2026-10-30) — counted as the salesman's references in MECA.
     ['ref_dealer', 'VARCHAR(255)'],
     // MECA spec (client 2026-10-31): market on the lead form, and the ₹ when the result is 'Order Mil Gaya' (NBD / call average order).
-    ['market', 'VARCHAR(120)'], ['order_amt', 'DECIMAL(12,2)']]);
+    ['market', 'VARCHAR(120)'], ['order_amt', 'DECIMAL(12,2)'],
+    // Beat day of a new counter added from Beat (client list 2026-11-25 #3) — the counter goes on that salesman's beat.
+    ['beat_day', 'VARCHAR(30)']]);
   await addMissingColumns('dealer_onboardings', [['aadhaar_photo', 'VARCHAR(1000)'], ['cheque_photo', 'VARCHAR(1000)'],
     // Transport the dealer's goods go by + the bilty / LR photo (client, 2026-10-16).
     ['transport_name', 'VARCHAR(255)'], ['transport_phone', 'VARCHAR(30)'], ['transport_station', 'VARCHAR(255)'], ['bilty_photo', 'VARCHAR(1000)'],
@@ -17004,7 +17071,21 @@ app.post('/api/lead-fms', requireAuth, async (req, res) => {
       [code, leadType, leadStr(b.source, 40) || (leadType === 'Outgoing' ? 'Market Visit' : null), shop, contact, mobile,
         leadStr(b.city, 255), leadStr(b.area, 255), leadStr(b.market, 120), leadStr(b.reqCategory, 100), leadStr(b.requirement, 1000), leadStr(b.refDealer, 255), card, sid || null, sname, req.session.userId]);
     await logLeadEvent(r.insertId, 'created', [leadType, b.source, b.reqCategory, b.requirement].filter(Boolean).join(' · '), req.session.userId);
-    res.json({ success: true, id: r.insertId, code });
+    // New counter from Beat (client list 2026-11-25 #3): an Outgoing lead with a beat day also goes on that
+    // salesman's beat list, so the next visits are ticked in Beat (MECA: this lead = NBD visit, later ones CRR).
+    const beatDay = leadType === 'Outgoing' ? leadStr(b.beatDay, 30) : null;
+    let beatCounter = false;
+    if (beatDay && (shop || contact)) {
+      await db.query('UPDATE leads SET beat_day=? WHERE id=?', [beatDay, r.insertId]);
+      await beatTables();
+      const owner = sid || Number(req.session.userId);
+      const [[mx]] = await db.query('SELECT COALESCE(MAX(sort_no),0)+1 AS n FROM beat_counters WHERE user_id=?', [owner]);
+      await db.query(`INSERT INTO beat_counters (user_id, counter_name, beat_day, area, city, sort_no, lead_id) VALUES (?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE active=1, beat_day=VALUES(beat_day), area=COALESCE(VALUES(area), area), city=COALESCE(VALUES(city), city), lead_id=COALESCE(lead_id, VALUES(lead_id))`,
+        [owner, String(shop || contact).slice(0, 255), beatDay, leadStr(b.area, 120), leadStr(b.city, 80), mx.n, r.insertId]);
+      beatCounter = true;
+    }
+    res.json({ success: true, id: r.insertId, code, beatCounter });
   } catch (err) {
     if (err.code === 403) return res.status(400).json({ error: 'Access denied — please add the service account to the photos Shared Drive.' });
     sendServerError(res, err);

@@ -2850,6 +2850,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
         <input type="date" id="beatDate" onchange="beatDateChanged()" title="Kis din ka beat" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px"/>
         <input id="beatSearch" placeholder="🔍 Counter name…" oninput="renderBeat()" style="padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;min-width:150px"/>
         <button class="btn btn-outline" id="beatReportBtn" onclick="beatToggleReport()">📊 Report</button>
+        <button class="btn btn-outline" onclick="navigate('meca', document.getElementById('nav-meca'))" title="Salesman-wise MECA">MECA</button>
       </div>
     </div>
     <div id="beatWrap"><div class="empty ui-skel" aria-busy="true">Loading…</div></div>
@@ -22690,7 +22691,16 @@ async function mecaSaveBench(uid, btn) {
   showToast('✅ Benchmark save');
   renderMeca();
 }
-let mecaSort = 'visits';
+// Columns in the client's order (client list 2026-11-25 #6): Rohit, Girdhar, Krishna, Kavita, Priyanka, Ajay, then the rest.
+// Clicking a metric still sorts by it; clicking it again goes back to this order.
+let mecaSort = 'seq';
+const MECA_SEQ = ['rohit', 'girdhar', 'krishna', 'kavita', 'priyanka', 'ajay'];
+function mecaSeqRank(p) {
+  if (typeof p.id !== 'number') return 99;
+  const w = String(p.name || '').trim().toLowerCase().split(/\s+/)[0].replace('krishana', 'krishna');
+  const i = MECA_SEQ.indexOf(w);
+  return i < 0 ? 50 : i;
+}
 // Next week's MECA score commitment — own row, or anyone's for admin / PC (client 2026-10-31).
 async function mecaSaveCommit(uid, section, el) {
   let v = el.value.trim();
@@ -22773,47 +22783,6 @@ function renderMeca() {
   const tag = (k, v) => v == null ? '—' : PCT_KEYS.includes(k) ? (Math.round(v * 10) / 10) + '%' : (RS_KEYS.includes(k) ? '₹' : '') + fmt(v);
   const anyB = k => people.some(p => (B[p.id] || {})[k]);
   const score = (k, l) => anyB(k) ? [{ l: '🎯 ' + l, score: 1, v: (r, p) => r && (B[p.id] || {})[k] ? scoreTxt(SC[k](r, B[p.id])) : '' }] : [];
-  const metrics = [
-    { sec: 'OLD COUNTERS' },
-    { l: 'Counter Visit', v: r => r ? fmt(r.visited) : '' }, ...score('visits', 'Visit score'),
-    { l: 'Conversion Ratio', calc: 1, v: r => r ? ratio(r.ordered, r.visited) : '' }, ...score('conv', 'Conversion score'),
-    { l: 'Order (counter)', v: r => r ? fmt(r.ordered) : '' },
-    { l: 'Order Value ₹', v: r => r ? fmt(r.value) : '' },
-    { l: 'Average Order Value', calc: 1, v: r => r ? avg(r.value, r.ordered) : '' }, ...score('avg', 'Avg order score'),
-    { l: 'Collection (counter)', v: r => r ? fmt(r.collCount) : '' },
-    { l: 'Collection Value ₹', v: r => r ? fmt(r.collection) : '' },
-    { l: 'Average Collection Value', calc: 1, v: r => r ? avg(r.collection, r.collCount) : '' }, ...score('coll', 'Collection score'),
-    { sec: 'NEW COUNTERS (NBD — Lead FMS)' },
-    { l: 'NBD Visit', v: r => r ? fmt(r.nbdVisits) : '' }, ...score('nbd', 'NBD visit score'),
-    { l: 'NBD Won (order / dealer bana)', v: r => r ? fmt(r.nbdWon) : '' },
-    { l: 'NBD Conversion Ratio', calc: 1, v: r => r ? ratio(r.nbdWon, r.nbdVisits) : '' }, ...score('nbdConv', 'NBD conversion score'),
-    { l: 'References (dealer se)', v: r => r ? fmt(r.refs) : '' },
-    { sec: 'CALLING (SCOT — purane dealer · SC-NBD — Lead FMS)' },
-    { l: 'Calls', v: r => r ? fmt(r.calls) : '' }, ...score('calls', 'Calls score'),
-    { l: 'Order (call se)', v: r => r ? fmt(r.callOrders) : '' },
-    { l: 'Call Conversion Ratio', calc: 1, v: r => r ? ratio(r.callOrders, r.calls) : '' }, ...score('callConv', 'Call conversion score'),
-    { l: 'Call Order Value ₹', v: r => r ? fmt(r.callValue) : '' },
-    { l: 'Call Average Order', calc: 1, v: r => r ? avg(r.callValue, r.callOrders) : '' }, ...score('callAvg', 'Call avg order score')
-  ];
-  const C = { navy: '#1f3864', light: '#d6e4f0', blue: '#2e75b6', purple: '#351c75', slate: '#2e4057', data: '#ebf3fb', calc: '#a4c2f4', wk: '#fff2cc' };
-  const T = 'border:1px solid #c7d3e0;padding:4px 7px;white-space:nowrap;font-size:12.5px;text-align:center;';
-  const P = people.length;
-  const isWk = g => g.kind !== 'day';
-  const dayName = y => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(y + 'T00:00:00Z').getUTCDay()];
-  const dLabel = y => `${+y.slice(8)} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+y.slice(5, 7) - 1]}`;
-  const lab = (t, bg, color, extra = '') => `<th style="${T}position:sticky;left:0;z-index:2;text-align:left;background:${bg};color:${color};font-weight:800;min-width:190px;${extra}">${t}</th>`;
-  const hWeek = groups.map(g => `<th colspan="${P}" style="${T}background:${isWk(g) ? C.navy : C.light};color:${isWk(g) ? '#fff' : C.navy};font-weight:800">${g.kind === 'total' ? 'Total' : g.kind === 'week' ? `Total of Week ${g.week}` : `Week ${g.week}`}</th>`).join('');
-  const hDay = groups.map(g => `<th colspan="${P}" style="${T}background:${isWk(g) ? C.navy : C.blue};color:#fff;font-weight:700">${g.kind === 'day' ? dayName(g.y) : ''}</th>`).join('');
-  const hDate = groups.map(g => `<th colspan="${P}" style="${T}background:${isWk(g) ? C.navy : C.light};color:${isWk(g) ? '#fff' : '#222'};font-weight:700">${g.kind === 'day' ? dLabel(g.y) : g.kind === 'total' ? `${esc(fmtDateDMY(mecaData.from))} – ${esc(fmtDateDMY(mecaData.to))}` : ''}</th>`).join('');
-  const hPeople = groups.map(g => people.map(p => `<th title="${esc(p.name)}" style="${T}background:${C.blue};color:#fff;font-weight:800">${esc(p.code)}</th>`).join('')).join('');
-  const body = metrics.map(m => {
-    if (m.sec) return `<tr>${lab(m.sec, C.purple, '#efefef')}<td colspan="${groups.length * P}" style="${T}background:${C.purple}"></td></tr>`;
-    return `<tr>${lab(m.l, m.score ? '#fde9d9' : m.calc ? C.calc : C.slate, m.calc || m.score ? '#111' : '#fff')}${groups.map(g => people.map(p => {
-      const v = m.v(g.get(p), p);
-      return `<td style="${T}background:${m.score ? '#fdf3ec' : m.calc ? C.calc : isWk(g) ? C.wk : C.data};${m.calc || m.score || isWk(g) ? 'font-weight:800;' : ''}">${v}</td>`;
-    }).join('')).join('')}</tr>`;
-  }).join('');
-  const legend = people.map(p => `<b>${esc(p.code)}</b> = ${esc(p.name)}`).join(' · ');
   // One column per person for the whole period (client 2026-10-31). A score per section (client: "teeno ka alag
   // score, teeno ka commitment") = % of target achieved, averaged over that section's benchmarks; each metric capped
   // at 100 so a surplus on one doesn't hide a shortfall on another ("0 = best" confused the client).
@@ -22827,7 +22796,8 @@ function renderMeca() {
     return { p, t, b, scores };
   });
   const mval = (x, k) => k.startsWith('score_') ? (x.scores[k.slice(6)] ?? -999) : ACT[k] ? (ACT[k](x.t) ?? -1) : 0;
-  list.sort((a, b) => mecaSort === 'name' ? a.p.name.localeCompare(b.p.name) : (mval(b, mecaSort) - mval(a, mecaSort)) || a.p.name.localeCompare(b.p.name));
+  list.sort((a, b) => mecaSort === 'seq' ? (mecaSeqRank(a.p) - mecaSeqRank(b.p)) || a.p.name.localeCompare(b.p.name)
+    : mecaSort === 'name' ? a.p.name.localeCompare(b.p.name) : (mval(b, mecaSort) - mval(a, mecaSort)) || a.p.name.localeCompare(b.p.name));
   const th = 'padding:9px 10px;font-size:10.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;background:var(--gray-50);border-bottom:1px solid var(--gray-200);white-space:nowrap';
   const td = 'padding:8px 10px;border-bottom:1px solid var(--gray-100);vertical-align:middle';
   const cm = mecaData.commits || { map: {} };
@@ -22862,7 +22832,7 @@ function renderMeca() {
     ${kpi('', 'Total Collection', '₹' + fmt(KT.collection), `${fmt(KT.collCount)} counter · order ka ${pctOf(KT.collection, KT.value) ?? '—'}%`)}
     ${kpi('', 'Visit Conversion', vc == null ? '—' : vc + '%', `${fmt(KT.ordered)} order / ${fmt(KT.visited)} visit`)}
     ${kpi('', 'Call Conversion', cc == null ? '—' : cc + '%', `${fmt(KT.callOrders)} order / ${fmt(KT.calls)} call`)}
-    ${kpi('', 'ERP Sales (O2D)', '₹' + fmt(KT.o2dValue), `${fmt(KT.o2dOrders)} order O2D me book hue`)}
+    ${kpi('', 'ERP Sales (O2D)', '₹' + fmt(KT.o2dValue), `${fmt(KT.o2dOrders)} order CRM ne call karke daale`)}
   </div>`;
   // One table, vertical (client 2026-10-31: "ek hi table", "format vertical karo", "sirf simple numbers rakho"): a row
   // per metric grouped by section (each ending in Score + Commit), a column per person, Total last. Cells are plain
@@ -22878,14 +22848,14 @@ function renderMeca() {
     ['nbd', 'Visit NBD', '#7c3aed', 'Lead FMS me jo bhi kaam kare (salesman ho ya nahi): Leads = jitni lead daali, Calls = Lead FMS calls, Counter Visited = "Market Visit" lead + Lead FMS visit; converted = Order / Dealer bana (Conversion = converted ÷ leads); Order Value = converted counter ke O2D order (dukaan ke naam se milake), O2D me na mile to "Order Mil Gaya" par bhara ₹; Avg = Order Value ÷ orders.', [['nbdLeads', 'Leads'], ['leadCalls', 'Calls'], ['nbd', 'Counter Visited'], ['nbdWon', 'Converted'], ['nbdConv', 'Conversion %'], ['nbdValue', 'Order Value ₹'], ['nbdAvg', 'Avg Order']]],
     ['coll', 'Collection', '#059669', 'Collection FMS se: cash + online receipt (Receipt By salesman) + cheque (jis salesman ne diya).', [['collCount', 'Collection (counter)'], ['coll', 'Collection ₹'], ['collAvg', 'Avg Collection']]],
     ['scot', 'SCOT (CRR calling)', '#d97706', 'SC CRR ka MECA — SCOT page ki calls aur orders, jisne call / order kiya uske naam par. Benchmark = Calls / Call conv % / Call order ₹ / Call avg.', [['scotCalls', 'Calls'], ['scotOrders', 'Order (call se)'], ['scotConv', 'Conversion %'], ['scotValue', 'Order Value ₹'], ['scotAvg', 'Avg Order']]],
-    ['o2d', 'ERP Sales (O2D)', '#0891b2', 'O2D me book hue saare order, "Order By" ke naam par (cancel chhod kar, CD % ke baad). Beat / Lead / SCOT ke order bhi O2D me hi aate hain — isliye ye alag dikhta hai, unme joda nahi.', [['o2dOrders', 'Orders'], ['o2dValue', 'Order Value ₹'], ['o2dAvg', 'Avg Order']]]
+    ['o2d', 'ERP Sales (O2D)', '#0891b2', 'Sirf wo order jo CRM ne call karke O2D me daale (O2D "Order By" = CRM), cancel chhod kar, CD % ke baad.', [['o2dOrders', 'Orders'], ['o2dValue', 'Order Value ₹'], ['o2dAvg', 'Avg Order']]]
   ];
   // SOCT is not in this table (client 2026-10-31) — so callers with nothing else (SCOT, SC-NBD) drop out of it.
   const shown = list.filter(x => x.p.id !== 0 && (x.t.visited || x.t.ordered || x.t.collCount || x.t.nbdVisits || x.t.nbdWon || x.t.nbdLeads || x.t.leadCalls || x.t.scotCalls || x.t.scotOrders || x.t.o2dOrders));
   const stot = shown.reduce((a, x) => { SUMS.forEach(k => { a[k] += x.t[k] || 0; }); return a; }, zero());
   const sticky = 'position:sticky;left:0;z-index:1;';
   const subOf = x => typeof x.p.id === 'string' ? 'O2D "Order By" naam' : !x.t.visited && !x.t.collCount ? (x.t.scotCalls || x.t.scotOrders ? 'SCOT calling' : x.t.nbdLeads || x.t.leadCalls ? 'Lead FMS' : 'sirf O2D order') : x.t.days + ' din';
-  const lbl = (k, l, extra = '') => `<td style="${td};${sticky}background:var(--surface);white-space:nowrap;font-size:12.5px;font-weight:700;cursor:pointer;color:${mecaSort === k ? 'var(--color-primary)' : 'var(--gray-700)'};${extra}" title="Is par click = isi se sort" onclick="mecaSort='${jsArg(k)}';renderMeca()">${l}</td>`;
+  const lbl = (k, l, extra = '') => `<td style="${td};${sticky}background:var(--surface);white-space:nowrap;font-size:12.5px;font-weight:700;cursor:pointer;color:${mecaSort === k ? 'var(--color-primary)' : 'var(--gray-700)'};${extra}" title="Is par click = isi se sort (dobara click = Rohit, Girdhar… wala order)" onclick="mecaSort=mecaSort==='${jsArg(k)}'?'seq':'${jsArg(k)}';renderMeca()">${l}</td>`;
   const totCell = v => `<td style="${td};text-align:center;font-weight:900;font-size:13.5px;border-left:2px solid var(--gray-200);background:var(--gray-50)">${v}</td>`;
   const tbl = `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;margin-bottom:14px">
     <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
@@ -22905,30 +22875,8 @@ function renderMeca() {
         ${SCORE_KEYS[sec] ? `<tr>${lbl('score_' + sec, 'Score', 'background:var(--gray-50)')}${shown.map(x => scoreCell(x, sec)).join('')}${totCell('')}</tr>
         <tr><td style="${td};${sticky}background:var(--gray-50);white-space:nowrap;font-size:12.5px;font-weight:700;color:var(--gray-700)" title="${cm.next ? fmtDateDMY(cm.next) : ''} se shuru hafte me kitna score laayenge — % (jaise 90)">Commit (next week)</td>${shown.map(x => commitCell(x, sec)).join('')}${totCell('')}</tr>` : ''}`).join('')}</tbody>
     </table></div></div>`;
-  const refs = (mecaData.refs || []).filter(l => !q || String(l.salesman).toLowerCase().includes(q));
-  const refsHtml = refs.length ? `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;margin-bottom:14px"><div class="mis-table-wrap" style="overflow:auto"><table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr>${['Date', 'Lead', 'Dukaan', 'Mobile', 'Jagah', 'Reference (dealer)', 'Salesman', 'Result'].map(h => `<th style="${th};color:var(--gray-500)">${h}</th>`).join('')}</tr></thead>
-      <tbody>${refs.map((l, i) => `<tr style="background:${i % 2 ? 'var(--surface-alt)' : 'var(--surface)'}"><td style="${td};white-space:nowrap">${esc(fmtDateDMY(l.date))}</td><td style="${td};font-weight:700">${esc(l.code)}</td>
-        <td style="${td}">${esc(l.shop || '—')}</td><td style="${td};white-space:nowrap">${esc(l.mobile || '—')}</td><td style="${td}">${esc(l.place || '—')}</td>
-        <td style="${td};font-weight:700">${esc(l.dealer)}</td><td style="${td};white-space:nowrap">${esc(l.salesman || '—')}</td><td style="${td}">${l.result ? esc(l.result) : '<span style="color:var(--gray-400)">chal rahi</span>'}</td></tr>`).join('')}</tbody></table></div></div>`
-    : '<div class="empty">Is period me reference se koi lead nahi aayi. Lead FMS → New Lead me "reference se aaya" tick karein.</div>';
-  wrap.innerHTML = `${kpis}${tbl}<div style="font-size:14px;font-weight:800;color:var(--gray-900);margin:4px 2px 8px">References (${refs.length})</div>${refsHtml}
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--gray-600);margin-bottom:8px"><span>${legend} &nbsp;·&nbsp; Old counters = <a href="javascript:void(0)" onclick="navigate('beat', document.getElementById('nav-beat'))">Beat</a> se, NBD = Lead FMS se</span>
-    ${mecaData.isAdmin ? '<button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="mecaOpenBench()">Benchmark</button>' : ''}
-    <button class="btn btn-sm btn-outline" style="${mecaData.isAdmin ? '' : 'margin-left:auto'}" onclick="mecaToggleWeeks()">${mecaWeeksOnly ? 'Roz ka bhi dikhao' : 'Sirf hafte ka total'}</button></div>
-    <div style="background:#fff;border:1px solid #c7d3e0;border-radius:8px;overflow:auto;max-height:76vh">
-      <table style="border-collapse:collapse;color:#222">
-        <thead style="position:sticky;top:0;z-index:3">
-          <tr>${lab('Week', C.navy, '#fff')}${hWeek}</tr>
-          <tr>${lab('', '#fff', '#222')}${hDay}</tr>
-          <tr>${lab('', C.navy, '#fff')}${hDate}</tr>
-          <tr>${lab('Salesperson', C.navy, '#fff')}${hPeople}</tr>
-        </thead>
-        <tbody>${body}</tbody>
-      </table></div>`;
-  // Land on the latest week, like the sheet scrolled to today.
-  const box = wrap.querySelector('div[style*="overflow:auto"]');
-  if (box) box.scrollLeft = box.scrollWidth;
+  // The sheet-style day grid, its legend and the References list below were removed (client list 2026-11-25 #1).
+  wrap.innerHTML = `${kpis}${tbl}`;
 }
 
 // ══════════════════════════════════════════════════════
@@ -22944,7 +22892,10 @@ function renderMeca() {
 // ══════════════════════════════════════════════════════
 let beatData = null, beatDays = [], beatIdx = {}, beatDayFilter = '', beatTotTimer = null;
 const BEAT_FIELDS_ALL = [['visit', 'Visit'], ['orderAmt', 'Order'], ['collectionAmt', 'Collection'], ['newCounter', 'New Counter'], ['reference', 'Reference'], ['enquiry', 'Enquiry']];
-const beatFields = () => BEAT_FIELDS_ALL;
+// Only Visit is filled now (client list 2026-11-25 #3): Order / Collection come from O2D / Collection FMS, and a new
+// counter is added through the Lead FMS form (＋ Naya counter). Old Order / Collection / Reference values stay saved.
+const BEAT_FIELDS_VISIT = [['visit', 'Visit']];
+const beatFields = () => BEAT_FIELDS_VISIT;
 const BEAT_FIXED = 6; // Sr No., Firm Name, Beat Days, AREA, CITY, SALESMAN
 const BEAT_CFIELDS = [null, 'name', 'beatDay', 'area', 'city', null];
 const BEAT_VISITS = [['yes', '✓ yes', '#d9ead3'], ['no', '✗ no', '#f8d7d5'], ['out of city', '✈ out of city', '#eceff1'], ['sir ke sath', '👤 sir ke sath', '#d9ead3']];
@@ -23021,12 +22972,6 @@ function renderBeat() {
   // Month totals for this salesman (whole beat, not just the filtered rows).
   const ents = beatData.entries || [];
   const mVis = ents.filter(beatVisitedEntry).length;
-  // Month Order / Collection: linked counters from O2D / Cheque FMS, others typed.
-  const cBy = Object.fromEntries(beatData.counters.map(c => [c.id, c]));
-  const mOrd = [], collArr = [];
-  ents.forEach(e => { if (!beatLinked(cBy[e.counterId])) { if (Number(e.orderAmt) > 0) mOrd.push(Number(e.orderAmt)); collArr.push(Number(e.collectionAmt) || 0); } });
-  Object.entries(beatData.auto || {}).forEach(([k, a]) => { if (a.order > 0) mOrd.push(a.order); collArr.push(a.coll || 0); });
-  const mOrdAmt = mOrd.reduce((a, v) => a + v, 0), mColl = collArr.reduce((a, v) => a + v, 0);
   const stat = (l, v, c) => `<div style="background:var(--surface);border:1px solid var(--gray-200);border-left:4px solid ${c};border-radius:10px;padding:8px 12px;min-width:120px"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase">${l}</div><div style="font-size:18px;font-weight:900;color:var(--gray-900)">${v}</div></div>`;
   const todayDow = beatIsoDow(days[0]);
   const chip = (v, l, cnt) => `<button onclick="beatSetDay('${v}')" style="padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid ${beatDayFilter === v ? 'var(--color-primary)' : 'var(--gray-200)'};background:${beatDayFilter === v ? 'var(--color-primary)' : 'var(--surface)'};color:${beatDayFilter === v ? '#fff' : 'var(--gray-700)'}">${l}${cnt != null ? ` <span style="opacity:.75;font-weight:600">${cnt}</span>` : ''}</button>`;
@@ -23040,8 +22985,8 @@ function renderBeat() {
   const foot = days.map(d => {
     const es = counters.map(c => beatIdx[`${c.id}|${d}`]).filter(Boolean);
     const sum = f => counters.reduce((a, c) => a + (Number(beatVal(c, d, f)) || 0), 0);
-    const vN = es.filter(beatVisitedEntry).length, o = sum('orderAmt'), co = sum('collectionAmt');
-    return `<td>${vN || ''}</td><td class="n">${o ? o.toLocaleString('en-IN') : ''}</td><td class="n">${co ? co.toLocaleString('en-IN') : ''}</td>${W > 3 ? `<td colspan="${W - 3}"></td>` : ''}`;
+    const vN = es.filter(beatVisitedEntry).length;
+    return `<td>${vN || ''}</td>${W > 1 ? `<td colspan="${W - 1}"></td>` : ''}`;
   }).join('');
   const IN = 'padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;background:var(--surface);color:var(--gray-800)';
   wrap.innerHTML = `
@@ -23079,24 +23024,19 @@ function renderBeat() {
     </style>
     <datalist id="beatDayList">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Upcountry'].map(x => `<option value="${x}">`).join('')}</datalist>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      ${stat('Visit (mahina)', mVis.toLocaleString('en-IN'), 'var(--color-success)')}${stat('Order', `${mOrd.length} · ${inr(Math.round(mOrdAmt))}`, '#f1c232')}${stat('Collection', inr(Math.round(mColl)), 'var(--color-primary)')}
+      ${stat('Visit (mahina)', mVis.toLocaleString('en-IN'), 'var(--color-success)')}
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
       <span style="font-size:12px;font-weight:700;color:var(--gray-500)">Beat day:</span>${chips}
-      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="const s=document.getElementById('bcNewRow');s.style.display=s.style.display==='none'?'flex':'none'">＋ Naya counter</button>
+      <button class="btn btn-sm btn-outline" style="margin-left:auto" onclick="beatNewCounterLead()" title="Lead FMS ka Market Visit form — naya counter isi beat me jud jayega">＋ Naya counter</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px;color:var(--gray-500)">
-      <span>Visit par tap = ✓ / ✗ / ✈ chuno · baaki khane me likho · <b>Enter</b> = save + neeche · <span style="background:#e8f0fe;color:#1a56b8;padding:0 5px;border-radius:4px">nila</span> Order / Collection = 🔗 jude counter ka O2D / Collection FMS se (apne aap)</span>
-      <span id="bcNewRow" style="margin-left:auto;display:none;gap:6px;flex-wrap:wrap">
-        <input id="bcNewN" placeholder="Naya counter (Firm Name)" style="${IN};min-width:170px"/>
-        <input id="bcNewD" list="beatDayList" placeholder="Beat Days" style="${IN};width:115px"/>
-        <input id="bcNewA" placeholder="AREA" style="${IN};width:105px"/>
-        <button class="btn btn-primary btn-sm" onclick="beatAddCounter()">+ Counter</button></span></div>
+      <span>Visit par tap = ✓ / ✗ / ✈ chuno · <b>Enter</b> = save + neeche · Order / Collection MECA me O2D / Collection FMS se aate hain</span></div>
     <div id="beatGridBox" style="border:1px solid #d9d9d9;border-radius:8px;overflow:auto;max-height:70vh;position:relative">
       <table id="beatGrid" onclick="beatGridClick(event)">
         <thead style="position:sticky;top:0;z-index:4"><tr>${fixedTh('Sr No.', 'k0')}${fixedTh('Firm Name', 'k1')}${fixedTh('Beat Days', 'k2')}${fixedTh('AREA', 'k3')}${fixedTh('CITY', 'k4')}${fixedTh('SALESMAN', 'k5')}${head1}</tr><tr>${head2}</tr></thead>
         <tbody>${body || '<tr><td colspan="6">Is beat day me koi counter nahi</td></tr>'}</tbody>
-        <tfoot><tr><td colspan="6" class="kf">Total (Visit · Order · Collection)</td>${foot}</tr></tfoot>
+        <tfoot><tr><td colspan="6" class="kf">Total (Visit)</td>${foot}</tr></tfoot>
       </table></div>`;
   const sel = beatSelTd();
   if (sel) sel.classList.add('sel');
@@ -23411,13 +23351,11 @@ function exportBeatReport() {
     ...beatRep.rows.map(x => [x.name, x.party, x.salesman, x.beatDay, x.area, x.city, x.lastVisit ? fmtDateDMY(x.lastVisit) : 'kabhi nahi', x.daysSinceVisit ?? '', x.visits,
       x.lastOrder ? fmtDateDMY(x.lastOrder) : '', x.orders, x.orderValue, x.collection, x.outstanding ?? ''])], `beat-report-${beatRep.today}.csv`);
 }
-async function beatAddCounter() {
-  const name = document.getElementById('bcNewN').value.trim();
-  if (!name) { showToast('Firm Name likhein', 'error'); return; }
-  const r = await api('/api/beat/counter', 'POST', { userId: beatData.userId, name, beatDay: document.getElementById('bcNewD').value.trim(), area: document.getElementById('bcNewA').value.trim() });
-  if (r.error) { showToast(r.error, 'error'); return; }
-  showToast(`✅ ${name} beat me jud gaya`);
-  loadBeat();
+// ＋ Naya counter (client list 2026-11-25 #3) = Lead FMS's Outgoing "Market Visit" form with a Beat day: saving it
+// makes the lead (MECA: NBD visit) and puts the counter on this salesman's beat (next visits = CRR).
+async function beatNewCounterLead() {
+  const day = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', up: 'Upcountry' }[beatDayFilter] || '';
+  await openNewLeadModal({ beatFor: beatData && beatData.userId ? Number(beatData.userId) : null, beatDay: day });
 }
 
 // ══════════════════════════════════════════════════════
@@ -26106,8 +26044,10 @@ async function leadCardOcr(input) {
 }
 
 // ── New Lead ──
-async function openNewLeadModal() {
+let _nlBeat = null; // opened from Beat → { forUser } (beat day required, counter goes on that salesman's beat)
+async function openNewLeadModal(opts = {}) {
   if (formBlocked('form-lead')) return;
+  _nlBeat = opts.beatFor !== undefined ? { forUser: opts.beatFor } : null;
   if (!leadMeta.sources.length) { const d = await api('/api/lead-fms'); if (d && Array.isArray(d.leads)) leadApplyData(d); }
   const L = (t, req) => `<div style="${CHQ_LABEL}">${t}${req ? ' <span style="color:var(--color-danger)">*</span>' : ''}</div>`;
   _leadOcrSeq++; // a card still being read for the previous form must not fill this one
@@ -26131,6 +26071,7 @@ async function openNewLeadModal() {
       <div>${L('Area')}<input id="nlArea" placeholder="e.g. Mansarovar, Jhotwara" style="${CHQ_INPUT}"/></div>
       <div>${L('Market')}<input id="nlMarket" placeholder="e.g. Kishanpole Bazar" style="${CHQ_INPUT}"/></div>
     </div>
+    <div id="nlBeatWrap">${L('Beat day (counter is din ki beat me judega)', !!_nlBeat)}<select id="nlBeatDay" style="${CHQ_INPUT}"><option value="">${_nlBeat ? '— Beat day chunein —' : '— Beat me nahi —'}</option>${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Upcountry'].map(x => `<option ${opts.beatDay === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
     ${L('Requirement (product)')}${leadReqSelectHtml('nlReqCat', '')}
     ${L('Note')}<textarea id="nlReq" rows="2" placeholder="e.g. 10 piece chahiye · catalogue maanga" style="${CHQ_INPUT};resize:vertical"></textarea>
     <label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="nlIsRef" onchange="document.getElementById('nlRefWrap').style.display=this.checked?'':'none';if(this.checked)loadO2dCounterNames()"/> Ye dealer kisi dealer ke reference se aaya hai</label>
@@ -26139,7 +26080,7 @@ async function openNewLeadModal() {
     <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:10px">Mobile ya card photo me se ek zaroori hai. Lead save hote hi SC-NBD ke dashboard par call aa jayegi.</div>
     <button class="btn btn-primary" id="nlSubmitBtn" style="width:100%;justify-content:center;padding:12px" onclick="submitNewLead()">Save Lead</button>`;
   document.getElementById('newLeadModal').classList.add('open');
-  leadPickType(document.querySelector(`#nlType .tab[data-v="${leadMe.seeAll ? 'Incoming' : 'Outgoing'}"]`));
+  leadPickType(document.querySelector(`#nlType .tab[data-v="${leadMe.seeAll && !_nlBeat ? 'Incoming' : 'Outgoing'}"]`));
   if (leadMe.seeAll) {
     const users = await leadUserList();
     document.getElementById('nlSalesman').innerHTML = '<option value="">— None —</option>' + users.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
@@ -26150,6 +26091,8 @@ function leadPickType(el) {
   el.classList.add('active');
   const src = document.getElementById('nlSource');
   if (src) src.value = el.dataset.v === 'Outgoing' ? 'Market Visit' : 'Instagram';
+  const bw = document.getElementById('nlBeatWrap'); // Beat day only for a market visit (Outgoing)
+  if (bw) bw.style.display = el.dataset.v === 'Outgoing' ? '' : 'none';
 }
 async function submitNewLead(force) {
   const err = document.getElementById('nlErr');
@@ -26159,6 +26102,12 @@ async function submitNewLead(force) {
   const body = { leadType: typeEl ? typeEl.dataset.v : '', source: v('nlSource'), shopName: v('nlShop'), contactName: v('nlContact'), mobile: v('nlMobile'),
     city: v('nlCity'), area: v('nlArea'), market: v('nlMarket'), reqCategory: v('nlReqCat'), requirement: v('nlReq'), cardPhoto: document.getElementById('nlCard').dataset.compressed || '', force: !!force };
   if (leadMe.seeAll && v('nlSalesman')) body.salesmanUserId = Number(v('nlSalesman'));
+  if (body.leadType === 'Outgoing') body.beatDay = v('nlBeatDay');
+  if (_nlBeat) {
+    if (body.leadType !== 'Outgoing') { err.textContent = 'Naya counter = Outgoing (market visit) lead'; err.style.display = 'block'; return; }
+    if (!body.beatDay) { err.textContent = 'Beat day chunein'; err.style.display = 'block'; return; }
+    if (_nlBeat.forUser && ME && Number(_nlBeat.forUser) !== Number(ME.id) && !body.salesmanUserId) body.salesmanUserId = _nlBeat.forUser;
+  }
   // Reference (client recording 2026-10-30) — counted for the salesman in MECA.
   if (document.getElementById('nlIsRef').checked) {
     body.refDealer = v('nlRefDealer');
@@ -26176,8 +26125,9 @@ async function submitNewLead(force) {
   }
   if (r.error) { err.textContent = r.error; err.style.display = 'block'; return; }
   closeModal('newLeadModal');
-  showToast(`✅ ${r.code} saved`);
+  showToast(r.beatCounter ? `✅ ${r.code} saved · counter beat me jud gaya` : `✅ ${r.code} saved`);
   if (document.getElementById('page-lead-fms').classList.contains('active')) loadLeadFmsList();
+  if (r.beatCounter && document.getElementById('page-beat').classList.contains('active')) loadBeat();
 }
 
 // ── Detail ──
@@ -31061,6 +31011,14 @@ async function gpOpenLink(item, cur) {
       ${cur ? `<button class="btn btn-outline" onclick="gpSaveLink('${jsArg(item)}',this,true)">Link hatao</button>` : ''}
     </div>`, 520);
 }
+// One click on the GP suggestion (client list 2026-11-25 #8): this O2D name = that costed stock item, kept for every month.
+async function gpAcceptSuggest(item, code, el) {
+  if (el) el.textContent = '…';
+  const r = await api('/api/reports/gp-item-link', 'PUT', { itemName: item, itemCode: code });
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); if (el) el.textContent = '✓ Haan, wahi hai'; return; }
+  showToast('✅ Link ho gaya — laagat lag gayi, agle mahine bhi lagegi');
+  loadGrossProfit();
+}
 async function gpSaveLink(item, btn, clear) {
   let code = '';
   if (!clear) {
@@ -31294,6 +31252,13 @@ async function gpSaveCosts(btn) {
   loadGrossProfit();
 }
 
+// ITR of a product shown with its colours merged: their qty ÷ the average stock of their (distinct) IMS items.
+function gpItrOf(variants) {
+  const avg = {}, end = {}; let qty = 0;
+  variants.forEach(v => { if (v.stockCode && v.avgStock > 0) { avg[v.stockCode] = v.avgStock; qty += v.qty; } if (v.stockCode && v.stockEnd != null) end[v.stockCode] = v.stockEnd; });
+  const a = Object.values(avg).reduce((x, y) => x + y, 0), e = Object.values(end);
+  return { itr: a > 0 ? Math.round(qty * 100 / a) / 100 : null, stockEnd: e.length ? Math.round(e.reduce((x, y) => x + y, 0) * 100) / 100 : null };
+}
 function renderGrossProfit() {
   if (gpView === 'salesman') return renderSalesmanPl();
   const out = document.getElementById('gpResults');
@@ -31326,10 +31291,10 @@ function renderGrossProfit() {
         <td style="${td};color:var(--gray-600)">${gpInr(p.avgRate)}</td>
         <td style="${td}">${d.canEditCost
           ? `<input type="number" min="0" step="0.01" value="${esc(p.item in gpCostDraft ? gpCostDraft[p.item] : p.costRate == null ? '' : String(p.costRate))}" data-item="${esc(p.item)}" data-orig="${p.costRate == null ? '' : p.costRate}" placeholder="enter cost" oninput="gpCostEdit(this)" onkeydown="if(event.key==='Enter'){const b=document.getElementById('gpSaveCostsBtn');if(b&&b.style.display!=='none')gpSaveCosts(b)}" style="width:92px;padding:5px 7px;border:1.5px solid ${p.item in gpCostDraft ? 'var(--color-primary)' : p.costRate == null ? 'var(--color-warning-border)' : 'var(--gray-200)'};border-radius:7px;font-size:12px;text-align:right;background:var(--surface);color:var(--gray-900)"/>`
-          : gpInr(p.costRate)}${p.costSource ? `<div style="font-size:10px;color:var(--gray-400)">${esc(p.costSource)}</div>` : ''}${d.canEditCost && (p.costRate == null || p.linkedCode) ? `<div><a href="#" onclick="event.preventDefault();gpOpenLink('${jsArg(p.item)}','${jsArg(p.linkedCode || '')}')" style="font-size:10.5px;font-weight:700;white-space:nowrap" title="Ye product pehle kisi aur naam se bika tha? Use chuno — wahi laagat lagegi">🔗 ${p.linkedCode ? 'Linked: ' + esc(p.stockItem || p.linkedCode) : 'Pehle wala product'}</a></div>` : ''}</td>
+          : gpInr(p.costRate)}${p.costSource ? `<div style="font-size:10px;color:var(--gray-400)">${esc(p.costSource)}</div>` : ''}${d.canEditCost && p.costRate == null && p.suggest ? `<div style="font-size:10.5px;color:var(--gray-600);white-space:normal;max-width:220px;margin-top:2px" title="Pichhle naam ki laagat isme lagegi — har mahine">💡 ${esc(p.suggest.name)}? <a href="#" onclick="event.preventDefault();gpAcceptSuggest('${jsArg(p.item)}','${jsArg(p.suggest.code)}',this)" style="font-weight:800;white-space:nowrap">✓ Haan, wahi hai</a></div>` : ''}${d.canEditCost && (p.costRate == null || p.linkedCode) ? `<div><a href="#" onclick="event.preventDefault();gpOpenLink('${jsArg(p.item)}','${jsArg(p.linkedCode || '')}')" style="font-size:10.5px;font-weight:700;white-space:nowrap" title="Ye product pehle kisi aur naam se bika tha? Use chuno — wahi laagat lagegi">🔗 ${p.linkedCode ? 'Linked: ' + esc(p.stockItem || p.linkedCode) : 'Pehle wala product'}</a></div>` : ''}</td>
         <td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
         <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
-        <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>`;
+        <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td><td style="${td};color:var(--gray-600)">${p.stockEnd == null ? '—' : p.stockEnd.toLocaleString('en-IN')}</td><td style="${td};font-weight:700" title="Inventory Turn Ratio = is period me bika qty ÷ average stock (IMS)">${p.itr == null ? '—' : p.itr}</td></tr>`;
     const groups = {};
     d.products.filter(p => !q || p.item.toLowerCase().includes(q) || gpBaseName(p.item).toLowerCase().includes(q)).forEach(p => {
       const k = gpBaseName(p.item).toLowerCase();
@@ -31343,12 +31308,12 @@ function renderGrossProfit() {
       const rates = [...new Set(g.variants.map(v => v.costRate).filter(v => v != null))];
       return { item: g.item, variants: g.variants.sort((a, b) => b.sales - a.sales), qty: Math.round(g.qty * 100) / 100, sales: g.sales, avgRate: g.qty ? g.sales / g.qty : null,
         costRate: rates.length === 1 ? rates[0] : null, mixedRate: rates.length > 1, cost: g.anyCost ? g.cost : null, gp,
-        gpPct: gp == null || !g.costedSales ? null : Math.round(gp * 1000 / g.costedSales) / 10, partCost: g.anyCost && g.noCost };
+        gpPct: gp == null || !g.costedSales ? null : Math.round(gp * 1000 / g.costedSales) / 10, partCost: g.anyCost && g.noCost, ...gpItrOf(g.variants) };
     });
     rows = gpOnlyNoCost ? rows.filter(p => p.variants.some(v => v.costRate == null)).sort((a, b) => b.sales - a.sales) : gpSortRows(rows);
     const page = rows.slice(0, gpShown);
     table = `<table style="width:100%;border-collapse:separate;border-spacing:0">
-      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Product</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Avg Sale Rate (ex GST)</th><th style="${th}">Cost Rate (ex GST)</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th></tr></thead>
+      <thead><tr><th style="${th};text-align:center">#</th><th style="${th};text-align:left">Product</th><th style="${th}">Qty</th><th style="${th}">Sales</th><th style="${th}">Avg Sale Rate (ex GST)</th><th style="${th}">Cost Rate (ex GST)</th><th style="${th}">Cost</th><th style="${th}">Gross Profit</th><th style="${th};text-align:center">GP %</th><th style="${th}" title="Period ke aakhir me IMS stock">Stock</th><th style="${th}" title="Inventory Turn Ratio = is period me bika qty ÷ average stock (IMS)">ITR</th></tr></thead>
       <tbody>${page.map((p, i) => {
         if (p.single) return one(p, i, false);
         const open = gpOpenProduct === p.item;
@@ -31358,7 +31323,7 @@ function renderGrossProfit() {
           <td style="${td}">${p.qty.toLocaleString('en-IN')}</td><td style="${td};font-weight:700">${gpInr(p.sales)}</td><td style="${td};color:var(--gray-600)">${gpInr(p.avgRate)}</td>
           <td style="${td}">${p.mixedRate ? '<span style="font-size:11px;color:var(--gray-500)">alag-alag</span>' : gpInr(p.costRate)}</td><td style="${td};color:var(--gray-600)">${gpInr(p.cost)}</td>
           <td style="${td};font-weight:900;color:${p.gp == null ? 'var(--gray-300)' : p.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">${gpInr(p.gp)}</td>
-          <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td></tr>${open ? p.variants.map(v => one(v, 0, true)).join('') : ''}`;
+          <td style="${td};text-align:center">${gpPctPill(p.gpPct)}</td><td style="${td};color:var(--gray-600)">${p.stockEnd == null ? '—' : p.stockEnd.toLocaleString('en-IN')}</td><td style="${td};font-weight:700" title="Inventory Turn Ratio = is period me bika qty ÷ average stock (IMS)">${p.itr == null ? '—' : p.itr}</td></tr>${open ? p.variants.map(v => one(v, 0, true)).join('') : ''}`;
       }).join('')}</tbody></table>
       ${rows.length > gpShown ? `<div style="padding:12px;text-align:center"><button class="btn btn-outline" onclick="gpShown+=100;renderGrossProfit()">Show more (${rows.length - gpShown})</button></div>` : ''}`;
     if (!rows.length) table = '<div class="empty">No products.</div>';
@@ -31394,6 +31359,7 @@ function renderGrossProfit() {
       ${kpi('Cost', gpInr(t.cost), `on ${gpInr(t.costedSales)} of sales (${costPct}%)`, 'var(--gray-700)', 'cost', 'desc')}
       ${kpi('Gross Profit', gpInr(t.gp), 'sales with a known cost − cost', t.gp >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)', 'gp', 'desc')}
       ${kpi('GP %', t.gpPct == null ? '—' : t.gpPct + '%', 'of sales with a known cost', 'var(--color-primary)', 'gpPct', 'asc')}
+      ${kpi('ITR', t.itr == null ? '—' : t.itr, 'Inventory Turn Ratio — bika qty ÷ average stock (IMS)', 'var(--gray-900)', 'itr', 'desc')}
     </div>
     ${t.uncostedSales ? `<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">ℹ️ ${gpInr(t.uncostedSales)} ki bikri (${noCost} products) ki laagat abhi pata nahi — woh GP me shaamil nahi.${d.canEditCost ? ` <a href="#" onclick="gpView='product';gpOnlyNoCost=!gpOnlyNoCost;renderGrossProfit();return false" style="font-weight:700">${gpOnlyNoCost ? 'Sab products dikhao' : 'Bina laagat wale products dikhao →'}</a>` : ''}</div>` : ''}
     <div style="${card};overflow:hidden">
@@ -31421,7 +31387,7 @@ function exportGrossProfit() {
   if (!gpData) return;
   const q = v => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lines = gpView === 'product'
-    ? [['Product', 'Qty', 'Sales (ex GST)', 'Avg Sale Rate (ex GST)', 'Cost Rate (ex GST)', 'Cost Source', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.products).map(p => [p.item, p.qty, p.sales, p.avgRate, p.costRate, p.costSource, p.cost, p.gp, p.gpPct].map(q).join(',')))
+    ? [['Product', 'Qty', 'Sales (ex GST)', 'Avg Sale Rate (ex GST)', 'Cost Rate (ex GST)', 'Cost Source', 'Cost', 'Gross Profit', 'GP %', 'Stock', 'ITR'].join(',')].concat(gpSortRows(gpData.products).map(p => [p.item, p.qty, p.sales, p.avgRate, p.costRate, p.costSource, p.cost, p.gp, p.gpPct, p.stockEnd, p.itr].map(q).join(',')))
     : gpView === 'vendor'
     ? [['Vendor', 'Products', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.vendors || []).map(p => [p.vendor, p.products, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')))
     : [['Dealer', 'Sale Order / Replacement', 'Replacement amount (not in sales)', 'Bills', 'Qty', 'Sales', 'Sales without cost', 'Cost', 'Gross Profit', 'GP %'].join(',')].concat(gpSortRows(gpData.dealers).map(p => [p.party, p.orderType || 'Sale order', p.replAmount || 0, p.bills, p.qty, p.sales, p.uncostedSales, p.cost, p.gp, p.gpPct].map(q).join(',')));
