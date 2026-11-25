@@ -77,6 +77,7 @@ input.kit-search{padding-left:34px!important;background-image:url("data:image/sv
 .kit-ptitle .kit-tile svg{width:20px;height:20px;margin:0}
 #page-md-summary #mdPresets{display:none!important}
 th.kit-sortable{cursor:pointer;user-select:none}
+@media (min-width:769px){table.kit-fit th,table.kit-fit td:not([style*="nowrap"]){white-space:normal!important;overflow-wrap:normal;word-break:normal}table.kit-fit th,table.kit-fit td{padding-left:8px!important;padding-right:8px!important}table.kit-fit2 th,table.kit-fit2 td{font-size:12px!important;padding-left:4px!important;padding-right:4px!important}}
 th.kit-sortable:hover{color:var(--brand-600,#010371)}
 th[aria-sort="ascending"]::after,th[aria-sort="descending"]::after{content:'';display:inline-block;vertical-align:middle;margin-left:4px;border:4px solid transparent}
 th[aria-sort="ascending"]::after{border-bottom:5px solid currentColor;border-top:0}
@@ -854,11 +855,33 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
   }
   // A sort reorders every row; keep "first N shown" in the new order.
   document.addEventListener('kit:sorted', e => { const t = e.target; if (t.dataset && t.dataset.kitT && t._kitMore) pageRows(t); });
+  // ── 8b. no sideways scroll on a laptop / desktop (client list 2026-11-25 #5: "ERP ke all page single screen
+  // visible ho"): a page table wider than its scroll box wraps its text and tightens padding (kit-fit), then also
+  // a smaller font (kit-fit2). Cells kept on one line on purpose (inline nowrap, e.g. O2D items) stay so; the Beat
+  // sheet and anything marked .kit-nofit are left alone. Phones keep their own card layout.
+  function scrollBoxOf(t) {
+    for (let e = t.parentElement; e && e !== document.body; e = e.parentElement) {
+      if (e.classList.contains('page')) return null;
+      const ox = getComputedStyle(e).overflowX;
+      if (ox === 'auto' || ox === 'scroll') return e;
+    }
+    return null;
+  }
+  const overBy = b => b.scrollWidth - b.clientWidth;
+  function fitTable(t) {
+    if (window.innerWidth <= 768 || t.classList.contains('kit-fit2') || t.closest('.kit-nofit,#beatGrid,.modal-overlay')) return;
+    const box = scrollBoxOf(t);
+    if (!box || !box.clientWidth || overBy(box) <= 2) return;
+    t.classList.add('kit-fit');
+    if (overBy(box) > 2) t.classList.add('kit-fit2');
+  }
+  let fitTimer = null;
+  window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => document.querySelectorAll('.page.active table').forEach(t => { try { fitTable(t); } catch (e) { /* never break a page */ } }), 250); });
   function enhanceTablesIn(root) {
     if (!root || root.nodeType !== 1) return;
     const own = root.closest('table');
     const tables = own ? [own] : root.tagName === 'TABLE' ? [root] : [...root.querySelectorAll('.page table')];
-    tables.forEach(t => { if (t.closest('.page')) { try { enhanceTable(t); } catch (e) { /* never break a page */ } } });
+    tables.forEach(t => { if (t.closest('.page')) { try { enhanceTable(t); fitTable(t); } catch (e) { /* never break a page */ } } });
   }
   function forgetGoneTables() { // column rules of tables that were re-rendered away
     let changed = false;

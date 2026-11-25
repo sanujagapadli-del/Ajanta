@@ -1285,12 +1285,14 @@ tbody tr:hover td{background:#fafbff;}
 input[type=text],input[type=email],input[type=number],input[type=date],input[type=month],input[type=tel],input[type=search],input:not([type]),select,textarea{transition:border-color .15s,box-shadow .15s;}
 input:focus,select:focus,textarea:focus{outline:none;border-color:rgba(var(--navy-rgb),.55) !important;box-shadow:0 0 0 3px rgba(var(--navy-rgb),.12);}
 
-/* Dashboard pending table — columns wide enough that words don't break letter by letter */
-#dashTable{min-width:1180px !important;}
-#dashTable th:nth-child(2),#dashTable td:nth-child(2){min-width:95px;}
-#dashTable th:nth-child(3),#dashTable td:nth-child(3){min-width:170px;}
-#dashTable th:nth-child(4),#dashTable td:nth-child(4){min-width:260px;}
+/* Dashboard pending table — fits its box (client list 2026-11-25 #5: no sideways scroll; was min-width 1180px
+   in a ~920px box). Words still never break letter by letter — they move to the next line. */
+#dashTable{min-width:0 !important;width:100%;}
+#dashTable th:nth-child(2),#dashTable td:nth-child(2){min-width:64px;}
+#dashTable th:nth-child(3),#dashTable td:nth-child(3){min-width:120px;}
+#dashTable th:nth-child(4),#dashTable td:nth-child(4){min-width:170px;}
 #dashTable td{overflow-wrap:normal;word-break:normal;}
+@media (min-width:769px){#dashTable.kit-fit td.dt-doer,#dashTable.kit-fit td.dt-start,#dashTable.kit-fit td.dt-freq,#dashTable.kit-fit td.dt-type{white-space:normal !important}#dashTable.kit-fit td.dt-start{min-width:86px}#dashTable.kit-fit td.dt-doer{min-width:64px}}
 
 /* Modals */
 .modal-overlay{background:rgba(10,14,26,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
@@ -15795,9 +15797,40 @@ function o2dShowPending() {
 // then Qty and the order value (after CD %, cancelled items left out).
 function o2dItemsCells(o) {
   const v = o2dOrderValue(o);
-  return `<td style="white-space:nowrap;padding-top:8px;padding-bottom:8px">${(o.products || []).map(p => `<div style="font-size:11.5px;line-height:1.5${p.cancelled ? ';text-decoration:line-through;color:var(--gray-400)' : ''}">${esc(p.productName)} <b>× ${esc(p.qty)}</b></div>`).join('') || '—'}</td>
+  return `<td style="white-space:nowrap;padding-top:8px;padding-bottom:8px;max-width:230px">${(o.products || []).map(p => `<div title="${esc(p.productName)} × ${esc(p.qty)}" style="font-size:11.5px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;max-width:210px${p.cancelled ? ';text-decoration:line-through;color:var(--gray-400)' : ''}">${esc(p.productName)} <b>× ${esc(p.qty)}</b></div>`).join('') || '—'}</td>
           <td>${esc(o.qty || '—')}</td>
           <td style="text-align:right;font-weight:700;white-space:nowrap">${v ? '₹' + Math.round(v).toLocaleString('en-IN') : '—'}</td>`;
+}
+// FMS View fits the screen (client list 2026-11-25 #5: no sideways scroll): each step is ONE cell —
+// done "✓ 24/11 14:52" (status No = red), not done "⏳ planned" (red once the planned time has passed);
+// the full planned / actual / status show on hover. Was 3 columns per step (29 columns, ~4,300 px wide).
+function o2dShortDt(v) {
+  const t = String(v || '').trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(t);
+  if (iso) return `${iso[3]}/${iso[2]} ${iso[4]}:${iso[5]}`;
+  const m = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})[ T]+(\d{1,2}):(\d{2})/.exec(t);
+  return m ? `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')} ${m[4].padStart(2, '0')}:${m[5]}` : t;
+}
+function o2dDtMs(v) {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(String(v || '').trim());
+  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3], +(iso[4] || 0), +(iso[5] || 0)).getTime();
+  const m = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})(?:[ T]+(\d{1,2}):(\d{2}))?/.exec(String(v || '').trim());
+  if (!m) return NaN;
+  const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+  return new Date(y, Number(m[2]) - 1, Number(m[1]), Number(m[4] || 0), Number(m[5] || 0)).getTime();
+}
+function o2dStepCell(s) {
+  const tip = [`Planned: ${s.planned || '—'}`, `Actual: ${s.actual || '—'}`, `Status: ${s.status || '—'}`].join('\n');
+  const st = String(s.status || '').trim();
+  let html;
+  if (s.actual || st) {
+    const bad = /^no$/i.test(st), other = st && !/^(yes|done|ok)$/i.test(st) && !bad;
+    html = `<span style="color:${bad ? 'var(--color-danger-text)' : 'var(--color-success-text)'};font-weight:700">${bad ? '✗' : '✓'} ${esc(o2dShortDt(s.actual) || st)}</span>${bad ? ' <b style="color:var(--color-danger-text)">No</b>' : other ? `<div style="font-size:10.5px;color:var(--gray-500)">${esc(st)}</div>` : ''}`;
+  } else if (s.planned) {
+    const late = o2dDtMs(s.planned) < Date.now();
+    html = `<span style="color:${late ? 'var(--color-danger)' : 'var(--gray-500)'}">⏳ ${esc(o2dShortDt(s.planned))}</span>`;
+  } else html = '<span style="color:var(--gray-300)">—</span>';
+  return `<td title="${esc(tip)}" style="border-left:2px solid var(--gray-200);font-size:11.5px;line-height:1.35">${html}</td>`;
 }
 function renderO2dFmsView() {
   const strip = document.getElementById('o2dHoldStrip');
@@ -15822,24 +15855,18 @@ function renderO2dFmsView() {
     return;
   }
   const { pageRows, totalPages, total } = o2dPaginate(rows);
-  const stepHeadTop = O2D_STEP_DEFS.map(sd => `<th colspan="3" style="text-align:center;border-left:2px solid var(--gray-200)">${sd.n}. ${sd.label}</th>`).join('');
-  const stepHeadSub = O2D_STEP_DEFS.map(() => `<th style="border-left:2px solid var(--gray-200)">Planned</th><th>Actual</th><th>Status</th>`).join('');
+  const stepHead = O2D_STEP_DEFS.map(sd => `<th style="text-align:center;border-left:2px solid var(--gray-200);white-space:normal;min-width:58px;line-height:1.25;font-size:10.5px" title="${esc(sd.label)}">${sd.n}. ${esc(sd.label)}</th>`).join('');
   wrap.innerHTML = subTabsHtml + `<table style="font-size:12px;white-space:nowrap">
     <thead>
-      <tr><th rowspan="2">Order No</th><th rowspan="2">Counter Name</th><th rowspan="2">Items</th><th rowspan="2">Qty</th><th rowspan="2" style="text-align:right">Order Value</th>${stepHeadTop}<th colspan="2" style="text-align:center;border-left:2px solid var(--gray-200)">Bill</th></tr>
-      <tr>${stepHeadSub}<th style="border-left:2px solid var(--gray-200)">Bill No</th><th>Amount</th></tr>
+      <tr><th>Order No</th><th>Counter Name</th><th>Items</th><th>Qty</th><th style="text-align:right">Order Value</th>${stepHead}<th style="border-left:2px solid var(--gray-200)">Bill No</th><th>Amount</th></tr>
     </thead>
     <tbody>
       ${pageRows.map(o => `
         <tr onclick="openO2dDetail('${jsArg(o.orderNo)}')" style="cursor:pointer">
           <td style="font-weight:600">${esc(o.orderNo || '—')}${!o.closed && String(o.timestamp || '').startsWith(today) ? ' <span class="status-badge" style="background:var(--color-success-bg);color:var(--color-success-text)">🆕 Aaj</span>' : ''}${entrySubHtml(o.timestamp)}${o.cancelled ? ` <span class="status-badge" style="background:var(--color-danger-bg);color:var(--color-danger-text)" title="${esc(o.cancelReason || (o.cancelledStepLabel + ' was marked No'))}">❌ Cancelled</span>` : ''}${o2dHoldBadge(o)}${(o.products||[]).some(p => p.currentStep > o.currentStep) ? ' <span title="New item added — some items ahead of this step" style="font-size:9px">🔄</span>' : ''}</td>
-          <td style="max-width:150px;min-width:110px;white-space:normal;line-height:1.35">${esc(o.counterName || '—')}</td>
+          <td style="max-width:150px;min-width:96px;white-space:normal;line-height:1.35">${esc(o.counterName || '—')}</td>
           ${o2dItemsCells(o)}
-          ${o.steps.map(s => `
-            <td style="border-left:2px solid var(--gray-200)">${esc(s.planned || '—')}</td>
-            <td>${esc(s.actual || '—')}</td>
-            <td>${s.status ? `<span class="status-badge" style="background:${s.status==='No'?'var(--color-danger-bg)':'var(--color-success-bg)'};color:${s.status==='No'?'var(--color-danger-text)':'var(--color-success-text)'}">${esc(s.status)}</span>` : '—'}</td>
-          `).join('')}
+          ${o.steps.map(o2dStepCell).join('')}
           <td style="border-left:2px solid var(--gray-200)">${esc(o.billNo || '—')}</td>
           <td>${esc(o.amount || '—')}</td>
         </tr>`).join('')}
@@ -23592,7 +23619,7 @@ function scotCallsHtml() {
     const list = scotSched[key] || [], dn = list.filter(id => scotCalled.has(`${id}|${key}`)).length;
     const sun = dow === 0, act = key === scotDate;
     const st = !sun && list.length && key <= today ? (dn === list.length ? 'var(--color-success)' : 'var(--color-danger)') : 'var(--gray-300)';
-    strip += `<div ${act ? 'id="scotDayAct"' : ''} ${sun ? '' : `onclick="scotSelectDate('${jsArg(key)}')"`} style="flex:0 0 auto;min-width:54px;text-align:center;padding:6px 4px;border-radius:10px;cursor:${sun ? 'default' : 'pointer'};opacity:${sun ? .35 : 1};
+    strip += `<div ${act ? 'id="scotDayAct"' : ''} ${sun ? '' : `onclick="scotSelectDate('${jsArg(key)}')"`} class="scot-day" style="text-align:center;padding:6px 2px;border-radius:10px;cursor:${sun ? 'default' : 'pointer'};opacity:${sun ? .35 : 1};
       border:2px solid ${act ? 'var(--color-primary)' : 'var(--gray-200)'};border-bottom:4px solid ${st};background:${act ? 'var(--color-primary-light)' : 'var(--surface)'}">
       <div style="font-weight:900;font-size:16px">${d}</div><div style="font-size:10px;color:var(--gray-500)">${SCOT_WD[dow]}${key === today ? ' · <b style="color:var(--color-primary)">Aaj</b>' : ''}</div>
       ${!sun && list.length ? `<div style="font-size:10.5px;font-weight:700;color:${st === 'var(--gray-300)' ? 'var(--gray-500)' : st}">${dn}/${list.length}</div>` : ''}</div>`;
@@ -23635,7 +23662,7 @@ function scotCallsHtml() {
       ${hits.length ? `<div style="display:flex;flex-direction:column;gap:4px">${hits.map(d => `<div onclick="scotOpenDealer(${d.id})" style="cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 8px;border:1px solid var(--gray-200);border-radius:8px">
         <b style="color:var(--color-primary)">${esc(d.name)}</b>${scotTierBadge(d.tier)}<span style="font-size:12px;color:var(--gray-600)">🔁 Har ${d.freq} din${d.freqStart ? ' · ' + esc(fmtDateDMY(d.freqStart)) + ' se' : ''}</span>
         <span style="font-size:12px;color:var(--gray-500);margin-left:auto">${esc((d.contacts[0] || {}).name || '')} ${esc((d.contacts[0] || {}).phone || '')}</span></div>`).join('')}</div>` : '<div class="empty">Koi dealer nahi mila</div>'}</div>` : '';
-  return `<div id="scotStrip" style="position:relative;display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:10px">${strip}</div>
+  return `<style>#scotStrip .scot-day{flex:1 1 0;min-width:0;font-size:12px}@media (max-width:768px){#scotStrip .scot-day{flex:0 0 auto;min-width:54px}}</style><div id="scotStrip" style="position:relative;display:flex;gap:4px;overflow-x:auto;padding-bottom:6px;margin-bottom:10px">${strip}</div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><label style="font-size:12px;font-weight:700">📅 Date</label>
       <input type="date" value="${esc(scotDate || '')}" onchange="scotPickDate(this.value)" style="padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px"/>
       ${scotDate !== today ? `<button class="btn btn-sm btn-outline" onclick="scotPickDate('${today}')">Aaj</button>` : ''}</div>
