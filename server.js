@@ -15033,7 +15033,8 @@ app.put('/api/meca/benchmark/:uid', requireAuth, requireAdmin, async (req, res) 
     const uid = Number(req.params.uid);
     if (!(uid >= 0)) return res.status(400).json({ error: 'Bad user' });
     const b = req.body || {}, data = {};
-    MECA_BENCH_KEYS.forEach(k => { const v = Number(b[k]); if (v > 0) data[k] = Math.round(v * 100) / 100; });
+    // k = the salesman's commit, t_k = the company's target (client video 2026-11-27: "benchmark me target bhi").
+    MECA_BENCH_KEYS.forEach(k => [k, 't_' + k].forEach(kk => { const v = Number(b[kk]); if (v > 0) data[kk] = Math.round(v * 100) / 100; }));
     if (MECA_BENCH_PERIODS.includes(b.period) && b.period !== 'day') data.period = b.period;
     await db.query('INSERT INTO meca_benchmarks (user_id, data, updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE data = VALUES(data), updated_by = VALUES(updated_by)', [uid, JSON.stringify(data), req.session.userId]);
     res.json({ success: true, data });

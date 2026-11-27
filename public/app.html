@@ -22727,17 +22727,18 @@ function mecaOpenBench() {
   const th = 'padding:8px 10px;font-size:11px;font-weight:800;background:var(--gray-50);border-bottom:1px solid var(--gray-200);white-space:nowrap;color:var(--gray-600)';
   const td = 'padding:7px 10px;border-bottom:1px solid var(--gray-100)';
   const stL = 'position:sticky;left:0;z-index:1;background:var(--surface);', stR = 'position:sticky;right:0;z-index:1;background:var(--surface);';
-  vrlModal('mecaBenchModal', `${scotModalHead('mecaBenchModal', '🎯 Benchmark — salesman ne kitna commit kiya')}
-    <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:10px">Jo commit kiya wo bharo (khaali = nahi). <b>Period</b> = count / ₹ wale target din, hafte (6 din) ya mahine (26 din) ke hain — % aur average waise hi. MECA me Target / Actual / Gap aayega — target se upar <b style="color:var(--color-success-text)">hara</b>, 70–100% <b style="color:var(--color-warning-text)">peela</b>, 70% se kam <b style="color:var(--color-danger)">laal</b>. Har section ka Score usi ke benchmark se banta hai.</div>
+  vrlModal('mecaBenchModal', `${scotModalHead('mecaBenchModal', '🎯 Benchmark — Target (company) aur Commit (salesman)')}
+    <div style="font-size:12.5px;color:var(--gray-500);margin-bottom:10px">Har metric me <b>Target</b> (company ka) aur <b>Commit</b> (salesman ne kaha) — khaali = nahi. MECA ka minus % Target se banta hai, Target khaali ho to Commit se. <b>Period</b> = count / ₹ wale target din, hafte (6 din) ya mahine (26 din) ke hain — % aur average waise hi. MECA me Target / Actual / Gap aayega — target se upar <b style="color:var(--color-success-text)">hara</b>, 70–100% <b style="color:var(--color-warning-text)">peela</b>, 70% se kam <b style="color:var(--color-danger)">laal</b>. Har section ka Score usi ke benchmark se banta hai.</div>
     <div style="overflow:auto;flex:1;border:1px solid var(--gray-200);border-radius:12px"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px">
       <thead style="position:sticky;top:0;z-index:2">
-        <tr><th rowspan="2" style="${th};${stL}z-index:3;text-align:left">Naam</th><th rowspan="2" style="${th}">Period</th>
-          ${G.map(([t, c, ks]) => `<th colspan="${ks.length}" style="${th};text-align:center;color:${c};border-left:2px solid var(--gray-200);border-top:3px solid ${c}">${t}</th>`).join('')}<th rowspan="2" style="${th};${stR}z-index:3"></th></tr>
-        <tr>${G.map(([, , ks]) => ks.map((k, i) => `<th style="${th};text-align:center;${i ? '' : 'border-left:2px solid var(--gray-200);'}">${lab[k]}${MECA_COUNT_KEYS.includes(k) ? '<div style="font-weight:500;color:var(--gray-400)">/ period</div>' : ''}</th>`).join('')).join('')}</tr>
+        <tr><th rowspan="3" style="${th};${stL}z-index:3;text-align:left">Naam</th><th rowspan="3" style="${th}">Period</th>
+          ${G.map(([t, c, ks]) => `<th colspan="${ks.length * 2}" style="${th};text-align:center;color:${c};border-left:2px solid var(--gray-200);border-top:3px solid ${c}">${t}</th>`).join('')}<th rowspan="3" style="${th};${stR}z-index:3"></th></tr>
+        <tr>${G.map(([, , ks]) => ks.map((k, i) => `<th colspan="2" style="${th};text-align:center;${i ? '' : 'border-left:2px solid var(--gray-200);'}">${lab[k]}${MECA_COUNT_KEYS.includes(k) ? '<div style="font-weight:500;color:var(--gray-400)">/ period</div>' : ''}</th>`).join('')).join('')}</tr>
+        <tr>${G.map(([, , ks]) => ks.map((k, i) => `<th style="${th};text-align:center;color:var(--color-primary);${i ? '' : 'border-left:2px solid var(--gray-200);'}">Target</th><th style="${th};text-align:center">Commit</th>`).join('')).join('')}</tr>
       </thead><tbody>
       ${people.map(([id, name]) => `<tr><td style="${td};${stL}font-weight:700;white-space:nowrap">${esc(name)}</td>
         <td style="${td}"><select data-u="${id}" data-k="period" style="padding:6px;border:1px solid var(--gray-200);border-radius:6px">${[['day', 'Din'], ['week', 'Hafta'], ['month', 'Mahina']].map(([v, l]) => `<option value="${v}" ${((B[id] || {}).period || 'day') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
-        ${G.map(([, , ks]) => ks.map((k, i) => `<td style="${td};text-align:center;${i ? '' : 'border-left:2px solid var(--gray-200);'}"><input type="number" min="0" step="any" data-u="${id}" data-k="${k}" value="${(B[id] || {})[k] || ''}" style="width:84px;padding:6px;border:1px solid var(--gray-200);border-radius:6px;text-align:center"/></td>`).join('')).join('')}
+        ${G.map(([, , ks]) => ks.map((k, i) => `<td style="${td};text-align:center;${i ? '' : 'border-left:2px solid var(--gray-200);'}"><input type="number" min="0" step="any" data-u="${id}" data-k="t_${k}" value="${(B[id] || {})['t_' + k] || ''}" title="Target" style="width:76px;padding:6px;border:1.5px solid #9ec5fe;border-radius:6px;text-align:center;background:#f3f8ff"/></td><td style="${td};text-align:center"><input type="number" min="0" step="any" data-u="${id}" data-k="${k}" value="${(B[id] || {})[k] || ''}" title="Commit" style="width:76px;padding:6px;border:1px solid var(--gray-200);border-radius:6px;text-align:center"/></td>`).join('')).join('')}
         <td style="${td};${stR}"><button class="btn btn-sm btn-primary" onclick="mecaSaveBench(${id},this)">Save</button></td></tr>`).join('')}</tbody></table></div>`);
   const md = document.querySelector('#mecaBenchModal .modal');
   if (md) md.style.cssText += ';width:96vw;max-width:96vw;height:92dvh;display:flex;flex-direction:column;overflow:hidden';
@@ -22766,16 +22767,17 @@ function mecaSeqRank(p) {
 }
 // Next week's MECA score commitment — own row, or anyone's for admin / PC (client 2026-10-31).
 async function mecaSaveCommit(uid, section, el) {
-  let v = el.value.trim();
-  if (v !== '' && !(Number(v) >= 0 && Number(v) <= 100)) { showToast('0 se 100 ke beech likhein (jaise 90)', 'error'); return; }
+  // Typed as minus vs target (−10 = target se 10% kam, 0 = poora); stored as % achieved (90).
+  let v = el.value.trim().replace('−', '-');
+  if (v !== '' && !(Number(v) >= -100 && Number(v) <= 0)) { showToast('−100 se 0 ke beech likhein (jaise −10; 0 = target poora)', 'error'); return; }
   el.disabled = true;
-  const r = await api('/api/meca/commit', 'PUT', { userId: uid, section, score: v });
+  const r = await api('/api/meca/commit', 'PUT', { userId: uid, section, score: v === '' ? '' : String(100 + Number(v)) });
   el.disabled = false;
   if (r.error) { showToast(r.error, 'error'); return; }
   mecaBust = Date.now();
   const cm = mecaData.commits;
   const w = cm.map[cm.next] = cm.map[cm.next] || {};
-  (w[uid] = w[uid] || {})[section] = v === '' ? undefined : Number(v);
+  (w[uid] = w[uid] || {})[section] = v === '' ? undefined : 100 + Number(v);
   showToast(v === '' ? 'Commitment hata diya' : `✅ Agle hafte ka ${{ crr: 'CRR', nbd: 'NBD', coll: 'Collection', scot: 'SCOT' }[section]} commitment: ${v}%`);
 }
 function mecaCode(name) {
@@ -22840,7 +22842,8 @@ function renderMeca() {
     callValue: r => r.callValue, callAvg: r => r.callOrders && r.callValue ? r.callValue / r.callOrders : null
   };
   const BENCH_OF = { scotCalls: 'calls', scotConv: 'callConv', scotValue: 'callValue', scotAvg: 'callAvg' }; // SCOT columns ← the calling benchmarks
-  const tgt = (k0, r, b) => { const k = BENCH_OF[k0] || k0; return !b || !b[k] ? null : MECA_COUNT_KEYS.includes(k) ? b[k] * days(r) / (MECA_PERIOD_DAYS[b.period] || 1) : b[k]; };
+  // Target (company) if set, else the salesman's commit (client video 2026-11-27).
+  const tgt = (k0, r, b) => { const k = BENCH_OF[k0] || k0, v = b && (b['t_' + k] || b[k]); return !v ? null : MECA_COUNT_KEYS.includes(k) ? v * days(r) / (MECA_PERIOD_DAYS[b.period] || 1) : v; };
   const SC = Object.fromEntries(Object.keys(ACT).map(k => [k, (r, b) => { const a = ACT[k](r), t = tgt(k, r, b); return a == null || !t ? null : scoreOf(a, t); }]));
   const PCT_KEYS = ['conv', 'nbdConv', 'collVsOrder', 'callConv', 'scotConv'], RS_KEYS = ['value', 'avg', 'o2dValue', 'o2dAvg', 'scotValue', 'scotAvg', 'nbdValue', 'nbdAvg', 'coll', 'collAvg', 'callValue', 'callAvg'];
   const tag = (k, v) => v == null ? '—' : PCT_KEYS.includes(k) ? (Math.round(v * 10) / 10) + '%' : (RS_KEYS.includes(k) ? '₹' : '') + fmt(v);
@@ -22869,17 +22872,17 @@ function renderMeca() {
   // Section score with last week's commitment under it, and next week's box — plain text, no symbols (client 2026-10-31).
   const scoreCell = (x, sec) => {
     const sc = x.scores[sec], last = ((cm.map[cm.last] || {})[x.p.id] || {})[sec];
-    const pill = sc == null ? '<span style="color:var(--gray-300)" title="Benchmark nahi bhara">—</span>' : `<b style="font-size:13.5px;color:${band(sc)[1]}">${sc}%</b>`;
+    const pill = sc == null ? '<span style="color:var(--gray-300)" title="Benchmark nahi bhara">—</span>' : `<b style="font-size:13.5px;color:${band(sc)[1]}" title="Target ka ${sc}% poora">${sc - 100 > 0 ? '+' : ''}${sc - 100}%</b>`;
     const met = lastWk && last != null && sc != null ? (sc >= last ? ' · <b style="color:var(--color-success-text)">poora</b>' : ' · <b style="color:var(--color-danger)">kam</b>') : '';
-    const lastLine = last == null ? '' : `<div style="font-size:10px;color:var(--gray-500);margin-top:3px;white-space:nowrap">commit ${last}%${met}</div>`;
+    const lastLine = last == null ? '' : `<div style="font-size:10px;color:var(--gray-500);margin-top:3px;white-space:nowrap">commit ${Math.round((last - 100) * 10) / 10}%${met}</div>`;
     return `<td style="${td};text-align:center">${pill}${lastLine}</td>`;
   };
   const commitCell = (x, sec) => {
     const next = ((cm.map[cm.next] || {})[x.p.id] || {})[sec];
     const inner = typeof x.p.id === 'number' && (mecaData.canCommitAll || x.p.id === ME.id)
-      ? `<input type="number" min="0" max="100" step="1" value="${next == null ? '' : next}" placeholder="%" aria-label="${esc(x.p.name)} — agle hafte ka ${sec} commitment"
+      ? `<input type="number" min="-100" max="0" step="1" value="${next == null ? '' : Math.round((next - 100) * 10) / 10}" placeholder="−%" aria-label="${esc(x.p.name)} — agle hafte ka ${sec} commitment"
           onkeydown="if(event.key==='Enter')this.blur()" onchange="mecaSaveCommit(${x.p.id}, '${sec}', this)" style="width:62px;padding:5px 6px;border:1.5px solid var(--gray-200);border-radius:8px;text-align:center;font-weight:700;font-size:12.5px"/>`
-      : (next == null ? '<span style="color:var(--gray-300)">—</span>' : `<b>${next}%</b>`);
+      : (next == null ? '<span style="color:var(--gray-300)">—</span>' : `<b>${Math.round((next - 100) * 10) / 10}%</b>`);
     return `<td style="${td};text-align:center">${inner}</td>`;
   };
   // Top: 5 big numbers — plain, no ▲ / ▼ (client 2026-10-31: "▼ 12% hatao").
@@ -22904,7 +22907,10 @@ function renderMeca() {
   const tac = (k, x) => {
     const a = ACT[k](x.t), t = tgt(k, x.t, x.b);
     const color = t ? band((a || 0) * 100 / t)[1] : a ? 'var(--gray-900)' : 'var(--gray-300)';
-    return `<td style="${td};text-align:center;font-weight:700;font-size:13.5px;color:${color}"${t ? ` title="Target ${tag(k, t)}"` : ''}>${tag(k, a)}</td>`;
+    // Minus / plus vs target under the number (client video 2026-11-27: "MECA negative dikhana tha").
+    const dev = t ? Math.round((a || 0) * 100 / t - 100) : null;
+    const devLine = dev == null ? '' : `<div style="font-size:10.5px;font-weight:800;color:${dev < 0 ? 'var(--color-danger)' : 'var(--color-success-text)'}">${dev > 0 ? '+' : ''}${dev}%</div>`;
+    return `<td style="${td};text-align:center;font-weight:700;font-size:13.5px;color:${color}"${t ? ` title="Target ${tag(k, t)}"` : ''}>${tag(k, a)}${devLine}</td>`;
   };
   const GROUPS = [
     ['crr', 'Visit CRR', '#1d4ed8', 'Counter Visited = Beat page se (sirf jahan sach me visit hui — yes / sir ke sath). Order / Order Value = O2D se: purane counter ke saare order (Lead FMS wale naye counter NBD me), us salesman ke naam jiski beat me wo counter hai, warna O2D "Order By".', [['visits', 'Counter Visited'], ['ordered', 'Order (counter)'], ['conv', 'Conversion %'], ['value', 'Order Value ₹'], ['avg', 'Avg Order']]],
@@ -22923,7 +22929,7 @@ function renderMeca() {
   const tbl = `<div style="background:var(--surface);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;margin-bottom:14px">
     <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
       <div style="font-size:14px;font-weight:800;color:var(--gray-900)">Salesman-wise MECA <span style="font-size:12px;font-weight:600;color:var(--gray-500)">${shown.length} log · ${esc(fmtDateDMY(mecaData.from))} – ${esc(fmtDateDMY(mecaData.to))}</span></div>
-      <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-size:11.5px;color:${Object.keys(B).length ? 'var(--gray-400)' : 'var(--color-warning-text)'}">${Object.keys(B).length ? 'Score = target ka kitna % poora (100 = poora) · hara 100+ · peela 70–100 · laal 70 se kam' : 'Score tab aayega jab Benchmark (target) bhara ho — abhi kisi ka nahi bhara'}</span>
+      <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-size:11.5px;color:${Object.keys(B).length ? 'var(--gray-400)' : 'var(--color-warning-text)'}">${Object.keys(B).length ? 'Score = target se kitna kam (0% = poora, −20% = 20% kam) · har number ke neeche target se +/− %' : 'Score tab aayega jab Benchmark (target) bhara ho — abhi kisi ka nahi bhara'}</span>
         ${mecaData.isAdmin ? '<button class="btn btn-sm btn-primary" onclick="mecaOpenBench()">Benchmark bharo</button>' : ''}</span>
     </div>
     <div class="mis-table-wrap" style="overflow:auto;max-height:80vh"><table style="border-collapse:separate;border-spacing:0;min-width:100%">
