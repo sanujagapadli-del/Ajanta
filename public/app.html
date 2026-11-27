@@ -3189,7 +3189,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
     <div id="kmModalMorningInfo" style="display:none;font-size:12px;color:var(--gray-600);background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:8px 12px;margin-bottom:12px"></div>
     <div class="form-group">
       <label>Kilometer Meter Photo <span style="color:var(--color-danger)">*</span></label>
-      <input type="file" accept="image/*" capture="environment" id="kmModalPhoto" onchange="onKmPhotoSelected()"/>
+      <input type="file" accept="image/*" capture="environment" id="kmModalPhoto" onclick="return kmCamClick(event)" onchange="onKmPhotoSelected()"/>
       <div id="kmModalPhotoPreview" style="font-size:11px;color:var(--gray-500);margin-top:4px"></div>
     </div>
     <div class="form-group">
@@ -7714,6 +7714,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'purchase-fms', label: 'Purchase FMS' },
     { key: 'cheque-fms', label: 'Collection FMS' },
     { key: 'replacement-fms', label: 'Replacement FMS' },
+    { key: 'repl-edit', label: 'Replacement FMS — entry edit (party, items, defect, salesman…; photos / steps nahi badalte)' },
     { key: 'repl-fms-view', label: 'Replacement FMS View (sab steps dekhein — kaam sirf apne step ka)' },
     { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
     { key: 'vendor-bin', label: 'Vendor Bin — Replacement / Vendor Ledger wale ko pehle se' },
@@ -8392,6 +8393,13 @@ function deleteTour(id) {
 // say what "Other" was for; and the day's total order value.
 const TOUR_MAX_LEGS = 5, TOUR_MAX_EXTRA_BILLS = 4;
 let _tourEditId = null;
+// "Kahan se / Kahan gaye" = Rajasthan districts + Dropdown Master → City (client 2026-11-27: Merta City / Merta Road
+// were added there but the tour form only knew the districts).
+function tourPlaces() {
+  const m = new Map();
+  [...RAJ_DISTRICTS, ...((ddLists.city && ddLists.city.items) || [])].forEach(v => { const t = String(v || '').trim(); if (t && !m.has(t.toLowerCase())) m.set(t.toLowerCase(), t); });
+  return [...m.values()].sort((x, y) => x.localeCompare(y));
+}
 function openTourModal(editId) {
   const ed = editId && tourData ? tourData.items.find(x => x.id === editId) : null;
   _tourEditId = ed ? ed.id : null;
@@ -8401,7 +8409,7 @@ function openTourModal(editId) {
   document.getElementById('tourBody').innerHTML = `
     <div class="alert error" id="trErr" style="display:none"></div>
     ${L('Tour par kab gaye (date)', true)}<input id="tr_date" type="date" max="${today}" value="${today}" style="${CHQ_INPUT}"/>
-    <datalist id="rajDistrictList">${RAJ_DISTRICTS.map(d => `<option value="${d}">`).join('')}</datalist>
+    <datalist id="rajDistrictList">${tourPlaces().map(d => `<option value="${esc(d)}">`).join('')}</datalist>
     <div style="font-size:13px;font-weight:800;color:var(--gray-800);margin:4px 0 8px">🚌 Safar — kahan se kahan gaye</div>
     <div id="tr_legs"></div>
     <button class="btn btn-outline btn-sm" type="button" id="tr_addLeg" onclick="tourAddLeg()" style="margin-bottom:10px">+ Aage ka safar jodo</button>
@@ -9910,10 +9918,20 @@ function updateKmModalPreview() {
   el.textContent = diff < 0 ? 'Evening reading is less than the morning reading' : `Today: ${fmtKm(Math.round(diff * 10) / 10)} km`;
 }
 
-async function onKmPhotoSelected() {
+// KM meter photo with the in-page camera (client 2026-11-27, Gulshan: Evening KM — photo li, ✓ dabaya, page refresh
+// ho gaya aur photo upload nahi hui). The phone's camera app sends the page to the background and low-memory phones
+// reload it; the camera inside the page (same as Dealer Onboarding) never leaves it. No camera access → phone camera.
+function kmCamClick(ev) {
+  if (_onbNativePick) { _onbNativePick = false; return true; }
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) return true;
+  ev.preventDefault();
+  onbOpenCamera('kmModalPhoto', 'kmModalPhotoPreview', f => onKmPhotoSelected(f));
+  return false;
+}
+async function onKmPhotoSelected(fileArg) {
   const input = document.getElementById('kmModalPhoto');
   const preview = document.getElementById('kmModalPhotoPreview');
-  const file = input.files[0];
+  const file = fileArg || input.files[0];
   input.dataset.compressed = '';
   if (!file) { preview.textContent = ''; return; }
   preview.textContent = 'Compressing…';
@@ -26439,7 +26457,7 @@ function onbCamClick(ev, inputId, previewId) {
   onbOpenCamera(inputId, previewId);
   return false;
 }
-async function onbOpenCamera(inputId, previewId) {
+async function onbOpenCamera(inputId, previewId, onFile) { // onFile(file) = someone else's form (KM photo)
   let m = document.getElementById('onbCamModal');
   if (!m) {
     m = document.createElement('div');
@@ -26464,7 +26482,8 @@ async function onbOpenCamera(inputId, previewId) {
     c.getContext('2d').drawImage(video, 0, 0);
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
     onbCloseCamera();
-    if (blob) onbApplyPhotoFile(document.getElementById(inputId), previewId, new File([blob], 'photo.jpg', { type: 'image/jpeg', lastModified: Date.now() }));
+    const file = blob && new File([blob], 'photo.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+    if (file) { if (onFile) onFile(file); else onbApplyPhotoFile(document.getElementById(inputId), previewId, file); }
   };
   try {
     _onbCamStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
@@ -26880,7 +26899,7 @@ const DD_FIELDS = [['#uDepartment', 'department'], ['#plUom', 'uom'], ['#stkUom'
   ['[id^="rpl_"][id$="_staff"]', 'staff']];
 // Where each list shows up (Dropdown Master "Kahan use hota hai", client 2026-11-23). Keep in step with DD_FIELDS.
 const DD_USED_IN = {
-  city: ['Dealer Master → ✏️ Details (City)', 'Dealer Onboarding form (City)', 'Sales Schedule → naya counter (City)', 'Sales Schedule → upcountry jagah', 'Bahar ke Mechanics (City)'],
+  city: ['Dealer Master → ✏️ Details (City)', 'Dealer Onboarding form (City)', 'Sales Schedule → naya counter (City)', 'Sales Schedule → upcountry jagah', 'Bahar ke Mechanics (City)', 'Tour Expense → Kahan se / Kahan gaye (Rajasthan districts ke saath)'],
   area: ['Lead FMS → New Lead (Area)', 'Dealer Master → ✏️ Details (Area)', 'Dealer Onboarding form (Area)'],
   transport: ['Dealer Onboarding form (Transport ka naam)'],
   vehicle: ['Petty Cash → entry (Vehicle)'],
@@ -30362,8 +30381,9 @@ function onRfSalesmanChange() {
 }
 // ✏️ Edit (admin, client 2026-11-13): the same form, filled with the entry's
 // details; photos and steps already done are not touched.
+const canEditRepl = () => ME && (ME.role === 'admin' || MY_PAGES.has('repl-edit'));
 async function openEditRepl(id) {
-  if (ME.role !== 'admin') return;
+  if (!canEditRepl()) return;
   const r = rplData.find(x => x.id === id);
   if (!r) { showToast('Not found — please refresh', 'error'); return; }
   openNewReplModal();
@@ -30687,7 +30707,7 @@ function renderReplDetailBody(r) {
       <div style="grid-column:1/-1">${f('Remark', esc(r.remark))}</div>
       ${r.cancelledAt ? f('Cancelled', esc(r.cancelReason)) : ''}
     </div>
-    ${(ME.role === 'admin') || ((rplMe.isAdmin || rplMe.mySteps.includes(1)) && r.task) ? `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${ME.role === 'admin' ? `<button class="btn btn-outline btn-sm" onclick="openEditRepl(${r.id})">✏️ Edit</button>` : ''}${(rplMe.isAdmin || rplMe.mySteps.includes(1)) && r.task ? `<button class="btn btn-outline btn-sm" onclick="cancelRepl(${r.id})">🚫 Cancel entry</button>` : ''}</div>` : ''}
+    ${canEditRepl() || ((rplMe.isAdmin || rplMe.mySteps.includes(1)) && r.task) ? `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${canEditRepl() ? `<button class="btn btn-outline btn-sm" onclick="openEditRepl(${r.id})">✏️ Edit</button>` : ''}${(rplMe.isAdmin || rplMe.mySteps.includes(1)) && r.task ? `<button class="btn btn-outline btn-sm" onclick="cancelRepl(${r.id})">🚫 Cancel entry</button>` : ''}</div>` : ''}
   </div>`;
   const action = r.task ? rplTaskFormHtml(r)
     : `<div style="text-align:center;color:var(--color-success-text);font-weight:700;padding:14px;background:var(--color-success-bg);border:1.5px solid var(--color-success-border);border-radius:14px;margin-bottom:12px">${r.stage === 'cancelled' ? 'Cancelled' : 'Complete — entry closed'}</div>`;
@@ -31124,6 +31144,25 @@ async function loadNetProfit() {
   npData = ex;
   renderNetProfit();
 }
+// PAT = Net Profit − income tax (client video 2026-11-27, Ajay sir). Tax only on a profit; admin sets the %.
+function npPatCard(np, base, card) {
+  const pctTax = Number(npData.taxPct) || 0, tax = np > 0 ? np * pctTax / 100 : 0, pat = np - tax;
+  const box = npData.canEditTax
+    ? `<input type="number" min="0" max="60" step="0.5" value="${pctTax}" onclick="event.stopPropagation()" onchange="npSaveTax(this)" title="Tax % badlo"
+        style="width:58px;padding:2px 5px;border:1px solid var(--gray-300);border-radius:6px;font-size:12px;text-align:right"/>%`
+    : `${pctTax}%`;
+  return `<div style="${card};padding:14px 16px;border:2px solid ${pat >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'}">
+      <div style="font-size:11px;font-weight:800;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px">🏦 PAT (Profit After Tax)</div>
+      <div style="font-size:26px;font-weight:900;color:${pat >= 0 ? 'var(--color-success-text)' : 'var(--color-danger)'};margin-top:4px;white-space:nowrap">${gpInr(pat)}</div>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">Tax ${box} = ${gpInr(tax)}${base ? ` · ${Math.round(pat * 1000 / base) / 10}% of sales` : ''}</div></div>`;
+}
+async function npSaveTax(el) {
+  const r = await api('/api/reports/np-tax', 'PUT', { pct: el.value });
+  if (!r || r.error) { showToast((r && r.error) || 'Save nahi hua', 'error'); return; }
+  npData.taxPct = r.taxPct;
+  showToast(`✅ Tax ${r.taxPct}% — PAT update`);
+  renderNetProfit();
+}
 function renderNetProfit() {
   const out = document.getElementById('gpResults');
   const t = gpData.totals, ex = npData;
@@ -31190,6 +31229,7 @@ function renderNetProfit() {
       ${kpi('📈', 'Gross Profit', gpInr(t.gp), gpPct == null ? '' : `${gpPct}% margin · laagat ${gpInr(t.cost)}`, t.gp >= 0 ? good : bad, false, "npGoProduct('gp')", 'Product-wise GP dekho')}
       ${kpi('💸', 'Expenses (Tally)', gpInr(expTally), expPct == null ? '' : `bikri ka ${expPct}%`, bad, false, 'npShowExpenses()', 'Kharcha ke ledgers dekho')}
       ${kpi('💰', 'Net Profit', gpInr(np), npPct == null ? '' : `${npPct}% net margin`, np >= 0 ? good : bad, true, 'npOpenBreakdown()', 'Net Profit ka hisaab dekho')}
+      ${npPatCard(np, base, card)}
     </div>
     ${flow}
     <div id="npExpCard" style="${card};padding:16px 18px">

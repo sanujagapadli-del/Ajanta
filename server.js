@@ -676,7 +676,9 @@ const RESTRICTABLE_PAGES = ['asmp', 'mis', 'users', 'records', 'service-fms', 'o
   // MECA — every salesman's rows, like PC / HOD (client 2026-11-19: CRM saw only her own SCOT column).
   'meca-all',
   // Dealer Master — dealer ki details (malik, DOB, address…) add / edit, bina Admin ke (client 2026-11-20: CRM).
-  'dealers-edit'];
+  'dealers-edit',
+  // Replacement FMS — entry ki details edit (party, items, defect…), bina Admin ke (client 2026-11-27, Gulshan).
+  'repl-edit'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -12950,8 +12952,10 @@ app.post('/api/replacement-fms', requireAuth, async (req, res) => {
 // admin can edit") — party, mobile, items, condition, type, defect, who got it,
 // salesman, remark. Steps already done and photos stay as they are; the change
 // goes into the entry's history.
-app.put('/api/replacement-fms/:id(\\d+)', requireAuth, requireAdmin, async (req, res) => {
+app.put('/api/replacement-fms/:id(\\d+)', requireAuth, async (req, res) => {
   try {
+    // Admin, or the 'repl-edit' Access tick (client 2026-11-27: "Replacement FMS mein edit ka option").
+    if (req.session.role !== 'admin' && !(await hasPageGrant(req, 'repl-edit'))) return res.status(403).json({ error: 'Edit sirf Admin (ya Users → Access me "Replacement edit" wala) kar sakta hai' });
     const b = req.body || {};
     const t = (v, n = 500) => String(v || '').trim().slice(0, n);
     const [[r]] = await withReplTables(() => db.query(`${REPL_SELECT} WHERE r.id=?`, [req.params.id]));
@@ -15609,8 +15613,11 @@ app.get('/api/reports/net-profit-expenses', requireAuth, async (req, res) => {
       return { group: name, total: round(g.total), ledgers: Object.values(g.ledgers).map(l => ({ ...l, amount: round(l.amount) })).filter(l => l.amount).sort((a, b) => b.amount - a.amount) };
     });
     const [[p]] = petty;
+    // PAT (client video 2026-11-27, Ajay sir: "NP wale me PAT nahi banaya — profit after tax"): tax % is a setting.
+    const taxRaw = await getAppSetting(NP_TAX_KEY).catch(() => null);
+    const taxPct = taxRaw != null && taxRaw !== '' && Number.isFinite(Number(taxRaw)) ? Number(taxRaw) : 25;
     res.json({ start, end, groups: out, groupsSynced: groups.found, groupsSyncedAt: groups.syncedAt, tallyFrom: firstDate, tallyTo: lastDate,
-      pettyCash: { amount: Number(p.amt) || 0, entries: Number(p.n) || 0 } });
+      pettyCash: { amount: Number(p.amt) || 0, entries: Number(p.n) || 0 }, taxPct, canEditTax: req.session.role === 'admin' });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -16321,6 +16328,16 @@ async function dailyNpSetting() {
   try { r = JSON.parse(await getAppSetting(DAILY_NP_KEY) || '{}') || {}; } catch (_) { r = {}; }
   return { monthly: Number(r.monthly) > 0 ? Number(r.monthly) : 0, days: Number(r.days) > 0 ? Number(r.days) : 25, updatedBy: r.updatedBy || '', updatedAt: r.updatedAt || '' };
 }
+const NP_TAX_KEY = 'np_tax_pct';
+// Admin: income-tax % used for PAT on the Net Profit tab (default 25).
+app.put('/api/reports/np-tax', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const pct = Number(req.body && req.body.pct);
+    if (!(pct >= 0 && pct <= 60)) return res.status(400).json({ error: 'Tax % 0 se 60 ke beech' });
+    await setAppSetting(NP_TAX_KEY, String(Math.round(pct * 100) / 100));
+    res.json({ success: true, taxPct: Math.round(pct * 100) / 100 });
+  } catch (err) { sendServerError(res, err); }
+});
 app.get('/api/reports/daily-np-setting', requireAuth, async (req, res) => {
   try {
     if (!(await canSeeGrossProfit(req))) return res.status(403).json({ error: 'You do not have access to Gross Profit' });
