@@ -10403,6 +10403,82 @@ app.put('/api/o2d-fms/order/:orderNo/items', requireAuth, async (req, res) => {
   }
 });
 
+// Admin: edit a whole order at any step (client 2026-11-27: "order edit karne ka option do, front end se hi, only
+// admin"). Header (counter, area, order by, payment terms, remark) on every line; each item's product / rate / qty
+// (qty 0 = item dropped, its row cleared like remove-item); new items join at the order's current stage (the steps
+// of its first line are copied). Steps already done, bill no., photos and videos stay as they are.
+app.put('/api/o2d-fms/order/:orderNo/admin-edit', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const orderNo = req.params.orderNo, b = req.body || {}, h = b.header || {};
+    const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    const counterName = s(h.counterName, 255);
+    if (!counterName) return res.status(400).json({ error: 'Counter name zaroori hai' });
+    const edits = Array.isArray(b.edits) ? b.edits : [], adds = Array.isArray(b.adds) ? b.adds : [];
+    const num = v => (v === '' || v === null || v === undefined) ? NaN : Number(v);
+    for (const p of [...edits, ...adds]) {
+      if (!String(p.productName || '').trim()) return res.status(400).json({ error: 'Har item ka product naam chahiye' });
+      if (!(num(p.qty) >= 0)) return res.status(400).json({ error: 'Qty 0 ya zyada' });
+      if (p.rate !== '' && p.rate !== undefined && !(num(p.rate) >= 0)) return res.status(400).json({ error: 'Rate 0 ya zyada' });
+    }
+    if (adds.some(p => !(num(p.qty) > 0))) return res.status(400).json({ error: 'Naye item ki qty 0 se zyada ho' });
+    const stepCols = O2D_STEPS.flatMap(st => [st.actual, st.status, ...st.extra.map(e => e.col)]);
+    const lastCol = idxToCol(Math.max(...stepCols.map(colToIdx), colToIdx('R')));
+    const sheetsApi = await getSheetsClient(['https://www.googleapis.com/auth/spreadsheets']);
+    const lines = await readO2dOrderRows(sheetsApi, orderNo, lastCol);
+    if (!lines.length) return res.status(404).json({ error: `Order ${orderNo} nahi mila` });
+    const byRow = Object.fromEntries(lines.map(l => [l.row, l]));
+    const drop = new Set();
+    const data = [];
+    for (const e of edits) {
+      const l = byRow[Number(e.row)];
+      if (!l) return res.status(400).json({ error: `Row ${e.row} ${orderNo} ka nahi — refresh karein` });
+      if (num(e.qty) === 0) { drop.add(l.row); continue; }
+      data.push({ range: `'${O2D_TAB}'!M${l.row}:O${l.row}`, values: [[String(e.productName).trim(), e.rate === '' || e.rate === undefined ? '' : num(e.rate), num(e.qty)]] });
+    }
+    const kept = lines.filter(l => !drop.has(l.row));
+    if (!kept.length && !adds.length) return res.status(400).json({ error: 'Saare item hat jayenge — poora order Cancel karein' });
+    const header = [counterName, s(h.area, 255)], tail = [s(h.orderBy, 120), s(h.paymentTerms, 120), s(h.remark, 1000)];
+    kept.forEach(l => {
+      data.push({ range: `'${O2D_TAB}'!C${l.row}:D${l.row}`, values: [header] });
+      data.push({ range: `'${O2D_TAB}'!J${l.row}:L${l.row}`, values: [tail] });
+    });
+    if (data.length) await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: O2D_SHEET_ID, requestBody: { valueInputOption: 'RAW', data } });
+    if (drop.size) {
+      const cols = ['A:R', ...stepCols];
+      const ranges = [...drop].flatMap(row => cols.map(c => c.includes(':') ? `'${O2D_TAB}'!A${row}:R${row}` : `'${O2D_TAB}'!${c}${row}`));
+      await sheetsApi.spreadsheets.values.batchClear({ spreadsheetId: O2D_SHEET_ID, requestBody: { ranges } });
+    }
+    if (adds.length) {
+      const t = (kept[0] || lines[0]).r;
+      const ids = await sheetsApi.spreadsheets.values.get({ spreadsheetId: O2D_SHEET_ID, range: `'${O2D_TAB}'!R${O2D_DATA_START_ROW}:R`, valueRenderOption: 'UNFORMATTED_VALUE' });
+      let next = 1;
+      (ids.data.values || []).forEach(r => { const m = String(r[0] || '').match(/Order-(\d+)/); if (m) next = Math.max(next, parseInt(m[1], 10) + 1); });
+      const rows = [];
+      for (const p of adds) {
+        const id = await claimNextSeqValue('o2d_order_id', next);
+        next = id + 1;
+        rows.push([t[0] || sfmsDateToSerial(new Date()), t[1] || '', counterName, s(h.area, 255), t[4] || '', t[5] || '', t[6] || '', t[7] || 'No', t[8] || 'No', ...tail,
+          String(p.productName).trim(), p.rate === '' || p.rate === undefined ? '' : num(p.rate), num(p.qty), 'No', orderNo, `Order-${id}`]);
+      }
+      const first = await o2dWriteRowsAtEnd(sheetsApi, rows);
+      if (first) {
+        const stepData = [];
+        rows.forEach((_, i) => stepCols.forEach(c => {
+          const v = t[colToIdx(c)];
+          if (v !== undefined && v !== '') stepData.push({ range: `'${O2D_TAB}'!${c}${first + i}`, values: [[v]] });
+        }));
+        if (stepData.length) await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: O2D_SHEET_ID, requestBody: { valueInputOption: 'RAW', data: stepData } });
+      }
+    }
+    console.log(`O2D admin edit ${orderNo} by ${req.session.name}: ${data.length} ranges, ${drop.size} dropped, ${adds.length} added`);
+    res.json({ success: true, dropped: drop.size, added: adds.length });
+  } catch (err) {
+    if (err.status === 503) return res.status(503).json({ error: err.message });
+    if (err.code === 403) return res.status(400).json({ error: 'Access denied — please share the O2D sheet with the service account.' });
+    sendServerError(res, err);
+  }
+});
+
 // Dispatch videos (Load Goods). Recorded in the app at low quality (so only
 // fresh videos, never an old one from the gallery) and posted as raw bytes —
 // no base64 — to stay well under Vercel's 4.5 MB request limit.

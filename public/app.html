@@ -19282,7 +19282,7 @@ function renderO2dDetailBody(o, hideProgress) {
 
   const infoHtml = `
     <div style="background:var(--gray-50);border:1px solid var(--border-light);border-radius:14px;padding:18px;margin-bottom:16px">
-      <div style="font-size:16px;font-weight:700;color:var(--gray-900);margin-bottom:12px">${esc(o.counterName || '—')}${o.area ? ' · ' + esc(o.area) : ''}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px"><div style="font-size:16px;font-weight:700;color:var(--gray-900)">${esc(o.counterName || '—')}${o.area ? ' · ' + esc(o.area) : ''}</div>${ME && ME.role === 'admin' && !o.cancelled ? `<button type="button" class="btn btn-outline btn-sm" style="white-space:nowrap" onclick="o2dOpenAdminEdit('${o2dJsEsc(o.orderNo)}')" title="Counter, items, rate, qty — kisi bhi step par (sirf Admin)">✏️ Order Edit</button>` : ''}</div>
       ${o.carriedBy ? `<div style="display:inline-block;background:var(--color-primary-light);color:var(--color-primary);border-radius:8px;padding:4px 10px;font-size:12.5px;font-weight:700;margin:-4px 0 12px">🧍 Goods salesman le jaayega: ${esc(o.carriedBy)}${o.carriedSetBy ? ` <span style="font-weight:500;color:var(--gray-500)">(mark: ${esc(o.carriedSetBy)})</span>` : ''}</div>` : ''}
       ${itemsBlockHtml}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
@@ -19498,6 +19498,64 @@ async function o2dSetCarry(orderNo, on) {
   const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/carry`, 'POST', { salesman });
   if (res.error) { showToast(res.error, 'error'); return; }
   o2dReloadAfterControl(on ? `🧍 ${salesman} le jaayega — mark ho gaya` : 'Mark hata diya');
+}
+// ── Admin: ✏️ Order Edit at any step (client 2026-11-27: "order edit karne ka option do, front end se hi, only
+// admin"). Counter / area / order by / payment terms / remark + every item (qty 0 = hata do) + new items. ──
+function o2dOpenAdminEdit(orderNo) {
+  if (!ME || ME.role !== 'admin') return;
+  const o = o2dData.find(x => x.orderNo === orderNo);
+  if (!o) { showToast('Order nahi mila — refresh karein', 'error'); return; }
+  loadO2dProductNames();
+  const L = t => `<div style="font-size:11.5px;font-weight:700;color:var(--gray-600);margin:8px 0 4px">${t}</div>`;
+  const IN = 'width:100%;box-sizing:border-box;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px';
+  const lines = (o.products || []).filter(p => !p.cancelled);
+  vrlModal('o2dAdminEditModal', `${scotModalHead('o2dAdminEditModal', `✏️ Order Edit — ${esc(o.orderNo)}`)}
+    <div style="font-size:12px;color:var(--gray-500);margin:-4px 0 6px">Sirf Admin · kisi bhi step par · ho chuke steps, bill, photos waise hi rahenge</div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px">
+      <div>${L('Counter Name *')}<input id="oaeCounter" list="noCounterNameList" value="${esc(o.counterName || '')}" style="${IN}"/></div>
+      <div>${L('Area')}<input id="oaeArea" value="${esc(o.area || '')}" style="${IN}"/></div>
+      <div>${L('Order By')}<input id="oaeOrderBy" value="${esc(o.orderBy || '')}" style="${IN}"/></div>
+      <div>${L('Payment Terms')}<input id="oaeTerms" value="${esc(o.paymentTerms || '')}" style="${IN}"/></div>
+    </div>
+    ${L('Remark')}<input id="oaeRemark" value="${esc(o.remark || '')}" style="${IN}"/>
+    ${L('Items — product / rate / qty (qty 0 = item hata do)')}
+    <div id="oaeRows">${lines.map(o2dItemEditorRowHtml).join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('oaeRows').insertAdjacentHTML('beforeend', o2dItemEditorRowHtml())">+ Add Item</button>
+      <button type="button" class="btn btn-primary" id="oaeSaveBtn" style="margin-left:auto" onclick="o2dSaveAdminEdit('${o2dJsEsc(o.orderNo)}')">Save Changes</button>
+    </div>`, 640);
+  const z = parseInt(getComputedStyle(document.getElementById('o2dDetailModal')).zIndex, 10);
+  if (Number.isFinite(z)) document.getElementById('o2dAdminEditModal').style.zIndex = z + 1;
+}
+async function o2dSaveAdminEdit(orderNo) {
+  const o = o2dData.find(x => x.orderNo === orderNo);
+  if (!o) return;
+  const v = id => document.getElementById(id).value.trim();
+  const header = { counterName: v('oaeCounter'), area: v('oaeArea'), orderBy: v('oaeOrderBy'), paymentTerms: v('oaeTerms'), remark: v('oaeRemark') };
+  if (!header.counterName) { showToast('Counter name likhein', 'error'); return; }
+  const edits = [], adds = [];
+  for (const r of document.querySelectorAll('#oaeRows .o2d-ie-row')) {
+    const productName = r.querySelector('.ie-name').value.trim(), rate = r.querySelector('.ie-rate').value.trim(), qty = r.querySelector('.ie-qty').value.trim();
+    if (!r.dataset.row) {
+      if (!productName && !qty) continue;
+      if (!productName || !(Number(qty) > 0)) { showToast('Naye item me product aur qty chahiye', 'error'); return; }
+      adds.push({ productName, rate, qty });
+      continue;
+    }
+    if (!productName || qty === '' || Number(qty) < 0) { showToast('Har item me product aur qty (0 = hata do)', 'error'); return; }
+    const p = (o.products || []).find(x => String(x.row) === r.dataset.row);
+    if (p && (p.productName !== productName || String(p.rate) !== rate || String(p.qty) !== qty)) edits.push({ row: p.row, productName, rate, qty });
+  }
+  const headerChanged = ['counterName', 'area', 'orderBy', 'paymentTerms', 'remark'].some(k => String(o[k] || '') !== header[k]);
+  if (!edits.length && !adds.length && !headerChanged) { showToast('Kuch change nahi kiya'); return; }
+  const drops = edits.filter(e => Number(e.qty) === 0).length;
+  if (drops && !await uiConfirm(`${drops} item hat jayega (qty 0). Pakka?`)) return;
+  const restore = btnLoading(document.getElementById('oaeSaveBtn'), 'Saving…');
+  const res = await api(`/api/o2d-fms/order/${encodeURIComponent(orderNo)}/admin-edit`, 'PUT', { header, edits, adds });
+  restore();
+  if (!res || res.error) { showToast((res && res.error) || 'Save nahi hua', 'error'); return; }
+  closeModal('o2dAdminEditModal');
+  o2dReloadAfterControl(`✅ ${orderNo} update ho gaya`);
 }
 async function o2dSetOrderType(orderNo, toRepl) {
   if (!await uiConfirm(toRepl ? `${orderNo} ko ♻ Replacement banayein? Iska amount Gross Profit me sale nahi ginega.` : `${orderNo} ko 📦 New Order (sale) banayein?`)) return;
