@@ -877,6 +877,14 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
   }
   let fitTimer = null;
   window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => document.querySelectorAll('.page.active table').forEach(t => { try { fitTable(t); } catch (e) { /* never break a page */ } }), 250); });
+  // ── 8c. Chrome "Translate to Hindi" on staff phones (client 2026-11-28: mechanic got "Repair Status chuno" with
+  // "Repaired at Location" picked): an <option> without a value attribute takes its text as the value, and the
+  // translation changed that text, so the server got Hindi. Freeze each such option's value to its text as it lands.
+  function pinOptionValues(root) {
+    if (!root || root.nodeType !== 1) return;
+    const opts = root.tagName === 'OPTION' ? [root] : root.querySelectorAll('option:not([value])');
+    opts.forEach(o => { if (!o.hasAttribute('value')) o.setAttribute('value', o.textContent); });
+  }
   function enhanceTablesIn(root) {
     if (!root || root.nodeType !== 1) return;
     const own = root.closest('table');
@@ -1010,7 +1018,9 @@ th[aria-sort="descending"]::after{border-top:5px solid currentColor;border-botto
   addPageTitles();
   queueRowActions([document.body]);
   let pending = false;
+  pinOptionValues(document.body);
   new MutationObserver(recs => {
+    for (const r of recs) for (const n of r.addedNodes) pinOptionValues(n); // at once, before a translation pass
     for (const r of recs) if (r.addedNodes.length) queueRowActions(r.addedNodes);
     if (pending) return; pending = true;
     queueMicrotask(() => { pending = false; upgradeAllRanges(); });

@@ -4223,7 +4223,7 @@ body.sb-pinned .sb-pin{color:#ff8a85;}
       </div>
       <div class="form-group">
         <label>Product Name / Model <span style="color:var(--color-danger)">*</span></label>
-        <input type="text" id="ecProductName" list="scProductNameList" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
+        <input type="text" id="ecProductName" list="scProductNameList" data-free="1" title="List se chuno ya naya product naam likho" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box"/>
       </div>
       <div class="form-group">
         <label>Product Purchase Date</label>
@@ -7691,7 +7691,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'lead-fms-all', label: 'Lead FMS — sab leads dekhe (sirf dekhna; kaam apne step ka)' },
     { key: 'scot', label: 'SCOT — Calling Plan (dealers ko call, order, conversion)' },
     { key: 'dealers', label: 'Dealer Master' },
-    { key: 'dealers-edit', label: 'Dealer Master — dealer details add / edit (malik, DOB, address; credit limit sirf Admin)' },
+    { key: 'dealers-edit', label: 'Dealer Master — dealer seedha jodo / naam + details edit / hatao (credit limit, payment sirf Admin)' },
     { key: 'onboarding', label: 'Dealer Onboarding (form + list) — Lead FMS / Dealer Master wale ko pehle se' },
     { key: 'dealer-whatsapp', label: 'Dealer WhatsApp (sabko message / catalogue)' },
     { key: 'drip-marketing', label: 'Drip Marketing (weekly plan dekhe; badle sirf Admin)' },
@@ -7719,6 +7719,7 @@ const PAGE_ACCESS_GROUPS = [
     { key: 'vendor-ledger', label: 'Vendor Replacement Ledger' },
     { key: 'vendor-bin', label: 'Vendor Bin — Replacement / Vendor Ledger wale ko pehle se' },
     { key: 'stock', label: 'Stock' },
+    { key: 'stock-merge', label: 'Stock (IMS) — duplicate product 🔀 Merge (edit / delete sirf Admin)' },
   ]},
   { label: 'Reports', locked: false, pages: [
     { key: 'md-summary', label: 'MD Summary (attendance, tasks, sales, service… ek page par)' },
@@ -13914,7 +13915,7 @@ function addScProductRow() {
   row.innerHTML = `
     <div style="display:grid;grid-template-columns:minmax(0,1fr) 20px;gap:6px;align-items:start">
       <div style="min-width:0">
-        <input type="text" placeholder="Product Name / Model *" id="scProdName_${id}" list="scProductNameList" oninput="onScProductLineChanged(${id})" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+        <input type="text" placeholder="Product Name / Model * (list se ya naya likho)" id="scProdName_${id}" list="scProductNameList" data-free="1" oninput="onScProductLineChanged(${id})" style="width:100%;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
         <div class="sc-pdate"${scNoBillOn() ? ' style="display:none"' : ''}>
         <label style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.3px;display:block;margin-bottom:4px">Product Purchase Date (DD/MM/YY)</label>
         <div style="margin-bottom:6px">${dmyDateFieldHtml(`scProdPurchaseDate_${id}`, `onScProductLineChanged(${id})`, 'padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;box-sizing:border-box')}</div>
@@ -14783,7 +14784,7 @@ function sfmsSolveFormHtml(c, compact) {
     <input type="text" id="sfmsExtra_${c.row}_workDone" value="${esc(d.workDone)}" placeholder="e.g. stator jal gaya tha — naya lagaya, wire joda" style="${st}"/>
     ${spares}
     <select id="sfmsExtra_${c.row}_repairStatus" style="${st}"><option value="">-- Repair Status --</option>
-      ${['Repaired at Location', 'Brought to Office'].map(o => `<option${o === d.repairStatus ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+      ${['Repaired at Location', 'Brought to Office'].map(o => `<option value="${o}"${o === d.repairStatus ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
 }
 // A complaint's step form is drawn twice when its detail popup is open — in
 // the list row behind and in the popup — with the same element ids. Read the
@@ -16465,6 +16466,7 @@ function renderDealerGrid() {
         </select>
         <button class="btn btn-outline" onclick="openOnboardingList()">📋 Onboarding forms</button>
         <button class="btn btn-outline" onclick="exportDealersCsv()" title="Saare dealers (search / filter ke hisaab se) — sab pages">⬇ CSV</button>
+        ${ME.role === 'admin' || MY_PAGES.has('dealers-edit') ? `<button class="btn btn-outline" onclick="openAddDealerModal()" title="Seedha naam / city / phone se dealer jodo (bina onboarding form)">+ Seedha dealer jodo</button>` : ''}
         <button class="btn btn-green" onclick="openDealerOnboardModal()">+ New Dealer (Onboarding form)</button>
       </div>
       <div id="dealerGridResults"></div>
@@ -16561,7 +16563,7 @@ function dealerRowHtml(d) {
         <button class="btn btn-outline btn-sm" title="Location set karo" onclick="openLocationModal('${nameEsc}')">📍</button>
         <button class="btn btn-outline btn-sm" title="View Statement" onclick="openDealerLedgerModal('${nameEsc}','${jsArg(phoneEsc)}')">📋</button>
         <button class="btn btn-outline btn-sm" title="${d.bilty ? 'Bilty / transport: ' + esc(d.bilty.transport || 'photo hai') : 'Bilty photo daalo (bahar ki party)'}" onclick="openBiltyModal('${nameEsc}')" style="${d.bilty ? 'border-color:var(--color-success-text)' : ''}">🚚</button>
-        ${ME.role === 'admin' ? `<button class="btn btn-outline btn-sm" title="Dealer list se hatao" style="color:var(--color-danger)" onclick="deleteDealer('${nameEsc}')">🗑</button>` : ''}
+        ${ME.role === 'admin' || MY_PAGES.has('dealers-edit') ? `<button class="btn btn-outline btn-sm" title="Dealer list se hatao" style="color:var(--color-danger)" onclick="deleteDealer('${nameEsc}')">🗑</button>` : ''}
         ${locHtml}
       </div>
     </td>
@@ -16637,7 +16639,7 @@ function dealerCardHtml(d) {
         <button class="btn btn-outline btn-sm" onclick="openLocationModal('${nameEsc}')">📍 Location set karo</button>
         <button class="btn btn-outline btn-sm" onclick="openDealerLedgerModal('${nameEsc}','${jsArg(phoneEsc)}')">📋 View Statement</button>
         <button class="btn btn-outline btn-sm" onclick="openBiltyModal('${nameEsc}')">🚚 ${d.bilty ? esc(d.bilty.transport || 'Bilty') : 'Bilty photo'}</button>
-        ${ME.role === 'admin' ? `<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="deleteDealer('${nameEsc}')">🗑 Delete</button>` : ''}
+        ${ME.role === 'admin' || MY_PAGES.has('dealers-edit') ? `<button class="btn btn-outline btn-sm" style="color:var(--color-danger)" onclick="deleteDealer('${nameEsc}')">🗑 Delete</button>` : ''}
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px;margin-top:10px">💳 Payment Overview</div>
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
@@ -16674,7 +16676,7 @@ function openDealerDetailsModal(name) {
   const L = t => `<div style="${CHQ_LABEL}">${t}</div>`;
   const inp = (id, label, val, attrs) => `<div>${L(label)}<input id="dd_${id}" value="${esc(val || '')}" ${attrs || ''} style="${CHQ_INPUT}"/></div>`;
   const admin = ME.role === 'admin';
-  // Details: admin, or the 'dealers-edit' Access tick (CRM, 2026-11-20); the name stays admin-only.
+  // Details + name: admin, or the 'dealers-edit' Access tick (CRM 2026-11-20; name too since 2026-11-28).
   const canEdit = admin || MY_PAGES.has('dealers-edit');
   document.getElementById('ddTitle').textContent = `${canEdit ? '✏️' : '🏪'} ${name}`;
   document.getElementById('ddBody').innerHTML = `
@@ -16682,7 +16684,7 @@ function openDealerDetailsModal(name) {
     ${d.onboarding ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--color-success-bg);color:var(--color-success-text);font-size:12.5px;margin-bottom:12px">
       🏪 <b>${esc(d.onboarding.code)}</b> — onboarding form bhara hai (firm, GST, dukaan, transport + saari photos)
       <button id="ddOnbBtn" class="btn btn-sm btn-green" style="margin-left:auto" onclick="closeModal('dealerDetailsModal');openOnboardDetail(${Number(d.onboarding.id)})">📷 Form + photos dekho</button></div>` : ''}
-    ${admin ? `${L('Dealer / dukaan ka naam (galat ho to yahan sudharein)')}<input id="dd_name" value="${esc(name)}" style="${CHQ_INPUT}"/>
+    ${canEdit ? `${L('Dealer / dukaan ka naam (galat ho to yahan sudharein)')}<input id="dd_name" value="${esc(name)}" style="${CHQ_INPUT}"/>
       <div style="font-size:11.5px;color:var(--gray-500);margin:-4px 0 10px">Naam badalne par purane orders, payments aur beat naye naam me jud jaate hain.</div>`
       : canEdit ? '' : '<div style="font-size:12px;color:var(--color-warning-text);background:var(--color-warning-bg);padding:8px 10px;border-radius:8px;margin-bottom:10px">Sirf dekh sakte hain — galat detail ho to Admin ko batayein.</div>'}
     ${L('Malik (papa, bete, bhai, partner — 4 tak)')}
@@ -16793,7 +16795,7 @@ function openAddDealerFromOrder() {
 }
 function openAddDealerModal() {
   _addDealerForOrder = false;
-  document.getElementById('addDealerTitle').textContent = '🏪 Purana Dealer — sirf naam / phone';
+  document.getElementById('addDealerTitle').textContent = '🏪 Dealer seedha jodo — naam / city / phone';
   document.getElementById('adName').value = '';
   document.getElementById('adCity').value = '';
   document.getElementById('adPhone').value = '';
@@ -17584,7 +17586,7 @@ async function deletePriceListItem(id, name) {
 // all of this too, this is just to avoid showing controls that'd 403).
 // ══════════════════════════════════════════════════════
 let stockItems = [];
-let stockCanEdit = false;
+let stockCanEdit = false, stockCanMerge = false;
 let stockLoaded = false;
 let stockSearchQ = '';
 let stockTab = 'register'; // 'register' | 'report'
@@ -17623,6 +17625,7 @@ async function loadStock(force) {
   if (r && r.error) { document.getElementById('stockWrap').innerHTML = `<div class="empty">⚠️ ${r.error}</div>`; return; }
   stockItems = (r && r.items) || [];
   stockCanEdit = !!(r && r.canEdit);
+  stockCanMerge = !!(r && (r.canMerge || r.canEdit));
   stockLoaded = true;
 }
 
@@ -17671,11 +17674,12 @@ async function setStockCategory(code, cat) {
   renderStockGrid();
 }
 function stockRowHtml(item) {
-  const editBtns = stockCanEdit ? `
+  // Edit / delete: Admin; 🔀 Merge also with the 'stock-merge' Access tick (client 2026-11-28).
+  const editBtns = stockCanEdit || stockCanMerge ? `
     <div style="display:flex;gap:4px">
-      <button class="btn btn-outline btn-sm" onclick="openEditStockModal(${item.id})">✎ Edit</button>
+      ${stockCanEdit ? `<button class="btn btn-outline btn-sm" onclick="openEditStockModal(${item.id})">✎ Edit</button>` : ''}
       <button class="btn btn-outline btn-sm" onclick="openStockMerge('${jsArg(item.item_code)}')" title="Ye duplicate hai — sahi item me milao">🔀 Merge</button>
-      <button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${jsArg(item.description)}')" title="Remove">🗑</button>
+      ${stockCanEdit ? `<button class="btn btn-outline btn-sm" onclick="deleteStockItem(${item.id},'${jsArg(item.description)}')" title="Remove">🗑</button>` : ''}
     </div>` : '';
   const stock = Number(item.current_stock);
   return `<tr style="cursor:pointer" onclick="if(!event.target.closest('button'))openStockItemHistory('${jsArg(item.item_code)}')" title="IN / OUT history">
@@ -17701,7 +17705,7 @@ function renderStockGrid() {
       <button class="btn btn-outline" onclick="loadStock(true).then(renderStockGrid)">🔄 Refresh</button>
       <button class="btn btn-outline" onclick="exportStockReport()">⬇ Excel</button>
       <div style="display:flex;gap:6px;width:100%">${[['finished', '📦 Finished Goods'], ['spare', '🔧 Spare Parts']].map(([k, l]) => `<button class="btn btn-sm ${stockCat === k ? 'btn-primary' : 'btn-outline'}" onclick="stockCat='${k}';renderStockGrid()">${l} <b style="margin-left:4px">${stockItems.filter(it => (it.category === 'spare' ? 'spare' : 'finished') === k).length}</b></button>`).join('')}</div>
-      ${stockCanEdit ? `<button class="btn btn-outline" onclick="openStockDupes()" title="Ek hi product do baar bana ho to yahan dikhega">🔀 Duplicate dhundo</button><button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
+      ${stockCanMerge ? `<button class="btn btn-outline" onclick="openStockDupes()" title="Ek hi product do baar bana ho to yahan dikhega">🔀 Duplicate dhundo</button>` : ''}${stockCanEdit ? `<button class="btn btn-primary" onclick="openAddStockModal()">+ Add Item</button>` : ''}
     </div>
     <div id="stockGridRows"></div>`;
   renderStockGridRows();
@@ -18348,7 +18352,9 @@ function renderBillsReceivableGrid() {
 // fallback everywhere a step's "doer" is displayed.
 function stepDoerLabel(step) {
   if (step && step.doers && step.doers.length) return step.doers.map(d => d.name).join(', ');
-  return (step && step.doer) || '—';
+  // No one ticked in Step Doers: say so instead of passing the step's sample name off as the doer (client 2026-11-28:
+  // PC Follow-up showed Replacement "Assign Delivery Person" under Priyanka, who isn't its doer — none was set).
+  return step && step.doer ? `⚠ Doer set nahi (${step.doer})` : '—';
 }
 
 let _o2dAllUsersForDoers = null;

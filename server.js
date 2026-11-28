@@ -678,7 +678,9 @@ const RESTRICTABLE_PAGES = ['asmp', 'mis', 'users', 'records', 'service-fms', 'o
   // Dealer Master — dealer ki details (malik, DOB, address…) add / edit, bina Admin ke (client 2026-11-20: CRM).
   'dealers-edit',
   // Replacement FMS — entry ki details edit (party, items, defect…), bina Admin ke (client 2026-11-27, Gulshan).
-  'repl-edit'];
+  'repl-edit',
+  // Stock (IMS) — duplicate item ko sahi item me 🔀 Merge, bina Admin ke (client 2026-11-28).
+  'stock-merge'];
 // page_access of the signed-in user: read by requireAuth already, else one query.
 async function sessionPageAccessRaw(req) {
   if (req.session && Object.prototype.hasOwnProperty.call(req.session, 'pageAccessRaw')) return req.session.pageAccessRaw;
@@ -7362,6 +7364,9 @@ async function canAccessDealers(req) {
 function canEditDealers(req) {
   return req.session.role === 'admin';
 }
+// Add / rename / remove a dealer: Admin, or the 'dealers-edit' Access tick (client 2026-11-28: "dealers ki sheet ka
+// access do — new dealer add directly, remove aur edit"). Credit limit / days and payments stay Admin only.
+async function canManageDealers(req) { return canEditDealers(req) || await hasPageGrant(req, 'dealers-edit'); }
 
 // Admin fixes a wrongly typed dealer name. Old orders in the sheet keep the old
 // name, so it is kept as an alias that folds into the new one everywhere the
@@ -7374,7 +7379,7 @@ async function getDealerAliasMap() {
 }
 app.put('/api/o2d-fms/dealers/:name/rename', requireAuth, async (req, res) => {
   try {
-    if (!canEditDealers(req)) return res.status(403).json({ error: 'Dealer ka naam sirf Admin badal sakta hai' });
+    if (!(await canManageDealers(req))) return res.status(403).json({ error: 'Dealer ka naam sirf Admin (ya Users → Access me "Dealer details edit" wala) badal sakta hai' });
     const oldName = String(req.params.name || '').trim();
     const newName = String((req.body || {}).newName || '').trim().slice(0, 255);
     if (!oldName || !newName) return res.status(400).json({ error: 'Naya naam likhein' });
@@ -7702,7 +7707,7 @@ app.post('/api/o2d-fms/dealers/:name/kyc', requireAuth, async (req, res) => {
 // onboarding, so the row is only hidden (hidden_at); a new O2D order after that shows him again.
 app.delete('/api/o2d-fms/dealers/:name', requireAuth, async (req, res) => {
   try {
-    if (!canEditDealers(req)) return res.status(403).json({ error: 'Dealer sirf Admin hata sakta hai' });
+    if (!(await canManageDealers(req))) return res.status(403).json({ error: 'Dealer sirf Admin (ya Users → Access me "Dealer details edit" wala) hata sakta hai' });
     const name = req.params.name.trim();
     if (!name) return res.status(400).json({ error: 'Naam missing' });
     await withDealerTables(() => db.query('INSERT INTO o2d_dealers (counter_name, hidden_at, hidden_by) VALUES (?,NOW(),?) ON DUPLICATE KEY UPDATE hidden_at=NOW(), hidden_by=VALUES(hidden_by)', [name, req.session.userId]));
@@ -7968,6 +7973,8 @@ app.delete('/api/o2d-fms/price-list/:id', requireAuth, async (req, res) => {
 function canEditStock(req) {
   return req.session.role === 'admin';
 }
+// 🔀 Merge duplicates: Admin, or the 'stock-merge' Access tick (client 2026-11-28).
+async function canMergeStock(req) { return canEditStock(req) || await hasPageGrant(req, 'stock-merge'); }
 async function canAccessStock(req) {
   if (canEditStock(req)) return true;
   const [rows] = await db.query('SELECT page_access FROM users WHERE id=?', [req.session.userId]);
@@ -8016,7 +8023,7 @@ app.get('/api/stock', requireAuth, async (req, res) => {
       it.turn = out > 0 && avg > 0 ? Math.round(out * 10 / avg) / 10 : (out > 0 ? null : 0);
       it.daysCover = out > 0 ? Math.round(Math.max(0, cur) / (out / 90)) : null;
     });
-    res.json({ items: rows, canEdit: canEditStock(req) });
+    res.json({ items: rows, canEdit: canEditStock(req), canMerge: await canMergeStock(req) });
   } catch (err) { sendServerError(res, err); }
 });
 
@@ -8102,13 +8109,13 @@ app.delete('/api/stock/:id', requireAuth, async (req, res) => {
 // item that stays; the duplicate is removed. Logged in stock_item_merges (its names stay out of the dropdowns).
 app.get('/api/stock/merges', requireAuth, async (req, res) => {
   try {
-    if (!canEditStock(req)) return res.status(403).json({ error: 'Sirf Admin' });
+    if (!(await canMergeStock(req))) return res.status(403).json({ error: 'Sirf Admin (ya Users → Access me "Stock merge" wala)' });
     const [rows] = await db.query('SELECT id, from_code, from_desc, into_code, into_desc, from_stock, moved_txns, merged_by, DATE_FORMAT(merged_at, "%Y-%m-%d %H:%i") AS merged_at FROM stock_item_merges ORDER BY id DESC LIMIT 200').catch(e => { if (e.code === 'ER_NO_SUCH_TABLE') return [[]]; throw e; });
     res.json({ merges: rows });
   } catch (err) { sendServerError(res, err); }
 });
 app.post('/api/stock/merge', requireAuth, async (req, res) => {
-  if (!canEditStock(req)) return res.status(403).json({ error: 'Sirf Admin merge kar sakta hai' });
+  if (!(await canMergeStock(req))) return res.status(403).json({ error: 'Merge sirf Admin (ya Users → Access me "Stock merge" wala) kar sakta hai' });
   const from = String((req.body || {}).from || '').trim(), into = String((req.body || {}).into || '').trim();
   if (!from || !into || from === into) return res.status(400).json({ error: 'Do alag item chunein' });
   let conn;
